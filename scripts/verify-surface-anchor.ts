@@ -7,7 +7,7 @@
 //   · never covers the avoided box while any side has room
 //   · pointer-only and centre fallbacks; re-clamp after a resize
 //   Run: npx tsx scripts/verify-surface-anchor.ts
-import { anchorPanel, overlapArea, reclampPanel, unionRects } from "../src/lib/ui/anchor";
+import { anchorPanel, overlapArea, reclampPanel, reanchorPanel, unionRects } from "../src/lib/ui/anchor";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -97,5 +97,28 @@ const size = { w: 330, h: 420 };
   const u = unionRects([{ x: 10, y: 10, w: 0, h: 0 }, { x: 20, y: 30, w: 40, h: 10 }, { x: 50, y: 5, w: 10, h: 10 }]);
   assert(u && u.x === 20 && u.y === 5 && u.w === 40 && u.h === 35, `union (${JSON.stringify(u)})`);
   assert(unionRects([]) === null, "empty union is null");
+}
+// (11) a larger picker preserves a safe origin, or finds a less obstructive side.
+{
+  const avoid = { x: 600, y: 200, w: 200, h: 150 };
+  const point = { x: 700, y: 260 };
+  const initial = anchorPanel({ avoid, point, size, viewport: vp });
+  const grown = { w: 620, h: 420 };
+  const next = reanchorPanel(initial, { avoid, point, size: grown, viewport: vp });
+  assert(!overlaps({ ...next, ...grown }, avoid) && inside({ ...next, ...grown }, vp), "growing a picker moves below when clamping sideways would cover the selection");
+  const kept = reanchorPanel(next, { avoid, point, size, viewport: vp });
+  assert(kept.x === next.x && kept.y === next.y, "shrinking a safe panel does not jump it back under the pointer");
+}
+// (12) a selected object may be outside the viewport after panning.
+{
+  for (const avoid of [
+    { x: -2000, y: 200, w: 100, h: 100 },
+    { x: 2000, y: 200, w: 100, h: 100 },
+    { x: 0, y: -2000, w: 1400, h: 100 },
+    { x: 0, y: 2000, w: 1400, h: 100 },
+  ]) {
+    const r = anchorPanel({ avoid, point: { x: 700, y: 450 }, size, viewport: vp });
+    assert(inside({ ...r, ...size }, vp), `offscreen selection cannot place the menu offscreen (${avoid.x},${avoid.y})`);
+  }
 }
 console.log("VERIFY-SURFACE-ANCHOR PASS");

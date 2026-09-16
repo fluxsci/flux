@@ -158,7 +158,7 @@ export function buildPartFields(
       count: n,
       get: () => {
         const v = read()[prop];
-        return typeof v === "number" ? Math.round(v * 100) / 100 : 0;
+        return typeof v === "number" ? v : 0;
       },
       apply: (v) => {
         let x = Number(v);
@@ -395,12 +395,11 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       label: "no fill (outline only)",
       group: "Fill",
       kind: "toggle",
-      get: () => (shapeEl as { fill: string }).fill === "none",
+      get: () => (shapeEl as { fill: string }).fill === "none" && !(shapeEl as { fillMap?: unknown }).fillMap,
       apply: () => {
-        const to = (shapeEl as { fill: string }).fill === "none" ? get(drawStyle).fill : "none";
-        upd((e) => {
-          if (e.type === "rect" || e.type === "ellipse" || e.type === "path") e.fill = to;
-        });
+        const to = (shapeEl as { fill: string }).fill === "none" && !(shapeEl as { fillMap?: unknown }).fillMap ? get(drawStyle).fill : "none";
+        const ids = els.filter((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path").map((e) => e.id);
+        mutate((proj) => ops.setElementStyle(proj, ids, { fill: to }));
       },
     });
   }
@@ -418,12 +417,10 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       label: "no stroke",
       group: "Stroke",
       kind: "toggle",
-      get: () => (strokeEl as { stroke: string }).stroke === "none",
+      get: () => (strokeEl as { stroke: string }).stroke === "none" && !(strokeEl as { strokeMap?: unknown }).strokeMap,
       apply: () => {
-        const to = (strokeEl as { stroke: string }).stroke === "none" ? get(drawStyle).stroke : "none";
-        upd((e) => {
-          if (e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line") e.stroke = to;
-        });
+        const to = (strokeEl as { stroke: string }).stroke === "none" && !(strokeEl as { strokeMap?: unknown }).strokeMap ? get(drawStyle).stroke : "none";
+        mutate((proj) => ops.setElementStyle(proj, [...sel], { stroke: to }));
       },
     });
     // Dash pattern ([len, gap] canvas px) — the toggle swaps solid↔[6,4]; the

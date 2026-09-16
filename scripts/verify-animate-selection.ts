@@ -65,4 +65,18 @@ const r5 = addAppearanceTracks(deck, sid, [{ elementId: rectId }], "appear", 2, 
 assert(r5.beatIndex === 2 && b2.tracks.length === 1 && b2.tracks[0].start === 0, "lands in the requested step; a fresh target starts at 0");
 assert(addAppearanceTracks(deck, sid, [], "appear", 1, {}) === null, "no targets → null");
 assert(addAppearanceTracks(deck, "no-such-slide", [{ elementId: rectId }], "appear", 1, {}) === null, "unknown slide → null");
+
+// (6) a shared row plus its individual counterpart is ONE target per action.
+const r6 = addAppearanceTracks(deck, sid, [{ elementId: p1, partId: "axis.x" }, { elementId: p2, partId: "axis.x" },
+  { elementId: p1, partId: "axis.x" }, { elementId: rectId }, { elementId: rectId }], "appear", 2, {})!;
+assert(r6.trackIds.length === 3, "overlapping shared/individual picks create one track per unique target");
+const p1Tracks = b2.tracks.filter((t) => t.target === p1 && t.part === "axis.x");
+assert(p1Tracks.length === 1 && p1Tracks[0].start === 0, "duplicate part picks cannot create an unintended second entrance");
+const later = addAppearanceTracks(deck, sid, [{ elementId: p1, partId: "axis.x" }], "emphasize", 2, {})!;
+assert(later.trackIds.length === 1 && b2.tracks.find((t) => t.id === later.trackIds[0])!.start! > 0, "a separate explicit action still appends after the prior effect");
+
+const emptyDeck = ops.createDeck({ id: "empty", title: "No targets" });
+const emptySlide = ops.addSlide(emptyDeck, { name: "Empty", layout: "blank" });
+assert(addAppearanceTracks(emptyDeck, emptySlide.id, [{ elementId: "gone" }], "appear", 0, {}) === null && emptySlide.beats.length === 1,
+  "a stale pick cannot create an empty animation step");
 console.log("VERIFY-ANIMATE-SELECTION PASS");

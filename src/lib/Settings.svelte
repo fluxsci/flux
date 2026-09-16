@@ -10,6 +10,7 @@
   import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS } from "./color/collections";
   import { onDestroy, untrack } from "svelte";
   import { settings, settingsOpen, type Settings } from "./settings";
+  import { modalFocus } from "./ui/modalFocus";
   import { fileBridge } from "./project/types";
   import {
     clearLocalCorrectionLearning,
@@ -334,6 +335,7 @@
       aria-label="Settings"
       tabindex="-1"
       bind:this={modalEl}
+      use:modalFocus
       onclick={(e) => e.stopPropagation()}>
       <div class="head">
         <span class="title">Settings</span>
@@ -744,6 +746,14 @@
   .content {
     flex: 1 1 auto;
     min-width: 0;
+    display: flex;
+    overflow: hidden;
+  }
+  /* Each section owns its scroll position, so switching tabs never carries
+     the previous section's offset into a different group of settings. */
+  .pane {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow-y: auto;
     padding: 0 18px 18px;
   }
@@ -786,6 +796,13 @@
   }
 
   /* ---- controls ------------------------------------------------------------ */
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(130px, 180px);
+    gap: 12px;
+    align-items: center;
+    margin: 8px 0;
+  }
   .ghost {
     height: 24px;
     padding: 3px 8px;
@@ -880,6 +897,7 @@
     width: 64px;
   }
   input[type="number"],
+  .row select,
   .field-label input,
   .correction-grid select,
   .field-label textarea {
@@ -893,7 +911,8 @@
     font: 12px var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
-  .correction-grid select {
+  .correction-grid select,
+  .row select {
     width: 100%;
     font-family: var(--font-ui);
   }

@@ -125,6 +125,30 @@ try {
   ok(m.rect.x === 60 && m.h.past === 2, `Escape reverts the armed edit without an undo entry (x=${m.rect.x}, past=${m.h.past})`);
   mr = await menuRect();
   ok(mr?.armed === null && !!mr, "…and the menu stays open in hotkey mode");
+
+  // Fine adjustments must accumulate from the exact draft, not its rounded
+  // display; the Inspector must report the same fractional model value.
+  await page.keyboard.press("x");
+  await waitFor(page, () => document.activeElement?.closest('.field')?.getAttribute('data-key') === 'x', null, { label: "position armed for fine stepping" });
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.up("Alt");
+  m = await model();
+  const fineDisplay = await page.$eval('.fluxFigMenu .field[data-key="x"] .nin', el => el.value);
+  ok(m.rect.x === 60.2 && fineDisplay === "60.2", `two fine steps accumulate and display exactly (x=${m.rect.x}, display=${fineDisplay})`);
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector('.fluxFigMenu .field.editing') && document.activeElement === document.querySelector('.fluxFigMenu'), null, { label: "fine stepping cancelled and menu focus restored" });
+  await page.keyboard.press("d");
+  await waitFor(page, () => document.activeElement?.closest('.field')?.getAttribute('data-key') === 'd', null, { label: "stroke armed for fine stepping" });
+  await page.keyboard.down("Alt");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.up("Alt");
+  m = await model();
+  ok(m.rect.strokeWidth === 2.1, `two fine half-unit stroke steps produce 2.1 (${m.rect.strokeWidth})`);
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector('.fluxFigMenu .field.editing') && document.activeElement === document.querySelector('.fluxFigMenu'), null, { label: "stroke stepping cancelled and menu focus restored" });
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
   ok(!(await page.$(".fluxFigMenu")), "Escape in hotkey mode closes the menu");
@@ -166,6 +190,11 @@ try {
   }));
   ok(pick.cs && pick.hex && pick.exp, "c opens the palette picker (.cs with the .hex field and the always-visible spectrum)");
   ok(pick.swatches > 10, `the palette renders as swatches (${pick.swatches})`);
+  ok(await page.evaluate(() => {
+    const tabs = document.querySelector('.cs > [aria-label="Palette collections"]'), side = document.querySelector(".cs .side");
+    const t = tabs.getBoundingClientRect(), s = side.getBoundingClientRect();
+    return tabs.scrollWidth <= tabs.clientWidth && t.bottom <= s.top;
+  }), "the collection tabs and shortcuts fit above the palette and spectrum without overlap");
   const target = await page.evaluate(() => {
     const sw = [...document.querySelectorAll(".fluxFigMenu .cs .sw:not(.none)")].find((s) => s.style.background && s.style.background !== "rgb(217, 95, 2)");
     const r = sw.getBoundingClientRect();
@@ -175,6 +204,9 @@ try {
   await sleep(150);
   m = await model();
   ok(m.rect.fill.toLowerCase() === target.hex.toLowerCase(), `hovering a swatch previews it live (${m.rect.fill})`);
+  const livePicker = await page.evaluate(() => ({ hex: document.querySelector(".cs .hex").value, opacity: Number(document.querySelector(".cs .erow input").value) }));
+  ok(livePicker.hex.toLowerCase() === m.rect.fill.toLowerCase(), "the hex field follows the hovered colour");
+  ok(livePicker.opacity === m.rect.opacity, "the picker shows the selected object's actual opacity");
   await page.keyboard.press("Escape");
   await sleep(150);
   m = await model();
@@ -211,9 +243,11 @@ try {
   }));
   ok(cm.tabs.join("|") === "matplotlib|Crameri|Paul Tol|cmasher" && cm.on === "matplotlib", `Tab opens the colormap picker on the matplotlib collection (${cm.tabs.join("|")})`);
   ok(cm.groups.join("|") === "sequential|diverging|cyclic|qualitative|misc" && cm.maps > 80 && cm.bars, `maps are grouped by type with a preview bar each (${cm.maps} maps)`);
+  ok(await page.$$eval(".cmp .cm", (rows) => rows.every((r) => r.getBoundingClientRect().height === 22)), "long colormap collections retain readable 22px rows instead of compressing them");
   await page.keyboard.down("Shift"); await page.keyboard.press("Tab"); await page.keyboard.up("Shift");
   await sleep(80);
   ok((await page.evaluate(() => document.querySelector(".fluxFigMenu .cmp .tabs .tab.on")?.textContent.trim())) === "Crameri", "Shift+Tab cycles the colormap collections too");
+  ok(await page.evaluate(() => !!document.querySelector(".cmp .cm.cur") && !!document.querySelector(".cmp .pick") && !!document.querySelector(".cmp .gbtn")), "switching collections immediately selects a map and keeps colour/gradient controls ready");
   await page.evaluate(() => document.querySelector('.fluxFigMenu .cmp .cm[data-map="batlow"]').click());
   await sleep(80);
   const bar = await page.evaluate(() => { const r = document.querySelector(".fluxFigMenu .cmp .pick").getBoundingClientRect(); return { x: r.left + r.width * 0.9, y: r.top + r.height / 2 }; });
@@ -279,6 +313,97 @@ try {
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
 
+  // --- 5d. colour feedback, invalid drafts and cancelled gestures ---------------------------
+  await page.evaluate(() => {
+    const F = window.__flux.fig;
+    F.commit((p) => { const r = p.figures[0].elements.find((e) => e.id === "fm-rect"); r.fill = "#123456"; r.opacity = 0.4; });
+    F.selectOnly("fm-rect");
+    F.resetHistory();
+  });
+  await page.mouse.move(250, 260);
+  await page.keyboard.press("f");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu"), null, { label: "menu (picker feedback)" });
+  await page.keyboard.press("c");
+  await waitFor(page, () => document.activeElement?.classList.contains("grid"), null, { label: "picker grid focused" });
+  await page.keyboard.press("d");
+  await waitFor(page, () => document.querySelector(".cs .hex")?.value === window.__flux.figures()[0].elements.find((e) => e.id === "fm-rect").fill, null, { label: "keyboard colour feedback" });
+  ok(true, "keyboard palette navigation updates both the artwork and hex field");
+  await page.click(".cs .hex");
+  await page.keyboard.type("#12345");
+  await page.keyboard.press("Enter");
+  const invalidDraft = await page.evaluate(() => ({ open: !!document.querySelector(".cs"), value: document.querySelector(".cs .hex")?.value, invalid: document.querySelector(".cs .hex")?.getAttribute("aria-invalid") }));
+  ok(invalidDraft.open && invalidDraft.value === "#12345" && invalidDraft.invalid === "true", "Enter keeps an incomplete hex draft open instead of applying its earlier valid prefix");
+  await page.keyboard.press("Escape");
+  await waitForGone(page, ".cs");
+  m = await model();
+  ok(m.rect.fill === "#123456" && m.h.past === 0, "cancel restores the original colour without an undo entry");
+
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector(".cs .hex"), null, { label: "picker (achromatic hue)" });
+  await page.click(".cs .hex");
+  await page.keyboard.type("#000000");
+  await page.evaluate(() => {
+    const hue = document.querySelector(".cs .hue");
+    hue.value = "180";
+    hue.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await waitFor(page, () => document.querySelector(".cs .hex")?.value === "#000000", null, { label: "black preview" });
+  ok(await page.$eval(".cs .hue", (el) => el.value === "180"), "a chosen hue survives at black instead of snapping back to red");
+  const spectrum = await page.$eval(".cs .sv", (el) => { const r = el.getBoundingClientRect(); return { x: r.right - 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(spectrum.x, spectrum.y);
+  await page.mouse.down();
+  await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "fm-rect").fill !== "#000000", null, { label: "spectrum drag previews" });
+  m = await model();
+  ok(/^#0[0-9a-f][0-9a-f]{4}$/i.test(m.rect.fill) && parseInt(m.rect.fill.slice(3, 5), 16) > 80 && parseInt(m.rect.fill.slice(5, 7), 16) > 80, `the spectrum uses that chosen cyan hue (${m.rect.fill})`);
+  await page.$eval(".cs .sv", (el) => el.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true })));
+  await page.mouse.up();
+  await waitForGone(page, ".cs");
+  m = await model();
+  ok(m.rect.fill === "#123456" && m.h.past === 0, "a cancelled spectrum gesture restores the baseline instead of committing");
+
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector(".cs .grid"), null, { label: "picker (outside dismissal)" });
+  const dismissSwatch = await page.$eval(".cs .sw:not(.none)", (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(dismissSwatch.x, dismissSwatch.y);
+  await waitFor(page, () => window.__flux.figures()[0].elements.find((e) => e.id === "fm-rect").fill !== "#123456", null, { label: "uncommitted swatch preview" });
+  await page.mouse.click(8, 120);
+  await waitForGone(page, ".fluxFigMenu");
+  m = await model();
+  ok(m.rect.fill === "#123456" && m.h.past === 0, "clicking outside discards the unchosen preview and leaves history unchanged");
+
+  // --- 5e. real range gestures commit but keep the picker available -------------------------
+  await page.mouse.move(250, 260);
+  await page.keyboard.press("f");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu"), null, { label: "menu (range gestures)" });
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector(".cs .hue"), null, { label: "picker (range gestures)" });
+  const huePoint = await page.$eval(".cs .hue", (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width * 0.8, y: r.top + r.height / 2 }; });
+  await page.mouse.click(huePoint.x, huePoint.y);
+  await waitFor(page, () => window.__flux.fig.historyStats().past === 1, null, { label: "hue release commits" });
+  m = await model();
+  const chosenHue = m.rect.fill;
+  ok(!!(await page.$(".cs .sv")) && chosenHue !== "#123456", "releasing the hue slider commits the colour and leaves the spectrum ready for saturation/brightness");
+  const opacityPoint = await page.$eval(".cs .erow input", (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width * 0.75, y: r.top + r.height / 2 }; });
+  await page.mouse.click(opacityPoint.x, opacityPoint.y);
+  await waitFor(page, () => window.__flux.fig.historyStats().past === 2, null, { label: "opacity release commits" });
+  m = await model();
+  const chosenOpacity = m.rect.opacity;
+  ok(!!(await page.$(".cs")) && chosenOpacity > 0.6, `releasing the opacity slider commits its displayed value and keeps the picker open (${chosenOpacity})`);
+  await page.keyboard.press("Escape");
+  await waitForGone(page, ".cs");
+  m = await model();
+  ok(m.rect.fill === chosenHue && m.rect.opacity === chosenOpacity && m.h.past === 2, "Escape works from the focused range and preserves completed range edits");
+  await waitFor(page, () => document.activeElement === document.querySelector(".fluxFigMenu"), null, { label: "menu focused after range Escape" });
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector(".cs .grid"), null, { label: "picker after range edits" });
+  const laterSwatch = await page.$eval(".cs .sw:not(.none)", (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(laterSwatch.x, laterSwatch.y);
+  await waitFor(page, (hex) => window.__flux.figures()[0].elements.find((e) => e.id === "fm-rect").fill !== hex, chosenHue, { label: "a later unchosen preview" });
+  await page.mouse.click(8, 120);
+  await waitForGone(page, ".fluxFigMenu");
+  m = await model();
+  ok(m.rect.fill === chosenHue && m.rect.opacity === chosenOpacity && m.h.past === 2, "dismissing a later hover restores the explicitly chosen hue/opacity and preserves their two undo entries");
+
   // --- 6. several drilled parts edit as one ------------------------------------------------
   await page.evaluate(() => {
     const F = window.__flux.fig;
@@ -299,6 +424,58 @@ try {
   await sleep(150);
   m = await model();
   ok(m.plot.overrides?.["axis.x"]?.opacity === 0.4 && m.plot.overrides?.["axis.y"]?.opacity === 0.4, "one field write lands on every selected part");
+  await page.keyboard.press("Escape");
+  await waitForGone(page, ".fluxFigMenu");
+
+  // --- 7. gradient visibility, growth anchoring and viewport resize ------------------------
+  await page.evaluate(() => {
+    const F = window.__flux.fig;
+    F.commit((p) => {
+      const e = p.figures[0].elements.find(e => e.id === "fm-rect");
+      e.fill = "none"; e.stroke = "none";
+      e.fillMap = { map: "review", axis: "x", stops: ["#123456", "#abcdef"] };
+      e.strokeMap = { map: "review", axis: "y", stops: ["#123456", "#abcdef"] };
+      e.width = 180; e.x = 60; e.y = 80;
+    });
+    F.selectOnly("fm-rect");
+    F.resetHistory();
+  });
+  await waitFor(page, () => !!document.querySelector('.canvas-host .sel-box'), null, { label: "gradient rect selected" });
+  // Locate the actual selection and move it to a spot with room for the initial
+  // menu on its right, but only room for the larger palette on its left.
+  await page.evaluate(() => {
+    const r = document.querySelector('.canvas-host .sel-box').getBoundingClientRect();
+    window.__flux.fig.viewport.update(v => ({ ...v, panX: v.panX + 760 - r.left, panY: v.panY + 200 - r.top }));
+  });
+  await page.mouse.move(800, 240);
+  await page.keyboard.press("f");
+  await waitFor(page, () => !!document.querySelector('.fluxFigMenu.placed'), null, { label: "gradient menu placed" });
+  const toggles = await page.evaluate(() => ["2", "3"].map(key => document.querySelector(`.fluxFigMenu .field[data-key="${key}"] .toggle`)?.textContent));
+  ok(toggles.every(v => v === "off"), "gradient paints count as visible even with a none fallback");
+  await page.keyboard.press("2");
+  m = await model();
+  ok(m.rect.fill === "none" && m.rect.fillMap === undefined, "No fill removes the visible gradient paint");
+  await page.evaluate(() => window.__flux.fig.undo());
+  m = await model();
+  ok(m.rect.fillMap?.map === "review" && m.h.past === 0, "one Undo restores the exact gradient fill");
+  await page.keyboard.press("3");
+  m = await model();
+  ok(m.rect.stroke === "none" && m.rect.strokeMap === undefined, "No stroke removes the visible gradient stroke");
+  await page.evaluate(() => window.__flux.fig.undo());
+  m = await model();
+  ok(m.rect.strokeMap?.map === "review" && m.h.past === 0, "one Undo restores the exact gradient stroke");
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector('.fluxFigMenu .cs'), null, { label: "expanded palette placed" });
+  // ResizeObserver placement happens before the following painted frame.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  mr = await menuRect();
+  ok(mr?.inView && mr.overlaps === false, "expanding the colour picker stays on screen and avoids the selected object");
+  await page.keyboard.press("Escape");
+  await waitFor(page, () => !document.querySelector('.fluxFigMenu .cs'), null, { label: "palette dismissed" });
+  await page.setViewport({ width: 900, height: 760 });
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  mr = await menuRect();
+  ok(mr?.inView, "an open menu follows a resized viewport without clipping");
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
 

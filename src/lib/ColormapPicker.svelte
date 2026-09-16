@@ -54,7 +54,7 @@
   $: collection = (COLORMAP_COLLECTIONS.find((c) => c.id === collectionId) ?? COLORMAP_COLLECTIONS[0]) as ColormapCollection;
   $: groups = colormapsByType(collection);
   $: flat = groups.flatMap((g) => g.maps);
-  $: if (selected && !collection.maps.includes(selected)) selected = flat[0] ?? null;
+  $: if (!selected || !collection.maps.includes(selected)) selected = flat[0] ?? null;
   $: current = selected ? qualifiedName(collection, selected, reversed) : "";
   $: currentHex = selected ? colormapColorAt(selected, t, reversed) : "";
 
@@ -67,7 +67,10 @@
   function setCollection(id: string) {
     collectionId = id;
     selected = null; // the reactive block lands on the first map
-    requestAnimationFrame(() => rootEl?.querySelector<HTMLElement>(".cm.cur")?.scrollIntoView({ block: "nearest" }));
+    requestAnimationFrame(() => {
+      rootEl?.focus({ preventScroll: true });
+      rootEl?.querySelector<HTMLElement>(".cm.cur")?.scrollIntoView({ block: "nearest" });
+    });
   }
   /** Next collection (Shift+Tab); exported so a host can drive it. */
   export function cycle(step = 1) {
@@ -111,6 +114,8 @@
     if (selected) onPreview(colormapColorAt(selected, t, reversed));
   }
   function onBarClick(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
     t = barPos(e);
     apply();
   }
@@ -183,7 +188,7 @@
 <style>
   .cmp { display: flex; flex-direction: column; gap: 6px; outline: none; min-width: 0; font-family: inherit; }
   .cmp:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 0; border-radius: var(--r-0); }
-  .tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
+  .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
   .tab { height: 22px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: 12px var(--font-serif); white-space: nowrap; }
   .tab:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
   .tab.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
@@ -195,10 +200,10 @@
   .gbtn b { font: 600 10.5px var(--font-mono); color: var(--c-tx-hi); }
   .gbtn:hover { border-color: var(--c-accent); color: var(--c-tx-hi); background: var(--c-accent-tint); }
   .list { display: flex; flex-direction: column; gap: 1px; max-height: min(56vh, 620px); overflow-y: auto; padding-right: 2px; }
-  .gtitle { display: flex; align-items: center; gap: 8px; font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); padding: 8px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 2px; }
+  .gtitle { display: flex; flex-shrink: 0; align-items: center; gap: 8px; font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); padding: 8px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 2px; }
   .gtitle:first-child { padding-top: 2px; }
   .gcount { color: var(--c-tx-faint); font-weight: 400; }
-  .cm { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 150px); align-items: center; gap: 8px; height: 22px; padding: 0 4px; border-radius: var(--r-ui); }
+  .cm { display: grid; flex-shrink: 0; grid-template-columns: minmax(120px, 1fr) minmax(0, 150px); align-items: center; gap: 8px; height: 22px; padding: 0 4px; border-radius: var(--r-ui); }
   .cm:hover { background: var(--c-bg-raised); }
   .cm.cur { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
   .bar { display: block; height: 12px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 14%, transparent); }

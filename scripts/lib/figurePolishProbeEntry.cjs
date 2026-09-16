@@ -13,6 +13,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const check=(ok,label)=>{checks.push({ok:!!ok,label});console.log('PROBE check='+JSON.stringify(checks.at(-1)));if(!ok)throw Error(label)};
 async function wait(fn,label){const t=Date.now();while(Date.now()-t<20000){try{const r=await fn();if(r)return r}catch{}await sleep(80)}throw Error('Timeout: '+label)}
 async function click(selector){const p=await js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n)throw Error('Missing control');n.scrollIntoView({block:'nearest'});const b=n.getBoundingClientRect();return{x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}})()`);win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...p});win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...p});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');}
+async function key(keyCode,modifiers=[]){win.webContents.sendInputEvent({type:'keyDown',keyCode,modifiers});win.webContents.sendInputEvent({type:'keyUp',keyCode,modifiers});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');}
 async function selectFigure(n){await click(`.figrow[data-fig-id="native-${n}"] .item`);await wait(()=>js(`!!document.querySelector('[data-editor-element-id="e${n}-0"]')`),'figure visible');}
 const p95=xs=>[...xs].sort((a,b)=>a-b)[Math.floor(xs.length*.95)];
 async function main(){
@@ -40,6 +41,30 @@ async function main(){
   check(metrics[n].layers<=150,`${n}: virtualized Layers remain bounded`);
  }
  await selectFigure(5);
+ const savedFigure=()=>JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id==='native-5');
+ // Exercise the property/palette refinements against the built renderer and
+ // actual autosave, without development stores or synthetic DOM key handlers.
+ await click('.sidebar .layer[data-layer-key="e:e5-4"] .item');
+ await key('F');await wait(()=>js("document.activeElement===document.querySelector('.fluxFigMenu')"),'property menu focused');
+ await key('X');await wait(()=>js("document.activeElement?.closest('.field')?.dataset.key==='x'"),'position field focused');
+ await key('Up',['alt']);await key('Up',['alt']);
+ check(await js("document.querySelector('.fluxFigMenu .field[data-key=x] .nin')?.value==='132.2'"),'native fine steps accumulate and display fractional position');
+ await key('Return');await wait(()=>savedFigure().elements.find(e=>e.id==='e5-4').x===132.2,'fine position autosaved');
+ await key('Escape');await wait(()=>js("!document.querySelector('.fluxFigMenu')"),'property menu closed');
+ await click('.toolbar button[title^="Undo"]');await wait(()=>savedFigure().elements.find(e=>e.id==='e5-4').x===132,'fine edit undo autosaved');
+ check(true,'native fine edit is one reversible saved change');
+ await key('F');await wait(()=>js("document.activeElement===document.querySelector('.fluxFigMenu')"),'property menu focused for colour');
+ await key('C');await wait(()=>js("document.activeElement===document.querySelector('.cs .grid')"),'palette focused');
+ const swatch=await js("(()=>{const n=document.querySelector('.cs .sw:not(.none)'),r=n.getBoundingClientRect();return{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()");
+ win.webContents.sendInputEvent({type:'mouseMove',...swatch});
+ await wait(()=>js("document.querySelector('[data-editor-element-id=\"e5-4\"] rect')?.getAttribute('fill')!=='#4385be'"),'native hover previews paint');
+ check(await js("document.querySelector('.cs .hex')?.value===document.querySelector('[data-editor-element-id=\"e5-4\"] rect')?.getAttribute('fill')"),'native palette feedback matches the painted colour');
+ // Dismiss outside the panel: a hover is not an implicit colour choice.
+ win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:8,y:120});
+ win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:8,y:120});
+ await wait(()=>js("!document.querySelector('.fluxFigMenu')&&document.querySelector('[data-editor-element-id=\"e5-4\"] rect')?.getAttribute('fill')==='#4385be'"),'native dismissal restores paint');
+ await wait(()=>savedFigure().elements.find(e=>e.id==='e5-4').fill==='#4385be','cancelled preview autosaved');
+ check(true,'native outside dismissal restores the unchosen colour');
  for(const width of [940,1024,1440]){win.setSize(width,900);await sleep(120);check(await js("[...document.querySelectorAll('.figure-mode .toolbar button')].every(n=>{const b=n.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight})"),`toolbar reachable at native ${width}px`)}
  // Resize the frame using actual OS pointer events, wait for autosave, then
  // undo through the shared toolbar. The artwork must keep its own dimensions.
@@ -50,12 +75,13 @@ async function main(){
  await js('new Promise(r=>requestAnimationFrame(r))');
  win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...handle});
  await js('new Promise(r=>requestAnimationFrame(r))');
- win.webContents.sendInputEvent({type:'mouseMove',button:'left',x:handle.x+50,y:handle.y});
+ // Electron needs the held-button modifier on motion. `button` alone yields
+ // DOM buttons=0 and releases pointer capture before the drag reaches Canvas.
+ win.webContents.sendInputEvent({type:'mouseMove',button:'left',modifiers:['leftButtonDown'],x:handle.x+50,y:handle.y});
  await js('new Promise(r=>requestAnimationFrame(r))');
  win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:handle.x+50,y:handle.y});
  await js('new Promise(r=>requestAnimationFrame(r))');
  console.log('PROBE frame='+JSON.stringify(await js("({width:[...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='W')?.querySelector('input')?.value,undoDisabled:document.querySelector('.toolbar button[title^=Undo]')?.disabled,status:document.querySelector('.toolbar .path')?.textContent})")));
- const savedFigure=()=>JSON.parse(fs.readFileSync(path.join(root,'fig/canvases/c.json'),'utf8')).figures.find(f=>f.id==='native-5');
  await wait(()=>savedFigure().width>320,'frame resize autosaved');
  check(savedFigure().elements[0].width===24&&savedFigure().elements[0].x===12,'native edge resize changes frame without scaling artwork');
  await click('.toolbar button[title^="Undo"]');await wait(()=>savedFigure().width===320,'frame undo autosaved');

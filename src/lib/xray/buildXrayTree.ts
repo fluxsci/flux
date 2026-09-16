@@ -287,6 +287,7 @@ export function buildXrayTree(
       kind: "set",
       label: `${els.length} plots`,
       role: "set",
+      hidden: els.every((el) => !!el.hidden),
       isGroup: true,
       count: els.length,
       children: ordered.map((e) => elementRow(fig, e, manifests)),

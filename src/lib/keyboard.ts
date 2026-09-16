@@ -686,7 +686,10 @@ const TOOL_KEYS: Record<string, Tool> = {
 function openXray() {
   const p = get(project);
   const ps = get(partSelection);
-  if (ps) {
+  const sel = get(selection);
+  // A common-part pick carries a primary part too. Reopening must retain
+  // every selected plot instead of letting that primary collapse the root.
+  if (ps && sel.size <= 1) {
     for (const f of p.figures) {
       const el = f.elements.find((e) => e.id === ps.elementId);
       if (el && el.type === "plot") {
@@ -696,7 +699,6 @@ function openXray() {
       }
     }
   }
-  const sel = get(selection);
   if (sel.size === 0) return;
   const fig = p.figures.find((f) => f.elements.some((e) => sel.has(e.id)));
   if (!fig) return;

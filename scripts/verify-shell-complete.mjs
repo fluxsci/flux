@@ -5,7 +5,7 @@
 // activity strip moved into the title bar; Ctrl+1–5 switch modes), and the
 // Home recents remove/clear actions.
 //   Run (dev server on :1420 must be up): node scripts/verify-shell-complete.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, waitFor, shot } from "./lib/driver.mjs";
 
 let fails = 0;
 const ok = (c, msg, extra = "") => (c ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg + (extra ? ` — ${extra}` : ""))));
@@ -114,9 +114,42 @@ ok(/FluxConfig folder/.test(setText), "Settings shows the FluxConfig folder sect
 ok(/Updates|newer version/.test(setText), "Settings shows the update-check toggle");
 const libPath = await page.$eval(`${setSel} .libpath`, (el) => el.textContent?.trim()).catch(() => "");
 ok(!!libPath && libPath !== "—", `the resolved library path is displayed (${libPath})`);
+
+// The tabbed settings surface owns focus and each pane's scrolling. A backwards
+// Tab from the dialog previously escaped into the obscured Paper status bar.
+await page.keyboard.down("Shift");
+await page.keyboard.press("Tab");
+await page.keyboard.up("Shift");
+ok(await page.$eval(`${setSel} .close`, el => document.activeElement === el), "Shift+Tab from Settings wraps to Done");
+await page.keyboard.press("Tab");
+ok(await page.$eval(`${setSel} .x`, el => document.activeElement === el), "Tab from Done wraps to Close inside Settings");
+await page.click("#settings-tab-figure");
+const collectionRows = await page.$$eval("#settings-pane-figure .row", rows => rows.map(row => {
+  const select = row.querySelector("select"), box = select.getBoundingClientRect();
+  return { x: box.x, y: box.y, height: box.height, font: getComputedStyle(select).fontSize };
+}));
+ok(collectionRows.length === 2 && collectionRows[0].x === collectionRows[1].x && collectionRows[1].y >= collectionRows[0].y + collectionRows[0].height,
+  "palette and colormap defaults have aligned, separate control rows");
+ok(collectionRows.every(r => r.height === 24 && r.font === "12px"), "collection defaults use the shared compact control sizing");
+await page.setViewport({ width: 1024, height: 620 });
+await page.click("#settings-tab-corrections");
+await page.$eval("#settings-pane-corrections", el => { el.scrollTop = 220; });
+const correctionScroll = await page.$eval("#settings-pane-corrections", el => el.scrollTop);
+await page.click("#settings-tab-figure");
+ok(await page.$eval("#settings-pane-figure", el => el.scrollTop === 0), "Figure opens at its own top after scrolling Corrections");
+await page.click("#settings-tab-corrections");
+ok(correctionScroll > 0 && await page.$eval("#settings-pane-corrections", (el, y) => el.scrollTop === y, correctionScroll),
+  "returning to Corrections preserves its scroll position");
+await page.keyboard.press("Home");
+ok(await page.$eval("#settings-tab-general", el => document.activeElement === el && el.getAttribute("aria-selected") === "true"), "Home selects and focuses the first settings tab");
+await page.click("#settings-tab-figure");
+await page.setViewport({ width: 1440, height: 900 });
+await shot(page, "settings-refined");
 await page.keyboard.press("Escape");
 await sleep(200);
 ok(!(await setOpen()), "Esc closes Settings");
+await waitFor(page, () => document.activeElement?.getAttribute("aria-label") === "Settings", null, { label: "Settings focus returned" });
+ok(await page.$eval(tbGear, el => document.activeElement === el), "closing Settings returns focus to its invoking control");
 
 // --- Home recents remove / clear --------------------------------------------
 await page.evaluate(() => {

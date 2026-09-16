@@ -39,6 +39,18 @@ export function addAppearanceTracks(
 ): AnimateResult | null {
   const slide = slideById(deck, slideId);
   if (!slide || !targets.length) return null;
+  // A shared X-ray row and its per-plot row can name the same target. That
+  // is one pick, not two consecutive appearances. Deduplicate within this
+  // operation only: a later explicit Animate action still appends an effect.
+  const elementsById = new Map(slide.elements.map((el) => [el.id, el]));
+  const seen = new Set<string>();
+  const unique = targets.filter((t) => {
+    const key = JSON.stringify([t.elementId, t.partId ?? ""]);
+    if (seen.has(key) || !elementsById.has(t.elementId)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (!unique.length) return null;
   let bi = beatIndex;
   if (bi < 1) {
     if (slide.beats.length < 2) addBeat(deck, slideId, { label: "Step 1", advance: "click" });
@@ -49,8 +61,8 @@ export function addAppearanceTracks(
   const exit = kind === "disappear";
   const created: string[] = [];
   const manifestOf = (assetId: string) => manifests[assetId];
-  for (const t of targets) {
-    const el = slide.elements.find((e) => e.id === t.elementId);
+  for (const t of unique) {
+    const el = elementsById.get(t.elementId);
     if (!el) continue;
     const part = t.partId;
     const track: Track =

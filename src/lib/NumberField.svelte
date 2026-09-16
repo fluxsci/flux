@@ -28,7 +28,7 @@
   const dispatch = createEventDispatcher<{ commit: number; scrub: number; scrubStart: void }>();
   let inputEl: HTMLInputElement;
 
-  $: display = fmtNum(value, step);
+  $: display = fmtNum(value);
 
   function clamp(v: number): number {
     if (min != null) v = Math.max(min, v);
@@ -44,7 +44,7 @@
     }
     const v = clamp(parsed);
     if (mixed || v !== value) dispatch("commit", v);
-    inputEl.value = fmtNum(v, step);
+    inputEl.value = fmtNum(v);
   }
 
   function onKey(e: KeyboardEvent) {

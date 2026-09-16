@@ -86,7 +86,9 @@ The **X-ray** (**Alt+R**) animates too: select one plot — or several — press
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
 a multi-plot X-ray lists the parts every plot shares), then press **A** and choose
 **Appear**, **Emphasize**, **Disappear** or **Change**. Every picked part lands on the current
-step as its own effect, ready to retime in the timeline.
+step as its own effect, ready to retime in the timeline. Selecting the same part through
+both a common row and its plot's tree creates one effect. With **Show hidden** off,
+disappeared targets remain untouched by common-row visibility and animation actions.
 
 The **Animation** inspector edits the selected effects' target, part, effect, start, duration,
 easing, stagger, and relevant specialized controls. Mixed timing values are blank until you set

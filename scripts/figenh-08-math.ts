@@ -36,8 +36,11 @@ assert(evalExpr("1.2.3") === null, "1.2.3 → null");
 assert(evalExpr("1+") === null, "trailing op → null");
 assert(evalExpr("(1+2") === null, "unbalanced paren → null");
 assert(evalExpr("2;rm -rf") === null, "injection chars → null");
-assert(fmtNum(408, 1) === "408", "fmtNum integer");
-assert(fmtNum(0.85, 0.05) === "0.85", "fmtNum fractional step");
+assert(fmtNum(408) === "408", "fmtNum integer");
+assert(fmtNum(0.85) === "0.85", "fmtNum opacity");
+assert(fmtNum(0.75) === "0.75", "quarter-unit values retain both decimal places");
+assert(fmtNum(408.125) === "408.125", "fractional dimensions remain visible independently of their stepping increment");
+assert(fmtNum(0.1 + 0.2) === "0.3", "numeric display trims floating-point noise");
 
 // ---- (b) browser: fields accept math + scrub --------------------------------
 const { browser, page } = await launch({ width: 1440, height: 900 });
@@ -96,6 +99,14 @@ try {
   await sleep(150);
   el = await readEl();
   assert(near(el.x, 408), `X "abc" rejected → x still ${el.x}`);
+
+  await setField("X", "(816+0.5)/2");
+  const preciseX = await page.evaluate(() => {
+    const nf = [...document.querySelectorAll(".inspector .nf")].find(n => n.querySelector(".lb")?.textContent?.trim() === "X");
+    return (nf?.querySelector("input") as HTMLInputElement)?.value;
+  });
+  el = await readEl();
+  assert(el.x === 408.25 && preciseX === "408.25", `fractional geometry is preserved and displayed exactly (x=${el.x}, field=${preciseX})`);
 
   await setField("H", "(60*2)+30");
   await sleep(150);

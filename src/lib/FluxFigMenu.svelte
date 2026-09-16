@@ -24,7 +24,7 @@
   import { editSession } from "./interact/editSession";
   import { selectionTargets } from "./interact/selectionTargets";
   import { buildMenuFields, groupFields, fieldRange, setDimensionBase, type Field } from "./interact/propertyMenu";
-  import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
+  import { anchorPanel, reanchorPanel, unionRects, type Rect, type Point } from "./ui/anchor";
   import { WheelStepper, wheelDelta, wheelMultiplier } from "./interact/wheelLaw";
   import { project, selection, partSelection, partSelections } from "./store";
   import { plotManifests } from "./plot/store";
@@ -126,6 +126,8 @@
   let pos = { x: 0, y: 0 };
   let placed = false;
   let sizeObs: ResizeObserver | null = null;
+  let openedAvoid: Rect | null = null;
+  let openedPoint: Point | null = null;
 
   /** The screen box the panel must not cover: the canvas's selection box(es),
    *  else the selected elements' own DOM boxes. */
@@ -155,18 +157,23 @@
     if (!el) return;
     const size = { w: el.offsetWidth, h: el.offsetHeight };
     const vp = { w: window.innerWidth, h: window.innerHeight };
-    const pt = pointer.x >= 0 ? { x: pointer.x, y: pointer.y } : null;
-    const r = anchorPanel({ avoid: avoidRect(), point: pt, size, viewport: vp });
+    openedAvoid = avoidRect();
+    openedPoint = pointer.x >= 0 ? { x: pointer.x, y: pointer.y } : null;
+    const r = anchorPanel({ avoid: openedAvoid, point: openedPoint, size, viewport: vp });
     pos = { x: r.x, y: r.y };
     placed = true;
     sizeObs?.disconnect();
-    sizeObs = new ResizeObserver(() => {
-      // A mode switch (the palette, an expanded choice) changes the height:
-      // keep the origin, stay on screen.
-      const p = reclampPanel(pos, { w: el.offsetWidth, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight });
-      if (p.x !== pos.x || p.y !== pos.y) pos = p;
-    });
+    sizeObs = new ResizeObserver(resizePlacement);
     sizeObs.observe(el);
+  }
+  function resizePlacement() {
+    if (!$fluxFigMenuOpen || !placed || !panelEl) return;
+    const p = reanchorPanel(pos, {
+      avoid: openedAvoid, point: openedPoint,
+      size: { w: panelEl.offsetWidth, h: panelEl.offsetHeight },
+      viewport: { w: window.innerWidth, h: window.innerHeight },
+    });
+    if (p.x !== pos.x || p.y !== pos.y) pos = p;
   }
 
   // Reset state each time the menu opens (+ refresh the global style library
@@ -288,15 +295,14 @@
   }
 
   // --- numeric stepping: keys + wheel ------------------------------------------------
-  const precisionOf = (step: number) => (step < 1 ? Math.min(6, Math.ceil(-Math.log10(step))) : 0);
   function stepValue(f: Field, steps: number, mult = 1) {
     const step = (f.step ?? 1) * mult;
     const cur = f.mixed && draft === "" ? Number(f.get()) : (evalExpr(draft) ?? Number(f.get()));
     let v = (Number.isFinite(cur) ? cur : 0) + steps * step;
     if (f.min != null) v = Math.max(f.min, v);
     if (f.max != null) v = Math.min(f.max, v);
-    v = +v.toFixed(Math.max(precisionOf(step), precisionOf(f.step ?? 1)));
-    draft = fmtNum(v, f.step ?? 1);
+    v = +v.toFixed(6);
+    draft = fmtNum(v);
     applyField(f, v);
   }
   // The wheel follows the ONE law in interact/wheelLaw.ts: a notch is a step
@@ -438,7 +444,7 @@
   };
 </script>
 
-<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:wheel|capture|nonpassive={onWinWheel} />
+<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:resize={resizePlacement} on:wheel|capture|nonpassive={onWinWheel} />
 
 {#if $fluxFigMenuOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -555,7 +561,7 @@
                             spellcheck="false"
                             placeholder={f.mixed ? "Mixed" : ""}
                             title={f.count && $selection.size > 1 ? `Applies to ${f.count} of ${$selection.size} selected objects` : f.label}
-                            value={activeKey === f.key ? draft : f.mixed ? "" : fmtNum(Number(f.get()), f.step ?? 1)}
+                            value={activeKey === f.key ? draft : f.mixed ? "" : fmtNum(Number(f.get()))}
                             on:focus={() => enterField(f)}
                             on:blur={() => blurField(f)}
                             on:input={(e) => { draft = e.currentTarget.value; const v = evalExpr(draft); if (v != null) applyField(f, v); }}
@@ -593,6 +599,7 @@
     visibility: hidden;
     display: flex;
     flex-direction: column;
+    max-width: calc(100vw - 16px);
     max-height: calc(100vh - 16px);
     color: var(--c-tx);
     font-family: var(--font-serif); /* Flux's classic face for the menu's words; values stay mono */

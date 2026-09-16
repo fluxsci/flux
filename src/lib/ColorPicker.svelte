@@ -13,7 +13,8 @@
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta } from "./interact/wheelLaw";
   import { project, selection, partSelection } from "./store";
-  import { applyColor, applyColormap, addRecentColor, setOpacity, currentColor, nameForHex } from "./colors";
+  import { applyColor, applyColormap, addRecentColor, setOpacity, currentColor, currentGradient, nameForHex } from "./colors";
+  import { selectionTargets } from "./interact/selectionTargets";
   import { FLEXOKI } from "./flexoki";
   import { hexToHsv, hsvToHex, type Hsv } from "./colorSpace";
   import { settings } from "./settings";
@@ -31,7 +32,11 @@
   export let allowNone = true;
 
   const session = editSession();
-  onDestroy(() => session.finish());
+  let alive = true;
+  // An explicit pick finishes first; dismissal must discard an unchosen preview.
+  onDestroy(() => { alive = false; session.cancel(); });
+  const openingGradient = currentGradient(target);
+  const validHex = (hex: string) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex);
 
   interface Sw {
     hex: string;
@@ -48,6 +53,7 @@
   let gridEl: HTMLDivElement;
   let hexEl: HTMLInputElement;
   let hexVal = "";
+  let shownHex = "";
   // The spectrum (owner request 2026-09-15): an HSV square + hue bar on the
   // right, always visible, seeded from the colour the thing had when the picker
   // opened and following the palette cursor; dragging previews live through the
@@ -56,7 +62,14 @@
   let hsv: Hsv = { h: 0, s: 0, v: 0.5 };
   let svEl: HTMLDivElement;
   let svDrag = false;
-  $: if (!svDrag) { const parsed = /^#[0-9a-fA-F]{6}$/.test(hexVal) ? hexToHsv(hexVal) : null; if (parsed) hsv = parsed; }
+  function showColor(hex: string, syncSpectrum = true) {
+    hexVal = shownHex = hex;
+    if (!syncSpectrum) return;
+    const parsed = hexToHsv(hex.length === 9 ? hex.slice(0, 7) : hex);
+    // Grey/black carry no hue information. Keep the chosen hue so the next
+    // spectrum motion can add saturation without unexpectedly turning red.
+    if (parsed) hsv = { ...parsed, h: parsed.s > 0 ? parsed.h : hsv.h };
+  }
   const hasDropper = typeof window !== "undefined" && "EyeDropper" in window;
   function svPoint(e: PointerEvent): Hsv {
     const r = svEl.getBoundingClientRect();
@@ -71,12 +84,12 @@
     svEl.setPointerCapture(e.pointerId);
     svDrag = true;
     hsv = svPoint(e);
-    liveHex(hsvToHex(hsv));
+    preview(hsvToHex(hsv), false);
   }
   function onSvMove(e: PointerEvent) {
     if (!svDrag) return;
     hsv = svPoint(e);
-    liveHex(hsvToHex(hsv));
+    preview(hsvToHex(hsv), false);
   }
   function onSvUp(e: PointerEvent) {
     if (!svDrag) return;
@@ -84,21 +97,28 @@
     hsv = svPoint(e);
     commit(hsvToHex(hsv));
   }
+  function onSvCancel() {
+    if (!svDrag) return;
+    svDrag = false;
+    cancel();
+  }
   function onHue(e: Event, done: boolean) {
     hsv = { ...hsv, h: Number((e.currentTarget as HTMLInputElement).value) };
     const hex = hsvToHex(hsv);
-    if (done) commit(hex); else liveHex(hex);
+    preview(hex, false);
+    // Picking a hue is a complete edit, but keep the spectrum available for
+    // the natural next motion: choosing its saturation and brightness.
+    if (done) session.finish();
   }
   async function dropper() {
     try {
       const r = await new (window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper().open();
-      commit(r.sRGBHex.toLowerCase());
+      if (alive) commit(r.sRGBHex.toLowerCase());
     } catch {
       /* cancelled */
     }
   }
   let cursor = { r: 0, c: 0 };
-  let committed = false;
 
   // Text colour never blanks; a line's paint via the fill target neither
   // (colors.applyColor guards both — hide the swatch rather than no-op it).
@@ -157,9 +177,13 @@
     return out;
   })();
   $: at = rows[cursor.r]?.swatches[Math.min(cursor.c, (rows[cursor.r]?.swatches.length ?? 1) - 1)] ?? null;
+  $: shownName = shownHex === "none" ? `no ${target}` : at?.hex.toLowerCase() === shownHex.toLowerCase() ? at.name : nameForHex(shownHex) ?? shownHex;
+  $: editable = $partSelection ? [] : $project.figures.flatMap((f) => selectionTargets(f, $selection, { editable: true }));
+  $: opacity = editable[0]?.opacity ?? 1;
+  $: mixedOpacity = editable.some((e) => (e.opacity ?? 1) !== opacity);
 
   onMount(() => {
-    hexVal = currentColor(target);
+    showColor(currentColor(target));
     // Land the cursor on the current colour when the palette carries it.
     outer: for (let r = 0; r < rows.length; r++)
       for (let c = 0; c < rows[r].swatches.length; c++)
@@ -170,7 +194,8 @@
     if (autofocus) requestAnimationFrame(() => gridEl?.focus({ preventScroll: true }));
   });
 
-  function preview(hex: string) {
+  function preview(hex: string, syncSpectrum = true) {
+    showColor(hex, syncSpectrum);
     session.run(() => applyColor(hex, target, true));
   }
   function commit(hex: string) {
@@ -179,7 +204,6 @@
       if (hex !== "none") addRecentColor(hex, true);
     });
     session.finish();
-    committed = true;
     onDone();
   }
   // The whole map as a gradient along an axis (colormap view, x / y) — elements
@@ -191,7 +215,6 @@
     });
     if (!done) return;
     session.finish();
-    committed = true;
     onDone();
   }
   function cancel() {
@@ -199,10 +222,10 @@
     onCancel();
   }
   function liveHex(hex: string) {
-    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-      hexVal = hex;
-      preview(hex);
-    }
+    // Keep the actual draft even while incomplete; Enter must never apply a
+    // stale, previously-valid value behind what the field currently displays.
+    hexVal = hex;
+    if (validHex(hex)) preview(hex);
   }
 
   function move(dr: number, dc: number) {
@@ -243,8 +266,13 @@
   }
   function onHexKey(e: KeyboardEvent) {
     e.stopPropagation();
-    if (e.key === "Enter") { e.preventDefault(); if (/^#[0-9a-fA-F]{3,8}$/.test(hexVal)) commit(hexVal); }
+    if (e.key === "Enter") { e.preventDefault(); if (validHex(hexVal)) commit(hexVal); }
     else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  }
+  function onRangeKey(e: KeyboardEvent) {
+    // Arrow keys stay native to the range; Escape still belongs to the picker.
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); cancel(); }
   }
   /** Wheel over the grid walks the cursor along the palette (the mouse hand
    *  never has to leave the wheel). */
@@ -263,7 +291,6 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="cs" class:cmview={view === "colormap"} on:keydown={onGridKey}>
-  <div class="left">
   <div class="tabs" role="tablist" aria-label="Palette collections">
     {#each collections as c (c.id)}
       <button class="tab" class:on={view === "palette" && c.id === collectionId} role="tab" aria-selected={view === "palette" && c.id === collectionId} type="button" on:click={() => { view = "palette"; setCollection(c.id); }}>{c.name}</button>
@@ -272,8 +299,9 @@
     <button class="tab maps" class:on={view === "colormap"} role="tab" aria-selected={view === "colormap"} type="button" title="Pick a colour along a colormap (Tab)" on:click={() => { view = "colormap"; }}>Colormaps</button>
     <span class="tabhint"><b>⇧⇥</b> next · <b>⇥</b> maps</span>
   </div>
+  <div class="left">
   {#if view === "colormap"}
-    <ColormapPicker mode="color" gradient={$selection.size > 0 && !$partSelection} onPreview={(hex) => liveHex(hex)} onPick={(hex) => commit(hex)} onPickGradient={commitGradient} onCancel={cancel} />
+    <ColormapPicker mode="color" value={openingGradient?.map ?? ""} gradient={$selection.size > 0 && !$partSelection} onPreview={(hex) => liveHex(hex)} onPick={(hex) => commit(hex)} onPickGradient={commitGradient} onCancel={cancel} />
   {:else}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="grid" bind:this={gridEl} tabindex="0" role="listbox" aria-label={`${target} colour`} on:wheel={onWheel}>
@@ -287,7 +315,7 @@
               class="sw"
               class:none={sw.none}
               class:cur={cursor.r === r && cursor.c === c}
-              class:live={!sw.none && sw.hex.toLowerCase() === hexVal.toLowerCase()}
+              class:live={!sw.none && sw.hex.toLowerCase() === shownHex.toLowerCase()}
               data-r={r}
               data-c={c}
               role="option"
@@ -308,11 +336,11 @@
   </div>
   <div class="side">
     <div class="bar">
-      <span class="dot" style={at && !at.none ? `background:${at.hex}` : ""} class:isnone={!!at?.none}></span>
-      <span class="cname">{at ? at.name : ""}</span>
+      <span class="dot" style={shownHex !== "none" ? `background:${shownHex}` : ""} class:isnone={shownHex === "none"}></span>
+      <span class="cname">{shownName}</span>
     </div>
     <div class="hexrow">
-      <input class="hex" bind:this={hexEl} value={hexVal} spellcheck="false" aria-label="Hex colour"
+      <input class="hex" bind:this={hexEl} value={hexVal} spellcheck="false" aria-label="Hex colour" aria-invalid={hexVal !== "none" && !validHex(hexVal)}
         on:input={(e) => liveHex(e.currentTarget.value)} on:keydown={onHexKey} on:focus={(e) => e.currentTarget.select()} />
       {#if hasDropper}
         <button class="drop" type="button" title="Pick a colour from the screen" aria-label="Eyedropper" on:click={dropper}>
@@ -330,15 +358,15 @@
         on:pointerdown={onSvDown}
         on:pointermove={onSvMove}
         on:pointerup={onSvUp}
-        on:pointercancel={onSvUp}
+        on:pointercancel={onSvCancel}
       >
         <span class="svdot" style={`left:${hsv.s * 100}%; top:${(1 - hsv.v) * 100}%; background:${hsvToHex(hsv)}`}></span>
       </div>
       <input class="hue" type="range" min="0" max="360" step="1" value={Math.round(hsv.h)} aria-label="Hue"
-        on:input={(e) => onHue(e, false)} on:change={(e) => onHue(e, true)} on:keydown|stopPropagation />
+        on:input={(e) => onHue(e, false)} on:change={(e) => onHue(e, true)} on:keydown={onRangeKey} />
     </div>
-    {#if $selection.size && !$partSelection}
-      <label class="erow"><span>opacity</span><input type="range" min="0" max="1" step="0.01" value="1" on:input={(e) => session.run(() => setOpacity(parseFloat(e.currentTarget.value), true))} on:keydown|stopPropagation /></label>
+    {#if editable.length}
+      <label class="erow"><span>opacity</span><input type="range" min="0" max="1" step="0.01" value={opacity} aria-valuetext={mixedOpacity ? "Mixed" : `${Math.round(opacity * 100)}%`} on:input={(e) => session.run(() => setOpacity(parseFloat(e.currentTarget.value), true))} on:change={() => session.finish()} on:keydown={onRangeKey} /><output>{mixedOpacity ? "mixed" : `${Math.round(opacity * 100)}%`}</output></label>
     {/if}
     <div class="hint"><b>hover</b> preview · <b>click</b>/<b>space</b> apply · <b>wasd</b>/arrows walk · <b>#</b> type a hex · <b>esc</b> revert</div>
   </div>
@@ -348,9 +376,9 @@
   /* Two columns: the palette gets the room (every row on ONE line, the whole
      grid visible — the menu grows instead of scrolling), the spectrum sits in a
      fixed 204 px column on the right. */
-  .cs { display: grid; grid-template-columns: minmax(0, 1fr) 204px; gap: 14px; align-items: start; font-family: inherit; }
+  .cs { display: grid; grid-template-columns: minmax(0, 1fr) 204px; gap: 6px 14px; align-items: start; font-family: inherit; }
   .left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
+  .tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
   .tab { height: 22px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: 12px var(--font-serif); white-space: nowrap; }
   .tab:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
   .tab.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
@@ -375,6 +403,7 @@
   .cname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--c-tx-2); }
   .hex { flex: 1; min-width: 0; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 2px 6px; height: 24px; font: 12px var(--font-mono); outline: none; }
   .hex:focus { border-color: var(--c-accent); }
+  .hex[aria-invalid="true"] { border-color: var(--c-danger); }
   .drop { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); padding: 0; flex: none; }
   .drop:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .spec { display: flex; flex-direction: column; gap: 6px; }
@@ -383,7 +412,8 @@
   .hue { width: 100%; height: 12px; margin: 0; appearance: none; -webkit-appearance: none; border-radius: var(--r-ui); border: 1px solid var(--c-line-strong); background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%); }
   .hue::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 8px; height: 16px; border-radius: 2px; background: #fff; border: 1px solid rgba(0, 0, 0, 0.55); box-shadow: 0 0 0 1px #fff; }
   .erow { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--c-tx-muted); }
-  .erow input[type="range"] { flex: 1; accent-color: var(--c-accent); }
+  .erow input[type="range"] { flex: 1; min-width: 0; accent-color: var(--c-accent); }
+  .erow output { min-width: 4ch; text-align: right; font: 10.5px var(--font-mono); color: var(--c-tx-2); }
   .hint { font-size: 10.5px; color: var(--c-tx-muted); }
   .hint b { color: var(--c-tx-2); font-weight: 600; }
   .empty { padding: 12px; color: var(--c-tx-muted); font-size: 12px; }

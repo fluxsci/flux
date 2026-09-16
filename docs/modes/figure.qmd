@@ -149,7 +149,9 @@ plots — hit **Regenerate** to re-run the script that made it, right from the p
 them — hide five series at once, or restyle them together. Select **several plots** before
 pressing **Alt+R** and the X-ray shows each plot's tree plus a **Common parts** list of
 what they all share, so hiding the x-axis of four plots is one row and one keypress.
-**Double-click** a row (or **Ctrl+Enter**) to re-root the X-ray on it.
+**Double-click** a row (or **Ctrl+Enter**) to re-root the X-ray on it. Keyboard navigation
+keeps the active row in view. You can inspect another plot while a recipe runs; its result
+still belongs to the plot you regenerated.
 
 # Dissecting a plot
 
@@ -187,6 +189,7 @@ Press **F** with anything selected for the **property menu** — the fastest way
 for one hand on the keyboard and one on the mouse. It opens **beside the selection**, never on
 top of it (when nothing fits, it takes the side that covers the least), and lays its groups
 out in narrow columns — each row is a key and a name over its control — so nothing scrolls.
+Opening a larger picker repositions the menu when needed to keep the selection clear.
 Every hotkey is a **left-hand key** (`1`–`6`, `q w e r t`, `a d g`, `z x c v b`), so the right
 hand never leaves the wheel: press the key to **arm** the row, then roll the **mouse wheel**
 anywhere on the screen to adjust it (a slow roll moves one step per notch, a flick moves fast,
@@ -196,7 +199,12 @@ as font or alignment expands its options inline (wheel, **w/a/s/d**, **1–9**, 
 colour opens the **palette** — every row on one line, the whole grid in view — with the
 full **spectrum** beside it (a saturation/value square and a hue bar, seeded from the current
 colour), a hex field and an **eyedropper**; hovering a swatch previews it live, a click
-applies it, and a drag on the square previews until you let go. The palette comes in
+applies it, and a drag on the square previews until you let go. The hex field and spectrum
+follow the preview, and the opacity readout shows the selection's current value (or **mixed**).
+Releasing the hue or opacity slider applies that adjustment and keeps the picker open so
+you can continue tuning the colour.
+**Escape** or clicking outside dismisses an unchosen preview; an incomplete hex stays editable
+until you finish it. The palette comes in
 **collections** — Flexoki (the default), ColorBrewer, Paul Tol's colour sets, and your
 project's own imported palette — as tabs above the grid; **Shift+Tab** cycles them. **Tab**
 switches the grid to the **colormaps**: every map fluxplot ships (matplotlib, Crameri's
@@ -218,7 +226,8 @@ no-fill/no-stroke, text styling — and **save as preset** for anything you want
 right rail carries the same properties (fill, stroke and text colours with their palette
 names, sizes, stroke widths, arrowheads), so the menu is a choice, not a requirement.
 
-Numeric fields accept expressions such as `240/2`. Drag a field’s label to scrub, or click
+Numeric fields accept expressions such as `240/2` and display fractional values even when
+the normal wheel increment is a whole unit. Drag a field’s label to scrub, or click
 its input and type. A scrub or a continuous text/property edit is one undo step; **Escape**
 cancels the current preview. Mixed selections show **Mixed** and how many objects a property
 can change. Locked or hidden objects, including members of a locked or hidden group, stay
@@ -279,7 +288,7 @@ one gesture.
   one block per panel. Captions live with the figure and flow into your
   [manuscript](paper.qmd) and exports automatically. Each block grows to fit whatever you
   type, so a caption is never hidden behind a scrollbar; when the blocks outgrow the page,
-  scroll the page itself. Set the typing size in **Settings → Caption editor**.
+  scroll the page itself. Set the typing size in **Settings → Figure → Caption editor**.
 - **Alt+T** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
   the keyboard, live, as one undo step.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.

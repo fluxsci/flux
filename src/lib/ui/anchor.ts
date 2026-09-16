@@ -75,13 +75,13 @@ export function anchorPanel(input: AnchorInput): AnchorResult {
 
   if (avoid) {
     const right = avoid.x + avoid.w + gap;
-    if (right + pw <= vw - margin) return { x: right, y: yNear(avoid.y), side: "right" };
+    if (right >= minX && right + pw <= vw - margin) return { x: right, y: yNear(avoid.y), side: "right" };
     const left = avoid.x - gap - pw;
-    if (left >= margin) return { x: left, y: yNear(avoid.y), side: "left" };
+    if (left >= minX && left + pw <= vw - margin) return { x: left, y: yNear(avoid.y), side: "left" };
     const below = avoid.y + avoid.h + gap;
-    if (below + ph <= vh - margin) return { x: xNear(avoid.x), y: below, side: "below" };
+    if (below >= minY && below + ph <= vh - margin) return { x: xNear(avoid.x), y: below, side: "below" };
     const above = avoid.y - gap - ph;
-    if (above >= margin) return { x: xNear(avoid.x), y: above, side: "above" };
+    if (above >= minY && above + ph <= vh - margin) return { x: xNear(avoid.x), y: above, side: "above" };
     // Nowhere beside it fits whole. Never fall back to "on the pointer" (that
     // lands the panel ON the thing being edited): take the side that covers
     // the LEAST of the box once clamped into the viewport — a wide selection
@@ -119,6 +119,20 @@ export function reclampPanel(
     x: clamp(at.x, margin, viewport.w - margin - size.w),
     y: clamp(at.y, margin, viewport.h - margin - size.h),
   };
+}
+
+/** Keep an open panel steady through size/viewport changes while respecting
+ *  its original selection anchor. Moving is justified only when it reduces
+ *  overlap: opening a larger picker must not slide it over the selected object. */
+export function reanchorPanel(at: Point, input: AnchorInput): Point {
+  const kept = reclampPanel(at, input.size, input.viewport, input.margin);
+  if (!input.avoid) return kept;
+  const currentOverlap = overlapArea({ ...kept, ...input.size }, input.avoid);
+  if (!currentOverlap) return kept;
+  const next = anchorPanel(input);
+  return overlapArea({ ...next, ...input.size }, input.avoid) < currentOverlap
+    ? { x: next.x, y: next.y }
+    : kept;
 }
 
 /** Union of screen rects (the selection's DOM boxes). */

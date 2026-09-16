@@ -63,6 +63,34 @@ try {
   });
   assert(bounds.top >= 0 && bounds.header >= bounds.top && bounds.bottom <= bounds.screen, 'expanded controls keep header and panel on screen');
   await shot(page, 'fluxplot03-color-scales');
+
+  // A slow regeneration belongs to the plot that started it, even if the
+  // user re-roots the X-ray before it finishes.
+  const beforeReRoot = await page.evaluate((bundle) => {
+    const F = window.__flux;
+    F.fig.commit((p) => {
+      const original = p.figures[0].elements.find((e) => e.id === 'field-plot');
+      p.figures[0].elements.push({ ...structuredClone(original), id: 'field-other', assetId: 'field-other-asset', x: 550 });
+      p.assets.push({ ...p.assets.find((a) => a.id === 'field-gate'), id: 'field-other-asset' });
+    });
+    F.io.reimportPlot('field-other-asset', bundle.svg, bundle.manifest, bundle.recipe);
+    window.fig.runRecipe = () => new Promise((resolve) => { window.__resolveFieldRecipe = resolve; });
+    return { ...F.get(F.plot.plotGen) };
+  }, bundle);
+  await page.click('.xray .regen');
+  await page.waitForFunction(() => !!window.__resolveFieldRecipe);
+  await page.evaluate(() => {
+    const F = window.__flux;
+    F.fig.xrayRoot.set({ kind: 'element', figId: F.get(F.fig.project).figures[0].id, elementId: 'field-other' });
+  });
+  await page.waitForFunction(() => document.querySelector('.xray .row[data-rid="el:field-other"]'));
+  await page.evaluate((bundle) => window.__resolveFieldRecipe({ code: 0, svgText: bundle.svg,
+    manifestText: JSON.stringify(bundle.manifest), recipeText: JSON.stringify(bundle.recipe) }), bundle);
+  await page.waitForFunction(() => !document.querySelector('.xray .regen')?.disabled);
+  const afterReRoot = await page.evaluate(() => ({ ...window.__flux.get(window.__flux.plot.plotGen) }));
+  assert(afterReRoot['field-gate'] > beforeReRoot['field-gate'], 'the completed recipe refreshes its original plot');
+  assert.equal(afterReRoot['field-other-asset'], beforeReRoot['field-other-asset'], 're-rooting cannot replace a different plot with pending recipe output');
+  assert.equal(await page.$eval('.xray .regen', (b) => b.textContent.trim()), 'Regenerate', 'the new root does not inherit a different plot’s completion message');
   assert.deepEqual(realErrors(page), []);
   console.log('FLUXPLOT 0.3 GUI: ranges validated, regeneration invoked, authored overrides retained');
 } finally { await browser.close(); }

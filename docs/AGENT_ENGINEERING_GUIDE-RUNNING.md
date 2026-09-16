@@ -368,6 +368,9 @@ Persistence invariants (all machine-checked — do not weaken):
   lock selection’s geometry/handles describe exactly its editable subset. `elementProperties.ts`
   shares numeric applicability, units, ranges and setters between Inspector/F menu; paths and
   lines do not accept a box width/height write without changing their geometry.
+  Numeric displays preserve fractional values independently of the wheel step (`num.ts`);
+  rounding a displayed draft to its step conceals actual dimensions and loses repeated
+  Alt adjustments. Trim float noise at six decimals, including quarter-unit part properties.
   Plot placements own an invisible rectangular hit area behind their inline SVG artwork;
   transparent whitespace selects/moves the whole plot without obscuring semantic part hits.
   Keep it in `PlotElement.svelte`, outside the cached/exported SVG, under the same placement
@@ -779,7 +782,9 @@ Persistence invariants (all machine-checked — do not weaken):
   (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G plot gallery, Alt+T arrange,
   Alt+C caption; the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
-  `flux.ui.settingsTab`).
+  `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
+  Shift+Tab, and closing restores the invoking control. The collection defaults share the
+  same aligned 24px controls as the other settings.
   - **Property menu (F) = `FluxFigMenu.svelte` + `interact/propertyMenu.ts`.** One `Field` model
     (`buildMenuFields`: element fields + part fields with `mixed`/`count`) feeds the menu AND
     the Inspector's part section, so a property exists once. The menu is a hotkey surface: a
@@ -791,7 +796,10 @@ Persistence invariants (all machine-checked — do not weaken):
   - **Anchoring law = `ui/anchor.ts` (pure, `verify-surface-anchor.ts`).** Every popover that
     opens "at the selection" (menu, X-ray) avoids the selection's union rect: right → left →
     below → above → pointer → centre, aligned to the pointer on the free axis, re-clamped on
-    resize. Never place by saved settings again — the `fluxFigMenu*` / `xrayPos` keys are
+    resize. `reanchorPanel` keeps an open menu steady through picker expansion and window
+    resizing, moving it only when another placement reduces overlap with its opening selection.
+    Offscreen selections must still produce an on-screen anchor. Never place by saved settings
+    again — the `fluxFigMenu*` / `xrayPos` keys are
     retired and `settings.migrate()` deletes them.
   - **Wheel law = `interact/wheelLaw.ts` (pure, `verify-wheel-law.ts`).** Shared by the menu,
     `NumberField` and the colour picker: lines/pages are notches; pixel deltas ≥ 40 are discrete
@@ -815,6 +823,11 @@ Persistence invariants (all machine-checked — do not weaken):
     (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
+    Reopening follows the full plot selection even when a primary drilled part exists.
+    Common-row actions filter each member through Show hidden exclusions, and animation
+    batches deduplicate exact element/part targets. Keyboard navigation reveals its active
+    row. Regeneration pins the original project/plot before awaits; re-rooting cannot redirect
+    the result, and stale ownership discards it.
   - **Snapshot & annotate (Ctrl+Shift+S) = `shell/agent/AnnotateCapture.svelte` +
     `project/feedbackCapture.ts` (pure).** The "point at it" half of Note to agent: the
     overlay captures the window FIRST (`win:capture` → `webContents.capturePage` on the
@@ -866,6 +879,11 @@ Persistence invariants (all machine-checked — do not weaken):
     spectrum (`colorSpace.ts` HSV square + hue bar: drag previews through the session, release
     commits). Gates: `verify-color-space.ts` (pure); fmenu-surface / figenh-14 /
     figure-controls pin the `.hex` field and the `.sv`/`.hue` spectrum.
+    Hover/keyboard previews synchronize the swatch, hex and spectrum. Dismissal cancels an
+    unchosen preview; explicit hue/opacity range changes finish on release and keep the picker
+    open. Escape from a range cancels only the pending preview. Invalid hex drafts stay editable
+    and never apply the last valid value; gray/black retain the user's chosen HSV hue. The
+    collection bar spans both columns and map rows do not flex-shrink below their 22px height.
   - **Anchoring never lands on the thing:** when no side has full room, `anchorPanel` takes the
     side whose clamped placement overlaps the avoided box the LEAST (`overlapArea`), never
     the pointer (that put the menu on the selected path in Slide mode).
@@ -1229,7 +1247,11 @@ days (probe geometry like `width` instead).
   for exactly this reason. `window.__flux` is DEV-only. Production Figure measurements use
   `verify-figure-polish-electron.cjs`: a disposable on-disk project, the built `file://`
   renderer and actual native input/preload, without the dev handle. It also checks frame
-  resizing, autosave/undo, physical SVG/PNG/PDF exports and minimum-width controls.
+  resizing, autosave/undo, physical SVG/PNG/PDF exports, minimum-width controls, fractional
+  F-menu edits and cancellation of unchosen palette previews. Electron's injected drag
+  `mouseMove` needs `modifiers: ['leftButtonDown']`: `button: 'left'` alone arrives as DOM
+  `buttons=0` and releases pointer capture before Canvas receives the motion. Check actual
+  delivered events before treating an inert synthetic drag as an application regression.
 - **Load contention fakes regressions.** A scale gate read 4.49× under load-57 (parallel agents)
   and 3.32× quiet. Check `uptime` before believing a perf failure; kill orphaned tsx children
   (delegated agents leak them: `pgrep -f "tsx/dist/preflight"`).
@@ -1271,9 +1293,10 @@ days (probe geometry like `width` instead).
   A second Windows-only tell: restarting the dev server can leave a stale dep-optimizer cache,
   and Paper then mounts to a blank pane with `504 (Outdated Optimize Dep)` in the console —
   `rm -rf node_modules/.vite` and restart.
-- Delegated worktree agents fork from the **default branch**, not your branch. Give them an
-  explicit `git reset --hard <sha>` as step one, and expect to reconcile your in-flight deltas
-  when merging their result.
+- Check a delegated agent's actual working directory and branch before assigning edits.
+  Agents sharing this checkout see one another's edits immediately: assign distinct file
+  ownership and never reset their tree. A separately created worktree may start from a default
+  branch; select its intended base explicitly and preserve any existing changes.
 - pdf.js text layers hide during CSS-zoom (span boxes collapse to 0,0 *stably*) — waits need a
   nonzero two-poll-stable box, not a single poll. `TextQuoteSelector`'s field is `quote`, not
   `exact` — a wrong anchor field silently orphans annotations.
@@ -5264,3 +5287,50 @@ later "invalid range never starts regeneration" tripped. Every button inside a f
 surfaces). Design note: the app keeps only 32 stops per map on purpose — a preview bar and a
 colour-at-position pick need no more, and the full map is applied where it belongs, in
 fluxplot, by the name the picker returns.
+
+## Session entry — 2026-09-16 01:43 CDT — focused review of the Figure/Slides redesign
+
+**Work:** Reviewed `115cba6` in the existing `flux-figure-ui-redesign-dc0df2` worktree,
+with independent property-menu, colour and X-ray reviews plus native/browser inspection.
+Preserved the owner's subsequent typography, cursor and colormap choices. Fixed fractional
+numeric display and repeated fine stepping; gradient-aware no-fill/no-stroke; F-menu
+repositioning when its picker grows or its original selection lies offscreen. The colour
+picker now reports the preview actually painted, preserves hue at grey/black, rejects
+incomplete hex commits, reads actual/mixed opacity, and cancels unchosen previews on outside
+dismissal or pointer cancellation. Completed hue/opacity slider gestures remain committed
+while the picker stays open. Collection tabs span the picker without colliding with the
+spectrum; colormap rows retain their 22px height and collection switches select a usable map.
+
+X-ray keyboard/search navigation reveals the active row; reopening a common-part selection
+retains all plots; set-root visibility works; common actions respect Show hidden exclusions;
+overlapping common/individual animation targets produce one track each. Async regeneration
+pins the original project/plot/recipe before awaiting, so re-rooting cannot redirect a result.
+Settings now contains keyboard focus, retains each section's own scroll position and aligns
+the collection controls with the other fields. Updated the existing regression gates and
+Figure/Slides docs. Corrected stale guide advice about delegated agents: shared-checkout
+work must preserve other agents' edits instead of assuming isolated worktrees.
+
+**Verified:** `npm run check` 0 errors/0 warnings; production build PASS; full pure tier
+229/229; docs 158/158. Targeted F-menu, X-ray multi/theme, fluxplot regeneration,
+figenh-14/18 and numeric/scrub gates PASS. Broad Figure editing/controls, eleven Slide GUI
+gates, both gallery gates and shell/Settings PASS. Final production Electron gate PASS,
+including actual F-menu keys, fractional autosave/undo, palette hover/dismissal, frame
+resize/undo, SVG/PNG/PDF exports and physical PDF sizing. Native key-to-paint p95:
+40.2ms at 1,600 objects; 82.1ms at 5,000; 44 mounted Layers rows. These are absolute
+responsiveness checks, not a claim of a measured performance improvement over the baseline.
+Gallery/timeline layouts inspected at 840, 1024 and 1440px; Settings at 1024×620. The real
+user library remained unchanged. Screenshots/logs live in `test-results/ui-review`,
+`test-results/out`, and `test-results/redesign-review` (ignored local evidence).
+
+**Verification findings:** The original native gate's frame drag also failed on unmodified
+`115cba6`; tracing proved its injected move had `buttons=0`. Fixed the harness's held-button
+modifier, preserving every assertion, and extended its native coverage as above. Brave's
+raster-readback gate failed on origin :1420, but both original and current sources fully
+pass the unchanged gate on :1421 (`premultMax=1`). This isolates an origin-sensitive test
+environment effect; fingerprint protection is only a hypothesis. Export code and tolerances
+were not changed. Exact controls are recorded in
+`test-results/redesign-review/export-origin-controls.md`.
+
+**Deferred:** A semantic hierarchy for very large X-ray Common parts lists could improve
+browsing, but changes navigation conventions and needs a separate design decision. Existing
+gallery and timeline layouts held up under review; no speculative restyling was added.

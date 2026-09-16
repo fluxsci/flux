@@ -118,11 +118,11 @@ export function evalExpr(input: string): number | null {
   return Number.isFinite(result) ? result : null;
 }
 
-// Format a numeric value for display in a field: integers stay integer, else
-// round to the precision implied by `step` (so a 0.05 opacity shows "0.85", a
-// 1-unit x shows "408"). Trims float noise from scrub accumulation.
-export function fmtNum(v: number, step = 1): string {
+// Display the value itself, independently of the control's stepping increment.
+// Unit-stepped dimensions can still be fractional (typed math, aspect locking,
+// Alt scrubbing); rounding them to the step conceals the actual geometry and
+// loses fine edits when this display becomes the next numeric draft.
+export function fmtNum(v: number): string {
   if (!Number.isFinite(v)) return "0";
-  const dp = step < 1 ? Math.min(4, Math.ceil(-Math.log10(step))) : 0;
-  return String(+v.toFixed(dp));
+  return String(+v.toFixed(6));
 }

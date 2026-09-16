@@ -90,10 +90,20 @@
   let regenMsg = "";
   async function regenerate(parameters: Record<string, unknown> = recipe?.params ?? {}) {
     const fb = fileBridge();
+    if (regenBusy) return;
     if (!rootPlot || !recipePath || !fb?.runRecipe) {
       regenMsg = "no recipe";
       return;
     }
+    // Re-rooting is allowed while the recipe runs. Pin its owner before any
+    // await so its result can never replace the newly inspected plot.
+    const target = { id: rootPlot.id, assetId: rootPlot.assetId, figId: root!.figId, recipePath, projRoot };
+    const owner = get(project);
+    const ownsTarget = () => {
+      if (get(project) !== owner || (get(embeddedProjectRoot) ?? get(projectDir)) !== target.projRoot) return false;
+      const el = owner.figures.find((f) => f.id === target.figId)?.elements.find((e) => e.id === target.id);
+      return el?.type === "plot" && el.assetId === target.assetId && el.source?.recipePath === target.recipePath;
+    };
     regenBusy = true;
     regenMsg = "";
     try {
@@ -101,16 +111,18 @@
       // runRecipe reads the file and resolves the recipe's `cwd` from its
       // dirname — it needs a real absolute path.
       let recipeAbs = "";
-      for (const c of plotSourceCandidates(projRoot, recipePath)) {
+      for (const c of plotSourceCandidates(target.projRoot, target.recipePath)) {
         if (await fb.exists(c)) {
           recipeAbs = c;
           break;
         }
       }
+      if (!ownsTarget()) return;
       if (!recipeAbs) {
         regenMsg = "recipe file not found";
       } else {
         const res = await fb.runRecipe(recipeAbs, parameters);
+        if (!ownsTarget()) return;
         // Surface the REAL failure instead of a bare "error" — the recipe's stderr on a
         // non-zero exit, and the actual exception message if the output JSON won't parse.
         if (res.code !== 0) {
@@ -118,8 +130,9 @@
           regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
         } else if (res.svgText && res.manifestText) {
           await validateIncomingPlot(res.svgText, res.manifestText);
+          if (!ownsTarget()) return;
           reimportPlot(
-            rootPlot.assetId,
+            target.assetId,
             res.svgText,
             JSON.parse(res.manifestText) as FluxPlotManifest,
             res.recipeText ? JSON.parse(res.recipeText) : undefined,
@@ -129,8 +142,10 @@
       }
     } catch (e) {
       regenMsg = "error: " + String((e as Error)?.message ?? e);
+    } finally {
+      regenBusy = false;
+      if (rootPlot?.id !== target.id || !ownsTarget()) regenMsg = "";
     }
-    regenBusy = false;
   }
 
   let expanded = new Set<string>();
@@ -142,6 +157,13 @@
   let animMenu = false;
   let panelEl: HTMLDivElement;
   let searchEl: HTMLInputElement;
+
+  async function revealPrimary() {
+    await tick();
+    // Nearest scrolling keeps keyboard navigation and search results visible,
+    // without recentering the tree or moving the canvas under the panel.
+    panelEl?.querySelector<HTMLElement>(".row.primary")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 
   // --- placement (ui/anchor.ts — beside the selection, near the pointer) -----
   const pointer = { x: -1, y: -1 };
@@ -295,6 +317,7 @@
     next.add(rowId);
     selectedIds = next;
     anchorId ??= rowId;
+    void revealPrimary();
   }
 
   // --- pick → canvas selection --------------------------------------------------------
@@ -442,7 +465,20 @@
   // --- eye / 'x': per-row-kind hide dispatch, over the whole pick -------------------------
   function toggleHiddenRows(list: XRow[]) {
     const exclusions = get(editorSelectionExclusions);
-    const targets = list.filter((n) => !hideBlocked(n, exclusions));
+    const fig = root ? get(project).figures.find((f) => f.id === root.figId) : null;
+    const targets = list.flatMap((n) => n.kind === "set" ? n.children : [n])
+      .filter((n) => !hideBlocked(n, exclusions))
+      .map((n) => {
+        if (n.kind !== "common") return n;
+        const elementIds = (n.elementIds ?? []).filter((id) => !isEditorTargetExcluded(id, n.partId));
+        // The eye's direction is decided by EDITABLE members. A disappeared
+        // member (Show hidden off) must neither change nor reverse this action.
+        const hidden = elementIds.every((id) => {
+          const el = fig?.elements.find((e) => e.id === id);
+          return el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
+        });
+        return { ...n, elementIds, hidden };
+      });
     if (!targets.length) return;
     // Any shown → hide all; every one hidden → show all (the Layers rule).
     const anyShown = targets.some((n) => !n.hidden);
@@ -482,7 +518,13 @@
       else if (n.kind === "group" && n.groupId && fig) for (const m of membersDeep(fig, n.groupId)) out.push({ elementId: m.id });
       else if (n.kind === "set") for (const c of n.children) if (c.elementId) out.push({ elementId: c.elementId });
     }
-    return out;
+    const seen = new Set<string>();
+    return out.filter((t) => {
+      const key = JSON.stringify([t.elementId, t.partId ?? ""]);
+      if (seen.has(key) || isEditorTargetExcluded(t.elementId, t.partId)) return false;
+      seen.add(key);
+      return true;
+    });
   }
   function animate(kind: XrayAnimateKind) {
     const handler = get(xrayAnimate);
@@ -568,7 +610,7 @@
       e.preventDefault();
       const i = rows.findIndex((r) => r.node.id === selectedId);
       const ni = k === "ArrowDown" ? Math.min(rows.length - 1, i + 1) : Math.max(0, i - 1);
-      if (rows[ni]) pick(rows[ni].node, { shiftKey: e.shiftKey });
+      if (rows[ni]) { pick(rows[ni].node, { shiftKey: e.shiftKey }); void revealPrimary(); }
     } else if (k === "ArrowRight" && selRow) {
       expanded.add(selRow.id);
       expanded = expanded;
@@ -594,7 +636,7 @@
       e.preventDefault();
       const i = rows.findIndex((r) => r.node.id === selectedId);
       const ni = e.key === "ArrowDown" ? Math.min(rows.length - 1, i + 1) : Math.max(0, i - 1);
-      if (rows[ni]) selectedId = rows[ni].node.id;
+      if (rows[ni]) { selectedId = rows[ni].node.id; void revealPrimary(); }
     }
   }
   const eyeGlyph = (n: XRow) => (n.kind === "common" && n.hiddenCount && n.hiddenCount < (n.elementIds?.length ?? 0) ? "◐" : n.hidden ? "○" : "◉");
@@ -791,7 +833,7 @@
   .tree { overflow-y: auto; padding: 4px 6px 6px; min-height: 0; flex: 1 1 auto; }
   .section { display: flex; align-items: baseline; gap: 8px; padding: 8px 6px 3px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--xr-tx-dim); border-bottom: 1px solid var(--xr-line); margin-bottom: 2px; }
   .scount { text-transform: none; letter-spacing: 0; }
-  .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; border-radius: var(--r-0); cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }
+  .row { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px; scroll-margin-block: 4px; border-radius: var(--r-0); cursor: var(--cursor-cross-hover); font-size: 12px; user-select: none; }
   .row:hover { background: var(--xr-tint-2); }
   /* Selection = phosphor tint + inset rail — NOT a solid fill; the primary row of a multi-pick carries the rail. */
   .row.sel { background: var(--xr-tint); color: var(--xr-tx); }
