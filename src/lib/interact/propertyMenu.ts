@@ -16,7 +16,7 @@ import { get } from "svelte/store";
 import type { Element, PartOverride, Project, SemanticPlotElement, TextStyle } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { PartSelection } from "../store";
-import { project, mutate, drawStyle } from "../store";
+import { project, mutate, drawStyle, xrayOpen, xrayRoot } from "../store";
 import { selectionTargets } from "./selectionTargets";
 import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./elementProperties";
 import { uniqueFieldKeys } from "./propertyFields";
@@ -559,5 +559,29 @@ export function buildMenuFields(
   lib: TextStyle[],
 ): Field[] {
   const fields = parts.length ? buildPartFields(p, parts, manifests, lib) : buildElementFields(p, sel, lib);
+  // A fluxplot with colour-scaled fields (heatmap / contour): its colormap is
+  // picked in the X-ray's Color scales (every collection fluxplot ships), so the
+  // menu offers the door — one selected plot, `c`, the X-ray opens rooted on it.
+  if (!parts.length && sel.size === 1) {
+    for (const f of p.figures) {
+      const el = f.elements.find((e) => sel.has(e.id));
+      if (!el) continue;
+      if (el.type === "plot" && manifests[el.assetId]?.series?.some((s) => s.field?.controlKey)) {
+        fields.push({
+          key: "c",
+          label: "colour scale… (X-ray)",
+          group: "Plot",
+          kind: "action",
+          get: () => true,
+          apply: () => {
+            fluxFigMenuOpen.set(false);
+            xrayRoot.set({ kind: "element", figId: f.id, elementId: el.id });
+            xrayOpen.set(true);
+          },
+        });
+      }
+      break;
+    }
+  }
   return uniqueFieldKeys(fields);
 }

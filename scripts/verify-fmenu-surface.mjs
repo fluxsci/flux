@@ -189,6 +189,93 @@ try {
   m = await model();
   ok(m.rect.fill.toLowerCase() === target.hex.toLowerCase(), `a click commits the colour (${m.rect.fill})`);
   ok(m.h.past === 4, `…as one undo entry — opacity, width, align, colour (past=${m.h.past})`);
+
+
+  // --- 5b. collections (2026-09-16): tabs, Shift+Tab cycles, Tab → colormaps, a colour along a map ----
+  await page.keyboard.press("c");
+  await sleep(150);
+  const tabs = await page.evaluate(() => [...document.querySelectorAll(".fluxFigMenu .cs .tabs .tab")].map((t) => ({ name: t.textContent.trim(), on: t.classList.contains("on") })));
+  ok(tabs.map((t) => t.name).join("|") === "Flexoki|ColorBrewer|Paul Tol|Colormaps" && tabs[0].on, `the picker offers the palette collections and the colormaps (${tabs.map((t) => t.name).join("|")}); Flexoki (the setting) is open`);
+  await page.keyboard.down("Shift"); await page.keyboard.press("Tab"); await page.keyboard.up("Shift");
+  await sleep(80);
+  const after = await page.evaluate(() => ({ on: document.querySelector(".fluxFigMenu .cs .tabs .tab.on")?.textContent.trim(), rows: [...document.querySelectorAll(".fluxFigMenu .cs .plabel")].map((l) => l.textContent.trim()) }));
+  ok(after.on === "ColorBrewer" && after.rows.includes("BLUES") === false && after.rows.some((r) => /blues/i.test(r)), `Shift+Tab cycles to ColorBrewer and its groups fill the grid (${after.on}; ${after.rows.slice(0, 3).join(", ")}…)`);
+  await page.keyboard.press("Tab");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu .cs .cmp"), null, { label: "colormap view" });
+  const cm = await page.evaluate(() => ({
+    tabs: [...document.querySelectorAll(".fluxFigMenu .cmp .tabs .tab")].map((t) => t.textContent.trim()),
+    on: document.querySelector(".fluxFigMenu .cmp .tabs .tab.on")?.textContent.trim(),
+    groups: [...document.querySelectorAll(".fluxFigMenu .cmp .gtitle")].map((g) => g.firstChild.textContent.trim()),
+    maps: document.querySelectorAll(".fluxFigMenu .cmp .cm").length,
+    bars: [...document.querySelectorAll(".fluxFigMenu .cmp .cm .bar")].every((b) => /gradient/.test(b.getAttribute("style") || "")),
+  }));
+  ok(cm.tabs.join("|") === "matplotlib|Crameri|Paul Tol|cmasher" && cm.on === "matplotlib", `Tab opens the colormap picker on the matplotlib collection (${cm.tabs.join("|")})`);
+  ok(cm.groups.join("|") === "sequential|diverging|cyclic|qualitative|misc" && cm.maps > 80 && cm.bars, `maps are grouped by type with a preview bar each (${cm.maps} maps)`);
+  await page.keyboard.down("Shift"); await page.keyboard.press("Tab"); await page.keyboard.up("Shift");
+  await sleep(80);
+  ok((await page.evaluate(() => document.querySelector(".fluxFigMenu .cmp .tabs .tab.on")?.textContent.trim())) === "Crameri", "Shift+Tab cycles the colormap collections too");
+  await page.evaluate(() => document.querySelector('.fluxFigMenu .cmp .cm[data-map="batlow"]').click());
+  await sleep(80);
+  const bar = await page.evaluate(() => { const r = document.querySelector(".fluxFigMenu .cmp .pick").getBoundingClientRect(); return { x: r.left + r.width * 0.9, y: r.top + r.height / 2 }; });
+  await page.mouse.move(bar.x, bar.y);
+  await sleep(120);
+  m = await model();
+  const previewed = m.rect.fill.toLowerCase();
+  ok(/^#[0-9a-f]{6}$/.test(previewed) && previewed !== target.hex.toLowerCase(), `hovering along batlow previews the colour at that position (${previewed})`);
+  await page.mouse.click(bar.x, bar.y);
+  await sleep(200);
+  m = await model();
+  ok(m.rect.fill.toLowerCase() === previewed && !(await page.$(".fluxFigMenu .cs")), `a click along the map applies that colour and closes the picker (${m.rect.fill})`);
+
+  // --- 5c. gradients (owner note, 2026-09-16): the whole map along an axis --------------------
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu .cs"), null, { label: "picker (gradient)" });
+  await page.keyboard.press("Tab");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu .cmp"), null, { label: "colormap view (gradient)" });
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("Tab");
+  await page.keyboard.up("Shift");
+  await sleep(120);
+  await page.evaluate(() => document.querySelector('.fluxFigMenu .cmp .cm[data-map="batlow"]').click());
+  await sleep(120);
+  const gbtns = await page.evaluate(() => [...document.querySelectorAll(".fluxFigMenu .cmp .gbtn")].map((b) => b.dataset.axis).join("|"));
+  ok(gbtns === "x|y", `the colour-mode footer offers the map as a gradient along x or y (${gbtns})`);
+  await page.keyboard.press("y");
+  await sleep(250);
+  m = await model();
+  ok(m.rect.fillMap?.map === "crameri.batlow" && m.rect.fillMap.axis === "y" && m.rect.fillMap.stops?.length === 32 && !(await page.$(".fluxFigMenu .cs")), `y applies the map as a gradient along y — name, axis and the 32 resolved stops on the element — and closes the picker (${JSON.stringify({ map: m.rect.fillMap?.map, axis: m.rect.fillMap?.axis, stops: m.rect.fillMap?.stops?.length })})`);
+  // clicking the row in colour mode previewed the map's midpoint as a solid — that
+  // solid stays underneath as the fallback for an unknown map
+  ok(/^#[0-9a-f]{6}$/i.test(m.rect.fill), `…keeping a solid colour underneath as the fallback (${m.rect.fill})`);
+  const painted = await page.evaluate(() => {
+    const g = document.querySelector('linearGradient[id="fxg-fm-rect-fill"]');
+    const r = document.querySelector('[data-id="fm-rect"] rect, g[data-id="fm-rect"] rect') || [...document.querySelectorAll("svg rect")].find((x) => (x.getAttribute("fill") || "").startsWith("url(#fxg-fm-rect"));
+    return { def: !!g, stops: g ? g.querySelectorAll("stop").length : 0, y1: g?.getAttribute("y1"), fill: r?.getAttribute("fill") ?? "" };
+  });
+  ok(painted.def && painted.stops === 32 && painted.y1 === "1" && painted.fill === "url(#fxg-fm-rect-fill)", `the canvas paints the rect through a 32-stop bottom→top gradient (${JSON.stringify(painted)})`);
+  const chip = await page.evaluate(() => {
+    const b = [...document.querySelectorAll(".fluxFigMenu .colorbtn")].find((x) => /batlow/.test(x.textContent));
+    return b ? { name: b.querySelector(".cname")?.textContent.trim(), bg: b.querySelector(".dot")?.style.background || "" } : null;
+  });
+  ok(!!chip && chip.name === "crameri.batlow · along y" && /linear-gradient/.test(chip.bg), `the menu's colour chip shows the gradient and names the map (${JSON.stringify(chip)})`);
+  await page.keyboard.press("c");
+  await waitFor(page, () => !!document.querySelector(".fluxFigMenu .cs"), null, { label: "picker (solid again)" });
+  await sleep(120);
+  // re-find the swatch: the picker is a fresh instance and the chip above it now
+  // carries a longer label, so never trust the old screen point
+  const again = await page.evaluate((hex) => {
+    const sw = [...document.querySelectorAll(".fluxFigMenu .cs .sw:not(.none)")].find((s) => s.title.split(" · ").pop().toLowerCase() === hex);
+    if (!sw) return null;
+    const r = sw.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, target.hex.toLowerCase());
+  ok(!!again, "the palette view is back with the same swatches");
+  await page.mouse.move(again.x, again.y);
+  await sleep(60);
+  await page.mouse.click(again.x, again.y);
+  await sleep(200);
+  m = await model();
+  ok(m.rect.fillMap === undefined && m.rect.fill.toLowerCase() === target.hex.toLowerCase(), `a swatch pick returns the rect to a solid colour (${JSON.stringify({ fill: m.rect.fill, fillMap: m.rect.fillMap })})`);
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
 

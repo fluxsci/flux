@@ -5,12 +5,15 @@
   import { assetDisplaySize } from "./ops";
   import { lineRender, elementBBox, dashAttr } from "./geometry";
   import { pathRender } from "./path";
+  import { elementPaints } from "./color/gradient";
   import { visualLines, lineH } from "./text";
   import PlotElement from "./PlotElement.svelte";
 
   export let element: Element;
 
   $: e = element;
+  // solid colours, or url(#…) gradients when a colormap is set (color/gradient.ts)
+  $: paints = elementPaints(e);
   // Crop rendering for `<image>`-backed rasters (P5): the crop window lives in
   // intrinsic content px (assetDisplaySize units), shown via a nested-svg
   // viewport — viewBox = the window, the image drawn at full display size
@@ -38,6 +41,11 @@
 </script>
 
 <g {transform} opacity={e.opacity ?? 1}>
+  {#each paints.defs as d (d.id)}
+    <linearGradient id={d.id} x1={d.x1} y1={d.y1} x2={d.x2} y2={d.y2} gradientUnits={d.units}>
+      {#each d.stops as st, i (i)}<stop offset={st.offset} stop-color={st.color} />{/each}
+    </linearGradient>
+  {/each}
   {#if e.type === "plot"}
     <PlotElement element={e} />
   {:else if e.type === "video"}
@@ -99,8 +107,8 @@
       width={e.width}
       height={e.height}
       rx={e.cornerRadius}
-      fill={e.fill}
-      stroke={e.stroke}
+      fill={paints.fill}
+      stroke={paints.stroke}
       stroke-width={e.strokeWidth}
       stroke-dasharray={dashAttr(e)}
     />
@@ -110,8 +118,8 @@
       cy={e.y + e.height / 2}
       rx={e.width / 2}
       ry={e.height / 2}
-      fill={e.fill}
-      stroke={e.stroke}
+      fill={paints.fill}
+      stroke={paints.stroke}
       stroke-width={e.strokeWidth}
       stroke-dasharray={dashAttr(e)}
     />
@@ -131,7 +139,7 @@
       y1={e.y + lr.y1}
       x2={e.x + lr.x2}
       y2={e.y + lr.y2}
-      stroke={e.stroke}
+      stroke={paints.stroke}
       stroke-width={e.strokeWidth}
       stroke-linecap={lr.cap}
       stroke-dasharray={dashAttr(e)}
@@ -139,14 +147,14 @@
     {#each lr.polys as tri}
       <polygon
         points={tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
-        fill={e.stroke}
+        fill={paints.heads}
       />
     {/each}
     {#each lr.vees as v}
       <polyline
         points={v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
         fill="none"
-        stroke={e.stroke}
+        stroke={paints.heads}
         stroke-width={e.strokeWidth}
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -167,8 +175,8 @@
     <path
       d={pr.d}
       transform={`translate(${e.x} ${e.y})`}
-      fill={e.closed ? e.fill : "none"}
-      stroke={e.stroke}
+      fill={paints.fill}
+      stroke={paints.stroke}
       stroke-width={e.strokeWidth}
       stroke-linejoin="round"
       stroke-linecap={e.cap ?? "round"}
@@ -177,14 +185,14 @@
     {#each pr.polys as tri}
       <polygon
         points={tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
-        fill={e.stroke}
+        fill={paints.heads}
       />
     {/each}
     {#each pr.vees as v}
       <polyline
         points={v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
         fill="none"
-        stroke={e.stroke}
+        stroke={paints.heads}
         stroke-width={e.strokeWidth}
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -205,7 +213,7 @@
       font-weight={e.fontWeight}
       font-style={e.fontStyle}
       text-decoration={e.underline ? "underline" : undefined}
-      fill={e.color}
+      fill={paints.fill}
       text-anchor={e.align === "center"
         ? "middle"
         : e.align === "right"

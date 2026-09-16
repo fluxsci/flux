@@ -206,6 +206,22 @@ export interface ImageElement extends ElementBase {
   crop?: CropRect;
 }
 
+/** A colormap laid across an element's box as a linear gradient (2026-09-16).
+ *  `map` is the qualified fluxplot name (`crameri.batlow`, `mpl.viridis_r`) —
+ *  for display and re-picking; `stops` are the map's colours, RESOLVED when the
+ *  map is applied and stored here, so every renderer (the canvas, the export
+ *  serializer, flux-core, the exported deck runtime) paints from the element
+ *  alone and never needs the colormap table. `axis` x runs left→right, y
+ *  bottom→top. Set beside the solid colour, which stays as the fallback when
+ *  `stops` is empty. */
+export interface GradientFill {
+  map: string;
+  axis: "x" | "y";
+  stops: string[];
+  /** Hard bands instead of a blend (qualitative maps). */
+  discrete?: boolean;
+}
+
 export interface TextElement extends ElementBase {
   type: "text";
   text: string;
@@ -219,6 +235,8 @@ export interface TextElement extends ElementBase {
   lineHeight?: number;
   align: "left" | "center" | "right";
   color: string;
+  /** Colormap gradient painting the glyphs (wins over `color` while set). */
+  fillMap?: GradientFill | null;
   // Sizing mode (replaces the old boolean autoWidth; migrate.ts converts):
   //   "auto"   — the box hugs the text, no wrapping (Figma auto-width)
   //   "auto-h" — wrap at the box width, height hugs the wrapped lines
@@ -247,6 +265,9 @@ export interface RectElement extends ElementBase {
   type: "rect";
   fill: string;
   stroke: string;
+  /** Colormap gradients (win over `fill` / `stroke` while set). */
+  fillMap?: GradientFill | null;
+  strokeMap?: GradientFill | null;
   strokeWidth: number;
   cornerRadius: number;
   /** Dash pattern in canvas px (SVG stroke-dasharray values, e.g. [6, 4]).
@@ -258,6 +279,9 @@ export interface EllipseElement extends ElementBase {
   type: "ellipse";
   fill: string;
   stroke: string;
+  /** Colormap gradients (win over `fill` / `stroke` while set). */
+  fillMap?: GradientFill | null;
+  strokeMap?: GradientFill | null;
   strokeWidth: number;
   dash?: number[];
 }
@@ -270,6 +294,8 @@ export interface LineElement extends ElementBase {
   x2: number;
   y2: number;
   stroke: string;
+  /** Colormap gradient along the line's box (wins over `stroke` while set). */
+  strokeMap?: GradientFill | null;
   strokeWidth: number;
   arrowStart: boolean;
   arrowEnd: boolean;
@@ -305,6 +331,9 @@ export interface PathElement extends ElementBase {
   d: string;
   fill: string;
   stroke: string;
+  /** Colormap gradients (win over `fill` / `stroke` while set). */
+  fillMap?: GradientFill | null;
+  strokeMap?: GradientFill | null;
   strokeWidth: number;
   closed: boolean;
   // When present, the AUTHORITATIVE editable geometry; `d` is derived from it.

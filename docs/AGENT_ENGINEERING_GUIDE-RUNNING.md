@@ -873,6 +873,26 @@ Persistence invariants (all machine-checked — do not weaken):
     plain, interactive elements dotted, `:active` contracted, text fields the I-beam; no
     component may say `cursor: pointer` / `default` — 302 declarations were swapped for the
     family in one pass, and the gate keeps it that way.
+  - **Colour collections come from fluxplot** (2026-09-16): `~/fluxplot/src/fluxplot/definitions/
+    {colormaps,palettes}.json` are the ONE source — matplotlib's maps in their documented
+    groups, Crameri, Paul Tol (maps + colour sets), cmasher, ColorBrewer (9-class sequential,
+    11-class diverging, the qualitative sets), Flexoki — built there once by
+    `tools/build_color_definitions.py` from the upstream packages, which are never imported
+    at runtime. `fx.maps` registers every map (+ `_r`) with matplotlib under its qualified name
+    (`crameri.batlow`) from `import fluxplot` on, so that name is what a plot regenerates
+    with. Flux bundles them: `scripts/gen-color-collections.mjs` → `src/lib/color/
+    collections.gen.ts` (checked in; 32 stops per continuous map, discrete maps and palettes
+    whole; re-run when fluxplot's definitions change), `color/collections.ts` is the pure
+    helper layer (`findColormap`, `colormapGradient`, `colormapColorAt`, `colormapsByType`,
+    `paletteGroups`, `nextId`). Surfaces: `ColorPicker` has collection tabs (Flexoki /
+    ColorBrewer / Paul Tol / Project; Shift+Tab cycles, `settings.paletteCollection` opens
+    first) and Tab switches its left column to `ColormapPicker` (collections × types, preview
+    bars; in "color" mode a hover along the chosen bar previews the colour at that position
+    and a click commits it); `ColorScaleControls` (X-ray Color scales) shows the current map
+    as a bar and opens the picker in "map" mode, filling the palette field with the
+    qualified name; a plot with colour-scaled fields gets a `c colour scale… (X-ray)` action
+    in its menu. Gates: `verify-color-collections.ts` (pure, the bundle + helpers), the
+    collections leg of `verify-fmenu-surface`, the picker leg of `verify-fluxplot03-gui`.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -5187,3 +5207,60 @@ rows and the spectrum picker; the notes resolved with `flux resolve-feedback`.
 least-overlap anchoring, the cursor policy). Meta: the owner's snapshot notes carried the DOM
 anchors and the crop, so each item was actionable without a question back — the feedback
 loop built in the previous entry paid for itself on its first batch.
+
+## Session entry — 2026-09-16 01:40 — colormap and palette collections, from fluxplot to the pickers
+
+**Work:** Owner ask: a colormap selector over every fluxplot map (mpl, Crameri, Tol, cmasher)
+for plots and for fill/stroke colours, palette collections (Flexoki default, ColorBrewer, Tol)
+in the palette picker, tabs + Shift+Tab to move between collections, and a settings default
+for both. Owner's steer: define everything in fluxplot as standalone data, never lean on the
+upstream packages. Built in `~/fluxplot` (main, `c318f89`): the generator, the two definition
+files (223 maps, 54 palette groups), the registry extension (qualified/bare/`_r` resolution,
+matplotlib registration, `info()`), `fx.palettes`, tests (157 green), README. Built here:
+the bundler + generated module, the pure helper layer, `ColormapPicker.svelte`, the palette
+collection tabs and colormap view in `ColorPicker`, the X-ray colour-scale picker, the plot
+menu action, two settings + the Settings dialog rows, docs.
+
+Owner's follow-up note, same session: *"if a map is selected for a fill/stroke color, it
+should be applied as a gradient along an axis, like x or y, that the [user] can set when
+selecting it"*. Built: `GradientFill { map, axis, stops, discrete? }` on the model as
+`fillMap` / `strokeMap` (rect, ellipse, path; `strokeMap` on lines; `fillMap` on text) beside
+the solid colour, which stays as the fallback when the stops are missing. The stops are
+RESOLVED ONCE, when the map is applied (`color/collections.makeGradientFill`), and stored on
+the element — so every renderer paints from the element alone; `color/gradient.ts` — the ONE
+pure paint resolver — imports no colormap table (gate-pinned: the exported deck runtime
+bundles the serializer, and the first cut, which looked the map up at paint time, dragged the
+whole 117 KB table plus its source URLs into every deck and tripped
+`verify-slide-headless-e2e`'s "offline by construction" check). `elementPaints` → solid or
+`url(#…)` + `<linearGradient>` defs; objectBoundingBox for
+shapes/text, a figure-space userSpaceOnUse box for lines so the arrowheads share the line's
+gradient, and a figure-space twin def for a path's arrowheads because the path itself carries
+a `translate()`); `Element.svelte` and `export.ts` both paint through it, so the canvas, every
+export and flux-core's headless render agree, and an element without a map serializes
+byte-identically to before. `colors.applyColormap(map, axis, target)` writes the map (parts
+and the draw style decline — solid only), `applyColor` and a solid `setElementStyle` patch
+clear it; the colormap picker's colour mode gained `gradient` + `onPickGradient` (x / y keys,
+two footer buttons), `ColorPicker` routes the pick through its edit session (one undo); the
+menu chip and the Inspector swatches show the gradient and name the map (`gradientCss`,
+`gradientLabel`). Gate: `verify-gradient-fill.ts` (pure; stops, vectors, ids, per-element
+paints, the serializer, the style patch) + a gradient leg in fmenu-surface (5c). Docs:
+figure.qmd.
+
+**Verified:** check 0/0; the pure tier 229/229 with the browser path set (the eight
+slide gates need `FLUX_CHROME`); `verify-gradient-fill`, `verify-color-collections`,
+`verify-figure-export`, `verify-line-arrow`, figenh-16-parity, `verify-slide-headless-e2e`
+PASS; the pathMap coverage golden unchanged; fmenu-surface (collections + gradient legs),
+fluxplot03-gui (picker leg), figenh-14, figure-controls-gui, figenh-18-xray, menu green; docs
+green; the pane shows the tabs, the colormap view, the picker in the X-ray, and the seeded
+figure painted: a rect bottom→top with batlow, an ellipse with a viridis stroke, an arrow whose
+head continues the line's sunset gradient, plasma text.
+
+**Gotcha (fixed):** the picker's collection tabs were bare `<button>`s; inside the X-ray's
+`<form>` a bare button is a SUBMIT, so clicking "Crameri" regenerated the plot and the gate's
+later "invalid range never starts regeneration" tripped. Every button inside a form gets
+`type="button"` unless it is the submit.
+
+**Learnings:** promoted to §4 (the fluxplot-as-source contract, the bundler, the picker
+surfaces). Design note: the app keeps only 32 stops per map on purpose — a preview bar and a
+colour-at-position pick need no more, and the full map is applied where it belongs, in
+fluxplot, by the name the picker returns.

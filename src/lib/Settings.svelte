@@ -7,6 +7,7 @@
   // reachable whichever tab was chosen last — the shell and correction gates
   // read them without switching tabs.
   import { fade } from "svelte/transition";
+  import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS } from "./color/collections";
   import { onDestroy, untrack } from "svelte";
   import { settings, settingsOpen, type Settings } from "./settings";
   import { fileBridge } from "./project/types";
@@ -427,6 +428,22 @@
               px
             </label>
             <p class="hint">The size captions are typed at in the caption page (<b>Alt+C</b>). World px, so it scales with the canvas zoom just like the figure. Every caption grows to fit its text — the page scrolls between them, the boxes never do.</p>
+
+            <h3>Colour pickers</h3>
+            <label class="row">
+              <span>Palette collection</span>
+              <select bind:value={$settings.paletteCollection} aria-label="Default palette collection">
+                {#each PALETTE_COLLECTIONS as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+                <option value="project">Project palette</option>
+              </select>
+            </label>
+            <label class="row">
+              <span>Colormap collection</span>
+              <select bind:value={$settings.colormapCollection} aria-label="Default colormap collection">
+                {#each COLORMAP_COLLECTIONS as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+              </select>
+            </label>
+            <p class="hint">The collection a picker opens on. Every collection stays a <b>Shift+Tab</b> away inside the picker; <b>Tab</b> switches between palettes and colormaps.</p>
 
             <h3>Property menu</h3>
             <p class="hint">Press F with objects selected. The menu opens beside the selection; every property has a left-hand key, and the mouse wheel adjusts the armed value.</p>

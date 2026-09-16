@@ -228,7 +228,9 @@
    "verify-feedback-snapshot.ts",
    "verify-feedback-withdraw.ts",
    "verify-color-space.ts",
-   "verify-cursor-policy.ts"
+   "verify-cursor-policy.ts",
+   "verify-color-collections.ts",
+   "verify-gradient-fill.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -657,6 +659,19 @@
    "run": [
     "verify-paper-files.ts",
     "group:paper-gate"
+   ]
+  },
+  {
+   "$why": "2026-09-16 colour collections \u2014 fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
+   "glob": "{src/lib/color/**,src/lib/ColormapPicker.svelte,src/lib/ColorPicker.svelte,src/lib/plot/ColorScaleControls.svelte,scripts/gen-color-collections.mjs}",
+   "run": [
+    "verify-color-collections.ts",
+    "verify-gradient-fill.ts",
+    "verify-color-space.ts",
+    "verify-fmenu-surface.mjs",
+    "verify-fluxplot03-gui.mjs",
+    "figenh-14-partui.mjs",
+    "verify-figure-controls-gui.mjs"
    ]
   },
   {

@@ -196,7 +196,20 @@ as font or alignment expands its options inline (wheel, **w/a/s/d**, **1–9**, 
 colour opens the **palette** — every row on one line, the whole grid in view — with the
 full **spectrum** beside it (a saturation/value square and a hue bar, seeded from the current
 colour), a hex field and an **eyedropper**; hovering a swatch previews it live, a click
-applies it, and a drag on the square previews until you let go. Hovering any numeric row and rolling the wheel edits it directly, so
+applies it, and a drag on the square previews until you let go. The palette comes in
+**collections** — Flexoki (the default), ColorBrewer, Paul Tol's colour sets, and your
+project's own imported palette — as tabs above the grid; **Shift+Tab** cycles them. **Tab**
+switches the grid to the **colormaps**: every map fluxplot ships (matplotlib, Crameri's
+Scientific colour maps, Paul Tol, cmasher), by collection and by type, each with a preview
+bar — pick a map and hover along its bar to take the colour at that position, **r** reverses
+it. Or take the *whole* map: **x** or **y** (or the *along x* / *along y* buttons under the bar)
+lays it across the element as a **gradient** along that axis — x left→right, y bottom→top — for
+a shape's fill or stroke, a line's or arrow's stroke (arrowheads included), or a text's glyphs.
+The map's colours are stored on the element itself, so the gradient travels into every export
+(SVG, PNG, TIFF), headless render and exported deck exactly as drawn;
+the menu chip and the Inspector swatch show the map and name it (`crameri.batlow · along y`),
+and picking any plain swatch returns the element to a solid colour. Plot *parts* take solid
+colours only. Settings → Figure chooses which palette and colormap collection a picker opens on. Hovering any numeric row and rolling the wheel edits it directly, so
 the menu works with the mouse alone as well; **s** searches the properties. It carries the
 essentials (position, size with **aspect lock**, rotation, opacity) plus the deep cuts: dashed
 strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or V-line,

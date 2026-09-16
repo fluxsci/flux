@@ -11,6 +11,9 @@ export type CorrectionAggressiveness = "standard" | "aggressive" | "really-aggre
 
 export interface Settings {
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
+  // Colour pickers (2026-09-16): which collection opens first.
+  paletteCollection: string; // "flexoki" | "brewer" | "tol" | "project"
+  colormapCollection: string; // "mpl" | "crameri" | "tol" | "cmasher"
   // Feature 11 — rulers / guides / grid.
   showRulers: boolean; // H/V rulers along the canvas edges (Shift+R)
   showGrid: boolean; // faint background grid at `gridSize`
@@ -38,6 +41,8 @@ export interface Settings {
 const KEY = "flux.settings";
 const DEFAULTS: Settings = {
   flexokiDefault: true,
+  paletteCollection: "flexoki",
+  colormapCollection: "mpl",
   showRulers: false,
   showGrid: false,
   gridSize: 8,

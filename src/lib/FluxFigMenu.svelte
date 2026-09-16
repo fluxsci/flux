@@ -31,7 +31,8 @@
   import { globalTextStyles, loadGlobalTextStyles } from "./textStyles";
   import { evalExpr, fmtNum } from "./num";
   import { scrub } from "./scrub";
-  import { nameForHex } from "./colors";
+  import { nameForHex, currentGradient } from "./colors";
+  import { gradientCss, gradientLabel } from "./color/gradient";
   import { fluxFigMenuOpen } from "./settings";
   import ColorPicker from "./ColorPicker.svelte";
   import Logomark from "../shell/Logomark.svelte";
@@ -422,6 +423,10 @@
   }
 
   function colorDisplay(f: Field): { hex: string; name: string } {
+    // a colormap gradient on the element: the chip shows the map, named with its axis
+    const g = f.target ? currentGradient(f.target) : null;
+    const css = g ? gradientCss(g) : null;
+    if (g && css) return { hex: css, name: gradientLabel(g) };
     const hex = String(f.get());
     return { hex, name: hex === "none" ? "none" : (nameForHex(hex) ?? hex) };
   }

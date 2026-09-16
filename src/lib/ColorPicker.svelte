@@ -13,9 +13,12 @@
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta } from "./interact/wheelLaw";
   import { project, selection, partSelection } from "./store";
-  import { applyColor, addRecentColor, setOpacity, currentColor, nameForHex } from "./colors";
+  import { applyColor, applyColormap, addRecentColor, setOpacity, currentColor, nameForHex } from "./colors";
   import { FLEXOKI } from "./flexoki";
   import { hexToHsv, hsvToHex, type Hsv } from "./colorSpace";
+  import { settings } from "./settings";
+  import { availablePaletteCollections, paletteGroups, nextId } from "./color/collections";
+  import ColormapPicker from "./ColormapPicker.svelte";
 
   export let target: "fill" | "stroke" = "fill";
   /** Commit + close (the host returns to its hotkey mode). */
@@ -106,16 +109,51 @@
     return true;
   }
 
+  // Palette COLLECTIONS (2026-09-16): Flexoki, ColorBrewer, Paul Tol — plus the
+  // project's own imported palette when it has one. The picker opens on the
+  // collection the settings name; the tabs (or Shift+Tab) move between them, and
+  // Tab switches the whole left column to the colormap picker.
+  $: collections = availablePaletteCollections($project);
+  let collectionId = "";
+  $: if (!collectionId || !collections.some((c) => c.id === collectionId)) {
+    const wanted = $settings.paletteCollection;
+    collectionId = collections.some((c) => c.id === wanted) ? wanted : collections[0]?.id ?? "flexoki";
+  }
+  let view: "palette" | "colormap" = "palette";
+  function setCollection(id: string) {
+    collectionId = id;
+    cursor = { r: 0, c: 0 };
+    requestAnimationFrame(() => gridEl?.focus({ preventScroll: true }));
+  }
+  function cycleCollection(step = 1) {
+    setCollection(nextId(collections.map((c) => c.id), collectionId, step));
+  }
+  function toggleView() {
+    view = view === "palette" ? "colormap" : "palette";
+    if (view === "palette") requestAnimationFrame(() => gridEl?.focus({ preventScroll: true }));
+  }
+  // Tab toggles palette ⇄ colormaps and Shift+Tab cycles the palette collections
+  // from anywhere while the picker is up (window, capture phase) — a picker whose
+  // keys depend on which element holds focus is a picker that sometimes ignores
+  // them. In the colormap view the child picker owns Shift+Tab.
+  function onWinKey(e: KeyboardEvent) {
+    if (e.key !== "Tab") return;
+    if (e.shiftKey && view === "colormap") return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.shiftKey) cycleCollection(1);
+    else toggleView();
+  }
   $: rows = ((): Row[] => {
     const out: Row[] = [];
     const head: Sw[] = [];
     if (noneOk) head.push({ hex: "none", name: `no ${target}`, group: "none", none: true });
     for (const c of $project.palette) head.push({ hex: c, name: nameForHex(c) ?? c, group: "recent" });
     if (head.length) out.push({ label: "recent", swatches: head });
-    // A project with no imported palette still gets the bundled Flexoki ramp
-    // (the same one new projects seed), so the picker is never empty.
-    const groups = $project.colorGroups?.length ? $project.colorGroups : FLEXOKI;
-    for (const g of groups) out.push({ label: g.name, swatches: g.swatches.map((s) => ({ hex: s.hex, name: s.name, group: g.name })) });
+    // The chosen collection; an empty one (a project without an imported
+    // palette) falls back to the bundled Flexoki ramp so the picker is never empty.
+    const groups = paletteGroups(collectionId, $project);
+    for (const g of groups.length ? groups : FLEXOKI) out.push({ label: g.name, swatches: g.swatches.map((s) => ({ hex: s.hex, name: s.name, group: g.name })) });
     return out;
   })();
   $: at = rows[cursor.r]?.swatches[Math.min(cursor.c, (rows[cursor.r]?.swatches.length ?? 1) - 1)] ?? null;
@@ -140,6 +178,18 @@
       applyColor(hex, target, true);
       if (hex !== "none") addRecentColor(hex, true);
     });
+    session.finish();
+    committed = true;
+    onDone();
+  }
+  // The whole map as a gradient along an axis (colormap view, x / y) — elements
+  // only; parts and the draw style take solid colours (applyColormap declines).
+  function commitGradient(map: string, axis: "x" | "y") {
+    let done = false;
+    session.run(() => {
+      done = applyColormap(map, axis, target, true);
+    });
+    if (!done) return;
     session.finish();
     committed = true;
     onDone();
@@ -209,8 +259,22 @@
   }
 </script>
 
+<svelte:window on:keydown|capture={onWinKey} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="cs" on:keydown={onGridKey}>
+<div class="cs" class:cmview={view === "colormap"} on:keydown={onGridKey}>
+  <div class="left">
+  <div class="tabs" role="tablist" aria-label="Palette collections">
+    {#each collections as c (c.id)}
+      <button class="tab" class:on={view === "palette" && c.id === collectionId} role="tab" aria-selected={view === "palette" && c.id === collectionId} type="button" on:click={() => { view = "palette"; setCollection(c.id); }}>{c.name}</button>
+    {/each}
+    <span class="tabsep"></span>
+    <button class="tab maps" class:on={view === "colormap"} role="tab" aria-selected={view === "colormap"} type="button" title="Pick a colour along a colormap (Tab)" on:click={() => { view = "colormap"; }}>Colormaps</button>
+    <span class="tabhint"><b>⇧⇥</b> next · <b>⇥</b> maps</span>
+  </div>
+  {#if view === "colormap"}
+    <ColormapPicker mode="color" gradient={$selection.size > 0 && !$partSelection} onPreview={(hex) => liveHex(hex)} onPick={(hex) => commit(hex)} onPickGradient={commitGradient} onCancel={cancel} />
+  {:else}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="grid" bind:this={gridEl} tabindex="0" role="listbox" aria-label={`${target} colour`} on:wheel={onWheel}>
     {#each rows as row, r (row.label)}
@@ -239,6 +303,8 @@
       </div>
     {/each}
     {#if !rows.length}<div class="empty">No palette yet — import one in the Inspector's Color palette.</div>{/if}
+  </div>
+  {/if}
   </div>
   <div class="side">
     <div class="bar">
@@ -283,6 +349,14 @@
      grid visible — the menu grows instead of scrolling), the spectrum sits in a
      fixed 204 px column on the right. */
   .cs { display: grid; grid-template-columns: minmax(0, 1fr) 204px; gap: 14px; align-items: start; font-family: inherit; }
+  .left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
+  .tab { height: 22px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: 12px var(--font-serif); white-space: nowrap; }
+  .tab:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
+  .tab.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+  .tabsep { width: 1px; height: 14px; background: var(--c-line-strong); margin: 0 4px; }
+  .tabhint { margin-left: auto; font: 10.5px var(--font-mono); color: var(--c-tx-muted); white-space: nowrap; }
+  .tabhint b { color: var(--c-tx-2); }
   .grid { outline: none; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
   .grid:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 0; border-radius: var(--r-0); }
   .prow { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 6px; }

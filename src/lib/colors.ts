@@ -1,7 +1,8 @@
 import { writable, get } from "svelte/store";
-import type { ColorGroup, ColorSwatch, Id, PartOverride } from "./types";
+import type { ColorGroup, ColorSwatch, GradientFill, Id, PartOverride } from "./types";
 import { project, selection, partSelection, partSelections, drawStyle, commit, mutate } from "./store";
 import { selectionTargets } from "./interact/selectionTargets";
+import { makeGradientFill } from "./color/collections";
 import * as ops from "./ops";
 
 // Whether palette clicks set fill or stroke.
@@ -59,21 +60,72 @@ export function applyColor(hex: string, target = get(colorTarget), preview = fal
   (preview ? mutate : commit)((p) => {
     for (const f of p.figures)
       for (const e of selectionTargets(f, sel, { editable: true })) {
+        // a solid pick replaces a gradient (the map is the paint while set)
         if (e.type === "text") {
           if (none) continue;
           e.color = hex;
+          delete e.fillMap;
           // a manual colour edit detaches a linked named style IF that style
           // defines a colour (ops.detachOnManualEdit no-ops otherwise)
           ops.detachOnManualEdit(p, e, ["color"]);
         } else if (e.type === "line") {
           if (none && target === "fill") continue;
           e.stroke = hex;
+          delete e.strokeMap;
         } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
-          if (target === "fill") e.fill = hex;
-          else e.stroke = hex;
+          if (target === "fill") {
+            e.fill = hex;
+            delete e.fillMap;
+          } else {
+            e.stroke = hex;
+            delete e.strokeMap;
+          }
         }
       }
   });
+}
+
+// Apply a colormap as a GRADIENT along an axis (2026-09-16, owner note): the
+// whole map laid across each selected element's box — fill or stroke of a
+// shape, the stroke of a line/arrow, the glyphs of a text. Plot parts and the
+// draw style take solid colours only (returns false, nothing written). The
+// element's solid colour stays underneath as the fallback for an unknown map.
+export function applyColormap(map: string, axis: GradientFill["axis"], target = get(colorTarget), preview = false): boolean {
+  if (get(partSelection)) return false;
+  const sel = get(selection);
+  if (sel.size === 0) return false;
+  // the stops are resolved here, once, and stored on each element (self-contained)
+  const g = makeGradientFill(map, axis);
+  if (!g) return false;
+  const copy = (): GradientFill => ({ ...g, stops: [...g.stops] });
+  (preview ? mutate : commit)((p) => {
+    for (const f of p.figures)
+      for (const e of selectionTargets(f, sel, { editable: true })) {
+        if (e.type === "text") {
+          e.fillMap = copy();
+          ops.detachOnManualEdit(p, e, ["color"]);
+        } else if (e.type === "line") {
+          e.strokeMap = copy();
+        } else if (e.type === "rect" || e.type === "ellipse" || e.type === "path") {
+          if (target === "fill") e.fillMap = copy();
+          else e.strokeMap = copy();
+        }
+      }
+  });
+  return true;
+}
+
+/** The gradient the selection's first element carries for `target` (null = solid). */
+export function currentGradient(target: "fill" | "stroke"): GradientFill | null {
+  const sel = get(selection);
+  if (sel.size === 0 || get(partSelection)) return null;
+  for (const f of get(project).figures)
+    for (const e of selectionTargets(f, sel, { editable: true })) {
+      if (e.type === "text") return e.fillMap ?? null;
+      if (e.type === "line") return e.strokeMap ?? null;
+      if (e.type === "rect" || e.type === "ellipse" || e.type === "path") return (target === "fill" ? e.fillMap : e.strokeMap) ?? null;
+    }
+  return null;
 }
 
 export function addRecentColor(hex: string, preview = false) {

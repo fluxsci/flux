@@ -30,6 +30,7 @@ import type {
   PathElement,
   VectorNode,
   PartOverride,
+  GradientFill,
 } from "./types";
 import { resizeFrame } from "./interact/frameResize";
 import { newId } from "./ids";
@@ -1328,6 +1329,10 @@ export interface ElementStylePatch {
   arrowSize?: number;
   /** Dash pattern in canvas px for the four stroked primitives; [] = solid. */
   dash?: number[];
+  /** Colormap gradients (2026-09-16): set one, or null to return to the solid
+   *  colour. A solid `fill` / `stroke` / `color` patch also clears its map. */
+  fillMap?: GradientFill | null;
+  strokeMap?: GradientFill | null;
   rotation?: number;
   flipX?: boolean;
   flipY?: boolean;
@@ -1385,6 +1390,18 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
   for (const f of p.figures)
     for (const e of f.elements) {
       if (!set.has(e.id)) continue;
+      if (e.type === "text" || e.type === "rect" || e.type === "ellipse" || e.type === "path") {
+        if (patch.fillMap !== undefined) {
+          if (patch.fillMap) e.fillMap = { ...patch.fillMap, stops: [...(patch.fillMap.stops ?? [])] };
+          else delete e.fillMap;
+        } else if (patch.fill != null || (e.type === "text" && patch.color != null)) delete e.fillMap;
+      }
+      if (e.type === "line" || e.type === "rect" || e.type === "ellipse" || e.type === "path") {
+        if (patch.strokeMap !== undefined) {
+          if (patch.strokeMap) e.strokeMap = { ...patch.strokeMap, stops: [...(patch.strokeMap.stops ?? [])] };
+          else delete e.strokeMap;
+        } else if (patch.stroke != null) delete e.strokeMap;
+      }
       if (patch.opacity != null) e.opacity = patch.opacity;
       if (patch.rotation != null) e.rotation = patch.rotation;
       if (patch.flipX != null) e.flipX = patch.flipX;

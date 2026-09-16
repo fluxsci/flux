@@ -36,6 +36,8 @@
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
   import { nameForHex } from "./colors";
+  import { gradientCss, gradientLabel } from "./color/gradient";
+  import type { GradientFill } from "./types";
   import { dissectKeyForElement, openDissectForSelection, dissectRoot } from "./dissect/state";
   import { countDissections } from "./dissect/loader";
   import { dissectionsRevision } from "../shell/scholar/revisions";
@@ -227,6 +229,12 @@
     if (key !== colorPopKey) { colorPopKey = key; colorPop = null; }
   }
   $: fillEl = sel.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path");
+  // a colormap gradient paints the swatch and names the map (color/gradient.ts)
+  const paintCss = (hex: string, g?: GradientFill | null) => {
+    const css = g ? gradientCss(g) : null;
+    return css ? `background:${css}` : hex === "none" ? "" : `background:${hex}`;
+  };
+  const paintName = (hex: string, g?: GradientFill | null) => (g && gradientCss(g) ? gradientLabel(g) : swatchName(hex));
   $: strokeEl = sel.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line");
   $: textEl = sel.find((e) => e.type === "text");
   const swatchName = (hex: string) => (hex === "none" ? "none" : (nameForHex(hex) ?? hex));
@@ -621,8 +629,8 @@
           <div class="arow">
             <span class="al">Fill</span>
             <button class="swrow" class:open={colorPop === "fill"} on:click={() => (colorPop = colorPop === "fill" ? null : "fill")} title="Fill colour — pick from the palette (F, then c)">
-              <span class="sw" class:isnone={fillEl.fill === "none"} style={fillEl.fill === "none" ? "" : `background:${fillEl.fill}`}></span>
-              <span class="swname">{swatchName(fillEl.fill)}</span>
+              <span class="sw" class:isnone={fillEl.fill === "none" && !fillEl.fillMap} style={paintCss(fillEl.fill, fillEl.fillMap)}></span>
+              <span class="swname">{paintName(fillEl.fill, fillEl.fillMap)}</span>
               <span class="swhex">{fillEl.fill === "none" ? "" : fillEl.fill}</span>
             </button>
           </div>
@@ -632,8 +640,8 @@
           <div class="arow">
             <span class="al">Stroke</span>
             <button class="swrow" class:open={colorPop === "stroke"} on:click={() => (colorPop = colorPop === "stroke" ? null : "stroke")} title="Stroke colour — pick from the palette (F, then k)">
-              <span class="sw" class:isnone={strokeEl.stroke === "none"} style={strokeEl.stroke === "none" ? "" : `background:${strokeEl.stroke}`}></span>
-              <span class="swname">{swatchName(strokeEl.stroke)}</span>
+              <span class="sw" class:isnone={strokeEl.stroke === "none" && !strokeEl.strokeMap} style={paintCss(strokeEl.stroke, strokeEl.strokeMap)}></span>
+              <span class="swname">{paintName(strokeEl.stroke, strokeEl.strokeMap)}</span>
               <span class="swhex">{strokeEl.stroke === "none" ? "" : strokeEl.stroke}</span>
             </button>
           </div>
@@ -643,8 +651,8 @@
           <div class="arow">
             <span class="al">Text</span>
             <button class="swrow" class:open={colorPop === "text"} on:click={() => (colorPop = colorPop === "text" ? null : "text")} title="Text colour — pick from the palette">
-              <span class="sw" style={`background:${textEl.color}`}></span>
-              <span class="swname">{swatchName(textEl.color)}</span>
+              <span class="sw" style={paintCss(textEl.color, textEl.fillMap)}></span>
+              <span class="swname">{paintName(textEl.color, textEl.fillMap)}</span>
               <span class="swhex">{textEl.color}</span>
             </button>
           </div>

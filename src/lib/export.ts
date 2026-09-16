@@ -1,6 +1,7 @@
 import type { Element, Figure, ImageElement, TextElement } from "./types";
 import { lineRender, elementBBox, dashAttr } from "./geometry";
 import { pathRender } from "./path";
+import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { visualLines, lineH } from "./text";
 
@@ -119,56 +120,69 @@ export function elementToSvg(
           `preserveAspectRatio="none" href="${href}"${op(e)}/>`,
       );
     }
-    case "rect":
+    case "rect": {
+      // P: solid colours, or url(#…) gradients + their <defs> when a colormap
+      // is set (color/gradient.ts) — "" and the plain colour otherwise, so an
+      // element without a map serializes byte-identically.
+      const P = elementPaints(e);
       return rot(
         e,
-        `<rect x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
-          `rx="${e.cornerRadius}" fill="${e.fill}" stroke="${e.stroke}" ` +
+        paintDefsSvg(P) +
+          `<rect x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
+          `rx="${e.cornerRadius}" fill="${P.fill}" stroke="${P.stroke}" ` +
           `stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
       );
-    case "ellipse":
+    }
+    case "ellipse": {
+      const P = elementPaints(e);
       return rot(
         e,
-        `<ellipse cx="${e.x + e.width / 2}" cy="${e.y + e.height / 2}" ` +
-          `rx="${e.width / 2}" ry="${e.height / 2}" fill="${e.fill}" ` +
-          `stroke="${e.stroke}" stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
+        paintDefsSvg(P) +
+          `<ellipse cx="${e.x + e.width / 2}" cy="${e.y + e.height / 2}" ` +
+          `rx="${e.width / 2}" ry="${e.height / 2}" fill="${P.fill}" ` +
+          `stroke="${P.stroke}" stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
       );
+    }
     case "line": {
       const lr = lineRender(e);
+      const P = elementPaints(e);
       // op(e) on every piece: the canvas applies element opacity on the group
       // wrapper, so the export must too (a translucent line used to export
       // fully opaque).
       let s =
+        paintDefsSvg(P) +
         `<line x1="${e.x + lr.x1}" y1="${e.y + lr.y1}" x2="${e.x + lr.x2}" y2="${e.y + lr.y2}" ` +
-        `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
+        `stroke="${P.stroke}" stroke-width="${e.strokeWidth}" ` +
         `stroke-linecap="${lr.cap}"${dashA(e)}${op(e)}/>`;
       for (const tri of lr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${e.stroke}"${op(e)}/>`;
+        s += `<polygon points="${pts}" fill="${P.heads}"${op(e)}/>`;
       }
       for (const v of lr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
-          `<polyline points="${pts}" fill="none" stroke="${e.stroke}" ` +
+          `<polyline points="${pts}" fill="none" stroke="${P.heads}" ` +
           `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
       }
       return rot(e, s);
     }
     case "path": {
       const pr = pathRender(e);
+      const P = elementPaints(e);
       let s =
-        `<path d="${pr.d}" fill="${e.closed ? e.fill : "none"}" ` +
-        `stroke="${e.stroke}" stroke-width="${e.strokeWidth}" ` +
+        paintDefsSvg(P) +
+        `<path d="${pr.d}" fill="${P.fill}" ` +
+        `stroke="${P.stroke}" stroke-width="${e.strokeWidth}" ` +
         `stroke-linejoin="round" stroke-linecap="${e.cap ?? "round"}"${dashA(e)}${op(e)} ` +
         `transform="translate(${e.x} ${e.y})"/>`;
       for (const tri of pr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${e.stroke}"${op(e)}/>`;
+        s += `<polygon points="${pts}" fill="${P.heads}"${op(e)}/>`;
       }
       for (const v of pr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
-          `<polyline points="${pts}" fill="none" stroke="${e.stroke}" ` +
+          `<polyline points="${pts}" fill="none" stroke="${P.heads}" ` +
           `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
       }
       return rot(e, s);
@@ -178,6 +192,8 @@ export function elementToSvg(
       // else the hard lines — this ONE function also serves flux-core's
       // headless renderFigureSvg, so wrapped output is identical everywhere.
       const { attrs, lines, x, advance } = textSvgLayout(e);
+      const P = elementPaints(e);
+      if (P.defs.length) attrs.fill = P.fill;
       const tspans = lines
         .map(
           (ln, i) =>
@@ -186,7 +202,8 @@ export function elementToSvg(
         .join("");
       return rot(
         e,
-        `<text ${Object.entries(attrs).map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${tspans}</text>`,
+        paintDefsSvg(P) +
+          `<text ${Object.entries(attrs).map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${tspans}</text>`,
       );
     }
   }

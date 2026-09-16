@@ -21,8 +21,11 @@ try {
         source: { svgPath: 'plots/fields.svg', recipePath: 'plots/fields.recipe.json' }, overrides: { 'panel.matrix.correlation.x-heatmap': { opacity: .7 } } });
     });
     F.io.reimportPlot('field-gate', bundle.svg, bundle.manifest, bundle.recipe);
-    stores.xrayRoot.set({ kind: 'element', figId: F.get(F.fig.project).figures[0].id, elementId: 'field-plot' });
-    stores.xrayOpen.set(true);
+    // The dev handle's stores, not a dynamic import of /src/lib/store.ts: once the
+    // dev server has HMR-timestamped its module graph, that import is a SECOND
+    // store instance the app never reads (2026-09-16 — the X-ray never opened).
+    F.fig.xrayRoot.set({ kind: 'element', figId: F.get(F.fig.project).figures[0].id, elementId: 'field-plot' });
+    F.fig.xrayOpen.set(true);
     window.__fieldCalls = [];
     window.fig.runRecipe = async (path, params) => {
       window.__fieldCalls.push({ path, params });
@@ -31,6 +34,15 @@ try {
   }, bundle);
   await page.waitForSelector('.color-scales summary');
   await page.click('.color-scales summary');
+  // 2026-09-16: the palette field carries a preview bar and opens the colormap picker (every fluxplot collection)
+  await page.waitForSelector('.color-scales .cmapbtn');
+  assert.ok(await page.$eval('.color-scales .cmapbar', (b) => /gradient/.test(b.getAttribute('style') || '')), 'the current colormap previews as a gradient bar');
+  await page.click('.color-scales .cmapbtn');
+  await page.waitForSelector('.color-scales .cmappick .cmp');
+  await page.evaluate(() => document.querySelector('.color-scales .cmp .tabs .tab:nth-child(2)').click()); // Crameri
+  await page.evaluate(() => document.querySelector('.color-scales .cmp .cm[data-map="batlow"]').click());
+  await page.waitForFunction(() => !document.querySelector('.color-scales .cmappick'));
+  assert.equal(await page.$eval('.color-scales input[aria-label="matrix / correlation palette"]', (i) => i.value), 'crameri.batlow', 'picking a map fills the palette with its qualified name');
   const input = await page.$('.color-scales input[aria-label="matrix / correlation maximum"]');
   await input.focus(); await page.keyboard.press('Home'); await page.keyboard.down('Shift'); await page.keyboard.press('End'); await page.keyboard.up('Shift'); await page.keyboard.press('Backspace'); await input.type('0');
   await page.click('.color-scales button[type=submit]');
