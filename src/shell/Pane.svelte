@@ -90,7 +90,7 @@
     background: transparent;
     color: var(--c-tx-muted);
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition: background var(--dur-instant) var(--ease-standard);
   }
   .pbtn:hover {

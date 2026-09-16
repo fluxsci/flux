@@ -255,7 +255,7 @@
     color: inherit;
     padding: 2px 7px;
     border-radius: var(--r-pill);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-variant-numeric: tabular-nums;
   }
   .seg:hover:not(:disabled) {
@@ -264,10 +264,10 @@
   }
   .seg:disabled {
     opacity: 0.55;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .state {
-    cursor: default;
+    cursor: var(--cursor-cross);
     pointer-events: none;
   }
   .state.error {
@@ -315,7 +315,7 @@
     height: 14px;
     margin: 0 2px;
     background: transparent;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .zslider::-webkit-slider-runnable-track {
     height: 3px;
@@ -390,7 +390,7 @@
     gap: 7px;
     padding: 4px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .scope-row:hover {
     background: var(--c-surface-2);
@@ -434,7 +434,7 @@
     border: 1px solid var(--c-line);
     border-radius: var(--r-pill);
     padding: 2px 9px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .scope-reset:hover {
     color: var(--c-accent);

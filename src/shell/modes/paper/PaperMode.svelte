@@ -2919,7 +2919,7 @@
     border-radius: var(--r-2);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .twin-blocked button:hover {
     color: var(--c-tx-hi);
@@ -3111,7 +3111,7 @@
     padding: 4px 10px;
     font: inherit;
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .disk-toast button.ghost {
     background: none;
@@ -3156,10 +3156,10 @@
     color: var(--c-tx-2);
     font: inherit;
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .export-cancel:disabled {
     color: var(--c-tx-faint);
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
 </style>

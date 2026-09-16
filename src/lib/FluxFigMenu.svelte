@@ -60,7 +60,7 @@
   $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles) : [];
   $: groups = groupFields(fields);
   $: cols = fields.length > 18 ? 3 : fields.length > 8 ? 2 : 1;
-  $: width = cols === 3 ? 900 : cols === 2 ? 616 : 328;
+  $: width = mode === "color" ? 620 : cols === 3 ? 664 : cols === 2 ? 452 : 240;
   $: sQ = search.trim().toLowerCase();
   $: sResults = sQ ? fields.filter((f) => `${f.label} ${f.group} ${f.key}`.toLowerCase().includes(sQ)) : fields;
   $: if (sIndex >= sResults.length) sIndex = Math.max(0, sResults.length - 1);
@@ -302,6 +302,15 @@
   // in every dialect (Windows 100px, a slow macOS mouse's 4px, a trackpad's
   // stream), a spin moves further, a flick doubles, Shift ×10, Alt ×0.1.
   const wheel = new WheelStepper();
+  /** Window-level, capture phase: once a row is armed (f, then its letter) the
+   *  wheel adjusts it wherever the mouse is — the canvas must not zoom. */
+  function onWinWheel(e: WheelEvent) {
+    if (!$fluxFigMenuOpen || !(mode === "field" || mode === "option") || !active) return;
+    if (panelEl?.contains(e.target as Node)) return; // the panel's own handler (hover-arming) takes it
+    e.preventDefault();
+    e.stopPropagation();
+    wheelField(e, active);
+  }
   function onWheel(e: WheelEvent) {
     if (mode === "color" || mode === "search") return;
     let f: Field | null = null;
@@ -319,6 +328,9 @@
     if (!f) return; // nothing armed under the pointer: let the body scroll
     e.preventDefault();
     e.stopPropagation();
+    wheelField(e, f);
+  }
+  function wheelField(e: WheelEvent, f: Field) {
     const steps = wheel.steps({ deltaY: wheelDelta(e), deltaMode: e.deltaMode, time: performance.now() });
     if (!steps) return;
     if (f.kind === "number") stepValue(f, steps, wheelMultiplier(e)); // wheel up = increase
@@ -421,7 +433,7 @@
   };
 </script>
 
-<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} />
+<svelte:window on:keydown={onWin} on:pointermove={onPointerMove} on:wheel|capture|nonpassive={onWinWheel} />
 
 {#if $fluxFigMenuOpen}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -456,7 +468,7 @@
           {/if}
         </div>
 
-        <div class="body" class:cols2={cols === 2} class:cols3={cols === 3}>
+        <div class="body" class:cols2={mode !== "color" && cols === 2} class:cols3={mode !== "color" && cols === 3}>
           {#if mode === "color" && colorField}
             <div class="color-mode">
               <div class="cm-head"><span class="hk">{colorField.key}</span> {colorField.label}</div>
@@ -482,12 +494,14 @@
                   {@const armed = activeKey === f.key && mode !== "hotkey"}
                   {@const range = fieldRange(f)}
                   <div class="field" class:editing={armed} class:opts-open={armed && f.kind === "select"} data-key={f.key}>
+                    <div class="fhead">
                     <span class="hk">{f.key}</span>
                     {#if f.kind === "number"}
                       <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
                     {:else}
                       <span class="label">{f.label}</span>
                     {/if}
+                    </div>
                     <span class="control">
                       {#if f.kind === "color"}
                         {@const cd = colorDisplay(f)}
@@ -576,8 +590,8 @@
     flex-direction: column;
     max-height: calc(100vh - 16px);
     color: var(--c-tx);
-    font-family: var(--font-ui);
-    font-size: 12px;
+    font-family: var(--font-serif); /* Flux's classic face for the menu's words; values stay mono */
+    font-size: 12.5px;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-panel);
@@ -592,9 +606,9 @@
   .menu-head { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); }
   .mark { display: inline-flex; width: 14px; height: 14px; flex-shrink: 0; }
   .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
-  .ttl { font-weight: 600; color: var(--c-tx-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .ttl { font: 600 13px var(--font-serif); color: var(--c-tx-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
-  .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: pointer; border-radius: var(--r-ui); }
+  .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); }
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .hk {
     display: inline-flex; align-items: center; justify-content: center;
@@ -604,20 +618,22 @@
   }
   .search-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
   .search-row.active { box-shadow: inset 0 -1px 0 var(--c-accent); }
-  .search-fake { flex: 1; text-align: left; background: none; border: none; color: var(--c-tx-muted); font: 12px var(--font-ui); cursor: text; padding: 0; }
-  .search-in { flex: 1; background: none; border: none; outline: none; color: var(--c-tx); font: 12px var(--font-ui); padding: 0; }
+  .search-fake { flex: 1; text-align: left; background: none; border: none; color: var(--c-tx-muted); font: 12.5px var(--font-serif); cursor: text; padding: 0; }
+  .search-in { flex: 1; background: none; border: none; outline: none; color: var(--c-tx); font: 12.5px var(--font-serif); padding: 0; }
   .body { overflow-y: auto; padding: 6px 8px 8px; }
   .body.cols2 { columns: 2; column-gap: 8px; }
   .body.cols3 { columns: 3; column-gap: 8px; }
   .group { break-inside: avoid; padding: 4px 0 6px; }
   .gtitle { font: 600 10px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-tx-muted); padding: 6px 4px 3px; border-bottom: 1px solid var(--c-line); margin-bottom: 3px; }
-  .field { display: grid; grid-template-columns: 18px minmax(0, 1fr) minmax(92px, 118px); align-items: center; gap: 8px; min-height: 26px; padding: 1px 4px; border-radius: var(--r-0); }
+  /* A row is two lines — the key + name above, the control below — so a column
+     is 200 px wide and the whole menu stays narrow enough to sit beside things. */
+  .field { display: flex; flex-direction: column; gap: 2px; padding: 3px 4px 4px; border-radius: var(--r-0); }
   .field.editing { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); }
-  .field.opts-open { grid-template-columns: 18px minmax(0, 1fr); }
-  .field.opts-open .control { grid-column: 1 / -1; justify-content: flex-start; padding: 2px 0 4px 26px; }
-  .label { font-size: 12px; color: var(--c-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fhead { display: flex; align-items: center; gap: 6px; min-height: 16px; }
+  .field.opts-open .control { padding: 1px 0 2px; }
+  .label { font-size: 12.5px; color: var(--c-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .scrubbable { cursor: ew-resize; }
-  .control { display: flex; justify-content: flex-end; min-width: 0; }
+  .control { display: flex; justify-content: flex-start; width: 100%; min-width: 0; }
   .numwrap { position: relative; width: 100%; }
   .nin, .tin { width: 100%; height: 22px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 0 6px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; outline: none; box-sizing: border-box; text-align: right; }
   .tin { font-family: var(--font-ui); text-align: left; }
@@ -625,29 +641,29 @@
   .track { position: absolute; left: 4px; right: 4px; bottom: 2px; height: 2px; background: color-mix(in oklab, var(--c-line-strong) 70%, transparent); pointer-events: none; }
   .track .fill { display: block; height: 100%; background: var(--c-tx-muted); }
   .field.editing .track .fill { background: var(--c-accent); }
-  .colorbtn { display: flex; align-items: center; gap: 6px; justify-content: flex-end; width: 100%; height: 22px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx); cursor: pointer; font: 12px var(--font-ui); padding: 0 4px; }
+  .colorbtn { display: flex; align-items: center; gap: 6px; justify-content: flex-start; width: 100%; padding: 0 4px; height: 22px; background: none; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx); cursor: var(--cursor-cross-hover); font: 12px var(--font-ui); padding: 0 4px; }
   .colorbtn:hover { border-color: var(--c-line-strong); }
   .dot { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 14%, transparent); flex: none; }
   .dot.isnone { background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--c-line-strong) 3px 4px); }
   .cname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-2); font-family: var(--font-mono); font-size: 11px; }
-  .toggle, .actbtn, .selbtn { height: 22px; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); padding: 0 8px; cursor: pointer; font: 12px var(--font-ui); }
+  .toggle, .actbtn, .selbtn { height: 22px; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); padding: 0 8px; cursor: var(--cursor-cross-hover); font: 12px var(--font-serif); }
   .toggle:hover, .actbtn:hover, .selbtn:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .toggle { min-width: 44px; }
   .toggle.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   .selbtn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; overflow: hidden; white-space: nowrap; }
   .selbtn .chev { color: var(--c-tx-muted); font-size: 9px; }
   .opts { display: flex; flex-wrap: wrap; gap: 3px; }
-  .opt { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px 0 4px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: pointer; font-size: 12px; white-space: nowrap; }
+  .opt { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px 0 4px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx-2); cursor: var(--cursor-cross-hover); font-size: 12px; white-space: nowrap; }
   .opt .ok { font: 600 9.5px var(--font-mono); color: var(--c-tx-muted); min-width: 10px; }
   .opt.cur { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   .opt.cur .ok { color: var(--c-accent); }
   .color-mode { padding: 6px 4px 8px; }
   .cm-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--c-tx); margin-bottom: 8px; }
   .results { padding: 2px 0 6px; }
-  .res { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; height: 26px; padding: 0 6px; cursor: pointer; }
+  .res { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; height: 26px; padding: 0 6px; cursor: var(--cursor-cross-hover); }
   .res.active { background: var(--c-accent-tint); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }
-  .rlabel { font-size: 12px; }
+  .rlabel { font: 12.5px var(--font-serif); }
   .rgrp { font: 10px var(--font-mono); color: var(--c-tx-muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .empty { color: var(--c-tx-muted); padding: 12px; text-align: center; }
-  .foot { display: flex; gap: 14px; height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font-size: 11px; color: var(--c-tx-muted); background: var(--c-bg-raised); }
+  .foot { display: flex; gap: 14px; height: 26px; align-items: center; padding: 0 10px; border-top: 1px solid var(--c-line); font: 11.5px var(--font-serif); color: var(--c-tx-muted); background: var(--c-bg-raised); }
 </style>

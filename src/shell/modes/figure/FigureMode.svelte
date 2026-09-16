@@ -294,7 +294,7 @@
     border-radius: var(--r-ui);
     height: 24px;
     padding: 0 9px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font: 12px var(--font-ui);
   }
   .disk-toast button:hover {
@@ -336,7 +336,7 @@
     background: transparent;
     color: var(--c-tx-muted);
     font-size: 14px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     opacity: 0.25;
     z-index: 6;
   }

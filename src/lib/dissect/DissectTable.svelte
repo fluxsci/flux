@@ -152,7 +152,7 @@
     color: var(--c-tx-2);
     font: inherit;
     font-weight: 600;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     text-align: left;
     overflow: hidden;
   }

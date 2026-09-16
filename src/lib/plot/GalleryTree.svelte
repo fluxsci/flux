@@ -144,16 +144,16 @@
   .tree-heading { display:flex; align-items:center; height:28px; flex-shrink:0; padding:0 10px; border-bottom:1px solid var(--c-line); color:var(--c-tx-muted); font:600 10.5px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; }
   .tree-viewport { flex:1; min-height:0; overflow:auto; outline:none; padding-bottom:8px; }
   .tree-space { position:relative; min-width:100%; }
-  .tree-row { position:absolute; left:0; right:0; height:24px; display:flex; align-items:center; gap:5px; padding-right:8px; font-size:12px; cursor:default; box-sizing:border-box; border-radius:var(--r-0); }
+  .tree-row { position:absolute; left:0; right:0; height:24px; display:flex; align-items:center; gap:5px; padding-right:8px; font-size:12px; cursor: var(--cursor-cross); box-sizing:border-box; border-radius:var(--r-0); }
   .tree-row:hover { background:var(--c-surface-2); }
   .tree-row.selected { background:var(--c-accent-tint); box-shadow:inset 2px 0 0 var(--c-accent); color:var(--c-tx-hi); }
   .tree-viewport:focus .tree-row.focused { outline:1px solid var(--c-accent); outline-offset:-1px; }
   .tree-viewport:focus .tree-row.focused:not(.selected) { background:var(--c-surface-2); }
   .tree-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
-  .tree-disclosure { display:inline-flex; align-items:center; justify-content:center; width:14px; height:20px; flex-shrink:0; padding:0; background:none; border:0; border-radius:var(--r-ui); color:var(--c-tx-muted); font:inherit; cursor:pointer; }
+  .tree-disclosure { display:inline-flex; align-items:center; justify-content:center; width:14px; height:20px; flex-shrink:0; padding:0; background:none; border:0; border-radius:var(--r-ui); color:var(--c-tx-muted); font:inherit; cursor: var(--cursor-cross-hover); }
   button.tree-disclosure:hover, .tree-retry:hover { background:var(--c-surface-2); color:var(--c-tx-hi); }
   .tree-icon { width:14px; flex-shrink:0; text-align:center; color:var(--c-tx-muted); font-size:11px; }
   .tree-status { margin-left:auto; color:var(--c-tx-muted); font:11px var(--font-mono); }
-  .tree-retry { margin-left:auto; border:0; background:none; border-radius:var(--r-ui); color:var(--c-accent); padding:0 4px; font:inherit; cursor:pointer; }
+  .tree-retry { margin-left:auto; border:0; background:none; border-radius:var(--r-ui); color:var(--c-accent); padding:0 4px; font:inherit; cursor: var(--cursor-cross-hover); }
   .tree-empty { padding:8px 10px; font-size:12px; color:var(--c-tx-muted); }
 </style>

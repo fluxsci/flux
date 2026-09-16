@@ -84,7 +84,7 @@
     font-size: var(--ts-base);
     border-radius: var(--r-2);
     padding: 9px 22px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard),

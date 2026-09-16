@@ -158,7 +158,7 @@
     border: none;
     background: transparent;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border-radius: var(--r-1);
     transition: transform var(--dur-instant) var(--ease-standard);
   }
@@ -169,7 +169,7 @@
     color: var(--c-tx);
   }
   .caret.spacer {
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .oitem {
     flex: 1 1 auto;
@@ -182,7 +182,7 @@
     font-size: var(--ts-sm);
     line-height: 1.35;
     padding: 4px var(--sp-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

@@ -4260,7 +4260,7 @@
   }
   /* delete sub-mode: click removes the node */
   .node-pt.del {
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .node-pt.del:hover {
     fill: #d33;

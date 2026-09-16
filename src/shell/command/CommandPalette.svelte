@@ -134,7 +134,7 @@
     gap: var(--sp-3);
     padding: 8px 12px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     color: var(--c-tx-2);
   }
   li.sel {
@@ -155,6 +155,6 @@
   .empty {
     color: var(--c-tx-faint);
     font-style: italic;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
 </style>

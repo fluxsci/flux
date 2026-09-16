@@ -100,7 +100,7 @@
     border: none;
     padding: 0;
     font-family: inherit;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border-radius: var(--r-2, 6px);
   }
   .surface {

@@ -346,7 +346,7 @@
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-panel);
     box-shadow: var(--elev-3);
-    cursor: default;
+    cursor: var(--cursor-cross);
     white-space: nowrap;
   }
   .ttl {
@@ -366,7 +366,7 @@
     background: transparent;
     color: var(--c-tx);
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .annot-tools button:hover:not(:disabled) {
     border-color: var(--c-line-strong);
@@ -383,7 +383,7 @@
   }
   .annot-tools button:disabled {
     opacity: 0.4;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   kbd {
     display: inline-flex;

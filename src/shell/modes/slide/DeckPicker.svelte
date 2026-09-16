@@ -72,7 +72,7 @@
   .dp-item {
     width: 100%; display: flex; align-items: center; gap: 6px; text-align: left;
     background: none; border: none; border-radius: var(--r-1); padding: 5px 7px;
-    color: var(--c-tx-2); font: inherit; font-size: 12px; cursor: pointer;
+    color: var(--c-tx-2); font: inherit; font-size: 12px; cursor: var(--cursor-cross-hover);
   }
   .dp-actions {
     position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
@@ -80,7 +80,7 @@
   }
   li:hover .dp-actions { display: flex; }
   .dp-act {
-    border: none; background: none; color: var(--c-tx-muted); cursor: pointer;
+    border: none; background: none; color: var(--c-tx-muted); cursor: var(--cursor-cross-hover);
     border-radius: var(--r-1); padding: 2px 5px; font-size: 12px; line-height: 1;
   }
   .dp-act:hover { color: var(--c-tx-hi); background: var(--c-accent-tint-2); }
@@ -94,8 +94,8 @@
   }
   .dp-new {
     margin-top: 6px; text-align: left; background: none; border: 1px dashed var(--c-line-strong);
-    border-radius: var(--r-1); padding: 5px 7px; color: var(--c-tx-muted); font: inherit; font-size: 12px; cursor: pointer;
+    border-radius: var(--r-1); padding: 5px 7px; color: var(--c-tx-muted); font: inherit; font-size: 12px; cursor: var(--cursor-cross-hover);
   }
   .dp-new:hover { color: var(--c-tx-hi); border-color: var(--c-accent); }
-  .dp-new:disabled, .dp-act:disabled { opacity: 0.5; cursor: default; }
+  .dp-new:disabled, .dp-act:disabled { opacity: 0.5; cursor: var(--cursor-cross); }
 </style>

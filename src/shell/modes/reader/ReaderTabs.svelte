@@ -143,7 +143,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .rtabs.dragging .rtab-main {
     cursor: grabbing;
@@ -157,7 +157,7 @@
     font-size: var(--ts-sm);
     line-height: 1;
     padding: 2px 7px 2px 3px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border-radius: var(--r-1);
   }
   .rtab-x:hover {

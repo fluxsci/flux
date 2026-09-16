@@ -150,10 +150,10 @@
     color: var(--c-tx-2);
     font: inherit;
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .jc-msg:disabled {
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .jc-msg:hover:not(:disabled) {
     color: var(--c-tx-hi);

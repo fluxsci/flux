@@ -49,7 +49,7 @@
 <style>
   .paper-sidebar { height:100%; min-height:0; display:flex; flex-direction:column; background:var(--flx-paper); border:1px solid var(--c-edge); border-radius:var(--r-3); overflow:hidden; }
   .sidebar-toolbar { display:flex; gap:4px; padding:6px; border-bottom:1px solid var(--c-line); }
-  .sidebar-toolbar button { flex:1; padding:5px; border:0; border-radius:var(--r-1); font:inherit; font-size:var(--ts-xs); color:var(--c-tx-faint); background:transparent; cursor:pointer; }
+  .sidebar-toolbar button { flex:1; padding:5px; border:0; border-radius:var(--r-1); font:inherit; font-size:var(--ts-xs); color:var(--c-tx-faint); background:transparent; cursor: var(--cursor-cross-hover); }
   .sidebar-toolbar button[aria-pressed='true'] { color:var(--c-tx-hi); background:var(--c-ui-hover); }
   .sidebar-body { flex:1; display:flex; flex-direction:column; min-height:0; }
   .files-section, .outline-section { min-height:0; overflow:hidden; }

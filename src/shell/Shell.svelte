@@ -253,7 +253,7 @@
     border: none;
     background: transparent;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-sm);
     padding: 0 2px;
     line-height: 1;

@@ -1370,7 +1370,7 @@
     padding: 3px 9px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .tgl.on {
@@ -1420,7 +1420,7 @@
     padding: 6px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .pdfitem:hover:not(:disabled) {
     background: var(--c-surface-2);
@@ -1430,7 +1430,7 @@
   }
   .pdfitem:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .pdfitem.add {
     color: var(--c-tx-2);
@@ -1474,7 +1474,7 @@
     padding: 3px 6px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     line-height: 1;
   }
   .zbtn:hover {
@@ -1493,7 +1493,7 @@
     padding: 2px 4px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .zsel:hover {
     border-color: var(--c-accent);
@@ -1531,7 +1531,7 @@
     background: transparent;
     color: var(--c-tx-faint);
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .railtgl:hover {
     color: var(--c-tx-1);
@@ -1579,7 +1579,7 @@
     font-size: var(--ts-xs);
     line-height: 1;
     padding: 2px 4px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .srchx:hover {
     color: var(--c-tx-1);
@@ -1645,7 +1645,7 @@
     font-size: var(--ts-xs);
     line-height: 1.4;
     padding: 4px 12px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .hit:hover {
     background: var(--c-bg);
@@ -1722,7 +1722,7 @@
     font-size: var(--ts-xs);
     letter-spacing: 0;
     text-transform: none;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .expnotes:hover {
     border-color: var(--c-accent);
@@ -1753,7 +1753,7 @@
     white-space: nowrap;
     padding: 3px 4px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .stab.on {
     color: var(--c-tx-1);
@@ -1775,7 +1775,7 @@
     padding: 2px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .cbtn.on {
     border-color: var(--c-accent);
@@ -1793,7 +1793,7 @@
     font-size: inherit;
     font-style: normal;
     padding: 0;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     text-decoration: underline;
   }
   .outlist {
@@ -1812,7 +1812,7 @@
     font-size: var(--ts-sm);
     line-height: 1.35;
     padding: 5px 12px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .outitem:hover {
     background: var(--c-bg);
@@ -1856,7 +1856,7 @@
   .ref {
     padding: 8px 12px;
     border-bottom: 1px solid var(--c-line);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ref:hover {
     background: var(--c-bg);
@@ -1887,7 +1887,7 @@
     color: var(--c-accent);
     padding: 0;
     margin-left: 6px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .rdoi:hover {
     text-decoration: underline;
@@ -1900,7 +1900,7 @@
     padding: 1px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .pdfbtn:hover {
     background: var(--c-accent);
@@ -1932,7 +1932,7 @@
     padding: 2px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .addbtn:hover:not(:disabled) {
     background: var(--c-accent);
@@ -1948,7 +1948,7 @@
     gap: 3px;
     padding: 7px 12px;
     border-bottom: 1px solid var(--c-line);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ann:hover,
   .ann.pagehover {
@@ -2009,7 +2009,7 @@
     border: none;
     background: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-md);
     line-height: 1;
     padding: 0 2px;

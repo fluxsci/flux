@@ -118,7 +118,7 @@
     border: 1px solid var(--c-line-strong);
     padding: 0 8px;
     font: 11px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .seg button:first-child {
     border-radius: var(--r-ui) 0 0 var(--r-ui);
@@ -182,7 +182,7 @@
     border-radius: var(--r-ui);
     border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent);
     padding: 0;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .recent .sw {
     width: 20px;
@@ -207,7 +207,7 @@
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-ui);
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .import:hover {
     border-color: var(--c-tx-muted);
@@ -224,14 +224,14 @@
     border-radius: var(--r-ui);
     color: var(--c-tx-muted);
     font-size: 14px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .add:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .add input {
     position: absolute;
     inset: 0;
     opacity: 0;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .hint {
     font-size: 11px;

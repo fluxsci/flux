@@ -725,9 +725,9 @@
   .importer { pointer-events:auto; width:1280px; height:880px; max-width:100%; max-height:100%; display:flex; flex-direction:column; border-radius:var(--r-panel); color:var(--c-tx); font:12px/1.35 var(--font-ui); -webkit-font-smoothing:antialiased; overflow:hidden; background:var(--c-surface); border:1px solid var(--c-line-strong); box-shadow:var(--elev-2); outline:none; }
   .detached { padding:0; }
   .detached .importer { width:100%; height:100%; border:0; border-radius:0; box-shadow:none; }
-  button { font:inherit; color:inherit; cursor:pointer; }
+  button { font:inherit; color:inherit; cursor: var(--cursor-cross-hover); }
   button:focus-visible { outline:1px solid var(--c-accent); outline-offset:1px; }
-  button:disabled { opacity:.4; cursor:default; }
+  button:disabled { opacity:.4; cursor: var(--cursor-cross); }
   /* controls: bordered, 24px, barely rounded */
   .pinbtn, .previewbtn, .tree-toggle, .import-progress button { display:inline-flex; align-items:center; height:24px; padding:3px 8px; background:transparent; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); color:var(--c-tx); white-space:nowrap; }
   .pinbtn:hover, .previewbtn:hover:not(:disabled), .tree-toggle:hover, .import-progress button:hover { border-color:var(--c-tx-muted); color:var(--c-tx-hi); }

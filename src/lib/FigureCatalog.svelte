@@ -193,8 +193,8 @@
   header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--c-line); }
   h2 { font-size: 18px; margin: 0; } header p { margin: 4px 0 0; color: var(--c-tx-2); }
   h3 { font-size: 22px; margin: 7px 0; } h4 { font-size: 12px; margin: 0 0 10px; }
-  button { font: inherit; background: var(--c-bg); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: 5px; padding: 6px 9px; cursor: pointer; }
-  button:hover { border-color: var(--c-accent); } button:disabled { opacity: .45; cursor: default; }
+  button { font: inherit; background: var(--c-bg); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: 5px; padding: 6px 9px; cursor: var(--cursor-cross-hover); }
+  button:hover { border-color: var(--c-accent); } button:disabled { opacity: .45; cursor: var(--cursor-cross); }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
   .close { border: 0; background: transparent; }
   .catalog-body { display: grid; grid-template-columns: minmax(200px, 32%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; }

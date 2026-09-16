@@ -75,9 +75,9 @@
   }
   select, input { background: var(--c-bg); padding: 2px 6px; }
   input { font: 12px var(--font-mono); }
-  button { cursor: pointer; color: var(--c-tx-2); }
+  button { cursor: var(--cursor-cross-hover); color: var(--c-tx-2); }
   button:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
-  button:disabled { opacity: .4; cursor: default; }
+  button:disabled { opacity: .4; cursor: var(--cursor-cross); }
   select:focus, input:focus { border-color: var(--c-accent); outline: none; }
   button:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
 </style>

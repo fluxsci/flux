@@ -400,7 +400,7 @@
     padding: 2px 10px;
     font-family: inherit;
     font-size: 12px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .tab:hover {
@@ -425,7 +425,7 @@
     border: none;
     background: none;
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: 14px;
     padding: 2px 6px;
     border-radius: var(--r-1, 4px);
@@ -471,7 +471,7 @@
     color: var(--c-on-accent);
     border: none;
     border-radius: 6px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-family: inherit;
     font-size: 13px;
     padding: 6px 14px;

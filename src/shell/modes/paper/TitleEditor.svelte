@@ -114,7 +114,7 @@
     font-size: var(--ts-sm);
     padding: 6px 14px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border: 1px solid transparent;
   }
   .ghost {

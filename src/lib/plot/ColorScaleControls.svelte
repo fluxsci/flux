@@ -59,11 +59,11 @@
 
 <style>
   .color-scales { margin: 6px 12px; font-size: 12px; }
-  summary { cursor: pointer; padding: 6px 0; }
+  summary { cursor: var(--cursor-cross-hover); padding: 6px 0; }
   fieldset { border: 1px solid #555; display: grid; gap: 6px; margin: 6px 0; padding: 8px; }
   label { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   input { width: 140px; color: inherit; background: #222; border: 1px solid #666; border-radius: 3px; padding: 4px; }
-  button { padding: 5px 8px; cursor: pointer; }
+  button { padding: 5px 8px; cursor: var(--cursor-cross-hover); }
   p { opacity: .8; }
   [role="alert"] { color: #f4a5a5; }
 </style>

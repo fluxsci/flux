@@ -46,5 +46,5 @@
   [role="dialog"] { width: min(470px, calc(100% - 40px)); background: var(--c-surface); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: 10px; padding: 24px; font-size: 12px; box-shadow: var(--elev-3); }
   h2 { font-size: 17px; margin: 0 0 16px; } p, li { line-height: 1.6; } ul { max-height: 220px; overflow: auto; padding-left: 18px; }
   footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
-  button { font: inherit; color: var(--c-tx); background: var(--c-bg); border: 1px solid var(--c-line-strong); padding: 7px 12px; border-radius: 5px; cursor: pointer; } .delete { color: var(--c-danger); } button:disabled { opacity: .4; }
+  button { font: inherit; color: var(--c-tx); background: var(--c-bg); border: 1px solid var(--c-line-strong); padding: 7px 12px; border-radius: 5px; cursor: var(--cursor-cross-hover); } .delete { color: var(--c-danger); } button:disabled { opacity: .4; }
 </style>

@@ -227,7 +227,7 @@
     padding: 5px 8px;
     border-bottom: 1px solid var(--c-line);
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .row.hl {
     background: var(--c-accent-tint-2);
@@ -268,7 +268,7 @@
     background: none;
     border: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: 10px;
     padding: 0 2px;
     flex: 0 0 auto;

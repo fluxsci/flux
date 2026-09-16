@@ -1113,12 +1113,12 @@
   fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
   fieldset:disabled { opacity: .55; }
   .journal-export { margin-top: 8px; }
-  .journal-export > summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 6px; font-size: 11px; }
-  .advanced > summary { cursor: pointer; font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); height: 28px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
+  .journal-export > summary { cursor: var(--cursor-cross-hover); color: var(--c-tx-2); margin-bottom: 6px; font-size: 11px; }
+  .advanced > summary { cursor: var(--cursor-cross-hover); font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); height: 28px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--c-line); }
   .advanced > summary::marker { color: var(--c-tx-faint); }
   .slide-colors { border-top: 1px solid var(--c-line); border-bottom: 1px solid var(--c-line); }
-  .slide-colors summary { cursor: pointer; font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); height: 28px; display: flex; align-items: center; padding: 0 10px; }
-  .figure-details { font: 12px var(--font-ui); height: 24px; margin-top: 6px; color: var(--c-accent-bright); background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: pointer; }
+  .slide-colors summary { cursor: var(--cursor-cross-hover); font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); height: 28px; display: flex; align-items: center; padding: 0 10px; }
+  .figure-details { font: 12px var(--font-ui); height: 24px; margin-top: 6px; color: var(--c-accent-bright); background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: var(--cursor-cross-hover); }
   .figure-details:hover { border-color: var(--c-accent); }
   .inspector {
     /* Width var set by the host mode (FigureMode drag-resize). SlideMode's
@@ -1300,7 +1300,7 @@
     border-radius: var(--r-ui);
     padding: 0 8px;
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   button:hover:not(:disabled) {
     border-color: var(--c-tx-muted);
@@ -1308,7 +1308,7 @@
   }
   button:disabled {
     opacity: 0.4;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   button.prim:hover:not(:disabled) {
     background: var(--c-accent-bright);
@@ -1332,7 +1332,8 @@
   /* Figure identity row — opens the Figure Namer (Ctrl+R). */
   .identity {
     display: flex;
-    align-items: baseline;
+    align-items: center; /* sans name + mono ref sit on one visual centre line, not two baselines */
+    line-height: 1;
     gap: 8px;
     width: 100%;
     text-align: left;
@@ -1343,7 +1344,7 @@
     font: 12px var(--font-ui);
     height: 26px;
     padding: 0 8px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     margin-top: 6px;
   }
   .identity:hover {
@@ -1358,8 +1359,9 @@
   .identity .id-ref {
     margin-left: auto;
     color: var(--c-accent);
-    font: 11px var(--font-mono);
+    font: 11px/1 var(--font-mono);
     flex: 0 0 auto;
+    padding-top: 1px; /* optical: mono digits sit a hair high next to the sans name */
   }
   /* B/I/U toggles */
   .biu-row {

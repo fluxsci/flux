@@ -82,10 +82,10 @@ try {
   await shot(page, "fmenu-01-anchored");
 
   // --- 2. arm a number, wheel it, Space applies — one undo -----------------------------
-  await page.keyboard.press("o");
+  await page.keyboard.press("a");
   await sleep(120);
   mr = await menuRect();
-  ok(mr?.armed === "o", `pressing o arms the opacity row (armed: ${mr?.armed})`);
+  ok(mr?.armed === "a", `pressing a arms the opacity row (armed: ${mr?.armed})`);
   const panel = await page.evaluate(() => { const r = document.querySelector(".fluxFigMenu").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
   await page.mouse.move(panel.x, panel.y);
   for (let i = 0; i < 4; i++) { await page.mouse.wheel({ deltaY: 100 }); await sleep(30); } // wheel DOWN = decrease
@@ -136,7 +136,7 @@ try {
   await page.keyboard.press("f");
   await waitFor(page, () => !!document.querySelector(".fluxFigMenu"), null, { label: "menu (text)" });
   await sleep(120);
-  await page.keyboard.press("a");
+  await page.keyboard.press("3");
   await sleep(120);
   const opts = await page.evaluate(() => [...document.querySelectorAll(".fluxFigMenu .field.opts-open .opt")].map((o) => o.textContent.trim().replace(/^\d/, "")));
   ok(opts.length === 3 && /Right/.test(opts[2]), `align expands its options inline (${opts.join(" | ")})`);
@@ -161,10 +161,10 @@ try {
   const pick = await page.evaluate(() => ({
     cs: !!document.querySelector(".fluxFigMenu .cs"),
     hex: !!document.querySelector(".fluxFigMenu .cs input.hex"),
-    exp: !!document.querySelector(".fluxFigMenu .cs .exp"),
+    exp: !!document.querySelector(".fluxFigMenu .cs .sv") && !!document.querySelector(".fluxFigMenu .cs input.hue"),
     swatches: document.querySelectorAll(".fluxFigMenu .cs .sw:not(.none)").length,
   }));
-  ok(pick.cs && pick.hex && pick.exp, "c opens the palette picker (.cs with .hex and .exp)");
+  ok(pick.cs && pick.hex && pick.exp, "c opens the palette picker (.cs with the .hex field and the always-visible spectrum)");
   ok(pick.swatches > 10, `the palette renders as swatches (${pick.swatches})`);
   const target = await page.evaluate(() => {
     const sw = [...document.querySelectorAll(".fluxFigMenu .cs .sw:not(.none)")].find((s) => s.style.background && s.style.background !== "rgb(217, 95, 2)");
@@ -205,7 +205,7 @@ try {
   await sleep(120);
   const ctx = await page.evaluate(() => document.querySelector(".fluxFigMenu .ctx")?.textContent ?? "");
   ok(/2 plot parts/.test(ctx), `the header names the plural pick (${ctx})`);
-  await page.keyboard.press("o");
+  await page.keyboard.press("a");
   await sleep(120);
   await page.keyboard.type("0.4");
   await page.keyboard.press("Enter");

@@ -235,7 +235,7 @@
     border-radius: var(--r-1, 4px);
     color: var(--c-tx-2);
     padding: 1px 8px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .empty {
     display: flex;

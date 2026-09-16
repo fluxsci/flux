@@ -299,7 +299,7 @@
     border-radius: 7px;
     padding: 8px 16px;
     font-size: 14px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .folders {
     display: flex;
@@ -314,7 +314,7 @@
     color: var(--c-tx);
     font-size: 12px;
     padding: 3px 10px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .chip:hover {
     border-color: var(--c-accent);
@@ -341,7 +341,7 @@
     border: 1px solid var(--c-line);
     border-radius: 8px;
     padding: 8px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -394,7 +394,7 @@
     color: var(--c-tx-muted);
     font-size: 13px;
     line-height: 1;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     opacity: 0;
   }
   .card:hover .del {

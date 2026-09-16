@@ -74,10 +74,10 @@
   select { width: 100%; }
   .estimate { font: 11px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx-2); margin: 0; padding: 10px 12px; }
   footer { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--c-line); }
-  button { background: transparent; color: var(--c-tx-2); padding: 3px 10px; cursor: pointer; }
+  button { background: transparent; color: var(--c-tx-2); padding: 3px 10px; cursor: var(--cursor-cross-hover); }
   button:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   /* Export is the dialog's one primary */
   .primary { background: var(--c-accent); color: var(--c-on-accent); border-color: var(--c-accent); font-weight: 600; }
   .primary:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); color: var(--c-on-accent); }
-  button:disabled { opacity: .4; cursor: default; }
+  button:disabled { opacity: .4; cursor: var(--cursor-cross); }
 </style>

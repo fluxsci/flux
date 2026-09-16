@@ -144,7 +144,7 @@
     font-style: normal;
     font-size: var(--ts-xs);
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     opacity: 0;
     transition: opacity 120ms ease;
   }

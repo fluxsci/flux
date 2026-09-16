@@ -61,12 +61,12 @@
   button:focus-visible, input:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
   fieldset { border: 0; padding: 0; margin: 10px 12px 0; }
   legend { font: 600 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--c-tx-muted); margin-bottom: 4px; padding: 0; }
-  .choice { display: flex; gap: 8px; padding: 4px 0; align-items: flex-start; cursor: pointer; }
+  .choice { display: flex; gap: 8px; padding: 4px 0; align-items: flex-start; cursor: var(--cursor-cross-hover); }
   .choice input { height: auto; margin: 2px 0 0; accent-color: var(--c-accent); }
   .choice small { display: block; color: var(--c-tx-muted); margin-top: 2px; font-size: 11px; }
   .hint { font-size: 11px; color: var(--c-tx-muted); padding-bottom: 10px; }
   footer { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--c-line); }
-  button { background: transparent; color: var(--c-tx-2); padding: 3px 10px; cursor: pointer; }
+  button { background: transparent; color: var(--c-tx-2); padding: 3px 10px; cursor: var(--cursor-cross-hover); }
   button:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   /* Create ghosts is the dialog's one primary */
   .primary { background: var(--c-accent); color: var(--c-on-accent); border-color: var(--c-accent); font-weight: 600; }

@@ -236,13 +236,13 @@
   .tabs { display: flex; align-items: center; height: 30px; padding: 0 4px 0 2px; border-bottom: 1px solid var(--c-line); }
   .tab {
     height: 30px; padding: 0 10px; font: 12px var(--font-ui); color: var(--c-tx-muted);
-    background: none; border: 0; border-radius: 0; cursor: pointer;
+    background: none; border: 0; border-radius: 0; cursor: var(--cursor-cross-hover);
   }
   .tab:hover { color: var(--c-tx-hi); }
   .tab.on { color: var(--c-tx-hi); box-shadow: inset 0 -2px 0 var(--c-accent); }
   .x {
     margin-left: auto; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-ui);
-    background: none; color: var(--c-tx-muted); cursor: pointer; font-size: 11px;
+    background: none; color: var(--c-tx-muted); cursor: var(--cursor-cross-hover); font-size: 11px;
   }
   .x:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .empty { color: var(--c-tx-muted); font-size: 11px; line-height: 1.5; padding: 8px 10px 4px; }
@@ -250,13 +250,13 @@
   .row { display: flex; align-items: center; gap: 0; }
   .apply {
     flex: 1; display: flex; align-items: center; gap: 6px; text-align: left; height: 24px; min-width: 0;
-    border: 0; border-radius: 0; background: none; color: var(--c-tx); padding: 0 10px; cursor: pointer;
+    border: 0; border-radius: 0; background: none; color: var(--c-tx); padding: 0 10px; cursor: var(--cursor-cross-hover);
     font: 12px var(--font-ui);
   }
   .apply:hover { background: var(--c-surface-2); color: var(--c-tx-hi); }
   .apply .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--pc); flex: 0 0 auto; }
   .apply small { margin-left: auto; color: var(--c-tx-muted); font: 10px var(--font-mono); }
-  .del { border: 0; background: none; color: var(--c-tx-faint); cursor: pointer; font-size: 9px; height: 24px; padding: 0 8px; }
+  .del { border: 0; background: none; color: var(--c-tx-faint); cursor: var(--cursor-cross-hover); font-size: 9px; height: 24px; padding: 0 8px; }
   .del:hover { color: var(--c-danger); }
   .save { display: flex; gap: 4px; border-top: 1px solid var(--c-line); padding: 6px; }
   .save input {
@@ -266,7 +266,7 @@
   .save input:focus { border-color: var(--c-accent); outline: none; }
   .save button {
     height: 24px; font: 12px var(--font-ui); color: var(--c-tx-2); background: transparent;
-    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); padding: 3px 8px; cursor: pointer; white-space: nowrap;
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); padding: 3px 8px; cursor: var(--cursor-cross-hover); white-space: nowrap;
   }
   .save button:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
 </style>

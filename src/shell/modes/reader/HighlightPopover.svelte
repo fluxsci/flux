@@ -189,7 +189,7 @@
     height: 15px;
     border-radius: 50%;
     border: 1px solid var(--c-line);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0;
   }
   .pdot:hover {
@@ -208,7 +208,7 @@
     border: none;
     background: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-sm);
     padding: 0 2px;
     line-height: 1;
@@ -261,7 +261,7 @@
     padding: 3px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .pbtn:hover {

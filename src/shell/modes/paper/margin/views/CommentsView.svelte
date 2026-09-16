@@ -132,7 +132,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-comment);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-weight: 600;
   }
   .new:hover {
@@ -209,7 +209,7 @@
     background: none;
     border: none;
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 2px 4px;
   }
   .acts button:hover {
@@ -246,7 +246,7 @@
     font-size: var(--ts-sm);
     padding: 4px 12px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border: 1px solid transparent;
   }
   .composer .ghost {

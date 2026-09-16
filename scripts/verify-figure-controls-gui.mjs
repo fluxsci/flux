@@ -49,7 +49,7 @@ try{
   await page.evaluate(()=>document.activeElement?.blur());await page.keyboard.press('KeyF');
   await waitFor(page,()=>!!document.querySelector('.field .colorbtn'));
   await page.evaluate(()=>[...document.querySelectorAll('.field')].find(n=>n.querySelector('.label')?.textContent.trim()==='fill color').querySelector('button').click());
-  await waitFor(page,()=>!!document.querySelector('.cs .exp'));await page.click('.cs .exp');
+  await waitFor(page,()=>!!document.querySelector('.cs input.hex')); // the hex field is always visible (2026-09-15)
   await page.click('.cs input.hex',{count:3});await page.keyboard.type('#ff0000');
   assert.equal((await read()).elements.find(e=>e.id==='polish-rect').fill,'#ff0000',mode+': full picker previews color');
   await page.keyboard.press('Escape');assert.equal((await read()).elements.find(e=>e.id==='polish-rect').fill,'#4385be');

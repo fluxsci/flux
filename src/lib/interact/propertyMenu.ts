@@ -117,6 +117,10 @@ function resolveParts(p: Project, parts: PartSelection[]): { el: SemanticPlotEle
   return out;
 }
 
+// Hotkeys are LEFT-HAND keys only (owner request 2026-09-15): 1–6, q w e r t,
+// a d g, z x c v b and ` — f and s belong to the menu itself; h and n (an
+// index-finger stretch) are reserved for the rarest rows. The right hand never
+// leaves the wheel.
 export function buildPartFields(
   p: Project,
   parts: PartSelection[],
@@ -197,7 +201,7 @@ export function buildPartFields(
       apply: (v) => patch({ fontWeight: Number(v) }),
     });
     F.push({
-      key: "i",
+      key: "q",
       label: "italic",
       group: G,
       kind: "toggle",
@@ -206,7 +210,7 @@ export function buildPartFields(
       apply: () => patch({ fontStyle: read().fontStyle === "italic" ? "normal" : "italic" }),
     });
     F.push({
-      key: "u",
+      key: "2",
       label: "underline",
       group: G,
       kind: "toggle",
@@ -215,7 +219,7 @@ export function buildPartFields(
       apply: () => patch({ textDecoration: read().textDecoration === "underline" ? "none" : "underline" }),
     });
     F.push({
-      key: "m",
+      key: "w",
       label: "font",
       group: G,
       kind: "select",
@@ -245,16 +249,16 @@ export function buildPartFields(
       },
     });
   } else if (kind === "line") {
-    color("k", "stroke colour", "stroke");
+    color("g", "stroke colour", "stroke");
     pnum("d", "stroke width", "strokeWidth", 0.25, (x) => Math.max(0, x), { min: 0, softMax: 12 });
   } else if (kind === "shape") {
     color("c", "fill colour", "fill");
-    color("k", "stroke colour", "stroke");
+    color("g", "stroke colour", "stroke");
     pnum("d", "stroke width", "strokeWidth", 0.25, (x) => Math.max(0, x), { min: 0, softMax: 12 });
   }
-  pnum("o", "opacity", "opacity", 0.05, (x) => Math.min(1, Math.max(0, x)), { min: 0, max: 1 });
+  pnum("a", "opacity", "opacity", 0.05, (x) => Math.min(1, Math.max(0, x)), { min: 0, max: 1 });
   pnum("x", "dx (plot units)", "dx", 1);
-  pnum("y", "dy (plot units)", "dy", 1);
+  pnum("z", "dy (plot units)", "dy", 1);
   if (kind !== "container") visible();
   return F;
 }
@@ -331,7 +335,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     property("width");
     property("height");
     F.push({
-      key: "8",
+      key: "1",
       label: "lock aspect ratio",
       group: "Geometry",
       kind: "toggle",
@@ -387,7 +391,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     F.push({ key: "c", label: "fill color", group: "Fill", kind: "color", target: "fill", get: () => (shapeEl as { fill: string }).fill, apply: () => {} });
     // "none" as a first-class state: toggling back restores the draw-style fill.
     F.push({
-      key: "0",
+      key: "2",
       label: "no fill (outline only)",
       group: "Fill",
       kind: "toggle",
@@ -407,10 +411,10 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
   // Stroke
   if (strokeEl) {
     const se = strokeEl as Element & { dash?: number[] };
-    F.push({ key: "k", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (strokeEl as { stroke: string }).stroke, apply: () => {} });
+    F.push({ key: "g", label: "stroke color", group: "Stroke", kind: "color", target: "stroke", get: () => (strokeEl as { stroke: string }).stroke, apply: () => {} });
     property("strokeWidth");
     F.push({
-      key: "9",
+      key: "3",
       label: "no stroke",
       group: "Stroke",
       kind: "toggle",
@@ -425,7 +429,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     // Dash pattern ([len, gap] canvas px) — the toggle swaps solid↔[6,4]; the
     // two numbers appear while dashed. All writes go through ops.setElementStyle.
     F.push({
-      key: "-",
+      key: "4",
       label: "dashed stroke",
       group: "Stroke",
       kind: "toggle",
@@ -437,8 +441,8 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       },
     });
     if (se.dash?.length) {
-      F.push({ key: "[", label: "dash length", group: "Stroke", kind: "number", step: 0.5, min: 0.5, softMax: 40, get: () => se.dash?.[0] ?? 6, apply: (v) => { const ids = [...sel]; const gap = se.dash?.[1] ?? 4; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [Math.max(0.5, Number(v)), gap] })); } });
-      F.push({ key: "]", label: "dash gap", group: "Stroke", kind: "number", step: 0.5, min: 0.5, softMax: 40, get: () => se.dash?.[1] ?? 4, apply: (v) => { const ids = [...sel]; const len = se.dash?.[0] ?? 6; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [len, Math.max(0.5, Number(v))] })); } });
+      F.push({ key: "5", label: "dash length", group: "Stroke", kind: "number", step: 0.5, min: 0.5, softMax: 40, get: () => se.dash?.[0] ?? 6, apply: (v) => { const ids = [...sel]; const gap = se.dash?.[1] ?? 4; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [Math.max(0.5, Number(v)), gap] })); } });
+      F.push({ key: "6", label: "dash gap", group: "Stroke", kind: "number", step: 0.5, min: 0.5, softMax: 40, get: () => se.dash?.[1] ?? 4, apply: (v) => { const ids = [...sel]; const len = se.dash?.[0] ?? 6; mutate((proj) => ops.setElementStyle(proj, ids, { dash: [len, Math.max(0.5, Number(v))] })); } });
     }
   }
   // Arrowheads — lines AND open paths share the flags.
@@ -451,16 +455,16 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       mutate((proj) => ops.setElementStyle(proj, ids, patch));
     };
     F.push({ key: "q", label: "arrow start", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowStart, apply: () => applyArrow({ arrowStart: !arrowEl.arrowStart }) });
-    F.push({ key: "g", label: "arrow end", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowEnd, apply: () => applyArrow({ arrowEnd: !arrowEl.arrowEnd }) });
+    F.push({ key: "t", label: "arrow end", group: "Stroke", kind: "toggle", get: () => !!arrowEl.arrowEnd, apply: () => applyArrow({ arrowEnd: !arrowEl.arrowEnd }) });
     if (arrowEl.arrowStart || arrowEl.arrowEnd) {
-      F.push({ key: "z", label: "arrowhead", group: "Stroke", kind: "select", options: [{ value: "filled", label: "Filled" }, { value: "vee", label: "V-line" }], get: () => arrowEl.arrowStyle ?? "filled", apply: (v) => applyArrow({ arrowStyle: v as "filled" | "vee" }) });
+      F.push({ key: "b", label: "arrowhead", group: "Stroke", kind: "select", options: [{ value: "filled", label: "Filled" }, { value: "vee", label: "V-line" }], get: () => arrowEl.arrowStyle ?? "filled", apply: (v) => applyArrow({ arrowStyle: v as "filled" | "vee" }) });
       num("e", "arrowhead size (× width)", "Stroke", () => arrowEl.arrowSize ?? 4, (e, v) => { if (e.type === "line" || e.type === "path") (e as { arrowSize?: number }).arrowSize = Math.max(1, v); }, 0.5, { min: 1, softMax: 12 });
     }
   }
   // Cap — lines AND open paths.
   const capEl = els.find((e) => e.type === "line" || (e.type === "path" && !e.closed));
   if (capEl) {
-    F.push({ key: "l", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => (capEl as { cap?: string }).cap ?? "round", apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cap: v as "butt" | "round" | "square" })); } });
+    F.push({ key: "h", label: "cap style", group: "Stroke", kind: "select", options: [{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }], get: () => (capEl as { cap?: string }).cap ?? "round", apply: (v) => { const ids = [...sel]; mutate((proj) => ops.setElementStyle(proj, ids, { cap: v as "butt" | "round" | "square" })); } });
   }
 
   // Presets — save a SINGLE primitive, or a GROUP of primitives + text, to the
@@ -468,7 +472,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
   if (presetableSelection(els)) {
     const pids = els.map((e) => e.id);
     F.push({
-      key: "p",
+      key: "`",
       label: els.length > 1 ? `save group as preset… (${els.length} items)` : "save as preset…",
       group: "Presets",
       kind: "action",
@@ -490,13 +494,13 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     // Font size in POINTS (stored px × 0.75) — same unit as journal specs.
     property("fontSize");
     F.push({ key: "b", label: "weight", group: "Text", kind: "select", options: [{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }], get: () => String(tEl.fontWeight), apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontWeight = Number(v); ops.detachOnManualEdit(proj, e, ["fontWeight"]); } }) });
-    F.push({ key: "i", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
-    F.push({ key: "j", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
-    F.push({ key: "m", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
-    F.push({ key: "a", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as "left" | "center" | "right"; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
+    F.push({ key: "v", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
+    F.push({ key: "2", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
+    F.push({ key: "q", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
+    F.push({ key: "3", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as "left" | "center" | "right"; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
     property("lineHeight");
     F.push({
-      key: "z",
+      key: "4",
       label: "sizing",
       group: "Text",
       kind: "select",
@@ -506,7 +510,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     });
     // Named text style ('p').
     F.push({
-      key: "p",
+      key: "5",
       label: "text style",
       group: "Text",
       kind: "select",

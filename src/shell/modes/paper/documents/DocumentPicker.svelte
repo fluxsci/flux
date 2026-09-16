@@ -178,7 +178,7 @@
   .dp-scroll { flex:1; min-height:0; overflow:auto; padding:6px; }
   ul { list-style:none; padding:0; margin:0; }
   li { margin:0; }
-  button { font:inherit; cursor:pointer; border:0; background:transparent; color:var(--c-tx-2); border-radius:var(--r-1); }
+  button { font:inherit; cursor: var(--cursor-cross-hover); border:0; background:transparent; color:var(--c-tx-2); border-radius:var(--r-1); }
   button:focus-visible { outline:2px solid var(--c-accent); outline-offset:-2px; }
   button:hover { background:var(--c-ui-hover); color:var(--c-tx-hi); }
   .dp-folder { display:flex; align-items:center; padding-left:calc(var(--depth) * 14px); border-radius:var(--r-1); }

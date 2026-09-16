@@ -241,7 +241,7 @@
     border: 1px solid var(--c-line);
     border-radius: var(--r-2);
     overflow: hidden;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       border-color var(--dur-quick, 120ms) ease,
       transform var(--dur-quick, 120ms) ease;

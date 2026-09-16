@@ -226,7 +226,9 @@
    "verify-animate-selection.ts",
    "verify-wheel-law.ts",
    "verify-feedback-snapshot.ts",
-   "verify-feedback-withdraw.ts"
+   "verify-feedback-withdraw.ts",
+   "verify-color-space.ts",
+   "verify-cursor-policy.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -658,9 +660,21 @@
    ]
   },
   {
-   "glob": "{src/styles/cursors.css,src/lib/Canvas.svelte,src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
+   "$why": "2026-09-15 the crosshair cursor family \u2014 Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
+   "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte}",
    "run": [
+    "verify-cursor-policy.ts",
     "verify-cursor-gui.mjs",
+    "group:figures-slides-overhaul",
+    "group:slide-ghosts",
+    "tier:pure",
+    "group:inline-slides",
+    "group:slide-stash"
+   ]
+  },
+  {
+   "glob": "{src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
+   "run": [
     "group:figures-slides-overhaul",
     "group:slide-ghosts",
     "tier:pure",
@@ -1047,6 +1061,8 @@
    "run": [
     "verify-surface-anchor.ts",
     "verify-wheel-law.ts",
+    "verify-color-space.ts",
+    "verify-cursor-policy.ts",
     "verify-xray-multi.ts",
     "verify-animate-selection.ts",
     "verify-wheel-law.ts",

@@ -76,7 +76,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 
 | Shortcut | Action |
 |---|---|
-| **F** | Property menu, beside the selection (each row shows its own key; a letter arms the row, then the **mouse wheel** or **↑/↓** adjusts a number, an expanded choice takes **w/a/s/d**, **1–9** or the wheel, a colour opens the palette — hover previews, click applies; **Space**/**Enter** applies, **Escape** reverts; **s** searches) |
+| **F** | Property menu, beside the selection (each row shows its own **left-hand** key; the key arms the row, then the **mouse wheel** — anywhere on screen — or **↑/↓** adjusts a number, an expanded choice takes **w/a/s/d**, **1–9** or the wheel, a colour opens the palette — hover previews, click applies; **Space**/**Enter** applies, **Escape** reverts; **s** searches) |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** | Open the Plot gallery, or focus its pinned window |

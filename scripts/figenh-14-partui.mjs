@@ -119,7 +119,7 @@ try {
   await sleep(300);
   assert(await page.evaluate(() => !!document.querySelector(".fluxFigMenu .cs")), "colour field opens ColorSearch");
   // expand the full picker and type a hex (liveHex applies immediately)
-  await page.evaluate(() => document.querySelector(".fluxFigMenu .cs .exp").click());
+  // 2026-09-15: the hex field is always visible beside the spectrum (no expand toggle).
   await sleep(200);
   await page.evaluate(() => {
     const hexIn = document.querySelector(".fluxFigMenu .cs input.hex");

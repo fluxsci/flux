@@ -230,7 +230,7 @@
 
 <style>
   .present {
-    position: fixed; inset: 0; z-index: 1000; background: #000; outline: none; cursor: default;
+    position: fixed; inset: 0; z-index: 1000; background: #000; outline: none; cursor: var(--cursor-cross);
     overflow: hidden;
   }
   .present.idle { cursor: none; }
@@ -252,13 +252,13 @@
   .hud .beats { display: flex; gap: 5px; }
   .hud .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
   .hud .dot.on { background: #4385be; }
-  .hud .x { pointer-events: all; border: 1px solid rgba(255, 255, 255, 0.3); background: transparent; color: rgba(255, 255, 255, 0.7); border-radius: 5px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
+  .hud .x { pointer-events: all; border: 1px solid rgba(255, 255, 255, 0.3); background: transparent; color: rgba(255, 255, 255, 0.7); border-radius: 5px; padding: 2px 8px; cursor: var(--cursor-cross-hover); font-size: 11px; }
   .hud .x:hover { color: #fff; border-color: #fff; }
   .notes {
     position: absolute; top: 18px; right: 18px; z-index: 12; width: 340px; max-height: 92vh;
     display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
     background: rgba(16, 16, 18, 0.9); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px;
-    backdrop-filter: blur(6px); color: rgba(255, 255, 255, 0.82); cursor: default;
+    backdrop-filter: blur(6px); color: rgba(255, 255, 255, 0.82); cursor: var(--cursor-cross);
   }
   .notes-top { display: flex; align-items: baseline; justify-content: space-between; }
   .notes .clock { font: 600 22px ui-monospace, monospace; color: #fff; font-variant-numeric: tabular-nums; }

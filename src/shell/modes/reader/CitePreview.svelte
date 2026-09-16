@@ -167,7 +167,7 @@
     padding: 2px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .cbtn:hover:not(:disabled) {

@@ -49,6 +49,13 @@ export interface AnchorResult {
 
 const clamp = (v: number, lo: number, hi: number) => (hi < lo ? lo : Math.min(hi, Math.max(lo, v)));
 
+/** Area of the intersection of two rects (0 when apart). */
+export function overlapArea(a: Rect, b: Rect): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
 /** Place a panel of `size` inside `viewport`, beside `avoid`, near `point`. */
 export function anchorPanel(input: AnchorInput): AnchorResult {
   const gap = input.gap ?? 12;
@@ -75,8 +82,23 @@ export function anchorPanel(input: AnchorInput): AnchorResult {
     if (below + ph <= vh - margin) return { x: xNear(avoid.x), y: below, side: "below" };
     const above = avoid.y - gap - ph;
     if (above >= margin) return { x: xNear(avoid.x), y: above, side: "above" };
-    // Nowhere beside it fits (a selection filling the screen): fall through
-    // to the pointer, clamped — covering part of the box beats being unreachable.
+    // Nowhere beside it fits whole. Never fall back to "on the pointer" (that
+    // lands the panel ON the thing being edited): take the side that covers
+    // the LEAST of the box once clamped into the viewport — a wide selection
+    // gets the panel hugging the viewport edge, overlapping only its margin.
+    const cands: AnchorResult[] = [
+      { x: clamp(right, minX, maxX), y: yNear(avoid.y), side: "right" },
+      { x: clamp(left, minX, maxX), y: yNear(avoid.y), side: "left" },
+      { x: xNear(avoid.x), y: clamp(below, minY, maxY), side: "below" },
+      { x: xNear(avoid.x), y: clamp(above, minY, maxY), side: "above" },
+    ];
+    let best = cands[0];
+    let bestArea = Infinity;
+    for (const c of cands) {
+      const area = overlapArea({ x: c.x, y: c.y, w: pw, h: ph }, avoid);
+      if (area < bestArea) { best = c; bestArea = area; }
+    }
+    return best;
   }
   if (point) {
     const x = point.x + gap + pw <= vw - margin ? point.x + gap : clamp(point.x - gap - pw, minX, maxX);

@@ -7,7 +7,7 @@
 //   · never covers the avoided box while any side has room
 //   · pointer-only and centre fallbacks; re-clamp after a resize
 //   Run: npx tsx scripts/verify-surface-anchor.ts
-import { anchorPanel, reclampPanel, unionRects } from "../src/lib/ui/anchor";
+import { anchorPanel, overlapArea, reclampPanel, unionRects } from "../src/lib/ui/anchor";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -47,11 +47,19 @@ const size = { w: 330, h: 420 };
   assert(r2.side === "above" && r2.y === 500 - 12 - size.h, `above a box that fills the bottom (y=${r2.y})`);
   assert(!overlaps({ ...r2, ...size }, low), "above placement does not cover the box");
 }
-// (5) the box fills the screen → pointer fallback, clamped (covering beats unreachable).
+// (5) nothing fits whole → the side that covers the LEAST of the box, never "on the pointer".
 {
   const all = { x: 0, y: 0, w: 1400, h: 900 };
   const r = anchorPanel({ avoid: all, point: { x: 1300, y: 850 }, size, viewport: vp });
-  assert(r.side === "pointer" && inside({ ...r, ...size }, vp), `pointer fallback stays inside the viewport (${r.x},${r.y})`);
+  assert(r.side !== "pointer" && r.side !== "center" && inside({ ...r, ...size }, vp), `a box filling the screen still yields a side, inside the viewport (${r.side} ${r.x},${r.y})`);
+  // A tall selection through the middle: no side has full room for a 616-wide
+  // panel; the panel hugs the right edge and overlaps only the box's margin.
+  const tall = { x: 500, y: 40, w: 400, h: 820 };
+  const wide = { w: 616, h: 420 };
+  const t = anchorPanel({ avoid: tall, point: { x: 700, y: 300 }, size: wide, viewport: vp });
+  assert(t.side === "right" && t.x === vp.w - 8 - wide.w, `the least-overlap side wins (${t.side} x=${t.x})`);
+  assert(overlapArea({ ...t, ...wide }, tall) < wide.w * wide.h * 0.25, "…and it covers less than a quarter of the panel's area of the box");
+  assert(inside({ ...t, ...wide }, vp), "…inside the viewport");
 }
 // (6) no box: at the pointer's right, or its left near the edge; no pointer: centred.
 {

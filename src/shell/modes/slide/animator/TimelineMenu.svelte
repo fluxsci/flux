@@ -55,10 +55,10 @@
   }
   .menu button {
     text-align: left; border: 0; background: none; color: var(--c-tx-2);
-    border-radius: var(--r-0); min-height: 24px; padding: 3px 9px; cursor: pointer; font: 12px var(--font-ui);
+    border-radius: var(--r-0); min-height: 24px; padding: 3px 9px; cursor: var(--cursor-cross-hover); font: 12px var(--font-ui);
   }
   .menu button:hover:not(:disabled) { background: var(--c-accent-tint); color: var(--c-tx-hi); }
-  .menu button:disabled { color: var(--c-tx-faint); cursor: default; }
+  .menu button:disabled { color: var(--c-tx-faint); cursor: var(--cursor-cross); }
   .menu button.hinted { display: flex; flex-direction: column; gap: 1px; padding-block: 4px; }
   .menu button small { font-size: 10.5px; color: var(--c-tx-muted); white-space: nowrap; }
   .menu button:hover:not(:disabled) small { color: var(--c-tx-2); }

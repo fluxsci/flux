@@ -148,7 +148,7 @@
   .libitem {
     padding: 7px 12px;
     border-bottom: 1px solid var(--c-line);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .libitem:hover {
     background: var(--c-bg);
@@ -206,7 +206,7 @@
     padding: 1px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .lpill:hover {
     background: var(--c-accent);
@@ -223,7 +223,7 @@
     font: inherit;
     font-size: var(--ts-xs);
     padding: 0;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ldoi:hover {
     text-decoration: underline;

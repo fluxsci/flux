@@ -2111,7 +2111,7 @@
     font: inherit;
     font-size: var(--ts-sm);
     font-weight: 600;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .enrich:hover:not(:disabled) {
@@ -2120,7 +2120,7 @@
   }
   .enrich:disabled {
     opacity: 0.7;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   /* "Get PDFs" — a secondary pill next to the primary Enrich pill. */
   .getpdfs {
@@ -2167,7 +2167,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-md);
   }
   .gear:hover,
@@ -2229,7 +2229,7 @@
     font: inherit;
     font-size: var(--ts-sm);
     font-weight: 600;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .adddoi {
     display: flex;
@@ -2261,7 +2261,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-md);
   }
   .adddoi button:hover:not(:disabled) {
@@ -2287,7 +2287,7 @@
     padding: 7px 12px;
     font: inherit;
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .seg.sub button {
     padding: 7px 10px;
@@ -2347,7 +2347,7 @@
     padding: 7px 12px;
     border-bottom: 1px solid var(--c-line);
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     /* Skip layout/paint for off-screen rows — the library can have 1000s of entries.
        contain-intrinsic-size reserves the collapsed row height so the scrollbar is
        correct; `auto` remembers each row's real size once it has been rendered. */
@@ -2362,7 +2362,7 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     font-size: 10px;
-    cursor: default;
+    cursor: var(--cursor-cross);
     z-index: 1;
     content-visibility: visible; /* header is always on-screen */
   }
@@ -2376,7 +2376,7 @@
     text-transform: inherit;
     letter-spacing: inherit;
     text-align: left;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .hcol:hover {
@@ -2412,7 +2412,7 @@
     justify-content: center;
   }
   .gsel input {
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     margin: 0;
   }
   /* Bulk-selection action bar (shown while ≥1 row is selected). */
@@ -2437,11 +2437,11 @@
     border-radius: var(--r-1);
     background: var(--c-accent);
     color: var(--c-bg);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .selact:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
     background: none;
     color: var(--c-tx-faint);
   }
@@ -2452,7 +2452,7 @@
     border-radius: var(--r-1);
     background: none;
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   /* Bulk fetch-PDFs for the checked rows (Alt+F). */
   .selfetch {
@@ -2461,7 +2461,7 @@
     border-radius: var(--r-1);
     background: none;
     color: var(--c-accent);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .selfetch:hover:not(:disabled) {
     background: var(--c-accent);
@@ -2469,7 +2469,7 @@
   }
   .selfetch:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   /* Bulk delete of the checked rows (Alt+Del) — danger tone, Undo via toast. */
   .seldel {
@@ -2478,7 +2478,7 @@
     border-radius: var(--r-1);
     background: none;
     color: var(--c-danger);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .seldel:hover:not(:disabled) {
     background: var(--c-danger);
@@ -2486,7 +2486,7 @@
   }
   .seldel:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .ga {
     color: var(--c-tx);
@@ -2540,7 +2540,7 @@
   .statusdot {
     border: none;
     background: none;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: 13px;
     line-height: 1;
     padding: 0 3px;
@@ -2560,7 +2560,7 @@
     border: none;
     background: none;
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -2592,7 +2592,7 @@
     border: 1px solid var(--c-line);
     border-radius: var(--r-pill);
     padding: 1px 9px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     text-transform: capitalize;
   }
   .facet:hover {
@@ -2627,7 +2627,7 @@
     border: none;
     background: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0;
     font-size: 12px;
     line-height: 1;
@@ -2676,7 +2676,7 @@
     border: none;
     background: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-sm);
     padding: 2px 3px;
     border-radius: var(--r-1);
@@ -2686,7 +2686,7 @@
   }
   .ico:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .ico.haspdf {
     color: var(--c-accent);
@@ -2698,7 +2698,7 @@
   .fpill {
     border: 1px solid;
     background: none;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-xs);
     line-height: 1;
     padding: 2px 6px;
@@ -2752,7 +2752,7 @@
     color: var(--c-tx-2);
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .fbclear {
     margin-left: 0;
@@ -2817,7 +2817,7 @@
     color: var(--c-tx-2);
     font-size: var(--ts-sm);
     line-height: 1.5;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ftsnip:hover {
     background: var(--c-bg);
@@ -2843,7 +2843,7 @@
     padding: 10px 14px 12px;
     border-bottom: 1px solid var(--c-line);
     background: var(--c-surface);
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .dabs {
     margin: 0 0 8px;
@@ -2897,7 +2897,7 @@
     padding: 4px 10px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .dbtns button:hover:not(:disabled) {
     border-color: var(--c-accent);
@@ -2934,7 +2934,7 @@
     padding: 4px 10px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .proxybtn.on {
@@ -2946,7 +2946,7 @@
   }
   .dbtns button:disabled {
     opacity: 0.45;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .dcite {
     font-size: var(--ts-xs);
@@ -2982,7 +2982,7 @@
     color: var(--c-tx);
     border-radius: 6px;
     padding: 5px 14px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font: inherit;
     font-size: var(--ts-sm);
   }
@@ -3000,14 +3000,14 @@
     font: inherit;
     font-size: var(--ts-sm);
     font-weight: 600;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .loadmore:hover:not(:disabled) {
     background: var(--c-accent-tint);
   }
   .loadmore:disabled {
     color: var(--c-tx-faint);
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .worldhead {
     display: flex;
@@ -3035,7 +3035,7 @@
     padding: 2px 9px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .addbtn:hover:not(:disabled) {
@@ -3044,7 +3044,7 @@
   }
   .addbtn:disabled {
     opacity: 0.4;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .webcap {
     display: flex;
@@ -3068,7 +3068,7 @@
     background: none;
     color: var(--c-tx-2);
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0;
   }
   .capdot .dot {
@@ -3127,12 +3127,12 @@
     color: var(--c-accent);
     font-size: inherit;
     text-decoration: underline;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .caplink:disabled {
     color: var(--c-tx-faint);
     text-decoration: none;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .capstatus {
     margin: var(--sp-3) 0 0;
@@ -3155,7 +3155,7 @@
     color: var(--c-accent);
     font-size: var(--ts-sm);
     font-weight: 600;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .bminstall:hover:not(:disabled) {
     background: var(--c-accent);
@@ -3163,7 +3163,7 @@
   }
   .bminstall:disabled {
     opacity: 0.6;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .hint {
     font-size: var(--ts-xs);

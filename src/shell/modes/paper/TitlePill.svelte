@@ -64,7 +64,7 @@
     overflow: hidden;
   }
   .pill.clickable {
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition: border-color var(--dur-quick) var(--ease-standard);
   }
   .pill.clickable:hover {

@@ -401,7 +401,7 @@
   }
   input, select { background: var(--c-bg); padding: 2px 6px; }
   input { font: 12px var(--font-mono); font-variant-numeric: tabular-nums; }
-  button { cursor: pointer; }
+  button { cursor: var(--cursor-cross-hover); }
   button:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   input:focus, select:focus { border-color: var(--c-accent); outline: none; }
   button:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 1px; }
@@ -483,7 +483,7 @@
   }
   .group .target-label { background: var(--c-surface); }
   .selected .target-label { background: color-mix(in oklab, var(--c-accent) 16%, var(--c-bg-raised)); box-shadow: inset 2px 0 0 var(--c-accent); color: var(--c-tx-hi); }
-  .track-label { text-align: left; display: block; cursor: pointer; }
+  .track-label { text-align: left; display: block; cursor: var(--cursor-cross-hover); }
   .track-label:hover { color: var(--c-tx-hi); border-right-color: var(--c-line); }
   .target-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
   .track-label small { display: block; font-size: 9px; color: var(--c-tx-muted); line-height: 11px; }

@@ -852,6 +852,27 @@ Persistence invariants (all machine-checked — do not weaken):
     `elementLabel` (the Layers name — custom name, a plot's file name, `rect 1`), for a part
     `plot › part`; `.ctx` keeps the kind / plural count (`2 plot parts`, pinned by
     `verify-fmenu-surface`).
+  - **The menu's rows are two lines and its keys are LEFT-HAND** (owner's second batch,
+    2026-09-15): key + name above the control, 200 px columns (menu 240 / 452 / 664 px; 620 in
+    colour mode), Georgia (`--font-serif`) for the menu's words, mono for values. Hotkeys come
+    only from `1–6 · q w e r t · a d g · z x c v b · \``; `f` and `s` are the menu's own, `h`/`n`
+    (index-finger stretch) are for the rarest rows — `elementProperties.ts` and
+    `propertyMenu.ts` carry the map, the Inspector's chips read the same keys. Once a row is
+    armed the wheel follows it from ANYWHERE (`<svelte:window on:wheel|capture|nonpassive>` —
+    capture, so the canvas never zooms); over the panel, hovering a row still arms it.
+  - **The colour picker is two columns:** the palette (every row on one line, the whole grid
+    visible — the menu grows, nothing scrolls) and a 204 px side with the current swatch, the
+    hex field, the eyedropper (`EyeDropper` when the runtime has it) and the always-visible
+    spectrum (`colorSpace.ts` HSV square + hue bar: drag previews through the session, release
+    commits). Gates: `verify-color-space.ts` (pure); fmenu-surface / figenh-14 /
+    figure-controls pin the `.hex` field and the `.sv`/`.hue` spectrum.
+  - **Anchoring never lands on the thing:** when no side has full room, `anchorPanel` takes the
+    side whose clamped placement overlaps the avoided box the LEAST (`overlapArea`), never
+    the pointer (that put the menu on the selected path in Slide mode).
+  - **The crosshair is the app's cursor** (`app.css` policy + `verify-cursor-policy.ts`): body
+    plain, interactive elements dotted, `:active` contracted, text fields the I-beam; no
+    component may say `cursor: pointer` / `default` — 302 declarations were swapped for the
+    family in one pass, and the gate keeps it that way.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -5144,3 +5165,25 @@ Properties text with the flux logo | <name of thing>" → the header above; (2) 
 cursor that stays visible, with micro feels, PRECISE / PERFORMANT / PREMIUM" → the hardware
 cursor family + the click ring above. Both resolved with `flux resolve-feedback` so the toast
 closed the loop in the app.
+
+## Session entry — 2026-09-16 00:30 — the owner's second batch (five snapshot notes)
+
+**Work:** Drained the queue written with Snapshot & annotate: (1) the Inspector's figure
+identity row mis-aligned its sans name and mono ref (baseline alignment) → centred; (2) the
+property menu — labels above controls in narrow columns, the wheel following an armed row from
+anywhere, every hotkey moved to the left hand, Georgia for the menu's words; (3) the colour
+picker — one-line palette rows, the whole grid visible, the spectrum + hex + eyedropper on the
+right by default; (4) the crosshair everywhere (chrome, sidebars, buttons) except text fields;
+(5) the menu covering the selected path in Slide mode → the least-overlap fallback in
+`anchorPanel`. Also: `colorSpace.ts`, `verify-color-space.ts`, `verify-cursor-policy.ts`, the
+gate updates that pinned the retired expand toggle and the old keys (o → a, a → 3).
+
+**Verified:** check 0/0; `verify-surface-anchor`, `verify-color-space`, `verify-cursor-policy`
+PASS; fmenu-surface, figenh-14, figenh-18, menu, cursor, figure-controls, figure-editing,
+xray-multi, annotate GUI gates PASS; docs 158/158. Visual: the browser pane shows the two-line
+rows and the spectrum picker; the notes resolved with `flux resolve-feedback`.
+
+**Learnings:** promoted to §4 (left-hand key policy, the two-line row, the picker's columns,
+least-overlap anchoring, the cursor policy). Meta: the owner's snapshot notes carried the DOM
+anchors and the crop, so each item was actionable without a question back — the feedback
+loop built in the previous entry paid for itself on its first batch.

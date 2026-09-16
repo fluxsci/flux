@@ -225,7 +225,7 @@
     font-size: var(--ts-xs);
     color: var(--c-tx-faint);
     padding: 1px 8px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .stbtn.on {
     background: var(--c-ui-hover);
@@ -275,7 +275,7 @@
     border-radius: var(--r-1);
     color: var(--c-tx-2);
     padding: 2px 7px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .grpedit:hover {
     border-color: var(--c-accent);
@@ -308,7 +308,7 @@
     background: none;
     border: none;
     color: inherit;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     opacity: 0.7;
     font-size: 10px;
     padding: 0 2px;
@@ -330,7 +330,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .search:hover {
     border-color: var(--c-accent);
@@ -365,7 +365,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-md);
   }
   .empty {
@@ -401,7 +401,7 @@
     border-radius: 50%;
     border: 1.5px solid var(--c-danger);
     background: transparent;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0;
   }
   .ref.on .dot {
@@ -417,7 +417,7 @@
     border: none;
     padding: 0;
     text-align: left;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font: inherit;
     font-size: var(--ts-sm);
     color: var(--c-tx);
@@ -462,7 +462,7 @@
     color: var(--c-accent-bright);
     font-family: var(--font-mono);
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     text-decoration: underline;
   }
   .d-actions {
@@ -480,7 +480,7 @@
     border-radius: var(--r-pill);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .d-pill:hover {
     border-color: var(--c-accent);

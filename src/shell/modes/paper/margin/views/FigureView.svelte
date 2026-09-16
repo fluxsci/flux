@@ -175,7 +175,7 @@
     border-radius: var(--r-pill);
     background: color-mix(in oklab, var(--flx-paper) 82%, transparent);
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .zreset:hover {
     color: var(--c-tx-hi);
@@ -204,7 +204,7 @@
     font-size: var(--ts-sm);
     padding: 5px 12px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     background: var(--c-accent);
     color: var(--c-on-accent);
     border: 1px solid transparent;
@@ -236,7 +236,7 @@
     border: 1px solid var(--c-line);
     border-radius: var(--r-1);
     padding: 5px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     overflow: hidden;
   }
   .thumb.sel {

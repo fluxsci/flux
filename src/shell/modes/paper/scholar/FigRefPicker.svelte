@@ -330,7 +330,7 @@
     height: 26px;
     font-size: 15px;
     line-height: 1;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .back:hover {
     border-color: var(--c-accent);
@@ -381,7 +381,7 @@
     border: 1px solid var(--c-line);
     border-radius: var(--r-2);
     overflow: hidden;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       border-color var(--dur-quick, 120ms) ease,
       transform var(--dur-quick, 120ms) ease;
@@ -489,7 +489,7 @@
     border-radius: var(--r-pill);
     background: var(--c-bg);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-quick, 120ms) ease,
       border-color var(--dur-quick, 120ms) ease;

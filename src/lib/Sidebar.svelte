@@ -716,7 +716,7 @@
     color: var(--c-tx-2);
     padding: 3px 8px;
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border-radius: var(--r-0);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -776,7 +776,7 @@
     background: transparent;
     border: none;
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font: 13px var(--font-ui);
     height: 22px;
     padding: 0 6px;
@@ -837,7 +837,7 @@
     background: transparent;
     border: none;
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 3px;
     border-radius: var(--r-ui);
     opacity: 0.7;
@@ -854,7 +854,7 @@
     color: var(--c-accent);
     opacity: 1;
   }
-  .tog:disabled { opacity: 0.35; cursor: default; }
+  .tog:disabled { opacity: 0.35; cursor: var(--cursor-cross); }
   li.active .grip,
   li.active .tog {
     color: var(--c-tx-2);
@@ -876,7 +876,7 @@
     background: transparent;
     border: none;
     color: var(--c-tx-muted);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 2px 1px;
     font-size: 9px;
     line-height: 1;

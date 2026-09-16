@@ -340,7 +340,7 @@
     border: none;
     background: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0 2px;
     line-height: 1;
   }
@@ -368,7 +368,7 @@
     text-align: left;
     padding: 4px 6px;
     border-radius: var(--r-1, 4px);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .fam:hover {
     background: color-mix(in srgb, var(--c-accent, #4385be) 10%, transparent);
@@ -488,7 +488,7 @@
     padding: 3px 8px;
     font: inherit;
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .nbtn:hover {
     border-color: var(--c-accent);
@@ -501,6 +501,6 @@
   }
   .nbtn:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
 </style>

@@ -1132,7 +1132,7 @@
     height: 16px;
     border-radius: 50%;
     border: 1px solid var(--c-line);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0;
   }
   .dot:hover {
@@ -1148,7 +1148,7 @@
     border: none;
     background: none;
     color: var(--c-accent);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: 13px;
     line-height: 1;
     padding: 0 3px;

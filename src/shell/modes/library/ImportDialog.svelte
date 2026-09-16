@@ -456,7 +456,7 @@
     border-radius: var(--r-1);
     border: 1px solid var(--c-line-strong);
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ghost {
     background: var(--c-bg);
@@ -469,6 +469,6 @@
   }
   .prim:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
 </style>

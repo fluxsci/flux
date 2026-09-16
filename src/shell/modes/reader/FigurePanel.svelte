@@ -108,7 +108,7 @@
     border: none;
     background: none;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-xs);
     padding: 2px 5px;
     border-radius: var(--r-1);

@@ -15,6 +15,7 @@
   import { project, selection, partSelection } from "./store";
   import { applyColor, addRecentColor, setOpacity, currentColor, nameForHex } from "./colors";
   import { FLEXOKI } from "./flexoki";
+  import { hexToHsv, hsvToHex, type Hsv } from "./colorSpace";
 
   export let target: "fill" | "stroke" = "fill";
   /** Commit + close (the host returns to its hotkey mode). */
@@ -43,8 +44,56 @@
 
   let gridEl: HTMLDivElement;
   let hexEl: HTMLInputElement;
-  let expanded = false;
   let hexVal = "";
+  // The spectrum (owner request 2026-09-15): an HSV square + hue bar on the
+  // right, always visible, seeded from the colour the thing had when the picker
+  // opened and following the palette cursor; dragging previews live through the
+  // session, releasing commits. Hue/sat/val live here so a swatch pick, a typed
+  // hex and the square all agree.
+  let hsv: Hsv = { h: 0, s: 0, v: 0.5 };
+  let svEl: HTMLDivElement;
+  let svDrag = false;
+  $: if (!svDrag) { const parsed = /^#[0-9a-fA-F]{6}$/.test(hexVal) ? hexToHsv(hexVal) : null; if (parsed) hsv = parsed; }
+  const hasDropper = typeof window !== "undefined" && "EyeDropper" in window;
+  function svPoint(e: PointerEvent): Hsv {
+    const r = svEl.getBoundingClientRect();
+    const sx = Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width)));
+    const sy = Math.min(1, Math.max(0, (e.clientY - r.top) / Math.max(1, r.height)));
+    return { h: hsv.h, s: sx, v: 1 - sy };
+  }
+  function onSvDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    svEl.setPointerCapture(e.pointerId);
+    svDrag = true;
+    hsv = svPoint(e);
+    liveHex(hsvToHex(hsv));
+  }
+  function onSvMove(e: PointerEvent) {
+    if (!svDrag) return;
+    hsv = svPoint(e);
+    liveHex(hsvToHex(hsv));
+  }
+  function onSvUp(e: PointerEvent) {
+    if (!svDrag) return;
+    svDrag = false;
+    hsv = svPoint(e);
+    commit(hsvToHex(hsv));
+  }
+  function onHue(e: Event, done: boolean) {
+    hsv = { ...hsv, h: Number((e.currentTarget as HTMLInputElement).value) };
+    const hex = hsvToHex(hsv);
+    if (done) commit(hex); else liveHex(hex);
+  }
+  async function dropper() {
+    try {
+      const r = await new (window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper().open();
+      commit(r.sRGBHex.toLowerCase());
+    } catch {
+      /* cancelled */
+    }
+  }
   let cursor = { r: 0, c: 0 };
   let committed = false;
 
@@ -131,7 +180,6 @@
     if (k === "ArrowDown" || lk === "s") { e.preventDefault(); e.stopPropagation(); move(1, 0); return; }
     if (k === "ArrowLeft" || lk === "a") { e.preventDefault(); e.stopPropagation(); move(0, -1); return; }
     if (k === "ArrowRight" || lk === "d") { e.preventDefault(); e.stopPropagation(); move(0, 1); return; }
-    if (k === "Tab") { e.preventDefault(); e.stopPropagation(); expanded = !expanded; return; }
     if (k === "#" || /^[0-9a-f]$/i.test(k)) {
       // Start typing a hex: the field takes over.
       e.preventDefault();
@@ -192,48 +240,76 @@
     {/each}
     {#if !rows.length}<div class="empty">No palette yet — import one in the Inspector's Color palette.</div>{/if}
   </div>
-  <div class="bar">
-    <span class="dot" style={at && !at.none ? `background:${at.hex}` : ""} class:isnone={!!at?.none}></span>
-    <span class="cname">{at ? at.name : ""}</span>
-    <input class="hex" bind:this={hexEl} value={hexVal} spellcheck="false" aria-label="Hex colour"
-      on:input={(e) => liveHex(e.currentTarget.value)} on:keydown={onHexKey} on:focus={(e) => e.currentTarget.select()} />
-    <button class="exp" class:on={expanded} title="Native picker & opacity (Tab)" on:click={() => (expanded = !expanded)}>⤢</button>
-  </div>
-  {#if expanded}
-    <div class="editor">
-      <label class="erow"><span>pick</span><input type="color" value={/^#[0-9a-fA-F]{6}$/.test(hexVal) ? hexVal : "#000000"} on:input={(e) => liveHex(e.currentTarget.value)} on:change={(e) => commit(e.currentTarget.value)} /></label>
-      {#if $selection.size && !$partSelection}
-        <label class="erow"><span>opacity</span><input type="range" min="0" max="1" step="0.01" value="1" on:input={(e) => session.run(() => setOpacity(parseFloat(e.currentTarget.value), true))} /></label>
+  <div class="side">
+    <div class="bar">
+      <span class="dot" style={at && !at.none ? `background:${at.hex}` : ""} class:isnone={!!at?.none}></span>
+      <span class="cname">{at ? at.name : ""}</span>
+    </div>
+    <div class="hexrow">
+      <input class="hex" bind:this={hexEl} value={hexVal} spellcheck="false" aria-label="Hex colour"
+        on:input={(e) => liveHex(e.currentTarget.value)} on:keydown={onHexKey} on:focus={(e) => e.currentTarget.select()} />
+      {#if hasDropper}
+        <button class="drop" type="button" title="Pick a colour from the screen" aria-label="Eyedropper" on:click={dropper}>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10.5 1.5 14.5 5.5 12.5 7.5 13.5 8.5 12 10 11 9 5.5 14.5H1.5V10.5L7 5 6 4 7.5 2.5 8.5 3.5Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        </button>
       {/if}
     </div>
-  {/if}
-  <div class="hint"><b>hover</b> preview · <b>click</b>/<b>space</b> apply · <b>wasd</b>/arrows walk · <b>#</b> type a hex · <b>esc</b> revert</div>
+    <!-- The full spectrum: saturation → right, value ↑, hue below. -->
+    <div class="spec" aria-label="Spectrum">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="sv"
+        bind:this={svEl}
+        style={`background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`}
+        on:pointerdown={onSvDown}
+        on:pointermove={onSvMove}
+        on:pointerup={onSvUp}
+        on:pointercancel={onSvUp}
+      >
+        <span class="svdot" style={`left:${hsv.s * 100}%; top:${(1 - hsv.v) * 100}%; background:${hsvToHex(hsv)}`}></span>
+      </div>
+      <input class="hue" type="range" min="0" max="360" step="1" value={Math.round(hsv.h)} aria-label="Hue"
+        on:input={(e) => onHue(e, false)} on:change={(e) => onHue(e, true)} on:keydown|stopPropagation />
+    </div>
+    {#if $selection.size && !$partSelection}
+      <label class="erow"><span>opacity</span><input type="range" min="0" max="1" step="0.01" value="1" on:input={(e) => session.run(() => setOpacity(parseFloat(e.currentTarget.value), true))} on:keydown|stopPropagation /></label>
+    {/if}
+    <div class="hint"><b>hover</b> preview · <b>click</b>/<b>space</b> apply · <b>wasd</b>/arrows walk · <b>#</b> type a hex · <b>esc</b> revert</div>
+  </div>
 </div>
 
 <style>
-  .cs { display: flex; flex-direction: column; gap: 6px; font-family: var(--font-ui); }
-  .grid { outline: none; max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
+  /* Two columns: the palette gets the room (every row on ONE line, the whole
+     grid visible — the menu grows instead of scrolling), the spectrum sits in a
+     fixed 204 px column on the right. */
+  .cs { display: grid; grid-template-columns: minmax(0, 1fr) 204px; gap: 14px; align-items: start; font-family: inherit; }
+  .grid { outline: none; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
   .grid:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 0; border-radius: var(--r-0); }
   .prow { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 6px; }
   .plabel { font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sws { display: flex; flex-wrap: wrap; gap: 3px; }
-  .sw { width: 17px; height: 17px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent); cursor: pointer; box-sizing: border-box; position: relative; }
+  .sws { display: flex; flex-wrap: nowrap; gap: 3px; }
+  .sw { width: 17px; height: 17px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent); cursor: var(--cursor-cross-hover); box-sizing: border-box; position: relative; }
   .sw.none { background: var(--c-surface); }
   .sw.none::after { content: ""; position: absolute; inset: 3px; border-top: 1.5px solid var(--c-danger); transform: rotate(-45deg); transform-origin: center; }
   .sw.live { box-shadow: inset 0 0 0 1px var(--c-tx-hi); }
   .sw.cur { outline: 2px solid var(--c-accent); outline-offset: 1px; }
-  .bar { display: flex; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--c-line); }
+  .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .bar { display: flex; align-items: center; gap: 6px; height: 22px; }
+  .hexrow { display: flex; align-items: center; gap: 6px; }
   .dot { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid var(--c-line-strong); flex: none; }
   .dot.isnone { background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--c-line-strong) 3px 4px); }
   .cname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--c-tx-2); }
-  .hex { width: 84px; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 2px 6px; height: 24px; font: 12px var(--font-mono); outline: none; }
+  .hex { flex: 1; min-width: 0; background: var(--c-bg); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx); padding: 2px 6px; height: 24px; font: 12px var(--font-mono); outline: none; }
   .hex:focus { border-color: var(--c-accent); }
-  .exp { width: 24px; height: 24px; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); cursor: pointer; font-size: 12px; padding: 0; }
-  .exp.on, .exp:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
-  .editor { display: flex; gap: 12px; align-items: center; }
+  .drop { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); color: var(--c-tx-2); padding: 0; flex: none; }
+  .drop:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  .spec { display: flex; flex-direction: column; gap: 6px; }
+  .sv { position: relative; width: 100%; height: 136px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); touch-action: none; }
+  .svdot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); pointer-events: none; }
+  .hue { width: 100%; height: 12px; margin: 0; appearance: none; -webkit-appearance: none; border-radius: var(--r-ui); border: 1px solid var(--c-line-strong); background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%); }
+  .hue::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 8px; height: 16px; border-radius: 2px; background: #fff; border: 1px solid rgba(0, 0, 0, 0.55); box-shadow: 0 0 0 1px #fff; }
   .erow { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--c-tx-muted); }
-  .erow input[type="color"] { width: 30px; height: 22px; padding: 0; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: none; }
-  .erow input[type="range"] { width: 110px; accent-color: var(--c-accent); }
+  .erow input[type="range"] { flex: 1; accent-color: var(--c-accent); }
   .hint { font-size: 10.5px; color: var(--c-tx-muted); }
   .hint b { color: var(--c-tx-2); font-weight: 600; }
   .empty { padding: 12px; color: var(--c-tx-muted); font-size: 12px; }

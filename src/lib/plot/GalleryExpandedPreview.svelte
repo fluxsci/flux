@@ -172,10 +172,10 @@
   .eyebrow { flex-shrink:0; color:var(--c-tx-muted); font:600 10.5px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; }
   h2 { margin:0; min-width:0; font:600 12px/1.35 var(--font-ui); color:var(--c-tx-hi); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .header-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-  button { display:inline-flex; align-items:center; justify-content:center; height:24px; padding:0 8px; color:var(--c-tx); background:transparent; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); font:12px var(--font-ui); white-space:nowrap; cursor:pointer; }
+  button { display:inline-flex; align-items:center; justify-content:center; height:24px; padding:0 8px; color:var(--c-tx); background:transparent; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); font:12px var(--font-ui); white-space:nowrap; cursor: var(--cursor-cross-hover); }
   button:hover { color:var(--c-tx-hi); border-color:var(--c-tx-muted); }
   button:focus-visible { outline:1px solid var(--c-accent); outline-offset:1px; }
-  button:disabled { opacity:.4; cursor:default; }
+  button:disabled { opacity:.4; cursor: var(--cursor-cross); }
   .close { width:24px; padding:0; border:0; font-size:16px; line-height:1; color:var(--c-tx-muted); }
   .close:hover { background:var(--c-surface-2); }
   /* tab strip: flat text tabs, chosen = accent underline; controls at the right */

@@ -115,7 +115,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .restart:hover {
     color: var(--c-tx-hi);
@@ -146,7 +146,7 @@
     border-radius: var(--r-1);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
 
   .term-empty {

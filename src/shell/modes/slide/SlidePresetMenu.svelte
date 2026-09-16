@@ -142,7 +142,7 @@
   }
   header { display: flex; align-items: center; justify-content: space-between; height: 30px; flex: 0 0 auto; padding: 0 6px 0 12px; border-bottom: 1px solid var(--c-line); }
   header strong { font: 600 12px var(--font-ui); color: var(--c-tx); }
-  .x { width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-tx-muted); font-size: 13px; cursor: pointer; }
+  .x { width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-tx-muted); font-size: 13px; cursor: var(--cursor-cross-hover); }
   .x:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   input {
     margin: 8px 10px 0; height: 24px; background: var(--c-bg); border: 1px solid var(--c-line-strong); color: var(--c-tx);
@@ -152,10 +152,10 @@
   /* Save preset is the panel's one primary */
   .primary {
     margin: 6px 10px 0; align-self: flex-start; height: 24px; padding: 3px 10px; font: 600 12px var(--font-ui);
-    background: var(--c-accent); color: var(--c-on-accent); border: 1px solid var(--c-accent); border-radius: var(--r-ui); cursor: pointer;
+    background: var(--c-accent); color: var(--c-on-accent); border: 1px solid var(--c-accent); border-radius: var(--r-ui); cursor: var(--cursor-cross-hover);
   }
   .primary:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); }
-  .primary:disabled { opacity: .4; cursor: default; }
+  .primary:disabled { opacity: .4; cursor: var(--cursor-cross); }
   .hint { color: var(--c-tx-muted); font-size: 11px; line-height: 1.5; padding: 6px 10px 0; }
   .grid { overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px 10px 10px; }
   .none { grid-column: 1 / -1; color: var(--c-tx-faint); padding: 18px 6px; text-align: center; }
@@ -163,7 +163,7 @@
     position: relative; display: flex; flex-direction: column; gap: 3px;
     border: 1px solid var(--c-line); border-radius: var(--r-0); padding: 4px; background: var(--c-bg-raised);
   }
-  .card.pickable { cursor: pointer; }
+  .card.pickable { cursor: var(--cursor-cross-hover); }
   .card.pickable:hover { border-color: var(--c-accent); background: var(--c-accent-tint-2); }
   .shot { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: 0; background: var(--c-bg); border: 1px solid var(--c-line); }
   .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-2); }
@@ -171,7 +171,7 @@
   .del {
     position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; line-height: 14px; padding: 0;
     border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-surface);
-    color: var(--c-tx-muted); cursor: pointer; font-size: 11px; opacity: 0;
+    color: var(--c-tx-muted); cursor: var(--cursor-cross-hover); font-size: 11px; opacity: 0;
   }
   .card:hover .del { opacity: 1; }
   .del:hover { color: var(--c-danger); border-color: var(--c-danger); }

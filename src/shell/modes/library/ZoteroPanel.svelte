@@ -298,7 +298,7 @@
     font-size: var(--ts-sm);
     padding: 5px 12px;
     border-radius: var(--r-1, 6px);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   button.ghost {
     background: transparent;
@@ -312,7 +312,7 @@
   }
   button:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   input[type="radio"],
   input[type="checkbox"] {

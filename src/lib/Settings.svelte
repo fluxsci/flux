@@ -674,7 +674,7 @@
     border-radius: var(--r-ui);
     color: var(--c-tx-muted);
     font: 16px/1 var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .x:hover {
     background: var(--c-surface-2);
@@ -711,7 +711,7 @@
     border-radius: var(--r-0);
     color: var(--c-tx-2);
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .tab:hover {
     background: var(--c-surface-2);
@@ -777,7 +777,7 @@
     border-radius: var(--r-ui);
     color: var(--c-tx);
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ghost:hover:not(:disabled) {
     border-color: var(--c-tx-muted);
@@ -785,7 +785,7 @@
   }
   .ghost:disabled {
     opacity: 0.4;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .danger {
     color: var(--c-danger);
@@ -798,7 +798,7 @@
     border-radius: var(--r-ui);
     color: var(--c-on-accent);
     font: 600 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .close:hover {
     background: var(--c-accent-bright);
@@ -821,7 +821,7 @@
     border-radius: 0;
     color: var(--c-tx);
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .seg button:first-child {
     margin-left: 0;
@@ -850,7 +850,7 @@
     margin: 2px 0;
     font: 12px/1.35 var(--font-ui);
     color: var(--c-tx);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .chk input[type="checkbox"] {
     flex: 0 0 auto;
@@ -988,7 +988,7 @@
     font-size: 11px;
   }
   .veto-list summary {
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .veto-row {
     display: flex;

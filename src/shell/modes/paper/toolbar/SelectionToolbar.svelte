@@ -141,7 +141,7 @@
     background: transparent;
     color: var(--c-tx-2);
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard);
@@ -163,7 +163,7 @@
     border: 1px solid var(--c-line-strong);
     border-radius: 50%;
     background: var(--swatch);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition: transform var(--dur-instant) var(--ease-standard);
   }
   .swatch:hover {

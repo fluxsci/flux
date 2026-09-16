@@ -174,7 +174,7 @@
     border: none;
     background: transparent;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition: background var(--dur-instant) var(--ease-standard);
   }
   .brand:hover {
@@ -229,7 +229,7 @@
     background: transparent;
     color: var(--c-tx-muted);
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard),
@@ -285,7 +285,7 @@
     background: transparent;
     color: var(--c-tx-faint);
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard);
@@ -309,7 +309,7 @@
     background: transparent;
     color: var(--c-tx-muted);
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard);

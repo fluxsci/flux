@@ -25,7 +25,49 @@ body {
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
   user-select: none;
-  cursor: default;
+  cursor: var(--cursor-cross);
+}
+
+/* The crosshair is the app's cursor (owner request 2026-09-15): the same precise
+   mark over chrome as over the canvas — never the pointing hand. Interactive
+   elements show the dotted variant, a press contracts it, text keeps the
+   I-beam, and drag affordances (grab, move, resize) keep their own cursors.
+   Component styles say `cursor: var(--cursor-cross-hover)` instead of `pointer`
+   (scripts/verify-cursor-policy.ts pins that). */
+button,
+[role="button"],
+a,
+label,
+summary,
+select,
+[role="tab"],
+[role="option"],
+[role="menuitem"],
+[role="treeitem"],
+[role="switch"],
+[role="checkbox"],
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+input[type="color"] {
+  cursor: var(--cursor-cross-hover);
+}
+button:active,
+[role="button"]:active,
+a:active {
+  cursor: var(--cursor-cross-press);
+}
+button:disabled,
+[aria-disabled="true"] {
+  cursor: var(--cursor-cross);
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]),
+textarea,
+[contenteditable="true"],
+[contenteditable="plaintext-only"],
+.cm-editor .cm-content,
+.cm-editor .cm-line {
+  cursor: text;
 }
 
 /* Paper local corrections: the mark is zero-layout (the dot is absolutely
@@ -62,7 +104,7 @@ body {
 .paper .cm-context-issue {
   position: relative;
   border-radius: 1px;
-  cursor: pointer;
+  cursor: var(--cursor-cross-hover);
 }
 .paper .cm-context-issue::after {
   content: "";
@@ -171,7 +213,7 @@ body {
   color: var(--c-tx-2);
   padding: 4px 7px;
   font: inherit;
-  cursor: pointer;
+  cursor: var(--cursor-cross-hover);
 }
 .paper .cm-local-correction-actions button:hover {
   border-color: var(--c-accent);
@@ -225,7 +267,7 @@ body {
   padding: 1px 5px;
   font: inherit;
   font-size: 15px;
-  cursor: pointer;
+  cursor: var(--cursor-cross-hover);
 }
 .paper .cm-context-issue-menu button.icon:hover { color: var(--c-accent); }
 
@@ -269,14 +311,14 @@ body {
 }
 .paper .cm-local-word-tools button {
   padding: 5px 8px;
-  cursor: pointer;
+  cursor: var(--cursor-cross-hover);
 }
 .paper .cm-local-word-tools button:hover:not(:disabled) {
   border-color: var(--c-accent);
   color: var(--c-accent);
 }
 .paper .cm-local-word-tools button:disabled {
-  cursor: default;
+  cursor: var(--cursor-cross);
   opacity: 0.45;
 }
 .paper .cm-local-word-tools button.icon {

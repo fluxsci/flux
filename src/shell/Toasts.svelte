@@ -98,7 +98,7 @@
     border-radius: var(--r-pill);
     font-size: var(--ts-xs);
     padding: 3px 10px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     white-space: nowrap;
   }
   .t-act:hover {
@@ -108,7 +108,7 @@
     border: none;
     background: transparent;
     color: var(--c-tx-faint);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: var(--ts-sm);
     padding: 0 2px;
     line-height: 1;

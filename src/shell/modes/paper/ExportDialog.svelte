@@ -262,7 +262,7 @@
     display: flex;
     align-items: center;
     gap: 0.5em;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .sub {
     display: flex;
@@ -323,7 +323,7 @@
     color: inherit;
     font: inherit;
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .seg.on {
     border-color: var(--c-accent-bright);
@@ -331,7 +331,7 @@
   }
   .seg:disabled {
     opacity: 0.42;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   select {
     width: 100%;
@@ -382,7 +382,7 @@
     border-radius: 6px;
     font: inherit;
     font-size: var(--ts-sm);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ghost {
     border: 1px solid var(--c-line, #ddd);
@@ -396,6 +396,6 @@
   }
   .primary:disabled {
     opacity: 0.45;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
 </style>

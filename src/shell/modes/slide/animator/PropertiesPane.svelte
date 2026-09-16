@@ -502,7 +502,7 @@
   /* buttons: square, hairline, flat; toggled = accent tint + accent border */
   .pick-morph, .dirb, .ichip, .mini, .psave button, .saveas, .del, .dclear, .dx, .sg, .sg2, .pb {
     font: 12px var(--font-ui); line-height: 1; color: var(--c-tx-2); background: transparent;
-    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: pointer;
+    border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: var(--cursor-cross-hover);
   }
   .pick-morph, .psave button, .saveas, .del { height: 24px; padding: 3px 8px; }
   .pick-morph { text-align: left; }
@@ -543,7 +543,7 @@
   .anch { align-items: flex-start; }
   .pad { display: grid; grid-template-columns: repeat(3, 18px); gap: 2px; }
   .pb { width: 18px; height: 18px; padding: 0; font-size: 8px; color: var(--c-tx-muted); }
-  .pb.void { border: 0; background: none; cursor: default; }
+  .pb.void { border: 0; background: none; cursor: var(--cursor-cross); }
 
   /* hotkey glyph: a 16px square on the accent tint */
   .kc {
@@ -552,7 +552,7 @@
     font: 600 11px var(--font-mono); color: var(--c-accent); background: var(--c-accent-tint);
   }
   .advanced { border-top: 1px solid var(--c-line); padding-top: 6px; }
-  .advanced summary { cursor: pointer; color: var(--c-tx-2); margin-bottom: 6px; }
+  .advanced summary { cursor: var(--cursor-cross-hover); color: var(--c-tx-2); margin-bottom: 6px; }
 
   .saveas { text-align: center; background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   .saveas:hover { border-color: var(--c-accent-bright); }

@@ -199,7 +199,7 @@
     background: none;
     border: none;
     color: inherit;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     opacity: 0.7;
     font-size: 10px;
     padding: 0 2px;
@@ -226,7 +226,7 @@
     padding: 5px 8px;
     border-bottom: 1px solid var(--c-line);
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .ghead {
     position: sticky;
@@ -236,7 +236,7 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     font-size: 10px;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
   .grow.hl {
     background: var(--c-accent-tint-2);
@@ -254,7 +254,7 @@
     border-radius: 50%;
     border: 1.5px solid var(--c-danger);
     background: transparent;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     padding: 0;
   }
   .dot.on {
@@ -309,7 +309,7 @@
     font-size: var(--ts-sm);
     padding: 5px 14px;
     border-radius: var(--r-1);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border: 1px solid transparent;
   }
   .ghost {

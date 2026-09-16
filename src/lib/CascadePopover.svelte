@@ -439,7 +439,7 @@
     width: 28px;
     padding: 4px 0;
     font-size: 13px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .mode button.on {
     background: var(--c-accent);
@@ -465,7 +465,7 @@
     border-radius: 6px;
     padding: 4px 10px;
     font-size: 12px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     border: 1px solid var(--c-line-strong);
     background: var(--c-bg-raised);
     color: var(--c-tx);

@@ -395,7 +395,7 @@
     color: var(--c-tx-muted);
     border-radius: 6px;
     padding: 4px 10px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-family: inherit;
     font-size: 12px;
     transition:
@@ -462,7 +462,7 @@
     border: none;
     border-radius: 6px;
     padding: 7px 14px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     font-size: 13px;
   }
 </style>

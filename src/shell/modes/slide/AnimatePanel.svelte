@@ -368,10 +368,10 @@
   .b, .magic {
     height: 24px; padding: 3px 8px; font: 12px var(--font-ui); line-height: 1;
     color: var(--c-tx-2); background: transparent; border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-ui); cursor: pointer; white-space: nowrap;
+    border-radius: var(--r-ui); cursor: var(--cursor-cross-hover); white-space: nowrap;
   }
   .b:hover:not(:disabled), .magic:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
-  .b:disabled, .magic:disabled { opacity: .4; cursor: default; }
+  .b:disabled, .magic:disabled { opacity: .4; cursor: var(--cursor-cross); }
   .b.active { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   /* Auto-animate reads as a toggled button, not a solid pill */
   .magic { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }

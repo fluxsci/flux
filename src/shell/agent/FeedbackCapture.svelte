@@ -274,7 +274,7 @@
     font-size: 16px;
     line-height: 1;
     padding: 2px 6px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .fc-cap-x:hover {
     color: var(--c-tx-hi);
@@ -362,7 +362,7 @@
     font-size: var(--ts-sm);
     border-radius: var(--r-1);
     padding: 5px 12px;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   button.ghost {
     background: none;
@@ -380,6 +380,6 @@
   }
   button:disabled {
     opacity: 0.5;
-    cursor: default;
+    cursor: var(--cursor-cross);
   }
 </style>

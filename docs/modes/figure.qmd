@@ -170,12 +170,12 @@ folder.
 
 # Everyday editing
 
-Over the canvas the pointer is a **crosshair** built to stay visible on any background — a
+Everywhere in Flux the pointer is a **crosshair** built to stay visible on any background — a
 white halo under a dark core, with a small gap at the centre so the exact pixel you are
-pointing at is never covered. It gains an accent dot over anything selectable, tightens while
-you press, and a click leaves a brief ring where it landed (off when your system prefers
-reduced motion). Handles keep their resize arrows, pan keeps the hand, and the text tool keeps
-the I-beam.
+pointing at is never covered. Over anything you can click or select — a button, a layer, a
+swatch, an object — it gains an accent dot, it tightens while you press, and a click on the
+canvas leaves a brief ring where it landed (off when your system prefers reduced motion).
+Text fields keep the I-beam; handles keep their resize arrows and pan keeps the hand.
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
 duplicate, **Shift+drag** to constrain to an axis. **Ctrl+G** groups (**Ctrl+Shift+G**
@@ -185,13 +185,18 @@ through. The Inspector's Align row lines selections up, distributes them, and se
 
 Press **F** with anything selected for the **property menu** — the fastest way to edit, built
 for one hand on the keyboard and one on the mouse. It opens **beside the selection**, never on
-top of it, and lays its groups out in columns so nothing scrolls. Every row has a hotkey
-letter: press it to **arm** the row, then roll the **mouse wheel** to adjust a number (a slow roll
-moves one step per notch, a flick moves fast, a trackpad scrubs; **Shift** ×10, **Alt** ×0.1;
-**↑/↓** step too, typed digits replace), and press **Space** or **Enter** to apply — **Escape** reverts. A choice such
+top of it (when nothing fits, it takes the side that covers the least), and lays its groups
+out in narrow columns — each row is a key and a name over its control — so nothing scrolls.
+Every hotkey is a **left-hand key** (`1`–`6`, `q w e r t`, `a d g`, `z x c v b`), so the right
+hand never leaves the wheel: press the key to **arm** the row, then roll the **mouse wheel**
+anywhere on the screen to adjust it (a slow roll moves one step per notch, a flick moves fast,
+a trackpad scrubs; **Shift** ×10, **Alt** ×0.1; **↑/↓** step too, typed digits replace), and
+press **Space** or **Enter** to apply — **Escape** reverts. A choice such
 as font or alignment expands its options inline (wheel, **w/a/s/d**, **1–9**, or click); a
-colour opens the **palette** — hovering a swatch previews it live, a click applies it, and a
-hex can still be typed. Hovering any numeric row and rolling the wheel edits it directly, so
+colour opens the **palette** — every row on one line, the whole grid in view — with the
+full **spectrum** beside it (a saturation/value square and a hue bar, seeded from the current
+colour), a hex field and an **eyedropper**; hovering a swatch previews it live, a click
+applies it, and a drag on the square previews until you let go. Hovering any numeric row and rolling the wheel edits it directly, so
 the menu works with the mouse alone as well; **s** searches the properties. It carries the
 essentials (position, size with **aspect lock**, rotation, opacity) plus the deep cuts: dashed
 strokes with dash/gap control, **arrowheads** on lines *and* open paths (filled or V-line,

@@ -123,7 +123,7 @@
     color: var(--c-accent-bright);
   }
   .save-error { color: var(--c-danger); font-size: 11px; }
-  button:disabled { opacity: 0.35; cursor: default; }
+  button:disabled { opacity: 0.35; cursor: var(--cursor-cross); }
   .group {
     display: flex;
     gap: 2px;
@@ -170,7 +170,7 @@
     border-radius: var(--r-ui);
     padding: 0 8px;
     font: 12px var(--font-ui);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   button:hover:not(:disabled) {
     border-color: var(--c-tx-muted);

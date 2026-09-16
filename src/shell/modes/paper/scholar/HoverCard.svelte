@@ -261,7 +261,7 @@
     color: var(--c-accent-bright);
     font-family: var(--font-mono);
     font-size: var(--ts-xs);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     text-decoration: underline;
   }
   .hc-key {
@@ -288,7 +288,7 @@
     border-radius: var(--r-pill);
     background: var(--c-surface);
     color: var(--c-tx-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .hc-pill:hover {
     border-color: var(--c-accent);

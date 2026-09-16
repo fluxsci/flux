@@ -158,7 +158,7 @@
     padding: 10px 30px;
     font-family: var(--font-serif);
     font-size: var(--ts-md);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       background var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard),
@@ -177,7 +177,7 @@
     color: var(--c-tx);
     font-family: var(--font-serif);
     font-size: var(--ts-md);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition: color var(--dur-instant) var(--ease-standard);
   }
   .open:hover {
@@ -229,7 +229,7 @@
     font-size: var(--ts-xs);
     color: var(--c-tx-faint);
     opacity: 0;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     transition:
       opacity var(--dur-instant) var(--ease-standard),
       color var(--dur-instant) var(--ease-standard);
@@ -261,7 +261,7 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: var(--r-2);
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     text-align: left;
     transition:
       background var(--dur-instant) var(--ease-standard),
@@ -286,7 +286,7 @@
     color: var(--c-tx-faint);
     font-size: 15px;
     line-height: 1;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
     opacity: 0;
     transition:
       opacity var(--dur-instant) var(--ease-standard),

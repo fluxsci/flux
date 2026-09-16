@@ -134,7 +134,7 @@
     font: inherit;
     font-size: 0.78rem;
     text-align: left;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .bar:hover {
     filter: brightness(0.98);
@@ -190,7 +190,7 @@
     padding: 0.2rem 0.5rem;
     font: inherit;
     font-size: 0.76rem;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   ul {
     list-style: none;
@@ -244,10 +244,10 @@
     padding: 0.18rem 0.5rem;
     font: inherit;
     font-size: 0.76rem;
-    cursor: pointer;
+    cursor: var(--cursor-cross-hover);
   }
   .acts button:disabled {
-    cursor: default;
+    cursor: var(--cursor-cross);
     opacity: 0.5;
   }
 </style>
