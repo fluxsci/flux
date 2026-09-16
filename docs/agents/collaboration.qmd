@@ -103,7 +103,7 @@ attend state) lives in `.meta/` and takes care of itself.
 - **Comments** on any document — threaded, anchored to exact text.
 - **Ctrl+Shift+M** anywhere — "Note to agent": one line, automatically **stamped with
   what you're looking at** (figure/element/plot part, document + selected text, slide +
-  beat). **Add** queues notes; **Send** marks the boundary: everything open becomes the
+  beat). **Add to queue** queues notes; **Send** marks the boundary: everything open becomes the
   work order. The buttons in detail: @sec-note-popover. When words aren't enough,
   **Ctrl+Shift+A** freezes the window so you can draw numbered arrows on it and the note
   arrives with the picture: @sec-annotate.
@@ -121,14 +121,14 @@ attend state) lives in `.meta/` and takes care of itself.
 
 ## The note popover: Add vs Send {#sec-note-popover}
 
-The **Ctrl+Shift+M** popover has three buttons — **Send**, **Add**, and **Add & send** —
+The **Ctrl+Shift+M** popover has three buttons — **Send**, **Add to queue**, and **Add & send** —
 because *capturing* feedback and *dispatching* it are deliberately separate steps. Every
 note and every send is one line appended to the project's feedback ledger
 (`.meta/feedback.ndjson`); the buttons differ only in which lines they write. The grey
 text in the popover's header is the context stamp that will be saved with the note, and
 the footer counts the notes currently queued ("2 open notes").
 
-- **Add** (or **Enter**) records the note and closes the popover. That is *all* that
+- **Add to queue** (or **Enter**) records the note and closes the popover. That is *all* that
   happens — no toast, no agent activity, nothing changes on the canvas. The note is
   queued: reopen the popover and the footer counts it, and `flux feedback` lists it from
   any terminal. Adding never wakes an agent, so you can walk through a whole figure or
@@ -163,8 +163,8 @@ the note popover, or the ⌘K command) freezes the window under a drawing surfac
 - **Drag** draws the current tool — **a** arrow (a plain click drops a short arrow at the
   spot), **b** box, **p** freehand pen. Every mark gets a **number badge**, so the note can
   say *"1 is too big, 2 should align with 3"*. **Backspace** undoes the last mark.
-- **Enter** hands the picture to the note popover: a thumbnail chip shows what is attached,
-  your draft text is kept, and **Add** / **Add & send** work as usual. **Escape** cancels
+- **Enter** hands the picture to the note popover, which widens to show the crop at a readable
+  size (the note is about that picture); your draft text is kept, and **Add to queue** / **Add & send** work as usual. **Escape** cancels
   the overlay and attaches nothing.
 - The picture is a **crop** around your marks (the whole window if you drew none), saved
   beside the ledger as `.meta/feedback/<note id>.png` when the note is added — never

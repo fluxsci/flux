@@ -166,8 +166,12 @@
       busy = false;
     }
   }
+  /** The popover preview: the composed crop itself, capped at 1600 px wide so a
+   *  full-window snapshot on a 2× screen stays a few hundred KB in memory. */
   function thumbnail(c: HTMLCanvasElement): string {
-    const tw = 160;
+    const cap = 1600;
+    if (c.width <= cap) return c.toDataURL("image/png");
+    const tw = cap;
     const th = Math.max(1, Math.round((c.height / c.width) * tw));
     const t = document.createElement("canvas");
     t.width = tw;

@@ -81,7 +81,7 @@ const key = (code, opts = {}) =>
   ok(/paper/.test(stampLine) && /NOTEBOOK\.md/.test(stampLine), `stamp previews the live context (${stampLine || "EMPTY"})`);
   await page.type(".fc textarea", "tighten this paragraph");
   await page.evaluate(() => {
-    const add = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add");
+    const add = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add to queue");
     add?.click();
   });
   await waitFor(

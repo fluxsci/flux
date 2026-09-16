@@ -61,19 +61,22 @@
 {#if $feedbackCaptureOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="fc-scrim" onclick={close}></div>
-  <div class="fc" transition:popIn>
+  <div class="fc" class:with-cap={!!$pendingSnapshot} transition:popIn>
     <div class="fc-head">
       <span class="fc-title">Note to agent</span>
       {#if stamp}<span class="fc-stamp" title="Captured with the note">{describeStamp(stamp)}</span>{/if}
     </div>
     {#if $pendingSnapshot}
-      <div class="fc-cap" title="Attached to this note">
+      <!-- The attached crop, large enough to read: the note is ABOUT this picture. -->
+      <figure class="fc-cap" title="Attached to this note">
         {#if $pendingSnapshot.preview}<img class="fc-cap-img" src={$pendingSnapshot.preview} alt="Snapshot preview" />{/if}
-        <span class="fc-cap-txt">
-          snapshot · {$pendingSnapshot.info.marks.length} mark{$pendingSnapshot.info.marks.length === 1 ? "" : "s"}{$pendingSnapshot.png ? "" : " · no screenshot in the browser build"}
-        </span>
-        <button class="fc-cap-x" type="button" aria-label="Remove snapshot" onclick={clearPendingSnapshot}>×</button>
-      </div>
+        <figcaption class="fc-cap-row">
+          <span class="fc-cap-txt">
+            snapshot · {$pendingSnapshot.info.marks.length} mark{$pendingSnapshot.info.marks.length === 1 ? "" : "s"}{$pendingSnapshot.png ? "" : " · no screenshot in the browser build"}
+          </span>
+          <button class="fc-cap-x" type="button" aria-label="Remove snapshot" onclick={clearPendingSnapshot}>×</button>
+        </figcaption>
+      </figure>
     {/if}
     <textarea
       bind:this={inputEl}
@@ -91,7 +94,9 @@
         <button class="ghost" disabled={busy || openCount === 0} onclick={() => void sendFeedback().then(close)}>
           Send {openCount || ""}
         </button>
-        <button class="ghost" disabled={busy || !text.trim()} onclick={() => void add(false)}>Add</button>
+        <button class="ghost" disabled={busy || !text.trim()} onclick={() => void add(false)} title="Queue this note for the agent (Enter)">
+          Add to queue
+        </button>
         <button class="primary" disabled={busy || !text.trim()} onclick={() => void add(true)} title="Ctrl+Enter">
           Add &amp; send
         </button>
@@ -158,20 +163,33 @@
   textarea:focus {
     border-color: var(--c-accent);
   }
+  /* With a snapshot attached the popover widens and the crop is shown large —
+     the note is about that picture, so it must be readable, not a thumbnail. */
+  .fc.with-cap {
+    width: min(1040px, 94vw);
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+  }
   .fc-cap {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 8px;
+    margin: 0;
+    padding: 8px;
     border: 1px solid var(--c-line);
     border-radius: var(--r-1);
     background: var(--c-bg-raised);
   }
   .fc-cap-img {
-    max-width: 120px;
-    max-height: 72px;
+    display: block;
+    max-width: 100%;
+    max-height: min(52vh, 620px);
+    margin: 0 auto;
     border: 1px solid var(--c-line-strong);
     border-radius: var(--r-ui);
+  }
+  .fc-cap-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 6px;
   }
   .fc-cap-txt {
     flex: 1;

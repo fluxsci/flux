@@ -823,7 +823,8 @@ Persistence invariants (all machine-checked — do not weaken):
     anchored to the element under its tip (`anchorPathOf`: up to four named ancestors,
     Svelte hashes and bare wrappers skipped, plus short text). Enter composes the crop
     (`snapshotCrop`: mark bounds + 48 px, ≥ 240×160, clamped; whole window with no marks)
-    into a PNG held in `pendingSnapshot`; **Add** writes `.meta/feedback/<noteId>.png` and
+    into a PNG held in `pendingSnapshot`, shown large in the popover; **Add to queue** writes
+    `.meta/feedback/<noteId>.png` and
     appends the note whose stamp carries `snapshot` (image path, rect, window, marks) —
     never the other order, so a cancelled note leaves no file. `describeStamp` prints
     `snapshot ×N (1 → button.tool "Gallery", …)` for the popover header and `flux feedback`
@@ -5098,3 +5099,8 @@ console); `verify-ipc-contract` PASS; docs 158/158.
 draw-then-capture) is what keeps the overlay out of the picture and freezes hover states; the
 DOM anchor under each mark is what makes a screenshot note greppable — the agent gets both
 the pixels and the selector.
+
+**Follow-up (owner's first use, 20:30):** "Add" read as ambiguous next to "Add & send" → the
+queue button is now **Add to queue** (gates and docs pin the new label); the 160 px thumbnail
+was unreadable → the popover widens (`.fc.with-cap`) and shows the composed crop at up to
+52 vh, so the note is written while looking at the picture it is about.

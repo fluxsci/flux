@@ -73,7 +73,7 @@ ok(/snapshot · 1 mark/.test(chip) && /no screenshot/.test(chip), `the popover s
 const stampLine = await page.evaluate(() => document.querySelector(".fc-stamp")?.textContent ?? "");
 ok(/snapshot ×1 \(1 → .*button/.test(stampLine), `the stamp line names the anchored button (${stampLine})`);
 await page.type(".fc textarea", "1 should sit flush with the left rail");
-await page.evaluate(() => { [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add")?.click(); });
+await page.evaluate(() => { [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add to queue")?.click(); });
 await waitFor(page, () => { const f = window.fig?._files; if (!f) return false; for (const k of f.keys()) if (k.endsWith(".meta/feedback.ndjson")) return true; return false; }, null, { timeout: 8000, label: "ledger written" });
 const ledger = await page.evaluate(() => { const f = window.fig._files; for (const [k, v] of f.entries()) if (k.endsWith(".meta/feedback.ndjson")) return new TextDecoder().decode(v); return ""; });
 const lines = ledger.trim().split("\n").map((l) => JSON.parse(l));
