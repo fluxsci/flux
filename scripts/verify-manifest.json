@@ -236,6 +236,7 @@
   "ui": [
    "verify-context-gui.mjs",
    "verify-annotate-gui.mjs",
+   "verify-cursor-gui.mjs",
    "verify-paper-textsize-gui.mjs",
    "verify-paper-nav.mjs",
    "verify-paper-vim.mjs",
@@ -657,8 +658,9 @@
    ]
   },
   {
-   "glob": "{src/lib/Canvas.svelte,src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
+   "glob": "{src/styles/cursors.css,src/lib/Canvas.svelte,src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
    "run": [
+    "verify-cursor-gui.mjs",
     "group:figures-slides-overhaul",
     "group:slide-ghosts",
     "tier:pure",

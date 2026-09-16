@@ -3121,16 +3121,45 @@
     return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
   })();
 
+  // The crosshair family (styles/cursors.css, owner request 2026-09-15): the
+  // default over the canvas is the precise crosshair; something selectable
+  // under it adds the dot; a pressed gesture contracts the arms. Hardware
+  // cursors switched by state — nothing per frame. Pan keeps grab/grabbing,
+  // the text tool keeps the I-beam.
   $: hostCursor =
-    gesture?.kind === "pan" || spaceDown || $activeTool === "hand"
-      ? "grab"
-      : editPathId && editMode === "pen"
-        ? "crosshair"
+    gesture?.kind === "pan"
+      ? "grabbing"
+      : spaceDown || $activeTool === "hand"
+        ? "grab"
         : $activeTool === "text"
           ? "text"
-          : ["rect", "ellipse", "line", "arrow", "pen"].includes($activeTool)
-            ? "crosshair"
-            : "default";
+          : gesture || pressing
+            ? "var(--cursor-cross-press)"
+            : $hoverId && ($activeTool === "select" || $activeTool === "scale")
+              ? "var(--cursor-cross-hover)"
+              : "var(--cursor-cross)";
+
+  // The click "feel": one accent ring blooms at every primary press on the
+  // canvas (300 ms, CSS-animated, removed after) — off under reduced motion.
+  let ripples: { id: number; x: number; y: number }[] = [];
+  let rippleSeq = 0;
+  // The primary button is down somewhere on the canvas — the press variant
+  // shows for the whole press, gesture or not (a plain click on empty space
+  // starts no gesture but should still "feel" pressed).
+  let pressing = false;
+  function endPress() {
+    pressing = false;
+  }
+  function spawnRipple(e: PointerEvent) {
+    if (e.button !== 0 || !hostEl) return;
+    pressing = true;
+    if ((e.target as globalThis.Element | null)?.closest?.(".ruler")) return;
+    if (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const r = hostEl.getBoundingClientRect();
+    const id = ++rippleSeq;
+    ripples = [...ripples, { id, x: e.clientX - r.left, y: e.clientY - r.top }];
+    setTimeout(() => (ripples = ripples.filter((p) => p.id !== id)), 340);
+  }
 
   // draw-preview group transform (screen space), references $viewport directly.
   $: drawPreviewTransform = gestureFig
@@ -3241,6 +3270,8 @@
 <svelte:window
   on:keydown={onKeyDown}
   on:keyup={onKeyUp}
+  on:pointerup={endPress}
+  on:pointercancel={endPress}
   on:blur={onWinBlur}
   on:dragover|preventDefault
   on:drop|preventDefault
@@ -3257,6 +3288,7 @@
   aria-label="Figure canvas"
   on:wheel={onWheel}
   on:pointerdown|capture={foldZoomNow}
+  on:pointerdown|capture={spawnRipple}
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
@@ -3386,6 +3418,9 @@
 
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
+    {#each ripples as rp (rp.id)}
+      <circle class="click-ring" cx={rp.x} cy={rp.y} r="7" />
+    {/each}
     {#if presentationHighlight}
       <rect class="presentation-target" x={presentationHighlight.x} y={presentationHighlight.y} width={presentationHighlight.w} height={presentationHighlight.h} rx="3" />
     {/if}
@@ -3944,7 +3979,23 @@
     pointer-events: none;
   }
   .el {
-    cursor: move;
+    cursor: inherit; /* the host's crosshair family (hover dot / press) applies over objects too */
+  }
+  .click-ring {
+    fill: none;
+    stroke: var(--c-accent);
+    stroke-width: 1.5;
+    pointer-events: none;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: click-ring 300ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
+  @keyframes click-ring {
+    from { transform: scale(0.35); opacity: 0.7; }
+    to { transform: scale(1.9); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .click-ring { display: none; }
   }
   .sel-box {
     stroke: var(--c-accent);
@@ -4006,7 +4057,7 @@
     stroke: var(--c-accent);
     stroke-width: 1.5;
     pointer-events: all;
-    cursor: crosshair;
+    cursor: var(--cursor-cross);
   }
   .endpoint-handle:hover {
     fill: var(--c-accent);
@@ -4189,7 +4240,7 @@
     fill: var(--c-bg);
     stroke: var(--c-accent);
     stroke-width: 1.5;
-    cursor: crosshair;
+    cursor: var(--cursor-cross);
     pointer-events: all;
   }
   .node-pt {
@@ -4259,7 +4310,7 @@
     pointer-events: stroke;
   }
   .seg-hit.bendable {
-    cursor: crosshair;
+    cursor: var(--cursor-cross);
   }
   .node-insert {
     fill: none;

@@ -839,6 +839,19 @@ Persistence invariants (all machine-checked — do not weaken):
     sees both) and keeps the original stamp + snapshot file. Gate:
     `verify-feedback-withdraw.ts` (pure, scratch root) + the edit/withdraw leg of
     `verify-annotate-gui.mjs`.
+  - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
+    note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
+    under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot, when
+    `hoverId` is set under the select/scale tools) and press (contracted arms, while a gesture
+    is live) — switched by STATE, never per frame. `.el { cursor: inherit }` so objects take
+    the family instead of `move`; handles keep their resize arrows, pan keeps grab/grabbing,
+    text keeps the I-beam, rulers keep the platform crosshair. The click "feel" is one
+    `.click-ring` circle in the overlay svg per primary press (300 ms CSS scale/opacity,
+    removed after; hidden under reduced motion). Gate: `verify-cursor-gui.mjs` (ui).
+  - **The property menu header names the thing:** the Flux mark, a hairline, then
+    `elementLabel` (the Layers name — custom name, a plot's file name, `rect 1`), for a part
+    `plot › part`; `.ctx` keeps the kind / plural count (`2 plot parts`, pinned by
+    `verify-fmenu-surface`).
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -5125,3 +5138,9 @@ surface must OWN the keyboard — `settings.shellModalOpen` (set by Workspace wh
 or overlay is up) makes `lib/keyboard.ts` yield, the textarea is focused after `tick()`, and
 Escape closes the popover from anywhere inside it (after Edit / Withdraw the focus is on a
 button, not in the box).
+
+**Queue drained (owner notes via Snapshot & annotate, 2026-09-15 evening):** (1) "replace the
+Properties text with the flux logo | <name of thing>" → the header above; (2) "a crosshair
+cursor that stays visible, with micro feels, PRECISE / PERFORMANT / PREMIUM" → the hardware
+cursor family + the click ring above. Both resolved with `flux resolve-feedback` so the toast
+closed the loop in the app.

@@ -170,6 +170,13 @@ folder.
 
 # Everyday editing
 
+Over the canvas the pointer is a **crosshair** built to stay visible on any background — a
+white halo under a dark core, with a small gap at the centre so the exact pixel you are
+pointing at is never covered. It gains an accent dot over anything selectable, tightens while
+you press, and a click leaves a brief ring where it landed (off when your system prefers
+reduced motion). Handles keep their resize arrows, pan keeps the hand, and the text tool keeps
+the I-beam.
+
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
 duplicate, **Shift+drag** to constrain to an axis. **Ctrl+G** groups (**Ctrl+Shift+G**
 ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they move one step),

@@ -34,6 +34,10 @@
   import { nameForHex } from "./colors";
   import { fluxFigMenuOpen } from "./settings";
   import ColorPicker from "./ColorPicker.svelte";
+  import Logomark from "../shell/Logomark.svelte";
+  import { elementLabel } from "./xray/buildXrayTree";
+  import { buildPartIndex } from "./plot/parse";
+  import type { Element as FluxElement, Figure } from "./types";
 
   type Mode = "hotkey" | "field" | "option" | "color" | "search";
 
@@ -61,16 +65,53 @@
   $: sResults = sQ ? fields.filter((f) => `${f.label} ${f.group} ${f.key}`.toLowerCase().includes(sQ)) : fields;
   $: if (sIndex >= sResults.length) sIndex = Math.max(0, sResults.length - 1);
   $: active = activeKey ? (fields.find((f) => f.key === activeKey) ?? null) : null;
-  $: context = describe($selection, $partSelections, $project);
-
-  function describe(sel: Set<string>, parts: { elementId: string; partId: string }[], p: typeof $project): string {
-    if (parts.length > 1) return `${parts.length} plot parts`;
-    if (parts.length === 1) return "Plot part";
-    if (!sel.size) return "Drawing defaults";
+  // The header names the THING (owner request 2026-09-15): the Flux mark, a
+  // hairline, then the same name the Layers rail shows — "rect 1", a plot's
+  // file name, a custom name — and for a part the plot › part; `.ctx` carries
+  // the kind or the plural count so the plural pick still reads "2 plot parts".
+  $: head = describeHead($selection, $partSelections, $project, $plotManifests);
+  function describeHead(
+    sel: Set<string>,
+    parts: { elementId: string; partId: string }[],
+    p: typeof $project,
+    manifests: typeof $plotManifests,
+  ): { name: string; ctx: string } {
+    const find = (id: string): { f: Figure; e: FluxElement } | null => {
+      for (const f of p.figures) {
+        const e = f.elements.find((x) => x.id === id);
+        if (e) return { f, e };
+      }
+      return null;
+    };
+    if (parts.length) {
+      const first = find(parts[0].elementId);
+      const plotName = first ? elementLabel(first.f, first.e, manifests) : "plot";
+      const plots = new Set(parts.map((pt) => pt.elementId)).size;
+      if (parts.length === 1) {
+        const m = first?.e.type === "plot" ? manifests[first.e.assetId] : undefined;
+        const info = m ? buildPartIndex(m)[parts[0].partId] : undefined;
+        const label =
+          info?.label ??
+          ([info?.role, info?.series, info?.index !== undefined ? `#${info.index}` : null].filter(Boolean).join(" · ") || parts[0].partId);
+        return { name: `${plotName} › ${label}`, ctx: "plot part" };
+      }
+      return { name: plots > 1 ? `${plots} plots` : plotName, ctx: `${parts.length} plot parts` };
+    }
+    if (!sel.size) return { name: "Drawing defaults", ctx: "" };
     const kinds = new Map<string, number>();
-    for (const f of p.figures) for (const e of f.elements) if (sel.has(e.id)) kinds.set(e.type, (kinds.get(e.type) ?? 0) + 1);
+    let single: { f: Figure; e: FluxElement } | null = null;
+    for (const f of p.figures)
+      for (const e of f.elements)
+        if (sel.has(e.id)) {
+          kinds.set(e.type, (kinds.get(e.type) ?? 0) + 1);
+          single ??= { f, e };
+        }
     const list = [...kinds].map(([k, n]) => (n > 1 ? `${n} ${k}s` : k)).join(", ");
-    return sel.size === 1 ? list : `${sel.size} selected · ${list}`;
+    if (sel.size === 1 && single) {
+      const name = elementLabel(single.f, single.e, manifests);
+      return { name, ctx: name.startsWith(single.e.type) ? "" : single.e.type };
+    }
+    return { name: `${sel.size} selected`, ctx: list };
   }
 
   // --- pointer + placement -----------------------------------------------------
@@ -400,8 +441,10 @@
     >
       <div class="fcontent">
         <header class="menu-head">
-          <span class="ttl">Properties</span>
-          <span class="ctx">{context}</span>
+          <span class="mark" aria-hidden="true"><Logomark size={14} /></span>
+          <span class="vsep" aria-hidden="true"></span>
+          <span class="ttl">{head.name}</span>
+          {#if head.ctx}<span class="ctx">{head.ctx}</span>{/if}
           <button class="xbtn" on:click={close} aria-label="Close properties">×</button>
         </header>
         <div class="search-row" class:active={mode === "search"}>
@@ -547,7 +590,9 @@
   @keyframes fm-in { from { opacity: 0; } to { opacity: 1; } }
   .fcontent { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; opacity: 1; }
   .menu-head { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--c-line); background: var(--c-bg-raised); }
-  .ttl { font-weight: 600; color: var(--c-tx-hi); }
+  .mark { display: inline-flex; width: 14px; height: 14px; flex-shrink: 0; }
+  .vsep { width: 1px; height: 14px; background: var(--c-line-strong); flex-shrink: 0; }
+  .ttl { font-weight: 600; color: var(--c-tx-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
   .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: pointer; border-radius: var(--r-ui); }
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
