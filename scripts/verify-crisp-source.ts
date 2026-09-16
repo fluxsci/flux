@@ -19,15 +19,9 @@
 
 import { readFileSync } from "node:fs";
 
-let failed = 0;
-function assert(cond: unknown, msg: string) {
-  if (cond) {
-    console.log(`  ✓ ${msg}`);
-  } else {
-    console.log(`  ✗ ${msg}`);
-    failed++;
-  }
-}
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-crisp-source");
+const assert = h.ok;
 
 const src = readFileSync("src/lib/Canvas.svelte", "utf8");
 // Comment-stripped view for DECLARATION-level checks (the rationale comments
@@ -85,13 +79,13 @@ assert(
 assert(/font-size=\{12 \/ renderZoom\}/.test(sceneTemplate), "the empty-hint sizes divide by renderZoom");
 assert(/font-size=\{13 \/ renderZoom\}/.test(sceneTemplate), "the figure label sizes divide by renderZoom");
 
-// Culling: keys off renderZoom, frozen while unsettled. Scope the live-zoom
-// check to the cull block itself — the ruler tick builders legitimately read
-// live zoom (screen-space overlay).
+// Culling keeps its renderZoom key inside the retained buffer. Coverage may
+// recull with live zoom during a long gesture; verify-canvas-coverage.mjs pins
+// that behavior so a source guard must not forbid the blank-canvas fix.
 const cullBlock = /\$: \{[\s\S]*?const z = renderZoom;[\s\S]*?cullRect = ready[\s\S]*?\}\n {2}\}/.exec(src)?.[0] ?? "";
 assert(cullBlock.length > 0, "the cull block derives its key from renderZoom (const z = renderZoom)");
-assert(/if \(!zoomUnsettled && key !== cullKey\)/.test(cullBlock), "the cull recompute is skipped while the zoom is unsettled");
-assert(!/\$viewport\.zoom/.test(cullBlock), "the cull block never reads live $viewport.zoom (pan-quantized re-cull only)");
+assert(/!sceneHot && !zoomUnsettled && key !== cullKey/.test(cullBlock), "normal culls wait for the gesture to settle");
+assert(/\|\| !covered/.test(cullBlock) && /covered \? z : viewZ/.test(cullBlock), "escaping the mounting buffer reculls with the live scale");
 
 // ---- rationale block survives ---------------------------------------------------
 assert(
@@ -101,5 +95,4 @@ assert(
 assert(/content-bounds × zoom²/.test(src), "the rationale keeps the layer-growth mechanism (content-bounds × zoom²)");
 assert(/`contain: paint`[\s\S]{0,40}FORBIDDEN/.test(src), "the rationale keeps the `contain: paint` FORBIDDEN ruling");
 
-console.log(failed === 0 ? "\nCRISP SOURCE GUARD: PASS" : `\nCRISP SOURCE GUARD: FAIL (${failed})`);
-process.exit(failed === 0 ? 0 : 1);
+await h.done();

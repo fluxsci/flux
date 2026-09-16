@@ -15,34 +15,14 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
-const { parsePlotSvg, bakePlotStyles, splitPlotCss, prefixIds, hoistPlotClips } = await import("../src/lib/plot/parse");
+const { parsePlotSvg, bakePlotStyles, prefixIds, hoistPlotClips, applyOverrides } = await import("../src/lib/plot/parse");
 
 const h = harness("verify-plot-style-bake");
 const MPL = "*{stroke-linejoin: round; stroke-linecap: butt}";
 const wrap = (inner: string, style = MPL) =>
   `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="60" viewBox="0 0 100 60"><defs><style type="text/css">${style}</style></defs>${inner}</svg>`;
 
-h.section("splitPlotCss — rules vs residual (pure string)");
-{
-  const r = splitPlotCss(MPL);
-  h.eq(r.rules.length, 1, "the matplotlib preamble is one bakeable rule");
-  h.eq(r.rules[0].selector, "*", "…with the universal selector");
-  h.eq(r.rules[0].decls.map((d) => d.join("=")).join(";"), "stroke-linejoin=round;stroke-linecap=butt", "…and both declarations");
-  h.eq(r.residual.trim(), "", "…and nothing left over");
-}
-{
-  const r = splitPlotCss(".a:hover{fill:red} .b{fill:blue !important} @font-face{font-family:F;src:url(f)} .c{fill:green;mix-blend-mode:multiply}");
-  h.eq(r.rules.map((x) => x.selector).join(","), ".c", "pseudo-class, !important and at-rules are not baked; the plain rule is");
-  h.ok(/\.a:hover\{fill:red\}/.test(r.residual) && /!important/.test(r.residual) && /@font-face/.test(r.residual), "pseudo / !important / @font-face stay in the residual sheet");
-  h.ok(/\.c\{mix-blend-mode:multiply\}/.test(r.residual), "a non-presentation property of a baked rule stays in the residual");
-}
-{
-  const r = splitPlotCss("g > .x, #id .y{fill:red} .z{fill:blue}");
-  h.eq(r.rules.length, 3, "a comma list yields one rule per selector");
-  h.ok(r.rules[1].specificity > r.rules[0].specificity && r.rules[0].specificity > r.rules[2].specificity, "specificity orders id > class+type > class");
-}
-
-h.section("bakePlotStyles — the cascade is preserved exactly (linkedom DOM)");
+h.section("bakePlotStyles — the cascade is preserved for the supported stroke defaults (linkedom DOM)");
 {
   const root = parsePlotSvg(
     wrap(
@@ -58,37 +38,42 @@ h.section("bakePlotStyles — the cascade is preserved exactly (linkedom DOM)");
   h.eq(attr("p1", "stroke-linecap"), "butt", "a plain element takes the rule as an attribute");
   h.eq(attr("p1", "stroke-linejoin"), "round", "…both declarations");
   h.eq(attr("p2", "stroke-linecap"), "butt", "a rule beats a presentation attribute — the existing attribute is overwritten");
-  h.eq(attr("p3", "stroke-linecap"), null, "an inline style declaration beats the rule — left alone (no shadowing attribute)");
+  h.eq(attr("p3", "stroke-linecap"), "butt", "the rule supplies the attribute fallback; inline CSS still wins");
   h.eq(attr("p3", "stroke-linejoin"), "round", "…but the inline-less property of the same element is still baked");
   h.eq(attr("p4", "stroke-linecap"), "butt", "a descendant of an inline-styled group takes the rule directly (the rule matched it, not the group's inline)");
   h.eq(root.getAttribute("stroke-linecap"), "butt", "the root matches `*` too");
 }
-{
-  const root = parsePlotSvg(wrap(`<g class="a"><path id="q" class="b" d="M0 0"/></g>`, ".b{fill:red} .a .b{fill:green} #q{fill:blue} *{fill:black}"))!;
-  bakePlotStyles(root as unknown as Element);
-  h.eq(root.querySelector("#q")!.getAttribute("fill"), "blue", "ascending specificity: the id rule wins over class, descendant and universal");
-  h.eq(root.querySelector("g")!.getAttribute("fill"), "black", "the universal rule reaches the group");
-}
-{
-  const root = parsePlotSvg(wrap(`<path id="r" d="M0 0"/>`, ".x{fill:red} .x{fill:blue}"))!;
-  const dummy = root.querySelector("#r")!;
-  dummy.setAttribute("class", "x");
-  bakePlotStyles(root as unknown as Element);
-  h.eq(dummy.getAttribute("fill"), "blue", "equal specificity: source order wins (later rule)");
-}
-{
-  const root = parsePlotSvg(wrap(`<path id="s" class="k" d="M0 0"/>`, ".k:hover{fill:red} .k{fill:green}"))!;
+h.section("nonuniform CSS remains intact (no partial cascade rewrite)");
+for (const css of [
+  ".b{fill:red} .a .b{fill:green} #q{fill:blue} *{fill:black}",
+  ".k:hover{fill:red} .k{fill:green}",
+  "path{fill:red} [fill=red]{stroke:blue}",
+  "path:not(.x){fill:blue} .a.b.c{fill:red}",
+  "@media (min-width:1px){path{fill:red}} path{fill:green}",
+  "path{stroke:blue!important} path{stroke:red}",
+  "*{stroke-linecap:butt;--custom:red}",
+  "*{stroke-linecap:invalid}",
+  "*{stroke-linecap:butt} [unsupported|selector]{fill:blue}",
+]) {
+  const root = parsePlotSvg(wrap('<path id="q" class="a b c" d="M0 0L10 10"/>', css))!;
+  const before = root.outerHTML;
   const res = bakePlotStyles(root as unknown as Element);
-  h.eq(res.kept, 1, "a pseudo-class rule keeps a residual sheet");
-  h.ok(root.querySelector("style")!.textContent!.includes(":hover") && !root.querySelector("style")!.textContent!.includes(".k{fill:green}"), "…holding only the unbakeable rule");
-  h.eq(root.querySelector("#s")!.getAttribute("fill"), "green", "…while the plain rule was baked");
-  prefixIds(root as unknown as Element, "el1");
-  h.ok(root.querySelector("style")!.textContent!.startsWith('[data-plot-scope="el1"]'), "the residual sheet is still scoped by prefixIds afterwards");
+  h.eq(root.outerHTML, before, `unsupported CSS is byte-preserved: ${css}`);
+  h.eq(res.baked, 0, "no selector/cascade is partially baked");
+}
+for (const attrs of ['media="print"', 'type="text/other"', 'title="alternate"']) {
+  const root = parsePlotSvg(wrap('<path d="M0 0L10 10"/>').replace('type="text/css"', attrs))!;
+  const before = root.outerHTML;
+  h.eq(bakePlotStyles(root as unknown as Element).baked, 0, `conditional/non-CSS sheet retained: ${attrs}`);
+  h.eq(root.outerHTML, before, 'stylesheet conditions are untouched');
 }
 {
-  const root = parsePlotSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><path d="M0 0"/></svg>`)!;
-  const res = bakePlotStyles(root as unknown as Element);
-  h.eq(res.baked + res.kept + res.attrs, 0, "a style-less plot is untouched");
+  const root = parsePlotSvg(wrap('<path id="p" d="M0 0"/>') + '')!;
+  const st = root.ownerDocument!.createElementNS('http://www.w3.org/2000/svg', 'style');
+  st.textContent = '*{stroke-linecap:square}';
+  root.appendChild(st);
+  bakePlotStyles(root as unknown as Element);
+  h.eq(root.querySelector('#p')!.getAttribute('stroke-linecap'), 'square', 'later uniform sheet wins');
 }
 h.section("hoistPlotClips — same-clip sibling runs become one clipped group");
 {
@@ -111,5 +96,40 @@ h.section("hoistPlotClips — same-clip sibling runs become one clipped group");
   h.eq(root.querySelector("#f")!.getAttribute("clip-path"), "url(#d2)", "a lone clipped element (run of 1) is untouched");
   h.eq(Array.from(root.querySelector("#axes")!.children).map((c) => c.id || c.localName).join(","), "g,t,g,f,lone", "sibling order is preserved");
   h.eq(root.querySelectorAll("clipPath [clip-path], defs [clip-path]").length, 0, "nothing inside <defs>/<clipPath> is rewritten");
+}
+h.section("clip units, structure and semantic motion");
+for (const body of [
+  '<defs><clipPath id="c" clipPathUnits="objectBoundingBox"><rect width=".5" height="1"/></clipPath></defs><path clip-path="url(#c)"/><path clip-path="url(#c)"/>',
+  '<defs><clipPath id="c"><rect width="5" height="5"/></clipPath><g><path clip-path="url(#c)"/><path clip-path="url(#c)"/></g></defs>',
+  '<defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs><text clip-path="url(#c)">a</text><text clip-path="url(#c)">b</text>',
+  '<style>svg > path{fill:red}</style><defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs><path clip-path="url(#c)"/><path clip-path="url(#c)"/>',
+  '<defs><clipPath id="c"><rect width="5" height="5"/></clipPath></defs><path clip-path="url(#c)"><animateTransform attributeName="transform" type="translate" values="0;10" dur="1s"/></path><path clip-path="url(#c)"/>',
+]) {
+  const root = parsePlotSvg(wrap(body, ''))!;
+  const before = root.outerHTML;
+  h.eq(hoistPlotClips(root as unknown as Element).hoisted, 0, 'unsafe clip run is left intact');
+  h.eq(root.outerHTML, before, 'no geometry or selector semantics changed');
+}
+{
+  const root = parsePlotSvg(wrap('<defs><clipPath id="c"><rect width="40" height="40"/></clipPath></defs><path id="a" d="M0 0h80v40z" clip-path="url(#c)"/><path id="b" d="M0 40h80v40z" clip-path="url(#c)"/>', ''))!;
+  hoistPlotClips(root as unknown as Element);
+  prefixIds(root as unknown as Element, 'plot');
+  applyOverrides(root as unknown as Element, {a:{dx:20}}, 'plot');
+  const a = root.querySelector('#plot__a')!, b = root.querySelector('#plot__b')!;
+  h.eq(a.getAttribute('clip-path'), 'url(#plot__c)', 'a translated part regains its own prefixed clip');
+  h.eq(b.getAttribute('clip-path'), 'url(#plot__c)', 'its sibling retains the original clip');
+  h.eq(a.parentElement!.getAttribute('clip-path'), null, 'no fixed parent clip truncates the moving part');
+}
+h.section("prepared render cache follows semantic source changes");
+{
+  const {buildPlotMarkup} = await import('../src/lib/plot/inlineMarkup');
+  const svg = wrap('<path id="a" d="M0 0h20v20z"/><path id="b" d="M30 0h20v20z"/>', '');
+  const frame = {id:'cached',x:0,y:0,width:100,height:60};
+  const manifest = (members: string[]) => ({parts:{id:'root',role:'group',children:[{id:'group',role:'group',members}]}}) as any;
+  const first = buildPlotMarkup(svg, frame, {group:{hidden:true}}, manifest(['a']))!;
+  const second = buildPlotMarkup(svg, frame, {group:{hidden:true}}, manifest(['b']))!;
+  h.ok(first !== second, 'same SVG with changed sidecar has a distinct render');
+  h.ok(/display\s*:\s*none/.test(parsePlotSvg(second)!.querySelector('#cached__b')!.getAttribute('style') ?? ''), 'new manifest targets the correct part');
+  h.ok(!/display/.test(parsePlotSvg(second)!.querySelector('#cached__a')!.getAttribute('style') ?? ''), 'previous manifest does not leak into the next render');
 }
 h.done();

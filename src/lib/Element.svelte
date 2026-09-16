@@ -11,21 +11,25 @@
 
   export let element: Element;
 
-  $: e = element;
   // solid colours, or url(#…) gradients when a colormap is set (color/gradient.ts)
-  $: paints = elementPaints(e);
+  $: paints = elementPaints(element);
   // Crop rendering for `<image>`-backed rasters (P5): the crop window lives in
   // intrinsic content px (assetDisplaySize units), shown via a nested-svg
   // viewport — viewBox = the window, the image drawn at full display size
   // inside it. Falls back to the uncropped image when the asset is unsized.
-  $: imgDisp = e.type === "image" && e.crop ? assetDisplaySize($project, e.assetId) : null;
+  $: imgDisp = element.type === "image" && element.crop ? assetDisplaySize($project, element.assetId) : null;
   // FIG-2: rotate/flip about the element's true bbox centre. Lines/arrows carry
-  // width/height 0 (their geometry is x1/y1→x2/y2), so `e.x + width/2` put the pivot on
+  // width/height 0 (their geometry is x1/y1→x2/y2), so `element.x + width/2` put the pivot on
   // endpoint 1 — a rotated/flipped line swung about its end, wrong on screen AND in export.
-  $: bbox = elementBBox(e);
-  $: cx = bbox.x + bbox.w / 2;
-  $: cy = bbox.y + bbox.h / 2;
-  $: transform = buildTransform(e, cx, cy);
+  // The model mutates in place. Keep the derived center as scalar values so
+  // unchanged elements do not publish fresh reactive objects on every edit.
+  let cx = 0, cy = 0;
+  $: {
+    const box = elementBBox(element);
+    cx = box.x + box.w / 2;
+    cy = box.y + box.h / 2;
+  }
+  $: transform = buildTransform(element, cx, cy);
 
   // Rotation + flip about the element centre, as an SVG transform list. Flip is
   // a scale(±1) sandwiched between translate-to-centre and back.
@@ -40,34 +44,34 @@
   }
 </script>
 
-<g {transform} opacity={e.opacity ?? 1}>
+<g {transform} opacity={element.opacity ?? 1}>
   {#each paints.defs as d (d.id)}
     <linearGradient id={d.id} x1={d.x1} y1={d.y1} x2={d.x2} y2={d.y2} gradientUnits={d.units}>
       {#each d.stops as st, i (i)}<stop offset={st.offset} stop-color={st.color} />{/each}
     </linearGradient>
   {/each}
-  {#if e.type === "plot"}
-    <PlotElement element={e} />
-  {:else if e.type === "video"}
+  {#if element.type === "plot"}
+    <PlotElement element={element} />
+  {:else if element.type === "video"}
     <!-- Authoring uses the prepared still: selection and direct manipulation
          never start a decoder, playback or audio. The shared player owns that. -->
-    {#if $assetData[e.posterAssetId]}
-      <image x={e.x} y={e.y} width={e.width} height={e.height}
-        preserveAspectRatio="none" href={$assetData[e.posterAssetId]} />
+    {#if $assetData[element.posterAssetId]}
+      <image x={element.x} y={element.y} width={element.width} height={element.height}
+        preserveAspectRatio="none" href={$assetData[element.posterAssetId]} />
     {:else}
-      <rect x={e.x} y={e.y} width={e.width} height={e.height} fill="#202020" stroke="#777" />
-      <text x={e.x + e.width / 2} y={e.y + e.height / 2} text-anchor="middle" dominant-baseline="middle"
-        fill="#ddd" font-size={Math.max(10, Math.min(18, e.width / 15))}>Video preview unavailable</text>
+      <rect x={element.x} y={element.y} width={element.width} height={element.height} fill="#202020" stroke="#777" />
+      <text x={element.x + element.width / 2} y={element.y + element.height / 2} text-anchor="middle" dominant-baseline="middle"
+        fill="#ddd" font-size={Math.max(10, Math.min(18, element.width / 15))}>Video preview unavailable</text>
     {/if}
-  {:else if e.type === "image"}
-    {#if $assetData[e.assetId]}
-      {#if e.crop && imgDisp}
+  {:else if element.type === "image"}
+    {#if $assetData[element.assetId]}
+      {#if element.crop && imgDisp}
         <svg
-          x={e.x}
-          y={e.y}
-          width={e.width}
-          height={e.height}
-          viewBox={`${e.crop.x} ${e.crop.y} ${e.crop.width} ${e.crop.height}`}
+          x={element.x}
+          y={element.y}
+          width={element.width}
+          height={element.height}
+          viewBox={`${element.crop.x} ${element.crop.y} ${element.crop.width} ${element.crop.height}`}
           preserveAspectRatio="none"
           style="overflow:hidden"
         >
@@ -77,158 +81,158 @@
             width={imgDisp.width}
             height={imgDisp.height}
             preserveAspectRatio="none"
-            href={$assetData[e.assetId]}
+            href={$assetData[element.assetId]}
           />
         </svg>
       {:else}
         <image
-          x={e.x}
-          y={e.y}
-          width={e.width}
-          height={e.height}
+          x={element.x}
+          y={element.y}
+          width={element.width}
+          height={element.height}
           preserveAspectRatio="none"
-          href={$assetData[e.assetId]}
+          href={$assetData[element.assetId]}
         />
       {/if}
     {:else}
       <rect
-        x={e.x}
-        y={e.y}
-        width={e.width}
-        height={e.height}
+        x={element.x}
+        y={element.y}
+        width={element.width}
+        height={element.height}
         fill="#eee"
         stroke="#bbb"
       />
     {/if}
-  {:else if e.type === "rect"}
+  {:else if element.type === "rect"}
     <rect
-      x={e.x}
-      y={e.y}
-      width={e.width}
-      height={e.height}
-      rx={e.cornerRadius}
+      x={element.x}
+      y={element.y}
+      width={element.width}
+      height={element.height}
+      rx={element.cornerRadius}
       fill={paints.fill}
       stroke={paints.stroke}
-      stroke-width={e.strokeWidth}
-      stroke-dasharray={dashAttr(e)}
+      stroke-width={element.strokeWidth}
+      stroke-dasharray={dashAttr(element)}
     />
-  {:else if e.type === "ellipse"}
+  {:else if element.type === "ellipse"}
     <ellipse
-      cx={e.x + e.width / 2}
-      cy={e.y + e.height / 2}
-      rx={e.width / 2}
-      ry={e.height / 2}
+      cx={element.x + element.width / 2}
+      cy={element.y + element.height / 2}
+      rx={element.width / 2}
+      ry={element.height / 2}
       fill={paints.fill}
       stroke={paints.stroke}
-      stroke-width={e.strokeWidth}
-      stroke-dasharray={dashAttr(e)}
+      stroke-width={element.strokeWidth}
+      stroke-dasharray={dashAttr(element)}
     />
-  {:else if e.type === "line"}
-    {@const lr = lineRender(e)}
+  {:else if element.type === "line"}
+    {@const lr = lineRender(element)}
     <!-- wide invisible hit area for easy selection (full model endpoints) -->
     <line
-      x1={e.x + e.x1}
-      y1={e.y + e.y1}
-      x2={e.x + e.x2}
-      y2={e.y + e.y2}
+      x1={element.x + element.x1}
+      y1={element.y + element.y1}
+      x2={element.x + element.x2}
+      y2={element.y + element.y2}
       stroke="transparent"
-      stroke-width={Math.max(12, e.strokeWidth + 8)}
+      stroke-width={Math.max(12, element.strokeWidth + 8)}
     />
     <line
-      x1={e.x + lr.x1}
-      y1={e.y + lr.y1}
-      x2={e.x + lr.x2}
-      y2={e.y + lr.y2}
+      x1={element.x + lr.x1}
+      y1={element.y + lr.y1}
+      x2={element.x + lr.x2}
+      y2={element.y + lr.y2}
       stroke={paints.stroke}
-      stroke-width={e.strokeWidth}
+      stroke-width={element.strokeWidth}
       stroke-linecap={lr.cap}
-      stroke-dasharray={dashAttr(e)}
+      stroke-dasharray={dashAttr(element)}
     />
     {#each lr.polys as tri}
       <polygon
-        points={tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        points={tri.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill={paints.heads}
       />
     {/each}
     {#each lr.vees as v}
       <polyline
-        points={v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        points={v.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill="none"
         stroke={paints.heads}
-        stroke-width={e.strokeWidth}
+        stroke-width={element.strokeWidth}
         stroke-linecap="round"
         stroke-linejoin="round"
       />
     {/each}
-  {:else if e.type === "path"}
-    {@const pr = pathRender(e)}
+  {:else if element.type === "path"}
+    {@const pr = pathRender(element)}
     <!-- wide invisible hit stroke (same trick as lines) so hovering/selecting a
          path doesn't demand pixel-perfect aim; the interior of closed shapes
          hits via the visible path's own fill -->
     <path
-      d={e.d}
-      transform={`translate(${e.x} ${e.y})`}
+      d={element.d}
+      transform={`translate(${element.x} ${element.y})`}
       fill="none"
       stroke="transparent"
-      stroke-width={Math.max(12, e.strokeWidth + 8)}
+      stroke-width={Math.max(12, element.strokeWidth + 8)}
     />
     <path
       d={pr.d}
-      transform={`translate(${e.x} ${e.y})`}
+      transform={`translate(${element.x} ${element.y})`}
       fill={paints.fill}
       stroke={paints.stroke}
-      stroke-width={e.strokeWidth}
+      stroke-width={element.strokeWidth}
       stroke-linejoin="round"
-      stroke-linecap={e.cap ?? "round"}
-      stroke-dasharray={dashAttr(e)}
+      stroke-linecap={element.cap ?? "round"}
+      stroke-dasharray={dashAttr(element)}
     />
     {#each pr.polys as tri}
       <polygon
-        points={tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        points={tri.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill={paints.heads}
       />
     {/each}
     {#each pr.vees as v}
       <polyline
-        points={v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ")}
+        points={v.map(([px, py]) => `${element.x + px},${element.y + py}`).join(" ")}
         fill="none"
         stroke={paints.heads}
-        stroke-width={e.strokeWidth}
+        stroke-width={element.strokeWidth}
         stroke-linecap="round"
         stroke-linejoin="round"
       />
     {/each}
-  {:else if e.type === "text"}
+  {:else if element.type === "text"}
     <!-- visualLines = the wrap cache (sizing auto-h/fixed) else the hard lines;
          dy = lineH (fontSize × lineHeight, default 1.2 — the one source in text.ts) -->
     <text
-      x={e.align === "center"
-        ? e.x + e.width / 2
-        : e.align === "right"
-          ? e.x + e.width
-          : e.x}
-      y={e.y + e.fontSize}
-      font-family={e.fontFamily}
-      font-size={e.fontSize}
-      font-weight={e.fontWeight}
-      font-style={e.fontStyle}
-      text-decoration={e.underline ? "underline" : undefined}
+      x={element.align === "center"
+        ? element.x + element.width / 2
+        : element.align === "right"
+          ? element.x + element.width
+          : element.x}
+      y={element.y + element.fontSize}
+      font-family={element.fontFamily}
+      font-size={element.fontSize}
+      font-weight={element.fontWeight}
+      font-style={element.fontStyle}
+      text-decoration={element.underline ? "underline" : undefined}
       fill={paints.fill}
-      text-anchor={e.align === "center"
+      text-anchor={element.align === "center"
         ? "middle"
-        : e.align === "right"
+        : element.align === "right"
           ? "end"
           : "start"}
       style="white-space:pre"
     >
-      {#each visualLines(e) as ln, i}
+      {#each visualLines(element) as ln, i}
         <tspan
-          x={e.align === "center"
-            ? e.x + e.width / 2
-            : e.align === "right"
-              ? e.x + e.width
-              : e.x}
-          dy={i === 0 ? 0 : lineH(e)}>{ln}</tspan
+          x={element.align === "center"
+            ? element.x + element.width / 2
+            : element.align === "right"
+              ? element.x + element.width
+              : element.x}
+          dy={i === 0 ? 0 : lineH(element)}>{ln}</tspan
         >
       {/each}
     </text>

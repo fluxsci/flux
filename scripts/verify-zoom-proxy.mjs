@@ -2,7 +2,7 @@
 // ctrl-wheel zoom burst rides a raster of the scene on the compositor while the
 // live scene is frozen and hidden; the settle fold brings the live scene back in
 // one commit. Gated on the dense lazy-assets fixture against the dev server:
-//   · at rest a warm snapshot exists (an <img> with a blob src, opacity 0.01);
+//   · at rest a decoded snapshot exists (an <img> with a blob src, opacity 0);
 //   · during the burst the proxy is live, its scale follows zoom, the scene's
 //     <g> and inline transform do NOT change (frozen), main-thread task time per
 //     tick stays small (the live zoom read ~20 ms/tick), no long task;
@@ -35,10 +35,10 @@ await page.evaluate((id) => {
 }, fx.figIds[0]);
 await waitFor(page, () => document.querySelectorAll("[data-editor-element-id] svg *").length > 8000, null, { timeout: 90000, label: "dense plot DOM mounted" });
 
-// --- 1. a warm snapshot at rest -------------------------------------------------------
+// --- 1. a decoded snapshot at rest -------------------------------------------------------
 await waitFor(page, () => { const i = document.querySelector(".zoom-proxy"); return !!i && i.src.startsWith("blob:") && i.complete && i.naturalWidth > 0; }, null, { timeout: 20000, label: "snapshot" });
 const rest = await page.evaluate(() => { const i = document.querySelector(".zoom-proxy"); return { src: i.src, opacity: getComputedStyle(i).opacity, live: i.classList.contains("live"), w: i.naturalWidth, h: i.naturalHeight }; });
-ok(rest.src.startsWith("blob:") && !rest.live && Number(rest.opacity) < 0.05, `at rest a warm snapshot exists (${rest.w}×${rest.h} image, opacity ${rest.opacity}, not live)`);
+ok(rest.src.startsWith("blob:") && !rest.live && Number(rest.opacity) < 0.05, `at rest a decoded snapshot exists (${rest.w}×${rest.h} image, opacity ${rest.opacity}, not live)`);
 
 // --- 2. the burst rides the proxy ---------------------------------------------------------
 const host = await page.$eval(".canvas-host", (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });

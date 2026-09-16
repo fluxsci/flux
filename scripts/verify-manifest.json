@@ -1,5 +1,5 @@
 {
- "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation \u2014 a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping.",
+ "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation — a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) — the tier exists for pathMap's electron/** mapping.",
  "tiers": {
   "pure": [
    "verify-an-bridge.ts",
@@ -231,7 +231,8 @@
    "verify-color-space.ts",
    "verify-cursor-policy.ts",
    "verify-color-collections.ts",
-   "verify-gradient-fill.ts"
+   "verify-gradient-fill.ts",
+   "verify-frame-oracle.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -337,7 +338,9 @@
    "verify-slide-video-clips-gui.mjs",
    "verify-gallery-workflow.mjs",
    "verify-fmenu-surface.mjs",
-   "verify-xray-multi-gui.mjs"
+   "verify-xray-multi-gui.mjs",
+   "verify-render-optimizations.mjs",
+   "verify-canvas-coverage.mjs"
   ],
   "ui-extra": [
    "figenh-01-pen.ts",
@@ -504,7 +507,8 @@
    "verify-paper-textsize-gui.mjs",
    "verify-slide-embed-core.ts",
    "verify-paper-slide-embeds.mjs",
-   "verify-slide-embed-lifecycle.mjs"
+   "verify-slide-embed-lifecycle.mjs",
+   "verify-render-optimizations.mjs"
   ],
   "reader-gate": [
    "verify-r1-highlights.mjs",
@@ -617,6 +621,27 @@
  "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
  "pathMap": [
   {
+   "glob": "scripts/verify-manifest.json",
+   "run": [
+    "verify-changed-pathmap.mjs",
+    "tier:pure"
+   ]
+  },
+  {
+   "glob": "scripts/perf/frame-oracle.cjs",
+   "run": [
+    "verify-frame-oracle.ts"
+   ]
+  },
+  {
+   "glob": "src/lib/svgFonts.ts",
+   "run": [
+    "verify-render-optimizations.mjs",
+    "verify-zoom-proxy.mjs",
+    "group:paper-gate"
+   ]
+  },
+  {
    "glob": "{src/lib/slide/outline.ts,src/lib/slide/tween.ts,src/lib/slide/player/transform.ts,src/lib/slide/ops.ts,src/shell/modes/slide/AnimatePanel.svelte,src/shell/modes/slide/animator/PropertiesPane.svelte,src/shell/modes/slide/animator/TimelineMenu.svelte}",
    "run": [
     "group:slide-transforms"
@@ -665,7 +690,7 @@
    ]
   },
   {
-   "$why": "2026-09-16 colour collections \u2014 fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
+   "$why": "2026-09-16 colour collections — fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
    "glob": "{src/lib/color/**,src/lib/ColormapPicker.svelte,src/lib/ColorPicker.svelte,src/lib/plot/ColorScaleControls.svelte,scripts/gen-color-collections.mjs}",
    "run": [
     "verify-color-collections.ts",
@@ -678,7 +703,20 @@
    ]
   },
   {
-   "$why": "2026-09-15 the crosshair cursor family \u2014 Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
+   "$why": "Element is the shared Figure/Slide painter; reactive changes require both rendering behavior and dense-scene input checks.",
+   "glob": "src/lib/Element.svelte",
+   "run": [
+    "tier:pure",
+    "verify-figure-editing-gui.mjs",
+    "verify-figure-controls-gui.mjs",
+    "verify-slide-canvas-presentation-gui.mjs",
+    "verify-scale-figure.mjs",
+    "verify-crisp.mjs",
+    "verify-vanilla-inline.mjs"
+   ]
+  },
+  {
+   "$why": "2026-09-15 the crosshair cursor family — Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
    "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte,src/lib/interact/compositorDrive.ts,src/lib/interact/zoomProxy.ts}",
    "run": [
     "verify-cursor-policy.ts",
@@ -689,7 +727,9 @@
     "group:slide-ghosts",
     "tier:pure",
     "group:inline-slides",
-    "group:slide-stash"
+    "group:slide-stash",
+    "verify-render-optimizations.mjs",
+    "verify-canvas-coverage.mjs"
    ]
   },
   {
@@ -737,7 +777,7 @@
    ]
   },
   {
-   "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here \u2014 a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
+   "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here — a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
    "glob": "{extension/**,scripts/build-extension.mjs}",
    "run": [
     "verify-extension.ts",
@@ -822,7 +862,7 @@
    ]
   },
   {
-   "$why": "tokens.css owns the `:root, .ts-scaled` type scale \u2014 Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
+   "$why": "tokens.css owns the `:root, .ts-scaled` type scale — Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
    "glob": "src/styles/tokens.css",
    "run": [
     "verify-paper-textscale.ts",
@@ -945,7 +985,7 @@
    ]
   },
   {
-   "$why": "2026-09-15 Snapshot & annotate \u2014 the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay \u2192 popover \u2192 ledger); the IPC contract pins the win:capture channel.",
+   "$why": "2026-09-15 Snapshot & annotate — the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay → popover → ledger); the IPC contract pins the win:capture channel.",
    "glob": "{src/shell/agent/**,src/lib/project/feedback.ts,src/lib/project/feedbackCapture.ts}",
    "run": [
     "verify-feedback-snapshot.ts",
@@ -1077,7 +1117,7 @@
    ]
   },
   {
-   "$why": "2026-09-15 surface redesign \u2014 the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
+   "$why": "2026-09-15 surface redesign — the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
    "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
    "run": [
     "verify-surface-anchor.ts",

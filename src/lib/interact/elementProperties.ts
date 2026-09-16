@@ -28,7 +28,7 @@ export const numericProperties: Record<NumericProperty, NumericDescriptor> = {
   cornerRadius: { label: 'corner radius', shortLabel: 'Radius', key: 'v', group: 'Fill', step: 1, min: 0, softMax: 120, read: e => e.type === 'rect' || e.type === 'path' ? e.cornerRadius ?? 0 : undefined },
   // The K tool's persisted geometric factor for plots (Inspector: Content scale) — a rare row, so an
   // index-finger key (h) per the left-hand policy.
-  contentScale: { label: 'content scale', shortLabel: 'Content', key: 'h', group: 'Geometry', step: .05, min: .05, softMax: 4, read: e => e.type === 'plot' ? e.contentScale ?? 1 : undefined },
+  contentScale: { label: 'content scale', shortLabel: 'Content', key: 'h', group: 'Geometry', step: .05, min: .01, softMax: 4, read: e => e.type === 'plot' ? e.contentScale ?? 1 : undefined },
 };
 export function propertyValue(elements: Element[], property: NumericProperty) {
   const values = elements.map(numericProperties[property].read).filter((v): v is number => v !== undefined);

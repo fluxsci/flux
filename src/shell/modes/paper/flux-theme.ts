@@ -321,7 +321,7 @@ export const fluxTheme = EditorView.theme(
     ".flux-embed-art img": {
       display: "block",
       maxWidth: "100%",
-      width: "auto",
+      width: "min(var(--figure-width, 100%), calc(440px * var(--figure-ratio, 1)))",
       height: "auto",
       maxHeight: "440px",
       userSelect: "none",

@@ -31,6 +31,10 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs"]],
+  ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],
+  ["scripts/perf/frame-oracle.cjs", ["verify-frame-oracle.ts"]],
+  ["scripts/verify-manifest.json", ["verify-changed-pathmap.mjs", "tier:pure"]],
   ["src/lib/PlotImporter.svelte", ["group:plot-gallery", "tier:pure"]],
   ["src/lib/plot/GalleryExpandedPreview.svelte", ["group:plot-gallery", "tier:pure"]],
   ["src/lib/plot/GalleryTree.svelte", ["group:plot-gallery", "tier:pure"]],
@@ -43,10 +47,10 @@ const actualCases = [
   ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure"]],
   ["scripts/lib/slideStashNativeEntry.cjs", ["group:slide-stash"]],
   // 2026-09-15: the crosshair cursor family owns Canvas.svelte first (its own pathMap entry).
-  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs"]],
   // 2026-09-16: the compositor drive and the zoom proxy ride the same entry as the canvas they move.
-  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
-  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs"]],
+  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs"]],
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/slide/player/player.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],

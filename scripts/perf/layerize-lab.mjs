@@ -4,7 +4,11 @@
 import puppeteer from 'puppeteer-core';
 import fs from 'node:fs';
 const CHROME = process.env.FLUX_CHROME || '/usr/bin/google-chrome';
-const svg = fs.readFileSync('/home/driessen2/fluxsci.github.io/examples/neural-populations/fig/assets/asset_mu1xueajexpl.svg', 'utf8').replace(/<\?xml[^>]*>|<!DOCTYPE[^>]*>/g, '');
+// Optional real SVG path; default fixture is portable and keeps geometry fixed
+// across the style-write and animation comparisons.
+const source = process.argv[3];
+const svg = source ? fs.readFileSync(source, 'utf8').replace(/<\?xml[^>]*>|<!DOCTYPE[^>]*>/g, '') :
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><clipPath id="c"><rect width="1000" height="700"/></clipPath></defs>${Array.from({length:4000},(_,i)=>`<path d="M${i%100*9} ${Math.floor(i/100)*15}l7 8" fill="none" stroke="#4385be" clip-path="url(#c)"/>`).join('')}</svg>`;
 const svgs = Array.from({ length: 3 }, (_, i) => svg.replace(/id="/g, `id="p${i}_`).replace(/url\(#/g, `url(#p${i}_`).replace(/href="#/g, `href="#p${i}_`)).join('');
 const variants = {
   base: { attr: 'style', scale: true, clip: false, svg: true, wc: true, t3d: true },
@@ -19,10 +23,10 @@ const variants = {
   waapi: { mode: 'waapi' },          // pan = paused Web Animation, currentTime driven (compositor owns the value)
   scrollTop: { mode: 'scroll' },     // pan = native scroll offset on an overflow:scroll host
   waapiTranslate: { mode: 'waapiT' }, // paused animation on the individual `translate` property
-  waapiKeyframes: { mode: 'waapiK' },
+  waapiKeyframes: { mode: 'waapiK' }, // one paused animation, keyframes replaced for arbitrary pan/scale
   waapiKeyframesStyle: { mode: 'waapiK', alsoStyle: true },
   hoistClip: { hoist: true },       // consecutive siblings sharing a clip-path are wrapped in ONE clipped <g> (fewer clip nodes → fewer paint chunks)
-  stripClip: { strip: true },       // diagnostic ceiling: remove every clip-path // keyframes per frame AND the base inline style kept current // ONE paused animation, keyframes replaced per frame (any 2-D pan + scale in one element)
+  stripClip: { strip: true },       // diagnostic ceiling: remove every clip-path
 };
 const variant = process.argv[2] || 'base';
 const cfg = { ...variants.base, ...(variants[variant] || {}) };
@@ -77,7 +81,7 @@ await page.evaluate((cfg) => new Promise((done) => {
   const step = () => {
     i++;
     const y = Math.round(Math.sin(i / 10) * 200);
-    if (cfg.mode === 'waapiK') { const t = `translate3d(${Math.round(Math.cos(i / 7) * 150)}px,${y}px,0) scale(${(1 + Math.sin(i / 15) * 0.2).toFixed(4)})`; anim.effect.setKeyframes([{ transform: t }, { transform: t }]); if (cfg.alsoStyle) el.style.transform = t; if (i < 60) requestAnimationFrame(step); else done(); return; }
+    if (cfg.mode === 'waapiK') { const t = `translate3d(0px,${y}px,0) scale(1)`; anim.effect.setKeyframes([{ transform: t }, { transform: t }]); if (cfg.alsoStyle) el.style.transform = t; if (i < 60) requestAnimationFrame(step); else done(); return; }
     if (cfg.mode === 'waapi' || cfg.mode === 'waapiT') { anim.currentTime = 1000 + y; if (i < 60) requestAnimationFrame(step); else done(); return; }
     if (cfg.mode === 'scroll') { host.scrollTop = 500 + y; if (i < 60) requestAnimationFrame(step); else done(); return; }
     const t = `${cfg.t3d ? `translate3d(0px,${y}px,0)` : `translate(0px,${y}px)`}${cfg.scale ? ' scale(1)' : ''}`;

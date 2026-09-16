@@ -47,19 +47,33 @@ function serializeSvg(el: object): string {
 // cached node; output is byte-identical to a fresh parse. Small and LRU-ish:
 // a project's plots, not its history.
 const PREPARED_CACHE_MAX = 64;
-const preparedCache = new Map<string, { root: SVGSVGElement; manifest?: FluxPlotManifest }>();
+const PREPARED_CACHE_NODES = 150_000;
+const PREPARED_CACHE_CHARS = 8_000_000;
+const preparedCache = new Map<string, { root: SVGSVGElement; manifest?: FluxPlotManifest; nodes: number }>();
+let preparedNodes = 0, preparedChars = 0;
 function preparePlotCached(svgText: string, manifest: FluxPlotManifest | undefined) {
-  const key = (manifest ? "m:" : "d:") + svgText;
+  const semanticSource = JSON.stringify(manifest ?? null);
+  const key = semanticSource + "\0" + svgText;
   const hit = preparedCache.get(key);
   if (hit) {
     preparedCache.delete(key);
     preparedCache.set(key, hit); // refresh recency
     return { root: hit.root.cloneNode(true) as SVGSVGElement, manifest: hit.manifest };
   }
-  const prepared = preparePlot(svgText, manifest);
+  const prepared = preparePlot(svgText, manifest ? JSON.parse(semanticSource) : undefined);
   if (!prepared.root) return prepared;
-  preparedCache.set(key, { root: prepared.root, manifest: prepared.manifest });
-  if (preparedCache.size > PREPARED_CACHE_MAX) preparedCache.delete(preparedCache.keys().next().value!);
+  const nodes = prepared.root.querySelectorAll("*").length + 1;
+  if (nodes <= PREPARED_CACHE_NODES && key.length <= PREPARED_CACHE_CHARS) {
+    preparedCache.set(key, { root: prepared.root, manifest: prepared.manifest, nodes });
+    preparedNodes += nodes;
+    preparedChars += key.length;
+    while (preparedCache.size > PREPARED_CACHE_MAX || preparedNodes > PREPARED_CACHE_NODES || preparedChars > PREPARED_CACHE_CHARS) {
+      const oldest = preparedCache.keys().next().value!;
+      preparedNodes -= preparedCache.get(oldest)!.nodes;
+      preparedChars -= oldest.length;
+      preparedCache.delete(oldest);
+    }
+  }
   return { root: prepared.root.cloneNode(true) as SVGSVGElement, manifest: prepared.manifest };
 }
 

@@ -28,6 +28,8 @@ export interface ZoomSnapshot {
   bw: number;
   bh: number;
   S: number;
+  /** View zoom at capture; S may be lower because of the physical pixel cap. */
+  captureZoom: number;
   w: number;
   h: number;
 }
@@ -36,8 +38,8 @@ export interface ZoomSnapshot {
 // stylesheet. Everything else in the scene (elements, plots) is attribute-styled,
 // so a serialized copy renders identically once these are inlined from the live
 // computed style.
-const STYLED_CLASSES = ["fig-shadow", "figure-bg", "figure-label", "empty-hint", "figure-titlebar", "editing-hidden"];
-const INLINE_PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity", "opacity", "font-family", "font-size", "font-weight", "font-style", "text-anchor", "dominant-baseline", "filter", "visibility", "display"];
+const STYLED_CLASSES = ["fig-shadow", "figure-bg", "figure-label", "empty-hint", "figure-titlebar", "editing-hidden", "grid"];
+const INLINE_PROPS = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity", "opacity", "font-family", "font-size", "font-weight", "font-style", "text-anchor", "dominant-baseline", "filter", "visibility", "display", "vector-effect", "stroke-dasharray", "stroke-linecap", "stroke-linejoin"];
 
 /** Largest snapshot we draw: beyond this the proxy's promoted layer would eat
  *  the tile budget the live scene needs (a 5,000-element figure's 8 MP proxy
@@ -81,10 +83,10 @@ export function snapshotCovers(snap: { bx: number; by: number; bw: number; bh: n
 
 /** Pick the image px per world unit for a snapshot of `box`: the live baked zoom
  *  (so the proxy is pixel-true at the rest zoom), shrunk to the caps. */
-export function snapshotScale(box: WorldBox, renderZoom: number): number | null {
+export function snapshotScale(box: WorldBox, renderZoom: number, dpr = 1): number | null {
   if (!(box.bw > 0) || !(box.bh > 0)) return null;
   let S = renderZoom;
-  S = Math.min(S, SNAPSHOT_MAX_SIDE / box.bw, SNAPSHOT_MAX_SIDE / box.bh, Math.sqrt(SNAPSHOT_MAX_PIXELS / (box.bw * box.bh)));
+  S = Math.min(S, SNAPSHOT_MAX_SIDE / (box.bw * dpr), SNAPSHOT_MAX_SIDE / (box.bh * dpr), Math.sqrt(SNAPSHOT_MAX_PIXELS / (box.bw * box.bh)) / dpr);
   return S > 0.01 ? S : null;
 }
 
@@ -103,52 +105,33 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
       const cs = getComputedStyle(live[i]);
       for (const p of INLINE_PROPS) {
         const v = cs.getPropertyValue(p);
-        if ((v && v !== "none") || p === "fill" || p === "stroke") copy[i].setAttribute(p, v || "none");
+        if (v) (copy[i] as SVGElement).style.setProperty(p, v);
       }
     }
   }
   const root = clone.firstElementChild;
   if (root) root.removeAttribute("transform"); // world units: the viewBox maps them
-  const w = Math.max(1, Math.round(box.bw * S));
-  const h = Math.max(1, Math.round(box.bh * S));
+  const w = Math.max(1, Math.floor(box.bw * S));
+  const h = Math.max(1, Math.floor(box.bh * S));
+  // The scene inherits UI fonts/colour from the document. A standalone image
+  // does not; carry the computed root inheritance without visiting plot nodes.
+  const inherited = getComputedStyle(sceneSvg);
+  for (const p of ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering"]) {
+    (root as SVGElement | null)?.style.setProperty(p, inherited.getPropertyValue(p));
+  }
   const style = fontCss ? `<style>${fontCss}</style>` : "";
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" ` +
-    `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}">${style}${clone.innerHTML}</svg>`;
+    `viewBox="${box.bx} ${box.by} ${box.bw} ${box.bh}" preserveAspectRatio="none">${style}${clone.innerHTML}</svg>`;
   return { svg, w, h };
 }
 
 /** The proxy image's transform for the live viewport: image-local (u, v) is world
  *  (bx + u/S, by + v/S), and a world point lands on screen at pan + zoom·world. */
 export function proxyTransform(snap: ZoomSnapshot, panX: number, panY: number, zoom: number): string {
-  const k = zoom / snap.S;
-  return `translate3d(${panX + zoom * snap.bx}px, ${panY + zoom * snap.by}px, 0) scale(${k})`;
+  // Raster dimensions are integral. Use both actual axes, not the requested
+  // scale, or rounding introduces an aspect/position jump at the swap.
+  return `translate3d(${panX + zoom * snap.bx}px, ${panY + zoom * snap.by}px, 0) scale(${zoom * snap.bw / snap.w}, ${zoom * snap.bh / snap.h})`;
 }
 
-// Webfont embedding for the snapshot: the live document loads Gelasio through
-// fonts.css; an SVG image has no access to document fonts, so a snapshot that
-// mentions it carries the faces inline. Loaded once, only when needed.
-let gelasioCss: Promise<string> | null = null;
-export function snapshotFontCss(svgText: string): Promise<string> {
-  if (!/Gelasio|Georgia/.test(svgText)) return Promise.resolve("");
-  if (!gelasioCss) {
-    gelasioCss = (async () => {
-      const faces: string[] = [];
-      for (const f of [
-        { file: new URL("../../styles/fonts/Gelasio.woff2", import.meta.url).href, style: "normal" },
-        { file: new URL("../../styles/fonts/Gelasio-italic.woff2", import.meta.url).href, style: "italic" },
-      ]) {
-        try {
-          const buf = new Uint8Array(await (await fetch(f.file)).arrayBuffer());
-          let bin = "";
-          for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-          faces.push(`@font-face{font-family:"Gelasio";font-style:${f.style};font-weight:400 700;src:url(data:font/woff2;base64,${btoa(bin)}) format("woff2")}`);
-        } catch {
-          /* font missing — the platform fallback renders */
-        }
-      }
-      return faces.join("");
-    })();
-  }
-  return gelasioCss;
-}
+export { svgFontCss as snapshotFontCss } from "../svgFonts";

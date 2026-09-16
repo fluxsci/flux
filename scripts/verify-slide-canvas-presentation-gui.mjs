@@ -32,7 +32,7 @@ try{
  await page.mouse.click(r.x+r.w/2,r.y+r.h/2);await paint();
  check((await read()).selection.includes('camera-box'),'clicking camera-projected geometry selects its actual object');
  // Disable grid snapping for a measured world-space drag.
- await page.evaluate(async()=>{const {settings}=await import('/src/lib/settings.ts');settings.update(s=>({...s,snapGrid:false,snapPixel:false}));});
+ await page.evaluate(()=>window.__flux.settings.update(s=>({...s,snapGrid:false,snapPixel:false})));
  const selected=await geom('camera-box');
  await page.mouse.move(selected.x+selected.w/2,selected.y+selected.h/2);await page.mouse.down();await page.keyboard.down('Alt');await page.mouse.move(selected.x+selected.w/2+24,selected.y+selected.h/2+12,{steps:4});await page.mouse.up();await page.keyboard.up('Alt');await paint();
  let state=await read();const moved=state.elements.find(e=>e.id==='camera-box');
@@ -62,6 +62,14 @@ try{
  check(persisted.every(e=>!e.hidden)&&persisted.find(e=>e.id==='camera-box').opacity===.7&&!JSON.stringify(persisted).includes('0.25'),'ghost opacity and visibility never enter saved model');
  await page.click('.ghost-toggle input');await paint();
  check(await page.$('[data-editor-element-id="camera-box"]')===null,'Show hidden off removes the object from the editable scene');
+ // The shared Canvas raster must obey the camera's stage clip too.
+ await page.mouse.move(host.x+200,host.y+200);
+ await waitFor(page,()=>{const p=document.querySelector('.canvas-wrap .zoom-proxy');return p?.complete&&p.naturalWidth>0&&!p.classList.contains('live')},null,{timeout:20000,label:'slide snapshot'});
+ await page.keyboard.down('Control');await page.mouse.wheel({deltaY:-15});
+ check(await page.$eval('.canvas-wrap .zoom-proxy',p=>p.classList.contains('live')&&!!p.closest('.scene-clip')&&getComputedStyle(p.closest('.scene-clip')).clipPath!=='none'),'zoom raster shares the live Slide camera clip');
+ await clickText('.edit-switch button','Design');
+ check(await page.$eval('.canvas-wrap .scene',s=>getComputedStyle(s).opacity==='1'),'changing the slide endpoint during zoom reveals current presentation immediately');
+ await page.keyboard.up('Control');
  check(realErrors(page).length===0,'clean console: '+realErrors(page).join('; '));
  await page.screenshot({path:'test-results/slide-canvas-presentation.png'});
  console.log(`##VERIFY## ${JSON.stringify({name:'slide-canvas-presentation-gui',passed,failed:0})}`);

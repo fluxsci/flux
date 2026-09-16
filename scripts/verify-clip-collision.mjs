@@ -106,6 +106,9 @@ try {
   // svg never enters the editor DOM, so a clip-path collision is impossible by
   // construction; the namespaced ids are asserted on the render TEXT instead.
   await waitForSelector(page, ".flux-embed img", { timeout: 8000, label: "embed image mounted" });
+  // Lazy previews intentionally decode only when visible. Exercise the painted
+  // embed, including its actual visibility transition.
+  await page.$eval(".flux-embed img", (i) => i.scrollIntoView({ block: "center" }));
   await waitFor(page, () => { const i = document.querySelector(".flux-embed img"); return !!i && i.complete && i.naturalWidth > 0; }, null, { timeout: 8000, label: "embed image decoded" });
   // (The render TEXT's `pap__` namespace is pinned by verify-paper-render-overrides.ts,
   // the pure twin; a blob: URL cannot be fetched under the app's connect-src.)

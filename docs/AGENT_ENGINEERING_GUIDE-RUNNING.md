@@ -883,38 +883,22 @@ Persistence invariants (all machine-checked — do not weaken):
     animation in the same frame the style holds the value — no flash, no permanent promotion,
     the P6 crisp-at-rest lifecycle unchanged. Reuse the drive for any per-frame transform on a
     heavy subtree; never go back to `style.transform` per tick.
-  - **A zoom burst rides the zoom proxy** (`interact/zoomProxy.ts` + Canvas, 2026-09-16). Blink
-    relayouts and repaints every SVG `<text>` when an ancestor's scale changes, so a live
-    ctrl-wheel zoom over a dense figure cost ~20 ms of main thread per tick (30 fps, blur→sharp
-    pops at every mid-gesture fold). Now, once the scene has been QUIET for 1.5 s and the
-    event loop is idle, the MOUNTED scene is serialized in WORLD units over the visible box
-    plus half a host per side (`snapshotRegion`), at its own raster scale (`snapshotScale`:
-    the baked zoom, capped to 4096 px / 3 MP), then rasterized ONCE through a canvas into a
-    PNG at device resolution — the snapshot, a BITMAP (an SVG-backed `<img>` is redrawn as
-    vector content whenever its area repaints: ~20 ms per nudge at 1,600 elements), keyed by
-    scene content only (`sceneKey`: revisions, mounted-set generation, plot DOM generation,
-    presentation — never the viewport or the baked zoom, so folds keep it and pans keep it
-    while the view stays inside its box, `snapshotCovers`), kept warm as a promoted
-    `<img class="zoom-proxy">` at opacity 0.01 whose tiles already exist. Scenes above
-    `SNAPSHOT_MAX_NODES` (20k) get no snapshot and zoom live as before. The first tick of a burst with a fresh
-    snapshot flips it live: the image takes the gesture on its own compositor drive with the
-    exact viewport mapping (`proxyTransform`), the live scene is FROZEN (its drive stores
-    the pending transform) and hidden (`opacity: 0`, compositor-only). The fold DEMOTES the
-    scene first (drive cool, will-change off), then applies the pending transform, the baked
-    `<g>` scale, the scene's return and the proxy's retreat in one flush — a non-animating
-    layer's tiles are required for activation, so the swap is atomic
-    (`scripts/perf/layer-swap-lab.cjs` pins that no blank or stale frame is presented across
-    promotion, folds and demotion). No fresh snapshot → the gesture runs live as before. The
-    proxy's transform is written ONLY while it is live (a per-tick write on its promoted
-    layer at rest would re-layerize every frame). Delayed sharpness after a burst is the
-    accepted trade: the fold's one repaint (55–90 ms over 21 plots) lands once, after the
-    pointer stops. Fast zoom: 150–230 ms of main thread per 1.6 s burst at 16.7 ms p95 frames
-    with the live scene frozen for every frame (was 931 ms at 33 ms). Gates:
-    `verify-zoom-proxy.mjs` (ui, 8-panel fixture), crisp's burst sampling accepts the proxy
-    path, scale-lazy-assets pins that a cold settle hosts no snapshot, the native figure gate
-    pins key-to-paint (a snapshot landing between two nudges was a 40–150 ms outlier before
-    the 1.5 s quiet rule). The idle snapshot after a scene change or a >2× zoom drift is one
-    ~50 ms task on the owner's figure; if it ever reads as a hitch, it is the place to slice.
+  - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
+    After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
+    serialized in world units and rasterized once to PNG. Caps are 4096 px / 3 MP
+    INCLUDING device scale. The fully invisible resting image becomes visible only
+    while its scene key and world coverage are valid. It shares `.scene-clip` with
+    the live SVG, including Slide camera clipping. The key includes model/plot
+    revisions, mounted set, presentation, grid and editing chrome. Check coverage
+    throughout the gesture; edits or escaping its bounds restore the live scene
+    immediately. Above the density cap, during capture, or without a current image,
+    use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
+    Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
+    scale (the latter caused endless idle captures at high DPI). At settle, demote
+    the live layer before its repaint and restore sharp content. Screencasts sample
+    frames and cannot establish atomic display presentation. Gates:
+    `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
+    `verify-render-optimizations.mjs`, `verify-slide-canvas-presentation-gui.mjs`.
   - **No hover outline while a burst is live.** `hoverInfo` is null while `sceneHot`: content
     sweeping under a still pointer flipped the outline every frame during pans and zooms —
     flicker, not feedback. The hover-dot cursor (a constant on `.el`) is unaffected.
@@ -922,26 +906,21 @@ Persistence invariants (all machine-checked — do not weaken):
     the K tool's persisted factor; step .05, min .05, soft max 4; reset to 1 deletes the
     field, as the Inspector does). `read()` is undefined for non-plots, so the row only
     renders when a plot is selected.
-  - **Culling has hysteresis and freezes while hot.** `CULL_MARGIN` (600 px) is where content
-    MOUNTS; mounted content UNMOUNTS only one viewport farther (`cullMarginOut()` = 600 px +
-    the larger host dimension — a function of the viewport, not a constant, so the resident set
-    stays bounded at any zoom: mounted plots pin their parsed DOM), so a screen's worth of
-    scrolling away and back never re-pays a plot mount; and the cull key is not recomputed
-    while `sceneHot` (a wheel burst, a drag) — the cool-down re-culls once. Re-culls mid-burst
-    were the 50–450 ms "scroll storms" (a 9-plot figure re-entering the old margin).
-    `mountedFigs` / `mountedEls` are the non-reactive hysteresis memory.
-  - **The editor's plot cache is OPTIMIZED; exports serialize a pristine parse.** `cachePlot`
-    runs two editor-only passes after `preparePlot`: `bakePlotStyles` (every bakeable `<style>`
-    rule becomes presentation attributes on the elements it matches, cascade preserved exactly,
-    the sheet is dropped — a mounted `<style>` is a live stylesheet whose insertion
-    re-invalidates rule sets for the whole document) and `hoistPlotClips` (each run of
-    same-clip, untransformed siblings is wrapped in ONE clipped `<g>`: matplotlib stamps the
-    same clip on ~97% of elements, every clipped element is a paint chunk, and layerization is
-    O(chunks) — 200× fewer chunks, 4.06 → 0.02 ms per update in the lab). Anything that
-    SERIALIZES a plot for a file (`plotToSvgMarkup`, i.e. GUI SVG/PNG/PDF and deck exports)
-    takes `pristinePlotRoot()` — a fresh `preparePlot` of the asset bytes — so exports stay
-    byte-identical to flux-core. Gates: `verify-plot-style-bake.ts` (pure), vanilla-inline §2b
-    (zero plot stylesheets in the scene, computed caps still right), the lazy/export gates.
+  - **Culling retains a buffer, but never freezes beyond its coverage.** Content
+    mounts within 600 px; mounted content unmounts one viewport farther away.
+    During gestures keep the set stable until the actual viewport leaves that
+    buffer, then mount the destination immediately using the live scale. An
+    unconditional freeze left continuous pans blank and invalidated zoom coverage.
+  - **Plot optimizations preserve the original SVG semantics.** `bakePlotStyles`
+    only removes uniform matplotlib `*` stroke-cap/join defaults when EVERY sheet
+    is in that safe subset. Arbitrary or conditional CSS stays intact and scoped;
+    never partially compile CSS into attributes (cascade priority and selector
+    matching change). `hoistPlotClips` only groups static geometry leaves sharing
+    user-space clips, without residual sheets, transforms, glyphs or definitions.
+    Bounding-box clips stay per element. `restorePlotClip` restores each child's
+    clip before a semantic translation. Exports keep `pristinePlotRoot()` for
+    GUI/headless parity. Pixel gates compare optimized art to the pristine path,
+    including multiple sheets, selector interactions and moved clipped parts.
   - **Paper shows figures as IMAGES from an idle render queue** (`scholar/figures.ts`,
     2026-09-16). Embeds, hover cards, the pickers and the margin view all use
     `<img use:figureImage={id}>` / `bindFigureImage` over `renderFigureImageUrl` (a blob URL
@@ -951,19 +930,29 @@ Persistence invariants (all machine-checked — do not weaken):
     fresh stylesheet per plot, a full restyle), while its paint chunks taxed every keystroke's
     layerization. Renders are LAZY: `FigureEmbedWidget` reserves the model box (`figureDims`)
     and renders nothing in its constructor; the DOM that shows a figure requests it, the
-    queue renders ONE figure per idle slice, shows the previous revision's picture until the
+    queue renders one figure at a time with plot preparation split into ~6 ms
+    slices (a single plot may exceed that target). The shared final serializer
+    preserves synchronous/export parity. It shows the previous revision's picture until the
     new one lands (stale URLs are revoked only when replaced), and defers figures whose
     `<img>` sits in a hidden pane (`.mc.hidden`) until ModeContent dispatches
-    `flux:pane-shown`. `inlineMarkup.ts` also caches prepared roots by source text (clone per
-    use) so a render never re-parses the same plot. Before: every figure edit re-rendered
+    `flux:pane-shown`. All bound images subscribe to revisions, even if their id
+    stays the same; an IntersectionObserver requests previews near the viewport.
+    Decode before swapping, inline bundled webfonts, clear deleted/project-foreign
+    images, and reject obsolete asynchronous loads. Reserve the model's CSS
+    width/aspect ratio before decoding: HTML width/height attributes alone do
+    not reserve the box under `width:auto;height:auto`, and a late preview can
+    move the caret. `verify-paper-nav` protects that layout invariant.
+    `inlineMarkup.ts` caches by
+    SVG AND complete manifest content, clones before use, and bounds entries,
+    aggregate nodes and source text size. Before: every figure edit re-rendered
     every embed synchronously inside the autosave's IPC reply — 170 ms, with Paper hidden.
   - **A hidden pane keeps no DOM selection.** A caret left in the hidden Paper pane made Blink
     re-canonicalize the selection after every style update in Figure — a walk through the
     whole scene, twice per wheel tick (16 ms/frame). ModeContent drops a selection anchored in
-    a pane it just hid; `Canvas.keepSceneHot` drops one anchored outside the canvas at the
-    first tick of a burst. Gate: `verify-figure-input-hygiene.mjs` (ui) — the drive's
+    a pane it just hid; `Canvas.keepSceneHot` clears only a selection anchored in a HIDDEN pane at
+    burst start, preserving selections in visible split panes. Gate: `verify-figure-input-hygiene.mjs` (ui) — the drive's
     animation present while hot / absent at rest, no selection in a hidden pane, no
-    mount/unmount during a burst, no long task, TaskDuration per wheel tick < 12 ms on the
+    unnecessary mount/unmount inside the retained buffer, no long task, TaskDuration per wheel tick < 12 ms on the
     dense fixture (pre-fix 56 ms; now 2.4).
   - **The property menu header names the thing:** the Flux mark, a hairline, then
     `elementLabel` (the Layers name — custom name, a plot's file name, `rect 1`), for a part
@@ -1707,8 +1696,8 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 - **Paint chunks are the unit of layerization cost, and clip-paths make chunks.** matplotlib
   puts the same `clip-path` on nearly every element; each is a chunk; a 21-plot figure is
   thousands of chunks, so every overlay repaint (hover outline, selection box) paid ~10 ms of
-  layerization. Hoisting same-clip sibling runs into one clipped `<g>` (editor cache only,
-  `hoistPlotClips`) is exactly equivalent and 200× cheaper. Before blaming Paint, count
+  layerization. Hoisting eligible static user-space clip runs (`hoistPlotClips`, §4) reduces
+  that cost. General clip hoisting is NOT equivalent; enforce the geometry/CSS guards. Before blaming Paint, count
   chunks: strip clip-paths in the lab and watch the update time.
 - **A DOM selection left in a hidden pane taxes the visible one.** With a caret in the hidden
   Paper editor, every style/layout update in Figure ran `VisibleUnits::canonicalPosition →
@@ -1731,16 +1720,17 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   restyles/relayouts every `<text>` (≈300 per tick here) and repaints the scene — ~20 ms per
   tick over 21 plots, independent of the compositor drive; `text-rendering:
   geometricPrecision` removes the layout half but changes glyph rendering and not the paint.
-  The zoom proxy (§4) is the remedy: a zoom gesture must never change the live scene's scale.
-- **Repaint a promoted, animating layer and cc may activate before its tiles are ready.**
-  Chromium's checkerboard tolerance is for animating layers; a non-animating layer's visible
-  tiles are required for activation. So any content repaint that must be seamless (the
-  zoom fold, the proxy → scene swap) DEMOTES first — cancel the drive's animation and drop
-  `will-change` — in the same flush as the repaint. Measured clean either way on this
-  machine (`layer-swap-lab.cjs`, screencast of every presented frame), but the ordering is
-  the guarantee, not the luck.
+  The zoom proxy (§4) freezes the live scene while a current, covering image is
+  active. With no valid image, live zoom remains the required fallback; never
+  hide current art behind an obsolete or offscreen snapshot to meet a timing target.
+- **Raster/live swaps need content and coverage checks.** Demote the live layer
+  before repainting, but do not infer display guarantees from clean screencasts.
+  The original layer-swap diagnostic removed zero-width frames before checking
+  for blanks, making it blind to fully blank frames. `frame-oracle.cjs` now keeps
+  every sample; `verify-frame-oracle.ts` plants complete/partial dropouts and
+  geometry spikes. CDP capture can still miss frames under load.
 - **A transform write per frame on ANY promoted layer re-layerizes the page**, including an
-  invisible one: the zoom proxy's `<img>` sits at opacity 0.01 with `will-change`; writing
+  invisible one: a resting proxy was originally promoted at opacity 0.01; writing
   its transform per pan tick at rest cost 3 ms per frame (panSmall 100 → 330 ms) until the
   writes were gated to its live phase. Corollary: every `use:` drive on a promoted element
   must know when it is allowed to write.
@@ -1748,11 +1738,23 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   redraws it as vector content whenever its area repaints — composited or not (the dev nudge
   ratio read 4.5× with the SVG proxy over the scene, 4.0× = HEAD with a PNG one). A picture
   that only has to LOOK right (the zoom proxy) is rasterized once through a canvas.
-- **The native figure gate's 5,000-element key-to-paint is a noise band on this box**
-  (2026-09-16): 91–122 ms across runs for HEAD's canvas and for the working tree alike
-  (1,600 is a stable ~50 ms). The September review's 62.7 ms did not reproduce on either. A
-  single red run there is not evidence of a regression — rerun alone, and compare the
-  `PROBE metrics=` lines it now prints (p95, mounted, layers) against the same build's twin.
+- **The 100 ms native input budget still applies at 5,000 elements.** A red
+  result is a failed budget, even when an older build also fails. Run comparable
+  isolated workloads, report distributions and hardware/display conditions, and
+  fix the cause; never rerun until green or label a budget miss acceptable noise.
+- **Avoid redundant reactive object publication in the shared element painter.**
+  The model mutates in place, so an `e = element` alias and a newly allocated
+  reactive bbox broadcast changes for every mounted element on each edit. In
+  development, Svelte's mutation diagnostics amplify that cost. Read the prop
+  directly and publish only the derived scalar center; do not declare this
+  mutable model immutable. The dense-scene gate and native input probe verify
+  the result, while editing/rotation/gradient gates protect painting behavior.
+- **A field hotkey must transfer focus before the next input event.** Waiting
+  for `requestAnimationFrame` after arming a property-menu row can discard the
+  first typed digits. Focus after Svelte's `tick()` and, on opening, after the
+  placement class becomes visible. Guard deferred focus against closed menus
+  and changed fields. The menu surface gate exercises fast hotkey/value/confirm
+  sequences, including content scale and undo.
 - **Synthetic ctrl+wheel needs the Control KEY down.** Electron's `sendInputEvent({type:
   "mouseWheel", modifiers: ["control"]})` alone let the first ~20 events of a burst latch as
   a plain scroll; the probe holds `keyDown Control` around zoom bursts. A probe phase that
@@ -1764,18 +1766,14 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
-- **Display-level flicker on Wayland is not observable from inside the renderer
-  (2026-09-16):** the owner sees occasional flicker of the canvas, sometimes the whole
-  window, during very fast zooms/pans on GNOME Wayland + NVIDIA 595 + fractional scaling
-  (`scale-monitor-framebuffer`). Every in-renderer oracle came back clean — presented-frame
-  screencasts, the frame reporter (no checkerboard / missing content), the layer-swap lab —
-  and the in-app candidates (per-tick relayout, mid-gesture folds, hover-outline flapping,
-  transform writes on promoted layers) are gone. What remains is the compositor/driver
-  path: Chromium logs `'--ozone-platform=wayland' is not compatible with Vulkan` at every
-  start and no switch tried (`--disable-features=Vulkan…`, `--use-vulkan=none`) turned the
-  Vulkan status off. `grim`/GNOME's screenshot D-Bus are refused on this desktop, so the real
-  display cannot be sampled from a script. The A/B the owner can run: `OZONE=x11 electron .`
-  (XWayland) and, separately, fractional scaling off. Not a Flux bug to "fix" blind.
+- **Physical-display flicker remains a separate validation surface.** The
+  original September 16 report attributed remaining flicker to Wayland/NVIDIA,
+  but its sampling did not establish that cause. Independent review reproduced
+  application-side blanking: a long pan froze culling, then zoom hid live art
+  behind an offscreen image. Coverage guards and regressions now address it.
+  Clean headless/virtual-display results cannot certify the owner's physical
+  GNOME/fractional-scaling path or a MacBook. See
+  `docs/RESPONSIVENESS_AUDIT_2026-09-16.md` for measured scope and limits.
 - **Figure polish (2026-09-06):** implemented preservation, selection/history, shared properties,
   frame resizing, layout/focus, raster-worker and native PDF fixes. Review/evidence and remaining
   validation limits live in `docs/FIGURE_POLISH_REVIEW.md`. Preserve the existing gates.
@@ -5629,3 +5627,27 @@ the proxy path, cursor/hygiene/fmenu/f5-cull green.
 element must know its live phase; hold the Control key for synthetic ctrl+wheel; confirm a
 frame-oracle anomaly against the renderer's own log before chasing it; display-level flicker
 needs a display-level capture, which this desktop refuses to scripts.
+
+### 2026-09-16 — Independent responsiveness audit (Codex, perf-instant-canvas)
+**Work:** Reviewed the complete September 16 report and the redesign/performance diffs,
+retained the measured cursor/compositor gains, and fixed reproduced rendering, coverage,
+cache, preview-lifecycle and input defects. Added counterexample pixel/interaction tests,
+removed dense-scene reactive overhead, sliced Paper preparation and fixed preview layout
+and fast menu-key entry; the full pure and Paper suites passed. Evidence, native latency,
+failure resolutions and physical-display limits are in `docs/RESPONSIVENESS_AUDIT_2026-09-16.md`;
+the branch remains for owner testing before merge.
+**Learnings:**
+- Promoted conservative CSS/clip contracts, capture coverage/lifecycle/DPR checks and
+  revision-aware Paper image binding to §4/§9.
+- Idle callbacks still block input; bound preparation slices and reserve image layout
+  before decode. Focus fields after the DOM flush, not a later paint frame.
+- Keep blank samples in frame diagnostics, keep marker geometry in view, and distinguish
+  sampled compositor evidence from physical-display guarantees (§9/§10).
+- Dense-scene budget failures require causal profiling and comparable native measurements;
+  removing redundant reactive object publication preserved mutable-model correctness.
+
+### 2026-09-16 — Integrate audited responsiveness work (Codex, main)
+**Work:** The owner approved committing and merging `perf-instant-canvas` into `main`.
+Confirmed all 26 audited source/test hashes still matched the validation record, preserved
+the original session report alongside the independent audit, and prepared the local
+fast-forward integration for the owner to push.

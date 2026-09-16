@@ -7,10 +7,12 @@ import { get, writable } from "svelte/store";
 import { createFigureReferenceResolver } from "../../../../lib/figureReferences";
 import type { Asset, Element, Figure, FigureFamilyDef, Project } from "../../../../lib/types";
 import { figureToSvg } from "../../../../lib/export";
+import { svgFontCss } from "../../../../lib/svgFonts";
 import { buildPlotMarkup } from "../../../../lib/plot/inlineMarkup";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { dataUrlToBytes } from "../../../../lib/assets";
 import { assetDisplaySize } from "../../../../lib/ops";
+import { effectiveHidden } from "../../../../lib/groups";
 import { readFigSource } from "../../../../lib/project/figbridge";
 import { fileBridge } from "../../../../lib/project/types";
 import { EMBED_RE } from "../science/figureAttrs";
@@ -79,17 +81,26 @@ const imageUrlCache = new Map<string, string | undefined>();
 const staleImageUrls = new Map<string, string | undefined>();
 // Bumped on every figure reload; widgets compare it instead of render strings.
 let figuresRev = 0;
+const imageRevision = writable(0);
+let loadedRoot: string | null = null;
+let loadGeneration = 0;
 export function getFiguresRev(): number {
   return figuresRev;
 }
-function revokeImageUrls(): void {
+function revokeImageUrls(reset = false): void {
   figuresRev++;
+  for (const [id, url] of staleImageUrls) if (reset || !figuresById[id]) {
+    if (url) URL.revokeObjectURL(url);
+    staleImageUrls.delete(id);
+  }
   for (const [id, url] of imageUrlCache) {
     const prev = staleImageUrls.get(id);
     if (prev && prev !== url) URL.revokeObjectURL(prev);
-    staleImageUrls.set(id, url);
+    if (reset || !figuresById[id]) { if (url) URL.revokeObjectURL(url); }
+    else staleImageUrls.set(id, url);
   }
   imageUrlCache.clear();
+  imageRevision.set(figuresRev); // Every mounted image follows source revisions, even with the same id.
 }
 /** Figure box in canvas px from the MODEL (no render needed) — what an embed
  *  reserves before its picture is ready. */
@@ -100,14 +111,17 @@ export function figureDims(id: string): { w: number; h: number } | undefined {
 
 export async function loadFigures(root: string | null): Promise<void> {
   if (!root) return; // demo / no project — leave whatever was seeded
+  const generation = ++loadGeneration;
   const src = await readFigSource(root);
+  if (generation !== loadGeneration) return;
   figuresById = src.figures;
   assetData = src.assetData;
   assetManifests = src.assetManifests;
   assetMeta = src.assets;
   familyDefs = src.families;
   renderCache.clear();
-  revokeImageUrls();
+  revokeImageUrls(loadedRoot !== root);
+  loadedRoot = root;
   figureCanvases.set(src.canvases);
   // Flux-figure is the source of truth: identity is (family, number) —
   // structured fields healed by the loader, never parsed out of the name —
@@ -245,14 +259,14 @@ function plotMarkupFor(el: Element, ns?: string): string | undefined {
   }
 }
 
-function renderFigureInternal(id: string, ns?: string): string | undefined {
+function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map<Element, string | undefined>): string | undefined {
   const fig = figuresById[id];
   if (!fig) return undefined;
   try {
     return figureToSvg(
       fig,
       (aid) => assetData[aid],
-      (el) => plotMarkupFor(el, ns),
+      (el) => preparedPlots ? preparedPlots.get(el) : plotMarkupFor(el, ns),
       // Crop rendering for <image>-backed elements: intrinsic content size in
       // assetDisplaySize units — the crop window's own coordinate space.
       (aid) => assetDisplaySize({ assets: assetMeta } as Project, aid) ?? undefined,
@@ -276,41 +290,80 @@ export function renderFigureSvg(id: string): string | undefined {
   return svg;
 }
 
+/** Preparing every plot in one idle callback still blocks input: the real
+ *  21-panel project spent 131 ms in that task. Reuse the same plot builder and
+ *  final figure serializer, but yield between plots once a slice reaches 6 ms.
+ *  The synchronous export API retains its exact output and cache semantics. */
+async function renderFigureSvgInSlices(id: string, rev: number): Promise<string | undefined> {
+  if (renderCache.has(id)) return renderCache.get(id);
+  const fig = figuresById[id];
+  if (!fig) return undefined;
+  const plots = new Map<Element, string | undefined>();
+  let start = performance.now();
+  for (const el of fig.elements) {
+    if (el.type !== "plot" || effectiveHidden(fig, el)) continue;
+    plots.set(el, plotMarkupFor(el, PAPER_SVG_NS));
+    if (performance.now() - start >= 6) {
+      await new Promise<void>(resolve => {
+        if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 250 });
+        else setTimeout(resolve, 0);
+      });
+      if (rev !== figuresRev) return undefined;
+      start = performance.now();
+    }
+  }
+  if (rev !== figuresRev) return undefined;
+  const svg = renderFigureInternal(id, PAPER_SVG_NS, plots);
+  renderCache.set(id, svg);
+  return svg;
+}
+
 /** The display render as an <img> source (blob URL; cached per figure per
  *  fig-revision alongside renderFigureSvg). Consumers that only SHOW a figure
  *  use this — never inline the svg string into the editor document. */
-export function renderFigureImageUrl(id: string): string | undefined {
+export async function renderFigureImageUrl(id: string): Promise<string | undefined> {
   if (imageUrlCache.has(id)) return imageUrlCache.get(id);
-  const svg = renderFigureSvg(id);
+  const rev = figuresRev;
+  let svg = await renderFigureSvgInSlices(id, rev);
+  if (svg) {
+    // An SVG image has no access to fonts loaded by its containing document.
+    const fonts = await svgFontCss(svg);
+    if (fonts) svg = svg.replace(">", `><style>${fonts}</style>`);
+  }
+  if (rev !== figuresRev) return undefined;
   let url: string | undefined;
   if (svg) {
+    url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     try {
-      url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      const probe = new Image();
+      probe.src = url;
+      await probe.decode(); // Keep the last good picture until the new one can actually paint.
     } catch {
-      url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`; // no Blob (tests) → data URL
+      URL.revokeObjectURL(url);
+      url = undefined;
     }
   }
+  if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
   imageUrlCache.set(id, url);
   const stale = staleImageUrls.get(id);
-  if (stale && stale !== url) {
-    if (stale.startsWith("blob:")) URL.revokeObjectURL(stale);
-    staleImageUrls.delete(id);
-  }
+  if (stale && stale !== url) URL.revokeObjectURL(stale);
+  staleImageUrls.delete(id);
   return url;
 }
 
 /** The picture an <img> can show RIGHT NOW without rendering: the current
  *  revision's URL if it exists, else the previous revision's. */
 export function cachedFigureImageUrl(id: string): string | undefined {
-  return imageUrlCache.get(id) ?? staleImageUrls.get(id);
+  return imageUrlCache.has(id) ? imageUrlCache.get(id) : staleImageUrls.get(id);
 }
 
 // ---- the idle render queue -------------------------------------------------
-// A figure render is 20–50 ms of main thread (parse every plot, bake overrides,
+// A figure render can exceed 100 ms of main thread (parse every plot, bake overrides,
 // serialize). After a figure edit the paper's chips refresh and every embed,
 // picker and hover card would re-render synchronously inside the IPC reply —
 // 170 ms for a two-figure manuscript (2026-09-16), while the user was still
-// panning in Figure. Renders now queue: one figure per idle slice, listeners
+// panning in Figure. Renders now queue: one figure at a time, preparing its
+// plots in short idle slices; listeners
 // swap their <img> when it lands. Nothing renders that nobody is looking at.
 const renderWaiters = new Map<string, Set<(url: string | undefined) => void>>();
 // Each waiter may name the element it feeds; a figure whose every waiter sits in
@@ -331,16 +384,17 @@ if (typeof window !== "undefined") {
   });
 }
 let renderScheduled = false;
+let renderRunning = false;
 function scheduleRenderDrain(): void {
-  if (renderScheduled) return;
+  if (renderScheduled || renderRunning) return;
   renderScheduled = true;
   const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
   if (ric) ric(drainRenderQueue, { timeout: 250 });
   else setTimeout(drainRenderQueue, 16);
 }
-function drainRenderQueue(): void {
+async function drainRenderQueue(): Promise<void> {
   renderScheduled = false;
-  let pending = false;
+
   for (const [id, waiters] of renderWaiters) {
     // Drop waiters whose element is gone; skip figures nobody visible wants.
     for (const w of waiters) if (waiterEl.has(w) && !waiterEl.get(w)!.isConnected) waiters.delete(w);
@@ -349,16 +403,20 @@ function drainRenderQueue(): void {
       continue;
     }
     if (![...waiters].some(waiterVisible)) {
-      pending = true; // hidden pane — wait for flux:pane-shown
       continue;
     }
     renderWaiters.delete(id);
-    const url = renderFigureImageUrl(id); // ONE figure per slice
-    for (const w of waiters) w(url);
+    const rev = figuresRev;
+    renderRunning = true;
+    try {
+      const url = await renderFigureImageUrl(id); // ONE figure per slice
+      if (rev === figuresRev) for (const w of waiters) w(url);
+    } finally {
+      renderRunning = false;
+    }
     break;
   }
   if ([...renderWaiters.values()].some((set) => [...set].some(waiterVisible))) scheduleRenderDrain();
-  void pending;
 }
 /** Resolve to the current revision's URL, rendering in an idle slice if needed.
  *  `el` (the <img> being fed) lets the queue defer while its pane is hidden. */
@@ -374,7 +432,7 @@ export function requestFigureImageUrl(id: string, cb: (url: string | undefined) 
   scheduleRenderDrain();
   return () => {
     set!.delete(cb);
-    if (!set!.size) renderWaiters.delete(id);
+    if (!set!.size && renderWaiters.get(id) === set) renderWaiters.delete(id);
   };
 }
 
@@ -382,21 +440,53 @@ export function requestFigureImageUrl(id: string, cb: (url: string | undefined) 
  *  reserves the model box (no layout shift), and swaps in the fresh render when
  *  the idle queue delivers it. Returns a cancel. */
 export function bindFigureImage(img: HTMLImageElement, id: string): () => void {
-  const dims = figureDims(id);
-  if (dims) {
-    img.width = Math.round(dims.w);
-    img.height = Math.round(dims.h);
-  }
-  const now = cachedFigureImageUrl(id);
-  if (now && img.src !== now) img.src = now;
-  return requestFigureImageUrl(
-    id,
-    (url) => {
-      if (url && img.src !== url) img.src = url;
-      else if (!url && !now) img.removeAttribute("src");
-    },
-    img,
-  );
+  let cancel = () => {};
+  let inView = typeof IntersectionObserver === "undefined";
+  let live = true;
+  // Do not carry another figure/project's image into an unrendered selection.
+  img.removeAttribute("src");
+  const show = (url: string | undefined) => {
+    if (!live) return;
+    if (url) {
+      if (img.src !== url) img.src = url;
+      img.alt = "";
+      img.removeAttribute("title");
+      img.dataset.figureState = "ready";
+    } else {
+      img.removeAttribute("src");
+      img.alt = "Figure preview unavailable";
+      img.title = "Figure preview unavailable";
+      img.dataset.figureState = "missing";
+    }
+  };
+  const refresh = () => {
+    cancel();
+    const dims = figureDims(id);
+    if (dims) {
+      img.width = Math.round(dims.w); img.height = Math.round(dims.h);
+      // CSS width/height:auto ignores the intrinsic width attributes until an
+      // image decodes. Reserve its model ratio/width now so idle preparation
+      // cannot move the manuscript or the caret when the picture arrives.
+      img.style.aspectRatio = `${dims.w} / ${dims.h}`;
+      img.style.setProperty("--figure-width", `${dims.w}px`);
+      img.style.setProperty("--figure-ratio", String(dims.w / dims.h));
+    }
+    const cached = cachedFigureImageUrl(id);
+    if (cached) show(cached);
+    else {
+      img.removeAttribute("src");
+      img.alt = dims ? "" : "Figure preview unavailable";
+      img.dataset.figureState = dims ? "pending" : "missing";
+    }
+    if (dims && inView) cancel = requestFigureImageUrl(id, show, img);
+  };
+  const observer = typeof IntersectionObserver !== "undefined" ? new IntersectionObserver(entries => {
+    const next = entries.some(e => e.isIntersecting);
+    if (next !== inView) { inView = next; refresh(); }
+  }, { rootMargin: "200px" }) : null;
+  observer?.observe(img);
+  const unsubscribe = imageRevision.subscribe(refresh);
+  return () => { live = false; cancel(); unsubscribe(); observer?.disconnect(); };
 }
 
 /** Svelte action form of bindFigureImage: `<img use:figureImage={figId} />`. */
@@ -503,7 +593,9 @@ export function __seedFigures(
   assetMeta = assets;
   familyDefs = families;
   renderCache.clear();
-  revokeImageUrls();
+  loadGeneration++;
+  revokeImageUrls(loadedRoot !== "__seed");
+  loadedRoot = "__seed";
   figureCanvases.set(canvases);
   figureRefs.set(refs);
 }

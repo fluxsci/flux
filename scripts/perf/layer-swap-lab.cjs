@@ -6,26 +6,32 @@
 //   foldAnimating   promoted + animating; every 20 frames the baked <g> scale and the residual swap (a fold)
 //   foldDemoted     the same fold, but the layer is demoted (animation cancelled, will-change off) in that frame
 //   liveZoom        residual scale changes 3 % per frame for 40 frames on the promoted layer (today's zoom)
-// Every presented frame is captured through CDP Page.startScreencast (the page is
-// light, so the screencast keeps up) and measured: content fraction (dark pixels)
+// CDP Page.startScreencast samples presented frames; it can miss frames under
+// load. Samples are measured for content fraction (dark pixels)
 // and the marker bounding box. A BLANK is a frame whose content collapses against
 // its neighbours; a GLITCH is a bbox size that leaves the neighbours' interpolation.
 //   node_modules/electron/dist/electron scripts/perf/layer-swap-lab.cjs [--ozone-platform=wayland|x11|headless]
 'use strict';
 const { app, BrowserWindow, nativeImage } = require('electron');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+const { analyze } = require('./frame-oracle.cjs');
+const labRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-layer-swap-'));
+app.setPath('userData', path.join(labRoot, 'profile'));
+app.on('will-quit', () => fs.rmSync(labRoot, { recursive: true, force: true }));
 const PATHS = 24000; // matplotlib-like: every path clipped → a paint chunk each, raster-heavy
 const html = `<!doctype html><html><body style="margin:0;background:#dddddd;overflow:hidden">
 <div id="host" style="position:relative;width:1200px;height:800px;overflow:hidden;background:#dddddd">
-<div id="scene" style="position:absolute;inset:0;transform-origin:0 0;transform:translate3d(300px,200px,0) scale(1)">
-<svg id="svg" width="2000" height="1400" xmlns="http://www.w3.org/2000/svg" style="overflow:visible"><g id="g" transform="scale(0.32)">
+<div id="scene" style="position:absolute;inset:0;transform-origin:0 0;transform:translate3d(100px,80px,0) scale(1)">
+<svg id="svg" width="2000" height="1400" xmlns="http://www.w3.org/2000/svg" style="overflow:visible"><g id="g" transform="scale(0.2)">
 <rect x="0" y="0" width="1800" height="1200" fill="#ffffff"/>
 <rect x="0" y="0" width="60" height="60" fill="#000"/><rect x="1740" y="0" width="60" height="60" fill="#000"/><rect x="0" y="1140" width="60" height="60" fill="#000"/><rect x="1740" y="1140" width="60" height="60" fill="#000"/>
 ${Array.from({ length: PATHS }, (_, i) => { const x = 80 + (i % 160) * 10.3, y = 80 + Math.floor(i / 160) * 7.2; return `<path d="M${x} ${y}l10 6 l-4 8 l12 3" stroke="#8899aa" stroke-width="1.2" fill="none" clip-path="url(#c)"/>`; }).join('')}
 </g><defs><clipPath id="c"><rect width="2000" height="1400"/></clipPath></defs></svg></div></div>
 <script>
   const el = document.getElementById('scene'), g = document.getElementById('g');
-  let anim = null, s = 1, pan = { x: 300, y: 200 };
+  // Keep all four corner markers inside the viewport at the largest scale.
+  // A marker legitimately leaving the viewport is not a layer-swap glitch.
+  let anim = null, s = 1, pan = { x: 100, y: 80 };
   const tf = () => 'translate3d(' + pan.x + 'px,' + pan.y + 'px,0) scale(' + s + ')';
   const frames = (t) => [{ transform: t }, { transform: t }];
   window.lab = {
@@ -52,26 +58,12 @@ function frameStats(image, region, scaleX, scaleY) {
   }
   return { t: Date.now(), dark: +(dark / n).toFixed(4), bw: maxX >= 0 ? +((maxX - minX) / scaleX).toFixed(0) : 0, bh: maxY >= 0 ? +((maxY - minY) / scaleY).toFixed(0) : 0, x: minX >= 0 ? +(minX / scaleX).toFixed(0) : null, y: minY >= 0 ? +(minY / scaleY).toFixed(0) : null };
 }
-function analyze(frames) {
-  const blanks = [], glitches = [];
-  const maxW = Math.max(...frames.map((f) => f.bw));
-  frames = frames.filter((f) => f.bw > maxW * 0.55); // frames with every marker on screen
-  for (let i = 1; i < frames.length - 1; i++) {
-    const f = frames[i], p = frames[i - 1], n = frames[i + 1];
-    if (f.dark < Math.min(p.dark, n.dark) * 0.5) blanks.push({ i, t: f.t - frames[0].t, dark: [p.dark, f.dark, n.dark] });
-    const ew = (p.bw + n.bw) / 2, eh = (p.bh + n.bh) / 2;
-    if (ew > 0 && (Math.abs(f.bw - ew) > ew * 0.06 || Math.abs(f.bh - eh) > eh * 0.06)) glitches.push({ i, t: f.t - frames[0].t, bw: [p.bw, f.bw, n.bw], bh: [p.bh, f.bh, n.bh] });
-    if (f.x != null && p.x != null && n.x != null) { const ex = (p.x + n.x) / 2; if (Math.abs(f.x - ex) > 12 && Math.sign(f.x - p.x) !== Math.sign(n.x - f.x) && Math.abs(p.x - n.x) < 40) glitches.push({ i, t: f.t - frames[0].t, x: [p.x, f.x, n.x] }); }
-  }
-  const gaps = frames.slice(1).map((f, i) => f.t - frames[i].t).sort((a, b) => a - b);
-  return { frames: frames.length, gapP50: gaps[Math.floor(gaps.length / 2)], gapP95: gaps[Math.floor(gaps.length * 0.95)], blanks: blanks.slice(0, 8), glitches: glitches.slice(0, 8) };
-}
 async function scenario(name, run) {
   const dbg = win.webContents.debugger;
   const frames = [];
   const [w, h] = win.getContentSize();
   const maxW = 600;
-  const onMsg = (_e, method, params) => { if (method !== 'Page.screencastFrame') return; try { const img = nativeImage.createFromBuffer(Buffer.from(params.data, 'base64')); const sz = img.getSize(); frames.push(frameStats(img, null, sz.width / w, sz.height / h)); } catch {} dbg.sendCommand('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {}); };
+  const onMsg = (_e, method, params) => { if (method !== 'Page.screencastFrame') return; try { const img = nativeImage.createFromBuffer(Buffer.from(params.data, 'base64')); const sz = img.getSize(); const f = frameStats(img, null, sz.width / w, sz.height / h); if (params.metadata?.timestamp) f.t = params.metadata.timestamp * 1000; frames.push(f); } catch {} dbg.sendCommand('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {}); };
   dbg.on('message', onMsg);
   await dbg.sendCommand('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: maxW, maxHeight: Math.round(maxW * h / w), everyNthFrame: 1 });
   await sleep(150);
@@ -79,13 +71,14 @@ async function scenario(name, run) {
   await sleep(300);
   await dbg.sendCommand('Page.stopScreencast').catch(() => {});
   dbg.removeListener('message', onMsg);
+  if (frames.length < 3) throw new Error(`${name}: insufficient captured frames (${frames.length})`);
   const res = analyze(frames);
   console.log('LAB ' + name + ' ' + JSON.stringify(res));
   return res;
 }
 app.whenReady().then(async () => {
   win = new BrowserWindow({ width: 1200, height: 800, show: true, webPreferences: { backgroundThrottling: false } });
-  const file = path.join(os.tmpdir(), 'flux-layer-swap-lab.html');
+  const file = path.join(labRoot, 'lab.html');
   fs.writeFileSync(file, html);
   await win.loadFile(file);
   win.webContents.debugger.attach('1.3');
@@ -102,5 +95,5 @@ app.whenReady().then(async () => {
   await js('lab.cool()'); await sleep(200);
   // 4. live zoom on the promoted layer (today's zoom): residual changes 3% per frame
   await scenario('liveZoom', async () => { await step('lab.hot()'); for (let i = 0; i < 40; i++) await step('lab.zoom(1.012)'); for (let i = 0; i < 40; i++) await step('lab.zoom(1/1.012)'); await sleep(120); await step('lab.cool(); lab.fold()'); });
-  app.exit(0);
+  app.quit();
 }).catch((e) => { console.error('LAB FAIL', e); app.exit(1); });

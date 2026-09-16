@@ -41,7 +41,9 @@ try {
   h.ok(line.includes('deck="talk"')&&line.includes('slide="results"'),'document contains stable source IDs');
   await page.evaluate(()=>window.__fluxView.focus());await page.keyboard.down(modifier);await page.keyboard.press('z');await page.keyboard.up(modifier);
   h.ok(await page.evaluate(()=>!window.__fluxView.state.doc.toString().includes('.flux-slide')),'one Undo removes the inserted block');
-  await page.keyboard.down(modifier);await page.keyboard.down('Shift');await page.keyboard.press('z');await page.keyboard.up('Shift');await page.keyboard.up(modifier);
+  // CDP must send uppercase Z with Shift, as a real keyboard does; lowercase
+  // z+Shift is interpreted as plain Undo by CodeMirror's character keymap.
+  await page.keyboard.down(modifier);await page.keyboard.down('Shift');await page.keyboard.press('Z');await page.keyboard.up('Shift');await page.keyboard.up(modifier);
   await waitFor(page,()=>!!document.querySelector('.cm-editor .flux-slide-art'),null,{timeout:10000});
   const initial = await page.$('.cm-editor .flux-slide-art');
   await initial.click();await waitFor(page,()=>document.querySelector('.cm-editor .flux-slide-bar')?.textContent.includes('Step 1 / 2'),null,{timeout:5000});

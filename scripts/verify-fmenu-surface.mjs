@@ -79,6 +79,7 @@ try {
   ok(mr && mr.overlaps === false, "the menu never covers the selection box");
   ok(mr && mr.right === true, "…and lands to the RIGHT of it (room available)");
   ok(mr && mr.inView, "…inside the viewport");
+  ok(!(await page.$('.fluxFigMenu .field[data-key="h"]')), "plot content scale is absent for a rectangle");
   await shot(page, "fmenu-01-anchored");
 
   // --- 2. arm a number, wheel it, Space applies — one undo -----------------------------
@@ -426,6 +427,34 @@ try {
   ok(m.plot.overrides?.["axis.x"]?.opacity === 0.4 && m.plot.overrides?.["axis.y"]?.opacity === 0.4, "one field write lands on every selected part");
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
+
+  // The new plot content-scale field shares the Inspector's range and reset
+  // semantics; a typed factor is one undoable operation.
+  await page.evaluate(() => {
+    const F = window.__flux.fig;
+    F.setPartSelections([]); F.selectOnly('fm-plot'); F.resetHistory();
+  });
+  await page.keyboard.press('f');
+  await waitFor(page, () => !!document.querySelector('.fluxFigMenu.placed .field[data-key="h"]') && document.activeElement === document.querySelector('.fluxFigMenu'), null, {label:'plot content scale focused'});
+  await page.keyboard.press('h');
+  await waitFor(page, () => !!document.querySelector('.fluxFigMenu .field.editing[data-key="h"]'), null, {label:'content scale armed'});
+  await page.keyboard.type('0.02');
+  await page.keyboard.press('Enter');
+  m = await model();
+  ok(m.plot.contentScale === .02 && m.h.past === 1, `content scale accepts the Inspector range as one undoable edit (${m.plot.contentScale}, history ${m.h.past})`);
+  await page.evaluate(() => window.__flux.fig.undo());
+  m = await model();
+  ok(m.plot.contentScale === undefined && m.h.past === 0, 'Undo restores the original content scale');
+  await page.keyboard.press('h');
+  await page.keyboard.type('2');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('h');
+  await page.keyboard.type('1');
+  await page.keyboard.press('Enter');
+  m = await model();
+  ok(m.plot.contentScale === undefined, 'a factor of one removes the stored scale like Inspector reset');
+  await page.keyboard.press('Escape');
+  await waitForGone(page, '.fluxFigMenu');
 
   // --- 7. gradient visibility, growth anchoring and viewport resize ------------------------
   await page.evaluate(() => {

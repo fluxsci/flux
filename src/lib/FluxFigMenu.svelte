@@ -154,7 +154,7 @@
     placed = false;
     await tick();
     const el = panelEl;
-    if (!el) return;
+    if (!$fluxFigMenuOpen || !el) return;
     const size = { w: el.offsetWidth, h: el.offsetHeight };
     const vp = { w: window.innerWidth, h: window.innerHeight };
     openedAvoid = avoidRect();
@@ -165,6 +165,7 @@
     sizeObs?.disconnect();
     sizeObs = new ResizeObserver(resizePlacement);
     sizeObs.observe(el);
+    focusPanel(); // The placed class must be flushed before this panel can take focus.
   }
   function resizePlacement() {
     if (!$fluxFigMenuOpen || !placed || !panelEl) return;
@@ -202,7 +203,6 @@
     search = "";
     sIndex = 0;
     wheel.reset();
-    requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
 
   // --- interaction ---------------------------------------------------------------
@@ -211,7 +211,9 @@
     fluxFigMenuOpen.set(false);
   }
   function focusPanel() {
-    requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
+    void tick().then(() => {
+      if ($fluxFigMenuOpen && mode === "hotkey") panelEl?.focus({ preventScroll: true });
+    });
   }
   function captureDimBase() {
     const base = new Map<string, { w: number; h: number }>();
@@ -248,7 +250,10 @@
       return;
     }
     enterField(f);
-    requestAnimationFrame(() => {
+    // Focus after the DOM flush, before the next input event. Waiting for a
+    // paint frame can lose the first digits of a fast hotkey → value sequence.
+    void tick().then(() => {
+      if (!$fluxFigMenuOpen || activeKey !== f.key || (mode !== "field" && mode !== "option")) return;
       const el = inputs[f.key];
       if (f.kind === "select") {
         panelEl?.focus({ preventScroll: true });
@@ -283,7 +288,9 @@
   }
   function enterSearch() {
     mode = "search";
-    requestAnimationFrame(() => searchEl?.focus());
+    void tick().then(() => {
+      if ($fluxFigMenuOpen && mode === "search") searchEl?.focus();
+    });
   }
   function backToHotkey() {
     session.finish();
@@ -329,7 +336,10 @@
       if (hover && (hover.kind === "number" || hover.kind === "select")) {
         f = hover;
         enterField(hover); // arms it — the whole menu is mouse-only editable
-        if (hover.kind === "number") requestAnimationFrame(() => { const el = inputs[hover.key]; el?.focus({ preventScroll: true }); el?.select(); });
+        if (hover.kind === "number") void tick().then(() => {
+          if (!$fluxFigMenuOpen || mode !== "field" || activeKey !== hover.key) return;
+          const el = inputs[hover.key]; el?.focus({ preventScroll: true }); el?.select();
+        });
       }
     }
     if (!f) return; // nothing armed under the pointer: let the body scroll

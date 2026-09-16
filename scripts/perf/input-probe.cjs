@@ -106,6 +106,7 @@ const wantPhase = (n) => !phaseFilter.length || phaseFilter.includes(n);
 require(path.join(repo, 'electron/main.cjs'));
 
 let win;
+let canvasModeRoot = ".figure-mode";
 let cursorLog = [], phaseT0 = 0;
 const log = (k, v) => console.log('PROBE ' + k + ' ' + JSON.stringify(v));
 const js = (code) => win.webContents.executeJavaScript(code, true);
@@ -130,16 +131,16 @@ async function click(x, y, hold = 10) { mouse({ type: 'mouseDown', button: 'left
 
 // Renderer-side instrumentation: rAF gaps, delivered pointer events, pointerdown→paint,
 // long tasks, slow event-timing entries. Installed once per page.
-const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],longtasks:[],evts:[]};
+const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,raf:0,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],longtasks:[],evts:[]};
 window.addEventListener('pointermove',()=>{p.moves++},true);
-window.addEventListener('pointerdown',()=>{p.downs++;const t0=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
+window.addEventListener('pointerdown',(e)=>{p.downs++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
 window.addEventListener('wheel',()=>{p.wheels++},{capture:true,passive:true});
 window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
-window.addEventListener('keydown',()=>{p.keys++;const t0=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
+window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{p.running=true;p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);requestAnimationFrame(loop)};requestAnimationFrame(loop)};
-p.stop=()=>{p.running=false;const gaps=[];for(let i=1;i<p.frames.length;i++)gaps.push(+(p.frames[i]-p.frames[i-1]).toFixed(1));return {frames:p.frames.length,gaps,moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),longtasks:p.longtasks,evts:p.evts}};
+p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.stop=()=>{p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const gaps=[];for(let i=1;i<p.frames.length;i++)gaps.push(+(p.frames[i]-p.frames[i-1]).toFixed(1));return {frames:p.frames.length,gaps,moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
 // CSS scenarios — bisect knobs. `base` is the shipped app.
@@ -178,7 +179,7 @@ async function measure(label, run, traceName) {
 }
 
 // ---------------------------------------------------------------------------
-// FRAME ORACLE (--frames): every composited frame the window presents, sampled
+// FRAME DIAGNOSTIC (--frames): samples of the composited frames, measured
 // over the canvas host and the whole window. A "blank" frame is one whose
 // canvas content fraction collapses against its neighbours (checkerboard /
 // unpainted tiles / a layer swap that missed a frame); a "flash" is a whole-
@@ -186,7 +187,7 @@ async function measure(label, run, traceName) {
 // ---------------------------------------------------------------------------
 const wantFrames = process.env.PROBE_FRAMES === '1';
 const { nativeImage } = require('electron');
-// Frames come from CDP Page.startScreencast (small JPEGs at every compositor frame —
+// Frames come from CDP Page.startScreencast (small JPEG samples; frames can be missed —
 // beginFrameSubscription copies full bitmaps and starves itself to ~30 fps).
 function frameStats(image, region, scale) {
   const { width, height } = image.getSize();
@@ -236,8 +237,8 @@ async function measureFrames(label, region, run, traceName) {
   if (!wantFrames || !cdpOk) return measure(label, run, traceName);
   // Renderer-side truth per animation frame: the scene's computed transform, the
   // baked <g> scale and the live animation count — to tell an app-side reversal
-  // from a compositor-side one.
-  await js(`(()=>{window.__xf={on:true,rows:[]};const sc=document.querySelector('.scene');const g=document.querySelector('.scene-svg > g');const loop=()=>{if(!window.__xf.on)return;const m=getComputedStyle(sc).transform;const mm=/matrix\\(([-\\d.e]+), [-\\d.e]+, [-\\d.e]+, [-\\d.e]+, ([-\\d.e]+), ([-\\d.e]+)\\)/.exec(m);window.__xf.rows.push({t:Math.round(performance.timeOrigin+performance.now()),a:mm?+(+mm[1]).toFixed(4):null,e:mm?Math.round(+mm[2]):null,f:mm?Math.round(+mm[3]):null,g:+(/scale\\(([-\\d.e]+)/.exec(g.getAttribute('transform')||'')||[])[1]||null,anims:document.getAnimations().length,style:sc.style.transform.slice(0,60)});requestAnimationFrame(loop)};requestAnimationFrame(loop)})()`);
+  // from a compositor-side one. This is diagnostic, not a completeness proof.
+  await js(`(()=>{window.__xf={on:true,rows:[]};const sc=document.querySelector('${canvasModeRoot} .scene');const g=document.querySelector('${canvasModeRoot} .scene-svg > g');const loop=()=>{if(!window.__xf.on)return;const m=getComputedStyle(sc).transform;const mm=/matrix\\(([-\\d.e]+), [-\\d.e]+, [-\\d.e]+, [-\\d.e]+, ([-\\d.e]+), ([-\\d.e]+)\\)/.exec(m);window.__xf.rows.push({t:Math.round(performance.timeOrigin+performance.now()),a:mm?+(+mm[1]).toFixed(4):null,e:mm?Math.round(+mm[2]):null,f:mm?Math.round(+mm[3]):null,g:+(/scale\\(([-\\d.e]+)/.exec(g.getAttribute('transform')||'')||[])[1]||null,anims:document.getAnimations().length,style:sc.style.transform.slice(0,60),proxyLive:!!document.querySelector('${canvasModeRoot} .zoom-proxy.live'),proxyTransform:document.querySelector('${canvasModeRoot} .zoom-proxy.live')?getComputedStyle(document.querySelector('${canvasModeRoot} .zoom-proxy.live')).transform:null});requestAnimationFrame(loop)};requestAnimationFrame(loop)})()`);
   const frames = [];
   const dbg = win.webContents.debugger;
   const maxW = 480;
@@ -276,8 +277,8 @@ async function main() {
   await js(INSTR);
   if (surface === 'paper' || surface === 'both') await paperPhases();
   if (surface === 'figure' || surface === 'both') await figurePhases();
-  if (surface === 'slide' || surface === 'all') await figurePhases('slide');
   if (surface === 'all') { await paperPhases(); await figurePhases(); }
+  if (surface === 'slide' || surface === 'all') await figurePhases('slide');
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 1));
   log('done', { out });
   app.exit(0);
@@ -317,19 +318,19 @@ async function paperPhases() {
 // FIGURE: the first figure of the project.
 // ---------------------------------------------------------------------------
 async function figurePhases(mode = 'figure') {
-  const modeRoot = mode === 'slide' ? '.slide-mode' : '.figure-mode';
+  const modeRoot = canvasModeRoot = mode === 'slide' ? '.slide-mode' : '.figure-mode';
   await js(`(()=>{const b=[...document.querySelectorAll('button[aria-label]')].find(b=>/^${mode === 'slide' ? 'Slides?' : 'Figure'}$/i.test(b.getAttribute('aria-label')));if(!b)throw Error('no mode button');b.click()})()`);
-  await wait(() => js(`!!document.querySelector('${modeRoot} .canvas-host')`), mode + ' mode');
+  await wait(() => js(`(()=>{const n=document.querySelector('${modeRoot} .canvas-host');return n&&!n.closest('.mc.hidden')})()`), mode + ' mode');
   if (mode === 'figure') { await wait(() => js("!!document.querySelector('.figrow .item')"), 'figure rows'); await js("document.querySelector('.figrow .item').click()"); }
-  await wait(() => js("document.querySelectorAll('[data-editor-element-id]').length>0"), 'elements mounted');
-  let last = -1; for (let i = 0; i < 60; i++) { const n = await js("document.querySelectorAll('[data-editor-element-id] svg *').length"); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
-  log('dom', await js("({elements:document.querySelectorAll('[data-editor-element-id]').length,plotNodes:document.querySelectorAll('[data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})"));
-  const geo = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
-    const plots=[...document.querySelectorAll('[data-editor-element-id]')].filter(n=>n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
-    let empty=null;for(let y=h.bottom-30;y>h.top+40&&!empty;y-=20){for(let x=h.right-30;x>h.left+40;x-=20){const el=document.elementFromPoint(x,y);if(el&&el.closest('.canvas-host')&&!el.closest('[data-editor-element-id],.figure-bg,.figure-titlebar,.ruler,.overlay-svg,.fig-shadow')){empty={x,y};break}}}
+  await wait(() => js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length>0`), 'elements mounted');
+  let last = -1; for (let i = 0; i < 60; i++) { const n = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
+  log('dom', await js(`({mode:'${mode}',elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
+  const geo = await js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
+    const plots=[...root.querySelectorAll('[data-editor-element-id]')].filter(n=>n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
+    let empty=null;for(let y=h.bottom-30;y>h.top+40&&!empty;y-=20){for(let x=h.right-30;x>h.left+40;x-=20){const el=document.elementFromPoint(x,y);if(el&&el.closest('.canvas-host')&&!el.closest('[data-editor-element-id],.figure-titlebar,.ruler,.overlay-svg')){empty={x,y};break}}}
     return {host:{l:Math.round(h.left),t:Math.round(h.top),r:Math.round(h.right),b:Math.round(h.bottom)},plots:plots.slice(0,4),nplots:plots.length,empty}})()`);
   log('geo', geo);
-  log('selection', await js("(()=>{const s=document.getSelection();const a=s&&s.anchorNode;return {ranges:s?s.rangeCount:0,anchor:a?(a.nodeName+(a.parentElement?'<'+a.parentElement.className.toString().slice(0,30):'')):null,inCanvas:!!(a&&document.querySelector('.figure-mode .canvas-host')?.contains(a))}})()"));
+  log('selection', await js(`(()=>{const s=document.getSelection();const a=s&&s.anchorNode;return {ranges:s?s.rangeCount:0,anchor:a?(a.nodeName+(a.parentElement?'<'+a.parentElement.className.toString().slice(0,30):'')):null,inCanvas:!!(a&&document.querySelector('${modeRoot} .canvas-host')?.contains(a))}})()`));
   if (!geo.plots.length || !geo.empty) throw Error('need at least one on-screen plot and an empty canvas spot');
   const bg = await js(`(()=>{const h=document.querySelector('${modeRoot} .canvas-host');const c=getComputedStyle(h).backgroundColor.match(/[\\d.]+/g)||[240,240,240];return {win:{w:innerWidth,h:innerHeight},lum:0.114*+c[2]+0.587*+c[1]+0.299*+c[0]}})()`);
   const region = { l: geo.host.l + 30, t: geo.host.t + 30, r: geo.host.r - 30, b: geo.host.b - 30, winW: bg.win.w, winH: bg.win.h, bgLum: bg.lum };
@@ -342,40 +343,40 @@ async function figurePhases(mode = 'figure') {
     await setScenario(sc);
     mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(400);
     const R = results[mode][sc] = {};
-    const tr = (phase) => (doTrace ? `trace-${sc}-${phase}` : null);
+    const tr = (phase) => (doTrace ? `trace-${mode}-${sc}-${phase}` : null);
     // 1. sweep across the figure through plots at 125 Hz
-    if (wantPhase('sweep')) R.sweep = await measure(`${sc}:sweep`, async () => { const y = Math.round((geo.host.t + geo.host.b) / 2), x0 = geo.host.l + 60, x1 = geo.host.r - 60, N = 120; for (let i = 0; i <= N; i++) { mouse({ type: 'mouseMove', x: Math.round(x0 + (x1 - x0) * i / N), y: y + Math.round(Math.sin(i / 9) * 120) }); await sleep(8); } await sleep(300); }, tr('sweep'));
+    if (wantPhase('sweep')) R.sweep = await measure(`${mode}:${sc}:sweep`, async () => { const y = Math.round((geo.host.t + geo.host.b) / 2), x0 = geo.host.l + 60, x1 = geo.host.r - 60, N = 120; for (let i = 0; i <= N; i++) { mouse({ type: 'mouseMove', x: Math.round(x0 + (x1 - x0) * i / N), y: y + Math.round(Math.sin(i / 9) * 120) }); await sleep(8); } await sleep(300); }, tr('sweep'));
     // 2. hover boundary flips plot ↔ empty
-    if (wantPhase('hover')) R.hover = await measure(`${sc}:hover`, async () => { for (let i = 0; i < 40; i++) { const p = i % 2 ? A : geo.empty; mouse({ type: 'mouseMove', x: p.x, y: p.y }); await sleep(30); } await sleep(300); }, tr('hover'));
+    if (wantPhase('hover')) R.hover = await measure(`${mode}:${sc}:hover`, async () => { for (let i = 0; i < 40; i++) { const p = i % 2 ? A : geo.empty; mouse({ type: 'mouseMove', x: p.x, y: p.y }); await sleep(30); } await sleep(300); }, tr('hover'));
     // 3. rapid clicks on empty canvas
-    if (wantPhase('clicksEmpty')) R.clicksEmpty = await measure(`${sc}:clicksEmpty`, async () => { mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(50); for (let i = 0; i < 12; i++) { await click(geo.empty.x + (i % 3) * 4, geo.empty.y, 40); await sleep(60); } await sleep(500); }, tr('clicksEmpty'));
+    if (wantPhase('clicksEmpty')) R.clicksEmpty = await measure(`${mode}:${sc}:clicksEmpty`, async () => { mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(50); for (let i = 0; i < 12; i++) { await click(geo.empty.x + (i % 3) * 4, geo.empty.y, 40); await sleep(60); } await sleep(500); }, tr('clicksEmpty'));
     // 4. rapid clicks alternating two plots (selection changes)
-    if (wantPhase('clicksPlot')) R.clicksPlot = await measure(`${sc}:clicksPlot`, async () => { for (let i = 0; i < 12; i++) { const p = i % 2 ? A : B; mouse({ type: 'mouseMove', x: p.x, y: p.y }); await sleep(10); await click(p.x, p.y, 40); await sleep(60); } await sleep(500); }, tr('clicksPlot'));
+    if (wantPhase('clicksPlot')) R.clicksPlot = await measure(`${mode}:${sc}:clicksPlot`, async () => { for (let i = 0; i < 12; i++) { const p = i % 2 ? A : B; mouse({ type: 'mouseMove', x: p.x, y: p.y }); await sleep(10); await click(p.x, p.y, 40); await sleep(60); } await sleep(500); }, tr('clicksPlot'));
     // 5. press-drag plot A (real move gesture), then Ctrl+Z
-    if (wantPhase('dragPlot')) R.dragPlot = await measure(`${sc}:dragPlot`, async () => { mouse({ type: 'mouseMove', x: A.x, y: A.y }); await sleep(150); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(150); for (let i = 1; i <= 8; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i * 5, y: A.y + i * 3 }); await sleep(40); } await sleep(150); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + 40, y: A.y + 24 }); await sleep(300); }, tr('dragPlot'));
+    if (wantPhase('dragPlot')) R.dragPlot = await measure(`${mode}:${sc}:dragPlot`, async () => { mouse({ type: 'mouseMove', x: A.x, y: A.y }); await sleep(150); mouse({ type: 'mouseDown', button: 'left', clickCount: 1, x: A.x, y: A.y }); await sleep(150); for (let i = 1; i <= 8; i++) { mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: A.x + i * 5, y: A.y + i * 3 }); await sleep(40); } await sleep(150); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: A.x + 40, y: A.y + 24 }); await sleep(300); }, tr('dragPlot'));
     if (wantPhase('dragPlot')) { win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'z', modifiers: ['control'] }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'z', modifiers: ['control'] }); await sleep(250); }
     // 5d. three idle seconds after an edit + undo: whatever lands here (autosave, journal, deferred work) is a hitch the user gets for free
-    if (wantPhase('idle')) R.idle = await measure(`${sc}:idle`, async () => { await sleep(3000); }, tr('idle'));
+    if (wantPhase('idle')) R.idle = await measure(`${mode}:${sc}:idle`, async () => { await sleep(3000); }, tr('idle'));
     await click(geo.empty.x, geo.empty.y, 10); await sleep(300);
     const cx = Math.round((geo.host.l + geo.host.r) / 2), cy = Math.round((geo.host.t + geo.host.b) / 2);
     mouse({ type: 'mouseMove', x: cx, y: cy }); await sleep(200);
     // 5b. small trackpad pan that stays inside the active figure (no cull change): the steady-state per-frame pan cost
-    if (wantPhase('panSmall')) R.panSmall = await measure(`${sc}:panSmall`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmall'));
+    if (wantPhase('panSmall')) R.panSmall = await measure(`${mode}:${sc}:panSmall`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmall'));
     // 5c. the same small pan with the pointer over EMPTY canvas (no hover churn under a stationary pointer)
-    if (wantPhase('panSmallEmpty')) { mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(200); R.panSmallEmpty = await measure(`${sc}:panSmallEmpty`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(geo.empty.x, geo.empty.y, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(geo.empty.x, geo.empty.y, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmallEmpty')); mouse({ type: 'mouseMove', x: cx, y: cy }); await sleep(200); }
+    if (wantPhase('panSmallEmpty')) { mouse({ type: 'mouseMove', x: geo.empty.x, y: geo.empty.y }); await sleep(200); R.panSmallEmpty = await measure(`${mode}:${sc}:panSmallEmpty`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(geo.empty.x, geo.empty.y, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(geo.empty.x, geo.empty.y, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmallEmpty')); mouse({ type: 'mouseMove', x: cx, y: cy }); await sleep(200); }
     // 6. trackpad pan: down 60×40px then back, then right/left
-    if (wantPhase('wheelV')) R.wheelV = await measure(`${sc}:wheelV`, async () => { for (let i = 0; i < 60; i++) { wheel(cx, cy, 0, 40); await sleep(8); } await sleep(250); for (let i = 0; i < 60; i++) { wheel(cx, cy, 0, -40); await sleep(8); } await sleep(400); }, tr('wheelV'));
-    if (wantPhase('wheelH')) R.wheelH = await measure(`${sc}:wheelH`, async () => { for (let i = 0; i < 60; i++) { wheel(cx, cy, 40, 0); await sleep(8); } await sleep(250); for (let i = 0; i < 60; i++) { wheel(cx, cy, -40, 0); await sleep(8); } await sleep(400); }, tr('wheelH'));
+    if (wantPhase('wheelV')) R.wheelV = await measure(`${mode}:${sc}:wheelV`, async () => { for (let i = 0; i < 60; i++) { wheel(cx, cy, 0, 40); await sleep(8); } await sleep(250); for (let i = 0; i < 60; i++) { wheel(cx, cy, 0, -40); await sleep(8); } await sleep(400); }, tr('wheelV'));
+    if (wantPhase('wheelH')) R.wheelH = await measure(`${mode}:${sc}:wheelH`, async () => { for (let i = 0; i < 60; i++) { wheel(cx, cy, 40, 0); await sleep(8); } await sleep(250); for (let i = 0; i < 60; i++) { wheel(cx, cy, -40, 0); await sleep(8); } await sleep(400); }, tr('wheelH'));
     // 7. mouse-wheel notches (120 px, 50 ms apart)
-    if (wantPhase('wheelNotch')) R.wheelNotch = await measure(`${sc}:wheelNotch`, async () => { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 120); await sleep(50); } await sleep(250); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -120); await sleep(50); } await sleep(400); }, tr('wheelNotch'));
+    if (wantPhase('wheelNotch')) R.wheelNotch = await measure(`${mode}:${sc}:wheelNotch`, async () => { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 120); await sleep(50); } await sleep(250); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -120); await sleep(50); } await sleep(400); }, tr('wheelNotch'));
     // 9. FAST zoom (no pauses: one fold at the end) and zoom in BURSTS (folds + cool-downs between) — the flicker hunt
-    if (wantPhase('zoomFast')) R.zoomFast = await measureFrames(`${sc}:zoomFast`, region, async () => { ctrlDown(); for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); await sleep(600); }, tr('zoomFast'));
-    if (wantPhase('zoomBursts')) R.zoomBursts = await measureFrames(`${sc}:zoomBursts`, region, async () => { ctrlDown(); for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(16); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(16); } await sleep(320); } ctrlUp(); await sleep(600); }, tr('zoomBursts'));
+    if (wantPhase('zoomFast')) R.zoomFast = await measureFrames(`${mode}:${sc}:zoomFast`, region, async () => { ctrlDown(); for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, -50, ['control']); await sleep(16); } for (let i = 0; i < 30; i++) { wheel(cx, cy, 0, 50, ['control']); await sleep(16); } ctrlUp(); await sleep(600); }, tr('zoomFast'));
+    if (wantPhase('zoomBursts')) R.zoomBursts = await measureFrames(`${mode}:${sc}:zoomBursts`, region, async () => { ctrlDown(); for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(16); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 8; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(16); } await sleep(320); } ctrlUp(); await sleep(600); }, tr('zoomBursts'));
     // 10. FAST pan and pan in bursts (cool-downs → demotion + re-cull between)
-    if (wantPhase('panFast')) R.panFast = await measureFrames(`${sc}:panFast`, region, async () => { for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, 80); await sleep(8); } for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, -80); await sleep(8); } await sleep(600); }, tr('panFast'));
-    if (wantPhase('panBursts')) R.panBursts = await measureFrames(`${sc}:panBursts`, region, async () => { for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60); await sleep(8); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60); await sleep(8); } await sleep(320); } await sleep(600); }, tr('panBursts'));
+    if (wantPhase('panFast')) R.panFast = await measureFrames(`${mode}:${sc}:panFast`, region, async () => { for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, 80); await sleep(8); } for (let i = 0; i < 40; i++) { wheel(cx, cy, 0, -80); await sleep(8); } await sleep(600); }, tr('panFast'));
+    if (wantPhase('panBursts')) R.panBursts = await measureFrames(`${mode}:${sc}:panBursts`, region, async () => { for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60); await sleep(8); } await sleep(320); } for (let b = 0; b < 4; b++) { for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60); await sleep(8); } await sleep(320); } await sleep(600); }, tr('panBursts'));
     // 8. ctrl-wheel zoom in then out (residual scale mid-burst, one fold at settle)
-    if (wantPhase('zoom')) R.zoom = await measure(`${sc}:zoom`, async () => { ctrlDown(); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(40); } await sleep(500); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(40); } ctrlUp(); await sleep(500); }, tr('zoom'));
+    if (wantPhase('zoom')) R.zoom = await measure(`${mode}:${sc}:zoom`, async () => { ctrlDown(); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, -60, ['control']); await sleep(40); } await sleep(500); for (let i = 0; i < 10; i++) { wheel(cx, cy, 0, 60, ['control']); await sleep(40); } ctrlUp(); await sleep(500); }, tr('zoom'));
   }
 }
 main().catch((e) => { console.error('PROBE FAIL ' + (e && e.stack || e)); app.exit(1); });
