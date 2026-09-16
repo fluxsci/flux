@@ -11,6 +11,8 @@ import {
   foldLedger,
   makeNote,
   makeSend,
+  makeWithdraw,
+  type FeedbackNote,
   parseLedger,
   serializeEvent,
   type FeedbackStamp,
@@ -139,29 +141,72 @@ async function append(line: string): Promise<void> {
   await fb.feedbackAppend(joinPath(root, FEEDBACK_REL), line);
 }
 
-export async function addFeedbackNote(text: string): Promise<void> {
+/** Add a note to the queue. `replaces` re-queues an edited note: the original is
+ *  withdrawn in the SAME append (one O_APPEND write, so a reader never sees the
+ *  note twice), and `context` keeps the stamp the original was written with —
+ *  an edit is about the same thing, not about whatever is selected now. */
+export async function addFeedbackNote(
+  text: string,
+  opts: { replaces?: string; context?: FeedbackStamp | null } = {},
+): Promise<void> {
   const body = text.trim();
   if (!body) return;
-  const ev = makeNote(body, await captureStamp(), "human");
-  // A drawn snapshot lands beside the ledger under the NOTE's id — written
-  // before the ledger line, so a note never points at a file that failed.
+  const stamp: FeedbackStamp | null = opts.context ? { ...opts.context } : await captureStamp();
+  const ev = makeNote(body, stamp, "human");
+  // The attached snapshot: a freshly drawn one lands beside the ledger under the
+  // NOTE's id — written before the ledger line, so a note never points at a
+  // file that failed; a re-attached one (Edit) keeps pointing at its file.
   const pending = get(pendingSnapshot);
-  if (pending && ev.context?.snapshot) {
-    let image: string | null = null;
-    if (pending.png && root) {
+  if (ev.context) {
+    let snapshot = pending ? { ...pending.info } : null;
+    if (pending && pending.png && root) {
       const fb = fileBridge();
       if (fb) {
         const rel = `${SNAPSHOT_DIR_REL}/${ev.id}.png`;
         await fb.mkdir(joinPath(root, SNAPSHOT_DIR_REL)).catch(() => undefined);
         await fb.writeFile(joinPath(root, rel), pending.png);
-        image = rel;
+        snapshot = { ...pending.info, image: rel };
       }
     }
-    ev.context = { ...ev.context, snapshot: { ...ev.context.snapshot, image } };
+    ev.context = { ...ev.context, snapshot };
   }
-  await append(serializeEvent(ev));
+  const lines = (opts.replaces ? serializeEvent(makeWithdraw(opts.replaces, "human", "edited")) : "") + serializeEvent(ev);
+  await append(lines);
   pendingSnapshot.set(null);
   await refresh(false);
+}
+
+/** Take a queued note back: an append-only withdraw line — the note leaves the
+ *  queue (and any work order) for good; an agent that already listed it sees why. */
+export async function withdrawFeedbackNote(id: string): Promise<void> {
+  await append(serializeEvent(makeWithdraw(id, "human")));
+  await refresh(false);
+  pushToast("info", "Note withdrawn");
+}
+
+/** For Edit: put a queued note's snapshot back on the popover (preview read from
+ *  its PNG when the build can read files; the file itself is reused, not copied). */
+export async function snapshotOfNote(note: FeedbackNote): Promise<PendingSnapshot | null> {
+  const snap = note.context?.snapshot;
+  if (!snap) return null;
+  let preview: string | null = null;
+  const fb = fileBridge();
+  if (snap.image && root && fb) {
+    try {
+      const bytes = new Uint8Array(await fb.readFile(joinPath(root, snap.image)));
+      const copy = new Uint8Array(bytes.byteLength); // a plain ArrayBuffer-backed copy for Blob
+      copy.set(bytes);
+      preview = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(String(fr.result));
+        fr.onerror = () => rej(fr.error);
+        fr.readAsDataURL(new Blob([copy], { type: "image/png" }));
+      });
+    } catch {
+      preview = null; // the file is gone or unreadable — the marks still carry the anchors
+    }
+  }
+  return { info: { ...snap, marks: snap.marks.map((m) => ({ ...m })) }, png: null, preview };
 }
 
 export async function sendFeedback(note?: string): Promise<number> {

@@ -40,7 +40,7 @@ async function appendEvent(root: string, ev: FeedbackEvent): Promise<void> {
 export interface FeedbackRow {
   id: string;
   ts: string;
-  status: "open" | "resolved";
+  status: "open" | "resolved" | "withdrawn";
   text: string;
   /** One-line human summary of the context stamp (what the user was looking at). */
   where: string;
@@ -61,7 +61,7 @@ export async function listFeedback(
     notes: src.map((n) => ({
       id: n.id,
       ts: n.ts,
-      status: n.resolved ? "resolved" : "open",
+      status: n.withdrawn ? "withdrawn" : n.resolved ? "resolved" : "open",
       text: n.text,
       where: describeStamp(n.context),
       context: n.context,
@@ -82,6 +82,7 @@ export async function resolveFeedback(
 ): Promise<{ id: string; text: string; open: number }> {
   const st = await readFeedbackState(root);
   const note = findNote(st, idOrText);
+  if (note.withdrawn) throw new Error(`feedback ${note.id} was withdrawn by the user — nothing to resolve`);
   if (note.resolved) throw new Error(`feedback ${note.id} is already resolved`);
   await appendEvent(root, makeResolve(note.id, CLIENT, opts.note));
   await journal(root, { action: "resolve_feedback", target: note.id });

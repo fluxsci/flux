@@ -9,6 +9,7 @@
   import { requestPaperPalette, feedbackCaptureOpen, annotateCaptureOpen } from "./command/commandBus";
   import AnnotateCapture from "./agent/AnnotateCapture.svelte";
   import { initFeedbackStore } from "./agent/feedbackStore";
+  import { shellModalOpen } from "../lib/settings";
   import { focusedMode, setFocusedMode } from "./paneStore";
   import type { ModeId } from "./shellStore";
   import type { Command } from "./command/commands";
@@ -40,9 +41,13 @@
       } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyM") {
         e.preventDefault();
         feedbackCaptureOpen.update((v) => !v);
-      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyA") {
-        // Snapshot & annotate: freeze the window, draw, then write the note.
+      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyS") {
+        // Snapshot & annotate (⌃⇧S — ⌃⇧A is the slide animator's "add
+        // appearance"): freeze the window, draw, then write the note. An
+        // open note popover hides first (its draft survives) so the capture
+        // never contains the popover itself.
         e.preventDefault();
+        if (get(feedbackCaptureOpen)) feedbackCaptureOpen.set(false);
         annotateCaptureOpen.update((v) => !v);
       } else if (mod && !e.altKey && !e.shiftKey && /^Digit[1-5]$/.test(e.code)) {
         // Mode switching by number — mirrors the title-bar strip left to right.
@@ -51,7 +56,15 @@
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // While the note popover or the annotate overlay is up, the editor's
+    // keyboard yields (lib/keyboard.ts reads shellModalOpen).
+    const sync = () => shellModalOpen.set(get(feedbackCaptureOpen) || get(annotateCaptureOpen));
+    const unsubs = [feedbackCaptureOpen.subscribe(sync), annotateCaptureOpen.subscribe(sync)];
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      for (const u of unsubs) u();
+      shellModalOpen.set(false);
+    };
   });
 </script>
 

@@ -53,11 +53,25 @@ export interface FeedbackSendEvent {
   note?: string;
 }
 
-export type FeedbackEvent = FeedbackNoteEvent | FeedbackResolveEvent | FeedbackSendEvent;
+/** The human took a note back (a stray Enter, a rewrite): it leaves the queue for
+ *  good, but the line stays — an agent that already read it sees WHY it is gone. */
+export interface FeedbackWithdrawEvent {
+  kind: "withdraw";
+  /** id of the note being withdrawn */
+  target: string;
+  ts: string;
+  client: string;
+  note?: string;
+}
+
+export type FeedbackEvent = FeedbackNoteEvent | FeedbackResolveEvent | FeedbackSendEvent | FeedbackWithdrawEvent;
 
 /** A note with its folded resolution state. */
 export interface FeedbackNote extends FeedbackNoteEvent {
   resolved: boolean;
+  /** Taken back by the human — never open, never part of a work order. */
+  withdrawn: boolean;
+  withdrawnAt?: string;
   /** Position in the ledger — the event ORDER is authoritative (timestamps tie
    *  within a millisecond; the send boundary must never capture later notes). */
   seq: number;
@@ -91,7 +105,7 @@ export function parseLedger(text: string): FeedbackEvent[] {
     if (!t) continue;
     try {
       const v = JSON.parse(t);
-      if (v && (v.kind === "note" || v.kind === "resolve" || v.kind === "send")) out.push(v);
+      if (v && (v.kind === "note" || v.kind === "resolve" || v.kind === "send" || v.kind === "withdraw")) out.push(v);
     } catch {
       // tolerate a torn trailing line (crash mid-append); never fail the whole ledger
     }
@@ -106,7 +120,7 @@ export function foldLedger(events: FeedbackEvent[]): FeedbackState {
   let lastSendSeq = -1;
   events.forEach((ev, seq) => {
     if (ev.kind === "note") {
-      const n: FeedbackNote = { ...ev, resolved: false, seq };
+      const n: FeedbackNote = { ...ev, resolved: false, withdrawn: false, seq };
       notes.push(n);
       byId.set(n.id, n);
     } else if (ev.kind === "resolve") {
@@ -117,12 +131,18 @@ export function foldLedger(events: FeedbackEvent[]): FeedbackState {
         n.resolvedBy = ev.client;
         if (ev.note) n.resolveNote = ev.note;
       }
+    } else if (ev.kind === "withdraw") {
+      const n = byId.get(ev.target);
+      if (n) {
+        n.withdrawn = true;
+        n.withdrawnAt = ev.ts;
+      }
     } else if (ev.kind === "send") {
       lastSend = ev;
       lastSendSeq = seq;
     }
   });
-  const open = notes.filter((n) => !n.resolved);
+  const open = notes.filter((n) => !n.resolved && !n.withdrawn);
   const sent = lastSend ? open.filter((n) => n.seq < lastSendSeq) : [];
   return { notes, lastSend, open, sent };
 }
@@ -133,6 +153,12 @@ export function makeNote(text: string, context: FeedbackStamp | null, client: st
 
 export function makeResolve(target: string, client: string, note?: string): FeedbackResolveEvent {
   const ev: FeedbackResolveEvent = { kind: "resolve", target, ts: new Date().toISOString(), client };
+  if (note) ev.note = note;
+  return ev;
+}
+
+export function makeWithdraw(target: string, client: string, note?: string): FeedbackWithdrawEvent {
+  const ev: FeedbackWithdrawEvent = { kind: "withdraw", target, ts: new Date().toISOString(), client };
   if (note) ev.note = note;
   return ev;
 }

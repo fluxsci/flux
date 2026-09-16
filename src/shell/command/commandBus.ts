@@ -29,5 +29,5 @@ export function requestOpenSlide(deckId: string, slideId?: string): void {
 
 /** The feedback capture popover (FeedbackCapture.svelte, mounted in Workspace). */
 export const feedbackCaptureOpen = writable(false);
-/** Snapshot & annotate (Ctrl+Shift+A): the freeze-and-draw overlay that feeds a note. */
+/** Snapshot & annotate (Ctrl+Shift+S): the freeze-and-draw overlay that feeds a note. */
 export const annotateCaptureOpen = writable(false);

@@ -815,7 +815,7 @@ Persistence invariants (all machine-checked — do not weaken):
     (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
-  - **Snapshot & annotate (Ctrl+Shift+A) = `shell/agent/AnnotateCapture.svelte` +
+  - **Snapshot & annotate (Ctrl+Shift+S) = `shell/agent/AnnotateCapture.svelte` +
     `project/feedbackCapture.ts` (pure).** The "point at it" half of Note to agent: the
     overlay captures the window FIRST (`win:capture` → `webContents.capturePage` on the
     sender, read scope, Electron only) and draws on the frozen picture, so the tool strip is
@@ -831,6 +831,14 @@ Persistence invariants (all machine-checked — do not weaken):
     alike. A browser build has no capture: marks + anchors still land, `image` is null.
     Gates: `verify-feedback-snapshot.ts` (pure), `verify-annotate-gui.mjs` (ui),
     `verify-ipc-contract.ts` (the channel).
+  - **Taking a note back = the `withdraw` ledger event.** The popover lists the open queue
+    (newest first) with Edit / Withdraw; `foldLedger` marks the target `withdrawn` and drops
+    it from `open` and `sent` (never `resolved` — nobody did the work), `flux feedback` hides
+    it, `--all` reports status `withdrawn`, `resolve-feedback` refuses it. Edit re-queues in
+    ONE append (`withdraw(old)` + `note(new)` in the same O_APPEND write, so a reader never
+    sees both) and keeps the original stamp + snapshot file. Gate:
+    `verify-feedback-withdraw.ts` (pure, scratch root) + the edit/withdraw leg of
+    `verify-annotate-gui.mjs`.
   `importerDetached` releases the parent keyboard while the utility owns its own controls.
   Pinning preserves folder/search/picks without narrowing navigation; reserved collections
   retain their explicit `_` entry and scoped search when reached from the tree. Insert uses
@@ -5087,7 +5095,7 @@ stamp, `flux feedback` / `resolve-feedback`); built the visual half on the same 
 `feedbackStore` (PNG bytes in memory until Add writes `.meta/feedback/<id>.png`), the stamp's
 `snapshot` field + `describeStamp`, the pure `feedbackCapture.ts` (crop law, badge / target
 points, DOM anchor paths, description), the popover chip + "Snapshot & annotate" button, the
-Ctrl+Shift+A chord and the ⌘K command; docs (collaboration §sec-annotate, shortcuts).
+Ctrl+Shift+S chord and the ⌘K command; docs (collaboration §sec-annotate, shortcuts).
 
 **Verified:** check 0/0 (821 files); `verify-feedback-snapshot` PASS (21 checks);
 `verify-annotate-gui` PASS (22 checks: chord, drag = anchored arrow #1, `b` box, Backspace,
@@ -5104,3 +5112,16 @@ the pixels and the selector.
 queue button is now **Add to queue** (gates and docs pin the new label); the 160 px thumbnail
 was unreadable → the popover widens (`.fc.with-cap`) and shows the composed crop at up to
 52 vh, so the note is written while looking at the picture it is about.
+
+**Follow-up (owner, 22:40): "what if I submitted one before I was done?"** There was no way
+back — the ledger is append-only and the popover showed only a count. Added the `withdraw`
+event (pure core + flux-core reading), the queued-notes list in the popover with Edit
+(re-queue in one append, original stamp and snapshot kept) and Withdraw, docs, a pure gate
+and the ui leg. Design note: withdrawn ≠ resolved — the distinction is what lets an agent
+that already listed the note tell "done" from "never mind".
+Two things the desktop round-trip surfaced on the way: the chord had to move to **⌃⇧S** (⌃⇧A is
+the slide animator's *add appearance* and a Workspace listener runs first), and a shell
+surface must OWN the keyboard — `settings.shellModalOpen` (set by Workspace while the popover
+or overlay is up) makes `lib/keyboard.ts` yield, the textarea is focused after `tick()`, and
+Escape closes the popover from anywhere inside it (after Edit / Withdraw the focus is on a
+button, not in the box).

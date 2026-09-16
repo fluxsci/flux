@@ -225,7 +225,8 @@
    "verify-xray-multi.ts",
    "verify-animate-selection.ts",
    "verify-wheel-law.ts",
-   "verify-feedback-snapshot.ts"
+   "verify-feedback-snapshot.ts",
+   "verify-feedback-withdraw.ts"
   ],
   "net": [
    "verify-enrich-live.ts",
@@ -911,6 +912,7 @@
    "glob": "{src/shell/agent/**,src/lib/project/feedback.ts,src/lib/project/feedbackCapture.ts}",
    "run": [
     "verify-feedback-snapshot.ts",
+    "verify-feedback-withdraw.ts",
     "verify-annotate-gui.mjs",
     "verify-context-gui.mjs",
     "verify-ipc-contract.ts",

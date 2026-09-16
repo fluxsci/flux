@@ -147,3 +147,6 @@ leftRailHidden.subscribe((v) => {
 export const settingsOpen = writable(false);
 export const fluxFigMenuOpen = writable(false);
 export const helpOpen = writable(false); // shell-global keyboard-shortcut reference
+/** A shell surface (Note to agent, Snapshot & annotate) owns the keyboard: the
+ *  editor's single-letter tools must not fire while a note is being typed. */
+export const shellModalOpen = writable(false);

@@ -1870,7 +1870,7 @@ export const VERBS: VerbDef[] = [
     cli: "feedback",
     cliRoot: "flags",
     summary:
-      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved); also reports the last send (review-pass request). Address each note, then resolve_feedback.",
+      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved and withdrawn — a withdrawn note was taken back by the user; never act on it); also reports the last send (review-pass request). Address each note, then resolve_feedback.",
     params: { all: z.boolean().optional() },
     cliArgs: [{ kind: "flag", at: "all", into: "all", as: "boolean" }],
     handler: (ctx, a) => core.listFeedback(ctx.root, { all: a.all as boolean | undefined }),

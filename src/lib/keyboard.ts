@@ -63,7 +63,7 @@ import {
 } from "./geometry";
 import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
-import { fluxFigMenuOpen, settingsOpen, helpOpen, inspectorHidden, leftRailHidden } from "./settings";
+import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
 import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
@@ -749,7 +749,8 @@ export function handleKey(e: KeyboardEvent) {
     get(cascadeState) ||
     get(figNamer) ||
     (get(figureCatalog) || get(figureDeletion)) ||
-    get(dissectTarget)
+    get(dissectTarget) ||
+    get(shellModalOpen)
   )
     return;
 

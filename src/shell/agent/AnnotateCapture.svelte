@@ -1,5 +1,5 @@
 <script lang="ts">
-  // "Snapshot & annotate" (Ctrl+Shift+A, the palette, or the button in Note to
+  // "Snapshot & annotate" (Ctrl+Shift+S, the palette, or the button in Note to
   // agent): freeze the window, draw numbered arrows / boxes / pen strokes on it,
   // Enter → the note popover with the crop attached. The crop is composed from
   // the FROZEN capture, never from the live DOM, so the tool strip is never in
@@ -114,7 +114,7 @@
     const k = e.key;
     if (k === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); cancel(); return; }
     if (k === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); void finish(); return; }
-    if (e.metaKey || e.ctrlKey || e.altKey) return; // chords (Ctrl+Shift+A toggles) stay with the workspace
+    if (e.metaKey || e.ctrlKey || e.altKey) return; // chords (Ctrl+Shift+S toggles) stay with the workspace
     if (k === "Backspace" || k === "Delete") { e.preventDefault(); e.stopImmediatePropagation(); undo(); return; }
     const lk = k.toLowerCase();
     if (lk === "a" || lk === "b" || lk === "p") {

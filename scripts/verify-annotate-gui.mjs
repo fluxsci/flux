@@ -2,7 +2,7 @@
 //   node scripts/verify-annotate-gui.mjs
 // Covers the freeze-and-draw overlay end to end in a browser build (no window
 // capture there — the note records marks + DOM anchors and says "no screenshot"):
-// Ctrl+Shift+A opens it, dragging draws a numbered arrow anchored to the element
+// Ctrl+Shift+S opens it, dragging draws a numbered arrow anchored to the element
 // under its head, `b` + drag draws a box, Backspace undoes, Escape cancels
 // cleanly, Enter hands the crop to the Note-to-agent popover (chip + draft text
 // kept), Add appends ONE ledger line whose stamp carries the snapshot, and the
@@ -38,10 +38,10 @@ const overlay = () => page.evaluate(() => {
 });
 
 // --- 1. the chord opens the overlay over the whole window --------------------------
-await key("KeyA", { ctrlKey: true, shiftKey: true });
+await key("KeyS", { ctrlKey: true, shiftKey: true });
 await waitFor(page, () => !!document.querySelector(".annot .annot-tools"), null, { timeout: 5000, label: "annotate overlay open" });
 let o = await overlay();
-ok(o && o.covers, "Ctrl+Shift+A opens the annotate overlay across the whole window");
+ok(o && o.covers, "Ctrl+Shift+S opens the annotate overlay across the whole window");
 ok(o && !o.frozen && /no screenshot/.test(o.hint), "a browser build says it has no screenshot (marks still count)");
 ok(o && o.tool === "aarrow", `the arrow tool is armed by default (${o?.tool})`);
 
@@ -117,6 +117,35 @@ await waitFor(page, () => !!document.querySelector(".annot .annot-tools"), null,
 ok(true, "the ⌘K palette command opens the overlay");
 await page.keyboard.press("Escape");
 await waitFor(page, () => !document.querySelector(".annot"), null, { label: "closed" });
+
+// --- 7. take it back: the queue lists the note; Edit re-queues it, Withdraw removes it ----
+const readLedger = () => page.evaluate(() => { const f = window.fig._files; for (const [k, v] of f.entries()) if (k.endsWith(".meta/feedback.ndjson")) return new TextDecoder().decode(v).trim().split("\n").map((l) => JSON.parse(l)); return []; });
+await key("KeyM", { ctrlKey: true, shiftKey: true });
+await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { label: "popover for the queue" });
+const q0 = await page.evaluate(() => [...document.querySelectorAll(".fc .fc-q")].map((r) => r.querySelector(".fc-q-text")?.textContent?.trim()));
+ok(q0.length === 1 && q0[0] === "1 should sit flush with the left rail", `the popover lists the queued note (${JSON.stringify(q0)})`);
+await page.click(".fc .fc-q .fc-q-edit");
+await waitFor(page, () => document.querySelector(".fc textarea")?.value === "1 should sit flush with the left rail" && !!document.querySelector(".fc .fc-cap"), null, { label: "edit loaded" });
+ok(await page.$eval(".fc .fc-title", (el) => el.textContent?.trim()) === "Edit queued note", "Edit puts the note back in the box with its snapshot re-attached");
+await page.$eval(".fc textarea", (el) => { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); });
+await page.type(".fc textarea", "1 should sit flush with the left rail (and 4 px lower)");
+await page.evaluate(() => { [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add to queue")?.click(); });
+await waitFor(page, () => !document.querySelector(".fc textarea"), null, { label: "edit added" });
+let led = await readLedger();
+const orig = led.find((l) => l.kind === "note" && l.text === "1 should sit flush with the left rail");
+const repl = led.find((l) => l.kind === "note" && /4 px lower/.test(l.text));
+const wd = led.filter((l) => l.kind === "withdraw");
+ok(led.length === 3 && wd.length === 1 && wd[0].target === orig.id && led.indexOf(wd[0]) < led.indexOf(repl), "the edit appends withdraw(original) then the new note, in that order");
+ok(repl && repl.context?.snapshot?.marks?.length === 1 && repl.context.snapshot.marks[0].anchor?.text === "Gallery" && repl.context.surface === orig.context.surface, "the rewritten note keeps the original stamp and snapshot marks");
+await key("KeyM", { ctrlKey: true, shiftKey: true });
+await waitFor(page, () => document.querySelectorAll(".fc .fc-q").length === 1, null, { label: "one queued note" });
+ok(await page.$eval(".fc .fc-q .fc-q-text", (el) => /4 px lower/.test(el.textContent ?? "")), "the queue now shows only the rewritten note");
+await page.click(".fc .fc-q .fc-q-x");
+await waitFor(page, () => !document.querySelector(".fc .fc-q") && /0 open notes/.test(document.querySelector(".fc-open")?.textContent ?? ""), null, { label: "withdrawn" });
+led = await readLedger();
+ok(led.filter((l) => l.kind === "withdraw").length === 2 && led[led.length - 1].kind === "withdraw" && led[led.length - 1].target === repl.id, "Withdraw appends a withdraw line for the rewritten note; the queue is empty");
+await page.keyboard.press("Escape");
+await waitFor(page, () => !document.querySelector(".fc textarea"), null, { label: "closed" });
 
 const errs = await realErrors(page);
 ok(errs.length === 0, `clean console (${errs.length} errors${errs.length ? ": " + errs[0] : ""})`);

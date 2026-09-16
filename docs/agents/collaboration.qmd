@@ -105,7 +105,7 @@ attend state) lives in `.meta/` and takes care of itself.
   what you're looking at** (figure/element/plot part, document + selected text, slide +
   beat). **Add to queue** queues notes; **Send** marks the boundary: everything open becomes the
   work order. The buttons in detail: @sec-note-popover. When words aren't enough,
-  **Ctrl+Shift+A** freezes the window so you can draw numbered arrows on it and the note
+  **Ctrl+Shift+S** freezes the window so you can draw numbered arrows on it and the note
   arrives with the picture: @sec-annotate.
 - The principal drains both queues (`flux feedback`, `flux comments`), fixes each item,
   and resolves it with a note — threads close live in your margin. When unsure, it asks
@@ -138,6 +138,13 @@ the footer counts the notes currently queued ("2 open notes").
   open into the agent's work order. Use it to fire off a batch of earlier Adds; it is
   greyed out until at least one note is open. A toast confirms ("Sent — 3 note(s) are
   now the agent's work order").
+- **Queued notes are listed in the popover**, newest first, each with **Edit** and
+  **Withdraw**. Sent one too early? *Edit* puts it back in the box — text, stamp and
+  snapshot — and *Add to queue* then replaces it; *Withdraw* takes it out of the queue for
+  good. Both are append-only *withdraw* lines: nothing is rewritten, agents simply stop
+  seeing the note (`flux feedback --all` still shows it as *withdrawn*, so an agent that
+  had already read it knows why it vanished). If a Send had already gone out, the agent may
+  have started on it — withdrawing still removes it from the work order.
 - **Add & send** (or **Ctrl+Enter**) does both at once — the common case when a single
   request should go out immediately.
 
@@ -157,7 +164,7 @@ What a send *triggers* depends on who is listening:
 ## Point at it: snapshot & annotate {#sec-annotate}
 
 Some feedback is about *pixels* — a gap, an alignment, a control you can't select — and a
-selection stamp can't carry it. **Ctrl+Shift+A** (or the **Snapshot & annotate** button in
+selection stamp can't carry it. **Ctrl+Shift+S** (or the **Snapshot & annotate** button in
 the note popover, or the ⌘K command) freezes the window under a drawing surface:
 
 - **Drag** draws the current tool — **a** arrow (a plain click drops a short arrow at the
