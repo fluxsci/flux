@@ -65,8 +65,17 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # `chrome-version: latest` pulls a chromium-browser-snapshots build, which
+      # is compiled with ffmpeg_branding=Chromium — i.e. NO H.264/AAC decoder.
+      # Flux's video clips are deliberately H.264/AAC MP4 (electron/videoMedia.cjs
+      # prepares them that way, and Electron ships the codecs), so the slide-clip
+      # and gallery media gates hung there waiting for a decode that could never
+      # happen. `stable` installs a real Chrome build with the codecs in it.
       - uses: browser-actions/setup-chrome@v1
         id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
       - name: Start the dev server
         run: npm run dev &
       - name: Wait for the dev server on :1420

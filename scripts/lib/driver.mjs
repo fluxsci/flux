@@ -169,3 +169,26 @@ export async function profile(page, action, { name = "trace" } = {}) {
   await page.tracing.stop();
   return tracePath;
 }
+
+// Flux's video clips are H.264/AAC MP4 (electron/videoMedia.cjs prepares them
+// that way, and Electron ships the codecs), so any gate that DECODES one needs a
+// browser built with proprietary codecs. A chromium-browser-snapshots build —
+// which `browser-actions/setup-chrome@v1` installs for `chrome-version: latest`
+// — is compiled with ffmpeg_branding=Chromium and simply has no H.264 decoder:
+// the media never reaches readyState 2 and the gate hangs until its timeout with
+// nothing to say. Call this first and fail fast with the real reason instead.
+export async function assertH264(page, what = "this gate") {
+  const can = await page.evaluate(() => {
+    const v = document.createElement("video");
+    return v.canPlayType('video/mp4; codecs="avc1.42E01E"') !== "";
+  });
+  if (!can) {
+    const ua = await page.evaluate(() => navigator.userAgent);
+    throw new Error(
+      `${what} decodes an H.264/AAC MP4, but this browser has no H.264 decoder ` +
+        `(${ua}). Chromium SNAPSHOT builds omit proprietary codecs — point FLUX_CHROME at a ` +
+        `Google Chrome or Chrome-for-Testing build (CI: browser-actions/setup-chrome with ` +
+        `chrome-version: stable).`,
+    );
+  }
+}

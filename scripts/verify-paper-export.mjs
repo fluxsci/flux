@@ -235,7 +235,16 @@ ok(/shell:showItemInFolder/.test(main) && main.slice(main.indexOf("shell:showIte
 
 // WS-6.2: compile/materializeRenders live in the manuscript + render modules.
 const core = readFileSync("flux-core/manuscript.ts", "utf8") + readFileSync("flux-core/render.ts", "utf8");
-ok(/export async function materializeRenders/.test(core) && /materializeRenders\(root, m\.manuscript\.path\)/.test(core), "flux-core compile() materializes renders (bare-quarto/agent parity)");
+// Since 4bb72d8 (2026-09-13) compile() materializes the renders of the document
+// it is COMPILING (`manuRel(m, opts.doc)`), not always the main manuscript — the
+// old `m.manuscript.path` form could not express `compile --doc`. Assert the
+// resolution as well as the call, which is strictly stronger than the old pin.
+ok(
+  /export async function materializeRenders/.test(core) &&
+    /const document = manuRel\(m, opts\.doc\)/.test(core) &&
+    /materializeRenders\(root, document\)/.test(core),
+  "flux-core compile() materializes renders for the resolved --doc (bare-quarto/agent parity)",
+);
 const cli = readFileSync("flux-cli.ts", "utf8");
 ok(/case "render-figures"/.test(cli), "CLI exposes render-figures");
 

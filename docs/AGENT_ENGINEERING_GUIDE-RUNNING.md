@@ -1389,6 +1389,37 @@ days (probe geometry like `width` instead).
   (delegated agents leak them: `pgrep -f "tsx/dist/preflight"`).
 - This desktop's real Chrome/Electron reports `prefers-reduced-motion: reduce` (GTK-derived);
   headless Chrome doesn't. Never gate ambient/feature motion on that query.
+- **An ABSOLUTE wall-clock budget on a process start is not portable** (2026-09-18).
+  `verify-w13-cli`'s "flux help cold start < 150ms" sat exactly ON the line on a GitHub
+  runner (150/151ms, red every push) while the same healthy bundle read 159ms on a Windows
+  dev box — the budget encoded one machine's interpreter speed, not the contract, which is
+  "the bundle starts like plain node, no tsx chain and no heavyweight module-scope import".
+  Measure against a `node -e ""` control on the SAME machine, best-of-N, and budget the
+  DELTA (109ms honest, 250ms budget; a tsx start is 400ms+) — the ratio-to-control rule the
+  Figure gates already use, applied to process startup. Pair it with a structural companion
+  (bundle BYTES) — a heavy import shows up in bytes long before milliseconds, and bytes do
+  not depend on load.
+
+**CI browsers and external tools:**
+
+- **A "chromium" from `chromium-browser-snapshots` has NO proprietary codecs** (2026-09-18).
+  `browser-actions/setup-chrome@v1` with `chrome-version: latest` installs exactly that —
+  the log says "Successfully Installed **chromium**" — and it is compiled
+  `ffmpeg_branding=Chromium`, so H.264/AAC cannot decode. Flux's clips are deliberately
+  H.264/AAC MP4 (`electron/videoMedia.cjs`, and Electron ships the codecs), so
+  `verify-slide-video-clips-gui` and `verify-gallery-workflow` hung on `readyState >= 2` /
+  `currentTime > .15` until their timeouts, with nothing in the message naming the cause.
+  CI pins `chrome-version: stable` (a real Chrome build), and `driver.mjs assertH264(page)`
+  fails fast with the browser's UA and the fix when a codec-less build is used anyway.
+  Corollary: "the browser gate times out on CI but passes locally" is worth a capability
+  check before it is worth a timing theory.
+- **A gate that needs an EXTERNAL TOOL skips cleanly when it is absent** — the established
+  shape (`verify-export-qmd`, `verify-project-lint`, and since 2026-09-18
+  `verify-slide-embed-export`): probe the tool, print a visible `(skip) <tool> not on PATH —
+  <what is skipped>` and keep every assertion for the machines that do have it. CI's `test`
+  job is chartered headless/no-network and deliberately installs no quarto; reporting its
+  absence as a product failure is noise that trains everyone to ignore the gate. A skip must
+  be LOUD (its own line + a `skipped: true` sentinel), never silent.
 
 **Environment:**
 
@@ -1851,13 +1882,18 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
-- **Gates that fail on `main` today (2026-09-15; evidence: a detached worktree of `b242c41`
-  served on :1421 fails identically):** `verify-paper-export.mjs` (its regex expects
-  `materializeRenders(root, m.manuscript.path)` while `flux-core/manuscript.ts` passes
-  `document`), `verify-context-gui.mjs` ("picker shows the Context group" — the demo fixture's
-  `.docpicker` renders no Context head) and `verify-lib-actions.mjs` (Ctrl+click "detail strip
-  open" times out). None is touched by the surface redesign; fix each at its source in its own
-  session, never by loosening the gate.
+- **The 2026-09-15 "gates that fail on `main`" list is CLEARED (2026-09-18).** Both stale gates
+  were pinning contracts their subject had already superseded, and both were fixed at the
+  assertion, with the git evidence: `verify-paper-export.mjs` expected
+  `materializeRenders(root, m.manuscript.path)` when `4bb72d8` (2026-09-13) had made compile()
+  materialize the renders of the document it is COMPILING (`manuRel(m, opts.doc)`) so that
+  `compile --doc` works — the gate now asserts the resolution AND the call, which is strictly
+  stronger; `verify-context-gui.mjs` read the picker head row's whole `textContent` when
+  `b6a741b` (2026-09-06) had added the "+ New document" / "New folder" actions INTO that row,
+  making it `"Context +"` — it now reads the folder's own `.folder-label span`.
+  `verify-lib-actions.mjs` passes on CI. The lesson worth keeping: a red gate is a claim about
+  the CODE that has to be checked against git before it is believed about the code — a
+  behaviour that changed deliberately leaves the gate, not the product, wrong.
 - **The demo fixture cannot hand a re-imported asset from Figure to Slide:** the tenancy handoff
   refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
@@ -5709,3 +5745,40 @@ scale-figure/zoom-proxy fail on clean `main` too).
   justifies" is only meaningful for a MULTI-paragraph text. For one hard line the last visual
   line closes the paragraph whatever the cache holds, so the fast path is correct and the
   assertion had to be restated, not the code.
+
+### 2026-09-18 (later) — Getting CI green: six reds, none of them the product (Claude Opus 5, `main`)
+
+**Work:** The push checks had been red on every commit to `main` since 2026-09-14; the owner
+asked for them fixed. Six failures, all pre-existing (the text-arrangement commit added none —
+the same sets re-run on a stashed tree fail identically). Two were STALE GATES pinning
+superseded contracts, fixed at the assertion with git evidence and §10's known-failure list
+cleared: `verify-paper-export` (compile() materializes the resolved `--doc` since `4bb72d8`,
+not `m.manuscript.path`) and `verify-context-gui` (the picker head row gained its `+ New
+document` action in `b6a741b`, so the row's text is `"Context +"` — read `.folder-label span`).
+Two were the CI BROWSER: `browser-actions/setup-chrome@v1` with `chrome-version: latest`
+installs a chromium-browser-snapshots build with no proprietary codecs, so
+`verify-slide-video-clips-gui` and `verify-gallery-workflow` waited out their timeouts on an
+H.264 decode that could never happen — CI now pins `chrome-version: stable` and
+`driver.mjs assertH264()` names the cause instead of hanging. Two were the blocking `test`
+job's bundle tier: `verify-w13-cli`'s absolute 150ms cold-start budget (re-expressed as a
+delta over a bare `node -e ""` control, plus a bundle-size companion) and
+`verify-slide-embed-export` (now skips cleanly when quarto is absent, the shape
+`verify-export-qmd` and `verify-project-lint` already use). Local: bundle tier green under CI
+conditions, pure 199/232 (unchanged), ui 99/102 — the three reds are `verify-zoom-proxy` and
+`verify-figure-controls-gui` (both pass alone; load-dependent on this box) and
+`verify-paper-slide-embeds` (already documented as failing on HEAD).
+**Learnings:**
+
+- Promoted to §9: the chromium-snapshot codec trap, absolute-wall-clock budgets not being
+  portable (measure the delta over a bare-node control, pair with a structural byte budget),
+  and the "external tool absent → LOUD skip, never a fake failure" convention.
+- Promoted to §10 in place of the old known-failure list: **a red gate is a claim about the
+  code, and the claim has to be checked against git before it is believed.** Both stale gates
+  had been red for days behind "fix at its source" — the source turned out to be the gate,
+  and `git log -L` on the pinned line named the commit and the reason in seconds.
+- Hard rule 3 is not "never change a gate": it is "never LOOSEN one". Both replacements assert
+  more than what they replaced (the resolved `--doc` as well as the call; the folder's own
+  label rather than whatever text the row happens to contain).
+- Check whether a failing job is even blocking before ranking the work: `ui-gate` carries
+  `continue-on-error` (the WS-7.2 observation period), so the red X on the run came from the
+  `test` job's two bundle failures alone.

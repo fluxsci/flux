@@ -13,6 +13,20 @@ await fs.mkdir(path.join(config,'FluxLib'),{recursive:true});await fs.mkdir(path
 await fs.writeFile(path.join(scratch,'xdg','flux','preferences.json'),JSON.stringify({fluxConfigPath:config}));
 const env={...process.env,XDG_CONFIG_HOME:path.join(scratch,'xdg'),XDG_CACHE_HOME:path.join(scratch,'cache'),FLUX_NO_MIGRATE:'1'};
 const run=args=>spawnSync(process.execPath,args,{env,encoding:'utf8',timeout:60000});
+// This gate renders through REAL Quarto (html/docx/pdf). Like verify-export-qmd
+// and verify-project-lint, it skips cleanly when quarto is not installed rather
+// than reporting the missing tool as a product failure — CI's headless `test`
+// job deliberately ships no quarto. Where quarto IS present (the owner's
+// machine, any box that installs it) the gate keeps every one of its teeth.
+const quarto = spawnSync('quarto', ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' });
+if (quarto.status !== 0) {
+  console.log('  (skip) quarto not on PATH — the inline-slide export gate needs a real quarto render');
+  console.log(`##VERIFY## ${JSON.stringify({ script: 'verify-slide-embed-export', ok: true, skipped: true, checks: 0, failed: 0, ms: 0 })}`);
+  console.log('verify-slide-embed-export: SKIPPED (quarto not installed)');
+  await fs.rm(scratch, { recursive: true, force: true });
+  process.exit(0);
+}
+
 let browser;
 try {
   await fs.rm(root,{recursive:true,force:true});
