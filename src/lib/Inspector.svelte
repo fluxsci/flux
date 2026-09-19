@@ -16,7 +16,7 @@
   import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
-  import type { Element, Figure, Project, TextStyle } from "./types";
+  import type { Element, Figure, Project, TextAlign, TextStyle, TextVAlign } from "./types";
   import { doAlign, doDistribute, arrangeToRows, selectMatching, copyStyle, pasteStyle, openCascade } from "./keyboard";
   import { validRowCounts, gridItemCount, balancedRows } from "./geometry";
   import * as ops from "./ops";
@@ -777,10 +777,31 @@
           </select>
         </label>
         <label>Align
-          <select value={single.align} on:change={(e) => updateSelected((el, p) => { if (el.type === "text") { el.align = e.currentTarget.value as "left" | "center" | "right"; ops.detachOnManualEdit(p, el, ["align"]); } })}>
-            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+          <select value={single.align} on:change={(e) => updateSelected((el, p) => { if (el.type === "text") { el.align = e.currentTarget.value as TextAlign; ops.detachOnManualEdit(p, el, ["align"]); } })}>
+            <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option>
           </select>
         </label>
+      </div>
+      <!-- Arrangement inside the box: vertical placement (visible while the box
+           is taller than the text, i.e. Fixed) and the two typographic
+           distances. Line height sits with B/I/U below. -->
+      <div class="row">
+        <label>Vertical
+          <select value={single.valign ?? "top"} title="Where the text block sits in a box taller than itself (Fixed sizing)" aria-label="Vertical align"
+            on:change={(e) => { const v = e.currentTarget.value as TextVAlign; updateSelected((el, p) => { if (el.type === "text") ops.setElementStyle(p, [el.id], { valign: v }); }); }}>
+            <option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option>
+          </select>
+        </label>
+        <NumberField label="Tracking (pt)" value={(single.letterSpacing ?? 0) * 0.75} step={0.1}
+          title="Letter spacing in points — space added after every glyph (negative tightens)"
+          on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "letterSpacing", e.detail))}
+          on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "letterSpacing", e.detail))} />
+      </div>
+      <div class="row">
+        <NumberField label="Para space (pt)" value={(single.paragraphSpacing ?? 0) * 0.75} min={0} step={0.5}
+          title="Extra space before each new paragraph (a hard line break), in points"
+          on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))}
+          on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))} />
       </div>
       <div class="row biu-row">
         <button class="biu" aria-pressed={single.fontWeight >= 600} title="Bold (Ctrl+B)" on:click={() => toggleSelText("bold")}><b>B</b></button>

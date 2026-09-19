@@ -17,6 +17,7 @@ import * as bridge from "../project/figbridge";
 import * as referenceSync from "../project/figureReferenceSync";
 import * as plot from "../plot/store";
 import * as io from "../io";
+import * as text from "../text";
 import * as slide from "../slide/store";
 import * as slideOps from "../slide/ops";
 import * as slideBridge from "../project/slideBridge";
@@ -48,6 +49,9 @@ export interface FluxDevHandle {
   plot: typeof plot;
   /** Asset/plot I/O incl. reimportPlot (F2 hot-swap). */
   io: typeof io;
+  /** Text layout core (blockLayout, applyTextLayout, reflowTexts) — a seeded
+   *  text element has no wrap cache until something measures it. */
+  text: typeof text;
   /** Flux Slide overlay stores (deckOverlay, activeBeat, commitDeckLive,
    *  currentDeck, loadDeckModel — the static half lives in `fig`). */
   slide: typeof slide;
@@ -92,6 +96,7 @@ export function installDevHandle(): void {
     referenceSync,
     plot,
     io,
+    text,
     slide,
     slideOps,
     slideBridge,

@@ -6,7 +6,7 @@
   import { lineRender, elementBBox, dashAttr } from "./geometry";
   import { pathRender } from "./path";
   import { elementPaints } from "./color/gradient";
-  import { visualLines, lineH } from "./text";
+  import { blockLayout, letterSpacing } from "./text";
   import PlotElement from "./PlotElement.svelte";
 
   export let element: Element;
@@ -203,36 +203,30 @@
       />
     {/each}
   {:else if element.type === "text"}
-    <!-- visualLines = the wrap cache (sizing auto-h/fixed) else the hard lines;
-         dy = lineH (fontSize × lineHeight, default 1.2 — the one source in text.ts) -->
+    <!-- text.ts blockLayout is the ONE arrangement source (shared with export.ts
+         and so with every headless render): the wrap cache when present else the
+         hard lines, anchored by align, dropped by valign, advanced by line height
+         plus paragraph spacing, and stretched to textLength where justified. -->
+    {@const L = blockLayout(element)}
     <text
-      x={element.align === "center"
-        ? element.x + element.width / 2
-        : element.align === "right"
-          ? element.x + element.width
-          : element.x}
-      y={element.y + element.fontSize}
+      x={L.x}
+      y={L.baselineY}
       font-family={element.fontFamily}
       font-size={element.fontSize}
       font-weight={element.fontWeight}
       font-style={element.fontStyle}
       text-decoration={element.underline ? "underline" : undefined}
+      letter-spacing={letterSpacing(element) || undefined}
       fill={paints.fill}
-      text-anchor={element.align === "center"
-        ? "middle"
-        : element.align === "right"
-          ? "end"
-          : "start"}
+      text-anchor={L.anchor}
       style="white-space:pre"
     >
-      {#each visualLines(element) as ln, i}
+      {#each L.lines as ln}
         <tspan
-          x={element.align === "center"
-            ? element.x + element.width / 2
-            : element.align === "right"
-              ? element.x + element.width
-              : element.x}
-          dy={i === 0 ? 0 : lineH(element)}>{ln}</tspan
+          x={L.x}
+          dy={ln.dy}
+          textLength={ln.justifyWidth}
+          lengthAdjust={ln.justifyWidth != null ? "spacing" : undefined}>{ln.text}</tspan
         >
       {/each}
     </text>

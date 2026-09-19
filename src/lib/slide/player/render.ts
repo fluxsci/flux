@@ -208,17 +208,22 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
       const neutral = { ...el, rotation: 0, opacity: undefined };
       const bb = elementBBox(neutral);
       svg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
-      const { attrs, lines, x, advance } = textSvgLayout(neutral);
+      const { attrs, spans: laid } = textSvgLayout(neutral);
       for (const name of priorAttrs) if (!(name in attrs)) text.removeAttribute(name);
       for (const [name, value] of Object.entries(attrs)) if (text.getAttribute(name) !== value) text.setAttribute(name, value);
       priorAttrs = Object.keys(attrs);
       // A wrap boundary changes only tspan count. Other frames update cached
       // nodes in place; no serialization, parser, or selector on the frame path.
-      while (spans.length > lines.length) spans.pop()!.remove();
-      while (spans.length < lines.length) { const span = document.createElementNS(SVG_NS, "tspan"); text.appendChild(span); spans.push(span); }
+      while (spans.length > laid.length) spans.pop()!.remove();
+      while (spans.length < laid.length) { const span = document.createElementNS(SVG_NS, "tspan"); text.appendChild(span); spans.push(span); }
       for (let i = 0; i < spans.length; i++) {
-        spans[i].setAttribute("x", String(x)); spans[i].setAttribute("dy", String(i === 0 ? 0 : advance));
-        if (spans[i].textContent !== lines[i]) spans[i].textContent = lines[i];
+        const sp = laid[i];
+        spans[i].setAttribute("x", String(sp.x)); spans[i].setAttribute("dy", String(sp.dy));
+        // Justification is per line and can change between endpoints (a line
+        // that becomes a paragraph's last stops stretching) — remove, never stale.
+        if (sp.textLength != null) { spans[i].setAttribute("textLength", String(sp.textLength)); spans[i].setAttribute("lengthAdjust", "spacing"); }
+        else if (spans[i].hasAttribute("textLength")) { spans[i].removeAttribute("textLength"); spans[i].removeAttribute("lengthAdjust"); }
+        if (spans[i].textContent !== sp.text) spans[i].textContent = sp.text;
       }
     };
   }

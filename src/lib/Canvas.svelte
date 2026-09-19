@@ -54,7 +54,7 @@
   import { onMount, tick, onDestroy } from "svelte";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
-  import { applyTextLayout, lineH, visualLines } from "./text";
+  import { applyTextLayout, blockLayout, letterSpacing as textTracking } from "./text";
   import {
     elementBBox,
     rotatedAABB,
@@ -1707,10 +1707,15 @@
     if (!editingId) return null;
     const f = findElement($project, editingId);
     if (!f || f.element.type !== "text") return null;
+    // The overlay must sit where the glyphs are painted, so it takes its
+    // vertical drop and its block height from the SAME text.ts layout the
+    // renderer uses (vertical align, paragraph spacing, tracking and all).
+    const L = blockLayout(f.element);
     return {
       el: f.element,
+      L,
       left: $viewport.panX + (f.figure.x + f.element.x) * $viewport.zoom,
-      top: $viewport.panY + (f.figure.y + f.element.y) * $viewport.zoom,
+      top: $viewport.panY + (f.figure.y + f.element.y + L.offsetY) * $viewport.zoom,
     };
   })();
 
@@ -4160,7 +4165,13 @@
   {#if editingInfo}
     <!-- Editor⇄render parity: sizing auto = hugging box, no wrap (pre + slack);
          auto-h/fixed = pre-wrap at EXACTLY the model width (content-box), long
-         words break like text.ts wrapText; line-height mirrors lineH(el). -->
+         words break like text.ts wrapText; line-height mirrors lineH(el), and
+         alignment/tracking mirror the arrangement — the box itself is already
+         dropped by blockLayout's vertical offset above, so the caret lands on
+         the glyphs at any vertical alignment. CSS `justify` leaves the last
+         line of each paragraph natural, the same rule the renderer follows.
+         Paragraph spacing is the one thing a textarea cannot mirror (it has no
+         paragraph boxes); the gaps reappear the moment the edit commits. -->
     <textarea
       bind:this={taEl}
       class="text-edit"
@@ -4173,6 +4184,7 @@
         font-style:${editingInfo.el.fontStyle};
         ${editingInfo.el.underline ? "text-decoration:underline;" : ""}
         line-height:${editingInfo.el.lineHeight ?? 1.2};
+        letter-spacing:${textTracking(editingInfo.el) * $viewport.zoom}px;
         color:${editingInfo.el.color};
         text-align:${editingInfo.el.align};
         white-space:${editingInfo.el.sizing === "auto" ? "pre" : "pre-wrap"};
@@ -4182,7 +4194,7 @@
           : Math.max(editingInfo.el.width, 8) * $viewport.zoom}px;
         height:${Math.max(
           editingInfo.el.height,
-          Math.ceil(visualLines(editingInfo.el).length * lineH(editingInfo.el)),
+          Math.ceil(editingInfo.L.height),
           editingInfo.el.fontSize,
         ) * $viewport.zoom + 2}px;`}
       on:input={onTextInput}

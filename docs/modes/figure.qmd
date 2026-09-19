@@ -190,7 +190,8 @@ top of it (when nothing fits, it takes the side that covers the least), and lays
 out in narrow columns — each row is a key and a name over its control — so nothing scrolls.
 Opening a larger picker repositions the menu when needed to keep the selection clear.
 Every hotkey is a **left-hand key** (`1`–`6`, `q w e r t`, `a d g`, `z x c v b`; `h` for a
-plot's **content scale**, the same factor the Inspector shows), so the right
+plot's **content scale** or a text's **letter spacing**, and `n` for **paragraph spacing**),
+so the right
 hand never leaves the wheel: press the key to **arm** the row, then roll the **mouse wheel**
 anywhere on the screen to adjust it (a slow roll moves one step per notch, a flick moves fast,
 a trackpad scrubs; **Shift** ×10, **Alt** ×0.1; **↑/↓** step too, typed digits replace), and
@@ -265,6 +266,37 @@ the pen snaps to its vertices.
 **p** continues drawing — connect to an endpoint to extend or merge the path — **d** deletes
 nodes, and **Ctrl+drag** on a segment **bends** it. The Inspector's *Closed path* checkbox
 opens or closes any path.
+
+# Arranging text in its box
+
+Press **T** and drag (or click) to place a text box, then double-click it to type. Every text
+box has a **sizing** mode — *Auto* hugs what you type on one line, *Auto H* wraps at the box
+width and grows downward, *Fixed* keeps the box you drew — and everything below arranges the
+text **inside** that box.
+
+**Align** places the lines across the box: *Left*, *Center*, *Right*, or *Justify*. Justified
+text stretches every line out to both edges by opening up the spacing, and leaves the last
+line of each paragraph at its natural width, the way a printed column does. It only has
+something to do where the text wraps, so pair it with *Auto H* or *Fixed*.
+
+**Vertical** places the block down the box: *Top*, *Middle*, or *Bottom*. The box itself never
+moves or changes size — only the text inside it does. There is nothing to see until the box is
+taller than the text, so this row appears with *Fixed* sizing (a hugging box is exactly as tall
+as its text). It is what lines a label up with the middle of the panel beside it.
+
+**Line height** is the distance between lines, as a multiple of the font size (1.2 by default —
+1.5 reads more airily, 1 sets the lines tight). **Paragraph space** adds extra room before each
+new paragraph, so you can separate paragraphs without leaving blank lines; it counts only where
+you pressed Enter, never between the lines of one wrapped paragraph. **Tracking** is letter
+spacing — the space added after every letter. Both are in **points**, like the font size, and a
+negative tracking pulls letters together. Tracking changes how much fits on a line, so a
+wrapping box re-wraps as you adjust it.
+
+All of these sit in the Inspector's Text section and in the **F** menu, they apply to every
+selected text at once, and each adjustment is one undo step. A **named text style** (the
+Inspector's *Style* row) carries them too, so "Panel body, justified, 1.4 line height" becomes
+one click on every label in the figure — and editing the style restyles every text linked to
+it.
 
 # Cascade
 

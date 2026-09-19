@@ -376,6 +376,30 @@ Persistence invariants (all machine-checked — do not weaken):
   Keep it in `PlotElement.svelte`, outside the cached/exported SVG, under the same placement
   transforms, and inherit scene pointer policy so hidden presentation objects cannot catch clicks.
   `verify-plot-hit-area.mjs` covers transparent margins, crop/rotation, stacking, locks and export.
+- **How a text element's lines sit in its box is ONE pure layout** (2026-09-18):
+  `text.ts blockLayout(el)` returns the anchor x + `text-anchor`, the first baseline, each
+  line's `dy` and each justified line's target width, from `align`
+  (left/center/right/**justify**), `valign` (top/middle/bottom), `lineHeight`,
+  `paragraphSpacing` and `letterSpacing`. `Element.svelte` paints from it, `export.ts
+  textSvgLayout` serializes it (so flux-core's headless render and the slide player's
+  `compileStaticContent` bindings inherit it), and the Canvas textarea overlay offsets itself
+  by its `offsetY` — there is no second formula anywhere. Load-bearing details: **"top"
+  renders byte-identically to pre-arrangement Flux** (baseline = `y + fontSize`, no
+  half-leading), so untouched projects do not move; **justification is `textLength` +
+  `lengthAdjust="spacing"` per tspan**, never a measured word-space, so it needs no font
+  metrics and works in resvg; **a paragraph's last line is never stretched**, which requires
+  knowing which visual lines close a paragraph — that is DERIVED (`paragraphEndFlags`) by
+  matching the flat `lines` wrap cache's ink back onto the text's hard lines, never stored, and
+  a cache that cannot belong to the text degrades to "every line ends a paragraph" (nothing
+  justifies) rather than to a wrong stretch. **`letterSpacing` is a wrap METRIC**: it rides
+  `ctx.letterSpacing` in `browserMeasure` and is in `TEXT_LAYOUT_KEYS` / tween `METRIC_PROPS`,
+  so a tracking change re-wraps. Each property stores its DEFAULT AS ABSENCE
+  (`valign: "top"`, `letterSpacing: 0`, `paragraphSpacing: 0` delete the field), which is what
+  keeps old files byte-identical. `blockLayout` runs per text per render on scenes with
+  hundreds of labels, so it is ONE pass with two fast paths (one visual line; one hard line)
+  and no intermediate arrays — the first cut allocated two arrays and ran two regexes per line
+  and cost +10% on the dense nudge (scale-figure 167 → 184 ms). Gates:
+  `verify-text-arrange.ts` (pure) + `verify-text-arrange-gui.mjs` (ui).
 - **Scene transforms:** `sceneTransforms.ts` updates only active drag/rotation wrappers. Culling
   depends on selection/model/viewport and a moving **figure**, not every element gesture phase;
   invalidating all keyed Elements on first drag costs a full scene update. Frame resize previews
@@ -5651,3 +5675,37 @@ the branch remains for owner testing before merge.
 Confirmed all 26 audited source/test hashes still matched the validation record, preserved
 the original session report alongside the independent audit, and prepared the local
 fast-forward integration for the owner to push.
+
+### 2026-09-18 — Arranging text inside a text box (Claude Opus 5, `main`)
+
+**Work:** Owner asked for the text-editor arrangement controls on figure text boxes. Added
+`align: "justify"`, `valign` (top/middle/bottom), `paragraphSpacing` and `letterSpacing` to
+`TextElement` and `TextStyle`, and put the whole arrangement behind one pure
+`text.ts blockLayout` that the canvas painter, `export.ts` (hence flux-core's headless render
+and the slide player's static bindings) and the inline editor overlay all read — promoted to
+§4. Surfaced in the Inspector, the F menu (`6` vertical align, `h` letter spacing, `n`
+paragraph spacing — the paragraph row appears only once the text has a second paragraph, the
+vertical row only on a Fixed box) and on `set_style` / `add_fig_text` / the text-style verbs
+(CLI help + golden regenerated). New gates `verify-text-arrange.ts` + `verify-text-arrange-gui.mjs`;
+`verify-fmenu-surface` updated for the fourth align option and `verify-changed-pathmap` for the
+new routing. `--changed` 237/268 — every red is pre-existing on this Windows box (verified by
+re-running the same sets on a stashed tree: the pure tier fails identically at 198/231, and
+scale-figure/zoom-proxy fail on clean `main` too).
+**Learnings:**
+
+- Promoted to §4: the one-layout rule, "top renders byte-identically", justification via
+  `textLength`/`lengthAdjust` (no font metrics, works in resvg), deriving paragraph boundaries
+  from the wrap cache's ink instead of storing them, tracking as a wrap metric, and defaults
+  stored as absence.
+- **A pure helper called from the element painter is dense-scene code.** `blockLayout` is
+  called once per text per render; the first version's two intermediate arrays and per-line
+  regex cost +10% on the 1600-element nudge (167 → 184 ms) with no behaviour to show for it.
+  One pass plus a fast path for the common shapes put it back on the baseline exactly.
+- **Baseline a red gate on a stashed tree before believing it.** On this box 33 pure gates and
+  four browser/scale gates are red on clean `main` (win32 `npx`/tsx spawns, missing Xvfb,
+  `verify-docs`'s backslash path compare, load-dependent dev-mode ratios) — without the stashed
+  re-run the sweep reads as a mass regression.
+- A gate assertion can encode an accident rather than the contract: "a mismatched cache never
+  justifies" is only meaningful for a MULTI-paragraph text. For one hard line the last visual
+  line closes the paragraph whatever the cache holds, so the fast path is correct and the
+  assertion had to be restated, not the code.
