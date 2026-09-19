@@ -269,15 +269,18 @@ opens or closes any path.
 
 # Arranging text in its box
 
-Press **T** and drag (or click) to place a text box, then double-click it to type. Every text
-box has a **sizing** mode — *Auto* hugs what you type on one line, *Auto H* wraps at the box
-width and grows downward, *Fixed* keeps the box you drew — and everything below arranges the
-text **inside** that box.
+Press **T**, then either **click** for a label — the box hugs whatever you type on one line —
+or **drag** out a box for a paragraph: the text wraps at the width you drew and the box grows
+downward as you type. Every text box has a **sizing** mode you can change later — *Auto*
+hugs, *Auto H* wraps at the box width and grows downward, *Fixed* keeps both dimensions — and
+everything below arranges the text **inside** that box.
 
 **Align** places the lines across the box: *Left*, *Center*, *Right*, or *Justify*. Justified
 text stretches every line out to both edges by opening up the spacing, and leaves the last
-line of each paragraph at its natural width, the way a printed column does. It only has
-something to do where the text wraps, so pair it with *Auto H* or *Fixed*.
+line of each paragraph at its natural width, the way a printed column does. It needs a width
+to fill, so choosing it on a hugging label turns the label's current width into the box's
+width (*Auto H*): nothing moves yet, but drag the box narrower — or keep typing — and the
+lines wrap and fill it.
 
 **Vertical** places the block down the box: *Top*, *Middle*, or *Bottom*. The box itself never
 moves or changes size — only the text inside it does. There is nothing to see until the box is

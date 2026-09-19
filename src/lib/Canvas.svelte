@@ -201,6 +201,8 @@
         bgClick: boolean;
       }
     | { kind: "draw"; figId: string; x0: number; y0: number }
+    // The T tool: a click hugs, a drag draws a PARAGRAPH box (auto-h at that width).
+    | { kind: "textbox"; figId: string; x0: number; y0: number }
     | { kind: "figresize"; figId: string; handle: Handle; ob: Rect; sx: number; sy: number }
     | {
         kind: "rotate";
@@ -245,6 +247,8 @@
   let gestureEls: Element[] = [];
   let gestureHiddenIds = new Set<string>();
   let dragging = false;
+  // The T tool's drag draft (figure-local): null until the pointer has moved.
+  let textBox: Rect | null = null;
   let committed = false;
   // WS-1 Fix 2: live line-pivot clone (reassigned per move → scene-slot preview).
   let lineEndLive: LineElement | null = null;
@@ -1098,11 +1102,14 @@
       lastMarqueeKey = "\0"; // force the first hit-set of this marquee to apply
       hostEl.setPointerCapture(e.pointerId);
     } else if ($activeTool === "text") {
-      const el = createTextElement(lp, get(drawStyle));
-      textEdits.run(() => mutate((p) => p.figures.find((f) => f.id === fig.id)?.elements.push(el)));
-      selectOnly(el.id);
-      activeTool.set("select");
-      startEdit(el);
+      // Click OR drag: decided on pointer-up (finishTextBox). A click makes the
+      // hugging label as before; a drag draws a paragraph box that wraps at the
+      // dragged width — the one way to author a wrap width up front, which is
+      // what justification and vertical alignment act on.
+      gesture = { kind: "textbox", figId: fig.id, x0: lp.x, y0: lp.y };
+      gestureFig = fig;
+      textBox = null;
+      hostEl.setPointerCapture(e.pointerId);
     } else if (["rect", "ellipse", "line", "arrow"].includes($activeTool)) {
       gesture = { kind: "draw", figId: fig.id, x0: lp.x, y0: lp.y };
       gestureFig = fig;
@@ -2492,6 +2499,14 @@
       // Creation modifiers (F12): Shift = square/circle or 45° line; Alt = from centre.
       const { p0, p1 } = applyDrawModifiers($activeTool, { x: g.x0, y: g.y0 }, lp, e.shiftKey, e.altKey);
       preview = createDrawElement($activeTool, p0, p1, get(drawStyle));
+    } else if (g.kind === "textbox") {
+      const lp = localPoint(e.clientX, e.clientY, fig);
+      textBox = {
+        x: Math.min(g.x0, lp.x),
+        y: Math.min(g.y0, lp.y),
+        w: Math.abs(lp.x - g.x0),
+        h: Math.abs(lp.y - g.y0),
+      };
     }
   }
 
@@ -2599,6 +2614,19 @@
         selectOnly(el.id);
       }
       activeTool.set("select");
+    } else if (g.kind === "textbox") {
+      // A real drag (past the same 2px the shape tools use) draws a paragraph
+      // box: auto-h at the dragged width, so typing wraps there. Anything less
+      // is the click it always was — a hugging label at the press point.
+      const drawn = textBox && textBox.w > 2 && textBox.h > 2 ? textBox : null;
+      const el = drawn
+        ? createTextElement({ x: drawn.x, y: drawn.y }, get(drawStyle), { width: drawn.w, height: drawn.h })
+        : createTextElement({ x: g.x0, y: g.y0 }, get(drawStyle));
+      const figId = g.figId;
+      textEdits.run(() => mutate((p) => p.figures.find((f) => f.id === figId)?.elements.push(el)));
+      selectOnly(el.id);
+      activeTool.set("select");
+      startEdit(el);
     } else if (g.kind === "figmove" && dragging && (fDX !== 0 || fDY !== 0)) {
       ensureCommitted();
       mutateFigure(g.figId, (p) => {
@@ -2673,6 +2701,7 @@
     committed = false;
     preview = null;
     marquee = null;
+    textBox = null;
     guides = [];
     spacing = [];
     liveBox = null;
@@ -2715,7 +2744,7 @@
     guideDrag = null;
     // Endpoint pivot is transient (WS-1 Fix 2) — dropping lineEndLive IS the
     // cancel; the model was never touched.
-    if (gesture?.kind === "draw") activeTool.set("select");
+    if (gesture?.kind === "draw" || gesture?.kind === "textbox") activeTool.set("select");
     // Part move mutated the live node's transform transiently — put it back.
     if (gesture?.kind === "partmove" && dragging) {
       if (gesture.baseTransform) gesture.node.setAttribute("transform", gesture.baseTransform);
@@ -3810,6 +3839,12 @@
         <ElementView element={preview} />
       </g>
     {/if}
+    <!-- the T tool's paragraph-box draft: the wrap width being drawn -->
+    {#if textBox && gesture?.kind === "textbox" && gestureFig}
+      <g transform={drawPreviewTransform}>
+        <rect class="textbox-draft" x={textBox.x} y={textBox.y} width={textBox.w} height={textBox.h} vector-effect="non-scaling-stroke" />
+      </g>
+    {/if}
 
     <!-- smart guides (move) -->
     {#each guidesScreen as gd}
@@ -4425,6 +4460,15 @@
     fill: var(--c-accent-tint);
     stroke: var(--c-accent);
     stroke-width: 1;
+    pointer-events: none;
+  }
+  /* The T tool's drag draft — the wrap width being drawn (dashed: it is a box
+     the text will FILL, not a shape). Non-scaling stroke: 1 px at any zoom. */
+  .textbox-draft {
+    fill: none;
+    stroke: var(--c-accent);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
     pointer-events: none;
   }
   .guide {

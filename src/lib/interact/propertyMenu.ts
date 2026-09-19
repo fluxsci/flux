@@ -495,7 +495,9 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     F.push({ key: "v", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
     F.push({ key: "2", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
     F.push({ key: "q", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
-    F.push({ key: "3", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }, { value: "justify", label: "Justify" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as TextAlign; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
+    // Through the shared op, not a bare `e.align =`: Justify on a hugging box
+    // also gives it a wrap width (ops.setElementStyle), and upd() re-wraps.
+    F.push({ key: "3", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }, { value: "justify", label: "Justify" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") ops.setElementStyle(proj, [e.id], { align: v as TextAlign }); }) });
     // Vertical arrangement only has room to act when the box is taller than the
     // text — i.e. a FIXED box (auto/auto-h hug it) — so the row appears there,
     // and wherever a value is already set.

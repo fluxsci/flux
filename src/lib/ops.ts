@@ -514,7 +514,9 @@ export function makeText(text: string, b: Box, style: TextOpts = {}, panelLabel 
     ...(style.paragraphSpacing ? { paragraphSpacing: style.paragraphSpacing } : {}),
     ...(style.letterSpacing ? { letterSpacing: style.letterSpacing } : {}),
     color: style.color ?? "#222222",
-    sizing: style.sizing ?? "auto",
+    // A justified text needs a wrap width (see setElementStyle) — an agent asking
+    // for justify without naming a sizing gets the wrapping kind.
+    sizing: style.sizing ?? (style.align === "justify" ? "auto-h" : "auto"),
     ...(style.styleId ? { styleId: style.styleId } : {}),
     ...(panelLabel ? { panelLabel: true } : {}),
   };
@@ -1439,7 +1441,20 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (patch.underline != null) e.underline = patch.underline;
         if (patch.lineHeight != null) e.lineHeight = patch.lineHeight;
         if (patch.sizing != null) e.sizing = patch.sizing;
-        if (patch.align != null) e.align = patch.align;
+        if (patch.align != null) {
+          e.align = patch.align;
+          // Justification is defined against a WRAP WIDTH, and a hugging box has
+          // none — its width follows the text, so nothing ever wraps and the
+          // choice would be a silent no-op (the 2026-09-18 "justify does not
+          // work" report). Asking for it makes the box's current width authored
+          // (`auto-h`, the same flip a manual W applies in setBoxDim): nothing
+          // moves now — the hugged width still fits every line — but narrowing
+          // the box or typing on now wraps, and wrapped lines justify.
+          if (patch.align === "justify" && (e.sizing === "auto" || !e.sizing) && patch.sizing == null) {
+            e.sizing = "auto-h";
+            invalidateTextLayout(e);
+          }
+        }
         // The arrangement props store their DEFAULT as absence, so a reset
         // leaves the file exactly as it was before the property existed.
         if (patch.valign != null) {

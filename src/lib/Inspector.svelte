@@ -777,7 +777,7 @@
           </select>
         </label>
         <label>Align
-          <select value={single.align} on:change={(e) => updateSelected((el, p) => { if (el.type === "text") { el.align = e.currentTarget.value as TextAlign; ops.detachOnManualEdit(p, el, ["align"]); } })}>
+          <select value={single.align} on:change={(e) => { const v = e.currentTarget.value as TextAlign; updateSelected((el, p) => { if (el.type === "text") ops.setElementStyle(p, [el.id], { align: v }); }); }}>
             <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option><option value="justify">Justify</option>
           </select>
         </label>

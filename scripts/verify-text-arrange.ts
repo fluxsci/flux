@@ -30,6 +30,7 @@ import {
   lineH,
 } from "../src/lib/text";
 import { textSvgLayout, elementToSvg } from "../src/lib/export";
+import { createTextElement } from "../src/lib/editing";
 import * as ops from "../src/lib/ops";
 import type { Project, TextElement } from "../src/lib/types";
 
@@ -250,6 +251,46 @@ console.log("\n8. headless applyTextLayout stays safe");
   // The arrangement of what remains is still well-formed.
   const L = blockLayout(e);
   assert(L.lines.length === 1 && L.lines[0].paragraphEnd, "the fallback hard line is a complete paragraph");
+}
+
+// --- 9. justification needs a wrap width — asking for it authors one -----------
+// The 2026-09-18 "justify does not work" report: a hugging box (`auto`) has no
+// wrap width, so nothing ever wraps and Justify was a silent no-op. The shared
+// op now flips such a box to `auto-h` at its current width (the same flip a
+// manual W applies), and the T tool's DRAG authors a wrapping box up front.
+console.log("\n9. justification authors a wrap width");
+{
+  const p = proj([text({ id: "j1", sizing: "auto", width: 300, height: 12, lines: undefined })]);
+  const el = () => p.figures[0].elements[0] as TextElement;
+  ops.setElementStyle(p, ["j1"], { align: "justify" });
+  assert(el().align === "justify" && el().sizing === "auto-h", "Justify on a hugging box makes it auto-h (its width becomes the wrap width)");
+  assert(el().width === 300 && el().height === 12, "…without moving or resizing the box");
+  assert(el().needsLayout === true, "…and the layout is re-derived (headless: flagged for the GUI to wrap)");
+
+  const p2 = proj([text({ id: "j2", sizing: "fixed" })]);
+  ops.setElementStyle(p2, ["j2"], { align: "justify" });
+  assert((p2.figures[0].elements[0] as TextElement).sizing === "fixed", "a box that already has a width keeps its sizing");
+
+  const p3 = proj([text({ id: "j3", sizing: "auto" })]);
+  ops.setElementStyle(p3, ["j3"], { align: "justify", sizing: "fixed" });
+  assert((p3.figures[0].elements[0] as TextElement).sizing === "fixed", "an explicit sizing in the same patch wins");
+
+  const p4 = proj([text({ id: "j4", sizing: "auto" })]);
+  ops.setElementStyle(p4, ["j4"], { align: "center" });
+  assert((p4.figures[0].elements[0] as TextElement).sizing === "auto", "the other alignments leave a hugging box hugging");
+
+  // The constructors agree: an agent asking for justify gets a wrapping box.
+  const made = ops.makeText("hello", { x: 0, y: 0, width: 200, height: 20 }, { align: "justify" });
+  assert(made.sizing === "auto-h", "makeText with align justify defaults to auto-h");
+  assert(ops.makeText("hello", { x: 0, y: 0, width: 200, height: 20 }, {}).sizing === "auto", "…and to auto otherwise (unchanged)");
+
+  // The T tool: click = hugging label, drag = paragraph box at the dragged width.
+  const style = { fontFamily: "Arial", fontSize: 12, fontWeight: 400, textColor: "#000", fill: "#fff", stroke: "#000", strokeWidth: 1 } as Parameters<typeof createTextElement>[1];
+  const clicked = createTextElement({ x: 10, y: 20 }, style) as TextElement;
+  assert(clicked.sizing === "auto" && clicked.width === 240, "a click makes the hugging label it always did");
+  const dragged = createTextElement({ x: 10, y: 20 }, style, { width: 180, height: 4 }) as TextElement;
+  assert(dragged.sizing === "auto-h" && dragged.width === 180, "a drag makes an auto-h box at the dragged width");
+  assert(dragged.height >= 12 * 1.4, "…never shorter than one line, however shallow the drag");
 }
 
 console.log(fails === 0 ? "\nTEXT ARRANGE: ALL PASS" : `\nTEXT ARRANGE: ${fails} FAILURE(S)`);

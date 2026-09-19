@@ -247,6 +247,83 @@ try {
   await sleep(300);
   ok((await model("ta-fixed")).valign === "middle", "one undo restores the previous arrangement");
 
+  // --- 6. the T tool: a DRAG authors a wrap width, a CLICK still hugs ---------
+  // The 2026-09-18 "justify does not work" report: the only way to get a text
+  // that WRAPS used to be resizing it after the fact, so Justify on a freshly
+  // typed box was a silent no-op. A drag now draws a paragraph box (auto-h at
+  // the dragged width); a click keeps making the hugging label it always did.
+  console.log("\n6. the T tool's drag draws a paragraph box");
+  await page.evaluate(() => {
+    const F = window.__flux.fig;
+    F.commit((p) => { const g = p.figures[0]; g.elements = []; });
+    F.clearSelection();
+  });
+  await sleep(250);
+  const at = (x, y) => [host.left + host.panX + x * host.zoom, host.top + host.panY + y * host.zoom];
+  const texts = () => page.evaluate(() => window.__flux.figures().flatMap((f) => f.elements).filter((e) => e.type === "text").map((e) => structuredClone(e)));
+  await page.keyboard.press("t");
+  await sleep(120);
+  await page.mouse.move(...at(100, 100));
+  await page.mouse.down();
+  await page.mouse.move(...at(200, 140), { steps: 4 });
+  ok(await page.$(".textbox-draft"), "dragging shows the wrap-width draft");
+  await page.mouse.move(...at(320, 180), { steps: 4 });
+  await page.mouse.up();
+  await waitFor(page, () => !!document.querySelector("textarea.text-edit"), null, { label: "editor opens after the drag" });
+  ok(!(await page.$(".textbox-draft")), "the draft goes with the pointer");
+  let [dragged] = await texts();
+  ok(dragged?.sizing === "auto-h" && dragged.width === 220 && dragged.x === 100 && dragged.y === 100, `the drag made an auto-h box at the dragged width (${dragged?.sizing} ${dragged?.width}×${dragged?.height} at ${dragged?.x},${dragged?.y})`);
+  await page.keyboard.type("the quick brown fox jumps over the lazy dog while the sun sets slowly behind the hills");
+  await page.mouse.click(...at(900, 600)); // click away → commit
+  await sleep(400);
+  [dragged] = await texts();
+  ok(dragged.lines?.length >= 2 && dragged.width === 220, `typing wraps at the drawn width (${dragged.lines?.length} lines, still ${dragged.width} wide)`);
+  await select(dragged.id);
+  await setSelect("Align", "justify");
+  const drawnPainted = await painted(dragged.id);
+  ok(drawnPainted.spans.slice(0, -1).every((s) => Number(s.len) === 220 && s.adjust === "spacing") && drawnPainted.spans.at(-1).len === null, "…and Justify fills the drawn width on every line but the last");
+
+  // A CLICK is unchanged: a hugging label.
+  await page.keyboard.press("t");
+  await sleep(120);
+  await page.mouse.click(...at(100, 320));
+  await waitFor(page, () => !!document.querySelector("textarea.text-edit"), null, { label: "editor opens after the click" });
+  await page.keyboard.type("a hugging label that becomes a paragraph once justified and narrowed");
+  await page.mouse.click(...at(900, 600));
+  await sleep(400);
+  let clicked = (await texts()).at(-1);
+  ok(clicked.sizing === "auto" && clicked.x === 100 && clicked.y === 320 && !clicked.lines, `a click still makes a hugging label at the press point (${clicked.sizing} ${clicked.width} wide)`);
+
+  // --- 7. Justify on a hugging label authors its wrap width -------------------
+  console.log("\n7. Justify gives a hugging label a wrap width");
+  const hugWidth = clicked.width;
+  await select(clicked.id);
+  const h6 = (await hist()).past;
+  await setSelect("Align", "justify");
+  clicked = (await texts()).at(-1);
+  ok(clicked.align === "justify" && clicked.sizing === "auto-h", `Justify flips the label to auto-h (${clicked.sizing})`);
+  ok(clicked.width === hugWidth && clicked.x === 100 && clicked.y === 320, "…keeping its width and place — nothing moves");
+  ok((await hist()).past === h6 + 1, "…as one undo entry");
+  // Now the width is authored: narrowing it wraps, and wrapped lines justify.
+  await page.evaluate(() => {
+    const input = [...document.querySelectorAll("input")].find((i) => (i.closest("label")?.textContent ?? "").trim().startsWith("W"));
+    input.focus(); input.value = "200";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    input.blur();
+  });
+  await sleep(500);
+  clicked = (await texts()).at(-1);
+  const narrowed = await painted(clicked.id);
+  ok(clicked.width === 200 && clicked.lines?.length >= 2, `narrowing the box wraps it (${clicked.lines?.length} lines at ${clicked.width})`);
+  ok(narrowed.spans.slice(0, -1).every((s) => Number(s.len) === 200) && narrowed.spans.at(-1).len === null, "…and the wrapped lines fill the new width, last line natural");
+  await page.evaluate(() => { window.__flux.fig.undo(); window.__flux.fig.undo(); });
+  await sleep(300);
+  clicked = (await texts()).at(-1);
+  ok(clicked.sizing === "auto" && clicked.align === "left" && clicked.width === hugWidth, "two undos return the hugging label exactly");
+  await shot(page, "text-arrange-03-ttool");
+
   const errs = realErrors(page);
   ok(errs.length === 0, `clean console (${errs.length})`);
   if (errs.length) console.log(errs.slice(0, 5).join("\n"));

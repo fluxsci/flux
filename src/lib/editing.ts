@@ -100,14 +100,19 @@ export function createDrawElement(
   }
 }
 
-export function createTextElement(p: Pt, style: DrawStyle): Element {
+/** The T tool's element. A CLICK makes a hugging box (`auto`: the box follows
+ *  the text, no wrapping — a label). A DRAG makes a PARAGRAPH box: `auto-h`
+ *  at the dragged width, so typing wraps there and the height follows — the
+ *  Figma click/drag split, and the only way to author a wrap width up front
+ *  (justification and vertical alignment act on a box that wraps). */
+export function createTextElement(p: Pt, style: DrawStyle, box?: { width: number; height: number }): Element {
   const el: Element = {
     type: "text",
     id: newId("text"),
     x: p.x,
     y: p.y,
-    width: 240,
-    height: style.fontSize * 1.4,
+    width: box ? Math.max(8, box.width) : 240,
+    height: box ? Math.max(style.fontSize * 1.4, box.height) : style.fontSize * 1.4,
     rotation: 0,
     text: "Text",
     fontFamily: style.fontFamily,
@@ -116,7 +121,7 @@ export function createTextElement(p: Pt, style: DrawStyle): Element {
     fontStyle: "normal",
     align: "left",
     color: style.textColor,
-    sizing: "auto",
+    sizing: box ? "auto-h" : "auto",
   };
   applyTextLayout(el);
   return el;

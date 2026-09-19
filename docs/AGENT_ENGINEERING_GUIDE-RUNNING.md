@@ -398,8 +398,22 @@ Persistence invariants (all machine-checked — do not weaken):
   keeps old files byte-identical. `blockLayout` runs per text per render on scenes with
   hundreds of labels, so it is ONE pass with two fast paths (one visual line; one hard line)
   and no intermediate arrays — the first cut allocated two arrays and ran two regexes per line
-  and cost +10% on the dense nudge (scale-figure 167 → 184 ms). Gates:
-  `verify-text-arrange.ts` (pure) + `verify-text-arrange-gui.mjs` (ui).
+  and cost +10% on the dense nudge (scale-figure 167 → 184 ms).
+  **Justification needs a wrap width, and the product has to hand the user one** (owner
+  report 2026-09-18, "justify does not work"): a hugging box (`sizing: "auto"`) has no wrap
+  width — its width follows the text — so nothing ever wraps and Justify was a silent no-op
+  on every freshly typed text, because the T tool only ever made hugging labels. Two rules
+  now: (1) `ops.setElementStyle({align:"justify"})` on a hugging box flips it to `auto-h` at
+  its CURRENT width (the same flip a manual W applies in `setBoxDim`; nothing moves, the
+  hugged width still fits every line, but narrowing or typing on now wraps) — the Inspector
+  and F-menu align controls route through that op, never a bare `e.align =`, and `makeText`
+  defaults justify to `auto-h` for agents; (2) the **T tool's DRAG draws a paragraph box**
+  (`createTextElement(p, style, box)` → `auto-h` at the dragged width, dashed
+  `.textbox-draft` while dragging, past the shape tools' 2 px threshold) while a click keeps
+  making the hugging label — the Figma click/drag split, and the only way to author a wrap
+  width up front. A textarea DOES honour `text-align: justify` in Chromium, so the inline
+  editor shows the justified block while typing. Gates: `verify-text-arrange.ts` (pure) +
+  `verify-text-arrange-gui.mjs` (ui, §6–7 drive the real T tool).
 - **Scene transforms:** `sceneTransforms.ts` updates only active drag/rotation wrappers. Culling
   depends on selection/model/viewport and a moving **figure**, not every element gesture phase;
   invalidating all keyed Elements on first drag costs a full scene update. Frame resize previews
@@ -5782,3 +5796,26 @@ conditions, pure 199/232 (unchanged), ui 99/102 — the three reds are `verify-z
 - Check whether a failing job is even blocking before ranking the work: `ui-gate` carries
   `continue-on-error` (the WS-7.2 observation period), so the red X on the run came from the
   `test` job's two bundle failures alone.
+
+### 2026-09-18 (evening) — "Justify does not work": the T tool never made a box that wraps (Claude Fable 5.1, `main`)
+
+**Work:** Owner: Justify does nothing. Reproduced with real input: the mechanism was fine on
+any box that wraps, but the T tool only ever created hugging labels (`sizing: "auto"`), whose
+width follows the text — so a freshly typed box had no wrap width and Justify was a silent
+no-op. Fixed at the source, twice: `ops.setElementStyle({align:"justify"})` on a hugging box
+now authors its current width (`auto-h`, the same flip a manual W applies), with the Inspector
+and F menu routed through the op and `makeText` defaulting agents' justify to `auto-h`; and
+the T tool gained Figma's click/drag split — a drag draws a paragraph box (`auto-h` at the
+dragged width, dashed draft while dragging), a click keeps making the label. Docs' "press T
+and drag" claim, written a session early, is now true. Gates: `verify-text-arrange.ts` §9,
+`verify-text-arrange-gui.mjs` §6–7 (drive the actual T tool: draft, drag width, wrap,
+justify, click parity, one-undo flip); eight affected browser gates green.
+**Learnings:**
+
+- Promoted to §4: justification needs a wrap width and the product has to hand the user one
+  — a correct primitive behind an authoring path that never reaches it "does not work".
+- "It works in the gate" was true and beside the point: the gate seeded wrapping boxes by
+  hand. Reproduce a "doesn't work" with the user's actual gestures (tool key, click/drag,
+  type, click away) before reading code — the probe named the gap in one run.
+- A dumped state that disagrees only on `dirty: true → false` is the §7 autosave race, not
+  the change under test (`verify-figure-controls-gui`, passed alone before and after).
