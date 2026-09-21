@@ -45,10 +45,10 @@ Flux is a desktop **scientific writing studio**: manuscript editor (Paper), figu
 vestigial). It is deliberately **agent-native**: an AI agent is a first-class user with the same
 capabilities as the GUI, through three surfaces:
 
-- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — both generated from **one
-  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`). They operate on
-  project files directly through `flux-core/*` (Node).
-- **Live bridge** (`electron/bridgeServer.cjs` + `src/lib/project/liveClient` path) — a loopback
+- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — most file verbs share **one
+  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`); legacy wrappers and handwritten
+  CLI help still remain. They operate on project files directly through `flux-core/*` (Node).
+- **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
 - **The Context layer + principal runtime** (principal-agent scheme, 2026-07-19): all agent
@@ -143,9 +143,10 @@ Persistence invariants (all machine-checked — do not weaken):
   `comments.json` and its document-named `<base>.comments.json` sidecar, deduplicated by thread
   id. Promoting a secondary manuscript to main must never make its existing comments vanish.
 
-- **Every canonical write is atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
+- **Canonical replacement writes must be atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
   `atomicWriteMain` in `electron/ipc/files.cjs`). Directory entries are fsynced after rename
-  batches (`fsyncDir`).
+  batches (`fsyncDir`). This is a per-file primitive, not proof of read-modify-write isolation
+  or whole-project crash atomicity; the September 20 review found remaining gaps (see §10).
 - **fig/ saves have a commit point**: canvas files first → dir fsync → captions →
   `index.json` **last** (+ one-generation `index.json.bak`). The index never references a canvas
   file that doesn't exist, even across SIGKILL (`verify-figsave-txn.ts`). The ordering lives once,
@@ -168,7 +169,9 @@ Persistence invariants (all machine-checked — do not weaken):
   referenced canvas) blocks subsequent GUI saves, including force-save; headless load rejects
   it. Never overwrite a healthy sibling from an incomplete model. Byte-preservation tests
   must reopen compositions as well as compare assets (`verify-figfiles-parity.ts`).
-- **Source updates publish only after persistence.** `plot/sourceSync.ts` plans complete
+- **Source updates must publish only after persistence.** The September 20 fault probe found
+  `project/sourceBridge.ts` publishes model/cache/accepted sizes too early on write failure;
+  review package F03 specifies the correction. `plot/sourceSync.ts` plans complete
   SVG/manifest/recipe bundles, validates changes, preserves last-good bytes on missing or
   malformed sources, and applies shared physical sizing. `project/sourceBridge.ts` owns
   catch-up/watch/retry independent of the active mode; `slide/sourceSync.ts` adapts deck-local
@@ -339,10 +342,12 @@ Persistence invariants (all machine-checked — do not weaken):
   just-created file EMPTY, judge it corrupt, delete the holder's live lock, and walk into the
   critical section beside it (a real lost update, found 2026-08-13 by verify-note's contention
   gate; pinned in verify-w3-locks §6). Corollaries: never clear a lock you couldn't READ as
-  stale (a vanished file just retries; corrupt content clears only past the TTL by mtime), and
-  clear a stale lock by RENAME-to-trash so two contenders can't double-clear each other's
-  fresh claim. Notebook session-log entries have a dedicated locked appender: `flux note`
-  (`addNote`, manuscript lock — safe with N concurrent principals; verify-note).
+  stale (a vanished file just retries; corrupt content clears only past the TTL by mtime).
+  Rename-to-trash is not by itself compare-and-swap: takeover/release still require ownership
+  protection. The September 20 review reproduced overlapping same-process acquisitions and
+  cross-window human-lock release; F02 covers operation tokens, local queues and takeover.
+  Notebook session-log entries have a dedicated locked appender: `flux note`
+  (`addNote`, manuscript lock; existing inter-process contention gate: verify-note).
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
@@ -1766,6 +1771,13 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
+- **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
+  notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`
+  (local, ignored). It targets bundled tools, explicit Mac first-launch approval, and an
+  early Sparkle/Flux-owned-signature update prototype. That route is not yet qualified;
+  do not claim seamless Mac updates from installer-build success or restore Apple
+  membership as a release prerequisite. Extend the accepted fortification release gates.
+
 - **Physical-display flicker remains a separate validation surface.** The
   original September 16 report attributed remaining flicker to Wayland/NVIDIA,
   but its sampling did not establish that cause. Independent review reproduced
@@ -1810,8 +1822,9 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   GONE from the GUI (everything is visible by default; the X-ray's `x` hide
   is the one static-hiding mechanism) — `setPartVisibility` remains as the
   headless/back-compat op + verb only; don't resurrect a GUI tri-state.
-  Cross-type transforms (rect→text) and per-part transform tracks are
-  deliberately out of v1 (part styling changes ride the plot transform's
+  Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
+  preserve them and test reset/default semantics (September 20 review PS-06). Per-part transform
+  tracks remain deferred (part styling changes ride the plot transform's
   `overrides` diff). Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
@@ -1827,13 +1840,20 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
-- **Gates that fail on `main` today (2026-09-15; evidence: a detached worktree of `b242c41`
-  served on :1421 fails identically):** `verify-paper-export.mjs` (its regex expects
+- **Known gate failures (rechecked 2026-09-20 at `c289627`):** `verify-paper-export.mjs` (its regex expects
   `materializeRenders(root, m.manuscript.path)` while `flux-core/manuscript.ts` passes
-  `document`), `verify-context-gui.mjs` ("picker shows the Context group" — the demo fixture's
-  `.docpicker` renders no Context head) and `verify-lib-actions.mjs` (Ctrl+click "detail strip
-  open" times out). None is touched by the surface redesign; fix each at its source in its own
-  session, never by loosening the gate.
+  `document`) and `verify-context-gui.mjs` (its whole `.dp-head` text assertion includes the new
+  folder-action buttons; Context does render). `verify-lib-actions.mjs` passed in this snapshot's
+  broad UI baseline; the September 15 timeout is historical. The fresh startup gate reports
+  802.3 KB eager shell against 800 KB. Full baseline dispositions, including native fixture/runtime
+  problems, live in `notes/major_v02_review/BASELINES.md`. Repair behavioral coverage, not budgets.
+- **V0.2 fortification review (2026-09-20, planning only):**
+  `notes/major_v02_review/README.md` owns the implementation sequence and acceptance criteria.
+  Confirmed open preservation defects include cross-document Paper undo, partial conversion
+  writes, early reload-baseline adoption, stale manifest writers, failed-flush navigation/quit,
+  and same-owner lock overlap. Existing green tests do not establish those adverse interleavings.
+  The guide's preservation rules remain requirements; the review documents where current code
+  falls short. No proposed fix is implemented merely because it appears in that plan.
 - **The demo fixture cannot hand a re-imported asset from Figure to Slide:** the tenancy handoff
   refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
@@ -5651,3 +5671,21 @@ the branch remains for owner testing before merge.
 Confirmed all 26 audited source/test hashes still matched the validation record, preserved
 the original session report alongside the independent audit, and prepared the local
 fast-forward integration for the owner to push.
+
+### 2026-09-20 — Complete V0.2 fortification review and plan (Codex, main)
+**Work:** Continued the interrupted Claude review, independently adjudicated its findings,
+reviewed all application surfaces and headless/native boundaries, and wrote implementation-ready
+packages in `notes/major_v02_review/README.md`. Product code is unchanged; staged builds and
+isolated fault/native probes supplement the inherited same-commit browser baseline.
+**Learnings:**
+- Promoted corrections to registry coverage, live-client path, lock/atomicity claims, source
+  publication, cross-type transforms and current gate diagnoses into the body.
+- Test failure classification needs actual fixture/runtime evidence; retain first failures and
+  controlled reruns. Accepted plans and passing adjacent gates are not completed fixes.
+
+### 2026-09-21 — Packaging and distribution plan (Codex, main)
+**Work:** Wrote `notes/packaging_distribution_integration-plan.md` with a plain-language
+summary, bundled-toolchain design, unsigned Mac installation/update qualification, Linux
+distribution, CI/release evidence, implementation sequence, and maintenance/recovery rules.
+Read the active fortification release seams without modifying that worktree. Recorded the
+owner's no-paid-Apple constraint in §10; application code and release infrastructure unchanged.
