@@ -12,6 +12,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createRequire } from "node:module";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -98,7 +99,22 @@ try {
   assert(/ipc\.handle\("fs:exists",[^)]*\)\s*=>\s*\{\s*\n\s*fsReadGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:exists uses the scoped read guard");
   const readGuardBody = filesCjs.split("function fsReadGuard(p, senderId)")[1]?.split("\n  }")[0] ?? "";
   assert(readGuardBody.includes("sourceReadFiles.get(senderId)") && readGuardBody.includes("files.has(ab)") && readGuardBody.includes("fsGuard(p, senderId)"), "SHL-6: read grants are exact and window-scoped, with the root guard as fallback");
-  assert(/ipc\.handle\("fs:readdir",[^)]*\)\s*=>\s*\{\s*\n\s*fsGuard\(p, e\.sender\.id\)/.test(filesCjs), "SHL-6: fs:readdir now guarded");
+  const inventoryBody = filesCjs.split('ipc.handle("fs:readdir",')[1]?.split('\n    });')[0] ?? '';
+  const inventoryGuard = inventoryBody.indexOf('fsGuard(p, e.sender.id)'), inventoryRead = inventoryBody.indexOf('fs.promises.readdir(');
+  assert(inventoryGuard >= 0 && inventoryRead > inventoryGuard, "SHL-6: fs:readdir guard precedes filesystem enumeration");
+  // The strict-inventory flag may be validated before the guard. Exercise the
+  // real registered handler instead of assuming the guard is its first line.
+  const { createFileCore } = createRequire(import.meta.url)("../electron/ipc/files.cjs");
+  const fileHandlers = new Map<string, (...args: any[]) => Promise<any>>();
+  createFileCore({ app: { getPath: (name: string) => path.join(sandbox,"native",name) }, roots: () => [root], setPendingRoot() {} })
+    .registerHandlers({ handle: (name: string, fn: (...args: any[]) => Promise<any>) => fileHandlers.set(name,fn) });
+  const inventory = fileHandlers.get('fs:readdir')!, sender = { sender: { id: 1 } }, denied = path.join(sandbox,'denied');
+  await fs.mkdir(denied); await fs.writeFile(path.join(denied,'private.txt'),'must not enumerate');
+  for (const strict of [false,true]) {
+    await throws(() => inventory(sender,denied,strict), /outside project\/app roots/, `SHL-6: actual readdir denies ungranted directory (strict=${strict})`);
+    assert((await inventory(sender,root,strict)).some((e: {name: string}) => e.name === 'project.json'), `SHL-6: actual readdir retains project inventory (strict=${strict})`);
+  }
+  await throws(() => inventory(sender,root,'invalid'), /Invalid directory inventory mode/, 'SHL-6: actual inventory rejects malformed options');
   has(mainCjs, "fsGuard(recipePath, e.sender.id)", "SHL-6: recipe:run contains recipePath");
   has(mainCjs, "unsafe deckId", "SHL-6: slides:exportDeck sanitizes deckId");
   // WS-9.4b: keys.json + proxy-cred writes live in the NETWORK family module.
