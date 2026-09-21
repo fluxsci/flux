@@ -94,7 +94,7 @@ try {
       `<rect x="40" y="30" width="120" height="60" fill="#0a9f3e"/></g></svg>`;
     const ref = { id: "clipfig", label: "fig-clipfig", name: "Clip", family: "figure", number: 1,
       display: "Fig. 1", captionLabel: "", order: 1, canvas: "c1", caption: "", panels: [] };
-    const fig = { id: "clipfig", name: "Clip", width: 200, height: 120,
+    const fig = { id: "clipfig", canvasId: "c1", name: "Clip", x: 0, y: 0, width: 200, height: 120,
       elements: [{ type: "plot", id: "plot_clip_el", assetId: "a1", x: 0, y: 0, width: 200, height: 120, rotation: 0, overrides: {} }] };
     window.__fluxSeedFigures([ref], { clipfig: fig }, { a1: `data:image/svg+xml;base64,${btoa(PLOT)}` }, [], {}, [], []);
     const view = (window.__flux?.editors ?? [])[0];

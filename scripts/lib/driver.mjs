@@ -15,6 +15,7 @@
 
 import { mkdirSync } from "node:fs";
 import puppeteer from "puppeteer-core";
+import { recordBrowserRuntime } from './runtimeEvidence.mjs';
 
 export const CHROME = process.env.FLUX_CHROME || "/usr/bin/google-chrome";
 export const APP_URL = process.env.FLUX_URL || "http://127.0.0.1:1420/";
@@ -60,6 +61,7 @@ export async function launch({ width = 1440, height = 900 } = {}) {
   _errs.set(page, errs);
   page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
   page.on("pageerror", (e) => errs.push("PAGEERR " + e.message));
+  await recordBrowserRuntime(page,{label:'browser-launch'});
   return { browser, page };
 }
 
@@ -83,6 +85,7 @@ export async function gotoApp(page, { settle = 1200, url = APP_URL } = {}) {
     try {
       await page.goto(url, { waitUntil: "networkidle0", timeout: 8000 });
       await sleep(settle);
+      await recordBrowserRuntime(page,{label:'application'});
       return;
     } catch (e) {
       lastErr = e;

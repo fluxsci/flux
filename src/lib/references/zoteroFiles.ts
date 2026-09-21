@@ -1,3 +1,4 @@
+import { rawBibField } from "./bibScanner";
 // Zotero PDF attachments on import (2.4). Better-BibTeX writes a `file` field on each
 // entry pointing at the attached PDF(s); parsing it lets a .bib import pull the actual
 // papers in — not just the metadata. Pure (no I/O): extract the field, split its
@@ -76,29 +77,7 @@ export function parseZoteroFileField(value: string): ZoteroFile[] {
 /** Extract a single field's raw value from one BibTeX entry block. Handles brace-
  *  wrapped `{…}` (balanced), quote-wrapped `"…"`, and bare values. Returns null if the
  *  field is absent. Case-insensitive on the field name; `file` won't match `profile`. */
-export function extractBibField(raw: string, field: string): string | null {
-  const re = new RegExp(`(?:^|[\\s,{])${field}\\s*=\\s*`, "i");
-  const m = re.exec(raw);
-  if (!m) return null;
-  let i = m.index + m[0].length;
-  const open = raw[i];
-  if (open === "{") {
-    let depth = 0;
-    const start = i + 1;
-    for (; i < raw.length; i++) {
-      if (raw[i] === "{") depth++;
-      else if (raw[i] === "}" && --depth === 0) return raw.slice(start, i);
-    }
-    return null; // unbalanced
-  }
-  if (open === '"') {
-    const end = raw.indexOf('"', i + 1);
-    return end < 0 ? null : raw.slice(i + 1, end);
-  }
-  const rest = raw.slice(i);
-  const end = rest.search(/[,\n}]/);
-  return (end < 0 ? rest : rest.slice(0, end)).trim();
-}
+export function extractBibField(raw: string, field: string): string | null { return rawBibField(raw, field); }
 
 /** The PDF attachments declared on a raw BibTeX entry (empty when it has no `file`
  *  field or none of them look like PDFs). */

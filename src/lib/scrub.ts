@@ -10,6 +10,7 @@ export interface ScrubParams {
   min?: number | null;
   max?: number | null;
   disabled?: boolean;
+  owner?: unknown;
 }
 const precisionOf = (step: number) => step < 1 ? Math.min(6, Math.ceil(-Math.log10(step))) : 0;
 export function scrub(node: HTMLElement, params: ScrubParams) {
@@ -69,7 +70,7 @@ export function scrub(node: HTMLElement, params: ScrubParams) {
   window.addEventListener('keydown', key, true);
   window.addEventListener('blur', cancel);
   return {
-    update(next: ScrubParams) { if (next.disabled) cancel(); p = next; },
+    update(next: ScrubParams) { if (next.owner !== p.owner) finish(false); else if (next.disabled) cancel(); p = next; },
     destroy() {
       cancel();
       node.removeEventListener('pointerdown', down);

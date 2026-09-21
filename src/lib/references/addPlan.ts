@@ -1,3 +1,4 @@
+import { assertBibValid, bibMacroMap } from "./bibScanner";
 // The single source of truth for "add these BibTeX entries to a library.bib" — the
 // dedupe + rekey decision that BOTH engines (GUI fluxlibBridge, Node flux-core/fluxlib)
 // used to carry as byte-identical copies. Extracting it here means an import PREVIEW
@@ -52,16 +53,22 @@ export function planAdds(
   incomingBibText: string,
   source: "doi" | "bibtex" = "bibtex",
   addedAt?: string,
+  options: { restore?: boolean } = {},
 ): AddPlan {
+  assertBibValid(currentBibText);
+  const incomingScan = assertBibValid(incomingBibText);
+  const currentMacros = bibMacroMap(currentBibText), incomingMacros = bibMacroMap(incomingBibText);
+  const identity = (key: string) => key.normalize("NFC").toLowerCase();
   const stamp = addedAt ?? new Date().toISOString();
   const taken = new Set<string>();
   const doiToKey = new Map<string, string>();
   const sigToKey = new Map<string, string>();
+  const keyDoi = new Map<string, string>();
   for (const r of splitBibEntries(currentBibText)) {
     const k = bibtexKey(r);
     if (k) taken.add(k);
-    const e = lightEntry(r);
-    if (e.doi) doiToKey.set(e.doi.toLowerCase(), k || e.key);
+    const e = lightEntry(r, currentMacros);
+    if (e.doi) { doiToKey.set(e.doi.toLowerCase(), k || e.key); keyDoi.set(k || e.key, e.doi.toLowerCase()); }
     const sig = dupeSignature(e);
     if (sig && !sigToKey.has(sig)) sigToKey.set(sig, k || e.key);
   }
@@ -73,11 +80,11 @@ export function planAdds(
   const appendBuf: string[] = [];
 
   for (const raw of splitBibEntries(incomingBibText)) {
-    const e = lightEntry(raw);
+    const e = lightEntry(raw, incomingMacros);
     const doi = e.doi?.toLowerCase();
     const orig = bibtexKey(raw);
 
-    if (doi && doiToKey.has(doi)) {
+    if (!options.restore && doi && doiToKey.has(doi)) {
       const k = doiToKey.get(doi) as string;
       const entry: RefEntry = { ...e, key: k };
       deduped.push(entry);
@@ -86,7 +93,7 @@ export function planAdds(
       continue;
     }
     const sig = dupeSignature(e);
-    if (sig && sigToKey.has(sig)) {
+    if (!options.restore && sig && sigToKey.has(sig) && !(doi && keyDoi.get(sigToKey.get(sig)!) && keyDoi.get(sigToKey.get(sig)!) !== doi)) {
       const k = sigToKey.get(sig) as string;
       if (doi) doiToKey.set(doi, k);
       const entry: RefEntry = { ...e, key: k };
@@ -96,13 +103,14 @@ export function planAdds(
       continue;
     }
 
-    const key = source === "bibtex" && orig && !taken.has(orig) ? orig : makeCitekey(e, taken);
-    const outRaw = stampDateAdded(rekeyBibtex(raw, key), stamp);
+    const key = source === "bibtex" && orig && ![...taken].some(k => identity(k) === identity(orig)) && !/[\\/\x00-\x1f<>:"|?*]/.test(orig) && !/^(?:\.{1,2}|con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(orig) && !/[. ]$/.test(orig) && orig.length <= 180 ? orig : makeCitekey(e, taken);
+    if (options.restore && key !== orig) throw new Error(`Cannot restore ${orig}: its identity conflicts with an intervening edit`);
+    const outRaw = options.restore ? raw : stampDateAdded(rekeyBibtex(raw, key), stamp);
     taken.add(key);
-    if (doi) doiToKey.set(doi, key);
+    if (doi) { doiToKey.set(doi, key); keyDoi.set(key, doi); }
     if (sig && !sigToKey.has(sig)) sigToKey.set(sig, key);
     // dateAdded mirrors what the raw actually carries (a field-less `@misc{key}` can't take the stamp).
-    const entry: RefEntry = { ...e, key, raw: outRaw, dateAdded: /\bdateadded\s*=/i.test(outRaw) ? stamp : undefined };
+    const entry: RefEntry = { ...e, key, raw: outRaw, dateAdded: lightEntry(outRaw).dateAdded };
     added.push(entry);
     keys.push(key);
     appendBuf.push(outRaw);
@@ -116,7 +124,18 @@ export function planAdds(
     renamed: planned.filter((p) => p.renamed).length,
     withDoi: planned.filter((p) => p.hasDoi).length,
   };
-  return { planned, added, deduped, keys, appendText: appendBuf.join("\n\n"), counts };
+  let appendText = "";
+  if (appendBuf.length) {
+    let cursor = 0, index = 0;
+    for (const record of incomingScan.records.filter(r => r.kind === "entry")) {
+      appendText += incomingBibText.slice(cursor, record.start);
+      const item = planned[index++];
+      if (item.action === "new") appendText += item.entry.raw;
+      cursor = record.end;
+    }
+    appendText += incomingBibText.slice(cursor);
+  }
+  return { planned, added, deduped, keys, appendText, counts };
 }
 
 /** Join a plan's append text onto existing library.bib content (the write both engines do). */

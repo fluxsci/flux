@@ -11,6 +11,7 @@ import { exportSlideVideo } from "../../flux-core/slideVideo";
 import { TestProcessScope } from "./testProcess.mjs";
 
 const require = createRequire(import.meta.url), repo = process.cwd();
+require("./nestedVideoTestLaunch.cjs").installNestedVideoTestLaunch();
 const scratch = process.env.PROBE_SCRATCH!, root = path.join(scratch, "export-project");
 assert.ok(scratch && process.env.HOME?.startsWith(scratch), "isolated machine state required");
 const artifacts = path.join(repo, "test-results/slide-video");
@@ -121,7 +122,7 @@ try {
   await fs.rm(path.join(resources, "default_app.asar"), { force: true });
   const app = path.join(resources, "app"); await fs.mkdir(path.join(app, "electron"), { recursive: true }); await fs.mkdir(path.join(app, "dist"));
   await fs.writeFile(path.join(app, "package.json"), JSON.stringify({ name: "flux-video-probe", version: "1.0.0", main: "electron/entry.cjs" }));
-  for (const name of ["entry.cjs", "slideVideoWorker.cjs"]) await fs.copyFile(path.join(repo,"electron",name),path.join(app,"electron",name));
+  for (const name of ["entry.cjs", "slideVideoWorker.cjs", "slideAudioGraph.cjs"]) await fs.copyFile(path.join(repo,"electron",name),path.join(app,"electron",name));
   for (const name of ["flux-cli.mjs", "slide-export-assets.json"]) await fs.copyFile(path.join(repo,"dist",name),path.join(app,"dist",name));
   const child = scope.spawn(path.join(app, "dist/flux-cli.mjs"), ["export-slide-video", still.id, "still", "--root", root, "--out", path.join(artifacts,"packaged.mp4"), "--start-hold", "0", "--end-hold", "0", "--height", "720"], { nodeArgs: [], deadlineMs: 90000,
     env: { ...process.env, FLUX_VIDEO_ELECTRON: packaged, FLUX_VIDEO_APP_ROOT: app, FLUX_VIDEO_ENCODER: encoder } });

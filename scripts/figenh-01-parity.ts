@@ -10,6 +10,8 @@ import { get } from "svelte/store";
 import * as core from "../flux-core/index";
 import * as ops from "../src/lib/ops";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import { nodesToPath } from "../src/lib/path";
 import type { PathElement, Project, VectorNode } from "../src/lib/types";

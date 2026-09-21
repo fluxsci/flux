@@ -1,3 +1,4 @@
+import { sanitizePassiveSvg, passiveCss } from "./passiveSvg";
 // Normalize an SVG's DOM so per-part styling is actually possible, and (Phase 4)
 // derive a parts manifest for SVGs that ship without one.
 //
@@ -50,23 +51,7 @@ export function insideDefs(el: Element): boolean {
 // ---------------------------------------------------------------------------
 // 1. Sanitize — we inline foreign SVG bytes into the editor document.
 // ---------------------------------------------------------------------------
-function sanitize(root: Element): void {
-  for (const el of Array.from(root.querySelectorAll("script, foreignObject"))) el.remove();
-  for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
-    for (const attr of Array.from(el.attributes ?? [])) {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith("on")) {
-        el.removeAttribute(attr.name);
-        continue;
-      }
-      if (name === "href" || name === "xlink:href") {
-        const v = (attr.value ?? "").trim();
-        // Keep same-document (#id) and data: references; drop javascript:/external.
-        if (v && !v.startsWith("#") && !v.startsWith("data:")) el.removeAttribute(attr.name);
-      }
-    }
-  }
-}
+const sanitize = sanitizePassiveSvg;
 
 // ---------------------------------------------------------------------------
 // 2. Inline shared <use> markers.
@@ -93,13 +78,20 @@ function parseStyle(s: string | null): Map<string, string> {
 }
 
 function styleString(m: Map<string, string>): string {
-  return [...m.entries()].map(([k, v]) => `${k}: ${v}`).join("; ");
+  return passiveCss([...m.entries()].map(([k, v]) => `${k}: ${v}`).join("; "), "declarationList");
 }
 
 /** Shadow-tree style semantics for <use>: the referenced element's OWN declared
  *  properties win; the use's properties fill in what the target doesn't declare. */
 function mergeUseStyle(target: Element, use: Element): void {
   const useMap = parseStyle(use.getAttribute("style"));
+  // Presentation attributes on <use> participate in inheritance just like its
+  // inline paint/font declarations. Keep the referenced node's own declaration
+  // authoritative, and let inline declarations on the use beat its attributes.
+  const inherited = /^(?:color|fill|fill-opacity|fill-rule|stroke|stroke-opacity|stroke-width|stroke-dasharray|stroke-dashoffset|stroke-linecap|stroke-linejoin|stroke-miterlimit|font-family|font-size|font-style|font-weight|font-variant|font-stretch|text-anchor|letter-spacing|word-spacing|visibility|paint-order|clip-rule)$/;
+  for (const attr of Array.from(use.attributes)) {
+    if (inherited.test(attr.name) && !useMap.has(attr.name)) useMap.set(attr.name, attr.value);
+  }
   if (!useMap.size) return;
   const own = parseStyle(target.getAttribute("style"));
   let changed = false;

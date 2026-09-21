@@ -6,14 +6,21 @@ protocol.registerSchemesAsPrivileged([{ scheme: "flux-media", privileges: { stan
 // or kind-mismatched channel throws at startup, and assertAllRegistered() (in
 // whenReady) catches declared-but-orphaned ones. verify-ipc-contract.ts checks
 // the preload + push sides statically.
-const ipcContract = require("./ipc/contract.cjs").wrapIpcMain(rawIpcMain);
+const ipcContract = require("./ipc/contract.cjs").wrapIpcMain(rawIpcMain, { validateSender: (event) => {
+  const owner = sessionFor(event);
+  if (!owner || owner.win.isDestroyed() || event.sender.isDestroyed() || !event.senderFrame || event.senderFrame !== event.sender.mainFrame) return false;
+  try {
+    const actual = new URL(event.senderFrame.url);
+    const expected = new URL(DEV_URL || require("node:url").pathToFileURL(path.join(__dirname, "..", "dist", "index.html")).href);
+    return actual.origin === expected.origin && actual.pathname === expected.pathname;
+  } catch { return false; }
+} });
 const ipcMain = { handle: ipcContract.handle, on: ipcContract.on };
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
-const { createCaptureIntake, newestXpi } = require("./captureIntake.cjs");
 const { pickRelease } = require("./updateCheck.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
@@ -24,6 +31,10 @@ const { resolveSpawn } = require("./execResolve.cjs");
 // the capital-F dir from productName while dev + flux-core resolve lowercase.
 // See AGENTS.md "Machine config paths"; gated by verify-fluxconfig.ts.
 app.setPath("userData", fluxPaths.userDataDir());
+const nativeDiagnostics = require('./nativeDiagnostics.cjs').createNativeDiagnostics(path.join(app.getPath('userData'), 'diagnostics'));
+app.on('child-process-gone', (_event, details) => {
+  if (details?.reason !== 'clean-exit') nativeDiagnostics.record({ family: 'native', outcome: 'failed', code: 'CHILD_PROCESS_GONE' });
+});
 
 // chokidar is ESM-only (v5); this file is CommonJS, so it must be loaded via a
 // dynamic import() — a require() throws ERR_REQUIRE_ESM, which (when swallowed)
@@ -101,7 +112,7 @@ function focusTargetWindow() {
 const { createFlushCoordinator, createAppWindowPolicy, appMenuTemplate } = require("./appLifecycle.cjs");
 let quitting = false;
 const flushCoordinator = createFlushCoordinator();
-ipcMain.on("app:flush:done", (_e, token) => flushCoordinator.ack(token));
+ipcMain.on("app:flush:done", (e, result) => flushCoordinator.ack(e.sender.id, result));
 // Quit-wedge R2: only APP windows participate in the quit decision — the
 // hidden proxy-capture/print windows are never registered, so they can no
 // longer keep a windowless process alive holding the single-instance lock.
@@ -141,6 +152,7 @@ function notifyRenderer(level, msg, detail) {
 const pendingRoots = new Map(); // webContents.id -> project being opened right now
 const fileCore = require("./ipc/files.cjs").createFileCore({
   app,
+  diagnostics: nativeDiagnostics,
   dialog,
   shell, // fs:trash — OS trash for deleted documents
   roots: () => [
@@ -159,6 +171,7 @@ const fileCore = require("./ipc/files.cjs").createFileCore({
     else pendingRoots.delete(senderId);
   },
   windowFor: (e) => BrowserWindow.fromWebContents(e.sender),
+  projectRootFor: (senderId) => [sessions.get(senderId)?.root, pendingRoots.get(senderId)].filter(Boolean),
 });
 
 /** The user-configured Zotero dirs (prefs.zotero), [] when not connected. */
@@ -292,119 +305,14 @@ ipcMain.handle("journal:append", (e, entry) => {
   appendJournalLine(rootFor(e), entry || {});
   return true;
 });
-// W3: locks held by the GUI are heartbeat-restamped every 10s so a long human
-// edit never falsely expires past the 30s TTL, and everything releases on
-// quit/project-switch. Lock files mirror flux-core/locks.ts.
-// Multi-window: the map key carries the OWNING WINDOW and the lock dir resolves
-// from that window's root — one shared "scope:name" key made window B's lock:set
-// early-return against window A's entry, leaving B's lock file heartbeat-less
-// and letting either window release the other's lock.
-const LOCK_TTL_MS = 30_000;
-const heldGuiLocks = new Map(); // "senderId:scope:name" -> { path, interval }
-function lockDirFor(scope, root) {
-  if (scope === "fluxlib") return path.join(fluxLibDir(), ".fluxlib", "locks");
-  return root ? path.join(root, ".meta", "locks") : null;
-}
-let lockTmpSeq = 0;
-function writeLockFile(p) {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  noteWrite(p);
-  // tmp + rename: an agent reading mid-write must never see a torn/empty lock
-  // (flux-core/locks.ts claims/restamps are atomic for the same reason; the tmp
-  // name matches TMP_WRITE_RE so the watcher ignores it).
-  const tmp = path.join(path.dirname(p), `.${path.basename(p)}.tmp-${process.pid}-${++lockTmpSeq}`);
-  fs.writeFileSync(tmp, JSON.stringify({ client: "human", pid: process.pid, ts: new Date().toISOString() }));
-  fs.renameSync(tmp, p);
-}
-function releaseGuiLock(key) {
-  const held = heldGuiLocks.get(key);
-  if (!held) return;
-  clearInterval(held.interval);
-  heldGuiLocks.delete(key);
-  try {
-    noteWrite(held.path);
-    fs.rmSync(held.path, { force: true });
-  } catch {
-    /* already gone */
-  }
-}
-function releaseAllGuiLocks() {
-  for (const key of [...heldGuiLocks.keys()]) releaseGuiLock(key);
-}
-/** Release every lock held by one window (its project switch / close). */
-function releaseGuiLocksFor(senderId) {
-  const prefix = `${senderId}:`;
-  for (const key of [...heldGuiLocks.keys()]) if (key.startsWith(prefix)) releaseGuiLock(key);
-}
-ipcMain.handle("lock:set", (e, { name, held, scope = "project" }) => {
-  const dir = lockDirFor(scope, rootFor(e));
-  if (!dir) return false;
-  const key = `${e.sender.id}:${scope}:${name}`;
-  const p = path.join(dir, `${name}.json`);
-  try {
-    if (held) {
-      if (heldGuiLocks.has(key)) {
-        writeLockFile(p); // restamp now (fresh activity)
-        return true;
-      }
-      writeLockFile(p);
-      const interval = setInterval(() => {
-        try {
-          writeLockFile(p);
-        } catch {
-          /* transient */
-        }
-      }, 10_000);
-      heldGuiLocks.set(key, { path: p, interval });
-    } else {
-      releaseGuiLock(key);
-    }
-    return true;
-  } catch (e) {
-    console.warn("[flux] lock set failed:", e && e.message);
-    return false;
-  }
-});
-
-// W3: renderer-held short locks around FluxLib/project read-modify-writes (the
-// renderer twins of flux-core's withLockAt). Returns { ok } or { ok:false, heldBy }.
-ipcMain.handle("lock:acquire", (e, { scope = "project", name }) => {
-  const dir = lockDirFor(scope, rootFor(e));
-  if (!dir) return { ok: true, noop: true }; // no root yet — nothing to guard
-  const p = path.join(dir, `${name}.json`);
-  try {
-    const info = JSON.parse(fs.readFileSync(p, "utf8"));
-    const t = Date.parse(info?.ts);
-    const freshLock = Number.isFinite(t) && Date.now() - t < LOCK_TTL_MS;
-    if (freshLock && info.client !== "human") return { ok: false, heldBy: info.client };
-  } catch {
-    /* absent/corrupt lock — treat as free */
-  }
-  try {
-    writeLockFile(p);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, heldBy: "error: " + (e && e.message) };
-  }
-});
-ipcMain.handle("lock:release", (e, { scope = "project", name }) => {
-  const dir = lockDirFor(scope, rootFor(e));
-  if (!dir) return true;
-  const p = path.join(dir, `${name}.json`);
-  try {
-    const info = JSON.parse(fs.readFileSync(p, "utf8"));
-    if (info?.client && info.client !== "human") return true; // never release another client's lock
-  } catch {
-    /* fall through to remove */
-  }
-  try {
-    noteWrite(p);
-    fs.rmSync(p, { force: true });
-  } catch {
-    /* already gone */
-  }
-  return true;
-});
+// One shared operation-token protocol for GUI and headless writers.
+const guiLeases = require("./guiLeases.cjs").createGuiLeases({ rootFor: (e, expected) => {
+  const pending = pendingRoots.get(e.sender?.id);
+  return expected && pending && path.resolve(expected) === path.resolve(pending) ? pending : rootFor(e);
+}, fluxLibDir });
+guiLeases.register(ipcMain);
+const releaseAllGuiLocks = () => guiLeases.releaseAll();
+const releaseGuiLocksFor = (senderId) => guiLeases.releaseFor(senderId);
 
 // ---------------------------------------------------------------------------
 // Crank the GPU knobs: prefer hardware rasterization/compositing everywhere.
@@ -536,6 +444,11 @@ function createWindow(initialRoot) {
     initialRoot: initialRoot ? path.resolve(initialRoot) : null,
   });
   const unregisterAppWindow = appWindowPolicy.register(win);
+  require('./rendererRecovery.cjs').attachRendererRecovery(win, {
+    diagnostics: nativeDiagnostics, showMessageBox: (owner, options) => dialog.showMessageBox(owner, options),
+    getRoot: () => sessions.get(wcId)?.root ?? sessions.get(wcId)?.initialRoot ?? null,
+    restart: async root => { createWindow(root ?? undefined); win.destroy(); },
+  });
   win.on("focus", () => {
     lastFocusedWindow = win;
   });
@@ -597,15 +510,35 @@ function createWindow(initialRoot) {
   // force-closes without re-emitting `close`, so there's no re-entrancy; a repeat
   // close while the handshake is running is simply ignored.
   let flushing = false;
-  win.on("close", (e) => {
-    if (win.isDestroyed() || win.webContents.isDestroyed()) return; // nothing to flush
-    e.preventDefault();
-    if (flushing) return;
+  const requestClose = () => {
+    if (flushing || win.isDestroyed()) return;
     flushing = true;
-    flushCoordinator.request(win, () => {
-      if (!win.isDestroyed()) win.destroy();
-      if (quitting) app.quit(); // finish the app-wide quit (matters on macOS)
+    flushCoordinator.request(win, async (result) => {
+      if (win.isDestroyed()) return;
+      if (result.status === "saved") {
+        win.destroy();
+        if (quitting) app.quit();
+        return;
+      }
+      // Native UI remains reachable even when a renderer is wedged. Cancel is
+      // the default; only the explicit third button permits unsaved destruction.
+      let response = 1;
+      try {
+        ({ response } = await dialog.showMessageBox(win, {
+          type: "warning", title: "Work could not be saved", message: "Flux kept this window open to protect unsaved work.",
+          detail: result.reason || "Saving did not complete. Retry after resolving the save error, or cancel to continue editing.",
+          buttons: ["Retry save", "Cancel close", "Close without saving"], defaultId: 1, cancelId: 1, noLink: true,
+        }));
+      } catch { /* a failed dialog does not grant permission to discard */ }
+      flushing = false;
+      if (response === 0) requestClose();
+      else if (response === 2) { win.destroy(); if (quitting) app.quit(); }
+      else quitting = false;
     });
+  };
+  win.on("close", (e) => {
+    e.preventDefault();
+    requestClose();
   });
 
   // Per-window teardown: reap this renderer's PTYs, stop ITS agent bridge
@@ -783,8 +716,8 @@ app.on("window-all-closed", () => {
 });
 
 // Never leave a shell child behind.
-app.on("before-quit", () => {
-  quitting = true; // W6: the post-flush destroy re-issues app.quit() to finish the quit
+app.on("before-quit", () => { quitting = true; });
+app.on("will-quit", () => {
   reapPtys();
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   stopAllBridges(); // W12 (SHL-8): remove every .meta/live/bridge.json (+ tokens) on quit
@@ -909,11 +842,14 @@ ipcMain.handle("prefs:get", () => ({
   // The machine Context layer (principal-agent scheme) — display/open helpers.
   contextResolved: fluxPaths.contextPathSync(readPrefs()),
 }));
-ipcMain.handle("prefs:set", (_e, patch) => {
+ipcMain.handle("prefs:set", async (_e, patch) => {
   const cur = readPrefs();
   const next = { ...cur, ...(patch || {}), schemaVersion: cur.schemaVersion || "0.1.0" };
-  writePrefs(next);
-  invalidatePathCaches(); // fluxConfigPath (or legacy fluxLibPath) may have changed
+  const movingLibrary = next.fluxConfigPath !== cur.fluxConfigPath;
+  const resume = movingLibrary ? await nativeReadJobs.suspend() : () => {};
+  const resumeContext = movingLibrary ? await readerContextFamily.suspend() : () => {};
+  try { writePrefs(next); invalidatePathCaches(); }
+  finally { resume(); resumeContext(); }
   return next;
 });
 
@@ -922,6 +858,11 @@ ipcMain.handle("prefs:set", (_e, patch) => {
 // closed first (open fds on the tree being renamed); the renderer requires a
 // restart afterwards — same contract as the old library-folder change.
 ipcMain.handle("config:move", async (_e, parentDir) => {
+  // Drain the resident derived-index writer before renaming its library root.
+  // Searches remain refused throughout the move, including queued invocations.
+  const resume = await nativeReadJobs.suspend();
+  const resumeContext = await readerContextFamily.suspend();
+  try {
   // Close EVERY watcher (each window's project watcher + the global one) —
   // open fds on the tree being renamed would make the move fail.
   for (const s of sessions.values()) {
@@ -935,6 +876,7 @@ ipcMain.handle("config:move", async (_e, parentDir) => {
   const r = await fluxPaths.moveFluxConfig(parentDir);
   invalidatePathCaches();
   return r;
+  } finally { resume(); resumeContext(); }
 });
 
 // Machine-global named text-style library: <userData>/textstyles.json
@@ -1179,6 +1121,9 @@ ipcMain.handle("update:check", async () => {
 // IPC: file dialogs + filesystem (the FILES family — ipc/files.cjs)
 // ---------------------------------------------------------------------------
 fileCore.registerHandlers(ipcMain);
+const readerContextFamily = require("./ipc/readerContext.cjs").createReaderContext({rootFor:()=>getFluxLibRoot(),windowFor:sender=>BrowserWindow.fromWebContents(sender),atomicWrite:fileCore.atomicWriteMain,guard:(e,p)=>fileCore.fsGuard(p,e.sender.id)});
+readerContextFamily.registerHandlers(ipcMain);
+app.on("will-quit",()=>readerContextFamily.dispose());
 sourceWatchCore.registerHandlers(ipcMain);
 
 // ---------------------------------------------------------------------------
@@ -1228,141 +1173,13 @@ function subsystemFor(root, abs) {
   return null;
 }
 
-// W10 (LR-3): the machine-global FluxLib lives outside the project root, so classify
-// its watched paths separately. We watch library.bib + .fluxlib/enrich.json + items/
-// (NOT .fluxlib/locks/, whose 10s heartbeats would spam spurious revisions).
-function fluxLibSubsystemFor(libRoot, abs) {
-  const rel = path.relative(libRoot, abs).split(path.sep).join("/");
-  if (rel.startsWith("..")) return null;
-  if (rel === "library.bib" || rel === ".fluxlib/enrich.json" || rel.startsWith("items/")) {
-    return "fluxlib";
-  }
-  // The drop-inbox: only landed PDFs count — sidecar notes and our own _unresolved/
-  // filing must not re-trigger a scan (awaitWriteFinish already debounces mid-copy).
-  if (rel.startsWith("pdfs_to_assign/")) {
-    // `_unresolved/` is our own filing; `_captured_supplements/` is capture staging waiting on
-    // a citekey — neither is a paper to identify, so neither may wake the assign scan.
-    if (rel.includes("_unresolved/") || rel.includes("_captured_supplements/")) return null;
-    return /\.pdf$/i.test(rel) ? "assign-inbox" : null;
-  }
-  return null;
-}
-
-// Web capture: the bookmarklet downloads `flux-<slug>.pdf` / `.fluxcap` into the browser's
-// download folder. We watch ONLY for that prefix, so an ordinary download can never be
-// mistaken for a capture and nothing of the user's is ever touched by accident.
-// captureRules.js is ESM (the renderer imports it too), so this CommonJS file loads it by
-// dynamic import — resolved once at watch setup, before any event can arrive.
-//
-// The event is a NOTIFICATION, not a trigger: the renderer only re-reads the waiting COUNT so
-// the Library's Assign button stays live. Intake itself is user-initiated (startup or that
-// button), so a capture landing here never rearranges the download folder on its own.
-let captureRules = null;
-function captureSubsystemFor(dir, abs) {
-  if (!captureRules) return null;
-  const rel = path.relative(dir, abs).split(path.sep).join("/");
-  if (rel.startsWith("..")) return null;
-  // Two drop points: the extension writes into `<downloads>/flux/` (one click can produce an
-  // article plus several supplements), the bookmarklet can only write to the root because
-  // `<a download>` cannot name a directory. Nothing deeper is watched.
-  const parts = rel.split("/");
-  const name = parts.length === 1 ? parts[0] : parts.length === 2 && parts[0] === captureRules.CAPTURE_SUBDIR ? parts[1] : null;
-  return name && captureRules.isCaptureFile(name) ? "capture" : null;
-}
-
-/** The folder the browser downloads into. Overridable in prefs for a non-default setup. */
-function captureDir() {
-  const raw = readPrefs().captureDir;
-  if (typeof raw === "string" && raw.trim()) return path.resolve(raw.trim());
-  try {
-    return app.getPath("downloads");
-  } catch {
-    return null;
-  }
-}
-ipcMain.handle("capture:dir", () => captureDir());
-
-// Web-capture intake. Implementation lives in ./captureIntake.cjs (extracted so the e2e gate
-// can drive it without booting the app); main only injects the paths and registers channels.
-const captureIntakeEngine = createCaptureIntake({
-  captureDir,
-  fluxLibDir,
-  path,
-  fs,
-  fsp: require("node:fs/promises"),
-  loadRules: () => import("./captureRules.js"),
-});
-ipcMain.handle("capture:count", () => captureIntakeEngine.count());
-// Intake MOVES files out of the download folder; two windows both run it at
-// startup, so concurrent calls collapse into one in-flight sweep (racing
-// renames would otherwise double-process a capture).
-let intakeInFlight = null;
-ipcMain.handle(
-  "capture:intake",
-  () =>
-    (intakeInFlight ??= Promise.resolve()
-      .then(() => captureIntakeEngine.intake())
-      .finally(() => {
-        intakeInFlight = null;
-      })),
-);
-ipcMain.handle("capture:discard", (_e, name) => captureIntakeEngine.discard(name));
-ipcMain.handle("capture:park", (_e, name, note) => captureIntakeEngine.park(name, note));
-
-// Web-capture onboarding. The extension is installed from a folder (Chromium) or a signed
-// .xpi (Firefox), and a browser will not let a page navigate to chrome://extensions or
-// about:addons — so the honest affordances are "open the folder for me" and "open the add-on
-// file for me", with the address copied for the user to paste.
-function extensionDir() {
-  // Packaged: shipped beside the app. Dev: the build output.
-  const packaged = path.join(process.resourcesPath || "", "extension", "dist");
-  return fs.existsSync(packaged) ? packaged : path.join(__dirname, "..", "extension", "dist");
-}
-function signedXpi() {
-  for (const dir of [path.join(process.resourcesPath || "", "extension", "signed"), path.join(__dirname, "..", "extension", "signed")]) {
-    try {
-      // NEWEST, not first: signing bumps the version and leaves the old .xpi behind, and
-      // readdir order is arbitrary — see newestXpi's note.
-      const hit = newestXpi(fs.readdirSync(dir));
-      if (hit) return path.join(dir, hit);
-    } catch {
-      /* not there */
-    }
-  }
-  return null;
-}
-ipcMain.handle("capture:extensionInfo", () => ({ dir: extensionDir(), hasDir: fs.existsSync(extensionDir()), xpi: signedXpi() }));
-ipcMain.handle("capture:revealExtension", () => {
-  const dir = extensionDir();
-  if (!fs.existsSync(dir)) return { error: "the extension folder isn't in this build" };
-  shell.showItemInFolder(path.join(dir, "manifest.json"));
-  return { ok: true };
-});
-ipcMain.handle("capture:installXpi", async () => {
-  const xpi = signedXpi();
-  if (!xpi) return { error: "the signed add-on isn't bundled in this build yet" };
-  // openPath hands the file to whatever the OS registered for `.xpi`. macOS registers NOTHING
-  // — Launch Services answers "there is no application set to open the file" — and Linux and
-  // Windows only sometimes do, depending on how Firefox was installed. So a failure here is the
-  // NORMAL case on a Mac, not an exception, and reporting it as an error left the one browser
-  // that needs a signed add-on with no working route at all.
-  //
-  // Falling back to revealing the file is the same honest move the Chromium column already
-  // makes: Flux cannot drive about:addons from outside (browsers refuse that deliberately), so
-  // it puts the file in front of you and hands you the address to paste.
-  // And it does not always ANSWER. macOS fails fast with a message; Linux hands off to the
-  // desktop's opener, which for an unregistered type can sit there indefinitely (measured: no
-  // answer after 6s for a .xpi). An await with no bound is a button that does nothing at all,
-  // forever, with no way for the panel to say so — so the wait is bounded and the fallback is
-  // identical either way.
-  const outcome = await Promise.race([
-    shell.openPath(xpi).then((err) => (err ? "failed" : "opened")),
-    new Promise((r) => setTimeout(() => r("no-answer"), 2500)),
-  ]);
-  if (outcome === "opened") return { ok: true };
-  shell.showItemInFolder(xpi);
-  return { revealed: true, path: xpi };
-});
+const captureFamily = require("./ipc/capture.cjs").createCaptureFamily({ app, shell, readPrefs, fluxLibDir, appRoot: path.resolve(__dirname, "..") });
+captureFamily.registerHandlers(ipcMain);
+const screenColorPicker = require("./ipc/colorPicker.cjs").createColorPicker();
+screenColorPicker.registerHandlers(ipcMain);
+app.on("before-quit", () => screenColorPicker.cancelAll());
+const captureDir = captureFamily.captureDir;
+app.on("will-quit", () => { void captureFamily.dispose(); });
 
 // ---------------------------------------------------------------------------
 // Sync-conflict scan. The watcher only sees a conflict copy that lands while the app is
@@ -1458,82 +1275,10 @@ ipcMain.handle("conflicts:scan", async (e, root) => {
 // classes, so two windows would have redundantly double-watched the global
 // paths and window B's registration silently killed window A's project watch.
 // ---------------------------------------------------------------------------
-let globalWatcher = null;
-// Serialize rebuilds: two windows opening projects concurrently must not
-// interleave close/create on the shared watcher.
-let globalWatcherChain = Promise.resolve();
-
-async function closeGlobalWatcher() {
-  await (globalWatcherChain = globalWatcherChain.then(async () => {
-    if (globalWatcher) {
-      await globalWatcher.close().catch(() => {});
-      globalWatcher = null;
-    }
-  }));
-}
-
-/** (Re)build the machine-global watcher. Rebuilt on every watch:setRoot so a
- *  freshly-connected Zotero bib / changed capture dir is picked up (the Library
- *  pane re-invokes watch:setRoot after connecting — behavior kept from the old
- *  single watcher). Once up it stays for the app's lifetime: a window going
- *  Home no longer drops FluxLib watching for the other windows. */
-function rebuildGlobalWatcher() {
-  globalWatcherChain = globalWatcherChain.then(async () => {
-    const ck = await loadChokidar();
-    if (!ck) return;
-    const libRoot = fluxLibDir();
-    const capDir = captureDir();
-    if (capDir && !captureRules) captureRules = await import("./captureRules.js").catch(() => null);
-    const zoteroPrefs = readPrefs().zotero;
-    const zoteroBib =
-      zoteroPrefs && typeof zoteroPrefs === "object" && typeof zoteroPrefs.bibPath === "string" && zoteroPrefs.bibPath
-        ? path.resolve(zoteroPrefs.bibPath)
-        : null;
-    const targets = [
-      // W10: the machine-global FluxLib (agent adds/enrich/fetch land here too).
-      path.join(libRoot, "library.bib"),
-      path.join(libRoot, ".fluxlib", "enrich.json"),
-      path.join(libRoot, "items"),
-      // The assign drop-inbox — a landed PDF triggers a scan in the open app.
-      path.join(libRoot, "pdfs_to_assign"),
-      ...(zoteroBib ? [zoteroBib] : []),
-      // Web capture: the browser's download folder (top level only — see captureSubsystemFor).
-      ...(capDir ? [capDir, path.join(capDir, "flux")] : []),
-    ];
-    if (globalWatcher) {
-      await globalWatcher.close().catch(() => {});
-      globalWatcher = null;
-    }
-    const pending = new Map(); // subsystem -> latest changed path
-    let timer = null;
-    const flush = () => {
-      timer = null;
-      for (const [subsystem, p] of pending)
-        for (const w of liveWindows()) w.webContents.send("fs:changed", { subsystem, path: p });
-      pending.clear();
-    };
-    globalWatcher = ck.watch(targets, {
-      ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
-      // Never surface in-flight atomic-write temp files (ours or flux-core's).
-      ignored: (p) => TMP_WRITE_RE.test(p),
-    });
-    globalWatcher.on("all", (_evt, abs) => {
-      if (isSelfWrite(abs)) return;
-      const subsystem =
-        fluxLibSubsystemFor(libRoot, abs) ??
-        (zoteroBib && path.resolve(abs) === zoteroBib ? "zotero-bib" : null) ??
-        (capDir ? captureSubsystemFor(capDir, abs) : null);
-      if (!subsystem) return;
-      pending.set(subsystem, abs);
-      if (!timer) timer = setTimeout(flush, 200);
-    });
-    globalWatcher.on("error", (err) =>
-      notifyRenderer("error", "Library file-watch stopped", err && err.message),
-    );
-  });
-  return globalWatcherChain;
-}
+const globalLibraryWatcher = require("./globalLibraryWatcher.cjs").createGlobalLibraryWatcher({loadChokidar,fluxLibDir,captureDir,readPrefs,liveWindows,writeOrigin:fileCore.writeOrigin,notifyRenderer,TMP_WRITE_RE,onLibraryChange:(root,abs)=>nativeReadJobs.libraryChanged(root,abs)});
+const closeGlobalWatcher = () => globalLibraryWatcher.close();
+const rebuildGlobalWatcher = () => globalLibraryWatcher.rebuild();
+app.on("will-quit", () => { void globalLibraryWatcher.dispose(); });
 
 ipcMain.handle("watch:setRoot", async (e, root) => {
   const s = sessionFor(e);
@@ -1654,10 +1399,10 @@ function trustRecipeRoot(key) {
 /** Confirm-once-per-project gate before spawning a recipe command. Returns true
  *  to proceed. Shows the exact command; a checkbox persists trust. Parents to
  *  the REQUESTING window — a modal on another window would block the wrong one. */
-async function confirmRecipeTrust(recipePath, recipe, parentWin) {
+async function confirmRecipeTrust(recipePath, invocation, parentWin) {
   const key = findProjectRoot(path.dirname(recipePath)) ?? path.dirname(recipePath);
   if (isRecipeTrusted(key)) return true;
-  const cmdline = [recipe.command, ...(recipe.args || [])].join(" ");
+  const cmdline = [invocation.executable, ...invocation.argv].map(x => JSON.stringify(x)).join(" ");
   const { response, checkboxChecked } = await dialog.showMessageBox(parentWin ?? focusTargetWindow(), {
     type: "warning",
     buttons: ["Cancel", "Run"],
@@ -1666,7 +1411,7 @@ async function confirmRecipeTrust(recipePath, recipe, parentWin) {
     noLink: true,
     title: "Run this project's plot recipe?",
     message: "Regenerating this plot runs a command from the project on your computer.",
-    detail: `Project:\n${key}\n\nCommand:\n${cmdline}\n\nOnly run recipes from projects you trust — a recipe can run ANY command with your permissions.`,
+    detail: `Project:\n${key}\n\nCommand:\n${cmdline}\n\nWorking directory:\n${invocation.cwd}\n\nEnvironment:\n${JSON.stringify(invocation.envDelta, null, 2)}\n\nDeadline: 24 hours. Cancel remains available while the recipe runs.\n\nOnly run recipes from projects you trust — a recipe can run ANY command with your permissions.`,
     checkboxLabel: "Trust this project's recipes from now on",
     checkboxChecked: false,
   });
@@ -1678,77 +1423,84 @@ async function confirmRecipeTrust(recipePath, recipe, parentWin) {
 // F2: re-run a plot's recipe (the user's own generating script, gated behind an
 // explicit action). Returns the emitted SVG/manifest text so the renderer can
 // hot-swap it in place. Mirrors flux-core.runRecipe; persists merged params.
-ipcMain.handle("recipe:run", async (e, { recipePath, params = {} }) => {
+const recipeJobs = new Map();
+ipcMain.handle("recipe:cancel", (e, jobId) => {
+  const job = recipeJobs.get(jobId);
+  if (!job || job.sender !== e.sender.id) return false;
+  job.controller.abort(new Error("Recipe cancelled by user")); return true;
+});
+ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = require("node:crypto").randomUUID() }) => {
+  if (typeof jobId !== "string" || !jobId || jobId.length > 128 || recipeJobs.has(jobId)) throw new Error("Invalid or active recipe job ID");
+  fsGuard(recipePath, e.sender.id);
+  return require("./recipeJob.cjs").withRecipeLease(recipePath, async assertOwned => {
   // W12 (SHL-6): the recipe file carries the command that gets spawned + is rewritten
   // in place, so it must live under an allowed root — a planted recipe outside the
   // project can't be pointed at here.
   fsGuard(recipePath, e.sender.id);
-  const recipe = JSON.parse(await fs.promises.readFile(recipePath, "utf8"));
-  // SEC-1: arbitrary-command execution gate — the project must be trusted first.
-  if (!(await confirmRecipeTrust(recipePath, recipe, BrowserWindow.fromWebContents(e.sender)))) {
-    return { code: -1, stdout: "", stderr: "Recipe run cancelled — this project is not trusted to run commands." };
-  }
+  const recipeText = await require("./recipeJob.cjs").readRecipeText(recipePath);
+  const recipe = JSON.parse(recipeText);
   const dir = path.dirname(recipePath);
   const { recipeInvocation, completedRecipe } = await import("../src/lib/plot/recipeContract.mjs");
   const { params: merged, args } = recipeInvocation(recipe, params);
-  const cwd = path.resolve(dir, recipe.cwd || ".");
-  const res = await new Promise((resolve) => {
-    const rs = resolveSpawn(recipe.command, args);
-    const child = spawn(rs.command, rs.args, {
-      cwd,
-      env: { ...process.env, FLUX_PARAMS: JSON.stringify(merged), ...(recipe.plot ? { FLUXPLOT_ONLY: recipe.plot } : {}) },
-      windowsVerbatimArguments: rs.windowsVerbatimArguments,
-    });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (err += d));
-    child.on("error", (e2) => resolve({ code: -1, stdout: out, stderr: String(e2) }));
-    child.on("close", (c) => resolve({ code: c ?? 0, stdout: out, stderr: err }));
-  });
+  const invocation = { executable: recipe.command, argv: args, cwd: path.resolve(dir, recipe.cwd || "."),
+    envDelta: { FLUX_PARAMS: JSON.stringify(merged), ...(recipe.plot ? { FLUXPLOT_ONLY: recipe.plot } : {}) } };
+  if (!(await confirmRecipeTrust(recipePath, invocation, BrowserWindow.fromWebContents(e.sender)))) {
+    return { code: -1, stdout: "", stderr: "Recipe run cancelled — this project is not trusted to run commands." };
+  }
+  const controller = new AbortController();
+  const snapshot = await require("./recipeJob.cjs").snapshotRecipe(recipePath, recipeText);
+  recipeJobs.set(jobId, {sender: e.sender.id, controller});
+  const onDestroyed = () => controller.abort(new Error("Recipe owner closed"));
+  e.sender.once("destroyed", onDestroyed);
+  let res;
+  try { res = await require("./processRunner.cjs").runProcess(invocation, { signal: controller.signal }); }
+  finally { e.sender.removeListener("destroyed", onDestroyed); recipeJobs.delete(jobId); }
   let updatedRecipe = recipe;
-  if (res.code === 0) {
-    const emitted = JSON.parse(await fs.promises.readFile(recipePath, "utf8"));
+  if (res.code === 0 && res.status === "exited") {
+    let emitted;
+    try { emitted = JSON.parse(await require("./recipeJob.cjs").readRecipeText(recipePath)); recipeInvocation(emitted, {}); }
+    catch (error) { throw new Error(`The command emitted malformed recipe metadata. Previous good recipe: ${snapshot}`, {cause: error}); }
     updatedRecipe = completedRecipe(emitted, merged, params, new Date().toISOString());
     noteWrite(recipePath);
-    await fs.promises.writeFile(recipePath, JSON.stringify(updatedRecipe, null, 2) + "\n");
+    await assertOwned();
+    await atomicWriteMain(recipePath, JSON.stringify(updatedRecipe, null, 2) + "\n");
+    await require("./recipeJob.cjs").discardRecipeSnapshot(snapshot);
   }
-  const outAbs = recipe.output ? path.resolve(dir, recipe.output) : null;
+  const outAbs = res.code === 0 && res.status === "exited" && updatedRecipe.output ? path.resolve(dir, updatedRecipe.output) : null;
   if (outAbs) fsGuard(outAbs, e.sender.id); // W12: contain the plot output read to allowed roots
   let svgText = null;
   let manifestText = null;
   if (outAbs && fs.existsSync(outAbs)) {
     noteWrite(outAbs);
+    if ((await fs.promises.stat(outAbs)).size > 64 * 1024 * 1024) throw new Error("Recipe SVG exceeds 64 MiB");
     svgText = await fs.promises.readFile(outAbs, "utf8");
     const manAbs = outAbs.replace(/\.svg$/, ".fluxplot.json");
     if (fs.existsSync(manAbs)) {
       noteWrite(manAbs);
+      if ((await fs.promises.stat(manAbs)).size > 32 * 1024 * 1024) throw new Error("Recipe manifest exceeds 32 MiB");
       manifestText = await fs.promises.readFile(manAbs, "utf8");
     }
   }
   return { ...res, svgText, manifestText, recipeText: JSON.stringify(updatedRecipe) };
+  });
 });
 
 // W13: resolve the bundled CLI (dist/flux-cli.mjs — esbuild-built, self-contained).
 // Packaged, it's asar-UNPACKED (a child launched with ELECTRON_RUN_AS_NODE has no
 // asar support, so it must be on real disk); in dev it sits in <appRoot>/dist. If
 // the bundle hasn't been built yet in dev, fall back to running the .ts via tsx.
-function fluxCliArgs() {
-  const appRoot = path.resolve(__dirname, "..");
-  const bundled = app.isPackaged
-    ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs")
-    : path.join(appRoot, "dist", "flux-cli.mjs");
-  if (fs.existsSync(bundled)) return { appRoot, argv: [bundled] };
-  return { appRoot, argv: ["--import", "tsx", "flux-cli.ts"] }; // dev, unbuilt
-}
+const nativeReadJobs = require("./ipc/readJobs.cjs").createReadJobs({app,appRoot:path.resolve(__dirname,".."),fluxLibDir});
+const fluxCliArgs = nativeReadJobs.fluxCliArgs;
+nativeReadJobs.registerHandlers(ipcMain);
+app.on("will-quit", () => nativeReadJobs.dispose());
 
 // Video jobs belong to their requesting window and cancel when it closes.
 const slideVideoCore = require("./ipc/slideVideo.cjs").createSlideVideoCore({ app, dialog, BrowserWindow, rootFor, fluxCliArgs, fsGuard, approveDir, noteWrite });
 slideVideoCore.registerHandlers(ipcMain);
-app.on("before-quit", () => slideVideoCore.cancelAll());
+app.on("will-quit", () => slideVideoCore.cancelAll());
 const videoMediaCore = require("./ipc/videoMedia.cjs").createVideoMediaCore({ app, protocol, rootFor, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 videoMediaCore.registerHandlers(ipcMain);
-app.on("before-quit", () => videoMediaCore.cancelAll());
+app.on("will-quit", () => videoMediaCore.cancelAll());
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`
@@ -1765,7 +1517,7 @@ ipcMain.handle("slides:exportDeck", async (e, { root, deckId }) => {
   const res = await new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [...argv, "export-deck", String(deckId), "--root", String(root)],
+      [...argv, "export-deck", String(deckId), "--root", String(root), "--saved"],
       { cwd: appRoot, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } },
     );
     let err = "";
@@ -1779,136 +1531,17 @@ ipcMain.handle("slides:exportDeck", async (e, { root, deckId }) => {
     return { ok: false, error: (res.stderr || `export exited ${res.code}`).trim() };
   }
   noteWrite(outPath); // don't let the file-watcher echo our own write
-  return { ok: true, path: outPath };
+  return { ok: true, path: outPath, warnings: res.stderr.trim() ? [res.stderr.trim()] : [] };
 });
 
-// 2.3 Full-text search: run `flux search-text <query> --json` in the bundled CLI
-// (ELECTRON_RUN_AS_NODE, W13 pattern) so the streaming disk scan never touches the
-// renderer thread. One engine (flux-core/fulltextSearch.ts) behind CLI, MCP, and here.
-// Read-only; no fsGuard needed (the child only reads FluxLib). Returns the parsed
-// FulltextResult, or { error } — never throws into the renderer.
-ipcMain.handle("fulltext:search", async (_e, { query, opts }) => {
-  const q = String(query ?? "").trim();
-  if (!q) return { hits: [], scanned: 0, missingText: [], truncated: false, elapsedMs: 0 };
-  const { appRoot, argv } = fluxCliArgs();
-  const args = [...argv, "search-text", q, "--json"];
-  if (opts && Number.isFinite(opts.limit)) args.push("--limit", String(opts.limit));
-  if (opts && Array.isArray(opts.keys) && opts.keys.length) args.push("--keys", opts.keys.join(","));
-  const res = await new Promise((resolve) => {
-    const child = spawn(process.execPath, args, {
-      cwd: appRoot,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    });
-    let out = "";
-    let err = "";
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (err += d));
-    child.on("error", (e2) => resolve({ code: -1, out: "", err: String(e2) }));
-    child.on("close", (c) => resolve({ code: c ?? 0, out, err }));
-  });
-  if (res.code !== 0) return { error: (res.err || `search exited ${res.code}`).trim() };
-  try {
-    return JSON.parse(res.out);
-  } catch {
-    return { error: "could not parse search output" };
-  }
-});
-
-// Render a standalone SVG to a vector PDF via Chromium's print engine.
-// SHL-14: ONE reusable hidden window serves every PDF export (figure + document) —
-// creating+destroying a BrowserWindow per call paid full window setup each export
-// (the proxy engine proved the reuse pattern). Serialized: loadFile/printToPDF on a
-// shared window must not interleave. Lazily created, recreated if it ever dies,
-// blanked after each print so the last export's DOM doesn't sit resident.
-let printWin = null;
-let printChain = Promise.resolve();
-function runPrintExclusive(fn) {
-  const run = printChain.then(fn, fn);
-  printChain = run.then(
-    () => {},
-    () => {},
-  );
-  return run;
-}
-function getPrintWin() {
-  if (!printWin || printWin.isDestroyed()) {
-    // javascript:false — the print window materializes figure/manuscript content
-    // as a live DOM, but every print path feeds STATIC output (buildSvg for
-    // figures; renderManuscript's KaTeX-prerendered, html:false HTML for docs),
-    // so no page script is ever needed. Disabling JS means an unsanitized path
-    // could never execute/exfiltrate even though this file:// load gets no
-    // session CSP. printToPDF itself runs in the main process (JS-independent).
-    printWin = new BrowserWindow({ show: false, webPreferences: { offscreen: true, javascript: false } });
-  }
-  return printWin;
-}
-app.on("before-quit", () => {
-  try {
-    if (printWin && !printWin.isDestroyed()) printWin.destroy();
-  } catch {
-    /* already gone */
-  }
-});
-async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag) {
-  return runPrintExclusive(async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `flux-${tmpTag}-`));
-    const tmp = path.join(dir, "print.html");
-    const win = getPrintWin();
-    try {
-      await fs.promises.writeFile(tmp, html, "utf8");
-      await win.loadFile(tmp);
-      const data = await win.webContents.printToPDF(pdfOpts);
-      await atomicWriteMain(outPath, data);
-    } finally {
-      await win.loadURL("about:blank").catch(() => {});
-      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
-    }
-    return true;
-  });
-}
-
-ipcMain.handle("export:pdf", async (e, { svg, outPath, w, h }) => {
-  fsGuard(outPath, e.sender.id); // W12 (SHL-6): was an unguarded write of any path
-  if (![w, h].every(n => Number.isFinite(n) && n > 0)) throw new Error("PDF dimensions must be finite and positive.");
-  // Defense-in-depth CSP: block scripts/plugins outright (the window also runs
-  // javascript:false). Everything else stays permissive so embedded figure
-  // assets (data:/blob: images, inline styles) still render.
-  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline'; script-src 'none'; object-src 'none'">`;
-  const html = `<!doctype html><html><head><meta charset="utf-8">${csp}<style>html,body{margin:0;padding:0}</style></head><body>${svg}</body></html>`;
-  // printToPDF custom sizes are INCHES (Electron PrintToPDFOptions), unlike
-  // webContents.print's microns. Passing microns creates an enormous page and
-  // Chromium's compositor fails even for an ordinary 320×240 figure.
-  return printHtmlToPdf(
-    html,
-    outPath,
-    {
-      printBackground: true,
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      pageSize: { width: w / 96, height: h / 96 },
-    },
-    "fig",
-  );
-});
-
-// Render a full HTML document to a multi-page PDF. Unlike export:pdf (one page
-// sized to a figure), this lets CSS @page rules drive size + pagination.
-ipcMain.handle("print:pdf", async (e, { html, outPath, opts = {} }) => {
-  fsGuard(outPath, e.sender.id); // W12 (SHL-6): was an unguarded write of any path
-  return printHtmlToPdf(
-    html,
-    outPath,
-    {
-      printBackground: true,
-      preferCSSPageSize: true,
-      ...(opts.margins ? { margins: opts.margins } : {}),
-    },
-    "doc",
-  );
-});
+const staticPrint = require("./ipc/staticPrint.cjs").createStaticPrint({BrowserWindow,session,underDir,atomicWriteMain,fsGuard,rootFor,appRoot:path.resolve(__dirname,"..")});
+staticPrint.registerHandlers(ipcMain);
+app.on("will-quit", () => staticPrint.dispose());
 
 // WS-9.4b: the NETWORK family (keys, cite:*, pdf:netGet, EZProxy machinery)
 // lives in ipc/network.cjs.
 const networkFamily = require("./ipc/network.cjs").createNetworkFamily({
+  dialog,
   session,
   BrowserWindow,
   safeStorage,
@@ -1917,7 +1550,10 @@ const networkFamily = require("./ipc/network.cjs").createNetworkFamily({
   // proxy:login's parent — the focused window, not a fixed "main" one.
   getMainWindow: () => focusTargetWindow(),
   resolveToDoi,
-  locks: { lockDirFor, writeLockFile, LOCK_TTL_MS },
+  locks: { lockDirFor: scope => {
+    if (scope !== "fluxlib") throw new Error("Network key lease requires FluxLib scope");
+    return path.join(fluxLibDir(), ".fluxlib", "locks");
+  } },
   files: { atomicWriteMain, noteWrite },
 });
 networkFamily.registerHandlers(ipcMain);
@@ -2063,6 +1699,7 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
       return { ok: false, log: `refusing to write outside an allowed directory: ${destAbs}` };
     }
   }
+  const temporaryName = `.flux-export-${require("node:crypto").randomUUID()}.${String(to || "pdf").toLowerCase()}`;
   const runId = typeof token === "string" && token ? token : null;
   // Journal assets + the ephemeral profile, written before the spawn and
   // removed in the close handler. Nothing here edits the user's _quarto.yml.
@@ -2079,13 +1716,14 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
     try {
       const q = resolveSpawn("quarto", [
         "render",
-        rel,
+        path.basename(docAbs),
         "--to",
         to || "pdf",
+        "--output", temporaryName,
         ...(prof ? ["--profile", prof] : []),
       ]);
       const p = spawn(q.command, q.args, {
-        cwd: rootAbs,
+        cwd: path.dirname(docAbs),
         windowsVerbatimArguments: q.windowsVerbatimArguments,
       });
       const run = { child: p, cancelled: false };
@@ -2116,7 +1754,8 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
         cleanupProfile();
         resolve({ ok: false, log: String(err.message) });
       });
-      p.on("close", (code) => {
+      p.on("close", (code, signal) => {
+        if (signal) code = 1;
         flush(true);
         if (runId) quartoRuns.delete(runId);
         cleanupProfile();
@@ -2125,9 +1764,15 @@ ipcMain.handle("quarto:render", async (e, { root, to, docPath, profile, outPath,
         // report what we found so the renderer can Reveal the real file).
         const ext = String(to || "pdf").toLowerCase();
         const candidates = [
-          docAbs.replace(/\.qmd$/i, `.${ext}`),
-          path.join(rootAbs, "_output", path.basename(docAbs).replace(/\.qmd$/i, `.${ext}`)),
+          path.join(path.dirname(docAbs), temporaryName),
+          path.join(rootAbs, "_output", temporaryName),
         ];
+        const created = /Output created:\s*(.+)/.exec(log);
+        if (created) for (const base of [path.dirname(docAbs), rootAbs]) {
+          const candidate = path.resolve(base, created[1].trim());
+          if (underDir(candidate, rootAbs) && path.basename(candidate) === temporaryName) candidates.push(candidate);
+        }
+        if (code !== 0) { for (const candidate of candidates) { try { fs.rmSync(candidate, { force: true }); } catch {} } return resolve({ ok: false, code, log }); }
         let found = candidates.find((c) => fs.existsSync(c));
         // Move the artifact where the user asked. Quarto writes beside the source
         // (or into _output); without this, docx silently lands in manuscript/.
@@ -2235,17 +1880,12 @@ ipcMain.handle("lighttable:launch", async () => {
   }
 });
 
-// Open the user documentation (the docs/ Quarto site beside this checkout) in
-// the OS browser. Rendered output only — a button press must not hide a
-// multi-second `quarto render` behind it, so a missing _site says how to build
-// it instead. Source-checkout only, like lighttable:launch.
+// Open pre-rendered documentation. Installed help lives outside app.asar so
+// the OS browser can follow its relative pages, scripts and styles.
 ipcMain.handle("docs:open", async () => {
-  const index = path.join(__dirname, "..", "docs", "_site", "index.html");
-  if (!fs.existsSync(index)) {
-    return { ok: false, error: "Docs aren't rendered yet — run `quarto render docs` in the Flux repo once (source checkout only)." };
-  }
-  const err = await shell.openPath(index);
-  return err ? { ok: false, error: err } : { ok: true };
+  const { openDocumentation } = require('./documentation.cjs');
+  return openDocumentation({ packaged: app.isPackaged, resourcesPath: process.resourcesPath,
+    sourceRoot: path.join(__dirname, '..') }, index => shell.openPath(index));
 });
 
 // ---------------------------------------------------------------------------

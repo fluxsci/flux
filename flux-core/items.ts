@@ -1,3 +1,8 @@
+import { recoverItemPublication, type ItemRecoveryResult } from "../src/lib/references/itemRecovery";
+import { createReadStream } from "node:fs";
+import { prepareItemLocators } from "./itemLocators";
+import { withLockAt, fluxlibLockDir, getLockClient, assertLockOwned } from "./locks";
+import { pdfIdentityAt, fulltextIsCurrent } from "./itemGeneration";
 // flux-core/items.ts — the FluxLib "items/" store (Node side: CLI/MCP/agents).
 // Per-paper artifacts under <lib>/items/<citekey>/ — the filesystem IS the source of
 // truth for these binaries (PDF, supplements, extracted text, annotations); a derived
@@ -10,6 +15,7 @@ import { resolveFluxLibPath, loadLibrary } from "./fluxlib";
 import { atomicWrite } from "./fsx";
 import {
   itemDir,
+  safeKey,
   pdfPath,
   linkPath,
   parsePdfLink,
@@ -37,7 +43,7 @@ import { isSupplementUrl, supplementDocSignal, supplementNameFromUrl, isAutomate
 /** Node twin of itemsBridge's PdfWriteResult. `reason: "supplement"` is not an error — the
  *  bytes were supplementary material, they are filed under supplements/, and the caller
  *  should treat the article as still missing. */
-export type PdfWriteResult = { ok: true; info: SourceInfo } | { ok: false; reason: "supplement"; signal: string; divertedTo?: string };
+export type PdfWriteResult = { ok: true; info: SourceInfo } | { ok: false; reason: "already-present" } | { ok: false; reason: "supplement"; signal: string; divertedTo?: string };
 
 const libItemsIndexPath = (lib: string) => path.join(lib, ".fluxlib", "items.json");
 
@@ -45,14 +51,34 @@ const libItemsIndexPath = (lib: string) => path.join(lib, ".fluxlib", "items.jso
  *  get_reading_context MCP tool. null if the reader hasn't written one. */
 export async function readReaderContext(libPath?: string): Promise<ReaderContext | null> {
   try {
-    return JSON.parse(await fs.readFile(readerContextPath(await lib(libPath)), "utf8")) as ReaderContext;
+    const root=await lib(libPath);
+    const ctx=JSON.parse(await fs.readFile(readerContextPath(root), "utf8")) as ReaderContext;
+    // Native sender teardown clears immediately. Renewal expiry also covers an
+    // entire application crash, where no cleanup callback can run.
+    const expiry=ctx.expiresAt?Date.parse(ctx.expiresAt):Date.parse(ctx.updatedAt)+30000;
+    if(!ctx.citekey||!Number.isFinite(expiry)||Date.now()>expiry)return null;
+    const supplement=ctx.sourcePdf&&typeof ctx.sourcePdf==='object'?ctx.sourcePdf.supplement:null;
+    if(supplement&&(path.basename(supplement)!==supplement||supplement.includes('\\')||supplement==='.'||supplement==='..'))return null;
+    let readingPath=supplement?path.join(supplementsDir(root,ctx.citekey),supplement):pdfPath(root,ctx.citekey);
+    if(!supplement) {
+      try { await fs.stat(readingPath); }
+      catch(error) {
+        if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;
+        // Resolve the same copy-before-pointer source as Reader without opening
+        // a deferred external PDF just to answer an agent's context request.
+        readingPath=(await readPdfLink(ctx.citekey,root))?.path??readingPath;
+      }
+    }
+    return {...ctx,pdfPath:readingPath,fulltextPath:supplement?undefined:fulltextPath(root,ctx.citekey)};
   } catch {
     return null;
   }
 }
 
 async function lib(libPath?: string): Promise<string> {
-  return libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  const root = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  await prepareItemLocators(root);
+  return root;
 }
 async function exists(p: string): Promise<boolean> {
   try {
@@ -93,8 +119,14 @@ export async function ensureItemDir(key: string, libPath?: string): Promise<stri
 }
 
 export async function hasPdf(key: string, libPath?: string): Promise<boolean> {
-  const L = await lib(libPath);
-  return (await exists(pdfPath(L, key))) || (await exists(linkPath(L, key)));
+  return !!await pdfIdentityAt(itemDir(await lib(libPath), key));
+}
+export function pdfBytesIdentity(bytes: Uint8Array): string { return "sha256:" + crypto.createHash("sha256").update(bytes).digest("hex"); }
+export async function currentPdfIdentity(key: string, libPath?: string): Promise<string | null> {
+  return pdfIdentityAt(itemDir(await lib(libPath), key));
+}
+export async function withItemLease<T>(key: string, L: string, fn: (assertOwned: () => Promise<void>) => Promise<T>): Promise<T> {
+  return withLockAt(fluxlibLockDir(L), `item-${safeKey(key)}`, getLockClient(), async lease => { await assertLockOwned(lease); return fn(() => assertLockOwned(lease)); }, {retries: 8});
 }
 
 /** The link-mode pointer for `key`, or null (absent/malformed). */
@@ -112,11 +144,26 @@ export async function readPdfLink(key: string, libPath?: string): Promise<PdfLin
  *  never displaced by a link — copy beats pointer. */
 export async function writeLinkedPdf(key: string, absPath: string, libPath?: string): Promise<void> {
   const L = await lib(libPath);
-  await ensureItemDir(key, L);
-  const link: PdfLink = { path: absPath, linkedAt: new Date().toISOString() };
-  await atomicWrite(linkPath(L, key), JSON.stringify(link, null, 2) + "\n");
-  const info: SourceInfo = { key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt };
-  await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
+  await withItemLease(key, L, async assertOwned => {
+    await ensureItemDir(key, L);
+    // An existing copied PDF remains authoritative; changing a fallback pointer
+    // must never replace its provenance or invalidate its derived text.
+    if (await exists(pdfPath(L, key))) return;
+    const link: PdfLink = {path: absPath, linkedAt: new Date().toISOString()};
+    const info: SourceInfo = {key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt};
+    const previousLink=await exists(linkPath(L,key))?await fs.readFile(linkPath(L,key),"utf8"):null;
+    const pending=path.join(itemDir(L,key),"source.pending.json");
+    await assertOwned();await atomicWrite(pending,JSON.stringify({version:1,source:info,link,previousLink})+"\n");
+    await assertOwned();
+    await fs.rm(fulltextPath(L, key), {force: true});
+    await assertOwned();
+    await fs.rm(path.join(itemDir(L, key), "fulltext.source.json"), {force: true});
+    await assertOwned();
+    await atomicWrite(linkPath(L, key), JSON.stringify(link, null, 2) + "\n");
+    await assertOwned();
+    await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
+    await assertOwned();await fs.rm(pending);
+  });
 }
 
 /**
@@ -148,12 +195,17 @@ export async function readSupplementManifest(key: string, libPath?: string): Pro
  * File already-in-hand bytes into items/<key>/supplements/ and index them (Node twin of
  * itemsBridge.fileSupplementBytes). Returns the stored filename, or null.
  */
-export async function fileSupplement(
+export async function fileSupplement(key: string, rawName: string, bytes: Uint8Array, meta: {label?: string; url?: string; source?: string} = {}, libPath?: string): Promise<string | null> {
+  const L = await lib(libPath);
+  return withItemLease(key, L, assertOwned => fileSupplementLocked(key, rawName, bytes, meta, L, assertOwned));
+}
+async function fileSupplementLocked(
   key: string,
   rawName: string,
   bytes: Uint8Array,
   meta: { label?: string; url?: string; source?: string } = {},
-  libPath?: string,
+  libPath: string,
+  assertOwned: () => Promise<void>,
 ): Promise<string | null> {
   const L = await lib(libPath);
   if (!bytes.length) return null;
@@ -171,23 +223,23 @@ export async function fileSupplement(
   // repair, or by an older Flux), so the DISK is the authority: before suffixing a name,
   // check whether what's already there is byte-identical. Without this, every re-fetch of an
   // unindexed supplement lays down another -2, -3, … copy.
+  let alreadySaved = false;
   for (let i = 2; await exists(supplementFilePath(L, key, name)); i++) {
     try {
-      if (crypto.createHash("sha256").update(await fs.readFile(supplementFilePath(L, key, name))).digest("hex") === sha256) return name;
+      if (crypto.createHash("sha256").update(await fs.readFile(supplementFilePath(L, key, name))).digest("hex") === sha256) { alreadySaved = true; break; }
     } catch {
       /* unreadable — fall through and pick the next free name */
     }
     name = `${base}-${i}${ext}`;
   }
-  await atomicWrite(supplementFilePath(L, key, name), bytes);
+  if (!alreadySaved) { await assertOwned(); await atomicWrite(supplementFilePath(L, key, name), bytes, true); }
   try {
     const items = manifest.items.filter((r) => r.name !== name);
     items.push({ name, label: meta.label || undefined, url: meta.url, source: meta.source, bytes: bytes.byteLength, sha256, fetchedAt: new Date().toISOString() });
     items.sort((a, b) => a.name.localeCompare(b.name));
+    await assertOwned();
     await atomicWrite(supplementManifestPath(L, key), JSON.stringify({ version: 1, items }, null, 2) + "\n");
-  } catch {
-    /* advisory index — the file on disk is the truth */
-  }
+  } catch (error) { throw new Error(`Supplement ${name} was saved, but its manifest could not be committed; retry to recover its metadata`, {cause: error}); }
   return name;
 }
 
@@ -203,6 +255,7 @@ export async function writePdf(
   bytes: Uint8Array,
   source: Omit<SourceInfo, "key" | "sha256" | "bytes" | "fetchedAt"> & { fetchedAt?: string },
   libPath?: string,
+  options: { replaceExisting?: boolean; ifAbsent?: boolean } = {},
 ): Promise<PdfWriteResult> {
   if (isAutomatedSource(source.source)) {
     const signal = await classifyAcquiredPdf(bytes, source.finalUrl ?? source.url);
@@ -212,16 +265,28 @@ export async function writePdf(
     }
   }
   const L = await lib(libPath);
-  await atomicWrite(pdfPath(L, key), bytes);
   const info: SourceInfo = {
-    key,
-    ...source,
-    sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
-    bytes: bytes.byteLength,
-    fetchedAt: source.fetchedAt ?? new Date().toISOString(),
+    key, ...source, sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.byteLength, fetchedAt: source.fetchedAt ?? new Date().toISOString(),
   };
-  await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
-  return { ok: true, info };
+  const published = await withItemLease(key, L, async assertOwned => {
+    if ((isAutomatedSource(source.source) || source.source === "assigned" || options.ifAbsent) && !options.replaceExisting && await pdfIdentityAt(itemDir(L, key))) return false;
+    const pending = path.join(itemDir(L, key), "source.pending.json");
+    await assertOwned();
+    await atomicWrite(pending, JSON.stringify({version: 1, source: info}) + "\n");
+    await assertOwned();
+    await fs.rm(fulltextPath(L, key), {force: true});
+    await assertOwned();
+    await fs.rm(path.join(itemDir(L, key), "fulltext.source.json"), {force: true});
+    await assertOwned();
+    await atomicWrite(pdfPath(L, key), bytes);
+    await assertOwned();
+    await atomicWrite(sourcePath(L, key), JSON.stringify(info, null, 2) + "\n");
+    await assertOwned();
+    await fs.rm(pending);
+    return true;
+  });
+  return published ? { ok: true, info } : { ok: false, reason: "already-present" };
 }
 
 export async function readPdf(key: string, libPath?: string): Promise<Buffer | null> {
@@ -240,24 +305,50 @@ export async function readPdf(key: string, libPath?: string): Promise<Buffer | n
   }
 }
 
+/** Rare interrupted-generation repair: normal reads do not hash or acquire a lease. */
+export async function recoverPdfItem(key: string, libPath?: string): Promise<ItemRecoveryResult> {
+  const L = await lib(libPath), dir = itemDir(L,key);
+  try { await fs.access(path.join(dir,"source.pending.json")); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return "none"; throw error; }
+  return withItemLease(key,L,assertOwned => recoverItemPublication(key, {
+    readText: async name => { try {return await fs.readFile(path.join(dir,name),"utf8");}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return null;throw error;} },
+    pdfSha256: async () => { try {const hash=crypto.createHash("sha256");for await(const bytes of createReadStream(pdfPath(L,key)))hash.update(bytes);return hash.digest("hex");}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return null;throw error;} },
+    writeText: (name,text) => atomicWrite(path.join(dir,name),text),
+    remove: name => fs.rm(path.join(dir,name),{force:true}), assertOwned,
+  }));
+}
+
 export async function readSource(key: string, libPath?: string): Promise<SourceInfo | null> {
   try {
-    return JSON.parse(await fs.readFile(sourcePath(await lib(libPath), key), "utf8")) as SourceInfo;
+    const L = await lib(libPath);
+    await recoverPdfItem(key,L);
+    return JSON.parse(await fs.readFile(sourcePath(L, key), "utf8")) as SourceInfo;
   } catch {
     return null;
   }
 }
 
-export async function writeFulltext(key: string, text: string, libPath?: string): Promise<void> {
+export async function writeFulltext(key: string, text: string, libPath?: string, expectedIdentity?: string | null): Promise<boolean> {
   const L = await lib(libPath);
-  await atomicWrite(fulltextPath(L, key), text);
+  return withItemLease(key, L, async assertOwned => {
+    if (await exists(path.join(itemDir(L,key),"source.pending.json"))) return false;
+    const identity = await currentPdfIdentity(key, L);
+    if (expectedIdentity?.startsWith("sha256:")) {
+      const bytes = await readPdf(key, L);
+      if (!bytes || pdfBytesIdentity(bytes) !== expectedIdentity) return false;
+    } else if (expectedIdentity !== undefined && identity !== expectedIdentity) return false;
+    await assertOwned();
+    await atomicWrite(path.join(itemDir(L, key), "fulltext.source.json"), JSON.stringify({version: 1, identity}) + "\n");
+    await assertOwned();
+    await atomicWrite(fulltextPath(L, key), text);
+    return true;
+  });
 }
 export async function readFulltext(key: string, libPath?: string): Promise<string | null> {
-  try {
-    return await fs.readFile(fulltextPath(await lib(libPath), key), "utf8");
-  } catch {
-    return null;
-  }
+  const L = await lib(libPath);
+  await recoverPdfItem(key,L);
+  try { return await fulltextIsCurrent(itemDir(L, key)) ? await fs.readFile(fulltextPath(L, key), "utf8") : null; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
 
 /** Count annotations without importing the annotation engine (cheap, for the index). */
@@ -294,9 +385,9 @@ export async function itemStatus(key: string, libPath?: string): Promise<ItemSta
   const src = await readSource(key, L);
   return {
     key,
-    hasPdf: (await exists(pdfPath(L, key))) || (await exists(linkPath(L, key))),
+    hasPdf: await hasPdf(key, L),
     supplements: await countSupplements(L, key),
-    hasFulltext: await exists(fulltextPath(L, key)),
+    hasFulltext: await fulltextIsCurrent(itemDir(L, key)) && await exists(fulltextPath(L, key)),
     annotations: await annotationCount(L, key),
     source: src?.source,
     fetchedAt: src?.fetchedAt,

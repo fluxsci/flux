@@ -203,6 +203,10 @@ applies it, and a drag on the square previews until you let go. The hex field an
 follow the preview, and the opacity readout shows the selection's current value (or **mixed**).
 Releasing the hue or opacity slider applies that adjustment and keeps the picker open so
 you can continue tuning the colour.
+The eyedropper samples a colour from your screen. On Linux it uses your desktop's
+colour picker; **Escape** cancels without changing your artwork. If screen picking
+is unavailable, Flux offers a magnified view labelled **Pick from Flux window**,
+which samples only this window. A completed pick is one undoable change.
 **Escape** or clicking outside dismisses an unchosen preview; an incomplete hex stays editable
 until you finish it. The palette comes in
 **collections** — Flexoki (the default), ColorBrewer, Paul Tol's colour sets, and your

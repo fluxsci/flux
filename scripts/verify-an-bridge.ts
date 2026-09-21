@@ -5,6 +5,7 @@
 // (flux-core/liveClient) over HTTP. Proves: token auth, GET /context reflects the
 // store, POST /dispatch applies the SAME undoable edit a human makes, and teardown.
 // Run: npx tsx scripts/verify-an-bridge.ts
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
 import { createRequire } from "node:module";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -26,6 +27,7 @@ function assert(cond: unknown, msg: string) {
 }
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-bridge-"));
+mountFigureCommandFixture(root);
 store.embeddedProjectRoot.set(root); // so context.projectRoot resolves
 setFocusedMode("figure"); // AGT-14: surface now reflects the REAL focused mode (default is paper)
 

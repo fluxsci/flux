@@ -1,0 +1,44 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { unzipSync, strFromU8, zipSync, strToU8 } from 'fflate';
+import { compile, scaffold } from '../flux-core/index';
+import { postprocessDocx, validateDocx } from '../src/lib/references/docxArtifact';
+import { harness } from './lib/harness.mjs';
+const h = harness('verify-v020-docx-publication');
+const root = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-docx-publication-'));
+const oldPath = process.env.PATH;
+try {
+  await scaffold(root, { title: 'Artifact validation' });
+  await fs.mkdir(path.join(root,'manuscript'),{recursive:true});
+  const a = '---\ntitle: Document A\n---\n\nDOC_A_ONLY\n';
+  const b = '---\ntitle: Document B\n---\n\nDOC_B_ONLY\n';
+  await fs.writeFile(path.join(root,'manuscript/main.qmd'),a);
+  await fs.writeFile(path.join(root,'manuscript/chosen.qmd'),b);
+  if (spawnSync('quarto',['--version']).status !== 0) throw new Error('This artifact gate requires Quarto');
+  const result = await compile(root,'docx',{doc:'manuscript/chosen.qmd'});
+  h.eq(result.code,0,'real Quarto chosen-document DOCX succeeds');
+  const output = result.output!;
+  const bytes = new Uint8Array(await fs.readFile(output));
+  validateDocx(bytes);
+  const xml = strFromU8(unzipSync(bytes)['word/document.xml']);
+  h.ok(xml.includes('DOC_B_ONLY')&&!xml.includes('DOC_A_ONLY'),'saved DOCX contains selected document B only');
+  h.eq(await fs.readFile(path.join(root,'manuscript/chosen.qmd'),'utf8'),b,'authoring source is byte-identical after real Quarto');
+  const html = await compile(root,'html',{doc:'manuscript/chosen.qmd'});
+  if(html.code!==0||!html.output) throw new Error(html.log);
+  const htmlBytes = await fs.readFile(html.output!,'utf8');
+  h.ok(html.code===0&&htmlBytes.includes('DOC_B_ONLY')&&!htmlBytes.includes('DOC_A_ONLY'),'real HTML chosen document bytes match');
+  const bin = path.join(root,'fault-bin'); await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin,'quarto'),`#!/usr/bin/env node\nconst fs=require('node:fs'),p=require('node:path'); const args=process.argv.slice(2), output=args[args.indexOf('--output')+1], target=p.join(p.dirname(args[1]),output);fs.writeFileSync(target,'corrupt artifact');console.log('Output created: '+output);\n`,{mode:0o755});
+  process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+  let refused=false;try{await compile(root,'docx',{doc:'manuscript/chosen.qmd'});}catch{refused=true;}
+  h.ok(refused,'corrupt zero-exit DOCX is rejected');
+  h.ok(Buffer.from(await fs.readFile(output)).equals(Buffer.from(bytes)),'corrupt result preserves last good artifact bytes');
+  h.eq(await fs.readFile(path.join(root,'manuscript/chosen.qmd'),'utf8'),b,'source remains original after failed output validation');
+  h.ok(!(await fs.readdir(path.join(root,'manuscript'))).some(n=>n.startsWith('.flux-export-')),'owned temporary artifacts removed after failure');
+  const parts=unzipSync(bytes); parts['word/document.xml']=strToU8(strFromU8(parts['word/document.xml']).replace('DOC_B_ONLY','⟦ZC{key}⟧DOC_B_ONLY⟦ZE⟧'));
+  const fallback=await postprocessDocx(zipSync(parts),{rasterize:async()=>{throw new Error('unused');},inject:async()=>{throw new Error('fault injection');}});
+  h.ok(fallback.warnings.length===1&&!strFromU8(unzipSync(fallback.bytes)['word/document.xml']).includes('⟦Z'),'Zotero failure publishes validated marker-free plain-reference bytes and warning');
+} finally {process.env.PATH=oldPath;await fs.rm(root,{recursive:true,force:true});}
+await h.done();

@@ -53,7 +53,7 @@ try {
   eq(plotSidecarCandidates(root, { svgPath: "/old/project/plots/source.svg", manifestPath: "/old/project/metadata/custom.fluxplot.json" }, `${root}/plots/source.svg`, "manifest"), [`${root}/metadata/custom.fluxplot.json`], "authored metadata relocates with legacy SVG across directories");
   eq(plotSidecarCandidates(root, { svgPath: "/external/source.svg", manifestPath: "/external/custom.fluxplot.json", external: true }, "/external/source.svg", "manifest"), ["/external/custom.fluxplot.json"], "explicit external authored metadata keeps its origin");
 
-  await write(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", title: "Gate", figures: [], slides: [], manuscript: { path: "manuscript/main.qmd" }, supplementary: [] }));
+  await write(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "fixture-project", references: { library: "bib/library.bib" }, title: "Gate", figures: [], slides: [], manuscript: { path: "manuscript/main.qmd" }, supplementary: [] }));
   await write(`${root}/manuscript/main.qmd`, "See @fig-old-key.\n");
   await write(`${root}/plots/source.svg`, svg("red"));
   await write(`${root}/fig/assets/a.svg`, svg("red"));

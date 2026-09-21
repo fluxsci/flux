@@ -1,3 +1,4 @@
+import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
 //
 // Mirrors the figure side of flux-core/index.ts: load/save a deck through the
@@ -22,7 +23,10 @@ const externalDeckAssetMetadata = (root: string, deck: Deck) => sharedExternalDe
 import { readProjectDependencies, slideRemovalBlocker } from "../src/lib/project/dependencies";
 import { prepareVideo, cleanupPrepared } from "./videoMedia";
 import { atomicWrite } from "./fsx";
-import { withLock } from "./locks";
+import { withLock, assertLockOwned } from "./locks";
+import { commitDeckGeneration } from "../src/lib/project/deckGeneration";
+import { recoverTextGeneration, type GenerationWrite, type TextGenerationIO } from "../src/lib/project/textGeneration";
+import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
@@ -64,6 +68,21 @@ async function writeText(p: string, t: string): Promise<void> {
   await atomicWrite(p, t); // W2: durable tmp+fsync+rename
 }
 
+const deckReadEvidence = new WeakMap<Deck, {path:string;text:string}>();
+function deckGenerationIO(root: string): TextGenerationIO {
+  const io = exportRecoveryIO(root), abs = (rel: string) => safeJoin(root, rel);
+  return { validatePath:rel=>io.validatePath!(abs(rel)), read: rel=>io.readText(abs(rel)), write:(rel,text)=>io.writeText(abs(rel),text), remove:rel=>io.removeFile(abs(rel)), fsyncDir:rel=>io.fsyncDir!(abs(rel)),
+    readBytes: async rel=>{const file=abs(rel);await confinedRecoveryPath(root,file);try{return await fs.readFile(file)}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw e}},
+    writeBytes: async(rel,bytes)=>{const file=abs(rel);await confinedRecoveryPath(root,file);await atomicWrite(file,bytes)},
+  };
+}
+async function withDeckMutation<T>(root: string, fn: (assertOwned: () => Promise<void>) => Promise<T>): Promise<T> {
+  return withLock(root,"project",getClient(),projectLease=>withLock(root,"slides",getClient(),async slideLease=>{
+    const assertOwned = async()=>{await assertLockOwned(projectLease);await assertLockOwned(slideLease)};
+    await withLock(root,"manifest",getClient(),async manifestLease=>{await recoverTextGeneration(deckGenerationIO(root),async()=>{await assertOwned();await assertLockOwned(manifestLease)})});
+    return fn(assertOwned);
+  }));
+}
 const deckRel = (deckId: string) => `slides/${deckId}/deck.json`;
 
 /** Resolve a deck's on-disk path: prefer its manifest entry, else the default. */
@@ -115,39 +134,28 @@ export async function listDecks(root: string): Promise<DeckSummary[]> {
 export async function loadDeck(root: string, deckId: string): Promise<Deck> {
   const p = await resolveDeckPath(root, deckId);
   if (!(await exists(p))) throw new Error(`deck not found: ${deckId} (${path.relative(root, p)})`);
-  const raw = await readJSON<Deck>(p);
+  const text = await fs.readFile(p,"utf8"), raw = JSON.parse(text) as Deck;
   if (isNewerSchema(raw.schemaVersion, DECK_SCHEMA_VERSION))
     throw new Error(newerSchemaMessage(path.relative(root, p), raw.schemaVersion, DECK_SCHEMA_VERSION));
-  return slideOps.normalizeDeck(raw);
-}
-
-/** Ensure a deck is registered in project.json.slides[] (id/path/title/order). */
-async function registerDeck(root: string, deck: Deck): Promise<void> {
-  const mp = j(root, "project.json");
-  if (!(await exists(mp))) return; // a deck can exist standalone of a manifest (tests)
-  const m = await readJSON<ProjectManifest>(mp);
-  m.slides = Array.isArray(m.slides) ? m.slides : [];
-  const idx = m.slides.findIndex((s) => s.id === deck.id);
-  const rel = (idx >= 0 ? m.slides[idx].path : undefined) ?? deckRel(deck.id);
-  const entry = { id: deck.id, path: rel, title: deck.title, order: idx >= 0 ? (m.slides[idx] as { order?: number }).order ?? idx + 1 : m.slides.length + 1 };
-  if (idx >= 0) m.slides[idx] = { ...m.slides[idx], ...entry };
-  else m.slides.push(entry);
-  m.modified = stamp();
-  await writeText(mp, JSON.stringify(m, null, 2) + "\n");
+  const normalized = slideOps.normalizeDeck(raw);
+  deckReadEvidence.set(normalized,{path:path.relative(root,p).split(path.sep).join("/"),text});
+  return normalized;
 }
 
 /** saveDeck: write deck.json (restamp modified) + register in the manifest, under
  *  the "slides" advisory lock, then journal. */
 export async function saveDeck(root: string, deck: Deck, action = "save_deck"): Promise<void> {
-  await withLock(root, "slides", getClient(), () => saveDeckUnlocked(root, deck));
+  await withDeckMutation(root, owned => saveDeckUnlocked(root, deck, owned));
   await journal(root, { action, deck: deck.id, slides: deck.slides.length });
 }
-
-async function saveDeckUnlocked(root: string, deck: Deck): Promise<void> {
+async function saveDeckUnlocked(root: string, deck: Deck, assertOwned: () => Promise<void>, writes: ReadonlyMap<string, GenerationWrite> = new Map()): Promise<void> {
   reconcileDeckExternalAssetSizes(deck, await externalDeckAssetMetadata(root, deck));
-  deck.modified = stamp();
-  await writeText(await resolveDeckPath(root, deck.id), JSON.stringify(deck, null, 2) + "\n");
-  await registerDeck(root, deck);
+  const evidence = deckReadEvidence.get(deck);
+  const result = await withLock(root,"manifest",getClient(),manifestLease=>commitDeckGeneration(deckGenerationIO(root), deck, {
+    writes, ...(evidence?{expectedPath:evidence.path,expectedText:evidence.text}:{}),
+    assertOwned:async()=>{await assertOwned();await assertLockOwned(manifestLease)},
+  }));
+  Object.assign(deck,result.deck);deckReadEvidence.set(deck,{path:result.path,text:result.text});
 }
 
 /** W3: run a deck read→mutate→write atomically under the "slides" lock (the load
@@ -160,12 +168,12 @@ export async function mutateDeck<T>(
 ): Promise<T> {
   let out!: T;
   let slideCount = 0;
-  await withLock(root, "slides", getClient(), async () => {
+  await withDeckMutation(root, async owned => {
     const deck = await loadDeck(root, deckId);
     reconcileDeckExternalAssetSizes(deck, await externalDeckAssetMetadata(root, deck));
     out = await fn(deck);
     slideCount = deck.slides.length;
-    await saveDeckUnlocked(root, deck);
+    await saveDeckUnlocked(root, deck, owned);
   });
   await journal(root, { action, deck: deckId, slides: slideCount });
   return out;
@@ -813,7 +821,7 @@ export async function gatherDeckPayload(
     const synced = await syncFigureAssets(root);
     sourceWarnings.push(...synced.warnings, ...synced.missing.map((p) => `${p}: source is missing; the last accepted Figure asset was retained`));
   }
-  const deck = opts.refreshSources === false ? await loadDeck(root, deckId) : await withLock(root, "slides", getClient(), async () => {
+  const deck = opts.refreshSources === false ? await loadDeck(root, deckId) : await withDeckMutation(root, async owned => {
     const loaded = await loadDeck(root, deckId);
     const externalChanged = reconcileDeckExternalAssetSizes(loaded, await externalDeckAssetMetadata(root, loaded));
     const model = deckSourceProject(loaded);
@@ -822,11 +830,12 @@ export async function gatherDeckPayload(
     const plan = await planSourceUpdates(root, model, io, { assetBase: `slides/${deckId}` });
     for (const status of plan.statuses) if (status.status === "error" || status.status === "missing")
       sourceWarnings.push(`${status.path}: ${status.detail ?? status.status}`);
+    const writes = new Map<string, GenerationWrite>();
     if (plan.updates.length) {
-      await writeSourceUpdates(root, plan.updates, io, model, { assetBase: `slides/${deckId}` });
+      await writeSourceUpdates(root, plan.updates, {writeText:async(p,t)=>{writes.set(path.relative(root,p).split(path.sep).join("/"),t)},remove:async p=>{writes.set(path.relative(root,p).split(path.sep).join("/"),null)}}, model, { assetBase: `slides/${deckId}` });
       applyDeckSourceUpdates(loaded, plan.updates);
     }
-    if (plan.updates.length || externalChanged) await saveDeckUnlocked(root, loaded);
+    if (plan.updates.length || externalChanged) await saveDeckUnlocked(root, loaded, owned, writes);
     return loaded;
   });
   await ensureDom();
@@ -846,9 +855,9 @@ export async function gatherDeckPayload(
 export async function exportDeck(
   root: string,
   deckId: string,
-  opts: { out?: string } = {},
+  opts: { out?: string; refreshSources?: boolean } = {},
 ): Promise<{ path: string; bytes: number; warnings: string[] }> {
-  const { payload, warnings: gatherWarnings } = await gatherDeckPayload(root, deckId);
+  const { payload, warnings: gatherWarnings } = await gatherDeckPayload(root, deckId, undefined, { refreshSources: opts.refreshSources });
   const { html, bytes, warnings } = await exportDeckHtml(payload);
   const out = opts.out ?? safeJoin(root, j("exports", `${deckId}.html`));
   await writeText(out, html);

@@ -1,7 +1,7 @@
 import type { CropRect, Element, ElementBase } from "./types";
 import type { DrawStyle, Tool } from "./store";
 import { newId } from "./ids";
-import { elementBBox, rotatePoint, type Rect } from "./geometry";
+import { elementBBox, lineWorldEndpoints, rotatePoint, type Rect } from "./geometry";
 import { applyTextLayout } from "./text";
 import { scaleNodes, pathD, pathToNodes, constrain45 } from "./path";
 
@@ -394,35 +394,43 @@ export function resizeRemap<E extends ElementBase>(
 
   if (orig.type === "line") {
     const e2 = e as typeof orig;
-    const ax1 = fx(orig.x + orig.x1);
-    const ay1 = fy(orig.y + orig.y1);
-    const ax2 = fx(orig.x + orig.x2);
-    const ay2 = fy(orig.y + orig.y2);
+    const {p1,p2}=lineWorldEndpoints(orig);
+    const ax1 = fx(p1.x);
+    const ay1 = fy(p1.y);
+    const ax2 = fx(p2.x);
+    const ay2 = fy(p2.y);
     e2.x = ax1;
     e2.y = ay1;
     e2.x1 = 0;
     e2.y1 = 0;
     e2.x2 = ax2 - ax1;
     e2.y2 = ay2 - ay1;
+    e2.rotation = 0; delete e2.flipX; delete e2.flipY;
     return;
   }
 
   const ob2 = elementBBox(orig);
+  const rotation = (orig.rotation ?? 0) * Math.PI / 180;
+  const cs = Math.cos(rotation), sn = Math.sin(rotation);
+  if (Math.abs((sx-sy)*cs*sn) > 1e-8) throw new Error("An obliquely rotated selection requires uniform resizing with world-axis handles");
+  const localSX = sx*cs*cs + sy*sn*sn;
+  const localSY = sx*sn*sn + sy*cs*cs;
+  const cx = fx(ob2.x+ob2.w/2), cy=fy(ob2.y+ob2.h/2);
+  const position = () => {e.x=cx-ob2.w*localSX/2;e.y=cy-ob2.h*localSY/2;};
 
   // Path: rescale the ACTUAL geometry (previously the bug — only x/y/w/h changed
   // and `d` snapped back). Scale the authoritative nodes if present, else parse
   // the legacy `d`, scale, and regenerate — so resize persists on commit + export.
   if (e.type === "path" && orig.type === "path") {
-    e.x = fx(ob2.x);
-    e.y = fy(ob2.y);
+    position();
     if (orig.nodes && orig.nodes.length) {
-      e.nodes = scaleNodes(orig.nodes, sx, sy);
+      e.nodes = scaleNodes(orig.nodes, localSX, localSY);
       e.d = pathD(e.nodes, e.closed, e.cornerRadius);
     } else {
-      e.d = pathD(scaleNodes(pathToNodes(orig.d), sx, sy), e.closed, e.cornerRadius);
+      e.d = pathD(scaleNodes(pathToNodes(orig.d), localSX, localSY), e.closed, e.cornerRadius);
     }
-    e.width = Math.max(1, orig.width * sx);
-    e.height = Math.max(1, orig.height * sy);
+    e.width = Math.max(1, orig.width * localSX);
+    e.height = Math.max(1, orig.height * localSY);
     return;
   }
 
@@ -431,20 +439,19 @@ export function resizeRemap<E extends ElementBase>(
   // box into "auto-h" (wrap at the new width, height hugs); any height drag
   // pins the box "fixed". applyTextLayout re-wraps + re-hugs per the mode.
   if (e.type === "text" && orig.type === "text") {
-    e.x = fx(ob2.x);
-    e.y = fy(ob2.y);
-    e.width = Math.max(1, orig.width * sx);
-    e.height = Math.max(1, orig.height * sy);
-    const wDrag = axes ? axes.w : Math.abs(nb.w - ob.w) > 1e-9;
-    const hDrag = axes ? axes.h : Math.abs(nb.h - ob.h) > 1e-9;
+    position();
+    e.width = Math.max(1, orig.width * localSX);
+    e.height = Math.max(1, orig.height * localSY);
+    const quarterTurn = Math.abs(sn) > 1-1e-8;
+    const wDrag = axes ? (quarterTurn ? axes.h : axes.w) : Math.abs(localSX-1)>1e-9;
+    const hDrag = axes ? (quarterTurn ? axes.w : axes.h) : Math.abs(localSY-1)>1e-9;
     if (hDrag) e.sizing = "fixed";
     else if (wDrag && e.sizing === "auto") e.sizing = "auto-h";
     applyTextLayout(e);
     return;
   }
 
-  e.x = fx(ob2.x);
-  e.y = fy(ob2.y);
-  if ("width" in e && "width" in orig) e.width = Math.max(1, orig.width * sx);
-  if ("height" in e && "height" in orig) e.height = Math.max(1, orig.height * sy);
+  position();
+  if ("width" in e && "width" in orig) e.width = Math.max(1, orig.width * localSX);
+  if ("height" in e && "height" in orig) e.height = Math.max(1, orig.height * localSY);
 }

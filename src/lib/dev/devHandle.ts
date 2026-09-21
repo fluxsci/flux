@@ -24,6 +24,9 @@ import * as deckProject from "../slide/deckProject";
 import * as convert from "../project/convert";
 import * as tenancy from "../tenancy";
 import * as toast from "../toast";
+import * as feedback from "../../shell/agent/feedbackStore";
+import * as terminal from "../../shell/terminal/terminalSession";
+import * as liveCommands from "../bridge/commands";
 import * as lifecycle from "../../shell/lifecycle";
 import { perfCounters } from "./perfCounters";
 import { paperPerf } from "../../shell/modes/paper/science/changeGate";
@@ -65,6 +68,9 @@ export interface FluxDevHandle {
   toast: typeof toast;
   /** Dirty registry + flushAll/anyDirty (W5) — for headless asserts. */
   lifecycle: typeof lifecycle;
+  feedback: typeof feedback;
+  terminal: typeof terminal;
+  liveCommands: typeof liveCommands;
   /** Convenience: the current figures array. */
   figures: () => unknown[];
   /** Editor settings store (rulers/grid/snap toggles, FluxFig Menu prefs). */
@@ -99,7 +105,7 @@ export function installDevHandle(): void {
     convert,
     tenancy,
     toast,
-    lifecycle,
+    lifecycle, feedback, terminal, liveCommands,
     figures: () => get(fig.project).figures,
     settings,
     editors: existing.editors ?? [],

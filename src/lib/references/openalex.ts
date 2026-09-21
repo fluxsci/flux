@@ -92,6 +92,7 @@ function qs(params: Record<string, string | number | undefined | null>): string 
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
+  if (!Number.isInteger(size) || size < 1 || size > 200) throw new Error("OpenAlex chunk size must be an integer from 1 to 200");
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
@@ -101,11 +102,16 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 /** Rebuild plain-text abstract from OpenAlex's {word: [positions]} inverted index. */
 export function reconstructAbstract(inv?: Record<string, number[]> | null): string | undefined {
-  if (!inv || typeof inv !== "object") return undefined;
+  if (!inv || typeof inv !== "object" || Array.isArray(inv)) return undefined;
+  if (Object.keys(inv).length > 100_000) throw new Error("OpenAlex abstract exceeds 100000 words");
   const slots: string[] = [];
   for (const [word, positions] of Object.entries(inv)) {
     if (!Array.isArray(positions)) continue;
-    for (const p of positions) if (typeof p === "number" && p >= 0) slots[p] = word;
+    if (word.length > 100_000 || positions.length > 100_000) throw new Error("OpenAlex abstract exceeds supported size");
+    for (const p of positions) {
+      if (!Number.isInteger(p) || p < 0 || p >= 100_000) throw new Error("Invalid OpenAlex abstract word position");
+      slots[p] = word;
+    }
   }
   const text = Array.from(slots, (w) => w ?? "")
     .join(" ")

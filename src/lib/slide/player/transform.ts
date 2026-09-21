@@ -1,3 +1,4 @@
+import { elementPaints, gradientSvg } from "../../color/gradient";
 // ---------------------------------------------------------------------------
 // Flux Slide — the TRANSFORM runtime driver (animation rework §4.3). One
 // element tweens from its pre-state (t1) to pre ⊕ to.state (t2). Rides the
@@ -56,14 +57,6 @@ export interface TransformCtx extends SlideRenderCtx {
 }
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
-
-function clearDash(scope: ParentNode): void {
-  const nodes = scope.querySelectorAll?.("path,line,polyline,polygon,rect,ellipse,circle") ?? [];
-  for (const n of Array.from(nodes) as (Element & { style?: CSSStyleDeclaration })[]) {
-    n.style?.removeProperty?.("stroke-dasharray");
-    n.style?.removeProperty?.("stroke-dashoffset");
-  }
-}
 
 export function createTransform(
   wrap: HTMLElement,
@@ -165,7 +158,6 @@ export function createTransform(
     contentHost.appendChild(layerB);
   }
 
-  let clearedDash = false;
 
   // --- the outline-morph layers (Become between drawn kinds) ----------------
   // A = the ORIGINAL nodes, moved (never cloned) so earlier inner-node
@@ -238,8 +230,15 @@ export function createTransform(
     const bodyGeom = pathRender({ ...el, arrowStart: both.start, arrowEnd: both.end });
     const headGeom = !el.closed && (L.heads.start || L.heads.end) ? pathRender(el) : null;
     set(L.body, "d", bodyGeom.d);
-    set(L.body, "fill", el.fill);
-    set(L.body, "stroke", el.stroke);
+    const paint = elementPaints(el);
+    let defs = L.svg.querySelector("defs");
+    const markup = paint.defs.map(gradientSvg).join("");
+    if (markup) {
+      if (!defs) { defs = document.createElementNS(SVG_NS, "defs"); L.svg.prepend(defs); }
+      if (defs.innerHTML !== markup) defs.innerHTML = markup;
+    } else defs?.remove();
+    set(L.body, "fill", paint.fill);
+    set(L.body, "stroke", paint.stroke);
     set(L.body, "stroke-width", String(el.strokeWidth));
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
     const dash = dashAttr(el);
@@ -307,13 +306,6 @@ export function createTransform(
       return;
     }
 
-    if (t > 0 && plan.geometryDirty && !clearedDash) {
-      // the transform owns the geometry from here — stale dash windows sized
-      // to the OLD geometry would truncate it (the morph lesson). t=0 keeps
-      // them: drawOn's pre-beat hidden state depends on its dasharray.
-      clearDash(wrap);
-      clearedDash = true;
-    }
 
     if (isPlot) {
       const p = el as SemanticPlotElement;

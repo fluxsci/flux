@@ -259,6 +259,8 @@ export interface Keyframe {
 /** One animation within a beat. `start`/`duration` form the within-beat
  *  mini-timeline (ms). `target` is an element id, or `@camera`/`@stage`. */
 export interface Track {
+  /** Ownership of automatic appearance regeneration, preserved by duplication. */
+  generatedBy?: "auto-reveal";
   /** Stable identity for editor selection / timeline keying / reorder.
    *  Populated at every creation point and backfilled at load
    *  (`ensureTrackIds`); optional only so older Track literals type-check. */
@@ -302,6 +304,10 @@ export interface Track {
  *  restores the animation intact. */
 export interface Beat {
   id: Id;
+  generatedBy?: "auto-reveal";
+  autoPhase?: number;
+  /** Ghost result whose post-birth phases these are; remapped on duplication. */
+  autoTarget?: Id;
   label?: string;
   advance?: AdvanceMode;
   /** For `advance:"auto"` — ms after the previous beat finishes. */

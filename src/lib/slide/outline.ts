@@ -15,7 +15,7 @@
 // pair; sampling is O(nodes) per frame.
 // ---------------------------------------------------------------------------
 
-import type { Element, PathElement, VectorNode } from "../types";
+import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
 import { lerpColor } from "../color/interp";
 import {
@@ -102,16 +102,24 @@ export function elementOutline(el: Element): Outline | null {
 
 // --- arc-length parameterization + splitting ------------------------------------
 
-interface Param { segs: PathSeg[]; lens: number[]; total: number }
+interface Param { segs: PathSeg[]; lens: number[]; total: number; points: Map<number, { x: number; y: number }> }
 
 function parameterize(nodes: VectorNode[], closed: boolean): Param {
   const segs = segsFromNodes(nodes, closed);
   const lens = segs.map((s) => segLength(s, 24));
-  return { segs, lens, total: lens.reduce((a, b) => a + b, 0) };
+  return { segs, lens, total: lens.reduce((a, b) => a + b, 0), points: new Map() };
 }
 
 /** The point at normalized arc length s ∈ [0,1]. */
 function pointAt(p: Param, s: number): { x: number; y: number } {
+  const cached = p.points.get(s); if (cached) return cached;
+  const point = pointAtUncached(p, s);
+  // Exact numeric stations only, scoped to this immutable plan. No LUT or
+  // changed correspondence tolerance; the cap bounds pathological node counts.
+  if (p.points.size < 4096) p.points.set(s, point);
+  return point;
+}
+function pointAtUncached(p: Param, s: number): { x: number; y: number } {
   if (!p.segs.length) return { x: 0, y: 0 };
   let d = Math.max(0, Math.min(1, s)) * p.total;
   for (let i = 0; i < p.segs.length; i++) {
@@ -416,6 +424,8 @@ function strokeHeads(el: Element, outline: Outline, box: { w: number; h: number 
 }
 
 interface OutlineStyle {
+  fillMap?: GradientFill | null;
+  strokeMap?: GradientFill | null;
   fill: string;
   stroke: string;
   strokeWidth: number;
@@ -433,6 +443,8 @@ function styleOf(el: Element): OutlineStyle {
   const e = el as unknown as Record<string, unknown>;
   const open = el.type === "line" || (el.type === "path" && !el.closed);
   return {
+    fillMap: open ? undefined : e.fillMap as GradientFill | undefined,
+    strokeMap: e.strokeMap as GradientFill | undefined,
     fill: open ? "none" : String(e.fill ?? "none"),
     stroke: String(e.stroke ?? "none"),
     strokeWidth: Number(e.strokeWidth ?? 0) || 0,
@@ -460,7 +472,7 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   // a stroke meets a FILLED ring by inflating (no wedge); a stroke-only ring
   // opens up and unrolls instead
   const ringStyle = A.closed === B.closed ? null : A.closed ? preStyle : endStyle;
-  const strategy: RingStrategy = ringStyle && !isNoneColor(ringStyle.fill) ? "inflate" : "cut";
+  const strategy: RingStrategy = ringStyle && (!!ringStyle.fillMap?.stops?.length || !isNoneColor(ringStyle.fill)) ? "inflate" : "cut";
   const { a, b, closed } = planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy);
   const fixedHeads = strategy === "inflate" ? [...strokeHeads(pre, A, pb, "pre"), ...strokeHeads(end, B, eb, "end")] : [];
   return {
@@ -519,6 +531,10 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number): PathEleme
     d: "",
     fill,
     stroke,
+    // Unlike gradients use a deterministic endpoint paint; solid-color
+    // interpolation remains continuous and authored endpoints remain exact.
+    fillMap: structuredClone((t < 0.5 ? preStyle : endStyle).fillMap ?? (preStyle.fillMap || endStyle.fillMap)),
+    strokeMap: structuredClone((t < 0.5 ? preStyle : endStyle).strokeMap ?? (preStyle.strokeMap || endStyle.strokeMap)),
     strokeWidth: lerp(preStyle.strokeWidth, endStyle.strokeWidth, t),
     closed: plan.closed,
     nodes,

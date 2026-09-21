@@ -22,8 +22,10 @@ function publicHttpUrl(raw) {
     return null;
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (u.username || u.password) return null;
   const h = u.hostname.toLowerCase();
   if (h === "localhost" || h === "::1" || /\.local$/.test(h)) return null;
+  if (net.isIP(h.replace(/^\[|\]$/g, "")) && isPrivateAddress(h)) return null;
   if (/^(127\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(h)) return null;
   return u.toString();
 }
@@ -47,9 +49,21 @@ function isPrivateAddress(addr) {
     let h = bare.toLowerCase();
     const zone = h.indexOf("%");
     if (zone >= 0) h = h.slice(0, zone);
-    if (h === "::" || h === "::1") return true; // unspecified/loopback
-    const v4 = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/); // v4-mapped
-    if (v4) return isPrivateAddress(v4[1]);
+    // URL normalization canonicalizes dotted mapped addresses into hex words.
+    // Expand both forms before classifying, including fully spelled IPv6.
+    const dotted = h.match(/(\d+\.\d+\.\d+\.\d+)$/);
+    if (dotted) {
+      const p = dotted[1].split(".").map(Number);
+      h = h.slice(0, -dotted[1].length) + ((p[0] << 8) | p[1]).toString(16) + ":" + ((p[2] << 8) | p[3]).toString(16);
+    }
+    const sides = h.split("::");
+    const left = sides[0] ? sides[0].split(":") : [];
+    const right = sides[1] ? sides[1].split(":") : [];
+    const words = (sides.length === 2 ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left).map(x => parseInt(x, 16));
+    if (words.slice(0, 7).every(x => x === 0) && words[7] <= 1) return true;
+    if (words.slice(0, 5).every(x => x === 0) && words[5] === 0xffff) {
+      return isPrivateAddress([words[6] >> 8, words[6] & 255, words[7] >> 8, words[7] & 255].join("."));
+    }
     if (/^fe[89ab]/.test(h)) return true; // link-local fe80::/10
     if (/^f[cd]/.test(h)) return true; // ULA fc00::/7
     return false;
@@ -134,10 +148,9 @@ function createNetGet({ session, getKey, allowPrivate = false, partition = NET_P
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) return { error: `HTTP ${res.status}`, status: res.status };
-      if (mode === "json") return { json: await res.json() };
-      if (mode === "text") return { text: await res.text() };
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length > 80 * 1024 * 1024) return { error: "too large" };
+      const buf = await readBoundedBody(res, mode === "bytes" ? 80 * 1024 * 1024 : 8 * 1024 * 1024);
+      if (mode === "json") return { json: JSON.parse(buf.toString("utf8")) };
+      if (mode === "text") return { text: buf.toString("utf8") };
       return {
         bytesB64: buf.toString("base64"),
         contentType: res.headers.get("content-type") || "",
@@ -152,4 +165,21 @@ function createNetGet({ session, getKey, allowPrivate = false, partition = NET_P
   };
 }
 
-module.exports = { createNetGet, publicHttpUrl, isPrivateAddress, assertPublicResolved, NET_PARTITION };
+async function readBoundedBody(response, maxBytes) {
+  const length = Number(response.headers.get("content-length"));
+  if (Number.isFinite(length) && length > maxBytes) { await response.body?.cancel(); throw new Error("Response too large"); }
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks = []; let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) { await reader.cancel(); throw new Error("Response too large"); }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks, size);
+  } finally { reader.releaseLock(); }
+}
+module.exports = { readBoundedBody, createNetGet, publicHttpUrl, isPrivateAddress, assertPublicResolved, NET_PARTITION };

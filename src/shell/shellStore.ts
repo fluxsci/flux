@@ -1,20 +1,27 @@
 // Flux shell state: which view we're in (Home vs Workspace), the active
 // mode, the current project, and the recent-projects list.
 
-import { writable } from "svelte/store";
+import { writable, get } from "svelte/store";
 import {
   basename,
   fileBridge,
   type LoadedProject,
 } from "../lib/project/types";
-import { scaffoldProject } from "../lib/project/scaffold";
-import { loadProject, NotAProjectError } from "../lib/project/load";
+import { NotAProjectError } from "../lib/project/loadErrors";
+// Validation and starter-deck assembly are needed only for an actual open/new
+// operation. Keep those scientific-format engines out of the interactive Home.
+const loadProject = async (root: string): Promise<LoadedProject> => (await import("../lib/project/load")).loadProject(root);
+const scaffoldProject = async (root: string, opts: import("../lib/project/scaffold").ScaffoldOptions) => (await import("../lib/project/scaffold")).scaffoldProject(root, opts);
 import { ensureProjectContext } from "../lib/project/contextHeal";
 import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
 import { conflicts, conflictsOnProjectOpen, conflictsOpen } from "../lib/project/conflicts";
 import { flushAll } from "./lifecycle";
 import { reconcileProject } from "../lib/references/fluxlibBridge";
 import { bumpBibRevision } from "./scholar/revisions";
+import { serializeTransition, transitionProjectIntent, isCurrentProjectIntent } from "./transitions";
+import { pushToast } from "../lib/toast";
+import { decodeRecents } from "./storageValidation";
+import { openDocRequest, openSlideRequest } from "./command/commandBus";
 import { resetPanes } from "./paneStore";
 
 export type ModeId = "figure" | "paper" | "slide" | "library" | "reader";
@@ -43,7 +50,7 @@ const RECENTS_KEY = "flux.recents";
 function loadRecents(): RecentProject[] {
   try {
     const raw = localStorage.getItem(RECENTS_KEY);
-    return raw ? (JSON.parse(raw) as RecentProject[]) : [];
+    return raw ? decodeRecents(JSON.parse(raw)) : [];
   } catch {
     return [];
   }
@@ -98,6 +105,7 @@ async function focusedOtherWindow(root: string): Promise<boolean> {
 }
 
 function enterLoaded(loaded: LoadedProject) {
+  stopProjectWatch();
   projectModel.set(loaded);
   currentProject.set({ name: loaded.manifest.title, path: loaded.root });
   pushRecent({
@@ -121,7 +129,7 @@ function enterLoaded(loaded: LoadedProject) {
   // blocking; refresh the bib store if anything changed. Failures are non-fatal.
   void reconcileProject(loaded.root)
     .then((r) => {
-      if (r.materialized.length || r.promoted.length) bumpBibRevision();
+      if (get(projectModel) === loaded && (r.materialized.length || r.promoted.length)) bumpBibRevision();
     })
     .catch(() => {});
 }
@@ -139,74 +147,77 @@ function enterInMemory(name: string) {
   conflictsOpen.set(false);
 }
 
-export async function goHome() {
-  // W5: leaving the project is a flush point — the destroy-time flushes this
-  // used to rely on were fire-and-forget (unawaited async in onDestroy).
-  await flushAll();
-  stopProjectWatch();
-  // The conflict banner belongs to the project, not the app — leaving clears it.
-  conflicts.set([]);
-  conflictsOpen.set(false);
-  view.set("home");
+async function checkedOutgoing(): Promise<boolean> {
+  const result = await flushAll();
+  if (result.ok) return true;
+  const message = `Unsaved changes: ${result.failed.join(', ')}. Retry saving or resolve the conflict before leaving.`;
+  projectError.set(message);
+  pushToast('error', "Couldn't leave project", { detail: message });
+  return false;
+}
+
+export function goHome(): Promise<boolean> {
+  const intent = transitionProjectIntent('home');
+  return serializeTransition('home', async () => {
+    if (!isCurrentProjectIntent(intent) || !await checkedOutgoing() || !isCurrentProjectIntent(intent)) return false;
+    stopProjectWatch();
+    conflicts.set([]); conflictsOpen.set(false);
+    projectModel.set(null); currentProject.set(null);
+    openDocRequest.set(null); openSlideRequest.set(null);
+    projectError.set(null); view.set('home');
+    return true;
+  });
+}
+
+function openIntent(key: string, prepare: () => Promise<LoadedProject | string | null>): Promise<boolean> {
+  const intent = transitionProjectIntent(`open:${key}`);
+  return serializeTransition(`open:${key}`, async () => {
+    if (!isCurrentProjectIntent(intent) || !await checkedOutgoing() || !isCurrentProjectIntent(intent)) return false;
+    let incoming: LoadedProject | string | null;
+    try { incoming = await prepare(); } catch (error) { if (!isCurrentProjectIntent(intent)) return false; throw error; }
+    if (!incoming || !isCurrentProjectIntent(intent)) return false;
+    // A user may keep typing while a dialog/load is pending.
+    if (!await checkedOutgoing() || !isCurrentProjectIntent(intent)) return false;
+    if (typeof incoming === 'string') enterInMemory(incoming); else enterLoaded(incoming);
+    return true;
+  });
 }
 
 export async function newProject() {
-  const fig = fileBridge();
-  if (!fig?.save) {
-    enterInMemory("Untitled Project");
-    return;
-  }
   try {
-    const target = await fig.save("Untitled Project", []);
-    if (!target) return;
-    const name = basename(target);
-    await scaffoldProject(target, { title: name });
-    enterLoaded(await loadProject(target));
-  } catch (e) {
-    projectError.set(`Couldn't create project: ${(e as Error).message}`);
-  }
+    await openIntent('new', async () => {
+      const fig = fileBridge();
+      if (!fig?.save) return 'Untitled Project';
+      const target = await fig.save('Untitled Project', []);
+      if (!target) return null;
+      await scaffoldProject(target, { title: basename(target) });
+      return loadProject(target);
+    });
+  } catch (e) { projectError.set(`Couldn't create project: ${(e as Error).message}`); }
 }
 
 export async function openProject() {
-  const fig = fileBridge();
-  if (!fig?.openDirectory) {
-    enterInMemory("Demo Project");
-    return;
-  }
   try {
-    const dir = await fig.openDirectory("Open Flux Project");
-    if (!dir) return;
-    if (await focusedOtherWindow(dir)) return;
-    enterLoaded(await loadProject(dir));
-  } catch (e) {
-    projectError.set(
-      e instanceof NotAProjectError
-        ? "That folder isn't a Flux project (no project.json)."
-        : `Couldn't open project: ${(e as Error).message}`,
-    );
-  }
+    await openIntent('dialog', async () => {
+      const fig = fileBridge();
+      if (!fig?.openDirectory) return 'Demo Project';
+      const dir = await fig.openDirectory('Open Flux Project');
+      if (!dir || await focusedOtherWindow(dir)) return null;
+      return loadProject(dir);
+    });
+  } catch (e) { projectError.set(e instanceof NotAProjectError ? "That folder isn't a Flux project (no project.json)." : `Couldn't open project: ${(e as Error).message}`); }
 }
 
-/** Load and enter a project at an explicit path (used by the dev fixture and, later, F1/F4). */
 export async function openProjectAt(path: string): Promise<void> {
-  if (await focusedOtherWindow(path)) return;
-  enterLoaded(await loadProject(path));
+  await openIntent(path, async () => await focusedOtherWindow(path) ? null : loadProject(path));
 }
 
 export async function openRecent(r: RecentProject) {
-  if (!r.path) {
-    enterInMemory(r.name);
-    return;
-  }
   try {
-    if (await focusedOtherWindow(r.path)) return;
-    enterLoaded(await loadProject(r.path));
+    await openIntent(r.path ?? r.name, async () => !r.path ? r.name : await focusedOtherWindow(r.path) ? null : loadProject(r.path));
   } catch (e) {
-    removeRecent(r.path);
-    projectError.set(
-      e instanceof NotAProjectError
-        ? `"${r.name}" is no longer a Flux project.`
-        : `Couldn't open "${r.name}": ${(e as Error).message}`,
-    );
+    // An unavailable volume/permission failure is not proof a recent was deleted.
+    if (e instanceof NotAProjectError) removeRecent(r.path);
+    projectError.set(e instanceof NotAProjectError ? `"${r.name}" is no longer a Flux project.` : `Couldn't open "${r.name}": ${(e as Error).message}`);
   }
 }

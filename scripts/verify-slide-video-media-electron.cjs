@@ -13,7 +13,7 @@ const fs = require("node:fs/promises"), os = require("node:os"), path = require(
     const headless = scope.spawn(path.join(__dirname, "lib/slideVideoMediaCoreProbe.ts"), [], { env, deadlineMs: 60000 });
     headless.child.stdout.on("data", bytes => process.stdout.write(bytes)); const coreResult = await scope.waitExit(headless);
     await fs.writeFile(path.join(artifacts, "media-headless.log"), headless.stdout + headless.stderr); assert.equal(coreResult.code, 0, headless.stdout + headless.stderr);
-    const child = scope.spawn(require.resolve("electron/cli.js"), [path.join(__dirname, "lib/slideVideoMediaNative.cjs"), ...(process.platform === "linux" ? ["--ozone-platform=x11"] : [])], { nodeArgs: [], env, deadlineMs: 100000 });
+    const child = scope.spawn(require.resolve("electron/cli.js"), [path.join(__dirname, "lib/slideVideoMediaNative.cjs"), ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []), ...(env.FLUX_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])], { nodeArgs: [], env, deadlineMs: 100000 });
     child.child.stdout.on("data", bytes => process.stdout.write(bytes)); const result = await scope.waitExit(child);
     await fs.writeFile(path.join(artifacts, "media-native.log"), child.stdout + child.stderr); assert.equal(result.code, 0, child.stdout + child.stderr);
     h.ok(true, "real MP4/ProRes MOV normalization, pixel seeks/playback, AAC signal, bounded previews, range streams, project isolation, cancellation and original preservation");

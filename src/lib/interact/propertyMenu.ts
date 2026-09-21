@@ -23,7 +23,7 @@ import { uniqueFieldKeys } from "./propertyFields";
 import { partKind, partNode, readPartStyle } from "../plot/partStyle";
 import * as ops from "../ops";
 import { applyTextLayout, reflowTexts } from "../text";
-import { applyTextStyleToPart, libraryOnly } from "../textStyles";
+import { applyTextStyleToParts, libraryOnly } from "../textStyles";
 import { presetPicker, presetableSelection } from "../presets";
 import { fluxFigMenuOpen } from "../settings";
 import { getSnipMeta } from "../snipMeta";
@@ -245,7 +245,7 @@ export function buildPartFields(
       get: () => "",
       apply: (v) => {
         const r = resolveStyle(get(project), lib, String(v));
-        if (r) for (const part of resolved) applyTextStyleToPart(part.el.id, part.partId, r.st);
+        if (r) mutate(p => applyTextStyleToParts(p, resolved.map(part => ({ elementId: part.el.id, partId: part.partId })), r.st));
       },
     });
   } else if (kind === "line") {

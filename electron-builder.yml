@@ -2,8 +2,8 @@ appId: com.fluxsci.flux
 productName: Flux
 copyright: © 2026 Kort Driessen
 
-# Register the flux:// URL scheme so the web-capture bookmarklet can hand papers to
-# the installed app (writes macOS CFBundleURLTypes + the Linux .desktop MimeType).
+# Web capture uses downloaded files and scoped intake; the old flux:// handoff
+# is retired. No URL-scheme registration is needed for the installed workflow.
 
 directories:
   buildResources: build
@@ -29,6 +29,8 @@ files:
 # Web capture: the browser extension ships WITH the app — the Library's setup panel opens the
 # signed .xpi (Firefox) or reveals the unpacked folder (Chromium), so both must be on disk.
 extraResources:
+  - from: docs/_site
+    to: docs
   - from: extension/dist
     to: extension/dist
   - from: extension/signed
@@ -48,6 +50,7 @@ asarUnpack:
   # which has NO asar support — so the bundle + its prebaked export assets must be
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.
   - dist/flux-cli.mjs
+  - dist/flux-fulltext-worker.mjs
   - dist/slide-export-assets.json
   - electron/slideVideoWorker.cjs
   - electron/videoMedia.cjs
@@ -76,6 +79,8 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extraResources:
+    - from: docs/_site
+      to: docs
     - from: build/video-encoder/darwin-${arch}/
       to: video-encoder/
     - from: build/correction-runtime/darwin-${arch}/
@@ -113,6 +118,8 @@ linux:
         Name: New Window
         Exec: /opt/Flux/flux --new-window %U
   extraResources:
+    - from: docs/_site
+      to: docs
     - from: build/video-encoder/linux-${arch}/
       to: video-encoder/
     - from: build/correction-runtime/linux-${arch}/
@@ -130,6 +137,8 @@ linux:
 
 win:
   extraResources:
+    - from: docs/_site
+      to: docs
     - from: build/video-encoder/win32-${arch}/
       to: video-encoder/
     - from: extension/dist

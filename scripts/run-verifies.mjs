@@ -11,12 +11,15 @@
 // added there to join the gate. Scripts run sequentially (they own ports, temp
 // dirs, and the shared dev server). Exit code = number of failures.
 
-import { spawn } from "node:child_process";
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { executionSpec, executeAttempt, missingPrerequisites, isolatedEnv } from "./lib/verifyRuntime.mjs";
+import { TestProcessScope } from "./lib/testProcess.mjs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertNodeVersion } from "./lib/nodeCheck.mjs";
 import { collectChangedRuns, resolveChangedRuns } from "./lib/changedVerifies.mjs";
+import { sourceIdentity } from './lib/releasePolicy.mjs';
+import os from 'node:os';
 
 assertNodeVersion("run-verifies"); // WS-0b: gates only count on the CI runtime
 
@@ -52,7 +55,7 @@ if (!opt.tiers.length && !opt.groups.length) opt.tiers = ["pure"];
 // ---------- resolve the run set ----------
 const tierOf = new Map();
 for (const [tier, scripts] of Object.entries(manifest.tiers))
-  for (const s of scripts) tierOf.set(s, tier);
+  for (const s of scripts) if (!tierOf.has(s)) tierOf.set(s, tier);
 
 const set = [];
 const seen = new Set();
@@ -118,228 +121,70 @@ for (const s of run)
     process.exit(2);
   }
 
-// ---------- shared dev server (ui tiers) ----------
+// ---------- execution contracts and unique evidence ----------
 const APP_URL = process.env.FLUX_URL || "http://127.0.0.1:1420/";
-const needsServer = run.some((s) => ["ui", "ui-extra", "scale"].includes(tierOf.get(s)));
-const needsBuild = run.filter((s) => ["bundle", "startup"].includes(tierOf.get(s)));
-let ownedServer = null;
-
-async function serving() {
-  try {
-    const r = await fetch(APP_URL, { signal: AbortSignal.timeout(1500) });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureServer() {
-  if (await serving()) {
-    console.log(`· dev server already up at ${APP_URL}`);
-    return;
-  }
-  console.log("· starting dev server (npm run dev)…");
-  // Windows has no bare `npm` executable — only npm.cmd — so an unshelled spawn dies
-  // with ENOENT and every browser gate in the run then fails for want of :1420, which
-  // reads as a mass regression rather than a missing server. `shell: true` resolves it
-  // through PATHEXT; the spawn error is also surfaced instead of being swallowed.
-  ownedServer = spawn("npm", ["run", "dev"], {
-    cwd: repoRoot,
-    stdio: "ignore",
-    detached: process.platform !== "win32",
-    shell: process.platform === "win32",
-  });
-  let spawnError = null;
-  ownedServer.on("error", (e) => {
-    spawnError = e;
-  });
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await serving()) return;
-    if (spawnError) break;
-    if (ownedServer.exitCode !== null) break;
-  }
-  throw new Error(
-    `dev server did not become reachable at ${APP_URL}` +
-      (spawnError ? ` — could not start it: ${spawnError.message}. Start \`npm run dev\` yourself and re-run.` : ""),
-  );
-}
-
-function stopServer() {
-  if (!ownedServer || ownedServer.exitCode !== null) return;
-  // win32 has no process groups and the shell wrapper is not the vite process, so a
-  // negative-pid signal throws and would leave :1420 held for the next run. taskkill
-  // /T walks the tree from the shell down to vite.
-  if (process.platform === "win32") {
-    try {
-      spawn("taskkill", ["/pid", String(ownedServer.pid), "/T", "/F"], { stdio: "ignore" });
-    } catch {}
-    return;
-  }
-  try {
-    process.kill(-ownedServer.pid, "SIGTERM");
-  } catch {}
-  setTimeout(() => {
-    try {
-      process.kill(-ownedServer.pid, "SIGKILL");
-    } catch {}
-  }, 2000).unref();
-}
-process.on("exit", stopServer);
-process.on("SIGINT", () => {
-  stopServer();
-  process.exit(130);
-});
-
-// ---------- per-script execution ----------
-function runScript(name) {
-  const file = path.join(repoRoot, "scripts", name);
-  // Children run THIS runner's runtime (process.execPath), never whatever `node`
-  // happens to be first on PATH — the WS-0b version gate must cover the whole
-  // tier. `--import tsx` replaces the npx→tsx wrapper chain (same loader, one
-  // process, ~0.4s less overhead per script). It loads for .mjs children too:
-  // some (verify-scale-fulltext.mjs) import flux-core .ts modules directly and
-  // plain node can't — the loader is a no-op for pure-JS scripts.
-  const [cmd, cargs] = [process.execPath, ["--import", "tsx", file]];
-  const timeout = manifest.timeouts?.[name] ?? opt.timeout;
-  return new Promise((resolve) => {
-    const t0 = Date.now();
-    // FLUX_NO_MIGRATE: tests spawn the real CLI/MCP, which run the FluxConfig
-    // migration on startup — never against the developer's real HOME from a
-    // verify run. (verify-fluxconfig.ts clears it inside its scratch-HOME sims.)
-    const child = spawn(cmd, cargs, {
-      cwd: repoRoot,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-      env: { ...process.env, FLUX_NO_MIGRATE: "1" },
-    });
-    let out = "";
-    const cap = (d) => {
-      out += d;
-      if (out.length > 400_000) out = out.slice(-200_000);
-    };
-    child.stdout.on("data", cap);
-    child.stderr.on("data", cap);
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {}
-    }, timeout);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      // WS-7.4: scripts on harness.mjs print `##VERIFY## {json}` — parse it so
-      // summary.json carries check counts; exit code stays the source of truth.
-      let sentinel = null;
-      const m = out.match(/##VERIFY## (\{.*\})/g);
-      if (m) {
-        try {
-          sentinel = JSON.parse(m[m.length - 1].slice("##VERIFY## ".length));
-        } catch {}
-      }
-      resolve({ name, ms: Date.now() - t0, code: timedOut ? "timeout" : code, out, sentinel });
-    });
-  });
-}
-
-async function execWithRetry(name) {
-  let r = await runScript(name);
-  // Timing-gated scripts (frame budgets, perf medians) get ONE retry — a shared-server
-  // suite run can spike them. A genuine regression fails twice.
-  if (r.code !== 0 && manifest.retryOnce?.includes(name)) {
-    r = await runScript(name);
-    r.retried = true;
-  }
-  return r;
-}
-
-function report(r) {
-  const secs = (r.ms / 1000).toFixed(1);
-  const checks = r.sentinel ? ` [${r.sentinel.checks} checks]` : "";
-  console.log(
-    `${r.code === 0 ? "  ✓" : "  ✗"} ${r.name} (${secs}s)${checks}${r.retried ? " [retried]" : ""}${r.code === 0 ? "" : ` — exit ${r.code}`}`,
-  );
-  if (r.code !== 0) {
-    const tail = r.out.trimEnd().split("\n").slice(-40).join("\n");
-    console.log(`    ┄┄ output tail ┄┄\n${tail.replace(/^/gm, "    ")}\n`);
-  }
-}
-
-// ---------- main ----------
 const t0 = Date.now();
-if (needsBuild.length) {
-  const cli = path.join(repoRoot, "dist", "flux-cli.mjs");
-  if (!existsSync(cli)) {
-    console.error(`bundle/startup tiers need build artifacts — run \`npm run build\` first (missing ${path.relative(repoRoot, cli)})`);
-    process.exit(2);
-  }
+const sourceStart = await sourceIdentity(repoRoot);
+const runDir = path.join(repoRoot, 'test-results', 'runs', `${new Date(t0).toISOString().replace(/[:.]/g, '-')}-${process.pid}`);
+mkdirSync(runDir, { recursive: true });
+const specs = new Map(run.map(name => [name, executionSpec(manifest, name)]));
+const serverScope = new TestProcessScope();
+let serverProblem = null, serverTemporaryRoot = null;
+const stop=new AbortController();let interruption=null;
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{interruption=signal;stop.abort(signal);void serverScope.dispose();});
+async function serving() { try { return (await fetch(APP_URL, { signal: AbortSignal.timeout(1500) })).ok; } catch { return false; } }
+async function ensureServer() {
+  if (await serving()) return;
+  const url = new URL(APP_URL);
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw new Error('Refusing to start a non-loopback verification server');
+  // Direct Vite avoids npm.cmd wrappers and honors the requested port.
+  const serverEnv=isolatedEnv(path.join(runDir,'server'));serverTemporaryRoot=serverEnv.TMPDIR;
+  const entry = serverScope.spawn(path.join(repoRoot, 'node_modules/vite/bin/vite.js'), ['--host', url.hostname, '--port', url.port || '1420', '--strictPort'], { cwd: repoRoot, env: serverEnv, nodeArgs: [], deadlineMs: 24 * 60 * 60 * 1000 });
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline && !entry.exited) { if (await serving()) return; await new Promise(r => setTimeout(r, 250)); }
+  throw new Error(`server unavailable at ${APP_URL}: ${entry.spawnError || entry.stderr || 'startup deadline'}`);
 }
-if (needsServer) await ensureServer();
-
-console.log(`Running ${run.length} verify script(s)…${opt.jobs > 1 ? ` (--jobs ${opt.jobs}, pure tier only)` : ""}\n`);
+if ([...specs.values()].some(s => s.prerequisites.includes('server'))) {
+  try { await ensureServer(); } catch (e) { serverProblem = e.message; }
+}
+async function execWithRetry(name) {
+  const spec = specs.get(name);
+  const missing = await missingPrerequisites(spec, repoRoot);
+  if (spec.prerequisites.includes('server') && serverProblem) missing.push(serverProblem);
+  if (missing.length) return { name, status: 'blocked', code: 'blocked', ms: 0, attempts: [], reason: missing.join('; '), out: missing.join('; ') };
+  const attempts = [];
+  const attempt = () => executeAttempt({ spec, file: path.join(repoRoot, 'scripts', name), dir: path.join(runDir, name, `attempt-${attempts.length + 1}`), cwd: repoRoot, timeout: manifest.timeouts?.[name] ?? spec.timeoutMs ?? opt.timeout, signal:stop.signal, env:{...process.env,FLUX_VERIFY_SOURCE_DIGEST:sourceStart.digest,FLUX_VERIFY_COMMIT:sourceStart.commit} });
+  attempts.push(await attempt());
+  // Performance gates are never retried to select a luckier sample.
+  if (!stop.signal.aborted && attempts[0].code !== 0 && !spec.exclusive && manifest.retryOnce?.includes(name)) attempts.push(await attempt());
+  const last = attempts.at(-1);
+  const status = attempts.length > 1 && last.code === 0 ? 'flaky' : last.status;
+  return { ...last, name, status, code: status === 'flaky' ? 'flaky' : last.code, ms: attempts.reduce((sum,a) => sum+a.ms, 0), attempts };
+}
+function report(r) {
+  console.log(`${r.status === 'passed' ? '  ✓' : '  ✗'} ${r.name}: ${r.status} (${(r.ms/1000).toFixed(1)}s)${r.attempts.length > 1 ? ` [${r.attempts.length} attempts retained]` : ''}`);
+  if (r.status !== 'passed') console.log(r.out.trimEnd().split('\n').slice(-30).join('\n'));
+}
 const results = [];
-// WS-7.6c: --jobs N parallelizes the PURE tier only (hermetic — own temp dirs,
-// no shared server). ui/scale/bundle stay strictly sequential: they share :1420
-// and frame-timing budgets.
-const pooled = opt.jobs > 1 ? run.filter((n) => tierOf.get(n) === "pure") : [];
-const serial = opt.jobs > 1 ? run.filter((n) => tierOf.get(n) !== "pure") : run;
-if (pooled.length) {
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(opt.jobs, pooled.length) }, async () => {
-      while (next < pooled.length) {
-        const name = pooled[next++];
-        const r = await execWithRetry(name);
-        results.push(r);
-        report(r);
-      }
-    }),
-  );
-}
-for (const name of serial) {
-  process.stdout.write(`  … ${name}`);
-  const r = await execWithRetry(name);
-  results.push(r);
-  process.stdout.write("\r");
-  report(r);
-}
-
-const failed = results.filter((r) => r.code !== 0);
-const total = ((Date.now() - t0) / 1000).toFixed(1);
-console.log(`\n${results.length - failed.length}/${results.length} passed in ${total}s`);
-if (failed.length) console.log(`FAILED: ${failed.map((f) => f.name).join(", ")}`);
-
-// WS-0b: every recorded run is attributable to a runtime. CI uploads this file.
 try {
-  mkdirSync(path.join(repoRoot, "test-results"), { recursive: true });
-  writeFileSync(
-    path.join(repoRoot, "test-results", "summary.json"),
-    JSON.stringify(
-      {
-        startedAt: new Date(t0).toISOString(),
-        node: process.versions.node,
-        platform: process.platform,
-        tiers: opt.tiers,
-        groups: opt.groups,
-        only: opt.only,
-        passed: results.length - failed.length,
-        total: results.length,
-        totalMs: Date.now() - t0,
-        results: results.map((r) => ({
-          name: r.name,
-          tier: tierOf.get(r.name) ?? null,
-          code: r.code,
-          ms: r.ms,
-          ...(r.retried ? { retried: true } : {}),
-          ...(r.sentinel ? { checks: r.sentinel.checks, failedChecks: r.sentinel.failed } : {}),
-        })),
-      },
-      null,
-      2,
-    ) + "\n",
-  );
-} catch (e) {
-  console.warn(`(could not write test-results/summary.json: ${e})`);
-}
-process.exit(Math.min(failed.length, 100));
+  console.log(`Running ${run.length} scripts; evidence ${runDir}`);
+  const pooled = opt.jobs > 1 ? run.filter(n => !specs.get(n).exclusive) : [];
+  const serial = opt.jobs > 1 ? run.filter(n => specs.get(n).exclusive) : run;
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(opt.jobs, pooled.length) }, async () => {
+    while (!stop.signal.aborted && next < pooled.length) { const result = await execWithRetry(pooled[next++]); results.push(result); report(result); }
+  }));
+  for (const name of serial) { if(stop.signal.aborted)break;const result = await execWithRetry(name); results.push(result); report(result); }
+} finally { await serverScope.dispose();if(serverTemporaryRoot)rmSync(serverTemporaryRoot,{recursive:true,force:true}); }
+if(interruption)for(const name of run)if(!results.some(result=>result.name===name))results.push({name,status:'interrupted',code:'interrupted',ms:0,attempts:[],reason:`Not started: ${interruption}`,out:''});
+const failed = results.filter(r => r.status !== 'passed');
+const sourceEnd = await sourceIdentity(repoRoot);
+const sourceChanged = sourceStart.commit !== sourceEnd.commit || sourceStart.digest !== sourceEnd.digest || sourceStart.dirty !== sourceEnd.dirty;
+const commit = sourceStart.commit;
+const strip = ({ out, ...value }) => value;
+const summary = { sourceStart, sourceEnd, sourceChanged, interrupted:interruption, startedAt: new Date(t0).toISOString(), commit, repoRoot, directory: runDir, node: process.versions.node, platform: process.platform, config: { host:{arch:process.arch,cpu:os.cpus()[0]?.model || null,cores:os.cpus().length,totalMemory:os.totalmem()}, privateDisplay:process.env.FLUX_PRIVATE_DISPLAY==='1'||!!process.env.FLUX_XVFB, runtimeEvidence:'Per-attempt artifacts/runtime-environment.json records observed browser viewport, screen, device scale, GPU and served application modules where the browser driver is used; absent files are not observations.', appUrl: APP_URL, chrome: process.env.FLUX_CHROME || null, display: process.env.DISPLAY || null, xvfb: process.env.FLUX_XVFB || null, electronNoSandbox: process.env.FLUX_ELECTRON_NO_SANDBOX === '1', displayQualification: 'software or physical display must be independently recorded; not inferred from environment' }, tiers: opt.tiers, groups: opt.groups, only: opt.only, passed: results.length-failed.length, total: results.length, totalMs: Date.now()-t0, results: results.map(r => ({ ...strip(r), tier: tierOf.get(r.name), execution: specs.get(r.name), attempts: r.attempts.map(strip) })) };
+writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary,null,2)+'\n');
+writeFileSync(path.join(repoRoot, 'test-results/summary.json'), JSON.stringify(summary,null,2)+'\n');
+console.log(`\n${summary.passed}/${summary.total} passed; ${failed.length} failed/blocked/flaky. Evidence: ${runDir}`);
+if (sourceChanged) console.error('Source changed during this cohort; per-script results are retained, but this run cannot qualify one exact source revision.');
+process.exitCode = interruption ? (interruption==='SIGINT'?130:143) : Math.min(failed.length + (sourceChanged ? 1 : 0), 100);

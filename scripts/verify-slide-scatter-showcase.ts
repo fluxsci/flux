@@ -70,12 +70,12 @@ assert(style(aPoint(), "opacity") === "0", "Start: the scatter points are hidden
 assert(style(fitLine(), "strokeDashoffset") !== "0", "Start: the fit line rests undrawn");
 
 applyStatic(specs, 1); // Axes — spines/ticks draw on
-assert(style(spinePath(), "strokeDashoffset") === "0", "Axes beat: the x-axis spine is DRAWN ON");
+assert(!style(spinePath(), "strokeDashoffset") && !style(spinePath(), "strokeDasharray"), "Axes beat: the x-axis spine is DRAWN ON");
 assert(style(aPoint(), "opacity") === "0", "Axes beat: the points are still hidden (their beat is later)");
 
 applyStatic(specs, 3); // Data — points stagger in, line draws on
 assert(style(aPoint(), "opacity") === "1", "Data beat: the scatter points are SHOWN");
-assert(style(fitLine(), "strokeDashoffset") === "0", "Data beat: the fit line is DRAWN ON");
+assert(!style(fitLine(), "strokeDashoffset") && !style(fitLine(), "strokeDasharray"), "Data beat: the fit line is DRAWN ON");
 
 // 5. reversibility (the scrubber/export substrate) ----------------------------
 applyStatic(specs, 0);

@@ -137,7 +137,11 @@ export function cachePlot(
   manifest?: FluxPlotManifest,
   recipe?: unknown,
 ): boolean {
-  const prepared = preparePlot(svgText, manifest);
+  return cachePreparedPlot(assetId, preparePlot(svgText, manifest), recipe);
+}
+/** Install a validated preparation without parsing a second time. */
+export function cachePreparedPlot(assetId: Id, prepared: ReturnType<typeof preparePlot>, recipe?: unknown): boolean {
+  let manifest = prepared.manifest;
   if (!prepared.root) return false; // retain the complete last-good cache
   if (prepared.root) {
     // Editor-only: bake the plot's <style> rules into presentation attributes so

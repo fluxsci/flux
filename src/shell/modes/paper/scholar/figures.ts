@@ -536,13 +536,17 @@ export function figureById(id: string): Figure | undefined {
 export async function materializeRenders(
   root: string,
   docText: string,
+  snapshot?: ReturnType<typeof captureFigureExport>,
 ): Promise<{ wrote: number; failed: string[] }> {
   const fb = fileBridge();
   let wrote = 0;
   const failed: string[] = [];
   if (!root || !fb) return { wrote, failed };
-  await (await import("../../../../lib/project/sourceBridge")).syncProjectSources(root);
-  await loadFigures(root); // export uses the accepted source revision
+  if (snapshot?.root && snapshot.root !== root && snapshot.root !== "__seed") throw new Error("Figure snapshot belongs to a different project");
+  if (!snapshot) {
+    await (await import("../../../../lib/project/sourceBridge")).syncProjectSources(root);
+    await loadFigures(root); // ordinary materialization refreshes; export jobs supply their accepted snapshot
+  }
   const ids = new Set<string>();
   for (const line of docText.split("\n")) {
     const m = EMBED_RE.exec(line);
@@ -550,7 +554,7 @@ export async function materializeRenders(
     const fromPath = /fig\/renders\/([A-Za-z0-9_-]+)\.svg$/.exec(m[2]);
     if (fromPath) ids.add(fromPath[1]);
     else {
-      const r = resolveFigure(m[3]);
+      const r = snapshot ? snapshot.resolve(m[3]) : resolveFigure(m[3]);
       if (r && r.ref.id) ids.add(r.ref.id);
     }
   }
@@ -561,7 +565,7 @@ export async function materializeRenders(
     /* exists */
   }
   for (const id of ids) {
-    const svg = renderFigureSvgForDisk(id); // un-namespaced: byte-parity with flux-core
+    const svg = snapshot ? await snapshot.render(id, false) : renderFigureSvgForDisk(id); // un-namespaced: byte-parity with flux-core
     if (!svg) {
       failed.push(id);
       continue;
@@ -605,5 +609,36 @@ if (import.meta.env?.DEV) {
     refs: () => get(figureRefs),
     resolve: resolveFigure,
     reload: (root: string | null) => loadFigures(root),
+  };
+}
+
+/** Immutable export inputs; serialization yields between plot preparations. */
+export function captureFigureExport() {
+  const refs = structuredClone(get(figureRefs)), figures = structuredClone(figuresById);
+  const data = { ...assetData }, manifests = structuredClone(assetManifests), assets = structuredClone(assetMeta), families = structuredClone(familyDefs);
+  const resolve = createFigureReferenceResolver(refs);
+  return {
+    refs, root: loadedRoot,
+    context(style?: ResolvedJournalStyle) {
+      const out = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
+      for (const r of refs) if (!out.has(r.label)) out.set(r.label, { family: styledFamilyDef(style, familyById(r.family, families)), number: r.number, panels: r.panels });
+      return out;
+    },
+    resolve(label: string): ReturnType<typeof resolveFigure> {
+      const hit = resolve(label); if (!hit) return null;
+      const panel = hit.panelSpec?.replace(/-/g, "–");
+      return { ref: hit.ref, display: panel ? formatFamilyRef(familyById(hit.ref.family, families), hit.ref.number, panel) : hit.ref.display, ...(panel ? { panel } : {}) };
+    },
+    async render(id: string, namespaced = true): Promise<string | undefined> {
+      const figure = figures[id]; if (!figure) return undefined;
+      const plots = new Map<Element, string | undefined>(); let began = performance.now();
+      for (const el of figure.elements) {
+        if (el.type !== "plot" || effectiveHidden(figure, el)) continue;
+        const url = data[el.assetId];
+        if (url?.startsWith("data:image/svg+xml")) plots.set(el, buildPlotMarkup(new TextDecoder().decode(dataUrlToBytes(url)), (namespaced ? { ...el, id: `${PAPER_SVG_NS}__${el.id}` } : el), el.overrides, manifests[el.assetId]) ?? undefined);
+        if (performance.now() - began >= 6) { await new Promise<void>(resolve => setTimeout(resolve, 0)); began = performance.now(); }
+      }
+      return figureToSvg(figure, aid => data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined);
+    },
   };
 }

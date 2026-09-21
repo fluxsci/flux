@@ -178,7 +178,7 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
       continue;
     }
     if (!(k in b)) {
-      if (k in a && !retype) out[k] = null;
+      if (k in a && (!retype || BASE_PROPS.has(k))) out[k] = null;
     } else if (!eq(a[k], b[k]) || (retype && !BASE_PROPS.has(k))) {
       out[k] = structuredClone(b[k]);
     }
@@ -194,7 +194,7 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
  *  null (the driver crossfades). */
 export function numericTextTween(preText: string, endText: string): ((t: number) => string) | null {
   if (preText === endText) return null;
-  const NUM = /-?\d[\d,]*\.?\d*/;
+  const NUM = /-?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?/;
   const ma = NUM.exec(preText);
   const mb = NUM.exec(endText);
   if (!ma || !mb) return null;

@@ -1,7 +1,7 @@
 // Pixel and lifecycle contracts for renderer-only optimizations. The reference
 // is the same artwork without the optimization, not a second implementation.
 import fs from 'node:fs/promises';
-import { launch, gotoApp, waitFor, realErrors, APP_URL, sleep } from './lib/driver.mjs';
+import { launch, gotoApp, clickMode, waitFor, realErrors, APP_URL, sleep } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
 const h = harness('verify-render-optimizations');
 const out = process.env.FLUX_OUT || 'test-results/responsiveness-audit';
@@ -115,10 +115,14 @@ try {
   h.ok(math.dx < .001 && math.dy < .001, `rounded raster dimensions map exactly to world geometry (${math.dx}, ${math.dy})`);
 
   h.section('Paper image revisions, viewport demand and failure cleanup');
+  // Initial project source loads must complete before synthetic revisions are
+  // seeded; the editor itself intentionally mounts sooner for responsiveness.
+  await clickMode(page, 'Paper');
+  await page.waitForSelector('.paper[data-paper-sources-ready="true"]');
   await page.evaluate(async () => {
     const F = await import('/src/shell/modes/paper/scholar/figures.ts');
     const ref = { id: 'audit-image', label: 'fig-audit', name: 'Audit', family: 'figure', number: 1, display: 'Fig. 1', captionLabel: '', order: 1, canvas: 'c', caption: '', panels: [] };
-    const fig = color => ({ id: ref.id, width: 200, height: 120, background: '#fff', elements: [{ type: 'rect', id: 'r', x: 0, y: 0, width: 200, height: 120, fill: color, stroke: 'none', strokeWidth: 0, rotation: 0, cornerRadius: 0 }] });
+    const fig = color => ({ id: ref.id, name: 'Audit', canvasId: 'c', x: 0, y: 0, width: 200, height: 120, background: '#fff', elements: [{ type: 'rect', id: 'r', x: 0, y: 0, width: 200, height: 120, fill: color, stroke: 'none', strokeWidth: 0, rotation: 0, cornerRadius: 0 }] });
     const host = document.createElement('div'); host.id = 'audit-paper'; host.style.cssText = 'position:fixed;left:20px;top:20px;width:220px;height:140px;z-index:100000';
     const img = new Image(); host.append(img); document.body.append(host);
     const seed = color => F.__seedFigures([ref], { [ref.id]: fig(color) });
@@ -153,7 +157,7 @@ try {
     const F = await import('/src/shell/modes/paper/scholar/figures.ts');
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">' +
       Array.from({length:1000}, (_, i) => `<path id="p${i}" d="M${i%100} ${Math.floor(i/100)*8}h1v1z" fill="#123456"/>`).join('') + '</svg>';
-    const fig = {id:'audit-dense',width:600,height:400,background:'#fff',elements:Array.from({length:24}, (_,i) =>
+    const fig = {id:'audit-dense',name:'Dense audit',canvasId:'c',x:0,y:0,width:600,height:400,background:'#fff',elements:Array.from({length:24}, (_,i) =>
       ({id:`placed-${i}`,type:'plot',assetId:'dense-source',x:i%6*100,y:Math.floor(i/6)*100,width:100,height:100}))};
     const data = {'dense-source':'data:image/svg+xml;base64,' + btoa(svg)};
     F.__seedFigures([], {[fig.id]:fig}, data);

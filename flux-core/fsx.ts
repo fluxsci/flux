@@ -19,39 +19,36 @@ export function tmpPathFor(p: string): string {
 /** Matches in-flight atomic-write temp files (shared with the watcher's ignore list). */
 export const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
 
-export async function atomicWrite(p: string, data: string | Uint8Array, createOnly = false): Promise<void> {
+export async function atomicWrite(p: string, data: string | Uint8Array, createOnly = false, mode = 0o666): Promise<void> {
   await fs.mkdir(path.dirname(p), { recursive: true });
   const tmp = tmpPathFor(p);
-  const fh = await fs.open(tmp, "w");
+  let fh: import("node:fs/promises").FileHandle | undefined;
   try {
+    fh = await fs.open(tmp, "wx", mode);
     if (typeof data === "string") await fh.writeFile(data, "utf8");
     else await fh.writeFile(data);
     await fh.sync();
+    await fh.close(); fh = undefined;
+    if (createOnly) { await fs.link(tmp, p); await fs.unlink(tmp); }
+    else await fs.rename(tmp, p);
   } finally {
-    await fh.close();
-  }
-  try {
-    if (createOnly) {
-      await fs.link(tmp, p); // atomic no-clobber publication
-      await fs.unlink(tmp);
-    } else await fs.rename(tmp, p);
-  } catch (e) {
-    await fs.rm(tmp, { force: true }).catch(() => {});
-    throw e;
+    await fh?.close().catch(() => {});
+    await fs.rm(tmp, {force: true}).catch(() => {});
   }
 }
 
 /** WS-5.3: fsync a DIRECTORY after a rename-into-place batch — atomicWrite
  *  fsyncs the FILE, but on Linux/mac the rename's directory entry needs its
- *  own fsync to survive a crash. Best-effort; no-op on win32. */
+ *  own fsync to survive a crash. Unsupported filesystem operations are tolerated;
+ *  I/O and missing-directory errors must reach the writer. No-op on win32. */
 export async function fsyncDir(dir: string): Promise<void> {
   if (process.platform === "win32") return;
   let fh: import("node:fs/promises").FileHandle | undefined;
   try {
     fh = await fs.open(dir, "r");
     await fh.sync();
-  } catch {
-    /* best-effort durability */
+  } catch (error) {
+    if (!["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
   } finally {
     await fh?.close().catch(() => {});
   }

@@ -38,7 +38,7 @@
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision, figRevision } from "../../scholar/revisions";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable } from "../../lifecycle";
+  import { registerFlushable, notifyFlushOwnerReady } from "../../lifecycle";
   import { pointerDrag } from "../../../lib/ui/pointerDrag";
   import { initializeEditor } from "../../editorHandoff";
   import { errMsg } from "../../../lib/toast";
@@ -60,6 +60,7 @@
   let unsubFigRev: (() => void) | undefined;
   // W7: fig/ changed on disk (agent/CLI) while the editor had unsaved edits.
   let figDiverged = $state(false);
+  let conflictError = $state<string | null>(null);
 
   // W4: shared autosave controller — save failures stay dirty, retry once
   // silently, then surface a sticky toast (they were fire-and-forget before).
@@ -89,8 +90,10 @@
     // reload: true — keep the user's canvas/figure/selection where their ids
     // survive, and land the external change as ONE undo entry (Ctrl+Z reverts
     // the agent's batch). Resets baseline + clears dirty as before.
-    await loadFigInto(pm.root, pm.manifest.title, { reload: true });
-    figDiverged = false;
+    try {
+      await loadFigInto(pm.root, pm.manifest.title, { reload: true });
+      figDiverged = false; conflictError = null;
+    } catch (error) { figDiverged = true; conflictError = errMsg(error); }
   }
   // W10 (AGT-3): an external (agent/CLI) write to fig/ live-reloads the open
   // editor. figRevision also fires on our OWN save, so gate on figDiskDiverged
@@ -105,9 +108,11 @@
   }
   async function overwriteFigures() {
     if (!pm) return;
-    await saveFigFrom(pm.root, { force: true }); // editor's version wins
-    figDiverged = false;
-    bumpFigRevision();
+    try {
+      await saveFigFrom(pm.root, { force: true }); // editor, including captions, wins
+      figDiverged = false; conflictError = null;
+      bumpFigRevision();
+    } catch (error) { conflictError = errMsg(error); }
   }
 
   // --- draggable rail edges → sidebar/inspector widths (the slide filmstrip
@@ -158,6 +163,7 @@
     }
     if (!alive) return;
     ready = true;
+    notifyFlushOwnerReady("figure");
     // If the user clicked a @fig ref in the manuscript, jump to that figure.
     const pend = get(pendingRevealFigureId);
     if (pend) focusFigure(pend);
@@ -182,6 +188,8 @@
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
   const unregFlush = registerFlushable({
     id: "figure",
+    isReady: () => ready,
+    get paneId() { return paneId; },
     isDirty: () => ready && !!pm && get(figDirty),
     flush: () => autosave.flush(),
   });
@@ -251,7 +259,7 @@
 
   {#if figDiverged}
     <div class="disk-toast">
-      <span>These figures changed on disk (an agent or another tool edited them).</span>
+      <span>These figures changed on disk. Overwrite saves your figures and captions and preserves the disk version in .meta/figure-conflicts/.{#if conflictError}<strong role="alert"> {conflictError}</strong>{/if}</span>
       <button onclick={reloadFigures}>Reload theirs</button>
       <button class="ghost" onclick={overwriteFigures}>Overwrite with mine</button>
     </div>

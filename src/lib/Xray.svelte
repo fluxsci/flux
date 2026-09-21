@@ -86,6 +86,7 @@
   $: recipePath = rootPlot?.source?.recipePath;
   $: projRoot = $embeddedProjectRoot ?? $projectDir;
   $: srcLabel = rootPlot?.source?.svgPath ? toProjectRelativeSource(projRoot, rootPlot.source.svgPath) : "";
+  let regenJobId = "";
   let regenBusy = false;
   let regenMsg = "";
   async function regenerate(parameters: Record<string, unknown> = recipe?.params ?? {}) {
@@ -105,6 +106,7 @@
       return el?.type === "plot" && el.assetId === target.assetId && el.source?.recipePath === target.recipePath;
     };
     regenBusy = true;
+    regenJobId = crypto.randomUUID();
     regenMsg = "";
     try {
       // source.recipePath is stored PROJECT-RELATIVE (plot/source.ts), but
@@ -121,7 +123,7 @@
       if (!recipeAbs) {
         regenMsg = "recipe file not found";
       } else {
-        const res = await fb.runRecipe(recipeAbs, parameters);
+        const res = await fb.runRecipe(recipeAbs, parameters, {jobId: regenJobId});
         if (!ownsTarget()) return;
         // Surface the REAL failure instead of a bare "error" — the recipe's stderr on a
         // non-zero exit, and the actual exception message if the output JSON won't parse.
@@ -144,6 +146,7 @@
       regenMsg = "error: " + String((e as Error)?.message ?? e);
     } finally {
       regenBusy = false;
+      regenJobId = "";
       if (rootPlot?.id !== target.id || !ownsTarget()) regenMsg = "";
     }
   }
@@ -670,6 +673,7 @@
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
           {#if rootPlot && recipePath}
+            {#if regenBusy}<button class="regen" title="Cancel the running recipe (24 hour maximum)" on:click={() => fileBridge()?.cancelRecipe?.(regenJobId)}>Cancel run</button>{/if}
             <button class="regen" on:click={() => regenerate()} disabled={regenBusy} title={recipePath}>
               {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}
             </button>
@@ -698,7 +702,7 @@
 
           <div class="tree">
             {#if rootPlot && recipePath}
-              <ColorScaleControls manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
+              <ColorScaleControls assetId={rootPlot.assetId} manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
                 on:regenerate={(event) => regenerate(event.detail)} />
             {/if}
             {#each rows as r, ri (r.node.id)}

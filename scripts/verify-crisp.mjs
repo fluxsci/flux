@@ -5,12 +5,12 @@
 // notes/Flux_Electron_Compositor_Notes.md — blur reproduces at DSF 2 only, and
 // ONLY will-change demotion releases full sharpness; plain repaints are
 // bit-identical):
-//   A. one repaint per zoom gesture — wheel zoom applies a compositor-only
-//      residual scale on the .scene wrapper; the scene SVG's <g scale(renderZoom)>
+//   A. one SVG scale fold per zoom gesture — wheel zoom applies a residual
+//      scale on the .scene wrapper; the scene SVG's <g scale(renderZoom)>
 //      mutates EXACTLY ONCE per burst, on the ZOOM_SETTLE_MS fold;
-//   B. will-change lifecycle — .scene promotes while interacting (sceneHot),
-//      DEMOTES at idle: computed will-change === "auto" at rest, so the settled
-//      raster IS the full-quality demoted raster (the blur fix).
+//   B. will-change lifecycle — live zoom MUST stay demoted, allowing its raster
+//      scale to shrink on zoom-out. Pan alone may promote; the bounded zoom proxy
+//      may animate scale. At rest the raster is the full-quality demoted raster.
 //
 // Runs its own puppeteer launch at device-scale-factor 2 — the defect only
 // reproduces at DSF 2 (driver.mjs pins DSF 1, which hides it). Sharpness metric
@@ -290,7 +290,7 @@ try {
       // wrapper residual stays 1 and the proxy's scale carries the gesture.
       const proxy = document.querySelector(".zoom-proxy.live");
       const pm = proxy ? /matrix\(([-\d.e]+)/.exec(getComputedStyle(proxy).transform) : null;
-      window.__crisp.samples.push({ wc: cs.willChange, s: m ? Number(m[1]) : 1, proxy: !!proxy, ps: pm ? Number(pm[1]) : null, sceneOpacity: cs.opacity });
+      window.__crisp.samples.push({ wc: cs.willChange, animations: scene.getAnimations().length, s: m ? Number(m[1]) : 1, proxy: !!proxy, ps: pm ? Number(pm[1]) : null, sceneOpacity: cs.opacity });
       requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
@@ -320,13 +320,13 @@ try {
     assert(rest.willChange === "auto", `at rest the .scene computed will-change is "auto" (got "${rest.willChange}")`);
     assert(rest.residual !== null && Math.abs(rest.residual - 1) < 1e-9, `at rest the wrapper residual scale is exactly 1 (got ${rest.residual})`);
     assert(rest.gScale !== null && rest.gScale === zNow, `at rest the <g> scale equals viewport.zoom (${rest.gScale} == ${zNow})`);
-    assert(hotSamples.length > 0, `mid-burst the .scene will-change was "transform" in ${hotSamples.length} sample(s) (compositor path active)`);
-    // The gesture is compositor-only either way: on the live path the wrapper's
-    // residual scale moves; on the proxy path the proxy image's scale moves while
-    // the live scene is frozen at residual 1 and hidden.
+    assert(hotSamples.length === 0 && burst.samples.every(s => s.animations === 0), 'the live scene has no will-change or animation raster-scale lock throughout zoom');
+    // Live residual scale may rerasterize; the bounded proxy alone may retain
+    // its raster while scaling. Keep the original fold, sharpness and latency
+    // thresholds: promotion itself was the tile-exhaustion bug, not a budget.
     assert(
       residualSamples.length > 0 || proxyScaled.length > 0,
-      `mid-burst the zoom rode the compositor: wrapper residual left 1 in ${residualSamples.length} sample(s), the zoom proxy scaled in ${proxyScaled.length}`,
+      `mid-burst zoom used residual scale in ${residualSamples.length} sample(s), the zoom proxy scaled in ${proxyScaled.length}`,
     );
     if (proxySamples.length) assert(frozenUnderProxy, `under the zoom proxy the live scene is frozen at residual 1 and hidden (${proxySamples.length} sample(s))`);
   }

@@ -15,64 +15,31 @@
 // Fenced code (``` / ~~~) is skipped. Pure text-in maps-out — no CodeMirror, no
 // DOM — so it runs identically in the editor, the renderer, and tests.
 
-export const TBL_CAPTION_RE = /^\s*:\s+(.*?)\s*\{#(tbl-[A-Za-z0-9_-]+)\}\s*$/;
-export const EQ_LABEL_RE = /\{#(eq-[A-Za-z0-9_-]+)\}\s*$/;
-
+export { TBL_CAPTION_RE, EQ_LABEL_RE } from "./refNumberGrammar";
+import { EQ_LABEL_RE } from "./refNumberGrammar";
+import { Text } from "@codemirror/state";
+import { scanTables, numberTables } from "./tableModel";
 export interface RefNumbers {
   tbl: Map<string, number>;
   eq: Map<string, number>;
 }
 
-const FENCE_RE = /^(```|~~~)/;
-const isPipeRow = (s: string): boolean => s.includes("|") && s.trim() !== "";
+import { MathBlockTracker } from "./mathGrammar";
+import { protectedDocumentSpans } from "../../../../lib/manuscript/documentContext";
 
 export function scanRefNumbers(text: string): RefNumbers {
-  const tbl = new Map<string, number>();
-  const eq = new Map<string, number>();
-  let tblN = 0;
-  let eqN = 0;
-  let inFence = false;
-  let inMath = false;
-  const lines = text.split("\n");
+  const tbl = new Map<string, number>(), eq = new Map<string, number>();
+  const lines = text.split("\n"), spans = protectedDocumentSpans(text, { math: false, inline: false });
+  const tracker = new MathBlockTracker();
+  let offset = 0, spanIndex = 0;
   for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const t = raw.trim();
-    if (!inMath && FENCE_RE.test(t)) {
-      inFence = !inFence;
-      continue;
+    while (spanIndex < spans.length && spans[spanIndex].to <= offset) spanIndex++;
+    if (!(spans[spanIndex]?.from <= offset)) {
+      const block = tracker.feed(i + 1, lines[i]);
+      if (block?.label && !eq.has(block.label)) eq.set(block.label, eq.size + 1);
     }
-    if (inFence) continue;
-
-    // Display math: `$$` opens; the line whose END is `$$` (± a {#eq-id}) closes.
-    if (inMath) {
-      if (/\$\$\s*(\{#eq-[A-Za-z0-9_-]+\}\s*)?$/.test(t)) {
-        inMath = false;
-        const label = EQ_LABEL_RE.exec(t)?.[1];
-        if (label && !eq.has(label)) eq.set(label, ++eqN);
-      }
-      continue;
-    }
-    if (t.startsWith("$$")) {
-      const rest = t.slice(2);
-      if (/\$\$\s*(\{#eq-[A-Za-z0-9_-]+\}\s*)?$/.test(rest) && rest.includes("$$")) {
-        // single-line $$…$$ [{#eq-id}]
-        const label = EQ_LABEL_RE.exec(t)?.[1];
-        if (label && !eq.has(label)) eq.set(label, ++eqN);
-      } else {
-        inMath = true;
-      }
-      continue;
-    }
-
-    const m = TBL_CAPTION_RE.exec(raw);
-    if (m) {
-      // Attached to a table? The previous non-blank line must be a pipe row
-      // (mirrors science/tables.ts parseAt: caption directly below or after
-      // exactly one blank line).
-      let j = i - 1;
-      if (j >= 0 && lines[j].trim() === "") j--;
-      if (j >= 0 && isPipeRow(lines[j]) && !tbl.has(m[2])) tbl.set(m[2], ++tblN);
-    }
+    offset += lines[i].length + 1;
   }
+  for (const [table, number] of numberTables(scanTables(Text.of(lines)))) if (table.label && !tbl.has(table.label)) tbl.set(table.label, number);
   return { tbl, eq };
 }

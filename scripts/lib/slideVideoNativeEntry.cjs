@@ -5,6 +5,7 @@ const root = process.env.PROBE_PROJECT, scratch = process.env.PROBE_SCRATCH;
 if (!root || !scratch) throw new Error("Isolated video probe context required");
 const output = process.env.PROBE_VIDEO;
 dialog.showSaveDialog = async () => ({ canceled: false, filePath: output });
+require("./nestedVideoTestLaunch.cjs").installNestedVideoTestLaunch();
 require("../../electron/entry.cjs");
 let win;
 const js = code => win.webContents.executeJavaScript(code, true);
@@ -75,6 +76,14 @@ async function main() {
   check((await fs.stat(output)).size > 1000, "real MP4 saved through native export IPC");
   check(await js("!document.querySelector('.video-job p')"), "no export warnings or errors");
   const firstBytes = await fs.readFile(output);
+  // Exercise the ordinary immediate-export path inside the recent-human-edit
+  // grace window, even when the first capture took longer on a slow machine.
+  await click('[data-editor-element-id="box"]');
+  const beforeSecondX = await js(getX);
+  win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" });
+  win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
+  await js("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+  check(await js(getX) === beforeSecondX + 1, "second export follows a real edit immediately, without waiting for the activity lease to expire");
   await openSettings();
   check(await js("document.querySelector('dialog input[aria-label=\"Delay between steps\"]').value==='0.25'"), "export settings are remembered");
   await setInput("Hold at end", 30); await click("dialog button[type=submit]");

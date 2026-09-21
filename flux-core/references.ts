@@ -1,3 +1,8 @@
+import { pdfBytesIdentity } from "./items";
+import { lightEntry, decodeBibDisplay } from "../src/lib/references/bibtex";
+import { rawBibField } from "../src/lib/references/bibScanner";
+import { readBoundedBody } from "../electron/netFetch.cjs";
+import { publicFetch as fetch } from "../electron/publicFetch.cjs";
 // flux-core/references.ts — reference + config verbs over FluxLib (split out
 // of index.ts; WS-6.2): add/cite/import references, DOI lookup, the
 // annotations Markdown digest, library/config info, and project reconcile.
@@ -18,6 +23,7 @@ import {
   zoteroSyncStatePath,
   parseZoteroSyncState,
   bibUnchanged,
+  attachmentPolicy,
   ZOTERO_UP_TO_DATE,
   type ZoteroSettings,
   type ZoteroSyncState,
@@ -76,6 +82,7 @@ export interface ImportReport {
   attached: { key: string; path: string }[]; // PDFs copied into items/<key>/
   linked: { key: string; path: string }[]; // link-mode pointers written (attach: "link")
   attachFailed: { key: string; path: string; error: string }[];
+  remainingAttachments?: {key: string; path: string}[];
 }
 
 /** Resolve a Better-BibTeX `file` path to something on disk: absolute as-is, else tried
@@ -147,10 +154,23 @@ export async function importReferences(
     if (!atts.length) continue;
     // Attach the first resolvable PDF as the main paper (Zotero entries carry one full
     // text almost always); extra PDFs are reported but not filed, keeping import lossless-ish.
-    const att = atts[0];
-    const resolved = await resolveAttachPath(att.path, opts.baseDir, opts.zoteroDir);
+    let resolved: string | null = null;
+    for (const att of atts) {
+      const candidate = await resolveAttachPath(att.path, opts.baseDir, opts.zoteroDir);
+      if (!candidate) continue;
+      if (!(mode === "link" && opts.deferFulltext)) {
+        const fh = await fs.open(candidate, "r").catch(() => null); if (!fh) continue;
+        try { const header = Buffer.alloc(5); const read = await fh.read(header, 0, 5, 0); if (read.bytesRead !== 5 || header.toString() !== "%PDF-") continue; } finally { await fh.close(); }
+      }
+      resolved = candidate; break;
+    }
+    report.remainingAttachments ??= [];
+    for (const att of atts) {
+      const candidate = await resolveAttachPath(att.path, opts.baseDir, opts.zoteroDir);
+      if (candidate && candidate !== resolved) report.remainingAttachments.push({key, path: candidate});
+    }
     if (!resolved) {
-      report.attachFailed.push({ key, path: att.path, error: "file not found" });
+      report.attachFailed.push({ key, path: atts.map(a => a.path).join("; "), error: "no readable PDF attachment found" });
       continue;
     }
     if (mode === "link" && opts.deferFulltext) {
@@ -175,11 +195,13 @@ export async function importReferences(
         await writeLinkedPdf(key, resolved, opts.libPath);
         report.linked.push({ key, path: resolved });
       } else {
-        await writePdf(key, bytes, { source: "ingest", url: resolved }, opts.libPath);
+        const filed = await writePdf(key, bytes, { source: "ingest", url: resolved }, opts.libPath, {ifAbsent:true});
+        if (!filed.ok) throw new Error(`Attachment was not replaced: ${filed.reason}`);
         report.attached.push({ key, path: resolved });
       }
-      const ft = await extractFulltext(bytes);
-      if (ft.text) await writeFulltext(key, ft.text, opts.libPath);
+      const generation = pdfBytesIdentity(bytes);
+      const ft = await extractFulltext(new Uint8Array(bytes));
+      if (ft.text) await writeFulltext(key, ft.text, opts.libPath, generation);
     } catch (e) {
       report.attachFailed.push({ key, path: resolved, error: e instanceof Error ? e.message : String(e) });
     }
@@ -256,7 +278,7 @@ export async function zoteroSync(
     } catch {
       /* never synced (or state lost) — proceed */
     }
-    if (bibUnchanged(state, bibPath, bibStat.size, bibStat.mtimeMs)) {
+    if (bibUnchanged(state, bibPath, bibStat.size, bibStat.mtimeMs, attachmentPolicy(settings))) {
       if (opts.save) await fluxlib.setPreferences({ zotero: settings });
       return {
         settings,
@@ -285,7 +307,7 @@ export async function zoteroSync(
   // Stamp the fingerprint (pre-read stat — see above) so the next automatic pass can
   // short-circuit. Best-effort: a lost stamp only costs one extra full sync.
   try {
-    const state: ZoteroSyncState = { bibPath, ...bibStat, at: new Date().toISOString() };
+    const state: ZoteroSyncState = { bibPath, ...bibStat, at: new Date().toISOString(), attachmentPolicy: report.attachFailed.length ? undefined : attachmentPolicy(settings) };
     await fs.mkdir(path.dirname(statePath), { recursive: true });
     await atomicWrite(statePath, JSON.stringify(state, null, 2) + "\n");
   } catch {
@@ -309,7 +331,7 @@ async function fetchDoiBibtex(doi: string): Promise<{ clean: string; bibtex: str
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`DOI fetch failed (${res.status})`);
-  const bibtex = (await res.text()).trim();
+  const bibtex = ((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8")).trim();
   if (!bibtex.startsWith("@")) throw new Error("DOI did not return BibTeX");
   return { clean, bibtex };
 }
@@ -320,11 +342,8 @@ async function fetchDoiBibtex(doi: string): Promise<{ clean: string; bibtex: str
  *  cite success so junk registry metadata ("Robot, Open Data" on automated
  *  deposits) is visible immediately instead of hiding behind a 60-char slice. */
 export function bibtexSummary(bibtex: string): string {
-  const field = (name: string) => {
-    const m = bibtex.match(new RegExp(name + String.raw`\s*=\s*[{"]([\s\S]*?)[}"]\s*,?\s*\n`, "i"));
-    return m ? m[1].replace(/[{}]/g, "").replace(/\s+/g, " ").trim() : null;
-  };
-  return `${field("author") ?? "(no author)"} (${field("year") ?? "n.d."}). ${field("title") ?? "(no title)"}`;
+  const entry = lightEntry(bibtex);
+  return `${decodeBibDisplay(rawBibField(bibtex, "author") || "") || "(no author)"} (${entry.year || "n.d."}). ${entry.title || "(no title)"}`;
 }
 
 export async function citeDoi(root: string, doi: string): Promise<{ bibtex: string; keys: string[]; summary: string }> {

@@ -5,6 +5,8 @@
 import { matchElements, matchByValue } from "../src/lib/ops";
 import { get } from "svelte/store";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { Element, Project } from "../src/lib/types";
 // @ts-expect-error mjs helper, no types

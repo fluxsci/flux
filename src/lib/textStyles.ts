@@ -1,3 +1,4 @@
+import { validateModel } from "./project/validate";
 // ---------------------------------------------------------------------------
 // Named text styles — the GUI glue around the pure ops verbs:
 //
@@ -11,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { writable, get } from "svelte/store";
-import type { Id, TextStyle } from "./types";
+import type { Id, TextStyle, Project } from "./types";
 import { fileBridge } from "./project/types";
 import { project, commit } from "./store";
 import { reflowTexts } from "./text";
@@ -25,7 +26,8 @@ function sane(list: unknown): TextStyle[] {
   if (!Array.isArray(list)) return [];
   return list.filter(
     (s): s is TextStyle =>
-      !!s && typeof s === "object" && typeof (s as TextStyle).id === "string" && typeof (s as TextStyle).name === "string",
+      !!s && typeof s === "object" && typeof (s as TextStyle).id === "string" && typeof (s as TextStyle).name === "string"
+      && !validateModel({version:2,name:'style',canvases:[],figures:[],assets:[],palette:[],textStyles:[s]}).length,
   );
 }
 
@@ -98,23 +100,20 @@ export function plotPxPerUnit(assetId: Id): number {
  *  fontSize into the plot's own user units and writes a normal id-keyed part
  *  override (fontFamily/weight/style/underline/size). No styleId is persisted
  *  on parts — overrides are the part-level truth. */
-export function applyTextStyleToPart(elementId: Id, partId: string, st: TextStyle): void {
-  const k = (() => {
-    const p = get(project);
-    for (const f of p.figures)
-      for (const e of f.elements)
-        if (e.id === elementId && e.type === "plot") return plotPxPerUnit(e.assetId);
-    return 1;
-  })();
-  commit((p) => {
-    ops.setPartOverride(p, elementId, partId, {
-      fontFamily: st.fontFamily,
-      fontWeight: st.fontWeight,
-      fontStyle: st.fontStyle,
-      textDecoration: st.underline ? "underline" : "none",
-      fontSize: st.fontSize / (k || 1),
+export function applyTextStyleToParts(p: Project, parts: readonly { elementId: Id; partId: string }[], st: TextStyle): void {
+  const elements = new Map(p.figures.flatMap(f => f.elements.map(e => [e.id, e] as const)));
+  for (const part of parts) {
+    const element = elements.get(part.elementId);
+    if (!element || element.type !== "plot") throw new Error(`Plot not found: ${part.elementId}`);
+    const k = plotPxPerUnit(element.assetId);
+    ops.setPartOverride(p, part.elementId, part.partId, {
+      fontFamily: st.fontFamily, fontWeight: st.fontWeight, fontStyle: st.fontStyle,
+      textDecoration: st.underline ? "underline" : "none", fontSize: st.fontSize / (k || 1),
     });
-  });
+  }
+}
+export function applyTextStyleToPart(elementId: Id, partId: string, st: TextStyle): void {
+  commit(p => applyTextStyleToParts(p, [{ elementId, partId }], st));
 }
 
 /** All apply-targets for the style pickers: the project's styles + the global

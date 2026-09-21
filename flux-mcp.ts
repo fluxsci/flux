@@ -10,7 +10,6 @@ import { z } from "zod";
 import * as path from "node:path";
 import * as core from "./flux-core/index";
 import { registerMcpVerbs } from "./flux-core/registry";
-import { SLIDE_PRESETS as PRESETS, SLIDE_LAYOUTS as LAYOUTS } from "./flux-core/verbs";
 import * as live from "./flux-core/liveClient";
 
 const ROOT = path.resolve(process.argv[2] ?? process.env.FLUX_PROJECT ?? ".");
@@ -83,26 +82,6 @@ server.registerTool(
   },
 );
 
-
-server.registerTool(
-  "add_to_library",
-  {
-    description:
-      "Add a reference to FluxLib WITHOUT citing it in the current project — by DOI (fetched via content negotiation) or raw BibTeX. Use add_reference / cite_doi to also cite it here.",
-    inputSchema: { doi: z.string().optional(), bibtex: z.string().optional() },
-  },
-  async ({ doi, bibtex }) => {
-    if (doi) {
-      const r = await core.addDoiToLibrary(doi);
-      return ok(`added to FluxLib: @${r.result.keys.join("; @")}`);
-    }
-    if (bibtex) {
-      const r = await core.addToLibrary(bibtex);
-      return ok(`FluxLib: +${r.added.length} added, ${r.deduped.length} already present`);
-    }
-    return ok("add_to_library: provide `doi` or `bibtex`");
-  },
-);
 
 // --- Reference hydration + whole-world lookups (OpenAlex; no API key needed) ---
 
@@ -292,32 +271,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
-  "search_fulltext",
-  {
-    description:
-      "Full-text search across the extracted text of EVERY stored PDF in FluxLib (items/<key>/fulltext.txt) — 'which of my papers mention optogenetic silencing?'. AND semantics over terms; quote a phrase for verbatim matching. Returns per-paper hit counts + page-numbered snippets. Contrast: search_references matches metadata/abstracts; get_paper_text reads ONE paper.",
-    inputSchema: {
-      query: z.string(),
-      limit: z.number().optional(),
-      keys: z.array(z.string()).optional(),
-    },
-  },
-  async ({ query, limit, keys }) => {
-    const r = await core.searchFulltext(query, { limit, keys });
-    if (!r.hits.length) {
-      return ok(
-        `No stored PDF text matches "${query}" (scanned ${r.scanned}).` +
-          (r.missingText.length ? ` ${r.missingText.length} PDF(s) have no extracted text yet — get_paper_text extracts on demand.` : ""),
-      );
-    }
-    const lines = r.hits.map((h) => `@${h.key} (${h.count})\n` + h.snippets.map((s) => `  p${s.page}: ${s.text}`).join("\n"));
-    return ok(
-      `${r.hits.length} paper(s) match "${query}" (scanned ${r.scanned} in ${r.elapsedMs}ms${r.truncated ? "; hit limit" : ""}):\n` +
-        lines.join("\n"),
-    );
-  },
-);
+
 
 server.registerTool(
   "organize_paper",
@@ -373,88 +327,6 @@ server.registerTool(
     const c = await core.readReaderContext();
     if (!c || !c.citekey) return ok("No paper is open in FluxReader right now.");
     return ok(JSON.stringify(c, null, 2));
-  },
-);
-
-// --- Flux Slide: the two flag-multiplexed verbs still manual (set_slide's
-// partial-camera defaults and set_animation's --track full-fidelity mode are
-// the CLI behaviors a VerbDef can't express) — vocab shared with the registry.
-
-server.registerTool(
-  "set_slide",
-  {
-    description: "Patch a slide: name, layout, background (CSS color), transition, notes (speaker notes, markdown), and/or camera (base pose {x,y,zoom}). Only the fields you pass change.",
-    inputSchema: {
-      deckId: z.string(),
-      slideId: z.string(),
-      name: z.string().optional(),
-      layout: z.enum(LAYOUTS).optional(),
-      background: z.string().optional(),
-      transition: z.string().optional(),
-      notes: z.string().optional(),
-      camera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).optional(),
-    },
-  },
-  async ({ deckId, slideId, name, layout, background, transition, notes, camera }) => {
-    const patch: Parameters<typeof core.setSlide>[3] = {};
-    if (name != null) patch.name = name;
-    if (layout != null) patch.layout = layout;
-    if (background != null) patch.background = background;
-    if (transition != null) patch.transition = transition as typeof patch.transition;
-    if (notes != null) patch.notes = notes;
-    if (camera != null) patch.camera = camera;
-    await core.setSlide(ROOT, deckId, slideId, patch);
-    return ok(`set slide ${slideId}`);
-  },
-);
-
-server.registerTool(
-  "set_animation",
-  {
-    description:
-      "Add (or replace, within the same family) an animation track on a beat. Pass append:true to insert a separate effect, preserving existing entrance/emphasis/exit tracks — the general mechanism behind every preset. Two FAMILIES: appearances (fade, fadeRise, popIn, drawOn, growBaseline, stagger, writeOn, exits, highlight, dim, countUp) and transforms ('transform' — prefer the ergonomic set_transform verb — plus legacy 'morph'); an appearance and a transform coexist on one object in one beat. `target` is an element id, or '@camera'/'@stage'. `part` targets one plot semantic id (leaf like 'fit.line' or group like 'axis.x' — groups fan out at play time). drawOn/drawOff take Trim-Path `params`: {anchor: 0..1 | corner-tl|top|corner-tr|right|corner-br|bottom|corner-bl|left|start|middle|end, direction: forward|reverse, mode: single|both-ends|middle-out, from, to}; writeOn/wipeOut take {direction: ltr|rtl|ttb|btt}. `to` carries a transform's sparse `state` patch, a morph's assetId, or a camera pose {x,y,zoom}. `influence` is the AE-style velocity profile {in,out} 0–100; `stagger` = {perMs, by: index|x|y, from: start|end|center|edges}; `groupId` joins a beat-local TrackGroup.",
-    inputSchema: {
-      deckId: z.string(),
-      slideId: z.string(),
-      beatId: z.string(),
-      target: z.string(),
-      append: z.boolean().optional(),
-      preset: z.enum(PRESETS).optional(),
-      part: z.string().optional(),
-      start: z.number().optional(),
-      duration: z.number().optional(),
-      easing: z.string().optional(),
-      params: z.record(z.any()).optional(),
-      influence: z.object({ in: z.number(), out: z.number() }).optional(),
-      stagger: z.object({ perMs: z.number(), by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges"]).optional() }).optional(),
-      groupId: z.string().optional(),
-      to: z
-        .object({
-          assetId: z.string().optional(),
-          x: z.number().optional(),
-          y: z.number().optional(),
-          zoom: z.number().optional(),
-          state: z.record(z.any()).optional(),
-          svgPath: z.string().optional(),
-          manifestPath: z.string().optional(),
-        })
-        .optional(),
-    },
-  },
-  async ({ deckId, slideId, beatId, append, target, preset, part, start, duration, easing, params, influence, stagger, groupId, to }) => {
-    const track: import("./src/lib/slide/types").Track = { target };
-    if (preset) track.preset = preset;
-    if (part) track.part = part;
-    if (start != null) track.start = start;
-    if (duration != null) track.duration = duration;
-    if (easing) track.easing = easing as import("./src/lib/slide/types").EasingToken;
-    if (params) track.params = params;
-    if (influence) track.influence = influence;
-    if (stagger) track.stagger = stagger;
-    if (groupId) track.groupId = groupId;
-    if (to) track.to = to;
-    await core.setAnimation(ROOT, deckId, slideId, beatId, track, { append });
-    return ok(`set animation on beat ${beatId} (${preset ?? "keyframes"} → ${target})`);
   },
 );
 

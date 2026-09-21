@@ -1,3 +1,7 @@
+import { createVerifiedMove } from "../electron/verifiedMove.cjs";
+import { pdfBytesIdentity } from "./items";
+import { readBoundedBody } from "../electron/netFetch.cjs";
+import { publicFetch as fetch } from "../electron/publicFetch.cjs";
 // flux-core/assign.ts — the watched-inbox engine (canonical impl behind the CLI + MCP; the GUI
 // has a renderer twin sharing the same pure pdfIdentify core). Scans <FluxLib>/pdfs_to_assign/,
 // identifies each PDF from its own content (DOI-first, cross-validated — see pdfIdentify.ts), and
@@ -11,7 +15,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { resolveFluxLibPath, loadLibrary, addToFluxLib, getPreferences, getSecret } from "./fluxlib";
 import { extractPdfSignals, extractFulltext } from "./fulltext";
-import { writePdf, writeFulltext, hasPdf, readSource } from "./items";
+import { writePdf, writeFulltext, hasPdf, readSource, readPdf } from "./items";
 import { withHeartbeatLockAt, fluxlibLockDir, getLockClient } from "./locks";
 import { assignInboxDir, supplementsDir, safeSupplementName } from "../src/lib/references/items";
 import { isPdfBytes, bareDoi } from "../src/lib/references/pdfFinder";
@@ -41,7 +45,7 @@ async function resolveDoiMeta(doi: string, mailto?: string): Promise<PaperMeta |
   const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}` + (mailto ? `?mailto=${encodeURIComponent(mailto)}` : "");
   const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } }); // network error → throw = transient
   if (res.ok) {
-    const m = (await res.json().catch(() => null))?.message;
+    const m = (JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8")).catch(() => null))?.message;
     const title = Array.isArray(m?.title) ? m.title[0] : m?.title;
     if (m && title) {
       const authors = Array.isArray(m.author)
@@ -61,7 +65,7 @@ async function resolveDoiMeta(doi: string, mailto?: string): Promise<PaperMeta |
   });
   if (r2.status === 404 || r2.status === 410) return null;
   if (!r2.ok) throw new Error(`doi.org HTTP ${r2.status}`);
-  const bib = (await r2.text()).trim();
+  const bib = ((await readBoundedBody(r2, 8 * 1024 * 1024)).toString("utf8")).trim();
   if (!bib.startsWith("@")) return null; // resolved to something non-bibliographic
   const e = lightEntry(bib);
   if (!e.title) return null;
@@ -78,7 +82,7 @@ async function searchTitleFn(query: string): Promise<SearchHit[]> {
 async function fetchDoiBibtex(doi: string): Promise<string> {
   const res = await fetch(`https://doi.org/${encodeURIComponent(doi)}`, { headers: { Accept: "application/x-bibtex" }, redirect: "follow" });
   if (!res.ok) throw new Error(`DOI fetch ${res.status}`);
-  const b = (await res.text()).trim();
+  const b = ((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8")).trim();
   if (!b.startsWith("@")) throw new Error("DOI did not return BibTeX");
   return b;
 }
@@ -109,22 +113,18 @@ export interface AssignSummary {
 
 /** Write the PDF as items/<key>/paper.pdf (provenance "assigned") + extract fulltext. */
 async function attach(key: string, bytes: Uint8Array, filename: string, libPath: string): Promise<void> {
-  await writePdf(key, bytes, { source: "assigned", url: filename, isOa: false }, libPath);
+  const filed = await writePdf(key, bytes, { source: "assigned", url: filename, isOa: false }, libPath);
+  if (!filed.ok) throw new Error(`Incoming PDF retained: ${filed.reason}`);
   try {
+    const generation = pdfBytesIdentity(bytes);
     const ft = await extractFulltext(new Uint8Array(bytes));
-    if (ft.chars > 0) await writeFulltext(key, ft.text, libPath);
+    if (ft.chars > 0) await writeFulltext(key, ft.text, libPath, generation);
   } catch {
     /* scanned/unextractable — paper.pdf is still filed */
   }
 }
 
-/** Move `src` to `dst`, falling back to copy+rm across devices. */
-async function moveFile(src: string, dst: string): Promise<void> {
-  await fs.promises.rename(src, dst).catch(async () => {
-    await fs.promises.copyFile(src, dst);
-    await fs.promises.rm(src, { force: true });
-  });
-}
+const moveFile = createVerifiedMove();
 
 /** The reference already has a paper.pdf: NEVER delete the incoming bytes — keep them in
  *  items/<key>/supplements/ (the reader's "Switch PDF" menu lists them), unless they are
@@ -132,8 +132,9 @@ async function moveFile(src: string, dst: string): Promise<void> {
  *  supplements/ filename it was kept under, or null when deleted-as-identical. */
 async function keepAsSupplement(key: string, src: string, name: string, bytes: Uint8Array, libPath: string): Promise<string | null> {
   const incoming = crypto.createHash("sha256").update(bytes).digest("hex");
-  const stored = await readSource(key, libPath);
-  if (stored?.sha256 && stored.sha256 === incoming) {
+  const stored = await readPdf(key, libPath);
+  if (stored && crypto.createHash("sha256").update(stored).digest("hex") === incoming) {
+    if (crypto.createHash("sha256").update(await fs.promises.readFile(src)).digest("hex") !== incoming) throw new Error("Incoming PDF changed before disposal; preserved");
     await fs.promises.rm(src, { force: true });
     return null;
   }
@@ -143,8 +144,7 @@ async function keepAsSupplement(key: string, src: string, name: string, bytes: U
   if (!/\.pdf$/i.test(dst)) dst += ".pdf";
   const base = dst.replace(/\.pdf$/i, "");
   for (let i = 2; fs.existsSync(path.join(dir, dst)); i++) dst = `${base}-${i}.pdf`;
-  await moveFile(src, path.join(dir, dst));
-  return dst;
+  return path.basename(await moveFile(src, path.join(dir,dst),incoming));
 }
 
 /** Move an unidentified PDF to _unresolved/ + a sidecar note (idempotent, collision-safe). */
@@ -153,7 +153,7 @@ async function quarantine(dir: string, src: string, name: string, id: IdResult |
   await fs.promises.mkdir(udir, { recursive: true });
   let dst = path.join(udir, name);
   for (let i = 2; fs.existsSync(dst); i++) dst = path.join(udir, name.replace(/\.pdf$/i, `-${i}.pdf`));
-  await moveFile(src, dst);
+  dst = await moveFile(src, dst);
   await fs.promises.writeFile(`${dst}.txt`, unresolvedSidecar(name, note, id), "utf8");
 }
 

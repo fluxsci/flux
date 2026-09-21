@@ -9,6 +9,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const { readTextBounded } = require("../boundedText.cjs");
 
 // W2 (V1 review): durable renderer writes — every fs:write* lands via
 // write-tmp + fsync + rename, so a crash/power-loss can never truncate a
@@ -29,45 +30,54 @@ const TMP_WRITE_RE = /(^|[/\\])\.[^/\\]*\.tmp-\d+-\d+$/;
  *               per-window slot)
  *   windowFor — (e) => BrowserWindow|null (dialog parenting; optional)
  */
-function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }) {
+function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, projectRootFor, diagnostics }) {
+  const diagnose = (family, outcome, code) => diagnostics?.record({ family, outcome, code });
   const recentWrites = new Map(); // absPath -> expiry (ms)
-  function noteWrite(p) {
-    recentWrites.set(path.resolve(p), Date.now() + 1500);
+  const writeOrigins = new Map();
+  function revision(p) {
+    try { const s = fs.statSync(p); return [s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs].join(":"); }
+    catch (error) { if (error.code === "ENOENT") return "missing"; return null; }
+  }
+  function noteWrite(p, senderId) {
+    const ab = path.resolve(p);
+    writeOrigins.set(ab, { senderId, revision: revision(ab) });
+    recentWrites.set(ab, Date.now() + 1500);
+    // Bound dormant entries even when no watcher asks about them again.
+    if (recentWrites.size > 4096) for (const [key, expires] of recentWrites) if (expires <= Date.now()) { recentWrites.delete(key); writeOrigins.delete(key); }
   }
 
   let atomicSeq = 0;
-  async function atomicWriteMain(p, data, createOnly = false) {
+  async function atomicWriteMain(p, data, createOnly = false, mode = 0o666, senderId, beforePublish) {
     const dir = path.dirname(p);
-    await fs.promises.mkdir(dir, { recursive: true });
     const tmp = path.join(dir, `.${path.basename(p)}.tmp-${process.pid}-${++atomicSeq}`);
-    noteWrite(tmp);
-    const fh = await fs.promises.open(tmp, "w");
+    let fh;
     try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      noteWrite(tmp);
+      fh = await fs.promises.open(tmp, "wx", mode);
       await fh.writeFile(data);
       await fh.sync();
-    } finally {
-      await fh.close();
-    }
-    try {
+      await fh.close(); fh = null;
+      if (beforePublish) beforePublish();
       if (createOnly) {
-        await fs.promises.link(tmp, p); // atomic no-clobber publication
+        await fs.promises.link(tmp, p);
         await fs.promises.unlink(tmp);
       } else await fs.promises.rename(tmp, p);
-      // SHL-10: refresh the self-write TTL at COMPLETION. The watcher's
-      // awaitWriteFinish only fires ≥250ms after the last write, so a large/slow
-      // write (e.g. the ~12MB enrich.json) could otherwise outlive the TTL set at
-      // write-start and echo back as a spurious "external change".
-      noteWrite(p);
-    } catch (e) {
+      noteWrite(p, senderId);
+    } catch (error) {
+      diagnose('filesystem', 'failed', ['EACCES', 'ENOSPC', 'EROFS', 'EBUSY', 'EEXIST'].includes(error.code) ? error.code : 'SAVE_FAILED');
+      throw error;
+    } finally {
+      await fh?.close().catch(() => {});
       await fs.promises.rm(tmp, { force: true }).catch(() => {});
-      throw e;
     }
   }
+
   function isSelfWrite(p) {
     const ab = path.resolve(p);
     const exp = recentWrites.get(ab);
-    if (exp && exp > Date.now()) return true;
-    if (exp) recentWrites.delete(ab);
+    if (exp && exp > Date.now() && writeOrigins.get(ab)?.revision === revision(ab)) return true;
+    if (exp) { recentWrites.delete(ab); writeOrigins.delete(ab); }
     return false;
   }
 
@@ -86,7 +96,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     if (!p) return;
     let set = approvedDirs.get(senderId);
     if (!set) approvedDirs.set(senderId, (set = new Set()));
-    set.add(path.resolve(path.dirname(p)));
+    set.add(realIdentity(path.dirname(p)));
   }
   // Windows filesystems are case-insensitive (and a dialog result vs. a
   // renderer-echoed path can differ in drive-letter case), so containment
@@ -97,31 +107,42 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     const d = foldCase(dir);
     return a === d || a.startsWith(d + path.sep);
   }
+  // Resolve the nearest existing ancestor for new files. A project symlink is
+  // allowed by its real identity, while an in-project link cannot broaden it.
+  function realIdentity(p) {
+    if (typeof p !== "string" || !p || p.length > 32768 || p.includes("\0")) throw new Error("Invalid filesystem path");
+    let probe = path.resolve(p);
+    const suffix = [];
+    for (;;) {
+      try { return path.join(fs.realpathSync.native(probe), ...suffix); }
+      catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        const parent = path.dirname(probe);
+        if (parent === probe) throw error;
+        suffix.unshift(path.basename(probe)); probe = parent;
+      }
+    }
+  }
   function fsGuard(p, senderId) {
-    // WS-9.3: deny-by-default. The old currentRoot-null early-return allowed
-    // EVERYTHING in the launch→open window (and on Home) — the app dirs +
-    // FluxLib (via roots()) are all Home actually needs.
-    const ab = path.resolve(p);
-    // W12 (SHL-6): $HOME is deliberately NOT a root — allowing the entire user home
-    // made the guard nearly a no-op. Imports/exports outside the project still work
-    // because a file dialog `approveDir`s the chosen directory — for the SENDER's
-    // window only (senderId; undefined = no dialog approvals apply).
+    let ab;
+    try { ab = realIdentity(p); } catch (error) { diagnose('filesystem', 'refused', 'INVALID_PATH'); throw error; }
     const approved = senderId != null ? (approvedDirs.get(senderId) ?? []) : [];
     const all = [app.getPath("userData"), app.getPath("temp"), ...roots(), ...approved].filter(Boolean);
-    if (all.some((r) => underDir(ab, path.resolve(r)))) return;
+    if (all.some(r => underDir(ab, realIdentity(r)))) return;
+    diagnose('filesystem', 'refused', 'PATH_DENIED');
     throw new Error(`refused path outside project/app roots: ${p}`);
   }
   function fsReadGuard(p, senderId) {
-    const ab = foldCase(path.resolve(p));
+    const ab = foldCase(realIdentity(p));
     const scopes = sourceReadFiles.get(senderId);
-    if (scopes && [...scopes.values()].some((files) => files.has(ab))) return;
+    if (scopes && [...scopes.values()].some(files => files.has(ab))) return;
     fsGuard(p, senderId);
   }
   function setSourceReadFiles(senderId, scope, files) {
     if (!Array.isArray(files) || files.some((p) => typeof p !== "string" || !path.isAbsolute(p) || p.includes("\0") || !/\.(?:svg|json)$/i.test(p))) throw new Error("Invalid linked source read files");
     let scopes = sourceReadFiles.get(senderId);
     if (!scopes) sourceReadFiles.set(senderId, scopes = new Map());
-    if (files.length) scopes.set(scope, new Set(files.map((p) => foldCase(path.resolve(p)))));
+    if (files.length) scopes.set(scope, new Set(files.map((p) => foldCase(realIdentity(p)))));
     else scopes.delete(scope);
   }
 
@@ -157,6 +178,22 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       return res.filePath;
     });
 
+    ipc.handle("fs:projectAssetPath", async (e, root, rel) => {
+      if (typeof rel !== "string" || !rel || rel.length > 32768 || rel.includes("\0") || path.isAbsolute(rel) || /^[A-Za-z]:/.test(rel) || rel.split(/[\\/]/).some(x => x === "..")) throw new Error("Invalid project asset path");
+      const canonicalRoot = fs.realpathSync.native(root);
+      const current = projectRootFor?.(e.sender.id);
+      const currentRoots = (Array.isArray(current) ? current : [current]).filter(Boolean);
+      const approved = approvedDirs.get(e.sender.id) ?? new Set();
+      if (!currentRoots.some(candidate => foldCase(realIdentity(candidate)) === foldCase(canonicalRoot)) && ![...approved].some(dir => foldCase(dir) === foldCase(canonicalRoot))) throw new Error("Project asset root is not authorized for this window");
+      const target = await fs.promises.realpath(path.resolve(canonicalRoot, rel));
+      if (!underDir(target, canonicalRoot)) throw new Error("Project asset escapes its project root");
+      return target;
+    });
+    ipc.handle("fs:moveFileVerified", async (e, source, destination, sha256) => {
+      fsGuard(source,e.sender.id); fsGuard(destination,e.sender.id);
+      if (sha256 !== undefined && !/^[a-f0-9]{64}$/.test(sha256)) throw new Error("Invalid expected source hash");
+      return require("../verifiedMove.cjs").createVerifiedMove()(source,destination,sha256);
+    });
     ipc.handle("fs:readFile", async (e, p) => {
       fsReadGuard(p, e.sender.id);
       const buf = await fs.promises.readFile(p);
@@ -164,26 +201,37 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     });
     ipc.handle("fs:writeFile", async (e, p, data) => {
       fsGuard(p, e.sender.id);
-      noteWrite(p);
-      await atomicWriteMain(p, Buffer.from(data));
+      await atomicWriteMain(p, Buffer.from(data), false, 0o666, e.sender.id);
+    });
+    ipc.handle("fs:readTextBounded", async (e, p, maxBytes) => {
+      fsReadGuard(p, e.sender.id);
+      return readTextBounded(p, maxBytes);
     });
     ipc.handle("fs:readText", async (e, p) => {
       fsReadGuard(p, e.sender.id);
-      return fs.promises.readFile(p, "utf8");
+      const canonical = /(?:^|[/\\])(?:project|index|deck|annotations|organize)\.json$|\.comments\.json$/i.test(p);
+      try {
+        const text = await fs.promises.readFile(p, "utf8");
+        // Observe only bounded canonical JSON syntax; the shared validators own
+        // acceptance. Never log text, paths, parser messages or unknown fields.
+        if (canonical && text.length <= 512 * 1024) {
+          try { JSON.parse(text); } catch { diagnose('canonical', 'failed', 'CANONICAL_MALFORMED'); }
+        }
+        return text;
+      } catch (error) { if (canonical && error.code !== 'ENOENT') diagnose('canonical', 'refused', 'CANONICAL_UNREADABLE'); throw error; }
     });
     ipc.handle("fs:writeText", async (e, p, text, options) => {
       fsGuard(p, e.sender.id);
-      noteWrite(p);
-      await atomicWriteMain(p, Buffer.from(String(text), "utf8"), options?.createOnly === true);
+      await atomicWriteMain(p, Buffer.from(String(text), "utf8"), options?.createOnly === true, 0o666, e.sender.id);
     });
     // The feedback ledger is APPEND-only (event-sourced NDJSON): O_APPEND keeps
     // concurrent writers safe (the app adding notes while an agent appends
     // resolves), which an atomic read-modify-write could not.
     ipc.handle("feedback:append", async (e, p, line) => {
       fsGuard(p, e.sender.id);
-      noteWrite(p);
       await fs.promises.mkdir(path.dirname(p), { recursive: true });
       await fs.promises.appendFile(p, String(line));
+      noteWrite(p, e.sender.id);
       return true;
     });
     ipc.handle("fs:mkdir", async (e, p) => {
@@ -192,7 +240,8 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     });
     // WS-5.3: atomicWriteMain fsyncs the FILE, but on Linux/mac a crash right
     // after the rename can still lose the DIRECTORY entry — callers fsync the
-    // parent dir once per write batch. Best-effort; no-op on win32 (no dir fsync).
+    // parent dir once per write batch. Unsupported filesystem operations are tolerated;
+    // I/O and missing-directory failures reach the writer. No-op on win32.
     ipc.handle("fs:fsyncDir", async (e, p) => {
       fsGuard(p, e.sender.id);
       if (process.platform === "win32") return;
@@ -200,8 +249,8 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       try {
         fh = await fs.promises.open(p, "r");
         await fh.sync();
-      } catch {
-        /* best-effort durability */
+      } catch (error) {
+        if (!["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes(error?.code)) throw error;
       } finally {
         await fh?.close().catch(() => {});
       }
@@ -214,24 +263,33 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
       } catch (err) {
         // SHL-18: only ENOENT means "not there". EACCES/EPERM etc. mean the path EXISTS but isn't
         // accessible — reporting that as absent would let a caller wrongly treat it as free to create.
-        return !!(err && err.code && err.code !== "ENOENT");
+        if (err?.code === "ENOENT") return false;
+        throw err;
       }
     });
     ipc.handle("fs:stat", async (e, p) => {
       fsReadGuard(p, e.sender.id);
       try {
         const st = await fs.promises.stat(p);
-        return { mtimeMs: st.mtimeMs, size: st.size };
+        return { atimeMs: st.atimeMs, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, size: st.size };
       } catch {
         return null; // absent (or blocked) — callers treat null as "no cacheable identity"
       }
     });
-    ipc.handle("fs:readdir", async (e, p) => {
+    ipc.handle("fs:setTimes", async (e, p, times) => {
+      fsGuard(p, e.sender.id);
+      if (!Number.isFinite(times?.atimeMs) || !Number.isFinite(times?.mtimeMs)) throw new Error("Invalid file timestamps");
+      await fs.promises.utimes(p, times.atimeMs / 1000, times.mtimeMs / 1000);
+      const file = await fs.promises.open(p, "r"); try { await file.sync(); } finally { await file.close(); }
+    });
+    ipc.handle("fs:readdir", async (e, p, strict = false) => {
+      if (typeof strict !== "boolean") throw new Error("Invalid directory inventory mode");
       fsGuard(p, e.sender.id); // W12 (SHL-6): was unguarded — a directory-listing of any path
       try {
         const es = await fs.promises.readdir(p, { withFileTypes: true });
         return es.map((ent) => ({ name: ent.name, dir: ent.isDirectory() }));
-      } catch {
+      } catch (error) {
+        if (strict) throw error; // Canonical absence must not hide access/IO failure.
         return [];
       }
     });
@@ -239,11 +297,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     // to the same project/app roots as every other write; a missing file is a no-op success.
     ipc.handle("fs:remove", async (e, p) => {
       fsGuard(p, e.sender.id);
-      try {
-        await fs.promises.rm(p, { force: true });
-      } catch {
-        /* already gone / unremovable — treat as removed */
-      }
+      await fs.promises.rm(p, { force: true });
     });
 
     // Move a file to the OS trash — a deleted manuscript stays recoverable.
@@ -253,17 +307,14 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     ipc.handle("fs:trash", async (e, p) => {
       fsGuard(p, e.sender.id);
       const ab = path.resolve(p);
-      if (!fs.existsSync(ab)) return { trashed: false, existed: false };
+      try { await fs.promises.lstat(ab); }
+      catch (error) { if (error.code === "ENOENT") return { trashed: false, existed: false }; throw error; }
       try {
         if (!shell) throw new Error("no shell");
         await shell.trashItem(ab);
         return { trashed: true, existed: true };
       } catch {
-        try {
-          await fs.promises.rm(ab, { force: true });
-        } catch {
-          /* already gone / unremovable — treat as removed */
-        }
+        await fs.promises.rm(ab, { force: true });
         return { trashed: false, existed: true };
       }
     });
@@ -287,6 +338,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor }
     noteWrite,
     atomicWriteMain,
     isSelfWrite,
+    writeOrigin: p => isSelfWrite(p) ? writeOrigins.get(path.resolve(p))?.senderId : undefined,
     fsGuard,
     fsReadGuard,
     setSourceReadFiles,

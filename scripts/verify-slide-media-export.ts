@@ -74,10 +74,22 @@ if (!process.env.FLUX_MEDIA_PROBE) {
   times.forEach((t, i) => assert.ok(Math.abs(t - i / 30) < .00001, `constant frame timestamp ${i}`));
   const pcm = spawnSync(encoder, ["-hide_banner", "-loglevel", "error", "-i", output, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"], { maxBuffer: 2 * 1024 * 1024, timeout: 30000 });
   assert.equal(pcm.status, 0, pcm.stderr.toString());
+  const validateAudioClock = (bytes: Buffer, durationMs: number, label: string) => {
+    const intended = Math.round(durationMs * 48), actual = bytes.length / 4;
+    // MP4 edit lists remove AAC priming. A decoder may expose up to one final
+    // 1024-sample AAC packet of padding; it must never truncate the clock.
+    assert.ok(Number.isInteger(actual) && actual >= intended && actual < intended + 1024, `${label}: ${actual} samples, intended ${intended}, <1024 trailing AAC samples allowed`);
+    for (let i = 0; i < actual; i++) assert.ok(Number.isFinite(bytes.readFloatLE(i * 4)), `${label}: finite decoded sample ${i}`);
+    console.log(`  ok: ${label} decoded ${actual} samples for ${durationMs}ms, AAC tail ${actual - intended}`);
+  };
+  validateAudioClock(pcm.stdout, 2400, "30fps pause/restart");
   const rms = (from: number, to: number) => {
     let energy = 0, count = 0;
     for (let i = Math.floor(from * 48000); i < Math.floor(to * 48000) && i * 4 + 4 <= pcm.stdout.length; i++) { energy += pcm.stdout.readFloatLE(i * 4) ** 2; count++; }
-    return Math.sqrt(energy / count);
+    assert.equal(count, Math.floor(to * 48000) - Math.floor(from * 48000), `complete decoded sample coverage ${from}–${to}s (total ${pcm.stdout.length / 4} samples)`);
+    const power = Math.sqrt(energy / count);
+    assert.ok(Number.isFinite(power), "RMS must be finite");
+    return power;
   };
   for (const [from, to] of [[.05, .09], [.35, .45], [.85, .95], [2.25, 2.35]]) assert.ok(rms(from, to) < .001, `silence before Start/after Pause/end (${from}s)`);
   for (const [from, to] of [[.55, .65], [.7, .75], [1.05, 1.15], [2.05, 2.15]]) assert.ok(rms(from, to) > .04, `audible clip is synchronized at ${from}s`);
@@ -99,7 +111,61 @@ if (!process.env.FLUX_MEDIA_PROBE) {
   }
   const sixtyTimes = [...sixtyDecoded.stderr.toString().matchAll(/n:\s*\d+\s+pts:\s*\d+\s+pts_time:([\d.]+)/g)].map(m => Number(m[1]));
   assert.equal(sixtyTimes.length, 144); sixtyTimes.forEach((t, i) => assert.ok(Math.abs(t - i / 60) < .00001, `60fps timestamp ${i}`));
+  const sixtyPcm = spawnSync(encoder, ["-v", "error", "-i", sixtyFile, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"], { maxBuffer: 2 * 1024 * 1024, timeout: 30000 });
+  assert.equal(sixtyPcm.status, 0, sixtyPcm.stderr.toString()); validateAudioClock(sixtyPcm.stdout, 2400, "60fps pause/restart");
+  assert.deepEqual(sixtyPcm.stdout, pcm.stdout, "30/60fps share the same deterministic decoded audio clock and signal");
   console.log("  ok: 60fps output samples every source frame exactly, including repeated frames and final hold");
+  // Two distinct audio signals and two visible decoders. The second loops
+  // across the first clip's natural end, then pauses before a silent final hold.
+  const loopPath = path.join(root, "slides/media-deck/assets/movie-loop.mp4");
+  const loopSource = spawnSync(encoder, ["-v", "error", "-i", path.join(root, "slides/media-deck/assets/movie.mp4"), "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=1.2", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-y", loopPath], { timeout: 30000 });
+  assert.equal(loopSource.status, 0, loopSource.stderr.toString());
+  const concurrent = structuredClone(deck);
+  concurrent.assets.push({ ...deck.assets[0], id: "loop-movie", path: "assets/movie-loop.mp4" });
+  concurrent.slides[0].elements = [
+    { ...deck.slides[0].elements[0], id: "once", x: 0, y: 0 },
+    { ...deck.slides[0].elements[0], id: "loop", assetId: "loop-movie", x: 160, y: 90, loop: true },
+  ];
+  concurrent.slides[0].beats = [{ id: "base", tracks: [] },
+    { id: "start", tracks: [{ target: "once", preset: "videoStart" }, { target: "loop", preset: "videoStart" }] },
+    { id: "pause", tracks: [{ target: "once", preset: "videoPause", start: 2100 }, { target: "loop", preset: "videoPause", start: 2100 }] }];
+  await fs.writeFile(deckPath, JSON.stringify(concurrent));
+  const concurrentBytes = await fs.readFile(deckPath);
+  const findRed = (bytes: Buffer, offset: number, span: number) => { for (let x = 0; x < span; x++) { const i = offset + x * 3; if (bytes[i] > 150 && bytes[i + 1] < 110 && bytes[i + 2] < 110) return x; } return -1; };
+  for (const fps of [30, 60] as const) {
+    const out = path.join(artifacts, `concurrent-loop-${fps}fps.mp4`);
+    const captured = await exportSlideVideo(root, deck.id, "clip-slide", { out, refreshSources: false, height: 720, fps, startHoldMs: 100, stepDelayMs: 0, endHoldMs: 200 });
+    assert.equal(captured.durationMs, 2400); assert.equal(captured.frames, fps * 2.4);
+    assert.deepEqual(await fs.readFile(deckPath), concurrentBytes, "concurrent export preserves exact authoring bytes");
+    const frames = spawnSync(encoder, ["-hide_banner", "-i", out, "-vf", "scale=320:180,showinfo", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { maxBuffer: 30 * 1024 * 1024, timeout: 30000 });
+    assert.equal(frames.status, 0, frames.stderr.toString()); assert.equal(frames.stdout.length, captured.frames * frameBytes);
+    const pts = [...frames.stderr.toString().matchAll(/n:\s*\d+\s+pts:\s*\d+\s+pts_time:([\d.]+)/g)].map(m => Number(m[1]));
+    assert.equal(pts.length, captured.frames);
+    for (let frame = 0; frame < captured.frames; frame++) {
+      assert.ok(Math.abs(pts[frame] - frame / fps) < .00001, `concurrent ${fps}fps timestamp ${frame}`);
+      const elapsed = Math.max(0, frame / fps - .1);
+      const expectedFrames = [Math.min(35, Math.floor(elapsed * 30 + 1e-6)), Math.floor((Math.min(elapsed, 2.1) % 1.2) * 30 + 1e-6)];
+      for (const [i, sourceFrame] of expectedFrames.entries()) {
+        const sourceLeft = findRed(sourceFrames.stdout, sourceFrame * 160 * 90 * 3 + 40 * 160 * 3, 160);
+        const outputLeft = findRed(frames.stdout, frame * frameBytes + ((40 + i * 90) * 320 + i * 160) * 3, 160);
+        assert.ok(sourceLeft >= 0 && Math.abs(outputLeft - sourceLeft) <= 1, `concurrent ${fps}fps frame ${frame} clip ${i}: source frame ${sourceFrame}, x ${outputLeft} vs ${sourceLeft}`);
+      }
+    }
+    const audio = spawnSync(encoder, ["-v", "error", "-i", out, "-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"], { maxBuffer: 2 * 1024 * 1024, timeout: 30000 });
+    assert.equal(audio.status, 0, audio.stderr.toString()); validateAudioClock(audio.stdout, 2400, `concurrent ${fps}fps`);
+    const amplitude = (frequency: number, from: number, to: number) => {
+      const start = Math.round(from * 48000), end = Math.round(to * 48000); let re = 0, im = 0;
+      for (let sample = start; sample < end; sample++) { const value = audio.stdout.readFloatLE(sample * 4), phase = 2 * Math.PI * frequency * sample / 48000; re += value * Math.cos(phase); im += value * Math.sin(phase); }
+      return 2 * Math.hypot(re, im) / (end - start);
+    };
+    for (const frequency of [440, 880]) assert.ok(amplitude(frequency, .4, .5) > .04, `concurrent ${fps}fps independently audible ${frequency}Hz signal`);
+    assert.ok(amplitude(440, 1.6, 1.7) < .002 && amplitude(880, 1.6, 1.7) > .04, "non-loop audio ends while looped audio continues after wrap");
+    for (const [from, to] of [[.02, .08], [2.25, 2.35]]) {
+      let energy = 0; for (let sample = Math.round(from * 48000); sample < Math.round(to * 48000); sample++) energy += audio.stdout.readFloatLE(sample * 4) ** 2;
+      assert.ok(Math.sqrt(energy / Math.round((to - from) * 48000)) < .001, "concurrent start/end holds contain decoded silence");
+    }
+    console.log(`  ok: concurrent and looped ${fps}fps output: every decoded frame and timestamp, distinct mixed tones, natural audio end, loop wrap, pause and silent end hold`);
+  }
   (deck.slides[0].elements[0] as { muted?: boolean }).muted = true;
   await fs.writeFile(deckPath, JSON.stringify(deck));
   const mutedFile = path.join(artifacts, "muted-clip.mp4");

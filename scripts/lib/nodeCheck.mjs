@@ -1,5 +1,5 @@
 // WS-0b (fortify plan): local verification must run the runtime CI runs.
-// .nvmrc pins 22, CI pins 22, the README requires ≥22.12 — a verify run on an
+// .nvmrc pins 22, CI pins 22, the README requires ≥22.15 — a verify run on an
 // older Node produces baselines that are not comparable to the gates.
 
 // 22.15, not 22.12: scripts/lib/cssStub.mjs imports `registerHooks` from node:module, which

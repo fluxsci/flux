@@ -14,7 +14,9 @@
 //   • `flux attend` — watch the feedback ledger; a send wakes a principal pass.
 // Vendor-agnostic by construction: families/templates live in agents.json.
 
-import { spawn } from "node:child_process";
+import { runProcess, type ProcessResult } from "../electron/processRunner.cjs";
+import { finished } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -68,9 +70,9 @@ export interface LaunchSelection {
 /** The flux MCP server spec for a headless-launched agent (mirrors
  *  agent.cjs mcpSpecFor, resolved from THIS install). */
 function mcpSpecForCli(projectRoot: string): { command: string; args: string[]; env?: Record<string, string> } | null {
-  const appRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+  const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dist = path.join(appRoot, "dist", "flux-mcp.mjs");
-  if (fsSync.existsSync(dist)) return { command: "node", args: [dist, projectRoot] };
+  if (fsSync.existsSync(dist)) return { command: process.execPath, args: [dist, projectRoot], ...(process.versions.electron ? { env: { ELECTRON_RUN_AS_NODE: "1" } } : {}) };
   const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
   const entry = path.join(appRoot, "flux-mcp.ts");
   if (fsSync.existsSync(tsxBin) && fsSync.existsSync(entry)) {
@@ -257,7 +259,7 @@ async function runPtyWithTranscript(spec: AgentSpec, transcriptPath: string): Pr
   process.once("SIGHUP", onTerm);
 
   const exitCode: number = await new Promise((resolve) => {
-    child.onExit(({ exitCode: code }: { exitCode: number }) => resolve(code ?? 0));
+    child.onExit(({ exitCode: code }: { exitCode: number }) => resolve(typeof code === "number" ? code : 1));
   });
 
   clearInterval(timer);
@@ -274,18 +276,36 @@ async function runPtyWithTranscript(spec: AgentSpec, transcriptPath: string): Pr
   return exitCode;
 }
 
-function runInherit(spec: AgentSpec): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const rs = resolveSpawn(spec.command, spec.args);
-    const child = spawn(rs.command, rs.args, {
-      cwd: spec.cwd,
-      env: { ...process.env, ...spec.env },
-      stdio: "inherit",
-      windowsVerbatimArguments: rs.windowsVerbatimArguments,
+async function runInherit(spec: AgentSpec): Promise<number> {
+  const result = await runProcess({ executable: spec.command, argv: spec.args, cwd: spec.cwd, envDelta: spec.env }, { stdio: 'inherit' });
+  return result.status === 'exited' ? result.code : result.status === 'spawn-error' ? 127 : 1;
+}
+
+/** Stream failures abort only this owned job. Wait for final log bytes before
+ * reporting completion; a signal or a failed log is never exit zero. */
+async function runLogged(spec: AgentSpec, logPath: string, echo = false): Promise<ProcessResult> {
+  const log = fsSync.createWriteStream(logPath);
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+  let logError: Error | null = null;
+  log.on('error', error => { logError = error; controller.abort(); });
+  try {
+    // Do not launch an agent if its durable log cannot be opened.
+    await new Promise<void>((resolve, reject) => { log.once('open', () => resolve()); log.once('error', reject); });
+    const result = await runProcess({ executable: spec.command, argv: spec.args, cwd: spec.cwd, envDelta: spec.env }, {
+      signal: controller.signal,
+      onOutput(stream, bytes) {
+        if (logError) return;
+        if (log.writableLength > 8 * 1024 * 1024) { logError = new Error('Agent output exceeded the log write backlog; job cancelled'); controller.abort(); return; }
+        log.write(bytes); if (echo) (stream === 'stdout' ? process.stdout : process.stderr).write(bytes); },
     });
-    child.on("error", reject);
-    child.on("close", (code) => resolve(code ?? 0));
-  });
+    if (result.status === 'spawn-error' && result.stderr) log.write(result.stderr);
+    log.end();
+    await finished(log);
+    if (logError) throw logError;
+    return result;
+  } finally { process.off('SIGINT', cancel); process.off('SIGTERM', cancel); if (!log.destroyed) log.destroy(); }
 }
 
 export interface RunPrincipalOpts {
@@ -436,32 +456,8 @@ export async function dispatch(
   await journal(root, { action: "dispatch", role: opts.role, target: dirRel, agent: agentDesc });
 
   const t0 = Date.now();
-  const log = fsSync.createWriteStream(logPath);
-  const exitCode = await new Promise<number>((resolve, reject) => {
-    const rs = resolveSpawn(spec.command, spec.args);
-    const child = spawn(rs.command, rs.args, {
-      cwd: spec.cwd,
-      env: { ...process.env, ...spec.env },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsVerbatimArguments: rs.windowsVerbatimArguments,
-    });
-    child.stdout.on("data", (b: Buffer) => {
-      log.write(b);
-      if (opts.echo) process.stdout.write(b);
-    });
-    child.stderr.on("data", (b: Buffer) => {
-      log.write(b);
-      if (opts.echo) process.stderr.write(b);
-    });
-    child.on("error", (e) => {
-      log.end();
-      reject(new Error(`could not spawn ${spec.command}: ${e.message}`));
-    });
-    child.on("close", (code) => {
-      log.end();
-      resolve(code ?? 0);
-    });
-  });
+  const processResult = await runLogged(spec, logPath, opts.echo);
+  const exitCode = processResult.status === 'exited' ? processResult.code : processResult.status === 'spawn-error' ? 127 : 1;
   const ms = Date.now() - t0;
   const out = await fs.readFile(logPath, "utf8").catch(() => "");
   const tail = out.split("\n").slice(-100).join("\n").trim();
@@ -473,6 +469,7 @@ export async function dispatch(
     `- command: ${spec.command}`,
     `- cwd: ${spec.cwd}`,
     `- exit: ${exitCode}`,
+    `- status: ${processResult.status}${processResult.signal ? ` (${processResult.signal})` : ""}`,
     `- duration: ${(ms / 1000).toFixed(1)}s`,
     "",
     "## Report (output tail)",
@@ -483,7 +480,7 @@ export async function dispatch(
     "",
   ].join("\n");
   await fs.writeFile(path.join(dir, "result.md"), result);
-  await journal(root, { action: "dispatch_done", role: opts.role, target: dirRel, exit: exitCode });
+  await journal(root, { action: "dispatch_done", role: opts.role, target: dirRel, exit: exitCode, status: processResult.status, signal: processResult.signal });
   return { role: opts.role, name, dir: dirRel, briefPath, logPath, exitCode, ms, agent: agentDesc, report: tail };
 }
 
@@ -494,6 +491,7 @@ export async function dispatch(
 
 interface AttendState {
   processedSendId: string | null;
+  failedSendId?: string;
 }
 
 async function readAttendState(root: string): Promise<AttendState> {
@@ -536,34 +534,9 @@ export async function runPass(root: string, opts: { echo?: boolean } = {}): Prom
   await fs.mkdir(passDir, { recursive: true });
   const logPath = path.join(passDir, `${dispatchStamp()}.log`);
   await journal(root, { action: "attend_pass_start" });
-  const log = fsSync.createWriteStream(logPath);
-  const code = await new Promise<number>((resolve) => {
-    const rs = resolveSpawn(spec.command, spec.args);
-    const child = spawn(rs.command, rs.args, {
-      cwd: spec.cwd,
-      env: { ...process.env, ...spec.env },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsVerbatimArguments: rs.windowsVerbatimArguments,
-    });
-    child.stdout.on("data", (b: Buffer) => {
-      log.write(b);
-      if (opts.echo) process.stdout.write(b);
-    });
-    child.stderr.on("data", (b: Buffer) => {
-      log.write(b);
-      if (opts.echo) process.stderr.write(b);
-    });
-    child.on("error", (e) => {
-      log.write(`\n[attend] spawn failed: ${e.message}\n`);
-      log.end();
-      resolve(127);
-    });
-    child.on("close", (c) => {
-      log.end();
-      resolve(c ?? 0);
-    });
-  });
-  await journal(root, { action: "attend_pass_done", exit: code });
+  const result = await runLogged(spec, logPath, opts.echo);
+  const code = result.status === 'exited' ? result.code : result.status === 'spawn-error' ? 127 : 1;
+  await journal(root, { action: 'attend_pass_done', exit: code, status: result.status, signal: result.signal });
   return code;
 }
 
@@ -595,7 +568,7 @@ export async function attend(
     lastMtime = mtime;
     const st = foldLedger(parseLedger(fsSync.readFileSync(ledger, "utf8")));
     const send = st.lastSend;
-    if (!send || send.id === state.processedSendId) continue;
+    if (!send || send.id === state.processedSendId || send.id === state.failedSendId) continue;
     if (st.sent.length === 0 && st.open.length === 0) {
       // A bare send with nothing open — acknowledge it, nothing to do.
       state = { processedSendId: send.id };
@@ -604,7 +577,16 @@ export async function attend(
     }
     say(`send ${send.id}: ${st.sent.length || st.open.length} note(s) → principal pass`);
     await writeStatus(root, "working", `${st.sent.length || st.open.length} notes`);
-    const code = await runPass(root, { echo: opts.echo });
+    let code: number;
+    try { code = await runPass(root, { echo: opts.echo }); }
+    catch (error) { code = 1; say(`pass failed: ${String(error)}`); }
+    if (code !== 0) {
+      state = { ...state, failedSendId: send.id };
+      await writeAttendState(root, state);
+      await writeStatus(root, 'failed', `pass exit ${code}; work remains open. Send feedback again to retry.`);
+      say(`pass failed (exit ${code}); send again to retry`);
+      continue;
+    }
     state = { processedSendId: send.id };
     await writeAttendState(root, state);
     await writeStatus(root, "done", `pass exit ${code}`);

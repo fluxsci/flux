@@ -3,6 +3,7 @@ const { app, BrowserWindow, protocol, net } = require("electron");
 const fs = require("node:fs/promises"), path = require("node:path"), assert = require("node:assert/strict"), { execFileSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const media = require("../../electron/videoMedia.cjs");
+const { createHdrFixture, verifyHdrOutput, width: hdrWidth, height: hdrHeight } = require("./hdrMediaFixture.cjs");
 const { createVideoMediaCore } = require("../../electron/ipc/videoMedia.cjs");
 const { createFileCore } = require("../../electron/ipc/files.cjs");
 const root = process.env.PROBE_PROJECT, scratch = process.env.PROBE_SCRATCH;
@@ -85,30 +86,55 @@ app.whenReady().then(async () => {
     }
     assert.deepEqual(await fs.readFile(source), sourceBytes); assert.deepEqual(await fs.readFile(mov), movieBytes);
     const variants = [
-      { name: "rotated.mov", args: ["-c", "copy", "-metadata:s:v:0", "rotate=90"], width: 90, height: 160 },
+      { name: "rotated.mov", inputArgs: ["-display_rotation", "90"], args: ["-c", "copy"], width: 90, height: 160 },
       { name: "hevc.mov", args: ["-c:v", "libx265", "-x265-params", "pools=1:frame-threads=1:log-level=error", "-tag:v", "hvc1", "-c:a", "aac"], width: 160, height: 90 },
       { name: "fragmented.mp4", args: ["-c", "copy", "-movflags", "frag_keyframe+empty_moov"], width: 160, height: 90 },
       { name: "odd-size.mp4", args: ["-vf", "crop=159:89:0:0:exact=1", "-c:v", "libx264", "-pix_fmt", "yuv444p", "-c:a", "copy"], width: 160, height: 90 },
       { name: "long-audio.mov", args: ["-f", "lavfi", "-i", "sine=frequency=440:duration=2.4", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "pcm_s16le"], width: 160, height: 90 },
       { name: "short-audio.mov", args: ["-c:v", "copy", "-af", "atrim=0:0.35", "-c:a", "pcm_s16le"], width: 160, height: 90 },
-      { name: "hdr-pq.mov", args: ["-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "pools=1:frame-threads=1:log-level=error", "-tag:v", "hvc1", "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc", "-c:a", "aac"], width: 160, height: 90 },
-      { name: "hdr-hlg.mov", args: ["-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "pools=1:frame-threads=1:log-level=error", "-tag:v", "hvc1", "-color_primaries", "bt2020", "-color_trc", "arib-std-b67", "-colorspace", "bt2020nc", "-c:a", "aac"], width: 160, height: 90 },
+      { name: "hdr-pq.mov", hdr: "pq", width: hdrWidth, height: hdrHeight },
+      { name: "hdr-hlg.mov", hdr: "hlg", width: hdrWidth, height: hdrHeight },
     ];
     for (const variant of variants) {
       const input = path.join(root, "plots/_videos", variant.name);
-      execFileSync(encoder, ["-v", "error", "-i", source, ...variant.args, "-threads", "2", "-y", input], { timeout: 20000 });
+      const calibration = variant.hdr ? await createHdrFixture(encoder, input, variant.hdr) : null;
+      if (!calibration) execFileSync(encoder, ["-v", "error", ...variant.inputArgs || [], "-i", source, ...variant.args, "-threads", "2", "-y", input], { timeout: 20000 });
+      const originalVariant = await fs.readFile(input);
+      let rotationReference;
+      if (variant.name === "rotated.mov") {
+        const { spawnSync } = require("node:child_process");
+        const metadata = spawnSync(encoder, ["-hide_banner", "-noautorotate", "-i", input, "-frames:v", "1", "-f", "null", "-"], { encoding: "utf8", timeout: 10000 });
+        assert.equal(metadata.status, 0, metadata.stderr);
+        assert.match(metadata.stderr, /displaymatrix: rotation of 90\.00 degrees/, "fixture carries an actual track display matrix");
+        const inputInfo = await media.probeVideo(input); assert.equal(inputInfo.width, 90); assert.equal(inputInfo.height, 160);
+        const originalPixels = execFileSync(encoder, ["-v", "error", "-noautorotate", "-i", input, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]);
+        // Independently apply the declared 90° counterclockwise transform.
+        rotationReference = Buffer.alloc(originalPixels.length);
+        for (let y = 0; y < 90; y++) for (let x = 0; x < 160; x++) originalPixels.copy(rotationReference, ((159 - x) * 90 + y) * 3, (y * 160 + x) * 3, (y * 160 + x) * 3 + 3);
+      }
       const prepared = await media.prepareVideo({ root, deckId: "test.deck", sourcePath: `plots/_videos/${variant.name}` });
-      if (variant.name.startsWith("hdr-")) {
-        assert.ok((await media.probeVideo(input)).hdrTransfer, "HDR transfer is detected");
+      if (calibration) {
+        assert.equal((await media.probeVideo(input)).hdrTransfer, variant.hdr, "calibrated HDR transfer is detected");
         const canonical = path.join(root, "slides/test.deck", prepared.asset.path);
         assert.equal((await media.probeVideo(canonical)).hdrTransfer, undefined, "portable clip carries an SDR transfer");
-        const pixels = execFileSync(encoder, ["-v", "error", "-i", canonical, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { timeout: 10000 });
-        assert.ok([...pixels.subarray(0, 3)].every(v => v > 160 && v < 255), "HDR highlights are tone mapped into SDR display range");
+        const evidence = verifyHdrOutput(encoder, canonical, calibration, path.join(root, "slides/test.deck", prepared.posterAsset.path));
+        const dir = path.resolve(__dirname, "../../test-results/slide-video-clips"); await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(path.join(dir, `${variant.hdr}-native-calibration.json`), JSON.stringify(evidence, null, 2));
+        console.log(`PROBE calibrated ${variant.hdr}: all 36 SDR frames, highlight detail, three gamut patches and poster match reference within 5 codes`);
       }
       assert.equal(prepared.asset.naturalWidth, variant.width, variant.name); assert.equal(prepared.asset.naturalHeight, variant.height, variant.name);
       assert.ok(prepared.asset.durationMs >= 1166 && prepared.asset.durationMs <= 1300, variant.name);
       const decoded = execFileSync(encoder, ["-v", "error", "-i", path.join(root, "slides/test.deck", prepared.asset.path), "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"], { timeout: 10000 });
       assert.equal(decoded.length, variant.width * variant.height * 3);
+      if (rotationReference) {
+        const redBounds = bytes => { let minX = 90, minY = 160, maxX = -1, maxY = -1;
+          for (let y = 0; y < 160; y++) for (let x = 0; x < 90; x++) { const i = (y * 90 + x) * 3; if (bytes[i] > 180 && bytes[i + 1] < 80 && bytes[i + 2] < 80) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); } }
+          assert.ok(maxX >= minX && maxY >= minY, "rotated frame contains the actual source landmark"); return [minX, minY, maxX, maxY]; };
+        const actual = redBounds(decoded), expected = redBounds(rotationReference);
+        actual.forEach((value, i) => assert.ok(Math.abs(value - expected[i]) <= 2, `normalized rotation landmark ${actual} vs ${expected}`));
+        console.log("PROBE actual 90-degree display matrix and independently rotated source landmark preserve 90x160 orientation");
+      }
+      assert.deepEqual(await fs.readFile(input), originalVariant, `${variant.name}: normalization preserves input bytes`);
       const url = await handlers.get("slides:videoMediaUrl")(e, { root, path: `slides/test.deck/${prepared.asset.path}` });
       await window.loadURL(`data:text/html,${encodeURIComponent(`<video src="${url}" preload="metadata"></video>`)}`);
       const actualDuration = await window.webContents.executeJavaScript(`new Promise((resolve,reject)=>{const v=document.querySelector('video');if(v.readyState>=1)return resolve(v.duration);const timeout=setTimeout(()=>reject(Error('duration timeout')),10000);v.onloadedmetadata=()=>{clearTimeout(timeout);resolve(v.duration)};v.onerror=()=>reject(Error('metadata decode failed'));})`);

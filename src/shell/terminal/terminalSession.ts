@@ -17,6 +17,7 @@ import { writable, type Writable } from "svelte/store";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { currentProject } from "../shellStore";
 import { fileBridge } from "../../lib/project/types";
 
 // SHL-16: the PTY bridge (window.fig.term) is now typed centrally on FileBridge; reach it
@@ -96,6 +97,8 @@ interface Session {
 }
 
 let session: Session | null = null;
+let generation = 0;
+let starting: { generation: number; promise: Promise<void> } | null = null;
 // The project root the live shell was started for. `undefined` = never observed (so the very
 // first syncRoot call doesn't kill anything); after that a change means a project switch.
 let sessionRoot: string | null | undefined = undefined;
@@ -149,25 +152,33 @@ function ensure(): Session {
   return session;
 }
 
-async function start(s: Session): Promise<void> {
+function start(s: Session): Promise<void> {
+  const owner = generation;
+  if (starting?.generation === owner) return starting.promise;
   const br = bridge();
-  if (!br) {
-    setStatus("unavailable");
-    return;
-  }
-  setStatus("connecting");
-  // cwd is left to the main process, which opens in the current project root
-  // (else home) — it already tracks that via the file-watch root.
-  const res = await br.create({ cols: s.term.cols, rows: s.term.rows });
-  if (res.ok) {
-    s.ptyId = res.id;
-    termInfo.set({ shell: res.shell, cwd: res.cwd, pid: res.pid });
-    setStatus("running");
-    fitNow();
-  } else {
-    setStatus("exited");
-    s.term.write(`\r\n\x1b[31m${res.error}\x1b[0m\r\n`);
-  }
+  if (!br) { setStatus('unavailable'); return Promise.resolve(); }
+  const promise = (async () => {
+    setStatus('connecting');
+    try {
+      const res = await br.create({ cols: s.term.cols, rows: s.term.rows });
+      if (owner !== generation || session !== s) {
+        if (res.ok) await br.kill(res.id); // late-created obsolete PTY is ours to retire
+        return;
+      }
+      if (res.ok) {
+        s.ptyId = res.id;
+        termInfo.set({ shell: res.shell, cwd: res.cwd, pid: res.pid });
+        setStatus('running'); fitNow();
+      } else {
+        setStatus('exited'); s.term.write(`\r\n\x1b[31m${res.error}\x1b[0m\r\n`);
+      }
+    } catch (error) {
+      if (owner === generation) { setStatus('exited'); s.term.write(`\r\n${String(error)}\r\n`); }
+    }
+  })();
+  starting = { generation: owner, promise };
+  void promise.finally(() => { if (starting?.promise === promise) starting = null; });
+  return promise;
 }
 
 /** True when the Electron terminal bridge is present (desktop app). */
@@ -239,50 +250,43 @@ export function prefill(text: string): void {
 
 /** Kill any running shell and start a fresh one, clearing the screen. */
 export async function restart(): Promise<void> {
+  const owner = ++generation;
   const s = ensure();
   const br = bridge();
-  if (!br) {
-    setStatus("unavailable");
-    return;
-  }
-  if (s.ptyId) {
-    await br.kill(s.ptyId);
-    s.ptyId = null;
-  }
+  if (!br) { setStatus('unavailable'); return; }
+  const old = s.ptyId; s.ptyId = null;
+  termInfo.set(null);
+  if (old) await br.kill(old);
+  if (owner !== generation) return;
   s.term.reset();
   await start(s);
-  s.term.focus();
+  if (owner === generation) s.term.focus();
 }
 
-/** Kill the running shell without starting a new one. */
+/** Invalidate pending creations before awaiting native teardown. */
 export async function kill(): Promise<void> {
+  ++generation;
   const s = session;
-  if (!s) return;
-  const br = bridge();
-  if (s.ptyId && br) await br.kill(s.ptyId);
-  s.ptyId = null;
-  termInfo.set(null);
-  setStatus("exited");
+  const old = s?.ptyId;
+  if (s) s.ptyId = null;
+  termInfo.set(null); setStatus('exited');
+  if (old) await bridge()?.kill(old);
 }
 
-/**
- * PAP-17: note the active project root. On a genuine change (not the first observation), kill the
- * shell — it was spawned with the OLD project's cwd, so leaving it alive runs commands in the
- * wrong directory. Reset to "idle" (not "exited") so the next attach() auto-starts a fresh shell
- * in the new project's cwd. The main process derives cwd from the current file-watch root, so a
- * new shell lands in the right place; we only need to retire the stale one.
- */
 export async function syncRoot(root: string | null): Promise<void> {
-  const prev = sessionRoot;
+  const previous = sessionRoot;
   sessionRoot = root;
-  if (prev === undefined || prev === root) return; // first observation, or same project
+  if (previous === root) return;
+  if (previous === undefined && !starting && !session?.ptyId) return;
+  const owner = ++generation;
   const s = session;
-  const br = bridge();
-  if (s?.ptyId && br) await br.kill(s.ptyId);
-  if (s) {
-    s.ptyId = null;
-    if (s.opened) s.term.reset();
-  }
-  termInfo.set(null);
-  setStatus("idle");
+  const old = s?.ptyId;
+  if (s) s.ptyId = null;
+  termInfo.set(null); setStatus('idle');
+  if (old) await bridge()?.kill(old);
+  if (owner !== generation) return;
+  if (s?.opened) s.term.reset();
 }
+
+// Session ownership follows the shell even when no Paper/Reader view is mounted.
+currentProject.subscribe(project => { void syncRoot(project?.path ?? null); });

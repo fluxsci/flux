@@ -1,3 +1,5 @@
+import { xmlEscape as esc } from "../xml";
+import { passivePaint } from "../plot/passiveSvg";
 // Gradient paints (2026-09-16, owner note): a colormap chosen for a fill or a
 // stroke is not one colour off the map but the WHOLE map, laid across the
 // element's box as a linear gradient along one axis — x runs left→right, y runs
@@ -87,10 +89,10 @@ const num = (v: number) => (Number.isInteger(v) ? String(v) : String(Math.round(
 
 /** Serialize one definition (export.ts). */
 export function gradientSvg(d: GradientDef): string {
-  const stops = d.stops.map((s) => `<stop offset="${num(s.offset)}" stop-color="${s.color}"/>`).join("");
+  const stops = d.stops.map((s) => `<stop offset="${num(s.offset)}" stop-color="${esc(passivePaint(s.color))}"/>`).join("");
   return (
-    `<linearGradient id="${d.id}" x1="${num(d.x1)}" y1="${num(d.y1)}" x2="${num(d.x2)}" y2="${num(d.y2)}" ` +
-    `gradientUnits="${d.units}">${stops}</linearGradient>`
+    `<linearGradient id="${esc(d.id)}" x1="${num(d.x1)}" y1="${num(d.y1)}" x2="${num(d.x2)}" y2="${num(d.y2)}" ` +
+    `gradientUnits="${esc(d.units)}">${stops}</linearGradient>`
   );
 }
 
@@ -105,7 +107,7 @@ export function gradientCss(g: GradientFill | null | undefined): string | null {
   const stops = gradientStops(g);
   if (!stops) return null;
   const list = g!.discrete
-    ? stops.map((s) => `${s.color} ${(s.offset * 100).toFixed(3)}%`).join(", ")
+    ? stops.map((s) => `${esc(passivePaint(s.color))} ${(s.offset * 100).toFixed(3)}%`).join(", ")
     : stops.map((s) => s.color).join(", ");
   return `linear-gradient(${g!.axis === "y" ? "to top" : "to right"}, ${list})`;
 }

@@ -13,6 +13,10 @@ export interface FluxConfigInfo {
   fluxConfigPath: string;
   fluxLibPath: string;
   guidelinesPath: string;
+  contextPath: string;
+  userContextPath: string;
+  fluxContextPath: string;
+  agentsConfigPath: string;
   userDataDir: string;
   /** Present only on the run that performed migration/seeding work. */
   events?: Array<{ ts: string; action: string; detail: string }>;
@@ -55,3 +59,8 @@ export function configInfoSync(prefs?: FluxPrefs): FluxConfigInfo;
 
 export const GUIDELINES_README: string;
 export const GUIDELINES_BASE_RULES: string;
+
+export function contextPathSync(prefs?: FluxPrefs): string;
+export function userContextPathSync(prefs?: FluxPrefs): string;
+export function fluxContextPathSync(prefs?: FluxPrefs): string;
+export function resolveOwnCliCommandsSync(): { cli: string; mcp: string };

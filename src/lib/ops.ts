@@ -164,6 +164,8 @@ export interface CreateFigureOpts {
 }
 
 export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
+  if (opts.id && p.figures.some(f => f.id === opts.id)) throw new Error(`Figure id already exists: ${opts.id}`);
+  if (!p.canvases.some(c => c.id === opts.canvasId)) throw new Error(`Canvas not found: ${opts.canvasId}`);
   const onCanvas = p.figures.filter((f) => f.canvasId === opts.canvasId);
   // Default placement stacks vertically: directly below the lowest figure on
   // the canvas, left-aligned with the first one. Headless composes used to
@@ -284,6 +286,7 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
     background: src.background,
     elements,
     captions,
+    ...(src.guides ? { guides: structuredClone(src.guides) } : {}),
     ...(Object.keys(clonedGroups).length ? { groups: clonedGroups } : {}),
   };
   p.figures.push(copy);
@@ -390,6 +393,13 @@ export function setFigureIdentity(
   return [];
 }
 
+/** Shared form/operation refusal, before history or model mutation. */
+export function figureFamilyIdError(p: Project, id: string, createOnly = false): string | null {
+  if (!FAMILY_ID_RE.test(id)) return 'Use a family name whose slug starts with a letter and contains only lowercase letters, numbers or hyphens.';
+  if (BUILTIN_FAMILIES.some(b => b.id === id)) return `"${id}" is a built-in family; choose it from the list.`;
+  if (createOnly && p.figureFamilies?.some(f => f.id === id)) return `Family "${id}" already exists; choose it from the list or use a distinct name.`;
+  return null;
+}
 /** Define (or update) a CUSTOM figure family ("movie" → "Mov. {num}{panel}").
  *  Built-in ids are reserved; missing templates default from the display name. */
 export function defineFigureFamily(
@@ -397,12 +407,8 @@ export function defineFigureFamily(
   def: { id: string; displayName: string; refTemplate?: string; captionTemplate?: string },
 ): FigureFamilyDef {
   const id = def.id.trim();
-  if (!FAMILY_ID_RE.test(id)) {
-    throw new Error(`invalid family id "${def.id}" — want a lowercase slug (a-z, 0-9, -)`);
-  }
-  if (BUILTIN_FAMILIES.some((b) => b.id === id)) {
-    throw new Error(`"${id}" is a built-in family`);
-  }
+  const invalid = figureFamilyIdError(p,id);
+  if (invalid) throw new Error(invalid);
   const displayName = def.displayName.trim();
   if (!displayName) throw new Error("family displayName must not be empty");
   const full: FigureFamilyDef = {
@@ -619,7 +625,7 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
   const f = figById(p, figId);
   if (!f) return;
   const els = targetEls(f, opts.ids);
-  const n = gridItemCount(els);
+  const n = gridItemCount(els, { figure: f });
   if (n < 2) return;
   let cols: number;
   if (opts.cols && opts.cols > 0) {
@@ -631,7 +637,7 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
   } else {
     cols = Math.ceil(n / balancedRows(n));
   }
-  arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {});
+  arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {}, { figure: f });
 }
 
 /** Rotate elements by `deltaDeg` about a pivot (default = the group-expanded
@@ -660,13 +666,13 @@ export function rotateElements(
 export function alignPanels(p: Project, figId: Id, kind: AlignKind, ids?: Id[]): void {
   const f = figById(p, figId);
   if (!f) return;
-  alignElements(targetEls(f, ids), kind);
+  alignElements(targetEls(f, ids), kind, { figure: f });
 }
 
 export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: Id[], gap?: number): void {
   const f = figById(p, figId);
   if (!f) return;
-  distributeElements(targetEls(f, ids), axis, gap);
+  distributeElements(targetEls(f, ids), axis, gap, { figure: f });
 }
 
 /** Minimal 1-D translation that brings [pos, pos+size] inside [0, frame]:
@@ -1742,6 +1748,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   if (!f) return { changed: false, letters: [] };
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   if (!labels.length) return { changed: false, letters: [] };
+  if (labels.length > 26) throw new Error("Automatic panel lettering supports up to 26 panels (a–z). Keep your existing labels or split this figure.");
   const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
   const rowSpan = (e: Element): { top: number; bottom: number; x: number } => {
     const lb = elementBBox(e);
@@ -1774,7 +1781,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   for (const row of rows) {
     row.sort((a, b) => a.x - b.x);
     for (const it of row) {
-      const want = String.fromCharCode(97 + (i % 26));
+      const want = String.fromCharCode(97 + i);
       i++;
       letters.push(want);
       if (it.e.type === "text" && it.e.text !== want) {

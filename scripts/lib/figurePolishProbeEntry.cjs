@@ -36,8 +36,9 @@ async function main(){
   for(let i=0;i<18;i++){win.webContents.sendInputEvent({type:'keyDown',keyCode:'Right'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Right'});await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')}
   const times=await js("window.removeEventListener('keydown',window.__nativeKey,true);window.__nativeTimes");
   check(await js("Number([...document.querySelectorAll('.inspector .nf')].find(n=>n.querySelector('.lb')?.textContent==='X')?.querySelector('input')?.value)")===beforeX+18,`${n}: measured key events actually moved the selected object`);
-  check(times.length===18,`${n}: actual native keyboard events measured`);metrics[n]={nudgeP95:p95(times),mounted:await js("document.querySelectorAll('[data-editor-element-id]').length"),layers:await js("document.querySelectorAll('.sidebar .layer').length")};
+  check(times.length===18,`${n}: actual native keyboard events measured`);metrics[n]={nudgeP95:p95(times),samplesMs:times,viewport:await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'),mounted:await js("document.querySelectorAll('[data-editor-element-id]').length"),layers:await js("document.querySelectorAll('.sidebar .layer').length")};
   console.log('PROBE metrics='+JSON.stringify({figure:n,...metrics[n]}));
+  fs.writeFileSync(path.resolve(__dirname,'../../test-results/figure-polish-native-metrics.json'),JSON.stringify(metrics,null,2));
   check(metrics[n].nudgeP95<=100,`${n}: native key-to-paint p95 ${metrics[n].nudgeP95.toFixed(1)}ms ≤100ms`);
   check(metrics[n].layers<=150,`${n}: virtualized Layers remain bounded`);
  }
@@ -92,6 +93,7 @@ async function main(){
   await js(`(()=>{const n=[...document.querySelectorAll('.inspector button')].find(n=>n.textContent.trim()===${JSON.stringify(label)});if(!n)throw Error('Export control missing');n.click()})()`);
   const file=path.join(root,`Figure 3.${ext}`);await wait(()=>fs.existsSync(file)&&fs.statSync(file).size>100,`${label} exported through real IPC`);
   const bytes=fs.readFileSync(file);check(ext==='pdf'?bytes.subarray(0,5).toString()==='%PDF-':ext==='png'?bytes.subarray(1,4).toString()==='PNG':bytes.toString().includes('viewBox="0 0 320 240"'),`${label}: actual exported file valid`);
+  const artifacts=path.resolve(__dirname,'../../test-results/figure-polish-exports');fs.mkdirSync(artifacts,{recursive:true});fs.writeFileSync(path.join(artifacts,path.basename(file)),bytes);
   if(ext==='pdf') {const box=bytes.toString('latin1').match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/);check(box&&Math.abs(+box[1]-240)<.02&&Math.abs(+box[2]-180)<.02,'PDF has the correct physical page dimensions');}
  }
 

@@ -39,13 +39,14 @@ function startBridge({ root, getContext, dispatch, noteWrite }) {
 
   const server = http.createServer((req, res) => {
     if (!authed(req)) return json(res, 401, { error: "unauthorized" });
+    if (req.headers["x-flux-project"] && path.resolve(req.headers["x-flux-project"]) !== path.resolve(root)) return json(res, 409, { error: "bridge project ownership changed" });
     const url = (req.url || "").split("?")[0];
 
     if (req.method === "GET" && url === "/context") {
       return json(res, 200, getContext() || {});
     }
     if (req.method === "GET" && url === "/health") {
-      return json(res, 200, { ok: true, hasContext: !!getContext() });
+      return json(res, 200, { ok: true, root, sessionId: token, hasContext: !!getContext() });
     }
     if (req.method === "GET" && url === "/events") {
       res.writeHead(200, {
@@ -96,7 +97,7 @@ function startBridge({ root, getContext, dispatch, noteWrite }) {
       fs.writeFileSync(
         file,
         JSON.stringify(
-          { url: `http://127.0.0.1:${port}`, port, token, pid: process.pid, started: new Date().toISOString() },
+          { url: `http://127.0.0.1:${port}`, port, token, root, sessionId: token, pid: process.pid, started: new Date().toISOString() },
           null,
           2,
         ),

@@ -6,19 +6,29 @@ contextBridge.exposeInMainWorld("fig", {
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),
   save: (defaultPath, filters) => ipcRenderer.invoke("dlg:save", { defaultPath, filters }),
+  moveFileVerified: (source,destination,sha256) => ipcRenderer.invoke("fs:moveFileVerified",source,destination,sha256),
   readFile: (p) => ipcRenderer.invoke("fs:readFile", p),
+  readerContextClaim: (payload) => ipcRenderer.invoke("readerContext:claim", payload),
+  readerContextPublish: (payload) => ipcRenderer.invoke("readerContext:publish", payload),
+  readerContextRenew: (payload) => ipcRenderer.invoke("readerContext:renew", payload),
+  readerContextRelease: (token) => ipcRenderer.invoke("readerContext:release", token),
   writeFile: (p, data) => ipcRenderer.invoke("fs:writeFile", p, data),
+  readTextBounded: (p, maxBytes) => ipcRenderer.invoke("fs:readTextBounded", p, maxBytes),
   readText: (p) => ipcRenderer.invoke("fs:readText", p),
   writeText: (p, text, options) => ipcRenderer.invoke("fs:writeText", p, text, options),
   feedbackAppend: (p, line) => ipcRenderer.invoke("feedback:append", p, line),
   // Snapshot & annotate: this window's pixels (device px), optionally one CSS-px rect.
   captureWindow: (rect) => ipcRenderer.invoke("win:capture", rect),
+  pickScreenColor: (requestId) => ipcRenderer.invoke("color:pickScreen", requestId),
+  cancelScreenColor: (requestId) => ipcRenderer.invoke("color:cancelScreen", requestId),
   fsyncDir: (p) => ipcRenderer.invoke("fs:fsyncDir", p),
   mkdir: (p) => ipcRenderer.invoke("fs:mkdir", p),
+  projectAssetPath: (root, rel) => ipcRenderer.invoke("fs:projectAssetPath", root, rel),
   exists: (p) => ipcRenderer.invoke("fs:exists", p),
   // File identity (mtime+size) for cache keying — null when absent.
   stat: (p) => ipcRenderer.invoke("fs:stat", p),
-  readdir: (p) => ipcRenderer.invoke("fs:readdir", p),
+  setTimes: (p, times) => ipcRenderer.invoke("fs:setTimes", p, times),
+  readdir: (p, strict = false) => ipcRenderer.invoke("fs:readdir", p, strict),
   remove: (p) => ipcRenderer.invoke("fs:remove", p),
   // Move a file to the OS trash (plain remove where there is none — the
   // result says which happened).
@@ -49,6 +59,7 @@ contextBridge.exposeInMainWorld("fig", {
   captureIntake: () => ipcRenderer.invoke("capture:intake"),
   captureDiscard: (name) => ipcRenderer.invoke("capture:discard", name),
   capturePark: (name, note) => ipcRenderer.invoke("capture:park", name, note),
+  captureRelease: (id) => ipcRenderer.invoke("capture:release", id),
   // Fetch an OpenAlex API URL (built by src/lib/references/openalex.ts) in main —
   // powers library hydration + whole-world lookups (no CORS; api_key attached if set).
   fetchOpenAlex: (url) => ipcRenderer.invoke("cite:openalex", url),
@@ -138,7 +149,8 @@ contextBridge.exposeInMainWorld("fig", {
   // fsGuard needs it before watchRoot promotes it after the load succeeds).
   beginOpen: (root) => ipcRenderer.invoke("fs:beginOpen", root),
   // F2: re-run a plot's recipe; returns { code, svgText, manifestText, recipeText }.
-  runRecipe: (recipePath, params) => ipcRenderer.invoke("recipe:run", { recipePath, params }),
+  runRecipe: (recipePath, params, options = {}) => ipcRenderer.invoke("recipe:run", { recipePath, params, ...options }),
+  cancelRecipe: (jobId) => ipcRenderer.invoke("recipe:cancel", jobId),
   // Slide export: emit a self-contained offline .html for a deck. Node-only
   // (esbuild + fs run in main, via the flux-cli verb). Returns { ok, path } |
   // { ok:false, error }. The renderer gates its Export button on this existing.
@@ -167,6 +179,12 @@ contextBridge.exposeInMainWorld("fig", {
   // in the main process (spawns the bundled `flux search-text --json`, W13 pattern) so
   // the renderer never blocks on disk I/O. Returns the FulltextResult JSON | { error }.
   searchFulltext: (query, opts) => ipcRenderer.invoke("fulltext:search", { query, opts }),
+  cancelFulltext: (requestId, ownerId) => ipcRenderer.invoke("fulltext:cancel", {requestId, ownerId}),
+  onFulltextProgress: (cb) => {
+    const handler = (_e, progress) => cb(progress);
+    ipcRenderer.on("fulltext:progress", handler);
+    return () => ipcRenderer.removeListener("fulltext:progress", handler);
+  },
   correctionStatus: (provider, model) => ipcRenderer.invoke("correction:status", provider, model),
   correctionWarm: (request) => ipcRenderer.invoke("correction:warm", request),
   correctionDecide: (request) => ipcRenderer.invoke("correction:decide", request),
@@ -202,21 +220,22 @@ contextBridge.exposeInMainWorld("fig", {
 
   // W6: quit/close flush handshake. Main sends `app:flush` with a token before it
   // destroys the window; the renderer flushes every dirty mode and replies with
-  // flushDone(token). Main destroys on ack or after a 2.5s timeout.
+  // flushDone({requestId,status,reason}). Only a saved ACK permits close.
   onFlushRequest: (cb) => {
-    const handler = (_e, token) => cb(token);
+    const handler = (_e, request) => cb(request);
     ipcRenderer.on("app:flush", handler);
     return () => ipcRenderer.removeListener("app:flush", handler);
   },
-  flushDone: (token) => ipcRenderer.send("app:flush:done", token),
+  flushDone: (result) => ipcRenderer.send("app:flush:done", result),
 
   // WS6: provenance journal + advisory locks. Main appends/writes under .meta/
   // (suppressing the self-write echo); both no-op until a project is open.
   journalAppend: (entry) => ipcRenderer.invoke("journal:append", entry),
   lockSet: (name, held, scope) => ipcRenderer.invoke("lock:set", { name, held, scope }),
   // W3: short renderer-held locks around FluxLib/project read-modify-writes.
-  lockAcquire: (scope, name) => ipcRenderer.invoke("lock:acquire", { scope, name }),
-  lockRelease: (scope, name) => ipcRenderer.invoke("lock:release", { scope, name }),
+  lockAcquire: (scope, name, expectedRoot) => ipcRenderer.invoke("lock:acquire", { scope, name, expectedRoot }),
+  lockCheck: (scope, name, token) => ipcRenderer.invoke("lock:check", { scope, name, token }),
+  lockRelease: (scope, name, token) => ipcRenderer.invoke("lock:release", { scope, name, token }),
 
   // Frameless window controls (used by the custom title bar).
   win: {

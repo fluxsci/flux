@@ -1,3 +1,7 @@
+import { protectedDocumentSpans, mapUnprotected } from "../../../../lib/manuscript/documentContext";
+import { get } from "svelte/store";
+import { offlineHtmlPolicy } from "../../../../lib/offlineHtmlPolicy";
+import { renderMath } from "../science/mathRenderService";
 import { prepareSlideDocument } from "../../../../lib/slide/embedDocument";
 import type { SlideRepository } from "../../../../lib/slide/embedRepository";
 // The shared manuscript renderer (Flux_Paper_Plan.md D1/D2): Quarto markdown →
@@ -8,8 +12,8 @@ import type { SlideRepository } from "../../../../lib/slide/embedRepository";
 // References section built from the cited works. All heavy libs are dynamic-
 // imported on first render to stay off the editor hot path.
 
-import { resolveFigure, renderFigureSvg } from "../scholar/figures";
-import { bibEntry, type BibEntry } from "../scholar/bib";
+import { captureFigureExport } from "../scholar/figures";
+import { bibSource, bibEntries, type BibEntry } from "../scholar/bib";
 import { journalCss } from "./journal";
 import { crossrefRe, bracketCiteRe, bareCiteRe, isCrossrefKey } from "../science/grammar";
 import { EMBED_RE, parseEmbedAttrs, cssWidth } from "../science/figureAttrs";
@@ -55,15 +59,9 @@ async function getYaml(): Promise<any> {
 // KaTeX loads lazily and ONLY for documents that contain a `$` (2.1): preprocess
 // renders math synchronously, so renderManuscript awaits this before preprocess
 // when the body could hold math.
-let _katex: any = null;
-async function getKatex(): Promise<any> {
-  if (!_katex) _katex = (await import("katex")).default;
-  return _katex;
-}
-const katexHtml = (tex: string, display: boolean): string =>
-  _katex
-    ? _katex.renderToString(tex, { displayMode: display, throwOnError: false, output: "html" })
-    : esc(tex);
+// Rendering a manuscript owns its pending equations locally; overlapping previews
+// cannot substitute one another's equation results.
+const mathPlaceholder = (tex: string, display: boolean): string => `<flux-math data-display="${display ? "1" : "0"}" data-tex="${encodeURIComponent(tex).replace(/'/g, "%27")}"></flux-math>`;
 
 // One embed grammar with the editor (science/figureAttrs) — group 4 is the
 // attr tail; width= is honored in the emitted HTML (and Quarto DOCX reads the
@@ -89,7 +87,13 @@ function esc(s: string): string {
 
 /** Per-render citation context: the cited-key collector plus the numbering
  *  pass when the front matter selects the numeric style. */
+export function captureManuscriptSnapshot() {
+  return { figures: captureFigureExport(), bibSource: structuredClone(get(bibSource)), bibliography: new Map(structuredClone(get(bibEntries)).map(entry => [entry.key, entry])) };
+}
+export type ManuscriptSnapshot = ReturnType<typeof captureManuscriptSnapshot>;
 interface CiteCtx {
+  snapshot: ManuscriptSnapshot;
+  svgs: Map<string, string | undefined>;
   cited: Set<string>;
   style: CitationStyle;
   /** key → 1-based ordinal (numeric style only). */
@@ -103,15 +107,15 @@ interface CiteCtx {
   math: { stash: string[]; display: boolean };
 }
 
-function makeCiteCtx(style: CitationStyle, body: string): CiteCtx {
+function makeCiteCtx(style: CitationStyle, body: string, snapshot: ManuscriptSnapshot, svgs: Map<string, string | undefined>): CiteCtx {
   const cited = new Set<string>();
   const refNums = scanRefNumbers(body);
   const math = { stash: [] as string[], display: false };
-  if (style !== "numeric") return { cited, style, ordinals: new Map(), keyOf: new Map(), refNums, math };
-  const { map } = buildCitationOrdinals(body, (k) => !!bibEntry(k));
+  if (style !== "numeric") return { snapshot, svgs, cited, style, ordinals: new Map(), keyOf: new Map(), refNums, math };
+  const { map } = buildCitationOrdinals(body, (k) => !!snapshot.bibliography.get(k));
   const keyOf = new Map<number, string>();
   for (const [k, n] of map) keyOf.set(n, k);
-  return { cited, style, ordinals: map, keyOf, refNums, math };
+  return { snapshot, svgs, cited, style, ordinals: map, keyOf, refNums, math };
 }
 
 /** Numeric in-text form for a key group: `[3,5,9–14]` (outer brackets literal,
@@ -139,16 +143,7 @@ function numericGroup(keys: string[], ctx: CiteCtx): string {
  *  diverged Preview/export from what the author sees. Split on backtick runs and only
  *  transform the prose between them (the code span is emitted verbatim). */
 function transformInline(line: string, ctx: CiteCtx): string {
-  const CODE = /(`+)(?:.*?)\1/g; // n-backtick … n-backtick inline-code runs
-  let out = "";
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = CODE.exec(line))) {
-    out += transformProse(line.slice(last, m.index), ctx);
-    out += m[0]; // code span, untouched
-    last = m.index + m[0].length;
-  }
-  return out + transformProse(line.slice(last), ctx);
+  return mapUnprotected(line, part => transformProse(part, ctx), { math: false });
 }
 
 /** The actual cross-ref + citation substitution, applied only to non-code prose. */
@@ -181,7 +176,7 @@ function transformProse(line: string, ctx: CiteCtx): string {
     if (ctx.style === "numeric") return numericGroup(keys, ctx);
     const parts: string[] = [];
     for (const k of keys) {
-      const e = bibEntry(k);
+      const e = ctx.snapshot.bibliography.get(k);
       if (e) cited.add(k);
       const who = e ? authorYear(e) : k;
       parts.push(`[${who}](#ref-${k})`);
@@ -201,14 +196,14 @@ function transformProse(line: string, ctx: CiteCtx): string {
       return n != null ? `[Eq. ${n}](#${label})` : full;
     }
     // Family-formatted display from the resolver ("Fig. S4a–c", "Mov. 3").
-    const r = resolveFigure(label);
+    const r = ctx.snapshot.figures.resolve(label);
     return r ? `[${r.display}](#${label})` : full;
   });
   // bare @key citations
   line = line.replace(BARE_CITE, (full, lead: string, key: string) => {
     if (isCrossrefKey(key)) return full;
     if (ctx.style === "numeric") return `${lead}${numericGroup([key], ctx)}`;
-    const e = bibEntry(key);
+    const e = ctx.snapshot.bibliography.get(key);
     if (e) cited.add(key);
     const who = e ? authorYear(e) : key;
     return `${lead}[${who}](#ref-${key})`;
@@ -238,7 +233,9 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
   const lines = body.split("\n");
   const out: string[] = [];
   const blocks: BlockSpec[] = [];
-  let inFence = false;
+  const protectedSpans = protectedDocumentSpans(body, { math: false, inline: false });
+  let sourceOffset = 0, spanIndex = 0;
+  let pendingMath: string[] = [];
   let inCallout = false;
   let calloutType = "";
   let calloutLines: string[] = [];
@@ -247,18 +244,10 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
   let mathLine = 0;
 
   for (const raw of lines) {
-    if (/^\s*(```|~~~)/.test(raw)) {
-      if (inCallout) calloutLines.push(raw);
-      else {
-        inFence = !inFence;
-        out.push(raw);
-      }
-      continue;
-    }
-    if (inFence) {
-      out.push(raw);
-      continue;
-    }
+    while (spanIndex < protectedSpans.length && protectedSpans[spanIndex].to <= sourceOffset) spanIndex++;
+    const protectedLine = protectedSpans[spanIndex]?.from <= sourceOffset;
+    sourceOffset += raw.length + 1;
+    if (protectedLine) { if (inCallout) calloutLines.push(raw); else out.push(raw); continue; }
 
     // Quarto callouts ::: {.callout-note} … :::
     if (!inCallout) {
@@ -298,6 +287,7 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
       const wasInMath = mathTracker.inMath;
       const done = mathTracker.feed(++mathLine, raw);
       if (done) {
+        pendingMath = [];
         ctx.math.display = true;
         const n = done.label ? ctx.refNums.eq.get(done.label) : undefined;
         const token = `FLUXBLOCK${tok++}X`;
@@ -306,20 +296,20 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
         out.push("");
         blocks.push({
           token,
-          html: `<div class="eq-block"${done.label ? ` id="${esc(done.label)}"` : ""}>${katexHtml(
+          html: `<div class="eq-block"${done.label ? ` id="${esc(done.label)}"` : ""}>${mathPlaceholder(
             done.tex,
             true,
-          )}${n != null ? `<span class="eq-num">(${n})</span>` : ""}</div>`,
+          )}${n != null ? `<span class="eq-num">(${n})</span>` : ""}</div>${esc(done.suffix ?? "")}`,
         });
         continue;
       }
-      if (wasInMath || mathTracker.inMath) continue; // line swallowed by an open block
+      if (wasInMath || mathTracker.inMath) { pendingMath.push(raw); continue; } // line swallowed by an open block
     }
 
     let m = FIG_EMBED.exec(raw);
     if (m) {
-      const r = resolveFigure(m[3]);
-      const svg = r?.ref.id ? renderFigureSvg(r.ref.id) : undefined;
+      const r = ctx.snapshot.figures.resolve(m[3]);
+      const svg = r?.ref.id ? ctx.svgs.get(r.ref.id) : undefined;
       // Family caption lead ("Figure S4 |") — templates end with a space,
       // the " __CAP…__" join below supplies the separator. Nullish fallback:
       // seeded/stale refs may predate captionLabel.
@@ -364,6 +354,7 @@ function preprocess(body: string, ctx: CiteCtx, capStash: string[]): { transform
     }
     out.push(transformInline(raw, ctx));
   }
+  if (pendingMath.length) out.push(...pendingMath);
   return { transformed: out.join("\n"), blocks };
 }
 
@@ -372,11 +363,11 @@ function bibliographyHtml(ctx: CiteCtx): string {
   const entries =
     ctx.style === "numeric"
       ? [...ctx.cited]
-          .map((k) => bibEntry(k))
+          .map((k) => ctx.snapshot.bibliography.get(k))
           .filter((e): e is BibEntry => !!e)
           .sort((a, b) => (ctx.ordinals.get(a.key) ?? 0) - (ctx.ordinals.get(b.key) ?? 0))
       : [...ctx.cited]
-          .map((k) => bibEntry(k))
+          .map((k) => ctx.snapshot.bibliography.get(k))
           .filter((e): e is BibEntry => !!e)
           .sort((a, b) => (a.authors[0] ?? a.key).localeCompare(b.authors[0] ?? b.key));
   if (!entries.length) return "";
@@ -446,8 +437,9 @@ const LIVE_SCROLL = `(function(){var t;addEventListener("scroll",function(){clea
 
 export async function renderManuscript(
   src: string,
-  opts: { paginated?: boolean; live?: boolean; slides?: SlideRepository | null; documentKey?: string; print?: boolean; strict?: boolean; signal?: AbortSignal } = {},
+  opts: { paginated?: boolean; live?: boolean; slides?: SlideRepository | null; documentKey?: string; print?: boolean; strict?: boolean; signal?: AbortSignal; snapshot?: ManuscriptSnapshot } = {},
 ): Promise<RenderResult> {
+  const snapshot = opts.snapshot ?? captureManuscriptSnapshot();
   const slideDoc = await prepareSlideDocument(src, opts.slides, { interactive: !opts.print, live: opts.live, documentKey: opts.documentKey, strict: opts.strict, signal: opts.signal });
   src = slideDoc.text;
   const md = await getMd();
@@ -473,10 +465,12 @@ export async function renderManuscript(
   // Caption markdown collected during preprocess, inline-rendered after the
   // markdown-it instance exists — LOCAL to this render (WS-4.2).
   const capStash: string[] = [];
-  const ctx = makeCiteCtx(parseCitationStyle(meta["citation-style"]), body);
+  const svgs = new Map<string, string | undefined>();
+  for (const raw of body.split("\n")) { const match = FIG_EMBED.exec(raw), ref = match && snapshot.figures.resolve(match[3]); if (ref?.ref.id && !svgs.has(ref.ref.id)) svgs.set(ref.ref.id, await snapshot.figures.render(ref.ref.id)); }
+  const ctx = makeCiteCtx(parseCitationStyle(meta["citation-style"]), body, snapshot, svgs);
   // KaTeX loads only when the body could hold math (`$` is a safe superset) —
   // preprocess/transformProse then render math synchronously via the module ref.
-  if (body.includes("$")) await getKatex();
+  if (body.includes("$")) await Promise.resolve();
   const { transformed, blocks } = preprocess(body, ctx, capStash);
   let html = md.render(transformed);
 
@@ -508,10 +502,14 @@ export async function renderManuscript(
   // captions renders too): the bare-alphanumeric placeholders came through
   // markdown untouched; each becomes its KaTeX span here.
   if (ctx.math.stash.length) {
-    html = html.replace(/FLUXMATH(\d+)X/g, (_m: string, i: string) => katexHtml(ctx.math.stash[Number(i)] ?? "", false));
+    html = html.replace(/FLUXMATH(\d+)X/g, (_m: string, i: string) => mathPlaceholder(ctx.math.stash[Number(i)] ?? "", false));
   }
 
   for (const block of slideDoc.blocks) html = html.replace(`<p>${block.token}</p>`, block.html).replace(block.token, block.html);
+  const mathJobs = [...html.matchAll(/<flux-math data-display="([01])" data-tex="([^"]*)"><\/flux-math>/g)];
+  const mathResults = await Promise.all(mathJobs.map(match => renderMath(decodeURIComponent(match[2]), match[1] === "1")));
+  let mathIndex = 0;
+  html = html.replace(/<flux-math data-display="([01])" data-tex="([^"]*)"><\/flux-math>/g, () => mathResults[mathIndex++]);
   const inner = titleBlock(meta) + html + bibliographyHtml(ctx);
   const title = (meta.title && String(meta.title)) || "Manuscript";
   const bodyClass = opts.paginated ? "paginated" : "continuous";
@@ -525,7 +523,9 @@ export async function renderManuscript(
     ctx.math.stash.length || ctx.math.display
       ? `<style>${(await import("./katexAssets")).katexCssInlined}</style>`
       : "";
-  const full = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(
+  const scriptHtml = bodyInner + slideDoc.tail;
+  const policy = await offlineHtmlPolicy([...scriptHtml.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m => m[1]));
+  const full = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><title>${esc(
     title,
   )}</title><style>${journalCss}</style>${katexStyle}${slideDoc.style}</head><body class="${bodyClass}">${bodyInner}${slideDoc.tail}</body></html>`;
 

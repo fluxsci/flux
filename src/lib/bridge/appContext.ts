@@ -21,7 +21,9 @@ import {
 import type { Element, Figure } from "../types";
 import { membersDeep } from "../groups";
 import { focusedMode } from "../../shell/paneStore";
-import type { ModeId } from "../../shell/shellStore";
+import { currentProject, view, type ModeId } from "../../shell/shellStore";
+import { hasFlushOwner } from "../../shell/lifecycle";
+import { storeTenant } from "../tenancy";
 
 export interface ContextElement {
   id: string;
@@ -60,7 +62,7 @@ export interface AppContext {
   selection: string[];
   partSelection: { elementId: string; partId: string } | null;
   hoverId: string | null;
-  viewport: { panX: number; panY: number; zoom: number };
+  viewport: { panX: number; panY: number; zoom: number } | null;
   figures: { id: string; name: string; canvasId: string }[];
   activeFigure:
     | { id: string; name: string; width: number; height: number; elements: ContextElement[]; groups: ContextGroup[] }
@@ -91,20 +93,22 @@ function digestGroups(fig: Figure): ContextGroup[] {
 
 export function getAppContext(): AppContext {
   const p = get(project);
-  const fig = getActiveFigure(p);
+  const surface = get(focusedMode);
+  const relevant = get(view) === "workspace" && get(embeddedProjectRoot) === get(currentProject)?.path && (surface === "figure" || surface === "slide") && storeTenant() === surface && hasFlushOwner(surface);
+  const fig = relevant ? getActiveFigure(p) : null;
   const sel = get(selection);
   return {
     v: 1,
-    surface: get(focusedMode),
-    projectRoot: get(embeddedProjectRoot) ?? get(projectDir) ?? null,
-    activeFigureId: get(activeFigureId),
-    selectedFrameId: get(selectedFrameId),
-    activeCanvasId: get(activeCanvasId),
-    selection: [...sel],
-    partSelection: get(partSelection),
-    hoverId: get(hoverId),
-    viewport: get(viewport),
-    figures: p.figures.map((f) => ({ id: f.id, name: f.name, canvasId: f.canvasId })),
+    surface,
+    projectRoot: get(currentProject)?.path ?? null,
+    activeFigureId: relevant ? get(activeFigureId) : null,
+    selectedFrameId: relevant ? get(selectedFrameId) : null,
+    activeCanvasId: relevant ? get(activeCanvasId) : null,
+    selection: relevant ? [...sel] : [],
+    partSelection: relevant ? get(partSelection) : null,
+    hoverId: relevant ? get(hoverId) : null,
+    viewport: relevant ? get(viewport) : null,
+    figures: relevant ? p.figures.map((f) => ({ id: f.id, name: f.name, canvasId: f.canvasId })) : [],
     activeFigure: fig
       ? {
           id: fig.id,

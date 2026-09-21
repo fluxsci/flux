@@ -22,7 +22,9 @@ rendering. This page is the complete checklist for a fresh machine.
 ## From a packaged release
 
 Grab the artifact for your platform from the GitHub Releases page (`.dmg` for macOS,
-`.AppImage`/`.deb` for Linux) and install normally.
+`.AppImage`/`.deb` for Linux x64) and install normally. The release matrix qualifies macOS
+Apple Silicon and Intel on their respective native runners. Windows code portability checks
+do not imply that a Windows installer is published.
 
 **macOS note:** unsigned builds are ad-hoc signed so they run, but a *downloaded* app is
 Gatekeeper-quarantined — the first launch needs right-click → Open (or
@@ -34,7 +36,7 @@ no such friction.
 ```bash
 git clone https://github.com/fluxsci/flux ~/flux
 cd ~/flux
-npm ci                     # needs Node ≥ 22.12 (see below)
+npm ci                     # needs Node ≥ 22.15 (see below)
 npm run dist:mac           # or dist:linux → installers in release/
 ```
 
@@ -50,14 +52,14 @@ packaged builds.
 
 # The critical companions
 
-## Node.js ≥ 22.12
+## Node.js ≥ 22.15
 
 The entire agent layer — the `flux` CLI, the MCP server, worker dispatch, the attend
 watcher — runs on your system `node`, and the machine-context docs bake `node …` commands
 in at sync time. Install via your platform's usual channel (nvm, Homebrew, apt) and check:
 
 ```bash
-node --version    # v22.12+
+node --version    # v22.15+
 ```
 
 ## Quarto + TinyTeX
@@ -192,7 +194,7 @@ replace it with your own file to opt out, and it will never be touched again). T
 # Verify the setup
 
 ```bash
-node --version                            # ≥ 22.12
+node --version                            # ≥ 22.15
 quarto check                              # quarto + tinytex
 uv --version
 uv run python -c "import fluxplot"        # inside an analysis project

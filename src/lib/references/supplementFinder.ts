@@ -39,7 +39,7 @@ export function isArticleAsset(name: string): boolean {
 /**
  * Fetch and unpack a paper's supplementary files from Europe PMC.
  * Returns [] for anything not in the OA subset — including on 404, which is the normal
- * answer for a subscription article. Never throws.
+ * answer for a subscription article. A malformed archive rejects with its reason.
  */
 export async function fetchEuropePmcSupplements(pmcid: string, deps: FetchDeps): Promise<FoundSupplement[]> {
   if (!pmcNumber(pmcid)) return [];
@@ -49,12 +49,7 @@ export async function fetchEuropePmcSupplements(pmcid: string, deps: FetchDeps):
   // A ZIP starts "PK\x03\x04"; anything else is an error page served with a 200.
   const b = got.bytes;
   if (!(b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04)) return [];
-  let entries: { name: string; bytes: Uint8Array }[] = [];
-  try {
-    entries = await unzip(b);
-  } catch {
-    return [];
-  }
+  const entries = await unzip(b);
   return entries
     .filter((e) => e.bytes.length > 0 && !isArticleAsset(e.name))
     .map((e) => ({ name: e.name.split("/").pop() || e.name, bytes: e.bytes, url, source: "europepmc-suppl" }));

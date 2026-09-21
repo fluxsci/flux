@@ -9,6 +9,8 @@ import * as path from "node:path";
 import { get } from "svelte/store";
 import * as core from "../flux-core/index";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { Project } from "../src/lib/types";
 

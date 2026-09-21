@@ -8,6 +8,7 @@ type WorkerReply =
   | { type: "error"; id?: number; message: string };
 
 interface Pending {
+  scope?: string;
   resolve: (value: LocalLintRecord[]) => void;
   reject: (error: Error) => void;
 }
@@ -46,8 +47,8 @@ class LocalCorrectionService {
       name: "flux-local-corrections",
     });
     this.worker = worker;
-    worker.onmessage = (event: MessageEvent<WorkerReply>) => this.onMessage(event.data);
-    worker.onerror = (event) => this.fail(new Error(event.message || "Local correction worker failed"));
+    worker.onmessage = (event: MessageEvent<WorkerReply>) => { if (this.worker === worker) this.onMessage(event.data); };
+    worker.onerror = (event) => { if (this.worker === worker) this.fail(new Error(event.message || "Local correction worker failed")); };
     worker.postMessage({ type: "init", words: [...this.vocabulary] });
     if (this.dialect !== "american") {
       worker.postMessage({ type: "dialect", dialect: this.dialect, words: [...this.vocabulary] });
@@ -87,16 +88,25 @@ class LocalCorrectionService {
    * word, and a sentence-wide window would otherwise re-pay it for every term
    * in the sentence on every completed word.
    */
-  lint(text: string, focus?: { from: number; to: number }): Promise<LocalLintRecord[]> {
+  lint(text: string, focus?: { from: number; to: number }, mode: "repair" | "lintOnly" = "repair", scope?: string): Promise<LocalLintRecord[]> {
     if (!this.worker) this.warm(this.projectKey || "default");
     if (!this.worker || this.status === "error") {
       return Promise.reject(new Error("Local correction engine is unavailable"));
     }
+    if (this.pending.size >= 128) return Promise.reject(new Error("Local correction queue is full; newer input will be checked next"));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.worker!.postMessage({ type: "lint", id, text, ...(focus ? { focus } : {}) });
+      this.pending.set(id, { resolve, reject, scope });
+      this.worker!.postMessage({ type: "lint", id, text, mode, ...(focus ? { focus } : {}) });
     });
+  }
+
+  cancelScope(scope: string): void {
+    const ids: number[] = [];
+    for (const [id, request] of this.pending) if (request.scope === scope) {
+      ids.push(id); this.pending.delete(id); request.resolve([]);
+    }
+    if (ids.length) this.worker?.postMessage({ type: "cancel", ids });
   }
 
   private selectProject(projectKey: string): boolean {

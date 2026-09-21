@@ -23,6 +23,7 @@ import { paperSelection } from "../../lib/project/paperSelectionStore";
 import { feedbackRevision } from "../../lib/project/projectWatch";
 import { getAppContext } from "../../lib/bridge/appContext";
 import { pushToast } from "../../lib/toast";
+import { annotateCaptureOpen, feedbackCaptureOpen } from "../command/commandBus";
 import { currentProject } from "../shellStore";
 import { focusedMode } from "../paneStore";
 
@@ -46,11 +47,13 @@ export function clearPendingSnapshot(): void {
 }
 
 let root: string | null = null;
+let generation = 0;
 let seenResolved = new Set<string>();
 let wired = false;
 
 async function refresh(toastNew: boolean): Promise<void> {
-  if (!root) {
+  const ownerRoot = root, owner = generation;
+  if (!ownerRoot) {
     feedbackState.set(null);
     return;
   }
@@ -58,10 +61,11 @@ async function refresh(toastNew: boolean): Promise<void> {
   if (!fb) return;
   let text = "";
   try {
-    text = await fb.readText(joinPath(root, FEEDBACK_REL));
+    text = await fb.readText(joinPath(ownerRoot, FEEDBACK_REL));
   } catch {
     /* no ledger yet */
   }
+  if (owner !== generation || root !== ownerRoot) return;
   const st = foldLedger(parseLedger(text));
   const resolved = new Set(st.notes.filter((n) => n.resolved).map((n) => n.id));
   if (toastNew) {
@@ -82,7 +86,11 @@ export function initFeedbackStore(): void {
   if (wired) return;
   wired = true;
   currentProject.subscribe((p) => {
-    root = p?.path ?? null;
+    const next = p?.path ?? null;
+    if (next === root) return;
+    root = next; ++generation;
+    pendingSnapshot.set(null); feedbackState.set(null);
+    annotateCaptureOpen.set(false); feedbackCaptureOpen.set(false);
     seenResolved = new Set();
     void refresh(false);
   });
@@ -96,6 +104,7 @@ export function initFeedbackStore(): void {
 
 /** Build the context stamp for a note captured RIGHT NOW. */
 export async function captureStamp(): Promise<FeedbackStamp> {
+  const owner = generation;
   const surface = get(focusedMode);
   const app = getAppContext();
   const stamp: FeedbackStamp = {
@@ -119,6 +128,7 @@ export async function captureStamp(): Promise<FeedbackStamp> {
   } else if (surface === "slide") {
     try {
       const slide = await import("../../lib/slide/store");
+      if (owner !== generation) throw new Error("Project changed while capturing feedback");
       const deck = get(slide.deckOverlay);
       if (deck) {
         const idx = deck.slides.findIndex((s: { id: string }) => s.id === app.activeFigureId);
@@ -132,13 +142,14 @@ export async function captureStamp(): Promise<FeedbackStamp> {
       /* slide module unavailable — stamp stays figure-shaped */
     }
   }
+  if (owner !== generation) throw new Error("Project changed while capturing feedback");
   return stamp;
 }
 
-async function append(line: string): Promise<void> {
+async function append(ownerRoot: string | null, line: string): Promise<void> {
   const fb = fileBridge();
-  if (!root || !fb?.feedbackAppend) throw new Error("feedback needs an open project");
-  await fb.feedbackAppend(joinPath(root, FEEDBACK_REL), line);
+  if (!ownerRoot || !fb?.feedbackAppend) throw new Error("feedback needs an open project");
+  if (await fb.feedbackAppend(joinPath(ownerRoot, FEEDBACK_REL), line) === false) throw new Error("Feedback was not saved. Retry adding the note.");
 }
 
 /** Add a note to the queue. `replaces` re-queues an edited note: the original is
@@ -149,6 +160,9 @@ export async function addFeedbackNote(
   text: string,
   opts: { replaces?: string; context?: FeedbackStamp | null } = {},
 ): Promise<void> {
+  const ownerRoot = root, owner = generation;
+  const pending = get(pendingSnapshot);
+  if (!ownerRoot) throw new Error("feedback needs an open project");
   const body = text.trim();
   if (!body) return;
   const stamp: FeedbackStamp | null = opts.context ? { ...opts.context } : await captureStamp();
@@ -156,30 +170,33 @@ export async function addFeedbackNote(
   // The attached snapshot: a freshly drawn one lands beside the ledger under the
   // NOTE's id — written before the ledger line, so a note never points at a
   // file that failed; a re-attached one (Edit) keeps pointing at its file.
-  const pending = get(pendingSnapshot);
   if (ev.context) {
     let snapshot = pending ? { ...pending.info } : null;
-    if (pending && pending.png && root) {
+    if (pending && pending.png && ownerRoot) {
       const fb = fileBridge();
       if (fb) {
         const rel = `${SNAPSHOT_DIR_REL}/${ev.id}.png`;
-        await fb.mkdir(joinPath(root, SNAPSHOT_DIR_REL)).catch(() => undefined);
-        await fb.writeFile(joinPath(root, rel), pending.png);
+        await fb.mkdir(joinPath(ownerRoot, SNAPSHOT_DIR_REL));
+        await fb.writeFile(joinPath(ownerRoot, rel), pending.png);
         snapshot = { ...pending.info, image: rel };
       }
     }
     ev.context = { ...ev.context, snapshot };
   }
   const lines = (opts.replaces ? serializeEvent(makeWithdraw(opts.replaces, "human", "edited")) : "") + serializeEvent(ev);
-  await append(lines);
-  pendingSnapshot.set(null);
-  await refresh(false);
+  await append(ownerRoot, lines);
+  if (owner === generation) {
+    if (get(pendingSnapshot) === pending) pendingSnapshot.set(null);
+    await refresh(false);
+  }
 }
 
 /** Take a queued note back: an append-only withdraw line — the note leaves the
  *  queue (and any work order) for good; an agent that already listed it sees why. */
 export async function withdrawFeedbackNote(id: string): Promise<void> {
-  await append(serializeEvent(makeWithdraw(id, "human")));
+  const ownerRoot = root, owner = generation;
+  await append(ownerRoot, serializeEvent(makeWithdraw(id, "human")));
+  if (owner !== generation) return;
   await refresh(false);
   pushToast("info", "Note withdrawn");
 }
@@ -187,13 +204,14 @@ export async function withdrawFeedbackNote(id: string): Promise<void> {
 /** For Edit: put a queued note's snapshot back on the popover (preview read from
  *  its PNG when the build can read files; the file itself is reused, not copied). */
 export async function snapshotOfNote(note: FeedbackNote): Promise<PendingSnapshot | null> {
+  const ownerRoot = root, owner = generation;
   const snap = note.context?.snapshot;
   if (!snap) return null;
   let preview: string | null = null;
   const fb = fileBridge();
-  if (snap.image && root && fb) {
+  if (snap.image && ownerRoot && fb) {
     try {
-      const bytes = new Uint8Array(await fb.readFile(joinPath(root, snap.image)));
+      const bytes = new Uint8Array(await fb.readFile(joinPath(ownerRoot, snap.image)));
       const copy = new Uint8Array(bytes.byteLength); // a plain ArrayBuffer-backed copy for Blob
       copy.set(bytes);
       preview = await new Promise<string>((res, rej) => {
@@ -206,13 +224,16 @@ export async function snapshotOfNote(note: FeedbackNote): Promise<PendingSnapsho
       preview = null; // the file is gone or unreadable — the marks still carry the anchors
     }
   }
+  if (owner !== generation) return null;
   return { info: { ...snap, marks: snap.marks.map((m) => ({ ...m })) }, png: null, preview };
 }
 
 export async function sendFeedback(note?: string): Promise<number> {
+  const ownerRoot = root, owner = generation;
   const st = get(feedbackState);
   const open = st?.open.length ?? 0;
-  await append(serializeEvent(makeSend("human", note)));
+  await append(ownerRoot, serializeEvent(makeSend("human", note)));
+  if (owner !== generation) return open;
   await refresh(false);
   pushToast("info", open ? `Sent — ${open} note(s) are now the agent's work order` : "Sent");
   return open;

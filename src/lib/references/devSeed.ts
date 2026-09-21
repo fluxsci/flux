@@ -88,7 +88,7 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
   // headlessly (it is otherwise a live OpenAlex query).
   w.__fluxSeedCiters = async (key: string, sort: string, briefs: unknown[]) => {
     const { seedCitersCache } = await import("./citersCache");
-    seedCitersCache(key, sort as "cited" | "recent", briefs as never[]);
+    await seedCitersCache(key, sort as "cited" | "recent", briefs as never[]);
   };
   // Verify hook: run the renderer's real pdf.js signal extraction over a base64 PDF and
   // return a serializable summary, so scripts/verify-assign.mjs can prove the in-browser

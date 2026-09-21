@@ -1,3 +1,4 @@
+import { protectedDocumentSpans } from "../../../../lib/manuscript/documentContext";
 // ONE escape-aware pipe-table grammar for the paper module: the editor widget
 // (tables.ts), the editing ops (editing/tableOps.ts), paste conversion
 // (tablePaste.ts) and the pure gates all consume THIS parse/serialize pair.
@@ -17,7 +18,7 @@
 // the pure tier.
 
 import type { Text } from "@codemirror/state";
-import { TBL_CAPTION_RE } from "./refNumbers";
+import { TBL_CAPTION_RE } from "./refNumberGrammar";
 
 export type Align = "left" | "center" | "right";
 
@@ -296,39 +297,24 @@ const MATH_CLOSE = /\$\$\s*(\{#eq-[A-Za-z0-9_-]+\}\s*)?$/;
  *  closing-fence line (0 when absent). */
 export function scanTables(doc: Text, fmEndLine = 0): ParsedTable[] {
   const out: ParsedTable[] = [];
-  let inFence = false;
-  let inMath = false;
+  const protectedSpans = protectedDocumentSpans(doc.toString(), { inline: false });
   let n = fmEndLine + 1;
-  while (n <= doc.lines) {
-    const text = doc.line(n).text;
-    const t = text.trim();
-    if (!inMath && FENCE.test(text)) {
-      inFence = !inFence;
-      n++;
-      continue;
-    }
-    if (inFence) {
-      n++;
-      continue;
-    }
-    if (inMath) {
-      if (MATH_CLOSE.test(t)) inMath = false;
-      n++;
-      continue;
-    }
-    if (t.startsWith("$$")) {
-      const rest = t.slice(2);
-      if (!(MATH_CLOSE.test(rest) && rest.includes("$$"))) inMath = true; // multi-line block opens
-      n++;
-      continue;
-    }
-    const parsed = parseAt(doc, n);
-    if (!parsed) {
-      n++;
-      continue;
-    }
+  if (n > doc.lines) return out;
+  let from = doc.line(n).from, spanIndex = 0, nextHeaderLine = n;
+  // Both source lines and protected spans are ordered. Walk each once instead
+  // of searching every span and descending Text's tree twice for every line.
+  // parseAt still owns all table grammar; only plausible headers reach it.
+  for (const text of doc.iterLines(n)) {
+    const lineNo = n++, lineFrom = from;
+    from += text.length + 1;
+    if (lineNo < nextHeaderLine) continue;
+    while (spanIndex < protectedSpans.length && protectedSpans[spanIndex].to <= lineFrom) spanIndex++;
+    if (spanIndex < protectedSpans.length && protectedSpans[spanIndex].from <= lineFrom) continue;
+    if (!text.includes("|")) continue;
+    const parsed = parseAt(doc, lineNo);
+    if (!parsed) continue;
     out.push(parsed);
-    n = doc.lineAt(parsed.to).number + 1;
+    nextHeaderLine = (parsed.captionLine ?? parsed.lastRowLine) + 1;
   }
   return out;
 }
@@ -355,7 +341,11 @@ export function scanTablesCached(doc: Text, fmEndLine = 0): ParsedTable[] {
 export function numberTables(tables: readonly ParsedTable[]): Map<ParsedTable, number> {
   const out = new Map<ParsedTable, number>();
   let n = 0;
-  for (const t of tables) if (t.label) out.set(t, ++n);
+  const labels = new Map<string, number>();
+  for (const t of tables) if (t.label) {
+    if (!labels.has(t.label)) labels.set(t.label, ++n);
+    out.set(t, labels.get(t.label)!);
+  }
   return out;
 }
 

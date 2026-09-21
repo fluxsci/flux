@@ -172,17 +172,25 @@ export interface FileBridge {
   mkdir(p: string): Promise<void>;
   writeText(p: string, text: string, options?: { createOnly?: boolean }): Promise<void>;
   readText(p: string): Promise<string>;
+  readTextBounded?(p: string, maxBytes: number): Promise<{ text: string; truncated: boolean; totalBytes: number }>;
   readFile(p: string): Promise<ArrayBuffer>;
   writeFile(p: string, data: Uint8Array): Promise<void>;
+  projectAssetPath?(root: string, rel: string): Promise<string>;
+  readerContextClaim?(payload: {root: string; owner: string}): Promise<{token: string; root: string} | null>;
+  readerContextPublish?(payload: {token: string; generation: number; context: import("../references/items").ReaderContext}): Promise<boolean>;
+  readerContextRenew?(payload: {token: string; generation: number}): Promise<boolean>;
+  readerContextRelease?(token: string): Promise<boolean>;
   exists(p: string): Promise<boolean>;
   // File identity (mtime+size) for cache keying (the enrich parse cache); null when
   // absent. Optional: older bridges / the web demo may not provide it.
-  stat?(p: string): Promise<{ mtimeMs: number; size: number } | null>;
+  stat?(p: string): Promise<{ atimeMs?: number; mtimeMs: number; ctimeMs?: number; size: number } | null>;
+  setTimes?(p: string, times: { atimeMs: number; mtimeMs: number }): Promise<void>;
   // List a directory's entries (files + subdirs). Optional: older bridges / the
   // web demo may not provide it. Used by the Plot Importer to browse plots/.
-  readdir?(p: string): Promise<{ name: string; dir: boolean }[]>;
+  readdir?(p: string, strict?: boolean): Promise<{ name: string; dir: boolean }[]>;
   // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
   // older bridges may lack it; callers use `fb.remove?.(p)`.
+  moveFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
   remove?(p: string): Promise<void>;
   // Move a file to the OS trash (a deleted manuscript stays recoverable). Where no
   // trash exists it removes the file instead and reports `trashed: false`. Optional:
@@ -304,12 +312,15 @@ export interface FileBridge {
   /** Snapshot & annotate: a PNG of this window (device pixels), optionally one
    *  CSS-px rect. Electron only — a browser build has no window capture. */
   captureWindow?(rect?: { x: number; y: number; width: number; height: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
+  /** Linux screen color picker; the desktop portal owns consent/cancellation. */
+  pickScreenColor?(requestId: string): Promise<{ status: "picked"; hex: string } | { status: "cancelled" | "unavailable" } | { status: "error"; message?: string }>;
+  cancelScreenColor?(requestId: string): Promise<boolean>;
   // 2.3 Full-text search across every stored PDF's extracted text. Runs the streaming
-  // scan in the bundled CLI (main process) so the renderer never blocks; returns the
+  // scan in a resident worker so the renderer never blocks; returns the
   // FulltextResult, or { error }. Electron only. `opts.keys` restricts the scan scope.
   searchFulltext?(
     query: string,
-    opts?: { limit?: number; keys?: string[] },
+    opts?: { limit?: number; keys?: string[]; requestId?: string; ownerId?: string },
   ): Promise<{
     hits?: {
       key: string;
@@ -326,6 +337,8 @@ export interface FileBridge {
     elapsedMs?: number;
     error?: string;
   }>;
+  cancelFulltext?(requestId: string, ownerId?: string): Promise<boolean>;
+  onFulltextProgress?(cb: (progress: {requestId: string; ownerId?: string; phase: "checking" | "indexing" | "searching"; completed: number; total: number}) => void): () => void;
   correctionStatus?(provider?: "flux" | "ollama" | "openai", model?: string): Promise<{
     provider: string; available: boolean; installed?: boolean; running?: boolean; ready?: boolean; model?: string | Record<string, unknown>; models?: string[]; error?: string;
     stats?: Record<string, number>;
@@ -368,7 +381,8 @@ export interface FileBridge {
   // Main moves captured PDFs into pdfs_to_assign (the renderer can't: fsGuard refuses $HOME)
   // and returns the .fluxcap sidecars for the renderer to resolve, then discard by name.
   // USER-INITIATED ONLY: startup, or the Library's Assign button.
-  captureIntake?(): Promise<{ pdfs: string[]; sidecars: { name: string; json: string }[]; supplements: string[] }>;
+  captureIntake?(): Promise<{ pdfs: string[]; sidecars: { id?: string; name: string; json: string }[]; supplements: string[] }>;
+  captureRelease?(id: string): Promise<void>;
   captureDiscard?(name: string): Promise<{ ok?: boolean; error?: string }>;
   /** Set an unresolvable capture aside (FluxLib `_unresolved/` + a note) instead of retrying it forever. */
   capturePark?(name: string, note: string): Promise<{ ok?: boolean; path?: string; error?: string }>;
@@ -379,15 +393,16 @@ export interface FileBridge {
   onAppError?(cb: (payload: { level?: string; msg: string; detail?: string }) => void): () => void;
   // W6: quit/close flush handshake. Main sends `app:flush` with a token before
   // destroying the window; the renderer flushes every dirty mode and acks with
-  // flushDone(token). Main destroys on ack or after a 2.5s timeout. Electron only.
-  onFlushRequest?(cb: (token: number) => void): () => void;
-  flushDone?(token: number): void;
+  // Only a successful owning ACK permits destruction; failure/timeout keeps the editor.
+  onFlushRequest?(cb: (request: { requestId: string; scope: 'window-close' }) => void): () => void;
+  flushDone?(result: { requestId: string; status: 'saved' | 'blocked'; reason?: string }): void;
   // W3: advisory locks. lockSet holds/releases a heartbeat-restamped "human"
   // activity lock; lockAcquire/lockRelease bracket short renderer RMWs
   // (scope "project" = <root>/.meta/locks, "fluxlib" = <lib>/.fluxlib/locks).
   lockSet?(name: string, held: boolean, scope?: "project" | "fluxlib"): Promise<boolean>;
-  lockAcquire?(scope: "project" | "fluxlib", name: string): Promise<{ ok: boolean; heldBy?: string; noop?: boolean }>;
-  lockRelease?(scope: "project" | "fluxlib", name: string): Promise<boolean>;
+  lockAcquire?(scope: "project" | "fluxlib", name: string, expectedRoot?: string): Promise<{ ok: boolean; token?: string; heldBy?: string; noop?: boolean }>;
+  lockCheck?(scope: "project" | "fluxlib", name: string, token: string): Promise<boolean>;
+  lockRelease?(scope: "project" | "fluxlib", name: string, token?: string): Promise<boolean>;
   // Global preferences (the first file-based config the GUI + CLI/agents share:
   // <userData>/preferences.json — holds the FluxConfig pointer; the FluxLib and
   // FluxConfig paths come back RESOLVED as fluxLibResolved/fluxConfigResolved).
@@ -439,9 +454,11 @@ export interface FileBridge {
   // { version, url } or null. Main owns the ≤1/day throttle + GitHub fetch.
   checkForUpdate?(): Promise<{ version: string; url: string } | null>;
   // F2: re-run a plot's recipe (regenerate). Electron only.
+  cancelRecipe?(jobId: string): Promise<boolean>;
   runRecipe?(
     recipePath: string,
     params: Record<string, unknown>,
+    options?: {jobId?: string},
   ): Promise<{
     code: number;
     svgText: string | null;

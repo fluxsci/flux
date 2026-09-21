@@ -5,7 +5,7 @@ import { settings } from "./settings";
 import { newId } from "./ids";
 import { migrateProject, DEFAULT_TEXT_STYLES } from "./migrate";
 import { ensureFigureReferenceKeys } from "./project/figureIdentity";
-import { membersDeep, unitOf } from "./groups";
+import { unitOf } from "./groups";
 import type { XrayTarget } from "./xray/buildXrayTree";
 import * as ops from "./ops";
 import { applySourceUpdates } from "./plot/sourceSync";
@@ -206,10 +206,7 @@ function applyEditorMutation(p: Project, fn: (p: Project) => void, context: Edit
 export function mutateFigure(figId: Id, fn: (p: Project) => void) {
   scopedNotify = true;
   try {
-    project.update((p) => {
-      applyEditorMutation(p, fn, { kind: "figure", figureId: figId });
-      return p;
-    });
+    runOwnedMutation(fn, { kind: "figure", figureId: figId });
   } finally {
     scopedNotify = false;
   }
@@ -434,6 +431,17 @@ export function acceptFigureSourceSizes(updates: readonly { assetId: string; wid
   }
 }
 
+/** Source acceptance is an external persisted revision, never a user undo entry.
+ * Rebase its dimensions onto the latest edits only after disk publication. */
+export function publishAcceptedFigureSources(updates: readonly { assetId: string; width: number; height: number }[]): void {
+  if (!figureSourceHistory || storeTenant() !== "figure") throw new Error("Figure source publication requires its editor owner");
+  const next = structuredClone(get(project));
+  applySourceUpdates(next, updates);
+  acceptFigureSourceSizes(updates);
+  project.set(next);
+  markEdited();
+}
+
 // ---------------------------------------------------------------------------
 // Undo / redo
 //
@@ -574,9 +582,31 @@ export interface GestureCheckpoint {
   readonly redo: HistEntry[];
   readonly dirty: boolean;
   readonly cleanEpoch: number;
+  readonly persistenceEpoch: number;
+  readonly priorPast: HistEntry[];
+  readonly view: ReturnType<typeof captureView>;
+}
+let activeGesture: GestureCheckpoint | null = null;
+let mutationDepth = 0;
+let persistenceEpoch = 0;
+/** Called when a save captures its immutable model, before its first await.
+ * A cancelled preview must remain dirty even if that save has not acknowledged. */
+export function capturePersistenceGeneration(): number { return ++persistenceEpoch; }
+function captureView() {
+  return { canvas: get(activeCanvasId), figure: get(activeFigureId),
+    selection: new Set(get(selection)), parts: [...get(partSelections)],
+    frame: get(selectedFrameId), figures: new Set(get(figureSelection)),
+    group: get(enteredGroupId), node: get(nodeEditId), xray: get(xrayRoot) };
+}
+function restoreView(view: ReturnType<typeof captureView>) {
+  activeCanvasId.set(view.canvas); activeFigureId.set(view.figure);
+  selection.set(view.selection); setPartSelections(view.parts);
+  selectedFrameId.set(view.frame); figureSelection.set(view.figures);
+  enteredGroupId.set(view.group); nodeEditId.set(view.node); xrayRoot.set(view.xray);
 }
 export function beginGesture(): GestureCheckpoint {
-  const token = { entry: snapshot(get(project)), redo: [...future], dirty: get(dirty), cleanEpoch };
+  const token: GestureCheckpoint = { entry: snapshot(get(project)), redo: [...future], dirty: get(dirty), cleanEpoch, persistenceEpoch, priorPast: [...past], view: captureView() };
+  activeGesture = token;
   pushPast(token.entry);
   clearFuture();
   markEdited();
@@ -593,23 +623,38 @@ function sameCheckpoint(token: GestureCheckpoint): boolean {
 
 export function finishGesture(token: GestureCheckpoint | null): void {
   if (token && past.at(-1) === token.entry && sameCheckpoint(token)) rollbackGesture(token);
+  if (activeGesture === token) activeGesture = null;
+}
+
+/** One owner per logical edit. Nested commands compose into it. Pointer moves
+ * reuse the gesture's snapshot; standalone mutations take one atomic snapshot. */
+function runOwnedMutation(fn: (p: Project) => void, context: EditorTransactionContext) {
+  if (mutationDepth) { applyEditorMutation(get(project), fn, context); return; }
+  const existing = activeGesture && past.at(-1) === activeGesture.entry ? activeGesture : null;
+  const token = existing ?? beginGesture();
+  mutationDepth++;
+  try {
+    project.update(p => { applyEditorMutation(p, fn, context); return p; });
+  } catch (error) {
+    // Restoration must invalidate every affected renderer, even after a scoped
+    // mutation or an adapter failure before the normal store notification.
+    const scoped = scopedNotify; scopedNotify = false;
+    try { rollbackGesture(token); restoreView(token.view); }
+    finally { scopedNotify = scoped; activeGesture = null; }
+    throw error;
+  } finally { mutationDepth--; }
+  if (!existing) finishGesture(token);
 }
 
 export function commit(fn: (p: Project) => void) {
-  beginGesture();
-  project.update((p) => {
-    applyEditorMutation(p, fn, { kind: "commit" });
-    return p;
-  });
+  if (mutationDepth) { applyEditorMutation(get(project), fn, { kind: "commit" }); return; }
+  // A commit outside the mutation callback is a discrete operation.
+  activeGesture = null;
+  runOwnedMutation(fn, { kind: "commit" });
 }
 
-// Mutate without creating a new history entry (used during an in-progress
-// gesture whose pre-state was already captured by beginGesture()).
 export function mutate(fn: (p: Project) => void) {
-  project.update((p) => {
-    applyEditorMutation(p, fn, { kind: "mutate" });
-    return p;
-  });
+  runOwnedMutation(fn, { kind: "mutate" });
   markEdited();
 }
 
@@ -630,6 +675,7 @@ export function mutateDisplay(fn: (p: Project) => void) {
 }
 
 export function undo() {
+  activeGesture = null;
   if (!past.length) return;
   pushFuture(snapshot(get(project)));
   const e = past.pop()!;
@@ -641,6 +687,7 @@ export function undo() {
 }
 
 export function redo() {
+  activeGesture = null;
   if (!future.length) return;
   pushPast(snapshot(get(project)));
   const e = future.pop()!;
@@ -667,15 +714,21 @@ export function rollbackGesture(token?: GestureCheckpoint): boolean {
   // A preview-only cancellation should not invalidate the entire scene.
   if (!token || !sameCheckpoint(token)) restore(e);
   clearFuture();
-  if (token) for (const entry of token.redo) pushFuture(entry);
+  if (token) {
+    past.splice(0, past.length, ...token.priorPast);
+    pastBytes = past.reduce((n, entry) => n + entry.bytes, 0);
+    for (const entry of token.redo) pushFuture(entry);
+  }
+  if (!token || activeGesture === token) activeGesture = null;
   pruneSelection();
   editGen.n++;
-  dirty.set(token ? token.dirty || token.cleanEpoch !== cleanEpoch : true);
+  dirty.set(token ? token.dirty || token.cleanEpoch !== cleanEpoch || token.persistenceEpoch !== persistenceEpoch : true);
   publishHistory();
   return true;
 }
 
 export function resetHistory() {
+  activeGesture = null;
   past.length = 0;
   future.length = 0;
   pastBytes = 0;
@@ -758,6 +811,10 @@ export function autoLetterPanels(figId: Id) {
 // Drop ids that no longer exist (after undo/redo/delete).
 function pruneSelection() {
   const p = get(project);
+  activeCanvasId.update(id => p.canvases.some(c => c.id === id) ? id : p.canvases[0]?.id ?? null);
+  const canvas = get(activeCanvasId);
+  activeFigureId.update(id => p.figures.some(f => f.id === id && f.canvasId === canvas) ? id : p.figures.find(f => f.canvasId === canvas)?.id ?? null);
+  nodeEditId.update(id => p.figures.some(f => f.elements.some(e => e.id === id && e.type === "path")) ? id : null);
   const live = new Set<Id>();
   for (const f of p.figures) for (const e of f.elements) live.add(e.id);
   selection.update((s) => {
@@ -840,8 +897,11 @@ export function expandGroups(p: Project, ids: Set<Id>, scope?: Id | null): Set<I
       if (u.groupId) units.add(u.groupId);
       else if (e.groupId && !defs[e.groupId]) (dangling ??= new Set()).add(e.groupId);
     }
-    for (const gid of units) for (const m of membersDeep(f, gid)) out.add(m.id);
-    if (dangling) for (const e of f.elements) if (e.groupId && dangling.has(e.groupId)) out.add(e.id);
+    // One traversal, independent of selected group count (no groups × elements scan).
+    for (const e of f.elements) {
+      const unit = unitOf(f, e, scope ?? null);
+      if ((unit.groupId && units.has(unit.groupId)) || (e.groupId && dangling?.has(e.groupId))) out.add(e.id);
+    }
   }
   return selectableIds(out);
 }
@@ -906,7 +966,10 @@ export function loadProject(p: Project, dir: string | null, opts: LoadProjectOpt
     captionOpen.set(false);
   }
   hoverId.set(null);
+  nodeEditId.update(id => p.figures.some(f => f.elements.some(e => e.id === id && e.type === "path")) ? id : null);
+  activeGesture = null;
   dirty.set(false);
+  publishHistory();
 }
 
 // ---------------------------------------------------------------------------

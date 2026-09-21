@@ -1,15 +1,22 @@
 // Part A gate: prove the publisher-agnostic capture engine (electron/proxyFetch.cjs)
 // retrieves a real PDF from every major platform through the institutional proxy.
 //
-// Run:  DISPLAY=:0 ./node_modules/.bin/electron scripts/verify-proxy-capture.cjs --no-sandbox
-//
-// This machine has IP-based EZProxy access (no NetID/Duo needed), so no login step. We
+// Explicit opt-in: FLUX_ALLOW_TEST_NETWORK=1 FLUX_TEST_EZPROXY_PREFIX=https://...
+// Run through scripts/run-verifies.mjs with a private display and disposable HOME.
+// Requires an explicitly supplied institutional endpoint that authorizes the
+// disposable session (for example IP access). No owner credentials/profile are copied. We
 // require() the engine directly (NOT the whole app) and hand it the same proxy primitives
 // main.cjs builds. Each DOI must yield first-4-bytes === %PDF and size > ~5 KB; we log which
 // capture layer won (cdp / download / grab). Exits non-zero on any miss. Also a cancellation
 // smoke test: abort mid-fetch → AbortError + zero leaked windows.
 
 const { app, session, BrowserWindow } = require("electron");
+const { liveProxyFixture } = require("./lib/liveProxyFixture.cjs");
+const fixture = liveProxyFixture();
+if (fixture.missing.length) {
+  console.error("BLOCKED: " + fixture.missing.join("; "));
+  app.exit(2);
+}
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -19,14 +26,8 @@ const { createProxyEngine } = require("../electron/proxyFetch.cjs");
 let isSupplementUrl = () => false;
 const rulesReady = import("../electron/supplementRules.js").then((m) => (isSupplementUrl = m.isSupplementUrl));
 
-const PROXY_PARTITION = "persist:fluxproxy";
-const keysPath = path.join(require("../electron/fluxPaths.cjs").resolveFluxLibPathSync(), "keys.json");
-let PREFIX = "";
-try {
-  PREFIX = String(JSON.parse(fs.readFileSync(keysPath, "utf8")).ezproxyPrefix || "").trim();
-} catch {
-  /* handled below */
-}
+const PROXY_PARTITION = "proxy-capture-live-fixture";
+const PREFIX = fixture.prefix;
 
 const ezproxyPrefix = () => PREFIX;
 const proxiedUrl = (target) => PREFIX + String(target || "");
@@ -79,15 +80,10 @@ const isPdf = (b) => b && b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2]
 
 async function main() {
   await rulesReady;
-  if (!PREFIX) {
-    console.error(`FAIL: no ezproxyPrefix in ${keysPath}`);
-    app.exit(1);
-    return;
-  }
-  console.log(`prefix: ${PREFIX}`);
+  console.log("Explicit disposable institutional proxy fixture configured");
   const t00 = Date.now();
   const trace = process.env.FLUX_PROXY_DEBUG ? (m) => console.error(`  [${((Date.now() - t00) / 1000).toFixed(1)}s] ${m}`) : undefined;
-  const engine = createProxyEngine({ session, BrowserWindow, ezproxyPrefix, proxiedUrl, isProxyLoginUrl, PROXY_PARTITION, path, fs, os, log: trace });
+  engine = createProxyEngine({ session, BrowserWindow, ezproxyPrefix, proxiedUrl, isProxyLoginUrl, PROXY_PARTITION, path, fs, os, log: trace });
 
   const CASE_TIMEOUT = 100000; // hard per-case cap: abort + record FAIL so one hang can't stall the suite
   const results = []; // { ok, wall }
@@ -134,7 +130,7 @@ async function main() {
     cancelOk = r && r.reason === "cancelled";
     console.log(`${cancelOk ? "PASS" : "FAIL"}  cancel → reason=${r && r.reason}`);
     // Recovery: a normal fetch on the same (reused) window still works.
-    const r2 = await engine.capturePdfViaBrowser({ target: "https://doi.org/10.1152/jn.91157.2008" });
+    const r2 = await engine.capturePdfViaBrowser({ target: "https://doi.org/10.1152/jn.91157.2008", signal: AbortSignal.timeout(CASE_TIMEOUT) });
     recoverOk = !!(r2 && r2.bytesB64 && isPdf(Buffer.from(r2.bytesB64, "base64")));
     console.log(`${recoverOk ? "PASS" : "FAIL"}  recovery after cancel → ${recoverOk ? "captured" : (r2 && r2.reason) || "no pdf"}`);
   } catch (e) {
@@ -159,7 +155,16 @@ async function main() {
   // Gate passes when every REQUIRED (non-walled) publisher captured and the control checks
   // pass. Walled publishers are reported but don't block (they're an industry limit, not a bug).
   const allGood = reqPass === required.length && cancelOk && recoverOk && disposeOk;
+  clearTimeout(watchdog);
   app.exit(allGood ? 0 : 1);
 }
 
-app.whenReady().then(main);
+//12 cases×100s, bounded recovery100s and setup/disposal margin. This is a
+// declared live-qualification budget, not a relaxed hermetic performance gate.
+let engine;
+const watchdog=setTimeout(()=>{console.error("FAIL: live publisher probe exceeded its1380s deadline");engine?.dispose();app.exit(1);},1380000);
+app.whenReady().then(main).catch(error=>{
+  clearTimeout(watchdog);engine?.dispose();
+  console.error("FAIL: live publisher probe: " + String(error?.message || error));
+  app.exit(1);
+});

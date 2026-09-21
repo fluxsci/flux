@@ -57,7 +57,7 @@
   import { parseQueryTerms } from "../../../lib/references/textFold";
   import { loadAnnotations } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
-  import { loadOrganize, organizeSetTags, organizeSetStatus, organizeBulkAddTag } from "../../../lib/references/organizeBridge";
+  import { loadOrganize, organizeAddTag, organizeRemoveTag, organizeSetStatus, organizeBulkAddTag } from "../../../lib/references/organizeBridge";
   import { mergeOrganize, organizeOf, allTags, allCollections, emptyOrganize, READING_STATUSES, type OrganizeData, type ReadingStatus } from "../../../lib/references/organize";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
@@ -193,30 +193,19 @@
   // normalize chain each time, which dominated re-renders on a multi-thousand-item library.
   const nfcOf = $derived(new Map(entries.map((e) => [e.key, safeKey(e.key).normalize("NFC")])));
   const nfc = (key: string) => nfcOf.get(key) ?? safeKey(key).normalize("NFC");
-  // Debounce the query: runQuery scans every entry's title+abstract (multi-MB over 1710
-  // entries), so running it on each keystroke janks. Recompute ~150ms after typing stops.
-  let queryDebounced = $state("");
-  // WS-8.1: incremental refinement — typing another character rescans only the
-  // previous result set (pure free-text queries only; see createQueryRunner).
+  // Prepared metadata queries run immediately; world/network submission remains explicit.
+  const queryDebounced = $derived(query);
   const queryRun = createQueryRunner<EnrichedEntry>();
-  let queryTimer: ReturnType<typeof setTimeout> | undefined;
-  $effect(() => {
-    const q = query;
-    clearTimeout(queryTimer);
-    if (!q) {
-      queryDebounced = "";
-      return;
-    }
-    queryTimer = setTimeout(() => (queryDebounced = q), 150);
-  });
-
+  let worldEpoch = 0;
   // 2.3 Full-text search. A `ft:`/`fulltext:`/`text:` prefix switches the Library into
   // full-text mode: the tail is scanned against every stored PDF's extracted text
-  // (items/*/fulltext.txt) in the main process (bundled CLI, W13), and any leading
+  // (items/*/fulltext.txt) in a resident worker, and any leading
   // metadata clauses restrict the scan's scope. Results show only matched papers, ranked
   // by hit count, with page-numbered snippets that jump into the reader at the term.
   const ftMode = $derived(scope === "library" && hasFulltext(queryDebounced));
   let ftSeq = 0;
+  const ftOwnerId = crypto.randomUUID();
+  let ftRevision = $state(0);
   let ftHits = $state.raw<Map<string, FulltextHit>>(new Map());
   let ftBusy = $state(false);
   let ftError = $state("");
@@ -224,8 +213,11 @@
   let ftMissing = $state(0);
   let ftTruncated = $state(false);
   let ftTerm = $state(""); // the extracted full-text query (drives the reader jump + status)
+  let ftProgress = $state<{phase: "checking" | "indexing" | "searching"; completed: number; total: number} | null>(null);
+  let ftShowProgress = $state(false);
   $effect(() => {
     const q = queryDebounced;
+    void ftRevision;
     const active = scope === "library" && hasFulltext(q);
     if (!active) {
       if (ftHits.size || ftBusy || ftError) {
@@ -248,10 +240,19 @@
     // Read `enriched` untracked so hydration bumps don't re-fire the scan mid-typing.
     const scopeKeys = rest.trim() ? untrack(() => runQuery(enriched, rest)).map((e) => e.key) : undefined;
     const seq = ++ftSeq;
+    const requestId = `${ftOwnerId}:${seq}`;
+    const fb = fileBridge();
     ftBusy = true;
     ftError = "";
-    void searchFulltext(fulltext, { keys: scopeKeys, limit: 200 }).then((r) => {
+    ftProgress = null;
+    ftShowProgress = false;
+    const timer = setTimeout(() => { if (seq === ftSeq) ftShowProgress = true; }, 1000);
+    const unsubscribe = fb?.onFulltextProgress?.(progress => {
+      if (seq === ftSeq && progress.requestId === requestId && progress.ownerId === ftOwnerId) ftProgress = progress;
+    });
+    void searchFulltext(fulltext, { keys: scopeKeys, limit: 200, requestId, ownerId: ftOwnerId }).then((r) => {
       if (seq !== ftSeq) return; // a newer query superseded this scan
+      clearTimeout(timer);
       ftBusy = false;
       ftError = r.error ?? "";
       ftScanned = r.scanned;
@@ -259,6 +260,13 @@
       ftTruncated = r.truncated;
       ftHits = new Map(r.hits.map((h) => [nfc(h.key), h]));
     });
+    return () => {
+      ftSeq++; // clearing/changing a query invalidates its late completion too
+      clearTimeout(timer);
+      unsubscribe?.();
+      if (fb?.cancelFulltext) void fb.cancelFulltext(requestId, ftOwnerId).catch(() => {});
+      else void fb?.searchFulltext?.("", {ownerId:ftOwnerId}).catch(() => {});
+    };
   });
   // The term handed to the reader's find-in-document on a snippet click — the primary
   // needle (first phrase, else first term) of the full-text query. pdf.js find is
@@ -441,21 +449,20 @@
     if (!keys.length || deleting) return;
     deleting = true;
     try {
-      const { removed } = await removeFromFluxLib(keys);
+      const { removed, undo } = await removeFromFluxLib(keys);
       if (!removed.length) return;
       const gone = new Set(removed.map((r) => r.key));
       // Update the local list immediately (the revision bump re-reads from disk right after).
       entries = entries.filter((e) => !gone.has(e.key));
       selected = new Set([...selected].filter((k) => !gone.has(k)));
       if (gone.has(expanded)) expanded = "";
-      const raws = removed.map((r) => r.raw).filter(Boolean) as string[];
       pushToast(
         "success",
         `Deleted ${removed.length} reference${removed.length === 1 ? "" : "s"} from FluxLib`,
         {
           ttl: 8000,
-          action: raws.length
-            ? { label: "Undo", run: () => void undoDelete(raws.join("\n\n")) }
+          action: undo
+            ? { label: "Undo", run: () => void undoDelete(undo) }
             : undefined,
         },
       );
@@ -467,9 +474,9 @@
   }
   // The Undo action must actually confirm the re-add before claiming success —
   // addToFluxLib can throw on lock contention just like the delete did.
-  async function undoDelete(raw: string) {
+  async function undoDelete(undo: () => Promise<void>) {
     try {
-      await addToFluxLib(raw, { source: "bibtex" });
+      await undo();
       pushToast("success", "Restored");
     } catch (e) {
       pushToast("error", "Couldn't restore — the references are still deleted", {
@@ -569,6 +576,7 @@
         return;
       }
       void reload();
+      ftRevision++;
     });
     // A PDF landed in the drop-inbox (watcher) — refresh the button count live. The
     // assignJob module owns the debounced auto-scan; this is display-only.
@@ -852,7 +860,7 @@
     const t = value.trim();
     if (!t) return false;
     try {
-      organizeData = await organizeSetTags(key, [...orgOf(key).tags, t]);
+      organizeData = await organizeAddTag(key, t);
       return true;
     } catch (err) {
       orgErr(err);
@@ -861,7 +869,7 @@
   }
   async function removeTagFrom(key: string, tag: string) {
     try {
-      organizeData = await organizeSetTags(key, orgOf(key).tags.filter((x) => x.toLowerCase() !== tag.toLowerCase()));
+      organizeData = await organizeRemoveTag(key, tag);
     } catch (err) {
       orgErr(err);
     }
@@ -1244,9 +1252,12 @@
     worldSort === "citations" ? "cited_by_count:desc" : worldSort === "date" ? "publication_date:desc" : undefined;
 
   function setLexicalLoadMore(fetchPage: (page: number) => Promise<WorldBrief[]>) {
+    const epoch = worldEpoch;
     worldLoadMore = async () => {
-      worldPage += 1;
-      const more = await fetchPage(worldPage);
+      const nextPage = worldPage + 1;
+      const more = await fetchPage(nextPage);
+      if (epoch !== worldEpoch) return;
+      worldPage = nextPage;
       if (more.length) worldResults = [...worldResults, ...more];
       if (more.length < 50) worldLoadMore = null;
     };
@@ -1254,17 +1265,20 @@
   async function loadMore() {
     if (!worldLoadMore || worldBusy) return;
     worldBusy = true;
+    worldError = "";
+    const epoch = worldEpoch;
     try {
       await worldLoadMore();
     } catch (e) {
-      worldError = friendlyErr(e);
+      if (epoch === worldEpoch) worldError = friendlyErr(e);
     }
-    worldBusy = false;
+    if (epoch === worldEpoch) worldBusy = false;
   }
 
   async function doWorldSearch() {
     const q = query.trim();
     if (!q) return;
+    const epoch = ++worldEpoch;
     worldBusy = true;
     worldError = "";
     worldLoadMore = null;
@@ -1272,20 +1286,25 @@
     lookupCtx = null; // a fresh search clears any active per-entry lookup
     try {
       if (worldMode === "semantic") {
-        worldResults = await searchWorldSemantic(q, { sort: worldSort === "citations" ? "citations" : "relevance" });
+        const results = await searchWorldSemantic(q, { sort: worldSort === "citations" ? "citations" : "relevance" });
+        if (epoch !== worldEpoch) return;
+        worldResults = results;
         worldLabel = `Semantic: “${q}”`;
       } else {
         const sort = lexSort();
-        worldResults = await searchWorld(q, { sort, perPage: 50, page: 1 });
+        const results = await searchWorld(q, { sort, perPage: 50, page: 1 });
+        if (epoch !== worldEpoch) return;
+        worldResults = results;
         setLexicalLoadMore((p) => searchWorld(q, { sort, perPage: 50, page: p }));
         if (worldResults.length < 50) worldLoadMore = null;
         worldLabel = `Keyword: “${q}”`;
       }
     } catch (e) {
+      if (epoch !== worldEpoch) return;
       worldError = friendlyErr(e);
       worldResults = [];
     }
-    worldBusy = false;
+    if (epoch === worldEpoch) worldBusy = false;
   }
 
   async function lookup(
@@ -1296,6 +1315,7 @@
   ) {
     scope = "world";
     expanded = "";
+    const epoch = ++worldEpoch;
     worldBusy = true;
     worldError = "";
     worldResults = [];
@@ -1308,27 +1328,37 @@
     worldLabel = `${head}: ${label}${kind === "author" ? "" : ` · ${srcName}`}`;
     try {
       if (kind === "similar") {
-        worldResults =
+        const results =
           source === "s2"
             ? await s2SimilarByKey(key)
             : await similarOpenAlexByKey(key, { sort: worldSort === "citations" ? "citations" : "relevance" });
+        if (epoch !== worldEpoch) return;
+        worldResults = results;
       } else if (kind === "citing") {
         if (source === "s2") {
-          worldResults = await s2CitingByKey(key); // citing papers WITH contexts + influential flags
+          const results = await s2CitingByKey(key);
+        if (epoch !== worldEpoch) return;
+        worldResults = results; // citing papers WITH contexts + influential flags
         } else {
-          worldResults = await citingWorksByKey(key, { sort: "cited_by_count:desc", perPage: 50, page: 1 });
+          const results = await citingWorksByKey(key, { sort: "cited_by_count:desc", perPage: 50, page: 1 });
+        if (epoch !== worldEpoch) return;
+        worldResults = results;
           setLexicalLoadMore((p) => citingWorksByKey(key, { sort: "cited_by_count:desc", perPage: 50, page: p }));
           if (worldResults.length < 50) worldLoadMore = null;
         }
       } else {
-        worldResults = await authorWorksByKey(key, { perPage: 50, page: 1 });
+        const results = await authorWorksByKey(key, { perPage: 50, page: 1 });
+        if (epoch !== worldEpoch) return;
+        worldResults = results;
         setLexicalLoadMore((p) => authorWorksByKey(key, { perPage: 50, page: p }));
         if (worldResults.length < 50) worldLoadMore = null;
       }
     } catch (e) {
-      worldError = lookupSource === "s2" ? await s2ErrMsg(e) : friendlyErr(e);
+      if (epoch !== worldEpoch) return;
+      const message = source === "s2" ? await s2ErrMsg(e) : friendlyErr(e);
+      if (epoch === worldEpoch) worldError = message;
     }
-    worldBusy = false;
+    if (epoch === worldEpoch) worldBusy = false;
   }
 
   async function addBrief(b: WorldBrief) {
@@ -1649,6 +1679,10 @@
           <span class="ftlbl">Full-text search failed</span><span class="ftmeta">{ftError}</span>
         {:else if ftBusy}
           <span class="ftlbl">Searching stored PDF text…</span>
+          {#if ftShowProgress && ftProgress}
+            <span class="ftmeta" aria-live="polite">{ftProgress.phase === "indexing" ? "Indexing" : ftProgress.phase === "checking" ? "Checking" : "Searching"} {ftProgress.completed} of {ftProgress.total} papers</span>
+          {/if}
+          <button class="linkbtn" onclick={() => { query = ""; }}>Cancel search</button>
         {:else}
           <span class="ftlbl">Full text</span>
           <span class="ftmeta"

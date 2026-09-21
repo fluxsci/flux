@@ -32,6 +32,7 @@
   let natH = $state(0);
   let src = $state<string | null>(null);
   let text = $state<string | null>(null);
+  let inputTruncated = $state(false);
   let failed = $state(false);
   let userZoomed = $state(false);
   let z = $state(1); // display px per natural px (only meaningful when userZoomed)
@@ -64,6 +65,7 @@
     natH = 0;
     src = null;
     text = null;
+    inputTruncated = false;
     failed = false;
     userZoomed = false;
     tx = 0;
@@ -90,9 +92,10 @@
         const t = await tableText(f.abs);
         if (my !== gen) return;
         if (t === null) failed = true;
-        else text = t;
+        else { text = t.text; inputTruncated = t.truncated; }
       }
     })();
+    return () => { ++gen; };
   });
 
   export function toggleFit() {
@@ -260,7 +263,7 @@
     {#if failed}
       <div class="stage"><div class="absent">couldn't read {file.name}</div></div>
     {:else if text !== null}
-      <DissectTable {text} name={file.name} />
+      <DissectTable {text} {inputTruncated} name={file.name} />
     {/if}
   {:else}
     <div class="stage">

@@ -1,8 +1,8 @@
 name: ci
 
 # Correctness gate on every push/PR to main. The blocking `test` job is fully
-# headless (no browser, no network): type-check → hermetic pure verify tier →
-# build (which proves BOTH the Vite bundle and the CLI+MCP node bundles) →
+# headless: type-check → build → hermetic pure verify tier
+# (build (which proves BOTH the Vite bundle and the CLI+MCP node bundles)) →
 # CLI/MCP stdio handshakes against the built bundles. A broken commit can't reach
 # a release tag (release.yml runs the same gate first).
 
@@ -29,24 +29,39 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: '1.7.32'
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - name: Provision PDF dependencies before offline artifact checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends texlive-latex-extra texlive-fonts-recommended lmodern
+      - name: Provision and rehash the pinned host video encoder
+        run: node scripts/fetch-video-encoder.mjs
       - name: Type-check (svelte-check must be 0 errors)
-        run: npm run check
+        run: npm run check && npm run check:headless
+      - name: Build (Vite bundle + dist/flux-cli.mjs + dist/flux-mcp.mjs)
+        run: npm run build
       - name: Pure verify tier (hermetic — no network, no dev server)
+        env:
+          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
         run: node scripts/run-verifies.mjs --tier pure --jobs 4
       - name: Upload verify summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pure-verify-summary
-          path: test-results/summary.json
-      - name: Build (Vite bundle + dist/flux-cli.mjs + dist/flux-mcp.mjs)
-        run: npm run build
+          path: test-results/runs/**
       - name: Assert the packaged bundles were emitted
         run: |
-          for f in dist/flux-cli.mjs dist/flux-mcp.mjs dist/slide-export-assets.json; do
+          for f in dist/flux-cli.mjs dist/flux-mcp.mjs dist/flux-fulltext-worker.mjs dist/slide-export-assets.json; do
             test -f "$f" || { echo "::error::missing build artifact $f"; exit 1; }
           done
       - name: Bundle handshakes (CLI + MCP over stdio against the built bundles)
+        env:
+          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
         run: node scripts/run-verifies.mjs --tier bundle
 
   # Browser gate (WS-7.2) — the FULL de-flaked ui tier (post sleep→condition
@@ -80,4 +95,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ui-verify-summary
-          path: test-results/summary.json
+          path: test-results/runs/**

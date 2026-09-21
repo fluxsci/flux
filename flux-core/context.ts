@@ -20,9 +20,8 @@ import { CLIENT, journal } from "./journal";
 
 export { CONTEXT_PATHS };
 
-export async function ensureProjectContext(root: string): Promise<{ created: string[] }> {
-  const manifest = await loadManifest(root).catch(() => null);
-  const title = manifest?.title || path.basename(root);
+export async function ensureProjectContext(root: string, prepared?: { title: string }): Promise<{ created: string[] }> {
+  const title = (prepared ? prepared.title : (await loadManifest(root).catch(() => null))?.title) || path.basename(root);
   const created: string[] = [];
   const { dirs, files } = contextScaffoldEntries(title);
   for (const d of dirs) {
@@ -79,8 +78,10 @@ export async function addNote(
   const entry = `${heading}\n\n${body.trim()}\n`;
   const rel = CONTEXT_PATHS.notebook;
   let createdSection = false;
+  // Reference recovery may need the manuscript lease; complete it first.
+  const manifest = await loadManifest(root);
   await withLock(root, "manuscript", CLIENT, async () => {
-    await ensureProjectContext(root); // heal-first, inside the lock (fresh projects race too)
+    await ensureProjectContext(root, { title: manifest.title }); // heal under the lock without recursively entering recovery
     const p = safeJoin(root, rel);
     const doc = await fs.readFile(p, "utf8").catch(() => "");
     const r = appendSessionLogEntry(doc, entry);

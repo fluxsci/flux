@@ -215,7 +215,7 @@ try {
       clip: (wt?.querySelector(".sl-effects") as HTMLElement ?? wt)?.style.clipPath ?? "",
     };
   });
-  assert(post.offset === "0" && post.dash > post.dash - 1 && post.dash > 94.24, "the drawn rest state is SEAM-FREE (offset 0, overshot dash covers the true perimeter)");
+  assert(post.offset === "" && post.dash === 0, "the drawn rest state restores the authored solid stroke without a temporary dash seam");
   assert(post.polyOpacity === "1", "the arrowhead pops in with the draw");
   assert(post.clip.includes("-20%"), `writeOn's resting clip keeps the overflow margin (descenders survive: ${post.clip})`);
   await page2.close();

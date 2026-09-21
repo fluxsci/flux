@@ -1,4 +1,5 @@
 #!/usr/bin/env -S npx tsx
+import { atomicWrite } from "../flux-core/fsx";
 // WS-5.4 (fortify plan) — per-file divergence detection, driven through the REAL
 // renderer bridges (figbridge + slideBridge) under Node with an fs-backed
 // FileBridge shim:
@@ -28,18 +29,19 @@ const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
 // no fsyncDir/journalAppend — the optional-member paths must tolerate that) ----
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-diverge-"));
 const bridge = {
+  remove: (p: string) => fs.rm(p,{force:true}),
   exists: (p: string) => fs.access(p).then(() => true, () => false),
   readText: (p: string) => fs.readFile(p, "utf8"),
-  writeText: (p: string, t: string) => fs.writeFile(p, t),
-  readFile: async (p: string) => (await fs.readFile(p)).buffer,
-  writeFile: (p: string, b: Uint8Array) => fs.writeFile(p, b),
+  writeText: (p: string, t: string) => atomicWrite(p, t),
+  readFile: async (p: string) => {const bytes=await fs.readFile(p);return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)},
+  writeFile: (p: string, b: Uint8Array) => atomicWrite(p, b),
   mkdir: (p: string) => fs.mkdir(p, { recursive: true }).then(() => {}),
 };
 (globalThis as Record<string, unknown>).window = { fig: bridge };
 
 const { scaffold, createFigure } = await import("../flux-core/index");
 const { loadFigInto, saveFigFrom, figDiskDiverged } = await import("../src/lib/project/figbridge");
-const { project: figProject } = await import("../src/lib/store");
+const { project: figProject, embeddedProjectRoot } = await import("../src/lib/store");
 const { ConflictError } = await import("../src/lib/autosave");
 const slideBridge = await import("../src/lib/project/slideBridge");
 const { deckOverlay, commitDeckLive } = await import("../src/lib/slide/store");
@@ -100,10 +102,41 @@ try {
   await fs.writeFile(cvPath, savedBytes);
   assert(!(await figDiskDiverged(root)), "restoring the file clears the divergence");
 
+  // The actual overwrite operation preserves unreadable/deleted branches and
+  // chooses the editor caption in BOTH representations, before reopening.
+  for(const kind of ["deleted-canvas","corrupt-canvas","corrupt-index","caption-dual"]){
+    await loadFigInto(root,"Diverge");
+    const indexPath=path.join(root,"fig/index.json");
+    const get=(await import("svelte/store")).get;
+    const figureId=get(figProject).figures[0].id;
+    const captionPath=path.join(root,`fig/captions/${figureId}.md`);
+    figProject.update(p=>{p.figures[0].captions={__figure__:"EDITOR CAPTION"};return p});
+    if(kind==="deleted-canvas")await fs.rm(cvPath);
+    if(kind==="corrupt-canvas")await fs.writeFile(cvPath,"{CORRUPT CANVAS");
+    if(kind==="corrupt-index")await fs.writeFile(indexPath,"{CORRUPT INDEX");
+    if(kind==="caption-dual")await fs.writeFile(captionPath,"EXTERNAL CAPTION\n");
+    const beforeRecords=await fs.readdir(path.join(root,".meta/figure-conflicts"));
+    await saveFigFrom(root,{force:true});
+    const afterRecords=await fs.readdir(path.join(root,".meta/figure-conflicts"));
+    const added=afterRecords.filter(n=>!beforeRecords.includes(n));assert(added.length===1,kind+": exactly one preservation record");
+    const record=JSON.parse(await fs.readFile(path.join(root,".meta/figure-conflicts",added[0]),"utf8"));
+    assert(record.winner==="editor including captions",kind+": explicit caption winner");
+    if(kind==="deleted-canvas")assert(record.theirs[`fig/canvases/${canvasId}.json`]===null,"deleted file recorded as absent");
+    if(kind==="corrupt-canvas")assert(record.theirs[`fig/canvases/${canvasId}.json`]==="{CORRUPT CANVAS","corrupt canvas bytes recoverable");
+    if(kind==="corrupt-index")assert(record.theirs["fig/index.json"]==="{CORRUPT INDEX","corrupt index bytes recoverable");
+    if(kind==="caption-dual")assert(record.theirs[`fig/captions/${figureId}.md`]==="EXTERNAL CAPTION\n","external caption recoverable");
+    await loadFigInto(root,"Diverge");assert(get(figProject).figures[0].captions?.__figure__==="EDITOR CAPTION",kind+": editor caption reopens");
+    assert((await fs.readFile(captionPath,"utf8")).includes("EDITOR CAPTION"),kind+": Markdown mirror agrees");
+  }
+  const beforeFuture=await fs.readFile(cvPath,"utf8"),future=JSON.parse(beforeFuture);future.schemaVersion="99.0.0";const futureBytes=JSON.stringify(future);await fs.writeFile(cvPath,futureBytes);
+  let futureRefused=false;try{await saveFigFrom(root,{force:true})}catch{futureRefused=true}assert(futureRefused,"force refuses a future schema");assert(await fs.readFile(cvPath,"utf8")===futureBytes,"future bytes never downgraded");await fs.writeFile(cvPath,beforeFuture);
+
   // ---- deck mirror --------------------------------------------------------------
   const created = await slideBridge.createDeckInProject(root, { title: "Talk" });
   const deckId = created.id;
   assert(!!deckId, "created a deck");
+  setStoreTenant("slide"); // claim the resident adapter before its asynchronous load
+  embeddedProjectRoot.set(root);
   await slideBridge.loadDeckInto(root, deckId);
   assert(!(await slideBridge.deckDiskDiverged(root, deckId)), "deck freshly loaded: not diverged");
 

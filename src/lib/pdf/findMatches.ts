@@ -57,3 +57,40 @@ export function groupMatches(matches: FindMatch[], sections: OutlineSection[] = 
   }
   return out;
 }
+
+/** Version-isolated adapter for PDF.js's match arrays. Descriptors are rebuilt
+ * only for changed pages; snippet strings are lazy so invisible hits cost no
+ * slicing/regex work. A query change invalidates all page identities. */
+export interface PdfFindSnapshot { pageMatches?: number[][]; pageMatchesLength?: number[][]; _pageContents?: string[] }
+export function createFindMatchCollector() {
+  const noMatches: number[] = [];
+  let query: unknown;
+  let cached: { offsets: number[]; lengths: number[] | undefined; text: string; rows: FindMatch[] }[] = [];
+  let result: FindMatch[] = [];
+  return (snapshot: PdfFindSnapshot | null, queryIdentity: unknown): FindMatch[] => {
+    if (queryIdentity !== query) { query = queryIdentity; cached = []; result = []; }
+    if (!snapshot?.pageMatches || !snapshot._pageContents) return [];
+    let changed = cached.length !== snapshot.pageMatches.length;
+    for (let page = 0; page < snapshot.pageMatches.length; page++) {
+      const offsets = snapshot.pageMatches[page] ?? noMatches;
+      const lengths = snapshot.pageMatchesLength?.[page];
+      const text = snapshot._pageContents[page] ?? "";
+      const prior = cached[page];
+      if (prior && prior.offsets === offsets && prior.lengths === lengths && prior.text === text) continue;
+      changed = true;
+      const rows = offsets.map((start, matchInPage) => {
+        const length = lengths?.[matchInPage] ?? 0;
+        let snippets: { before: string; hit: string; after: string } | undefined;
+        const snippet = () => snippets ??= { before: text.slice(Math.max(0, start - 44), start).replace(/\s+/g, " "), hit: text.slice(start, start + length), after: text.slice(start + length, start + length + 44).replace(/\s+/g, " ") };
+        return { index: 0, page: page + 1, matchInPage, get before() { return snippet().before; }, get hit() { return snippet().hit; }, get after() { return snippet().after; } };
+      });
+      cached[page] = { offsets, lengths, text, rows };
+    }
+    cached.length = snapshot.pageMatches.length;
+    if (changed) {
+      result = cached.flatMap(page => page.rows);
+      for (let i = 0; i < result.length; i++) result[i].index = i;
+    }
+    return result;
+  };
+}

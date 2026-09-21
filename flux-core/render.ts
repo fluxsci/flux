@@ -4,18 +4,27 @@
 // and the fig/renders/ materialization Quarto reads from disk.
 
 import * as fs from "node:fs/promises";
+import { relative } from "node:path";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { buildPlotMarkup } from "../src/lib/plot/inlineMarkup";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { isUnderRoot, plotSourceCandidates } from "../src/lib/plot/source";
 import type { Figure, Project } from "../src/lib/types";
+import { normalizeIndexAssets } from "../src/lib/project/figfiles";
 import { migrateProject } from "../src/lib/migrate";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
 import { j } from "./journal";
-import { requireProject, safeJoin, exists, readFigIndex, readCanvasFiles } from "./model";
+import { requireProject, projectAssetPath, safeJoin, exists, readFigIndex, readCanvasFiles } from "./model";
 import { scanAbsurdPathCoords } from "./coordscan";
+
+/** Optional sidecars may be absent, but unreadable, corrupt or escaping
+ * stored project metadata must not silently change semantic export output. */
+async function readPlotManifest(root: string, rel: string): Promise<FluxPlotManifest | undefined> {
+  try { return JSON.parse(await fs.readFile(await projectAssetPath(root, rel), "utf8")) as FluxPlotManifest; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+}
 
 function mimeFor(kind: string): string {
   return kind === "svg" ? "image/svg+xml" : "image/png";
@@ -30,7 +39,21 @@ export async function ensureDom(): Promise<void> {
   if (domReady) return;
   const { DOMParser } = await import("linkedom");
   const g = globalThis as unknown as { DOMParser?: unknown };
-  if (!g.DOMParser) g.DOMParser = DOMParser;
+  if (!g.DOMParser) {
+    const {DOMParser: XmlParser}=await import("@xmldom/xmldom");
+    // linkedom supplies DOM mutation/style APIs but is a tolerant HTML parser.
+    // Validate XML first so headless exports refuse malformed assets like browsers.
+    g.DOMParser=class {
+      parseFromString(text: string, type: "text/html" | "image/svg+xml" | "text/xml") {
+        if (type!=="text/html") {
+          let invalid=false;
+          try { new XmlParser({errorHandler:{warning:()=>{invalid=true},error:()=>{invalid=true},fatalError:()=>{invalid=true}}}).parseFromString(text,"image/svg+xml"); } catch {invalid=true;}
+          if (invalid) return new DOMParser().parseFromString("<parsererror>Malformed SVG</parsererror>","text/xml");
+        }
+        return new DOMParser().parseFromString(text,type);
+      }
+    };
+  }
   domReady = true;
 }
 
@@ -100,7 +123,7 @@ export async function renderFigureSvg(
     name: "",
     canvases: [],
     figures: [fig],
-    assets: (index.assets ?? []).map((a) => ({
+    assets: normalizeIndexAssets(index).map((a) => ({
       id: a.id,
       name: a.name ?? a.id,
       kind: a.kind,
@@ -115,15 +138,19 @@ export async function renderFigureSvg(
 
   const assetCache: Record<string, string> = {};
   const assetPath: Record<string, string> = {};
-  for (const a of index.assets ?? []) {
-    if (!a.path) continue;
+  const required = new Set(fig.elements.flatMap(e => 'assetId' in e ? [e.assetId] : []));
+  for (const a of normalizeIndexAssets(index)) {
+    if (!required.has(a.id)) continue;
+    if (!a.path) throw new Error(`Missing asset path: ${a.id}`);
     assetPath[a.id] = a.path;
-    const ap = j(root, "fig", a.path);
+    const ap = await projectAssetPath(root, `fig/${a.path}`);
     if (await exists(ap)) {
       const bytes = await fs.readFile(ap);
       assetCache[a.id] = `data:${mimeFor(a.kind)};base64,${bytes.toString("base64")}`;
     }
   }
+
+  for (const id of required) if (!assetCache[id]) throw new Error(`Missing figure asset ${id}`);
 
   // Build faithful inline markup for each semantic plot element.
   const plotMarkup = new Map<string, string>();
@@ -132,37 +159,27 @@ export async function renderFigureSvg(
     await ensureDom();
     for (const el of plots) {
       const rel = assetPath[(el as { assetId: string }).assetId];
-      if (!rel) continue;
-      const svgText = await fs.readFile(j(root, "fig", rel), "utf8").catch(() => null);
-      if (!svgText) continue;
+      if (!rel) throw new Error(`Missing plot asset: ${el.id}`);
+      const svgText = await fs.readFile(await projectAssetPath(root, `fig/${rel}`), "utf8");
+      if (!svgText) throw new Error(`Empty plot asset: ${el.id}`);
       let manifest: FluxPlotManifest | undefined;
       // Prefer the asset-local sidecar (always in-root, written on import/save) —
       // then fall back to the original source manifest for older projects. AGT-11:
       // source.manifestPath can point outside root (plot imported from elsewhere),
       // where safeJoin throws; the asset-local copy avoids that entirely.
       const aid = (el as { assetId?: string }).assetId;
-      if (aid) {
-        try {
-          manifest = JSON.parse(await fs.readFile(j(root, "fig", "assets", `${aid}.fluxplot.json`), "utf8")) as FluxPlotManifest;
-        } catch {
-          /* no asset-local sidecar — try the source manifest below */
-        }
-      }
+      if (aid) manifest = await readPlotManifest(root, `fig/assets/${aid}.fluxplot.json`);
       const src = (el as { source?: { manifestPath?: string } }).source;
       if (!manifest && src?.manifestPath) {
         // Probe every shape source.manifestPath takes (plot/source.ts), but keep
         // safeJoin's guarantee: a canvas file is untrusted input here, so only
-        // candidates that land UNDER root are read. That still gains the
+        // candidates lexically AND canonically under root are read. That gains the
         // re-anchor rescue — a foreign absolute path from another machine
         // resolves against this root instead of silently yielding no manifest.
         for (const cand of plotSourceCandidates(root, src.manifestPath)) {
           if (!isUnderRoot(root, cand)) continue;
-          try {
-            manifest = JSON.parse(await fs.readFile(cand, "utf8")) as FluxPlotManifest;
-            break;
-          } catch {
-            /* manifest optional (leaf-id overrides still apply) */
-          }
+          manifest = await readPlotManifest(root, relative(root, cand));
+          if (manifest) break;
         }
       }
       const markup = buildPlotMarkup(
@@ -280,7 +297,7 @@ async function findUnrenderablePanels(root: string, figId: string): Promise<stri
         const asset = aid ? assets.get(aid) : undefined;
         let detail = "";
         if (asset?.path) {
-          const text = await fs.readFile(j(root, "fig", asset.path), "utf8").catch(() => null);
+          const text = await fs.readFile(await projectAssetPath(root, `fig/${asset.path}`), "utf8").catch(() => null);
           // Report-only scan at a LOWER threshold than the import clamp (4× the
           // canvas vs 64×): rendering already failed, so moderately-outside
           // geometry is worth naming even though import would leave it alone.

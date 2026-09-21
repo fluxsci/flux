@@ -88,6 +88,13 @@ export function createMemBridge(): FileBridge & {
       }
       return true;
     },
+    async readTextBounded(p, maxBytes) {
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 32 * 1024 * 1024) throw new Error('Invalid bounded text limit');
+      const bytes = files.get(norm(p));
+      if (!bytes) throw new Error(`ENOENT: ${p}`);
+      const truncated = bytes.length > maxBytes;
+      return { text: new TextDecoder().decode(bytes.subarray(0, maxBytes), { stream: truncated }), truncated, totalBytes: bytes.length };
+    },
     async readText(p) {
       const b = files.get(norm(p));
       if (!b) throw new Error(`ENOENT: ${p}`);

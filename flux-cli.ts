@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as core from "./flux-core/index";
-import { runCliVerb } from "./flux-core/registry";
+import { runCliVerb, parseCliFlags, registryHelp, registeredCliVerbs, errorToCli } from "./flux-core/registry";
 
 const HELP = `flux — drive a Flux project from the terminal
 
@@ -228,22 +228,16 @@ usage: flux <verb> [root] [args] [--flags]
   help                                 this message
 `;
 
-function parseFlags(args: string[]): { _: string[]; flags: Record<string, string | boolean> } {
-  const _: string[] = [];
-  const flags: Record<string, string | boolean> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--")) {
-      const key = a.slice(2);
-      const next = args[i + 1];
-      if (next === undefined || next.startsWith("--")) flags[key] = true;
-      else {
-        flags[key] = next;
-        i++;
-      }
-    } else _.push(a);
-  }
-  return { _, flags };
+function help(verb?: string): string {
+  if (verb && registeredCliVerbs().includes(verb)) return registryHelp(verb);
+  const registered = new Set(registeredCliVerbs());
+  let keep = true;
+  const legacy = HELP.split('\n').filter(line => {
+    const match = /^  ([a-z][a-z-]*) /.exec(line);
+    if (match) keep = !registered.has(match[1]);
+    return keep;
+  }).join('\n');
+  return `${legacy}\nRegistry commands (flags from the shared CLI/MCP contract):\n${registryHelp()}`;
 }
 
 const num = (v: unknown): number | undefined =>
@@ -252,7 +246,8 @@ const num = (v: unknown): number | undefined =>
 async function main() {
   core.setClient(process.env.FLUX_CLIENT || "cli"); // WS6: journal/lock identity
   const [verb, ...rest] = process.argv.slice(2);
-  const { _, flags } = parseFlags(rest);
+  const { _, flags } = parseCliFlags(verb, rest);
+  if (flags.help) { console.log(help(verb)); return; }
   // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
   // move, Guidelines seed) — idempotent, statSync-fast after the first run. A
   // failure must never block a verb: the path resolvers keep legacy fallbacks.
@@ -414,37 +409,10 @@ async function main() {
       console.log(JSON.stringify({ ...core.buildInfo(), node: process.version }, null, 2));
       break;
     }
-    case "lib-add": {
-      const arg = _.join(" ").trim();
-      const isDoi = /^(https?:\/\/(dx\.)?doi\.org\/)?10\.\d{4,9}\//i.test(arg);
-      if (flags.file) {
-        // 2.4 bulk import: sniff .bib vs .ris (RIS is normalized to BibTeX), and with
-        // --attach-files pull the PDFs named in each entry's Better-BibTeX `file` field.
-        const fp = String(flags.file);
-        const text = await fs.readFile(fp, "utf8");
-        const r = await core.importReferences(text, {
-          attachFiles: !!flags["attach-files"],
-          baseDir: path.dirname(path.resolve(fp)),
-          zoteroDir: typeof flags["zotero-dir"] === "string" ? flags["zotero-dir"] : undefined,
-        });
-        console.error(
-          `✓ FluxLib (${r.format}): +${r.added.length} added, ${r.deduped.length} already present` +
-            (flags["attach-files"] ? ` · ${r.attached.length} PDF(s) attached${r.attachFailed.length ? `, ${r.attachFailed.length} not found` : ""}` : ""),
-        );
-      } else if (isDoi && !flags.bibtex) {
-        const r = await core.addDoiToLibrary(arg);
-        console.error(`✓ FluxLib += [@${r.result.keys.join("; @")}]`);
-      } else {
-        const r = await core.addToLibrary(arg);
-        console.error(`✓ FluxLib: +${r.added.length} added, ${r.deduped.length} already present`);
-      }
-      break;
-    }
     case "discover": {
       const semantic = flags.semantic !== undefined;
-      // `--semantic` is a boolean, but the arg parser swallows the next token as its
-      // value (`discover --semantic "q"`); recover the query from there when needed.
-      const q = _.join(" ") || (typeof flags.semantic === "string" ? flags.semantic : "");
+      // The declared boolean never consumes the following query words.
+      const q = _.join(" ");
       const hits = semantic
         ? await core.searchWorldSemantic(q, { sort: flags.sort === "cites" ? "citations" : "relevance" })
         : await core.searchWorld(q, {
@@ -567,30 +535,6 @@ async function main() {
       );
       break;
     }
-    case "search-text": {
-      // 2.3: full-text search over items/*/fulltext.txt. --json for machine use
-      // (the GUI's fulltext: filter spawns this bundle); human output = snippets.
-      const q = _.join(" ");
-      if (!q.trim()) throw new Error("search-text needs a query");
-      const r = await core.searchFulltext(q, {
-        limit: num(flags.limit) ?? 50,
-        keys: typeof flags.keys === "string" ? String(flags.keys).split(",").filter(Boolean) : undefined,
-      });
-      if (flags.json) {
-        console.log(JSON.stringify(r));
-      } else {
-        for (const h of r.hits) {
-          console.log(`@${h.key}  (${h.count} hit${h.count === 1 ? "" : "s"})`);
-          for (const s of h.snippets) console.log(`   p${s.page}: ${s.text}`);
-        }
-        console.error(
-          `✓ ${r.hits.length} paper(s) matched · scanned ${r.scanned} texts in ${r.elapsedMs}ms` +
-            (r.truncated ? " (hit limit — refine the query)" : "") +
-            (r.missingText.length ? ` · ${r.missingText.length} PDF(s) have no extracted text yet` : ""),
-        );
-      }
-      break;
-    }
     case "annotations": {
       if (_[0] === "search") {
         const q = _.slice(1).join(" ");
@@ -644,63 +588,21 @@ async function main() {
       console.error(`✓ ${key} collections: ${(d.items[key]?.collections ?? []).join(", ") || "(none)"}`);
       break;
     }
-    case "set-slide": {
-      const patch: Parameters<typeof core.setSlide>[3] = {};
-      if (typeof flags.name === "string") patch.name = flags.name;
-      if (typeof flags.layout === "string") patch.layout = flags.layout as typeof patch.layout;
-      if (typeof flags.background === "string") patch.background = flags.background;
-      if (typeof flags.transition === "string") patch.transition = flags.transition as typeof patch.transition;
-      if (flags.notes != null || flags["notes-file"]) {
-        patch.notes = flags["notes-file"] ? await fs.readFile(String(flags["notes-file"]), "utf8") : String(flags.notes);
-      }
-      const cx = num(flags["camera-x"]);
-      const cy = num(flags["camera-y"]);
-      const cz = num(flags["camera-zoom"]);
-      if (cx != null || cy != null || cz != null) patch.camera = { x: cx ?? 0, y: cy ?? 0, zoom: cz ?? 1 };
-      await core.setSlide(R(), _[0], _[1], patch);
-      console.error(`✓ set slide ${_[1]}`);
-      break;
-    }
-    case "set-animation": {
-      // Full-fidelity via --track '<json>'; else build a Track from flags.
-      let track: import("./src/lib/slide/types").Track;
-      if (typeof flags.track === "string") {
-        track = JSON.parse(flags.track);
-      } else {
-        track = { target: String(flags.target ?? _[3] ?? "") };
-        if (typeof flags.preset === "string") track.preset = flags.preset as import("./src/lib/slide/types").PresetName;
-        if (typeof flags.part === "string") track.part = flags.part;
-        if (num(flags.start) != null) track.start = num(flags.start);
-        if (num(flags.duration) != null) track.duration = num(flags.duration);
-        if (typeof flags.easing === "string") track.easing = flags.easing as import("./src/lib/slide/types").EasingToken;
-        if (typeof flags.params === "string") track.params = JSON.parse(flags.params);
-        // morph/camera/move destination → `to` (assetId for morph; x/y/zoom for camera).
-        const to: import("./src/lib/slide/types").TrackTarget = {};
-        if (typeof flags["to-asset"] === "string") to.assetId = flags["to-asset"];
-        if (num(flags["to-x"]) != null) to.x = num(flags["to-x"]);
-        if (num(flags["to-y"]) != null) to.y = num(flags["to-y"]);
-        if (num(flags["to-zoom"]) != null) to.zoom = num(flags["to-zoom"]);
-        if (Object.keys(to).length) track.to = to;
-      }
-      if (!track.target) throw new Error("set-animation needs --target (an element id, or @camera/@stage)");
-      await core.setAnimation(R(), _[0], _[1], _[2], track, { append: flags.append === true || flags.append === "true" });
-      console.error(`✓ set animation on beat ${_[2]} (${track.preset ?? "keyframes"} → ${track.target})`);
-      break;
-    }
     case "help":
     case "--help":
     case "-h":
     case undefined:
-      console.log(HELP);
+      console.log(help(_[0]));
       break;
     default:
       console.error(`flux: unknown verb "${verb}"\n`);
-      console.log(HELP);
+      console.log(help(_[0]));
       process.exit(1);
   }
 }
 
 main().catch((e) => {
-  console.error("flux: " + (e?.message ?? e));
-  process.exit(1);
+  const result = errorToCli(e);
+  console.error("flux: " + result.err);
+  process.exitCode = result.exit ?? 1;
 });

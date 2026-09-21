@@ -245,6 +245,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   for (const beat of copy.beats) {
     beat.id = newId("beat");
     remapBeatGroupIds(beat);
+    if (beat.autoTarget) beat.autoTarget = idRemap.get(beat.autoTarget) ?? beat.autoTarget;
     for (const t of beat.tracks) {
       // Every track carries a stable id; a duplicated slide's tracks must get
       // FRESH ids or they collide with the source slide's.
@@ -335,6 +336,7 @@ export function insertSlideSnapshot(
   for (const beat of slide.beats) {
     beat.id = newId("beat");
     remapBeatGroupIds(beat);
+    if (beat.autoTarget) beat.autoTarget = idRemap.get(beat.autoTarget) ?? beat.autoTarget;
     for (const t of beat.tracks) {
       t.id = newId("track");
       const mapped = idRemap.get(t.target);
@@ -628,6 +630,7 @@ export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null 
     if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
   }
   remapBeatGroupIds(copy);
+  if (copy.autoTarget) copy.autoTarget = idRemap.get(copy.autoTarget) ?? copy.autoTarget;
   s.beats.splice(i + 1, 0, copy);
   return copy;
 }
@@ -691,6 +694,9 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
   for (const b of s.beats) {
     const i = b.tracks.findIndex((t) => t.id === trackId);
     if (i < 0) continue;
+    const candidate = b.tracks[i];
+    if (to === s.beats[0]) return false;
+    if (["transform", "media"].includes(familyOf(candidate)) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate))) return false;
     const [t] = b.tracks.splice(i, 1);
     if (b.id !== to.id && t.groupId) delete t.groupId;
     // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
@@ -702,17 +708,23 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
   return false;
 }
 
-/** Deep-copy a track in place (inserted right after the original, fresh id). */
-export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id): Id | null {
+/** Deep-copy a track, in place by default or directly into another beat. The
+ * destination is checked before mutation: a cross-step Change copy must not
+ * temporarily create the forbidden second Change in its source step. */
+export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: Id, at?: number): Id | null {
   const s = slideById(deck, slideId);
   if (!s) return null;
   for (const b of s.beats) {
     const i = b.tracks.findIndex((t) => t.id === trackId);
     if (i < 0) continue;
+    const to = toBeatId ? beatById(s, toBeatId) : b;
+    if (!to || to === s.beats[0] || b === s.beats[0]) return null;
+    if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(b.tracks[i])) && to.tracks.some(t => tracksMatch(t, b.tracks[i]))) return null;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
     if (copy.ghostFrom) copy.target = cloneBirthResults(s, [copy]).get(copy.target) ?? copy.target;
-    b.tracks.splice(i + 1, 0, copy);
+    if (to !== b) delete copy.groupId;
+    to.tracks.splice(at == null ? to === b ? i + 1 : to.tracks.length : Math.max(0, Math.min(at, to.tracks.length)), 0, copy);
     return copy.id;
   }
   return null;
@@ -893,7 +905,7 @@ function tracksMatch(a: Track, b: Track): boolean {
 export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): boolean {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
-  if (!b) return false;
+  if (!b || s!.beats[0] === b) return false;
   if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return false;
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
@@ -918,7 +930,7 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
 export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): Track | null {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
-  if (!b) return null;
+  if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(track)) && b.tracks.some(t => tracksMatch(t, track)))) return null;
   if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);

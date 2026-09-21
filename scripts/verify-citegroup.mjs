@@ -6,12 +6,12 @@
 // double-clicking a cite chip opens the same pane; the BibliographyView card
 // follows the caret.
 //   Run (dev server on :1420 must be up): node scripts/verify-citegroup.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, shot, APP_URL } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
-await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
-await clickMode(page, "Paper").catch(() => {});
-await sleep(600);
+await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 3500 });
+await clickMode(page, "Paper");
+await page.waitForSelector('.paper[data-paper-sources-ready="true"]');
 
 const setup = await page.evaluate(async () => {
   const view = window.__fluxView || (window.__flux?.editors ?? [])[0];

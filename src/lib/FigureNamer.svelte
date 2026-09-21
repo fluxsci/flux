@@ -109,7 +109,9 @@
     if (creating.autoRef) creating.refTemplate = n ? `${n.slice(0, 3)}. {num}{panel}` : "";
     if (creating.autoCap) creating.captionTemplate = n ? `${n} {num} | ` : "";
   }
+  const familyError = $derived(creating ? ops.figureFamilyIdError($project, slugify(creating.displayName.trim()), true) : null);
   const createValid = $derived(
+    !familyError &&
     !!creating &&
       creating.displayName.trim().length > 0 &&
       creating.refTemplate.includes("{num}") &&
@@ -285,7 +287,8 @@
           <div class="nhint">templates need {"{num}"} ({"{panel}"} optional)</div>
         {/if}
         <div class="nactions">
-          <button class="nbtn save" disabled={!createValid} onclick={acceptCreate}>Add (Enter)</button>
+          {#if familyError}<p class="hint" role="alert">{familyError}</p>{/if}
+                <button class="nbtn save" disabled={!createValid} onclick={acceptCreate}>Add (Enter)</button>
           <button class="nbtn" onclick={() => (creating = null)}>Back (Esc)</button>
         </div>
       </div>

@@ -18,6 +18,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as core from "../flux-core/index";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { ALLOWED_COMMANDS, dispatchCommand } from "../src/lib/bridge/commands";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { elementBBox, unionRect } from "../src/lib/geometry";

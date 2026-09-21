@@ -67,14 +67,13 @@ export function mimeFor(kind: "png" | "svg"): string {
 export function intrinsicSize(
   dataUrl: string,
 ): Promise<{ width: number; height: number }> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () =>
-      resolve({
-        width: img.naturalWidth || 300,
-        height: img.naturalHeight || 200,
-      });
-    img.onerror = () => resolve({ width: 300, height: 200 });
+    img.onload = () => {
+      if (!(img.naturalWidth > 0 && img.naturalHeight > 0)) { reject(new Error("Image has no valid decoded dimensions")); return; }
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => reject(new Error("Image could not be decoded"));
     img.src = dataUrl;
   });
 }

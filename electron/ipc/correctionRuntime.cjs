@@ -50,6 +50,8 @@ function createCorrectionRuntime({
   let ready = false;
   let starting = null;
   let installController = null;
+  let installing = null;
+  let removing = false;
   let idleTimer = null;
   let crashRestarts = 0;
   let lifecycleGeneration = 0;
@@ -182,9 +184,10 @@ function createCorrectionRuntime({
     idleTimer.unref?.();
   }
 
-  async function waitHealthy(selectedPort, selectedToken, processRef) {
+  async function waitHealthy(selectedPort, selectedToken, processRef, generation) {
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
+      if (generation !== lifecycleGeneration || child !== processRef) throw new Error("Flux correction runtime start was cancelled");
       if (processRef.exitCode != null) throw new Error(lastError || "Flux correction runtime exited while loading");
       try {
         const response = await fetchImpl(`http://127.0.0.1:${selectedPort}/health`, {
@@ -248,12 +251,14 @@ function createCorrectionRuntime({
   }
 
   async function start() {
+    if (removing) throw new Error("Correction model removal is in progress");
     if (child && child.exitCode == null && port && token && ready) { scheduleIdle(); return; }
     if (starting) return await starting;
     const generation = lifecycleGeneration;
     const startPromise = (async () => {
       if (child && child.exitCode == null && port && token) {
         await prime(port, token);
+        if (generation !== lifecycleGeneration) throw new Error("Flux correction runtime start was cancelled");
         ready = true;
         scheduleIdle();
         return;
@@ -285,6 +290,11 @@ function createCorrectionRuntime({
         args.push("--gpu-layers", "all", "--flash-attn", "on");
       }
       const processRef = spawnImpl(serverFile(), args, { cwd: runtimeDir(), stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+      let spawnError = null;
+      processRef.once("error", (error) => {
+        spawnError = error; lastError = `Flux correction runtime failed to start: ${error.message}`;
+        if (child === processRef) { child = null; port = 0; token = ""; ready = false; }
+      });
       processRef.stderr.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-2_000); });
       processRef.once("exit", (code, signal) => {
         if (child === processRef) { child = null; port = 0; token = ""; ready = false; }
@@ -298,11 +308,17 @@ function createCorrectionRuntime({
       port = selectedPort;
       token = selectedToken;
       try {
-        await waitHealthy(selectedPort, selectedToken, processRef);
+        await Promise.race([
+          waitHealthy(selectedPort, selectedToken, processRef, generation),
+          new Promise((_, reject) => processRef.once("error", reject)),
+        ]);
+        if (spawnError) throw spawnError;
+        if (generation !== lifecycleGeneration || child !== processRef) throw new Error("Flux correction runtime start was cancelled");
         // `/health` means the model is loaded, not that the chat template can
         // emit our schema. Prime one tiny non-thinking completion before the UI
         // is allowed to call the provider warm.
         await prime(selectedPort, selectedToken);
+        if (generation !== lifecycleGeneration || child !== processRef) throw new Error("Flux correction runtime start was cancelled");
         ready = true;
         lastError = "";
         scheduleIdle();
@@ -350,27 +366,40 @@ function createCorrectionRuntime({
     }
   }
 
-  async function download(sender) {
+  function download(sender) {
+    if (installing || removing) return Promise.reject(new Error("Correction model installation/removal is already running"));
+    const operation = performDownload(sender);
+    installing = operation;
+    return operation.finally(() => { if (installing === operation) installing = null; });
+  }
+  async function performDownload(sender) {
     if (installController) throw new Error("The correction model download is already running");
     if (installed()) return status();
-    installController = new AbortController();
+    const controller = new AbortController();
+    installController = controller;
     const directory = modelDir();
     const partial = `${modelFile()}.part`;
     const emitProgress = (payload) => {
-      if (sender && typeof sender.send === "function") sender.send("correction:modelProgress", payload);
+      try { if (sender && !sender.isDestroyed?.() && typeof sender.send === "function") sender.send("correction:modelProgress", payload); } catch { /* install is app-owned */ }
     };
-    fs.mkdirSync(directory, { recursive: true });
     try {
+      fs.mkdirSync(directory, { recursive: true });
       let offset = 0;
       try { offset = fs.statSync(partial).size; } catch {}
       if (offset > model.bytes) { fs.truncateSync(partial, 0); offset = 0; }
-      let response = await fetchImpl(model.url, { headers: offset ? { range: `bytes=${offset}-` } : {}, signal: installController.signal, redirect: "follow" });
+      let response = await fetchImpl(model.url, { headers: offset ? { range: `bytes=${offset}-` } : {}, signal: controller.signal, redirect: "follow" });
       if (offset && response.status !== 206) {
         fs.truncateSync(partial, 0);
         offset = 0;
-        response = await fetchImpl(model.url, { signal: installController.signal, redirect: "follow" });
+        response = await fetchImpl(model.url, { signal: controller.signal, redirect: "follow" });
       }
       if (!response.ok || !response.body) throw new Error(`Model download failed: ${response.status} ${response.statusText}`);
+      if (response.status === 206) {
+        const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get("content-range") || "");
+        if (!range || Number(range[1]) !== offset || Number(range[2]) !== model.bytes - 1 || Number(range[3]) !== model.bytes) {
+          await response.body.cancel(); throw new Error("Model download returned an invalid resume range");
+        }
+      }
       let received = offset;
       const progress = new Transform({ transform(chunk, _encoding, callback) {
         received += chunk.length;
@@ -382,7 +411,7 @@ function createCorrectionRuntime({
         emitProgress({ modelId: model.id, received, total: model.bytes });
         callback(null, chunk);
       } });
-      await pipeline(Readable.fromWeb(response.body), progress, fs.createWriteStream(partial, { flags: offset ? "a" : "w" }), { signal: installController.signal });
+      await pipeline(Readable.fromWeb(response.body), progress, fs.createWriteStream(partial, { flags: offset ? "a" : "w" }), { signal: controller.signal });
       const stat = fs.statSync(partial);
       if (stat.size !== model.bytes) throw new Error(`Model size mismatch: expected ${model.bytes}, got ${stat.size}`);
       emitProgress({ modelId: model.id, received: stat.size, total: model.bytes, verifying: true });
@@ -391,6 +420,7 @@ function createCorrectionRuntime({
         fs.rmSync(partial, { force: true });
         throw new Error("Model checksum verification failed; the invalid partial file was removed");
       }
+      if (controller.signal.aborted || removing) throw controller.signal.reason || new Error("Model installation cancelled");
       fs.renameSync(partial, modelFile());
       atomicWrite(modelManifest(), JSON.stringify({ version: 1, ...model, verified: true, installedAt: new Date().toISOString() }, null, 2) + "\n");
       const installedStat = fs.statSync(modelFile());
@@ -399,11 +429,16 @@ function createCorrectionRuntime({
       emitProgress({ modelId: model.id, received: stat.size, total: model.bytes, complete: true });
       return status();
     } finally {
-      installController = null;
+      if (installController === controller) installController = null;
     }
   }
 
   async function remove() {
+    if (removing) throw new Error("Correction model removal is already running");
+    removing = true;
+    try {
+    installController?.abort(new Error("Correction model is being removed"));
+    await installing?.catch(() => {});
     await stop();
     const root = path.resolve(configRoot());
     const target = path.resolve(modelDir());
@@ -412,6 +447,7 @@ function createCorrectionRuntime({
     verifiedModelFingerprint = "";
     modelIntegrityFailed = false;
     return status();
+    } finally { removing = false; }
   }
 
   function status() {
@@ -444,6 +480,7 @@ function createCorrectionRuntime({
 
   async function shutdown() {
     installController?.abort(new Error("Flux is closing"));
+    await installing?.catch(() => {});
     await stop();
   }
 

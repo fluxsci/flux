@@ -1,3 +1,4 @@
+import { validateModel } from "./project/validate";
 // ---------------------------------------------------------------------------
 // Design presets — the user's machine-global library of reusable designs,
 // stored one JSON file per preset under <FluxConfig>/presets/designs/**
@@ -75,6 +76,8 @@ function sane(list: unknown): PresetEntry[] {
     if (!els.length) continue;
     if (els.length === 1 && !PRIMITIVES.has(els[0].type)) continue;
     if (els.length > 1 && !els.every((el) => GROUPABLE.has(el.type))) continue;
+    const model = { version:2, name:'preset', canvases:[{id:'preset-canvas',name:'Preset'}], figures:[{id:'preset-figure',canvasId:'preset-canvas',name:'Preset',x:0,y:0,width:100,height:100,elements:els,groups:p.groups}], assets:[],palette:[] };
+    if (validateModel(model).length) continue;
     out.push({ rel: e.rel, preset: p });
   }
   return out.sort((a, b) => a.rel.localeCompare(b.rel));

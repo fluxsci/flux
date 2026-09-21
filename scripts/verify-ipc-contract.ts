@@ -31,7 +31,7 @@ const familySrcs = await Promise.all(
     .filter((f) => f.endsWith(".cjs") && f !== "contract.cjs")
     .map((f) => fs.readFile(path.join(ipcDir, f), "utf8")),
 );
-const mainSrc = (await fs.readFile(path.join(root, "electron", "main.cjs"), "utf8")) + familySrcs.join("\n");
+const mainSrc = (await fs.readFile(path.join(root, "electron", "main.cjs"), "utf8")) + familySrcs.join("\n") + await fs.readFile(path.join(root, "electron", "guiLeases.cjs"), "utf8");
 // app:flush is pushed by the flush coordinator (appLifecycle.cjs) — pushes may
 // originate in any main-process module that holds webContents. (bridgeServer's
 // .send()s go to WebSocket clients, not renderers — deliberately excluded.)
@@ -46,7 +46,7 @@ const extract = (src: string, re: RegExp) => {
 };
 
 // Main side (newline-tolerant — win:isMaximized registers across lines).
-const mainHandle = extract(mainSrc, /\bipc(?:Main)?\.handle\(\s*"([^"]+)"/g);
+const mainHandle = extract(mainSrc, /\bipc(?:Main)?\.handle\(\s*["']([^"']+)["']/g);
 const mainOn = extract(mainSrc, /\bipc(?:Main)?\.on\(\s*"([^"]+)"/g);
 const mainPush = extract(mainSrc + lifecycleSrc, /\.send\(\s*"([^"]+)"/g); // webContents/wc/sender sends
 // ipcRenderer.send lines don't exist in main; every .send( here is a push site.
@@ -105,7 +105,7 @@ for (const c of CHANNELS) {
 if (!bad) ok(`all ${CHANNELS.length} declared channels are live on both sides (no orphans)`);
 
 // ---- 4. the registration wrapper is actually in force ----------------------------
-if (/wrapIpcMain\(rawIpcMain\)/.test(mainSrc) && /assertAllRegistered\(\)/.test(mainSrc))
+if (/wrapIpcMain\(rawIpcMain(?:\s*,|\))/.test(mainSrc) && /assertAllRegistered\(\)/.test(mainSrc))
   ok("main routes registration through the contract wrapper + asserts completeness at ready");
 else fail("main does not route ipcMain through the contract wrapper");
 

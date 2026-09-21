@@ -17,6 +17,8 @@ import * as os from "node:os";
 import * as store from "../src/lib/store";
 import * as ops from "../src/lib/ops";
 import { migrateProject, DEFAULT_TEXT_STYLES } from "../src/lib/migrate";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { Project, TextElement, TextStyle } from "../src/lib/types";
 
