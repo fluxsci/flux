@@ -5,7 +5,7 @@ import { lineRender, elementBBox, dashAttr } from "./geometry";
 import { pathRender } from "./path";
 import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
-import { visualLines, lineH } from "./text";
+import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
@@ -36,21 +36,48 @@ function op(e: Element): string {
   return e.opacity != null && e.opacity < 1 ? ` opacity="${e.opacity}"` : "";
 }
 
+/** One rendered line: its text plus the exact tspan attributes. `textLength` +
+ *  `lengthAdjust` are present only on a JUSTIFIED line (never on a paragraph's
+ *  last line — the typographic rule; text.ts blockLayout decides). */
+export interface TextSpan {
+  text: string;
+  x: number;
+  dy: number;
+  textLength?: number;
+}
+
 /** Shared text presentation for SVG serialization and cached slide bindings.
- * Values are unescaped; a serializer escapes them and DOM setters do not. */
-export function textSvgLayout(e: TextElement): { attrs: Record<string, string>; lines: string[]; x: number; advance: number } {
-  const anchor = e.align === "center" ? "middle" : e.align === "right" ? "end" : "start";
-  const x = e.align === "center" ? e.x + e.width / 2 : e.align === "right" ? e.x + e.width : e.x;
+ * Values are unescaped; a serializer escapes them and DOM setters do not.
+ * `lines`/`x`/`advance` remain the flat view for callers that only need the
+ * strings; `spans` carries the full arrangement (text.ts blockLayout). */
+export function textSvgLayout(e: TextElement): {
+  attrs: Record<string, string>;
+  lines: string[];
+  spans: TextSpan[];
+  x: number;
+  advance: number;
+} {
+  const L = blockLayout(e);
+  const track = letterSpacing(e);
   return {
     attrs: {
-      x: String(x), y: String(e.y + e.fontSize), "font-family": e.fontFamily,
+      x: String(L.x), y: String(L.baselineY), "font-family": e.fontFamily,
       "font-size": String(e.fontSize), "font-weight": String(e.fontWeight),
       ...(e.fontStyle === "italic" ? { "font-style": "italic" } : {}),
       ...(e.underline ? { "text-decoration": "underline" } : {}),
-      fill: passivePaint(e.color), "text-anchor": anchor,
+      ...(track ? { "letter-spacing": String(track) } : {}),
+      fill: passivePaint(e.color), "text-anchor": L.anchor,
       ...(e.opacity != null && e.opacity < 1 ? { opacity: String(e.opacity) } : {}),
     },
-    lines: visualLines(e), x, advance: lineH(e),
+    lines: L.lines.map((ln) => ln.text),
+    spans: L.lines.map((ln: LaidOutLine) => ({
+      text: ln.text,
+      x: L.x,
+      dy: ln.dy,
+      ...(ln.justifyWidth != null ? { textLength: ln.justifyWidth } : {}),
+    })),
+    x: L.x,
+    advance: lineH(e),
   };
 }
 
@@ -183,16 +210,20 @@ export function elementToSvg(
       return rot(e, s);
     }
     case "text": {
-      // visualLines = the GUI's wrap cache when present (sizing auto-h/fixed),
-      // else the hard lines — this ONE function also serves flux-core's
-      // headless renderFigureSvg, so wrapped output is identical everywhere.
-      const { attrs, lines, x, advance } = textSvgLayout(e);
+      // textSvgLayout wraps text.ts blockLayout: the GUI's wrap cache when
+      // present (sizing auto-h/fixed) else the hard lines, arranged by the
+      // element's align/valign/line-height/paragraph-spacing. This ONE function
+      // also serves flux-core's headless renderFigureSvg, so the arrangement is
+      // identical everywhere.
+      const { attrs, spans } = textSvgLayout(e);
       const P = elementPaints(e);
       if (P.defs.length) attrs.fill = P.fill;
-      const tspans = lines
+      const tspans = spans
         .map(
-          (ln, i) =>
-            `<tspan x="${x}" dy="${i === 0 ? 0 : advance}">${esc(ln)}</tspan>`,
+          (sp) =>
+            `<tspan x="${sp.x}" dy="${sp.dy}"` +
+            (sp.textLength != null ? ` textLength="${sp.textLength}" lengthAdjust="spacing"` : "") +
+            `>${esc(sp.text)}</tspan>`,
         )
         .join("");
       return rot(

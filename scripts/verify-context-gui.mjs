@@ -32,7 +32,10 @@ const key = (code, opts = {}) =>
 // --- 1. Context docs are first-class documents ------------------------------
 {
   const picker = await page.evaluate(() => {
-    const heads = [...document.querySelectorAll(".docpicker .dp-head")].map((h) => h.querySelector(".folder-label span")?.textContent?.trim());
+    // Read the folder's LABEL, not the whole head row: since b6a741b (the file
+    // browser upgrade, 2026-09-06) the row also carries the "+ New document"
+    // and "New folder" actions, so its textContent is "Context +".
+    const heads = [...document.querySelectorAll(".docpicker .dp-head .folder-label span")].map((h) => h.textContent?.trim());
     const items = [...document.querySelectorAll(".docpicker .dp-item")].map((b) => b.getAttribute("title"));
     return { heads, items };
   });

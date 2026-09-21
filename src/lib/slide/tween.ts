@@ -73,7 +73,8 @@ function completeRetyped(el: Record<string, unknown>): void {
 /** Scalar-lerp props (rotation is special-cased for shortest arc). */
 const NUM_PROPS = new Set([
   "x", "y", "width", "height", "opacity", "strokeWidth", "fontSize",
-  "cornerRadius", "lineHeight", "x1", "y1", "x2", "y2", "contentScale",
+  "cornerRadius", "lineHeight", "letterSpacing", "paragraphSpacing",
+  "x1", "y1", "x2", "y2", "contentScale",
   "arrowSize",
 ]);
 
@@ -83,7 +84,7 @@ const COLOR_PROPS = new Set(["fill", "stroke", "color"]);
 /** Text props whose change invalidates the wrap cache (`lines`). */
 const METRIC_PROPS = new Set([
   "text", "fontSize", "fontFamily", "fontWeight", "fontStyle", "width",
-  "sizing", "lineHeight", "underline",
+  "sizing", "lineHeight", "underline", "letterSpacing", "paragraphSpacing",
 ]);
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

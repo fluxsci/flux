@@ -3,7 +3,7 @@
 // confinement, cancellation and movie bytes have their own native gate.
 import assert from 'node:assert/strict';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { launch, gotoApp, clickMode, APP_URL, realErrors } from './lib/driver.mjs';
+import { launch, gotoApp, clickMode, APP_URL, realErrors, assertH264 } from './lib/driver.mjs';
 const fixture = new URL('./fixtures/slide-video-clips/', import.meta.url);
 const movie = readFileSync(new URL('moving-box.mp4', fixture)).toString('base64');
 const poster = readFileSync(new URL('poster.png', fixture)).toString('base64');
@@ -20,6 +20,7 @@ const query = async value => { await page.$eval('.search-in', (node, value) => {
 const read = () => page.evaluate(() => { const f = window.__flux; return f.slide.composedSlide(f.get(f.fig.activeFigureId)); });
 try {
   await gotoApp(page, { url: APP_URL + '?fixture=demo', settle: 200 });
+  await assertH264(page, 'the slide video clip gate');
   assert.ok(await clickMode(page, 'Slide', { settle: 200 }));
   await page.waitForFunction(() => !!window.__flux?.get(window.__flux.slide.deckOverlay));
   await page.evaluate(async ({ movie, poster }) => {

@@ -34,6 +34,9 @@ jobs:
           version: '1.7.32'
       - uses: browser-actions/setup-chrome@v1
         id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
       - name: Provision PDF dependencies before offline artifact checks
         run: |
           sudo apt-get update
@@ -80,8 +83,22 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # The Paper export GUI gate also validates real chosen-document artifacts.
+      # Jobs have separate filesystems, so the test job's Quarto is not shared.
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: '1.7.32'
+      # `chrome-version: latest` pulls a chromium-browser-snapshots build, which
+      # is compiled with ffmpeg_branding=Chromium — i.e. NO H.264/AAC decoder.
+      # Flux's video clips are deliberately H.264/AAC MP4 (electron/videoMedia.cjs
+      # prepares them that way, and Electron ships the codecs), so the slide-clip
+      # and gallery media gates hung there waiting for a decode that could never
+      # happen. `stable` installs a real Chrome build with the codecs in it.
       - uses: browser-actions/setup-chrome@v1
         id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
       - name: Start the dev server
         run: npm run dev &
       - name: Wait for the dev server on :1420

@@ -69,22 +69,27 @@ usage: flux <verb> [root] [args] [--flags]
   set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
             [--opacity n] [--color c] [--font-size n] [--font F] [--weight n]
             [--italic|--no-italic] [--underline|--no-underline]
-            [--line-height n] [--sizing auto|auto-h|fixed] [--align a]
+            [--line-height n] [--sizing auto|auto-h|fixed]
+            [--align left|center|right|justify] [--valign top|middle|bottom]
+            [--letter-spacing n] [--paragraph-spacing n]
             [--hidden|--show] [--locked|--unlock] [--name N]   set element style
   set-crop <id> --x n --y n --width n --height n [--root R]   crop an image/plot to a
             window (intrinsic content px; content stays pinned — the box follows)
   reset-crop <id> [--root R]           remove a crop (full content at current scale)
   toggle-text-style <bold|italic|underline> <id…> [--root R]   B/I/U toggle on texts
   add-fig-text <figId> "text…" [--x --y --width --height --size-pt n --weight n
-            --font F --color c --align a --sizing m] [--panel-label] [--root R]
+            --font F --color c --align a --valign v --letter-spacing n
+            --paragraph-spacing n --sizing m] [--panel-label] [--root R]
                                        add a figure text (--panel-label = a
                                        semantic panel label auto-label letters)
   text-styles [--root R] [--global]    list named text styles (project | machine library)
   create-text-style --name N [--from elId | --font F --size-pt n --weight n
-            --italic --underline --line-height n --color c --align a] [--root R]
+            --italic --underline --line-height n --color c --align a
+            --valign v --letter-spacing n --paragraph-spacing n] [--root R]
   update-text-style <styleId> [--name N --font F --size-pt n --weight n
             --italic|--no-italic --underline|--no-underline --line-height n
-            --color c --align a] [--root R]   patch (re-applies to linked texts)
+            --color c --align a --valign v --letter-spacing n
+            --paragraph-spacing n] [--root R]   patch (re-applies to linked texts)
   delete-text-style <styleId> [--root R]   delete (linked texts keep their look)
   apply-text-style <styleId> <id…> [--root R]   apply a named style to texts
   save-global-text-style <styleId> [--root R]   copy a project style → machine library
@@ -198,7 +203,7 @@ usage: flux <verb> [root] [args] [--flags]
   reorder-slides <deckId> --order a,b,c   set the slide order (exact permutation)
   set-slide <deckId> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]   patch a slide
   set-theme <deckId> <theme>           flux-dark|light|paper|midnight|slate|sepia|contrast
-  add-text <deckId> <slideId> "text…" [--x --y --width --height --align --color --size-pt|--font-size --weight --sizing]   add a figure text element
+  add-text <deckId> <slideId> "text…" [--x --y --width --height --align --valign --color --size-pt|--font-size --weight --sizing]   add a figure text element
   add-figure <deckId> <slideId> <figureId> [--x --y]   COPY a project figure's content onto a slide (fresh ids, native size)
   add-beat <deckId> <slideId> [--label L]   append a build/advance step
   add-video <deckId> <slideId> <plots/_videos/clip.mp4|.mov> [--x N --y N --width N --height N --muted --loop] [--root R]   import a video clip

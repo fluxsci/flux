@@ -26,6 +26,8 @@ import type {
   ImageElement,
   TextElement,
   TextStyle,
+  TextAlign,
+  TextVAlign,
   SemanticPlotElement,
   PathElement,
   VectorNode,
@@ -488,7 +490,10 @@ export interface TextOpts {
   fontStyle?: "normal" | "italic";
   underline?: boolean;
   lineHeight?: number;
-  align?: "left" | "center" | "right";
+  align?: TextAlign;
+  valign?: TextVAlign;
+  paragraphSpacing?: number;
+  letterSpacing?: number;
   color?: string;
   sizing?: "auto" | "auto-h" | "fixed";
   styleId?: Id;
@@ -511,8 +516,13 @@ export function makeText(text: string, b: Box, style: TextOpts = {}, panelLabel 
     ...(style.underline != null ? { underline: style.underline } : {}),
     ...(style.lineHeight != null ? { lineHeight: style.lineHeight } : {}),
     align: style.align ?? "left",
+    ...(style.valign != null ? { valign: style.valign } : {}),
+    ...(style.paragraphSpacing ? { paragraphSpacing: style.paragraphSpacing } : {}),
+    ...(style.letterSpacing ? { letterSpacing: style.letterSpacing } : {}),
     color: style.color ?? "#222222",
-    sizing: style.sizing ?? "auto",
+    // A justified text needs a wrap width (see setElementStyle) — an agent asking
+    // for justify without naming a sizing gets the wrapping kind.
+    sizing: style.sizing ?? (style.align === "justify" ? "auto-h" : "auto"),
     ...(style.styleId ? { styleId: style.styleId } : {}),
     ...(panelLabel ? { panelLabel: true } : {}),
   };
@@ -1324,7 +1334,13 @@ export interface ElementStylePatch {
   underline?: boolean;
   lineHeight?: number;
   sizing?: "auto" | "auto-h" | "fixed";
-  align?: "left" | "center" | "right";
+  align?: TextAlign;
+  /** Vertical arrangement in the box; "top" is the absence of the prop. */
+  valign?: TextVAlign;
+  /** Canvas px; 0 is the absence of the prop (files stay free of noise). */
+  paragraphSpacing?: number;
+  /** Canvas px tracking; 0 is the absence of the prop. May be negative. */
+  letterSpacing?: number;
   cornerRadius?: number;
   // line/arrow (figure-v1: Figma-parity stroke controls). Arrows also apply to
   // OPEN paths (same semantics).
@@ -1351,7 +1367,7 @@ export interface ElementStylePatch {
 // Patch keys that change text layout/metrics — a patch touching any of them
 // invalidates the derived wrap cache (`lines`); the GUI seams then reflow
 // (text.ts reflowTexts) while headless callers stay correct via the fallback.
-const TEXT_LAYOUT_KEYS = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "sizing"] as const;
+const TEXT_LAYOUT_KEYS = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "sizing", "letterSpacing", "paragraphSpacing"] as const;
 // Font-identity keys: manually editing one DETACHES a linked named style
 // (color/align detach only when the style actually defines them).
 const FONT_KEYS = new Set(["fontFamily", "fontSize", "fontWeight", "fontStyle", "underline", "lineHeight"]);
@@ -1367,13 +1383,19 @@ function invalidateTextLayout(e: Element): void {
   if (e.sizing === "auto-h" || e.sizing === "fixed") e.needsLayout = true;
 }
 
+// Optional named-style props: editing one detaches ONLY when the linked style
+// actually defines it (the color/align rule, extended to the arrangement props).
+const OPTIONAL_STYLE_KEYS = ["color", "align", "valign", "letterSpacing", "paragraphSpacing"] as const;
+
 /** Detach a linked named style when a manual edit overrides it: any font-prop
- *  key always detaches; color/align only if the linked style defines them. */
+ *  key always detaches; the optional props only if the linked style defines them. */
 export function detachOnManualEdit(p: Project, e: TextElement, keys: Iterable<string>): void {
   if (!e.styleId) return;
   const st = p.textStyles?.find((s) => s.id === e.styleId);
+  const definedOptional = (k: string) =>
+    (OPTIONAL_STYLE_KEYS as readonly string[]).includes(k) && (st as Record<string, unknown> | undefined)?.[k] != null;
   for (const k of keys) {
-    if (FONT_KEYS.has(k) || (k === "color" && st?.color != null) || (k === "align" && st?.align != null)) {
+    if (FONT_KEYS.has(k) || definedOptional(k)) {
       delete e.styleId;
       return;
     }
@@ -1425,7 +1447,34 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
         if (patch.underline != null) e.underline = patch.underline;
         if (patch.lineHeight != null) e.lineHeight = patch.lineHeight;
         if (patch.sizing != null) e.sizing = patch.sizing;
-        if (patch.align != null) e.align = patch.align;
+        if (patch.align != null) {
+          e.align = patch.align;
+          // Justification is defined against a WRAP WIDTH, and a hugging box has
+          // none — its width follows the text, so nothing ever wraps and the
+          // choice would be a silent no-op (the 2026-09-18 "justify does not
+          // work" report). Asking for it makes the box's current width authored
+          // (`auto-h`, the same flip a manual W applies in setBoxDim): nothing
+          // moves now — the hugged width still fits every line — but narrowing
+          // the box or typing on now wraps, and wrapped lines justify.
+          if (patch.align === "justify" && (e.sizing === "auto" || !e.sizing) && patch.sizing == null) {
+            e.sizing = "auto-h";
+            invalidateTextLayout(e);
+          }
+        }
+        // The arrangement props store their DEFAULT as absence, so a reset
+        // leaves the file exactly as it was before the property existed.
+        if (patch.valign != null) {
+          if (patch.valign === "top") delete e.valign;
+          else e.valign = patch.valign;
+        }
+        if (patch.paragraphSpacing != null) {
+          if (patch.paragraphSpacing === 0) delete e.paragraphSpacing;
+          else e.paragraphSpacing = patch.paragraphSpacing;
+        }
+        if (patch.letterSpacing != null) {
+          if (patch.letterSpacing === 0) delete e.letterSpacing;
+          else e.letterSpacing = patch.letterSpacing;
+        }
         if (layoutTouched) invalidateTextLayout(e);
         detachOnManualEdit(p, e, Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] != null));
       } else if (e.type === "line") {
@@ -1592,7 +1641,8 @@ export function textStyleById(p: Project, styleId: Id): TextStyle | null {
 }
 
 /** Write a named style's props onto a text element + link it. Optional props
- *  (underline/lineHeight/color/align) apply only when the style defines them. */
+ *  (underline/lineHeight/color/align/valign/letterSpacing/paragraphSpacing)
+ *  apply only when the style defines them. */
 function assignTextStyle(e: TextElement, st: TextStyle): void {
   e.fontFamily = st.fontFamily;
   e.fontSize = st.fontSize;
@@ -1602,6 +1652,9 @@ function assignTextStyle(e: TextElement, st: TextStyle): void {
   if (st.lineHeight != null) e.lineHeight = st.lineHeight;
   if (st.color != null) e.color = st.color;
   if (st.align != null) e.align = st.align;
+  if (st.valign != null) e.valign = st.valign;
+  if (st.letterSpacing != null) e.letterSpacing = st.letterSpacing;
+  if (st.paragraphSpacing != null) e.paragraphSpacing = st.paragraphSpacing;
   e.styleId = st.id;
   invalidateTextLayout(e); // metrics changed — GUI reflows, headless falls back
 }
@@ -1634,6 +1687,9 @@ export function textStyleFromElement(p: Project, elementId: Id, name: string): T
     ...(e.lineHeight != null ? { lineHeight: e.lineHeight } : {}),
     color: e.color,
     align: e.align,
+    ...(e.valign != null ? { valign: e.valign } : {}),
+    ...(e.letterSpacing != null ? { letterSpacing: e.letterSpacing } : {}),
+    ...(e.paragraphSpacing != null ? { paragraphSpacing: e.paragraphSpacing } : {}),
   });
   e.styleId = st.id;
   return st;

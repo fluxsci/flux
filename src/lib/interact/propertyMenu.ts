@@ -13,7 +13,7 @@
 // primary part; `mixed` flags a value that differs across the set.
 
 import { get } from "svelte/store";
-import type { Element, PartOverride, Project, SemanticPlotElement, TextStyle } from "../types";
+import type { Element, PartOverride, Project, SemanticPlotElement, TextAlign, TextStyle, TextVAlign } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { PartSelection } from "../store";
 import { project, mutate, drawStyle, xrayOpen, xrayRoot } from "../store";
@@ -295,12 +295,12 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
 
   // The dimension base (pre-edit W/H per element) is supplied by the caller
   // per activation — see `dimBase` on the menu; the applier reads it lazily.
-  const property = (name: NumericProperty) => {
+  const property = (name: NumericProperty, keyOverride?: string) => {
     const d = numericProperties[name];
     const value = propertyValue(els, name);
     if (!value.count) return;
     F.push({
-      key: d.key,
+      key: keyOverride ?? d.key,
       label: d.label,
       group: d.group,
       kind: "number",
@@ -495,8 +495,30 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     F.push({ key: "v", label: "italic", group: "Text", kind: "toggle", get: () => tEl.fontStyle === "italic", apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "italic"); reflowTexts(proj, list); }); } });
     F.push({ key: "2", label: "underline", group: "Text", kind: "toggle", get: () => !!tEl.underline, apply: () => { const list = [...sel]; mutate((proj) => { ops.toggleTextStyle(proj, list, "underline"); reflowTexts(proj, list); }); } });
     F.push({ key: "q", label: "font", group: "Text", kind: "select", options: ["Georgia", "Arial", "Helvetica", "Times New Roman", "Courier New", "Verdana"].map((x) => ({ value: x, label: x })), get: () => tEl.fontFamily, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.fontFamily = String(v); ops.detachOnManualEdit(proj, e, ["fontFamily"]); } }) });
-    F.push({ key: "3", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") { e.align = v as "left" | "center" | "right"; ops.detachOnManualEdit(proj, e, ["align"]); } }) });
+    // Through the shared op, not a bare `e.align =`: Justify on a hugging box
+    // also gives it a wrap width (ops.setElementStyle), and upd() re-wraps.
+    F.push({ key: "3", label: "align", group: "Text", kind: "select", options: [{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }, { value: "justify", label: "Justify" }], get: () => tEl.align, apply: (v) => upd((e, proj) => { if (e.type === "text") ops.setElementStyle(proj, [e.id], { align: v as TextAlign }); }) });
+    // Vertical arrangement only has room to act when the box is taller than the
+    // text — i.e. a FIXED box (auto/auto-h hug it) — so the row appears there,
+    // and wherever a value is already set.
+    if (tEl.sizing === "fixed" || tEl.valign != null)
+      F.push({
+        key: "6",
+        label: "vertical align",
+        group: "Text",
+        kind: "select",
+        options: [{ value: "top", label: "Top" }, { value: "middle", label: "Middle" }, { value: "bottom", label: "Bottom" }],
+        get: () => tEl.valign ?? "top",
+        apply: (v) => {
+          const list = [...sel];
+          mutate((proj) => ops.setElementStyle(proj, list, { valign: v as TextVAlign }));
+        },
+      });
     property("lineHeight");
+    property("letterSpacing");
+    // Paragraph spacing needs a second paragraph to be about anything. ('n' is
+    // the text colour's key in a mixed selection, so it yields there.)
+    if (tEl.text.includes("\n") || tEl.paragraphSpacing != null) property("paragraphSpacing", shapeEl ? "7" : undefined);
     F.push({
       key: "4",
       label: "sizing",

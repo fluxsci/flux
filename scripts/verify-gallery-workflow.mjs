@@ -3,7 +3,7 @@
 // No native project, machine configuration or running app is accessed.
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { launch, gotoApp, clickMode, APP_URL, waitFor, realErrors } from './lib/driver.mjs';
+import { launch, gotoApp, clickMode, APP_URL, waitFor, realErrors, assertH264 } from './lib/driver.mjs';
 
 const { browser, page } = await launch({ width: 1600, height: 1100 });
 const ROOT = '/demo/myc-growth-paper';
@@ -44,6 +44,7 @@ async function waitPreview(p) { await p.waitForSelector(previewSelector); await 
 async function measure(p, label, action) { await p.evaluate(() => { window.__galleryInputPaint = null; document.addEventListener('pointerdown', () => { const start = performance.now(); requestAnimationFrame(() => requestAnimationFrame(() => { window.__galleryInputPaint = performance.now() - start; })); }, { once: true, capture: true }); }); await action(); await waitFor(p, () => window.__galleryInputPaint !== null); timings.push({ label, ms: await p.evaluate(() => window.__galleryInputPaint) }); }
 try {
   await gotoApp(page, { url: new URL('?fixture=demo', APP_URL).href, settle: 200 });
+  await assertH264(page, 'the gallery video preview');
   check(await clickMode(page, 'Slide', { settle: 200 }), 'scratch Slide editor opens');
   await waitFor(page, () => !!window.__flux?.get(window.__flux.slide.deckOverlay));
   await page.evaluate(async ({ root, movie, poster }) => {

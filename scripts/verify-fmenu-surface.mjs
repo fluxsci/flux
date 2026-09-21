@@ -164,7 +164,9 @@ try {
   await page.keyboard.press("3");
   await sleep(120);
   const opts = await page.evaluate(() => [...document.querySelectorAll(".fluxFigMenu .field.opts-open .opt")].map((o) => o.textContent.trim().replace(/^\d/, "")));
-  ok(opts.length === 3 && /Right/.test(opts[2]), `align expands its options inline (${opts.join(" | ")})`);
+  // Left · Center · Right · Justify (the 2026-09-18 arrangement work added the
+  // fourth; `3` still picks the third, so the muscle memory is unchanged).
+  ok(opts.length === 4 && /Right/.test(opts[2]) && /Justify/.test(opts[3]), `align expands its options inline (${opts.join(" | ")})`);
   await page.keyboard.press("3");
   await sleep(150);
   m = await model();

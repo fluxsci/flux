@@ -4,10 +4,10 @@
 //      backdrop-close returns focus to the editor (focus-return discipline).
 //   B. IN-PAGE: materializeRenders() writes fig/renders/<id>.svg for the figures the doc
 //      embeds — round-tripped through the fixture bridge — and reports unknown ids.
-//   C. ARTIFACT: the docx flow flushes BEFORE quarto, materializes BEFORE quarto, propagates
-//      {ok:false,log} to an error toast (no false "Exported ✓"), threads the ACTIVE doc,
-//      offers Reveal; main.cjs contains docPath + verifies the artifact + fsGuards the
-//      reveal; flux-core compile() materializes renders for bare-quarto/agent parity.
+//   C. ARTIFACT: real Quarto compiles the chosen document to DOCX/HTML, verifies its
+//      saved content and unchanged authoring source, and preserves the previous output
+//      when a nominally successful compiler emits corrupt bytes. Section A also
+//      verifies that the GUI reports a render failure without a false success toast.
 // Run (dev server on :1420): node scripts/verify-paper-export.mjs
 import { spawnSync } from "node:child_process";
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL } from "./lib/driver.mjs";

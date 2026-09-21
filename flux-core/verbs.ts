@@ -68,6 +68,9 @@ const STYLE_KEYS = [
   "lineHeight",
   "sizing",
   "align",
+  "valign",
+  "letterSpacing",
+  "paragraphSpacing",
   "hidden",
   "locked",
   "name",
@@ -105,9 +108,12 @@ const TEXT_STYLE_PROPS = {
   underline: z.boolean().optional(),
   lineHeight: z.number().optional(),
   color: z.string().optional(),
-  align: z.enum(["left", "center", "right"]).optional(),
+  align: z.enum(["left", "center", "right", "justify"]).optional(),
+  valign: z.enum(["top", "middle", "bottom"]).optional(),
+  letterSpacing: z.number().optional(),
+  paragraphSpacing: z.number().optional(),
 };
-const TEXT_STYLE_KEYS = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "underline", "lineHeight", "color", "align"];
+const TEXT_STYLE_KEYS = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "underline", "lineHeight", "color", "align", "valign", "letterSpacing", "paragraphSpacing"];
 // The CLI flag spellings for those props (points → px on the CLI).
 const textStyleFlags: CliArgSpec[] = [
   { kind: "flag", at: "font", into: "fontFamily" },
@@ -120,6 +126,9 @@ const textStyleFlags: CliArgSpec[] = [
   { kind: "flag", at: "line-height", into: "lineHeight", as: "number" },
   { kind: "flag", at: "color", into: "color" },
   { kind: "flag", at: "align", into: "align" },
+  { kind: "flag", at: "valign", into: "valign" },
+  { kind: "flag", at: "letter-spacing", into: "letterSpacing", as: "number" },
+  { kind: "flag", at: "paragraph-spacing", into: "paragraphSpacing", as: "number" },
 ];
 
 // Bezier node schema (add_path / edit_path).
@@ -232,7 +241,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-style",
     cliRoot: "flags",
     summary:
-      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing/align), stroke dash (--dash 6,4 in canvas px; --solid clears), arrowheads for lines AND open paths (--arrow-start/--arrow-end/--no-arrow-*, --arrow-style filled|vee, --arrow-size ×width), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
+      "Set element-level style on element ids: fill/stroke/strokeWidth/opacity/color/fontSize (canvas px = pt × 4/3), text props (fontFamily/fontWeight/fontStyle/underline/lineHeight/sizing) and the arrangement of the text inside its box (align left|center|right|justify, valign top|middle|bottom — visible while the box is taller than the text, letterSpacing and paragraphSpacing in canvas px), stroke dash (--dash 6,4 in canvas px; --solid clears), arrowheads for lines AND open paths (--arrow-start/--arrow-end/--no-arrow-*, --arrow-style filled|vee, --arrow-size ×width), plus hidden (omit from canvas + export), locked (not editable on canvas), and name (Layers label).",
     params: {
       ids: z.array(z.string()),
       fill: z.string().optional(),
@@ -247,7 +256,10 @@ export const VERBS: VerbDef[] = [
       underline: z.boolean().optional(),
       lineHeight: z.number().optional(),
       sizing: z.enum(["auto", "auto-h", "fixed"]).optional(),
-      align: z.enum(["left", "center", "right"]).optional(),
+      align: z.enum(["left", "center", "right", "justify"]).optional(),
+      valign: z.enum(["top", "middle", "bottom"]).optional(),
+      letterSpacing: z.number().optional(),
+      paragraphSpacing: z.number().optional(),
       hidden: z.boolean().optional(),
       locked: z.boolean().optional(),
       name: z.string().optional(),
@@ -282,6 +294,9 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "line-height", into: "lineHeight", as: "number" },
       { kind: "flag", at: "sizing", into: "sizing" },
       { kind: "flag", at: "align", into: "align" },
+      { kind: "flag", at: "valign", into: "valign" },
+      { kind: "flag", at: "letter-spacing", into: "letterSpacing", as: "number" },
+      { kind: "flag", at: "paragraph-spacing", into: "paragraphSpacing", as: "number" },
       { kind: "flag", at: "hidden", into: "hidden", const: true },
       { kind: "flag", at: "show", into: "hidden", const: false },
       { kind: "flag", at: "locked", into: "locked", const: true },
@@ -746,7 +761,7 @@ export const VERBS: VerbDef[] = [
     cli: "add-fig-text",
     cliRoot: "flags",
     summary:
-      "Add a text element to a FIGURE (fontSize in canvas px = pt × 4/3; sizing auto = box hugs text, auto-h = wrap at width, fixed = pinned box). panelLabel: true creates a semantic panel label (bold 8 pt, letterable by auto_label).",
+      "Add a text element to a FIGURE (fontSize in canvas px = pt × 4/3; sizing auto = box hugs text, auto-h = wrap at width, fixed = pinned box; align left|center|right|justify, valign top|middle|bottom, letterSpacing/paragraphSpacing in canvas px). panelLabel: true creates a semantic panel label (bold 8 pt, letterable by auto_label).",
     params: {
       figureId: z.string(),
       text: z.string(),
@@ -759,7 +774,10 @@ export const VERBS: VerbDef[] = [
       fontWeight: z.number().optional(),
       fontFamily: z.string().optional(),
       color: z.string().optional(),
-      align: z.enum(["left", "center", "right"]).optional(),
+      align: z.enum(["left", "center", "right", "justify"]).optional(),
+      valign: z.enum(["top", "middle", "bottom"]).optional(),
+      letterSpacing: z.number().optional(),
+      paragraphSpacing: z.number().optional(),
       sizing: z.enum(["auto", "auto-h", "fixed"]).optional(),
     },
     cliArgs: [
@@ -775,13 +793,16 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "font", into: "fontFamily" },
       { kind: "flag", at: "color", into: "color" },
       { kind: "flag", at: "align", into: "align" },
+      { kind: "flag", at: "valign", into: "valign" },
+      { kind: "flag", at: "letter-spacing", into: "letterSpacing", as: "number" },
+      { kind: "flag", at: "paragraph-spacing", into: "paragraphSpacing", as: "number" },
       { kind: "flag", at: "sizing", into: "sizing" },
     ],
     handler: (ctx, a) =>
       core.addFigText(
         ctx.root,
         s(a.figureId),
-        pick(a, ["text", "panelLabel", "x", "y", "width", "height", "fontSize", "fontWeight", "fontFamily", "color", "align", "sizing"]) as unknown as Parameters<typeof core.addFigText>[2],
+        pick(a, ["text", "panelLabel", "x", "y", "width", "height", "fontSize", "fontWeight", "fontFamily", "color", "align", "valign", "letterSpacing", "paragraphSpacing", "sizing"]) as unknown as Parameters<typeof core.addFigText>[2],
       ),
     render: {
       human: (r) => ({ out: (r as { id: string }).id }),
@@ -2439,7 +2460,8 @@ export const VERBS: VerbDef[] = [
       y: z.number().optional(),
       width: z.number().optional(),
       height: z.number().optional(),
-      align: z.enum(["left", "center", "right"]).optional(),
+      align: z.enum(["left", "center", "right", "justify"]).optional(),
+      valign: z.enum(["top", "middle", "bottom"]).optional(),
       color: z.string().optional(),
       fontSize: z.number().optional(),
       fontWeight: z.number().optional(),
@@ -2455,6 +2477,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "width", into: "width", as: "number" },
       { kind: "flag", at: "height", into: "height", as: "number" },
       { kind: "flag", at: "align", into: "align" },
+      { kind: "flag", at: "valign", into: "valign" },
       { kind: "flag", at: "color", into: "color" },
       { kind: "flag", at: "font-size", into: "fontSize", as: "number" },
       { kind: "flag", at: "size-pt", into: "fontSize", as: "ptToPx" },
@@ -2468,7 +2491,8 @@ export const VERBS: VerbDef[] = [
         y: a.y as number | undefined,
         width: a.width as number | undefined,
         height: a.height as number | undefined,
-        align: a.align as "left" | "center" | "right" | undefined,
+        align: a.align as "left" | "center" | "right" | "justify" | undefined,
+        valign: a.valign as "top" | "middle" | "bottom" | undefined,
         color: a.color as string | undefined,
         fontSize: a.fontSize as number | undefined,
         fontWeight: a.fontWeight as number | undefined,

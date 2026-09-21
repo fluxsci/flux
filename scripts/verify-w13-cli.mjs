@@ -9,7 +9,7 @@
 // prebaked sidecar.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync, rmSync, mkdirSync, copyFileSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, rmSync, mkdirSync, copyFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,12 +37,26 @@ try {
   if (head.startsWith("#!/usr/bin/env node\n")) ok("bundle has a line-1 plain-node shebang");
   else bad("shebang", JSON.stringify(head.slice(0, 30)));
 
-  // 2. help cold-start < 150ms ------------------------------------------------
-  const t0 = Date.now();
-  node([CLI, "help"], { stdio: "ignore" });
-  const dt = Date.now() - t0;
-  if (dt < 150) ok(`flux help cold start ${dt}ms (<150ms)`);
-  else bad("help cold start", `${dt}ms`);
+  // 2. help cold-start <150ms, including Node startup -------------------------
+  // Keep the original absolute responsiveness budget. A bare-Node control is
+  // diagnostic context for a slow host, not permission to subtract startup cost
+  // or select only the fastest CLI sample. Measure the first help invocation.
+  const timed = (args) => {
+    const t0 = Date.now();
+    node(args, { stdio: "ignore" });
+    return Date.now() - t0;
+  };
+  const control = Math.min(...Array.from({ length: 3 }, () => timed(["-e", ""])));
+  const dt = timed([CLI, "help"]);
+  const over = dt - control;
+  const timing = `${dt}ms (bare node ${control}ms; overhead ${over}ms; budget <150ms)`;
+  if (dt < 150) ok(`flux help cold start ${timing}`);
+  else bad("help cold start", timing);
+  // The structural companion to that timing: a heavy import shows up as bytes
+  // long before it shows up as milliseconds, and bytes do not depend on load.
+  const bundleMB = statSync(CLI).size / (1024 * 1024);
+  if (bundleMB < 8) ok(`bundle is ${bundleMB.toFixed(1)} MB (<8 MB — no accidental heavyweight import)`);
+  else bad("bundle size", `${bundleMB.toFixed(1)} MB`);
 
   // 3. scaffold → deck → slide → export (through the bundle) -------------------
   node([CLI, "new", PROJ, "--title", "W13"], { stdio: "ignore" });

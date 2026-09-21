@@ -100,14 +100,19 @@ export function createDrawElement(
   }
 }
 
-export function createTextElement(p: Pt, style: DrawStyle): Element {
+/** The T tool's element. A CLICK makes a hugging box (`auto`: the box follows
+ *  the text, no wrapping — a label). A DRAG makes a PARAGRAPH box: `auto-h`
+ *  at the dragged width, so typing wraps there and the height follows — the
+ *  Figma click/drag split, and the only way to author a wrap width up front
+ *  (justification and vertical alignment act on a box that wraps). */
+export function createTextElement(p: Pt, style: DrawStyle, box?: { width: number; height: number }): Element {
   const el: Element = {
     type: "text",
     id: newId("text"),
     x: p.x,
     y: p.y,
-    width: 240,
-    height: style.fontSize * 1.4,
+    width: box ? Math.max(8, box.width) : 240,
+    height: box ? Math.max(style.fontSize * 1.4, box.height) : style.fontSize * 1.4,
     rotation: 0,
     text: "Text",
     fontFamily: style.fontFamily,
@@ -116,7 +121,7 @@ export function createTextElement(p: Pt, style: DrawStyle): Element {
     fontStyle: "normal",
     align: "left",
     color: style.textColor,
-    sizing: "auto",
+    sizing: box ? "auto-h" : "auto",
   };
   applyTextLayout(el);
   return el;
@@ -308,12 +313,15 @@ export function scaleRemap(e: Element, orig: Element, ob: Rect, nb: Rect) {
   const sy = ob.h === 0 ? 1 : nb.h / ob.h;
   const s = ob.w !== 0 ? sx : sy || (sx + sy) / 2;
   if (e.type === "text" && orig.type === "text") {
-    // K scales text fully: box AND font together (wrap points stay put). The
-    // sizing mode is untouched — scaling is not a mode change.
+    // K scales the box, font and pixel spacing together (wrap points stay put).
+    // Dimensionless lineHeight and sizing stay untouched. Preserve absent
+    // spacing defaults so historical text does not acquire extra properties.
     const ob2 = elementBBox(orig);
     e.x = nb.x + (ob2.x - ob.x) * sx;
     e.y = nb.y + (ob2.y - ob.y) * sy;
     e.fontSize = Math.max(2, orig.fontSize * s);
+    if (orig.letterSpacing != null) e.letterSpacing = orig.letterSpacing * s;
+    if (orig.paragraphSpacing != null) e.paragraphSpacing = orig.paragraphSpacing * s;
     e.width = Math.max(1, orig.width * sx);
     e.height = Math.max(1, orig.height * sy);
     applyTextLayout(e); // headless-safe (drops the stale wrap cache)

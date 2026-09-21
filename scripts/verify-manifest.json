@@ -281,7 +281,8 @@
       "verify-cellpress-helpers.cjs",
       "verify-v020-native-video-launch.cjs",
       "verify-recovery-entry.ts",
-      "verify-eyedropper.ts"
+      "verify-eyedropper.ts",
+      "verify-text-arrange.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -404,7 +405,8 @@
       "verify-v020-morph-startup.mjs",
       "verify-library-world-ownership.mjs",
       "verify-canvas-zoom-raster.mjs",
-      "verify-eyedropper-gui.mjs"
+      "verify-eyedropper-gui.mjs",
+      "verify-text-arrange-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -733,10 +735,31 @@
       "verify-docs.ts",
       "verify-fmenu-surface.mjs",
       "figenh-14-partui.mjs"
+    ],
+    "main-merge-ui": [
+      "verify-text-arrange-gui.mjs",
+      "verify-text-resize.mjs",
+      "verify-text-biu.mjs",
+      "verify-text-styles.mjs",
+      "verify-gallery-workflow.mjs",
+      "verify-slide-video-clips-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "$why": "2026-09-18 text arrangement — text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
+      "glob": "{src/lib/text.ts,src/lib/export.ts}",
+      "run": [
+        "verify-text-arrange.ts",
+        "verify-text-wrap.ts",
+        "verify-text-parity.ts",
+        "verify-text-arrange-gui.mjs",
+        "verify-text-resize.mjs",
+        "verify-slide-export-parity.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "{src/lib/color/eyedropper.ts,src/lib/ColorPicker.svelte,electron/ipc/colorPicker*}",
       "run": [
@@ -1027,7 +1050,8 @@
         "verify-slide-canvas-presentation-gui.mjs",
         "verify-scale-figure.mjs",
         "verify-crisp.mjs",
-        "verify-vanilla-inline.mjs"
+        "verify-vanilla-inline.mjs",
+        "verify-text-arrange-gui.mjs"
       ]
     },
     {
@@ -1045,7 +1069,8 @@
         "group:slide-stash",
         "verify-render-optimizations.mjs",
         "verify-canvas-coverage.mjs",
-        "verify-canvas-zoom-raster.mjs"
+        "verify-canvas-zoom-raster.mjs",
+        "verify-text-arrange-gui.mjs"
       ]
     },
     {
@@ -3858,7 +3883,8 @@
     "verify-paper-export.mjs": {
       "runtime": "tsx",
       "prerequisites": [
-        "server"
+        "server",
+        "quarto"
       ],
       "externalNetwork": false,
       "isolation": "scratch",
@@ -6523,6 +6549,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 90000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-text-arrange.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-arrange-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

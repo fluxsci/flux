@@ -13,6 +13,9 @@ await fs.mkdir(path.join(config,'FluxLib'),{recursive:true});await fs.mkdir(path
 await fs.writeFile(path.join(scratch,'xdg','flux','preferences.json'),JSON.stringify({fluxConfigPath:config}));
 const env={...process.env,XDG_CONFIG_HOME:path.join(scratch,'xdg'),XDG_CACHE_HOME:path.join(scratch,'cache'),FLUX_NO_MIGRATE:'1'};
 const run=args=>spawnSync(process.execPath,args,{env,encoding:'utf8',timeout:60000});
+// This gate renders through real Quarto (HTML/DOCX/PDF). The runner declares
+// Quarto, TeX and Chrome prerequisites and reports missing tools as blocked;
+// CI provisions them before running this gate. A missing tool is never a pass.
 let browser;
 try {
   await fs.rm(root,{recursive:true,force:true});

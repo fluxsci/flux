@@ -41,7 +41,8 @@ export interface Project {
 // stored in canvas px (pt × 4/3), the same storage unit as TextElement.fontSize.
 // Elements link via `styleId` (live: editing the style re-applies to linked
 // elements; a manual font edit on an element detaches it). Optional props
-// (underline/lineHeight/color/align) apply only when defined.
+// (underline/lineHeight/color/align/valign/letterSpacing/paragraphSpacing)
+// apply only when defined.
 export interface TextStyle {
   id: Id;
   name: string;
@@ -52,8 +53,18 @@ export interface TextStyle {
   underline?: boolean;
   lineHeight?: number;
   color?: string;
-  align?: "left" | "center" | "right";
+  align?: TextAlign;
+  valign?: TextVAlign;
+  letterSpacing?: number; // canvas px
+  paragraphSpacing?: number; // canvas px
 }
+
+/** Horizontal arrangement of the visual lines inside the text box. "justify"
+ *  stretches every line but the last of each paragraph to the box width. */
+export type TextAlign = "left" | "center" | "right" | "justify";
+/** Vertical arrangement of the text block inside the box (text.ts blockLayout).
+ *  Only observable when the box is taller than the text — i.e. sizing "fixed". */
+export type TextVAlign = "top" | "middle" | "bottom";
 
 // A canvas = an infinite 2-D page that holds figures (like a Figma page).
 export interface Canvas {
@@ -233,7 +244,19 @@ export interface TextElement extends ElementBase {
   // Line height as a multiple of fontSize (CSS-style). Default 1.2 (text.ts
   // LINE_HEIGHT) — the one source; render/export/editor all use lineH(el).
   lineHeight?: number;
-  align: "left" | "center" | "right";
+  align: TextAlign;
+  // --- arrangement inside the box (text.ts blockLayout is the ONE source) ---
+  // Vertical placement of the whole block in the box. Absent = "top" (the
+  // historical behaviour), and only observable while the box is taller than
+  // the text, i.e. sizing "fixed".
+  valign?: TextVAlign;
+  // Extra advance in canvas px added BEFORE each new paragraph (a hard "\n"
+  // break), on top of the line height. Absent/0 = paragraphs read as lines.
+  paragraphSpacing?: number;
+  // Tracking in canvas px, added after every glyph (CSS/SVG letter-spacing
+  // semantics). May be negative. Absent/0 = the font's own metrics; it is a
+  // WRAP METRIC, so wrapping measures with it.
+  letterSpacing?: number;
   color: string;
   /** Colormap gradient painting the glyphs (wins over `color` while set). */
   fillMap?: GradientFill | null;
