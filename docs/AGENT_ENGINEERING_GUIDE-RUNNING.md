@@ -6059,3 +6059,32 @@ summary, bundled-toolchain design, unsigned Mac installation/update qualificatio
 distribution, CI/release evidence, implementation sequence, and maintenance/recovery rules.
 Read the active fortification release seams without modifying that worktree. Recorded the
 owner's no-paid-Apple constraint in §10; application code and release infrastructure unchanged.
+
+
+### 2026-09-21 18:54 UTC — Main integration with current upstream text and CI work
+
+Combined fortification/zoom/eyedropper through `acd1ff3`, upstream through `7d90525`,
+and the owner's existing guide/distribution-policy edits, preserving both histories.
+Resolved export/schema/verification overlaps without losing passive SVG, atomic edits,
+zoom demotion or text arrangement. Fixed proportional K scaling of the new pixel-valued
+tracking/paragraph metrics, with an oracle that failed before the correction. Retained
+the first-help150ms gate; missing external tools remain blocked rather than passed.
+
+Frozen `0c08288`: pure281/281; Paper64 + display21 + merged UI6 =91/91;
+context/Paper export2/2; Figure/Slides scale3/3. All cohorts keep unchanged source.
+Renderer0 errors/0 warnings; headless/build pass. Bundle/startup4/5: only the previously
+known signed Firefox background mismatch fails (maintainer re-signing required).
+Native Word bytes/XML and PNG fallback inspected: captured3.25/old reference/blue figure
+survive later live edits; all24 trusted input samples≤46ms; five kill/reopen barriers pass.
+Sharpness1.000, dense-wheel p9516.7ms. Ungated 5k-edit142.8ms/dense-plot137ms tails are
+recorded, not described as universal100ms compliance. Exact evidence and first failures
+are in `docs/V020_IMPLEMENTATION_PROGRESS.md`'s integration entry.
+
+Final screenshot review also repaired the inherited text-arrangement fixture: it now uses
+a normally scaffolded blank project, retaining reference protection and adding exact saved
+layout checks. Focused rerun1/1 passes at `0d08a60`; the saved screenshot is clean.
+
+Validation uses a separate integration worktree/install; existing Electron processes and
+the fortification checkout are untouched. Main receives the validated history and current
+build/dependencies. No push, release, signing or unavailable platform claim. The final
+integration documentation commit does not change tested product code.
