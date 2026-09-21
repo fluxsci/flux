@@ -22,6 +22,13 @@ const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails++, consol
 const { browser, page } = await launch({ width: 1500, height: 950 });
 try {
   await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
+  // The demo manuscript cites its panels. Replacing them with text would
+  // correctly refuse autosave; use a real blank project for this fixture.
+  await page.evaluate(async () => {
+    const { scaffoldProject } = await import('/src/lib/project/scaffold.ts');
+    const root = await scaffoldProject('/demo/text-arrange', { title: 'Text arrangement' });
+    await window.__flux.shell.openProjectAt(root);
+  });
   await clickMode(page, "Figure");
   await sleep(700);
 
@@ -322,6 +329,13 @@ try {
   await sleep(300);
   clicked = (await texts()).at(-1);
   ok(clicked.sizing === "auto" && clicked.align === "left" && clicked.width === hugWidth, "two undos return the hugging label exactly");
+  const saved = await page.evaluate(async () => {
+    const result = await window.__flux.lifecycle.flushAll();
+    const canvas = JSON.parse(await window.fig.readText('/demo/text-arrange/fig/canvases/canvas-1.json'));
+    return { ok: result.ok, elements: canvas.figures[0].elements };
+  });
+  ok(saved.ok, 'the text arrangement fixture saves without a reference-safety refusal');
+  ok(JSON.stringify(saved.elements) === JSON.stringify(await texts()), 'saved canvas bytes retain the final text layout after undo');
   await shot(page, "text-arrange-03-ttool");
 
   const errs = realErrors(page);
