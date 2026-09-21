@@ -1,3 +1,10 @@
+import { generationBridgeIO } from "./generationBridgeIO";
+import { withIpcLock } from "../references/libLock";
+import { preparePlot } from "../plot/parse";
+import { updateManifest } from "./manifestBridge";
+import { decodeManifest } from "./manifestTransaction";
+import { commitDeckGeneration } from "./deckGeneration";
+import { recoverTextGeneration, bytesToBase64, type GenerationWrite, type TextGenerationIO } from "./textGeneration";
 // ---------------------------------------------------------------------------
 // slideBridge — adapter between the LIVE editing stores and the project's
 // `slides/` subsystem. Slides-are-figures: a deck's static content loads into
@@ -15,15 +22,15 @@ import { fileBridge, joinPath, type ProjectManifest } from "./types";
 import type { Asset } from "../types";
 import type { Deck } from "../slide/types";
 import { createDeck as createDeckModel, normalizeDeck } from "../slide/ops";
-import { validateDeckFile, sanitizeProjectGeometry } from "./validate";
+import { validateDeckFile } from "./validate";
 import { quarantineCopy } from "./quarantine";
 import { pushToast } from "../toast";
 import { isNewerSchema, newerSchemaMessage } from "./types";
 import { DECK_SCHEMA_VERSION } from "../slide/types";
 import { loadDeckModel, currentDeck, externalAssetIds, commitDeckLive, replaceResolvedDeckAssets } from "../slide/store";
-import { project as figProject, embeddedProjectRoot, editGen, dirty as figDirty } from "../store";
+import { project as figProject, embeddedProjectRoot, editGen, capturePersistenceGeneration, dirty as figDirty } from "../store";
 import { assertStoreTenant, storeTenant } from "../tenancy";
-import { assetData, bytesToDataUrl, dataUrlToBytes, mimeFor, isAssetDirty, clearAssetDirty, clearAllAssetsDirty } from "../assets";
+import { assetData, bytesToDataUrl, dataUrlToBytes, mimeFor, isAssetDirty, assetDirtyGeneration, clearAssetDirty, clearAllAssetsDirty } from "../assets";
 import { cachePlot, clearPlots, hasPlotDom, plotManifests, plotRecipes, plotDom } from "../plot/store";
 import { captureSnipMeta } from "../snipMeta";
 import { isDerivedManifest } from "../plot/derive";
@@ -31,7 +38,7 @@ import { svgIntrinsicPx } from "../plot/compensate";
 import { plotSourceCandidates, toProjectRelativeSource } from "../plot/source";
 import type { FluxPlotManifest } from "../plot/types";
 import { ConflictError } from "../autosave";
-import { planSourceUpdates, writeSourceUpdates } from "../plot/sourceSync";
+import { planSourceUpdates, writeSourceUpdates, type SourceUpdate } from "../plot/sourceSync";
 import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../slide/sourceSync";
 import { bumpSlideEmbeds } from "../../shell/scholar/revisions";
 import { readProjectDependencies, slideRemovalBlocker } from "./dependencies";
@@ -48,11 +55,49 @@ export interface DeckListItem {
 const stamp = () => new Date().toISOString();
 const deckRel = (deckId: string) => `slides/${deckId}/deck.json`;
 
+/** IO and locking only; the publication policy is shared with Node. */
+const deckGenerationIO = generationBridgeIO;
+async function withDeckMutation<T>(root: string, fn: (assertOwned: () => Promise<void>) => Promise<T>): Promise<T> {
+  return withIpcLock("project", "project", projectLease => withIpcLock("project", "slides", async slideLease => {
+    const assertOwned = async () => { await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
+    await withIpcLock("project", "manifest", async manifestLease => { await recoverTextGeneration(deckGenerationIO(root),async()=>{await assertOwned();await manifestLease.assertOwned?.()}); }, { root });
+    return fn(assertOwned);
+  }, { root }), { root });
+}
+async function persistDeckCandidate(root: string, deck: Deck, writes: ReadonlyMap<string, GenerationWrite>, assertOwned: () => Promise<void>, evidence?: { path: string; text: string | null }) {
+  return withIpcLock("project", "manifest", manifestLease => commitDeckGeneration(deckGenerationIO(root), deck, {
+    writes, ...(evidence ? { expectedPath: evidence.path.slice(root.replace(/\/$/, "").length + 1), expectedText: evidence.text } : {}),
+    assertOwned: async () => { await assertOwned(); await manifestLease.assertOwned?.(); },
+  }), { root });
+}
+async function sourceWrites(root: string, deck: Deck, updates: readonly SourceUpdate[]): Promise<Map<string, GenerationWrite>> {
+  const writes = new Map<string, GenerationWrite>();
+  const relative = (abs: string) => abs.slice(root.replace(/\/$/, "").length + 1);
+  await writeSourceUpdates(root, updates, { writeText: async (p,t) => { writes.set(relative(p),t); }, remove: async p => { writes.set(relative(p),null); } }, deckSourceProject(deck), { assetBase: `slides/${deck.id}` });
+  return writes;
+}
+function stagedDeckReader(root: string, writes: ReadonlyMap<string, GenerationWrite>) {
+  const fb = fileBridge()!, relative = (p: string) => p.startsWith(root + "/") ? p.slice(root.length + 1) : "";
+  const bytes = (value: GenerationWrite | undefined) => {
+    if (value == null) throw new Error("Staged asset is absent");
+    return typeof value === "string" ? new TextEncoder().encode(value) : Uint8Array.from(atob(value.base64), c => c.charCodeAt(0));
+  };
+  return { ...fb,
+    exists: async (p: string) => writes.has(relative(p)) ? writes.get(relative(p)) !== null : fb.exists(p),
+    readText: async (p: string) => writes.has(relative(p)) ? new TextDecoder().decode(bytes(writes.get(relative(p)))) : fb.readText(p),
+    readFile: async (p: string) => writes.has(relative(p)) ? bytes(writes.get(relative(p))).buffer as ArrayBuffer : fb.readFile(p),
+  };
+}
+function sourceFingerprint(deck: Deck): string {
+  return JSON.stringify({ assets: deck.assets, sources: deck.slides.map(s => ({ id: s.id, elements: s.elements.filter(e => e.type === "plot").map(e => ({ id: e.id, assetId: e.assetId, source: e.source })), tracks: s.beats.flatMap(b => b.tracks.filter(t => t.to?.assetId).map(t => ({ id: t.id, target: t.target, assetId: t.to!.assetId, svgPath: t.to!.svgPath, manifestPath: t.to!.manifestPath, recipePath: t.to!.recipePath, external: t.to!.external, frozen: t.to!.frozen }))) })) });
+}
+
 // Divergence guard (fig/'s baseline mechanism, mirrored). Keyed by absolute
 // deck path (deck ids repeat across projects); seeded at read, adopted after
 // every save. saveDeckFrom compares disk against it and throws ConflictError
 // instead of clobbering an external (agent/CLI) edit.
 const deckBaseline = new Map<string, string>();
+const deckReadEvidence = new WeakMap<Deck, { path: string; text: string }>();
 
 async function readDeckText(
   fig: NonNullable<ReturnType<typeof fileBridge>>,
@@ -79,21 +124,8 @@ export async function deckDiskDiverged(root: string, deckId: string): Promise<bo
 
 async function readManifest(root: string): Promise<ProjectManifest | null> {
   const fig = fileBridge();
-  if (!fig) return null;
-  try {
-    const p = joinPath(root, "project.json");
-    if (await fig.exists(p)) return JSON.parse(await fig.readText(p)) as ProjectManifest;
-  } catch {
-    /* unreadable manifest */
-  }
-  return null;
-}
-
-async function writeManifest(root: string, m: ProjectManifest): Promise<void> {
-  const fig = fileBridge();
-  if (!fig) return;
-  m.modified = stamp();
-  await fig.writeText(joinPath(root, "project.json"), JSON.stringify(m, null, 2) + "\n");
+  if (!fig || !await fig.exists(joinPath(root, 'project.json'))) return null;
+  return decodeManifest(await fig.readText(joinPath(root, 'project.json')));
 }
 
 /** The project's decks (from project.json.slides[]), enriched with title +
@@ -153,8 +185,8 @@ export async function readDeck(root: string, deckId: string): Promise<Deck | nul
         });
         return null;
       }
-      bumpSlideEmbeds();
-  deckBaseline.set(joinPath(root, rel), text); // what we believe is on disk
+      if (deck.id !== deckId) throw new Error("Deck identity does not match its registration");
+      deckReadEvidence.set(deck, { path: joinPath(root, rel), text });
       return deck;
     }
   } catch {
@@ -183,6 +215,7 @@ interface ResolvedDeckAssets {
   external: Set<string>;
   data: Record<string, string>; // assetId → data URL (assetData payload)
   diagnostics: DeckDiag[];
+  publish(): void;
 }
 
 // A refresh may inspect every deck dependency, but unchanged accepted bundles
@@ -194,14 +227,20 @@ function assetMime(kind: string): string {
   return kind === "svg" ? "image/svg+xml" : "image/png";
 }
 
-export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () => boolean = () => true): Promise<ResolvedDeckAssets> {
-  const fig = fileBridge();
+export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () => boolean = () => true, deferPublication = false, reader = fileBridge()): Promise<ResolvedDeckAssets> {
+  const fig = reader;
   const assets: Asset[] = [];
   const external = new Set<string>();
   const data: Record<string, string> = {};
   const diagnostics: DeckDiag[] = [];
-  if (!fig) return { assets: [...deck.assets], external, data, diagnostics };
+  const publications: (() => void)[] = [];
+  const publish = () => { if (isCurrent()) for (const fn of publications.splice(0)) fn(); };
+  if (!fig) return { assets: [...deck.assets], external, data, diagnostics, publish };
   const cacheAccepted = (id: string, svg: string, manifest?: FluxPlotManifest, recipe?: unknown) => {
+    if (deferPublication) { publications.push(() => publishAccepted(id, svg, manifest, recipe)); return; }
+    publishAccepted(id, svg, manifest, recipe);
+  };
+  const publishAccepted = (id: string, svg: string, manifest?: FluxPlotManifest, recipe?: unknown) => {
     if (!isCurrent() || isAssetDirty(id)) return;
     const key = `${root}\0${id}`, text = JSON.stringify(manifest ?? null), recipeText = JSON.stringify(recipe ?? null), prior = acceptedPlotCache.get(key);
     if (prior?.svg === svg && prior.manifest === text && prior.dom === plotDom.get(id) && hasPlotDom(id)) {
@@ -252,7 +291,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
         cacheAccepted(a.id, new TextDecoder().decode(bytes), manifest, recipe);
       }
       data[a.id] = bytesToDataUrl(bytes, assetMime(a.kind));
-      if (a.kind === "png") captureSnipMeta(a.id, bytes); // paper-snip provenance → copy citation
+      if (a.kind === "png") { if (deferPublication) publications.push(() => captureSnipMeta(a.id, bytes)); else if (isCurrent()) captureSnipMeta(a.id, bytes); } // paper-snip provenance → copy citation
       assets.push({ ...a });
     } catch {
       assets.push({ ...a }); // keep the entry — the element shows a placeholder
@@ -291,7 +330,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
           cacheAccepted(assetId, new TextDecoder().decode(bytes), manifest, recipe);
         }
         data[assetId] = bytesToDataUrl(bytes, assetMime(fa.kind));
-        if (fa.kind !== "svg") captureSnipMeta(assetId, bytes); // fig-derived png snip
+        if (fa.kind !== "svg") { if (deferPublication) publications.push(() => captureSnipMeta(assetId, bytes)); else if (isCurrent()) captureSnipMeta(assetId, bytes); } // fig-derived png snip
         assets.push({
           id: assetId,
           name: fa.name ?? assetId,
@@ -341,7 +380,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
         try { recipe = JSON.parse(await fig.readText(svgAbs.replace(/\.svg$/i, ".recipe.json"))); } catch { /* optional recipe */ }
         cacheAccepted(assetId, svgText, manifest, recipe);
         data[assetId] = bytesToDataUrl(new TextEncoder().encode(svgText), "image/svg+xml");
-        const dom = plotDom.get(assetId);
+        const dom = deferPublication ? preparePlot(svgText, manifest).root : plotDom.get(assetId);
         const nat = dom ? svgIntrinsicPx(dom) : { w: 240, h: 180 };
         assets.push({
           id: assetId,
@@ -386,228 +425,146 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     }
   }
 
-  return { assets, external, data, diagnostics };
+  return { assets, external, data, diagnostics, publish };
 }
 
-/** Catch up deck-owned linked sources before opening. */
+/** Prepare a private candidate; adopt it only after its exact source and
+ * composition generation is durably committed. */
 async function syncDeckSourceFiles(root: string, deck: Deck, isCurrent: () => boolean = () => true): Promise<void> {
-  const fb = fileBridge();
-  if (!fb) return;
-  const model = deckSourceProject(deck);
-  const plan = await planSourceUpdates(root, model, fb, { assetBase: `slides/${deck.id}`, watchProject: deckSourceProject(deck, { includeExternal: true }) });
-  if (!plan.updates.length || !isCurrent()) return;
-  if (await deckDiskDiverged(root, deck.id)) throw new ConflictError("deck changed while checking its sources");
-  if (!isCurrent()) return;
-  await writeSourceUpdates(root, plan.updates, fb, model, { assetBase: `slides/${deck.id}` });
-  applyDeckSourceUpdates(deck, plan.updates);
-  await writeDeckDirect(root, deck);
+  await withDeckMutation(root, async leaseOwned => {
+    const fb = fileBridge(); if (!fb || !isCurrent()) return;
+    const candidate = structuredClone(deck), model = deckSourceProject(candidate);
+    const plan = await planSourceUpdates(root, model, fb, { assetBase: `slides/${deck.id}`, watchProject: deckSourceProject(candidate, { includeExternal: true }) });
+    const resolved = await resolveDeckAssets(root, candidate, () => false, true);
+    const externalChanged = reconcileDeckExternalAssetSizes(candidate, resolved.assets);
+    if ((!plan.updates.length && !externalChanged) || !isCurrent()) return;
+    const evidence = deckReadEvidence.get(deck);
+    const assertOwned = async () => { await leaseOwned(); if (!isCurrent()) throw new ConflictError("Deck changed while its sources were prepared"); };
+    const writes = await sourceWrites(root, candidate, plan.updates);
+    applyDeckSourceUpdates(candidate, plan.updates);
+    const published = await persistDeckCandidate(root, candidate, writes, assertOwned, evidence);
+    Object.assign(deck, published.deck);
+    deckReadEvidence.set(deck, { path: joinPath(root, published.path), text: published.text });
+  });
 }
 
 const sourceRefreshes = new Map<string, Promise<void>>();
 const pendingSourceRefresh = new Set<string>();
-/** Refresh the open deck without reloading its model/history or discarding
- * unsaved edits. Animation targets participate even without a placed copy. */
+/** Persistence precedes all accepted-byte, cache and intrinsic-size history
+ * publication. User geometry edited during preparation is merged into the
+ * candidate; a later edit remains dirty and is never overwritten by a clone. */
 export function refreshDeckSources(root: string): Promise<void> {
   const existing = sourceRefreshes.get(root);
   if (existing) { pendingSourceRefresh.add(root); return existing; }
-  const run = async () => {
-    const fb = fileBridge(), snapshot = currentDeck();
+  const run = () => withDeckMutation(root, async leaseOwned => {
+    const fb = fileBridge(), snapshot = currentDeck(), loadGeneration = deckLoadGeneration;
     if (!fb || !snapshot || storeTenant() !== "slide" || get(embeddedProjectRoot) !== root) return;
-    const current = () => storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === snapshot.id;
-    const model = deckSourceProject(snapshot);
-    const plan = await planSourceUpdates(root, model, fb, { assetBase: `slides/${snapshot.id}`, watchProject: deckSourceProject(snapshot, { includeExternal: true }) });
+    const current = () => loadGeneration === deckLoadGeneration && storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === snapshot.id;
+    const fingerprint = sourceFingerprint(snapshot);
+    const plan = await planSourceUpdates(root, deckSourceProject(snapshot), fb, { assetBase: `slides/${snapshot.id}`, watchProject: deckSourceProject(snapshot, { includeExternal: true }) });
     if (!current()) return;
-    const updates = plan.updates.filter((u) => !isAssetDirty(u.assetId));
-    if (updates.length) {
-      if (await deckDiskDiverged(root, snapshot.id)) throw new ConflictError("deck changed while checking its sources");
-      if (!current()) return;
-      await writeSourceUpdates(root, updates, fb, model, { assetBase: `slides/${snapshot.id}` });
-      if (!current()) return;
-      commitDeckLive((deck) => applyDeckSourceUpdates(deck, updates), { history: false });
-    }
-    const latest = currentDeck();
-    if (!latest || !current()) return;
-    const resolved = await resolveDeckAssets(root, latest, current);
+    const candidate = currentDeck()!, generation = editGen.n;
+    if (sourceFingerprint(candidate) !== fingerprint) throw new ConflictError("Slide source ownership changed while reading; retry source refresh");
+    const updates = plan.updates.filter(u => !isAssetDirty(u.assetId));
+    const writes = await sourceWrites(root, candidate, updates);
+    applyDeckSourceUpdates(candidate, updates);
+    const resolved = await resolveDeckAssets(root, candidate, current, true, stagedDeckReader(root, writes));
     if (!current()) return;
-    const accepted = resolved.assets.filter((a) => resolved.external.has(a.id) && !isAssetDirty(a.id));
-    const resized = reconcileDeckExternalAssetSizes(structuredClone(latest), accepted);
-    if (resized) {
-      if (await deckDiskDiverged(root, snapshot.id)) throw new ConflictError("deck changed while checking external source dimensions");
-      if (!current()) return;
-      commitDeckLive((deck) => { reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
+    const accepted = resolved.assets.filter(a => resolved.external.has(a.id) && !isAssetDirty(a.id));
+    const resized = reconcileDeckExternalAssetSizes(candidate, accepted);
+    const assertOwned = async () => {
+      await leaseOwned();
+      if (!current() || sourceFingerprint(currentDeck()!) !== fingerprint || updates.some(u => isAssetDirty(u.assetId))) throw new ConflictError("Slide source ownership changed before publication; retry source refresh");
+    };
+    let published: Awaited<ReturnType<typeof persistDeckCandidate>> | undefined;
+    if (updates.length || resized) {
+      const m = await readManifest(root), rel = m?.slides?.find(s => s.id === candidate.id)?.path ?? deckRel(candidate.id);
+      const baseline = deckBaseline.get(joinPath(root, rel));
+      if (baseline === undefined) throw new ConflictError("Slide has no accepted disk baseline");
+      capturePersistenceGeneration();
+      published = await persistDeckCandidate(root, candidate, writes, assertOwned, { path: joinPath(root, rel), text: baseline });
     }
+    // No await between the owner check and this single accepted transition.
+    if (!current()) return;
+    if (sourceFingerprint(currentDeck()!) !== fingerprint || updates.some(u => isAssetDirty(u.assetId))) throw new ConflictError("Slide changed after persistence; saved source retained, reload to reconcile");
+    const unchanged = editGen.n === generation;
+    if (updates.length || resized) commitDeckLive(deck => { applyDeckSourceUpdates(deck, updates); reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
+    resolved.publish();
     replaceResolvedDeckAssets(resolved.assets);
-    const oldData = get(assetData), changedData = Object.fromEntries(Object.entries(resolved.data).filter(([id, url]) => !isAssetDirty(id) && oldData[id] !== url));
-    if (Object.keys(changedData).length) assetData.update((data) => ({ ...data, ...changedData }));
-    if (updates.length || resized) await saveDeckFrom(root);
-    for (const status of plan.statuses) if (status.status === "error" || status.status === "missing")
-      pushToast("error", `Slide source ${status.status === "missing" ? "missing" : "update failed"}`, { detail: `${status.path}: ${status.detail ?? "Last saved version retained"}` });
-  };
-  const promise = (async () => {
-    do { pendingSourceRefresh.delete(root); await run(); } while (pendingSourceRefresh.has(root));
-  })().finally(() => { sourceRefreshes.delete(root); pendingSourceRefresh.delete(root); });
-  sourceRefreshes.set(root, promise);
-  return promise;
+    const oldData = get(assetData), changedData = Object.fromEntries(Object.entries(resolved.data).filter(([id,url]) => !isAssetDirty(id) && oldData[id] !== url));
+    if (Object.keys(changedData).length) assetData.update(data => ({ ...data, ...changedData }));
+    if (published) { deckBaseline.set(joinPath(root, published.path), published.text); bumpSlideEmbeds(); if (unchanged) figDirty.set(false); }
+    for (const status of plan.statuses) if (status.status === "error" || status.status === "missing") pushToast("error", `Slide source ${status.status === "missing" ? "missing" : "update failed"}`, { detail: `${status.path}: ${status.detail ?? "Last saved version retained"}` });
+  });
+  const promise = (async () => { do { pendingSourceRefresh.delete(root); await run(); } while (pendingSourceRefresh.has(root)); })().finally(() => { sourceRefreshes.delete(root); pendingSourceRefresh.delete(root); });
+  sourceRefreshes.set(root, promise); return promise;
 }
 
 /** Load a deck into the live editing stores (figure store + slide overlay).
  *  Returns the deck + resolution diagnostics, or null. */
 let deckLoadGeneration = 0;
 export async function loadDeckInto(root: string, deckId: string, opts: { isCurrent?: () => boolean } = {}): Promise<{ deck: Deck; diagnostics: DeckDiag[] } | null> {
-  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot);
-  const current = () => generation === deckLoadGeneration && storeTenant() === tenant && get(embeddedProjectRoot) === previousRoot && (opts.isCurrent?.() ?? true);
+  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot), editingGeneration = editGen.n;
+  if (previousRoot !== null && previousRoot !== root) return null;
+  const current = () => generation === deckLoadGeneration && editGen.n === editingGeneration && storeTenant() === tenant && get(embeddedProjectRoot) === previousRoot && (opts.isCurrent?.() ?? true);
   const deck = await readDeck(root, deckId);
   if (!deck || !current()) return null;
   if (await fileBridge()?.exists(joinPath(root, "fig/index.json"))) await syncProjectSources(root, { isCurrent: current });
   await syncDeckSourceFiles(root, deck, current);
   if (!current()) return null;
-  clearPlots(); acceptedPlotCache.clear();
-  const resolved = await resolveDeckAssets(root, deck, current);
+  const resolved = await resolveDeckAssets(root, deck, current, true);
   if (!current()) return null;
-  if (reconcileDeckExternalAssetSizes(deck, resolved.assets)) {
-    if (await deckDiskDiverged(root, deck.id)) throw new ConflictError("deck changed while reopening linked sources");
+  return withDeckMutation(root, async assertOwned => {
+    const evidence = deckReadEvidence.get(deck);
+    if (evidence && await fileBridge()!.readText(evidence.path) !== evidence.text) throw new ConflictError("deck changed while opening");
+    await assertOwned();
     if (!current()) return null;
-    await writeDeckDirect(root, deck);
-    if (!current()) return null;
-  }
-  loadDeckModel(deck, resolved.assets, resolved.external);
-  assetData.set(resolved.data);
-  clearAllAssetsDirty(); // freshly loaded — every asset is in sync with disk
-  return { deck, diagnostics: resolved.diagnostics };
+    clearPlots(); acceptedPlotCache.clear(); resolved.publish();
+    if (evidence) deckBaseline.set(evidence.path,evidence.text);
+    loadDeckModel(deck,resolved.assets,resolved.external);assetData.set(resolved.data);clearAllAssetsDirty();
+    return {deck,diagnostics:resolved.diagnostics};
+  });
 }
 
-/** Ensure a deck is registered in project.json.slides[] (id/path/title/order). */
-async function registerDeck(root: string, deck: Deck): Promise<void> {
-  const m = await readManifest(root);
-  if (!m) return;
-  m.slides = Array.isArray(m.slides) ? m.slides : [];
-  const idx = m.slides.findIndex((s) => s.id === deck.id);
-  // Preserve a manifest-customized path — readDeck resolves through the
-  // manifest, so forcing the default here would split reads and writes.
-  const rel = (idx >= 0 ? m.slides[idx].path : undefined) ?? deckRel(deck.id);
-  const order = idx >= 0 ? m.slides[idx].order ?? idx + 1 : m.slides.length + 1;
-  const entry = { id: deck.id, path: rel, title: deck.title, order };
-  if (idx >= 0) m.slides[idx] = { ...m.slides[idx], ...entry };
-  else m.slides.push(entry);
-  await writeManifest(root, m);
-}
-
-/** Two serialized decks are content-equal iff they match after dropping the
- *  `modified` timestamp — the deck's only always-changing field. Lets the save
- *  path skip a byte-identical rewrite (the fig/ invariant, extended to decks)
- *  even though every save would otherwise restamp `modified`. */
-function sameDeckContent(aText: string, bText: string): boolean {
-  try {
-    const a = JSON.parse(aText) as Record<string, unknown>;
-    const b = JSON.parse(bText) as Record<string, unknown>;
-    delete a.modified;
-    delete b.modified;
-    return JSON.stringify(a) === JSON.stringify(b);
-  } catch {
-    return false;
-  }
-}
-
-/** Persist the live deck (figure store + overlay recombined) to
- *  slides/<id>/deck.json, plus any new/changed DECK-OWNED asset bytes into
- *  slides/<id>/assets/ (the slide-mode asset sink — imports through the figure
- *  pipeline land here, never in fig/assets/). Conflict-guarded; tenancy-
- *  asserted (a kept-alive cross-mode save is structurally impossible). A
- *  content-identical deck (a beat-nav reconcile or redundant autosave) is
- *  skipped — no rewrite, no `modified` bump — like the fig/ save's skip. */
 export async function saveDeckFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
-  assertStoreTenant("slide", "deck save");
-  const fig = fileBridge();
-  let d = currentDeck();
-  if (!fig || !d) return;
-  const deckId = d.id;
-  // Conflict guard: refuse to clobber a deck.json that changed on disk since
-  // we read/wrote it. `force` = the banner's Overwrite. The abs path must
-  // match readDeck's seed — resolve through the manifest the same way.
-  const m0 = await readManifest(root);
-  const rel = m0?.slides?.find((s) => s.id === deckId)?.path ?? deckRel(deckId);
-  const abs = joinPath(root, rel);
-  const baseline = deckBaseline.get(abs);
-  if (!opts.force && baseline != null && (await readDeckText(fig, abs)) !== baseline) {
-    throw new ConflictError("deck changed on disk");
-  }
-  // A newly introduced external placement/animation target must record the
-  // dimensions known when it was authored, before any future source event.
-  const accepted = get(figProject).assets.filter((a) => externalAssetIds().has(a.id) && !isAssetDirty(a.id));
-  if (reconcileDeckExternalAssetSizes(d, accepted)) {
-    commitDeckLive((deck) => { reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
-    d = currentDeck()!;
-  }
-  const genAtStart = editGen.n; // only clear dirty if no edit lands mid-save
-
-  // Never persist NaN/Infinity — JSON turns them into null, which the load
-  // gate would then (rightly) reject. Clamp on the live project (the same
-  // object the deck was composed from) so both halves agree.
-  {
-    const fixed = sanitizeProjectGeometry(get(figProject));
-    if (fixed) {
-      pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
-      for (const s of d.slides) {
-        for (const e of s.elements as unknown as Record<string, unknown>[]) {
-          for (const k of ["x", "y", "width", "height", "rotation"]) {
-            const v = e[k];
-            if (typeof v === "number" && !Number.isFinite(v)) e[k] = k === "width" || k === "height" ? 1 : 0;
-          }
-        }
-      }
-    }
-  }
-
-  await fig.mkdir(joinPath(root, "slides", d.id));
-  await fig.mkdir(joinPath(root, "slides", d.id, "assets"));
-
-  // Asset sink: (re)write NEW or CHANGED deck-owned asset bytes (imports flow
-  // through the shared figure pipeline into assetData + the dirty set; the
-  // deck-relative "assets/<id>.<kind>" path was fixed at import). A real plot
-  // manifest sidecar persists next to the bytes (derived manifests never do —
-  // sidecar presence is the fluxplot/vanilla discriminator).
-  const dataUrls = get(assetData);
-  const manifests = get(plotManifests);
+  return withDeckMutation(root, owned => saveDeckOwned(root, opts, owned));
+}
+async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned: () => Promise<void>): Promise<void> {
+  assertStoreTenant("slide", "saveDeckFrom");
+  const fig = fileBridge(), d = currentDeck(); if (!fig || !d) return;
+  const deckId = d.id, loadGeneration = deckLoadGeneration;
+  const owner = () => loadGeneration === deckLoadGeneration && storeTenant() === "slide" && get(embeddedProjectRoot) === root && currentDeck()?.id === deckId;
+  if (!owner()) throw new Error("Deck save does not own this project");
+  const genAtStart = editGen.n; capturePersistenceGeneration();
+  const data = { ...get(assetData) }, manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
+  const assetGenerations = new Map(d.assets.map(a => [a.id, assetDirtyGeneration(a.id)]));
+  reconcileDeckExternalAssetSizes(d, get(figProject).assets.filter(a => externalAssetIds().has(a.id) && !isAssetDirty(a.id)));
+  const m = await readManifest(root), rel = m?.slides?.find(s => s.id === deckId)?.path ?? deckRel(deckId), abs = joinPath(root, rel);
+  const before = await fig.exists(abs) ? await fig.readText(abs) : null, baseline = deckBaseline.get(abs);
+  if (!opts.force && baseline != null && before !== baseline) throw new ConflictError("deck changed on disk");
+  const writes = new Map<string, GenerationWrite>();
   for (const a of d.assets) {
-    const url = dataUrls[a.id];
-    if (!a.path) a.path = `assets/${a.id}.${a.kind}`;
-    if (a.kind === "mp4") {
-      // The native importer already published the immutable clip. A capability
-      // URL is not an encoded byte buffer and must never pass dataUrlToBytes.
-      if (await fig.exists(joinPath(root, "slides", d.id, a.path))) { clearAssetDirty(a.id); continue; }
-      if (!url?.startsWith("data:video/")) throw new Error(`Video clip is missing: ${a.name}`);
-    }
-    if (!url) continue;
-    if (!isAssetDirty(a.id) && (await fig.exists(joinPath(root, "slides", d.id, a.path)))) continue;
-    await fig.writeFile(joinPath(root, "slides", d.id, a.path), dataUrlToBytes(url));
-    const man = manifests[a.id];
-    if (man && !isDerivedManifest(man)) {
-      await fig.writeText(joinPath(root, "slides", d.id, "assets", `${a.id}.fluxplot.json`), JSON.stringify(man, null, 2));
-    }
-    clearAssetDirty(a.id);
+    const url = data[a.id]; if (!a.path) a.path = `assets/${a.id}.${a.kind}`;
+    const assetPath = `slides/${d.id}/${a.path}`, exists = await fig.exists(joinPath(root, assetPath));
+    if (a.kind === "mp4" && exists) continue;
+    if (a.kind === "mp4" && !url?.startsWith("data:video/")) throw new Error(`Video clip is missing: ${a.name}`);
+    if (!url && !exists) throw new Error(`Deck asset is missing: ${a.name}`);
+    if (!url || !isAssetDirty(a.id) && exists) continue;
+    writes.set(assetPath, { base64: bytesToBase64(dataUrlToBytes(url)) });
+    const man = manifests[a.id], sidecar = `slides/${d.id}/assets/${a.id}`;
+    writes.set(sidecar + ".fluxplot.json", man && !isDerivedManifest(man) ? JSON.stringify(man,null,2) : null);
+    writes.set(sidecar + ".recipe.json", man && !isDerivedManifest(man) && recipes[a.id] !== undefined ? JSON.stringify(recipes[a.id],null,2) : null);
   }
-
-  // Byte-identical skip (the fig/ invariant, extended to decks): a beat-nav /
-  // slide-switch reconcile composes the SAME deck content, so if only the
-  // `modified` stamp would differ we neither restamp nor rewrite deck.json —
-  // that write-then-diverge was what turned a plain navigation into a spurious
-  // "changed on disk" conflict (and per-nav watcher churn).
-  if (!opts.force && baseline != null && sameDeckContent(JSON.stringify(d, null, 2) + "\n", baseline)) {
+  const assertOwned = async () => { await leaseOwned(); if (!owner()) throw new Error("Deck changed before save could publish"); };
+  const published = await persistDeckCandidate(root, d, writes, assertOwned, before === null ? undefined : { path: abs, text: before });
+  if (owner()) {
+    deckBaseline.set(joinPath(root,published.path),published.text);
+    for (const [id,generation] of assetGenerations) clearAssetDirty(id,generation);
     if (editGen.n === genAtStart) figDirty.set(false);
-    return;
   }
-  d.modified = stamp();
-  const text = JSON.stringify(d, null, 2) + "\n";
-  await fig.writeText(abs, text); // atomic via the fs:writeText IPC path
-  bumpSlideEmbeds();
-  deckBaseline.set(abs, text); // adopt what we just wrote
-  await registerDeck(root, d);
-  // Provenance for the human's save (Electron only; mem/demo bridge no-ops).
-  const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
-  host?.journalAppend?.({ action: "save_deck", target: d.id, client: "human" });
-  // An edit landing during the writes above keeps the dirty flag; the autosave
-  // controller's trailing save persists it instead of it being silently dropped.
-  if (editGen.n === genAtStart) figDirty.set(false);
+  if (published.text !== before || writes.size) bumpSlideEmbeds();
+  const host = globalThis as { fig?: { journalAppend?: (e: unknown) => void } };
+  host.fig?.journalAppend?.({ action: "save_deck", target: d.id, client: "human" });
 }
 
 // --- export: self-contained offline .html, via the main process --------------
@@ -620,14 +577,14 @@ export function canExportDeck(): boolean {
 
 /** Export a deck to a self-contained offline .html via the main process.
  *  Returns the written path; throws with the reason on failure. */
-export async function exportDeck(root: string, deckId: string): Promise<string> {
+export async function exportDeck(root: string, deckId: string): Promise<{ path: string; warnings: string[] }> {
   const f = fileBridge() as {
-    exportDeck?: (r: string, d: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    exportDeck?: (r: string, d: string) => Promise<{ ok: boolean; path?: string; warnings?: string[]; error?: string }>;
   } | null;
   if (!f?.exportDeck) throw new Error("Export is only available in the desktop app.");
   const res = await f.exportDeck(root, deckId);
   if (!res?.ok || !res.path) throw new Error(res?.error || "Export failed.");
-  return res.path;
+  return { path: res.path, warnings: res.warnings ?? [] };
 }
 
 /** Create a new deck in the project (write + register), and load it into the
@@ -636,24 +593,23 @@ export async function createDeckInProject(
   root: string,
   opts: { title?: string; theme?: string } = {},
 ): Promise<Deck> {
-  const fig = fileBridge();
+  const fig = fileBridge(), owner = get(embeddedProjectRoot);
+  if (owner !== null && owner !== root) throw new Error("Deck creation does not own this project");
   const d = createDeckModel({ title: opts.title, theme: opts.theme });
-  if (fig) {
-    await fig.mkdir(joinPath(root, "slides", d.id));
-    await fig.mkdir(joinPath(root, "slides", d.id, "assets"));
-    const text = JSON.stringify(d, null, 2) + "\n";
-    await fig.writeText(joinPath(root, deckRel(d.id)), text);
-    deckBaseline.set(joinPath(root, deckRel(d.id)), text);
-    await registerDeck(root, d);
-  }
-  await loadDeckIntoStores(root, d);
+  if (fig) await writeDeckDirect(root, d, { expectedText: null });
+  if (get(embeddedProjectRoot) === owner) await loadDeckIntoStores(root, d);
   return d;
 }
 
 /** Load an in-memory deck into the stores (asset resolution included). */
 async function loadDeckIntoStores(root: string, d: Deck): Promise<void> {
-  clearPlots();
-  const resolved = await resolveDeckAssets(root, d);
+  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot), editingGeneration = editGen.n;
+  if (previousRoot !== null && previousRoot !== root) return;
+  const current = () => generation === deckLoadGeneration && tenant === storeTenant() && previousRoot === get(embeddedProjectRoot) && editingGeneration === editGen.n;
+  const resolved = await resolveDeckAssets(root, d, current, true);
+  if (!current()) return;
+  clearPlots(); acceptedPlotCache.clear(); resolved.publish();
+  const evidence = deckReadEvidence.get(d); if (evidence) deckBaseline.set(evidence.path, evidence.text);
   loadDeckModel(d, resolved.assets, resolved.external);
   assetData.set(resolved.data);
   clearAllAssetsDirty();
@@ -701,8 +657,7 @@ export async function duplicateDeckInProject(root: string, srcId: string): Promi
       /* no sidecar */
     }
   }
-  await fig.writeText(joinPath(root, deckRel(dupe.id)), JSON.stringify(dupe, null, 2) + "\n");
-  await registerDeck(root, dupe);
+  await writeDeckDirect(root, dupe, { expectedText: null });
   return dupe.id;
 }
 
@@ -714,31 +669,31 @@ export async function deleteDeckFromProject(root: string, deckId: string, force 
   const m = await readManifest(root);
   if (!fig || !m) return false;
   if (!force) { const blocker = await embeddedSlideRemovalBlocker(root, deckId); if (blocker) throw new Error(blocker); }
-  const slides = Array.isArray(m.slides) ? m.slides : [];
-  if (slides.length <= 1) return false; // never remove the last deck
-  m.slides = slides.filter((s) => s.id !== deckId);
-  if (m.slides.length === slides.length) return false; // nothing removed
-  await writeManifest(root, m);
+  let removed = false;
+  await updateManifest(root, fresh => {
+    const slides = fresh.slides ?? [];
+    if (slides.length <= 1) return;
+    fresh.slides = slides.filter(s => s.id !== deckId);
+    removed = fresh.slides.length !== slides.length;
+  });
+  if (!removed) return false;
   bumpSlideEmbeds();
   return true;
 }
 
-/** Write a deck back to disk WITHOUT the live stores (the Send-to-deck path
- *  from figure mode — slide mode is never resident then, so this cannot race
- *  the editor). Adopts the baseline so a later slide-mode open is clean. */
-export async function writeDeckDirect(root: string, deck: Deck): Promise<void> {
-  const fig = fileBridge();
-  if (!fig) throw new Error("no file bridge");
-  deck.modified = stamp();
-  await fig.mkdir(joinPath(root, "slides", deck.id));
-  await fig.mkdir(joinPath(root, "slides", deck.id, "assets"));
-  const m = await readManifest(root);
-  const rel = m?.slides?.find((s) => s.id === deck.id)?.path ?? deckRel(deck.id);
-  const text = JSON.stringify(deck, null, 2) + "\n";
-  await fig.writeText(joinPath(root, rel), text);
-  bumpSlideEmbeds();
-  deckBaseline.set(joinPath(root, rel), text);
-  await registerDeck(root, deck);
+/** The direct/conversion path shares the same durable publication as a live
+ * save. An explicit parent assertion means the caller owns project+slides. */
+export async function writeDeckDirect(root: string, deck: Deck, opts: { assertOwned?: () => Promise<void>; expectedText?: string | null } = {}): Promise<void> {
+  const publish = async (assertOwned: () => Promise<void>) => {
+    const m = await readManifest(root), path = joinPath(root, m?.slides?.find(s=>s.id===deck.id)?.path ?? deckRel(deck.id));
+    const evidence = deckReadEvidence.get(deck) ?? (opts.expectedText !== undefined ? {path,text:opts.expectedText} : undefined);
+    const result = await persistDeckCandidate(root, deck, new Map(), assertOwned, evidence);
+    Object.assign(deck,result.deck);
+    deckReadEvidence.set(deck,{path:joinPath(root,result.path),text:result.text});
+    bumpSlideEmbeds();
+  };
+  if (opts.assertOwned) await publish(opts.assertOwned);
+  else await withDeckMutation(root,publish);
 }
 
 /** Test seam: forget all divergence baselines (headless gates re-seed). */

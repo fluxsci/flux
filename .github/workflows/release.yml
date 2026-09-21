@@ -2,78 +2,109 @@ name: release
 
 on:
   push:
-    tags: ["v*"] # tag MUST match package.json "version" — electron-builder names the release v${version}
-  workflow_dispatch: # manual "Run workflow" button in the Actions tab (for testing/verification)
+    tags: ["v*"]
+  workflow_dispatch: # qualification artifacts only; manual runs never publish
 
 permissions:
-  contents: write # electron-builder creates/updates the GitHub Release
+  contents: read
 
 jobs:
-  build:
+  qualify:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest # Apple Silicon runner; cross-builds the x64 slice too
-            args: "--mac"
           - os: ubuntu-latest
-            args: "--linux"
+            platform: linux
+            arch: x64
+          - os: macos-15
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
     runs-on: ${{ matrix.os }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Boolean only (not the secret) so steps can branch in `if:`. The actual
-      # signing secrets are injected ONLY into the signed step below — keeping
-      # them out of the unsigned path, where empty values would otherwise push
-      # electron-builder into a (failing) code-signing attempt.
-      HAS_SIGNING: ${{ secrets.MAC_CSC_LINK != '' }}
+      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      FLUX_ELECTRON_NO_SANDBOX: ${{ matrix.platform == 'linux' && '1' || '0' }}
+      FLUX_GALLERY_ALLOW_DESKTOP: '1' # disposable hosted desktop, never an owner's session
+      FLUX_STASH_ALLOW_DESKTOP: '1' # same disposable hosted desktop
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
-
       - run: npm ci
-
-      # The Apple Silicon runner naturally installs only the arm64 optional
-      # node-pty payload, but this job emits both arm64 and x64 apps. Stage both
-      # pinned prebuilds explicitly so each cross-built app can open Flux's
-      # integrated terminal without compiling a native dependency in CI.
-      - name: Stage both macOS terminal architectures
-        if: matrix.os == 'macos-latest'
-        run: npm install --no-save --package-lock=false --force @lydell/node-pty-darwin-arm64@1.1.0 @lydell/node-pty-darwin-x64@1.1.0
-
-      # A tag must not ship a broken build — run the same headless gate CI uses.
-      - name: Correctness gate (svelte-check + pure verify tier)
-        run: npm run check && npm run test:pure
-
-      - run: npm run build # Vite -> ./dist (MUST precede electron-builder)
-
-      - name: Fetch pinned correction runtime (macOS)
-        if: matrix.os == 'macos-latest'
-        run: node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64
-
-      - name: Fetch pinned correction runtime (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: node scripts/fetch-correction-runtime.mjs --platform linux --arches x64
-
-      - name: Package · sign · notarize · publish (macOS, signed)
-        if: matrix.os == 'macos-latest' && env.HAS_SIGNING == 'true'
-        run: npx electron-builder --mac -c.mac.notarize.teamId="$APPLE_TEAM_ID" --publish always
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: '1.7.32'
+          tinytex: ${{ matrix.platform == 'darwin' }}
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - name: Native display and packaging libraries (Linux)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libvulkan1 libfuse2 libarchive-tools texlive-latex-extra texlive-fonts-recommended lmodern
+      - name: Provision PDF dependencies before offline checks (macOS)
+        if: matrix.platform == 'darwin'
+        run: tlmgr install lmodern koma-script bookmark tools booktabs caption float framed fvextra microtype upquote footnotehyper tcolorbox
+      # Both local and CI qualification use the same clean-source/tag/checks,
+      # freshly staged helpers, fresh artifact directory and packaged smokes.
+      # No builder invocation can publish before these steps have passed.
+      - name: Qualify Linux
+        if: matrix.platform == 'linux'
         env:
+          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: xvfb-run -a node scripts/release-check.mjs --platform linux --arch x64
+      - name: Qualify native macOS architecture
+        if: matrix.platform == 'darwin'
+        env:
+          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/release-check.mjs --platform darwin --arch ${{ matrix.arch }}
+      - name: Preserve all attempts and artifact evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/qualification-*/qualification.json
+            release/qualification-*/checks/**
+            release/qualification-*/artifacts/*.deb
+            release/qualification-*/artifacts/*.AppImage
+            release/qualification-*/artifacts/*.dmg
+            release/qualification-*/artifacts/*.zip
+            release/qualification-*/artifacts/smoke-evidence/**
+            test-results/runs/**
+          if-no-files-found: error
 
-      - name: Package · publish (macOS unsigned / Linux)
-        if: matrix.os != 'macos-latest' || env.HAS_SIGNING != 'true'
-        # On the unsigned macOS path, disable electron-builder's own signing
-        # (-c.mac.identity=null) and hardened runtime; the ad-hoc signature is
-        # applied solely by build/afterPack.cjs so the app still launches on
-        # Apple Silicon. These -c.mac.* overrides are harmless on the Linux build.
-        run: npx electron-builder ${{ matrix.args }} -c.mac.identity=null -c.mac.hardenedRuntime=false --publish always
+  publish:
+    needs: qualify
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: qualification-*
+          path: qualified-artifacts
+      - name: Require all architectures, exact provenance and platform approval
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false" # never hunt for a cert on the unsigned path
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/verify-release-evidence.mjs --directory qualified-artifacts --platform-evidence docs/release-platform-evidence.json --artifact-list verified-artifacts.nul
+      - name: Publish the verified artifacts as a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mapfile -d '' artifacts < verified-artifacts.nul
+          gh release create "$RELEASE_TAG" "${artifacts[@]}" --draft --verify-tag --title "Flux $RELEASE_TAG" --generate-notes

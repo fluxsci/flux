@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import type { VerbDef, CliArgSpec } from "./registry";
+import { ValidationError } from "./errors";
 import { text } from "./registry";
 import * as core from "./index";
 import * as model from "./model";
@@ -1689,7 +1690,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "url", into: "url" },
       { kind: "flag", at: "force", into: "force", as: "boolean" },
       { kind: "flag", at: "limit", into: "limit", as: "number" },
-      { kind: "flag", at: "keys", into: "keys", as: "list" },
+      { kind: "flag", at: "keys", into: "keys", as: "csv" },
     ],
     handler: async (_ctx, a) => {
       if (!a.run && !a.reproject) return core.grobidCoverageReport({ url: a.url as string | undefined });
@@ -2341,7 +2342,7 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) =>
       core.addSlide(ctx.root, s(a.deckId), {
         name: a.name as string | undefined,
-        layout: a.layout as Parameters<typeof core.addSlide>[2]["layout"],
+        layout: a.layout as NonNullable<Parameters<typeof core.addSlide>[2]>["layout"],
       }),
     render: {
       human: (r, a) => ({ err: `✓ added slide ${(r as { slideId: string }).slideId} to ${a.deckId}` }),
@@ -3124,12 +3125,13 @@ export const VERBS: VerbDef[] = [
     cli: "export-deck",
     cliRoot: "flags",
     summary: "Export a deck to a single self-contained offline .html (animations + media inlined). Writes to exports/ by default.",
-    params: { deckId: z.string(), out: z.string().optional() },
+    params: { deckId: z.string(), out: z.string().optional(), saved: z.boolean().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
       { kind: "flag", at: "out", into: "out" },
+      { kind: "flag", at: "saved", into: "saved", as: "boolean" },
     ],
-    handler: (ctx, a) => core.exportDeck(ctx.root, s(a.deckId), { out: a.out as string | undefined }),
+    handler: (ctx, a) => core.exportDeck(ctx.root, s(a.deckId), { out: a.out as string | undefined, refreshSources: !a.saved }),
     render: {
       human: (r, a) => {
         const c = r as { path: string; bytes: number; warnings: string[] };
@@ -3219,4 +3221,90 @@ export const VERBS: VerbDef[] = [
       },
     },
   },
+  {
+    name: 'add_to_library', cli: 'lib-add', cliRoot: 'flags',
+    summary: 'Add a DOI or BibTeX to FluxLib without citing it. --file imports BibTeX/RIS, optionally attaching referenced files. Exactly one input is required.',
+    params: { doi:z.string().optional(), bibtex:z.string().optional(), input:z.string().optional(), file:z.string().optional(), forceBibtex:z.boolean().optional(), attachFiles:z.boolean().optional(), zoteroDir:z.string().optional() },
+    cliArgs: [
+      {kind:'rest',at:0,into:'input',as:'joined'},
+      {kind:'flag',at:'file',into:'file'},
+      {kind:'flag',at:'bibtex',into:'forceBibtex',as:'boolean'},
+      {kind:'flag',at:'attach-files',into:'attachFiles',as:'boolean'},
+      {kind:'flag',at:'zotero-dir',into:'zoteroDir'},
+    ],
+    handler: async (_ctx,a) => {
+      const inputs = [a.doi,a.bibtex,a.input,a.file].filter(v => typeof v === 'string' && v.trim());
+      if(inputs.length !== 1) throw new ValidationError('add_to_library: provide exactly one nonempty DOI, BibTeX, or file');
+      if(a.file) {
+        const fs=await import('node:fs/promises'), path=await import('node:path');
+        const file=path.resolve(s(a.file));
+        const result=await core.importReferences(await fs.readFile(file,'utf8'), {attachFiles:!!a.attachFiles,baseDir:path.dirname(file),zoteroDir:a.zoteroDir as string|undefined});
+        return {kind:'file',...result,attachFiles:!!a.attachFiles};
+      }
+      if(a.attachFiles || a.zoteroDir) throw new ValidationError('File attachment options require --file');
+      const input=String(a.doi ?? a.bibtex ?? a.input).trim();
+      const isDoi=!!a.doi || !a.bibtex && !a.forceBibtex && /^(https?:\/\/(dx\.)?doi\.org\/)?10\.\d{4,9}\//i.test(input);
+      if(isDoi) return {kind:'doi', ...(await core.addDoiToLibrary(input))};
+      return {kind:'bibtex',...(await core.addToLibrary(input))};
+    },
+    render: {
+      human: r => {
+        const v=r as {kind:string;result?:{keys:string[]};format?:string;added?:string[];deduped?:string[];attached?:unknown[];attachFailed?:unknown[];attachFiles?:boolean};
+        if(v.kind==='doi')return {err:`✓ FluxLib += [@${v.result!.keys.join('; @')}]`};
+        return {err:`✓ FluxLib${v.kind==='file' ? ` (${v.format})` : ''}: +${v.added!.length} added, ${v.deduped!.length} already present${v.attachFiles ? ` · ${v.attached!.length} PDF(s) attached${v.attachFailed!.length ? `, ${v.attachFailed!.length} not found` : ''}` : ''}`};
+      },
+      mcp: r => {
+        const v=r as {kind:string;result?:{keys:string[]};added?:string[];deduped?:string[]};
+        return text(v.kind==='doi' ? `added to FluxLib: @${v.result!.keys.join('; @')}` : `FluxLib: +${v.added!.length} added, ${v.deduped!.length} already present`);
+      },
+    },
+  },
+  {
+    name: 'set_slide', cli: 'set-slide', cliRoot: 'flags',
+    summary: 'Patch only supplied slide fields: name, layout, background, transition, notes, and camera.',
+    params: { deckId:z.string().min(1), slideId:z.string().min(1), name:z.string().optional(), layout:z.enum(SLIDE_LAYOUTS).optional(), background:z.string().optional(), transition:z.string().optional(), notes:z.string().optional(), camera:z.object({x:z.number(),y:z.number(),zoom:z.number().positive()}).optional(), cameraX:z.number().optional(),cameraY:z.number().optional(),cameraZoom:z.number().positive().optional() },
+    cliArgs: [{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},
+      ...['name','layout','background','transition','notes'].map(at=>({kind:'flag' as const,at,into:at})),
+      {kind:'flag',at:'notes-file',into:'notes',as:'fileText'},
+      {kind:'flag',at:'camera-x',into:'cameraX',as:'number'}, {kind:'flag',at:'camera-y',into:'cameraY',as:'number'}, {kind:'flag',at:'camera-zoom',into:'cameraZoom',as:'number'}],
+    handler: async(ctx,a)=>{
+      const patch:Parameters<typeof core.setSlide>[3]=pick(a,['name','layout','background','transition','notes']);
+      if(a.camera!==undefined && [a.cameraX,a.cameraY,a.cameraZoom].some(v=>v!==undefined))throw new ValidationError('Pass camera or its individual fields, not both');
+      if(a.camera!==undefined)patch.camera=a.camera as NonNullable<typeof patch.camera>;
+      else if([a.cameraX,a.cameraY,a.cameraZoom].some(v=>v!==undefined))patch.camera={x:n(a.cameraX??0),y:n(a.cameraY??0),zoom:n(a.cameraZoom??1)};
+      await core.setSlide(ctx.root,s(a.deckId),s(a.slideId),patch);
+    },
+    render:{human:(_r,a)=>({err:`✓ set slide ${a.slideId}`}),mcp:(_r,a)=>text(`set slide ${a.slideId}`)},
+  },
+  {
+    name:'set_animation',cli:'set-animation',cliRoot:'flags',
+    summary:'Add or replace an animation track on a beat. --track JSON accepts the full track; --append preserves existing effects.',
+    params:{ deckId:z.string().min(1),slideId:z.string().min(1),beatId:z.string().min(1),track:z.record(z.unknown()).optional(),target:z.string().optional(),append:z.boolean().optional(),preset:z.enum(SLIDE_PRESETS).optional(),part:z.string().optional(),start:z.number().optional(),duration:z.number().optional(),easing:z.string().optional(),params:z.record(z.unknown()).optional(),influence:z.object({in:z.number(),out:z.number()}).optional(),stagger:z.object({perMs:z.number(),by:z.enum(['index','x','y']).optional(),from:z.enum(['start','end','center','edges']).optional()}).optional(),groupId:z.string().optional(),to:z.object({assetId:z.string().optional(),x:z.number().optional(),y:z.number().optional(),zoom:z.number().optional(),state:z.record(z.unknown()).optional(),svgPath:z.string().optional(),manifestPath:z.string().optional()}).optional() },
+    cliArgs:[{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},{kind:'pos',at:2,into:'beatId',required:true},{kind:'pos',at:3,into:'target'},
+      {kind:'flag',at:'target',into:'target'}, {kind:'flag',at:'track',into:'track',as:'json'}, {kind:'flag',at:'append',into:'append',as:'boolean'},
+      ...['preset','part','easing'].map(at=>({kind:'flag' as const,at,into:at})),
+      ...['start','duration'].map(at=>({kind:'flag' as const,at,into:at,as:'number' as const})),
+      {kind:'flag',at:'params',into:'params',as:'json'}, {kind:'flag',at:'to-asset',into:'to.assetId'},
+      ...['x','y','zoom'].map(axis=>({kind:'flag' as const,at:`to-${axis}`,into:`to.${axis}`,as:'number' as const}))],
+    handler:async(ctx,a)=>{
+      const keys=['target','preset','part','start','duration','easing','params','influence','stagger','groupId','to'];
+      if(a.track && keys.some(k=>a[k]!==undefined))throw new ValidationError('Pass --track or individual animation fields, not both');
+      const track=(a.track??pick(a,keys)) as import('../src/lib/slide/types').Track;
+      if(typeof track.target!=='string'||!track.target.trim())throw new ValidationError('set-animation needs --target (an element id, or @camera/@stage)');
+      await core.setAnimation(ctx.root,s(a.deckId),s(a.slideId),s(a.beatId),track,{append:!!a.append});
+      return track;
+    },
+    render:{human:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return {err:`✓ set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`};},mcp:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return text(`set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`);}},
+  },
+  {
+    name:'search_fulltext',cli:'search-text',cliRoot:'flags',summary:'Search extracted library PDF text with AND terms or quoted phrases.',
+    params:{query:z.string().trim().min(1),limit:z.number().int().positive().optional(),keys:z.array(z.string()).optional(),json:z.boolean().optional()},
+    cliArgs:[{kind:'rest',at:0,into:'query',as:'joined',required:true},{kind:'flag',at:'limit',into:'limit',as:'number'},{kind:'flag',at:'keys',into:'keys',as:'csv'},{kind:'flag',at:'json',into:'json',as:'boolean'}],
+    handler:(_ctx,a)=>core.searchFulltext(s(a.query),{limit:a.limit as number|undefined,keys:a.keys as string[]|undefined}),
+    render:{
+      human:(r,a)=>{const v=r as Awaited<ReturnType<typeof core.searchFulltext>>;return a.json?{out:JSON.stringify(v)}:{out:v.hits.map(h=>`@${h.key}  (${h.count} hit${h.count===1?'':'s'})\n`+h.snippets.map(s=>`   p${s.page}: ${s.text}`).join('\n')).join('\n'),err:`✓ ${v.hits.length} paper(s) matched · scanned ${v.scanned} texts in ${v.elapsedMs}ms${v.truncated?' (hit limit — refine the query)':''}${v.missingText.length?` · ${v.missingText.length} PDF(s) have no extracted text yet`:''}`};},
+      mcp:(r,a)=>{const v=r as Awaited<ReturnType<typeof core.searchFulltext>>;return text(!v.hits.length?`No stored PDF text matches "${a.query}" (scanned ${v.scanned}).${v.missingText.length?` ${v.missingText.length} PDF(s) have no extracted text yet — get_paper_text extracts on demand.`:''}`:`${v.hits.length} paper(s) match "${a.query}" (scanned ${v.scanned} in ${v.elapsedMs}ms${v.truncated?'; hit limit':''}):\n`+v.hits.map(h=>`@${h.key} (${h.count})\n`+h.snippets.map(s=>`  p${s.page}: ${s.text}`).join('\n')).join('\n'));},
+    },
+  },
+
 ];

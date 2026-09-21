@@ -134,6 +134,8 @@ ok(!(await fs.readdir(path.join(tmp, "items", "ruiz2024replay"))).some((f) => f.
 
 // --- reproject: rebuild the JSON from stored TEI, no service ------------------------------------
 await fs.writeFile(path.join(tmp, "items", "ruiz2024replay", "grobid.tei.xml"), TEI);
+const pdfMtime = (await fs.stat(path.join(tmp, "items", "ruiz2024replay", "paper.pdf"))).mtimeMs;
+await fs.writeFile(path.join(tmp, ".fluxlib", "grobid.json"), JSON.stringify({version: 1, updatedAt: "", items: {ruiz2024replay: {ok: true, schemaVersion: GROBID_SCHEMA_VERSION, grobidVersion: "0.9.1", extractedAt: "fixture", pdfMtimeMs: pdfMtime}}}));
 const re = await grobidEnrich({ libPath: tmp, reproject: true });
 ok(re.processed.length === 1, "reproject rebuilds from stored TEI with no service");
 const loaded = await readGrobidDoc("ruiz2024replay", tmp);
@@ -150,6 +152,11 @@ ok(!isCurrent({ ok: true, schemaVersion: GROBID_SCHEMA_VERSION, grobidVersion: "
 ok(!isCurrent({ ok: true, schemaVersion: GROBID_SCHEMA_VERSION + 1, grobidVersion: "0.9.1",
   extractedAt: "", pdfMtimeMs: mtime }, mtime), "a projection-version bump invalidates it too");
 
+const goodProjection = await fs.readFile(path.join(tmp, "items", "ruiz2024replay", "grobid.json"), "utf8");
+await fs.utimes(path.join(tmp, "items", "ruiz2024replay", "paper.pdf"), new Date(), new Date(mtime + 1000));
+const stale = await grobidEnrich({libPath: tmp, reproject: true});
+ok(stale.processed.length === 0 && stale.failed.length === 1, "old TEI cannot be reprojected onto a changed PDF");
+ok(await fs.readFile(path.join(tmp, "items", "ruiz2024replay", "grobid.json"), "utf8") === goodProjection, "stale reproject preserves the exact previous projection");
 await fs.rm(tmp, { recursive: true, force: true });
 console.log(failures === 0 ? "\nall green" : `\n${failures} FAILURE(S)`);
 process.exit(failures ? 1 : 0);

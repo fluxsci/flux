@@ -32,7 +32,7 @@ const key = (code, opts = {}) =>
 // --- 1. Context docs are first-class documents ------------------------------
 {
   const picker = await page.evaluate(() => {
-    const heads = [...document.querySelectorAll(".docpicker .dp-head")].map((h) => h.textContent?.trim());
+    const heads = [...document.querySelectorAll(".docpicker .dp-head")].map((h) => h.querySelector(".folder-label span")?.textContent?.trim());
     const items = [...document.querySelectorAll(".docpicker .dp-item")].map((b) => b.getAttribute("title"));
     return { heads, items };
   });
@@ -107,10 +107,21 @@ const key = (code, opts = {}) =>
   ok(note && note.text === "tighten this paragraph", "note appended to the ledger");
   ok(note?.context?.surface === "paper" && note?.context?.doc?.path === "Context/NOTEBOOK.md", "note carries the paper context stamp (surface + docRel)");
 
-  // Send (the popover stays open after Add? it closes — reopen)
+  // Add returns only after ledger refresh; wait for its completed close before reopening.
+  await waitFor(page, () => !document.querySelector(".fc textarea"), null, { timeout: 8000, label: "queued note operation completed" });
+  // Send the already queued note in the reopened popover.
   await key("KeyM", { ctrlKey: true, shiftKey: true });
   await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { timeout: 5000, label: "capture popover reopened" });
   await page.evaluate(() => {
+    window.__feedbackAppend = window.fig.feedbackAppend;
+    window.fig.feedbackAppend = async (p,line) => line.includes('"kind":"send"') ? false : window.__feedbackAppend(p,line);
+    const send = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim().startsWith("Send"));
+    send?.click();
+  });
+  await waitFor(page, () => !!document.querySelector('.fc [role="alert"]'), null, { timeout: 5000, label: "failed Send retains its queue and reports the failure" });
+  ok(await page.evaluate(()=>document.querySelectorAll('.fc .fc-q').length===1), "failed Send retains the queued note for explicit retry");
+  await page.evaluate(() => {
+    window.fig.feedbackAppend = window.__feedbackAppend;
     const send = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim().startsWith("Send"));
     send?.click();
   });

@@ -45,10 +45,10 @@ Flux is a desktop **scientific writing studio**: manuscript editor (Paper), figu
 vestigial). It is deliberately **agent-native**: an AI agent is a first-class user with the same
 capabilities as the GUI, through three surfaces:
 
-- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — both generated from **one
-  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`). They operate on
-  project files directly through `flux-core/*` (Node).
-- **Live bridge** (`electron/bridgeServer.cjs` + `src/lib/project/liveClient` path) — a loopback
+- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — most file verbs share **one
+  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`); legacy wrappers and handwritten
+  CLI help still remain. They operate on project files directly through `flux-core/*` (Node).
+- **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
 - **The Context layer + principal runtime** (principal-agent scheme, 2026-07-19): all agent
@@ -143,13 +143,25 @@ Persistence invariants (all machine-checked — do not weaken):
   `comments.json` and its document-named `<base>.comments.json` sidecar, deduplicated by thread
   id. Promoting a secondary manuscript to main must never make its existing comments vanish.
 
-- **Every canonical write is atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
+- **Canonical replacement writes must be atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
   `atomicWriteMain` in `electron/ipc/files.cjs`). Directory entries are fsynced after rename
-  batches (`fsyncDir`).
-- **fig/ saves have a commit point**: canvas files first → dir fsync → captions →
-  `index.json` **last** (+ one-generation `index.json.bak`). The index never references a canvas
-  file that doesn't exist, even across SIGKILL (`verify-figsave-txn.ts`). The ordering lives once,
-  in `executeFigSave` (figfiles.ts) — never reorder it.
+  batches (`fsyncDir`). This is a per-file primitive, not proof of read-modify-write isolation
+  or whole-project crash atomicity; generation and operation-lease contracts supply the
+  separately tested multi-file and concurrency behavior below.
+- **Figure and Deck saves publish recoverable generations.** `executeFigSave` plans canvases,
+  captions and index (plus one-generation `.bak`) in reference-safe order. Ordinary GUI/Node
+  saves and source/conversion clients stage assets and fresh project registration with them.
+  `textGeneration.ts` flushes an exact old/new text-or-binary journal before replacement and
+  each parent directory after publication. Restart restores recorded originals; unknown external
+  edits retain the journal and refuse guessing. `verify-v020-crash-recovery.ts` checks eight
+  real SIGKILL barriers and both old/new complete outcomes. This is not a filesystem-wide
+  atomic snapshot or a cross-machine sync protocol.
+- **Recover within the owning project before adopting its manifest.** GUI and Node startup
+  recover export/generation journals before accepting project registration. Journal and all
+  entry paths are preflighted against that project's realpath boundary, including absent
+  targets through their existing parent. A symlink into another simultaneously approved
+  project is still refused; general native grants are not a generation's asset capability.
+  No sibling write begins until the complete recovery plan is confined and owned.
 - **A successful save that leaves dirty state needs a trailing save.** The boolean dirty
   store does not emit again for true → true. An edit during asynchronous persistence can
   therefore remain unsaved without another schedule notification. `createAutosave` schedules
@@ -168,7 +180,12 @@ Persistence invariants (all machine-checked — do not weaken):
   referenced canvas) blocks subsequent GUI saves, including force-save; headless load rejects
   it. Never overwrite a healthy sibling from an incomplete model. Byte-preservation tests
   must reopen compositions as well as compare assets (`verify-figfiles-parity.ts`).
-- **Source updates publish only after persistence.** `plot/sourceSync.ts` plans complete
+- **Source updates must publish only after persistence.** `project/sourceBridge.ts` now prepares
+  privately, persists the generation, then publishes model/cache/accepted sizes. The shared
+  `project/textGeneration.ts` journal retains exact old/new text or base64 bytes and compares before recovery;
+  unexpected external edits retain the journal for deliberate repair. This is a recoverable
+  generation protocol, not a filesystem-wide atomic rename. See the V0.2 evidence ledger for
+  tested failure stages and remaining cross-owner qualification. `plot/sourceSync.ts` plans complete
   SVG/manifest/recipe bundles, validates changes, preserves last-good bytes on missing or
   malformed sources, and applies shared physical sizing. `project/sourceBridge.ts` owns
   catch-up/watch/retry independent of the active mode; `slide/sourceSync.ts` adapts deck-local
@@ -191,6 +208,9 @@ Persistence invariants (all machine-checked — do not weaken):
   surviving placements onto the accepted source revision without resurrecting removed imports
   or undoing independent source updates. Relevant SVG changes invalidate paused slide previews;
   replay compiles the new bytes, while unrelated asset changes leave the preview alone.
+  On initial/returning Figure mount, source catch-up follows complete snapshot adoption.
+  A same-root tenant restored from Slide may hold an older Figure baseline; never use it
+  to publish source updates before reading the newly converted or externally saved figures.
   `figureSourceOwners.ts` lets saved deck placements and animation targets keep a registered
   `fig/assets` source alive after its last Figure placement is deleted. Its synthetic owners
   exist only in the read-only planning view, never in persisted canvases. Respect frozen and
@@ -324,25 +344,34 @@ Persistence invariants (all machine-checked — do not weaken):
   and large lists mount a window of rows. `verify-paper-sidebar-layout.mjs` checks actual
   geometry, long headings, resizing, hide/show, persistence and pointer cancellation.
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
-- **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
-  external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
-  from disk. Never silently clobber (`verify-canvas-divergence.ts`).
+- **Divergence detection**: the GUI adopts model, baselines and caches together after root,
+  tenant/request and edit-generation checks. Supported Figure overwrite preserves both
+  branches under `.meta/figure-conflicts/` before replacing bytes; the editor caption wins
+  in both canvas and Markdown. Missing/corrupt current metadata uses the last complete
+  accepted snapshot. Future schemas and unknown IO errors refuse, remain dirty and show
+  the reason. Partial initial previews cannot save. Gates include actual button actions,
+  exact preserved bytes and reopen, not only the force flag.
 - **Forward-version guards**: files stamped with a newer breaking format (0.x → **minor** is the
   breaking slot) refuse to load and are never rewritten (`verify-fwdguard.ts`).
-- **Load gate**: parse → `migrateProject` → validate ("legacy-lenient, post-migration-strict");
-  invalid derived files are quarantined as `.corrupt-<ts>` copies, never half-loaded.
-- **Locks**: mutating headless verbs run `mutateFigModel` (load→mutate→save inside the `project`
-  lock) and journal afterwards. A held human lock defers agents with the standard
-  "deferred … is locked" message (CLI exit 75 via the error taxonomy). Lock claims and
-  restamps are **content-atomic** (tmp + hard-link / rename — `flux-core/locks.ts`, mirrored
-  by the GUI's `writeLockFile`): the old open("wx")-then-write claim let a contender read the
-  just-created file EMPTY, judge it corrupt, delete the holder's live lock, and walk into the
-  critical section beside it (a real lost update, found 2026-08-13 by verify-note's contention
-  gate; pinned in verify-w3-locks §6). Corollaries: never clear a lock you couldn't READ as
-  stale (a vanished file just retries; corrupt content clears only past the TTL by mtime), and
-  clear a stale lock by RENAME-to-trash so two contenders can't double-clear each other's
-  fresh claim. Notebook session-log entries have a dedicated locked appender: `flux note`
-  (`addNote`, manuscript lock — safe with N concurrent principals; verify-note).
+- **Load gate**: parse → `migrateProject` → validate ("legacy-lenient, post-migration-strict").
+  The common Figure reader distinguishes complete/partial/future/failed snapshots and retains
+  the raw collection until semantic uniqueness/ownership/finite-geometry checks pass. Only a
+  complete supported snapshot is mutable. Canonical corruption is preserved; disposable derived
+  caches may be quarantined/rebuilt by their owning cache contract.
+- **Locks belong to operations.** `electron/operationLease.cjs` supplies the filesystem protocol
+  to Node `flux-core/locks.ts` and sender-bound native `electron/guiLeases.cjs`. Independent
+  same-process tasks queue for the whole callback; every acquisition has an unpredictable
+  token. Renewal/release compare that token, and nesting requires an explicit parent handle.
+  Short contested transitions use unique per-contender registers; a live local process is
+  never expired just because its original timestamp passed a TTL. Native short children of a
+  human activity lease have separate serialized ownership and keep the parent alive until
+  completion. Validate the captured project root and assert ownership before publishing.
+  A human activity lease still defers headless writers. Resource ordering is export → project
+  (Figure) → slides → manuscript → reference/library → manifest; never reacquire an outer resource through
+  an implicit same-PID shortcut. This coordinates cooperating writers on one filesystem; it
+  does not provide cross-machine cloud-sync exclusion or filesystem CAS against arbitrary
+  external editors. `verify-operation-leases.ts` and `verify-w3-locks.ts` cover operation and
+  process contention; remaining adverse/native checks are recorded in the V0.2 ledger.
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
@@ -362,6 +391,11 @@ Persistence invariants (all machine-checked — do not weaken):
   Numeric pointer mechanics (`scrub.ts`) do not own project history. Gap/Scale% are local
   parameters. Resizing derives proportions from original dimensions and retains fractional
   precision; pixel snapping is an explicit geometry policy.
+  A standalone `mutate` now owns its transaction; use `mutateDisplay` only for deliberate
+  non-authoring refresh. Throwing outer callbacks restore model/history/redo/companion state;
+  nested operations compose into the outer edit. If persistence already captured a preview,
+  cancellation remains dirty and schedules the restored state for a trailing save. NumberField
+  timers settle their captured target on target switch/destroy rather than joining another edit.
 - **Figure selection and direct manipulation:** pass the selection Set explicitly into legacy
   reactive blocks; function-hidden store reads do not create Svelte dependencies. The shared
   `selectionTargets.ts` resolves visibility, ancestor locks and capability exclusions. A mixed
@@ -383,13 +417,31 @@ Persistence invariants (all machine-checked — do not weaken):
   pure operation offsets elements/guides oppositely to origin changes, preserving world position,
   physical size, hidden/out-of-bounds artwork, assets and references. CLI/MCP/live bridge expose
   `resize_figure_frame`; the live bridge refuses it in Slide mode (stage size belongs to the deck).
+- **Element resize contract:** handles describe world-axis bounds. Cardinal rotations map
+  the axes exactly; oblique boxes constrain the gesture to uniform scaling because arbitrary
+  world-axis stretch would require shear absent from the file format. Preview and commit use
+  the same pure transform, including rotated/flipped line endpoints. Arrange/align/distribute
+  use the same outermost editable selection units and visual bounds as Canvas. Part outlines
+  retain local bounds and project the current viewport; compositor warmth never delays new
+  settled-target hover. Panel auto-lettering refuses beyond the supported26 rather than
+  creating duplicate caption keys.
 - **Figure export jobs:** resolve SVG/plot DOM/assets and dimensions before any dialog await.
+  Detached export prepares every required SVG independently of the capped editor DOM cache;
+  unavailable required assets fail by name. `plot/passiveSvg.ts` applies a namespace-aware
+  passive SVG policy with parsed CSS, local reference rewriting and inert host policies.
+  Original imported SVG bytes remain untouched. Shared XML escaping protects author strings;
+  project asset resolution also enforces lexical and realpath containment in both engines.
+  `verify-v020-svg-hosts.mjs` tests live Figure, detached gallery, standalone SVG, Paper iframe
+  and portable Paper/Slide with actual pixels and a local unauthorized-request recorder.
   Preserve Chromium’s established SVG canvas rasterizer; transfer an ImageBitmap to
   `figure/raster.worker.ts` for readback/TIFF/PNG encoding, with cancellation and bounded
   allocations. Do not silently reduce DPI. Alpha coverage is exact; bitmap premultiplication can
   differ by one 8-bit color rounding unit. Electron `printToPDF` custom sizes are **inches**,
   unlike `webContents.print` microns. Serialized hidden-window printing includes awaited cleanup
-  and atomic output writes. The native Figure gate verifies physical PDF MediaBox dimensions.
+  and atomic output writes. Static print uses a private session with JavaScript disabled,
+  120-second stage deadlines, and missing/blocked asset refusal before publication. Top-level
+  SVG is block layout to avoid an extra blank page. Native gates inspect exact text, page
+  count and physical PDF MediaBox dimensions, and retain previous output on failure.
 - **External-reload contract (2026-08-14):** an agent/CLI edit to `fig/` that live-reloads a
   clean editor (W10) — or the banner's "Reload theirs" — must land IN PLACE: the user's active
   canvas/figure/selection are preserved wherever their ids survive (first-canvas fallback only
@@ -733,17 +785,45 @@ Persistence invariants (all machine-checked — do not weaken):
   via `readerTerminalPane`). Split panes: `paneId` threads Pane → ModeContent → mode;
   a reader pane shows `paneActiveTab[paneId] ?? readerTabs.active`, with every reader pane
   PINNED to its current paper before any re-target (one pane's change never retargets the
-  other). reader-context.json has a single writer (module-level owner token; only the
-  focused doc publishes, only the last writer clears). Same-paper-in-two-panes annotation
+  other). reader-context.json has one native sender/token owner across windows, with
+  serialized publication and a commit-time ownership check. OS blur retains the last
+  timestamped context for external agents (`foreground:false`); only its existing
+  owner may renew expiry without changing captured content. A newly focused Flux
+  reader supersedes the token, pane/source close clears it, sender destruction
+  retires it, and expiry handles process crashes. FluxConfig changes drain context
+  writes before moving roots. Source request epochs prevent stale PDF/annotation
+  loads from replacing the accepted reader. Same-paper-in-two-panes annotation
   sync rides `annotationsBridge.annotationsRev` (one bump per in-app write; writers
-  skip their own by count — the fs watcher suppresses self-write echoes, so
+  identify their own origin UUID and annotation epoch — the fs watcher suppresses self-write echoes, so
   fluxLibRevision never covered in-renderer cross-view sync). Gates: `group:reader-gate`
   (see the manifest for current membership) + the `src/shell/modes/reader/**` pathMap entry; tab semantics pinned in
   `verify-r7-tabs.mjs`. Gate-selector rule: probes must scope to
   `[data-doc-active="true"]` (hidden kept-alive docs are in the DOM) and to panes BY INDEX
   (every `.pane` sits alone in a `.slot` wrapper, so `:first/last-child` match both).
+- **Durability errors:** directory sync is required after canonical rename batches on Linux/macOS.
+  Only unsupported-filesystem sync errors are tolerated; missing directories and I/O failures
+  reach the writer. Windows directory sync is explicitly unavailable. Recovery writes and
+  cleanup require current operation ownership just like ordinary publication.
+- **Reference generation recovery:** normal GUI and Node item reads inspect pending PDF
+  identity records while holding the item lease. A matching committed hash completes derived
+  metadata, the prior hash discards the pending marker, and unknown/corrupt identities preserve
+  every byte and refuse recovery. Linked pointers recover without opening the external file.
+  Extraction receipts include size, mtime and change time; manual metadata and annotation bytes
+  are preserved. The process-owned fulltext worker retains a reusable index, with a bounded
+  queue, pane/request-qualified progress and cancellation, restart and deadline termination;
+  no whole-corpus search runs on main. Watcher candidates update independently of renderer
+  event coalescing. Warm queries and two-second idle passes inspect128 rotating candidates;
+  directory discovery also runs at30seconds to repair missed events. Complete startup/cache
+  rebuilds report progress, and exact text matching still decides hits. Derived schema3
+  indexes verify structural fields and a SHA256 integrity receipt; rejected/older indexes
+  rebuild from source text. Null-prototype token maps preserve words such as `constructor`.
+  FluxConfig relocation drains the worker before moving its root and blocks new queries
+  until that operation settles. These are local worker/cache guarantees, not instant
+  cross-machine filesystem synchronization.
 - Electron: `main.cjs` is a **composition root**; handler families live in
-  `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
+  `electron/ipc/{contract,files,terminal,network,agent,capture,readJobs,staticPrint}.cjs`.
+  `globalLibraryWatcher.cjs` owns the process-wide watcher; native diagnostics/recovery are
+  independently instantiated with explicit dependencies and terminal disposal. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
   under a **CSP with no `unsafe-eval`** — see §5.
 - **Multi-window (2026-08-11): one process, N windows, one project per window.** All
@@ -1194,6 +1274,10 @@ that isn't in the manifest doesn't exist.** Tiers:
   gate over `electron/**/*.cjs`). They also live in pure; the tier exists for `--changed` mapping.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Linux Electron
   harnesses may need `--ozone-platform=x11` (§9); do not pass Linux display flags on macOS.
+  For an owned Xvfb display, set `FLUX_PRIVATE_DISPLAY=1` and `DISPLAY` (or the explicit
+  `FLUX_XVFB` path). The runner removes inherited Wayland selection and chooses X11 only
+  in that mode. Runtime artifacts distinguish actual browser viewport, screen, DPR, GPU,
+  CPU and module/build identity; software rendering does not certify physical hardware.
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
@@ -1810,8 +1894,9 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   GONE from the GUI (everything is visible by default; the X-ray's `x` hide
   is the one static-hiding mechanism) — `setPartVisibility` remains as the
   headless/back-compat op + verb only; don't resurrect a GUI tri-state.
-  Cross-type transforms (rect→text) and per-part transform tracks are
-  deliberately out of v1 (part styling changes ride the plot transform's
+  Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
+  preserve them and test reset/default semantics (September 20 review PS-06). Per-part transform
+  tracks remain deferred (part styling changes ride the plot transform's
   `overrides` diff). Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
@@ -1827,13 +1912,17 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
-- **Gates that fail on `main` today (2026-09-15; evidence: a detached worktree of `b242c41`
-  served on :1421 fails identically):** `verify-paper-export.mjs` (its regex expects
-  `materializeRenders(root, m.manuscript.path)` while `flux-core/manuscript.ts` passes
-  `document`), `verify-context-gui.mjs` ("picker shows the Context group" — the demo fixture's
-  `.docpicker` renders no Context head) and `verify-lib-actions.mjs` (Ctrl+click "detail strip
-  open" times out). None is touched by the surface redesign; fix each at its source in its own
-  session, never by loosening the gate.
+- **V0.2 implementation evidence:** [V020_IMPLEMENTATION_PROGRESS.md](V020_IMPLEMENTATION_PROGRESS.md)
+  and its three owner ledgers supersede the September20 baseline defect list. That baseline
+  remains in local `notes/major_v02_review/BASELINES.md`; it is not a current failure list.
+  Reproductions now assert source ownership, exact saved/recovered bytes and output fidelity.
+  Consult the latest frozen-run closure for remaining failures, platform limits and conditional
+  P2 exclusions. No passing adjacent test establishes an untested adverse interleaving.
+- **Signed Firefox distribution:** the checked-in signed0.1.1 XPI predates hardened extension
+  source. `verify-extension-build.ts` deliberately compares source, generated distribution
+  and signed payload bytes and blocks release on mismatch. A maintainer must re-sign the
+  completed source through the existing distribution process; local unsigned/diagnostic
+  packages do not certify that browser-store artifact.
 - **The demo fixture cannot hand a re-imported asset from Figure to Slide:** the tenancy handoff
   refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
@@ -5651,3 +5740,51 @@ the branch remains for owner testing before merge.
 Confirmed all 26 audited source/test hashes still matched the validation record, preserved
 the original session report alongside the independent audit, and prepared the local
 fast-forward integration for the owner to push.
+
+### 2026-09-20 — Complete V0.2 fortification review and plan (Codex, main)
+**Work:** Continued the interrupted Claude review, independently adjudicated its findings,
+reviewed all application surfaces and headless/native boundaries, and wrote implementation-ready
+packages in `notes/major_v02_review/README.md`. Product code is unchanged; staged builds and
+isolated fault/native probes supplement the inherited same-commit browser baseline.
+**Learnings:**
+- Promoted corrections to registry coverage, live-client path, lock/atomicity claims, source
+  publication, cross-type transforms and current gate diagnoses into the body.
+- Test failure classification needs actual fixture/runtime evidence; retain first failures and
+  controlled reruns. Accepted plans and passing adjacent gates are not completed fixes.
+
+### 2026-09-20 23:40 CDT — V0.2 implementation checkpoint (Codex, codex/v020-fortification)
+**Work:** Isolated `/tmp/flux-v020-fortification`, protected running main/build/config/library,
+assigned shared contracts and four implementation streams. Operation-owned leases, common
+Figure snapshots, staged load/publication and recovery, atomic editing, direct-byte plot exports,
+passive SVG policy and import ownership now have initial regressions. Other owners implement
+Paper/Slide, References/native and Shell/verification concurrently.
+**Evidence:** `docs/V020_IMPLEMENTATION_PROGRESS.md` links owner ledgers and exact artifacts.
+Intermediate pure run208/248 passed with40 failures retained and assigned; not release acceptance.
+Focused Figure transaction, conversion fault, three-plot eviction, recovery rollback, byte parity,
+crash index ordering and history budget pass. Latest compatible lockfile audit0; full affected
+qualification still in progress. No release published; unavailable hardware/platform checks remain
+explicit limitations. Subsequent completion must update the ledger rather than infer from this entry.
+
+### 2026-09-21 07:52 UTC — V0.2 implementation freeze (Codex, codex/v020-fortification)
+**Work:** Implemented the authorized five-plan P0/P1 packages and eligible bounded P2 work in
+an isolated worktree. Shared Node/native token leases, complete Figure snapshots, recoverable
+binary/text generations, cold/live reference reconciliation, scientific SVG/Word/video fidelity,
+Paper sessions/export recovery, Reader/capture/fulltext ownership and native lifecycle boundaries
+now have adverse regressions. Registry/runner/runtime/release policy and offline packaged docs
+are integrated. Lighttable and the owner's running checkout/config/library remain outside the work.
+**Evidence:** Root and owner `docs/V020_*PROGRESS.md` ledgers retain first failures, fixture
+repairs, exact bytes, rendered artifacts and measured interactions. Final renderer0errors/0warnings,
+headless0errors, production build, isolated Quarto20pages/39files and dependency audit0 pass.
+Native Word8cases include five real kill barriers, retained captured revision and24trusted keys
+max50.9ms while Quarto waits; cached first morph median34.7ms versus112.6ms, identical paths.
+**Learnings:** Missing Figure index requires positive empty inventory. Recovery journals need
+full realpath preflight and ownership throughout their prepare/commit gap. Cold reference writes
+and Paper saves share the manuscript lease; recovery must run before entering that lease in
+headless folder/note commands. Export ownership compares CodeMirror-normalized line endings
+while recovery restores exact raw bytes/mtime. New first-match pathMap rules retain existing gates.
+**Limits:** Full frozen cohorts and fresh installed Linux artifacts are the next acceptance step,
+not inferred from focused green checks. The old signed Firefox XPI lacks hardened background
+source and remains a strict bundle blocker until maintainer re-signing. Physical display/macOS,
+signing/notarization, real Word and live authenticated browser/provider checks are unclaimed.
+Broad Library view extraction and speculative import memoization retain the plans' unmet
+prerequisites. No release/tag/publication or remote-CI promotion is performed.

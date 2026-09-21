@@ -4,12 +4,12 @@
 //      backdrop-close returns focus to the editor (focus-return discipline).
 //   B. IN-PAGE: materializeRenders() writes fig/renders/<id>.svg for the figures the doc
 //      embeds — round-tripped through the fixture bridge — and reports unknown ids.
-//   C. SOURCE: the docx flow flushes BEFORE quarto, materializes BEFORE quarto, propagates
+//   C. ARTIFACT: the docx flow flushes BEFORE quarto, materializes BEFORE quarto, propagates
 //      {ok:false,log} to an error toast (no false "Exported ✓"), threads the ACTIVE doc,
 //      offers Reveal; main.cjs contains docPath + verifies the artifact + fsGuards the
 //      reveal; flux-core compile() materializes renders for bare-quarto/agent parity.
 // Run (dev server on :1420): node scripts/verify-paper-export.mjs
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL } from "./lib/driver.mjs";
 
 const fails = [];
@@ -193,51 +193,12 @@ const errs = realErrors(page);
 ok(errs.length === 0, errs.length ? `console errors: ${errs.join(" | ")}` : "zero console errors");
 await browser.close();
 
-// --- C: source wiring ----------------------------------------------------------------
-console.log("C — export-flow source wiring:");
-const pm = readFileSync("src/shell/modes/paper/PaperMode.svelte", "utf8");
-const docxBlock = pm.slice(pm.indexOf('if (plan.format === "docx")'), pm.indexOf("// In-app engines"));
-ok(docxBlock.length > 0, "docx branch is locatable in doExport(plan)");
-ok(/await autosave\.flush\(\)/.test(docxBlock), "docx flow flushes the autosave before quarto (disk freshness)");
-ok(
-  docxBlock.indexOf("autosave.flush()") < docxBlock.indexOf("materializeRenders") &&
-    docxBlock.indexOf("materializeRenders") < docxBlock.indexOf("transformDocsForQuarto") &&
-    docxBlock.indexOf("transformDocsForQuarto") < docxBlock.indexOf("fb.quartoRender(pm.root"),
-  "order: flush → materialize renders → prepare (transform) → quarto",
-);
-ok(/quartoRender\(pm\.root, "docx", activeDocPath, \{/.test(docxBlock), "renders the ACTIVE document, not always main");
-// The dialog collects a destination for EVERY format now; docx no longer lands
-// beside the .qmd by default.
-ok(/outPath: plan\.outPath/.test(docxBlock), "the chosen output path is passed through to the render");
-ok(/token/.test(docxBlock) && /onQuartoLog/.test(docxBlock), "render is tokened + subscribes to the live log (progress card)");
-ok(/r\?\.cancelled/.test(docxBlock) && /Export cancelled/.test(docxBlock), "a cancelled render reports as cancelled, not as a failure");
-ok(/if \(!r\?\.ok\)/.test(docxBlock) && /Word export failed/.test(docxBlock), "quarto {ok:false} → error toast (false 'Exported ✓' killed)");
-ok(/ConflictError/.test(docxBlock), "flush ConflictError aborts with the diverged-banner hint");
-ok(/label: "Reveal"/.test(docxBlock) && /revealPath/.test(docxBlock), "success toast offers Reveal");
-ok(/restoreDocs\(\)/.test(docxBlock) && /finally/.test(docxBlock), "sources are restored in a finally, whatever the render does");
-ok(/onExport=\{openExportDialog\}/.test(pm), "StatusBar wired to open the export dialog");
-ok(/async function cancelExport/.test(pm) && /quartoCancel/.test(pm), "cancel path invokes quartoCancel");
-
-const main = readFileSync("electron/main.cjs", "utf8");
-// Assert the FIELDS the handler destructures, not their exact order or the
-// full list — a later field addition should not fail a gate about docPath.
-const renderSig = (/quarto:render",\s*async\s*\(e,\s*\{([^}]*)\}\)/.exec(main) ?? [, ""])[1];
-for (const field of ["root", "to", "docPath", "profile", "outPath", "token"]) {
-  ok(new RegExp(`\\b${field}\\b`).test(renderSig), `quarto:render accepts ${field}`);
-}
-ok(/\^\[a-z0-9-\]\{1,32\}\$/.test(main), "profile name is slug-validated before it reaches the command line");
-// Multi-window 2026-08-11: fsGuard carries the sender id (per-window dialog approvals).
-ok(/fsGuard\(destAbs, e\.sender\.id\)/.test(main), "the requested output path clears fsGuard before anything is written");
-ok(/quarto:cancel/.test(main) && /SIGTERM/.test(main) && /SIGKILL/.test(main), "cancel kills the render (escalating if it ignores SIGTERM)");
-ok(/underDir\(docAbs, rootAbs\)/.test(main) && /\\\.qmd\$/.test(main), "docPath contained under root + .qmd-only");
-ok(/no output file found/.test(main) && /outPath/.test(main), "artifact existence verified, outPath returned");
-ok(/shell:showItemInFolder/.test(main) && main.slice(main.indexOf("shell:showItemInFolder")).slice(0, 300).includes("fsGuard"), "showItemInFolder exists and is fsGuard'd");
-
-// WS-6.2: compile/materializeRenders live in the manuscript + render modules.
-const core = readFileSync("flux-core/manuscript.ts", "utf8") + readFileSync("flux-core/render.ts", "utf8");
-ok(/export async function materializeRenders/.test(core) && /materializeRenders\(root, m\.manuscript\.path\)/.test(core), "flux-core compile() materializes renders (bare-quarto/agent parity)");
-const cli = readFileSync("flux-cli.ts", "utf8");
-ok(/case "render-figures"/.test(cli), "CLI exposes render-figures");
+// --- C: real compiler artifacts and fault preservation -------------------------------
+console.log("C — chosen-document artifact bytes and failed-publication preservation:");
+const artifact = spawnSync(process.execPath, ["--import", "tsx", "scripts/verify-v020-docx-publication.ts"], { cwd: process.cwd(), encoding: "utf8" });
+process.stdout.write(artifact.stdout ?? "");
+if (artifact.status !== 0) process.stderr.write(artifact.stderr ?? "");
+ok(artifact.status === 0, "real Quarto chosen-document DOCX/HTML, XML relationships, recovery and previous-output preservation");
 
 console.log(fails.length ? `\nPAPER-EXPORT VERIFY: FAIL — ${fails.length}` : "\nPAPER-EXPORT VERIFY: PASS");
 process.exit(fails.length ? 1 : 0);

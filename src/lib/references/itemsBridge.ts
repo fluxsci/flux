@@ -1,3 +1,6 @@
+import { itemKey } from "./itemLocator";
+import { recoverItemPublication, type ItemRecoveryResult } from "./itemRecovery";
+import { withIpcLock } from "./libLock";
 // Renderer-side access to the FluxLib items/ store (the browser/Electron twin of
 // flux-core/items.ts) — reads a stored PDF's bytes / provenance over window.fig.
 // Reuses the pure path helpers (items.ts) + the resolved FluxLib path.
@@ -44,9 +47,31 @@ import { pushToast } from "../toast";
  */
 export type PdfWriteResult =
   | { ok: true }
-  | { ok: false; reason: "no-bridge" }
+  | { ok: false; reason: "no-bridge" | "already-present" }
   | { ok: false; reason: "supplement"; signal: string; divertedTo?: string };
 
+async function pdfIdentity(lib: string, key: string): Promise<string | null> {
+  const fb = fileBridge(); if (!fb) return null;
+  let target = pdfPath(lib, key);
+  if (!await fb.exists(target)) {
+    if (!await fb.exists(linkPath(lib, key))) return null;
+    const link = parsePdfLink(await fb.readText(linkPath(lib, key))); if (!link) return null;
+    target = link.path;
+  }
+  if (!await fb.exists(target)) return null;
+  const stat = await fb.stat?.(target);
+  return stat ? JSON.stringify({path: target.replace(/\\/g, "/"), size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs}) : target;
+}
+async function writeExtracted(lib: string, key: string, text: string, identity: string | null): Promise<boolean> {
+  const fb = fileBridge(); if (!fb) return false;
+  return withIpcLock("fluxlib", `item-${safeKey(key)}`, async lease => {
+    if (await fb.exists(`${itemDir(lib,key)}/source.pending.json`) || identity !== await pdfIdentity(lib, key)) return false;
+    await lease.assertOwned?.();
+    await fb.writeText(`${itemDir(lib, key)}/fulltext.source.json`, JSON.stringify({version: 1, identity}) + "\n");
+    await lease.assertOwned?.();
+    await fb.writeText(fulltextPath(lib, key), text); return true;
+  });
+}
 /** Manual ingest has no size ceiling (unlike netGet's 80MB fetch cap) — warn on huge
  *  scans so the memory cost of opening them isn't a surprise. Never blocks the ingest. */
 function warnHugePdf(bytes: Uint8Array, what: string): void {
@@ -58,28 +83,10 @@ function warnHugePdf(bytes: Uint8Array, what: string): void {
   }
 }
 
-/** Write the live reader context (what the human is reading) so the agent's
- *  get_reading_context MCP tool can see it. Fills in the on-disk paths. Best-effort,
- *  debounced by the caller. */
-export async function writeReaderContext(ctx: ReaderContext): Promise<void> {
-  const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
-  if (!fb || !lib) return;
-  const full: ReaderContext = { ...ctx };
-  if (ctx.citekey) {
-    full.pdfPath = pdfPath(lib, ctx.citekey);
-    full.fulltextPath = fulltextPath(lib, ctx.citekey);
-  }
-  try {
-    if (fb.mkdir) await fb.mkdir(`${lib}/.fluxlib`);
-    await fb.writeText(readerContextPath(lib), JSON.stringify(full, null, 2));
-  } catch {
-    /* best-effort */
-  }
-}
-/** Clear the reader context when the reader closes / no paper is open. */
-export async function clearReaderContext(): Promise<void> {
-  await writeReaderContext({ citekey: "", updatedAt: new Date().toISOString() });
+/** Stable source identity for Reader reloads, including in-place external PDF changes. */
+export async function readerPdfIdentity(key: string): Promise<string | null> {
+  const seeded=seededItem(key);if(seeded)return `seeded:${seeded.pdf.byteLength}`;
+  const lib=await resolveFluxLibPath();return lib?pdfIdentity(lib,key):null;
 }
 
 /** File a hand-downloaded PDF (chosen via the OS picker) into items/<key>/ — the manual
@@ -104,63 +111,38 @@ export async function ingestPdfFile(key: string, filePath: string): Promise<bool
 /** The set of citekeys (safeKey form) that have a paper.pdf on disk — one readdir of
  *  items/ + a presence check per item dir (scales with fetched papers, not library
  *  size). Used by the Library to show a "has PDF" pill and gate the "Read" action. */
-export async function listPdfKeys(): Promise<Set<string>> {
+export async function listPdfKeys(expectedLib?: string | null): Promise<Set<string>> {
   const fb = fileBridge();
-  const lib = await resolveFluxLibPath();
+  const lib = expectedLib === undefined ? await resolveFluxLibPath() : expectedLib;
   const out = new Set<string>();
   // Dev-seeded items ARE the item store in headless runs (readerPdfBytes consults the
   // same map first); empty in production, so this is a no-op there.
   for (const k of seededKeys()) out.add(safeKey(k).normalize("NFC"));
   if (!fb || !lib) return out;
-  // WS-8.5: prefer the derived .fluxlib/items.json (flux-core maintains it)
-  // when it is at least as fresh as the items/ DIRECTORY (whose mtime moves on
-  // item-dir add/remove — the reload-relevant events). One read replaces a
-  // readdir + per-dir exists sweep; the in-memory optimistic tick stays the
-  // live-update path for this session's own writes, and any parse/stat problem
-  // falls straight back to the sweep below.
-  try {
-    const idxPath = `${lib}/.fluxlib/items.json`;
-    const [idxSt, dirSt] = await Promise.all([fb.stat?.(idxPath), fb.stat?.(itemsBase(lib))]);
-    if (idxSt && dirSt && idxSt.mtimeMs >= dirSt.mtimeMs) {
-      const idx = JSON.parse(await fb.readText(idxPath)) as Record<string, { hasPdf?: boolean }>;
-      for (const [k, st] of Object.entries(idx)) if (st && st.hasPdf) out.add(safeKey(k).normalize("NFC"));
-      return out;
-    }
-  } catch {
-    /* missing/stale/corrupt index — sweep */
-  }
+  // Child artifact changes do not update items/' parent mtime. Presence is
+  // checked against actual files; the old derived index is not authoritative.
   let entries: { name: string; dir: boolean }[];
   try {
     entries = (await fb.readdir?.(itemsBase(lib))) ?? [];
   } catch {
     return out; // no items/ yet
   }
-  await Promise.all(
-    entries
-      .filter((e) => e.dir)
-      .map(async ({ name }) => {
-        try {
-          // Store NFC-normalized: macOS/APFS returns readdir names as NFD while the .bib
-          // stores citekeys as NFC — without this, accented keys (buzsáki, yüzgeç…) miss
-          // the presence check and their PDFs flicker as "missing" between launches.
-          // A link-mode pointer (paper.link.json — Zotero sync) counts as having the PDF.
-          if (
-            (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_PDF}`)) ||
-            (await fb.exists(`${itemsBase(lib)}/${name}/${PAPER_LINK}`))
-          )
-            out.add(name.normalize("NFC"));
-        } catch {
-          /* ignore */
-        }
-      }),
-  );
+  const dirs = entries.filter(e => e.dir);
+  let next = 0;
+  await Promise.all(Array.from({length: Math.min(12, dirs.length)}, async () => {
+    while (next < dirs.length) {
+      const {name} = dirs[next++];
+      const key = itemKey(lib, name);
+      if (await pdfIdentity(lib, key)) out.add(key.normalize("NFC"));
+    }
+  }));
   return out;
 }
 
 /** True if `key`'s PDF dir-name is in a set produced by listPdfKeys(). NFC-normalized so
  *  the join is Unicode-normalization-invariant (see listPdfKeys). */
 export const hasPdfIn = (pdfKeys: Set<string>, key: string): boolean =>
-  pdfKeys.has(safeKey(key).normalize("NFC"));
+  pdfKeys.has(key.normalize("NFC")) || pdfKeys.has(safeKey(key).normalize("NFC"));
 
 /** File a fetched PDF into items/<key>/ + write source.json provenance (renderer twin
  *  of flux-core writePdf). Computes a SHA-256 via WebCrypto for parity, and extracts
@@ -170,7 +152,7 @@ export const hasPdfIn = (pdfKeys: Set<string>, key: string): boolean =>
 export async function writePdfItem(
   key: string,
   bytes: Uint8Array,
-  info: { source: string; url?: string; finalUrl?: string; isOa?: boolean; license?: string },
+  info: { source: string; url?: string; finalUrl?: string; isOa?: boolean; license?: string; replaceExisting?: boolean; ifAbsent?: boolean },
 ): Promise<PdfWriteResult> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
@@ -190,8 +172,6 @@ export async function writePdfItem(
       return { ok: false, reason: "supplement", signal, divertedTo: divertedTo ?? undefined };
     }
   }
-  if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
-  await fb.writeFile(pdfPath(lib, key), bytes);
   let sha256: string | undefined;
   try {
     const digest = await crypto.subtle.digest("SHA-256", bytes as unknown as ArrayBuffer);
@@ -210,13 +190,32 @@ export async function writePdfItem(
     isOa: info.isOa,
     license: info.license,
   };
-  await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
+  let identity: string | null = null;
+  const published = await withIpcLock("fluxlib", `item-${safeKey(key)}`, async lease => {
+    if ((isAutomatedSource(info.source) || info.source === "assigned" || info.ifAbsent) && !info.replaceExisting && await pdfIdentity(lib, key)) return false;
+    if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
+    const pending = `${itemDir(lib, key)}/source.pending.json`;
+    await lease.assertOwned?.();
+    await fb.writeText(pending, JSON.stringify({version: 1, source}) + "\n");
+    for (const path of [fulltextPath(lib, key), `${itemDir(lib, key)}/fulltext.source.json`]) {
+      if (await fb.exists(path)) { if (!fb.remove) throw new Error("Cannot invalidate prior PDF text"); await lease.assertOwned?.(); await fb.remove(path); }
+    }
+    await lease.assertOwned?.();
+    await fb.writeFile(pdfPath(lib, key), bytes);
+    await lease.assertOwned?.();
+    await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
+    identity = await pdfIdentity(lib, key);
+    await lease.assertOwned?.();
+    await fb.remove?.(pending);
+    return true;
+  });
+  if (!published) return {ok: false, reason: "already-present"};
   // Fulltext parity with flux-core attach/acquire (dynamic import keeps pdf.js out of
   // the Library chunk until a PDF actually lands; scanned PDFs simply yield no text).
   try {
     const { extractFulltextText } = await import("../pdf/pdfFulltext");
     const ft = await extractFulltextText(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
-    if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+    if (ft.chars > 0) await writeExtracted(lib, key, ft.text, identity);
   } catch {
     /* best-effort — paper.pdf is filed regardless */
   }
@@ -245,6 +244,7 @@ export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return null;
+  await recoverPdfItem(key);
   const p = pdfPath(lib, key);
   try {
     if (await fb.exists(p)) return await fb.readFile(p);
@@ -254,16 +254,20 @@ export async function readerPdfBytes(key: string): Promise<ArrayBuffer | null> {
   const link = await readerPdfLink(key);
   if (!link) return null;
   try {
+    const identity = await pdfIdentity(lib, key);
     const buf = await fb.readFile(link.path);
     // Deferred-fulltext backfill: a linked paper whose text extraction was skipped at
     // sync time (huge-library posture) gets it now, opportunistically — we have the
     // bytes anyway. Fire-and-forget; the reader never waits on it.
+    const extractionBytes = new Uint8Array(buf.slice(0)); // before returning: PDF.js transfers the reader buffer
     void (async () => {
       try {
-        if (await fb.exists(fulltextPath(lib, key))) return;
+        if (await fb.exists(fulltextPath(lib, key))) {
+          try { if (JSON.parse(await fb.readText(`${itemDir(lib, key)}/fulltext.source.json`)).identity === identity) return; } catch { /* legacy linked text needs a source generation */ }
+        }
         const { extractFulltextText } = await import("../pdf/pdfFulltext");
-        const ft = await extractFulltextText(new Uint8Array(buf));
-        if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+        const ft = await extractFulltextText(extractionBytes);
+        if (ft.chars > 0) await writeExtracted(lib, key, ft.text, identity);
       } catch {
         /* best-effort */
       }
@@ -280,7 +284,7 @@ export async function readerHasPdf(key: string): Promise<boolean> {
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return false;
   try {
-    return (await fb.exists(pdfPath(lib, key))) || (await fb.exists(linkPath(lib, key)));
+    return !!await pdfIdentity(lib, key);
   } catch {
     return false;
   }
@@ -296,16 +300,31 @@ export async function writeLinkedPdfItem(key: string, absPath: string, bytes?: U
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return false;
-  if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
-  const link: PdfLink = { path: absPath, linkedAt: new Date().toISOString() };
-  await fb.writeText(linkPath(lib, key), JSON.stringify(link, null, 2) + "\n");
-  const source: SourceInfo = { key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt, bytes: bytes?.length };
-  await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
+  if (await fb.exists(pdfPath(lib, key))) return true;
+  let identity: string | null = null;
+  await withIpcLock("fluxlib", `item-${safeKey(key)}`, async lease => {
+    if (await fb.exists(pdfPath(lib,key))) return;
+    const link: PdfLink = {path: absPath, linkedAt: new Date().toISOString()};
+    const source: SourceInfo = {key, source: "zotero-link", url: absPath, fetchedAt: link.linkedAt, bytes: bytes?.length};
+    const previousLink=await fb.exists(linkPath(lib,key))?await fb.readText(linkPath(lib,key)):null;
+    const pending=`${itemDir(lib,key)}/source.pending.json`;
+    await lease.assertOwned?.();await fb.writeText(pending,JSON.stringify({version:1,source,link,previousLink})+"\n");
+    if (fb.mkdir) await fb.mkdir(itemDir(lib, key));
+    for (const path of [fulltextPath(lib, key), `${itemDir(lib, key)}/fulltext.source.json`]) {
+      if (await fb.exists(path)) { if (!fb.remove) throw new Error("Cannot invalidate prior PDF text"); await lease.assertOwned?.(); await fb.remove(path); }
+    }
+    await lease.assertOwned?.();
+    await fb.writeText(linkPath(lib, key), JSON.stringify(link, null, 2) + "\n");
+    await lease.assertOwned?.();
+    await fb.writeText(sourcePath(lib, key), JSON.stringify(source, null, 2) + "\n");
+    identity = await pdfIdentity(lib, key);
+    await lease.assertOwned?.();await fb.remove?.(pending);
+  });
   if (bytes) {
     try {
       const { extractFulltextText } = await import("../pdf/pdfFulltext");
       const ft = await extractFulltextText(new Uint8Array(bytes)); // fresh copy — pdf.js detaches
-      if (ft.chars > 0) await fb.writeText(fulltextPath(lib, key), ft.text);
+      if (ft.chars > 0) await writeExtracted(lib, key, ft.text, identity);
     } catch {
       /* best-effort — the pointer is filed regardless */
     }
@@ -313,11 +332,25 @@ export async function writeLinkedPdfItem(key: string, absPath: string, bytes?: U
   return true;
 }
 
+/** Recover only content-proven interrupted publications; ordinary reads stay cheap. */
+export async function recoverPdfItem(key: string): Promise<ItemRecoveryResult> {
+  const fb=fileBridge(),lib=await resolveFluxLibPath();if(!fb||!lib)return "none";
+  const dir=itemDir(lib,key);if(!await fb.exists(`${dir}/source.pending.json`))return "none";
+  return withIpcLock("fluxlib",`item-${safeKey(key)}`,lease=>recoverItemPublication(key,{
+    readText:async name=>await fb.exists(`${dir}/${name}`)?await fb.readText(`${dir}/${name}`):null,
+    pdfSha256:async()=>{if(!await fb.exists(pdfPath(lib,key)))return null;const bytes=await fb.readFile(pdfPath(lib,key));const hash=await crypto.subtle.digest("SHA-256",bytes);return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");},
+    writeText:(name,text)=>fb.writeText(`${dir}/${name}`,text),
+    remove:async name=>{if(await fb.exists(`${dir}/${name}`)){if(!fb.remove)throw new Error("PDF recovery requires file removal");await fb.remove(`${dir}/${name}`);}},
+    assertOwned:async()=>{await lease.assertOwned?.();},
+  }));
+}
+
 export async function readerSource(key: string): Promise<SourceInfo | null> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return null;
   try {
+    await recoverPdfItem(key);
     return JSON.parse(await fb.readText(sourcePath(lib, key))) as SourceInfo;
   } catch {
     return null;
@@ -382,7 +415,7 @@ export async function readSupplementManifest(key: string): Promise<SupplementMan
 
 /** Upsert one supplement's record by filename, newest wins. Best-effort: a manifest write
  *  failure must never lose the file itself, which is already on disk. */
-async function recordSupplement(key: string, rec: SupplementRecord): Promise<void> {
+async function recordSupplement(key: string, rec: SupplementRecord, assertOwned?: () => Promise<void>): Promise<void> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return;
@@ -391,10 +424,9 @@ async function recordSupplement(key: string, rec: SupplementRecord): Promise<voi
     const items = m.items.filter((r) => r.name !== rec.name);
     items.push(rec);
     items.sort((a, b) => a.name.localeCompare(b.name));
+    await assertOwned?.();
     await fb.writeText(supplementManifestPath(lib, key), JSON.stringify({ version: 1, items }, null, 2) + "\n");
-  } catch {
-    /* advisory index — the file on disk is the truth */
-  }
+  } catch (error) { throw new Error(`Supplement ${rec.name} was saved, but its metadata could not be committed`, {cause: error}); }
 }
 
 /**
@@ -404,11 +436,15 @@ async function recordSupplement(key: string, rec: SupplementRecord): Promise<voi
  * about to be stored as paper.pdf. Returns the stored filename (suffixed -2, -3, … so nothing
  * is overwritten), or null if it couldn't be written.
  */
-export async function fileSupplementBytes(
+export async function fileSupplementBytes(key: string, rawName: string, bytes: Uint8Array, meta: {label?: string; url?: string; source?: string} = {}): Promise<string | null> {
+  return withIpcLock("fluxlib", `item-${safeKey(key)}`, lease => fileSupplementBytesLocked(key, rawName, bytes, meta, lease.assertOwned));
+}
+async function fileSupplementBytesLocked(
   key: string,
   rawName: string,
   bytes: Uint8Array,
   meta: { label?: string; url?: string; source?: string } = {},
+  assertOwned?: () => Promise<void>,
 ): Promise<string | null> {
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
@@ -435,12 +471,13 @@ export async function fileSupplementBytes(
   // repair, or by an older Flux), so the DISK is the authority: before suffixing a name,
   // check whether what's already there is byte-identical. Without this, every re-fetch of an
   // unindexed supplement lays down another -2, -3, … copy.
+  let alreadySaved = false;
   for (let i = 2; await fb.exists(supplementFilePath(lib, key, name)); i++) {
     if (sha256) {
       try {
         const cur = new Uint8Array((await fb.readFile(supplementFilePath(lib, key, name))) as ArrayBuffer);
         const d = await crypto.subtle.digest("SHA-256", cur as unknown as ArrayBuffer);
-        if ([...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("") === sha256) return name;
+        if ([...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("") === sha256) { alreadySaved = true; break; }
       } catch {
         /* unreadable — fall through and pick the next free name */
       }
@@ -448,11 +485,11 @@ export async function fileSupplementBytes(
     name = `${base}-${i}${ext}`;
   }
   try {
-    await fb.writeFile(supplementFilePath(lib, key, name), bytes);
+    if (!alreadySaved) { await assertOwned?.(); await fb.writeFile(supplementFilePath(lib, key, name), bytes); }
   } catch {
     return null;
   }
-  await recordSupplement(key, { name, label: meta.label || undefined, url: meta.url, source: meta.source, bytes: bytes.length, sha256, fetchedAt: new Date().toISOString() });
+  await recordSupplement(key, { name, label: meta.label || undefined, url: meta.url, source: meta.source, bytes: bytes.length, sha256, fetchedAt: new Date().toISOString() }, assertOwned);
   return name;
 }
 
@@ -493,17 +530,9 @@ export async function ingestSupplementFile(key: string, filePath: string): Promi
   const bytes = new Uint8Array(buf);
   if (!isPdfBytes(bytes)) return null;
   warnHugePdf(bytes, "supplement");
-  if (fb.mkdir) await fb.mkdir(supplementsDir(lib, key));
   let name = safeSupplementName(filePath);
   if (!/\.pdf$/i.test(name)) name += ".pdf";
-  const base = name.replace(/\.pdf$/i, "");
-  for (let i = 2; await fb.exists(supplementFilePath(lib, key, name)); i++) name = `${base}-${i}.pdf`;
-  try {
-    await fb.writeFile(supplementFilePath(lib, key, name), bytes);
-    return name;
-  } catch {
-    return null;
-  }
+  return fileSupplementBytes(key, name, bytes, {source:"ingest",url:filePath});
 }
 
 // --- OA-miss ledger (single aggregated file — see items.ts) ----------------------
@@ -655,7 +684,7 @@ const EMPTY_FT: FulltextResult = { hits: [], scanned: 0, missingText: [], trunca
 
 export async function searchFulltext(
   query: string,
-  opts?: { limit?: number; keys?: string[] },
+  opts?: { limit?: number; keys?: string[]; requestId?: string; ownerId?: string },
 ): Promise<FulltextResult> {
   // DEV/test seam: a headless harness (no Electron bridge) injects results here to
   // exercise the Library's full-text UI. Mirrors __fluxSeedBib / __fluxSeedFigures.

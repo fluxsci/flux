@@ -50,7 +50,7 @@ const SVG = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.
   prefixIds(root as unknown as Element, "p1");
   h.eq(root.getAttribute(PLOT_SCOPE_ATTR), "p1", "the root is stamped as the scope");
   const styles = Array.from(root.querySelectorAll("style")).map((s) => s.textContent ?? "");
-  h.eq(styles[0], `${S} ${MPL}`, "matplotlib preamble scoped in the DOM");
+  h.eq(styles[0], `${S} ${MPL.replace(/: /g, ":").replace(/; /g,";")}`, "matplotlib preamble scoped in the DOM");
   h.eq(styles[1], `${S} .area{fill:url(#p1__grad)}`, "a class rule is scoped AND its url(#…) still points at the prefixed gradient (FIG-11 kept)");
   h.eq(root.querySelector("g")?.getAttribute("id"), "p1__figure_1", "id prefixing unchanged");
 }
@@ -72,7 +72,7 @@ h.section("export twin — buildPlotMarkup over a REAL fluxplot fixture");
   h.ok(svg.includes(`<style type="text/css">${MPL}</style>`), "the fixture carries the matplotlib preamble (the leak's source)");
   const out = buildPlotMarkup(svg, { id: "el1", x: 0, y: 0, width: 504, height: 360 }, undefined, manifest) ?? "";
   h.ok(out.includes('data-plot-scope="el1"'), "exported plot markup stamps its scope");
-  h.ok(out.includes(`[data-plot-scope="el1"] ${MPL}`), "exported preamble is scoped");
+  h.ok(out.includes(`[data-plot-scope="el1"] ${MPL.replace(/: /g, ":").replace(/; /g,";")}`), "exported preamble is scoped");
   const bare = (out.match(/\*\{/g) ?? []).length;
   const scoped = (out.match(/\[data-plot-scope="el1"\] \*\{/g) ?? []).length;
   h.ok(bare > 0 && bare === scoped, `no unscoped universal rule survives in the export (${scoped}/${bare} scoped)`);

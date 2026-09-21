@@ -14,11 +14,11 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-deck-source-"));
 const externalRoot = await fs.mkdtemp(path.join(os.tmpdir(), "flux-deck-external-"));
 const write = async (p: string, text: string) => { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, text); };
 const svg = (version: string, width = 200) => `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="100" data-version="${version}"><rect width="${width}" height="100" fill="blue"/></svg>`;
-const manifest = (version: number) => JSON.stringify({ spec: "fluxplot", schemaVersion: "0.2.0", axes: [], series: [], version });
+const manifest = (version: number) => JSON.stringify({ spec: "fluxplot", schemaVersion: "0.2.0", axes: [], series: [], plotType: `revision-${version}`, version });
 let checks = 0;
 function eq(a: unknown, b: unknown, label: string) { assert.deepEqual(a, b, label); checks++; console.log("  ok:", label); }
 try {
-  await write(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", title: "Deck source gate", figures: [], slides: [], manuscript: { path: "manuscript/main.qmd" }, supplementary: [] }));
+  await write(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "fixture-project", references: { library: "bib/library.bib" }, title: "Deck source gate", figures: [], slides: [], manuscript: { path: "manuscript/main.qmd" }, supplementary: [] }));
   const placed = (id: string, assetId = id, frozen = false): SemanticPlotElement => ({ id: `el-${id}`, type: "plot", assetId, x: 25, y: 30, width: 100, height: 50, rotation: 15, source: { svgPath: `plots/${assetId}.svg`, ...(frozen ? { frozen: true } : {}) }, overrides: { figure: { opacity: .7 } } });
   const project: Project = { version: 2, name: "Sources", canvases: [{ id: "c", name: "Canvas" }], figures: [{ id: "f", name: "Figure 1", referenceKey: "fig-stable", canvasId: "c", x: 0, y: 0, width: 300, height: 150, background: "#fff", elements: [placed("shared", "shared", true)] }], assets: [{ id: "shared", name: "shared.svg", kind: "svg", path: "assets/shared.svg", naturalWidth: 200, naturalHeight: 100 }], palette: [] };
   await write(`${root}/fig/assets/shared.svg`, svg("accepted-shared"));
@@ -46,22 +46,24 @@ try {
   eq(first.payload.plots?.target.svg.includes('data-version="source-target"'), true, "animation-only target source participates in catch-up");
   eq(first.payload.plots?.frozen.svg.includes('data-version="accepted-frozen"'), true, "frozen deck copy retains accepted bytes despite changed source");
   eq(first.payload.plots?.["target-frozen"].svg.includes('data-version="accepted-target-frozen"'), true, "animation-only frozen target retains accepted SVG despite changed source");
-  eq((first.payload.plots?.["target-frozen"].manifest as { version?: number }).version, 1, "animation-only frozen target retains its matching semantic sidecar");
+  eq((first.payload.plots?.["target-frozen"].manifest as { plotType?: string }).plotType, "revision-1", "animation-only frozen target retains its matching semantic sidecar");
   eq(first.payload.deck.assets.find((a) => a.id === "target-frozen")?.naturalWidth, 200, "animation-only frozen target retains its accepted intrinsic size");
   eq(first.payload.plots?.shared.svg.includes('data-version="accepted-shared"'), true, "registered Figure snapshot wins over raw source");
-  eq((first.payload.plots?.shared.manifest as { version?: number }).version, 1, "Figure snapshot retains its matching accepted semantic sidecar");
+  eq((first.payload.plots?.shared.manifest as { plotType?: string }).plotType, "revision-1", "Figure snapshot retains its matching accepted semantic sidecar");
   eq(first.payload.plots?.raw.svg.includes('data-version="explicit-external"'), true, "explicit external source wins over an in-project basename collision");
-  eq((first.payload.plots?.raw.manifest as { version?: number }).version, 77, "unregistered external source honors its explicit semantic path");
+  eq((first.payload.plots?.raw.manifest as { plotType?: string }).plotType, "revision-77", "unregistered external source honors its explicit semantic path");
   eq(first.payload.deck.slides[0].elements.find((e) => e.id === "el-local")?.width, 200, "local source resize preserves deliberate half scale");
   eq(first.payload.deck.stage, deck.stage, "source sizing never enlarges the fixed stage");
   eq(first.payload.deck.slides[0].camera, deck.slides[0].camera, "source refresh preserves authored camera");
-  eq(first.payload.deck.slides[0].beats, deck.slides[0].beats, "source refresh preserves animation endpoint patches");
+  eq(JSON.parse(await fs.readFile(`${root}/slides/talk/deck.json`, "utf8")).slides[0].beats, deck.slides[0].beats, "source refresh preserves authored animation endpoints and source links on disk");
+  eq(first.payload.deck.slides[0].beats[1].tracks[0].to?.state, deck.slides[0].beats[1].tracks[0].to?.state, "portable payload preserves animation endpoint patches");
+  eq("svgPath" in first.payload.deck.slides[0].beats[1].tracks[0].to!, false, "portable payload omits authoring source paths");
   const deckPath = `${root}/slides/talk/deck.json`, before = await fs.readFile(deckPath, "utf8");
   await gatherDeckPayload(root, "talk");
   eq(await fs.readFile(deckPath, "utf8"), before, "no-change export does not rewrite the deck");
   await write(`${root}/plots/target.fluxplot.json`, manifest(3));
   const semantic = await gatherDeckPayload(root, "talk");
-  eq((semantic.payload.plots?.target.manifest as { version?: number }).version, 3, "manifest-only target update reaches offline payload");
+  eq((semantic.payload.plots?.target.manifest as { plotType?: string }).plotType, "revision-3", "manifest-only target update reaches offline payload");
   eq(JSON.parse(await fs.readFile(`${root}/slides/talk/assets/target.fluxplot.json`, "utf8")).version, 3, "manifest-only update is durable before export");
   await write(`${root}/plots/local.svg`, "<svg><rect");
   const broken = await gatherDeckPayload(root, "talk");
@@ -69,7 +71,7 @@ try {
   eq(broken.warnings.some((w) => /malformed/.test(w)), true, "source rejection explains why the previous revision remains");
   await fs.rm(`${root}/plots/target.fluxplot.json`);
   const removed = await gatherDeckPayload(root, "talk");
-  eq((removed.payload.plots?.target.manifest as { version?: number }).version, undefined, "removed source sidecar does not survive in the export");
+  eq((removed.payload.plots?.target.manifest as { plotType?: string }).plotType, "svg", "removed source sidecar does not survive in the export");
   eq(await fs.readFile(`${root}/slides/talk/assets/target.fluxplot.json`, "utf8").catch(() => null), null, "removed source sidecar is removed durably");
   // Same authored physical scale, one deck observing each source revision
   // and one remaining closed through both. Saved intrinsic baselines make
@@ -101,6 +103,6 @@ try {
   await write(`${root}/fig/index.json`, JSON.stringify(unavailableIndex));
   await fs.rm(`${root}/fig/assets/shared.svg`);
   const unavailable = await gatherDeckPayload(root, "closed");
-  eq([unavailable.payload.deck.slides[0].elements[0].width, unavailable.payload.deck.externalAssetSizes?.shared.width], [300, 600], "missing accepted bytes cannot advance baseline or resize a retained placement");
+  eq([unavailable.payload.deck.slides[0].elements[0].width, JSON.parse(await fs.readFile(`${root}/slides/closed/deck.json`, "utf8")).externalAssetSizes?.shared.width], [300, 600], "missing accepted bytes cannot advance baseline or resize a retained placement");
 } finally { await fs.rm(root, { recursive: true, force: true }); await fs.rm(externalRoot, { recursive: true, force: true }); }
 console.log(`SLIDE SOURCE SYNC: PASS (${checks} assertions)`);

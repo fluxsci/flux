@@ -1,3 +1,5 @@
+import { readBoundedBody } from "../electron/netFetch.cjs";
+import { publicFetch as fetch } from "../electron/publicFetch.cjs";
 // flux-core/enrich.ts — hydrate the FluxLib personal library with OpenAlex Tier-1/2
 // metadata, and serve whole-world lookups (search / author / cites / related).
 //
@@ -58,7 +60,7 @@ async function fetchWorks(url: string): Promise<any> {
     res = await fetch(u2, { headers: { "User-Agent": UA, Accept: "application/json" } });
   }
   if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
-  return res.json();
+  return JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"));
 }
 
 /** CrossRef abstract (JATS) for a DOI, tags stripped — the backfill for the ~40% of
@@ -70,7 +72,7 @@ async function crossrefAbstract(doi: string, mailto?: string): Promise<string | 
       (mailto ? `?mailto=${encodeURIComponent(mailto)}` : "");
     const res = await fetch(url, { headers: { "User-Agent": UA } });
     if (!res.ok) return undefined;
-    const j = await res.json();
+    const j = JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"));
     const ab = j?.message?.abstract;
     if (!ab || typeof ab !== "string") return undefined;
     return ab.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() || undefined;
@@ -82,6 +84,7 @@ async function crossrefAbstract(doi: string, mailto?: string): Promise<string | 
 export interface HydrateResult {
   total: number; // entries in the library
   candidates: number; // entries targeted this run (have a DOI; not already done unless --refresh)
+  failedBatches?: number; // retryable requests, distinct from valid zero results
   fetched: number; // entries matched + mapped from OpenAlex this run
   crossrefBackfill: number; // abstracts filled from CrossRef
   hydrated: number; // entries with any enrichment after this run
@@ -113,13 +116,16 @@ export async function hydrateLibrary(
   const map: EnrichMap = { ...existing };
   const delta: EnrichMap = {}; // only this run's fetched/updated keys (W3 merge unit)
   const now = new Date().toISOString();
-  let fetched = 0;
+  let fetched = 0, failedBatches = 0, succeededBatches = 0;
 
   for (const url of batchByDoiUrl(targets.map((e) => e.doi as string), { mailto, select: ENRICH_SELECT })) {
     let json: any;
     try {
       json = await fetchWorks(url);
+      if (!Array.isArray(json?.results)) throw new Error("Malformed OpenAlex results");
+      succeededBatches++;
     } catch {
+      failedBatches++;
       continue; // skip a failed batch; others still proceed
     }
     for (const w of json?.results ?? []) {
@@ -134,6 +140,8 @@ export async function hydrateLibrary(
     }
     await sleep(120); // ≤10 req/s polite pool
   }
+
+  if (failedBatches && !succeededBatches) throw new Error(`All ${failedBatches} OpenAlex batches failed; cached enrichment was preserved. Retry hydration.`);
 
   // CrossRef abstract backfill for hydrated-but-abstract-less targets.
   let crossrefBackfill = 0;
@@ -159,6 +167,7 @@ export async function hydrateLibrary(
   return {
     total: entries.length,
     candidates: targets.length,
+    failedBatches,
     fetched,
     crossrefBackfill,
     hydrated: cov.hydrated,

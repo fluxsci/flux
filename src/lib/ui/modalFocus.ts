@@ -15,6 +15,7 @@ export function modalFocus(node: HTMLElement) {
     }
   }
   node.addEventListener('keydown', key);
+  queueMicrotask(() => { if (node.isConnected && !node.contains(document.activeElement)) (node.querySelector<HTMLElement>('textarea,input,button,[tabindex="0"]') ?? node).focus(); });
   return { destroy() {
     node.removeEventListener('keydown', key);
     if (previous?.isConnected && (node.contains(document.activeElement) || document.activeElement === document.body)) previous.focus();

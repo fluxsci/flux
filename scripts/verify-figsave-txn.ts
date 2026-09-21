@@ -101,8 +101,7 @@ try {
     await child.ready;
     await sleep(Math.random() * 150);
     await scope.reap(child);
-    // stale locks from the killed child must not wedge the next iteration
-    await fs.rm(path.join(root, ".meta", "locks"), { recursive: true, force: true }).catch(() => {});
+    // The next real child recovers on authoring entry; no manual stale-lock cleanup.
     let idx: { canvases?: { id: string }[]; figures?: { canvas: string }[] } | null = null;
     try {
       idx = JSON.parse(await fs.readFile(idxPath, "utf8"));

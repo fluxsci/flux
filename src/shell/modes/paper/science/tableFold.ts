@@ -159,7 +159,7 @@ function mapValue(value: TableFoldValue, changes: ChangeDesc): TableFoldValue {
 // The widget field's gate (science/tables.ts): a pipe / aligned-delimiter /
 // fence token on a touched line, a newline, or an edit within two lines of a
 // table — the caption may sit one blank line below the block.
-const TABLE_GATE = { tokens: ["|", ":-", "```", "~~~"], guardLines: 2 } as const;
+const TABLE_GATE = { tokens: ["|", ":-", "```", "~~~", "$$", "\\[", "\\]"], guardLines: 2 } as const;
 
 export const scienceTableFold = StateField.define<TableFoldValue>({
   create: (state) => derive(state),

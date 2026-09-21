@@ -48,6 +48,8 @@ console.log("WORKER client=" + process.env.FLUX_CLIENT + " project=" + (process.
 console.log("AGENT model=" + (process.argv[3] ?? "?") + " effort=" + (process.argv[4] ?? "?"));
 console.log("BRIEF: " + prompt.slice(0, 60));
 if (prompt.includes("PLEASE FAIL")) process.exit(3);
+if (prompt.includes("PLEASE SIGNAL")) process.kill(process.pid, "SIGTERM");
+if (prompt.includes("FINAL BYTES")) process.stdout.write("FINAL-BYTES:" + "x".repeat(100000));
 console.log("REPORT: analysis complete, 2 plots written");
 `,
   );
@@ -136,6 +138,13 @@ console.log("PASS OK");
     unknown = String(e);
   }
   ok(/no agent family "nope"/.test(unknown) && /stubw/.test(unknown), "dispatch: unknown family lists available families");
+
+  const signaled = await core.dispatch(root, {role:'analysis', brief:'PLEASE SIGNAL', name:'signal', model:'m1', effort:'low'});
+  ok(signaled.exitCode !== 0, 'signal termination is not successful exit');
+  ok(fs.readFileSync(path.join(root,signaled.dir,'result.md'),'utf8').includes('signal'), 'signal outcome retained in saved result');
+  const final = await core.dispatch(root, {role:'analysis',brief:'FINAL BYTES',name:'final-bytes',model:'m1',effort:'low'});
+  const finalBytes = fs.readFileSync(path.join(root,final.dir,'log.txt'),'utf8');
+  ok(final.exitCode === 0 && finalBytes.includes('x'.repeat(100000)) && finalBytes.endsWith('REPORT: analysis complete, 2 plots written\n'), 'log finish awaited through immediate exit and final large report');
 
   // --- legacy fixed-command rosters still dispatch by role --------------------
   fs.writeFileSync(

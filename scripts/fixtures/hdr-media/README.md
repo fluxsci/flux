@@ -1,0 +1,11 @@
+# Calibrated HDR media acceptance
+
+`scripts/lib/hdrMediaFixture.cjs` creates small, disposable 384×64, 30 fps, 1.2-second lossless 10-bit HEVC PQ and HLG inputs. It starts with floating-point, linear BT.2020 RGB in units of 100 cd/m². Nine neutral patches contain 0, 1, 10, 50, 100, 200, 400, 800 and 1,000 cd/m². Three additional RGB patches test gamut conversion. Encoding applies the transfer function and limited-range BT.2020 matrix; it does not retag SDR pixels. MaxCLL is explicitly 1,000 cd/m².
+
+Input acceptance independently computes ST 2084 and display-referred HLG neutral transfer values (maximum encoded error .002), and checks decoded linear RGB against the authored values (1.5% or .002 linear units). This accounts for quantization in the 10-bit input. The color patches use positive in-gamut values so clipping does not obscure a gamut error.
+
+The output reference uses a separate numerical BT.2020→BT.709 matrix, Hable curve normalized to the declared 1,000-nit peak, and BT.1886 inverse display EOTF. This matches the documented display-referred zscale default, not scene-referred camera BT.709 OETF. References: [FFmpeg 7.0.2 tonemap](https://github.com/FFmpeg/FFmpeg/blob/n7.0.2/libavfilter/vf_tonemap.c), [metadata peak selection](https://github.com/FFmpeg/FFmpeg/blob/n7.0.2/libavfilter/colorspace.c), and [zimg transfer selection](https://github.com/sekrit-twc/zimg/blob/master/src/zimg/colorspace/gamma.cpp).
+
+Each channel at each patch center must agree within **5/255** in every one of the 36 actual H.264 frames and the PNG poster. This fixed allowance covers 8-bit YUV quantization, chroma subsampling, and lossy encoding. Strict ramp monotonicity and separate 400/800/1,000-nit highlights prevent a clipped-white result from passing. Black must remain ≤2/255; the declared peak must be ≥253/255. Input bytes must remain exact. These are software signal and encoded-artifact tests; they do not qualify a physical HDR display or another platform's codec pipeline.
+
+Run `node scripts/verify-v020-hdr-media.cjs` with isolated user configuration. The existing `verify-slide-video-media-electron.cjs` runs the same calibration inside Electron before native player-duration checks. Retained MOV/MP4/PNG/JSON evidence lives in `test-results/slide-video-clips/hdr-calibration/`.

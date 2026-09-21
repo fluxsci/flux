@@ -11,7 +11,7 @@
 //    .corrupt-<ts> and loadEnrich returns {} instead of wiping it on next write.
 // 5. Dir-fsync presence (WS-5.3): atomicWrite fsyncs the FILE, but rename
 //    durability needs the DIRECTORY entry synced too — fsyncDir must exist,
-//    behave (real dir ok, missing dir best-effort silent), and be WIRED into
+//    behave (real dir ok, missing dir is a reported durability failure), and be WIRED into
 //    both save paths (flux-core saveFigModel + renderer figbridge/electron).
 //
 // Process containment (WS-0a): every child is owned by a TestProcessScope —
@@ -22,6 +22,7 @@
 // everything down via the finally block.
 
 import { promises as fs } from "node:fs";
+import assert from "node:assert/strict";
 import * as path from "node:path";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -127,8 +128,8 @@ try {
   // -------------------------------------------------------------- 5. dir-fsync presence
   {
     await fsyncDir(work); // real directory: must not throw
-    await fsyncDir(path.join(work, "no-such-dir")); // missing: best-effort silent
-    ok("fsyncDir behaves (real dir ok, missing dir silent)");
+    if (process.platform !== "win32") await assert.rejects(fsyncDir(path.join(work, "no-such-dir")), (e: NodeJS.ErrnoException) => e.code === "ENOENT");
+    ok("fsyncDir behaves (real dir ok, missing directory reported; Windows no-op documented)");
     const repo = path.join(fixturesDir, "..", "..");
     const src = async (p: string) => await fs.readFile(path.join(repo, p), "utf8");
     const wired: [string, string, RegExp][] = [
@@ -136,7 +137,7 @@ try {
       // the shared executor; each engine wires its own fsyncDir adapter in.
       ["src/lib/project/figfiles.ts", "canvas batch (executor)", /io\.fsyncDir\?\.\("fig\/canvases"\)/],
       ["src/lib/project/figfiles.ts", "index commit (executor)", /io\.fsyncDir\?\.\("fig"\)/],
-      ["flux-core/model.ts", "Node adapter (WS-6.2 home)", /fsyncDir: \(rel\) => fsyncDir\(safeJoin\(root, rel\)\)/],
+      ["flux-core/model.ts", "Node adapter (WS-6.2 home)", /fsyncDir: \(rel: string\) => fsyncDir\(safeJoin\(root, rel\)\)/],
       ["src/lib/project/figbridge.ts", "renderer adapter", /fig\.fsyncDir!\(joinPath\(root, rel\)\)/],
       ["electron/ipc/files.cjs", "IPC handler (files family)", /["']fs:fsyncDir["']/],
       ["electron/preload.cjs", "bridge exposure", /fsyncDir/],

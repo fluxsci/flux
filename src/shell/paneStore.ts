@@ -4,6 +4,8 @@
 
 import { writable, derived, get } from "svelte/store";
 import type { ModeId } from "./shellStore";
+import { flushPaneChecked } from "./lifecycle";
+import { serializeTransition } from "./transitions";
 import { pushToast } from "../lib/toast";
 
 export interface Pane {
@@ -123,10 +125,21 @@ export function splitWith(mode: ModeId) {
   focusedPaneId.set(id);
 }
 
-export function closePane(id: string) {
-  const ps = get(panes);
-  if (ps.length <= 1) return;
-  const remaining = ps.filter((p) => p.id !== id);
-  panes.set(remaining);
-  if (get(focusedPaneId) === id) focusedPaneId.set(remaining[0].id);
+export function closePane(id: string): Promise<boolean> {
+  return serializeTransition(`close:${id}`, async () => {
+    const outgoing = get(panes).find(p => p.id === id);
+    if (get(panes).length <= 1 || !outgoing) return false;
+    const result = await flushPaneChecked(id);
+    if (!result.ok) {
+      pushToast('error', 'Could not close pane', { detail: `Unsaved changes: ${result.failed.join(', ')}. Retry saving or resolve the conflict.` });
+      return false;
+    }
+    // Other pane edits/layout changes during the await must survive.
+    const current = get(panes);
+    if (current.length <= 1 || current.find(p => p.id === id) !== outgoing) return false;
+    const remaining = current.filter(p => p.id !== id);
+    panes.set(remaining);
+    if (get(focusedPaneId) === id) focusedPaneId.set(remaining[0].id);
+    return true;
+  });
 }

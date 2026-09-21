@@ -4,6 +4,7 @@
   // below the highlight). A dirty note is saved on ANY close path (outside click,
   // explicit ✕, Save, Esc/teardown — the onDestroy flush) so a half-typed comment
   // never silently vanishes.
+  import { annotationDraft, type AnnotationDraft } from "./annotationDrafts";
   import { onMount, onDestroy } from "svelte";
   import { pushToast } from "../../../lib/toast";
   import { ANNOTATION_COLORS, type Annotation } from "../../../lib/references/annotations";
@@ -11,6 +12,8 @@
 
   let {
     annotation,
+    draftKey,
+    paneId = "",
     x,
     y,
     place = "below",
@@ -22,10 +25,12 @@
     onClose,
   }: {
     annotation: Annotation;
+    draftKey: string;
+    paneId?: string;
     x: number;
     y: number;
     place?: "above" | "below";
-    onSaveNote?: (note: string) => void;
+    onSaveNote?: (note: string) => Promise<void>;
     onRecolor?: (color: string) => void;
     /** Returns the clipboard promise — "Copied ✓" shows only when it resolves. */
     onCopy?: () => void | Promise<void>;
@@ -46,26 +51,32 @@
   // idempotent with save() (no double-save when ✕/outside-click already saved).
   let seededFor: string | null = null;
   let lastSaved = $state("");
+  let saving = $state(false);
+  let saveError = $state("");
+  let draft: AnnotationDraft | null = null;
   $effect(() => {
     if (seededFor !== annotation.id) {
+      draft?.dispose();
       seededFor = annotation.id;
-      note = annotation.note ?? "";
-      lastSaved = note;
+      const persist = onSaveNote;
+      draft = annotationDraft(draftKey, paneId, annotation.note ?? "", async text => { await persist?.(text); });
+      note = draft.text;
+      lastSaved = draft.saved;
+      saveError = draft.error;
     }
   });
-
+  $effect(() => { if (draft) draft.text = note; });
   const dirty = $derived(note !== lastSaved);
-
-  function save() {
-    note = note.trim();
-    if (note !== lastSaved) {
-      lastSaved = note;
-      onSaveNote?.(note);
-    }
+  async function save(): Promise<boolean> {
+    if (!draft || saving) return false;
+    draft.text = note;
+    saving = true;
+    try { await draft.flush(); lastSaved = draft.saved; saveError = ""; return true; }
+    catch (error) { saveError = String(error instanceof Error ? error.message : error); return false; }
+    finally { saving = false; }
   }
-  function requestClose() {
-    save();
-    onClose?.();
+  async function requestClose() {
+    if (await save()) onClose?.();
   }
   function copy() {
     void Promise.resolve(onCopy?.()).then(
@@ -94,12 +105,11 @@
   // (Esc in ReaderMode just sets popover = null) land here and flush a dirty draft.
   let skipDestroySave = false;
   onDestroy(() => {
-    if (skipDestroySave) return;
-    const t = note.trim();
-    if (t !== lastSaved) {
-      lastSaved = t;
-      onSaveNote?.(t);
-    }
+    if (!draft) return;
+    if (skipDestroySave) { draft.text = draft.saved; draft.dispose(); return; }
+    draft.text = note;
+    // Registry retains failed drafts; teardown alone never reports success.
+    void draft.flush().then(() => draft?.dispose()).catch(() => {});
   });
 
   $effect(() => () => clearTimeout(copiedTimer));
@@ -145,12 +155,13 @@
     aria-label="Highlight comment"
     onkeydown={noteKey}></textarea>
 
+  {#if saveError}<div role="alert" class="pquote">Save failed: {saveError}. Your draft is retained; retry Save.</div>{/if}
   <div class="pactions">
     <button class="pbtn" onclick={copy}>{copied ? "Copied ✓" : "Copy text"}</button>
     <button class="pbtn" title="Send this highlight to the terminal" onclick={() => onAsk?.()}>✦ Send to terminal</button>
     <span class="spacer"></span>
     {#if dirty}
-      <button class="pbtn save" onclick={save}>Save</button>
+      <button class="pbtn save" disabled={saving} onclick={save}>{saving ? "Saving…" : "Save"}</button>
     {/if}
     <button class="pbtn danger" title="Delete highlight" onclick={del}>Delete</button>
   </div>

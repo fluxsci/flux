@@ -24,7 +24,7 @@ import {
   summarizeZoteroSync,
   zoteroSyncStatePath,
   parseZoteroSyncState,
-  bibUnchanged,
+  bibUnchanged, attachmentPolicy,
   type ZoteroSettings,
   type ZoteroSyncState,
   type ZoteroSyncSummary,
@@ -103,7 +103,7 @@ class ZoteroSyncJob {
         const [st, lib] = await Promise.all([fb.stat(s.bibPath), resolveFluxLibPath()]);
         if (st && lib) {
           const state = parseZoteroSyncState(await fb.readText(zoteroSyncStatePath(lib)).catch(() => ""));
-          if (bibUnchanged(state, s.bibPath, st.size, st.mtimeMs)) return null; // silent no-op
+          if (bibUnchanged(state, s.bibPath, st.size, st.mtimeMs, attachmentPolicy(s))) return null; // silent no-op
         }
       } catch {
         /* stat/state hiccup — proceed with a full sync */
@@ -115,7 +115,6 @@ class ZoteroSyncJob {
       pushToast("info", "Zotero sync deferred", { detail: `a sync is already running in ${got.heldBy ?? "another session"}` });
       return null;
     }
-    await fb.lockSet?.("zotero-sync", true, "fluxlib");
     this.running = true;
     const run: ZoteroSyncRun = { at: new Date().toISOString(), summary: { added: 0, merged: 0, attached: 0, linked: 0, failed: 0 }, line: "" };
     try {
@@ -141,12 +140,12 @@ class ZoteroSyncJob {
       for (const { key, raw } of candidates) {
         const atts = bibPdfAttachments(raw);
         if (!atts.length) continue;
-        const paths = attachPathCandidates(atts[0].path, {
+        const paths = atts.flatMap(att => attachPathCandidates(att.path, {
           baseDir,
           zoteroDir: s.dataDir,
           isAbsolute: isAbsolutePath,
           join: joinPath,
-        });
+        }));
         if (deferred) {
           // Stat-only pointer write — never read the linked file at sync time (the
           // huge-library posture; text backfills on first reader open). Twin of the
@@ -171,7 +170,9 @@ class ZoteroSyncJob {
         for (const p of paths) {
           try {
             const buf = await fb.readFile(p);
-            bytes = new Uint8Array(buf);
+            const candidate = new Uint8Array(buf);
+            if (!isPdfBytes(candidate)) continue;
+            bytes = candidate;
             resolved = p;
             break;
           } catch {
@@ -186,7 +187,7 @@ class ZoteroSyncJob {
           if (await writeLinkedPdfItem(key, resolved, bytes)) run.summary.linked++;
           else run.summary.failed++;
         } else {
-          if ((await writePdfItem(key, bytes, { source: "ingest", url: resolved })).ok) run.summary.attached++;
+          if ((await writePdfItem(key, bytes, { source: "ingest", url: resolved, ifAbsent:true })).ok) run.summary.attached++;
           else run.summary.failed++;
         }
       }
@@ -197,7 +198,7 @@ class ZoteroSyncJob {
         try {
           const lib = await resolveFluxLibPath();
           if (lib) {
-            const state: ZoteroSyncState = { bibPath: s.bibPath, size: preStat.size, mtimeMs: preStat.mtimeMs, at: run.at };
+            const state: ZoteroSyncState = { bibPath: s.bibPath, size: preStat.size, mtimeMs: preStat.mtimeMs, at: run.at, attachmentPolicy: run.summary.failed ? undefined : attachmentPolicy(s) };
             await fb.writeText(zoteroSyncStatePath(lib), JSON.stringify(state, null, 2) + "\n");
           }
         } catch {
@@ -214,7 +215,7 @@ class ZoteroSyncJob {
       run.line = "sync failed";
       pushToast("error", "Zotero sync failed", { detail: run.error });
     } finally {
-      await fb.lockSet?.("zotero-sync", false, "fluxlib").catch(() => {});
+      if (got?.token) await fb.lockRelease?.("fluxlib", "zotero-sync", got.token).catch(() => {});
       this.lastRun = run;
       this.runSeq++;
       this.running = false;

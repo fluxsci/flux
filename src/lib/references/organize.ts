@@ -25,7 +25,7 @@ export const emptyEntry = (): OrganizeEntry => ({ tags: [], collections: [] });
 /** A paper's organize entry (always defined; empty when unset). */
 export function organizeOf(data: OrganizeData, key: string): OrganizeEntry {
   const e = data.items[key];
-  return e ? { tags: e.tags ?? [], status: e.status, collections: e.collections ?? [] } : emptyEntry();
+  return e ? { ...e, tags: e.tags ?? [], status: e.status, collections: e.collections ?? [] } : emptyEntry();
 }
 
 // Case-insensitive de-dupe that preserves the first-seen casing + order.
@@ -46,9 +46,9 @@ function normList(list: string[]): string[] {
 // Prune an entry that carries nothing, so organize.json stays sparse.
 function pruned(data: OrganizeData, key: string, e: OrganizeEntry): OrganizeData {
   const items = { ...data.items };
-  if (!e.tags.length && !e.collections.length && (!e.status || e.status === "unread")) delete items[key];
+  if (!e.tags.length && !e.collections.length && (!e.status || e.status === "unread") && Object.keys(e).every(k => ["tags", "collections", "status"].includes(k))) delete items[key];
   else items[key] = e;
-  return { version: 1, items };
+  return { ...data, version: 1, items };
 }
 
 export function setTags(data: OrganizeData, key: string, tags: string[]): OrganizeData {
@@ -120,4 +120,15 @@ export function normalizeOrganize(raw: unknown): OrganizeData {
     }
   }
   return out;
+}
+
+/** Strict canonical loader. Unknown fields remain attached for future readers. */
+export function validateOrganize(raw: unknown): OrganizeData {
+  const d = raw as OrganizeData;
+  if (!d || typeof d !== "object" || d.version !== 1 || !d.items || typeof d.items !== "object" || Array.isArray(d.items)) throw new Error("Expected version 1 organization items");
+  for (const v of Object.values(d.items)) {
+    if (!v || typeof v !== "object" || [v.tags, v.collections].some(x => x !== undefined && (!Array.isArray(x) || x.some(t => typeof t !== "string"))) ||
+        (v.status !== undefined && !READING_STATUSES.includes(v.status))) throw new Error("Invalid organization record");
+  }
+  return d;
 }

@@ -69,10 +69,10 @@ const stale = structuredClone(A.manifest); stale.series[0].points![0].y = 100;
 assert(plotContractErrors(A.svg, stale).some((e) => e.includes("disagree")));
 assert.equal(createHash("sha256").update(A.svg).digest("hex"), A.manifest.artifact!.svgSha256);
 
-const invocation = recipeInvocation({ args: ["plot.py"], params: { dose: 1e-7 } }, { __fluxplot__: { field: { cmap: "plasma" } } });
+const invocation = recipeInvocation({ command: "python3", args: ["plot.py"], params: { dose: 1e-7 } }, { __fluxplot__: { field: { cmap: "plasma" } } });
 assert.deepEqual(invocation.args, ["plot.py", "--dose", "1e-7"]);
 assert.equal((invocation.params.__fluxplot__ as any).field.cmap, "plasma");
-assert.throws(() => recipeInvocation({}, { dose: NaN }), /finite/);
+assert.throws(() => recipeInvocation({ command: "python3" }, { dose: NaN }), /finite/);
 assert.equal(completedRecipe({ inputs: ["new"], params: { generated: 2 } }, { old: 1 }, { dose: 3 }, "now").inputs[0], "new");
 // Execute an actual regeneration that replaces its own provenance sidecar.
 const scratch = await mkdtemp(join(tmpdir(), "fluxplot03-recipe-"));

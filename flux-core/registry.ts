@@ -1,3 +1,4 @@
+import { recoverProjectForAuthoring } from "./recovery";
 // WS-6.3 (fortify plan) — the ONE verb registry behind the CLI and the MCP
 // server. Both surfaces used to wrap the same core.* functions independently
 // (a 116-case CLI switch + 107 hand-rolled registerTool blocks) — capability
@@ -27,13 +28,9 @@ export interface CliRender {
   err?: string;
   exit?: number;
 }
-export interface McpContent {
-  type: "text" | "image";
-  text?: string;
-  data?: string;
-  mimeType?: string;
-}
+export type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 export interface McpRender {
+  [key: string]: unknown;
   content: McpContent[];
   isError?: boolean;
 }
@@ -102,7 +99,7 @@ export interface VerbDef {
    *  "flags" — new-style: --root/$FLUX_PROJECT/cwd only, every positional is
    *  the verb's own (variadic plot paths would otherwise be eaten as roots). */
   cliRoot?: "positional" | "flags";
-  handler: (ctx: VerbCtx, args: Record<string, unknown>) => Promise<unknown>;
+  handler: (ctx: VerbCtx, args: Record<string, unknown>) => unknown | Promise<unknown>;
   render?: {
     human?: (r: unknown, a: Record<string, unknown>) => CliRender;
     mcp?: (r: unknown, a: Record<string, unknown>) => McpRender;
@@ -180,6 +177,10 @@ async function coerce(spec: CliArgSpec, raw: unknown): Promise<unknown> {
       return raw === true ? undefined : Number(raw) * (4 / 3);
     case "fileText":
       return await fs.readFile(String(raw), "utf8");
+    default: {
+      const exhaustive: never = spec.as;
+      throw new ValidationError(`Unsupported CLI coercion: ${String(exhaustive)}`);
+    }
   }
 }
 
@@ -198,6 +199,7 @@ function assign(out: Record<string, unknown>, into: string, value: unknown): voi
 /** Extract + validate a registered verb's args from parsed CLI argv. */
 async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<string, unknown> }): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
+  const supplied = new Set<string>();
   const namedFlags = new Set(v.cliArgs.filter((s) => s.kind === "flag").map((s) => String(s.at)));
   for (const spec of v.cliArgs) {
     let raw: unknown;
@@ -211,7 +213,11 @@ async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<strin
     // Coerce a present value; a coercion may REJECT it (bare flag where a
     // string is needed) — that counts as missing, like the old typeof guards.
     // A coerced boolean false is a real value, never "missing".
-    if (raw !== undefined) raw = spec.const !== undefined ? spec.const : await coerce(spec, raw);
+    if (raw !== undefined) {
+      if (supplied.has(spec.into)) throw new ValidationError(`${v.cli}: contradictory inputs for ${spec.into}`);
+      supplied.add(spec.into);
+      raw = spec.const !== undefined ? spec.const : await coerce(spec, raw);
+    }
     if (raw === undefined) {
       if (spec.default !== undefined) assign(out, spec.into, spec.default);
       else if (spec.required)
@@ -259,7 +265,9 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   const newStyle = v.cliRoot === "flags";
   try {
     const args = await argsFromCli(v, { pos: newStyle ? inv.pos : inv.posRooted, flags: inv.flags });
-    const r = await v.handler({ root: newStyle ? inv.rootFlags : inv.rootPositional }, args);
+    const root = newStyle ? inv.rootFlags : inv.rootPositional;
+    await recoverProjectForAuthoring(root);
+    const r = await v.handler({ root }, args);
     const h = (v.render?.human ?? defaultHuman)(r, args);
     if (h.outRaw !== undefined) (io.raw ?? io.log)(h.outRaw);
     if (h.out !== undefined) io.log(h.out);
@@ -282,6 +290,7 @@ export function registerMcpVerbs(
     server.registerTool(v.name, { description: v.summary, inputSchema: v.params }, async (a) => {
       try {
         const args = z.object(v.params).parse(a ?? {});
+        await recoverProjectForAuthoring(root);
         const r = await v.handler({ root }, args);
         return (v.render?.mcp ?? defaultMcp)(r, args);
       } catch (e) {
@@ -289,4 +298,43 @@ export function registerMcpVerbs(
       }
     });
   }
+}
+
+/** Declaration-driven flag grammar. Values beginning '-' are valid values;
+ * booleans never steal the next positional. '--' ends option parsing. */
+export function parseCliFlags(verb: string | undefined, argv: string[]): { _: string[]; flags: Record<string, string | boolean> } {
+  const definition = verb ? byCli.get(verb) : undefined;
+  const specs = definition?.cliArgs.filter(s => s.kind === 'flag') ?? [];
+  const declared = new Map(specs.map(s => [String(s.at), s]));
+  const rest = definition?.cliArgs.some(s => s.kind === 'flagRest');
+  const legacyBooleans = new Set(['print','no-picker','no-transcript','echo','png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
+  const flags: Record<string, string | boolean> = {}, pos: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--') { pos.push(...argv.slice(i + 1)); break; }
+    if (!arg.startsWith('--')) { pos.push(arg); continue; }
+    const equal = arg.indexOf('=');
+    const key = arg.slice(2, equal < 0 ? undefined : equal);
+    if (!key || ['__proto__', 'constructor', 'prototype'].includes(key)) throw new ValidationError('Invalid option name');
+    const spec = declared.get(key);
+    if (definition && !spec && !['root','help'].includes(key) && !rest) throw new ValidationError(`${verb}: unknown flag --${key}`);
+    if (Object.hasOwn(flags, key)) throw new ValidationError(`${verb}: repeated flag --${key}`);
+    const boolean = spec ? spec.as === 'boolean' || spec.const !== undefined : legacyBooleans.has(key);
+    if (equal >= 0) { flags[key] = arg.slice(equal + 1); continue; }
+    if (boolean) {
+      const next = argv[i + 1];
+      if (next === 'true' || next === 'false') { flags[key] = next; i++; } else flags[key] = true;
+    } else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) flags[key] = argv[++i];
+    else throw new ValidationError(`${verb}: --${key} requires a value`);
+  }
+  return { _: pos, flags };
+}
+export function registryHelp(verb?: string): string {
+  const definitions = verb ? [byCli.get(verb)].filter((v): v is VerbDef => !!v) : VERBS;
+  return definitions.map(v => {
+    const args = v.cliArgs.filter(s => s.kind !== 'flagRest').map(s => s.kind === 'flag'
+      ? `[--${s.at}${s.as === 'boolean' || s.const !== undefined ? '' : ' <value>'}]`
+      : `<${s.into}${s.kind === 'rest' ? '…' : ''}>`).join(' ');
+    return `  ${v.cli} ${v.cliRoot === 'flags' ? '' : '[root] '}${args} [--root R]\n      ${v.summary}${v.aliases?.length ? ` (aliases: ${v.aliases.join(', ')})` : ''}`;
+  }).join('\n');
 }

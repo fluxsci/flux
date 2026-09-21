@@ -17,6 +17,7 @@
 //  LR-10 (presence): an all-batches-failed enrich run throws instead of reporting "Enriched 0".
 //  LR-8  (presence): GUI-fetched PDFs stay searchable via getPaperText's extract-on-demand.
 //   Run: npx tsx scripts/verify-p4-libreader.ts
+import { createRequire } from "node:module";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -84,7 +85,20 @@ const terminalCjs = await fs.readFile(new URL("../electron/ipc/terminal.cjs", im
 assert(/shell: command/.test(terminalCjs), "SHL-18: pty:create returns the shell PATH, not the electron shell module");
 // WS-9.4b: fs:exists lives in the FILES family module now.
 const filesCjs = await fs.readFile(new URL("../electron/ipc/files.cjs", import.meta.url), "utf8");
-assert(/err\.code !== "ENOENT"/.test(filesCjs), "SHL-18: fs:exists distinguishes ENOENT from EACCES");
+const require = createRequire(import.meta.url);
+const nativeFs = require("node:fs");
+const { createFileCore } = require("../electron/ipc/files.cjs");
+const nativeHandlers = new Map<string, Function>();
+createFileCore({ app: { getPath: () => os.tmpdir() }, roots: () => [], setPendingRoot() {} }).registerHandlers({ handle: (name: string, fn: Function) => nativeHandlers.set(name, fn) });
+const originalAccess = nativeFs.promises.access;
+try {
+  nativeFs.promises.access = async () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); };
+  assert(await nativeHandlers.get("fs:exists")!({ sender: { id: 1 } }, path.join(os.tmpdir(), "flux-exists-probe")) === false, "SHL-18: missing file is absent");
+  nativeFs.promises.access = async () => { throw Object.assign(new Error("denied"), { code: "EACCES" }); };
+  let rejected = false;
+  try { await nativeHandlers.get("fs:exists")!({ sender: { id: 1 } }, path.join(os.tmpdir(), "flux-exists-probe")); } catch (error) { rejected = (error as NodeJS.ErrnoException).code === "EACCES"; }
+  assert(rejected, "SHL-18: inaccessible file rejects rather than permitting initialization");
+} finally { nativeFs.promises.access = originalAccess; }
 assert(/failedBatches === urls\.length/.test(enrichBridge), "LR-10: an all-batches-failed enrich run throws (not 'Enriched 0')");
 assert(/extract-on-demand|extract on demand|extractFulltext\(new Uint8Array/.test(fulltext), "LR-8: getPaperText extracts on demand so GUI-fetched PDFs stay searchable");
 

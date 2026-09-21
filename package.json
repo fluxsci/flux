@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/entry.cjs",
-  "description": "Flux — a local app for joining plots into figures, figures into papers, and slides",
+  "description": "Flux \u2014 a local app for joining plots into figures, figures into papers, and slides",
   "author": {
     "name": "Kort Driessen",
     "email": "sleepanimal@gmail.com"
@@ -15,7 +15,7 @@
     "flux": "dist/flux-cli.mjs"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.15"
   },
   "scripts": {
     "dev": "vite",
@@ -33,10 +33,10 @@
     "flux:mcp": "tsx flux-mcp.ts",
     "electron:dev": "concurrently -k -n vite,electron \"npm run dev\" \"wait-on tcp:127.0.0.1:1420 && node scripts/electron-dev.mjs\"",
     "electron:build": "npm run build && electron .",
-    "dist": "npm run build && npm run fetch:correction-runtime && node scripts/fetch-video-encoder.mjs && electron-builder",
-    "dist:mac": "npm run build && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && node scripts/fetch-video-encoder.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
-    "dist:linux": "npm run build && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && node scripts/fetch-video-encoder.mjs --platform linux --arches x64 && electron-builder --linux",
-    "pack": "npm run build && npm run fetch:correction-runtime && node scripts/fetch-video-encoder.mjs && electron-builder --dir",
+    "dist": "npm run build && npm run build:docs && npm run fetch:correction-runtime && node scripts/fetch-video-encoder.mjs && electron-builder",
+    "dist:mac": "npm run build && npm run build:docs && node scripts/fetch-correction-runtime.mjs --platform darwin --arches arm64,x64 && node scripts/fetch-video-encoder.mjs --platform darwin --arches arm64,x64 && electron-builder --mac",
+    "dist:linux": "npm run build && npm run build:docs && node scripts/fetch-correction-runtime.mjs --platform linux --arches x64 && node scripts/fetch-video-encoder.mjs --platform linux --arches x64 && electron-builder --linux",
+    "pack": "npm run build && npm run build:docs && npm run fetch:correction-runtime && node scripts/fetch-video-encoder.mjs && electron-builder --dir",
     "install:desktop-entry": "node scripts/install-desktop-entry.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "sign:extension": "node scripts/sign-extension.mjs",
@@ -44,7 +44,9 @@
     "prebuild": "node scripts/gen-slide-embed-assets.mjs",
     "prebuild:cli": "node scripts/gen-slide-embed-assets.mjs",
     "precheck": "node scripts/gen-slide-embed-assets.mjs",
-    "fetch:video-encoder": "node scripts/fetch-video-encoder.mjs"
+    "fetch:video-encoder": "node scripts/fetch-video-encoder.mjs",
+    "check:headless": "tsc --project tsconfig.headless.json",
+    "build:docs": "node scripts/build-docs.mjs"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",
@@ -66,12 +68,14 @@
     "@napi-rs/canvas": "1.0.2",
     "@replit/codemirror-vim": "^6.3.0",
     "@resvg/resvg-js": "^2.6.2",
+    "@xmldom/xmldom": "^0.8.15",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
     "ajv": "^8.20.0",
     "approx-string-match": "^2.0.0",
     "chokidar": "^5.0.0",
+    "css-tree": "^3.2.1",
     "fflate": "^0.8.3",
     "harper.js": "^2.7.0",
     "js-yaml": "^5.2.0",
@@ -87,6 +91,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tsconfig/svelte": "^5.0.8",
+    "@types/css-tree": "^3.2.0",
     "@types/js-yaml": "^4.0.9",
     "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",

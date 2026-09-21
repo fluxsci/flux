@@ -1,3 +1,4 @@
+import { decodePreferences } from "../../../../lib/preferences";
 // Paper-module layout preferences — persisted to localStorage exactly like
 // paperViewStore.ts. Holds the outliner/dynamic-margin open state, the two
 // reader-adjustable editor gutters (as fractions of the editor-column width,
@@ -40,16 +41,18 @@ const DEFAULTS: PaperLayout = {
   dynMarginOpen: true,
   dynMarginW: 340,
   collapsed: [],
+  activeDocPath: null,
 };
 
 function load(): PaperLayout {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const old = JSON.parse(raw) as Partial<PaperLayout>;
+      const value = JSON.parse(raw);
+      const old = value && typeof value === "object" && !Array.isArray(value) ? value as Partial<PaperLayout> : {};
       // The old default rail was 224px. Preserve explicitly resized widths.
       if (!old.sidebarView && old.outlinerW === 224) old.outlinerW = 280;
-      return { ...DEFAULTS, ...old };
+      return decodePreferences(old, DEFAULTS, {sidebarView:{enum:["both","files","outline"]},filesFraction:{min:.1,max:.9},outlinerW:{min:180,max:typeof window === "undefined" ? 3840 : window.innerWidth},gutterL:{nullable:true,min:0,max:.45},gutterR:{nullable:true,min:0,max:.45},dynMarginW:{min:260,max:typeof window === "undefined" ? 3840 : Math.max(620,window.innerWidth-420)},collapsed:{strings:true},activeDocPath:{nullable:true,maxLength:4096}});
     }
   } catch {
     /* ignore */

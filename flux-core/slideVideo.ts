@@ -58,7 +58,7 @@ export async function exportSlideVideo(root: string, deckId: string, slideId: st
     await fs.writeFile(html, await exportSlideVideoHtml(payload, options));
     await fs.mkdir(path.dirname(out), { recursive: true });
     await fs.writeFile(jobFile, JSON.stringify({ html, output: tempOutput, encoder, mediaFiles, mediaHasAudio, ...size }));
-    const env = { ...process.env, FLUX_SLIDE_VIDEO_WORKER: "1", FLUX_VIDEO_JOB: jobFile }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
+    const env: NodeJS.ProcessEnv = { ...process.env, FLUX_SLIDE_VIDEO_WORKER: "1", FLUX_VIDEO_JOB: jobFile }; delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;
     const result = await new Promise<{ frames: number; durationMs: number; warnings: string[] }>((resolve, reject) => {
       const args = [worker, jobFile, ...(process.platform === "linux" ? ["--ozone-platform=x11"] : [])];
       const child = spawn(electron, args, { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });

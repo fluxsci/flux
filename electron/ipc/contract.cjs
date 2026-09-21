@@ -21,14 +21,22 @@
 
 const CHANNELS = [
   // --- files (fs:*) ----------------------------------------------------------
+  { channel: "readerContext:claim", kind: "invoke", scope: "write" },
+  { channel: "readerContext:publish", kind: "invoke", scope: "write" },
+  { channel: "readerContext:renew", kind: "invoke", scope: "write" },
+  { channel: "readerContext:release", kind: "invoke", scope: "write" },
+  { channel: "fs:projectAssetPath", kind: "invoke", scope: "read" },
   { channel: "fs:exists", kind: "invoke", scope: "read" },
   { channel: "fs:stat", kind: "invoke", scope: "read" },
+  { channel: "fs:setTimes", kind: "invoke", scope: "write" },
   { channel: "fs:readdir", kind: "invoke", scope: "read" },
+  { channel: "fs:readTextBounded", kind: "invoke", scope: "read" },
   { channel: "fs:readText", kind: "invoke", scope: "read" },
   { channel: "fs:readFile", kind: "invoke", scope: "read" },
   { channel: "fs:writeText", kind: "invoke", scope: "write" },
   { channel: "fs:writeFile", kind: "invoke", scope: "write" },
   { channel: "fs:mkdir", kind: "invoke", scope: "write" },
+  { channel: "fs:moveFileVerified", kind: "invoke", scope: "write" },
   { channel: "fs:remove", kind: "invoke", scope: "write" },
   { channel: "fs:trash", kind: "invoke", scope: "write" },
   { channel: "fs:fsyncDir", kind: "invoke", scope: "write" },
@@ -60,9 +68,11 @@ const CHANNELS = [
   { channel: "capture:count", kind: "invoke", scope: "read" },
   { channel: "capture:intake", kind: "invoke", scope: "write" },
   { channel: "capture:discard", kind: "invoke", scope: "write" },
+  { channel: "capture:release", kind: "invoke", scope: "write" },
   { channel: "capture:park", kind: "invoke", scope: "write" },
   // The feedback ledger (append-only .meta/feedback.ndjson — principal-agent scheme).
   { channel: "feedback:append", kind: "invoke", scope: "write" },
+  { channel: "lock:check", kind: "invoke", scope: "write" },
   { channel: "lock:acquire", kind: "invoke", scope: "write" },
   { channel: "lock:release", kind: "invoke", scope: "write" },
   { channel: "lock:set", kind: "invoke", scope: "write" },
@@ -111,6 +121,8 @@ const CHANNELS = [
   { channel: "keys:get", kind: "invoke", scope: "read" },
   { channel: "keys:set", kind: "invoke", scope: "write" },
   { channel: "fulltext:search", kind: "invoke", scope: "read" },
+  { channel: "fulltext:cancel", kind: "invoke", scope: "read" },
+  { channel: "fulltext:progress", kind: "push", scope: "read" },
   // --- Paper contextual corrections -------------------------------------------
   { channel: "correction:status", kind: "invoke", scope: "read" },
   { channel: "correction:warm", kind: "invoke", scope: "spawn" },
@@ -142,6 +154,7 @@ const CHANNELS = [
   { channel: "pty:data", kind: "push", scope: "read" },
   { channel: "pty:exit", kind: "push", scope: "read" },
   // --- renders / exports -------------------------------------------------------------
+  { channel: "recipe:cancel", kind: "invoke", scope: "spawn" },
   { channel: "recipe:run", kind: "invoke", scope: "spawn" },
   { channel: "quarto:available", kind: "invoke", scope: "read" },
   { channel: "quarto:render", kind: "invoke", scope: "spawn" },
@@ -183,7 +196,25 @@ const CHANNELS = [
 const byChannel = new Map(CHANNELS.map((c) => [c.channel, c]));
 
 /** Wrap ipcMain so registration is contract-checked and recorded. */
-function wrapIpcMain(ipcMain) {
+function validatePayload(args) {
+  let bytes = 0, nodes = 0;
+  const seen = new Set();
+  function visit(value, depth) {
+    if (++nodes > 250_000 || depth > 64) throw new Error("IPC payload exceeds structural limit");
+    if (typeof value === "string") bytes += value.length * 2;
+    else if (typeof value === "number" && !Number.isFinite(value)) throw new Error("IPC payload has a non-finite number");
+    else if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) bytes += value.byteLength;
+    else if (value && typeof value === "object") {
+      if (seen.has(value)) throw new Error("IPC payload must not contain cycles");
+      seen.add(value);
+      for (const [key, child] of Object.entries(value)) { bytes += key.length * 2; visit(child, depth + 1); }
+      seen.delete(value);
+    }
+    if (bytes > 256 * 1024 * 1024) throw new Error("IPC payload exceeds 256 MiB limit");
+  }
+  visit(args, 0);
+}
+function wrapIpcMain(ipcMain, { validateSender } = {}) {
   const registered = new Set();
   const expectKind = (channel, kind, method) => {
     const decl = byChannel.get(channel);
@@ -195,11 +226,22 @@ function wrapIpcMain(ipcMain) {
   return {
     handle(channel, fn) {
       expectKind(channel, "invoke", "handle");
-      return ipcMain.handle(channel, fn);
+      return ipcMain.handle(channel, (event, ...args) => {
+        if (validateSender && !validateSender(event, channel)) throw new Error("IPC sender is not a trusted application session");
+        validatePayload(args);
+        return fn(event, ...args);
+      });
     },
     on(channel, fn) {
       expectKind(channel, "send", "on");
-      return ipcMain.on(channel, fn);
+      return ipcMain.on(channel, (event, ...args) => {
+        try {
+          if (validateSender && !validateSender(event, channel)) return;
+          validatePayload(args);
+          const result = fn(event, ...args);
+          if (result?.catch) result.catch(() => console.warn(`[flux] IPC ${channel} failed`));
+        } catch { console.warn(`[flux] IPC ${channel} rejected`); }
+      });
     },
     /** Every declared invoke/send channel must have a live handler by app-ready. */
     assertAllRegistered() {

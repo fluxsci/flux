@@ -299,6 +299,13 @@ export function planExplicitVocabularyCorrections(
       .filter(Boolean)
       .map((word) => [word.toLocaleLowerCase(), word] as const),
   ).values()];
+  // All accepted edit shapes preserve first folded character and differ by
+  // at most one character in length. Index that exact necessary condition.
+  const candidates = new Map<string, string[]>();
+  for (const canonical of canonicals) {
+    const folded = vocabularyForm(canonical), key = `${folded[0]}:${folded.length}`;
+    const bucket = candidates.get(key) ?? []; bucket.push(canonical); candidates.set(key, bucket);
+  }
   const plans: PlannedLocalCorrection[] = [];
 
   for (const match of source.matchAll(TOKEN_RE)) {
@@ -308,7 +315,9 @@ export function planExplicitVocabularyCorrections(
     const to = from + original.length;
     if (overlapsProtected(from, to, protectedRanges)) continue;
 
-    const ranked = canonicals
+    const folded = vocabularyForm(original);
+    const possible = [-1, 0, 1].flatMap(delta => candidates.get(`${folded[0]}:${folded.length + delta}`) ?? []);
+    const ranked = possible
       .map((canonical) => ({ canonical, score: explicitVocabularyMatch(original, canonical) }))
       .filter((candidate): candidate is { canonical: string; score: number } => candidate.score != null)
       .sort((a, b) => b.score - a.score || a.canonical.localeCompare(b.canonical));
@@ -546,8 +555,7 @@ function vocabularyTokenIsTechnical(token: string): boolean {
  * protected immediately; ordinary lowercase terms must recur three times so a
  * single typo is never learned merely because it exists in the manuscript.
  */
-export function extractProjectVocabulary(sources: readonly string[]): string[] {
-  const counts = extractProjectVocabularyOccurrences(sources);
+export function extractProjectVocabulary(sources: readonly string[], counts = extractProjectVocabularyOccurrences(sources)): string[] {
   return [...counts.values()]
     .filter(({ exemplar, n }) => vocabularyTokenIsTechnical(exemplar) || (exemplar.length >= 4 && n >= 3))
     .map(({ exemplar }) => exemplar)

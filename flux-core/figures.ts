@@ -1,3 +1,4 @@
+import { stageFigureWrites } from "./model";
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
 // element styles + the text system, groups/z-order/layout, and scaffold.
@@ -244,10 +245,14 @@ export async function syncFigureAssets(
     const plan = await planSourceUpdates(root, owners.project, io, { figureId: figId });
     if (!opts.dryRun && plan.updates.length) await owners.assertUnchanged();
     const geometry = opts.dryRun ? { resized: [], framed: [] } : applySourceUpdates(project, plan.updates);
-    if (!opts.dryRun) await writeSourceUpdates(root, plan.updates, {
-      writeText: atomicWrite,
-      remove: (p) => fs.unlink(p).catch((e) => { if (e.code !== "ENOENT") throw e; }),
-    }, project);
+    if (!opts.dryRun) {
+      const staged = new Map<string,string|null>();
+      await writeSourceUpdates(root, plan.updates, {
+        writeText: async(p,text)=>{staged.set(path.relative(root,p).split(path.sep).join('/'),text)},
+        remove:async p=>{staged.set(path.relative(root,p).split(path.sep).join('/'),null)},
+      }, project);
+      stageFigureWrites(project,staged);
+    }
     return {
       refreshed: plan.updates.map((u) => ({ assetId: u.assetId, from: u.from })),
       ...geometry,
@@ -392,7 +397,8 @@ export async function composeFigure(
     }
     const first = plotPaths[0];
     const baseName = opts.name || path.basename(first, path.extname(first)) || "figure";
-    const figId = opts.id ? safeId("figure", opts.id) : slugify(baseName);
+    let figId = opts.id ? safeId("figure", opts.id) : slugify(baseName);
+    if (!opts.id) { const base = figId; for (let n = 2; project.figures.some(f => f.id === figId); n++) figId = `${base}-${n}`; }
     const margin = opts.margin ?? 48;
     const fig = ops.createFigure(project, { canvasId, id: figId, name: opts.name ?? figId, width: 100, height: 100 });
 

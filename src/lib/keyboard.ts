@@ -46,7 +46,7 @@ import {
   type Tool,
 } from "./store";
 import { storeTenant } from "./tenancy";
-import type { Element, GroupDef } from "./types";
+import type { Element, GroupDef, Figure } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
 import { archivePastedImage, importDroppedFiles } from "./io";
 import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
@@ -114,22 +114,22 @@ function editableIds(): Set<string> {
   return new Set(get(project).figures.flatMap(fig => selectionTargets(fig, ids, { editable: true, excluded }).map(e => e.id)));
 }
 
-function withSelected(fn: (els: Element[], figId: string) => void) {
+function withSelected(fn: (els: Element[], figId: string, figure: Figure) => void) {
   const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   commit((p) => {
     const f = p.figures.find((ff) => ff.id === fig.id)!;
     const els = selectionTargets(f, sel, { editable: true });
-    fn(els, f.id);
+    fn(els, f.id, f);
   });
 }
 
 function doAlign(kind: AlignKind) {
-  withSelected((els) => alignElements(els, kind));
+  withSelected((els,_,figure) => alignElements(els, kind, {figure,scope:get(enteredGroupId)}));
 }
 function doDistribute(axis: "h" | "v", gap?: number) {
-  withSelected((els) => distributeElements(els, axis, gap));
+  withSelected((els,_,figure) => distributeElements(els, axis, gap, {figure,scope:get(enteredGroupId)}));
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ function applyArrange(rows: number) {
         e.y = b.y;
       }
     }
-    arrangeGrid(els, cols);
+    arrangeGrid(els, cols, {}, {figure:fig,scope:get(enteredGroupId)});
   }));
   arrange.set({ ...st, rows, cols });
   lastArrangeRows.set(rows);
@@ -168,7 +168,7 @@ export function enterArrange() {
   const sel = editableIds();
   if (!fig || sel.size < 2) return;
   const els = fig.elements.filter((e) => sel.has(e.id));
-  const n = gridItemCount(els);
+  const n = gridItemCount(els,{figure:fig,scope:get(enteredGroupId)});
   if (n < 2) return;
   arrangeBase = new Map(els.map((e) => [e.id, { x: e.x, y: e.y }]));
   const rows = balancedRows(n);
@@ -224,11 +224,11 @@ export function arrangeToRows(rows: number) {
   const fig = activeFig();
   const sel = get(selection);
   if (!fig || sel.size < 2) return;
-  const n = gridItemCount(fig.elements.filter((e) => sel.has(e.id)));
+  const n = gridItemCount(fig.elements.filter((e) => sel.has(e.id)),{figure:fig,scope:get(enteredGroupId)});
   if (n < 2) return;
   const v = validRowCounts(n);
   const r = v.reduce((b, x) => (Math.abs(x - rows) < Math.abs(b - rows) ? x : b));
-  withSelected((els) => arrangeGrid(els, Math.ceil(n / r)));
+  withSelected((els,_,figure) => arrangeGrid(els, Math.ceil(n / r), {}, {figure,scope:get(enteredGroupId)}));
   lastArrangeRows.set(r);
 }
 
@@ -497,6 +497,10 @@ function paste() {
   if (!clipboard.length) return;
   const fig = activeFig();
   if (!fig) return;
+  const assetIds = new Set(get(project).assets.map(a => a.id));
+  if (clipboard.some(e => (e.type === "image" || e.type === "plot") && !assetIds.has(e.assetId))) {
+    pushToast("info", "Import the copied image or plot into this project before pasting."); return;
+  }
   const videos = clipboard.filter(e => e.type === "video");
   if (videos.length && storeTenant() !== "slide") {
     pushToast("info", "Video clips can only be pasted into slides."); return;
@@ -559,7 +563,7 @@ export function handleEditorPaste(e: ClipboardEvent, figId: string | null) {
   // The import writes a derived copy into fig/assets/; this keeps the user's own
   // copy under plots/, because a pasted image has no source file to re-sync from.
   void archivePastedImage(named, name);
-  void importDroppedFiles([named], figId);
+  void importDroppedFiles([named], figId).catch(error=>pushToast("error", "Could not paste image", { detail: String(error) }));
 }
 
 // ⌘G — one shared op (ops.group): named registry group, nesting, z-splice.

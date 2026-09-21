@@ -1,11 +1,3 @@
-<script lang="ts" module>
-  // One reader-context writer at a time across every mounted ReaderDoc (paper switches
-  // today; tabs/split panes later): the last instance to WRITE owns
-  // <FluxLib>/.fluxlib/reader-context.json, and only the owner clears it on destroy —
-  // a departing instance must never wipe the context another open document just wrote.
-  let ctxOwner: symbol | null = null;
-</script>
-
 <script lang="ts">
   // FluxReader document — everything scoped to ONE open paper. Loads the paper named by
   // the (immutable) `citekey` prop from <FluxLib>/items/<citekey>/ (PDF bytes +
@@ -19,20 +11,21 @@
   import { fluxLibRevision } from "../../../lib/references/revision";
   import {
     readerPdfBytes,
-    readerSource,
-    writeReaderContext,
-    clearReaderContext,
+    readerPdfIdentity,
     listSupplements,
     readSupplementManifest,
     readerSupplementBytes,
     ingestSupplementFile,
   } from "../../../lib/references/itemsBridge";
   import { fileBridge } from "../../../lib/project/types";
+  import { createReaderSourceOwner } from "./readerSession";
+  import { createReaderContextPublisher } from "./readerContextPublisher";
   import { pushToast, errMsg } from "../../../lib/toast";
+  import { withIpcLock } from "../../../lib/references/libLock";
   import { loadAnnotations, addAnnotation, updateAnnotation, deleteAnnotation, annotationsRev } from "../../../lib/references/annotationsBridge";
   import { saveAnnotationsMarkdown } from "../../../lib/io";
   import { hlSwatch } from "../../../lib/references/annotationColors";
-  import { loadFluxLib } from "../../../lib/references/fluxlibBridge";
+  import { loadFluxLib, resolveFluxLibPath } from "../../../lib/references/fluxlibBridge";
   import { referencedWorksByKey, citingWorksByKey } from "../../../lib/references/enrichBridge";
   import { cachedCiters, cacheCiters, type CitersSort } from "../../../lib/references/citersCache";
   import { pdfKeys, refreshPdfKeys, hasPdfIn } from "../../../lib/references/pdfPresence";
@@ -47,6 +40,7 @@
   import type { ReaderContext } from "../../../lib/references/items";
   import { matchRefToBriefs, type CitePreviewRequest, type FlatOutlineItem } from "../../../lib/pdf/citePreview";
   import { groupMatches, type FindMatch, type OutlineSection } from "../../../lib/pdf/findMatches";
+  import VirtualFixedList from "../../../lib/ui/VirtualFixedList.svelte";
   import PdfView from "./PdfView.svelte";
   import Icon from "../../Icon.svelte";
   import HighlightPopover from "./HighlightPopover.svelte";
@@ -55,26 +49,19 @@
   import SnipNamePopover from "./SnipNamePopover.svelte";
   import { get } from "svelte/store";
   import { currentProject } from "../../shellStore";
-  import { dataUrlToBytes } from "../../../lib/assets";
-  import { injectPngDpi, injectPngText } from "../../../lib/figure/pngDpi";
+  import { createReaderSnipController, type ReaderSnipRequest } from "./readerSnips";
   import {
     SNIP_DIR,
-    SNIP_SCALE,
-    SNIP_TEXT_KEYWORD,
     composeSnipCitation,
     defaultSnipName,
-    sanitizeSnipName,
     dedupSnipName,
-    normSnipRect,
-    snipRasterPlan,
-    encodeSnipMeta,
-    sidecarText,
     type SnipMeta,
     type SnipRect,
   } from "../../../lib/references/snips";
 
   let {
     citekey: citekeyProp,
+    paneId = "",
     active = true,
     focused = true,
     agentOpen = false,
@@ -84,6 +71,7 @@
   }: {
     /** The paper this instance renders — immutable for the instance's lifetime. */
     citekey: string;
+    paneId?: string;
     /** This document is its pane's visible one (hidden kept-alive instances pass false). */
     active?: boolean;
     /** Active AND the hosting pane is focused — gates the window keyboard handler. */
@@ -104,7 +92,16 @@
   const citekey = citekeyProp;
 
   // This instance's claim token on the module-level reader-context ownership.
-  const ctxToken = Symbol();
+  const contextPublisher = createReaderContextPublisher({
+    claim: async (root,owner) => fileBridge()?.readerContextClaim?.({root,owner}) ?? null,
+    publish: async (token,generation,context) => fileBridge()?.readerContextPublish?.({token,generation,context}) ?? false,
+    renew: async (token,generation) => fileBridge()?.readerContextRenew?.({token,generation}) ?? false,
+    release: async token => fileBridge()?.readerContextRelease?.(token),
+  }, crypto.randomUUID());
+  let libraryRoot = $state<string|null>(null);
+  let windowFocused = $state(document.hasFocus());
+  const reloadOwner = createReaderSourceOwner(resolveFluxLibPath);
+  const supplementOwner = createReaderSourceOwner(resolveFluxLibPath);
   // False once destroyed — guards async continuations (loads resolving after unmount).
   let alive = true;
 
@@ -222,7 +219,10 @@
   let matches = $state<FindMatch[]>([]);
   let sections = $state<OutlineSection[]>([]);
   const findProp = $derived(findQuery.trim() ? { query: findQuery.trim(), nonce: findNonce, dir: findDir } : null);
-  const matchGroups = $derived(groupMatches(matches, sections));
+  const matchGroups = $derived(matches.length <= 200 ? groupMatches(matches, sections) : []);
+  let hitList = $state<{ ensureVisible: (index: number) => void } | undefined>();
+  const hitSection = (page: number) => [...sections].filter(s => s.page <= page).sort((a,b) => b.page-a.page)[0]?.title || `Page ${page}`;
+  $effect(() => { if (matches.length > 200 && activeIdx >= 0) hitList?.ensureVisible(activeIdx); });
   function openFind() {
     showRefs = true;
     sideTab = "search";
@@ -292,7 +292,6 @@
   // session's get_reading_context).
   let selection = $state("");
   let selPage = $state<number | undefined>(undefined);
-  let ctxTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Highlight popover (click a highlight on the page, or ✎ on a sidebar row).
   let popover = $state<{ id: string; x: number; y: number; place: "above" | "below" } | null>(null);
@@ -367,11 +366,13 @@
     if (sideTab === "outline" && outline === null && totalPages > 0) void showOutline();
   });
 
+  let citersRequest = 0;
   async function loadCiters(force = false) {
+    const request = ++citersRequest, key = citekey, epoch = sourceEpoch;
     const sort = citersSort;
     if (!force) {
       const hit = await cachedCiters(citekey, sort);
-      if (!alive || sort !== citersSort) return;
+      if (!alive || request !== citersRequest || epoch !== sourceEpoch || key !== citekey || sort !== citersSort) return;
       if (hit) {
         citers = hit.briefs;
         citersAt = hit.fetchedAt;
@@ -386,13 +387,13 @@
         perPage: 50,
         page: 1,
       });
-      if (!alive || sort !== citersSort) return;
+      if (!alive || request !== citersRequest || epoch !== sourceEpoch || key !== citekey || sort !== citersSort) return;
       citers = list;
       citersState = "done";
       citersAt = new Date().toISOString();
       void cacheCiters(citekey, sort, list);
     } catch (e) {
-      if (!alive || sort !== citersSort) return;
+      if (!alive || request !== citersRequest || epoch !== sourceEpoch || key !== citekey || sort !== citersSort) return;
       // "Enrich this entry first…" is a setup state, not a failure.
       citersState = /enrich/i.test(errMsg(e)) ? "unenriched" : "error";
     }
@@ -447,7 +448,7 @@
   // Paper snips: ctrl+alt+drag a region → naming popover → 288dpi PNG (+ provenance
   // tEXt chunk + .snip.json sidecar) into <project>/plots/paper_snips/. The popover
   // opens instantly on mouseup; the full-quality render happens on save (§6).
-  let snipReq = $state<{ page: number; rect: SnipRect; anchor: { x: number; y: number }; name: string; citation: string } | null>(null);
+  let snipReq = $state<(ReaderSnipRequest & { anchor: { x: number; y: number } }) | null>(null);
   let snipPreview = $state<string | null>(null);
   let snipSaving = $state(false);
   let snipError = $state("");
@@ -458,46 +459,32 @@
       pushToast("info", "Open a project to save paper snips");
       return;
     }
+    const epoch = sourceEpoch, view = pdfView;
+    const sourcePdf: SnipMeta["sourcePdf"] = activePdf.kind === "supp" ? { supplement: activePdf.name } : "main";
     const name = await dedupSnipName(defaultSnipName(citekey, req.page), snipExists(root));
+    if (!alive || epoch !== sourceEpoch) return;
     snipError = "";
     snipPreview = null;
-    snipReq = { ...req, name, citation: composeSnipCitation(entry, citekey) };
-    void pdfView?.renderRegion(req.page, req.rect, 130).then((src) => {
-      if (snipReq) snipPreview = src;
-    });
+    const snapshot = { ...req, citekey, name, citation: composeSnipCitation(entry, citekey), projectRoot: root, sourceEpoch: epoch, sourcePdf, view };
+    snipReq = snapshot;
+    void view?.renderRegion(req.page, req.rect, 130).then((src) => {
+      if (snipReq === snapshot && sourceEpoch === epoch) snipPreview = src;
+    }).catch(() => {});
   }
+  const snipController = createReaderSnipController({
+    current: req => alive && sourceEpoch === req.sourceEpoch && get(currentProject)?.path === req.projectRoot,
+    bridge: fileBridge,
+    withLease: (root, publish) => withIpcLock("project", "snips", lease => publish(async () => { await lease.assertOwned?.(); }), {root}),
+  });
   async function saveSnip(rawName: string) {
     const req = snipReq;
-    const root = get(currentProject)?.path ?? null;
+    const root = req?.projectRoot;
     if (!req || !root || snipSaving) return;
     snipSaving = true;
     snipError = "";
     try {
-      const base = sanitizeSnipName(rawName) || req.name;
-      const name = await dedupSnipName(base, snipExists(root));
-      const box = await pdfView?.pageBox(req.page);
-      const rect = box ? normSnipRect(req.rect, box) : req.rect;
-      const src = await pdfView?.renderRegion(req.page, rect, 460, { scale: SNIP_SCALE });
-      if (!src) throw new Error("couldn't render the region");
-      const meta: SnipMeta = {
-        citekey,
-        page: req.page,
-        rect,
-        sourcePdf: activePdf.kind === "supp" ? { supplement: activePdf.name } : "main",
-        capturedAt: new Date().toISOString(),
-        citation: req.citation,
-      };
-      let bytes = dataUrlToBytes(src);
-      bytes = injectPngDpi(bytes, snipRasterPlan(rect, SNIP_SCALE).dpi);
-      bytes = injectPngText(bytes, SNIP_TEXT_KEYWORD, encodeSnipMeta(meta));
-      const fb = fileBridge();
-      if (!fb) throw new Error("no file bridge available");
-      await fb.mkdir(`${root}/plots`);
-      await fb.mkdir(`${root}/${SNIP_DIR}`);
-      await fb.writeFile(`${root}/${SNIP_DIR}/${name}.png`, bytes);
-      await fb.writeText(`${root}/${SNIP_DIR}/${name}.snip.json`, sidecarText(meta));
-      snipReq = null;
-      snipPreview = null;
+      const {base,name,meta} = await snipController.save(req,rawName);
+      if (snipReq === req) { snipReq = null; snipPreview = null; }
       pushToast("info", `Snip saved${name !== base ? ` as ${name}` : ""}`, { detail: `${SNIP_DIR}/${name}.png · ${meta.citation}` });
     } catch (e) {
       snipError = errMsg(e);
@@ -565,37 +552,31 @@
 
   // Stamp of the on-disk PDF (source.json identity) so an external re-fetch/replace of
   // paper.pdf refreshes the open reader in place; bufferGen remounts PdfView.
+  let annotationEpoch = 0;
   let srcStamp: string | null = null;
   let bufferGen = $state(0);
-  const stampOf = (s: Awaited<ReturnType<typeof readerSource>>, b: ArrayBuffer | null) =>
-    s ? `${s.sha256 ?? ""}:${s.bytes ?? ""}:${s.fetchedAt ?? ""}` : b ? "present" : "absent";
-
-  // Load the paper. citekey is fixed for the life of this instance (a paper switch
-  // mounts a fresh ReaderDoc), so the only staleness guard needed is `alive`.
-  void Promise.all([
-    readerPdfBytes(citekey),
-    loadAnnotations(citekey),
-    loadFluxLib(),
-    readerSource(citekey),
-    listSupplements(citekey),
-    readSupplementManifest(citekey),
-  ]).then(([b, af, lib, src, sup, man]) => {
-    if (!alive) return;
-    buffer = b;
-    annotations = af.annotations;
-    entry = lib.find((e) => e.key === citekey) ?? null;
-    libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
-    libKeyByDoi = new Map(lib.flatMap((e) => { const d = bareDoi(e.doi); return d ? [[d, e.key] as [string, string]] : []; }));
-    srcStamp = stampOf(src, b);
-    supplements = sup;
-    suppLabels = Object.fromEntries(man.items.filter((r) => r.label).map((r) => [r.name, r.label as string]));
-    loading = false;
-  }).catch((e) => {
-    // A rejected IPC/bridge call must not strand the pane on "Loading…" forever.
-    if (!alive) return;
-    loading = false;
-    pushToast("error", "Couldn't load this paper", { detail: errMsg(e) });
-  });
+  async function refreshReader(initial = false) {
+    const annotationAtStart=annotationEpoch;
+    await reloadOwner.run(async () => {
+      const [af,lib,identity,sup,man]=await Promise.all([loadAnnotations(citekey),loadFluxLib(),readerPdfIdentity(citekey),listSupplements(citekey),readSupplementManifest(citekey)]);
+      const changed=initial||identity!==srcStamp;
+      const fresh=changed?await readerPdfBytes(citekey):buffer;
+      return {af,lib,identity,sup,man,changed,fresh};
+    },({af,lib,identity,sup,man,changed,fresh},root)=>{
+      libraryRoot=root;
+      if(annotationAtStart===annotationEpoch)annotations=af.annotations;
+      entry=lib.find(e=>e.key===citekey)??null;
+      libDois=new Set(lib.map(e=>bareDoi(e.doi)).filter((d):d is string=>!!d));
+      libKeyByDoi=new Map(lib.flatMap(e=>{const d=bareDoi(e.doi);return d?[[d,e.key] as [string,string]]:[];}));
+      if(changed){sourceEpoch++;selection='';selPage=1;supplementOwner.invalidate();srcStamp=identity;buffer=fresh;
+        if(activePdf.kind==='main'){bufferGen++;outline=null;totalPages=0;}}
+      supplements=sup;suppLabels=Object.fromEntries(man.items.filter(r=>r.label).map(r=>[r.name,r.label as string]));
+      if(activePdf.kind==='supp'&&!sup.includes(activePdf.name))showMain();
+      loading=false;
+    },error=>{loading=false;pushToast('error',"Couldn't load this paper",{detail:errMsg(error)});});
+  }
+  // The initial load and watcher refresh share one latest-result owner.
+  void refreshReader(true);
   // Which library papers have a PDF on disk — one throttled readdir, shared app-wide
   // (never a per-row exists() call), so reference rows can offer "open its PDF".
   refreshPdfKeys();
@@ -618,31 +599,7 @@
     let first = true;
     return fluxLibRevision.subscribe(() => {
       if (first) { first = false; return; }
-      void Promise.all([loadAnnotations(citekey), loadFluxLib(), readerSource(citekey)]).then(async ([af, lib, src]) => {
-        if (!alive) return;
-        annotations = af.annotations;
-        libDois = new Set(lib.map((e) => bareDoi(e.doi)).filter((d): d is string => !!d));
-    libKeyByDoi = new Map(lib.flatMap((e) => { const d = bareDoi(e.doi); return d ? [[d, e.key] as [string, string]] : []; }));
-        const b = buffer;
-        const stamp = stampOf(src, b);
-        if (stamp !== srcStamp) {
-          const fresh = await readerPdfBytes(citekey);
-          if (!alive) return;
-          srcStamp = stampOf(src, fresh);
-          buffer = fresh;
-          if (activePdf.kind === "main") {
-            bufferGen++;
-            outline = null; // new bytes → the cached outline belongs to the old doc
-            totalPages = 0;
-          }
-        }
-        // R6: reflect supplements added/removed on disk; if the shown one vanished, fall back.
-        const [sup, man] = await Promise.all([listSupplements(citekey), readSupplementManifest(citekey)]);
-        if (!alive) return;
-        supplements = sup;
-        suppLabels = Object.fromEntries(man.items.filter((r) => r.label).map((r) => [r.name, r.label as string]));
-        if (activePdf.kind === "supp" && !sup.includes(activePdf.name)) showMain();
-      });
+      void refreshReader();
     });
   });
 
@@ -651,17 +608,19 @@
   // `annotations` optimistically (object identity keeps PdfView's locate cache hot), so
   // we skip exactly the bumps we caused — every bridge mutation produces one bump, and
   // the handlers below count theirs before awaiting.
-  let selfAnnWrites = 0;
+  const annotationOrigin = crypto.randomUUID();
+
   onMount(() => {
     let first = true;
     return annotationsRev.subscribe((r) => {
       if (first) { first = false; return; }
       if (r.key !== citekey) return;
-      if (selfAnnWrites > 0) { selfAnnWrites--; return; }
+      if (r.origin === annotationOrigin) { annotationEpoch++; return; }
+      const epoch = ++annotationEpoch;
       void loadAnnotations(citekey).then((af) => {
-        if (!alive) return;
+        if (!alive || epoch !== annotationEpoch) return;
         annotations = af.annotations;
-      });
+      }).catch(error => pushToast("error", "Couldn't reload highlights", { detail: errMsg(error) }));
     });
   });
 
@@ -675,7 +634,11 @@
     if (label) return label.replace(/\s*\((?:download\s+\w+\s*)\)\s*$/i, "").trim() || label;
     return n.replace(/\.pdf$/i, "");
   };
+  let sourceEpoch = 0;
   function showMain() {
+    sourceEpoch++;
+    selection="";selPage=1;
+    supplementOwner.invalidate();
     switchOpen = false;
     if (activePdf.kind === "main") return;
     activePdf = { kind: "main" };
@@ -686,18 +649,14 @@
   }
   async function showSupplement(name: string) {
     switchOpen = false;
-    if (activePdf.kind === "supp" && activePdf.name === name) return;
-    const b = await readerSupplementBytes(citekey, name);
-    if (!alive) return;
-    if (!b) {
-      pushToast("error", `Couldn't open ${name} — it may have been moved`);
-      return;
-    }
-    suppBuffer = b;
-    activePdf = { kind: "supp", name };
-    outline = null; // the outline sidebar tracks the VISIBLE document
-    totalPages = 0;
-    bufferGen++;
+    if (activePdf.kind === "supp" && activePdf.name === name) { sourceEpoch++;supplementOwner.invalidate();return; }
+    const epoch = ++sourceEpoch;
+    await supplementOwner.run(()=>readerSupplementBytes(citekey,name),b=>{
+      if(!alive||epoch!==sourceEpoch)return;
+      if(!b){pushToast('error',`Couldn't open ${name} — it may have been moved`);return;}
+      sourceEpoch++; // Invalidate snips started on the old visible PDF while this load was pending.
+      suppBuffer=b;activePdf={kind:'supp',name};selection='';selPage=1;outline=null;totalPages=0;bufferGen++;
+    },error=>pushToast('error',`Couldn't open ${name}`,{detail:errMsg(error)}));
   }
   // Attach a PDF (OS picker) into this paper's supplements/ folder, then show it.
   async function attachSupplement() {
@@ -727,38 +686,33 @@
   // alive so the user can retry the highlight without re-selecting.
   async function handleCreate(a: { page: number; anchor: TextQuoteSelector; color: string }): Promise<boolean> {
     if (onSupplement) return false; // highlights anchor to the MAIN text only
-    selfAnnWrites++;
     try {
-      const ann = await addAnnotation(citekey, { page: a.page, anchor: a.anchor, color: a.color });
+      const ann = await addAnnotation(citekey, { page: a.page, anchor: a.anchor, color: a.color }, annotationOrigin);
       annotations = [...annotations, ann];
       return true;
     } catch (e) {
-      selfAnnWrites--; // failed before the bump
       pushToast("error", "Couldn't save highlight", { detail: errMsg(e) });
       return false;
     }
   }
   async function handleDelete(id: string) {
     if (popover?.id === id) popover = null;
-    selfAnnWrites++;
     try {
-      await deleteAnnotation(citekey, id);
+      await deleteAnnotation(citekey, id, annotationOrigin);
       annotations = annotations.filter((a) => a.id !== id);
     } catch (e) {
-      selfAnnWrites--; // failed before the bump
       pushToast("error", "Couldn't delete highlight", { detail: errMsg(e) });
     }
   }
   // Patch note/color/tags. The patched object keeps its anchor reference, so PdfView's
   // located-range cache stays hot — a recolor is a repaint, not a re-locate.
   async function handleUpdate(id: string, patch: Partial<Annotation>) {
-    selfAnnWrites++;
     try {
-      await updateAnnotation(citekey, id, patch);
+      await updateAnnotation(citekey, id, patch, annotationOrigin);
       annotations = annotations.map((a) => (a.id === id ? { ...a, ...patch } : a));
     } catch (e) {
-      selfAnnWrites--; // failed before the bump
       pushToast("error", "Couldn't update highlight", { detail: errMsg(e) });
+      throw e;
     }
   }
   function jumpTo(a: Annotation) {
@@ -820,32 +774,18 @@
     if (page != null) selPage = page;
   }
 
-  // Push the live reading context to <FluxLib>/.fluxlib/reader-context.json (debounced)
-  // so the agent's get_reading_context tool can see the paper + selection + highlights.
-  // Only the focused document publishes — hidden kept-alive tabs (and, later,
-  // unfocused panes) must not overwrite what the paper being read just wrote.
+  // Native sender/root claims make focus and publication one protocol. A focused
+  // long read (including external-agent focus) renews every10s; whole-app crashes
+  // expire after30s without renewal. OS blur retains the timestamped last selection.
   $effect(() => {
-    if (!focused) return;
-    const sel = selection;
-    const e = entry;
-    const anns = annotations;
-    if (!buffer) return;
-    clearTimeout(ctxTimer);
     const ctx: ReaderContext = {
-      citekey,
-      title: e?.title,
-      authors: e?.authors,
-      year: e?.year,
-      doi: e?.doi,
-      page: selPage,
-      selection: sel || undefined,
-      annotations: anns.map((a) => ({ page: a.page, color: a.color, quote: a.anchor.quote, note: a.note })),
-      updatedAt: new Date().toISOString(),
+      citekey,title:entry?.title,authors:entry?.authors,year:entry?.year,doi:entry?.doi,
+      page:selection?selPage:curPage,selection:selection||undefined,
+      sourcePdf:activePdf.kind==="main"?"main":{supplement:activePdf.name},pdfIdentity:activePdf.kind==="main"?srcStamp||undefined:undefined,
+      annotations:activePdf.kind==="main"?annotations.map(a=>({page:a.page,color:a.color,quote:a.anchor.quote,note:a.note})):[],
+      updatedAt:new Date().toISOString(),
     };
-    ctxTimer = setTimeout(() => {
-      ctxOwner = ctxToken;
-      void writeReaderContext(ctx);
-    }, 250);
+    contextPublisher.update(libraryRoot,buffer?ctx:null,focused,windowFocused);
   });
 
   // --- draggable rail edges → sidebar widths (the figure/slide gutter pattern;
@@ -953,6 +893,8 @@
 
   onDestroy(() => {
     alive = false;
+    reloadOwner.dispose();supplementOwner.dispose();
+    void contextPublisher.dispose();
     // Flush the final view state (tab close / keep-alive eviction / app close) —
     // the debounced save may not have fired yet.
     clearTimeout(saveTimer);
@@ -960,15 +902,11 @@
       const vs = pdfView?.getViewState() ?? lastVs;
       if (vs) persistView(vs);
     }
-    clearTimeout(ctxTimer);
-    if (ctxOwner === ctxToken) {
-      ctxOwner = null;
-      void clearReaderContext();
-    }
+
   });
 </script>
 
-<svelte:window onkeydown={onKey} onpointerdown={onWinPointer} />
+<svelte:window onkeydown={onKey} onpointerdown={onWinPointer} onfocus={() => { windowFocused=true; }} onblur={() => { windowFocused=false; }} />
 
 <!-- One row shape for both scholarly lists — the paper's references and the papers
      citing it. A brief that's in FluxLib with a PDF on disk opens as a tab. -->
@@ -1112,7 +1050,16 @@
                   <button class="cbtn" title="Next match (Enter)" aria-label="Next match"
                     disabled={!matches.length} onclick={() => stepFind("next")}>›</button>
                 </div>
-                {#if matchGroups.length}
+                {#if matches.length > 200}
+                  <VirtualFixedList bind:this={hitList} items={matches} rowHeight={88} overscan={5} getKey={m => `${m.page}:${m.matchInPage}`} listClass="hitlist" let:item={m}>
+                    <li class="hitgroup" style="height:88px;overflow:hidden">
+                      <div class="hithead"><span class="hitsec">{hitSection(m.page)}</span><span class="hitpg">p.{m.page}</span></div>
+                      <button class="hit" class:on={activeIdx === m.index} onclick={() => goToMatch(m)}>
+                        <span class="hitctx">…{m.before}</span><mark class="hitmark">{m.hit}</mark><span class="hitctx">{m.after}…</span>
+                      </button>
+                    </li>
+                  </VirtualFixedList>
+                {:else if matchGroups.length}
                   <ul class="hitlist">
                     {#each matchGroups as g (g.label + g.page)}
                       <li class="hitgroup">
@@ -1259,11 +1206,13 @@
           {@const ann = popAnn}
           <HighlightPopover
             annotation={ann}
+            {paneId}
+            draftKey={`${paneId}:${citekey}:${ann.id}`}
             x={popover.x}
             y={popover.y}
             place={popover.place}
-            onSaveNote={(n) => void handleUpdate(ann.id, { note: n || undefined })}
-            onRecolor={(c) => void handleUpdate(ann.id, { color: c })}
+            onSaveNote={(n) => handleUpdate(ann.id, { note: n || undefined })}
+            onRecolor={(c) => void handleUpdate(ann.id, { color: c }).catch(() => {})}
             onCopy={() => copyQuote(ann)}
             onAsk={() => sendHighlightToTerminal(ann)}
             onDelete={() => void handleDelete(ann.id)}

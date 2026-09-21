@@ -1,3 +1,6 @@
+import { prepareItemLocators } from "./itemLocators";
+import { itemKey } from "../src/lib/references/itemLocator";
+import { itemDir } from "../src/lib/references/items";
 // OPTIONAL GROBID enrichment. Nothing in Flux depends on this file: it is reached only from the
 // `flux grobid` verb, and every artifact it writes is additive. A default install never runs it,
 // never mentions it, and behaves identically without it.
@@ -241,8 +244,9 @@ async function writeCoverage(lib: string, cov: GrobidCoverage): Promise<void> {
  *  never throw, so a feature can simply ask and light up only when there is an answer. */
 export async function readGrobidDoc(key: string, libPath?: string): Promise<GrobidDoc | null> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
+  await prepareItemLocators(lib);
   try {
-    const raw = await fs.readFile(path.join(lib, "items", key, "grobid.json"), "utf8");
+    const raw = await fs.readFile(path.join(itemDir(lib, key), "grobid.json"), "utf8");
     const doc = JSON.parse(raw) as GrobidDoc;
     return doc?.schemaVersion === GROBID_SCHEMA_VERSION ? doc : null;
   } catch {
@@ -281,6 +285,7 @@ export interface GrobidRunReport {
 export async function grobidEnrich(opts: GrobidRunOptions = {}): Promise<GrobidRunReport> {
   const t0 = Date.now();
   const lib = opts.libPath ? path.resolve(opts.libPath) : await resolveFluxLibPath();
+  await prepareItemLocators(lib);
   const url = opts.url ?? DEFAULT_GROBID_URL;
   const itemsDir = path.join(lib, "items");
   const report: GrobidRunReport = {
@@ -295,7 +300,7 @@ export async function grobidEnrich(opts: GrobidRunOptions = {}): Promise<GrobidR
 
   let dirs: string[] = [];
   try {
-    dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+    dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => itemKey(lib, e.name));
   } catch {
     report.elapsedMs = Date.now() - t0;
     return report;
@@ -320,7 +325,7 @@ export async function grobidEnrich(opts: GrobidRunOptions = {}): Promise<GrobidR
 
   let done = 0;
   for (const key of dirs.sort()) {
-    const pdf = path.join(itemsDir, key, "paper.pdf");
+    const pdf = path.join(itemDir(lib, key), "paper.pdf");
     let mtimeMs: number;
     try {
       mtimeMs = (await fs.stat(pdf)).mtimeMs;
@@ -330,7 +335,7 @@ export async function grobidEnrich(opts: GrobidRunOptions = {}): Promise<GrobidR
     report.totalWithPdf++;
     if (opts.limit && done >= opts.limit) continue;
 
-    const teiPath = path.join(itemsDir, key, "grobid.tei.xml");
+    const teiPath = path.join(itemDir(lib, key), "grobid.tei.xml");
     if (opts.reproject) {
       // Re-derive the projection from stored TEI. Skips anything never enriched.
       let tei: string;
@@ -341,8 +346,9 @@ export async function grobidEnrich(opts: GrobidRunOptions = {}): Promise<GrobidR
       }
       try {
         const prev = cov.items[key];
+        if (!prev || prev.pdfMtimeMs !== mtimeMs) throw new Error("Stored TEI belongs to an older PDF; rerun GROBID extraction before reprojecting");
         const projected = await projectTei(tei, prev?.grobidVersion ?? "unknown");
-        await atomicWrite(path.join(itemsDir, key, "grobid.json"), JSON.stringify(projected, null, 1) + "\n");
+        await atomicWrite(path.join(itemDir(lib, key), "grobid.json"), JSON.stringify(projected, null, 1) + "\n");
         cov.items[key] = {
           ok: true,
           schemaVersion: GROBID_SCHEMA_VERSION,
@@ -369,7 +375,7 @@ export async function grobidEnrich(opts: GrobidRunOptions = {}): Promise<GrobidR
       const tei = await processPdf(url, bytes, opts.timeoutMs ?? 600_000);
       await atomicWrite(teiPath, tei);
       const projected = await projectTei(tei, version);
-      await atomicWrite(path.join(itemsDir, key, "grobid.json"), JSON.stringify(projected, null, 1) + "\n");
+      await atomicWrite(path.join(itemDir(lib, key), "grobid.json"), JSON.stringify(projected, null, 1) + "\n");
       cov.items[key] = {
         ok: true,
         schemaVersion: GROBID_SCHEMA_VERSION,
@@ -417,20 +423,21 @@ export interface GrobidStatusReport extends GrobidStatus {
 /** What is enriched, what is stale, and is a service available. Reads only the ledger + stats. */
 export async function grobidCoverageReport(opts: { url?: string; libPath?: string } = {}): Promise<GrobidStatusReport> {
   const lib = opts.libPath ? path.resolve(opts.libPath) : await resolveFluxLibPath();
+  await prepareItemLocators(lib);
   const st = await grobidStatus(opts.url ?? DEFAULT_GROBID_URL);
   const cov = await readCoverage(lib);
   const itemsDir = path.join(lib, "items");
   let enriched = 0, stale = 0, failed = 0, never = 0, total = 0, refs = 0, cites = 0;
   let dirs: string[] = [];
   try {
-    dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+    dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => itemKey(lib, e.name));
   } catch {
     /* no items yet */
   }
   for (const key of dirs) {
     let mtimeMs: number;
     try {
-      mtimeMs = (await fs.stat(path.join(itemsDir, key, "paper.pdf"))).mtimeMs;
+      mtimeMs = (await fs.stat(path.join(itemDir(lib, key), "paper.pdf"))).mtimeMs;
     } catch {
       continue;
     }

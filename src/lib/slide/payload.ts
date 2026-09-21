@@ -198,10 +198,11 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   for (const d of danglingTrackTargets(deck)) {
     warnings.push(`slide "${d.slideId}" beat "${d.beatId}" animates a deleted element ("${d.target}") — the track plays as a no-op`);
   }
+  const portable = portablePayload({ deck, plots, assets });
   return {
     payload: {
-      deck,
-      plots,
+      deck: portable.deck,
+      plots: portable.plots,
       assets,
       ...(Object.keys(videos).length ? { videos } : {}),
       ...(Object.keys(assetSizes).length ? { assetSizes } : {}),
@@ -214,13 +215,19 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
 export async function gatherSlidePayload(root: string, deck: Deck, slideId: string, io: SlidePayloadIO) {
   const slide = deck.slides.find(s => s.id === slideId);
   if (!slide) throw new Error("Slide is no longer in this deck");
-  const selectedSlide = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.filter(t => !t.disabled) })) };
+  // Disabled births still own their unborn result identities.
+  const selectedSlide = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.filter(t => !t.disabled || !!t.ghostFrom) })) };
   const ids = slideAssetIds(selectedSlide);
   const selected = { ...deck, slides: [selectedSlide], assets: deck.assets.filter(a => ids.has(a.id)) };
   const result = await gatherPayload(root, selected, io);
-  const clean = structuredClone(result.payload);
+  return { ...result, payload: portablePayload(result.payload, { notes: false }) };
+}
+
+/** One portable projection for full presenter decks and Paper occurrences. */
+export function portablePayload(payload: ExportPayload, opts: { notes?: boolean } = {}): ExportPayload {
+  const clean = structuredClone(payload);
   for (const s of clean.deck.slides) {
-    delete s.notes;
+    if (opts.notes === false) delete s.notes;
     for (const el of s.elements) if (el.type === "plot") delete el.source;
     for (const b of s.beats) for (const t of b.tracks) if (t.to) {
       for (const k of ["svgPath", "manifestPath", "recipePath", "external", "frozen"]) delete t.to[k];
@@ -231,7 +238,7 @@ export async function gatherSlidePayload(root: string, deck: Deck, slideId: stri
   const scrub = (value: unknown): void => {
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
-      if (["source", "svgPath", "manifestPath", "recipePath", "sourcePath", "notes"].includes(key)) delete (value as Record<string, unknown>)[key];
+      if (["source", "svgPath", "manifestPath", "recipePath", "sourcePath", "externalAssetSizes", "generatedBy", ...(opts.notes === false ? ["notes"] : [])].includes(key)) delete (value as Record<string, unknown>)[key];
       else scrub(child);
     }
   };
@@ -241,5 +248,5 @@ export async function gatherSlidePayload(root: string, deck: Deck, slideId: stri
     plot.manifest = Object.fromEntries(Object.entries(plot.manifest).filter(([key]) => manifestFields.has(key))) as unknown as FluxPlotManifest;
     plot.manifest.svg = "";
   }
-  return { ...result, payload: clean };
+  return clean;
 }

@@ -112,7 +112,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   assert(style(wrap).opacity === "0", "wrap hidden after fadeOut");
   applyStatic(specs, 3);
   const pathStyle = (path as unknown as HTMLElement).style as unknown as Record<string, string>;
-  assert(pathStyle.strokeDashoffset === "0", "drawOn re-enter fully drawn at rest");
+  assert(!pathStyle.strokeDashoffset && !pathStyle.strokeDasharray, "drawOn re-enter restores the authored undashed stroke at rest");
   assert(style(wrap).opacity !== "0", "the WRAP's exit state is superseded by the cross-node re-enter (per-KEY window)");
   applyStatic(specs, 2);
   assert(style(wrap).opacity === "0", "scrub back: exited state returns (reversible)");

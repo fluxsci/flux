@@ -98,9 +98,10 @@ function createTerminalFamily({ app, nodePty, rootForSender }) {
       return { ok: true, id, shell: command, cwd, pid: child.pid };
     });
     
-    ipc.on("pty:write", (_e, id, data) => {
+    ipc.on("pty:write", (e, id, data) => {
       const s = ptySessions.get(id);
-      if (s) {
+      // A valid app origin is not ownership of another window's shell.
+      if (s && s.wc.id === e.sender.id) {
         try {
           s.pty.write(data);
         } catch {
@@ -109,9 +110,10 @@ function createTerminalFamily({ app, nodePty, rootForSender }) {
       }
     });
     
-    ipc.on("pty:resize", (_e, id, cols, rows) => {
+    ipc.on("pty:resize", (e, id, cols, rows) => {
       const s = ptySessions.get(id);
-      if (s) {
+      // A valid app origin is not ownership of another window's shell.
+      if (s && s.wc.id === e.sender.id) {
         try {
           s.pty.resize(Math.max(1, cols | 0) || 80, Math.max(1, rows | 0) || 24);
         } catch {
@@ -120,9 +122,10 @@ function createTerminalFamily({ app, nodePty, rootForSender }) {
       }
     });
     
-    ipc.handle("pty:kill", (_e, id) => {
+    ipc.handle("pty:kill", (e, id) => {
       const s = ptySessions.get(id);
-      if (s) {
+      // A valid app origin is not ownership of another window's shell.
+      if (s && s.wc.id === e.sender.id) {
         try {
           s.pty.kill();
         } catch {
@@ -130,7 +133,7 @@ function createTerminalFamily({ app, nodePty, rootForSender }) {
         }
         ptySessions.delete(id);
       }
-      return true;
+      return !s || s.wc.id === e.sender.id;
     });
   }
 

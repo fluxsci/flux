@@ -1,11 +1,11 @@
+import { withRecipeLease, readRecipeText, snapshotRecipe, discardRecipeSnapshot } from "../electron/recipeJob.cjs";
 // flux-core/recipe.ts — F2 reproducibility: re-run a plot's recipe (the
 // generating script + params) and capture the emitted SVG/manifest (split out
 // of index.ts; WS-6.2).
 
 import { recipeInvocation, completedRecipe } from "../src/lib/plot/recipeContract.mjs";
-import { spawn } from "node:child_process";
+import { runProcess } from "../electron/processRunner.cjs";
 import * as path from "node:path";
-import { resolveSpawn } from "../electron/execResolve.cjs";
 import { stamp, journal } from "./journal";
 import { readJSON, writeText, findProjectRoot } from "./model";
 
@@ -25,10 +25,14 @@ export interface RecipeRunResult {
   stderr: string;
 }
 
-export async function runRecipe(
+export async function runRecipe(recipePath: string, paramOverrides: Record<string, unknown> = {}, opts: {only?: string | true; signal?: AbortSignal; timeoutMs?: number} = {}): Promise<RecipeRunResult> {
+  return withRecipeLease(recipePath, async assertOwned => runRecipeLocked(recipePath, paramOverrides, opts, assertOwned));
+}
+async function runRecipeLocked(
   recipePath: string,
   paramOverrides: Record<string, unknown> = {},
-  opts: { only?: string | true } = {},
+  opts: { only?: string | true; signal?: AbortSignal; timeoutMs?: number } = {},
+  assertOwned: () => Promise<void>,
 ): Promise<RecipeRunResult> {
   const recipe = await readJSON<{
     command: string;
@@ -51,32 +55,26 @@ export async function runRecipe(
   const { params, args } = recipeInvocation(recipe, paramOverrides);
   const cwd = path.resolve(dir, recipe.cwd ?? ".");
 
-  const { code, stdout, stderr } = await new Promise<{ code: number; stdout: string; stderr: string }>(
-    (resolve, reject) => {
-      const rs = resolveSpawn(recipe.command, args);
-      const child = spawn(rs.command, rs.args, {
-        cwd,
-        env: { ...process.env, FLUX_PARAMS: JSON.stringify(params), ...(only ? { FLUXPLOT_ONLY: only } : {}) },
-        windowsVerbatimArguments: rs.windowsVerbatimArguments,
-      });
-      let out = "";
-      let err = "";
-      child.stdout.on("data", (d) => (out += d));
-      child.stderr.on("data", (d) => (err += d));
-      child.on("error", reject);
-      child.on("close", (c) => resolve({ code: c ?? 0, stdout: out, stderr: err }));
-    },
-  );
+  const snapshot = await snapshotRecipe(recipePath, await readRecipeText(recipePath));
+  const { code, stdout, stderr, status } = await runProcess({ executable: recipe.command, argv: args, cwd,
+    envDelta: { FLUX_PARAMS: JSON.stringify(params), ...(only ? { FLUXPLOT_ONLY: only } : {}) } }, opts);
+  let completed = recipe;
 
   // Persist the merged params + last-run time back to the recipe (provenance).
-  if (code === 0) {
+  if (code === 0 && status === "exited") {
     // save() may have regenerated provenance, input hashes and output paths.
     // Preserve that new sidecar instead of writing the pre-run snapshot over it.
-    const emitted = await readJSON<typeof recipe>(recipePath);
-    await writeText(recipePath, JSON.stringify(completedRecipe(emitted, params, paramOverrides, stamp()), null, 2) + "\n");
+    let emitted: typeof recipe;
+    try { emitted = JSON.parse(await readRecipeText(recipePath)); recipeInvocation(emitted, {}); }
+    catch (error) { throw new Error(`The command emitted malformed recipe metadata. Previous good recipe: ${snapshot}`, {cause: error}); }
+    recipeInvocation(emitted, {});
+    completed = completedRecipe(emitted, params, paramOverrides, stamp());
+    await assertOwned();
+    await writeText(recipePath, JSON.stringify(completed, null, 2) + "\n");
+    await discardRecipeSnapshot(snapshot);
   }
 
-  const out = recipe.output ? path.resolve(dir, recipe.output) : "";
+  const out = code === 0 && status === "exited" && completed.output ? path.resolve(dir, completed.output) : "";
   const root = await findProjectRoot(dir);
   if (root) await journal(root, { action: "rerun-plot", recipe: path.relative(root, recipePath), params, code });
 

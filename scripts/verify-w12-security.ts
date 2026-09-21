@@ -12,7 +12,6 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as core from "../flux-core/index";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -36,7 +35,17 @@ async function exists(p: string) {
   }
 }
 
-const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-w12-"));
+// scaffold also ensures machine-level FluxLib. Isolate before importing the
+// engine so direct invocation is as safe as the verification runner.
+const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), "flux-w12-"));
+const root = path.join(sandbox, "project");
+const savedEnvironment = new Map<string,string|undefined>();
+for(const [name,rel] of Object.entries({HOME:"home",USERPROFILE:"home",XDG_CONFIG_HOME:"config",XDG_CACHE_HOME:"cache",APPDATA:"appdata"})) {
+  savedEnvironment.set(name,process.env[name]);
+  process.env[name]=path.join(sandbox,rel);
+  await fs.mkdir(process.env[name]!,{recursive:true});
+}
+const core = await import("../flux-core/index");
 try {
   await core.scaffold(root, { title: "W12" });
 
@@ -64,9 +73,11 @@ try {
   assert(!(await exists(leak)) && !(await exists(leak + "/evil")), "no file leaked outside the project root");
 
   // --- a legit id still works and writes UNDER the root -----------------------------------
-  const { figureId } = await core.createFigure(root, { id: "growth", canvasId: "c1" });
+  const { project: model } = await core.loadFigModel(root);
+  const canvasId = model.canvases[0].id;
+  const { figureId } = await core.createFigure(root, { id: "growth", canvasId });
   assert(figureId === "growth", "legit create-figure returns the id");
-  assert(await exists(path.join(root, "fig", "canvases", "c1.json")), "legit canvas file written under fig/canvases/");
+  assert(await exists(path.join(root, "fig", "canvases", `${canvasId}.json`)), "legit canvas file written under fig/canvases/");
 
   // --- (2) Electron hardening presence (main-process code the tsx harness can't drive) -----
   const mainCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "main.cjs"), "utf8");
@@ -93,7 +104,7 @@ try {
   // WS-9.4b: keys.json + proxy-cred writes live in the NETWORK family module.
   const networkCjs = await fs.readFile(path.join(import.meta.dirname, "..", "electron", "ipc", "network.cjs"), "utf8");
   assert(/chmod\(fluxKeysPath\(\), 0o600\)/.test(networkCjs), "SHL-8: keys.json written owner-only");
-  has(networkCjs, "{ mode: 0o600 }", "SHL-8: proxy credentials written owner-only");
+  assert(/atomicWriteMain\(proxyCredPath\(\),[^\n]*false, 0o600\)/.test(networkCjs), "SHL-8: proxy credentials request owner-only atomic publication");
   has(mainCjs, 'process.on(sig', "SHL-8: SIGINT/SIGTERM teardown registered");
   has(bridgeCjs, "mode: 0o600", "SHL-8: bridge.json written owner-only");
   has(bridgeCjs, "mode: 0o700", "SHL-8: bridge dir created owner-only");
@@ -158,6 +169,8 @@ try {
 
   console.log("\nW12 SECURITY VERIFY: PASS");
 } finally {
-  await fs.rm(root, { recursive: true, force: true });
-  await fs.rm(path.resolve(root, "..", "flux-w12-LEAK"), { recursive: true, force: true });
+  await fs.rm(sandbox, { recursive: true, force: true });
+  for(const [name,value] of savedEnvironment) {
+    if(value===undefined)delete process.env[name];else process.env[name]=value;
+  }
 }

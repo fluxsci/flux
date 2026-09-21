@@ -8,7 +8,9 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
-const { createNetGet } = require("../netFetch.cjs");
+const { createNetGet, readBoundedBody } = require("../netFetch.cjs");
+const leases = require("../operationLease.cjs");
+const { publicFetch: fetch } = require("../publicFetch.cjs");
 const { createProxyEngine } = require("../proxyFetch.cjs");
 
 /**
@@ -21,16 +23,19 @@ const { createProxyEngine } = require("../proxyFetch.cjs");
  *                     flux-core's FluxLib "keys" lock — owned by the project family)
  *   files           — { atomicWriteMain, noteWrite } (the FILES family write core)
  */
-function createNetworkFamily({ session, BrowserWindow, safeStorage, net, fluxLibDir, getMainWindow, resolveToDoi, locks, files }) {
-  const { lockDirFor, writeLockFile, LOCK_TTL_MS } = locks;
+function createNetworkFamily({ dialog, session, BrowserWindow, safeStorage, net, fluxLibDir, getMainWindow, resolveToDoi, locks, files }) {
+  const { lockDirFor } = locks;
   const { atomicWriteMain, noteWrite } = files;
   let proxyEngineRef = null; // set during registerHandlers (dispose needs it after)
 const fluxKeysPath = () => path.join(fluxLibDir(), "keys.json");
 function readKeys() {
   try {
-    return JSON.parse(fs.readFileSync(fluxKeysPath(), "utf8"));
-  } catch {
-    return {};
+    const data = JSON.parse(fs.readFileSync(fluxKeysPath(), "utf8"));
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Expected key object");
+    return data;
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw new Error(`Cannot read canonical keys file ${fluxKeysPath()}: ${error.message}`, {cause: error});
   }
 }
 const KEY_ENV = { mailto: "FLUX_MAILTO", openAlexKey: "OPENALEX_API_KEY", s2Key: "S2_API_KEY" };
@@ -50,10 +55,10 @@ ipc.handle("cite:fetchDoi", async (_e, doi) => {
   try {
     const res = await fetch(
       "https://api.crossref.org/works/" + encodeURIComponent(clean),
-      { headers: { "User-Agent": "Flux/0.1 (manuscript editor)", Accept: "application/json" } },
+      { headers: { "User-Agent": "Flux/0.1 (manuscript editor)", Accept: "application/json" }, signal: AbortSignal.timeout(30_000), redirect: "error" },
     );
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    const json = await res.json();
+    const json = JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"));
     return { message: json.message };
   } catch (err) {
     return { error: String((err && err.message) || err) };
@@ -70,9 +75,10 @@ ipc.handle("cite:fetchDoiBibtex", async (_e, doi) => {
     const res = await fetch("https://doi.org/" + encodeURIComponent(clean), {
       headers: { Accept: "application/x-bibtex", "User-Agent": "Flux/0.1 (manuscript editor)" },
       redirect: "follow",
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    const bibtex = (await res.text()).trim();
+    const bibtex = (await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8").trim();
     if (!bibtex.startsWith("@")) return { error: "DOI did not return BibTeX" };
     return { bibtex };
   } catch (err) {
@@ -97,9 +103,10 @@ ipc.handle("cite:openalex", async (_e, url) => {
   try {
     const res = await fetch(u, {
       headers: { "User-Agent": "Flux/0.1 (reference hydration)", Accept: "application/json" },
+      signal: AbortSignal.timeout(30_000), redirect: "error",
     });
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    return await res.json();
+    return JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"));
   } catch (err) {
     return { error: String((err && err.message) || err) };
   }
@@ -118,9 +125,10 @@ ipc.handle("cite:s2", async (_e, url) => {
         Accept: "application/json",
         ...(key ? { "x-api-key": key } : {}),
       },
+      signal: AbortSignal.timeout(30_000), redirect: "error",
     });
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    return await res.json();
+    return JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"));
   } catch (err) {
     return { error: String((err && err.message) || err) };
   }
@@ -144,6 +152,11 @@ ipc.handle("pdf:netGet", (_e, url, mode = "bytes") => netGet(url, mode));
 // the native-Electron port of ~/fluxfinder/fetch/browser.py). OA is always tried
 // first (the renderer only calls this after the OA waterfall fails).
 const PROXY_PARTITION = "persist:fluxproxy";
+function validateProxyPrefix(prefix) {
+  const url = new URL(prefix);
+  if (url.protocol !== "https:" || url.username || url.password) throw new Error("Library proxy sign-in requires an HTTPS URL without embedded credentials");
+  return url;
+}
 function ezproxyPrefix() {
   return (getKey("ezproxyPrefix") || "").trim();
 }
@@ -271,12 +284,29 @@ function proxyPassword() {
 // "remember/trust this device" box (so Duo MFA is skipped on later sessions). Fires on
 // every navigation; a no-op when the page has no password field. Best-effort; the user
 // still approves Duo the first time in the visible window.
-function autofillCreds(win, submit) {
+async function autofillCreds(win, submit) {
+  if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+  const origin = new URL(win.webContents.getURL()).origin;
+  if (!origin.startsWith("https://")) return;
+  const cred = readProxyCred();
+  if (!cred.username && !cred.passwordEnc) return;
+  const hasPassword = await win.webContents.executeJavaScript("!!document.querySelector('input[type=password]')").catch(() => false);
+  if (!hasPassword) return;
+  if (!(Array.isArray(cred.allowedOrigins) && cred.allowedOrigins.includes(origin))) {
+    if (!dialog) return;
+    const { response } = await dialog.showMessageBox(win, { type: "question", title: "Use saved library credentials?",
+      message: "Allow this sign-in origin to receive your saved credentials?", detail: origin,
+      buttons: ["Cancel", "Allow this origin"], defaultId: 0, cancelId: 0, noLink: true });
+    if (response !== 1 || win.isDestroyed() || new URL(win.webContents.getURL()).origin !== origin) return;
+    cred.allowedOrigins = [...new Set([...(cred.allowedOrigins || []), origin])];
+    await atomicWriteMain(proxyCredPath(), JSON.stringify(cred), false, 0o600);
+  }
   const user = String(readProxyCred().username || "").trim();
   const pass = proxyPassword();
   if (!user && !pass) return;
   const js =
     `(() => { try {
+      if (location.origin !== ${JSON.stringify(origin)}) return false;
       const p = document.querySelector('input[type=password]');
       if (!p) return false;
       const form = p.form || document;
@@ -294,16 +324,16 @@ function autofillCreds(win, submit) {
 }
 
 // Store / inspect / clear the proxy credentials (OS-keychain encrypted).
-ipc.handle("proxy:setCredentials", (_e, { username, password } = {}) => {
+ipc.handle("proxy:setCredentials", async (_e, { username, password } = {}) => {
   try {
     if (!safeStorage.isEncryptionAvailable())
       return { error: "Your OS secure storage (keychain) isn't available, so credentials can't be stored safely." };
     fs.mkdirSync(fluxLibDir(), { recursive: true });
     const cur = readProxyCred();
-    const next = { username: username != null ? String(username) : cur.username || "" };
+    const next = { username: username != null ? String(username) : cur.username || "", allowedOrigins: cur.allowedOrigins || [] };
     if (password) next.passwordEnc = safeStorage.encryptString(String(password)).toString("base64");
     else if (cur.passwordEnc) next.passwordEnc = cur.passwordEnc;
-    fs.writeFileSync(proxyCredPath(), JSON.stringify(next), { mode: 0o600 });
+    await atomicWriteMain(proxyCredPath(), JSON.stringify(next), false, 0o600);
     return { ok: true };
   } catch (err) {
     return { error: String((err && err.message) || err) };
@@ -332,10 +362,10 @@ ipc.handle("proxy:login", async () => {
   if (!prefix) return { error: "Set your library's EZProxy prefix in ⚙ Keys first." };
   let loginUrl, prefixHost;
   try {
-    prefixHost = new URL(prefix).hostname; // validate + capture the proxy host
+    prefixHost = validateProxyPrefix(prefix).hostname; // validate + capture the proxy host
     loginUrl = proxiedUrl(PROXY_AUTH_TARGET);
   } catch {
-    return { error: "Invalid EZProxy prefix URL." };
+    return { error: "Invalid EZProxy prefix: use an HTTPS URL without embedded credentials." };
   }
   return await new Promise((resolve) => {
     const win = new BrowserWindow({
@@ -344,7 +374,7 @@ ipc.handle("proxy:login", async () => {
       title: "Sign in to your library",
       autoHideMenuBar: true,
       parent: getMainWindow() || undefined,
-      webPreferences: { partition: PROXY_PARTITION },
+      webPreferences: { partition: PROXY_PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
     let done = false;
     const finish = () => {
@@ -355,7 +385,8 @@ ipc.handle("proxy:login", async () => {
     };
     // Auto-fill stored NetID + password on each login page (no auto-submit — the user
     // reviews credentials, approves Duo, and ticks "trust this browser").
-    win.webContents.on("did-finish-load", () => autofillCreds(win, false));
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    win.webContents.on("did-finish-load", () => { void autofillCreds(win, false).catch(() => {}); });
     // Past all the login/connect/SSO/Duo hops, navigation lands on the proxied resource
     // host (a subdomain of the proxy) — the session cookie is now set, so sign-in worked.
     win.webContents.on("did-navigate", (_e, url) => {
@@ -380,7 +411,7 @@ ipc.handle("proxy:status", async () => {
   const prefix = ezproxyPrefix();
   if (!prefix) return { configured: false, signedIn: false };
   try {
-    new URL(prefix);
+    validateProxyPrefix(prefix);
   } catch {
     return { configured: false, signedIn: false };
   }
@@ -473,18 +504,23 @@ ipc.handle("pdf:fetchViaProxy", async (_e, target, token, opts) => {
   const prefix = ezproxyPrefix();
   if (!prefix) return { error: "No EZProxy prefix configured.", reason: "not-configured" };
   try {
-    new URL(prefix);
+    validateProxyPrefix(prefix);
   } catch {
-    return { error: "Invalid EZProxy prefix URL.", reason: "not-configured" };
+    return { error: "Invalid EZProxy prefix: use an HTTPS URL without embedded credentials.", reason: "not-configured" };
   }
+  if (token != null && (typeof token !== "string" || token.length > 128)) return {error:"Invalid cancellation token",reason:"error"};
+  const ownedToken = `${_e.sender.id}:${token ?? require("node:crypto").randomUUID()}`;
   const ctrl = new AbortController();
+  const ownerClosed = () => ctrl.abort();
+  _e.sender.once?.("destroyed", ownerClosed);
   if (token != null) {
     // A cancel that arrived before this call was dequeued: honor it immediately.
-    if (proxyCalls.get(token) === "cancelled") {
-      proxyCalls.delete(token);
+    if (proxyCalls.get(ownedToken) === "cancelled") {
+      proxyCalls.delete(ownedToken);
+      _e.sender.removeListener?.("destroyed",ownerClosed);
       return { error: "Cancelled.", reason: "cancelled" };
     }
-    proxyCalls.set(token, ctrl);
+    proxyCalls.set(ownedToken, ctrl);
   }
   try {
     const r = await runProxyExclusive(() => {
@@ -499,7 +535,8 @@ ipc.handle("pdf:fetchViaProxy", async (_e, target, token, opts) => {
     if (e && e.name === "AbortError") return { error: "Cancelled.", reason: "cancelled" };
     return { error: String((e && e.message) || e), reason: "error" };
   } finally {
-    if (token != null) proxyCalls.delete(token);
+    if (token != null) proxyCalls.delete(ownedToken);
+    _e.sender.removeListener?.("destroyed",ownerClosed);
   }
 });
 
@@ -507,50 +544,41 @@ ipc.handle("pdf:fetchViaProxy", async (_e, target, token, opts) => {
 // controller destroys the engine's window (hard-interrupts loadURL/executeJavaScript); a
 // token with no live controller yet (still queued) is tombstoned so it aborts on dequeue.
 ipc.handle("proxy:cancel", (_e, token) => {
+  const prefix = `${_e.sender.id}:`;
   if (token == null || token === "*") {
-    for (const ctrl of proxyCalls.values()) if (ctrl && ctrl.abort) ctrl.abort();
-    return { ok: true };
+    for (const [key,ctrl] of proxyCalls) if (key.startsWith(prefix) && ctrl?.abort) ctrl.abort();
+    return {ok:true};
   }
-  const ctrl = proxyCalls.get(token);
-  if (ctrl && ctrl.abort) ctrl.abort();
-  else proxyCalls.set(token, "cancelled"); // arrived before the call registered — tombstone
-  return { ok: true };
+  if (typeof token !== "string" || token.length > 128) return {error:"Invalid cancellation token"};
+  const key = prefix+token, ctrl = proxyCalls.get(key);
+  if (ctrl?.abort) ctrl.abort();
+  else {
+    if (proxyCalls.size >= 1024) return {error:"Cancellation registry full; retry"};
+    proxyCalls.set(key,"cancelled");
+    const expiry = setTimeout(()=>{if(proxyCalls.get(key)==="cancelled")proxyCalls.delete(key);},120000); expiry.unref?.();
+  }
+  return {ok:true};
 });
 
 // API-key store (machine-global ~/FluxLib/keys.json). keys:get returns the raw map
 // for the settings form (the user's own machine); keys:set merge-writes it.
 ipc.handle("keys:get", () => readKeys());
 ipc.handle("keys:set", async (_e, patch) => {
-  // The read-modify-write runs under the FluxLib "keys" lock (flux-core's saveKeys
-  // takes the same one) and the write is atomic — a concurrent `flux keys --…` can
-  // no longer lose a field or tear the file.
-  const lockDir = lockDirFor("fluxlib");
-  const lockPath = path.join(lockDir, "keys.json");
   try {
-    try {
-      const info = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-      const t = Date.parse(info?.ts);
-      if (Number.isFinite(t) && Date.now() - t < LOCK_TTL_MS && info.client !== "human") {
-        return { error: `keys.json is being written by ${info.client} — retry in a moment` };
-      }
-    } catch {
-      /* absent/corrupt lock — treat as free */
-    }
-    writeLockFile(lockPath);
-    try {
-      fs.mkdirSync(fluxLibDir(), { recursive: true });
-      const next = { ...readKeys(), ...(patch || {}) };
-      // W12 (SHL-8): API keys are plaintext — write owner-only, like the proxy creds.
-      await atomicWriteMain(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n");
-      await fs.promises.chmod(fluxKeysPath(), 0o600).catch(() => {});
-      return next;
-    } finally {
-      noteWrite(lockPath);
-      fs.rmSync(lockPath, { force: true });
-    }
-  } catch (err) {
-    return { error: String((err && err.message) || err) };
-  }
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("Expected key patch object");
+    return await leases.queued(lockDirFor("fluxlib"), "keys", async dir => {
+      const got = await leases.acquire(dir, "keys", "human");
+      if (!got.ok) throw new Error(`keys.json is being written by ${got.heldBy} — retry in a moment`);
+      try {
+        const next = { ...readKeys(), ...patch };
+        if (next.ezproxyPrefix) validateProxyPrefix(String(next.ezproxyPrefix));
+        await leases.assertOwned(got.lease);
+        await atomicWriteMain(fluxKeysPath(), JSON.stringify(next, null, 2) + "\n", false, 0o600);
+        await fs.promises.chmod(fluxKeysPath(), 0o600);
+        return next;
+      } finally { await leases.release(got.lease); }
+    });
+  } catch (err) { return { error: String(err?.message || err) }; }
 });
 
   }

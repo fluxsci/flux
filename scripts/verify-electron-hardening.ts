@@ -19,6 +19,7 @@ const h = harness("verify-electron-hardening");
 const root = path.join(import.meta.dirname, "..");
 const main = await fs.readFile(path.join(root, "electron", "main.cjs"), "utf8");
 const proxy = await fs.readFile(path.join(root, "electron", "proxyFetch.cjs"), "utf8");
+const print = await fs.readFile(path.join(root, "electron", "ipc", "staticPrint.cjs"), "utf8");
 
 /** Slice the recipe:run handler body (from its ipcMain.handle to the matching end). */
 function recipeRunHandler(): string {
@@ -35,10 +36,11 @@ h.ok(!!rr, "recipe:run handler present");
 const trustIdx = rr.indexOf("confirmRecipeTrust");
 // The recipe command's first touch is resolveSpawn(recipe.command, …) (the
 // win32 .cmd-shim seam, electron/execResolve.cjs) feeding spawn(rs.command…).
-const spawnIdx = rr.indexOf("resolveSpawn(recipe.command");
+const spawnIdx = rr.indexOf(".runProcess(invocation");
+const runner = await fs.readFile(path.join(root, "electron", "processRunner.cjs"), "utf8");
 h.ok(trustIdx >= 0, "recipe:run calls confirmRecipeTrust");
-h.ok(spawnIdx >= 0 && trustIdx < spawnIdx, "the trust gate runs BEFORE resolveSpawn/spawn(recipe.command)");
-h.ok(rr.indexOf("spawn(rs.command") > spawnIdx, "spawn launches the RESOLVED command (never a bare recipe.command)");
+h.ok(spawnIdx >= 0 && trustIdx < spawnIdx, "the trust gate runs BEFORE the shared process runner");
+h.ok(runner.indexOf("spawn(rs.command") > runner.indexOf("resolveSpawn(executable"), "spawn launches the RESOLVED command (never a bare recipe.command)");
 h.ok(/if \(!\(await confirmRecipeTrust[\s\S]{0,120}return \{/.test(rr), "an untrusted recipe returns early (no spawn)");
 h.ok(/function confirmRecipeTrust/.test(main) && /dialog\.showMessageBox/.test(main), "confirmRecipeTrust prompts via dialog.showMessageBox");
 h.ok(/function isRecipeTrusted/.test(main) && /trustedRecipeRoots/.test(main), "trust is persisted per project (trustedRecipeRoots in prefs)");
@@ -52,8 +54,8 @@ h.ok(/allowNav\s*=\s*\(u\)\s*=>\s*\/\^\(https\?:\|about:\)/.test(proxy), "naviga
 
 // --- B3: print/export window ---------------------------------------------------
 h.section("B3 — print/export window");
-const gpw = main.slice(main.indexOf("function getPrintWin"));
-h.ok(/javascript:\s*false/.test(gpw.slice(0, 400)), "print window runs javascript:false");
-h.ok(/http-equiv="Content-Security-Policy"[\s\S]{0,160}script-src 'none'/.test(main), "the figure export template carries a script-blocking CSP");
+const gpw = print.slice(print.indexOf("function getPrintWin"));
+h.ok(/new BrowserWindow\(\{[^\n]+javascript:\s*false/.test(gpw), "print window runs javascript:false");
+h.ok(/http-equiv="Content-Security-Policy"[\s\S]{0,160}script-src 'none'/.test(print), "the figure export template carries a script-blocking CSP");
 
 await h.done();

@@ -75,8 +75,8 @@ const BANNER = [
   "const __dirname = __dn(__filename);",
 ].join("\n");
 
-for (const entry of ["flux-cli.ts", "flux-mcp.ts"]) {
-  const outfile = path.join(repoRoot, "dist", entry.replace(/\.ts$/, ".mjs"));
+for (const entry of ["flux-cli.ts", "flux-mcp.ts", "flux-core/fulltextWorker.ts"]) {
+  const outfile = path.join(repoRoot, "dist", entry === "flux-core/fulltextWorker.ts" ? "flux-fulltext-worker.mjs" : entry.replace(/\.ts$/, ".mjs"));
   await build({
     entryPoints: [path.join(repoRoot, entry)],
     bundle: true,

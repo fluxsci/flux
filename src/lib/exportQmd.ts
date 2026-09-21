@@ -1,3 +1,4 @@
+import { mapUnprotected, protectedDocumentSpans } from "./manuscript/documentContext";
 // Shared embed-line grammar + the bare-Quarto export transform (pure text).
 //
 // EMBED_RE is THE grammar for manuscript figure-embed lines
@@ -99,7 +100,9 @@ export async function readQmdTree(
   const files = [entry];
   let expanded = "";
   let last = 0;
+  const protectedSpans = protectedDocumentSpans(text);
   for (const m of text.matchAll(INCLUDE_RE)) {
+    if (protectedSpans.some(span => span.from <= m.index! && m.index! < span.to)) continue;
     expanded += text.slice(last, m.index);
     const sub = await readQmdTree(resolveFrom(entry, m[1]), io, seen, texts);
     files.push(...sub.files);
@@ -130,7 +133,12 @@ export function unescapeEmbedCaption(s: string): string {
  * identity and numbering always come from Figure, never this sequence. */
 export function collectEmbedLabels(text: string): string[] {
   const out: string[] = [];
-  for (const line of text.split("\n")) {
+  const visible = mapUnprotected(text, chunk => chunk);
+  const protectedSpans = protectedDocumentSpans(text);
+  let offset = 0;
+  for (const line of visible.split("\n")) {
+    const start = offset; offset += line.length + 1;
+    if (protectedSpans.some(span => span.from <= start && start < span.to)) continue;
     const m = EMBED_RE.exec(line);
     if (m && !out.includes(m[3])) out.push(m[3]);
   }
@@ -147,7 +155,11 @@ export function normalizeEmbedAlts(
   resolvable: (label: string) => boolean,
 ): { text: string; cleared: number } {
   let cleared = 0;
+  const protectedSpans = protectedDocumentSpans(text);
+  let offset = 0;
   const lines = text.split("\n").map((line) => {
+    const start = offset; offset += line.length + 1;
+    if (protectedSpans.some(span => span.from <= start && start < span.to)) return line;
     const m = EMBED_RE.exec(line);
     if (!m || m[1].length === 0 || !resolvable(m[3])) return line;
     cleared++;
@@ -186,6 +198,9 @@ export function panelSpecDisplay(spec: string, panels?: PanelStyle): string {
 }
 
 export function transformQmdForExport(text: string, ctx: ExportQmdCtx): string {
+  return mapUnprotected(text, part => transformUnprotectedQmd(part, ctx));
+}
+function transformUnprotectedQmd(text: string, ctx: ExportQmdCtx): string {
   // 1) Embed lines: family caption lead + composed caption into EMPTY alts,
   //    and the crossref id demoted so Quarto adds no label of its own.
   const withCaptions = text

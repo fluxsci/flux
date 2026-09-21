@@ -8,6 +8,8 @@
 //  Run: npx tsx scripts/figenh-partprops-parity.ts
 import { get } from "svelte/store";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { Project, SemanticPlotElement } from "../src/lib/types";
 

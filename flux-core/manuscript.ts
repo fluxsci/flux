@@ -1,16 +1,19 @@
+import { updateManifest } from "./manifest";
+import { decodeManifest, encodeManifest } from "../src/lib/project/manifestTransaction";
 // flux-core/manuscript.ts — manuscript + documents + compile (the Paper-side
 // parity verbs; split out of index.ts; WS-6.2).
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
-import { resolveSpawn } from "../electron/execResolve.cjs";
+import { runProcess } from "../electron/processRunner.cjs";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
 import { collectEmbedLabels, normalizeEmbedAlts, readQmdTree } from "../src/lib/exportQmd";
 import { newSlideEmbed, serializeSlideEmbed, planSlideInsertion, scanSlideEmbeds } from "../src/lib/slide/embed";
 import { slideQuartoTransform } from "../src/lib/slide/embedQuarto";
 import { nodeSlideRepository } from "./slideEmbeds";
+import { exportRecoveryIO } from "./recovery";
+import { recoverExportSources, publishExportResource } from "../src/lib/project/exportRecovery";
 import { prepareExport } from "../src/lib/exportPrep";
 import { familyById, type FigureFamilyDef } from "../src/lib/figfamily";
 import { resolveJournalStyle, styledFamilyDef } from "../src/lib/style/journalStyle";
@@ -25,9 +28,9 @@ import {
 } from "../src/lib/style/journalAssets";
 import * as ops from "../src/lib/ops";
 import { atomicWrite } from "./fsx";
-import { withLock } from "./locks";
+import { withLock, assertLockOwned, type LockLease } from "./locks";
 import { CLIENT, journal } from "./journal";
-import { loadManifest, saveManifest, safeJoin, exists, writeText, readFigIndex, loadFigModel } from "./model";
+import { loadManifest, safeJoin, exists, writeText, readFigIndex, loadFigModel } from "./model";
 import { materializeRenders } from "./render";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { slugify } from "../src/lib/project/types";
@@ -70,11 +73,11 @@ export async function setManuscript(root: string, text: string, relPath?: string
   await journal(root, { action: "set_manuscript", target: rel });
 }
 
-import { discoverDocuments, createDocumentFile, createDocumentFolder, moveDocumentFile, type DocumentIO } from "../src/lib/project/documentFiles";
+import { discoverDocuments, deleteDocumentFile, createDocumentFile, createDocumentFolder, moveDocumentFile, type DocumentIO } from "../src/lib/project/documentFiles";
 function documentIO(root: string): DocumentIO {
   return {
     exists: rel => exists(safeJoin(root, rel)), read: rel => fs.readFile(safeJoin(root, rel), "utf8"),
-    write: (rel, text) => writeText(safeJoin(root, rel), text),
+    write: (rel, text) => writeText(safeJoin(root, rel), rel === "project.json" ? encodeManifest(decodeManifest(text)) : text),
     create: (rel, text) => atomicWrite(safeJoin(root, rel), text, true),
     mkdir: async rel => { await fs.mkdir(safeJoin(root, rel), { recursive: true }); },
     entries: async rel => (await fs.readdir(safeJoin(root, rel), { withFileTypes: true }))
@@ -84,17 +87,22 @@ function documentIO(root: string): DocumentIO {
 }
 export async function listDocuments(root: string) { return (await discoverDocuments(await loadManifest(root), documentIO(root))).docs; }
 export async function createDocument(root: string, name: string, folder?: string): Promise<{ path: string }> {
-  const rel = await withLock(root, "manuscript", CLIENT, async () => createDocumentFile(await loadManifest(root), documentIO(root), name, folder));
+  let rel = "";
+  await withLock(root, "manuscript", CLIENT, () => updateManifest(root, async fresh => { rel = await createDocumentFile(fresh, documentIO(root), name, folder); }));
   await journal(root, { action: "create_document", target: rel });
   return { path: rel };
 }
 export async function createFolder(root: string, parent: string, name: string): Promise<{ path: string }> {
-  const rel = await withLock(root, "manuscript", CLIENT, async () => createDocumentFolder(await loadManifest(root), documentIO(root), parent, name));
+  // Recovery can itself publish cold references under the manuscript lease.
+  // Finish it before entering this operation to avoid nested acquisition.
+  const manifest = await loadManifest(root);
+  const rel = await withLock(root, "manuscript", CLIENT, async () => createDocumentFolder(manifest, documentIO(root), parent, name));
   await journal(root, { action: "create_document_folder", target: rel });
   return { path: rel };
 }
 export async function moveDocument(root: string, rel: string, folder: string) {
-  const result = await withLock(root, "manuscript", CLIENT, async () => moveDocumentFile(await loadManifest(root), documentIO(root), rel, folder));
+  let result!: { path: string; changed: string[] };
+  await withLock(root, "manuscript", CLIENT, () => updateManifest(root, async fresh => { result = await moveDocumentFile(fresh, documentIO(root), rel, folder); }));
   await journal(root, { action: "move_document", target: rel, destination: result.path });
   return result;
 }
@@ -106,26 +114,13 @@ export async function moveDocument(root: string, rel: string, folder: string) {
  *  the GUI's × applies the same rules. Figures, references and every other
  *  document are untouched: a document only REFERENCES them. */
 export async function deleteDocument(root: string, rel: string): Promise<{ path: string; removed: string[] }> {
-  const m = await loadManifest(root);
-  const rows = await listDocuments(root);
-  const blocker = documentRemovalBlocker(rows, rel);
-  if (blocker) {
-    if (blocker.code === "unknown") throw new NotFoundError(blocker.reason);
-    throw new ValidationError(blocker.reason);
-  }
-  const removed: string[] = [];
-  await withLock(root, "manuscript", CLIENT, async () => {
-    for (const r of [rel, commentsSidecarRel(commentsMainPath(m), rel)]) {
-      const abs = safeJoin(root, r);
-      if (!(await exists(abs))) continue;
-      await fs.rm(abs, { force: true });
-      removed.push(r);
-    }
-    const pruned = pruneDocumentFromManifest(m, rel);
-    const changedDefault = !!m.documentRoot && m.manuscript.path === rel;
-    if (changedDefault) m.manuscript.path = rows.find(d => d.path !== rel && !d.isContext)?.path ?? "";
-    if (pruned || changedDefault) await saveManifest(root, m);
-  });
+  let removed: string[] = [];
+  await withLock(root, "manuscript", CLIENT, () => updateManifest(root, async fresh => {
+    const blocker = documentRemovalBlocker((await discoverDocuments(fresh, documentIO(root))).docs, rel);
+    if (blocker) throw blocker.code === 'unknown' ? new NotFoundError(blocker.reason) : new ValidationError(blocker.reason);
+    const result = await deleteDocumentFile(fresh, documentIO(root), rel);
+    removed = result.removed;
+  }));
   await journal(root, { action: "delete_document", target: rel });
   return { path: rel, removed };
 }
@@ -272,6 +267,11 @@ export async function compile(
   to = "pdf",
   opts: { doc?: string; style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] } = {},
 ): Promise<CompileSummary> {
+  return withLock(root, "export", CLIENT, async lease => compileOwned(root, to, opts, lease));
+}
+async function compileOwned(root: string, to: string, opts: { doc?: string; style?: string; zoteroFields?: boolean; zoteroLibraryDocs?: string[] }, lease: LockLease): Promise<CompileSummary> {
+  const recoveryIO = exportRecoveryIO(root, () => assertLockOwned(lease));
+  await recoverExportSources(recoveryIO, root);
   const m = await loadManifest(root);
   const document = manuRel(m, opts.doc);
   safeJoin(root, document);
@@ -293,6 +293,17 @@ export async function compile(
   // Sources are restored in `finally`; even an unrestored transform is a
   // valid readable manuscript.
   const docAbs = path.resolve(root, document);
+  const ext = to === "html" ? "html" : to === "docx" ? "docx" : to;
+  if (!/^[a-z0-9-]+$/i.test(ext)) throw new ValidationError("Unsupported output format");
+  const source = await fs.readFile(docAbs, "utf8");
+  const yaml = await import("js-yaml");
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)\s*(?:\r?\n|$)/.exec(source);
+  const meta = frontmatter ? (yaml.load(frontmatter[1]) as Record<string, any> | null) : null;
+  const outputName = meta?.format?.[to]?.["output-file"] ?? meta?.["output-file"] ?? path.basename(docAbs).replace(/\.qmd$/i, `.${ext}`);
+  if (typeof outputName !== "string" || path.basename(outputName) !== outputName) throw new ValidationError("Quarto output-file must be a filename");
+  const temporaryName = `.flux-export-${crypto.randomUUID()}.${ext}`;
+  let pendingOutput: string | undefined;
+  try {
   const captions = new Map<string, string>();
   const figIdentity = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
   const knownLabels = new Set<string>();
@@ -321,9 +332,10 @@ export async function compile(
   const slideRepository = await nodeSlideRepository(root);
   const slideTransform = slideQuartoTransform(root, slideRepository, to === "html");
   const prep = await prepareExport(
-    { ...qmdTreeIO, writeText: atomicWrite },
+    { ...qmdTreeIO, readText: recoveryIO.readText, writeText: recoveryIO.writeText },
     {
       entry: docAbs,
+      recovery: { root, id: crypto.randomUUID(), io: recoveryIO },
       ctx,
       structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
       markCitations: !!opts.zoteroFields,
@@ -338,8 +350,13 @@ export async function compile(
   const manuscriptDir = document.includes("/")
     ? document.slice(0, document.lastIndexOf("/"))
     : "";
-  const profileAbs = path.resolve(root, manuscriptDir, EXPORT_PROFILE_FILE);
+  const profileName = `flux-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+  const profileRel = `${manuscriptDir ? manuscriptDir + "/" : ""}_quarto-${profileName}.yml`;
+  const profileAbs = path.resolve(root, profileRel);
   let useProfile = false;
+  let code = 0;
+  let log = "";
+  try {
   if (style.id !== "flux") {
     for (const a of journalAssetPlan(style)) {
       const dest = path.resolve(root, a.rel);
@@ -358,31 +375,18 @@ export async function compile(
            back to its defaults and the log will say so */
       }
     }
-    await fs.writeFile(profileAbs, journalProfileYaml(style, { manuscriptDir })).then(
-      () => (useProfile = true),
-      () => (useProfile = false),
-    );
+    await publishExportResource(recoveryIO, root, profileName, profileRel, journalProfileYaml(style, { manuscriptDir }));
+    useProfile = true;
   }
 
-  let code = 0;
-  let log = "";
-  try {
-    ({ code, log } = await new Promise<{ code: number; log: string }>((resolve, reject) => {
-      const q = resolveSpawn("quarto", ["render", document, "--to", to, ...(to === "html" && scanSlideEmbeds(expanded).length ? ["--embed-resources"] : []), ...(useProfile ? ["--profile", EXPORT_PROFILE] : [])]);
-      const child = spawn(q.command, q.args, {
-        cwd: root,
-        windowsVerbatimArguments: q.windowsVerbatimArguments,
-      });
-      let out = "";
-      child.stdout.on("data", (d) => (out += d));
-      child.stderr.on("data", (d) => (out += d));
-      child.on("error", (e) => reject(new Error(`quarto not available: ${e.message}`)));
-      child.on("close", (c) => resolve({ code: c ?? 0, log: out }));
-    }));
+    const rendered = await runProcess({ executable: "quarto", argv: ["render", path.basename(docAbs), "--to", to, "--output", temporaryName, ...(to === "html" && scanSlideEmbeds(expanded).length ? ["--embed-resources"] : []), ...(useProfile ? ["--profile", profileName] : [])], cwd: path.dirname(docAbs) }, { timeoutMs: 30 * 60 * 1000, maxOutputBytes: 4 * 1024 * 1024 });
+    code = rendered.status === "exited" ? rendered.code : -1;
+    log = rendered.stdout + rendered.stderr + (rendered.status === "exited" ? "" : `\nQuarto ${rendered.status}${rendered.signal ? ` (${rendered.signal})` : ""}`);
+    if (rendered.truncated.stdout || rendered.truncated.stderr) log += "\n(Quarto log exceeded the retained output limit.)";
   } finally {
     slideRepository.dispose();
     await prep.restore();
-    if (useProfile) await fs.rm(profileAbs, { force: true }).catch(() => {});
+    // The recovery journal owns exact-content cleanup of the temporary profile.
   }
   await journal(root, { action: "compile", to, code });
   // A missing external tool must read as one actionable sentence, not as the
@@ -398,15 +402,13 @@ export async function compile(
   // digging through the quarto log.
   let output: string | undefined;
   const created = /Output created:\s*(.+)/.exec(log);
-  if (created) {
-    const cand = path.resolve(path.dirname(docAbs), created[1].trim());
-    if (await exists(cand)) output = cand;
-  }
-  if (!output && code === 0) {
-    const ext = to === "html" ? ".html" : to === "docx" ? ".docx" : `.${to.replace(/^[^a-z]*/i, "")}`;
-    const cand = docAbs.replace(/\.qmd$/i, ext);
-    if (await exists(cand)) output = cand;
-  }
+  const candidates = [
+    ...(created ? [path.resolve(path.dirname(docAbs), created[1].trim()), path.resolve(root, created[1].trim())] : []),
+    path.join(path.dirname(docAbs), temporaryName), path.join(root, "_output", temporaryName),
+  ];
+  for (const candidate of candidates) if (path.basename(candidate) === temporaryName && await exists(candidate)) { pendingOutput = candidate; break; }
+  if (code === 0 && !pendingOutput) throw new Error("Quarto reported success without producing the owned artifact");
+  if (pendingOutput && code === 0) output = path.join(path.dirname(pendingOutput), outputName);
   const embeddedLabels = collectEmbedLabels(expanded);
   const figures = {
     embedded: embeddedLabels.length,
@@ -414,8 +416,7 @@ export async function compile(
     missing: embeddedLabels.filter((l) => !knownLabels.has(l)),
   };
   const bibText = await fs
-    .readFile(path.join(root, (m as { references?: { library?: string } }).references?.library ?? "references/library.bib"), "utf8")
-    .catch(() => "");
+    .readFile(path.join(root, (m as { references?: { library?: string } }).references?.library ?? "references/library.bib"), "utf8");
   const bibKeys = new Set([...bibText.matchAll(/@\w+\s*\{\s*([^,\s{}]+)\s*,/g)].map((mm) => mm[1]));
   const used = citationKeysIn(expanded);
   const citations = {
@@ -423,68 +424,36 @@ export async function compile(
     resolved: used.filter((k) => bibKeys.has(k)).length,
     missing: used.filter((k) => !bibKeys.has(k)),
   };
-  // Word paints NOTHING for an SVG picture whose blip carries no raster fallback, and
-  // pandoc can only produce one with rsvg-convert on PATH — so a bare `quarto render`
-  // hands the reader a document whose figures are silently absent. Splice the raster
-  // in, exactly as the GUI export does; the shared core is the same module, with this
-  // engine's rasterizer injected. Never fatal: the .docx on disk is still the ordinary
-  // one, and `failed` says which pictures kept no fallback.
   let svgFallbacks: CompileSummary["svgFallbacks"];
-  if (to === "docx" && output && code === 0) {
-    try {
-      const { addSvgRasterFallbacks } = await import("../src/lib/references/docxSvgFallback.js");
-      const { rasterizeSvgToPng } = await import("./render.js");
-      const { bytes, report } = await addSvgRasterFallbacks(
-        new Uint8Array(await fs.readFile(output)),
-        async (svg, width) => new Uint8Array(await rasterizeSvgToPng(svg, width)),
-      );
-      if (report.added) await fs.writeFile(output, bytes);
-      svgFallbacks = { added: report.added, failed: report.failed };
-      if (report.failed.length)
-        log += `\n⚠ ${report.failed.length} figure(s) may not display in Word (no raster fallback).`;
-    } catch (e) {
-      log += `\n⚠ Figures may not display in Word: ${(e as Error).message}`;
-    }
-  }
-
-  // Live Zotero fields: rewrite the rendered .docx so its citations and reference list
-  // are Word fields Zotero owns, rather than text citeproc baked in. The markers the
-  // prep wrote name each citation's keys; without them there is nothing to identify.
   let zotero: CompileSummary["zotero"];
-  if (opts.zoteroFields && to === "docx" && output && code === 0) {
-    try {
-      const { getCite } = await import("../src/lib/references/bibtex.js");
-      const Cite = await getCite();
-      const records: Record<string, CslRecord> = {};
-      for (const rec of (new Cite(bibText).data as CslRecord[]) ?? []) if (rec?.id) records[String(rec.id)] = rec;
-      const libraryDocs = await Promise.all(
-        (opts.zoteroLibraryDocs ?? []).map(async (f) => ({
-          name: path.basename(f),
-          bytes: new Uint8Array(await fs.readFile(path.resolve(root, f))),
-        })),
-      );
-      const index = libraryDocs.length ? harvestZoteroLibrary(libraryDocs) : null;
-      const identity = await cslIdentity(root, docAbs, style.csl);
-      const { bytes, report } = injectZoteroFields(new Uint8Array(await fs.readFile(output)), {
-        items: records,
-        styleId: identity.styleId,
-        locale: identity.locale,
-        index,
+  if (output && pendingOutput && code === 0) {
+    if (renders.failed.length) throw new Error(`Figure renders failed: ${renders.failed.join(", ")}`);
+    let bytes: Uint8Array = new Uint8Array(await fs.readFile(pendingOutput));
+    if (to === "docx") {
+      const { postprocessDocx } = await import("../src/lib/references/docxArtifact");
+      const { rasterizeSvgToPng } = await import("./render");
+      const processed = await postprocessDocx(bytes, {
+        rasterize: async (svg, width) => new Uint8Array(await rasterizeSvgToPng(svg, width)),
+        ...(opts.zoteroFields ? { inject: async (input: Uint8Array) => {
+          const { getCite } = await import("../src/lib/references/bibtex");
+          const Cite = await getCite(), records: Record<string, CslRecord> = {};
+          for (const rec of (new Cite(bibText).data as CslRecord[]) ?? []) if (rec?.id) records[String(rec.id)] = rec;
+          const libraryDocs = await Promise.all((opts.zoteroLibraryDocs ?? []).map(async f => ({ name: path.basename(f), bytes: new Uint8Array(await fs.readFile(path.resolve(root, f))) })));
+          const identity = await cslIdentity(root, docAbs, style.csl);
+          const injected = injectZoteroFields(input, { items: records, styleId: identity.styleId, locale: identity.locale, index: libraryDocs.length ? harvestZoteroLibrary(libraryDocs) : null });
+          return { bytes: injected.bytes, summary: { citations: injected.report.citations, bound: injected.report.bound, embedded: injected.report.embedded, notesPlain: injected.report.notesPlain, style: identity.styleId } };
+        } } : {}),
       });
-      await fs.writeFile(output, bytes);
-      zotero = {
-        citations: report.citations,
-        bound: report.bound,
-        embedded: report.embedded,
-        notesPlain: report.notesPlain,
-        style: identity.styleId,
-      };
-    } catch (e) {
-      // A failure here must not lose the export: the .docx on disk is still the ordinary
-      // one, so say what happened and leave it.
-      log += `\n⚠ Zotero fields not written: ${(e as Error).message}`;
-    }
+      bytes = processed.bytes; zotero = processed.zotero; svgFallbacks = processed.svgFallbacks;
+      log += processed.warnings.map(w => `\n⚠ ${w}`).join("");
+    } else if (to === "pdf" && new TextDecoder().decode(bytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF output");
+    else if (to === "html" && !/<html[\s>]/i.test(new TextDecoder().decode(bytes))) throw new Error("Invalid HTML output");
+    await assertLockOwned(lease);
+    await atomicWrite(output, bytes);
   }
 
   return { code, log: log + note, output, figures, citations, zotero, svgFallbacks };
+  } finally {
+    for (const owned of new Set([pendingOutput, path.join(path.dirname(docAbs), temporaryName), path.join(root, "_output", temporaryName)])) if (owned) await fs.rm(owned, { force: true });
+  }
 }

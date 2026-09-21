@@ -10,7 +10,7 @@
 import { fileBridge, joinPath } from "../project/types";
 import { resolveFluxLibPath, loadFluxLib } from "./fluxlibBridge";
 import { searchWorld } from "./enrichBridge";
-import { writePdfItem, readerHasPdf, readerSource } from "./itemsBridge";
+import { writePdfItem, readerHasPdf, readerSource, readerPdfBytes, fileSupplementBytes } from "./itemsBridge";
 import { bumpFluxLib, assignInboxRevision } from "./revision";
 import { isPdfBytes, bareDoi } from "./pdfFinder";
 import { assignInboxDir, supplementsDir, supplementFilePath, safeSupplementName } from "./items";
@@ -155,7 +155,6 @@ class AssignJob {
       pushToast("info", "Assign scan deferred", { detail: `the inbox is being processed by ${got.heldBy ?? "another session"}` });
       return [];
     }
-    await fb.lockSet?.("assign", true, "fluxlib");
     this.running = true;
     this.#reset();
     const dir = assignInboxDir(lib);
@@ -192,7 +191,7 @@ class AssignJob {
         }
       }
     } finally {
-      await fb.lockSet?.("assign", false, "fluxlib").catch(() => {});
+      if (got?.token) await fb.lockRelease?.("fluxlib", "assign", got.token).catch(() => {});
       this.lastResults = results;
       this.runSeq++;
       this.running = false;
@@ -243,7 +242,8 @@ class AssignJob {
       } else if (action.kind === "attach") {
         rec.action = "attached";
         rec.key = action.key;
-        await writePdfItem(action.key, bytes, { source: "assigned", url: name, isOa: false });
+        const filed = await writePdfItem(action.key, bytes, { source: "assigned", url: name, isOa: false });
+        if (!filed.ok) throw new Error(filed.reason || "PDF publication failed; incoming file preserved");
         await fb.remove?.(src);
       } else {
         const { addDoiToLibrary } = await import("../../shell/modes/paper/scholar/bibLoad");
@@ -256,7 +256,8 @@ class AssignJob {
         rec.action = "added-attached";
         rec.key = added.key;
         doiIndex.set(bareDoi(id.doi)!, added.key);
-        await writePdfItem(added.key, bytes, { source: "assigned", url: name, isOa: false });
+        const filed = await writePdfItem(added.key, bytes, { source: "assigned", url: name, isOa: false });
+        if (!filed.ok) throw new Error(filed.reason || "PDF publication failed; incoming file preserved");
         await fb.remove?.(src);
       }
     } catch (e) {
@@ -280,11 +281,13 @@ class AssignJob {
     bytes: Uint8Array,
   ): Promise<string | null> {
     try {
-      const stored = await readerSource(key);
-      if (stored?.sha256) {
+      const stored = await readerPdfBytes(key);
+      if (stored) {
+        const storedDigest = await crypto.subtle.digest("SHA-256",stored);
+        const storedHash = [...new Uint8Array(storedDigest)].map(b=>b.toString(16).padStart(2,"0")).join("");
         const digest = await crypto.subtle.digest("SHA-256", bytes as unknown as ArrayBuffer);
         const incoming = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-        if (incoming === stored.sha256) {
+        if (incoming === storedHash) {
           await fb.remove?.(src);
           return null;
         }
@@ -292,14 +295,10 @@ class AssignJob {
     } catch {
       /* hash unavailable → keep the bytes (safe default) */
     }
-    if (fb.mkdir) await fb.mkdir(supplementsDir(lib, key));
-    let dst = safeSupplementName(`duplicate-${name}`);
-    if (!/\.pdf$/i.test(dst)) dst += ".pdf";
-    const base = dst.replace(/\.pdf$/i, "");
-    for (let i = 2; await fb.exists(supplementFilePath(lib, key, dst)); i++) dst = `${base}-${i}.pdf`;
-    await fb.writeFile(supplementFilePath(lib, key, dst), bytes);
+    const storedName = await fileSupplementBytes(key, `duplicate-${name}`, bytes, {source:"assigned"});
+    if (!storedName) throw new Error("Supplement publication failed; incoming file preserved");
     await fb.remove?.(src);
-    return dst;
+    return storedName;
   }
 
   async #quarantine(
@@ -315,12 +314,12 @@ class AssignJob {
       if (fb.mkdir) await fb.mkdir(udir);
       let dst = joinPath(udir, name);
       for (let i = 2; await fb.exists(dst); i++) dst = joinPath(udir, name.replace(/\.pdf$/i, `-${i}.pdf`));
-      await fb.writeFile(dst, bytes);
-      await fb.remove?.(joinPath(dir, name));
+      if (!fb.moveFileVerified) throw new Error("Verified move requires the current desktop bridge; incoming PDF preserved");
+      const digest = await crypto.subtle.digest("SHA-256",bytes as unknown as ArrayBuffer);
+      const expected = [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,"0")).join("");
+      dst = await fb.moveFileVerified(joinPath(dir,name),dst,expected);
       await fb.writeText(`${dst}.txt`, unresolvedSidecar(name, note, id));
-    } catch {
-      /* best-effort quarantine */
-    }
+    } catch (error) { throw new Error("PDF quarantine did not complete; inspect retained source/destination before retry",{cause:error}); }
   }
 }
 

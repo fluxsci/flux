@@ -13,6 +13,7 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 const ROOT = await fs.mkdtemp(`${os.tmpdir()}/flux-decks-`);
 // a node-fs FileBridge (write-capable) rooted on absolute paths
 const fig = {
+  async remove(p: string) { await fs.rm(p, { force: true }); },
   async exists(p: string) { try { await fs.access(p); return true; } catch { return false; } },
   async readText(p: string) { return fs.readFile(p, "utf8"); },
   async writeText(p: string, t: string) { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, t); },
@@ -28,12 +29,13 @@ const bridge = await import("../src/lib/project/slideBridge");
 const { deckOverlay, commitDeckLive } = await import("../src/lib/slide/store");
 const { setStoreTenant } = await import("../src/lib/tenancy");
 const { get } = await import("svelte/store");
-setStoreTenant("slide"); // the mode lifecycle's claim — saveDeckFrom asserts it
+setStoreTenant("slide");
+(await import("../src/lib/store")).embeddedProjectRoot.set(ROOT); // the mode lifecycle's claim — saveDeckFrom asserts it
 
 function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); console.log("  ok:", m); }
 
 // seed a minimal project.json (listProjectDecks/registerDeck read+write it)
-await fs.writeFile(`${ROOT}/project.json`, JSON.stringify({ schema: "flux-project", title: "T", slides: [] }, null, 2));
+await fs.writeFile(`${ROOT}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "deck-test", title: "T", manuscript: { path: "paper/notes.qmd", config: "paper/_quarto.yml", format: "quarto" }, references: { library: "references/library.bib" }, figures: [], slides: [] }, null, 2));
 
 // 1. create two decks (each writes slides/<id>/deck.json + registers in manifest)
 const A = await bridge.createDeckInProject(ROOT, { title: "Alpha" });

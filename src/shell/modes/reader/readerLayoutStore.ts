@@ -1,3 +1,4 @@
+import { decodePreferences } from "../../../lib/preferences";
 // Reader rail widths + which right-rail tab is showing — module-global (shared by
 // every paper and both split panes), persisted to localStorage. Follows the
 // figure/slide/paper layout-store pattern: widths are a workspace preference, while
@@ -24,7 +25,7 @@ function load(): ReaderLayout {
   try {
     const raw = localStorage.getItem(KEY);
     // Spread-merge so a field added later gets its default for existing users.
-    return raw ? { ...READER_LAYOUT_DEFAULTS, ...(JSON.parse(raw) as Partial<ReaderLayout>) } : { ...READER_LAYOUT_DEFAULTS };
+    return decodePreferences(raw ? JSON.parse(raw) : null, READER_LAYOUT_DEFAULTS, {refsW:{min:180,max:520},annotsW:{min:180,max:560},rightTab:{enum:["annots","library"]},terminalH:{min:120,max:typeof window === "undefined" ? 1080 : window.innerHeight}});
   } catch {
     return { ...READER_LAYOUT_DEFAULTS };
   }

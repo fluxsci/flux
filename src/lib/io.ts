@@ -1,3 +1,6 @@
+import { storeTenant } from "./tenancy";
+import { preparePlot } from "./plot/parse";
+import { buildPlotMarkup } from "./plot/inlineMarkup";
 import { validateIncomingPlot } from "./plot/contract";
 import { get } from "svelte/store";
 import type {
@@ -44,7 +47,7 @@ import { readPngDpi } from "./figure/pngDpi";
 import { captureSnipMeta, clearSnipMeta } from "./snipMeta";
 import { planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
 import { parseTokens } from "./colors";
-import { cachePlot, clearPlots, ensurePlotDom, plotManifests, plotRecipes, primePlotSidecars } from "./plot/store";
+import { cachePreparedPlot, cachePlot, clearPlots, ensurePlotDom, plotManifests, plotRecipes, primePlotSidecars } from "./plot/store";
 import { healPlotSources, toProjectRelativeSource, isUnderRoot } from "./plot/source";
 import { isDerivedManifest } from "./plot/derive";
 import { plotToSvgMarkup } from "./plot/export";
@@ -110,6 +113,9 @@ export interface Incoming {
   el: ImageElement | SemanticPlotElement | VideoElement;
   /** Already-prepared dependent assets, e.g. a video's PNG poster. */
   extraAssets?: Asset[];
+  /** Prepared bytes remain private until the destination is checked. */
+  install?: () => void;
+  canInstall?: () => boolean;
 }
 
 // Sidecars discovered next to an imported `X.svg`: a FluxPlot manifest
@@ -151,26 +157,25 @@ async function resolveSiblingsFromFs(absPath: string): Promise<Siblings> {
   const manifestPath = `${base}.fluxplot.json`;
   const recipePath = `${base}.recipe.json`;
   const out: Siblings = { svgPath: absPath, manifestPath, recipePath };
-  try {
-    if (await window.fig.exists(manifestPath)) out.manifestText = await window.fig.readText(manifestPath);
-  } catch {
-    /* unreadable — treat as a plain svg */
-  }
-  if (out.manifestText) {
-    try {
-      if (await window.fig.exists(recipePath)) out.recipeText = await window.fig.readText(recipePath);
-    } catch {
-      /* recipe is optional */
-    }
-  }
+  // Absence is optional; an existing unreadable semantic sidecar is an error.
+  // Silently downgrading it to vanilla would lose scientific edit metadata.
+  if (await window.fig.exists(manifestPath)) out.manifestText = await window.fig.readText(manifestPath);
+  if (out.manifestText && await window.fig.exists(recipePath)) out.recipeText = await window.fig.readText(recipePath);
   return out;
 }
 
+function importDestination(figId = get(activeFigureId)) {
+  const model = get(project), root = currentProjectRoot(), tenant = storeTenant();
+  return () => get(project) === model && currentProjectRoot() === root && storeTenant() === tenant
+    && get(activeFigureId) === figId && !!model.figures.find(f => f.id === figId);
+}
 async function buildIncoming(
   name: string,
   bytes: Uint8Array,
   sib: Siblings = {},
 ): Promise<Incoming> {
+  const canInstall = importDestination();
+  const projRoot = currentProjectRoot();
   const kind = kindOf(name);
   if (kind === "svg") await validateIncomingPlot(new TextDecoder().decode(bytes), sib.manifestText);
   const dataUrl = bytesToDataUrl(bytes, mimeFor(kind));
@@ -198,31 +203,25 @@ async function buildIncoming(
     naturalHeight: natH,
     ...(declaredDpi ? { dpi: declaredDpi } : {}),
   };
-  setAssetData(asset.id, dataUrl); // also serves as the <image> fallback (spec P4)
-  markAssetDirty(asset.id); // W8: newly imported bytes → write on next save
-  // Paper snips: pick up provenance riding the PNG (tEXt) or its sidecar, so
-  // "copy citation" works on the imported element. Covers every import surface
-  // that funnels here: picker, drag-drop, path import, slide paste.
-  if (kind === "png") captureSnipMeta(asset.id, bytes, sib.snipText);
-
   // EVERY svg goes through the semantic-plot pipeline: a fluxplot sidecar gives
   // the real manifest; anything else gets a DERIVED one at cachePlot (via
   // preparePlot) — so vanilla SVGs are inline live DOM (real text, crisp,
   // x-rayable, part-editable) instead of an opaque <image>.
   if (kind === "svg") {
-    const projRoot = currentProjectRoot();
     const rel = (p?: string): string | undefined => (p ? toProjectRelativeSource(projRoot, p) : undefined);
     let manifest: FluxPlotManifest | undefined;
     let recipe: unknown;
     if (sib.manifestText) {
-      try {
-        manifest = JSON.parse(sib.manifestText) as FluxPlotManifest;
-        recipe = sib.recipeText ? JSON.parse(sib.recipeText) : undefined;
-      } catch {
-        manifest = undefined; // malformed sidecar → treated as vanilla (derived)
-      }
+      manifest = JSON.parse(sib.manifestText) as FluxPlotManifest;
+      recipe = sib.recipeText ? JSON.parse(sib.recipeText) : undefined;
     }
-    cachePlot(asset.id, new TextDecoder().decode(bytes), manifest, recipe);
+    const prepared = preparePlot(new TextDecoder().decode(bytes), manifest);
+    if (!prepared.root) throw new Error(`Invalid SVG: ${name}`);
+    const install = () => {
+      if (!canInstall()) throw new Error("The insertion destination changed");
+      if (!cachePreparedPlot(asset.id, prepared, recipe)) throw new Error(`Invalid SVG: ${name}`);
+      setAssetData(asset.id, dataUrl); markAssetDirty(asset.id);
+    };
     const el: SemanticPlotElement = {
       type: "plot",
       id: newId("plot"),
@@ -248,7 +247,7 @@ async function buildIncoming(
       ...(manifest ? { manifestRef: { specVersion: manifest.schemaVersion } } : {}),
       overrides: {},
     };
-    return { asset, el };
+    return { asset, el, install, canInstall };
   }
 
   const el: ImageElement = {
@@ -261,31 +260,30 @@ async function buildIncoming(
     height,
     rotation: 0,
   };
-  return { asset, el };
+  return { asset, el, canInstall, install: () => {
+    if (!canInstall()) throw new Error("The insertion destination changed");
+    setAssetData(asset.id, dataUrl); markAssetDirty(asset.id);
+    captureSnipMeta(asset.id, bytes, sib.snipText);
+  } };
 }
 
 export async function importAssets() {
+  const canPlace = importDestination();
   try {
     const paths = await window.fig.openFiles([{ name: "Images", extensions: ["png", "svg"] }]);
-    if (!paths || !paths.length) return;
-    const incoming: Incoming[] = [];
-    for (const path of paths) {
-      const bytes = new Uint8Array(await window.fig.readFile(path));
-      const sib = await resolveSiblingsFromFs(path);
-      incoming.push(await buildIncoming(basename(path), bytes, sib));
-    }
-    placeIncoming(incoming);
-  } catch (e) {
-    pushToast("error", "Import failed", { detail: errMsg(e) });
-  }
+    if (paths?.length) await importPlotsFromPaths(paths, canPlace);
+  } catch (e) { pushToast("error", "Import failed", { detail: errMsg(e) }); }
 }
 
 /** Read through the exact shared image/plot import pipeline, including sibling
  * manifests/recipes and physical size. The caller owns placement/undo. */
 export async function readIncomingPlot(absPath: string): Promise<Incoming> {
   if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image or SVG plot. Video clips can be inserted from the Slide gallery.");
+  const sameDestination = importDestination();
   const bytes = new Uint8Array(await window.fig.readFile(absPath));
-  return buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
+  const incoming = await buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
+  if (!sameDestination()) throw new Error("The insertion destination changed");
+  return incoming;
 }
 
 // Batch-import plots/assets by absolute path (the Plot Importer's multi-insert,
@@ -299,18 +297,20 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
   read: (path: string) => Promise<Incoming> = readIncomingPlot) {
   if (!window.fig || !absPaths.length) return 0;
   const targetId = get(activeFigureId);
+  const sameDestination = importDestination();
+  const allowed = () => sameDestination() && canPlace();
   const incoming: Incoming[] = [];
   const failed: string[] = [];
   for (const absPath of absPaths) {
     try {
-      if (!canPlace()) throw new Error("The insertion destination changed.");
+      if (!allowed()) throw new Error("The insertion destination changed.");
       incoming.push(await read(absPath));
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") throw e;
       failed.push(`${basename(absPath)}: ${errMsg(e)}`);
     }
   }
-  if (!canPlace()) throw new Error("The insertion destination changed. Select a figure and insert again.");
+  if (!allowed()) throw new Error("The insertion destination changed. Select a figure and insert again.");
   placeIncoming(incoming, targetId ?? undefined);
   if (failed.length) {
     pushToast(
@@ -376,6 +376,8 @@ export async function archivePastedImage(file: File, name: string): Promise<void
 // base name → it imports as a semantic plot. (Drops are sandboxed Files with no
 // filesystem path, so we can only pair what was dropped together.)
 export async function importDroppedFiles(files: File[], figId: string) {
+  const sameDestination = importDestination();
+  const failures: string[] = [];
   const all = [...files];
   const manifests = new Map<string, File>();
   const recipes = new Map<string, File>();
@@ -396,6 +398,7 @@ export async function importDroppedFiles(files: File[], figId: string) {
   }
   const incoming: Incoming[] = [];
   for (const file of accepted) {
+    try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     let sib: Siblings = {};
     if (/\.svg$/i.test(file.name || "")) {
@@ -416,8 +419,11 @@ export async function importDroppedFiles(files: File[], figId: string) {
       if (sf) sib = { snipText: await sf.text() };
     }
     incoming.push(await buildIncoming(file.name || "image", bytes, sib));
+    } catch (error) { failures.push(`${file.name}: ${errMsg(error)}`); }
   }
+  if (!sameDestination()) { pushToast("error", "Import cancelled: the destination changed"); return; }
   placeIncoming(incoming, figId);
+  if (failures.length) pushToast("error", "Some images could not be imported", { detail: failures.join("\n") });
 }
 
 // Position incoming placements (one centered; many auto-arranged into a grid),
@@ -430,6 +436,7 @@ export async function importDroppedFiles(files: File[], figId: string) {
 // figure tool must never do.)
 export function placeIncoming(incoming: Incoming[], figId?: string) {
   if (!incoming.length) return;
+  if (incoming.some(it => it.canInstall && !it.canInstall())) throw new Error("The insertion destination changed");
   const p = get(project);
   const id = figId ?? get(activeFigureId) ?? p.figures[0]?.id;
   const fig = p.figures.find((f) => f.id === id);
@@ -464,6 +471,7 @@ export function placeIncoming(incoming: Incoming[], figId?: string) {
       f.elements.push(it.el);
     }
   });
+  for (const it of incoming) it.install?.();
   if (id) activeFigureId.set(id);
   selection.set(new Set(incoming.map((it) => it.el.id)));
 }
@@ -669,18 +677,23 @@ export function ensureFigurePlots(fig: Figure): void {
 /** Serialize a figure to standalone SVG markup with plots inlined (exported
  *  for the lazy-residency gates; every GUI export path funnels through here). */
 export function buildFigureSvg(fig: Figure): string {
-  ensureFigurePlots(fig);
-  const data = get(assetData);
+  const data = get(assetData), manifests = get(plotManifests);
   const p = get(project);
-  return figureToSvg(
-    fig,
-    (id) => data[id],
-    (el) => (el.type === "plot" ? (plotToSvgMarkup(el) ?? undefined) : undefined),
-    // Crop rendering for <image>-backed elements (P5): intrinsic content size
-    // in assetDisplaySize units — the crop window's own coordinate space.
-    (id) => assetDisplaySize(p, id) ?? undefined,
-  );
+  const markup = new Map<string,string>();
+  for (const el of fig.elements) {
+    if (el.type !== "plot" && el.type !== "image" && el.type !== "video") continue;
+    const id = el.type === "video" ? el.posterAssetId : el.assetId;
+    if (!data[id]) throw new Error(`Cannot export ${fig.name}: missing asset ${id} for ${el.id}`);
+    if (el.type === "plot") {
+      const stored = manifests[id], real = stored && !isDerivedManifest(stored) ? stored : undefined;
+      const svg = buildPlotMarkup(new TextDecoder().decode(dataUrlToBytes(data[id])), el, el.overrides, real);
+      if (!svg) throw new Error(`Cannot export ${fig.name}: malformed plot ${id} (${el.id})`);
+      markup.set(el.id,svg);
+    }
+  }
+  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined);
 }
+
 const buildSvg = buildFigureSvg;
 
 // 3.2: save one paper's highlights/notes as a Markdown digest via the OS save dialog.

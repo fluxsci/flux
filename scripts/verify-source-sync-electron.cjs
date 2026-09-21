@@ -13,7 +13,8 @@ const repo = path.resolve(__dirname, ".."), scratch = fs.mkdtempSync(path.join(o
 const artifactRoot = path.join(repo, "test-results"); fs.mkdirSync(artifactRoot, { recursive: true });
 const home = path.join(scratch, "home"), root = path.join(scratch, "project"), external = fs.mkdtempSync(path.join(artifactRoot, "native-source-external-"));
 fs.mkdirSync(home, { recursive: true });
-const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(scratch, "xdg"), APPDATA: path.join(scratch, "appdata"), FLUX_NO_MIGRATE: "1", PROBE_SCRATCH: scratch, PROBE_PROJECT: root, PROBE_EXTERNAL: external };
+const temp = path.join(scratch, "temp"); fs.mkdirSync(temp);
+const env = { ...process.env, HOME: home, TMPDIR: temp, TMP: temp, TEMP: temp, XDG_CONFIG_HOME: path.join(scratch, "xdg"), APPDATA: path.join(scratch, "appdata"), FLUX_NO_MIGRATE: "1", PROBE_SCRATCH: scratch, PROBE_PROJECT: root, PROBE_EXTERNAL: external };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.VITE_DEV_SERVER_URL;
 if (process.env.FLUX_SOURCE_PROBE_DEV_URL) env.VITE_DEV_SERVER_URL = process.env.FLUX_SOURCE_PROBE_DEV_URL;

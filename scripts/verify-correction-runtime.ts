@@ -58,7 +58,7 @@ const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
   fetches.push({ url, init });
   if (url === tiny.url) {
     h.eq((init?.headers as Record<string, string>)?.range, "bytes=1-", "an interrupted model download resumes with an HTTP range");
-    return new Response("bc", { status: 206 });
+    return new Response("bc", { status: 206, headers: {"content-range": "bytes 1-2/3"} });
   }
   if (url.endsWith("/health")) return new Response("ok", { status: 200 });
   const auth = (init?.headers as Record<string, string>)?.authorization ?? "";
@@ -157,12 +157,15 @@ h.eq(stubbornSignals.join(","), "SIGTERM,SIGKILL", "a helper that ignores gracef
 const fetchScript = readFileSync(path.join(process.cwd(), "scripts/fetch-correction-runtime.mjs"), "utf8");
 const builder = readFileSync(path.join(process.cwd(), "electron-builder.yml"), "utf8");
 const release = readFileSync(path.join(process.cwd(), ".github/workflows/release.yml"), "utf8");
-h.ok(fetchScript.includes('const RELEASE = "b10288"') && fetchScript.includes("archiveSha256") && fetchScript.includes("serverSha256") && fetchScript.includes("files,"), "the packaging helper is release-, archive-, executable-, and dependency-checksum pinned");
+const { CORRECTION_RELEASE, CORRECTION_ASSETS } = await import("./fetch-correction-runtime.mjs");
+h.ok(CORRECTION_RELEASE === "b10288" && ["linux-x64", "darwin-arm64", "darwin-x64"].every(key => { const asset = CORRECTION_ASSETS[key]; return asset?.size > 0 && /^[a-f0-9]{64}$/.test(asset.sha256); }) && fetchScript.includes("verifyCorrectionRuntime") && fetchScript.includes("verifyInventory"), "packaging metadata pins all supported archives and invokes complete cached-inventory verification (behavior: verify-runtime-assets.mjs)");
 h.ok(fetchScript.includes("ubuntu-vulkan-x64") && fetchScript.includes("eda0a9c25e15bb478b1227edb2464f20cec222b945308401617a558c8a55a48e"), "Linux packages stage the pinned Vulkan helper instead of the CPU-only archive");
 h.ok(fetchScript.includes("libggml-metal") && fetchScript.includes("libggml-vulkan") && fetchScript.includes("backend"), "accelerator libraries are discovered and checksummed into the runtime manifest");
 h.ok(builder.includes("build/correction-runtime/darwin-${arch}/") && builder.includes("build/correction-runtime/linux-${arch}/"), "each packaged architecture receives only its matching helper runtime");
-h.ok(release.includes("fetch-correction-runtime.mjs --platform darwin --arches arm64,x64") && release.includes("fetch-correction-runtime.mjs --platform linux --arches x64"), "release CI explicitly stages every supported correction runtime before packaging");
-h.ok(release.includes("@lydell/node-pty-darwin-arm64@1.1.0") && release.includes("@lydell/node-pty-darwin-x64@1.1.0"), "dual-architecture macOS packages stage both pinned terminal prebuilds");
+const releaseCheck = readFileSync(path.join(process.cwd(), "scripts/release-check.mjs"), "utf8");
+h.ok(release.includes("scripts/release-check.mjs --platform") && release.includes("platform: darwin") && release.includes("arch: arm64") && release.includes("arch: x64") && releaseCheck.includes("'correction-runtime','video-encoder'") && releaseCheck.includes("fetch-${helper}.mjs"), "all native CI targets use the shared qualification fetchers before packaging");
+const lockfile = JSON.parse(readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8"));
+h.ok(release.includes("macos-15-intel") && release.includes("macos-15") && lockfile.packages["node_modules/@lydell/node-pty-darwin-arm64"]?.version === "1.1.0" && lockfile.packages["node_modules/@lydell/node-pty-darwin-x64"]?.version === "1.1.0", "both native macOS jobs npm-ci their locked architecture-specific terminal prebuilds");
 
 writeFileSync(path.join(modelDir, tiny.file), "abd");
 const tampered = createCorrectionRuntime({
@@ -301,6 +304,67 @@ const backendTampered = createCorrectionRuntime({
 let backendTamperRejected = false;
 try { await backendTampered.warm(); } catch (error) { backendTamperRejected = /backend checksum/.test(String(error)); }
 h.ok(backendTamperRejected, "an accelerator library modified after packaging is rejected before spawn");
+
+h.section("failure lifecycle and cancellation");
+const brokenRoot = path.join(scratch, "blocked-config");
+writeFileSync(brokenRoot, "a file occupies the configuration directory");
+const installFixture = (root: string, extra: Record<string, unknown> = {}) => createCorrectionRuntime({
+  configRoot: () => root, resourcesPath: () => resources, isPackaged: () => true,
+  model: tiny, fetchImpl: async () => new Response("abc"), spawnImpl,
+  atomicWrite: (file: string, value: string) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, value); },
+  ...extra,
+});
+const installHandlers = (fixture: any) => { const map = new Map<string, (...args: any[]) => any>(); fixture.registerHandlers({handle: (key: string, fn: (...args: any[]) => any) => map.set(key, fn)}); return map; };
+const setupFailure = installFixture(brokenRoot);
+const setupHandlers = installHandlers(setupFailure);
+let setupRejected = false;
+try { await setupHandlers.get("correction:modelInstall")!({sender: {send() {}}}); } catch { setupRejected = true; }
+h.ok(setupRejected && !setupFailure.status().downloading, "mkdir failure clears installation state instead of wedging future installs");
+rmSync(brokenRoot);
+await setupHandlers.get("correction:modelInstall")!({sender: {isDestroyed: () => true, send() { throw new Error("destroyed renderer"); }}});
+h.ok(setupFailure.status().installed && !setupFailure.status().downloading, "retry after mkdir failure succeeds and dead renderer progress is harmless");
+await setupFailure.shutdown();
+
+const spawnFailure = installFixture(brokenRoot, {spawnImpl: () => {
+  const child = spawnImpl("missing", []);
+  queueMicrotask(() => child.emit("error", Object.assign(new Error("spawn ENOENT"), {code: "ENOENT"})));
+  return child;
+}});
+let spawnRejected = false;
+try { await spawnFailure.warm(); } catch (error) { spawnRejected = /ENOENT/.test(String(error)); }
+h.ok(spawnRejected && !spawnFailure.status().running && !spawnFailure.status().ready, "asynchronous spawn failure rejects startup and main remains alive");
+await spawnFailure.shutdown();
+
+let streamStarted!: () => void;
+const began = new Promise<void>(resolve => { streamStarted = resolve; });
+const removingRoot = path.join(scratch, "remove-during-download");
+const removeDuring = installFixture(removingRoot, {fetchImpl: async (_url: string, init: RequestInit) => {
+  return new Response(new ReadableStream({start(controller) {
+    controller.enqueue(new TextEncoder().encode("a")); streamStarted();
+    init.signal!.addEventListener("abort", () => controller.error(init.signal!.reason), {once: true});
+  }}));
+}});
+const removeHandlers = installHandlers(removeDuring);
+const pendingInstall = removeHandlers.get("correction:modelInstall")!({sender: {send() {}}}).then(() => false, () => true);
+await began;
+await removeHandlers.get("correction:modelRemove")!({});
+h.ok(await pendingInstall, "remove cancels and awaits a pending download");
+h.ok(!removeDuring.status().installed && !removeDuring.status().downloading, "removed download cannot republish late model state");
+await removeDuring.shutdown();
+
+let primeEntered!: () => void, primeFinish!: () => void;
+const atPrime = new Promise<void>(resolve => { primeEntered = resolve; });
+const primeGate = new Promise<void>(resolve => { primeFinish = resolve; });
+const primeStopped = installFixture(brokenRoot, {fetchImpl: async (input: string, init: RequestInit) => {
+  if (String(input).endsWith("/health")) return new Response("ok");
+  primeEntered(); await primeGate; return completion({ready: true});
+}});
+const warmPending = primeStopped.warm().then(() => false, () => true);
+await atPrime;
+await primeStopped.shutdown();
+primeFinish();
+h.ok(await warmPending, "shutdown while prime is in flight rejects stale warm completion");
+h.ok(!primeStopped.status().ready && !primeStopped.status().running, "prime completion cannot resurrect a shutdown process");
 
 await runtime.shutdown();
 await stubborn.shutdown();

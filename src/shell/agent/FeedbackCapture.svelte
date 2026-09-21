@@ -3,6 +3,8 @@
   // palette). The note is stamped with what the user is looking at RIGHT NOW
   // (figure/element/part, document + selection quote, slide + beat) and appended
   // to .meta/feedback.ndjson; Send marks the review-pass boundary.
+  import { currentProject } from "../shellStore";
+  import { modalFocus } from "../../lib/ui/modalFocus";
   import { tick } from "svelte";
   import { popIn } from "../../lib/motion/actions";
   import { describeStamp, type FeedbackNote, type FeedbackStamp } from "../../lib/project/feedback";
@@ -20,6 +22,13 @@
   } from "./feedbackStore";
 
   let text = $state("");
+  let error = $state<string | null>(null);
+  let ownerGeneration = 0;
+  let observedRoot: string | null | undefined;
+  $effect(() => {
+    const next = $currentProject?.path ?? null;
+    if (next !== observedRoot) { observedRoot = next; ++ownerGeneration; text = ""; editing = null; stamp = null; error = null; busy = false; }
+  });
   let stamp = $state<FeedbackStamp | null>(null);
   let busy = $state(false);
   let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
@@ -32,7 +41,8 @@
 
   $effect(() => {
     if ($feedbackCaptureOpen) {
-      if (!editing) void captureStamp().then((s) => (stamp = s));
+      const owner = ownerGeneration;
+      if (!editing) void captureStamp().then(s => { if (owner === ownerGeneration && $feedbackCaptureOpen) stamp = s; }).catch(e => { if (owner === ownerGeneration) error = String(e); });
       // The textarea mounts with the popover; focus it once it exists so the
       // first keystroke lands in the note, never on the canvas.
       void tick().then(() => inputEl?.focus());
@@ -40,28 +50,35 @@
   });
 
   function close() {
+    ++ownerGeneration;
     feedbackCaptureOpen.set(false);
-    text = "";
+    error = null; text = ""; busy = false;
     editing = null;
     clearPendingSnapshot(); // a cancelled note drops its snapshot (nothing was written)
   }
   /** Take a queued note back into the box: its text, its stamp and its snapshot. */
   async function edit(n: FeedbackNote) {
     if (busy) return;
+    const owner = ++ownerGeneration;
     editing = n;
     text = n.text;
     stamp = n.context;
-    setPendingSnapshot(await snapshotOfNote(n));
+    const snapshot = await snapshotOfNote(n);
+    if (owner !== ownerGeneration) return;
+    setPendingSnapshot(snapshot);
     inputEl?.focus();
   }
   async function withdraw(n: FeedbackNote) {
     if (busy) return;
+    const owner = ownerGeneration;
     busy = true;
     try {
       await withdrawFeedbackNote(n.id);
+      if (owner !== ownerGeneration) return;
       if (editing?.id === n.id) { editing = null; text = ""; clearPendingSnapshot(); }
+    } catch (e) { if (owner === ownerGeneration) error = String(e);
     } finally {
-      busy = false;
+      if (owner === ownerGeneration) busy = false;
     }
   }
   /** Hand off to Snapshot & annotate: the popover hides, the draft text survives,
@@ -73,13 +90,19 @@
 
   async function add(thenSend: boolean) {
     if (busy) return;
+    const owner = ownerGeneration;
+    error = null;
     busy = true;
     try {
       if (text.trim()) await addFeedbackNote(text, editing ? { replaces: editing.id, context: editing.context } : {});
+      if (owner !== ownerGeneration) return;
+      // An added note is durable even if Send later fails; retry must not duplicate it.
+      text = ""; editing = null;
       if (thenSend) await sendFeedback();
-      close();
+      if (owner === ownerGeneration) close();
+    } catch (e) { if (owner === ownerGeneration) error = String(e);
     } finally {
-      busy = false;
+      if (owner === ownerGeneration) busy = false;
     }
   }
 
@@ -111,7 +134,7 @@
 {#if $feedbackCaptureOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="fc-scrim" onclick={close}></div>
-  <div class="fc" class:with-cap={!!$pendingSnapshot} transition:popIn>
+  <div class="fc" role="dialog" aria-label="Note to agent" aria-modal="true" tabindex="-1" use:modalFocus class:with-cap={!!$pendingSnapshot} transition:popIn>
     <div class="fc-head">
       <span class="fc-title">{editing ? "Edit queued note" : "Note to agent"}</span>
       {#if stamp}<span class="fc-stamp" title="Captured with the note">{describeStamp(stamp)}</span>{/if}
@@ -131,6 +154,7 @@
         </figcaption>
       </figure>
     {/if}
+    {#if error}<p role="alert">{error} Your draft is retained; retry when ready.</p>{/if}
     <textarea
       bind:this={inputEl}
       bind:value={text}
@@ -161,7 +185,7 @@
         <button class="ghost fc-annot" disabled={busy} onclick={annotate} title="Freeze the window and draw on it (Ctrl+Shift+S)">
           Snapshot &amp; annotate
         </button>
-        <button class="ghost" disabled={busy || openCount === 0} onclick={() => void sendFeedback().then(close)}>
+        <button class="ghost" disabled={busy || openCount === 0} onclick={() => void add(true)}>
           Send {openCount || ""}
         </button>
         <button class="ghost" disabled={busy || !text.trim()} onclick={() => void add(false)} title="Queue this note for the agent (Enter)">

@@ -18,7 +18,7 @@ export async function writeOrphanSourcesFixture(io: { write(rel: string, text: s
     elements: [plot("orphan-live"), plot("orphan-frozen", 180)], beats: [{ id: "base", tracks: [] }, { id: "change", tracks: [
       { id: "orphan-morph", target: "orphan-live", preset: "transform", duration: 900, to: { assetId: "orphan-target", svgPath: "plots/orphan-target.svg", state: { x: 450, width: 123 } } },
     ] }] }];
-  await io.write("project.json", JSON.stringify({ schemaVersion: "0.1.0", title: deck.title, manuscript: { path: "manuscript/main.qmd" }, supplementary: [], figures: [], slides: [{ id: deck.id, path: `slides/${deck.id}/deck.json`, title: deck.title }] }));
+  await io.write("project.json", JSON.stringify({ schemaVersion: "0.1.0", id: "fixture-project", references: { library: "bib/library.bib" }, title: deck.title, manuscript: { path: "manuscript/main.qmd" }, supplementary: [], figures: [], slides: [{ id: deck.id, path: `slides/${deck.id}/deck.json`, title: deck.title }] }));
   await io.write("manuscript/main.qmd", "# Results\n\nThe saved deck retains its own source links.\n");
   await executeFigSave(planFigSave(project, null), { read: io.read, write: async (rel, text) => { await io.write(rel, text); } });
   await io.write(`slides/${deck.id}/deck.json`, JSON.stringify(deck));

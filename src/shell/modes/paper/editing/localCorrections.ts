@@ -539,7 +539,10 @@ interface BacklogChunk {
 // not turn the whole document red or tax typing. First-come, capped.
 const MAX_BACKLOG_FLAGS = 300;
 
+let correctionSession = 0;
 class CorrectionController {
+  private readonly workerScope = `paper-${++correctionSession}`;
+  private disposed = false;
   private profile: LocalCorrectionProfile;
   private activeProjectKey: string;
   private projectWords = new Set<string>();
@@ -616,6 +619,7 @@ class CorrectionController {
   update(update: ViewUpdate): void {
     const projectKey = this.options.projectKey();
     if (projectKey !== this.activeProjectKey) {
+      localCorrectionService.cancelScope(this.workerScope);
       this.activeProjectKey = projectKey;
       this.profile = new LocalCorrectionProfile(projectKey);
       this.projectWords.clear();
@@ -684,6 +688,7 @@ class CorrectionController {
         this.scheduleWarm();
       } else {
         this.options.onStatus?.("off");
+        localCorrectionService.cancelScope(this.workerScope);
         if (this.triggerTimer) clearTimeout(this.triggerTimer);
         if (this.activeContext) void contextualCorrectionService.cancel(this.activeContext.packet.requestId);
         this.activeContext = null;
@@ -802,6 +807,9 @@ class CorrectionController {
   }
 
   destroy(): void {
+    this.disposed = true;
+    localCorrectionService.cancelScope(this.workerScope);
+    this.pending = null; this.queue = [];
     this.backlogGen += 1;
     if (this.backlogTimer) clearTimeout(this.backlogTimer);
     if (this.triggerTimer) clearTimeout(this.triggerTimer);
@@ -847,15 +855,17 @@ class CorrectionController {
   }
 
   private refreshVocabulary(replace = false): void {
+    if (this.disposed) return;
     const sources = [
       this.view.state.doc.toString(),
       ...(this.options.contextStrings?.() ?? []),
     ];
     this.explicitWords = this.profile.allWords();
-    const words = [...this.explicitWords, ...extractProjectVocabulary(sources)];
+    const occurrences = extractProjectVocabularyOccurrences(sources);
+    const words = [...this.explicitWords, ...extractProjectVocabulary(sources, occurrences)];
     this.projectWords = new Set(words.map((w) => w.toLocaleLowerCase()));
     this.projectOccurrences = new Map(
-      [...extractProjectVocabularyOccurrences(sources)].map(([key, value]) => [key, value.n]),
+      [...occurrences].map(([key, value]) => [key, value.n]),
     );
     if (replace) localCorrectionService.replaceVocabulary(this.activeProjectKey, words);
     else localCorrectionService.updateVocabulary(this.activeProjectKey, words);
@@ -1036,7 +1046,7 @@ class CorrectionController {
       return;
     }
     try {
-      const raw = await localCorrectionService.lint(chunk.text);
+      const raw = await localCorrectionService.lint(chunk.text, undefined, "lintOnly", this.workerScope);
       if (gen !== this.backlogGen || !this.options.enabled()) return;
       if (this.view.state.doc.sliceString(chunk.from, chunk.to) !== chunk.text) {
         next();
@@ -1138,7 +1148,7 @@ class CorrectionController {
     this.pending = pending;
     this.inFlight = true;
     try {
-      const raw = await localCorrectionService.lint(pending.text, pending.focus);
+      const raw = await localCorrectionService.lint(pending.text, pending.focus, "repair", this.workerScope);
       if (this.pending?.id !== pending.id || !this.options.enabled()) return;
       if (this.view.state.doc.sliceString(pending.from, pending.to) !== pending.text) return;
       const lints = scopeWindowLints(pending, raw, this.startsSentence(pending.from));
@@ -1306,7 +1316,7 @@ class CorrectionController {
           // Harper independently proves every model-originated word. Project
           // vocabulary has its own explicit correction path; an unfamiliar
           // generated token must never bootstrap itself into silent prose.
-          const validation = await localCorrectionService.lint(decision.replacement!);
+          const validation = await localCorrectionService.lint(decision.replacement!, undefined, "lintOnly", this.workerScope);
           const unknown = validation.some((lint) => lint.kind === "Spelling" || lint.kind === "Typo");
           if (!unknown) approvedRescues.add(rescueApprovalKey(candidate.id, decision.replacement!));
         } catch {

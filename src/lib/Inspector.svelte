@@ -13,7 +13,7 @@
   import { buildMenuFields, fieldRange, type Field } from "./interact/propertyMenu";
   import { get } from "svelte/store";
   import { onMount, onDestroy, getContext } from "svelte";
-  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
+  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog, enteredGroupId } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextStyle } from "./types";
@@ -164,7 +164,7 @@
 
   // Arrange controls (mouse equivalents of the Alt+T grid mode). `arrN` is the
   // number of layout cells (a group counts once); the section hides below 2.
-  $: arrN = sel.length >= 2 ? gridItemCount(sel) : 0;
+  $: arrN = sel.length >= 2 ? gridItemCount(sel, {figure:modelFigure ?? undefined,scope:$enteredGroupId}) : 0;
   // Exact-gap distribute (Feature 7): the gutter applied by the Gap H/V buttons.
   let gapVal = 24;
   // Proportional scale (Feature 5): one-shot "scale by %" of the selection.
@@ -950,7 +950,7 @@
         <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />
       </label>
       <button class="fig-act" on:click={() => duplicateFigure(fig.id)}>Duplicate figure</button>
-      <button class="fig-act" on:click={() => autoLetterPanels(fig.id)}>Auto-letter panels (a, b, c)</button>
+      <button class="fig-act" on:click={() => { try { autoLetterPanels(fig.id); } catch (error) { pushToast("error", "Panels could not be lettered", { detail: String((error as Error).message) }); } }}>Auto-letter panels (a, b, c)</button>
       {#if $embeddedProjectRoot}
         <!-- Send to deck (slide-migration §3.9): copy this figure's content to a
              deck as a new slide (fresh ids, native size — the shared 96/in ruler). -->

@@ -1119,6 +1119,8 @@
   // preview showed. A click inside the close radius of the first draft node
   // closes; in the sub-mode, endpoint-anchor clicks seed/join the edited path.
   function placePenPoint(e: PointerEvent, fig: Figure, lp: { x: number; y: number }) {
+    // The second pointerdown belongs to finish, not another authored node.
+    if (e.detail > 1 && penNodes.length >= 2) return;
     const sub = !!editPathId && editMode === "pen";
     const assist = penSnap(penNodes, lp, penOpts(e.shiftKey, e.altKey));
     if (assist.close && penFigId === fig.id) {
@@ -2133,6 +2135,16 @@
     } catch {}
   }
 
+  function remapResize(el: Element, original: Element, g: Extract<Gesture,{kind:"resize"}>, nb: Rect) {
+    const axes={w:g.handle!=="n"&&g.handle!=="s",h:g.handle!=="e"&&g.handle!=="w"};
+    if (g.scale) scaleRemap(el,original,g.ob,nb); else resizeRemap(el,original,g.ob,nb,axes);
+    if ($settings.snapPixel) {
+      el.x=Math.round(el.x);el.y=Math.round(el.y);
+      if ("width" in el) el.width=Math.round(el.width);
+      if ("height" in el) el.height=Math.round(el.height);
+    }
+  }
+
   function onHandleDown(e: PointerEvent, handle: Handle) {
     e.stopPropagation();
     if ($captionOpen) return; // read-only while the caption editor is open
@@ -2432,7 +2444,7 @@
       }
       // The Scale tool always scales uniformly; a single locked-aspect element does
       // too (no Shift needed).
-      const forceAspect = g.scale || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
+      const forceAspect = g.scale || gestureEls.some(el => Math.abs(Math.sin((el.rotation ?? 0)*Math.PI/90)) > 1e-8) || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
       const nb = computeResizeBox(g.ob, g.handle, lp, e.shiftKey || forceAspect);
       startDragging();
       gNb = nb;
@@ -2574,14 +2586,7 @@
         for (const el of f.elements) {
           const o = g.origs.get(el.id);
           if (o) {
-            if (g.scale) scaleRemap(el, o, g.ob, nb);
-            else resizeRemap(el, o, g.ob, nb, axes);
-            if ($settings.snapPixel) {
-              el.x = Math.round(el.x);
-              el.y = Math.round(el.y);
-              if ("width" in el) el.width = Math.round(el.width);
-              if ("height" in el) el.height = Math.round(el.height);
-            }
+            remapResize(el,o,g,nb);
           }
         }
       });
@@ -2858,6 +2863,15 @@
   let lastDownEl: { id: string; t: number } | null = null;
 
   function onDblClick(e: MouseEvent) {
+    // Chromium pointerdown.detail is zero even for the second click. Remove
+    // only that exactly coincident, handle-free terminal click before finish;
+    // intentional short segments (and curved coincident nodes) survive.
+    if (penNodes.length >= 2) {
+      const last = penNodes.at(-1)!;
+      const previous = penNodes.at(-2)!;
+      const hasHandle = [last.hIn, last.hOut].some(h => h && (h.dx !== 0 || h.dy !== 0));
+      if (last.x === previous.x && last.y === previous.y && !hasHandle) penNodes = penNodes.slice(0, -1);
+    }
     if ($captionOpen) return; // read-only while the caption editor is open
     if (editPathId) {
       // pen sub-mode: double-click finishes the draft (open / extend-merge)
@@ -3009,7 +3023,6 @@
   $: hoverInfo = (() => {
     if (
       !$hoverId ||
-      sceneHot || // a pan/zoom burst: content sweeps under a still pointer — an outline that flaps per frame is flicker, not feedback
       gesture ||
       dragging ||
       editingId ||
@@ -3415,24 +3428,36 @@
     return d;
   })();
 
-  // Highlight box for a selected plot PART (screen px). getBoundingClientRect
-  // already accounts for every ancestor transform (zoom / pan / figure /
-  // nested-viewBox), so we just subtract the host origin. Re-measures on
-  // pan/zoom ($viewport) and on edits ($project — an override can resize a part).
-  $: partBoxScreen = (() => {
-    const ps = $partSelection;
-    void $viewport;
-    void $project;
-    // Suppress during a drag: the measured node moves via a transient transform
-    // this block doesn't track, so the box would otherwise lag/stale (F5).
-    if (!ps || !hostEl || dragging || gesture) return null;
-    const node = document.getElementById(`${ps.elementId}__${ps.partId}`);
-    if (!node) return null;
-    const r = node.getBoundingClientRect();
-    const h = hostEl.getBoundingClientRect();
-    const O = 2; // small outset so tiny markers stay visible
-    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+  // Measure only when the selected part's content changes, after its DOM commit.
+  // Store world coordinates: viewport projection is synchronous, layout-free and
+  // cannot observe yesterday's compositor transform during a pan/zoom update.
+  let partWorldBox: Rect | null = null;
+  let partMeasureGeneration = 0;
+  $: partContentKey = (() => {
+    const ps=$partSelection;
+    if (!ps || dragging || gesture) return "";
+    const found=findElement($project,ps.elementId);
+    if (!found) return "";
+    return JSON.stringify([ps,found.figure.x,found.figure.y,found.element,"assetId" in found.element ? $plotGen[found.element.assetId] : 0]);
   })();
+  $: measurePart(partContentKey);
+  async function measurePart(key: string) {
+    const gen=++partMeasureGeneration;
+    if (!key) {partWorldBox=null;return;}
+    await tick();
+    if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
+    const ps=get(partSelection);
+    if (!ps) return;
+    const node=hostEl.querySelector(`[id="${CSS.escape(`${ps.elementId}__${ps.partId}`)}"]`);
+    if (!node) {partWorldBox=null;return;}
+    const r=node.getBoundingClientRect(),h=hostEl.getBoundingClientRect(),v=get(viewport);
+    partWorldBox={x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom};
+  }
+  $: partBoxScreen = partWorldBox ? {
+    x:$viewport.panX+partWorldBox.x*$viewport.zoom-2,
+    y:$viewport.panY+partWorldBox.y*$viewport.zoom-2,
+    w:partWorldBox.w*$viewport.zoom+4,h:partWorldBox.h*$viewport.zoom+4,
+  } : null;
 
   // The crosshair family (styles/cursors.css, owner request 2026-09-15): the
   // default over the canvas is the precise crosshair; something selectable
@@ -3494,13 +3519,16 @@
     if (!gestureFig) return "";
     const base = `translate(${$viewport.panX + gestureFig.x * $viewport.zoom} ${$viewport.panY + gestureFig.y * $viewport.zoom}) scale(${$viewport.zoom})`;
     if (gesture?.kind === "move") return `${base} translate(${gDX} ${gDY})`;
-    if (gesture?.kind === "resize" && gNb) {
-      const sX = gesture.ob.w ? gNb.w / gesture.ob.w : 1;
-      const sY = gesture.ob.h ? gNb.h / gesture.ob.h : 1;
-      return `${base} translate(${gNb.x} ${gNb.y}) scale(${sX} ${sY}) translate(${-gesture.ob.x} ${-gesture.ob.y})`;
-    }
+
     return base;
   })();
+
+  $: resizedEls = (() => {
+    if (gesture?.kind!=="resize" || gesture.crop || !gNb) return [] as Element[];
+    const g=gesture;
+    return gestureEls.map(original=>{const el={...original};remapResize(el,original,g,gNb!);return el;});
+  })();
+  $: if (dragging && gesture?.kind==="resize" && !gesture.crop && resizedEls.length) liveBox=selectionBBox(resizedEls);
 
   // Crop overlay (figure-v1 P5): a GHOST of the full content at 0.35 opacity +
   // a full-opacity copy clipped to the live window (= the cropped preview —
@@ -3762,7 +3790,7 @@
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
-        {#each gestureEls as el (el.id)}
+        {#each resizedEls as el (el.id)}
           <ElementView element={el} />
         {/each}
       </g>

@@ -87,6 +87,8 @@ let duplicateCopies = 0;
   mkdir: (directory: string) => fs.mkdir(directory, { recursive: true }),
   readText: (file: string) => fs.readFile(file, "utf8"),
   writeText: (file: string, text: string) => fs.writeFile(file, text),
+  remove: (file: string) => fs.rm(file, { recursive: true, force: true }),
+  fsyncDir: async (directory: string) => { const handle = await fs.open(directory, "r"); try { await handle.sync(); } finally { await handle.close(); } },
   readFile: async (file: string) => { assert.ok(!protectedPaths.has(file), "movie/poster must never pass through renderer bytes"); return fs.readFile(file); },
   writeFile: (file: string, bytes: Uint8Array) => fs.writeFile(file, bytes),
   copySlideVideoAssets: async (request: any) => { duplicateCopies++; await media.copyVideoAssets(request); },

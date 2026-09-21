@@ -1,3 +1,4 @@
+import { itemName } from "./itemLocator";
 // Pure path helpers + types for the FluxLib "items/" store — the long-reserved
 // "Tier 1" per-paper artifact area (flux-core/fluxlib.ts:8 "items/ is future").
 //
@@ -31,10 +32,12 @@ export const GROBID_TEI_XML = "grobid.tei.xml";
 export const GROBID_JSON = "grobid.json";
 
 function j(...parts: string[]): string {
-  return parts
+  const unc = parts[0]?.startsWith("//");
+  const joined = parts
     .filter((p) => p !== "")
     .join("/")
     .replace(/\/{2,}/g, "/");
+  return unc ? "/" + joined : joined;
 }
 
 /** Citekeys are deterministic + filename-safe, but guard against separators / traversal. */
@@ -69,9 +72,15 @@ export interface ReaderContext {
   annotations?: { page: number; color: string; quote: string; note?: string }[];
   pdfPath?: string;
   fulltextPath?: string;
-  updatedAt: string; // ISO
+  updatedAt: string; // ISO; live owner refreshes while focused
+  sourcePdf?: "main" | {supplement: string};
+  pdfIdentity?: string;
+  foreground?: boolean; // false retains last reader selection for an external agent
+  owner?: string;
+  generation?: number;
+  expiresAt?: string; // ISO; derived context is unavailable after its owner stops renewing
 }
-export const itemDir = (lib: string, key: string): string => j(lib, ITEMS_DIR, safeKey(key));
+export const itemDir = (lib: string, key: string): string => j(lib, ITEMS_DIR, itemName(lib, key));
 export const pdfPath = (lib: string, key: string): string => j(itemDir(lib, key), PAPER_PDF);
 
 /** Link-mode PDF pointer (Zotero sync `attach: "link"`): instead of copying the PDF

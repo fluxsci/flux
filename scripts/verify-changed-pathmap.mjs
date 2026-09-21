@@ -52,7 +52,7 @@ const actualCases = [
   ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs"]],
   ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs"]],
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
-  ["src/lib/slide/player/player.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/editorPresentation.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],

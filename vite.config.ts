@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import fs from "node:fs";
 import path from "node:path";
@@ -70,6 +70,9 @@ export default defineConfig({
   worker: { format: "es" },
 
   server: {
+    // Worktrees may share a dependency directory via symlink. Permit only that
+    // real dependency tree so imported WASM/assets remain readable in dev.
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), fs.realpathSync("node_modules")] },
     port: 1420,
     strictPort: true,
     // Bind to IPv4 loopback explicitly. On macOS `localhost` resolves to IPv6

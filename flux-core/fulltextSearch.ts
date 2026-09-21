@@ -1,3 +1,7 @@
+import { prepareItemLocators } from "./itemLocators";
+import { itemKey } from "../src/lib/references/itemLocator";
+import { itemDir } from "../src/lib/references/items";
+import { fulltextIsCurrent, pdfIdentityAt } from "./itemGeneration";
 // Full-text search across the library's stored PDFs (2.3) — the extracted text has
 // sat on disk (items/<key>/fulltext.txt, written on every acquisition) with NOTHING
 // reading it; "which of my 1,000 PDFs mentions X" was unanswerable in-app.
@@ -16,10 +20,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { resolveFluxLibPath } from "./fluxlib";
-import { hasPdf } from "./items";
 import { foldForMatch, originalOffset, parseQueryTerms, type FoldedText } from "../src/lib/references/textFold";
 import { analyzePaperStructure } from "../src/lib/references/paperStructure";
-import { loadFreshFulltextIndex, candidateDocs } from "./fulltextIndex";
+import { loadFreshFulltextIndex, candidateDocs, type FulltextRefreshState, type FulltextProgress } from "./fulltextIndex";
 
 export interface FulltextSnippet {
   page: number; // 1-based
@@ -56,6 +59,9 @@ export interface FulltextOpts {
   /** WS-8.4 test escape: skip the index and run the original linear scan (the
    *  oracle the scale gate compares against). */
   forceScan?: boolean;
+  /** Native resident-worker ownership; omitted by fresh CLI/MCP reads. */
+  refresh?: FulltextRefreshState;
+  onProgress?: (progress: FulltextProgress) => void;
 }
 
 const CONCURRENCY = 8;
@@ -120,14 +126,25 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
   }
 
   const itemsDir = path.join(L, "items");
+  const fresh = opts.forceScan ? null : await loadFreshFulltextIndex(L, { refresh: opts.refresh, onProgress: opts.onProgress }).catch(error => {
+    if (opts.refresh) opts.refresh.full = true;
+    throw error;
+  });
   let dirs: string[] = [];
-  try {
-    dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
-  } catch {
-    result.elapsedMs = Date.now() - t0;
-    return result; // no items/ yet
+  if (fresh) dirs = fresh.dirOrder.map(key => path.basename(itemDir(L, key)));
+  else {
+    await prepareItemLocators(L);
+    try { dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      result.elapsedMs = Date.now() - t0;
+      return result;
+    }
   }
   const wanted = opts.keys ? new Set(opts.keys.map((k) => k.normalize("NFC"))) : null;
+  if (fresh) result.missingText = wanted ? fresh.missingText.filter(k => wanted.has(k)) : fresh.missingText.slice();
+  const missingSeen = new Set(result.missingText);
+  const noteMissing = (key: string) => { if (!missingSeen.has(key)) { missingSeen.add(key); result.missingText.push(key); } };
 
   // The exact per-document verdict — IDENTICAL for the index and scan paths
   // (the index only nominates candidates; this is the semantics).
@@ -170,20 +187,22 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
 
   // --- WS-8.4: indexed path — postings nominate candidates, matchDoc decides ----
   if (!opts.forceScan) {
-    const fresh = await loadFreshFulltextIndex(L).catch(() => null);
     const cands = fresh ? candidateDocs(fresh.idx, needles) : null;
     if (fresh && cands !== null) {
-      result.missingText = wanted ? fresh.missingText.filter((k) => wanted.has(k)) : fresh.missingText.slice();
-      for (const key of fresh.dirOrder) {
-        if (!cands.has(key)) continue;
-        if (wanted && !wanted.has(key)) continue;
+      const candidates = fresh.dirOrder.filter(key => cands.has(key) && (!wanted || wanted.has(key)));
+      opts.onProgress?.({phase:"searching",completed:0,total:candidates.length});
+      let examined = 0;
+      for (const key of candidates) {
+        examined++;
         let original: string;
         try {
-          original = await fs.readFile(path.join(itemsDir, key, "fulltext.txt"), "utf8");
+          if (!await fulltextIsCurrent(itemDir(L, key))) continue;
+          original = await fs.readFile(path.join(itemDir(L, key), "fulltext.txt"), "utf8");
         } catch {
           continue; // raced deletion — the next load purges it
         }
         result.scanned++;
+        if (examined % 16 === 0 || examined === candidates.length) opts.onProgress?.({phase:"searching",completed:examined,total:candidates.length});
         const hit = matchDoc(original, key);
         if (!hit) continue; // conservative candidate that fails exact matching
         result.hits.push(hit);
@@ -205,22 +224,28 @@ export async function searchFulltext(query: string, opts: FulltextOpts = {}): Pr
 
   let i = 0;
   let stop = false;
+  opts.onProgress?.({phase:"searching",completed:0,total:dirs.length});
   const worker = async (): Promise<void> => {
     while (!stop) {
       const name = dirs[i++];
       if (name === undefined) return;
-      const key = name.normalize("NFC");
+      const key = itemKey(L, name);
       if (wanted && !wanted.has(key)) continue;
       const ftPath = path.join(itemsDir, name, "fulltext.txt");
       let original: string;
       try {
+        if (!await fulltextIsCurrent(path.dirname(ftPath))) {
+          if (await pdfIdentityAt(path.dirname(ftPath)).catch(() => null)) noteMissing(key);
+          continue;
+        }
         original = await fs.readFile(ftPath, "utf8");
       } catch {
         // No text — note it as a backfill candidate only if a PDF exists.
-        if (await hasPdf(key, L).catch(() => false)) result.missingText.push(key);
+        if (await pdfIdentityAt(path.dirname(ftPath)).catch(() => null)) noteMissing(key);
         continue;
       }
       result.scanned++;
+      if (result.scanned % 16 === 0 || result.scanned === dirs.length) opts.onProgress?.({phase:"searching",completed:result.scanned,total:dirs.length});
       const hit = matchDoc(original, key);
       if (!hit) continue;
       result.hits.push(hit);

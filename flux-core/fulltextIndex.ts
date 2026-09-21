@@ -1,3 +1,7 @@
+import { prepareItemLocators } from "./itemLocators";
+import { itemKey } from "../src/lib/references/itemLocator";
+import { itemDir } from "../src/lib/references/items";
+import { fulltextIsCurrent, pdfIdentityAt } from "./itemGeneration";
 // WS-8.4 (fortify plan) — the persistent pure-JS full-text index behind
 // searchFulltext's existing seam (.fluxlib/fulltext-index.json). The linear
 // scan's semantics are SUBSTRING includes over folded text, so the index is a
@@ -8,30 +12,34 @@
 // a plain [a-z0-9]+ term) report null and the caller falls back to the scan —
 // the text on disk stays the truth; this file is derived and rebuildable.
 //
-// Freshness is per-document staleness-DELTA, not write hooks: every load stats
-// items/*/fulltext.txt (stat-only — no reads), re-tokenizes only new/changed
-// docs, purges deleted ones, and persists when anything moved. That covers the
-// flux-core writers AND the renderer's bridge writes uniformly, with no IPC.
+// CLI/MCP reads verify the full tree. A resident worker consumes native watcher
+// candidates and a bounded rotating integrity scan, retaining the same exact
+// matching policy. Missed events are repaired without statting all items for
+// every keystroke. Derived index corruption always triggers a complete rebuild.
 // No SQLite/FTS5: native ABIs are outside the repo posture (npmRebuild:false).
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { atomicWrite } from "./fsx";
 import { foldForMatch } from "../src/lib/references/textFold";
 
 export interface FulltextIndexDoc {
   mtimeMs: number;
+  ctimeMs?: number;
+  size?: number;
   pages: number;
 }
 export interface FulltextIndexFile {
   /** Bump whenever the FOLDING changes: the postings are derived from folded text, so an index
    *  built under the old rules would nominate candidates the matcher no longer agrees with.
-   *  2 = separator-collapsing fold (foldForMatch). */
-  schemaVersion: 2;
+   *  3 = separator-collapsing fold plus verified derived-cache integrity. */
+  schemaVersion: 3;
   builtAt: string;
   docs: Record<string, FulltextIndexDoc>;
   /** foldedToken → { key → 1-based page numbers } */
   postings: Record<string, Record<string, number[]>>;
+  integrity?: string;
 }
 
 const INDEX_REL = path.join(".fluxlib", "fulltext-index.json");
@@ -59,7 +67,32 @@ function tokenizePages(folded: string): Map<string, Set<number>> {
 }
 
 function emptyIndex(): FulltextIndexFile {
-  return { schemaVersion: 2, builtAt: new Date().toISOString(), docs: {}, postings: {} };
+  return { schemaVersion: 3, builtAt: new Date().toISOString(), docs: Object.create(null), postings: Object.create(null) };
+}
+
+function indexBody(idx: FulltextIndexFile): string {
+  return JSON.stringify({schemaVersion:idx.schemaVersion,builtAt:idx.builtAt,docs:idx.docs,postings:idx.postings});
+}
+const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+const record = (value: unknown): value is Record<string, any> => !!value && typeof value === "object" && !Array.isArray(value);
+function checkedIndex(value: unknown): FulltextIndexFile | null {
+  if (!record(value) || value.schemaVersion !== 3 || typeof value.builtAt !== "string" || !record(value.docs) || !record(value.postings) || typeof value.integrity !== "string") return null;
+  for (const doc of Object.values(value.docs)) {
+    if (!record(doc) || !Number.isFinite(doc.mtimeMs) || !Number.isFinite(doc.ctimeMs) || !Number.isSafeInteger(doc.size) || doc.size < 0 || !Number.isSafeInteger(doc.pages) || doc.pages < 1) return null;
+  }
+  for (const [token, docs] of Object.entries(value.postings)) {
+    if (!/^[a-z0-9]{2,}$/.test(token) || !record(docs)) return null;
+    for (const [key, pages] of Object.entries(docs)) {
+      if (!Object.hasOwn(value.docs,key) || !Array.isArray(pages) || !pages.length || pages.some((page,i)=>!Number.isSafeInteger(page)||page<1||page>value.docs[key].pages||(i>0&&page<=pages[i-1]))) return null;
+    }
+  }
+  if (digest(indexBody(value as FulltextIndexFile)) !== value.integrity) return null;
+  // User words/citekeys are data, including constructor/toString/__proto__.
+  const idx=value as FulltextIndexFile;
+  idx.docs=Object.assign(Object.create(null),idx.docs);
+  idx.postings=Object.assign(Object.create(null),idx.postings);
+  for (const token of Object.keys(idx.postings)) idx.postings[token]=Object.assign(Object.create(null),idx.postings[token]);
+  return idx;
 }
 
 // One resident index per library path, keyed by the persisted file's identity
@@ -69,7 +102,7 @@ const resident = new Map<string, { fileKey: string; idx: FulltextIndexFile }>();
 async function statKey(p: string): Promise<string> {
   try {
     const st = await fs.stat(p);
-    return `${st.mtimeMs}:${st.size}`;
+    return `${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`;
   } catch {
     return "absent";
   }
@@ -94,63 +127,127 @@ export interface FreshIndex {
   dirOrder: string[];
 }
 
+export interface FulltextProgress { phase: "checking" | "indexing" | "searching"; completed: number; total: number }
+/** Owned by one sequential worker, never shared across libraries or main. */
+export interface FulltextRefreshState {
+  dirs: string[] | null;
+  dirty: Set<string>;
+  missing: Set<string>;
+  cursor: number;
+  discover: boolean;
+  full: boolean;
+  discoveryAt: number;
+  /** Bounded observations for acceptance/diagnostics, not persisted data. */
+  lastChecked: number;
+  integrityBatch: number;
+}
+export function createFulltextRefreshState(integrityBatch = 128): FulltextRefreshState {
+  return { dirs: null, dirty: new Set(), missing: new Set(), cursor: 0, discover: true, full: true, discoveryAt: 0, lastChecked: 0, integrityBatch: Math.max(1, Math.min(512, integrityBatch)) };
+}
+export function markFulltextDirty(state: FulltextRefreshState, relativePath: string | null): void {
+  const parts = relativePath?.split(/[\\/]/);
+  if (parts?.[0] === "items" && parts[1] && parts[1] !== "." && parts[1] !== "..") {
+    state.dirty.add(parts[1]);
+    if (parts.length === 2 || !state.dirs?.includes(parts[1])) state.discover = true;
+  } else {
+    // Watcher loss, library identity/locator changes, and a foreign index rebuild
+    // require a fresh discovery. A cache is never an authority for missing data.
+    state.discover = true;
+    state.full = true;
+  }
+}
+
 /** Load the index and delta-refresh it against the items tree (stat-only for
  *  fresh docs; re-tokenize only new/changed; purge deleted; persist if moved). */
-export async function loadFreshFulltextIndex(libPath: string): Promise<FreshIndex | null> {
+export async function loadFreshFulltextIndex(libPath: string, options: { refresh?: FulltextRefreshState; onProgress?: (p: FulltextProgress) => void } = {}): Promise<FreshIndex | null> {
   const L = path.resolve(libPath);
+  const state = options.refresh;
   const itemsDir = path.join(L, "items");
   const idxPath = path.join(L, INDEX_REL);
-  let dirents;
-  try {
-    dirents = (await fs.readdir(itemsDir, { withFileTypes: true })).filter((e) => e.isDirectory());
-  } catch {
-    return null; // no items/ yet — nothing to index
+  let dirs = state?.dirs ?? null;
+  const discover = !dirs || !state || state.discover || Date.now() - state.discoveryAt >= 30000;
+  if (discover) {
+    // Clear before awaits: a new event during this read remains pending.
+    if (state) state.discover = false;
+    await prepareItemLocators(L);
+    try { dirs = (await fs.readdir(itemsDir, { withFileTypes: true })).filter(e => e.isDirectory()).map(e => e.name); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (state) { state.dirs = null; state.full = true; }
+      return null;
+    }
+    if (state) { state.dirs = dirs; state.discoveryAt = Date.now(); }
   }
+  const names = dirs!;
 
   // Resident fast path (same persisted file → same in-memory index).
   const fk = await statKey(idxPath);
   let idx: FulltextIndexFile | null = null;
   const cached = resident.get(L);
   if (cached && cached.fileKey === fk) idx = cached.idx;
+  const complete = !state || state.full || !idx;
+  if (state) state.full = false;
   if (!idx && fk !== "absent") {
     try {
-      const parsed = JSON.parse(await fs.readFile(idxPath, "utf8")) as FulltextIndexFile;
-      if (parsed && parsed.schemaVersion === 2 && parsed.docs && parsed.postings) idx = parsed;
+      if ((await fs.stat(idxPath)).size <= 512 * 1024 * 1024) idx = checkedIndex(JSON.parse(await fs.readFile(idxPath, "utf8")));
     } catch {
       idx = null; // corrupt → rebuild below
     }
   }
+  const rebuild = !idx;
   if (!idx) idx = emptyIndex();
 
-  // Staleness delta: stat every fulltext.txt (no reads), re-tokenize only what moved.
-  const missingText: string[] = [];
-  const dirOrder: string[] = [];
-  const live = new Set<string>();
-  let changed = false;
-  for (const e of dirents) {
-    const key = e.name.normalize("NFC");
-    dirOrder.push(key);
-    const ftPath = path.join(itemsDir, e.name, "fulltext.txt");
-    let st;
-    try {
-      st = await fs.stat(ftPath);
-    } catch {
-      // No text. Track for the backfill list only when a PDF exists.
-      try {
-        await fs.access(path.join(itemsDir, e.name, "paper.pdf"));
-        missingText.push(key);
-      } catch {
-        /* no pdf either */
-      }
-      if (idx.docs[key]) {
-        purgeDoc(idx, key);
-        changed = true;
-      }
+  // Staleness delta: inspect selected source identities and re-tokenize changes.
+  const missing = state?.missing ?? new Set<string>();
+  if (complete) missing.clear();
+  const dirOrder = names.map(name => itemKey(L, name));
+  const live = new Set(dirOrder);
+  const pending = state ? [...state.dirty] : [];
+  state?.dirty.clear();
+  const selected = new Set<string>(complete ? names : pending);
+  if (state && !complete && names.length) {
+    for (let i = 0; i < Math.min(state.integrityBatch, names.length); i++) {
+      selected.add(names[state.cursor % names.length]);
+      state.cursor = (state.cursor + 1) % names.length;
+    }
+  }
+  // Newly discovered items always join this refresh, even if their watcher
+  // event was missed. Deleted items are removed below using the full directory list.
+  if (discover && !complete) for (const name of names) {
+    const key = itemKey(L, name);
+    if (!idx.docs[key] && !missing.has(key)) selected.add(name);
+  }
+  const selectedNames = [...selected].filter(name => names.includes(name));
+  if (state) state.lastChecked = selectedNames.length;
+  const progress = (phase: FulltextProgress["phase"], completed: number, total: number) => options.onProgress?.({phase, completed, total});
+  progress("checking", 0, selectedNames.length);
+  let changed = rebuild;
+  // Filesystem freshness probes are independent. Bounded parallelism avoids
+  // five serial round trips per document on every resident-worker query.
+  const checks: {key:string;ftPath:string;st:{mtimeMs:number;ctimeMs:number;size:number}|null;hasPdf:boolean}[] = new Array(selectedNames.length);
+  let next = 0, checked = 0;
+  await Promise.all(Array.from({length:Math.min(12,selectedNames.length)},async()=>{
+    while(next<selectedNames.length){
+      const i=next++, name=selectedNames[i], key=itemKey(L,name), dir=path.join(itemsDir,name), ftPath=path.join(dir,"fulltext.txt");
+      let st:{mtimeMs:number;ctimeMs:number;size:number}|null=null, hasPdf=false;
+      try { if(await fulltextIsCurrent(dir)) st=await fs.stat(ftPath); } catch { /* missing/stale text is a backfill candidate */ }
+      if(!st) hasPdf=!!await pdfIdentityAt(dir).catch(()=>null);
+      checks[i]={key,ftPath,st,hasPdf};
+      checked++;
+      if (checked % 32 === 0 || checked === selectedNames.length) progress("checking", checked, selectedNames.length);
+    }
+  }));
+  let indexed = 0;
+  for (const {key,ftPath,st,hasPdf} of checks) {
+    indexed++;
+    if (!st) {
+      if(hasPdf) missing.add(key); else missing.delete(key);
+      if (idx.docs[key]) { purgeDoc(idx,key); changed=true; }
       continue;
     }
-    live.add(key);
+    missing.delete(key);
     const rec = idx.docs[key];
-    if (rec && rec.mtimeMs === st.mtimeMs) continue; // fresh
+    if (rec && rec.mtimeMs === st.mtimeMs && rec.ctimeMs === st.ctimeMs && rec.size === st.size) continue; // fresh
     // New/changed → (re)tokenize this one document.
     let folded: string;
     try {
@@ -162,12 +259,19 @@ export async function loadFreshFulltextIndex(libPath: string): Promise<FreshInde
     }
     if (rec) purgeDoc(idx, key);
     const toks = tokenizePages(folded);
-    idx.docs[key] = { mtimeMs: st.mtimeMs, pages: folded.split("\f").length };
+    idx.docs[key] = { mtimeMs: st.mtimeMs, ctimeMs:st.ctimeMs, size:st.size, pages: folded.split("\f").length };
     for (const [tok, pages] of toks) {
-      (idx.postings[tok] ??= {})[key] = [...pages];
+      (idx.postings[tok] ??= Object.create(null))[key] = [...pages];
     }
     changed = true;
+    if (indexed % 16 === 0 || indexed === checks.length) {
+      progress("indexing", indexed, checks.length);
+      // Deliver progress and dirty messages during a cold rebuild; this is
+      // worker scheduling, never a delay on the renderer's query input.
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
   }
+  for (const key of missing) if (!live.has(key)) missing.delete(key);
   for (const key of Object.keys(idx.docs)) {
     if (!live.has(key)) {
       purgeDoc(idx, key);
@@ -177,10 +281,12 @@ export async function loadFreshFulltextIndex(libPath: string): Promise<FreshInde
 
   if (changed) {
     idx.builtAt = new Date().toISOString();
-    await atomicWrite(idxPath, JSON.stringify(idx) + "\n").catch(() => {});
+    const body=indexBody(idx);
+    idx.integrity=digest(body);
+    await atomicWrite(idxPath, `${body.slice(0,-1)},"integrity":"${idx.integrity}"}\n`).catch(() => {});
   }
   resident.set(L, { fileKey: await statKey(idxPath), idx });
-  return { idx, missingText, dirOrder };
+  return { idx, missingText: dirOrder.filter(key => missing.has(key)), dirOrder };
 }
 
 /** Candidate documents for a set of CLEAN needles (every needle must be
@@ -198,7 +304,8 @@ export function candidateDocs(idx: FulltextIndexFile, needles: string[]): Set<st
       if (!tok.includes(n)) continue;
       for (const key of Object.keys(idx.postings[tok])) docs.add(key);
     }
-    acc = acc === null ? docs : new Set([...acc].filter((k) => docs.has(k)));
+    if (acc === null) acc = docs;
+    else { const prior: Set<string> = acc; acc = new Set(Array.from(prior).filter(k => docs.has(k))); }
     if (!acc.size) return acc;
   }
   return acc ?? new Set();

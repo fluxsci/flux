@@ -1,3 +1,4 @@
+import { decodePreferences } from "./preferences";
 import { writable } from "svelte/store";
 
 // Paper caret motion model (src/shell/modes/paper/editing/caretFeel.ts):
@@ -94,9 +95,22 @@ function migrate(raw: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+export function decodeSettings(value: unknown): Settings {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return decodePreferences(migrate(raw), DEFAULTS, {
+    gridSize: { min: 1 }, captionFontSize: { min: 9, max: 28 }, paperMaxMarginPanes: { min: 1, max: 6 },
+    paletteCollection: { enum: ["flexoki", "brewer", "tol", "project"] }, colormapCollection: { enum: ["mpl", "crameri", "tol", "cmasher"] },
+    paperMarginScene: { enum: ["harmonograph", "neurons", "inkwind", "loom", "vines"] },
+    paperCaretFeel: { enum: ["chase", "smooth"] }, paperCorrectionProvider: { enum: ["flux", "ollama", "openai"] },
+    paperCorrectionDialect: { enum: ["american", "british", "canadian", "australian"] },
+    paperCorrectionAggressiveness: { enum: ["standard", "aggressive", "really-aggressive"] },
+    paperCorrectionModel: { maxLength: 120 }, paperCorrectionGuidance: { maxLength: 500 },
+  });
+}
+
 function load(): Settings {
   try {
-    return { ...DEFAULTS, ...migrate(JSON.parse(localStorage.getItem(KEY) || "{}")) };
+    return decodeSettings(JSON.parse(localStorage.getItem(KEY) || "{}"));
   } catch {
     return { ...DEFAULTS };
   }

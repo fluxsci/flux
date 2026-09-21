@@ -6,82 +6,135 @@
 // gated by verify-dissections.ts.
 
 export interface ParsedTable {
-  /** First row of the file (shown as the sticky header). */
   header: string[];
-  /** Body rows, capped at maxRows (see truncated/totalRows). */
   rows: string[][];
-  /** Widest row (header included) — render pads shorter rows to this. */
   cols: number;
-  /** Body row count BEFORE the cap. */
+  /** Exact only when complete; otherwise the number of complete records scanned. */
   totalRows: number;
   truncated: boolean;
+  complete: boolean;
   delimiter: "," | "\t";
+  diagnostics: { columns: boolean; cells: number; characters: boolean; input: boolean };
+}
+export const DISSECT_TABLE_MAX_ROWS = 5000;
+export const DISSECT_TABLE_MAX_COLUMNS = 128;
+export const DISSECT_TABLE_MAX_CELL_CHARS = 4096;
+export const DISSECT_TABLE_MAX_STORED_CHARS = 2 * 1024 * 1024;
+export const DISSECT_TABLE_MAX_BYTES = 16 * 1024 * 1024;
+export interface ParseOptions {
+  delimiter?: "," | "\t"; name?: string; maxRows?: number;
+  maxColumns?: number; maxCellChars?: number; maxStoredChars?: number;
+  inputTruncated?: boolean;
 }
 
-export const DISSECT_TABLE_MAX_ROWS = 5000;
-
-/** Delimiter for a file: .tsv → tab; otherwise sniff the first line (a tab-dominant "csv"
- *  is a TSV someone misnamed — show it as a table, not one comma-less column). */
+/** Sniff only a bounded prefix; a malformed million-column header cannot allocate
+ * a million-element regexp match or delay the first frame. */
 export function sniffDelimiter(text: string, name = ""): "," | "\t" {
   if (/\.tsv$/i.test(name)) return "\t";
-  const firstLine = text.slice(0, text.indexOf("\n") < 0 ? text.length : text.indexOf("\n"));
-  const tabs = (firstLine.match(/\t/g) ?? []).length;
-  const commas = (firstLine.match(/,/g) ?? []).length;
+  let tabs = 0, commas = 0;
+  for (let i = 0; i < Math.min(text.length, 65536) && text[i] !== "\n" && text[i] !== "\r"; i++) {
+    if (text[i] === "\t") tabs++; else if (text[i] === ",") commas++;
+  }
   return tabs > commas ? "\t" : ",";
 }
+const limit = (value: number | undefined, fallback: number) => Number.isFinite(value) ? Math.max(0, Math.min(fallback, Math.floor(value!))) : fallback;
 
-export function parseDelimited(
-  text: string,
-  opts: { delimiter?: "," | "\t"; name?: string; maxRows?: number } = {},
-): ParsedTable {
-  const src = String(text ?? "").replace(/^﻿/, ""); // BOM
-  const delim = opts.delimiter ?? sniffDelimiter(src, opts.name ?? "");
-  const maxRows = opts.maxRows ?? DISSECT_TABLE_MAX_ROWS;
-
-  const all: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
+/** One scanner serves synchronous headless callers and the cooperative viewer.
+ * Beyond the retained prefix it counts records without allocating fields/rows. */
+export function createDelimitedParser(text: string, opts: ParseOptions = {}) {
+  const src = String(text ?? "");
+  const delimiter = opts.delimiter ?? sniffDelimiter(src, opts.name);
+  const maxRows = limit(opts.maxRows, DISSECT_TABLE_MAX_ROWS);
+  const maxColumns = Math.max(1, limit(opts.maxColumns, DISSECT_TABLE_MAX_COLUMNS));
+  const maxCellChars = limit(opts.maxCellChars, DISSECT_TABLE_MAX_CELL_CHARS);
+  const maxStoredChars = limit(opts.maxStoredChars, DISSECT_TABLE_MAX_STORED_CHARS);
+  const retained: string[][] = [];
+  const diagnostics = { columns: false, cells: 0, characters: false, input: !!opts.inputTruncated };
+  let i = src.charCodeAt(0) === 0xfeff ? 1 : 0;
+  let row: string[] = [], field = "", inQuotes = false, fieldChars = 0, col = 0;
+  let record = 0, lastNonempty = -1, rowNonempty = false, chars = 0, cellCut = false, done = false;
+  const keep = () => record <= maxRows && col < maxColumns;
+  const append = (c: string) => {
+    fieldChars++; rowNonempty = true;
+    if (!keep()) return;
+    if (field.length < maxCellChars && chars < maxStoredChars) { field += c; chars++; }
+    else { cellCut = true; if (chars >= maxStoredChars) diagnostics.characters = true; }
+  };
   const endField = () => {
-    row.push(field);
-    field = "";
+    if (record <= maxRows) {
+      if (col < maxColumns) { row.push(field); if (cellCut) diagnostics.cells++; }
+      else diagnostics.columns = true;
+    }
+    col++; field = ""; fieldChars = 0; cellCut = false;
   };
   const endRow = () => {
     endField();
-    all.push(row);
-    row = [];
+    if (record <= maxRows) retained.push(row);
+    if (rowNonempty) lastNonempty = record;
+    record++; row = []; col = 0; rowNonempty = false;
   };
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (src[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else inQuotes = false;
-      } else field += c;
-    } else if (c === '"' && field === "") {
-      inQuotes = true; // opening quote only at field start; a mid-field " is literal
-    } else if (c === delim) {
-      endField();
-    } else if (c === "\n") {
-      endRow();
-    } else if (c === "\r") {
-      if (src[i + 1] === "\n") i++;
-      endRow();
-    } else {
-      field += c;
-    }
+  const snapshot = (): ParsedTable => {
+    const visible = retained.slice(0, done ? lastNonempty + 1 : retained.length);
+    const header = visible[0] ?? [], rows = visible.slice(1);
+    const totalRows = Math.max(0, (done ? lastNonempty + 1 : record) - 1);
+    return { header, rows, cols: Math.max(1, ...visible.map(r => r.length)), totalRows,
+      truncated: totalRows > rows.length || diagnostics.columns || !!diagnostics.cells || diagnostics.input,
+      complete: done && !diagnostics.input, delimiter, diagnostics: { ...diagnostics } };
+  };
+  return {
+    get done() { return done; }, snapshot,
+    step(charBudget = 32768) {
+      const stop = Math.min(src.length, i + Math.max(1, charBudget));
+      for (; i < stop; i++) {
+        const c = src[i];
+        if (inQuotes) {
+          if (c === '"') { if (src[i + 1] === '"') { append('"'); i++; } else inQuotes = false; }
+          else append(c);
+        } else if (c === '"' && fieldChars === 0) inQuotes = true;
+        else if (c === delimiter) endField();
+        else if (c === "\n" || c === "\r") { if (c === "\r" && src[i + 1] === "\n") i++; endRow(); }
+        else append(c);
+      }
+      if (i >= src.length && !done) {
+        // A byte-bounded prefix may end in a partial record. Never present it as
+        // a complete scientific observation, even when its quote is unclosed.
+        if (!opts.inputTruncated && (fieldChars || col)) endRow();
+        done = true;
+      }
+      return done;
+    },
+  };
+}
+export function parseDelimited(text: string, opts: ParseOptions = {}): ParsedTable {
+  const parser = createDelimitedParser(text, opts);
+  while (!parser.step()) { /* synchronous engine for bounded/headless use */ }
+  return parser.snapshot();
+}
+export async function parseDelimitedAsync(text: string, opts: ParseOptions & { signal?: AbortSignal; onProgress?: (table: ParsedTable) => void } = {}): Promise<ParsedTable> {
+  const parser = createDelimitedParser(text, opts);
+  let published = false;
+  while (!parser.done) {
+    if (opts.signal?.aborted) throw new DOMException("Table loading cancelled", "AbortError");
+    parser.step();
+    if (!published) { const prefix = parser.snapshot(); if (prefix.rows.length || parser.done) { opts.onProgress?.(prefix); published = true; } }
+    if (!parser.done) await new Promise<void>(resolve => setTimeout(resolve, 0));
   }
-  if (field !== "" || row.length > 0) endRow();
-  // A trailing newline produces one phantom empty row — drop empty tail rows.
-  while (all.length && all[all.length - 1].every((c) => c === "")) all.pop();
+  if (opts.signal?.aborted) throw new DOMException("Table loading cancelled", "AbortError");
+  return parser.snapshot();
+}
 
-  const header = all[0] ?? [];
-  const body = all.slice(1);
-  const rows = body.slice(0, maxRows);
-  const cols = Math.max(header.length, ...rows.map((r) => r.length), 1);
-  return { header, rows, cols, totalRows: body.length, truncated: body.length > maxRows, delimiter: delim };
+export const dissectCollator = new Intl.Collator(undefined, { numeric: true });
+export function tableOrder(table: ParsedTable, column: number, direction: 1 | -1, numeric = numericColumns(table)): number[] {
+  const indices = table.rows.map((_, i) => i);
+  if (column < 0) return indices;
+  return indices.sort((a, b) => {
+    const va = table.rows[a][column] ?? "", vb = table.rows[b][column] ?? "";
+    if (va === "" && vb === "") return a - b;
+    if (va === "") return 1;
+    if (vb === "") return -1;
+    const d = numeric[column] && isNumericCell(va) && isNumericCell(vb) ? numericValue(va) - numericValue(vb) : dissectCollator.compare(va, vb);
+    return d ? d * direction : a - b;
+  });
 }
 
 const NUM_RE = /^[+-]?(?:\d[\d,_]*)?(?:\.\d+)?(?:[eE][+-]?\d+)?$/;

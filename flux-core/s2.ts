@@ -1,3 +1,5 @@
+import { readBoundedBody } from "../electron/netFetch.cjs";
+import { publicFetch as fetch } from "../electron/publicFetch.cjs";
 // flux-core/s2.ts — Semantic Scholar (Node side: CLI/MCP/agents). Used for S2's
 // strengths: SPECTER2 "recommendations" (papers like this) and citation CONTEXTS /
 // intents / influential-citation flags. Shares the pure builders+mappers in
@@ -24,7 +26,7 @@ async function s2Fetch(url: string): Promise<any> {
   if (res.status === 429)
     throw new Error("Semantic Scholar rate-limited (429) — set a free key: flux keys --s2 <KEY>.");
   if (!res.ok) throw new Error(`Semantic Scholar ${res.status}`);
-  return res.json();
+  return JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"));
 }
 
 const isDoi = (s: string) => /^(https?:\/\/(dx\.)?doi\.org\/)?10\.\d{4,9}\//i.test(s);

@@ -19,6 +19,14 @@ const draft = "http://json-schema.org/draft-07/schema#";
 // agent files with extra keys keep loading.
 // ---------------------------------------------------------------------------
 
+const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
+const TEXT_STYLES = { type:"array", items:{ type:"object", required:["id","name","fontFamily","fontSize","fontWeight"], properties:{id:{type:"string"},name:{type:"string"},fontFamily:{type:"string"},fontSize:{type:"number",exclusiveMinimum:0},fontWeight:{type:"number"},fontStyle:{enum:["normal","italic"]},underline:{type:"boolean"},lineHeight:{type:"number",exclusiveMinimum:0}}, additionalProperties:true } };
+
+const POINT = { type: "object", required: ["x", "y"], properties: { x: { type: "number" }, y: { type: "number" } } };
+const CROP = { type: "object", required: ["x", "y", "width", "height"], properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } };
+const GRADIENT = { type: ["object", "null"], required: ["map", "axis", "stops"], properties: { map: { type: "string" }, axis: { enum: ["x", "y"] }, stops: { type: "array", items: { type: "string" } }, discrete: { type: "boolean" } } };
+const COLOR_GROUPS = { type: "array", items: { type: "object", required: ["name", "swatches"], properties: { name: { type: "string" }, swatches: { type: "array", items: { type: "object", required: ["name", "hex"], properties: { name: { type: "string" }, hex: { type: "string" } } } } } } };
+const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }])) } };
 const GEO_REQ = ["id", "type", "x", "y", "width", "height", "rotation"];
 const GEO_PROPS = {
   id: { type: "string" },
@@ -35,6 +43,8 @@ const GEO_PROPS = {
   lockAspect: { type: "boolean" },
   flipX: { type: "boolean" },
   flipY: { type: "boolean" },
+  fillMap: GRADIENT,
+  strokeMap: GRADIENT,
 };
 const elementBranch = (type: string, extraReq: string[], extraProps: Record<string, unknown>) => ({
   type: "object",
@@ -43,11 +53,11 @@ const elementBranch = (type: string, extraReq: string[], extraProps: Record<stri
 });
 const ELEMENT_DEF = {
   oneOf: [
-    elementBranch("image", ["assetId"], { assetId: { type: "string" }, crop: { type: "object" } }),
+    elementBranch("image", ["assetId"], { assetId: { type: "string" }, crop: CROP }),
     elementBranch("plot", ["assetId"], {
       assetId: { type: "string" },
-      overrides: { type: "object" },
-      crop: { type: "object" },
+      overrides: OVERRIDES,
+      crop: CROP,
       contentScale: { type: "number" },
       source: { type: "object" },
       manifestRef: { type: "object" },
@@ -73,13 +83,13 @@ const ELEMENT_DEF = {
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
       cornerRadius: { type: "number" },
-      dash: { type: "array" },
+      dash: NUMBER_ARRAY,
     }),
     elementBranch("ellipse", [], {
       fill: { type: "string" },
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
-      dash: { type: "array" },
+      dash: NUMBER_ARRAY,
     }),
     elementBranch("line", ["x1", "y1", "x2", "y2"], {
       x1: { type: "number" },
@@ -90,16 +100,16 @@ const ELEMENT_DEF = {
       strokeWidth: { type: "number" },
       arrowStart: {}, // legacy-tolerant
       arrowEnd: {},
-      dash: { type: "array" },
+      dash: NUMBER_ARRAY,
     }),
     elementBranch("path", ["d"], {
       d: { type: "string" },
-      nodes: { type: "array" },
+      nodes: { type: "array", items: { ...POINT, properties: { ...POINT.properties, in: POINT, out: POINT } } },
       closed: { type: "boolean" },
       fill: { type: "string" },
       stroke: { type: "string" },
       strokeWidth: { type: "number" },
-      dash: { type: "array" },
+      dash: NUMBER_ARRAY,
       arrowStart: { type: "boolean" },
       arrowEnd: { type: "boolean" },
       arrowStyle: { type: "string" },
@@ -141,7 +151,7 @@ const FIGURE_DEF = {
     background: { type: "string" },
     elements: { type: "array", items: { $ref: "#/definitions/element" } },
     captions: { type: "object" },
-    guides: { type: "object" },
+    guides: { type: "object", properties: { x: NUMBER_ARRAY, y: NUMBER_ARRAY } },
     groups: { type: "object" },
   },
 };
@@ -266,7 +276,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         },
       },
       palette: { type: "array", items: { type: "string" } },
-      colorGroups: { type: "array" },
+      colorGroups: COLOR_GROUPS,
       families: { type: "array", items: FAMILY_DEF },
     },
   },
@@ -308,8 +318,8 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       figures: { type: "array", items: { $ref: "#/definitions/figure" } },
       assets: { type: "array", items: { type: "object", required: ["id", "kind"] } },
       palette: { type: "array" },
-      colorGroups: { type: "array" },
-      textStyles: { type: "array" },
+      colorGroups: COLOR_GROUPS,
+      textStyles: TEXT_STYLES,
       figureFamilies: { type: "array", items: FAMILY_DEF },
     },
     definitions: {
@@ -394,8 +404,8 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       defaults: { type: "object" },
       background: { type: "string" },
       palette: { type: "array", items: { type: "string" } },
-      colorGroups: { type: "array" },
-      textStyles: { type: "array" },
+      colorGroups: COLOR_GROUPS,
+      textStyles: TEXT_STYLES,
       assets: {
         type: "array",
         items: {
@@ -437,7 +447,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             camera: { type: "object" },
             elements: { type: "array", items: { $ref: "#/definitions/element" } },
             groups: { type: "object" },
-            guides: { type: "object" },
+            guides: { type: "object", properties: { x: NUMBER_ARRAY, y: NUMBER_ARRAY } },
             beats: {
               type: "array",
               items: {

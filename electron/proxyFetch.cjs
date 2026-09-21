@@ -327,7 +327,12 @@ function createProxyEngine(deps) {
           `(async () => { try {
           const r = await fetch(${JSON.stringify(u)}, { credentials: 'include', signal: AbortSignal.timeout(${ms}) });
           if (!r.ok) return null;
-          const b = new Uint8Array(await r.arrayBuffer());
+          const reader = r.body?.getReader(); if (!reader) return null;
+          const chunks = []; let size = 0;
+          try { for (;;) { const part = await reader.read(); if (part.done) break;
+            size += part.value.byteLength; if (size > 80 * 1024 * 1024) { await reader.cancel(); return {tooBig: size}; } chunks.push(part.value);
+          } } finally { reader.releaseLock(); }
+          const b = new Uint8Array(size); let at = 0; for (const chunk of chunks) {b.set(chunk, at); at += chunk.length;}
           if (!(b[0]===0x25 && b[1]===0x50 && b[2]===0x44 && b[3]===0x46)) return null;
           const cl = parseInt(r.headers.get('content-length') || '', 10);
           let s = ''; const CH = 0x8000; for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
@@ -335,7 +340,7 @@ function createProxyEngine(deps) {
         } catch (e) { return null; } })()`,
         )
         .then((g) => {
-          if (!g) return null;
+          if (!g || g.tooBig) return null;
           const buf = Buffer.from(g.b64, "base64");
           // LR-14: accept if the %%EOF gate passes, OR we demonstrably got the WHOLE resource — a
           // full (non-ranged) 200 whose byte length matches Content-Length. The latter rescues
@@ -363,7 +368,12 @@ function createProxyEngine(deps) {
           if (!r.ok) return null;
           const cl = parseInt(r.headers.get('content-length') || '', 10);
           if (Number.isFinite(cl) && cl > ${SUPPLEMENT_MAX_BYTES}) return { tooBig: cl };
-          const b = new Uint8Array(await r.arrayBuffer());
+          const reader = r.body?.getReader(); if (!reader) return null;
+          const chunks = []; let size = 0;
+          try { for (;;) { const part = await reader.read(); if (part.done) break;
+            size += part.value.byteLength; if (size > ${SUPPLEMENT_MAX_BYTES}) { await reader.cancel(); return {tooBig: size}; } chunks.push(part.value);
+          } } finally { reader.releaseLock(); }
+          const b = new Uint8Array(size); let at = 0; for (const chunk of chunks) {b.set(chunk, at); at += chunk.length;}
           if (b.length > ${SUPPLEMENT_MAX_BYTES}) return { tooBig: b.length };
           let s = ''; const CH = 0x8000; for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
           return { b64: btoa(s), url: r.url || ${JSON.stringify(u)}, len: b.length, contentLength: Number.isFinite(cl) ? cl : 0, type: r.headers.get('content-type') || '' };
@@ -435,12 +445,13 @@ function createProxyEngine(deps) {
           const octet = /^(application\/octet-stream|binary\/octet-stream|application\/download)$/.test(mime);
           // Skip supplement responses — a page may stream the supporting-information PDF as a
           // subresource, and we must never let that win the gate as the main article (paper.pdf).
-          if ((mime === "application/pdf" || (octet && (urlPdfish || dispPdf))) && !isSupplementUrl(url))
+          if ((mime === "application/pdf" || (octet && (urlPdfish || dispPdf))) && !isSupplementUrl(url) && Number(headers["content-length"] || headers["Content-Length"] || 0) <= 80 * 1024 * 1024)
             pending.set(params.requestId, { url, ranged: r.status === 206 });
         } else if (method === "Network.loadingFinished") {
           const p = pending.get(params.requestId);
           if (!p) return;
           pending.delete(params.requestId);
+          if (params.encodedDataLength > 80 * 1024 * 1024) return;
           if (p.ranged) {
             // 206 partial-content body would be truncated — refetch the whole thing.
             grab(p.url).then((g) => g && win1(g.buf, g.finalUrl, "grab-ranged"));
@@ -448,7 +459,7 @@ function createProxyEngine(deps) {
           }
           dbg
             .sendCommand("Network.getResponseBody", { requestId: params.requestId })
-            .then(({ body, base64Encoded }) => win1(base64Encoded ? Buffer.from(body, "base64") : Buffer.from(body, "binary"), p.url, "cdp"))
+            .then(({ body, base64Encoded }) => { if (body.length <= 80 * 1024 * 1024 * (base64Encoded ? 4 / 3 : 1) + 4) win1(base64Encoded ? Buffer.from(body, "base64") : Buffer.from(body, "binary"), p.url, "cdp"); })
             .catch(() => {}); // body may already be evicted — harmless
         } else if (method === "Network.loadingFailed") {
           pending.delete(params.requestId);
@@ -464,9 +475,13 @@ function createProxyEngine(deps) {
       try {
         const p = path.join(os.tmpdir(), "flux-proxy-" + Date.now() + "-" + tmpFiles.length + ".pdf");
         tmpFiles.push(p);
+        if (item.getTotalBytes() > 80 * 1024 * 1024) { item.cancel(); return; }
+        const capDownload = () => { if (item.getReceivedBytes() > 80 * 1024 * 1024) item.cancel(); };
+        item.on("updated", capDownload);
         item.setSavePath(p); // set a path so Electron never pops a blocking (invisible) save dialog
         item.once("done", (_e2, state) => {
-          if (state === "completed") {
+          item.removeListener("updated", capDownload);
+          if (state === "completed" && item.getReceivedBytes() <= 80 * 1024 * 1024) {
             try {
               win1(fs.readFileSync(p), item.getURL(), "download");
             } catch {

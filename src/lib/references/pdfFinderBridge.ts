@@ -1,3 +1,4 @@
+import { isTransientNetworkError } from "./httpOutcome";
 // Renderer twin of flux-core/acquire.ts — runs the SHARED resolver waterfall
 // (pdfFinder.runWaterfall) with every fetch routed through main (fb.netGet, which
 // dodges renderer CORS), then files the first magic-byte-valid PDF into items/<key>/
@@ -21,7 +22,7 @@ function b64ToU8(b64: string): Uint8Array {
  *  (an `HTTP <status>` — the server answered, so it's a real no-OA). Only definitive failures
  *  should ever become a recorded "no-OA" miss; a transient one must not (it would falsely
  *  suppress the paper for the ledger's 30-day TTL). Mirrors scripts/oa-bulk-run.ts. */
-const isTransientErr = (err?: string): boolean => !!err && !/^HTTP \d/.test(err);
+const isTransientErr = isTransientNetworkError;
 
 /** FetchDeps backed by main's pdf:netGet (no CORS); errors collapse to null/`` so the
  *  waterfall just moves to the next resolver. Candidate-PDF GETs go through the shared
@@ -144,10 +145,12 @@ export async function fetchPdfForEntry(
     }
     const w = await writePdfItem(entry.key, r.bytes, {
       source: r.source,
+      replaceExisting: opts.refresh,
       url: r.url,
       finalUrl: r.finalUrl,
       isOa: r.source !== "crossref" ? true : x.isOa,
     });
+    if (!w.ok && w.reason === "already-present") return {key: entry.key, status: "have"};
     // The resolver handed back supplementary material, not the article. It's been filed under
     // supplements/, but the paper is still missing — report that honestly so the proxy phase
     // still runs and the OA-miss ledger doesn't record a success.
@@ -264,9 +267,11 @@ export async function fetchViaProxyForEntry(
     }
     const bytes = b64ToU8(r.bytesB64);
     if (!isPdfBytes(bytes)) return { key: entry.key, status: "no-oa", error: "not a PDF", reason: "not-a-pdf", target };
+    let mainAlreadyPresent = !!opts.supplementsOnly;
     if (!opts.supplementsOnly) {
       const w = await writePdfItem(entry.key, bytes, { source: "proxy", url: target, finalUrl: r.finalUrl, isOa: false });
-      if (!w.ok) return { key: entry.key, status: "no-oa", error: w.reason === "supplement" ? `captured supplementary material, not the article (${w.signal})` : "could not file the PDF", reason: w.reason, target };
+      mainAlreadyPresent = !w.ok && w.reason === "already-present";
+      if (!w.ok && w.reason !== "already-present") return { key: entry.key, status: "no-oa", error: w.reason === "supplement" ? `captured supplementary material, not the article (${w.signal})` : "could not file the PDF", reason: w.reason, target };
     }
     // The engine captured the paper's supplementary files on the same authenticated page —
     // file them beside it. Best-effort: a supplement failure never demotes a good main text.
@@ -278,7 +283,7 @@ export async function fetchViaProxyForEntry(
         /* keep going — the article is already filed */
       }
     }
-    return { key: entry.key, status: "got", source: "proxy", via: r.via, target, supplements: supplements || undefined };
+    return { key: entry.key, status: mainAlreadyPresent ? "have" : "got", source: "proxy", via: r.via, target, supplements: supplements || undefined };
   } catch (e) {
     return { key: entry.key, status: "error", error: String((e as Error)?.message || e), reason: "error", target };
   }

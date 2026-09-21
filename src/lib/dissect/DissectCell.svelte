@@ -57,6 +57,7 @@
       reportAspect(im.naturalWidth, im.naturalHeight);
       src = url;
     })();
+    return () => { ++gen; };
   });
 </script>
 

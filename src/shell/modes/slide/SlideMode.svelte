@@ -77,7 +77,7 @@
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable } from "../../lifecycle";
+  import { registerFlushable, notifyFlushOwnerReady } from "../../lifecycle";
   import { pointerDrag } from "../../../lib/ui/pointerDrag";
   import { initializeEditor } from "../../editorHandoff";
   import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
@@ -714,6 +714,7 @@
       let beat=request.trackId?s.beats.find(b=>b.tracks.some(t=>t.id===request.trackId)):s.beats.find(b=>b.id===request.beatId);
       if(!beat || beat===s.beats[0])beat=slideOps.addBeat(d,s.id,{label:"Data change",advance:"click"})??undefined;
       if(!beat)return;
+      incoming.install?.();
       if(!d.assets.some(a=>a.id===incoming.asset.id)) d.assets.push(incoming.asset);
       const t=slideOps.setTransform(d,s.id,beat.id,request.targetId,{toAssetId:incoming.asset.id,svgPath:source?.svgPath,manifestPath:source?.manifestPath});
       addedId=t?.id;selectedBeat=s.beats.indexOf(beat);
@@ -819,15 +820,19 @@
   let exportMsg = $state<{ ok: boolean; text: string } | null>(null);
   let exportMsgTimer: ReturnType<typeof setTimeout> | undefined;
   async function onExport() {
-    const id = activeDeckId;
-    if (!pm || !id || exporting) return;
+    const id = activeDeckId, root = pm?.root;
+    if (!pm || !root || !id || exporting) return;
     exitEndpointEdit(); // export the persisted deck, never a checkout view
     exporting = true;
     exportMsg = null;
     try {
-      await autosave.flush(); // export the latest, not a stale file
-      const path = await exportDeckBridge(pm.root, id);
-      flashExport(true, `Exported → ${path.split("/").slice(-2).join("/")}`);
+      sealHistory();
+      await refreshDeckSources(root);
+      await autosave.flush();
+      if ($figDirty || $saveErr) throw new Error("Save the deck successfully before exporting");
+      if (pm.root !== root || activeDeckId !== id) throw new Error("The deck changed before export started");
+      const result = await exportDeckBridge(root, id);
+      if (pm.root === root && activeDeckId === id) flashExport(true, `Exported → ${result.path.split("/").slice(-2).join("/")}${result.warnings.length ? ` — ${result.warnings.join("; ")}` : ""}`);
     } catch (e) {
       flashExport(false, e instanceof Error ? e.message : "Export failed");
     } finally {
@@ -1207,6 +1212,7 @@
     }
     if(!alive)return;
     ready = true;
+    notifyFlushOwnerReady("slide");
     canExport = canExportDeck();
     animatorOpen = animatorRemembered();
     unsubDirty = figDirty.subscribe((d) => {
@@ -1228,7 +1234,9 @@
     }).catch(e => { if (alive) loadError = errMsg(e); });
   });
 
+  // svelte-ignore state_referenced_locally
   const unregFlush = registerFlushable({
+    paneId, isReady: () => ready,
     id: "slide",
     isDirty: () => !!pm && ready && get(figDirty),
     flush: () => autosave.flush(),

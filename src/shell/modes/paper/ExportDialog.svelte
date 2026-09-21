@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalFocus } from "../../../lib/ui/modalFocus";
   // The export dialog — two orthogonal axes: FILE FORMAT and JOURNAL STYLE.
   //
   // Replaces the old three-button popover, which had no options at all: Word
@@ -159,6 +160,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="export-dialog"
+  use:modalFocus
   role="dialog"
   aria-label="Export manuscript"
   aria-modal="true"

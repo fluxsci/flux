@@ -94,15 +94,20 @@ try {
     );
   }
 
-  // ---- (b) flux help golden --------------------------------------------------------
+  // Help flags derive from the registry. Assert capability/arguments, not prose layout.
   const help = await runCli(["help"]);
   const helpText = help.out + help.err;
-  if (REGEN) {
-    await fs.writeFile(HELP_GOLDEN, helpText);
-    ok(`REGENERATED ${path.basename(HELP_GOLDEN)} (${helpText.split("\n").length} lines)`);
-  } else {
-    const golden = await fs.readFile(HELP_GOLDEN, "utf8");
-    assert(helpText === golden, "flux help matches the golden text");
+  assert(help.code === 0 && !help.err, 'CLI help succeeds without stderr');
+  for (const v of VERBS) {
+    const detailed = await runCli([v.cli, '--help']);
+    assert(detailed.code === 0 && detailed.out.includes(v.cli) && v.cliArgs.filter(s => s.kind === 'flag').every(s => detailed.out.includes(`--${s.at}`)), `${v.cli}: help exposes every declared flag`);
+  }
+
+  {
+    const empty = await client.callTool({name:'add_to_library',arguments:{}});
+    const conflict = await client.callTool({name:'add_to_library',arguments:{doi:'10.1234/fixture',bibtex:'@article{x,title={Fixture}}'}});
+    const cli = await runCli(['lib-add']);
+    assert(empty.isError && conflict.isError && cli.code === 1, 'empty/contradictory library input is validation failure on both real surfaces');
   }
 
   // ---- (c) representative parity: success strings + error taxonomy ------------------

@@ -5,41 +5,37 @@
 // scripts/verify-pdfidentify.ts covers identify()'s confidence gate. This closes the loop
 // on the one browser-only piece: getMetadata()/getTextContent() shape handling.
 //
-// Drives the DEV-only window.__fluxExtractSignals hook (devSeed.ts) with a real filed PDF.
+// Drives the DEV-only window.__fluxExtractSignals hook (devSeed.ts) with a hermetic two-page scientific PDF.
 // Run: node scripts/verify-assign.mjs   (needs `npm run dev` on :1420)
-import { readFileSync, existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { launch, gotoApp, clickNew, realErrors, shot, sleep } from "./lib/driver.mjs";
 
-const KEYS = [
-  "betzig2006imaging-586",
-  "berridge2013psychostimulants-c51",
-  "frank2014sleep-875",
-  "bockaert2021complex-2f9",
-  "cecchetto2021simultaneous-a97",
-  "riedemann2019diversity-adf",
+// An actual two-page PDF, generated here so this gate never reads personal FluxLib.
+const TITLE = "Controlled cortical dynamics in a hermetic identification fixture";
+const DOI = "10.5555/flux.assign.fixture";
+const esc = s => s.replace(/[\\()]/g, c => "\\" + c);
+const pages = [
+  [TITLE, "A. Researcher and B. Researcher, 2026.", `doi:${DOI}`,
+   "Scientific measurements preserve trial identity and valid observation intervals.",
+   "The fixture contains enough first-page prose to exercise browser text extraction.",
+   "Repeated observations quantify neural activity without changing source evidence."],
+  ["Tail-page evidence: independent replication and exact scientific provenance.", "References and methodological notes remain available after the first page."]
 ];
-const LIB = join((await import("../electron/fluxPaths.cjs")).default.resolveFluxLibPathSync(), "items");
-
-function pickPdf() {
-  for (const k of KEYS) {
-    const p = join(LIB, k, "paper.pdf");
-    if (existsSync(p)) return { key: k, path: p };
-  }
-  return null;
+const objects = [null, "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>"];
+for(let p=0;p<pages.length;p++) {
+  const stream = ["BT", "/F1 12 Tf", "16 TL", "72 720 Td", ...pages[p].map((s,i)=>`${i?"T* ":""}(${esc(s)}) Tj`), "ET"].join("\n");
+  objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents ${4+p*2} 0 R >>`);
+  objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
 }
+objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", `<< /Title (${esc(TITLE)}) /Subject (doi:${DOI}) >>`);
+let pdf="%PDF-1.4\n";const offsets=[0];
+for(let i=1;i<objects.length;i++){offsets[i]=pdf.length;pdf+=`${i} 0 obj\n${objects[i]}\nendobj\n`;}
+const xref=pdf.length;pdf+=`xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+for(let i=1;i<objects.length;i++)pdf+=`${String(offsets[i]).padStart(10,"0")} 00000 n \n`;
+pdf+=`trailer\n<< /Size ${objects.length} /Root 1 0 R /Info 8 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+const b64=Buffer.from(pdf,"latin1").toString("base64");
 
 const fails = [];
 const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails.push(msg), console.log("  ✗ " + msg)));
-
-const found = pickPdf();
-if (!found) {
-  console.error("No filed PDF found among the known keys — run `flux assign-pdfs` first.");
-  process.exit(2);
-}
-const b64 = readFileSync(found.path).toString("base64");
-console.log(`Using ${found.key}/paper.pdf (${(b64.length / 1.37 / 1024).toFixed(0)} KB)`);
 
 const { browser, page } = await launch();
 try {
@@ -60,6 +56,8 @@ try {
     console.log("  signals:", JSON.stringify({ ...sig, page1Head: (sig.page1Head || "").slice(0, 80) + "…" }, null, 0));
 
     ok(sig && typeof sig === "object", "extractPdfSignals returned an object (browser pdf.js OK)");
+    ok(sig.numPages === 2, "exact two-page fixture decoded");
+    ok(sig.infoTitle === TITLE && sig.infoDoi === DOI, "exact embedded scientific title and DOI extracted");
     ok(sig.numPages > 0, `numPages > 0 (got ${sig?.numPages})`);
     ok(sig.page1Len > 200, `page-1 text extracted (${sig?.page1Len} chars)`);
     ok(sig.tailLen > 0, `tail text extracted (${sig?.tailLen} chars)`);

@@ -7,6 +7,8 @@
   // (feedbackCapture.anchorPathOf) so the agent reads `1 → button.tool "Gallery"`
   // beside the image. A browser build has no window capture: marks and anchors
   // are still recorded and the note says so (image stays null).
+  import { modalFocus } from "../../lib/ui/modalFocus";
+  import { onDestroy } from "svelte";
   import { annotateCaptureOpen, feedbackCaptureOpen } from "../command/commandBus";
   import { setPendingSnapshot } from "./feedbackStore";
   import { fileBridge } from "../../lib/project/types";
@@ -26,6 +28,7 @@
   let draft = $state<FeedbackMark | null>(null);
   let frozen = $state<string | null>(null); // object URL of the window capture
   let frozenImg: HTMLImageElement | null = null;
+  let captureGeneration = 0;
   let scale = 1; // device px per CSS px in the capture
   let ready = $state(false);
   let busy = $state(false);
@@ -38,6 +41,9 @@
   });
 
   async function open() {
+    reset();
+    const owner = captureGeneration;
+    let ownedUrl: string | null = null;
     win = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 };
     marks = [];
     draft = null;
@@ -46,23 +52,29 @@
     if (fb?.captureWindow) {
       try {
         const shot = await fb.captureWindow();
+        if (owner !== captureGeneration || !$annotateCaptureOpen) return;
         const bytes = new Uint8Array(shot.png.byteLength); // a plain ArrayBuffer-backed copy for Blob
         bytes.set(shot.png);
-        const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        const url = ownedUrl = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
         const img = new Image();
         img.src = url;
         await img.decode();
+        if (owner !== captureGeneration || !$annotateCaptureOpen) { URL.revokeObjectURL(url); return; }
+        ownedUrl = null;
         frozenImg = img;
         frozen = url;
         scale = img.naturalWidth / Math.max(1, win.w);
       } catch {
+        if (ownedUrl) URL.revokeObjectURL(ownedUrl);
+        if (owner !== captureGeneration) return;
         frozen = null;
         frozenImg = null;
       }
     }
-    ready = true;
+    if (owner === captureGeneration) ready = true;
   }
   function reset() {
+    ++captureGeneration;
     ready = false;
     marks = [];
     draft = null;
@@ -71,7 +83,9 @@
     frozen = null;
     frozenImg = null;
   }
+  onDestroy(reset);
   function cancel() {
+    reset();
     annotateCaptureOpen.set(false);
   }
 
@@ -126,7 +140,8 @@
 
   // --- finish: compose the crop, hand it to the note popover -------------------------
   async function finish() {
-    if (busy) return;
+    if (busy || !ready) return;
+    const owner = captureGeneration;
     busy = true;
     try {
       const crop = snapshotCrop(marks, win);
@@ -150,6 +165,7 @@
           preview = thumbnail(c);
         }
       }
+      if (owner !== captureGeneration || !$annotateCaptureOpen) return;
       setPendingSnapshot({
         info: {
           image: null,
@@ -163,7 +179,7 @@
       annotateCaptureOpen.set(false);
       feedbackCaptureOpen.set(true);
     } finally {
-      busy = false;
+      if (owner === captureGeneration) busy = false;
     }
   }
   /** The popover preview: the composed crop itself, capped at 1600 px wide so a
@@ -229,7 +245,7 @@
 <svelte:window onkeydowncapture={onKey} />
 
 {#if $annotateCaptureOpen && ready}
-  <div class="annot" class:frozen={!!frozen} bind:this={host} role="dialog" aria-label="Snapshot & annotate">
+  <div class="annot" class:frozen={!!frozen} bind:this={host} use:modalFocus role="dialog" aria-modal="true" aria-label="Snapshot & annotate" tabindex="-1">
     {#if frozen}<img class="annot-shot" src={frozen} alt="" draggable="false" />{/if}
     <svg
       class="annot-marks"

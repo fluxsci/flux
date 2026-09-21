@@ -7,6 +7,7 @@
   // the capture phase so canvas-level window listeners never see swallowed keys — except
   // Space, which the detail's hand tool owns). Live: a watcher bump on the dissections
   // subsystem re-lists in place, keeping the selection by name.
+  import { onDestroy } from "svelte";
   import { fade } from "svelte/transition";
   import { dissectTarget, closeDissect, dissectRoot } from "./state";
   import { dissectionsRevision } from "../../shell/scholar/revisions";
@@ -66,11 +67,14 @@
   const relPath = $derived(target ? `plots/_dissections/${target.key}/` : "");
   const detailFile = $derived(detailIdx !== null && files[detailIdx] ? files[detailIdx] : null);
 
+  let refreshEpoch = 0;
+  onDestroy(() => { refreshEpoch++; });
   async function refresh(keepBy?: { sel?: string; detail?: string; group?: string }) {
-    const t = target;
+    const t = target, epoch = ++refreshEpoch, root = dissectRoot();
     if (!t) return;
-    const next = await listDissections(dissectRoot(), t.key);
-    if (target !== t) return; // switched/closed while listing
+    let next: DissectListing;
+    try { next = await listDissections(root, t.key); } catch { return; }
+    if (epoch !== refreshEpoch || target !== t || dissectRoot() !== root) return; // switched/closed while listing
     listing = next;
     const gs = next.groups ?? [];
     const gi = keepBy?.group ? gs.findIndex((g) => g.name === keepBy.group) : -1;
@@ -89,13 +93,15 @@
   $effect(() => {
     const t = target;
     if (!t) {
+      refreshEpoch++;
       lastKey = null;
       listing = null;
       detailIdx = null;
       return;
     }
-    if (t.key === lastKey) return;
-    lastKey = t.key;
+    const identity = `${dissectRoot()}\0${t.key}`;
+    if (identity === lastKey) return;
+    lastKey = identity;
     listing = null;
     groupIdx = 0;
     selectedIdx = 0;
