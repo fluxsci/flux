@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { get } from "svelte/store";
   import PaneArea from "./PaneArea.svelte";
-  import Settings from "../lib/Settings.svelte";
+  // Load workspace settings when a project opens, outside the eager Home graph.
+  const settingsModule = import("../lib/Settings.svelte");
   import CommandPalette from "./command/CommandPalette.svelte";
   import FeedbackCapture from "./agent/FeedbackCapture.svelte";
   import { contextCommands } from "./command/globalCommands";
@@ -72,7 +73,9 @@
   <PaneArea />
   <!-- Workspace-global overlays (Help lives one level up in Shell, so "?" also
        works on the Home screen). -->
-  <Settings />
+  {#await settingsModule then { default: Settings }}
+    <Settings />
+  {/await}
   {#if globalPaletteOpen}
     <div class="global-palette">
       <CommandPalette commands={globalCommandList} onClose={() => (globalPaletteOpen = false)} />

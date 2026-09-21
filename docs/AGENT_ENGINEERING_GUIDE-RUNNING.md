@@ -933,7 +933,10 @@ Persistence invariants (all machine-checked — do not weaken):
     use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
     Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
     scale (the latter caused endless idle captures at high DPI). At settle, demote
-    the live layer before its repaint and restore sharp content. Screencasts sample
+    the live layer before its repaint and restore sharp content. Copy inherited
+    `-webkit-font-smoothing` into the standalone SVG too: on macOS its omission
+    makes snapshot text visibly heavier (the pixel fidelity gate catches it).
+    Screencasts sample
     frames and cannot establish atomic display presentation. Gates:
     `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
     `verify-render-optimizations.mjs`, `verify-slide-canvas-presentation-gui.mjs`.
@@ -1597,7 +1600,9 @@ real exports Word refused):
 
 **Bundle/startup:** a static import from any eager shell module (`Shell.svelte`, stores,
 `src/lib/references/*` used by Shell) into `src/shell/modes/**` drags an entire mode chunk into
-Home. Dynamic-import at the call site; `verify-startup.mjs` (800KB eager budget, no mode chunks
+Home. Workspace loads Settings dynamically when a project opens, keeping its color
+collections and correction controls out of Home's eager graph. Dynamic-import at the call site;
+`verify-startup.mjs` (800KB eager budget, no mode chunks
 at Home) is the gate. Mode warms belong in `requestIdleCallback`. The gate queues idle callbacks
 until its eager snapshot, then releases them, so optional preloading cannot race the measurement;
 it launches Vite directly to clean up its own preview process. Also: `npm run check` covers
@@ -5819,3 +5824,23 @@ justify, click parity, one-undo flip); eight affected browser gates green.
   type, click away) before reading code — the probe named the gap in one run.
 - A dumped state that disagrees only on `dirty: true → false` is the §7 autosave race, not
   the change under test (`verify-figure-controls-gui`, passed alone before and after).
+
+### 2026-09-20 21:37 CDT — Remote update and macOS compatibility review (Codex, main)
+
+**Work:** Fast-forwarded `3444ce3` to `7d90525` and verified on macOS 26.6.2 arm64,
+Node 22.23.2 and Chrome for Testing 153. Fixed Home's eager Settings import
+(807.3KB → 668.4KB in the isolated build), preserved macOS font smoothing in zoom
+snapshots (939 differing pixels → zero in the unchanged fidelity gate), and made the
+Library input gate use Command-click on macOS. Promoted the import and smoothing
+contracts above. Final check 0/0, production build and pure/bundle/startup 237/237;
+native input p95 33.1ms/50.2ms at 1,600/5,000 objects, saved undo and SVG/PNG/PDF
+exports passed. The combined UI/Paper run was 119/122; the Library and rendering
+failures passed after fixes, as did the final Settings flow. The real library hash
+remained unchanged. Local evidence is in `test-results/mac-sync/`.
+
+**Remaining finding:** `verify-zoom-proxy` still fails its unchanged <8ms main-thread
+budget: 8.0ms in the initial headless and isolated headful runs, 10.1ms in the final
+uninstrumented headless run; all its rendering/coverage/no-long-task assertions pass.
+The trace measured 9.3ms/tick with HitTest dominating the sampled task self-time.
+A CPU-profiler run read 2.7ms, so that instrumented pass is not acceptance evidence.
+The timing failure remains open; no threshold was loosened or performance gain claimed.

@@ -101,9 +101,12 @@ const headerArrow = () =>
 const modClick = async (rowIdx, mods) => {
   const handles = await page.$$(ROWS);
   if (!handles[rowIdx]) throw new Error("no row " + rowIdx);
-  for (const m of mods) await page.keyboard.down(m);
+  // macOS Control-click is a secondary click, not the app's primary-click
+  // chord. Exercise its supported Command equivalent with actual mouse input.
+  const keys = mods.map((m) => m === "Control" && process.platform === "darwin" ? "Meta" : m);
+  for (const m of keys) await page.keyboard.down(m);
   await handles[rowIdx].click();
-  for (const m of mods.slice().reverse()) await page.keyboard.up(m);
+  for (const m of keys.slice().reverse()) await page.keyboard.up(m);
   await waitForFrame(page);
 };
 const libToast = () => page.evaluate(() => document.querySelector(".lib .toast")?.textContent?.trim() ?? "");

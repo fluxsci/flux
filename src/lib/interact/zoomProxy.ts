@@ -116,7 +116,9 @@ export function serializeSceneSnapshot(sceneSvg: SVGSVGElement, box: WorldBox, S
   // The scene inherits UI fonts/colour from the document. A standalone image
   // does not; carry the computed root inheritance without visiting plot nodes.
   const inherited = getComputedStyle(sceneSvg);
-  for (const p of ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering"]) {
+  // macOS font smoothing is inherited by the live SVG, but an SVG image has
+  // its own document. Preserve it too so zooming does not change glyph weight.
+  for (const p of ["font-family", "font-size", "font-weight", "font-style", "color", "letter-spacing", "text-rendering", "-webkit-font-smoothing"]) {
     (root as SVGElement | null)?.style.setProperty(p, inherited.getPropertyValue(p));
   }
   const style = fontCss ? `<style>${fontCss}</style>` : "";
