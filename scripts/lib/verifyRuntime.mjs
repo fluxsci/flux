@@ -92,6 +92,13 @@ export async function missingPrerequisites(spec, repo, env = process.env) {
       if (!existsSync(path.join(repo, 'dist/flux-cli.mjs'))) missing.push('build (npm run build)');
     } else if (p === 'display') {
       if (process.platform === 'linux' && !env.DISPLAY && !env.FLUX_XVFB) missing.push('private display (DISPLAY or FLUX_XVFB)');
+    } else if (p === 'linux-color-portal') {
+      if (process.platform !== 'linux' || !runs('dbus-run-session', ['--', '/usr/bin/python3', '-I', '-c', 'from gi.repository import Gio, GLib; Gio.bus_get_sync(Gio.BusType.SESSION, None)']))
+        missing.push('Linux system Python/Gio and accessible dbus-run-session (private color portal fixture)');
+    } else if (p === 'wayland-color-portal') {
+      if (process.platform !== 'linux' || !env.WAYLAND_DISPLAY || env.FLUX_PRIVATE_DISPLAY === '1' || env.FLUX_XVFB || !runs('/usr/bin/python3', ['-I', '-c',
+        "from gi.repository import Gio, GLib; bus=Gio.bus_get_sync(Gio.BusType.SESSION, None); bus.call_sync('org.freedesktop.portal.Desktop', '/org/freedesktop/portal/desktop', 'org.freedesktop.DBus.Properties', 'Get', GLib.Variant('(ss)', ('org.freedesktop.portal.Screenshot', 'version')), None, Gio.DBusCallFlags.NONE, 2000, None)"]))
+        missing.push('Linux Wayland desktop with an accessible Screenshot portal (native color picker)');
     } else if (p === 'release-arguments') {
       missing.push('explicit release-stage arguments (invoke the release coordinator with the packaged directory or evidence paths)');
     } else if (p === 'institutional-proxy') {

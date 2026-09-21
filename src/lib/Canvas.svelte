@@ -83,10 +83,10 @@
   // ===========================================================================
   // Rendering architecture (performance-critical):
   //  - The "scene" holds all committed content. Panning is a CSS transform on
-  //    its wrapper (compositor-only, NO repaint). Zooming is compositor-only
-  //    too while the wheel burst lasts (a residual scale on the wrapper); the
-  //    content repaints ONCE per zoom gesture, when the settle fold bakes the
-  //    zoom into the scene SVG (renderZoom — see the P6 rationale block below).
+  //    its wrapper (compositor-only, NO repaint). A covered zoom uses a bounded
+  //    bitmap proxy. Uncached live zoom keeps the residual scale but MUST allow
+  //    Chromium to rerasterize, without an animation/will-change scale lock.
+  //    Settle bakes zoom into the SVG (renderZoom — see rationale below).
   //  - ALL live interaction (dragged-element previews, selection box + handles,
   //    marquee, guides, draw/pen previews) renders on a separate screen-space
   //    overlay. During a drag/resize the scene is frozen (originals hidden) and
@@ -615,9 +615,10 @@
   // content repaint. Contract:
   //  1. renderZoom is the scale BAKED into the scene SVG (<g scale(renderZoom)>).
   //     $viewport.zoom stays the live truth for overlay/rulers/hit-testing; the
-  //     scene wrapper carries a compositor-only residual scale(zoom/renderZoom)
-  //     mid-gesture, so a zoom burst costs ONE content repaint — the settle
-  //     fold (ZOOM_SETTLE_MS after the last zoom change) sets renderZoom = zoom
+  //     scene wrapper carries residual scale(zoom/renderZoom) mid-gesture.
+  //     A valid bitmap proxy freezes the live scene. Otherwise it must reraster
+  //     as needed, never retaining its largest zoom's tiles in an animation.
+  //     The settle fold (ZOOM_SETTLE_MS after the last change) sets renderZoom = zoom
   //     and the residual returns to exactly 1. The world→screen mapping is
   //     pan + zoom·w at ALL times (renderZoom cancels out), so gesture math,
   //     hit-testing, getBoundingClientRect and getScreenCTM captures stay exact
@@ -626,9 +627,9 @@
   //     figure label) divide by renderZoom, NOT $viewport.zoom — one live-zoom
   //     read inside the scene template silently reintroduces per-tick repaints.
   //     (They scale with the residual mid-burst and snap crisp on the fold.)
-  //  3. Culling keys off renderZoom and is frozen while the zoom is unsettled
-  //     (an uncovered margin for ≤ ZOOM_SETTLE_MS on zoom-out is accepted);
-  //     pan-quantized re-culling is unchanged.
+  //  3. Culling retains its buffer while covered, but mounts newly visible
+  //     content at the live zoom as soon as coverage is exhausted. No blank
+  //     margin is accepted while waiting for the settle timer.
   //  4. Any gesture pointerdown folds IMMEDIATELY (foldZoomNow, capture phase):
   //     a gesture must never run on a residual-scaled scene where a later
   //     settle fold would repaint under its feet (partmove holds a captured CTM
@@ -637,9 +638,10 @@
   //     until idle. Programmatic viewport.set is covered by the settle timer
   //     (verify scripts sleep ≥ 250ms > ZOOM_SETTLE_MS).
   //  5. will-change lifecycle: .scene has NO permanent will-change (neither in
-  //     CSS nor inline). style:will-change promotes it only while sceneHot —
+  //     CSS nor inline). style:will-change promotes it only while sceneHot AND
+  //     not zooming or proxied —
   //     an interaction is live (gesture / guideDrag / nodeDrag / unsettled
-  //     zoom / wheel pan) or ended less than SCENE_COOL_MS ago — and drops to
+  //     wheel pan) or ended less than SCENE_COOL_MS ago — and drops to
   //     null at idle. The idle demotion IS the blur fix: the layer re-rasters
   //     at full quality and its tile allocation is released. `contain: paint`
   //     is FORBIDDEN on .scene (it clips panned content — verified).
@@ -667,7 +669,11 @@
   function keepSceneHot() {
     if (!sceneHot) dropStaleSelection(); // once per burst, at the first tick
     sceneHot = true;
-    sceneDriveRef?.hot(); // the compositor owns the pan/zoom transform for the whole burst
+    // Only translation can retain its raster safely. Chromium deliberately
+    // keeps an animated layer's largest raster scale on zoom-out; a deep
+    // live SVG zoom then exhausts tiles for the entire window. The bounded
+    // bitmap proxy may animate scale; the live scene must be free to reraster.
+    if (!zoomUnsettled && !proxyActive) sceneDriveRef?.hot();
     if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
     sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS);
   }
@@ -684,8 +690,9 @@
   // The scene wrapper's transform reaches the DOM through the compositor drive
   // (interact/compositorDrive.ts): a plain style write per wheel tick made
   // Chromium re-layerize the whole scene every frame (6.7 ms/frame over 15k
-  // plot nodes, 2026-09-16); while sceneHot a paused Web Animation carries the
-  // value instead and the frame costs nothing on the main thread. The inline
+  // plot nodes, 2026-09-16); while panning a paused Web Animation carries the
+  // value instead. Live scaling explicitly cools it so raster scale can shrink.
+  // The inline
   // style is still written every time (truth at rest, probes read it live).
   $: sceneTransform = `translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0) scale(${$viewport.zoom / renderZoom})`;
   let sceneDriveRef: TransformDrive | null = null;
@@ -693,7 +700,7 @@
     const d = createTransformDrive(node);
     d.set(transform);
     sceneDriveRef = d;
-    if (sceneHot) d.hot();
+    if (sceneHot && !zoomUnsettled && !proxyActive) d.hot();
     return {
       update(t: string) {
         if (proxyActive) {
@@ -715,6 +722,7 @@
   function scheduleZoomFold() {
     if (!zoomUnsettled) beginZoomProxy(); // the burst starts: the raster takes over the gesture
     zoomUnsettled = true;
+    sceneDriveRef?.cool();
     keepSceneHot();
     if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
     zoomSettleTimer = setTimeout(foldZoom, ZOOM_SETTLE_MS);
@@ -727,6 +735,7 @@
       return;
     }
     endZoomProxy();
+    coolLiveScene();
     zoomUnsettled = false;
     renderZoom = get(viewport).zoom; // THE one content repaint of the gesture
   }
@@ -741,6 +750,7 @@
     }
     if (zoomUnsettled || renderZoom !== get(viewport).zoom) {
       endZoomProxy();
+      coolLiveScene();
       zoomUnsettled = false;
       renderZoom = get(viewport).zoom;
     }
@@ -930,14 +940,15 @@
     if (!proxyActive) return;
     // Demote the scene BEFORE the fold's repaint: a non-animating layer waits
     // for its tiles, so the frame that brings the live scene back is complete.
-    sceneDriveRef?.cool();
-    sceneHot = false;
-    if (sceneCoolTimer) {
-      clearTimeout(sceneCoolTimer);
-      sceneCoolTimer = null;
-    }
+    coolLiveScene();
     proxyDriveRef?.cool();
     proxyActive = false;
+  }
+  function coolLiveScene() {
+    sceneDriveRef?.cool();
+    sceneHot = false;
+    if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
+    sceneCoolTimer = null;
   }
   // The frozen scene catches up the moment the proxy retreats (same flush as the fold).
   let scenePending: string | null = null;
@@ -3023,6 +3034,7 @@
   $: hoverInfo = (() => {
     if (
       !$hoverId ||
+      zoomUnsettled || // artwork moving under a stationary pointer is not a new hover target
       gesture ||
       dragging ||
       editingId ||
@@ -3653,17 +3665,17 @@
   on:dragleave={onDragLeave}
   on:drop={onDrop}
 >
-  <!-- SCENE: panned via cheap CSS transform; zoom rides the compositor-only
-       residual scale(zoom/renderZoom) mid-gesture and folds into the SVG's
-       scale(renderZoom) on settle — ONE content repaint per zoom gesture.
-       will-change only while sceneHot: the idle demotion is the crisp-at-rest
+  <!-- SCENE: panned via the compositor drive. Live zoom uses a non-animated
+       residual scale(zoom/renderZoom), allowing the raster to shrink; a valid
+       bounded proxy freezes this scene. Settle folds scale into the SVG.
+       will-change only during non-zoom interactions: demotion is the crisp-at-rest
        fix (P6 rationale block in the script; the residual is the ONLY live-zoom
        read allowed inside the scene). -->
   <div class="scene-clip" style:clip-path={cameraClip}>
   <div
     class="scene"
     use:sceneDrive={sceneTransform}
-    style:will-change={sceneHot ? "transform" : null}
+    style:will-change={sceneHot && !zoomUnsettled && !proxyActive ? "transform" : null}
     style:opacity={proxyActive ? 0 : null}
   >
     <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl}>

@@ -1175,6 +1175,9 @@ function subsystemFor(root, abs) {
 
 const captureFamily = require("./ipc/capture.cjs").createCaptureFamily({ app, shell, readPrefs, fluxLibDir, appRoot: path.resolve(__dirname, "..") });
 captureFamily.registerHandlers(ipcMain);
+const screenColorPicker = require("./ipc/colorPicker.cjs").createColorPicker();
+screenColorPicker.registerHandlers(ipcMain);
+app.on("before-quit", () => screenColorPicker.cancelAll());
 const captureDir = captureFamily.captureDir;
 app.on("will-quit", () => { void captureFamily.dispose(); });
 

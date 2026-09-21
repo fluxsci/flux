@@ -312,6 +312,9 @@ export interface FileBridge {
   /** Snapshot & annotate: a PNG of this window (device pixels), optionally one
    *  CSS-px rect. Electron only — a browser build has no window capture. */
   captureWindow?(rect?: { x: number; y: number; width: number; height: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
+  /** Linux screen color picker; the desktop portal owns consent/cancellation. */
+  pickScreenColor?(requestId: string): Promise<{ status: "picked"; hex: string } | { status: "cancelled" | "unavailable" } | { status: "error"; message?: string }>;
+  cancelScreenColor?(requestId: string): Promise<boolean>;
   // 2.3 Full-text search across every stored PDF's extracted text. Runs the streaming
   // scan in a resident worker so the renderer never blocks; returns the
   // FulltextResult, or { error }. Electron only. `opts.keys` restricts the scan scope.

@@ -962,13 +962,21 @@ Persistence invariants (all machine-checked — do not weaken):
     Chromium re-layerizes the whole page (`PaintArtifactCompositor::Update`, O(paint chunks))
     after EVERY inline-style transform write, will-change or not — 4–7 ms per frame over a
     dense scene, i.e. the entire budget of a "compositor-only" pan spent on the main thread.
-    While `sceneHot`, `.scene`'s transform is carried by ONE paused Web Animation whose
+    During translation (never live scaling), `.scene`'s transform is carried by ONE paused Web Animation whose
     keyframes are replaced per change (the compositor owns the value; one layerization per
-    gesture, `scripts/perf/layerize-lab.mjs` proves it standalone), and the inline style is
+    pan gesture, `scripts/perf/layerize-lab.mjs` proves it standalone), and the inline style is
     written alongside so probes and at-rest gates read the truth. `cool()` cancels the
     animation in the same frame the style holds the value — no flash, no permanent promotion,
     the P6 crisp-at-rest lifecycle unchanged. Reuse the drive for any per-frame transform on a
-    heavy subtree; never go back to `style.transform` per tick.
+    heavy translating subtree. **Live zoom must cancel the animation and remove
+    `will-change:transform` before painting.** Chromium retains the largest raster scale
+    while either is active; rapid 16×→5% zoom-out exhausted the entire window's tile pool
+    on NVIDIA/Wayland. Non-animated live scaling permits raster resolution to shrink.
+    Demote before every settle fold, including when no proxy was available. Do not mask
+    this with larger tile budgets or software rendering. `verify-canvas-zoom-raster.mjs`
+    pins this lifecycle, exact mapping, authored-data preservation and subsequent fast pan;
+    the native `input-probe.cjs --phases=zoomDeep --frames --assert-no-flicker --maximize`
+    covers the actual deep-zoom reproduction and records GPU/viewport/DPR evidence.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
     After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
     serialized in world units and rasterized once to PNG. Caps are 4096 px / 3 MP
@@ -985,9 +993,10 @@ Persistence invariants (all machine-checked — do not weaken):
     frames and cannot establish atomic display presentation. Gates:
     `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
     `verify-render-optimizations.mjs`, `verify-slide-canvas-presentation-gui.mjs`.
-  - **No hover outline while a burst is live.** `hoverInfo` is null while `sceneHot`: content
-    sweeping under a still pointer flipped the outline every frame during pans and zooms —
-    flicker, not feedback. The hover-dot cursor (a constant on `.el`) is unaffected.
+  - **No hover outline during unsettled zoom.** Content sweeping under a still pointer
+    must not flash changing outlines. Suppress while `zoomUnsettled`, not throughout the
+    post-interaction `sceneHot` cooldown: a newly hovered settled target still responds
+    within100ms. The hover-dot cursor (a constant on `.el`) is unaffected.
   - **The property menu's `h` row is a plot's content scale** (`numericProperties.contentScale`,
     the K tool's persisted factor; step .05, min .05, soft max 4; reset to 1 deletes the
     field, as the Inspector does). `read()` is undefined for non-plots, so the row only
@@ -1054,7 +1063,7 @@ Persistence invariants (all machine-checked — do not weaken):
     capture, so the canvas never zooms); over the panel, hovering a row still arms it.
   - **The colour picker is two columns:** the palette (every row on one line, the whole grid
     visible — the menu grows, nothing scrolls) and a 204 px side with the current swatch, the
-    hex field, the eyedropper (`EyeDropper` when the runtime has it) and the always-visible
+    hex field, the eyedropper and the always-visible
     spectrum (`colorSpace.ts` HSV square + hue bar: drag previews through the session, release
     commits). Gates: `verify-color-space.ts` (pure); fmenu-surface / figenh-14 /
     figure-controls pin the `.hex` field and the `.sv`/`.hue` spectrum.
@@ -1063,6 +1072,15 @@ Persistence invariants (all machine-checked — do not weaken):
     open. Escape from a range cancels only the pending preview. Invalid hex drafts stay editable
     and never apply the last valid value; gray/black retain the user's chosen HSV hue. The
     collection bar spans both columns and map rows do not flex-shrink below their 22px height.
+    Linux Electron must never invoke Chromium's advertised `EyeDropper`: its native Aura
+    path segfaults under GNOME/Wayland even on an empty page. `color/eyedropper.ts` uses
+    sender-owned `color:pickScreen`/`color:cancelScreen` requests and the desktop Screenshot
+    portal through an optional isolated system Python/Gio helper. Missing portal/runtime
+    falls back to an explicitly labelled capture of the Flux window; refusal/cancellation
+    never triggers fallback. Browser/macOS/Windows retain `EyeDropper` with AbortSignal.
+    Destroy/navigation/target changes must cancel or discard late results; successful
+    picks use the existing one-edit/one-Undo session. The pure, browser and private-D-Bus
+    `verify-eyedropper*` gates pin exact pixels, ownership, cancellation and helper replies.
   - **Anchoring never lands on the thing:** when no side has full room, `anchorPanel` takes the
     side whose clamped placement overlaps the avoided box the LEAST (`overlapArea`), never
     the pointer (that put the menu on the selected path in Slide mode).
@@ -1861,9 +1879,14 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   but its sampling did not establish that cause. Independent review reproduced
   application-side blanking: a long pan froze culling, then zoom hid live art
   behind an offscreen image. Coverage guards and regressions now address it.
-  Clean headless/virtual-display results cannot certify the owner's physical
-  GNOME/fractional-scaling path or a MacBook. See
-  `docs/RESPONSIVENESS_AUDIT_2026-09-16.md` for measured scope and limits.
+  The September 21 follow-up reproduced tile exhaustion on actual NVIDIA/GNOME
+  Wayland: settled 16× live SVG zoom followed by rapid zoom-out retained oversized
+  animated tiles. Live zoom now releases the animation and will-change scale lock;
+  pan and bounded bitmap zoom retain their fast compositor paths. Actual Figure
+  and Slides runs and the owner's observation confirm improvement on this host.
+  This does not qualify other GPUs/platforms or every physical presentation frame.
+  See `docs/V020_IMPLEMENTATION_PROGRESS.md` for the new evidence and timing tails,
+  and `docs/RESPONSIVENESS_AUDIT_2026-09-16.md` for the earlier measured scope.
 - **Figure polish (2026-09-06):** implemented preservation, selection/history, shared properties,
   frame resizing, layout/focus, raster-worker and native PDF fixes. Review/evidence and remaining
   validation limits live in `docs/FIGURE_POLISH_REVIEW.md`. Preserve the existing gates.
@@ -5837,3 +5860,28 @@ triggers and remaining timing/platform/signing limits are in
 The final commit after the tested revision records documentation only. No release was
 tagged, signed, uploaded or published; broader Library splitting/speculative cache work
 remain conditional as specified in the handoff.
+
+### 2026-09-21 18:00 UTC — Deep-zoom tile exhaustion and Wayland eyedropper crash
+
+Reproduced the owner's neural-populations zoom failure on actual NVIDIA/GNOME Wayland:
+33 tile warnings, three sampled blanks and five flashes. Live animated SVG zoom retained
+oversized raster tiles; demoting its transform animation and will-change during zoom/fold
+now gives zero warnings/blanks/flashes on Figure and Slides, while preserving fast pan and
+bounded bitmap proxy zoom. Added the adverse settled-16× → zoom-out native phase and browser
+regression (fails old code), retained JPEGs/transforms, and corrected the old crispness test's
+unsafe promotion requirement without changing sharpness/timing thresholds.
+
+Minimal native Chromium EyeDropper independently segfaulted under Wayland. Linux now uses
+the desktop color portal with sender-owned cancellation and an optional isolated Python/Gio
+helper; missing capability permits labelled window-only sampling. Permission refusal does
+not trigger fallback; stale results cannot recolor changed owners. Production native
+open/Escape/save/Undo, exact captured pixels and eight real private-D-Bus cases pass.
+
+Integrated display cohort21/21, then final picker cohort4/4 (including actual Wayland native
+integration), both unchanged source during their runs. Renderer0 errors/0 warnings,
+headless/build pass. Native saved SVG/PNG/PDF inspected; dense native nudge repeat49.5/92ms
+p95 at1600/5000 elements. Retain initial106.3ms nudge failure and corrected zoom's103/129ms
+long-task tails: no universal100ms worst-case claim. Detailed source identities, artifact
+paths, owner observation and remaining platform limits are in
+`docs/V020_IMPLEMENTATION_PROGRESS.md` and `test-results/zoom-repair/acceptance.json`.
+Original main/user data preserved, no Paper source/Lighttable changes, no merge or release.

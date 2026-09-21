@@ -9,10 +9,10 @@
   // typed (the `.hex` field), with `⤢` opening the native picker + opacity.
   // Writes go through colors.applyColor, which retargets to drilled plot
   // parts (all of them) or the draw style itself; one edit session = one undo.
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta } from "./interact/wheelLaw";
-  import { project, selection, partSelection } from "./store";
+  import { project, selection, partSelection, partSelections } from "./store";
   import { applyColor, applyColormap, addRecentColor, setOpacity, currentColor, currentGradient, nameForHex } from "./colors";
   import { selectionTargets } from "./interact/selectionTargets";
   import { FLEXOKI } from "./flexoki";
@@ -20,6 +20,8 @@
   import { settings } from "./settings";
   import { availablePaletteCollections, paletteGroups, nextId } from "./color/collections";
   import ColormapPicker from "./ColormapPicker.svelte";
+  import { fileBridge } from "./project/types";
+  import { pickColor } from "./color/eyedropper";
 
   export let target: "fill" | "stroke" = "fill";
   /** Commit + close (the host returns to its hotkey mode). */
@@ -34,7 +36,7 @@
   const session = editSession();
   let alive = true;
   // An explicit pick finishes first; dismissal must discard an unchosen preview.
-  onDestroy(() => { alive = false; session.cancel(); });
+  onDestroy(() => { alive = false; dropperController?.abort(); session.cancel(); });
   const openingGradient = currentGradient(target);
   const validHex = (hex: string) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex);
 
@@ -70,7 +72,13 @@
     // spectrum motion can add saturation without unexpectedly turning red.
     if (parsed) hsv = { ...parsed, h: parsed.s > 0 ? parsed.h : hsv.h };
   }
-  const hasDropper = typeof window !== "undefined" && "EyeDropper" in window;
+  const bridge = fileBridge();
+  const browserDropper = typeof window !== "undefined" ? (window as unknown as { EyeDropper?: new () => { open(options: { signal: AbortSignal }): Promise<{ sRGBHex: string }> } }).EyeDropper : undefined;
+  const hasDropper = !!browserDropper || !!bridge?.captureWindow;
+  let dropperBusy = false;
+  let dropperError = "";
+  let dropperScope = "screen";
+  let dropperController: AbortController | undefined;
   function svPoint(e: PointerEvent): Hsv {
     const r = svEl.getBoundingClientRect();
     const sx = Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width)));
@@ -110,12 +118,20 @@
     // the natural next motion: choosing its saturation and brightness.
     if (done) session.finish();
   }
-  async function dropper() {
+  async function dropper(event: MouseEvent) {
+    const trigger = event.currentTarget as HTMLButtonElement;
+    if (dropperBusy) return;
+    const owner = $project, selected = JSON.stringify([...$selection]), part = JSON.stringify($partSelections), paint = target;
+    dropperBusy = true;
+    dropperError = "";
+    const controller = dropperController = new AbortController();
     try {
-      const r = await new (window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper().open();
-      if (alive) commit(r.sRGBHex.toLowerCase());
-    } catch {
-      /* cancelled */
+      const hex = await pickColor({ bridge, signal: controller.signal, browserDropper, onWindowFallback: () => { dropperScope = "Flux window"; } });
+      if (hex && alive && !controller.signal.aborted && $project === owner && target === paint && JSON.stringify([...$selection]) === selected && JSON.stringify($partSelections) === part) commit(hex);
+    } catch (error) {
+      if (alive && !controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) dropperError = error instanceof Error ? error.message : "Unable to pick a color.";
+    } finally {
+      if (dropperController === controller) { dropperController = undefined; dropperBusy = false; await tick(); if (alive && trigger.isConnected) trigger.focus({ preventScroll: true }); }
     }
   }
   let cursor = { r: 0, c: 0 };
@@ -157,6 +173,11 @@
   // keys depend on which element holds focus is a picker that sometimes ignores
   // them. In the colormap view the child picker owns Shift+Tab.
   function onWinKey(e: KeyboardEvent) {
+    if (dropperBusy) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (e.key === "Escape") dropperController?.abort();
+      return;
+    }
     if (e.key !== "Tab") return;
     if (e.shiftKey && view === "colormap") return;
     e.preventDefault();
@@ -343,11 +364,12 @@
       <input class="hex" bind:this={hexEl} value={hexVal} spellcheck="false" aria-label="Hex colour" aria-invalid={hexVal !== "none" && !validHex(hexVal)}
         on:input={(e) => liveHex(e.currentTarget.value)} on:keydown={onHexKey} on:focus={(e) => e.currentTarget.select()} />
       {#if hasDropper}
-        <button class="drop" type="button" title="Pick a colour from the screen" aria-label="Eyedropper" on:click={dropper}>
+        <button class="drop" type="button" title={`Pick a colour from the ${dropperScope}`} aria-label="Eyedropper" disabled={dropperBusy} on:click={dropper}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10.5 1.5 14.5 5.5 12.5 7.5 13.5 8.5 12 10 11 9 5.5 14.5H1.5V10.5L7 5 6 4 7.5 2.5 8.5 3.5Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
         </button>
       {/if}
     </div>
+    {#if dropperError}<div class="drop-error" role="status">{dropperError}</div>{/if}
     <!-- The full spectrum: saturation → right, value ↑, hue below. -->
     <div class="spec" aria-label="Spectrum">
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -373,6 +395,7 @@
 </div>
 
 <style>
+  .drop-error { font-size: 11px; color: var(--c-tx-2); }
   /* Two columns: the palette gets the room (every row on ONE line, the whole
      grid visible — the menu grows instead of scrolling), the spectrum sits in a
      fixed 204 px column on the right. */

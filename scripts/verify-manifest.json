@@ -280,7 +280,8 @@
       "verify-figure-reference-safety.ts",
       "verify-cellpress-helpers.cjs",
       "verify-v020-native-video-launch.cjs",
-      "verify-recovery-entry.ts"
+      "verify-recovery-entry.ts",
+      "verify-eyedropper.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -401,7 +402,9 @@
       "verify-fulltext-progress-gui.mjs",
       "verify-v020-paper-lifecycle.mjs",
       "verify-v020-morph-startup.mjs",
-      "verify-library-world-ownership.mjs"
+      "verify-library-world-ownership.mjs",
+      "verify-canvas-zoom-raster.mjs",
+      "verify-eyedropper-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -511,7 +514,9 @@
       "verify-library-native.cjs",
       "verify-v020-native-journey.cjs",
       "verify-native-diagnostics-electron.cjs",
-      "verify-v020-gui-export-recovery.cjs"
+      "verify-v020-gui-export-recovery.cjs",
+      "verify-eyedropper-portal.cjs",
+      "verify-eyedropper-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -705,21 +710,71 @@
       "verify-slide-animator-gui.mjs",
       "verify-v020-paper-contracts.ts",
       "verify-v020-morph-startup.mjs"
+    ],
+    "display-repair": [
+      "verify-canvas-zoom-raster.mjs",
+      "verify-zoom-proxy.mjs",
+      "verify-canvas-coverage.mjs",
+      "verify-figure-input-hygiene.mjs",
+      "verify-cursor-gui.mjs",
+      "verify-crisp.mjs",
+      "verify-slide-canvas-presentation-gui.mjs",
+      "verify-figure-editing-gui.mjs",
+      "verify-figure-controls-gui.mjs",
+      "verify-v020-geometry-gui.mjs",
+      "verify-eyedropper.ts",
+      "verify-eyedropper-gui.mjs",
+      "verify-eyedropper-portal.cjs",
+      "verify-ipc-contract.ts",
+      "verify-electron-no-undef.ts",
+      "verify-runner-runtime.mjs",
+      "verify-changed-pathmap.mjs",
+      "verify-frame-oracle.ts",
+      "verify-docs.ts",
+      "verify-fmenu-surface.mjs",
+      "figenh-14-partui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "{src/lib/color/eyedropper.ts,src/lib/ColorPicker.svelte,electron/ipc/colorPicker*}",
+      "run": [
+        "verify-eyedropper.ts",
+        "verify-eyedropper-gui.mjs",
+        "verify-ipc-contract.ts",
+        "verify-fmenu-surface.mjs",
+        "verify-color-collections.ts",
+        "verify-gradient-fill.ts",
+        "verify-color-space.ts",
+        "verify-fluxplot03-gui.mjs",
+        "figenh-14-partui.mjs",
+        "verify-figure-controls-gui.mjs",
+        "verify-eyedropper-portal.cjs",
+        "verify-eyedropper-electron.cjs"
+      ]
+    },
+    {
       "glob": "scripts/lib/nestedVideoTestLaunch.cjs",
-      "run": ["verify-v020-native-video-launch.cjs", "verify-slide-video-electron.cjs"]
+      "run": [
+        "verify-v020-native-video-launch.cjs",
+        "verify-slide-video-electron.cjs"
+      ]
     },
     {
       "glob": "scripts/lib/{slideVideoNativeEntry.cjs,slideVideoExportProbe.ts}",
-      "run": ["verify-slide-video-electron.cjs"]
+      "run": [
+        "verify-slide-video-electron.cjs"
+      ]
     },
     {
       "glob": "scripts/lib/liveProxyFixture.cjs",
-      "run": ["verify-runner-runtime.mjs", "verify-cellpress-helpers.cjs", "verify-cellpress.cjs", "verify-proxy-capture.cjs"]
+      "run": [
+        "verify-runner-runtime.mjs",
+        "verify-cellpress-helpers.cjs",
+        "verify-cellpress.cjs",
+        "verify-proxy-capture.cjs"
+      ]
     },
     {
       "glob": "{src/lib/slide/{outline,tween}.ts,src/lib/slide/player/**}",
@@ -989,7 +1044,8 @@
         "group:inline-slides",
         "group:slide-stash",
         "verify-render-optimizations.mjs",
-        "verify-canvas-coverage.mjs"
+        "verify-canvas-coverage.mjs",
+        "verify-canvas-zoom-raster.mjs"
       ]
     },
     {
@@ -6414,6 +6470,60 @@
       "isolation": "scratch",
       "timeoutMs": 30000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-canvas-zoom-raster.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-eyedropper-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-eyedropper.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-eyedropper-portal.cjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "linux-color-portal"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-eyedropper-electron.cjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "build",
+        "wayland-color-portal"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 90000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

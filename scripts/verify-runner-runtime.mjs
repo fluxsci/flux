@@ -32,6 +32,8 @@ try {
   assert.deepEqual(await missingPrerequisites({...spec,prerequisites:['build']},scratch),['build (npm run build)']);
   assert.match((await missingPrerequisites({...spec,prerequisites:['release-arguments']},scratch))[0], /explicit release-stage arguments/);
   assert.deepEqual(await missingPrerequisites({...spec,prerequisites:['future-contract']},scratch),['unknown prerequisite: future-contract']);
+  assert.match((await missingPrerequisites({...spec,prerequisites:['linux-color-portal']},scratch,{PATH:path.join(scratch,'empty')}))[0], /Linux system Python\/Gio and accessible dbus-run-session/, 'missing optional portal toolchain is blocked before a test attempt');
+  assert.match((await missingPrerequisites({...spec,prerequisites:['wayland-color-portal']},scratch,{}))[0], /Linux Wayland desktop/, 'headless native portal validation is blocked before a test attempt');
   assert.ok((await missingPrerequisites({...spec,externalNetwork:true},scratch,{})).length);
   const liveSpec={...spec,runtime:'electron',externalNetwork:true,prerequisites:['institutional-proxy']};
   assert.equal((await missingPrerequisites(liveSpec,scratch,{})).length,2,'live publisher probe requires both explicit network permission and proxy fixture');

@@ -90,6 +90,8 @@ const CHANNELS = [
   { channel: "win:maximizeToggle", kind: "invoke", scope: "read" },
   // Snapshot & annotate (Note to agent): a PNG of the CALLING window's own pixels.
   { channel: "win:capture", kind: "invoke", scope: "read" },
+  { channel: "color:pickScreen", kind: "invoke", scope: "read" },
+  { channel: "color:cancelScreen", kind: "invoke", scope: "read" },
   { channel: "win:close", kind: "invoke", scope: "read" },
   { channel: "win:isMaximized", kind: "invoke", scope: "read" },
   { channel: "win:maximized", kind: "push", scope: "read" },

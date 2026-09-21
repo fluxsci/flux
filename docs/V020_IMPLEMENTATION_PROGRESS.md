@@ -5,7 +5,7 @@ The authorized scope is the five plans in the local `notes/major_v02_review/` ha
 
 ## Current result — 2026-09-21
 
-The implementation waves are complete within the handoff's conditional exclusions. Production and regression changes are committed through `5129e806f98152dfef16ceb770f06f0d4da352ff`; the final documentation commit records the evidence without changing those tested bytes. Release qualification retains the specific blockers and timing limits below.
+The implementation waves are complete within the handoff's conditional exclusions. The original production cohort is committed at `5129e806f98152dfef16ceb770f06f0d4da352ff`, followed by its documentation commit `6b27817`. The subsequent owner-reported zoom and Linux eyedropper repairs, their actual physical-display evidence, and remaining timing limits are recorded in the September 21 follow-up at the end of this ledger. Earlier cohorts and package receipts apply to their named revisions; no release is published or main merge performed.
 
 | Packages | Implemented scope and closure |
 |---|---|
@@ -44,7 +44,7 @@ Remaining: takeover/process-kill races, actual native handler integration, mutat
 
 ## Qualification limits
 
-No physical Wayland/NVIDIA display, macOS/Windows, signed/notarized packages, live institutional authentication, Microsoft Word, browser-store release or external paid agents have been qualified. These are not passes. Final run records must retain first failures and explain any fixture corrections. No timing threshold or fixture population may be weakened.
+The original implementation cohort did not qualify a physical Wayland/NVIDIA display. The later display-repair entry records targeted physical-host checks; it does not qualify all Linux hardware. macOS/Windows, signed/notarized packages, live institutional authentication, Microsoft Word, browser-store release and external paid agents remain unqualified. Final run records retain first failures and explain fixture corrections. No timing threshold or fixture population may be weakened.
 
 ### Integration checkpoint — 2026-09-21 04:35 UTC
 
@@ -199,3 +199,42 @@ Remaining qualification blockers and conditional boundaries:
 4. **Conditional P2:** the Library maintainer should revisit NR10 view decomposition only after stable World paging, selection/bulk-action and settings-draft controller APIs exist, then retain the current World/ownership regressions. The Figure maintainer should revisit F08 memoization only after immutable revision/invalidation ownership is established and full-content invalidation oracles exist. Palette-size/product decisions and the handoff's explicit broad-rewrite/Lighttable exclusions remain outside this implementation. Eligible PS13 caching and bounded native/Reader/shared-policy extraction were completed and measured.
 
 The final guide and this ledger supersede earlier pending-check statements without deleting their diagnostic history. No unavailable check is represented as a pass.
+
+### Owner-reported zoom and eyedropper repair — 2026-09-21 18:00 UTC
+
+Work continued in `/home/driessen2/flux/.claude/worktrees/codex-v020-fortification` on the same branch. Main and the owner's neural-populations project were not edited. Native probes copied that project into disposable directories, used disposable HOME/configuration, and were allowed access to the actual NVIDIA/GNOME Wayland display. The worktree's production build is refreshed. No Paper source or Lighttable internals changed; the earlier full Paper results remain attributed to their original revision, not claimed as rerun here.
+
+**Zoom cause and correction.** Chromium's animated-transform / `will-change: transform` path retains the larger raster scale while zooming out. A settled 16× live SVG followed by rapid Ctrl-wheel zoom-out exhausted tiles for the entire window. This was application-triggered, not established as an NVIDIA defect or solved by raising memory limits. Canvas now cools the live scene's animation before zoom and at the SVG fold, and removes its will-change hint throughout live zoom. Translation and the bounded bitmap proxy retain their fast compositor paths. Moving artwork does not generate stationary-pointer hover outlines during zoom. Geometry, culling coverage, authored bytes and sharpness remain checked.
+
+The old `zoomFast`/`zoomBursts` native phases did not cover the failure: their Electron wheel direction mostly zoomed outward from an already small view. The new `zoomDeep` phase performs three 36-event zoom-in/36-event zoom-out cycles (216 wheel events), waits for the actual baked 16× SVG scale before zoom-out, and optionally fails on tile warnings, missing samples, blank frames or whole-window flashes. It retains sampled JPEGs and renderer transforms. Browser regression `verify-canvas-zoom-raster.mjs` fails two assertions on the original Canvas and passes all eight after the fix.
+
+Actual host: Electron **43.7.3**, Chromium **150.0.7871.250**, NVIDIA RTX PRO 5000 Blackwell / driver **595.71.05**, GNOME Wayland. GPU compositing/rasterization remain enabled; no Electron downgrade or production GPU switch change. The Wayland/Vulkan startup warning still appears and is not evidence of the tile failure. Evidence directories below are relative to `test-results/zoom-repair/`.
+
+| Actual native zoom run | Tile warnings | Sampled blank / flash frames | Evidence |
+|---|---:|---:|---|
+| Before correction, Figure, maximized 3072×1696 at DPR 1.25 | **33** | **3 / 5** of 193 | `wayland-deep-before/` (statistics, transforms, stderr; JPEG dumping was added afterward) |
+| Corrected Figure, final matched 3072×1696 at DPR 1.25 | **0** | **0 / 0** of 192 | `wayland-figure-qualified/`; all 216 wheel events; frame p95 **33.3ms** |
+| Corrected Slides, maximized native display | **0** | **0 / 0** of 184 | `wayland-slide-final/`; all 216 wheel events; frame p95 **20.6ms**, no long tasks |
+| Additional corrected Figure runs | **0** each | **0 / 0** of 191 and 193 | `wayland-deep-after/`, `wayland-figure-final/`; different fractional scales, retained separately |
+
+The owner independently observed the live test and reported that zoom looked substantially better. Sampled compositor output can miss presentations; it is not an every-frame recording of a physical monitor. The final probe records the settled per-phase viewport, since the initial runtime receipt can precede asynchronous maximize/monitor changes. The earlier forced-scale Figure run actually used DPR **1.5625**: the command-line scale multiplied the desktop scale; it was not a matched-DPR comparison.
+
+**Eyedropper cause and correction.** A minimal secure Electron Wayland page containing only `new EyeDropper().open()` reproduced SIGSEGV, without Flux, SVGs or zoom. Linux Electron now uses `org.freedesktop.portal.Screenshot.PickColor` through a short-lived, isolated optional `/usr/bin/python3`/Gio helper. A missing helper/portal permits an explicitly labelled **Flux window** screenshot picker with exact fractional-DPR pixel mapping and a magnifier. User cancellation and permission refusal never trigger that fallback. Unexpected portal method failures surface as errors; only known missing-capability errors permit fallback. Native jobs are sender/token-owned, bounded, cancelled on navigation/destruction, and close their portal request before termination. Late results cannot recolor a changed selection/project/target; one accepted color remains one Undo step. Browser/macOS/Windows retain their native API path with cancellation.
+
+| Verification | Result and exact evidence |
+|---|---|
+| Integrated display/editing cohort | **21/21**, no failed/blocked/flaky attempts, `sourceChanged:false`; run `2026-09-21T17-52-37-709Z-262788`, source digest `7208179ce00983e19307e0d6f67d21fbc1f195ccda184724a126f4ce4d132945`. Covers deep zoom, proxy, coverage, cursors, crispness, Slide camera, editing/controls/geometry, picker, IPC and runner contracts. |
+| Final picker cohort after direct-D-Bus refusal classification | **4/4 scripts**, no failed/blocked/flaky attempts, `sourceChanged:false`; run `2026-09-21T17-57-37-892Z-316861`. Pure **13**, GUI **10**, real shipped helper/private D-Bus **8** checks. Actual production native test has **8** internal checks: real button opens portal, Escape closes it cleanly, no Chromium picker call, exact saved Figure bytes/history unchanged, subsequent native edit/save/Undo works. `test-results/eyedropper-native/`. |
+| Native Figure editing/export | `verify-figure-polish-electron.cjs` passes on X11/XWayland, 1440×1000 at DPR **2**. Eighteen real nudge events per size; p95 **49.5ms** at 1,600 and **92.0ms** at 5,000 elements, 3,761 mounted/48 layer rows for the latter. The initial **106.3ms** failure is retained, not erased; see limits below. `test-results/figure-polish-native{,-metrics}.json` and `figure-polish-native.log`. |
+| Saved export inspection | `test-results/figure-polish-exports/`: actual SVG **320×240**, PNG **1000×750**, PDF one **240×180-point** page, no JavaScript. SVG has the expected four blue rectangles and `t2` text; both PNG and rendered PDF were opened and sampled at exact blue **[67,133,190,255]**. Native saved edits/Undo and export headers/dimensions pass. |
+| Renderer / headless / build | All exit **0**; Svelte **0 errors / 0 warnings**. `/tmp/flux-zoom-repair-final-{check,headless,build}.log`. Docs gate **158** checks. No dependency or security-patch rollback; the worktree has its own installed dependencies and `npm run build` succeeds. |
+
+The first integration attempt (`2026-09-21T17-49-20-813Z-16`) remains retained: **18/21** passed. One old crispness assertion required the unsafe mid-zoom promotion; it now requires **no** live-scene animation/will-change lock, while retaining the one SVG fold, **0.95** sharpness ratio, **33ms** budget, **16.7ms + 1ms** baseline tolerance and full dense fixture. The path-map oracle was updated to include the new gate while preserving previous selections. The private D-Bus fixture was blocked by sandbox AppArmor policy access, not a product failure; capability preflight now checks an actual private bus connection, and the unchanged integration ran successfully with host access. No threshold or behavioral assertion was weakened.
+
+Remaining limits for this repair:
+
+- The stress probes still record occasional long work: the earlier corrected Figure run had a **103ms** task, and the final matched-display run a **129ms** task / **116.7ms** maximum rAF gap, despite zero blanking/tile warnings. The native 5,000-element gate initially measured **106.3ms** and the controlled repeat **92.0ms**. No concrete new cause for that isolated nudge tail was established; this is not a claim of universal ≤100ms worst-case latency. First-failure output/screenshot is preserved in `test-results/zoom-repair/native-polish-first-failure/`.
+- The actual Wayland portal was opened and cancelled, and the app remained usable afterward. Physical desktop color selection itself was not automated. Exact successful colors, direct permission denials, generic errors, cancellation/Request.Close and missing capability were verified through the shipped helper against a private real D-Bus service, plus the renderer's exact-pixel/save/Undo tests. Native macOS/Windows and other Linux desktops remain unqualified.
+- Optional feedback-file ENOENT and the uninstalled development correction-runtime warning are separate from these reproductions. Existing Firefox signing, institutional/platform and earlier parser timing limitations remain as recorded above. No release archives were rebuilt or published for this follow-up.
+
+The machine-readable repair receipt is `test-results/zoom-repair/acceptance.json`. The original main guide SHA remains `1bf5929bce7ffdd8da167cdd16e9ee1f2cf92c03f551ffcc72ff5cbe194097c4`; its lockfile SHA remains `1fd9b89fdcfd4bf86c662f6271e89b214e3c7ee45e9d890a742b62a734a53e32`. This entry supersedes only the former absence of targeted physical Linux evidence, not the other outstanding qualification gates.
