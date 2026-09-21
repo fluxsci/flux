@@ -299,16 +299,22 @@ export function scanTables(doc: Text, fmEndLine = 0): ParsedTable[] {
   const out: ParsedTable[] = [];
   const protectedSpans = protectedDocumentSpans(doc.toString(), { inline: false });
   let n = fmEndLine + 1;
-  while (n <= doc.lines) {
-    const line = doc.line(n);
-    if (protectedSpans.some(span => span.from <= line.from && line.from < span.to)) { n++; continue; }
-    const parsed = parseAt(doc, n);
-    if (!parsed) {
-      n++;
-      continue;
-    }
+  if (n > doc.lines) return out;
+  let from = doc.line(n).from, spanIndex = 0, nextHeaderLine = n;
+  // Both source lines and protected spans are ordered. Walk each once instead
+  // of searching every span and descending Text's tree twice for every line.
+  // parseAt still owns all table grammar; only plausible headers reach it.
+  for (const text of doc.iterLines(n)) {
+    const lineNo = n++, lineFrom = from;
+    from += text.length + 1;
+    if (lineNo < nextHeaderLine) continue;
+    while (spanIndex < protectedSpans.length && protectedSpans[spanIndex].to <= lineFrom) spanIndex++;
+    if (spanIndex < protectedSpans.length && protectedSpans[spanIndex].from <= lineFrom) continue;
+    if (!text.includes("|")) continue;
+    const parsed = parseAt(doc, lineNo);
+    if (!parsed) continue;
     out.push(parsed);
-    n = doc.lineAt(parsed.to).number + 1;
+    nextHeaderLine = (parsed.captionLine ?? parsed.lastRowLine) + 1;
   }
   return out;
 }

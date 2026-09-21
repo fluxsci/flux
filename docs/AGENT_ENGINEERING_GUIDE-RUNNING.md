@@ -5788,3 +5788,13 @@ source and remains a strict bundle blocker until maintainer re-signing. Physical
 signing/notarization, real Word and live authenticated browser/provider checks are unclaimed.
 Broad Library view extraction and speculative import memoization retain the plans' unmet
 prerequisites. No release/tag/publication or remote-CI promotion is performed.
+
+### 2026-09-21 08:38 UTC — Frozen cohorts and table traversal correction
+**Evidence:** Clean7c6d160 passed276pure and213combinedUI/Paper/Reader scripts with identical
+start/end source digests. Scale exposed a real PS09 scanner cost (cell p9512.4ms,6.2×control
+against6×). Profiling showed repeated protected-span searches and recursive Text line lookups.
+**Correction:** Walk immutable Text lines and ordered protected spans once, retaining the same
+parseAt grammar. Prior-traversal oracle preserves241real/360protected table cases and exact
+offsets; three focused p95 results6.7/7.6/6.9ms retain all thresholds/populations. Full affected
+pure/Paper and rebuilt native/scale checks are required after this narrow change. The extreme
+single-paragraph20k-line ceiling remains about190ms and is explicitly recorded, not called a pass.
