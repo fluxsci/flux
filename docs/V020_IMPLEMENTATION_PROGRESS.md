@@ -3,6 +3,20 @@
 Started 2026-09-20 from `c289627` on `codex/v020-fortification` in `/tmp/flux-v020-fortification`.
 The authorized scope is the five plans in the local `notes/major_v02_review/` handoff, all P0/P1 and accepted conditional P2. No release is published. Package completion requires its adverse as well as successful acceptance checks; implementation alone is not a completed package.
 
+## Current result — 2026-09-21
+
+The implementation waves are complete within the handoff's conditional exclusions. Production and regression changes are committed through `5129e806f98152dfef16ceb770f06f0d4da352ff`; the final documentation commit records the evidence without changing those tested bytes. Release qualification retains the specific blockers and timing limits below.
+
+| Packages | Implemented scope and closure |
+|---|---|
+| F01–F09 | Validated complete snapshots, owned leases, recoverable generations/reference updates, transactional editing, faithful/confined export, geometry, bounded imports and explicit conflict preservation. Positive/adverse twin-engine and native saved-byte evidence below. |
+| PS01–PS14 | Owned document/Slide sessions, interrupted-export recovery, captured publication revision, animation/media fidelity, grammar parity, bounded workers, lifecycle and eligible morph optimization. Final full Paper and native gates pass; immediate saved video re-export after editing is included. |
+| NR01–NR12 | Canonical Library/reference generations, native boundaries/jobs, capture, Reader task/draft/context ownership, responsive search and eligible controller extraction. Conditional broad Library view splitting remains deferred until its stated controller prerequisites exist. Live institutional/platform qualification is explicitly outstanding. |
+| SH01–SH08 | Checked transitions/flush epochs, manifest intents, resident live commands, owned feedback/processes, registry compatibility, preference recovery and existing-control keyboard/focus behavior. |
+| VR01–VR06 | Honest isolated runner, strict distribution gates, measured cost fixes, reproducible dependency maintenance, bounded shared-policy consolidation and documentation/evidence. Available Linux checks and diagnostic packages are verified; this does not close unavailable distribution/platform checks. |
+
+Final frozen checks: **335 passed / 337 selected**, with exactly two institutional probes **blocked** and no failures; **15/16** bundle/startup/scale, with only the stale signed Firefox payload failing. Both fresh Linux archives pass **13 installed smokes**. All **1,715** recorded original-file hashes match. The detailed final closure, artifact paths, conditional triggers and limitations are at the end of this ledger. Earlier in-progress entries are historical, and their failures remain retained.
+
 ## Isolation and ownership
 
 Original `/home/driessen2/flux` remains on main, its existing guide edit preserved. Existing port1420 server is untouched. Worktree carries a copy of handoff and guide edits. `test-results/v020/original-preservation.json` records 1,715 original tracked/build/library SHA-256 values for final comparison. Dependencies are initially shared read-only; dependency upgrades must create a separate install. Tests use disposable projects, HOME/config/cache/library, and a private display for native acceptance. Lighttable internals are excluded.
@@ -15,9 +29,9 @@ Original `/home/driessen2/flux` remains on main, its existing guide edit preserv
 
 ## Package status
 
-All packages remain open until evidence below and the owner ledgers discharge their stated acceptance. Owner detail: [Paper/Slide](V020_PS_PROGRESS.md), [Native/References](V020_NR_PROGRESS.md), [Shell/verification](V020_SH_VR_PROGRESS.md).
+The following entries preserve the implementation history. Use the current result above and final closure below for present status. Owner detail: [Paper/Slide](V020_PS_PROGRESS.md), [Native/References](V020_NR_PROGRESS.md), [Shell/verification](V020_SH_VR_PROGRESS.md).
 
-### F02 — in progress
+### Initial F02 checkpoint — in progress at the start
 
 Implemented shared `electron/operationLease.cjs`, thin Node and sender-bound native adapters, opaque token release/renew, same-resource local queues, explicit parent-token nesting and automatic heartbeat. Short filesystem transitions use unique per-contender registers so stale cleanup cannot unlink a new operation's identity. A slow live local process is never expired by TTL. Native activity leases retain their parent while an explicit child operation runs; other senders and independent operations cannot borrow ownership.
 
@@ -144,3 +158,44 @@ Clean `8b6223d` passed **313/313 pure+Paper**, run `2026-09-21T08-42-56-629Z-16`
 The first full native cohort (`09-01-43-653Z-16`) passed18/22. Its four failures are retained. Cellpress was incorrectly marked offline and hung on absent disposable `keys.json`; proxy capture also requires explicit institutional access. Their metadata/preflight now reports **blocked** without network opt-in and an explicit disposable HTTPS proxy fixture; every live assertion remains, and the eight Cellpress helper assertions moved to a hermetic gate. Netget's actual local-server/cookie/redirect/SSRF cases passed unchanged. Gallery clicked its controls before checked Slide checkout was ready; a fixture-owned readiness wait retains all11assertions, with32.5/35ms image/video paint and identical saved bytes in the focused rerun.
 
 The video fixture first exposed a nested Electron sandbox-setting loss; a test-only launch adapter preserves the actual executable and applies explicit private-display/sandbox flags across real CLI hops. Once actual capture ran, its second immediate export exposed a **product regression**: registry startup recovery unconditionally acquired project/slides/manifest leases, even with no recovery journal, colliding with the GUI's recent-human-activity lease after a successfully saved edit. `recoverProjectForAuthoring` now probes project-confined journals and only enters the normal leased recovery when one exists. Recovery re-reads under ownership; ordinary mutations still use their own leases. A dedicated CLI/MCP/human-lease/pending-journal/confinement regression and the native immediate-second-export/cancel/prior-MP4 assertions cover this change. Full frozen affected suites and fresh packages follow this correction; earlier results are not attributed to its new source revision.
+
+### Final implementation and Linux evidence — 2026-09-21 09:39 UTC
+
+The tested production commit is **`5129e806f98152dfef16ceb770f06f0d4da352ff`**, clean source digest **`5a4b1746b2d352881310a27caa7c1bbd5909d47e204ec1a9cdb752d2e5b4affa`**. All final cohorts and package builds report `sourceChanged:false`; no retries hid an initial failure. The final evidence/documentation commit follows these checks and changes no application, test or build input. Machine-readable evidence: `test-results/v020/final-evidence.json`; raw reports and artifacts remain in their original attempt directories.
+
+| Verification | Exact result and evidence |
+|---|---|
+| Renderer / headless / production build | All exit 0; Svelte **0 errors, 0 warnings**. `/tmp/flux-v020-recovery-{renderer,headless,build}.log`; post-commit CLI build `/tmp/flux-v020-5129-cli.log`. Copies and SHA receipts under `test-results/v020/final-checks/`. |
+| Final pure + native + full Paper | **335/337 passed**, exactly two blocked institutional probes, no failures/flaky attempts. Run `2026-09-21T09-22-05-057Z-16`, 657.247s. Includes all **279 pure**, **64 Paper-group**, and **20 runnable native** scripts (groups overlap). Missing explicit network/proxy configuration blocks Cellpress and proxy capture before child launch. |
+| Final bundle + startup + scale | **15/16 passed**, run `2026-09-21T09-33-37-736Z-16`, 139.008s. All **11 scale**, startup and three other bundle scripts pass; only signed Firefox fails. Startup eager shell **588.8/800 KB**, no eager mode/PDF worker. Paper prose/citation/cell p95 **3.7/8.8/6.7ms**, paint **33.4ms**, unchanged populations and limits. |
+| Broader UI/UI-extra/Reader | **213/213 passed** on clean `7c6d160`, run `2026-09-21T08-01-39-175Z-16`. Subsequent production changes are the exact table traversal and shared recovery-entry corrections; their affected pure, full Paper and native paths were rerun at `5129e80`. The earlier 213-script run is not attributed to the newer commit. |
+| Dependency and documentation | Fresh separate `npm ci`, **611 dependency entries, 0 audit findings**; disposition in `V020_DEPENDENCY_DISPOSITION.md`. Isolated Quarto **1.7.32** render: **20 pages, 39 files**. Installed offline file navigation and search pass. |
+| Linux packages | Fresh **AppImage + deb**, each **13 installed smokes passed**, from unchanged `5129e80`; publication disabled. `release/v020-local-2026-09-21T09-36-28.778Z/package-evidence.json` and README. Both actual extracted archives were tested from paths containing spaces and Unicode, with disposable configuration and unrelated working directories. |
+| Preservation | `test-results/v020/final-preservation.json`: **1,715/1,715** recorded original tracked/build/library hashes match. Original main remains `c289627`; its pre-existing guide edit is unchanged; port **1420** responds; no Lighttable paths changed. Only owned temporary server/display processes were stopped. |
+
+The native recovery-entry regression passes **12** cases: CLI/MCP saved reads coexist with human leases, mutations still refuse, pending generation recovery respects project/slides/manifest leases, export recovery respects its lease, a changed journal is re-read under ownership, denied reads and escaping metadata links refuse, and text/binary publication stops if ownership is revoked during path validation. The native video gate then passes an immediate re-export after a new object edit, cancellation with exact prior MP4 bytes, all 165 frame/timestamp checks, complex 1200-point/49-frame motion, portrait/4K, failure cleanup, and both actual source-free executable paths. The missing `slideAudioGraph.cjs` in the old hand-built package fixture was repaired by including the real required helper; no assertion was removed.
+
+Saved artifact inspection at `5129e80` includes:
+
+- Native scientific PDF: one **240×120-point** page, expected selectable text/value **42.5**, no JavaScript; prior output survives failed printing, and unauthorized resource requests remain zero. Saved Figure SVG has **660×200** dimensions and matching viewBox.
+- Actual held-Quarto DOCX XML and embedded PNG: captured **3.25** caption, old bibliography and blue **[67,133,190,255]** figure; later **99.25**/live typing is excluded from that captured artifact and retained in the live source. All **24 trusted inputs** during export complete within **46.9ms**; journal removed after successful restoration.
+- Native scientific journey reopens exact saved composition/source bytes after import, conflict preservation, failed-write retry and both conversion directions. Media gates decode every frame/timestamp at 30/60fps and check mixed audio, silence, loop/pause and failed-target preservation.
+- Both installed native screenshots show the actual **1400×900** viewport, not a synthetic 800×600 Puppeteer viewport. CLI/MCP, native save/lease/PTY, encoder/correction binaries, decoded video pixels, script-disabled PDF, capture-neighbor preservation, resident fulltext and offline docs pass. Raw packaged CDP reports `glRenderer: Disabled`; the old regex's `softwareRenderer:false` is not hardware evidence. Qualification is explicitly limited to the private display; `hardwareQualified:false` is retained in the receipt.
+
+Archive receipts (diagnostic, distribution blocked):
+
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| AppImage | 214,263,940 | `8ab48002ec469dca8b634f9a11a89bdb28d5597eb119c8b23493f330f54a776d` |
+| Debian package | 166,185,408 | `79a7f9e8ffea725d860c907b594c23cb662c2208833533b71855cd27ca1676cc` |
+
+Both contain identical `app.asar` SHA-256 `8f9e2e4ced2d14b0c0fa924a2cfde21ef4aacde2835965f0caaba3bcfb612bbb`. Full production input inventory digest: `b33fb986d17fea57775c47aa12e9fca791a95df0731acc469719fc11b365e352`. Version remains 0.1.0; this task did not tag, sign, upload, merge main, or publish a release.
+
+Remaining qualification blockers and conditional boundaries:
+
+1. **Signed Firefox:** current/generated background SHA `b93c661d83ac7f2cf425e13f48be82ae5f242c8400ffa978370af06412717d36` differs from the signed payload `4bca1cd73ad26fce202ff7abcda75bc7d59819098bf26cca51a6f6a2e4427252`. The unchanged XPI SHA is `1263826b195371a7e44cb5eefbe4330e9dda22d04aa26526f5623eff8dfee300`. Release maintainer must re-sign the completed source and rerun the unchanged byte-identity gate. No matching signed artifact was available here.
+2. **Unavailable environments:** institutional publisher/SSO and installed browser-extension behavior, physical Linux Wayland/NVIDIA, native macOS architectures/signing/notarization, platform-specific Windows behavior, real Microsoft Word UI, and real model/provider installations remain unqualified. Private Linux results do not stand in for them. Main CI's blocking promotion still requires five consecutive green remote main runs.
+3. **Timing limits:** the original prose ratio tail **6.8ms/3.4×** remains unexplained and recorded, despite three strict standalone passes and two full-cohort passes afterward. The giant single-paragraph case remains **191.1ms**, above the direct-input policy; a release decision or separately scoped parser work is required. No threshold, fixture population or assertion was weakened.
+4. **Conditional P2:** the Library maintainer should revisit NR10 view decomposition only after stable World paging, selection/bulk-action and settings-draft controller APIs exist, then retain the current World/ownership regressions. The Figure maintainer should revisit F08 memoization only after immutable revision/invalidation ownership is established and full-content invalidation oracles exist. Palette-size/product decisions and the handoff's explicit broad-rewrite/Lighttable exclusions remain outside this implementation. Eligible PS13 caching and bounded native/Reader/shared-policy extraction were completed and measured.
+
+The final guide and this ledger supersede earlier pending-check statements without deleting their diagnostic history. No unavailable check is represented as a pass.

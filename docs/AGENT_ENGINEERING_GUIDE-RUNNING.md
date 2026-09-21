@@ -5821,3 +5821,19 @@ runtime assertions. Institutional Cellpress/proxy probes require explicit dispos
 network configuration and report blocked when absent; their live checks are not called
 passed. Cellpress helper8 and nested launch20 assertions run hermetically. The original
 native failures and unexplained6.8ms prose timing tail remain in the implementation ledger.
+
+### 2026-09-21 09:39 UTC — V0.2 implementation evidence handoff
+
+Production/test commit `5129e80` is frozen: 335/337 pure/native/Paper scripts passed, exactly
+two institutional probes blocked, no failures; 15/16 bundle/startup/scale passed, only the
+stale signed Firefox payload failed. All 11 scale scripts and the full Paper gate pass;
+startup is 588.8/800 KB. Renderer: 0 errors/0 warnings; headless/build pass; audit: 0 findings.
+Fresh diagnostic Linux AppImage/deb each pass 13 installed smokes with actual 1400×900
+native windows. Saved PDF/SVG/DOCX/media bytes and rendered artifacts were inspected.
+All 1,715 recorded original-file hashes match; original main, its guide edit and port 1420
+are preserved. Owned test server/display stopped. Exact runs, hashes, conditional P2
+triggers and remaining timing/platform/signing limits are in
+`docs/V020_IMPLEMENTATION_PROGRESS.md` and `test-results/v020/final-evidence.json`.
+The final commit after the tested revision records documentation only. No release was
+tagged, signed, uploaded or published; broader Library splitting/speculative cache work
+remain conditional as specified in the handoff.
