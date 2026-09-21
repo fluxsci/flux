@@ -35,8 +35,12 @@ async function main() {
   win.webContents.on("console-message", event => { if (event.level === "error") errors.push(event.message); });
   await wait(() => js("!!document.querySelector('button[aria-label=Slide]')&&!!document.querySelector('.cm-editor,.slide-mode')"), "scratch project opened");
   check(app.getPath("userData").startsWith(scratch + path.sep) && await js("!window.__flux&&location.protocol==='file:'"), "built production app runs actual preload with isolated config and no development handles");
-  await click('button[aria-label="Slide"]'); await wait(() => js("!!document.querySelector('.slide-mode')"), "slide loaded");
-  await clickText(".toolbar button", "Plots & videos"); await wait(() => js("!!document.querySelector('.importer')"), "gallery loaded");
+  await click('button[aria-label="Slide"]');
+  // The mode wrapper mounts before its checked asynchronous document load.
+  // Wait for the resident fixture content and enabled gallery control, not
+  // the loading shell; preview timings still start at the actual pointerdown.
+  await wait(() => js(`!!document.querySelector('.mc:not([inert]) .slide-mode [data-editor-element-id="underneath"]')&&[...document.querySelectorAll('.mc:not([inert]) .slide-mode .toolbar button')].some(n=>n.textContent.trim()==='Plots & videos'&&!n.disabled)`), "slide content and gallery ready");
+  await clickText(".mc:not([inert]) .slide-mode .toolbar button", "Plots & videos"); await wait(() => js("!!document.querySelector('.importer')"), "gallery loaded");
   await search("source.svg"); await wait(() => js(`!!document.querySelector(${JSON.stringify(row("svg"))})`), "source image listed");
   await armPreviewTiming();
   await click(row("svg"), [process.platform === "darwin" ? "meta" : "control"]);

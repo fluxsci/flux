@@ -3,7 +3,7 @@ const fs = require("node:fs/promises"), path = require("node:path"), os = requir
 async function main() {
   const repo = path.resolve(__dirname, ".."), appRoot = path.resolve(process.env.FLUX_GALLERY_APP_ROOT || repo);
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "flux-gallery-preview-"));
-  const root = path.join(scratch, "project"), output = path.join(repo, "test-results/gallery-preview-native");
+  const root = path.join(scratch, "project"), output = process.env.FLUX_OUT || path.join(repo, "test-results/gallery-preview-native");
   const { TestProcessScope } = await import("./lib/testProcess.mjs"), scope = new TestProcessScope();
   const env = { ...process.env, HOME: path.join(scratch, "home"), XDG_CONFIG_HOME: path.join(scratch, "xdg"), XDG_CACHE_HOME: path.join(scratch, "cache"), APPDATA: path.join(scratch, "appdata"), FLUX_NO_MIGRATE: "1", DCONF_PROFILE: "/dev/null", PROBE_PROJECT: root, PROBE_SCRATCH: scratch, PROBE_ARTIFACTS: output, PROBE_APP_ROOT: appRoot };
   delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL;

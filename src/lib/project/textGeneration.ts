@@ -17,7 +17,8 @@ export function bytesToBase64(bytes: Uint8Array): string {
   let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(text);
 }
 function fromBase64(value: string): Uint8Array {return Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
-const JOURNAL = '.meta/figure-source-generation.json';
+export const TEXT_GENERATION_JOURNAL = '.meta/figure-source-generation.json';
+const JOURNAL = TEXT_GENERATION_JOURNAL;
 const parent = (rel: string) => { const slash=rel.lastIndexOf('/');return slash<0?'.':rel.slice(0,slash)||'.'; };
 interface Entry { path: string; before: string | null; after: string | null; encoding?: 'base64' }
 async function readEntry(io: TextGenerationIO, entry: Pick<Entry,'path'|'encoding'>) {

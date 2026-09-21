@@ -180,6 +180,12 @@ Persistence invariants (all machine-checked — do not weaken):
   referenced canvas) blocks subsequent GUI saves, including force-save; headless load rejects
   it. Never overwrite a healthy sibling from an incomplete model. Byte-preservation tests
   must reopen compositions as well as compare assets (`verify-figfiles-parity.ts`).
+- **Recovery entry preserves saved reads.** CLI/MCP startup probes confined export/source
+  journals before taking restoration leases. With no journal, a read-only command (including
+  the GUI's saved video export) coexists with the editor's recent-activity lease. A pending
+  journal still requires the normal operation leases and is re-read and validated under
+  ownership before restoration. The probe does not authorize mutation or establish a
+  snapshot across unrelated concurrent writes; mutation handlers retain their own leases.
 - **Source updates must publish only after persistence.** `project/sourceBridge.ts` now prepares
   privately, persists the generation, then publishes model/cache/accepted sizes. The shared
   `project/textGeneration.ts` journal retains exact old/new text or base64 bytes and compares before recovery;
@@ -1878,8 +1884,11 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `main.cjs` — mechanical follow-up, pattern established.
 - **Presence→behavioral test conversions** for `verify-p4-*`/`verify-p5-library`: convert as
   those areas are touched (policy, not backlog).
-- Known un-gated perf cliffs (acceptable today): giant single-paragraph docs (~180ms/keystroke —
-  lezer re-parses the paragraph), dense-canvas *initial* mount (160 plots → one ~90ms task).
+- Recorded performance limits: a giant single paragraph of20,000 lines still costs about
+  190ms per synchronous keystroke (Lezer reparses the paragraph). This exceeds the100ms
+  direct-input policy and needs an explicit release decision; the V0.2 work does not replace
+  the parser or call this a pass. Realistically paragraph-separated20k documents use the
+  unchanged scale gate. Historical dense-canvas initial mount:160plots → one~90ms task.
 - The proxy-capture engine is owner-tuned and out of scope for refactors; its behavior contract is
   `verify-proxy-capture.cjs` + `verify-netget.cjs`.
 - **Slide deferrals (slide-migration, owner-scoped §8):** rich text boxes /
@@ -5798,3 +5807,17 @@ parseAt grammar. Prior-traversal oracle preserves241real/360protected table case
 offsets; three focused p95 results6.7/7.6/6.9ms retain all thresholds/populations. Full affected
 pure/Paper and rebuilt native/scale checks are required after this narrow change. The extreme
 single-paragraph20k-line ceiling remains about190ms and is explicitly recorded, not called a pass.
+
+### 2026-09-21 09:21 UTC — Native saved-export recovery and truthful live probes
+
+The313-script pure/Paper run passed at8b6223d. Native acceptance then exposed unnecessary
+startup recovery leases blocking an ordinary saved video re-export after a human edit.
+Confined negative journal probes now avoid those leases; actual restoration still re-reads
+under ownership and rechecks that ownership after awaited path validation. The dedicated
+recovery-entry gate passes12 adverse/positive cases. Focused real native video passes all
+frame/audio/cancellation/source-free assertions; final rebuilt frozen cohorts follow.
+Test-only nested Electron launch adaptation and gallery readiness now preserve actual
+runtime assertions. Institutional Cellpress/proxy probes require explicit disposable
+network configuration and report blocked when absent; their live checks are not called
+passed. Cellpress helper8 and nested launch20 assertions run hermetically. The original
+native failures and unexplained6.8ms prose timing tail remain in the implementation ledger.

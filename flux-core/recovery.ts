@@ -4,8 +4,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { withLock, assertLockOwned } from './locks';
 import { atomicWrite, fsyncDir } from './fsx';
-import { recoverExportSources, type ExportRecoveryIO } from '../src/lib/project/exportRecovery';
-import { recoverTextGeneration } from '../src/lib/project/textGeneration';
+import { recoverExportSources, exportJournalPath, type ExportRecoveryIO } from '../src/lib/project/exportRecovery';
+import { recoverTextGeneration, TEXT_GENERATION_JOURNAL } from '../src/lib/project/textGeneration';
 export async function confinedRecoveryPath(root: string, candidate: string): Promise<void> {
   const base=await fs.realpath(root), absolute=path.resolve(candidate);
   const lexical=path.relative(path.resolve(root),absolute);
@@ -31,10 +31,17 @@ export function exportRecoveryIO(root: string, assertOwned?: () => Promise<void>
 }
 export async function recoverProjectForAuthoring(root: string): Promise<void> {
   try{await fs.access(path.join(root,'project.json'))}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return;throw e;}
-  await withLock(root,'export','recovery',async lease=>{await recoverExportSources(exportRecoveryIO(root,()=>assertLockOwned(lease)),root)});
+  const probe=exportRecoveryIO(root);
+  // Read-only commands (including the GUI's already-saved video export) must
+  // not acquire authoring leases when there is no interrupted transaction.
+  // A presence probe never authorizes restoration: each recovery below reads
+  // and validates the current journal again while owning its normal leases.
+  if(await probe.readText(exportJournalPath(root))!==null)
+    await withLock(root,'export','recovery',async lease=>{await recoverExportSources(exportRecoveryIO(root,()=>assertLockOwned(lease)),root)});
+  if(await probe.readText(path.join(root,TEXT_GENERATION_JOURNAL))===null)return;
   await withLock(root,'project','recovery',projectLease=>withLock(root,'slides','recovery',slidesLease=>withLock(root,'manifest','recovery',async manifestLease=>{
     const assertOwned = async()=>{await assertLockOwned(projectLease);await assertLockOwned(slidesLease);await assertLockOwned(manifestLease)};
-    const io=exportRecoveryIO(root);
-    await recoverTextGeneration({validatePath:rel=>io.validatePath!(path.join(root,rel)),read:rel=>io.readText(path.join(root,rel)),write:(rel,text)=>io.writeText(path.join(root,rel),text),remove:rel=>io.removeFile(path.join(root,rel)),fsyncDir:rel=>fsyncDir(path.join(root,rel)),readBytes:async rel=>{const file=path.join(root,rel);await confinedRecoveryPath(root,file);try{return await fs.readFile(file)}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw e}},writeBytes:async(rel,bytes)=>{const file=path.join(root,rel);await confinedRecoveryPath(root,file);await atomicWrite(file,bytes)}},assertOwned);
+    const io=exportRecoveryIO(root,assertOwned);
+    await recoverTextGeneration({validatePath:rel=>io.validatePath!(path.join(root,rel)),read:rel=>io.readText(path.join(root,rel)),write:(rel,text)=>io.writeText(path.join(root,rel),text),remove:rel=>io.removeFile(path.join(root,rel)),fsyncDir:rel=>fsyncDir(path.join(root,rel)),readBytes:async rel=>{const file=path.join(root,rel);await confinedRecoveryPath(root,file);try{return await fs.readFile(file)}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw e}},writeBytes:async(rel,bytes)=>{const file=path.join(root,rel);await confinedRecoveryPath(root,file);await assertOwned();await atomicWrite(file,bytes)}},assertOwned);
   })));
 }

@@ -33,6 +33,20 @@ try {
   assert.match((await missingPrerequisites({...spec,prerequisites:['release-arguments']},scratch))[0], /explicit release-stage arguments/);
   assert.deepEqual(await missingPrerequisites({...spec,prerequisites:['future-contract']},scratch),['unknown prerequisite: future-contract']);
   assert.ok((await missingPrerequisites({...spec,externalNetwork:true},scratch,{})).length);
+  const liveSpec={...spec,runtime:'electron',externalNetwork:true,prerequisites:['institutional-proxy']};
+  assert.equal((await missingPrerequisites(liveSpec,scratch,{})).length,2,'live publisher probe requires both explicit network permission and proxy fixture');
+  assert.match((await missingPrerequisites(liveSpec,scratch,{FLUX_ALLOW_TEST_NETWORK:'1'}))[0],/FLUX_TEST_EZPROXY_PREFIX/);
+  for(const prefix of ['file:///owner/keys.json','http://proxy.invalid/login?url=','https://user:secret@proxy.invalid/login?url=','not a URL'])
+    assert.match((await missingPrerequisites(liveSpec,scratch,{FLUX_ALLOW_TEST_NETWORK:'1',FLUX_TEST_EZPROXY_PREFIX:prefix}))[0],/HTTPS prefix without embedded credentials/);
+  assert.deepEqual(await missingPrerequisites(liveSpec,scratch,{FLUX_ALLOW_TEST_NETWORK:'1',FLUX_TEST_EZPROXY_PREFIX:'https://proxy.example.invalid/login?url='}),[],'explicit HTTPS endpoint admits preflight only; test does not execute live capture');
+  // Real live entry points must exit promptly before startup/keys/engine access.
+  // A minimal Electron preload prevents any native process or remote request.
+  const stub=path.join(scratch,'blocked-electron.cjs');
+  await writeFile(stub,`const Module=require('node:module'),original=Module._load;Module._load=function(name,...rest){if(name==='electron')return {app:{exit:code=>process.exit(code),whenReady:()=>{throw Error('Blocked probe reached native startup');}}};if(name.includes('proxyFetch')||name.includes('fluxPaths'))throw Error('Blocked probe loaded engine or owner config');return original.call(this,name,...rest);};`);
+  for(const name of ['verify-cellpress.cjs','verify-proxy-capture.cjs']) {
+    try {execFileSync(process.execPath,['--require',stub,path.resolve('scripts',name)],{env:{...process.env,FLUX_ALLOW_TEST_NETWORK:'',FLUX_TEST_EZPROXY_PREFIX:''},timeout:1500,stdio:'pipe'});assert.fail('blocked direct live entry must not pass');}
+    catch(error){assert.equal(error.status,2);assert.match(String(error.stderr),/BLOCKED:.*FLUX_ALLOW_TEST_NETWORK.*FLUX_TEST_EZPROXY_PREFIX/);assert.doesNotMatch(String(error.stderr),/ENOENT|native startup|owner config/);}
+  }
   assert.equal((await missingPrerequisites({...spec,prerequisites:['quarto','latex','chrome','native-encoder']},scratch,{PATH:path.join(scratch,'empty'),FLUX_CHROME:path.join(scratch,'missing-chrome')})).length,4,'missing actual binaries and pinned inventory are blocked before attempts');
   const cli=path.join(scratch,'electron','cli.js'),electronEnv={FLUX_ELECTRON_NO_SANDBOX:'1',FLUX_PRIVATE_DISPLAY:'0',FLUX_XVFB:''};
   assert.deepEqual(testElectronArgs(process.execPath,cli,['fixture.cjs'],{}),['fixture.cjs']);
@@ -60,7 +74,7 @@ try {
   // Exercise the real aggregate runner in an empty disposable Git repository.
   // Every implementation file is untracked: this is the exact old-evidence gap.
   const repo=path.join(scratch,'runner repository');await mkdir(path.join(repo,'scripts/lib'),{recursive:true});
-  for(const name of ['run-verifies.mjs','lib/verifyRuntime.mjs','lib/testProcess.mjs','lib/nodeCheck.mjs','lib/changedVerifies.mjs','lib/releasePolicy.mjs'])
+  for(const name of ['run-verifies.mjs','lib/verifyRuntime.mjs','lib/liveProxyFixture.cjs','lib/testProcess.mjs','lib/nodeCheck.mjs','lib/changedVerifies.mjs','lib/releasePolicy.mjs'])
     await copyFile(path.resolve('scripts',name),path.join(repo,'scripts',name));
   await writeFile(path.join(repo,'.gitignore'),'test-results/\n');
   await writeFile(path.join(repo,'untracked-source.ts'),'original implementation');
@@ -75,5 +89,18 @@ try {
   assert.throws(()=>execFileSync(process.execPath,['scripts/run-verifies.mjs'],{cwd:repo,env:{...process.env,FLUX_TEST_MUTATE_SOURCE:'1'},stdio:'pipe'}));
   const changed=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
   assert.equal(changed.sourceChanged,true);assert.notEqual(changed.sourceStart.digest,changed.sourceEnd.digest);assert.equal(changed.results[0].status,'passed');assert.equal(changed.passed,1);
+  const launched=path.join(repo,'must-not-launch.txt');
+  await writeFile(path.join(repo,'scripts/live.cjs'),`require('node:fs').writeFileSync(${JSON.stringify(launched)},'launched');`);
+  await writeFile(path.join(repo,'scripts/verify-manifest.json'),JSON.stringify({tiers:{pure:['live.cjs']},groups:{},execution:{'live.cjs':liveSpec}}));
+  for(const config of [
+    {FLUX_ALLOW_TEST_NETWORK:'',FLUX_TEST_EZPROXY_PREFIX:''},
+    {FLUX_ALLOW_TEST_NETWORK:'1',FLUX_TEST_EZPROXY_PREFIX:''},
+    {FLUX_ALLOW_TEST_NETWORK:'',FLUX_TEST_EZPROXY_PREFIX:'https://proxy.example.invalid/login?url='},
+  ]) {
+    assert.throws(()=>execFileSync(process.execPath,['scripts/run-verifies.mjs'],{cwd:repo,env:{...process.env,...config,FLUX_ELECTRON:process.execPath},stdio:'pipe'}));
+    const blocked=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
+    assert.equal(blocked.passed,0);assert.equal(blocked.results[0].status,'blocked');assert.deepEqual(blocked.results[0].attempts,[]);assert.equal(blocked.sourceChanged,false);
+    assert.equal(await readFile(launched).then(()=>true,()=>false),false,'blocked aggregate runner never launches the native probe');
+  }
   console.log('runner runtime/isolation/spawn/timeout/signal/group/prerequisite regressions PASS');
 } finally { await rm(scratch,{recursive:true,force:true}); }

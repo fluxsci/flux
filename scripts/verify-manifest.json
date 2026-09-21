@@ -277,7 +277,10 @@
       "verify-reader-session.ts",
       "verify-figure-missing-index.ts",
       "verify-render-manifest-confinement.ts",
-      "verify-figure-reference-safety.ts"
+      "verify-figure-reference-safety.ts",
+      "verify-cellpress-helpers.cjs",
+      "verify-v020-native-video-launch.cjs",
+      "verify-recovery-entry.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -707,6 +710,18 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "scripts/lib/nestedVideoTestLaunch.cjs",
+      "run": ["verify-v020-native-video-launch.cjs", "verify-slide-video-electron.cjs"]
+    },
+    {
+      "glob": "scripts/lib/{slideVideoNativeEntry.cjs,slideVideoExportProbe.ts}",
+      "run": ["verify-slide-video-electron.cjs"]
+    },
+    {
+      "glob": "scripts/lib/liveProxyFixture.cjs",
+      "run": ["verify-runner-runtime.mjs", "verify-cellpress-helpers.cjs", "verify-cellpress.cjs", "verify-proxy-capture.cjs"]
+    },
+    {
       "glob": "{src/lib/slide/{outline,tween}.ts,src/lib/slide/player/**}",
       "run": [
         "verify-v020-morph-startup.mjs",
@@ -816,6 +831,7 @@
     {
       "glob": "{src/lib/project/generationBridgeIO.ts,src/lib/project/textGeneration.ts,src/lib/project/figbridge.ts,src/lib/project/slideBridge.ts,src/lib/project/sourceBridge.ts,src/lib/project/convert.ts,flux-core/model.ts,flux-core/slides.ts,flux-core/recovery.ts}",
       "run": [
+        "verify-recovery-entry.ts",
         "verify-generation-confinement.ts",
         "verify-v020-durability.ts",
         "verify-v020-crash-recovery.ts",
@@ -1039,6 +1055,7 @@
     {
       "glob": "{electron/supplementRules.cjs,electron/proxyFetch.cjs,src/lib/references/{supplement,supplementFinder,unzip,pdfFinder,pdfFinderBridge}.ts}",
       "run": [
+        "verify-cellpress-helpers.cjs",
         "verify-supplement.ts",
         "tier:pure"
       ]
@@ -1406,6 +1423,7 @@
     {
       "glob": "{flux-core/fsx.ts,flux-core/recovery.ts,src/lib/project/textGeneration.ts,src/lib/project/exportRecovery.ts}",
       "run": [
+        "verify-recovery-entry.ts",
         "verify-v020-durability.ts",
         "verify-v020-crash-recovery.ts",
         "verify-v020-export-recovery.ts"
@@ -2053,9 +2071,10 @@
     "verify-cellpress.cjs": {
       "runtime": "electron",
       "prerequisites": [
-        "display"
+        "display",
+        "institutional-proxy"
       ],
-      "externalNetwork": false,
+      "externalNetwork": true,
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
@@ -4158,11 +4177,12 @@
     "verify-proxy-capture.cjs": {
       "runtime": "electron",
       "prerequisites": [
-        "display"
+        "display",
+        "institutional-proxy"
       ],
-      "externalNetwork": false,
+      "externalNetwork": true,
       "isolation": "scratch",
-      "timeoutMs": 120000,
+      "timeoutMs": 1400000,
       "exclusive": true,
       "coverage": "behavior"
     },
@@ -6358,6 +6378,33 @@
       "isolation": "scratch",
       "timeoutMs": 60000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-recovery-entry.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-v020-native-video-launch.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-cellpress-helpers.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
       "coverage": "behavior"
     },
     "verify-figure-reference-safety.ts": {
