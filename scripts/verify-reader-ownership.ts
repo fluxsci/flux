@@ -33,6 +33,7 @@ for(let p=0;p<300;p++) {
 const rows=collect(snapshot,"a");
 h.eq(rows.length,91500,"incremental 300-page search retains every result and exact total");
 h.ok(rows[91499].index===91499 && rows[91499].page===300 && rows[91499].hit==="a","last result retains correct navigation and snippet");
-h.ok(performance.now()-start<2000,"300-page progress rebuilds stay below2s component budget (baseline15.7s)");
+const rebuildMs=performance.now()-start;
+h.ok(rebuildMs<2000,`300-page progress rebuilds stay below2s component budget (${rebuildMs.toFixed(0)}ms; baseline15.7s)`);
 h.eq(collect(snapshot,"a"),rows,"unchanged match notifications return the existing result list");
 h.done();
