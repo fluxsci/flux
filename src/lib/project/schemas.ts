@@ -79,6 +79,7 @@ const ELEMENT_DEF = {
       color: { type: "string" },
       sizing: { type: "string" },
       lines: { type: "array" },
+      lineWidths: NUMBER_ARRAY,
       needsLayout: { type: "boolean" }, // WS-12: headless edit awaiting a GUI re-wrap
       lineHeight: { type: "number" },
       underline: { type: "boolean" },

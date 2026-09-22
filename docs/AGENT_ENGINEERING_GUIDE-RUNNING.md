@@ -426,9 +426,17 @@ Persistence invariants (all machine-checked — do not weaken):
   `compileStaticContent` bindings inherit it), and the Canvas textarea overlay offsets itself
   by its `offsetY` — there is no second formula anywhere. Load-bearing details: **"top"
   renders byte-identically to pre-arrangement Flux** (baseline = `y + fontSize`, no
-  half-leading), so untouched projects do not move; **justification is `textLength` +
-  `lengthAdjust="spacing"` per tspan**, never a measured word-space, so it needs no font
-  metrics and works in resvg; **a paragraph's last line is never stretched**, which requires
+  half-leading), so untouched projects do not move; **justification shares a line's slack
+  between its WORD GAPS** (2026-09-22, owner report "it changes the spacing between letters"):
+  `lineWidths` — the natural advance of each visual line, measured by `applyTextLayout` beside
+  the `lines` cache and dropped with it — turns the box width into a per-gap offset, which
+  `blockLayout` attaches as `dx` on the segment that starts each word. Nothing measures at
+  render time, so both engines agree, and resvg honours `dx` exactly (verified: two 30px gaps
+  move the ink 60px). The OLD whole-line `textLength` + `lengthAdjust="spacing"` remains as the
+  fallback when a line has no measured width — a headless edit, or a file written before the
+  widths existed — and it is why the complaint was valid: that spreads the slack between every
+  pair of glyphs. A line with no word gap (one long word) is never stretched at all;
+  **a paragraph's last line is never stretched**, which requires
   knowing which visual lines close a paragraph — that is DERIVED (`paragraphEndFlags`) by
   matching the flat `lines` wrap cache's ink back onto the text's hard lines, never stored, and
   a cache that cannot belong to the text degrades to "every line ends a paragraph" (nothing
@@ -1694,6 +1702,18 @@ days (probe geometry like `width` instead).
   rejected its own path and lost EVERY semantic manifest, silently dropping part overrides from
   headless renders and exports. The rule is not "normalize at the boundary" but "a value crossing
   INTO stored-path form is converted at that crossing".
+- **`textLength` + `lengthAdjust="spacing"` is not justification.** It shares a line's slack
+  between every pair of GLYPHS, so justified text came out with its letters pushed apart —
+  which is what the owner saw and reported (2026-09-22). Real justification widens the WORD
+  gaps and leaves letter spacing alone. Doing that needs one number the renderer cannot get
+  for itself, the line's natural width, so it is measured where the metrics already are
+  (`applyTextLayout`, beside the wrap cache) and the rest is arithmetic in a pure layout.
+  Before reaching for an SVG attribute that sounds right, check what it actually distributes.
+- **"It does not work" can mean "I cannot see it work."** Per-range italic was applied,
+  stored, exported and painted correctly, and was still reported as not working — because the
+  textarea editor showed plain text until the edit committed. When a feature's result is
+  invisible at the moment the user acts, that IS the bug. Reproduce what the user sees, not
+  what the model holds.
 - **A path that gets PERSISTED must be POSIX, whatever the platform.** `flux-core/slides.ts`
   derived a plot's `svgPath` with `path.join`, so a deck authored on Windows stored
   `fig\assets\x.svg` into deck.json — a path no other platform resolves, shipped inside a
@@ -6437,3 +6457,24 @@ retry landed there independently as `3ef5fd9`; this branch was rebased and both 
   every run, where a fixed 10 ms sleep had been quietly winning the race.
 - `verify-reader-ownership` misses its 2s component budget under `--jobs 4` on this laptop and
   passes alone; it is a perf budget measured under contention, not a regression. Left as is.
+
+### 2026-09-22 (later) — Justify by word gaps, and per-range formatting you can see (Claude Opus 5, `main`)
+**Work:** Two reports against the day's text feature. Justification spread a line's slack
+between its letters, because that is what `lengthAdjust="spacing"` does; it now shares the
+slack between the line's word gaps as a `dx` on the piece that starts each word, computed from
+`lineWidths` — the natural advance of each visual line, measured beside the wrap cache and
+dropped with it. resvg honours `dx` exactly (measured: two 30px gaps move the ink 60px), so
+both engines agree without anyone measuring at render time, and the old whole-line stretch
+stays as the fallback for a line with no measured width. The second report, "italic on a
+single character does not work", was not a defect in the model, the export or the painted
+canvas — all three were correct, and a screenshot proved it. It was invisible while typing.
+The canvas now keeps painting the text under the editor when the runs are metric-neutral
+(italic/underline), with the textarea handing over its glyphs but keeping the caret and the
+selection; a bold run changes advances, so that case keeps the plain editor.
+**Learnings:**
+- Promoted to §4 (the justification model) and §9: what that SVG attribute really distributes,
+  and that an invisible result is a real bug however correct the data is.
+- A gate can pin the wrong thing confidently. `verify-text-arrange` asserted the exact
+  `textLength` attribute, so it passed all the way through a defect the owner could see at a
+  glance. It now asserts the outcome — the line lands on the box's right edge, and the slack
+  is in the gaps — which is what the guide's "choose the assertion the user would make" means.

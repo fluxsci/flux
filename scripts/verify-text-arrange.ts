@@ -10,8 +10,11 @@
 //     and "top" is byte-identical to pre-arrangement Flux;
 //   • line height + paragraph spacing compose into the per-line dy and into
 //     the hugged box height;
-//   • justification emits textLength + lengthAdjust="spacing" on exactly the
-//     lines that are not a paragraph's last, and never on a single glyph;
+//   • justification shares a line's slack between its WORD GAPS (a dx on the
+//     piece that starts each word), never between its letters, on exactly the
+//     lines that are not a paragraph's last and never on a line without a gap;
+//     a line whose natural width was never measured falls back to the old
+//     whole-line textLength stretch;
 //   • letter spacing is a WRAP METRIC (wrapping measures with it) and rides
 //     the `letter-spacing` attribute;
 //   • the style patch surface stores each property's DEFAULT as ABSENCE, so a
@@ -161,21 +164,44 @@ console.log("\n3. interline and paragraph spacing");
 // --- 4. justification --------------------------------------------------------
 console.log("\n4. justification");
 {
+  // WORD-GAP justification (2026-09-22, owner report "it changes the spacing
+  // between letters"): the slack is shared between the line's word gaps, each
+  // of which becomes a dx on the piece that starts the word. Letters keep their
+  // own spacing, which is what justified text means.
+  const measured = text({ align: "justify", text: "aa bb cc dd", lines: ["aa bb", "cc dd"], width: 100, lineWidths: [40, 40] });
+  const M = blockLayout(measured);
+  const gaps = M.lines[0].segments?.filter((s) => s.dx != null) ?? [];
+  assert(gaps.length === 1 && gaps[0].dx === 60, "a non-final line shares its slack between its word gaps (one gap, 60px)");
+  assert(M.lines[0].justifyWidth === undefined, "…and does NOT also stretch the whole line");
+  assert(M.lines[0].segments?.map((s) => s.text).join("") === "aa bb", "the line's own text is unchanged by the split");
+  assert(M.lines[1].segments === undefined && M.lines[1].justifyWidth === undefined, "the paragraph's LAST line keeps its natural width");
+  assert(M.anchor === "start" && M.x === 10, "justified text anchors at the box's left edge");
+
+  const wide = blockLayout(text({ align: "justify", text: "aa bb", lines: ["aa bb"], width: 100, lineWidths: [120] }));
+  assert(wide.lines[0].segments === undefined, "a line already wider than its box is never pulled tighter");
+
+  const oneWord = blockLayout(text({ align: "justify", text: "aaaa\nbb", lines: ["aaaa", "bb"], width: 100, lineWidths: [40, 20] }));
+  assert(oneWord.lines[0].segments === undefined, "a line with no word gap keeps its natural width — one word never stretches");
+
+  // Without measured widths there is nothing to share out, so the legacy
+  // whole-line stretch still carries a file written before widths existed.
   const e = text({ align: "justify", text: "aa bb cc dd", lines: ["aa bb", "cc dd"], width: 100 });
   const L = blockLayout(e);
-  assert(L.lines[0].justifyWidth === 100, "a non-final line is stretched to the box width");
-  assert(L.lines[1].justifyWidth === undefined, "the paragraph's LAST line keeps its natural width");
-  assert(L.anchor === "start" && L.x === 10, "justified text anchors at the box's left edge");
+  assert(L.lines[0].justifyWidth === 100, "an unmeasured non-final line falls back to the whole-line stretch");
+  assert(L.lines[1].justifyWidth === undefined, "…and its paragraph's last line still keeps its natural width");
 
   const single = blockLayout(text({ align: "justify", text: "x\ny", lines: ["x", "y"] }));
   assert(single.lines.every((l) => l.justifyWidth === undefined), "a single-glyph line is never stretched");
 
-  const notJustified = blockLayout(text({ align: "left", text: "aa bb", lines: ["aa", "bb"] }));
-  assert(notJustified.lines.every((l) => l.justifyWidth === undefined), "only align=justify stretches anything");
+  const notJustified = blockLayout(text({ align: "left", text: "aa bb", lines: ["aa", "bb"], lineWidths: [20, 20] }));
+  assert(notJustified.lines.every((l) => l.justifyWidth === undefined && l.segments === undefined), "only align=justify stretches anything");
 
   // …and it reaches the SVG both engines serialize.
+  const wordSvg = elementToSvg(measured, () => undefined);
+  assert(wordSvg.includes('<tspan dx="60">bb</tspan>'), "the exported word gap is an ordinary tspan dx");
+  assert(!wordSvg.includes("textLength"), "…and a measured justified line needs no textLength at all");
   const svg = elementToSvg(e, () => undefined);
-  assert(svg.includes('textLength="100" lengthAdjust="spacing"'), "the exported tspan carries textLength + lengthAdjust");
+  assert(svg.includes('textLength="100" lengthAdjust="spacing"'), "the unmeasured fallback still carries textLength + lengthAdjust");
   assert(svg.split("textLength").length - 1 === 1, "…on exactly one of the two tspans");
   const plain = elementToSvg(text({ text: "hello" }), () => undefined);
   assert(!plain.includes("textLength") && !plain.includes("letter-spacing"), "an unarranged text serializes exactly as before");

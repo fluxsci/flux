@@ -233,6 +233,7 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
             spans[i].textContent = "";
             for (const seg of sp.segments!) {
               const attrs = Object.entries(segmentAttrs(el, seg));
+              if (seg.dx != null) attrs.unshift(["dx", String(seg.dx)]);
               if (!attrs.length) { spans[i].appendChild(document.createTextNode(seg.text)); continue; }
               const piece = document.createElementNS(SVG_NS, "tspan");
               for (const [name, value] of attrs) piece.setAttribute(name, value);

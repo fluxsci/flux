@@ -1381,6 +1381,7 @@ const FONT_KEYS = new Set(["fontFamily", "fontSize", "fontWeight", "fontStyle", 
 function invalidateTextLayout(e: Element): void {
   if (e.type !== "text") return;
   delete e.lines;
+  delete e.lineWidths; // the widths describe THOSE lines and nothing else
   if (e.sizing === "auto-h" || e.sizing === "fixed") e.needsLayout = true;
 }
 

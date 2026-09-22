@@ -1753,9 +1753,18 @@
     // vertical drop and its block height from the SAME text.ts layout the
     // renderer uses (vertical align, paragraph spacing, tracking and all).
     const L = blockLayout(f.element);
+    // A textarea cannot render mixed fonts, so per-range formatting is normally
+    // invisible until the edit commits — which reads as "italic on one character
+    // does not work" (owner report 2026-09-22). When the runs do not change the
+    // METRICS (italic/underline only), the painted text can stay visible and the
+    // textarea can hand it its glyphs: the caret and selection still come from
+    // the textarea, and they line up because the advances are the same. A bold
+    // run does change advances, so that case keeps the plain editor.
+    const showsRuns = !!f.element.runs?.length && !f.element.runs.some((r) => r.bold !== undefined);
     return {
       el: f.element,
       L,
+      showsRuns,
       left: $viewport.panX + (f.figure.x + f.element.x) * $viewport.zoom,
       top: $viewport.panY + (f.figure.y + f.element.y + L.offsetY) * $viewport.zoom,
     };
@@ -3789,7 +3798,7 @@
                   use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
                   style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
-                  class:editing-hidden={editingId === el.id}
+                  class:editing-hidden={editingId === el.id && !editingInfo?.showsRuns}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
                   use:sceneTransforms.register={el.id}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
@@ -4272,6 +4281,7 @@
     <textarea
       bind:this={taEl}
       class="text-edit"
+      class:ghost-text={editingInfo.showsRuns}
       value={editingInfo.el.text}
       spellcheck="false"
       style={`left:${editingInfo.left}px; top:${editingInfo.top}px;
@@ -4385,6 +4395,10 @@
   .editing-hidden {
     opacity: 0;
   }
+  /* The painted text is showing through: keep the caret and the selection
+     highlight, hand the glyphs to the canvas. */
+  .text-edit.ghost-text { color: transparent; caret-color: var(--c-accent); }
+  .text-edit.ghost-text::selection { color: transparent; }
   .text-edit {
     position: absolute;
     margin: 0;

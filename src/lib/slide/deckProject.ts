@@ -242,6 +242,7 @@ function scaleElementInPlace(e: Element, s: number): void {
   if (e.type === "text") {
     e.fontSize *= s;
     delete e.lines; // wrap cache is metric-derived; GUI reflows, headless falls back
+    delete e.lineWidths;
   } else if (e.type === "line") {
     e.x1 *= s; e.y1 *= s; e.x2 *= s; e.y2 *= s;
     e.strokeWidth *= s;

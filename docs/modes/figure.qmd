@@ -295,8 +295,10 @@ hugs, *Auto H* wraps at the box width and grows downward, *Fixed* keeps both dim
 everything below arranges the text **inside** that box.
 
 **Align** places the lines across the box: *Left*, *Center*, *Right*, or *Justify*. Justified
-text stretches every line out to both edges by opening up the spacing, and leaves the last
-line of each paragraph at its natural width, the way a printed column does. It needs a width
+text stretches every line out to both edges by widening the gaps **between words** — the
+letters keep their own spacing — and leaves the last line of each paragraph at its natural
+width, the way a printed column does. A line holding a single long word is left alone, since
+there is no gap to widen. It needs a width
 to fill, so choosing it on a hugging label turns the label's current width into the box's
 width (*Auto H*): nothing moves yet, but drag the box narrower — or keep typing — and the
 lines wrap and fill it.
@@ -320,9 +322,10 @@ you want — a species name, a gene symbol, a single letter — and press **Ctrl
 untouched. With nothing selected those keys still apply to the whole text, exactly as before.
 The formatting sticks to the letters it was given: type in the middle of an italic word and the
 new letters are italic too, type against its edge and they are not, and deleting the word takes
-its formatting with it. One thing to expect — the typing box shows plain text while you work,
-because a typing box cannot mix fonts, so the italics appear on the canvas as soon as you click
-away and the edit is committed. (**Escape** throws the whole edit away, formatting included.)
+its formatting with it. Italic and underline show on the canvas as you work. Bold is the one
+exception: it changes how wide the letters are, and the typing box cannot mix widths, so a bold
+range appears when you click away and the edit is committed. (**Escape** throws the whole edit
+away, formatting included.)
 
 All of these sit in the Inspector's Text section and in the **F** menu, they apply to every
 selected text at once, and each adjustment is one undo step. A **named text style** (the

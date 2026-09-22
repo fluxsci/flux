@@ -240,6 +240,7 @@ export function applyTextLayout(el: Element): void {
   if (el.type !== "text") return;
   if (!canMeasureText()) {
     delete el.lines;
+    delete el.lineWidths;
     // WS-12: a wrapping element just lost its cache with no way to rebuild it
     // here — flag it so headless renders warn and the next GUI open re-wraps.
     if (el.sizing === "auto-h" || el.sizing === "fixed") el.needsLayout = true;
@@ -247,14 +248,22 @@ export function applyTextLayout(el: Element): void {
   }
   if (el.sizing === "auto" || !el.sizing) {
     delete el.lines; // hug: the visual lines ARE the hard lines
+    delete el.lineWidths;
     delete el.needsLayout; // WS-12: measured — layout-honest again
     const m = measureText(el);
     el.width = m.width;
     el.height = m.height;
     return;
   }
-  const lines = wrapText(el.text, Math.max(1, el.width), elementMeasure(el));
+  const measure = elementMeasure(el);
+  const lines = wrapText(el.text, Math.max(1, el.width), measure);
   el.lines = lines;
+  // Measured here because here is where the metrics are. Justification shares
+  // a line's slack between its word gaps, and that needs the line's natural
+  // advance — computing it at render time would put a canvas measurement in
+  // the middle of a pure layout and leave the headless engine unable to agree.
+  const spans = visualLineSpans(el.text, lines);
+  el.lineWidths = spans ? lines.map((line, i) => measure(line, spans[i].from)) : lines.map((line) => measure(line));
   delete el.needsLayout; // WS-12: measured — layout-honest again
   if (el.sizing === "auto-h")
     el.height = Math.ceil(blockHeight(el, lines.length, paragraphBreaks(el, lines)));
@@ -357,8 +366,12 @@ export interface LaidOutLine extends VisualLine {
   /** SVG tspan `dy` — 0 for the first line, else the line advance plus the
    *  paragraph gap when the PREVIOUS line closed a paragraph. */
   dy: number;
-  /** Set on justified lines only: the width the renderer stretches them to
-   *  (SVG textLength + lengthAdjust="spacing"; CSS text-align: justify). */
+  /** LEGACY justification, used only when the line's natural width is unknown
+   *  (a headless edit dropped the cache, or a file written before widths were
+   *  measured): the width the renderer stretches the whole line to, via SVG
+   *  textLength + lengthAdjust="spacing". That spreads the slack between EVERY
+   *  pair of glyphs, which is what typesetting does not do — prefer `segments`
+   *  carrying `dx`, which puts it in the word gaps alone. */
   justifyWidth?: number;
 }
 
@@ -375,6 +388,52 @@ export interface TextBlockLayout {
   offsetY: number;
 }
 
+/** Extra advance per WORD GAP for one justified line: the slack shared between
+ *  the gaps this line actually has. No gaps (a single long word) means nothing
+ *  to share and the line keeps its natural width — stretching one word's
+ *  letters is precisely what justification should not do. Pure. */
+function wordGapFor(line: string, slack: number): number {
+  if (!(slack > 0)) return 0;
+  let gaps = 0;
+  for (let i = 1; i < line.length; i++) if (/\s/.test(line[i - 1]) && !/\s/.test(line[i])) gaps++;
+  return gaps ? slack / gaps : 0;
+}
+
+/** One visual line cut into the pieces a renderer emits: at every run boundary
+ *  and, when the line is justified by word gaps, at every word start after the
+ *  first. A word-starting piece carries `dx` — the extra advance that goes in
+ *  front of it, which is the whole of justification expressed as ordinary tspan
+ *  offsets, so the canvas, the SVG export and the headless render agree without
+ *  any of them measuring anything. Pure. */
+function lineSegments(e: TextElement, from: number, to: number, wordGap: number): TextSegment[] | null {
+  const base = segmentRange(e.text, e.runs, from, to);
+  if (!(wordGap > 0)) return base.length ? base : null;
+  const out: TextSegment[] = [];
+  // The gap belongs to the piece that STARTS the word, so it is carried until
+  // there is a real piece to put it on — a word boundary that coincides with a
+  // run boundary must not leave an empty tspan behind just to hold an offset.
+  let pending = 0;
+  const emit = (segment: TextSegment, a: number, b: number) => {
+    if (b <= a) return;
+    const piece: TextSegment = { ...segment, text: e.text.slice(a, b), from: a, to: b };
+    if (pending) { piece.dx = pending; pending = 0; }
+    out.push(piece);
+  };
+  for (const segment of base) {
+    let start = segment.from;
+    for (let i = segment.from; i < segment.to; i++) {
+      // A word starts where a non-space follows a space. The line's own first
+      // character never takes a dx: nothing precedes it to push away from.
+      if (i === from || !/\s/.test(e.text[i - 1]) || /\s/.test(e.text[i])) continue;
+      emit(segment, start, i);
+      pending = wordGap;
+      start = i;
+    }
+    emit(segment, start, segment.to);
+  }
+  return out.length ? out : null;
+}
+
 /** The complete arrangement of a text element's lines inside its box. ONE
  *  source for the canvas painter, the SVG serializer (and through it the slide
  *  player and every headless render) and the inline editor overlay. Pure. */
@@ -388,9 +447,10 @@ export function blockLayout(e: TextElement): TextBlockLayout {
   const gap = paragraphGap(e);
   const justified = e.align === "justify";
   const justifyWidth = justified ? Math.max(1, e.width) : 0;
-  // Per-range formatting costs one extra pass over the text, and only for the
-  // texts that carry any: a scene of hundreds of plain labels is untouched.
-  const spans = e.runs?.length ? visualLineSpans(e.text, vis) : null;
+  // Per-range formatting and word justification both need each visual line's
+  // offsets in the text; a scene of plain, unjustified labels pays for neither.
+  const widths = justified && e.lineWidths?.length === vis.length ? e.lineWidths : null;
+  const spans = e.runs?.length || widths ? visualLineSpans(e.text, vis) : null;
   const lines: LaidOutLine[] = new Array(vis.length);
   let breaks = 0;
   for (let k = 0; k < vis.length; k++) {
@@ -400,13 +460,19 @@ export function blockLayout(e: TextElement): TextBlockLayout {
       paragraphEnd,
       dy: k === 0 ? 0 : advance + (ends[k - 1] ? gap : 0),
     };
-    if (spans) {
-      const segments = segmentRange(e.text, e.runs, spans[k].from, spans[k].to);
-      if (segments.some((s) => s.bold !== undefined || s.italic !== undefined || s.underline !== undefined)) line.segments = segments;
-    }
     // A paragraph's last line keeps its natural width (the typographic rule),
     // and a single glyph has no gaps to distribute into.
-    if (justified && !paragraphEnd && inkOf(vis[k]).length > 1) line.justifyWidth = justifyWidth;
+    const stretch = justified && !paragraphEnd && inkOf(vis[k]).length > 1;
+    // The slack belongs to the WORD gaps. Splitting it per gap here — where the
+    // natural width is known — is what keeps the letters at their own spacing.
+    const wordGap = stretch && spans && widths ? wordGapFor(vis[k], justifyWidth - widths[k]) : 0;
+    if (spans) {
+      const segments = lineSegments(e, spans[k].from, spans[k].to, wordGap);
+      if (segments && (wordGap > 0 || segments.some((s) => s.bold !== undefined || s.italic !== undefined || s.underline !== undefined))) line.segments = segments;
+    }
+    // Without measured widths there is nothing to share out, so a line that
+    // must still fill its box falls back to stretching as a whole.
+    if (stretch && !wordGap) line.justifyWidth = justifyWidth;
     lines[k] = line;
     if (paragraphEnd && k < vis.length - 1) breaks++;
   }

@@ -136,6 +136,7 @@ export function applyState(el: Element, state: Record<string, unknown> | undefin
   if (retype) completeRetyped(out);
   if (metrics && (out.type === "text")) {
     delete out.lines;
+    delete (out as { lineWidths?: number[] }).lineWidths;
     out.needsLayout = true;
   }
   // keep the path's render form in sync with patched authoritative nodes
@@ -414,7 +415,8 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
     }
   }
   if (metrics && out.type === "text") {
-    delete (out as unknown as { lines?: string[] }).lines;
+    delete (out as unknown as { lines?: string[]; lineWidths?: number[] }).lines;
+    delete (out as unknown as { lineWidths?: number[] }).lineWidths;
     (out as unknown as { needsLayout?: true }).needsLayout = true;
   }
   return out as unknown as Element;

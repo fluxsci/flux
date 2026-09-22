@@ -79,7 +79,12 @@ try {
           dy: Number(s.getAttribute("dy")),
           len: s.getAttribute("textLength"),
           adjust: s.getAttribute("lengthAdjust"),
+          // Justification is word gaps now: a dx on the piece that starts each
+          // word, and the line ending exactly at the box's right edge.
+          gaps: [...s.querySelectorAll("tspan[dx]")].length,
+          right: +(s.getBBox().x + s.getBBox().width).toFixed(1),
         })),
+        box: (() => { const m = window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === id); return { left: m.x, right: m.x + m.width }; })(),
       };
     }, id);
   const select = async (id) => {
@@ -128,9 +133,11 @@ try {
   await setSelect("Align", "justify");
   ok((await model("ta-wrap")).align === "justify", "the Inspector's Align offers (and applies) Justify");
   const just = await painted("ta-wrap");
-  const stretched = just.spans.filter((s) => s.len !== null);
+  const stretched = just.spans.filter((s) => s.gaps > 0);
   ok(stretched.length === just.spans.length - 1, `every line but the last is stretched (${stretched.length}/${just.spans.length})`);
-  ok(stretched.every((s) => Number(s.len) === 240 && s.adjust === "spacing"), "…to the box width, by spacing");
+  ok(just.spans.every((s) => s.len === null), "…by widening word gaps, never by stretching the whole line's letters");
+  ok(just.spans.slice(0, -1).every((s) => Math.abs(s.right - just.box.right) <= 1), `…and each stretched line lands on the box's right edge (${just.spans.map((s) => s.right).join(", ")} vs ${just.box.right})`);
+  ok(stretched.every((s) => s.gaps >= 1), `…with the slack in the word gaps themselves (${stretched.map((s) => s.gaps).join(", ")} gaps)`);
   ok(just.spans[just.spans.length - 1].len === null, "the paragraph's last line keeps its natural width");
   ok(just.anchor === "start", "justified text still anchors at the left edge");
   // Real painted geometry, not just the attribute.
@@ -288,7 +295,7 @@ try {
   await select(dragged.id);
   await setSelect("Align", "justify");
   const drawnPainted = await painted(dragged.id);
-  ok(drawnPainted.spans.slice(0, -1).every((s) => Number(s.len) === 220 && s.adjust === "spacing") && drawnPainted.spans.at(-1).len === null, "…and Justify fills the drawn width on every line but the last");
+  ok(drawnPainted.spans.slice(0, -1).every((s) => s.gaps > 0 && Math.abs(s.right - drawnPainted.box.right) <= 1) && drawnPainted.spans.at(-1).gaps === 0, "…and Justify fills the drawn width on every line but the last");
 
   // A CLICK is unchanged: a hugging label.
   // The Inspector select above still holds focus for a moment on a loaded
@@ -328,7 +335,7 @@ try {
   clicked = (await texts()).at(-1);
   const narrowed = await painted(clicked.id);
   ok(clicked.width === 200 && clicked.lines?.length >= 2, `narrowing the box wraps it (${clicked.lines?.length} lines at ${clicked.width})`);
-  ok(narrowed.spans.slice(0, -1).every((s) => Number(s.len) === 200) && narrowed.spans.at(-1).len === null, "…and the wrapped lines fill the new width, last line natural");
+  ok(narrowed.spans.slice(0, -1).every((s) => Math.abs(s.right - narrowed.box.right) <= 1) && narrowed.spans.at(-1).gaps === 0, "…and the wrapped lines fill the new width, last line natural");
   await page.evaluate(() => { window.__flux.fig.undo(); window.__flux.fig.undo(); });
   await sleep(300);
   clicked = (await texts()).at(-1);

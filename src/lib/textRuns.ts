@@ -40,6 +40,9 @@ export interface TextSegment {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /** Extra advance placed BEFORE this piece, in canvas px. Justification uses
+   *  it to widen a word gap; absent everywhere else. */
+  dx?: number;
 }
 
 /** What the ELEMENT itself says, i.e. what an absent run flag inherits. */

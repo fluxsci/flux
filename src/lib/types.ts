@@ -278,6 +278,14 @@ export interface TextElement extends ElementBase {
   // (loadFigInto heals flagged elements on open); headless render/export
   // paths WARN naming the element instead of diverging silently.
   needsLayout?: true;
+  // DERIVED, beside `lines` and with the same lifecycle: the natural advance
+  // of each visual line in canvas px, measured when the wrap cache was built.
+  // JUSTIFICATION needs it — the extra width a line must absorb is shared out
+  // between its WORDS, and knowing the natural width is what turns a box width
+  // into a per-gap offset without measuring anything at render time. Absent
+  // (headless edit, pre-2026-09-22 file) falls back to the old whole-line
+  // stretch. Never edit by hand.
+  lineWidths?: number[];
   // Per-RANGE formatting inside `text` — bold/italic/underline for character
   // ranges, on top of the element's own font (textRuns.ts is the ONE source:
   // normalization, toggling, remapping across edits, segmentation). ABSENT

@@ -76,6 +76,19 @@ try {
     `Ctrl+I on a selected word stores exactly that run (${JSON.stringify(e.runs)})`);
   assert(e.fontStyle === "normal", "the element's own font style is untouched by a range toggle");
 
+  // ---- the formatting is visible WHILE editing ----------------------------------
+  {
+    const live = await page.evaluate(() => {
+      const ta = document.querySelector("textarea.text-edit");
+      const g = document.querySelector('[data-editor-element-id="runs-t1"]');
+      const nested = [...(g?.querySelectorAll("text tspan tspan") ?? [])].map((s) => [s.textContent, s.getAttribute("font-style")]);
+      return { ghost: ta?.classList.contains("ghost-text"), hidden: g?.classList.contains("editing-hidden"), nested };
+    });
+    assert(live.ghost && !live.hidden, "the painted text stays visible while editing a metric-neutral run");
+    assert(live.nested.some(([text, style]) => text === "sapiens" && style === "italic"),
+      `...so the italic shows before the edit is committed (${JSON.stringify(live.nested)})`);
+  }
+
   // ---- the painted SVG ----------------------------------------------------------
   await commitEdit();
   const painted = await page.evaluate(() => {

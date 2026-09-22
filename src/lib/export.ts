@@ -244,6 +244,9 @@ export function elementToSvg(
           ? sp.segments
               .map((seg) => {
                 const segAttrs = Object.entries(segmentAttrs(e, seg));
+                // `dx` is the justified word gap — an ordinary tspan offset, so
+                // it survives every renderer that can place a tspan at all.
+                if (seg.dx != null) segAttrs.unshift(["dx", String(seg.dx)]);
                 return segAttrs.length
                   ? `<tspan ${segAttrs.map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${esc(seg.text)}</tspan>`
                   : esc(seg.text);
