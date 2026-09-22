@@ -78,6 +78,15 @@ plots/growth.recipe.json    ← recipe (how it was made — re-runnable; used to
 - **Series helpers** (each takes `series="name"`, returns the real matplotlib artist):
   `fp.line(ax, x, y, series=, marker=, label=)`, `fp.scatter(...)`, `fp.bar(ax, x, height, series=)`,
   `fp.errorbar(ax, x, y, series=, yerr=)`, `fp.area(ax, x, y1, y2, series=)`.
+- **Signature fluxplots** — complete preset plot types unique to Flux, seaborn-style (a
+  DataFrame + column names, every part named for you). **Prefer them over hand-building the
+  same plot.** `fp.glowbar(df, x=, y=, units=, ax=)`: every observation as a dot beside a glowing
+  interval bar (IQR by default; `interval="sem"|"sd"`) with a haloed **mean** line and a
+  **median** notch. With `units=` (subject / animal) each unit keeps a fixed lane + colour taken
+  from the table, so separate measures of the same animals agree across panels;
+  `connect_identical_points_across_x_values=True` joins a unit across conditions (paired designs).
+  Parts: `<category>.glow|caps|mean|median`, `<unit>.points|line`; the exact statistics drawn are in
+  the manifest's `glowbar` payload (use them for captions). Options: `help(fp.glowbar)`.
 - **Overlays:** `fp.significance_bracket(ax, x0=, x1=, y=, label=, between=, p=)`,
   `fp.reference_line(ax, y= or x=, name=)`, `fp.annotation(ax, name=, text=, ...)`.
 - **Escape hatch** for plot types without a helper (box, violin, heatmap, contour…):
