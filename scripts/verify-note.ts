@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tsxCli } from "./lib/tsxRun.mjs";
 
 const { harness } = await import("./lib/harness.mjs");
 const h = harness("verify-note");
@@ -117,11 +118,10 @@ for (let i = 0; i < Number(n); i++) {
 }
 `,
     );
-    const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
     const goFile = path.join(scratch, "go");
     const run = (tag: string) => {
       const ready = path.join(scratch, `ready-${tag}`);
-      const p = spawn(process.execPath, [tsxCli, child, root, tag, String(N), ready, goFile], {
+      const p = spawn(process.execPath, [tsxCli(), child, root, tag, String(N), ready, goFile], {
         env: { ...process.env, FLUX_CLIENT: "cli" },
         stdio: ["ignore", "pipe", "pipe"],
       });

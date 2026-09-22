@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tsxCli } from "./lib/tsxRun.mjs";
 
 const { harness } = await import("./lib/harness.mjs");
 const h = harness("verify-dispatch");
@@ -190,8 +191,7 @@ console.log("PASS OK");
   // Windows and its .cmd twin cannot be spawned without a shell on current
   // Node, so neither name starts a process there.
   const tsxBin = process.execPath;
-  const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
-  const attendChild = spawn(tsxBin, [tsxCli, cliEntry, "attend", root, "--interval", "200"], {
+  const attendChild = spawn(tsxBin, [tsxCli(), cliEntry, "attend", root, "--interval", "200"], {
     env: { ...process.env },
     stdio: ["ignore", "pipe", "pipe"],
   });

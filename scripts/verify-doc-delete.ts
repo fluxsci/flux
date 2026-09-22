@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as core from "../flux-core/index";
 import { harness } from "./lib/harness.mjs";
+import { tsxCli } from "./lib/tsxRun.mjs";
 import {
   commentsSidecarRel,
   documentRemovalBlocker,
@@ -180,7 +181,7 @@ try {
   // --- the real CLI ----------------------------------------------------------
   h.section("the CLI verb executes it");
   {
-    const tsx = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+    const tsx = tsxCli();
     const env = { ...process.env, HOME: scratchHome, XDG_CONFIG_HOME: path.join(scratchHome, ".config") };
     const run = (...args: string[]) =>
       spawnSync(process.execPath, [tsx, path.join(repoRoot, "flux-cli.ts"), ...args], { cwd: repoRoot, encoding: "utf8", env });

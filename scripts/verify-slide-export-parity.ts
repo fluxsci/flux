@@ -14,6 +14,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as url from "node:url";
 import * as core from "../flux-core/index";
+import { tsxCli } from "./lib/tsxRun.mjs";
 import * as slides from "../flux-core/slides";
 import * as slideOps from "../src/lib/slide/ops";
 import type { Track } from "../src/lib/slide/types";
@@ -124,8 +125,7 @@ try {
   // executable (only `npx.cmd`), so an unshelled spawn dies with ENOENT and
   // takes the whole gate with it — the same trap `run-verifies.mjs` hit with
   // `npm`. Going straight to the installed CLI also skips a resolution step.
-  const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
-  const { stdout, stderr } = await run(process.execPath, [tsxCli, probePath], {
+  const { stdout, stderr } = await run(process.execPath, [tsxCli(), probePath], {
     cwd: repoRoot,
     maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, FLUX_EXPORT_SIDECAR: sidecarPath },

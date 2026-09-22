@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { tsxCli as resolveTsxCli } from "./lib/tsxRun.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 let failures = 0;
@@ -111,7 +112,7 @@ console.log("R3 — live flux MCP server, dev command (get_reading_context):");
 // Spawn tsx the way mcpSpecForCli does: this node + the installed CLI. The
 // .bin shim is an sh script on Windows and its .cmd twin cannot be spawned
 // without a shell on current Node, so neither is a portable command.
-const tsxCli = join(root, "node_modules", "tsx", "dist", "cli.mjs");
+const tsxCli = resolveTsxCli();
 const entry = join(root, "flux-mcp.ts");
 assert(existsSync(tsxCli) && existsSync(entry), "dev MCP command exists (the installed tsx CLI + flux-mcp.ts)");
 await mcpHandshake(process.execPath, [tsxCli, entry, fakeProject], "dev");

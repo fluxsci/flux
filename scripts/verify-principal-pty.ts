@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tsxCli } from "./lib/tsxRun.mjs";
 
 const { harness } = await import("./lib/harness.mjs");
 const h = harness("verify-principal-pty");
@@ -89,10 +90,9 @@ rl.on("line", (l) => { console.log("GOT " + l); process.exit(0); });
   // Windows and its .cmd twin cannot be spawned without a shell on current
   // Node, so neither name starts a process there.
   const tsxBin = process.execPath;
-  const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
   const runOnce = async (extra: string[], interact?: (write: (s: string) => void, peek: () => string) => Promise<void>): Promise<{ out: string; exit: number }> => {
     let out = "";
-    const child = pty.spawn(tsxBin, [tsxCli, path.join(repoRoot, "flux-cli.ts"), "principal", root, ...extra], {
+    const child = pty.spawn(tsxBin, [tsxCli(), path.join(repoRoot, "flux-cli.ts"), "principal", root, ...extra], {
       name: "xterm-256color",
       cols: 100,
       rows: 30,
