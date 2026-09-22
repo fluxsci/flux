@@ -10,27 +10,41 @@
 // CJS so the Electron main process can `require` it and flux-core can import
 // it (the same seam `flux-core/locks.ts` already uses for the lease module).
 // No retry at all off win32, where these codes mean what they say.
-const SHARING_VIOLATIONS = new Set(['EPERM', 'EBUSY', 'EACCES']);
-const BUDGET_MS = process.platform === 'win32' ? 2500 : 0;
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const SHARING_VIOLATIONS = new Set(["EPERM", "EBUSY", "EACCES"]);
+const BUDGET_MS = process.platform === "win32" ? 2500 : 0;
+/** @param {number} ms */
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Run `operation`, retrying a Windows sharing violation to a deadline. */
+/**
+ * Run `operation`, retrying a Windows sharing violation to a deadline.
+ * @template T
+ * @param {() => Promise<T>} operation
+ * @param {number} [budgetMs]
+ * @returns {Promise<T>}
+ */
 async function shareRetry(operation, budgetMs = BUDGET_MS) {
   if (!budgetMs) return operation();
   const deadline = Date.now() + budgetMs;
   for (let wait = 4; ; wait = Math.min(wait * 2, 120)) {
-    try { return await operation(); }
-    catch (error) {
-      if (!SHARING_VIOLATIONS.has(error?.code) || Date.now() >= deadline) throw error;
+    try {
+      return await operation();
+    } catch (caught) {
+      const error = /** @type {NodeJS.ErrnoException} */ (caught);
+      if (!isSharingViolation(error) || Date.now() >= deadline) throw error;
       // Jitter: contenders that poll in lockstep must not retry in lockstep.
       await delay(wait + Math.floor(Math.random() * wait));
     }
   }
 }
 
-/** True when this error is a Windows sharing violation rather than a refusal. */
+/**
+ * True when this error is a Windows sharing violation rather than a refusal.
+ * @param {unknown} error
+ * @returns {boolean}
+ */
 function isSharingViolation(error) {
-  return SHARING_VIOLATIONS.has(error?.code);
+  const code = /** @type {NodeJS.ErrnoException | null | undefined} */ (error)?.code;
+  return typeof code === "string" && SHARING_VIOLATIONS.has(code);
 }
 
 module.exports = { shareRetry, isSharingViolation };
