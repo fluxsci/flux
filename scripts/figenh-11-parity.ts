@@ -3,6 +3,7 @@
 // PERSIST in the on-disk model, and the live bridge set_guides matches + is
 // undoable. (Rulers/grid/pixel-snap are GUI/Settings — no agent analog.)
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -41,7 +42,7 @@ try {
 
   // CLI set-guides
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "set-guides", figureId, "--x", "200,600", "--y", "120", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
+    execFileSync(...tsxRun("flux-cli.ts", [ "set-guides", figureId, "--x", "200,600", "--y", "120", "--root", root]), { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
     const g = project.figures.find((ff) => ff.id === figureId)!.guides;
     assert(eq(g?.x, [200, 600]) && eq(g?.y, [120]), `CLI set-guides → x=${JSON.stringify(g?.x)} y=${JSON.stringify(g?.y)}`);

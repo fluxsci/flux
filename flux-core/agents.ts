@@ -73,10 +73,19 @@ function mcpSpecForCli(projectRoot: string): { command: string; args: string[]; 
   const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const dist = path.join(appRoot, "dist", "flux-mcp.mjs");
   if (fsSync.existsSync(dist)) return { command: process.execPath, args: [dist, projectRoot], ...(process.versions.electron ? { env: { ELECTRON_RUN_AS_NODE: "1" } } : {}) };
-  const tsxBin = path.join(appRoot, "node_modules", ".bin", "tsx");
+  // Not npm's .bin shim: it is an extensionless sh script on Windows, and its
+  // tsx.cmd twin cannot be spawned without a shell on current Node (EINVAL,
+  // the .cmd hardening) — a headless agent launch simply failed there
+  // (2026-09-22). This node plus the installed tsx CLI needs no shim and no
+  // shell, and keeps the child on the runtime we are already running.
+  const tsxCli = path.join(appRoot, "node_modules", "tsx", "dist", "cli.mjs");
   const entry = path.join(appRoot, "flux-mcp.ts");
-  if (fsSync.existsSync(tsxBin) && fsSync.existsSync(entry)) {
-    return { command: tsxBin, args: [entry, projectRoot] };
+  if (fsSync.existsSync(tsxCli) && fsSync.existsSync(entry)) {
+    return {
+      command: process.execPath,
+      args: [tsxCli, entry, projectRoot],
+      ...(process.versions.electron ? { env: { ELECTRON_RUN_AS_NODE: "1" } } : {}),
+    };
   }
   return null;
 }

@@ -17,6 +17,11 @@ import { readProjectDependencies } from "../src/lib/project/dependencies";
 let checks = 0;
 function eq(actual: unknown, expected: unknown, message: string) { assert.deepEqual(actual, expected, message); checks++; }
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-source-gate-"));
+// The product normalizes stored/derived source paths to forward slashes (they
+// are written into project files and must open on every platform), so the
+// EXPECTATIONS here are POSIX too — on Windows `${rootPosix}/plots` would otherwise
+// be `C:…gate-x/plots`, half one separator and half the other.
+const rootPosix = root.split(path.sep).join("/");
 const write = async (p: string, s: string) => { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, s); };
 const io = {
   readText: (p: string) => fs.readFile(p, "utf8"),
@@ -47,41 +52,41 @@ try {
   eq(reconcileFigureCaption(cap, "External edit", "Original caption"), "conflict", "two meaningful edits never silently overwrite");
   eq(cap.captions.__figure__, "Local edit", "conflict leaves canonical untouched");
   const moved = plotSourceCandidates(root, "/old/project/plots/source.svg");
-  eq(moved[0], `${root}/plots/source.svg`, "moved project's source wins over still-existing original");
+  eq(moved[0], `${rootPosix}/plots/source.svg`, "moved project's source wins over still-existing original");
   eq(plotSourceCandidates(root, "/old/project/plots/source.svg", { external: true })[0], "/old/project/plots/source.svg", "explicit external link retains origin");
-  eq(plotSourceCandidates(root, "plots/nested/missing.svg").includes(`${root}/plots/missing.svg`), false, "explicit nested path cannot silently bind same-basename plot");
-  eq(plotSidecarCandidates(root, { svgPath: "/old/project/plots/source.svg", manifestPath: "/old/project/metadata/custom.fluxplot.json" }, `${root}/plots/source.svg`, "manifest"), [`${root}/metadata/custom.fluxplot.json`], "authored metadata relocates with legacy SVG across directories");
+  eq(plotSourceCandidates(root, "plots/nested/missing.svg").includes(`${rootPosix}/plots/missing.svg`), false, "explicit nested path cannot silently bind same-basename plot");
+  eq(plotSidecarCandidates(root, { svgPath: "/old/project/plots/source.svg", manifestPath: "/old/project/metadata/custom.fluxplot.json" }, `${rootPosix}/plots/source.svg`, "manifest"), [`${rootPosix}/metadata/custom.fluxplot.json`], "authored metadata relocates with legacy SVG across directories");
   eq(plotSidecarCandidates(root, { svgPath: "/external/source.svg", manifestPath: "/external/custom.fluxplot.json", external: true }, "/external/source.svg", "manifest"), ["/external/custom.fluxplot.json"], "explicit external authored metadata keeps its origin");
 
-  await write(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "fixture-project", references: { library: "bib/library.bib" }, title: "Gate", figures: [], slides: [], manuscript: { path: "manuscript/main.qmd" }, supplementary: [] }));
-  await write(`${root}/manuscript/main.qmd`, "See @fig-old-key.\n");
-  await write(`${root}/plots/source.svg`, svg("red"));
-  await write(`${root}/fig/assets/a.svg`, svg("red"));
-  await write(`${root}/plots/source.fluxplot.json`, manifest(1));
-  await write(`${root}/fig/assets/a.fluxplot.json`, manifest(1));
-  await executeFigSave(planFigSave(p, null), { read: async (rel) => io.readText(`${root}/${rel}`).catch(() => null), write: (rel, s) => write(`${root}/${rel}`, s) });
+  await write(`${rootPosix}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "fixture-project", references: { library: "bib/library.bib" }, title: "Gate", figures: [], slides: [], manuscript: { path: "manuscript/main.qmd" }, supplementary: [] }));
+  await write(`${rootPosix}/manuscript/main.qmd`, "See @fig-old-key.\n");
+  await write(`${rootPosix}/plots/source.svg`, svg("red"));
+  await write(`${rootPosix}/fig/assets/a.svg`, svg("red"));
+  await write(`${rootPosix}/plots/source.fluxplot.json`, manifest(1));
+  await write(`${rootPosix}/fig/assets/a.fluxplot.json`, manifest(1));
+  await executeFigSave(planFigSave(p, null), { read: async (rel) => io.readText(`${rootPosix}/${rel}`).catch(() => null), write: (rel, s) => write(`${rootPosix}/${rel}`, s) });
   eq((await planSourceUpdates(root, p, io)).updates.length, 0, "identical semantic bundle is a no-op");
   const firstSource = (p.figures[0].elements[0] as any).source;
   firstSource.frozen = false;
   eq((await planSourceUpdates(root, p, io)).statuses[0].status, "current", "legacy absent frozen flag and explicit false are equivalent shared links");
   firstSource.external = false;
   eq((await planSourceUpdates(root, p, io)).statuses[0].status, "current", "legacy absent external flag and explicit false are equivalent shared links");
-  await write(`${root}/plots/source.fluxplot.json`, manifest(2));
+  await write(`${rootPosix}/plots/source.fluxplot.json`, manifest(2));
   let update = await planSourceUpdates(root, p, io);
   eq(update.updates.length, 1, "manifest-only source change detected once for shared asset");
   await writeSourceUpdates(root, update.updates, io, p);
-  eq(JSON.parse(await io.readText(`${root}/fig/assets/a.fluxplot.json`)).version, 2, "manifest-only update persisted");
-  await write(`${root}/plots/source.recipe.json`, JSON.stringify({ params: { n: 8 } }));
+  eq(JSON.parse(await io.readText(`${rootPosix}/fig/assets/a.fluxplot.json`)).version, 2, "manifest-only update persisted");
+  await write(`${rootPosix}/plots/source.recipe.json`, JSON.stringify({ params: { n: 8 } }));
   update = await planSourceUpdates(root, p, io);
   eq(update.updates.length, 1, "recipe-only change detected");
   await writeSourceUpdates(root, update.updates, io, p);
-  await fs.unlink(`${root}/plots/source.fluxplot.json`); await fs.unlink(`${root}/plots/source.recipe.json`);
+  await fs.unlink(`${rootPosix}/plots/source.fluxplot.json`); await fs.unlink(`${rootPosix}/plots/source.recipe.json`);
   update = await planSourceUpdates(root, p, io);
   await writeSourceUpdates(root, update.updates, io, p);
-  eq(await io.exists(`${root}/fig/assets/a.fluxplot.json`), false, "removed manifest is not resurrected");
-  eq(await io.exists(`${root}/fig/assets/a.recipe.json`), false, "removed recipe is not resurrected");
+  eq(await io.exists(`${rootPosix}/fig/assets/a.fluxplot.json`), false, "removed manifest is not resurrected");
+  eq(await io.exists(`${rootPosix}/fig/assets/a.recipe.json`), false, "removed recipe is not resurrected");
 
-  await write(`${root}/plots/source.svg`, svg("blue", 400));
+  await write(`${rootPosix}/plots/source.svg`, svg("blue", 400));
   update = await planSourceUpdates(root, p, io);
   const geometry = applySourceUpdates(p, update.updates);
   eq(geometry.resized[0].elementIds.length, 2, "all shared asset placements resize together");
@@ -90,18 +95,18 @@ try {
   eq(p.figures[0].captions?.__figure__, "Original caption", "caption survives source refresh");
   eq((p.figures[0].elements[0] as any).overrides.line.stroke, "purple", "semantic overrides survive");
   await writeSourceUpdates(root, update.updates, io, p);
-  await write(`${root}/plots/source.svg`, '<svg xmlns="http://www.w3.org/2000/svg"><rect');
+  await write(`${rootPosix}/plots/source.svg`, '<svg xmlns="http://www.w3.org/2000/svg"><rect');
   update = await planSourceUpdates(root, p, io);
   eq(update.updates.length, 0, "partial source SVG never accepted");
   eq(update.statuses[0].status, "error", "partial source reports actionable error");
-  eq(await io.readText(`${root}/fig/assets/a.svg`), svg("blue", 400), "last-good saved bytes retained");
-  await write(`${root}/plots/source.svg`, svg("green", 600));
+  eq(await io.readText(`${rootPosix}/fig/assets/a.svg`), svg("blue", 400), "last-good saved bytes retained");
+  await write(`${rootPosix}/plots/source.svg`, svg("green", 600));
   for (const f of p.figures) (f.elements[0] as any).source.frozen = true;
   eq((await planSourceUpdates(root, p, io)).updates.length, 0, "frozen source stays pinned");
   for (const f of p.figures) delete (f.elements[0] as any).source.frozen;
 
   // Exercise the real headless adapter, not a duplicated test implementation.
-  await write(`${root}/plots/source.fluxplot.json`, manifest(3));
+  await write(`${rootPosix}/plots/source.fluxplot.json`, manifest(3));
   const synced = await syncFigureAssets(root);
   eq(synced.refreshed.length, 1, "headless uses same shared-asset update plan");
   const loaded = await loadFigModel(root);
@@ -114,16 +119,16 @@ try {
   const customPlot = custom.figures[0].elements[0] as any;
   customPlot.source.manifestPath = "metadata/custom.fluxplot.json";
   customPlot.source.recipePath = "metadata/custom.recipe.json";
-  await write(`${root}/metadata/custom.fluxplot.json`, manifest(9));
-  await write(`${root}/metadata/custom.recipe.json`, '{"params":{"n":19}}');
+  await write(`${rootPosix}/metadata/custom.fluxplot.json`, manifest(9));
+  await write(`${rootPosix}/metadata/custom.recipe.json`, '{"params":{"n":19}}');
   let registered = false, watched: any[] = [];
   const nativeLike = { ...io, watchSourceFiles: async (r: string, scope: string, sources: any[]) => { eq([r, scope], [root, "fig"], "native registrations use owning project and subsystem scope"); registered = true; watched = sources; }, exists: async (p: string) => { assert.ok(registered, "read capability registered before first existence probe"); return io.exists(p); } };
   const authored = await planSourceUpdates(root, custom, nativeLike);
   eq(JSON.parse(authored.updates[0].bundle.manifestText!).version, 9, "authored semantic metadata takes priority over an adjacent file");
   eq(JSON.parse(authored.updates[0].bundle.recipeText!).params.n, 19, "authored recipe is part of the same stable source bundle");
-  eq(watched.some((s) => s.manifestPath === `${root}/metadata/custom.fluxplot.json` && s.recipePath === `${root}/metadata/custom.recipe.json`), true, "exact authored paths reach native watch registration");
+  eq(watched.some((s) => s.manifestPath === `${rootPosix}/metadata/custom.fluxplot.json` && s.recipePath === `${rootPosix}/metadata/custom.recipe.json`), true, "exact authored paths reach native watch registration");
   await writeSourceUpdates(root, authored.updates, io, custom);
-  await fs.unlink(`${root}/metadata/custom.fluxplot.json`);
+  await fs.unlink(`${rootPosix}/metadata/custom.fluxplot.json`);
   const removedAuthored = await planSourceUpdates(root, custom, io);
   eq(removedAuthored.updates[0].bundle.manifestText, null, "removed authored metadata cannot resurrect a stale adjacent sidecar");
   const denied = await planSourceUpdates(root, custom, { ...io, watchSourceFiles: async () => { throw new Error("denied"); } });
@@ -131,7 +136,7 @@ try {
 
   // A deck-only PNG use has no plot source fallback. Removing the last owning
   // figure must keep its registry entry for the still-live deck.
-  await write(`${root}/slides/d/deck.json`, JSON.stringify({ id: "d", title: "Deck", slides: [{ id: "s", elements: [{ type: "image", id: "i", assetId: "a" }], beats: [{ tracks: [{ id: "t", target: "i", to: { assetId: "animation-only" } }] }] }] }));
+  await write(`${rootPosix}/slides/d/deck.json`, JSON.stringify({ id: "d", title: "Deck", slides: [{ id: "s", elements: [{ type: "image", id: "i", assetId: "a" }], beats: [{ tracks: [{ id: "t", target: "i", to: { assetId: "animation-only" } }] }] }] }));
   const deps = await readProjectDependencies(root, io);
   eq(deps.byFigure.f1.some((u) => u.kind === "manuscript"), true, "manuscript use discovered by key");
   eq(deps.byAsset.a.some((u) => u.kind === "slide"), true, "unregistered disk deck use discovered");

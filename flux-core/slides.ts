@@ -50,7 +50,12 @@ import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
 import type { Asset } from "../src/lib/types";
 
-const j = (...p: string[]) => path.join(...p);
+// POSIX, not the platform: these are PROJECT-RELATIVE paths, and one of them
+// (the derived `svgPath`) is PERSISTED into deck.json. `path.join` on Windows
+// wrote `fig\assets\x.svg`, which no other platform resolves — a deck authored
+// on Windows would have arrived broken (2026-09-22). Node accepts forward
+// slashes on Windows for the filesystem side, so one form serves both.
+const j = (...p: string[]) => path.posix.join(...p);
 const stamp = () => new Date().toISOString();
 
 async function exists(p: string): Promise<boolean> {

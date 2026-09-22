@@ -3,6 +3,7 @@
 // an even array with fresh independent ids; the live bridge duplicate matches + is
 // undoable.
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -49,7 +50,7 @@ try {
 
   // CLI duplicate
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "duplicate", figureId, "m", "--dx", "0", "--dy", "70", "--count", "2", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
+    execFileSync(...tsxRun("flux-cli.ts", [ "duplicate", figureId, "m", "--dx", "0", "--dy", "70", "--count", "2", "--root", root]), { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
     assert(project.figures.find((ff) => ff.id === figureId)!.elements.length === 7, `CLI duplicate count:2 → 7 total (${project.figures.find((ff) => ff.id === figureId)!.elements.length})`);
   } catch (e) {

@@ -28,7 +28,9 @@ try {
   await core.scaffold(root, { title: "W9" });
 
   // A semantic plot whose manifest has a GROUP part ("bars") over two leaf rects.
-  const svg = path.join(ext, "bars.svg");
+  // POSIX separators: an external source path is STORED in the model, so the
+  // product normalizes it — a path.join expectation only matches on POSIX.
+  const svg = path.join(ext, "bars.svg").split(path.sep).join("/");
   await fs.writeFile(
     svg,
     `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">` +

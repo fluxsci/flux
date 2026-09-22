@@ -3,6 +3,7 @@
 // geometry + stroke/corner/font together, and the live bridge scale matches + is
 // undoable.
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -46,7 +47,7 @@ try {
 
   // CLI scale --factor 2 (back up)
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "scale", "r1", "--factor", "2", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
+    execFileSync(...tsxRun("flux-cli.ts", [ "scale", "r1", "--factor", "2", "--root", root]), { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
     const r = project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r1") as RectElement;
     assert(near(r.width, 200) && near(r.strokeWidth, 8), `CLI scale 2× restored (w=${r.width} sw=${r.strokeWidth})`);

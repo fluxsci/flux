@@ -33,28 +33,10 @@ function stale(info, ttl = TTL) {
   const stamp = Date.parse(info.ts);
   return Number.isFinite(stamp) && Date.now() - stamp > ttl;
 }
-// Windows only: a file another process merely has OPEN cannot be replaced or
-// unlinked — the scanner that reads every freshly written file takes handles
-// without FILE_SHARE_DELETE, and the operation comes back EPERM/EBUSY/EACCES.
-// It is a sharing violation, not a permissions problem, and it reached the user
-// as "Couldn't open project: EPERM: operation not permitted, rename"
-// (2026-09-22). Retry with backoff inside the arbitration's own 5 s deadline; a
-// first attempt that succeeds costs nothing. This covers the LEASE record,
-// whose pathname is by definition shared; the arbitration registers are never
-// replaced at all (see `transition`), because there retrying did not work.
-const SHARING_VIOLATIONS = new Set(['EPERM', 'EBUSY', 'EACCES']);
-const RETRY_BUDGET_MS = process.platform === 'win32' ? 2500 : 0;
-async function shareRetry(operation) {
-  if (!RETRY_BUDGET_MS) return operation();
-  const deadline = Date.now() + RETRY_BUDGET_MS;
-  for (let wait = 4; ; wait = Math.min(wait * 2, 120)) {
-    try { return await operation(); }
-    catch (error) {
-      if (!SHARING_VIOLATIONS.has(error?.code) || Date.now() >= deadline) throw error;
-      await delay(wait + Math.floor(Math.random() * wait)); // jitter: contenders poll in lockstep
-    }
-  }
-}
+// Windows sharing violations live in fsRetry.cjs — one implementation for the
+// lease record here and for every project-file write in flux-core/fsx.ts. The
+// arbitration registers need no retry: they are never replaced (see transition).
+const { shareRetry } = require("./fsRetry.cjs");
 async function atomic(file, value, exclusive = false) {
   const tmp = `${file}.tmp-${randomUUID()}`;
   try {

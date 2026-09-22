@@ -11,6 +11,7 @@
 //
 //  Run: npx tsx scripts/figenh-16-parity.ts
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -178,7 +179,7 @@ try {
 
   // CLI smoke: list-groups over the same project
   try {
-    const out = execFileSync("npx", ["tsx", "flux-cli.ts", "list-groups", "--figure", figureId, "--root", TMP], {
+    const out = execFileSync(...tsxRun("flux-cli.ts", [ "list-groups", "--figure", figureId, "--root", TMP]), {
       cwd: path.resolve("."),
       stdio: "pipe",
     }).toString();

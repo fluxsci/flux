@@ -2,6 +2,7 @@
 // overridden params, captures the emitted SVG, persists the merged params, and
 // journals it. (Combined with F1 file-watch, this is the live "regenerate" loop.)
 import * as fs from "node:fs/promises";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -50,7 +51,7 @@ const jrnl = await fs.readFile(path.join(TMP, ".meta", "journal.ndjson"), "utf8"
 results.journal = jrnl.includes('"action":"rerun-plot"') && jrnl.includes("mann-whitney");
 
 // The actual CLI path: rerun-plot with a different param.
-await pexec("npx", ["tsx", "flux-cli.ts", "rerun-plot", recipePath, "--test", "wilcoxon"], { cwd: REPO, env: { ...process.env, FLUX_NO_MIGRATE: "1" } });
+await pexec(...tsxRun("flux-cli.ts", [ "rerun-plot", recipePath, "--test", "wilcoxon"]), { cwd: REPO, env: { ...process.env, FLUX_NO_MIGRATE: "1" } });
 const svg2 = await fs.readFile(path.join(TMP, "plots", "out.svg"), "utf8");
 results.cliRerun = { svgReflectsParam: svg2.includes("wilcoxon") };
 

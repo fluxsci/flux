@@ -24,6 +24,8 @@ const pty: any = requireRuntime("@lydell/node-pty");
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "verify-ppty-"));
 const realHome = process.env.HOME;
+const realProfile = process.env.USERPROFILE;
+const realAppData = process.env.APPDATA;
 const realXdg = process.env.XDG_CONFIG_HOME;
 
 const waitFor = async (cond: () => boolean, ms: number): Promise<boolean> => {
@@ -71,17 +73,26 @@ rl.on("line", (l) => { console.log("GOT " + l); process.exit(0); });
   );
 
   // Scaffold the project with the real engine (scratch env applied per-call).
+  // Windows resolves the home from USERPROFILE and keeps the pointer to
+  // FluxConfig under APPDATA, so a HOME-only redirect still read the
+  // developer's real config (2026-09-22).
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  process.env.APPDATA = path.join(scratch, "appdata");
   process.env.XDG_CONFIG_HOME = path.join(scratch, "xdg");
   process.env.FLUX_NO_MIGRATE = "1";
   const core = await import("../flux-core/index");
   const root = path.join(scratch, "proj");
   await core.scaffold(root, { title: "PTY Gate" });
 
-  const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
+  // This node + the installed tsx CLI: the .bin shim is an sh script on
+  // Windows and its .cmd twin cannot be spawned without a shell on current
+  // Node, so neither name starts a process there.
+  const tsxBin = process.execPath;
+  const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
   const runOnce = async (extra: string[], interact?: (write: (s: string) => void, peek: () => string) => Promise<void>): Promise<{ out: string; exit: number }> => {
     let out = "";
-    const child = pty.spawn(tsxBin, [path.join(repoRoot, "flux-cli.ts"), "principal", root, ...extra], {
+    const child = pty.spawn(tsxBin, [tsxCli, path.join(repoRoot, "flux-cli.ts"), "principal", root, ...extra], {
       name: "xterm-256color",
       cols: 100,
       rows: 30,
@@ -156,11 +167,18 @@ rl.on("line", (l) => { console.log("GOT " + l); process.exit(0); });
   });
   ok(r4.exit === 0 && !/READY/.test(r4.out), "picker q quits without launching the principal");
 } finally {
+  if (realProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = realProfile;
+  if (realAppData === undefined) delete process.env.APPDATA;
+  else process.env.APPDATA = realAppData;
   if (realHome === undefined) delete process.env.HOME;
   else process.env.HOME = realHome;
   if (realXdg === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = realXdg;
-  fs.rmSync(scratch, { recursive: true, force: true });
+  // A just-exited child can still hold its cwd open on Windows; the scratch
+  // dir is disposable and must never decide the result.
+  try { fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  catch (error) { console.warn(`scratch left behind (${scratch}): ${(error as Error).message}`); }
 }
 
 await h.done();

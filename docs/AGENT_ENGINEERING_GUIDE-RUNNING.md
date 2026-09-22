@@ -92,6 +92,7 @@ The established shared cores — extend these, don't duplicate them:
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
+| Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -441,6 +442,29 @@ Persistence invariants (all machine-checked — do not weaken):
   hundreds of labels, so it is ONE pass with two fast paths (one visual line; one hard line)
   and no intermediate arrays — the first cut allocated two arrays and ran two regexes per line
   and cost +10% on the dense nudge (scale-figure 167 → 184 ms).
+- **A text element can format PART of its string** (2026-09-22): `runs?: TextRun[]` holds
+  `{from, to, bold?, italic?, underline?}` over `text`, and `textRuns.ts` is the ONE source for
+  all of it — normalization, toggling, remapping across an edit, and cutting a line into
+  segments. Each flag is TRI-STATE: absent inherits the element, so a word can be italic in an
+  upright box and upright in an italic one. Runs are clamped, sorted, non-overlapping and
+  merged, a flag that merely restates the element is PRUNED, and an empty list deletes the
+  field — absence is the default, which is what keeps every pre-2026-09-22 file byte-identical
+  (`pruneTextRuns` runs after every element-level font change and after a named style applies).
+  `blockLayout` attaches `segments` to a line only when a run touches it, mapping visual lines
+  back to text offsets through `visualLineSpans`; an unmappable wrap cache degrades to
+  UNFORMATTED lines rather than to wrong offsets, the same safe direction `paragraphEndFlags`
+  takes. `export.ts` nests one tspan per differing segment inside the line's tspan, carrying
+  ONLY what differs and never an `x` (that would restart the line), so justification still
+  rides the line tspan and an unformatted text serializes exactly as before; the slide player
+  rebuilds those children only when the segment key changes. **Measurement is run-aware**:
+  `elementMeasure` cuts at run boundaries and measures each piece in its own font, which is why
+  `wrapLine`/`wrapText` now thread a text OFFSET into the measure — a bold word is wider and
+  wrapping has to know. THE EDITING LIMIT: the inline editor is a `<textarea>`, which cannot
+  render mixed fonts, so runs are invisible while typing and appear on commit; Ctrl+B/I/U
+  formats the SELECTION, and a selection that is empty or covers everything means the element
+  (the editor opens with everything selected, so that case has to mean the element). Escape
+  discards the whole edit session, blur commits it. Agents cannot set runs yet — no verb
+  exposes them.
   **Justification needs a wrap width, and the product has to hand the user one** (owner
   report 2026-09-18, "justify does not work"): a hugging box (`sizing: "auto"`) has no wrap
   width — its width follows the text — so nothing ever wraps and Justify was a silent no-op
@@ -1613,6 +1637,22 @@ days (probe geometry like `width` instead).
   and flaked on a loaded CI runner; a `/proc` read that LOST the race to a complete reap
   returned "" and also scored as alive. Poll to a deadline instead — it still fails a
   surviving descendant, it just stops putting a stopwatch on the scheduler.
+- **A path that gets PERSISTED must be POSIX, whatever the platform.** `flux-core/slides.ts`
+  derived a plot's `svgPath` with `path.join`, so a deck authored on Windows stored
+  `fig\assets\x.svg` into deck.json — a path no other platform resolves, shipped inside a
+  portable project. `path.posix.join` for anything that lands in a file; Node takes forward
+  slashes on Windows for the filesystem half, so one form serves both. Gates comparing paths
+  need the same discipline: `verify-docs` and `verify-figure-sources` each compared a
+  `path.join` result against a stored forward-slash path and failed on Windows only.
+- **`npx` is not an executable on Windows.** Thirteen gates spawned `npx tsx …` unshelled and
+  died with ENOENT there — most of what made the pure tier look broken on Windows. They go
+  through `scripts/lib/tsxRun.mjs` now (this node + the installed tsx CLI), which is also one
+  less resolution step. A generated probe imported by ABSOLUTE path needs a file: URL too:
+  `C:\…` is an unsupported ESM url scheme, while the tsx ENTRY argument must stay a plain path.
+- **A gate that needs a browser should find one.** `driver.mjs` hard-coded
+  `/usr/bin/google-chrome`, so every ui gate on Windows failed at launch unless the developer
+  knew to set `FLUX_CHROME`. It now probes the standard install locations per platform, and
+  the variable still wins.
 - **Windows: a just-closed Chromium keeps its Crashpad metrics file open.** The verify
   runner deleted each attempt's scratch temp with a bare `rmSync` in a `finally`, so the
   EBUSY threw out of the runner itself and killed the whole run at the FIRST browser gate —
@@ -2040,8 +2080,10 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   unchanged scale gate. Historical dense-canvas initial mount:160plots → one~90ms task.
 - The proxy-capture engine is owner-tuned and out of scope for refactors; its behavior contract is
   `verify-proxy-capture.cjs` + `verify-netget.cjs`.
-- **Slide deferrals (slide-migration, owner-scoped §8):** rich text boxes /
-  bullets and math are OUT — slide text is the figure `text` element; KaTeX
+- **Slide deferrals (slide-migration, owner-scoped §8):** bullets and math are OUT — slide
+  text is the figure `text` element. Per-range bold/italic/underline INSIDE that element is no
+  longer deferred (owner request, 2026-09-22 — see §4 and `textRuns.ts`); a separate rich-text
+  box type still is; KaTeX
   left the deck export bundle entirely. MP4/MOV video is implemented as a slide-only
   element (see the clip contract above). Live-linked
   embedded figures (the old `embedFigure`) were removed — design fresh if
@@ -6206,3 +6248,36 @@ the first retry loop came from the owner's other session in this same checkout.
 - Reproduce a platform fs failure through the real module before theorizing: raw
   link/unlink/read/rename in a loop never failed, and 40 iterations of the actual
   `acquire`/`release` pair failed three times.
+
+### 2026-09-22 — Italic for one word, not the whole box (Claude Opus 5, `main`)
+**Work:** The owner asked to format part of a text box rather than all of it. A text element
+now carries `runs`, and `textRuns.ts` owns the semantics; layout, the canvas painter, the SVG
+serializer (so flux-core's headless render and every slide host), wrapping metrics, the ops
+surface and the inline editor all read it. Gated by `verify-text-runs.ts` (45 checks) and
+`verify-text-runs-gui.mjs`, which drives the real T-tool editor. The editing surface is
+unchanged on purpose: seven gates address `textarea.text-edit` by selector, and swapping it
+for a contenteditable to preview mixed fonts would have rewritten all of them for a preview.
+**Learnings:**
+- Promoted to §2 (shared cores), §4 (the model, the degrade rule, the editing limit) and §10
+  (the slide deferral now covers only a separate rich-text box type).
+- The inline editor opens with the whole text SELECTED, so "there is a selection" cannot mean
+  "format a range" — `verify-text-biu`'s in-editor toggles failed until a full selection meant
+  the element again. Read what the existing gates assume before adding a mode to a surface.
+- Escape in the text editor ROLLS BACK the session (`editSession.cancel`); blur commits. A gate
+  that ends an edit with Escape is testing undo, which is how this one first read as a broken
+  renderer while the DOM was correct all along.
+
+### 2026-09-22 — The ui and pure tiers, made runnable on Windows (Claude Opus 5, `main`)
+**Work:** Verifying the day's product work on the owner's machine kept failing in the harness
+rather than the product, so the harness got fixed: Chromium is found per platform instead of
+at one Linux path, thirteen gates stopped spawning `npx`, the slide export parity probe stopped
+importing by bare Windows path, and `verify-docs`/`verify-figure-sources` stopped comparing
+backslashes against slashes. One of those chases turned up a real portability defect —
+`flux-core/slides.ts` persisted a `fig\assets\…` svgPath into deck.json on Windows, which no
+other platform resolves — now `path.posix.join`.
+**Learnings:**
+- Promoted to §9: persisted paths are POSIX, `npx` is not an executable on Windows, and a gate
+  should find its own browser.
+- A platform-specific harness defect is indistinguishable from a product regression until you
+  read the failure. Three separate red gates here were the harness, one was the product, and
+  the product one was only reachable after the other three were fixed.

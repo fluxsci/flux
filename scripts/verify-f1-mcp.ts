@@ -2,6 +2,7 @@
 // the verbs (list_project, get_figure_image, set_caption) — proving an MCP client
 // (Claude Desktop/Code) can drive a Flux project.
 import * as fs from "node:fs/promises";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -35,8 +36,8 @@ await fs.writeFile(
 );
 
 const transport = new StdioClientTransport({
-  command: "npx",
-  args: ["tsx", "flux-mcp.ts", TMP],
+  command: tsxRun("flux-mcp.ts", [TMP])[0],
+  args: tsxRun("flux-mcp.ts", [TMP])[1],
   cwd: REPO,
   // never run the FluxConfig migration against the real HOME from a test (the
   // SDK strips inherited env, so the guard must be passed explicitly)

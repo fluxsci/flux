@@ -110,15 +110,22 @@ try {
   const { promisify } = await import("node:util");
   const run = promisify(execFile);
   const probe = `
-    import { exportDeckHtml } from ${JSON.stringify(path.join(repoRoot, "src/lib/slide/export/exportDeck.ts"))};
-    import * as slides from ${JSON.stringify(path.join(repoRoot, "flux-core/slides.ts"))};
+    import { exportDeckHtml } from ${JSON.stringify(url.pathToFileURL(path.join(repoRoot, "src/lib/slide/export/exportDeck.ts")).href)};
+    import * as slides from ${JSON.stringify(url.pathToFileURL(path.join(repoRoot, "flux-core/slides.ts")).href)};
     const { payload } = await slides.gatherDeckPayload(${JSON.stringify(root)}, "parity");
     const r = await exportDeckHtml(payload);
     console.log("BYTES:" + r.bytes);
   `;
   const probePath = path.join(root, "probe.mts");
   await fs.writeFile(probePath, probe);
-  const { stdout, stderr } = await run("npx", ["tsx", probePath], {
+  // A generated probe imports by ABSOLUTE path, and on win32 "C:\…" is an
+  // unsupported ESM url scheme — the specifiers and the entry are file: URLs.
+  // Spawn tsx through THIS node, not through `npx`: win32 has no bare `npx`
+  // executable (only `npx.cmd`), so an unshelled spawn dies with ENOENT and
+  // takes the whole gate with it — the same trap `run-verifies.mjs` hit with
+  // `npm`. Going straight to the installed CLI also skips a resolution step.
+  const tsxCli = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+  const { stdout, stderr } = await run(process.execPath, [tsxCli, probePath], {
     cwd: repoRoot,
     maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, FLUX_EXPORT_SIDECAR: sidecarPath },

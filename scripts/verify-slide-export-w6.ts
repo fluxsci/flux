@@ -7,6 +7,8 @@
 // the presenter panel.
 // Run: npx tsx scripts/verify-slide-export-w6.ts
 import { writeFile } from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
 import * as ops from "../src/lib/slide/ops";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
@@ -28,7 +30,9 @@ assert(!/katex/i.test(plainOut.html.slice(0, 4000)), "no katex reference in the 
 assert(plainOut.bytes < 900_000, `export stays lean without KaTeX (${(plainOut.bytes / 1024) | 0} KB)`);
 
 // write the no-math file for the live pass
-const file = "/tmp/flux-export-w6.html";
+// os.tmpdir(), not a literal /tmp: on Windows that resolved to C:	mp, which
+// does not exist, and the gate died on the write (2026-09-22).
+const file = path.join(os.tmpdir(), "flux-export-w6.html");
 await writeFile(file, plainOut.html, "utf8");
 console.log(`  wrote ${(plainOut.bytes / 1024) | 0} KB → ${file}`);
 

@@ -3,6 +3,7 @@
 // matches the GUI's ops.rotateElements; single-element rotate ≡ set_style{rotation};
 // group members orbit the pivot; the bridge edit is undoable.
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -59,7 +60,7 @@ try {
   // CLI binary: rotate r2 by 30° more
   const before2 = await core.loadFigModel(root).then((m) => m.project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r2")!.rotation);
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "rotate", "r2", "--deg", "30", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
+    execFileSync(...tsxRun("flux-cli.ts", [ "rotate", "r2", "--deg", "30", "--root", root]), { cwd: path.resolve("."), stdio: "pipe" });
     const after2 = await core.loadFigModel(root).then((m) => m.project.figures.find((ff) => ff.id === figureId)!.elements.find((e) => e.id === "r2")!.rotation);
     assert(near(after2, before2 + 30), `CLI rotate r2 +30 → ${after2}`);
   } catch (e) {

@@ -10,6 +10,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -22,7 +23,7 @@ const repo = path.join(import.meta.dirname, "..");
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-slide-e2e-"));
 
 async function flux(...args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return execFileP("npx", ["tsx", path.join(repo, "flux-cli.ts"), ...args, "--root", root], {
+  return execFileP(...tsxRun(path.join(repo, "flux-cli.ts"), [...args, "--root", root]), {
     cwd: repo,
     timeout: 120_000,
   });

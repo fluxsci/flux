@@ -13,11 +13,30 @@
 // Screenshot dir defaults to test-results/out in the repo (created on demand);
 // override with FLUX_OUT (e.g. a session scratchpad).
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 import { recordBrowserRuntime } from './runtimeEvidence.mjs';
 
-export const CHROME = process.env.FLUX_CHROME || "/usr/bin/google-chrome";
+// FLUX_CHROME wins everywhere. The fallback is the CI path on Linux; on
+// Windows there is no such path, so every ui gate died at launch unless the
+// developer knew to set the variable — probe the standard install locations
+// instead (2026-09-22). macOS gets its bundle path for the same reason.
+function defaultChrome() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)"}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env.LOCALAPPDATA ?? ""}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Microsoft\\Edge\\Application\\msedge.exe`,
+        ]
+      : process.platform === "darwin"
+        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome"]
+        : ["/usr/bin/google-chrome"];
+  for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate;
+  return candidates[0];
+}
+export const CHROME = process.env.FLUX_CHROME || defaultChrome();
 export const APP_URL = process.env.FLUX_URL || "http://127.0.0.1:1420/";
 export const OUT = process.env.FLUX_OUT || "test-results/out";
 try {

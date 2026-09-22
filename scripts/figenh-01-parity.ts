@@ -3,6 +3,7 @@
 // live bridge matches the GUI's ops.addPath/updatePath, renders through the same
 // figureToSvg → PNG, and the bridge edits are undoable. "No capability is GUI-only."
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -59,7 +60,7 @@ try {
 
   // --- CLI binary: add a second path ---
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "add-path", figureId, "--nodes", JSON.stringify(NODES), "--stroke", "#07c", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
+    execFileSync(...tsxRun("flux-cli.ts", [ "add-path", figureId, "--nodes", JSON.stringify(NODES), "--stroke", "#07c", "--root", root]), { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
     const paths = project.figures.find((ff) => ff.id === figureId)!.elements.filter((e) => e.type === "path");
     assert(paths.length === 2, `CLI add-path created a 2nd path (${paths.length} total)`);

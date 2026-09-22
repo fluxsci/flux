@@ -8,6 +8,7 @@
 // writes) so atomic saves don't echo spurious "external change" events.
 
 import { promises as fs } from "node:fs";
+import { shareRetry } from "../electron/fsRetry.cjs";
 import path from "node:path";
 
 let seq = 0;
@@ -29,11 +30,15 @@ export async function atomicWrite(p: string, data: string | Uint8Array, createOn
     else await fh.writeFile(data);
     await fh.sync();
     await fh.close(); fh = undefined;
-    if (createOnly) { await fs.link(tmp, p); await fs.unlink(tmp); }
-    else await fs.rename(tmp, p);
+    // On Windows the destination may be held open for a moment by whatever
+    // read the previous version (a scanner, an indexer), and the replace comes
+    // back EPERM — a moment to wait out, not a refusal. Without this a save
+    // failed outright and the user saw "Couldn't save figures" (2026-09-22).
+    if (createOnly) { await shareRetry(() => fs.link(tmp, p)); await shareRetry(() => fs.unlink(tmp)); }
+    else await shareRetry(() => fs.rename(tmp, p));
   } finally {
     await fh?.close().catch(() => {});
-    await fs.rm(tmp, {force: true}).catch(() => {});
+    await shareRetry(() => fs.rm(tmp, {force: true})).catch(() => {});
   }
 }
 
