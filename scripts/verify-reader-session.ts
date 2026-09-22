@@ -89,7 +89,9 @@ try {
  h.eq((await readReaderContext(A))?.pdfPath,externalPdf,'main reading context resolves the actual linked source without opening a deferred PDF');
  h.ok(!fs.existsSync(externalPdf),'context lookup never materializes a missing external PDF');
  fs.writeFileSync(path.join(item,'paper.pdf'),'exact stored source');
- h.eq((await readReaderContext(A))?.pdfPath,path.join(item,'paper.pdf'),'stored PDF remains authoritative over a fallback linked pointer');
+ // The resolver joins a POSIX item path onto the root, so on Windows its
+ // answer mixes separators while path.join would not — compare in one form.
+ h.eq((await readReaderContext(A))?.pdfPath?.split(path.sep).join('/'),path.join(item,'paper.pdf').split(path.sep).join('/'),'stored PDF remains authoritative over a fallback linked pointer');
  h.eq(await native.release(senders[1],one.token),false,'foreign renderer cannot clear another sender claim');
  let two:any;
  beforeCommit=()=>{beforeCommit=undefined;focus=2;two=native.claim(senders[1],{root:A,owner:'pane-B'});};
@@ -100,7 +102,7 @@ try {
  h.eq(await native.release(senders[0],one.token),false,'stale clear cannot erase a newer focused owner');
  h.eq(JSON.parse(fs.readFileSync(pA,'utf8')).citekey,'paper-B','newest focused document remains stored after stale clear');
  await native.publish(senders[1],{token:two.token,generation:2,context:{...context('paper-B'),sourcePdf:{supplement:'methods.pdf'}}});
- const supplementContext=await readReaderContext(A);h.ok(supplementContext?.pdfPath?.endsWith('/supplements/methods.pdf')&&!supplementContext.fulltextPath,'supplement context names actual PDF and cannot expose main-paper fulltext');
+ const supplementContext=await readReaderContext(A);h.ok(supplementContext?.pdfPath?.split(path.sep).join('/').endsWith('/supplements/methods.pdf')&&!supplementContext.fulltextPath,'supplement context names actual PDF and cannot expose main-paper fulltext');
  await assert.rejects(()=>native.publish(senders[1],{token:two.token,generation:3,context:{...context('paper-B'),sourcePdf:{supplement:'../foreign.pdf'}}}),/source/);h.ok(true,'context source rejects traversal identity');
  const current=fs.readFileSync(pA);beforeCommit=()=>{beforeCommit=undefined;activeRoot=B;};
  h.eq(await native.publish(senders[1],{token:two.token,generation:4,context:context('wrong-root')}),false,'library move during staged native write is refused at commit');
@@ -113,14 +115,19 @@ try {
  h.ok(JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt>firstTime,'focused long read renews context without user interaction');
  focus=0;publisher.update(A,context('must-not-publish-background-change'),true,false);await publisher.flush();
  const external=await readReaderContext(A);h.ok(external?.citekey==='long-read'&&external.foreground===false,'external-agent OS focus retains the exact last reader context without publishing new background text');
- const contentAt=external.updatedAt;await new Promise(r=>setTimeout(r,12));await publisher.flush();
+ const contentAt=external?.updatedAt;await new Promise(r=>setTimeout(r,12));await publisher.flush();
  h.ok((await readReaderContext(A))?.updatedAt===contentAt,'background heartbeat renews liveness without falsely restamping content time');
  focus=2;
  await publisher.dispose();h.eq(await readReaderContext(A),null,'view disposal releases its exact native context owner');
  const old={...context('crashed'),owner:live.token,expiresAt:new Date(Date.now()-1).toISOString()};fs.writeFileSync(pA,JSON.stringify(old));
  h.eq(await readReaderContext(A),null,'expired crashed-process context cannot be returned as current reading');
  const dead=await native.claim(senders[1],{root:A,owner:'destroyed'});await native.publish(senders[1],{token:dead.token,generation:1,context:context('destroyed')});senders[1].emit('destroyed');
- await new Promise(r=>setTimeout(r,10));h.eq(await readReaderContext(A),null,'native sender destruction clears context before the expiry fallback');
+ // The destroy handler fires release() WITHOUT awaiting it, so a single read a
+ // fixed 10ms later is racing an un-awaited write — it lost on a loaded CI
+ // runner (2026-09-22). Poll to a deadline: the clear must still happen
+ // promptly and long before the 30s expiry fallback this check is about.
+ let cleared=null;for(let i=0;i<200;i++){cleared=await readReaderContext(A);if(cleared===null)break;await new Promise(r=>setTimeout(r,10));}
+ h.eq(cleared,null,'native sender destruction clears context before the expiry fallback');
  activeRoot=A;focus=2;
  const pause1=await native.suspend(),pause2=await native.suspend();
  h.eq(await native.claim(senders[1],{root:A,owner:'paused'}),null,'configuration move refuses new native context claims');

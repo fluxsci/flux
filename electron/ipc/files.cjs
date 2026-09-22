@@ -10,6 +10,7 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const { readTextBounded } = require("../boundedText.cjs");
+const { shareRetry } = require("../fsRetry.cjs");
 
 // W2 (V1 review): durable renderer writes — every fs:write* lands via
 // write-tmp + fsync + rename, so a crash/power-loss can never truncate a
@@ -59,17 +60,21 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       await fh.sync();
       await fh.close(); fh = null;
       if (beforePublish) beforePublish();
+      // Windows may refuse to replace or unlink a file something else merely
+      // has open (the scanner that just read the previous version). This is
+      // the write EVERY renderer save goes through, and losing that race is
+      // what the owner saw as "Couldn't save figures" (2026-09-22).
       if (createOnly) {
-        await fs.promises.link(tmp, p);
-        await fs.promises.unlink(tmp);
-      } else await fs.promises.rename(tmp, p);
+        await shareRetry(() => fs.promises.link(tmp, p));
+        await shareRetry(() => fs.promises.unlink(tmp));
+      } else await shareRetry(() => fs.promises.rename(tmp, p));
       noteWrite(p, senderId);
     } catch (error) {
       diagnose('filesystem', 'failed', ['EACCES', 'ENOSPC', 'EROFS', 'EBUSY', 'EEXIST'].includes(error.code) ? error.code : 'SAVE_FAILED');
       throw error;
     } finally {
       await fh?.close().catch(() => {});
-      await fs.promises.rm(tmp, { force: true }).catch(() => {});
+      await shareRetry(() => fs.promises.rm(tmp, { force: true })).catch(() => {});
     }
   }
 
