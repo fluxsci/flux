@@ -4,7 +4,7 @@
 // and the fig/renders/ materialization Quarto reads from disk.
 
 import * as fs from "node:fs/promises";
-import { relative } from "node:path";
+import { relative, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { buildPlotMarkup } from "../src/lib/plot/inlineMarkup";
@@ -178,7 +178,12 @@ export async function renderFigureSvg(
         // resolves against this root instead of silently yielding no manifest.
         for (const cand of plotSourceCandidates(root, src.manifestPath)) {
           if (!isUnderRoot(root, cand)) continue;
-          manifest = await readPlotManifest(root, relative(root, cand));
+          // POSIX: readPlotManifest validates its argument as a STORED asset
+          // path, and a stored path never contains a backslash. path.relative
+          // hands back `plotssource.fluxplot.json` on Windows, which the
+          // guard rejected — so a figure rendered headlessly there lost every
+          // semantic manifest instead of loading it (2026-09-22).
+          manifest = await readPlotManifest(root, relative(root, cand).split(sep).join("/"));
           if (manifest) break;
         }
       }
