@@ -59,7 +59,10 @@ export async function readReaderContext(libPath?: string): Promise<ReaderContext
     if(!ctx.citekey||!Number.isFinite(expiry)||Date.now()>expiry)return null;
     const supplement=ctx.sourcePdf&&typeof ctx.sourcePdf==='object'?ctx.sourcePdf.supplement:null;
     if(supplement&&(path.basename(supplement)!==supplement||supplement.includes('\\')||supplement==='.'||supplement==='..'))return null;
-    let readingPath=supplement?path.join(supplementsDir(root,ctx.citekey),supplement):pdfPath(root,ctx.citekey);
+    // Both branches must produce the SAME form: these item helpers are POSIX-joined
+    // (src/lib/references/items.ts), so a `path.join` here yielded a mixed-separator
+    // path on Windows that no caller could compare against a helper's output.
+    let readingPath=supplement?supplementFilePath(root,ctx.citekey,supplement):pdfPath(root,ctx.citekey);
     if(!supplement) {
       try { await fs.stat(readingPath); }
       catch(error) {

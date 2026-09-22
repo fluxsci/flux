@@ -6,6 +6,7 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { galleryDissectionKey, openGalleryVideo } from "../src/lib/plot/galleryExpanded";
 import type { FileBridge } from "../src/lib/project/types";
+import { fileLinksSupported, fileLinkSkipNote } from "./lib/symlinks.mjs";
 const require = createRequire(import.meta.url);
 const { createVideoMediaCore } = require("../electron/ipc/videoMedia.cjs");
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "flux-gallery-capability-"));
@@ -46,11 +47,15 @@ try {
   check((await read(movUrl)).headers.get("Content-Type") === "video/quicktime", "MOV streams retain their real media content type");
   for (const request of [{ root: scratch, path: movie }, { root, path: outside }, { root, path: path.join(root, "plots/../slides/deck/assets/saved.mp4") }, { root, path: path.join(root, "plots/nested/source.txt") }]) await assert.rejects(() => open(request));
   check(true, "wrong roots, outside files, traversal and non-video paths refuse");
-  const link = path.join(root, "plots/nested/link.mp4");
-  await fs.symlink(outside, link); await assert.rejects(() => open({ root, path: link }));
-  await fs.unlink(link); await fs.symlink(movie, link); const linked = await open({ root, path: link });
-  await fs.unlink(link); await fs.symlink(outside, link);
-  check((await read(linked)).status !== 200, "capabilities revalidate symlinks on every request");
+  // File symlinks only — a junction takes a directory, so win32 without Developer
+  // Mode cannot express this case at all.
+  if (fileLinksSupported()) {
+    const link = path.join(root, "plots/nested/link.mp4");
+    await fs.symlink(outside, link); await assert.rejects(() => open({ root, path: link }));
+    await fs.unlink(link); await fs.symlink(movie, link); const linked = await open({ root, path: link });
+    await fs.unlink(link); await fs.symlink(outside, link);
+    check((await read(linked)).status !== 200, "capabilities revalidate symlinks on every request");
+  } else console.log(fileLinkSkipNote("capabilities revalidate symlinks on every request"));
   const saved = await handlers.get("slides:videoMediaUrl")!(event, { root, path: "slides/deck/assets/saved.mp4" });
   await release(saved);
   check((await read(saved)).status === 200, "gallery release cannot revoke an existing slide's playback");

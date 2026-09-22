@@ -6,6 +6,8 @@ import path from 'node:path';
 import { planFigSave } from '../src/lib/project/figfiles';
 import { renderFigureSvg, materializeRenders } from '../flux-core/render';
 import type { Project, SemanticPlotElement } from '../src/lib/types';
+import { samePath } from "./lib/paths.mjs";
+import { fileLinksSupported, fileLinkSkipNote } from "./lib/symlinks.mjs";
 const base = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-render-manifest-'));
 const root = path.join(base, 'project'), outside = path.join(base, 'external');
 await fs.mkdir(root); await fs.mkdir(outside);
@@ -23,22 +25,32 @@ try {
   await save(); await fs.mkdir(path.join(root, 'fig/assets')); await fs.writeFile(path.join(root, 'fig/assets/a.svg'), svg); await fs.mkdir(path.join(root, 'plots'));
   await fs.writeFile(path.join(root, 'plots/source.fluxplot.json'), JSON.stringify(sidecar));
   red(await renderFigureSvg(root, 'f')); ok('legacy project-relative manifest fallback preserves group overrides in exported markup');
-  await fs.rename(path.join(root, 'plots/source.fluxplot.json'), path.join(root, 'plots/actual.fluxplot.json'));
-  await fs.symlink('actual.fluxplot.json', path.join(root, 'plots/source.fluxplot.json'));
-  red(await renderFigureSvg(root, 'f')); ok('symlink wholly inside project remains compatible');
-  await fs.rm(path.join(root, 'plots/source.fluxplot.json')); await fs.symlink(externalManifest, path.join(root, 'plots/source.fluxplot.json'));
-  let externalReads = 0; const originalRead = fs.readFile;
-  (fs as any).readFile = async (file: string, ...args: unknown[]) => { if (String(file) === externalManifest || String(file) === path.join(root, 'plots/source.fluxplot.json')) externalReads++; return (originalRead as Function)(file, ...args); }; syncBuiltinESMExports();
-  try { await assert.rejects(renderFigureSvg(root, 'f'), /symlink escapes/); } finally { (fs as any).readFile = originalRead; syncBuiltinESMExports(); }
-  assert.equal(externalReads, 0); ok('project-relative manifest symlink to another root is refused before any source bytes are read');
-  await fs.mkdir(path.join(root, 'fig/renders')); const published = path.join(root, 'fig/renders/f.svg'); await fs.writeFile(published, 'prior complete export bytes');
-  const result = await materializeRenders(root); assert.equal(result.wrote, 0); assert.deepEqual(result.failed, ['f']); assert.equal(await fs.readFile(published, 'utf8'), 'prior complete export bytes'); ok('actual materialization reports failed figure and preserves prior saved export bytes');
-  await fs.rm(path.join(root, 'plots/source.fluxplot.json')); await fs.writeFile(path.join(root, 'plots/source.fluxplot.json'), '{');
+  // Manifests are FILES, so these cases need file symlinks — which win32 refuses
+  // without Developer Mode, and a junction cannot stand in for (it takes a directory).
+  if (fileLinksSupported()) {
+    await fs.rename(path.join(root, 'plots/source.fluxplot.json'), path.join(root, 'plots/actual.fluxplot.json'));
+    await fs.symlink('actual.fluxplot.json', path.join(root, 'plots/source.fluxplot.json'));
+    red(await renderFigureSvg(root, 'f')); ok('symlink wholly inside project remains compatible');
+    await fs.rm(path.join(root, 'plots/source.fluxplot.json')); await fs.symlink(externalManifest, path.join(root, 'plots/source.fluxplot.json'));
+    let externalReads = 0; const originalRead = fs.readFile;
+    (fs as any).readFile = async (file: string, ...args: unknown[]) => { if (samePath(String(file), externalManifest) || samePath(String(file), path.join(root, 'plots/source.fluxplot.json'))) externalReads++; return (originalRead as Function)(file, ...args); }; syncBuiltinESMExports();
+    try { await assert.rejects(renderFigureSvg(root, 'f'), /symlink escapes/); } finally { (fs as any).readFile = originalRead; syncBuiltinESMExports(); }
+    assert.equal(externalReads, 0); ok('project-relative manifest symlink to another root is refused before any source bytes are read');
+    await fs.mkdir(path.join(root, 'fig/renders')); const published = path.join(root, 'fig/renders/f.svg'); await fs.writeFile(published, 'prior complete export bytes');
+    const result = await materializeRenders(root); assert.equal(result.wrote, 0); assert.deepEqual(result.failed, ['f']); assert.equal(await fs.readFile(published, 'utf8'), 'prior complete export bytes'); ok('actual materialization reports failed figure and preserves prior saved export bytes');
+    await fs.rm(path.join(root, 'plots/source.fluxplot.json'));
+  } else {
+    for (const label of ['symlink wholly inside project remains compatible','project-relative manifest symlink to another root is refused before any source bytes are read','actual materialization reports failed figure and preserves prior saved export bytes']) console.log(fileLinkSkipNote(label));
+    await fs.rm(path.join(root, 'plots/source.fluxplot.json'));
+  }
+  await fs.writeFile(path.join(root, 'plots/source.fluxplot.json'), '{');
   await assert.rejects(renderFigureSvg(root, 'f'), /JSON|property|Unexpected/); ok('existing corrupt semantic sidecar cannot silently become a derived plot');
   source.svgPath = path.join(outside, 'explicit.svg'); source.manifestPath = externalManifest; source.external = true; await save();
   await fs.writeFile(path.join(root, 'fig/assets/a.fluxplot.json'), JSON.stringify(sidecar));
   red(await renderFigureSvg(root, 'f')); ok('explicit external source imports render faithfully from their copied asset-local manifest');
-  await fs.rm(path.join(root, 'fig/assets/a.fluxplot.json')); await fs.symlink(externalManifest, path.join(root, 'fig/assets/a.fluxplot.json'));
-  await assert.rejects(renderFigureSvg(root, 'f'), /symlink escapes/); ok('asset-local manifest also rejects escaping symlink instead of hiding read failure');
+  if (fileLinksSupported()) {
+    await fs.rm(path.join(root, 'fig/assets/a.fluxplot.json')); await fs.symlink(externalManifest, path.join(root, 'fig/assets/a.fluxplot.json'));
+    await assert.rejects(renderFigureSvg(root, 'f'), /symlink escapes/); ok('asset-local manifest also rejects escaping symlink instead of hiding read failure');
+  } else console.log(fileLinkSkipNote('asset-local manifest also rejects escaping symlink instead of hiding read failure'));
   console.log(`RENDER MANIFEST CONFINEMENT: PASS (${checks} checks)`);
 } finally { await fs.rm(base, { recursive: true, force: true }); }

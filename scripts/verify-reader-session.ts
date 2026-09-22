@@ -12,6 +12,7 @@ import { readPngDpi, readPngText } from '../src/lib/figure/pngDpi';
 import { SNIP_TEXT_KEYWORD } from '../src/lib/references/snips';
 import { readReaderContext, ensureItemDir } from '../flux-core/items';
 import { harness } from './lib/harness.mjs';
+import { fileLinksSupported, fileLinkSkipNote } from "./lib/symlinks.mjs";
 const require=createRequire(import.meta.url),{createFileCore}=require('../electron/ipc/files.cjs'),{createReaderContext}=require('../electron/ipc/readerContext.cjs');
 const h=harness('verify-reader-session');
 const deferred=<T>()=>{let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>resolve=r);return {promise,resolve};};
@@ -89,9 +90,9 @@ try {
  h.eq((await readReaderContext(A))?.pdfPath,externalPdf,'main reading context resolves the actual linked source without opening a deferred PDF');
  h.ok(!fs.existsSync(externalPdf),'context lookup never materializes a missing external PDF');
  fs.writeFileSync(path.join(item,'paper.pdf'),'exact stored source');
- // The resolver joins a POSIX item path onto the root, so on Windows its
- // answer mixes separators while path.join would not — compare in one form.
- h.eq((await readReaderContext(A))?.pdfPath?.split(path.sep).join('/'),path.join(item,'paper.pdf').split(path.sep).join('/'),'stored PDF remains authoritative over a fallback linked pointer');
+ // items/ paths are POSIX-joined on every platform (src/lib/references/items.ts),
+ // so the expectation is too — path.join would compare backslashes on Windows.
+ h.eq((await readReaderContext(A))?.pdfPath,path.posix.join(item,'paper.pdf'),'stored PDF remains authoritative over a fallback linked pointer');
  h.eq(await native.release(senders[1],one.token),false,'foreign renderer cannot clear another sender claim');
  let two:any;
  beforeCommit=()=>{beforeCommit=undefined;focus=2;two=native.claim(senders[1],{root:A,owner:'pane-B'});};
@@ -143,9 +144,13 @@ try {
  const moved=path.join(scratch,'moved-library');fs.renameSync(A,moved);activeRoot=moved;resumeMove();await tick();
  h.ok(!fs.existsSync(A),'drained native owner cannot recreate the old library after a real directory move');
  fs.renameSync(moved,A);activeRoot=A;
- const escape=path.join(B,'foreign-context.json');fs.writeFileSync(escape,'exact foreign bytes');fs.unlinkSync(pA);fs.symlinkSync(escape,pA);
- await assert.rejects(()=>native.claim(senders[1],{root:A,owner:'escape'}),/escapes/);
- h.eq(fs.readFileSync(escape,'utf8'),'exact foreign bytes','native context refuses a cross-library stored-path symlink without changing foreign bytes');
+ // reader-context.json is a FILE, so this needs a file symlink — win32 refuses
+ // one without Developer Mode and a junction cannot stand in for it.
+ if (fileLinksSupported()) {
+  const escape=path.join(B,'foreign-context.json');fs.writeFileSync(escape,'exact foreign bytes');fs.unlinkSync(pA);fs.symlinkSync(escape,pA);
+  await assert.rejects(()=>native.claim(senders[1],{root:A,owner:'escape'}),/escapes/);
+  h.eq(fs.readFileSync(escape,'utf8'),'exact foreign bytes','native context refuses a cross-library stored-path symlink without changing foreign bytes');
+ } else console.log(fileLinkSkipNote('native context refuses a cross-library stored-path symlink without changing foreign bytes'));
  native.dispose();
  const delayed=deferred<{token:string;root:string}>(),released:string[]=[];let publications=0;
  const pending=createReaderContextPublisher({claim:()=>delayed.promise,publish:async()=>{publications++;return true;},release:async token=>{released.push(token);}},'late');
