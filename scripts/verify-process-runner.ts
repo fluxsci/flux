@@ -11,7 +11,11 @@ h.ok(result.code === 0 && result.stdout.trim() === "EOF", "noninteractive childr
 result = await run("process.stdout.write('a'.repeat(100000));process.stderr.write('b'.repeat(100000))", { maxOutputBytes: 1024 });
 h.eq([result.stdout.length, result.stderr.length, result.truncated.stdout, result.truncated.stderr], [1024,1024,98976,98976], "output flood retains bounded tails with exact truncation counters");
 result = await run("process.kill(process.pid,'SIGTERM')");
-h.ok(result.code !== 0 && result.status === "signal", "signal termination cannot become exit zero");
+// Windows has no signals: `process.kill(pid,"SIGTERM")` terminates the child
+// outright, so Node reports code 1 and signal null and there is no "signal"
+// status to observe. The property this check is named for — a killed child can
+// never look like a success — is asserted on both platforms.
+h.ok(result.code !== 0 && result.status === (process.platform === "win32" ? "exited" : "signal"), "signal termination cannot become exit zero");
 result = await run("setInterval(()=>{},1000)", { timeoutMs: 20, killGraceMs: 20 });
 h.ok(result.code !== 0 && result.status === "timeout", "deadline terminates the job with truthful status");
 const controller = new AbortController(); const promise = run("setInterval(()=>{},1000)", { signal: controller.signal }); controller.abort();

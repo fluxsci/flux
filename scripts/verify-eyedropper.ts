@@ -44,7 +44,12 @@ function spawnProcess(cmd: string, args: string[]) {
  child = Object.assign(new EventEmitter(),{stdin:new PassThrough(),stdout:new PassThrough(),stderr:new PassThrough(),kill(){this.emit('close',0)}});
  return child;
 }
-const service = createColorPicker({spawnProcess});
+// The portal path is Linux-only, and `platform` is the seam the module exposes
+// for exactly this: pinned here, the contract is exercised on every host instead
+// of quietly returning "unavailable" (and asserting nothing) off Linux.
+const service = createColorPicker({spawnProcess, platform: 'linux'});
+assert.equal((await createColorPicker({spawnProcess, platform: 'win32'}).pick(owner(9),'off-linux')).status,'unavailable');
+ok('the portal is offered only where it exists');
 const a = owner(1), b = owner(2);
 let p = service.pick(a,'first');
 assert.equal(command!,'/usr/bin/python3'); assert.equal(argv![0],'-I');

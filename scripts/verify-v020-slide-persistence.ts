@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DOMParser } from 'linkedom';
 import { get } from 'svelte/store';
 import { createDeck } from '../src/lib/slide/ops';
+import { samePath } from "./lib/paths.mjs";
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'flux-v020-slide-save-'));
 let beforeWrite:((p:string)=>Promise<void>)|undefined,beforeRead:((p:string)=>Promise<void>)|undefined;
 const fb={exists:async(p:string)=>fs.access(p).then(()=>true,e=>{if(e.code==='ENOENT')return false;throw e}),readText:async(p:string)=>{await beforeRead?.(p);return fs.readFile(p,'utf8')},readFile:async(p:string)=>{await beforeRead?.(p);const b=await fs.readFile(p);return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)},writeText:async(p:string,t:string)=>{await beforeWrite?.(p);await fs.mkdir(path.dirname(p),{recursive:true});await fs.writeFile(p,t)},writeFile:async(p:string,b:Uint8Array)=>{await beforeWrite?.(p);await fs.mkdir(path.dirname(p),{recursive:true});await fs.writeFile(p,b)},mkdir:async(p:string)=>{await fs.mkdir(p,{recursive:true})},remove:async(p:string)=>{await fs.rm(p,{force:true})}};
@@ -38,10 +39,13 @@ try{
  }
  await seed();await fb.writeText(root+'/plots/a.svg',svg('blue',200));await fb.writeText(root+'/plots/a.fluxplot.json',man(2));
  let release!:()=>void,entered!:()=>void;const waiting=new Promise<void>(r=>release=r),seen=new Promise<void>(r=>entered=r);let paused=false;
- beforeRead=async p=>{if(!paused&&p===root+'/plots/a.svg'){paused=true;entered();await waiting}};
+ // samePath, not ===: the source read arrives POSIX-joined while `root` is a
+ // native mkdtemp path, so a string compare never paused the read on Windows and
+ // the gate hung on its own barrier.
+ beforeRead=async p=>{if(!paused&&samePath(p,root+'/plots/a.svg')){paused=true;entered();await waiting}};
  const refresh=bridge.refreshDeckSources(root);await seen;slide.commitDeckLive(d=>{d.slides[0].elements[0].x=91});release();await refresh;beforeRead=undefined;
  assert.equal(slide.currentDeck()!.slides[0].elements[0].x,91);assert.equal(slide.currentDeck()!.slides[0].elements[0].width,100);assert.match(assets.getAssetData('a')!,/base64/);assert.equal(JSON.parse(await fs.readFile(deckPath,'utf8')).slides[0].elements[0].x,91);assert.match(await fs.readFile(assetPath,'utf8'),/blue/);ok('edit during source preparation merges position and physical source scale, then persists and publishes matching bytes');
- await seed();slide.commitDeckLive(d=>{d.title='Pending asset';d.slides[0].elements[0].x=55});assets.assetData.set({a:assets.bytesToDataUrl(new TextEncoder().encode(svg('green')),'image/svg+xml')});assets.markAssetDirty('a');const original=await files();let failed=false;beforeWrite=async p=>{if(p===root+'/project.json'&&!failed){failed=true;throw Error('ENOSPC manifest')}};
+ await seed();slide.commitDeckLive(d=>{d.title='Pending asset';d.slides[0].elements[0].x=55});assets.assetData.set({a:assets.bytesToDataUrl(new TextEncoder().encode(svg('green')),'image/svg+xml')});assets.markAssetDirty('a');const original=await files();let failed=false;beforeWrite=async p=>{if(samePath(p,root+'/project.json')&&!failed){failed=true;throw Error('ENOSPC manifest')}};
  await assert.rejects(bridge.saveDeckFrom(root),/ENOSPC/);beforeWrite=undefined;assert.deepEqual(await files(),original);assert.equal(assets.isAssetDirty('a'),true);assert.equal(get(store.dirty),true);await bridge.saveDeckFrom(root);assert.match(await fs.readFile(assetPath,'utf8'),/green/);assert.equal(assets.isAssetDirty('a'),false);assert.equal(get(store.dirty),false);ok('ordinary asset save is transactional and only successful generation clears dirty');
  await seed();const cached=JSON.stringify(get(assets.assetData));const d=await bridge.readDeck(root,'talk');await bridge.resolveDeckAssets(root,d!,()=>false,true);assert.equal(JSON.stringify(get(assets.assetData)),cached);ok('read-only deck resolution leaves global accepted data unchanged');
  await seed();await fs.mkdir(root+'/custom-decks',{recursive:true});await fs.rename(deckPath,root+'/custom-decks/talk.json');const registration=JSON.parse(await fs.readFile(root+'/project.json','utf8'));registration.slides[0].path='custom-decks/talk.json';await fs.writeFile(root+'/project.json',JSON.stringify(registration));await bridge.loadDeckInto(root,'talk');slide.commitDeckLive(d=>{d.title='Custom path';d.slides[0].elements[0].x=73});await bridge.saveDeckFrom(root);assert.equal(await fb.exists(deckPath),false);assert.equal(JSON.parse(await fs.readFile(root+'/custom-decks/talk.json','utf8')).slides[0].elements[0].x,73);assert.deepEqual(JSON.parse(await fs.readFile(root+'/project.json','utf8')).unknown,{keep:true});ok('custom registered relative JSON deck path survives journal publication and registration');

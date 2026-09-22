@@ -17,7 +17,9 @@ try {
   assert.equal(clean.status, 'passed'); assert.ok(clean.out.includes(path.join(scratch, 'isolated/home'))); assert.equal(clean.sentinel.checks, 2);
   assert.ok((await readFile(path.join(scratch,'isolated/stdout.log'),'utf8')).includes('##VERIFY##'));
   const failed = await run('failed', 'process.exit(7)'); assert.equal(failed.code,7);
-  const signaled = await run('signal', `process.kill(process.pid,'SIGTERM')`); assert.equal(signaled.status,'signal');
+  // Windows has no signals — the child is terminated outright and reports code 1
+  // with no signal, so there is no 'signal' status to classify there.
+  const signaled = await run('signal', `process.kill(process.pid,'SIGTERM')`); assert.equal(signaled.status, process.platform === 'win32' ? 'failed' : 'signal');
   const timeout = await run('timeout', 'setInterval(()=>{},1000)', { timeout: 100 }); assert.equal(timeout.status,'timeout');
   const controller=new AbortController(),ready=path.join(scratch,'interrupt-ready');
   const stopping=run('interrupted', `import fs from 'node:fs';console.log('before interruption');fs.writeFileSync(${JSON.stringify(ready)},'ready');setInterval(()=>{},1000)`, {signal:controller.signal});
