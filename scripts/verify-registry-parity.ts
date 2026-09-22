@@ -98,8 +98,19 @@ try {
   const help = await runCli(["help"]);
   const helpText = help.out + help.err;
   assert(help.code === 0 && !help.err, 'CLI help succeeds without stderr');
-  for (const v of VERBS) {
-    const detailed = await runCli([v.cli, '--help']);
+  // One `--help` costs a full CLI cold start (~1.2s on Windows), and there are 122
+  // of them: run sequentially this single loop WAS the gate's whole runtime and it
+  // blew the 180s budget under `--jobs 4`. They are independent read-only
+  // invocations, so they go four at a time; the assertions still fire in verb
+  // order so the log and any failure read exactly as before.
+  const helps = new Array<{ out: string; err: string; code: number }>(VERBS.length);
+  {
+    let next = 0;
+    const worker = async () => { for (let i = next++; i < VERBS.length; i = next++) helps[i] = await runCli([VERBS[i].cli, '--help']); };
+    await Promise.all(Array.from({ length: Math.min(4, VERBS.length) }, worker));
+  }
+  for (const [i, v] of VERBS.entries()) {
+    const detailed = helps[i];
     assert(detailed.code === 0 && detailed.out.includes(v.cli) && v.cliArgs.filter(s => s.kind === 'flag').every(s => detailed.out.includes(`--${s.at}`)), `${v.cli}: help exposes every declared flag`);
   }
 
