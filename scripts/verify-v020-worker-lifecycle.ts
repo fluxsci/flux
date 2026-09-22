@@ -27,8 +27,17 @@ const failure=math.renderMath('fail-active',false);current.fail();assert.match(a
 FakeWorker.rejectNext=true;const constructor=math.renderMath('constructor failure',false);assert.match(await constructor,/constructor failure/);
 const healthy=math.renderMath('healthy again',false);last().reply({ready:true});answer(last(),'HEALTHY');assert.equal(await healthy,'HEALTHY');
 const {localCorrectionService:s}=await import('../src/shell/modes/paper/editing/localCorrectionService');
-s.warm('fixture');const original=last(),pending=s.lint('old','' as any,'lintOnly','old');original.fail();await assert.rejects(pending,/failure/);
-const repaired=s.lint('new',undefined,'lintOnly','new'),replacement=last();original.fail();assert.equal(replacement.terminated,false);replacement.reply({type:'ready'});replacement.reply({type:'lints',id:replacement.sent.at(-1).id,lints:[],elapsedMs:0});assert.deepEqual(await repaired,[]);
+// `repair` keeps these requests on the LIVE lane that warm() just created —
+// `lintOnly` is annotation-only work and rides its own lane (2026-09-22), which
+// would leave `original` serving nothing. The lifecycle contract is unchanged:
+// a failed worker rejects ITS OWN pending work, and the failed worker cannot
+// then kill the replacement that succeeds it.
+s.warm('fixture');const original=last(),pending=s.lint('old','' as any,'repair','old');original.fail();await assert.rejects(pending,/failure/);
+const repaired=s.lint('new',undefined,'repair','new'),replacement=last();original.fail();assert.equal(replacement.terminated,false);replacement.reply({type:'ready'});replacement.reply({type:'lints',id:replacement.sent.at(-1).id,lints:[],elapsedMs:0});assert.deepEqual(await repaired,[]);
+// The background lane is independent: it is created lazily by annotation-only
+// work and a live-lane failure must not take it, or its pending work, down.
+const annotation=s.lint('backlog',undefined,'lintOnly','scan'),background=last();assert.notEqual(background,replacement);
+background.reply({type:'ready'});background.reply({type:'lints',id:background.sent.at(-1).id,lints:[],elapsedMs:0});assert.deepEqual(await annotation,[]);
 // Actual bibliography loader ownership: a delayed old project read cannot
 // replace the newer accepted source captured by an export job.
 let releaseBib!: (text:string)=>void;

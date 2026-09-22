@@ -574,6 +574,15 @@ Persistence invariants (all machine-checked — do not weaken):
   completed-word lane and a separate completed-sentence lane. Both lint through the dedicated
   module worker (`localCorrection.worker.ts`, Harper slim WASM), then revalidate exact source
   against the current document before applying each accepted batch in isolated history.
+  **TWO WORKER LANES (2026-09-22):** `localCorrectionService` runs a `live` linter and a lazy
+  `background` one, and `lint()` picks by mode — `repair` is live, `lintOnly` is background.
+  One `linter.lint()` is a single INDIVISIBLE WASM call (17 unknown scientific words measured
+  at 1.6s of pure WASM time), so the worker's queue priority cannot preempt a backlog window
+  that has already started; only a second thread keeps the live lanes responsive, which is
+  what `verify-v020-paper-workers`' sub-second budget pins. A `lintOnly` check that is itself
+  latency-bound passes `"live"` explicitly — the rescue-word validation does, because it sits
+  inside the 1.5s application window. Vocabulary and dialect messages broadcast to every live
+  lane; the published engine status is the live lane's.
   **THE WINDOW RULE (2026-08-09):** every window is a SLICE, but the linter reads each one as a
   whole document, so a window must carry enough language to be read correctly and must declare
   what it may change. The word lane submits the SENTENCE SO FAR with a `focus` — the final two
@@ -1575,6 +1584,40 @@ days (probe geometry like `width` instead).
   A second Windows-only tell: restarting the dev server can leave a stale dep-optimizer cache,
   and Paper then mounts to a blank pane with `504 (Outdated Optimize Dep)` in the console —
   `rm -rf node_modules/.vite` and restart.
+- **Windows cannot always REPLACE a file it will happily unlink and recreate.** The lease
+  arbitration wrote a contender's bakery number over its choosing record at the same
+  pathname, and on Windows that rename-replace failed outright on ~3% of acquire+release
+  cycles when the destination had been hard-linked moments earlier. It was not transient:
+  2.5s of backoff never landed it, while `open` r+, `unlink` and `rename`-to-a-fresh-name on
+  those same two files all succeeded immediately. The fix was structural — two files with
+  unique, never-reused names, so the arbitration replaces nothing (`transition`). The damage
+  was not a failed save: `release()` threw, the lease file stayed, and `stale()` never
+  reclaims a record whose owning pid is alive, so the project was locked for the rest of the
+  session and every later save said "busy (held by human)". When an fs operation fails on
+  Windows, ask which operation, not how long to retry.
+- **A lock CLIENT label is written for the other side to read.** The GUI holds leases as
+  `human` so an agent can be told a person is editing; the renderer then printed that label
+  back to the person as "project is busy (held by human)". A holder label reaching a human
+  needs translating, never interpolating.
+- **A WASM call is an indivisible scheduling unit — queue priority cannot preempt one.**
+  The correction worker reorders its queue so a live repair jumps ahead of annotation-only
+  work, but a backlog window already inside `linter.lint()` holds the thread until it
+  returns: 17 unfamiliar scientific words cost 1.6s of pure WASM time, and the foreground
+  request behind it measured 3.7s against a 1s budget. Splitting the text was not available
+  either — the WINDOW RULE forbids cutting a window mid-sentence, and a 17-word run-on has
+  no boundary to cut. The fix was a second worker lane (2026-09-22). Before optimizing
+  inside a worker, measure which call actually blocks: the per-lint `suggestions()`
+  extraction that looked expensive totalled 0.1ms, and the single lint call was everything.
+- **A kill assertion must poll, not sample one instant.** `verify-process-runner` read
+  `/proc` once, immediately after the group SIGKILL that `runProcess` fires as it resolves,
+  and flaked on a loaded CI runner; a `/proc` read that LOST the race to a complete reap
+  returned "" and also scored as alive. Poll to a deadline instead — it still fails a
+  surviving descendant, it just stops putting a stopwatch on the scheduler.
+- **Windows: a just-closed Chromium keeps its Crashpad metrics file open.** The verify
+  runner deleted each attempt's scratch temp with a bare `rmSync` in a `finally`, so the
+  EBUSY threw out of the runner itself and killed the whole run at the FIRST browser gate —
+  the ui tier was simply unrunnable on Windows. `discardTemporaryRoot` retries and then
+  gives up loudly; scratch temp is disposable and must never cost a result.
 - **A session that validates in a SEPARATE worktree/install leaves this checkout's `node_modules`
   stale.** After pulling such a merge, `npm run build` dies in esbuild with `Could not resolve
   "css-tree/parser"` and its siblings (2026-09-22, at `266ddf5`): the dependency is in
@@ -6114,3 +6157,52 @@ No product source changed — the committed imports and `package.json` were alre
 - css-tree 3.2.1 does export `./parser`, `./generator`, `./walker` and `./utils`; the subpath
   imports in `src/lib/plot/passiveSvg.ts` are valid and must not be rewritten to dodge a
   resolve error.
+
+### 2026-09-22 — The two red CI gates, and the ui tier on Windows (Claude Opus 5, `main`)
+**Work:** `main` had been red since the fortification merge. The ui failure was real:
+`verify-v020-paper-workers` asserts a live repair completes within a second behind a backlog
+window, and it measured 3.7s locally (2.0s on CI) because one `linter.lint()` of 17 unfamiliar
+words is a single 1.6s WASM call that the worker's queue priority cannot preempt. Annotation-only
+work now runs on its own worker lane; the check measures 48.7ms. The pure failure
+(`verify-process-runner`) was a race in the gate, which sampled `/proc` once immediately after the
+group SIGKILL — it now polls to a deadline. Verifying any of this on Windows first needed three
+harness repairs: the runner died on the FIRST browser gate because `rmSync` threw EBUSY on a
+just-closed Chromium's Crashpad file; every ui gate then failed to launch because Chromium exits
+when `%USERPROFILE%` has no `AppData`; and `verify-docs` compared `modes\figure.qmd` against
+"`modes/figure.qmd`, calling all sixteen pages orphaned. paper-gate on Windows: 51 passed, 10 failed before the lock work; the lease failures are fixed below."
+**Learnings:**
+- Promoted to §4 (local corrections) and §9: a WASM call is an indivisible scheduling unit, so
+  lane separation — not queue priority — is what protects a live lane; a kill assertion polls
+  rather than sampling; and the two Windows harness traps above.
+- Measure before optimizing inside a worker: the per-lint `suggestions()` extraction that looked
+  expensive totalled 0.1ms across 17 unknown words, and the single lint call was all of it.
+- Windows-only harness defects hide behind a green Linux CI. Three had stacked up to the point
+  where the ui tier could not run on this machine at all, and none would ever appear in a CI log.
+- The residual paper-gate failures were NOT investigated here and are not attributed to this work:
+  a second agent session was editing `electron/operationLease.cjs`, `electron/ipc/files.cjs` and
+  `flux-core/recovery.ts` in this same checkout while the suite ran, and the failures cluster in
+  exactly that area (`EPERM: rename` on `.meta/locks/*.arbitration/*.json.tmp-*`).
+  `verify-correction-runtime` separately wants the deliberately unstaged 32 MB local model.
+  A suite run against a tree another session is editing proves less than its tally suggests —
+  check `git status` for foreign edits BEFORE reading a result.
+
+### 2026-09-22 — The Windows lease EPERM, root-caused (Claude Opus 5, `main`)
+**Work:** The owner hit three faces of one bug: a project that would not open (`EPERM` on
+`fs:setTimes`), a project that would not save (`EPERM: rename` under
+`.meta/locks/*.arbitration/`), and a "busy (held by human)" toast naming the reader as the
+obstacle. The middle one is the cause: the bakery's second write replaced the register it had
+just hard-linked, which Windows refuses ~3 times per 100 cycles, and the failed `release()`
+then orphaned a lease that `stale()` can never reclaim while its owner process lives.
+`transition` now writes a choosing flag and a number as two unique files and replaces nothing;
+`registers` folds a token's records by highest number. Measured 0 failures in 140 acquire
+cycles (was 3/100), and the lock, transaction, crash-recovery and reference gates pass.
+Sharing-violation retries remain for the lease record itself and every unlink. The `setTimes`
+fsync fix (open `r+`, not `r` — Windows refuses FlushFileBuffers on a read-only handle) and
+the first retry loop came from the owner's other session in this same checkout.
+**Learnings:**
+- Promoted to §9: Windows replace-vs-unlink, and a client label is written for the other side.
+- A failed release is worse than a failed acquire. An acquire that fails is retried; a release
+  that fails leaves a lease no liveness rule will ever collect.
+- Reproduce a platform fs failure through the real module before theorizing: raw
+  link/unlink/read/rename in a loop never failed, and 40 iterations of the actual
+  `acquire`/`release` pair failed three times.

@@ -33,55 +33,99 @@ function stale(info, ttl = TTL) {
   const stamp = Date.parse(info.ts);
   return Number.isFinite(stamp) && Date.now() - stamp > ttl;
 }
+// Windows only: a file another process merely has OPEN cannot be replaced or
+// unlinked — the scanner that reads every freshly written file takes handles
+// without FILE_SHARE_DELETE, and the operation comes back EPERM/EBUSY/EACCES.
+// It is a sharing violation, not a permissions problem, and it reached the user
+// as "Couldn't open project: EPERM: operation not permitted, rename"
+// (2026-09-22). Retry with backoff inside the arbitration's own 5 s deadline; a
+// first attempt that succeeds costs nothing. This covers the LEASE record,
+// whose pathname is by definition shared; the arbitration registers are never
+// replaced at all (see `transition`), because there retrying did not work.
+const SHARING_VIOLATIONS = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RETRY_BUDGET_MS = process.platform === 'win32' ? 2500 : 0;
+async function shareRetry(operation) {
+  if (!RETRY_BUDGET_MS) return operation();
+  const deadline = Date.now() + RETRY_BUDGET_MS;
+  for (let wait = 4; ; wait = Math.min(wait * 2, 120)) {
+    try { return await operation(); }
+    catch (error) {
+      if (!SHARING_VIOLATIONS.has(error?.code) || Date.now() >= deadline) throw error;
+      await delay(wait + Math.floor(Math.random() * wait)); // jitter: contenders poll in lockstep
+    }
+  }
+}
 async function atomic(file, value, exclusive = false) {
   const tmp = `${file}.tmp-${randomUUID()}`;
   try {
     await fs.writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
-    // On Windows a just-created file is briefly held open by the antivirus scanner,
-    // so link/rename onto it fails with EPERM/EBUSY a few percent of the time (60
-    // arbitration cycles reproduced 2 such failures, 2026-09-22). One failure was
-    // enough to abort a save and orphan the project lease. Retry briefly instead.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        if (exclusive) await fs.link(tmp, file); else await fs.rename(tmp, file);
-        break;
-      } catch (error) {
-        if (attempt >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-    }
-  } finally { await fs.rm(tmp, { force: true }); }
+    await shareRetry(() => (exclusive ? fs.link(tmp, file) : fs.rename(tmp, file)));
+  } finally {
+    // The temp link is disposable: losing it leaks a byte, losing the operation
+    // loses the user's work.
+    await shareRetry(() => fs.rm(tmp, { force: true })).catch(() => {});
+  }
 }
+const discard = file => shareRetry(() => fs.rm(file, { force: true })).catch(() => {});
+const ticketOf = info => (Number.isSafeInteger(info.ticket) ? info.ticket : 0);
+/**
+ * The live contenders, ONE record per token. A token that has published its
+ * number is read at that number even while its choosing flag is still on disk
+ * (the higher wins), and a token carrying only the flag reads as 0 — which
+ * makes every other contender wait, the conservative half of the bakery.
+ */
 async function registers(dir) {
-  const records = [];
+  const byToken = new Map();
   for (const name of await fs.readdir(dir)) {
     if (!name.endsWith('.json')) continue;
     const file = path.join(dir, name), info = await read(file);
     if (!info) continue;
-    if (stale(info)) { await fs.rm(file, { force: true }); continue; }
-    records.push(info);
+    if (stale(info)) { await discard(file); continue; }
+    const seen = byToken.get(info.token);
+    if (!seen || ticketOf(info) > ticketOf(seen)) byToken.set(info.token, info);
   }
-  return records;
+  return [...byToken.values()];
 }
+/**
+ * Lamport's bakery: publish a choosing flag, read everyone, publish a number,
+ * then wait for every contender that outranks you.
+ *
+ * NOTHING here ever replaces a file. The number used to be written OVER the
+ * choosing record at the same pathname, and on Windows that rename-replace
+ * fails outright for a destination that was hard-linked moments earlier —
+ * measured 3 failures per 100 sequential acquire+release cycles, and not
+ * transient: 2.5 s of backoff never landed it, while unlinking that same
+ * destination and renaming to a fresh name both succeeded immediately. A
+ * failed release then left the lease on disk, and because its owning process
+ * was still alive nothing could ever call it stale — which is what reached the
+ * user as "project is busy (held by human)" and as a project that would not
+ * open (2026-09-22). So the two phases are two files with unique, never-reused
+ * names, each created by an exclusive link, and the flag is deleted once the
+ * number is out. A delete that loses to a scanner handle is harmless here: the
+ * flag's 0 is ignored in favour of the number, and stale cleanup collects it.
+ */
 async function transition(dir, name, fn) {
   const queueDir = path.join(dir, `.${name}.arbitration`);
   await fs.mkdir(queueDir, { recursive: true });
-  const token = randomUUID(), file = path.join(queueDir, `${token}.json`);
-  const record = { token, pid: process.pid, host: HOST, ts: new Date().toISOString(), ticket: 0 };
-  await atomic(file, record, true);
+  const token = randomUUID();
+  const choosing = path.join(queueDir, `${token}.choosing.json`);
+  const file = path.join(queueDir, `${token}.json`);
+  const base = { token, pid: process.pid, host: HOST, ts: new Date().toISOString() };
+  await atomic(choosing, { ...base, ticket: 0 }, true);
   try {
     const others = await registers(queueDir);
-    record.ticket = 1 + Math.max(0, ...others.map(x => Number.isSafeInteger(x.ticket) ? x.ticket : 0));
-    await atomic(file, record);
+    const ticket = 1 + Math.max(0, ...others.map(ticketOf));
+    await atomic(file, { ...base, ticket }, true);
+    await discard(choosing);
     const deadline = Date.now() + 5000;
     for (;;) {
       const wait = (await registers(queueDir)).some(x => x.token !== token &&
-        (!Number.isSafeInteger(x.ticket) || x.ticket === 0 || x.ticket < record.ticket || (x.ticket === record.ticket && x.token < token)));
+        (ticketOf(x) === 0 || ticketOf(x) < ticket || (ticketOf(x) === ticket && x.token < token)));
       if (!wait) return await fn();
       if (Date.now() > deadline) throw new Error(`Lease arbitration timed out: ${name}`);
       await delay(5);
     }
-  } finally { await fs.rm(file, { force: true }); }
+  } finally { await discard(file); await discard(choosing); }
 }
 async function inspect(dir, name) { return read(path.join(await canonicalDir(dir), `${resource(name)}.json`)); }
 async function acquire(dir, name, client, options = {}) {
@@ -107,7 +151,7 @@ async function release(lease) {
   return transition(lease.dir, lease.name, async () => {
     const file = path.join(lease.dir, `${lease.name}.json`), current = await read(file);
     if (!current || current.token !== lease.token) return false;
-    await fs.rm(file); return true;
+    await shareRetry(() => fs.rm(file)); return true;
   });
 }
 async function assertOwned(lease) {

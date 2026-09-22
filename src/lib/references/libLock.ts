@@ -24,7 +24,17 @@ export async function withIpcLock<T>(scope: 'project' | 'fluxlib', name: string,
         if (!result.token && !result.noop) throw new Error(`Lease "${name}" returned no operation token`);
         lease = { scope, name, root: opts.root, token: result.token, assertOwned: async () => { if (result.token && fb.lockCheck && await fb.lockCheck(scope, name, result.token) !== true) throw new Error(`Operation lease "${name}" is no longer owned`); } }; break;
       }
-      if (attempt >= (opts.retries ?? 8)) throw new Error(`"${name}" is busy (held by ${result.heldBy ?? 'another writer'}) — try again in a moment`);
+      // `heldBy` is the LOCK CLIENT label, and the GUI's own label is "human"
+      // — it exists so an agent can be told a person is editing. Reporting it
+      // back to that person read as "project is busy (held by human)", which
+      // named the reader as the obstacle (owner report 2026-09-22). Anything
+      // else is an agent or another Flux process, and worth naming.
+      if (attempt >= (opts.retries ?? 8)) {
+        const holder = !result.heldBy || result.heldBy === 'human'
+          ? 'another Flux operation is still finishing'
+          : `${result.heldBy} is working on it`;
+        throw new Error(`"${name}" is busy — ${holder}. Try again in a moment.`);
+      }
       await sleep(opts.delayMs ?? 250);
     }
     const result = await fn(lease);
