@@ -1637,6 +1637,38 @@ days (probe geometry like `width` instead).
   `human` so an agent can be told a person is editing; the renderer then printed that label
   back to the person as "project is busy (held by human)". A holder label reaching a human
   needs translating, never interpolating.
+- **A directory SCAN is not a snapshot, and a bakery built on one is not mutually exclusive.**
+  `registers()` lists the arbitration directory at one instant and then reads each entry over the
+  next few milliseconds — 9 ms for three entries here. A contender that finishes choosing in that
+  gap has its flag deleted and its numbered file created AFTER the listing, so it appears in
+  neither state the scanner can see and drops out of the result entirely; both sides then read an
+  empty bakery and both enter. Reproduced in two hot processes with no other load, four runs in
+  five (2026-09-22). A register that is NAMED but cannot be read is not absent — it is a contender
+  in an unknown state, which the bakery already reads as ticket 0 and everyone waits for. Take its
+  token from the filename so your own just-discarded flag stays recognisably yours.
+- **Windows refuses `FlushFileBuffers` on a read-only handle.** Open `r+`, not `r`, for any
+  `fh.sync()` of a FILE. It cost `fs:setTimes` (a project that would not open), `verifiedMove`
+  (every cross-device capture failed to publish — silently, because intake catches each per-file
+  error as "retry next pass") and `videoMedia.syncFile`. A directory fsync is a different case:
+  `fsyncDir` is a deliberate no-op on win32, so any gate barrier hooked to one has nothing to fire.
+- **Windows sharing violations are the caller's to wait out, in BOTH engines.** `shareRetry`
+  (`electron/fsRetry.cjs`) exists because a destination another process merely has open cannot be
+  replaced or unlinked there. `flux-core/fsx.ts` used it; its main-process twin `atomicWriteMain`
+  — the path EVERY renderer write takes — did not, so a GUI write that lost that race just failed.
+  When a helper says "one implementation for both module systems", check that both twins call it.
+- **A comparator that is not TOTAL makes results depend on arrival order.** `rankHits` compared
+  three fields and stopped; the fulltext scan path pushes from parallel workers, so a corpus where
+  every document ties came back shuffled differently every run and disagreed with the sequential
+  indexed path — the one thing those two must never do. Break the last tie on a stable key,
+  which also decides deterministically which ties survive a `limit`.
+- **A heartbeat must not preempt the pass it is meant to renew.** The reader-context publisher
+  bumps an epoch per tick, which cancels the claim/publish in flight; when one atomic write
+  outlasts the interval, every tick discards the previous tick's work and the view publishes
+  NOTHING. Skip a tick while a pass is running — only a real state change preempts.
+- **node-pty leaves a MessagePort and a Socket open on Windows after the child exits**, so a
+  process that owned a PTY never returns to the shell (`flux principal` with a transcript hung
+  forever; `--no-transcript`, which never opens one, was fine). A terminal-owning verb with
+  nothing left to flush should exit explicitly.
 - **A WASM call is an indivisible scheduling unit — queue priority cannot preempt one.**
   The correction worker reorders its queue so a live repair jumps ahead of annotation-only
   work, but a backlog window already inside `linter.lint()` holds the thread until it
@@ -1678,6 +1710,45 @@ days (probe geometry like `width` instead).
   `/usr/bin/google-chrome`, so every ui gate on Windows failed at launch unless the developer
   knew to set `FLUX_CHROME`. It now probes the standard install locations per platform, and
   the variable still wins.
+- **Windows refuses `symlink()` without Developer Mode, but a DIRECTORY JUNCTION is free.**
+  Six confinement gates died at their first `fs.symlink` with EPERM and lost every later check.
+  A junction is indistinguishable from a directory symlink to everything they exercise —
+  `lstat().isSymbolicLink()` is true, `readlink()` returns the target, `realpath()` resolves
+  through it — which is what every escape check in flux-core is built on, so the contract is
+  verified verbatim. `scripts/lib/symlinks.mjs` plants directory links that way on win32 and
+  probes once for FILE symlinks, which have no privilege-free equivalent (a junction takes only
+  a directory): those few checks announce themselves as skipped instead of killing the script.
+- **A fault injector keyed on a path STRING fires on one engine and not the other.** The shared
+  cores join POSIX, the Node side uses `path.join`, so both legitimately name one file two ways —
+  identical off Windows. A gate that throws EACCES only for `path.join(root,'fig')`, steals a
+  lease only when `file === f.doc`, kills a child only on `to === <pdf>`, or keys an in-memory
+  disk on `path.join` output silently tests NOTHING there, and reports the product as missing a
+  rejection it was never asked to make. `scripts/lib/paths.mjs` exports `samePath`; six gates now
+  use it. Corollary for a fixture barrier: a `beforeRead` that never matches does not fail, it
+  HANGS (verify-v020-slide-persistence deadlocked on its own promise).
+- **`new URL(…).pathname` is not a path on Windows** — it is `/C:/…`, and `path.resolve` turns
+  that into `C:\C:\…`. `fileURLToPath`, always. This cost a real product bug: `RESOURCES_DIR`
+  in `flux-core/manuscript.ts` resolved that way, every shipped CSL and Word reference read threw
+  ENOENT, the copy loop swallows a missing shipped asset by design, and a journal-styled export
+  on Windows silently rendered with Quarto's defaults.
+- **Windows has neither POSIX file modes, signals, nor shebangs, and a gate that assumes one
+  tests nothing there.** NTFS reports every writable file 0o666, so an owner-only (0o600) check
+  and an exec-bit check are inexpressible — note them as skipped rather than asserting a synthetic
+  value, and remember the exec bit belongs to the HOST filesystem, not the target platform
+  (a cross-build from Windows cannot stage one). `process.kill(pid,"SIGTERM")` terminates a child
+  outright, reporting code 1 and no signal, so assert the property (never exit zero) rather than
+  the mechanism. And an extensionless `#!/usr/bin/env node` shim on PATH is never found:
+  `execResolve` resolves through PATHEXT and deliberately prefers a real `.exe` in ANY PATH dir
+  over an earlier batch shim, so a fault-injecting `quarto.cmd` only shadows the real one if the
+  fault bin IS the whole PATH.
+- **A gate should resolve its own toolchain, not join a path to it.** Seven gates built
+  `<repoRoot>/node_modules/tsx/dist/cli.mjs` by hand and died in any checkout whose dependencies
+  do not sit directly beside the script — a git worktree resolves `tsx/cli` fine through the
+  parent, but the literal join does not exist there. `scripts/lib/tsxRun.mjs` already existed for
+  this; use `tsxCli()`.
+- **A Windows tree kill is `taskkill /PID <pid> /T /F`.** `child.kill()` reaps only the direct
+  child, so a killed export left quarto and pandoc alive holding `paper/` as their cwd and the
+  next fixture failed to remove it with EBUSY.
 - **Windows: a just-closed Chromium keeps its Crashpad metrics file open.** The verify
   runner deleted each attempt's scratch temp with a bare `rmSync` in a `finally`, so the
   EBUSY threw out of the runner itself and killed the whole run at the FIRST browser gate —
@@ -6336,3 +6407,33 @@ installation), in-app Help and the FluxContext docs (regenerated) updated.
 **Learnings:** promoted the scope architecture to §4's gallery bullet. A cache keyed by source
 retires the old "mid-flight scope guard" hazard structurally: a walk for a scope you left can
 only fill its own slot, never the array the current rows read.
+
+### 2026-09-22 (evening) — The last dozen Windows gates, and the four product bugs behind them (Claude Opus 5, `claude/eager-grothendieck-e05d23`)
+**Work:** Worked the remaining pure-tier failures on the owner's Windows machine: 251/282 → 280/283,
+with the only three non-passing now *blocked* on staged downloads they declare
+(`verify-correction-runtime` gained a `correction-runtime` prerequisite so it says so instead of
+failing inside a healthy product path). Most were the gate — separators, file URLs, privileges,
+signals — but four were real and user-facing, each found only because a gate stopped lying:
+`verifiedMove` fsynced through a read-only handle, so every cross-device capture failed to publish
+silently; `RESOURCES_DIR` came from a file URL's `.pathname`, so journal exports lost their CSL;
+the reader-context publisher's heartbeat cancelled the pass it was renewing; and the operation
+lease let two processes into its critical section at once (`verify-w3-locks`' "hot contention",
+which an earlier session and this handoff had both filed as a load flake — it is not). The lease
+fix was cherry-picked to `main` as `61a9c69` while this branch was still open, and `atomicWriteMain`'s
+retry landed there independently as `3ef5fd9`; this branch was rebased and both duplicates dropped.
+**Learnings:**
+- Promoted to §9 (nine entries): the junction substitute for Windows symlinks, `samePath` for any
+  path-keyed fault injector, `fileURLToPath` over `.pathname`, the absent POSIX modes/signals/
+  shebangs, `tsxCli()` over a hand-built path, `taskkill /T`, and on the product side the
+  scan-is-not-a-snapshot bakery hole, `r+` for fsync, `shareRetry` in both twins, total
+  comparators, heartbeat preemption and node-pty's lingering Windows handles.
+- **A gate that hangs, skips or crashes is worse than one that fails** — it reports nothing while
+  looking like it reported something. Three of this session's four product bugs sat behind a check
+  that could not run on this platform at all, and the fourth behind two fixed sleeps.
+- A "load-sensitive gate" is a hypothesis, not a diagnosis. `verify-w3-locks` was dismissed twice
+  as one; a 40-line standalone reproducer failed four runs in five with nothing else running.
+- Making a gate's waits condition-based can UNCOVER a product bug rather than hide one: polling
+  `readReaderContext` while the reader released it provoked the `atomicWriteMain` EPERM on nearly
+  every run, where a fixed 10 ms sleep had been quietly winning the race.
+- `verify-reader-ownership` misses its 2s component budget under `--jobs 4` on this laptop and
+  passes alone; it is a perf budget measured under contention, not a regression. Left as is.
