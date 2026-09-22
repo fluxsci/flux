@@ -80,6 +80,7 @@ Run `flux config` for this machine's resolved paths.
 | `Context/UserContext/` | `WHO-AM-I.md` (you) + `RULES.md` (your standing rules) + any files you add | **You** |
 | `Context/FluxContext/` | The stock docs — the single canonical home of agent-facing Flux knowledge (doctrine, workflow, every verb, slides, python/uv conventions, Lighttable…). Re-synced on every Flux update with machine paths baked in. | **Flux** |
 | `agents.json` | The roster **matrix**: per-vendor command templates + their model/effort menus, and standing defaults (see @sec-roster) | **You** |
+| `plot_library/` | Your **global plot library**: reusable plots (any folders) that every project's Plot gallery can insert under **Global**. `flux config` reports it as `plotLibraryPath`. | **You** (and agents you ask) |
 
 **Project level — `<project>/Context/`** (scaffolded for new projects; healed into old
 ones on first open, or via `flux context-init`):

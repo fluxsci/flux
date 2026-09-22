@@ -220,6 +220,7 @@
       "verify-slide-media-browser.ts",
       "verify-slide-video-media.ts",
       "verify-gallery-names.ts",
+      "verify-gallery-scope.ts",
       "verify-gallery-tree.ts",
       "verify-gallery-video-capability.ts",
       "verify-surface-anchor.ts",
@@ -340,6 +341,7 @@
       "verify-primitives-gui.mjs",
       "verify-importer-multi.mjs",
       "verify-importer-reserved.mjs",
+      "verify-plot-library.mjs",
       "verify-dissect-gui.mjs",
       "verify-vanilla-inline.mjs",
       "verify-bring-inside-gui.mjs",
@@ -686,12 +688,14 @@
     ],
     "plot-gallery": [
       "verify-gallery-names.ts",
+      "verify-gallery-scope.ts",
       "verify-gallery-tree.ts",
       "verify-gallery-video-capability.ts",
       "verify-plot-gallery.mjs",
       "verify-gallery-workflow.mjs",
       "verify-plots-folders.ts",
       "verify-importer-reserved.mjs",
+      "verify-plot-library.mjs",
       "verify-importer-multi.mjs",
       "verify-dissect-gui.mjs"
     ],
@@ -1513,6 +1517,13 @@
         "verify-v020-durability.ts",
         "verify-v020-crash-recovery.ts",
         "verify-v020-export-recovery.ts"
+      ]
+    },
+    {
+      "glob": "{src/lib/settings.ts,src/lib/Settings.svelte}",
+      "run": [
+        "verify-gallery-scope.ts",
+        "verify-shell-complete.mjs"
       ]
     }
   ],
@@ -6595,6 +6606,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plot-library.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-gallery-scope.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

@@ -10,6 +10,11 @@ async function main(){try{
  const seed=spawnSync(process.execPath,['--import','tsx',path.join(__dirname,'lib/figurePolishFixture.ts'),root],{env,cwd:repo,encoding:'utf8'});
  if(seed.status!==0)throw Error(seed.stdout+seed.stderr);
  for(const dir of ['study','other']){fs.mkdirSync(path.join(root,'plots',dir),{recursive:true});fs.writeFileSync(path.join(root,'plots',dir,'growth.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="48pt" viewBox="0 0 72 48"><rect width="72" height="48" fill="#fffcf0"/><path d="M5 40 20 30 40 25 65 7" fill="none" stroke="#205ea6" stroke-width="2"/></svg>')}
+ // The global plot library: <FluxConfig>/plot_library under the scratch HOME (no prefs →
+ // default ~/FluxConfig). The real fs guard must admit it; the insert must stay external.
+ fs.mkdirSync(path.join(env.HOME,'FluxConfig','plot_library','logos'),{recursive:true});
+ fs.writeFileSync(path.join(env.HOME,'FluxConfig','plot_library','logos','badge.svg'),'<svg xmlns="http://www.w3.org/2000/svg" width="36pt" height="36pt" viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="#ad8301"/></svg>');
+ env.PROBE_LIBRARY=path.join(env.HOME,'FluxConfig','plot_library');
  fs.mkdirSync(path.join(repo,'test-results'),{recursive:true});
  const result=await new Promise((resolve,reject)=>{
   const args=[path.join(__dirname,'lib/plotGalleryProbeEntry.cjs'),root];if(process.platform==='linux')args.push('--no-sandbox','--ozone-platform=x11');

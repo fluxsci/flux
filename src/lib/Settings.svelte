@@ -8,6 +8,7 @@
   // read them without switching tabs.
   import { fade } from "svelte/transition";
   import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS } from "./color/collections";
+  import { PLOT_SEARCH_SCOPES } from "./plot/galleryScope";
   import { onDestroy, untrack } from "svelte";
   import { settings, settingsOpen, type Settings } from "./settings";
   import { modalFocus } from "./ui/modalFocus";
@@ -60,6 +61,7 @@
   // (the user picks its PARENT). FluxLib is derived: <FluxConfig>/FluxLib.
   let cfgPath = $state("");
   let libPath = $state("");
+  let plotLibPath = $state("");
   let libNotice = $state("");
   let libBusy = $state(false);
   let correctionLearningReset = $state(false);
@@ -86,9 +88,11 @@
       const p = await fileBridge()?.prefsGet?.();
       cfgPath = (p?.fluxConfigResolved as string) ?? "";
       libPath = (p?.fluxLibResolved as string) ?? "";
+      plotLibPath = (p?.plotLibraryResolved as string) ?? "";
     } catch {
       cfgPath = "";
       libPath = "";
+      plotLibPath = "";
     }
     await loadCorrectionProvider();
   }
@@ -430,6 +434,15 @@
               px
             </label>
             <p class="hint">The size captions are typed at in the caption page (<b>Alt+C</b>). World px, so it scales with the canvas zoom just like the figure. Every caption grows to fit its text — the page scrolls between them, the boxes never do.</p>
+
+            <h3>Plot gallery</h3>
+            <label class="row">
+              <span>Search reaches</span>
+              <select bind:value={$settings.plotSearchScope} aria-label="Plot gallery search scope">
+                {#each PLOT_SEARCH_SCOPES as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+              </select>
+            </label>
+            <p class="hint">What typing in the Plot gallery (<b>Alt+G</b>) searches. <b>Project</b> is this project's <code>plots/</code> folder; <b>Global</b> is your plot library in <code>{plotLibPath || "FluxConfig/plot_library"}</code>, shared by every project. The switch at the top of the gallery picks which one you browse.</p>
 
             <h3>Colour pickers</h3>
             <label class="row">

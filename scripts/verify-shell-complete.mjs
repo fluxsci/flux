@@ -124,13 +124,16 @@ ok(await page.$eval(`${setSel} .close`, el => document.activeElement === el), "S
 await page.keyboard.press("Tab");
 ok(await page.$eval(`${setSel} .x`, el => document.activeElement === el), "Tab from Done wraps to Close inside Settings");
 await page.click("#settings-tab-figure");
-const collectionRows = await page.$$eval("#settings-pane-figure .row", rows => rows.map(row => {
+// The Figure pane has more select rows than these two (Plot gallery search reach);
+// this check is about the palette/colormap pair, so select exactly those.
+const selectRows = await page.$$eval("#settings-pane-figure .row", rows => rows.map(row => {
   const select = row.querySelector("select"), box = select.getBoundingClientRect();
-  return { x: box.x, y: box.y, height: box.height, font: getComputedStyle(select).fontSize };
+  return { label: select.getAttribute("aria-label") || "", x: box.x, y: box.y, height: box.height, font: getComputedStyle(select).fontSize };
 }));
+const collectionRows = selectRows.filter(r => /colou?rmap collection|palette collection/i.test(r.label));
 ok(collectionRows.length === 2 && collectionRows[0].x === collectionRows[1].x && collectionRows[1].y >= collectionRows[0].y + collectionRows[0].height,
   "palette and colormap defaults have aligned, separate control rows");
-ok(collectionRows.every(r => r.height === 24 && r.font === "12px"), "collection defaults use the shared compact control sizing");
+ok(selectRows.length >= 3 && selectRows.every(r => r.height === 24 && r.font === "12px"), "Figure select rows (collections + plot search reach) use the shared compact control sizing");
 await page.setViewport({ width: 1024, height: 620 });
 await page.click("#settings-tab-corrections");
 await page.$eval("#settings-pane-corrections", el => { el.scrollTop = 220; });

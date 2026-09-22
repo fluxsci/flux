@@ -17,6 +17,8 @@ export interface FluxConfigInfo {
   userContextPath: string;
   fluxContextPath: string;
   agentsConfigPath: string;
+  /** The global plot library, <FluxConfig>/plot_library (derived). */
+  plotLibraryPath: string;
   userDataDir: string;
   /** Present only on the run that performed migration/seeding work. */
   events?: Array<{ ts: string; action: string; detail: string }>;
@@ -36,6 +38,12 @@ export function resolveFluxConfigPathSync(prefs?: FluxPrefs): string;
 
 /** FluxLib: derived <FluxConfig>/FluxLib, with pre-migration fallbacks. */
 export function resolveFluxLibPathSync(prefs?: FluxPrefs): string;
+
+/** Folder name of the global plot library under FluxConfig ("plot_library"). */
+export const PLOT_LIBRARY_DIRNAME: string;
+
+/** The global plot library: derived <FluxConfig>/plot_library. */
+export function plotLibraryPathSync(prefs?: FluxPrefs): string;
 
 /** Guidelines folder: <FluxConfig>/Guidelines. */
 export function guidelinesPathSync(prefs?: FluxPrefs): string;

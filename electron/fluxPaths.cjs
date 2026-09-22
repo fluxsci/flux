@@ -83,6 +83,14 @@ function fluxContextPathSync(prefs = readPrefsRawSync()) {
   return path.join(contextPathSync(prefs), "FluxContext");
 }
 
+/** The global plot library: <FluxConfig>/plot_library — the user's machine-wide
+ *  plots, browsable from every project's Plot gallery (Global scope) exactly like
+ *  a project's plots/ folder (any folder structure). Derived, never persisted. */
+const PLOT_LIBRARY_DIRNAME = "plot_library";
+function plotLibraryPathSync(prefs = readPrefsRawSync()) {
+  return path.join(resolveFluxConfigPathSync(prefs), PLOT_LIBRARY_DIRNAME);
+}
+
 /** The ONE FluxLib path decision. Derived from FluxConfig, with two legacy
  *  fallbacks that only apply pre-migration (or after an EXDEV-deferred move):
  *    1. <FluxConfig>/FluxLib exists          → that (normal, post-migration)
@@ -238,6 +246,7 @@ function configInfoSync(prefs = readPrefsRawSync()) {
     userContextPath: userContextPathSync(prefs),
     fluxContextPath: fluxContextPathSync(prefs),
     agentsConfigPath: agentsConfig.agentsConfigPathSync(resolveFluxConfigPathSync(prefs)),
+    plotLibraryPath: plotLibraryPathSync(prefs),
     userDataDir: userDataDir(),
   };
 }
@@ -766,6 +775,8 @@ module.exports = {
   defaultFluxConfigPath,
   resolveFluxConfigPathSync,
   resolveFluxLibPathSync,
+  PLOT_LIBRARY_DIRNAME,
+  plotLibraryPathSync,
   contextPathSync,
   userContextPathSync,
   fluxContextPathSync,

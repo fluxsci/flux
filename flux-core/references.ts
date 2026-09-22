@@ -398,6 +398,7 @@ export async function configInfo(): Promise<{
   userContextPath: string;
   fluxContextPath: string;
   agentsConfigPath: string;
+  plotLibraryPath: string;
   userDataDir: string;
   build: BuildInfo;
 }> {
@@ -409,6 +410,7 @@ export async function configInfo(): Promise<{
     userContextPath: info.userContextPath,
     fluxContextPath: info.fluxContextPath,
     agentsConfigPath: info.agentsConfigPath,
+    plotLibraryPath: info.plotLibraryPath,
     userDataDir: info.userDataDir,
     build: buildInfo(),
   };

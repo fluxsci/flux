@@ -135,6 +135,7 @@
             ["Alt + C / L", "Edit caption / mark panel label"],
             ["⌃⇧K", "Import PNG/SVG files"],
             ["Alt + G / R", "Plot gallery / X-ray (⇧ or ⌃-click picks several rows; a animates them in Slide)"],
+            ["Alt + 1 / 2", "In the Plot gallery: project plots / global plot library"],
             ["⌃ + S / Shift + S", "Save / save as"],
           ],
         },

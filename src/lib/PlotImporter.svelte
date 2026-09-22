@@ -8,8 +8,12 @@
 </script>
 
 <script lang="ts">
-  // Plot gallery (Alt+G): a windowed contact sheet over the project's plots/ dir.
+  // Plot gallery (Alt+G): a windowed contact sheet over the project's plots/ dir —
+  // or, via the Project | Global switch (Alt+1 / Alt+2), over the user's global plot
+  // library (<FluxConfig>/plot_library, any folder structure, shared by every project).
   // Search by name/path, or browse folder-by-folder, in a dialog or a native utility.
+  // What a search reaches is the Settings → Figure `plotSearchScope` preference,
+  // resolved by plot/galleryScope (the rules) into cached walks owned here (the IO).
   // Multi-select: Enter (or Space with an empty search box, or a click) TOGGLES
   // a plot into the picked set (✓); Ctrl/Cmd+Enter inserts everything picked —
   // or just the highlighted plot when nothing is picked. The picked set survives
@@ -21,7 +25,9 @@
   // surface a per-subject panel or one of ten thousand sweep images. Hidden is not
   // unreachable — typing "_" offers them as enterable rows, and entering one
   // or browsing the explicit folder tree RE-SCOPES the search cache, so you search
-  // inside it and nowhere else. Leaving restores the ordinary plots/ scope.
+  // inside it and nowhere else. Leaving restores the ordinary plots/ scope. The
+  // global library follows the same rules. A plot inserted from it keeps its
+  // library file as an external source (the project still stores its own copy).
   import { onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import GalleryPreview from "./plot/GalleryPreview.svelte";
@@ -32,6 +38,16 @@
   import { clearDissectCache } from "./dissect/loader";
   import { openGalleryWindow } from "./plot/galleryWindow";
   import { importerOpen, importerDetached, embeddedProjectRoot, projectDir, activeFigureId, project } from "./store";
+  import { settings } from "./settings";
+  import {
+    GALLERY_SCOPES,
+    gallerySearchPlan,
+    inPlanFolder,
+    sourceKey,
+    type GalleryScope,
+    type SearchPlan,
+    type SearchSource,
+  } from "./plot/galleryScope";
   import { fileBridge, joinPath } from "./project/types";
   import { importPlotsFromPaths } from "./io";
   import { pushToast, errMsg } from "./toast";
@@ -69,6 +85,7 @@
     /** A paper snip: a PNG with an `X.snip.json` provenance sidecar. */
     snip?: boolean;
     video?: boolean;
+    scope: GalleryScope;
   }
   interface Row {
     kind: "up" | "dir" | "file";
@@ -81,10 +98,27 @@
     /** A reserved-folder row, surfaced by typing "_" (carries its own abs — it is
      *  always a child of plots/, never of the folder currently being browsed). */
     hint?: string;
+    /** Which scope the file lives in (browse rows: the browsed one). */
+    scope?: GalleryScope;
+    /** Search rows: where the file sits ("figs/panels", or "Global · figs" when
+     *  the results span a scope other than the browsed one). */
+    where?: string;
   }
+  interface ScanCache { recs: PlotRec[]; scanned: boolean; truncated: boolean }
 
   $: root = rootOverride || $embeddedProjectRoot || $projectDir || "";
-  $: plotsRoot = root ? joinPath(root, "plots") : "";
+  $: projectPlotsRoot = root ? joinPath(root, "plots") : "";
+  /** <FluxConfig>/plot_library, resolved by the main process ("" = unavailable). */
+  let libraryRoot = "";
+  let browseScope: GalleryScope = "project";
+  // The BROWSED root — the project's plots/ or the global library. A plain
+  // variable assigned together with `cwd` (never a `$:`): loadDir and
+  // reservedRootOf need it correct the instant the scope switches.
+  let plotsRoot = "";
+  function rootOf(scope: GalleryScope): string { return scope === "global" ? libraryRoot : projectPlotsRoot; }
+  /** Videos stay project-only: clip import copies from the project's own plots/. */
+  function videosFor(scope: GalleryScope): boolean { return allowVideos && scope === "project"; }
+  $: browseVideos = allowVideos && browseScope === "project";
 
   let wrapEl: HTMLDivElement;
   let popup: ReturnType<typeof openGalleryWindow> | undefined;
@@ -109,9 +143,10 @@
     if (Number.isFinite(saved.spacing)) spacing = Math.max(4, Math.min(32, saved.spacing));
     if (typeof saved.labels === "boolean") labels = saved.labels;
     if (typeof saved.sidebar === "boolean") sidebar = saved.sidebar;
+    if (saved.scope === "global") browseScope = "global";
   } catch { /* Invalid preferences fall back to the gallery defaults. */ }
   function rememberView() {
-    try { localStorage.setItem("flux-plot-gallery", JSON.stringify({ view: viewMode, size: previewSize, spacing, labels, sidebar })); } catch {}
+    try { localStorage.setItem("flux-plot-gallery", JSON.stringify({ view: viewMode, size: previewSize, spacing, labels, sidebar, scope: browseScope })); } catch {}
   }
   function focusInput() { void tick().then(() => inputEl?.focus()); }
   function pin() {
@@ -134,7 +169,8 @@
     expanded = undefined;
     popup?.close(); popup = undefined;
     detached = false; importerDetached.set(false);
-    dirGeneration++; scanGeneration++;
+    dirGeneration++; scanGeneration++; scopeGeneration++;
+    caches = new Map(); plotsRoot = "";
     resetPreviews();
   }
   onDestroy(() => {
@@ -176,12 +212,13 @@
   $: if ($importerOpen && openedRoot && root !== openedRoot) close();
   let cwd = "";
   let entries: { name: string; dir: boolean }[] = [];
-  let all: PlotRec[] = []; // recursive cache, for search
+  // Recursive search caches, one per SOURCE (a scope's ordinary tree, or one
+  // reserved collection inside it — plot/galleryScope sourceKey). Keyed, so a walk
+  // for a scope you have since left simply waits in the cache for your return.
+  let caches = new Map<string, ScanCache>();
   let search = "";
   let index = 0;
   let loading = false;
-  let scanned = false;
-  let truncated = false;
   let listEl: HTMLDivElement;
   let inputEl: HTMLInputElement;
   // The multi-select: keyed by ABSOLUTE path (stable across browse↔search rows and
@@ -190,14 +227,11 @@
   let picked = new Map<string, PlotPick>();
   $: pickedCount = picked.size;
 
-  // Which reserved folders actually exist directly under plots/ (read from the root
-  // listing, so "_" offers only what is really there). Their rows carry an absolute
-  // path because search is reachable from any folder, while a reserved folder is
-  // always a child of plots/ itself.
+  // Which reserved folders actually exist directly under the browsed root (read from
+  // the root listing, so "_" offers only what is really there). Their rows carry an
+  // absolute path because search is reachable from any folder, while a reserved
+  // folder is always a child of the root itself.
   let rootReserved: ReservedPlotFolder[] = [];
-  // The plots/-relative root the search cache covers: "" = the whole tree with the
-  // reserved folders pruned; a reserved name = that folder alone.
-  let scanScope = "";
 
   let prevOpen = false;
   $: {
@@ -213,20 +247,57 @@
     status = ""; error = "";
     picked = new Map();
     rootReserved = [];
-    cwd = plotsRoot;
-    await loadDir(cwd);
+    caches = new Map(); scanGeneration++;
+    libraryRoot = await resolveLibraryRoot();
     if (!get(importerOpen) || root !== openedRoot) return;
-    void scanFor(""); // warm the search cache in the background
+    await enterScope(libraryRoot ? browseScope : "project");
+    if (!get(importerOpen) || root !== openedRoot) return;
+    focusInput();
+  }
+
+  async function resolveLibraryRoot(): Promise<string> {
+    try {
+      const prefs = await fileBridge()?.prefsGet?.();
+      return typeof prefs?.plotLibraryResolved === "string" ? prefs.plotLibraryResolved : "";
+    } catch { return ""; }
+  }
+
+  /** Browse a scope from its root. The global library is created on first use,
+   *  so the folder exists for the user to fill (FluxConfig is theirs). */
+  let scopeGeneration = 0;
+  async function enterScope(scope: GalleryScope) {
+    const generation = ++scopeGeneration;
+    if (scope === "global") {
+      try { await fileBridge()?.mkdir?.(libraryRoot); } catch { /* the listing reports it */ }
+      if (generation !== scopeGeneration) return;
+    }
+    // Scope, root and folder change together, so no row is ever read against
+    // the other scope's root.
+    browseScope = scope;
+    plotsRoot = rootOf(scope);
+    cwd = plotsRoot;
+    rootReserved = [];
+    await loadDir(cwd);
+  }
+  async function switchScope(scope: GalleryScope) {
+    if (scope === browseScope || scope === "global" && !libraryRoot) return;
+    // The query and the picks survive: a search can follow you across scopes,
+    // and one insertion can combine project and global plots.
+    similarTo = ""; index = 0; status = ""; error = ""; resetScroll();
+    await enterScope(scope);
+    rememberView();
     focusInput();
   }
 
   /** The reserved folder a directory sits under, as its bare name ("" = ordinary
    *  content). Derived from the path so it is correct the instant `cwd` changes —
-   *  a reactive `$:` would still be a flush behind the `loadDir` that follows. */
-  function reservedRootOf(dir: string): string {
-    if (!plotsRoot || !dir || !dir.startsWith(plotsRoot)) return "";
-    return reservedRootOfPlotsRel(dir.slice(plotsRoot.length).replace(/^\/+/, ""));
+   *  a reactive `$:` would still be a flush behind the `loadDir` that follows.
+   *  Both inputs are explicit, so reactive callers see them as dependencies. */
+  function reservedRootIn(base: string, dir: string): string {
+    if (!base || !dir || !dir.startsWith(base)) return "";
+    return reservedRootOfPlotsRel(dir.slice(base.length).replace(/^\/+/, ""));
   }
+  function reservedRootOf(dir: string): string { return reservedRootIn(plotsRoot, dir); }
 
   // Sidecars present in the CURRENT folder — kept from the raw listing (entries
   // filters them out), so browse rows can flag semantic plots (.fluxplot.json)
@@ -264,73 +335,80 @@
     snipNames = new Set(es.filter((e) => !e.dir && /\.snip\.json$/i.test(e.name)).map((e) => e.name));
     // The plots/ root is where the reserved folders live — remember which are present so
     // "_" can offer exactly those.
+    const videos = videosFor(browseScope);
     if (dir === plotsRoot)
-      rootReserved = RESERVED_PLOT_FOLDERS.filter((f) => !(allowVideos && f.name === VIDEO_DIRNAME) && es.some((e) => e.dir && e.name === f.name));
+      rootReserved = RESERVED_PLOT_FOLDERS.filter((f) => !(videos && f.name === VIDEO_DIRNAME) && es.some((e) => e.dir && e.name === f.name));
     // dirs first, then files, each alphabetical; show dirs + .svg plots + .png rasters (snips).
     // Reserved folders (_dissections, _lighttable) are companion material, not plots to
     // insert — they never appear here or in search (shared rule, see project/plotsFolders).
     // INSIDE one, though, everything is listed: getting in is the deliberate act.
     const inReserved = !!reservedRootOf(dir);
     entries = es
-      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) || allowVideos && e.name === VIDEO_DIRNAME : /\.(svg|png)$/i.test(e.name) || allowVideos && /\.(mp4|mov)$/i.test(e.name)))
+      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME : /\.(svg|png)$/i.test(e.name) || videos && /\.(mp4|mov)$/i.test(e.name)))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     loading = false;
   }
 
-  // Recursively collect every .svg/.png in the current SCOPE (capped), flagging semantic
+  // Recursively collect every .svg/.png under one SOURCE (capped), flagging semantic
   // plots (.fluxplot.json sibling) and paper snips (.snip.json sibling) — no extra IO,
-  // read from the dir listing. `scopeRel` is "" for the ordinary plots/ tree (reserved
+  // read from the dir listing. `reserved` is "" for a scope's ordinary tree (reserved
   // folders pruned at every depth) or a reserved folder name (that subtree, nothing
-  // pruned). Paths stay plots/-relative either way, so rows read the same in both scopes.
-  async function scanFor(scopeRel: string) {
-    const generation = ++scanGeneration;
-    scanScope = scopeRel;
-    all = [];
-    scanned = false;
-    truncated = false;
+  // pruned). Paths stay root-relative either way, so rows read the same in both.
+  async function scanSource(src: SearchSource) {
+    const key = sourceKey(src), base = rootOf(src.scope);
+    if (caches.has(key) || !base) return;
+    const generation = scanGeneration;
+    const entry: ScanCache = { recs: [], scanned: false, truncated: false };
+    caches.set(key, entry); caches = caches;
     const fig = fileBridge();
-    if (!fig?.readdir || !plotsRoot) {
-      scanned = true;
-      return;
-    }
+    if (!fig?.readdir) { entry.scanned = true; caches = caches; return; }
+    const videos = videosFor(src.scope);
     const out: PlotRec[] = [];
+    const current = () => generation === scanGeneration && caches.get(key) === entry;
     const visit = async (dir: string, rel: string, depth: number) => {
-      if (generation !== scanGeneration) return;
+      if (!current()) return;
       if (depth > 20 || out.length >= 20000) {
-        truncated = true;
+        entry.truncated = true;
         return;
       }
       const es = await fig.readdir!(dir);
       const names = new Set(es.map((e) => e.name));
       for (const e of es) {
-        if (generation !== scanGeneration) return;
-        if (out.length >= 20000) { truncated = true; return; }
+        if (!current()) return;
+        if (out.length >= 20000) { entry.truncated = true; return; }
         const abs = joinPath(dir, e.name);
         const r = rel ? `${rel}/${e.name}` : e.name;
         if (e.dir) {
-          if (scopeRel || !isReservedPlotDirName(e.name) || allowVideos && e.name === VIDEO_DIRNAME) await visit(abs, r, depth + 1);
+          if (src.reserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME) await visit(abs, r, depth + 1);
         }
         else if (/\.svg$/i.test(e.name))
-          out.push({ abs, rel: r, name: e.name, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
+          out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
         else if (/\.png$/i.test(e.name))
-          out.push({ abs, rel: r, name: e.name, semantic: false, snip: names.has(e.name.replace(/\.png$/i, ".snip.json")) });
-        else if (allowVideos && /\.(mp4|mov)$/i.test(e.name))
-          out.push({ abs, rel: r, name: e.name, semantic: false, video: true });
+          out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: false, snip: names.has(e.name.replace(/\.png$/i, ".snip.json")) });
+        else if (videos && /\.(mp4|mov)$/i.test(e.name))
+          out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: false, video: true });
       }
     };
-    try { await visit(scopeRel ? joinPath(plotsRoot, scopeRel) : plotsRoot, scopeRel, 0); }
-    catch (e) { if (generation === scanGeneration) error = `Some folders could not be searched: ${errMsg(e)}`; }
-    if (generation !== scanGeneration) return; // a newer scope superseded this walk mid-flight
-    all = out;
-    scanned = true;
+    try { await visit(src.reserved ? joinPath(base, src.reserved) : base, src.reserved, 0); }
+    catch (e) { if (current()) error = `Some folders could not be searched: ${errMsg(e)}`; }
+    if (!current()) return; // refreshed or closed mid-walk
+    entry.recs = out;
+    entry.scanned = true;
+    caches = caches;
   }
+  function ensureScans(plan: SearchPlan) { for (const src of plan.sources) void scanSource(src); }
 
-  /** Keep the search cache aligned with where we are: entering (or leaving) a reserved
-   *  folder is the only thing that changes what a search can reach. */
-  function syncScanScope() {
-    const want = reservedRootOf(cwd);
-    if (want !== scanScope) void scanFor(want);
-  }
+  // What a query reaches right now (the preference, the browsed scope, and whether
+  // the current folder is inside a reserved collection). Scans warm in the
+  // background as soon as the plan names a source that is not cached yet — on open,
+  // on a scope switch, on entering/leaving a collection, or on a Settings change.
+  $: plan = gallerySearchPlan({ mode: $settings.plotSearchScope, browse: browseScope, reserved: reservedRootIn(plotsRoot, cwd), cwd, browseRoot: plotsRoot });
+  $: if ($importerOpen && plotsRoot) ensureScans(plan);
+  // A source whose root is unavailable (no global library in this build) counts as
+  // scanned-and-empty rather than scanning forever.
+  $: planCaches = plan.sources.map((src) => rootOf(src.scope) ? caches.get(sourceKey(src)) : { recs: [], scanned: true, truncated: false });
+  $: scanned = planCaches.every((c) => c?.scanned);
+  $: truncated = planCaches.some((c) => c?.truncated);
 
   $: q = search.trim().toLowerCase();
   // Search mode when typing; otherwise the current-folder browse listing.
@@ -340,15 +418,23 @@
       // A query that STARTS with "_" also offers the reserved folders whose
       // names match it ("_" both, "_light" one). As with tree navigation, once
       // you are inside one the search below is already scoped to it.
-      if (!scanScope && !similarTo && q.startsWith("_"))
+      if (!reservedRootIn(plotsRoot, cwd) && !similarTo && q.startsWith("_"))
         for (const f of rootReserved)
           if (f.name.includes(q))
             out.push({ kind: "dir", name: f.name, abs: joinPath(plotsRoot, f.name), hint: f.hint });
-      const matches = all.filter(p => `${p.rel} ${p.name}`.toLowerCase().includes(q))
+      const matches = planCaches.flatMap((c) => c?.recs ?? [])
+        .filter(p => inPlanFolder(plan, p.abs) && `${p.rel} ${p.name}`.toLowerCase().includes(q))
         .map(p => ({ p, score: similarTo ? galleryNameSimilarity(similarTo, p.name) : 0 }))
         .filter(({ score }) => !similarTo || score > 0)
-        .sort((a, b) => b.score - a.score || rank(a.p, q) - rank(b.p, q) || a.p.rel.localeCompare(b.p.rel));
-      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video })));
+        .sort((a, b) => b.score - a.score || rank(a.p, q) - rank(b.p, q)
+          || Number(a.p.scope !== browseScope) - Number(b.p.scope !== browseScope) || a.p.rel.localeCompare(b.p.rel));
+      const whereOf = (p: PlotRec) => {
+        const dir = p.rel.includes("/") ? p.rel.replace(/\/[^/]+$/, "") : "";
+        if (!plan.mixed) return dir;
+        const label = p.scope === "global" ? "Global" : "Project";
+        return dir ? `${label} · ${dir}` : label;
+      };
+      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video, scope: p.scope, where: whereOf(p) })));
       return out;
     }
     const out: Row[] = [];
@@ -361,6 +447,7 @@
           name: e.name,
           abs: joinPath(cwd, e.name),
           rel: e.name,
+          scope: browseScope,
           // entries drops sidecar files, so these checks read the raw listing's
           // sidecar names (a browse row was NEVER semantic before).
           semantic: manifestNames.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
@@ -372,13 +459,8 @@
   })();
   $: if (index >= rows.length) index = Math.max(0, rows.length - 1);
   $: relDir = cwd && plotsRoot ? cwd.slice(plotsRoot.length).replace(/^\//, "") : "";
-  // The search box says what a query would actually reach — scoped searches are the one
-  // place the importer is NOT looking at the whole project.
-  $: searchHint = !scanned
-    ? `Scanning ${scanScope ? `${scanScope}/` : "plots/"}…`
-    : scanScope
-      ? `Search inside ${scanScope}/…`
-      : "Search plots by name…  (or browse below)";
+  // The search box says what a query would actually reach (plot/galleryScope).
+  $: searchHint = scanned ? plan.placeholder : "Scanning…";
 
   function rank(p: PlotRec, q: string): number {
     const n = p.name.toLowerCase();
@@ -399,19 +481,22 @@
   }
   async function refresh() {
     error = ""; status = ""; resetPreviews(); clearDissectCache(); treeRevision++;
+    scanGeneration++; caches = new Map();
     await loadDir(cwd);
-    void scanFor(reservedRootOf(cwd));
+    ensureScans(plan);
   }
   async function goRoot() {
     cwd = plotsRoot; search = ""; similarTo = ""; index = 0; resetScroll();
-    await loadDir(cwd); syncScanScope(); focusInput();
+    await loadDir(cwd); focusInput();
   }
 
-  // A row's stable project-relative path under plots/ (consistent across search
-  // vs. browse rows, where r.rel differs) — normalized once, at toggle time.
+  // A row's stable path relative to ITS scope's root (project plots/ or the global
+  // library; consistent across search vs. browse rows, where r.rel differs) —
+  // normalized once, at toggle time.
   function relFor(r: Row): string {
-    return plotsRoot && r.abs && r.abs.startsWith(plotsRoot)
-      ? r.abs.slice(plotsRoot.length).replace(/^\/+/, "")
+    const base = rootOf(r.scope ?? browseScope);
+    return base && r.abs && r.abs.startsWith(base)
+      ? r.abs.slice(base.length).replace(/^\/+/, "")
       : (r.rel ?? r.name);
   }
 
@@ -436,7 +521,6 @@
     index = 0;
     resetScroll();
     await loadDir(cwd);
-    syncScanScope();
   }
 
   /** Use the shared import pipeline; a pinned gallery remains available for reuse. */
@@ -487,8 +571,7 @@
     search = ""; similarTo = "";
     index = 0;
     resetScroll();
-    await loadDir(cwd);
-    syncScanScope(); // stepping out of a reserved folder restores the ordinary plots/ scope
+    await loadDir(cwd); // stepping out of a reserved folder restores the ordinary search plan
   }
   function close() {
     importerOpen.set(false);
@@ -529,6 +612,10 @@
     }
     if (e.key === "Escape" && target !== inputEl) { e.preventDefault(); close(); return; }
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void insertPicked(); return; }
+    // Alt+1 / Alt+2: Project | Global (e.code — Alt changes e.key on macOS).
+    if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === "Digit1" || e.code === "Digit2")) {
+      e.preventDefault(); void switchScope(e.code === "Digit1" ? "project" : "global"); return;
+    }
     if (target.matches('input[type="range"], input[type="checkbox"], select')) return;
     if (target !== inputEl && !target.closest(".row")) return;
     const step = target === inputEl ? 1 : columns;
@@ -570,7 +657,7 @@
 
   function previewRow(row: Row | undefined) {
     if (row?.kind !== "file" || !row.abs) return;
-    expanded = { abs: row.abs, rel: relFor(row), name: row.name, semantic: !!row.semantic, video: row.video, snip: row.snip };
+    expanded = { abs: row.abs, rel: relFor(row), name: row.name, semantic: !!row.semantic, video: row.video, snip: row.snip, scope: row.scope ?? browseScope };
   }
   $: previewFiles = rows.filter((r): r is Row & { abs: string } => r.kind === "file" && !!r.abs);
   $: previewIndex = expanded ? previewFiles.findIndex(r => r.abs === expanded?.abs) : -1;
@@ -590,7 +677,7 @@
   async function navigateTree(path: string) {
     await descend({ kind: "dir", name: path.split("/").pop() || "plots", abs: path });
   }
-  async function selectTreeFile(file: PlotRec) {
+  async function selectTreeFile(file: { abs: string }) {
     const folder = file.abs.replace(/\/[^/]+$/, "");
     const generation = dirGeneration + 1;
     await navigateTree(folder);
@@ -601,11 +688,11 @@
     void ensureVisible();
     return true;
   }
-  async function previewTreeFile(file: PlotRec) {
+  async function previewTreeFile(file: { abs: string }) {
     const selected = await selectTreeFile(file);
     if (selected && get(importerOpen) && rows[index]?.abs === file.abs) previewRow(rows[index]);
   }
-  async function insertTreeFile(file: PlotRec) {
+  async function insertTreeFile(file: { abs: string }) {
     if (picked.size) { await insertPicked(); return; }
     if (await selectTreeFile(file)) {
       const row = rows[index];
@@ -628,8 +715,16 @@
         <div class="heading">
           <h2 class="ttl">{title}</h2>
           <div class="navigation">
+            <div class="scope-switch" role="group" aria-label="Plot scope">
+              {#each GALLERY_SCOPES as sc, n (sc.id)}
+                <button class:chosen={browseScope === sc.id} aria-pressed={browseScope === sc.id} data-scope={sc.id}
+                  disabled={sc.id === "global" && !libraryRoot}
+                  title={sc.id === "global" && !libraryRoot ? "The global plot library needs the desktop app" : `${sc.title} (Alt+${n + 1})`}
+                  on:click={() => void switchScope(sc.id)}>{sc.label}</button>
+              {/each}
+            </div>
             <div class="path">
-              <button class="rootbtn" on:click={goRoot} title="Browse all plots">plots</button>
+              <button class="rootbtn" on:click={goRoot} title={browseScope === "global" ? `Browse the whole global library · ${plotsRoot}` : "Browse all plots"}>{browseScope === "global" ? plotsRoot.split("/").pop() || "plot_library" : "plots"}</button>
               <span class="cur" title={relDir}>{relDir}</span>
               {#if cwd && cwd !== plotsRoot}<button class="upbtn" on:click={up} title="Parent folder (Backspace)">↑ Up</button>{/if}
             </div>
@@ -658,15 +753,16 @@
           <label class="slider">Space <input type="range" aria-label="Preview spacing" min="4" max="32" step="2" bind:value={spacing} on:change={rememberView} /></label>
           <label class="labels"><input type="checkbox" bind:checked={labels} on:change={rememberView} /> Names</label>
         {/if}
-        <span class="count">{fileCount} {allowVideos ? (fileCount === 1 ? "item" : "items") : (fileCount === 1 ? "plot" : "plots")}</span>
+        <span class="count">{fileCount} {browseVideos ? (fileCount === 1 ? "item" : "items") : (fileCount === 1 ? "plot" : "plots")}</span>
       </div>
       {#if similarTo}<div class="similar-filter"><span>Names similar to <strong>{similarTo}</strong>{#if !scanned} · Scanning…{/if}</span><button aria-label="Clear similar names" on:click={() => { similarTo = ""; index = 0; focusInput(); }}>× Clear</button></div>{/if}
       <div class="gallery-body">
-      {#if sidebar}<aside class="folder-sidebar"><GalleryTree bind:this={tree} root={plotsRoot} currentDirectory={cwd} selectedPath={rows[index]?.abs || ""} {allowVideos} refreshKey={treeRevision} onNavigate={navigateTree} onSelectFile={selectTreeFile} onPreviewFile={previewTreeFile} onInsertFile={insertTreeFile} /></aside>{/if}
+      {#if sidebar}<aside class="folder-sidebar"><GalleryTree bind:this={tree} root={plotsRoot} currentDirectory={cwd} selectedPath={rows[index]?.abs || ""} allowVideos={browseVideos} refreshKey={treeRevision} onNavigate={navigateTree} onSelectFile={selectTreeFile} onPreviewFile={previewTreeFile} onInsertFile={insertTreeFile} /></aside>{/if}
       <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
         {#if !root}<div class="empty">Open a Flux project to browse its plots.</div>
         {:else if !fileBridge()?.readdir}<div class="empty">Folder browsing isn't available in this build.</div>
-        {:else if !rows.length && !loading}<div class="empty"><strong>{q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{q || similarTo ? "Try another name or return to browsing." : allowVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
+        {:else if !rows.length && !loading && !q && !similarTo && browseScope === "global" && cwd === plotsRoot}<div class="empty" data-global-empty><strong>Your global plot library is empty</strong><span>Save SVG plots or PNG images into <code>{plotsRoot}</code> — in any folders you like — and every project can insert them from here.</span>{#if fileBridge()?.openPath}<button class="previewbtn open-library" on:click={() => void fileBridge()?.openPath?.(plotsRoot)}>Open folder</button>{/if}</div>
+        {:else if !rows.length && !loading}<div class="empty"><strong>{q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{q || similarTo ? "Try another name or return to browsing." : browseVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
         {:else}
           <div style={`height:${Math.floor(start / columns) * stride}px`} aria-hidden="true"></div>
           <div class="items" style={`--columns:${columns}; --cell-height:${cellHeight}px; --gap:${gap}px`}>
@@ -682,7 +778,7 @@
                 {/if}
                 <span class="row-meta">
                   <span class="ic">{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶" : r.semantic ? "◆" : "◇"}</span>
-                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.rel && r.rel !== r.name}<span class="rel">{r.rel.replace(/\/[^/]+$/, "")}</span>{/if}</span>
+                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}</span>
                   {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
                   {#if r.snip}<span class="badge">snip</span>{/if}
                   {#if r.video}<span class="badge">video</span>{/if}
@@ -692,7 +788,7 @@
             {/each}
           </div>
           <div style={`height:${Math.max(0, Math.ceil(rows.length / columns) - Math.ceil(end / columns)) * stride}px`} aria-hidden="true"></div>
-          {#if truncated}<div class="note">Search covers the first 20,000 plots and 20 folder levels. Browse a folder to see all of its images.</div>{/if}
+          {#if truncated}<div class="note">Search covers the first 20,000 plots and 20 folder levels of each scope. Browse a folder to see all of its images.</div>{/if}
         {/if}
       </div>
       </div>
@@ -711,7 +807,7 @@
     </div>
     {#if expanded}
       {#key expanded.abs + ":" + detached}
-        <GalleryExpandedPreview file={expanded} {root} refreshKey={previewRevision} initialAutoplay={!!expanded.video} onClose={closePreview} onSimilar={summonSimilar} onPrevious={previewIndex > 0 ? () => stepPreview(-1) : undefined} onNext={previewIndex >= 0 && previewIndex < previewFiles.length - 1 ? () => stepPreview(1) : undefined} />
+        <GalleryExpandedPreview file={expanded} {root} dissections={expanded.scope === "project"} refreshKey={previewRevision} initialAutoplay={!!expanded.video} onClose={closePreview} onSimilar={summonSimilar} onPrevious={previewIndex > 0 ? () => stepPreview(-1) : undefined} onNext={previewIndex >= 0 && previewIndex < previewFiles.length - 1 ? () => stepPreview(1) : undefined} />
       {/key}
     {/if}
   </div>
@@ -740,6 +836,13 @@
   .path { display:flex; gap:6px; align-items:center; min-width:0; font:11.5px var(--font-mono); }
   .cur { color:var(--c-tx-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .cur:not(:empty)::before { content:"/ "; color:var(--c-tx-faint); }
+  .scope-switch { display:inline-flex; flex-shrink:0; height:22px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); overflow:hidden; }
+  .scope-switch button { border:0; border-radius:0; background:none; padding:0 8px; font-size:11px; color:var(--c-tx-2); }
+  .scope-switch button + button { border-left:1px solid var(--c-line-strong); }
+  .scope-switch button:hover:not(:disabled) { color:var(--c-tx-hi); }
+  .scope-switch .chosen { background:var(--c-accent-tint); color:var(--c-tx-hi); }
+  .empty code { font:11px var(--font-mono); color:var(--c-tx-2); word-break:break-all; }
+  .empty .open-library { align-self:center; margin-top:8px; }
   .rootbtn, .upbtn, .refreshbtn, .clear-picks { background:none; border:0; padding:0; white-space:nowrap; }
   .rootbtn { color:var(--c-tx-2); }
   .rootbtn:hover { color:var(--c-tx-hi); }

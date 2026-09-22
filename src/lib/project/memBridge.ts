@@ -364,6 +364,7 @@ export function createMemBridge(): FileBridge & {
       const resolved = {
         fluxLibResolved: "/home/demo/FluxConfig/FluxLib",
         fluxConfigResolved: "/home/demo/FluxConfig",
+        plotLibraryResolved: "/home/demo/FluxConfig/plot_library",
       };
       try {
         return files.has(p)

@@ -188,8 +188,8 @@ replace it with your own file to opt out, and it will never be touched again). T
 
 1. Fill out `~/FluxConfig/Context/UserContext/WHO-AM-I.md`.
 2. Adjust `UserContext/RULES.md` and `agents.json` to taste.
-3. Moving machines? `~/FluxConfig` is portable — copy `UserContext/`, `agents.json`, and
-   `FluxLib/` over; `FluxContext/` re-syncs itself.
+3. Moving machines? `~/FluxConfig` is portable — copy `UserContext/`, `agents.json`,
+   `FluxLib/`, and `plot_library/` (your global plots) over; `FluxContext/` re-syncs itself.
 
 # Verify the setup
 

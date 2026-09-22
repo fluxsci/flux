@@ -90,10 +90,25 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
   shows or collapses a directory tree; expand its branches to browse files without losing
   your picks. Flux remembers these display choices.
+- **Project** / **Global** at the top of the gallery (**Alt+1** / **Alt+2**) switches between
+  this project's `plots/` folder and your **global plot library**, the
+  `plot_library` folder inside your FluxConfig folder (by default
+  `~/FluxConfig/plot_library`). Put plots you reuse everywhere there, such as logos,
+  schematics, reference panels and colour keys. Organise it with any folders you like, as
+  you would a project's `plots/`; Flux creates the folder the first time you open **Global**
+  and **Open folder** takes you there. Picks from both scopes can go in together. The
+  project keeps its own copy of every plot you insert, and a global plot stays linked to its
+  file in the library, so regenerating it there updates it here on this machine. The global
+  library holds SVG and PNG plots; video clips live in a project's `plots/_videos/`.
+- **What a search covers** is set in **Settings → Figure → Plot gallery**: everything in
+  the scope you are browsing (the default), only the current folder and its subfolders, only
+  project plots, only global plots, or everything in both. When results come from outside
+  the scope you are browsing, each one is labelled **Project** or **Global**.
 - Click a plot, or press **Enter** or **Space** in an empty search box, to select it.
   Picks survive folder changes and searches. **Ctrl+Enter**, the **Insert** button, or
-  a double-click inserts the selection. Search reaches ordinary folders throughout `plots/`;
-  **plots** returns to the root and **Up** or **Backspace** goes to the parent folder.
+  a double-click inserts the selection. By default, search reaches ordinary folders
+  throughout the tree you are browsing. The root button (**plots** or **plot_library**)
+  returns to the top, and **Up** or **Backspace** goes to the parent folder.
 - **Ctrl-click** (Mac: **⌘-click**) a plot, or use **Preview** / **F4**, for a full-window
   view. Arrow keys browse adjacent plots; **Escape** returns to the gallery. Open
   **Dissections** or press **D** to inspect the plot's companion groups and panels.
@@ -101,7 +116,7 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   selecting them. Clear that filter to return to normal browsing.
 - **Pin open** moves the gallery into its own resizable window. Move it to another screen
   and keep arranging figures in the editor. The current folder and selection are preserved,
-  and you can still browse the entire `plots/` tree. Insertions leave the window open and
+  and you can still browse the entire `plots/` tree and the global library. Insertions leave the window open and
   use the figure named in its footer. Successful insertions clear the submitted picks,
   ready for the next batch. **Dock** returns the same gallery to the editor;
   **Alt+G** brings an already pinned gallery forward. **Refresh** reloads files and previews.

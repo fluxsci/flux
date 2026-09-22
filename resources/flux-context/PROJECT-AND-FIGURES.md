@@ -66,6 +66,18 @@ Both reserved folders stay reachable on purpose: in the importer the user types 
 them, Enter to go in, and searching then applies only inside that folder. Reserved means out
 of the way, not unavailable — so put anything exploratory or explanatory in them freely.
 
+**The global plot library — plots for every project:** `<FluxConfig>/plot_library/`
+(`plotLibraryPath` in `config` output) is the user's machine-wide `plots/`: logos,
+schematics, reference panels, colour keys — anything reused across projects. Same rules as a
+project's `plots/` (any subfolders; the reserved `_` names are hidden the same way); the Plot
+gallery's **Project | Global** switch browses it, and a Settings preference decides whether a
+search spans project, global, or both. Put a plot there ONLY when the user wants it reusable
+beyond this project — per-analysis output belongs in the project's `plots/`. Composing a
+library plot works headless too (`compose-figure <plotLibraryPath>/logos/lab.svg --id …`): like
+a GUI insert it is stored as an EXTERNAL source (absolute path, `external: true`) with the
+pixels copied into `fig/assets/`, so the project stays self-contained while regenerating the
+library file still hot-swaps it on this machine.
+
 ## The figure model
 
 Hierarchy: **Project → Canvases → Figures → Elements**.

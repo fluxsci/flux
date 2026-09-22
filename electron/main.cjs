@@ -841,6 +841,9 @@ ipcMain.handle("prefs:get", () => ({
   fluxConfigResolved: getFluxConfigRoot(),
   // The machine Context layer (principal-agent scheme) — display/open helpers.
   contextResolved: fluxPaths.contextPathSync(readPrefs()),
+  // The global plot library (<FluxConfig>/plot_library) the Plot gallery's
+  // Global scope browses — see fluxPaths.plotLibraryPathSync.
+  plotLibraryResolved: fluxPaths.plotLibraryPathSync(readPrefs()),
 }));
 ipcMain.handle("prefs:set", async (_e, patch) => {
   const cur = readPrefs();

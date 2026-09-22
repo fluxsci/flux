@@ -183,7 +183,7 @@ export const VERBS: VerbDef[] = [
     cli: "config",
     aliases: ["config-paths"],
     summary:
-      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), contextPath/userContextPath/fluxContextPath (the machine Context layer), agentsConfigPath (the agent roster), and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Before working, read every file in userContextPath (who the user is + their standing rules) and orient via fluxContextPath/README.md.",
+      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), contextPath/userContextPath/fluxContextPath (the machine Context layer), agentsConfigPath (the agent roster), plotLibraryPath (the global plot library, <FluxConfig>/plot_library — reusable plots every project's Plot gallery can insert; any folder structure), and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Before working, read every file in userContextPath (who the user is + their standing rules) and orient via fluxContextPath/README.md.",
     params: {},
     cliArgs: [],
     handler: () => references.configInfo(),

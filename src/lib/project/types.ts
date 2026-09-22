@@ -404,8 +404,9 @@ export interface FileBridge {
   lockCheck?(scope: "project" | "fluxlib", name: string, token: string): Promise<boolean>;
   lockRelease?(scope: "project" | "fluxlib", name: string, token?: string): Promise<boolean>;
   // Global preferences (the first file-based config the GUI + CLI/agents share:
-  // <userData>/preferences.json — holds the FluxConfig pointer; the FluxLib and
-  // FluxConfig paths come back RESOLVED as fluxLibResolved/fluxConfigResolved).
+  // <userData>/preferences.json — holds the FluxConfig pointer; the FluxLib,
+  // FluxConfig and global plot library paths come back RESOLVED as
+  // fluxLibResolved/fluxConfigResolved/plotLibraryResolved).
   // Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;
   prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;

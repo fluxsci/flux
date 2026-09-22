@@ -80,6 +80,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** | Open the Plot gallery, or focus its pinned window |
+| **Alt+1** / **Alt+2** | In the Plot gallery: browse the project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
 | **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, **Ctrl+A** all, **x** hides the pick, **Enter** opens their properties, **double-click** re-roots |

@@ -20,6 +20,23 @@ async function main(){
  check(win.webContents.getURL().startsWith('file:')&&await js(win,'!window.__flux'),'production file renderer');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'Figure');
  await click(win,'.figrow[data-fig-id="native-5"] .item');await wait(()=>js(win,"!!document.querySelector('[data-editor-element-id=\"e5-0\"]')"),'small figure visible');key(win,'g',['alt']);await wait(()=>js(win,"!!document.querySelector('.importer')"),'gallery');
+ // Global scope through the real preload/prefs/fs guard: Alt+2, browse, insert, Alt+1.
+ const library=process.env.PROBE_LIBRARY;
+ const focused="document.activeElement===document.querySelector('.importer .search-in')";
+ await wait(()=>js(win,focused),'gallery search focused');
+ key(win,'2',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[title=logos]')"),'global library listed');
+ check(await js(win,"document.querySelector('.rootbtn').textContent.trim()==='plot_library'"),'native Global scope browses FluxConfig/plot_library');
+ await click(win,'.row[title=logos]');await wait(()=>js(win,"!!document.querySelector('.list .row[data-kind=\"file\"][data-path$=\"/badge.svg\"]')"),'library subfolder');
+ const beforeGlobal=saved().elements.length;
+ await click(win,'.list .row[data-kind="file"][data-path$="/badge.svg"]');await click(win,'.insbtn');
+ await wait(()=>saved().elements.length===beforeGlobal+1,'global insert persisted');
+ const badge=saved().elements.at(-1);
+ check(badge.type==='plot'&&badge.source?.external===true&&badge.source.svgPath===path.join(library,'logos','badge.svg'),'native global insert is saved as an external library source');
+ check(badge.width===48&&badge.height===48,'global plot keeps its physical size');
+ key(win,'g',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='global'&&!!document.querySelector('.row[title=logos]')"),'gallery reopens on Global');
+ await wait(()=>js(win,focused),'reopened gallery search focused');
+ key(win,'1',['alt']);await wait(()=>js(win,"document.querySelector('.scope-switch [aria-pressed=\"true\"]')?.dataset.scope==='project'&&!!document.querySelector('.row[title=study]')"),'back to Project');
+ check(true,'Alt+1 returns to the project plots');
  await click(win,'.row[title=study]');await wait(()=>js(win,"!!document.querySelector('.preview img')?.naturalWidth"),'SVG thumbnail');
  await click(win,'.list .row[data-kind="file"][data-path$="/growth.svg"]');await pin();
  check(child.isResizable(),'native child is resizable');

@@ -1199,6 +1199,20 @@ Persistence invariants (all machine-checked — do not weaken):
   Keyboard actions use the focused row's index; virtual scrolling may change the hover
   row beneath a stationary pointer. Large folders window grid
   rows and bound concurrent preview reads; thumbnails are images, never inline plot DOM.
+  **Two browse scopes (2026-09-22):** the Project | Global switch (Alt+1/Alt+2, `e.code`)
+  browses the project's plots/ or the global plot library `<FluxConfig>/plot_library` —
+  resolved ONLY by `fluxPaths.plotLibraryPathSync` (surfaced as `prefs:get`
+  `plotLibraryResolved` and `flux config` `plotLibraryPath`; never persisted, created by the
+  gallery on first Global view). Search reach is the `plotSearchScope` setting, turned into
+  scan sources + a folder filter by the pure `plot/galleryScope.ts` (`verify-gallery-scope.ts`);
+  the gallery owns the walks in a `sourceKey`-keyed cache, so a scope switch or a return from a
+  reserved collection reuses a finished walk instead of racing a single shared array. The
+  reserved-collection rule beats the setting. The browsed root is a plain variable assigned
+  with `cwd` and the scope, never a `$:` (flush-behind, §9). A library insert rides the
+  existing external-source path (absolute `svgPath`, `external: true`, pixels copied into
+  `fig/assets/`), identical in flux-core `compose-figure`. Videos and Dissections stay
+  project-only (the clip import and `gallery:videoUrl` are plots/-contained). Gate:
+  `verify-plot-library.mjs`.
   Gates: `group:plot-gallery`, `verify-plot-gallery-electron.cjs`, plus the Slide import gates.
   Native tests verify actual persisted edits/Undo.
 - **Dual paper panes (2026-08-11): Paper left `SINGLETON_MODES`.** Every per-editor singleton
@@ -6307,3 +6321,18 @@ separators, so the two files it had just DELETED failed to match its own skip li
 - A gate that compares paths is guilty until proven innocent on Windows. Of the failures that
   looked like product bugs this session, the majority were the gate's own separators — but not
   all of them, which is exactly why each one has to be read rather than dismissed.
+
+### 2026-09-22 — Global plot library: Project | Global gallery scopes + search-reach setting (Claude Opus 5.5, `main`)
+**Work:** Owner asked for a user-level plots folder usable from any project. Added
+`<FluxConfig>/plot_library` (one resolver in `fluxPaths.cjs`, reported by `prefs:get` and
+`flux config`), a Project | Global switch in the Plot gallery header (Alt+1/Alt+2, remembered),
+and Settings → Figure → Plot gallery "Search reaches" (selected scope [default] / current
+folder / project / global / everything; mixed results are labelled). New gates
+`verify-gallery-scope.ts` (pure) + `verify-plot-library.mjs` (ui, in `group:plot-gallery`),
+and `verify-plot-gallery-electron.cjs` now proves Global through the real preload/prefs/fs guard;
+`verify-shell-complete` now selects the two collection rows by label instead of assuming the
+Figure pane has exactly two selects. User docs (figure, shortcuts, collaboration, library,
+installation), in-app Help and the FluxContext docs (regenerated) updated.
+**Learnings:** promoted the scope architecture to §4's gallery bullet. A cache keyed by source
+retires the old "mid-flight scope guard" hazard structurally: a walk for a scope you left can
+only fill its own slot, never the array the current rows read.
