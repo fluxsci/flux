@@ -1316,7 +1316,10 @@ class CorrectionController {
           // Harper independently proves every model-originated word. Project
           // vocabulary has its own explicit correction path; an unfamiliar
           // generated token must never bootstrap itself into silent prose.
-          const validation = await localCorrectionService.lint(decision.replacement!, undefined, "lintOnly", this.workerScope);
+          // One word, but it sits inside the 1.5-second application window
+          // below, so it takes the live lane rather than queueing behind a
+          // backlog window that can hold the background linter for seconds.
+          const validation = await localCorrectionService.lint(decision.replacement!, undefined, "lintOnly", this.workerScope, "live");
           const unknown = validation.some((lint) => lint.kind === "Spelling" || lint.kind === "Typo");
           if (!unknown) approvedRescues.add(rescueApprovalKey(candidate.id, decision.replacement!));
         } catch {

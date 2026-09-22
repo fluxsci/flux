@@ -35,7 +35,11 @@ function walkQmd(dir: string, out: string[] = []): string[] {
     if (ent.isDirectory()) {
       if (!SKIP_DIRS.has(ent.name)) walkQmd(path.join(dir, ent.name), out);
     } else if (ent.name.endsWith(".qmd")) {
-      out.push(path.relative(docsDir, path.join(dir, ent.name)));
+      // POSIX separators: these strings are compared against `_quarto.yml`
+      // paths and printed in failures, and on Windows `path.relative` hands
+      // back `modes\figure.qmd`, which matched no sidebar entry — the gate
+      // then called EVERY page both orphaned and missing (2026-09-22).
+      out.push(path.relative(docsDir, path.join(dir, ent.name)).split(path.sep).join("/"));
     }
   }
   return out;

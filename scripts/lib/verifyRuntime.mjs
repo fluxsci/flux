@@ -32,6 +32,15 @@ export function isolatedEnv(dir, parent = process.env, { native = false } = {}) 
   writeFileSync(path.join(dir, 'temporary-root.txt'), tmp + '\n');
   const fluxConfig = path.join(home, 'FluxConfig');
   for (const p of [home, config, cache, tmp, path.join(fluxConfig, 'FluxLib'), path.join(config, 'flux')]) mkdirSync(p, { recursive: true });
+  // Windows: Chromium scaffolds under %USERPROFILE%\AppData and EXITS
+  // IMMEDIATELY when those folders do not exist. Puppeteer then reports the
+  // misleading "The browser is already running for <fresh temp profile>", and
+  // EVERY ui gate died at launch under isolation while the same gate passed
+  // when run by hand (2026-09-22). Creating the scaffolding keeps the scratch
+  // home fully isolated — the alternative, handing Chrome the real profile,
+  // would leak the user's Downloads and known folders into gates.
+  if (process.platform === 'win32')
+    for (const p of ['Local', 'LocalLow', 'Roaming']) mkdirSync(path.join(home, 'AppData', p), { recursive: true });
   writeFileSync(path.join(config, 'flux', 'preferences.json'), JSON.stringify({ fluxConfigPath: fluxConfig }));
   const env = { ...parent, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: cache, APPDATA: config, LOCALAPPDATA: cache, TMPDIR: tmp, TMP: tmp, TEMP: tmp, FLUX_NO_MIGRATE: '1', FLUX_OUT: path.join(dir, 'artifacts') };
   env.DCONF_PROFILE = '/dev/null';
@@ -59,6 +68,18 @@ export function isolatedEnv(dir, parent = process.env, { native = false } = {}) 
   delete env.FLUX_LIB;
   return env;
 }
+/**
+ * Scratch temp is evidence-free and disposable, and losing it must never cost a
+ * result. On Windows a just-closed Chromium still holds its Crashpad metrics
+ * file open for a moment, and an unguarded rmSync then threw EBUSY out of the
+ * `finally` — killing the whole runner process on the FIRST browser gate, which
+ * made the ui tier unrunnable there. Retry (Node backs off for exactly these
+ * Windows sharing violations), then leave the directory to the OS.
+ */
+export function discardTemporaryRoot(root) {
+  try { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  catch (error) { console.warn(`verify: scratch temp left behind (${root}): ${error.message}`); }
+}
 export async function executeAttempt({ spec, file, dir, cwd, timeout, env = process.env, commandOverride, signal }) {
   mkdirSync(dir, { recursive: true });
   const childEnv = isolatedEnv(dir, env, { native: spec.runtime === 'electron' || spec.runtime === 'node-electron' });
@@ -78,7 +99,7 @@ export async function executeAttempt({ spec, file, dir, cwd, timeout, env = proc
     try { if (matches) sentinel = JSON.parse(matches.at(-1).slice(11)); } catch {}
     const status = signal?.aborted ? 'interrupted' : entry.spawnError ? 'spawn-error' : entry.deadlineHit ? 'timeout' : entry.signal ? 'signal' : entry.code === 0 ? 'passed' : 'failed';
     return { status, code: signal?.aborted ? 'interrupted' : entry.spawnError ? 'spawn-error' : entry.deadlineHit ? 'timeout' : entry.signal ? `signal:${entry.signal}` : entry.code, signal: entry.signal, spawnError: entry.spawnError, ms: Date.now() - start, out, sentinel, directory: dir, command: [invocation.command, ...invocation.nodeArgs, invocation.file, ...invocation.args] };
-  } finally { if(onAbort)signal?.removeEventListener('abort',onAbort);await scope.dispose(); rmSync(childEnv.TMPDIR, { recursive: true, force: true }); }
+  } finally { if(onAbort)signal?.removeEventListener('abort',onAbort);await scope.dispose(); discardTemporaryRoot(childEnv.TMPDIR); }
 }
 export async function missingPrerequisites(spec, repo, env = process.env) {
   const missing = [];

@@ -37,7 +37,19 @@ async function atomic(file, value, exclusive = false) {
   const tmp = `${file}.tmp-${randomUUID()}`;
   try {
     await fs.writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
-    if (exclusive) await fs.link(tmp, file); else await fs.rename(tmp, file);
+    // On Windows a just-created file is briefly held open by the antivirus scanner,
+    // so link/rename onto it fails with EPERM/EBUSY a few percent of the time (60
+    // arbitration cycles reproduced 2 such failures, 2026-09-22). One failure was
+    // enough to abort a save and orphan the project lease. Retry briefly instead.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        if (exclusive) await fs.link(tmp, file); else await fs.rename(tmp, file);
+        break;
+      } catch (error) {
+        if (attempt >= 20 || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
   } finally { await fs.rm(tmp, { force: true }); }
 }
 async function registers(dir) {

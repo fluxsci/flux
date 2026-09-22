@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { harness } from "./lib/harness.mjs";
@@ -24,7 +25,23 @@ h.ok(result.code !== 0 && result.status === "output-error" && result.stderr.incl
 if(process.platform !== "win32"){
   result = await run(`const {spawn}=require('node:child_process');const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'inherit'});console.log(child.pid);setInterval(()=>{},1000);`,{timeoutMs:250,killGraceMs:30});
   const pid=Number(result.stdout.trim());assert(pid>0);
-  let running=false;try{process.kill(pid,0);const stat=await import('node:fs/promises').then(fs=>fs.readFile('/proc/'+pid+'/stat','utf8')).catch(()=> '');running=!stat.includes(') Z ');}catch{}
+  // The group SIGKILL is issued as runProcess resolves, but the descendant's
+  // teardown is the kernel's to schedule — sampling one instant made this read
+  // "alive" on a loaded runner, and a /proc read losing the race to a complete
+  // reap returned "" and also read as alive. Poll instead: still a real kill
+  // assertion, just not a stopwatch on the scheduler. A zombie counts as dead
+  // (its parent is gone, so init reaps it); without /proc only a full reap does.
+  const fsp = await import('node:fs/promises');
+  const hasProc = existsSync('/proc/self/stat');
+  let running = true;
+  for (const deadline = Date.now() + 5000; Date.now() < deadline;) {
+    try { process.kill(pid, 0); } catch { running = false; break; }
+    if (hasProc) {
+      const stat = await fsp.readFile('/proc/' + pid + '/stat', 'utf8').catch(() => '');
+      if (!stat || stat.includes(') Z ')) { running = false; break; }
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
   h.ok(!running && result.status === "timeout","timeout kills a SIGTERM-resistant descendant in the owned POSIX process group");
 }
 h.done();

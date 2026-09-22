@@ -56,6 +56,19 @@ export async function launch({ width = 1440, height = 900 } = {}) {
     args: ["--no-sandbox", `--window-size=${width},${height}`, "--force-device-scale-factor=1"],
     defaultViewport: { width, height },
   });
+  // Windows holds a just-closed Chromium's Crashpad metrics file open for a
+  // moment, so puppeteer's own temp-profile cleanup can throw EBUSY out of
+  // close() — after a gate has already done its work. Losing the scratch
+  // profile is not a result; the OS reclaims it.
+  if (process.platform === "win32") {
+    const close = browser.close.bind(browser);
+    browser.close = async () => {
+      try { await close(); } catch (error) {
+        if (!/EBUSY|EPERM|ENOTEMPTY/.test(String(error?.code ?? error?.message))) throw error;
+        console.warn(`driver: Chrome temp profile left behind (${error.code ?? "cleanup"})`);
+      }
+    };
+  }
   const page = await browser.newPage();
   const errs = [];
   _errs.set(page, errs);

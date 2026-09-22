@@ -280,7 +280,9 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       fsGuard(p, e.sender.id);
       if (!Number.isFinite(times?.atimeMs) || !Number.isFinite(times?.mtimeMs)) throw new Error("Invalid file timestamps");
       await fs.promises.utimes(p, times.atimeMs / 1000, times.mtimeMs / 1000);
-      const file = await fs.promises.open(p, "r"); try { await file.sync(); } finally { await file.close(); }
+      // "r+", not "r": Windows refuses FlushFileBuffers on a read-only handle (EPERM),
+      // which made export recovery fail and the project refuse to open (2026-09-22).
+      const file = await fs.promises.open(p, "r+"); try { await file.sync(); } finally { await file.close(); }
     });
     ipc.handle("fs:readdir", async (e, p, strict = false) => {
       if (typeof strict !== "boolean") throw new Error("Invalid directory inventory mode");

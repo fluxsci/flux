@@ -11,7 +11,7 @@
 // added there to join the gate. Scripts run sequentially (they own ports, temp
 // dirs, and the shared dev server). Exit code = number of failures.
 
-import { executionSpec, executeAttempt, missingPrerequisites, isolatedEnv } from "./lib/verifyRuntime.mjs";
+import { executionSpec, executeAttempt, missingPrerequisites, isolatedEnv, discardTemporaryRoot } from "./lib/verifyRuntime.mjs";
 import { TestProcessScope } from "./lib/testProcess.mjs";
 import { readFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import * as path from "node:path";
@@ -175,7 +175,7 @@ try {
     while (!stop.signal.aborted && next < pooled.length) { const result = await execWithRetry(pooled[next++]); results.push(result); report(result); }
   }));
   for (const name of serial) { if(stop.signal.aborted)break;const result = await execWithRetry(name); results.push(result); report(result); }
-} finally { await serverScope.dispose();if(serverTemporaryRoot)rmSync(serverTemporaryRoot,{recursive:true,force:true}); }
+} finally { await serverScope.dispose();if(serverTemporaryRoot)discardTemporaryRoot(serverTemporaryRoot); }
 if(interruption)for(const name of run)if(!results.some(result=>result.name===name))results.push({name,status:'interrupted',code:'interrupted',ms:0,attempts:[],reason:`Not started: ${interruption}`,out:''});
 const failed = results.filter(r => r.status !== 'passed');
 const sourceEnd = await sourceIdentity(repoRoot);

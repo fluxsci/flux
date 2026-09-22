@@ -26,7 +26,7 @@ export function exportRecoveryIO(root: string, assertOwned?: () => Promise<void>
     validatePath:p=>confinedRecoveryPath(root,p),
     fsyncDir,
     stat: async p => { await confinedRecoveryPath(root,p); return fs.stat(p); },
-    setTimes: async (p,times) => { await confinedRecoveryPath(root,p); await assertOwned?.(); await fs.utimes(p,times.atimeMs/1000,times.mtimeMs/1000); const file=await fs.open(p,"r"); try{await file.sync()}finally{await file.close()} },
+    setTimes: async (p,times) => { await confinedRecoveryPath(root,p); await assertOwned?.(); await fs.utimes(p,times.atimeMs/1000,times.mtimeMs/1000); const file=await fs.open(p,"r+"); /* r+: Windows refuses fsync on a read-only handle (EPERM) */ try{await file.sync()}finally{await file.close()} },
   };
 }
 export async function recoverProjectForAuthoring(root: string): Promise<void> {
