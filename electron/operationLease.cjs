@@ -36,7 +36,7 @@ function stale(info, ttl = TTL) {
 // Windows sharing violations live in fsRetry.cjs — one implementation for the
 // lease record here and for every project-file write in flux-core/fsx.ts. The
 // arbitration registers need no retry: they are never replaced (see transition).
-const { shareRetry } = require("./fsRetry.cjs");
+const { shareRetry, isSharingViolation } = require("./fsRetry.cjs");
 async function atomic(file, value, exclusive = false) {
   const tmp = `${file}.tmp-${randomUUID()}`;
   try {
@@ -50,19 +50,40 @@ async function atomic(file, value, exclusive = false) {
 }
 const discard = file => shareRetry(() => fs.rm(file, { force: true })).catch(() => {});
 const ticketOf = info => (Number.isSafeInteger(info.ticket) ? info.ticket : 0);
+/** Every register is `<token>.json` or `<token>.choosing.json`; a UUID has no dot. */
+const tokenOfName = name => name.split('.')[0];
 /**
  * The live contenders, ONE record per token. A token that has published its
  * number is read at that number even while its choosing flag is still on disk
  * (the higher wins), and a token carrying only the flag reads as 0 — which
  * makes every other contender wait, the conservative half of the bakery.
+ *
+ * A SCAN IS NOT A SNAPSHOT. `readdir` names the registers at one instant and the
+ * reads that follow happen over the next few milliseconds — long enough on
+ * Windows (measured: 9 ms to fold three entries) for a contender to finish
+ * choosing in the gap. That contender's flag is deleted and its numbered file is
+ * created AFTER our listing, so it was in neither state we could see and it
+ * dropped out of the result entirely: two processes then each read an empty
+ * bakery and both entered the critical section, which is how `verify-w3-locks`
+ * lost half of its increments and one side died with "Lost lease". So a register
+ * that is named but cannot be read is not absent — it is a contender in an
+ * UNKNOWN state, which the bakery reads as ticket 0 and everyone waits for. Its
+ * token comes from the filename, so our own vanished flag is still recognisably
+ * ours, and a contender that has genuinely finished simply does not appear in
+ * the NEXT listing (one 5 ms poll later). Windows also answers an open of a
+ * delete-pending file with EPERM/EACCES/EBUSY rather than ENOENT, which used to
+ * throw straight out of acquire(); that is the same unknown state.
  */
 async function registers(dir) {
   const byToken = new Map();
   for (const name of await fs.readdir(dir)) {
     if (!name.endsWith('.json')) continue;
-    const file = path.join(dir, name), info = await read(file);
-    if (!info) continue;
-    if (stale(info)) { await discard(file); continue; }
+    const file = path.join(dir, name);
+    let info;
+    try { info = await read(file); }
+    catch (error) { if (!isSharingViolation(error)) throw error; }
+    if (!info) info = { token: tokenOfName(name), ticket: 0, ts: new Date().toISOString(), unknown: true };
+    else if (stale(info)) { await discard(file); continue; }
     const seen = byToken.get(info.token);
     if (!seen || ticketOf(info) > ticketOf(seen)) byToken.set(info.token, info);
   }
