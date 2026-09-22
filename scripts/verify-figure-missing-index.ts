@@ -13,6 +13,7 @@ import { loadFigModel } from '../flux-core/model';
 import { composeFigure } from '../flux-core/figures';
 import type { Project } from '../src/lib/types';
 import type { FileBridge } from '../src/lib/project/types';
+import { linkDir } from "./lib/symlinks.mjs";
 const { createFileCore } = createRequire(import.meta.url)('../electron/ipc/files.cjs');
 const base = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-missing-index-'));
 const root = path.join(base, 'project'), outside = path.join(base, 'other');
@@ -65,7 +66,12 @@ try {
   await assert.rejects(loadFigModel(root), /remain registered/); ok('manifest registration prevents empty adoption even if all fig files disappeared');
   await seed(); await loadFigInto(root, 'Accepted before inventory fault'); await fs.rm(path.join(root, 'fig/index.json')); const inventoryBefore = await bytes();
   const originalReaddir = fs.readdir;
-  (fs as any).readdir = async (p: string, ...args: unknown[]) => { if (p === path.join(root, 'fig')) throw Object.assign(new Error('EACCES inventory denied'), { code: 'EACCES' }); return (originalReaddir as Function)(p, ...args); };
+  // The two engines reach this directory by different spellings — figfiles.ts
+  // joins POSIX, the Node side uses path.join — so the fault injector matches on
+  // the RESOLVED path. Keyed on the literal string it never fired for saveFigFrom
+  // on Windows, and the gate read as a missing rejection.
+  const figDir = path.resolve(root, 'fig');
+  (fs as any).readdir = async (p: string, ...args: unknown[]) => { if (path.resolve(p) === figDir) throw Object.assign(new Error('EACCES inventory denied'), { code: 'EACCES' }); return (originalReaddir as Function)(p, ...args); };
   syncBuiltinESMExports();
   try {
     assert.deepEqual(await bridge.readdir!(path.join(root, 'fig')), []);
@@ -77,7 +83,7 @@ try {
   assert.deepEqual(await bytes(), inventoryBefore);
   ok('actual native strict directory adapter, both engines and explicit overwrite retain inventory access failures and original bytes');
   const unsupported = await readFigureSnapshot({ readText: async () => null }); assert.equal(unsupported.status, 'failed'); ok('missing inventory capability cannot authorize fresh mutation');
-  await reset(); await fs.symlink(outside, path.join(root, 'fig'));
+  await reset(); await linkDir(outside, path.join(root, 'fig'));
   await assert.rejects(loadFigModel(root), /symlink escapes/);
   const escaped = await readFigureSnapshot(figureSnapshotBridgeIO(root, bridge)); assert.equal(escaped.status, 'failed'); assert.match(escaped.diagnostics[0].message, /escapes/); ok('existing and nearest-parent inventories reject symlinks into another approved project');
   await reset(); await fs.mkdir(path.join(root, 'fig', 'rendered'), { recursive: true }); await fs.writeFile(path.join(root, 'fig/rendered/external.svg'), svg);

@@ -14,6 +14,8 @@ import { planFigSave } from '../src/lib/project/figfiles';
 import { TestProcessScope } from './lib/testProcess.mjs';
 import type { Project } from '../src/lib/types';
 import type { FileBridge } from '../src/lib/project/types';
+import { samePath } from "./lib/paths.mjs";
+import { linkDir } from "./lib/symlinks.mjs";
 const require = createRequire(import.meta.url), leases = require('../electron/operationLease.cjs');
 const { createFileCore } = require('../electron/ipc/files.cjs'), { createGuiLeases } = require('../electron/guiLeases.cjs');
 if (process.argv[2] === '--recover-child') {
@@ -71,13 +73,13 @@ if (process.argv[2] === '--recover-child') {
       }
       {
         const f = await fixture(engine), p = await f.prepare(); await f.publishFigures(); let documentReads = 0;
-        const delayed: ReferenceSyncIO = { ...f.io, readText: async file => { const text = await f.io.readText(file); if (file === f.doc && ++documentReads === 2) { const owned = await leases.inspect(path.join(f.root,'.meta/locks'),'manuscript'); assert.ok(owned); await leases.release(owned); } return text; } };
+        const delayed: ReferenceSyncIO = { ...f.io, readText: async file => { const text = await f.io.readText(file); if (samePath(file,f.doc) && ++documentReads === 2) { const owned = await leases.inspect(path.join(f.root,'.meta/locks'),'manuscript'); assert.ok(owned); await leases.release(owned); } return text; } };
         await assert.rejects(commitFigureReferenceUpdate(f.root,p,delayed), /lease|owned/i);
         assert.equal(await fs.readFile(f.doc,'utf8'),originalText); assert.ok(await fs.readFile(f.journal,'utf8')); ok(`${engine}: ownership lost during final baseline read cannot publish document text`);
       }
       {
         const f = await fixture(engine), p = await f.prepare(); await f.publishFigures(); const entered = deferred(), resume = deferred(); let paused = false;
-        const delayed: ReferenceSyncIO = { ...f.io, writeText: async (file,text) => { await f.io.writeText(file,text); if (file === f.journal && !paused) { paused = true; entered.resolve(); await resume.promise; } } };
+        const delayed: ReferenceSyncIO = { ...f.io, writeText: async (file,text) => { await f.io.writeText(file,text); if (samePath(file,f.journal) && !paused) { paused = true; entered.resolve(); await resume.promise; } } };
         const pending = commitFigureReferenceUpdate(f.root,p,delayed); const rejected = assert.rejects(pending,/conflicts with newer file edits/);
         await entered.promise; const external = 'New external scientific text @fig-study-a.\n'; await fs.writeFile(f.doc,external); resume.resolve(); await rejected;
         assert.equal(await fs.readFile(f.doc,'utf8'),external); assert.ok(await fs.readFile(f.journal,'utf8')); ok(`${engine}: external prose written during journal I/O survives with unresolved recovery evidence retained`);
@@ -85,14 +87,14 @@ if (process.argv[2] === '--recover-child') {
       {
         const f = await fixture(engine), p = await f.prepare(); await f.publishFigures(); let buffer = originalText, applies = 0, flushes = 0, released = false;
         const unregister = registerLiveFigureReferenceDocument({ root: f.root, path: 'paper/main.qmd', getText: () => buffer, applyReplacements: changes => { applies++; buffer = applyReferenceReplacements(buffer,changes); }, flush: async () => { flushes++; await f.io.withDocumentLease!(async () => { await f.io.writeText(f.doc,buffer); }); } });
-        const delayed: ReferenceSyncIO = { ...f.io, writeText: async (file,text) => { await f.io.writeText(file,text); if (file === f.journal && !released) { released = true; const owned = await leases.inspect(path.join(f.root,'.meta/locks'),'figure-references'); assert.ok(owned); await leases.release(owned); } } };
+        const delayed: ReferenceSyncIO = { ...f.io, writeText: async (file,text) => { await f.io.writeText(file,text); if (samePath(file,f.journal) && !released) { released = true; const owned = await leases.inspect(path.join(f.root,'.meta/locks'),'figure-references'); assert.ok(owned); await leases.release(owned); } } };
         try { await assert.rejects(commitFigureReferenceUpdate(f.root,p,delayed),/lease|owned/i); assert.equal(buffer,originalText); assert.equal(applies,0); assert.equal(flushes,0); assert.equal(await fs.readFile(f.doc,'utf8'),originalText); }
         finally { unregister(); }
         ok(`${engine}: reference lease lost during journal write cannot mutate or flush a live Paper draft`);
       }
       for (const recovery of [false,true]) {
         const f = await fixture(engine,['paper/first.qmd','paper/later/second.qmd']), p = await f.prepare(); await f.publishFigures();
-        await fs.writeFile(path.join(f.outside,'second.qmd'),originalText); await fs.rm(path.join(f.root,'paper/later'),{recursive:true}); await fs.symlink(f.outside,path.join(f.root,'paper/later'));
+        await fs.writeFile(path.join(f.outside,'second.qmd'),originalText); await fs.rm(path.join(f.root,'paper/later'),{recursive:true}); await linkDir(f.outside,path.join(f.root,'paper/later'));
         const journal = await fs.readFile(f.journal,'utf8'); if (recovery) await releasePlan(f.root,p);
         await assert.rejects(recovery ? recoverFigureReferenceUpdate(f.root,f.io) : commitFigureReferenceUpdate(f.root,p,f.io),/symlink escapes|escapes.*root/i);
         assert.equal(await fs.readFile(f.doc,'utf8'),originalText); assert.equal(await fs.readFile(path.join(f.outside,'second.qmd'),'utf8'),originalText); assert.equal(await fs.readFile(f.journal,'utf8'),journal); ok(`${engine}: ${recovery?'recovery':'commit'} preflights later escaping document before modifying earlier safe document`);

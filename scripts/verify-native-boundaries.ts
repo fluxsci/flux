@@ -4,10 +4,11 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { reconstructAbstract, batchByDoiUrl } from "../src/lib/references/openalex";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { harness } from "./lib/harness.mjs";
+import { linkDir } from "./lib/symlinks.mjs";
 const require = createRequire(import.meta.url);
 const { createFileCore } = require("../electron/ipc/files.cjs");
 const { createFlushCoordinator } = require("../electron/appLifecycle.cjs");
@@ -18,14 +19,14 @@ try {
   const project = path.join(root, "project"), outside = path.join(root, "outside");
   await mkdir(project); await mkdir(outside);
   await writeFile(path.join(outside, "keep.txt"), "original");
-  await symlink(outside, path.join(project, "escape"));
+  await linkDir(outside, path.join(project, "escape"));
   const core = createFileCore({ app: { getPath: () => project }, roots: () => [project], setPendingRoot() {}, projectRootFor: (id: number) => id === 17 ? project : null });
   const handlers = new Map<string, any>(); core.registerHandlers({ handle: (name: string, fn: any) => handlers.set(name, fn) });
   const e = { sender: { id: 17 } };
   await assert.rejects(() => handlers.get("fs:writeText")(e, path.join(project, "escape", "keep.txt"), "bad"), /refused path/);
   await assert.rejects(() => handlers.get("fs:writeText")(e, path.join(project, "escape", "new.txt"), "bad"), /refused path/);
   h.eq(await readFile(path.join(outside, "keep.txt"), "utf8"), "original", "real handler blocks existing and created symlink escape writes");
-  const alias = path.join(root, "alias"); await symlink(project, alias);
+  const alias = path.join(root, "alias"); await linkDir(project, alias);
   await handlers.get("fs:writeText")(e, path.join(alias, "ok.txt"), "allowed");
   h.eq(await readFile(path.join(project, "ok.txt"), "utf8"), "allowed", "legitimate symlink project resolves to its granted identity");
   h.eq(core.writeOrigin(path.join(alias,"ok.txt")),17,"successful native write owns exactly its file generation");
@@ -91,7 +92,12 @@ try {
     };
     await assert.rejects(()=>core.atomicWriteMain(secret,"new-secret",false,0o600),/injected/);
   } finally { nativeFs.promises.rename = originalRename; }
-  h.eq(temporaryMode,0o600,"secret temporary file is owner-only before publication");
+  // NTFS has no POSIX permission bits: Node maps every writable file to 0o666
+  // and `mode` on open() only ever toggles the read-only attribute, so the
+  // owner-only contract is not expressible there (ACLs are, and Node cannot set
+  // them). Asserted where the platform implements it; announced where it does not.
+  if (process.platform === "win32") console.log(`SKIP (win32: no POSIX file modes) — secret temporary file is owner-only before publication (observed ${temporaryMode.toString(8)})`);
+  else h.eq(temporaryMode,0o600,"secret temporary file is owner-only before publication");
   h.eq(await readFile(secret,"utf8"),"prior-secret","failed atomic secret publication retains exact previous bytes");
   h.ok(!(await nativeFs.promises.readdir(project)).some((name:string)=>name.startsWith('.credentials.json.tmp-')),"failed publication removes its exclusive temporary file");
   const coord = createFlushCoordinator({ timeoutMs: 15 }); let sent: any; let result: any;
