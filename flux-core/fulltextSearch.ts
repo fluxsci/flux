@@ -107,7 +107,13 @@ function snippetAroundOriginal(original: string, offset: number, len: number, ch
  *  outrank one that genuinely discusses the subject. */
 function rankHits(a: FulltextHit, b: FulltextHit): number {
   if (a.refOnly !== b.refOnly) return a.refOnly ? 1 : -1;
-  return b.bodyCount - a.bodyCount || b.count - a.count;
+  // The key breaks ties so the comparator is TOTAL. Without it equally-ranked
+  // hits kept whatever order they were pushed in, and the scan path pushes from
+  // CONCURRENCY parallel workers: a corpus where every document scores the same
+  // came back in a different order on every run, and disagreed with the indexed
+  // path (which walks dirOrder sequentially) — the one thing those two paths
+  // must never do. It also decides deterministically WHICH ties survive `limit`.
+  return b.bodyCount - a.bodyCount || b.count - a.count || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
 /** Search every stored fulltext for ALL of the query's terms/phrases. */
