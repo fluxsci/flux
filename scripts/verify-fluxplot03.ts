@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { parseHTML } from "linkedom";
 import { validatePlot } from "../flux-core/validate";
@@ -21,7 +22,10 @@ const load = async (name: string) => ({ svg: await readFile(new URL(`${name}.svg
   manifest: JSON.parse(await readFile(new URL(`${name}.fluxplot.json`, dir), "utf8")) as FluxPlotManifest });
 for (const name of ["panels-a", "panels-b", "fields"]) {
   const { svg, manifest } = await load(name);
-  const result = await validatePlot(new URL(`${name}.svg`, dir).pathname);
+  // fileURLToPath, never `.pathname`: a Windows file URL's pathname is "/C:/…",
+  // which is not a path the fs can open, and validatePlot then reported the
+  // manifest sidecar beside it as missing.
+  const result = await validatePlot(fileURLToPath(new URL(`${name}.svg`, dir)));
   assert.equal(result.ok, true, result.errors.join("\n"));
   await validateIncomingPlot(svg, JSON.stringify(manifest));
   const ids = new Set([...svg.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));

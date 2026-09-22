@@ -22,7 +22,10 @@ try {
  h.eq(read('source.json'),oldSource,'rollback preserves exact prior provenance bytes');
  h.eq(await readFulltext('paper',root),null,'rollback marks old extraction for rebuild instead of exposing ambiguous context');
  // Abruptly terminate an actual child immediately after the PDF rename in the real writer.
- const child=spawnSync(process.execPath,['--import','tsx','-e',`import('node:fs').then(async({default:fs})=>{const original=fs.promises.rename;fs.promises.rename=async(a,b)=>{await original(a,b);if(b===${JSON.stringify(p('paper.pdf'))})process.exit(86);};(await import('node:module')).syncBuiltinESMExports();const m=await import('./flux-core/items.ts');await(m.writePdf||m.default.writePdf)('paper',Buffer.from(${JSON.stringify(B.toString())}),{source:'ingest'},${JSON.stringify(root)});})`],{cwd:process.cwd(),env:{...process.env},encoding:'utf8',timeout:15000});
+ // The writer reaches paper.pdf through the POSIX-joined item helper, so the kill
+ // trigger RESOLVES both sides — compared as strings it never fired on Windows and
+ // the child exited 0, which reads as "the interruption never happened".
+ const child=spawnSync(process.execPath,['--import','tsx','-e',`Promise.all([import('node:fs'),import('node:path')]).then(async([{default:fs},{default:nodePath}])=>{const target=nodePath.resolve(${JSON.stringify(p('paper.pdf'))});const original=fs.promises.rename;fs.promises.rename=async(a,b)=>{await original(a,b);if(nodePath.resolve(b)===target)process.exit(86);};(await import('node:module')).syncBuiltinESMExports();const m=await import('./flux-core/items.ts');await(m.writePdf||m.default.writePdf)('paper',Buffer.from(${JSON.stringify(B.toString())}),{source:'ingest'},${JSON.stringify(root)});})`],{cwd:process.cwd(),env:{...process.env},encoding:'utf8',timeout:15000});
  assert.equal(child.status,86,child.stderr);
  h.eq(fs.readFileSync(p('paper.pdf')),B,'actual interrupted writer published exact new PDF bytes');
  h.eq(read('source.json'),oldSource,'actual interrupted writer has not replaced prior provenance');
