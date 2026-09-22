@@ -5,6 +5,7 @@ import { decodeManifest, encodeManifest } from "../src/lib/project/manifestTrans
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { runProcess } from "../electron/processRunner.cjs";
 import { composeCaption, panelLetters } from "../src/lib/captions";
 import { harvestZoteroLibrary, injectZoteroFields, resolveCslIdentity, type CslRecord } from "../src/lib/references/zoteroFields.js";
@@ -169,7 +170,10 @@ export async function insertSlideEmbed(root: string, deck: string, slide: string
  *  module's own location so a source checkout and the packaged CLI bundle both
  *  find them. */
 const RESOURCES_DIR = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
+  // fileURLToPath, never `.pathname`: on Windows that is "/C:/…", which
+  // path.resolve turns into "C:\C:\…" — every shipped CSL and Word reference
+  // read silently failed there, so a journal-styled export lost its style.
+  path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "resources",
 );

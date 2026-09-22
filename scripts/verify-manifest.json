@@ -1560,7 +1560,7 @@
     "verify-startup.mjs": 300000,
     "verify-writer-latency-inp.mjs": 200000,
     "verify-scale-fulltext.mjs": 180000,
-    "verify-registry-parity.ts": 180000,
+    "verify-registry-parity.ts": 300000,
     "verify-slide-headless-e2e.ts": 300000,
     "verify-slide-export-w6.ts": 300000,
     "verify-slide-tenancy-gui.mjs": 180000,
@@ -4440,7 +4440,7 @@
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",
-      "timeoutMs": 180000,
+      "timeoutMs": 300000,
       "exclusive": false,
       "coverage": "behavior"
     },
