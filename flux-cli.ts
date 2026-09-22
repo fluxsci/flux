@@ -321,7 +321,13 @@ async function main() {
         noPicker: !!flags["no-picker"],
         noTranscript: !!flags["no-transcript"],
       });
-      break;
+      // This verb owns the terminal and has nothing left to flush, so it exits
+      // rather than waiting for the loop to drain: on Windows node-pty leaves a
+      // MessagePort and a Socket open after the child exits, and `flux principal`
+      // with a transcript never returned to the shell (measured: still alive
+      // indefinitely, the gate's 60s exit wait timed out). stdout here is a
+      // terminal, where Windows writes are synchronous.
+      process.exit(process.exitCode);
     }
     case "attend": {
       await core.attend(root(), {

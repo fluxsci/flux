@@ -2304,7 +2304,9 @@
     },
     "verify-correction-runtime.ts": {
       "runtime": "tsx",
-      "prerequisites": [],
+      "prerequisites": [
+        "correction-runtime"
+      ],
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,

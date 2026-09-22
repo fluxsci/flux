@@ -139,6 +139,13 @@ export async function missingPrerequisites(spec, repo, env = process.env) {
           notice: readFileSync(path.join(repo, 'build/video-encoder-NOTICE.md')) });
         if (!runs(path.join(target, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'), ['-version'])) throw new Error('not runnable');
       } catch { missing.push(`pinned native encoder for ${process.platform}-${process.arch} (npm run fetch:video-encoder)`); }
+    } else if (p === 'correction-runtime') {
+      // The llama-server build is a large staged download, like the encoder:
+      // absent, the gate fails deep inside a product path that is working
+      // correctly. `npm run fetch:correction-runtime` stages it.
+      const server = path.join(repo, 'build/correction-runtime', `${process.platform}-${process.arch}`,
+        process.platform === 'win32' ? 'llama-server.exe' : 'llama-server');
+      if (!existsSync(server)) missing.push(`staged correction runtime for ${process.platform}-${process.arch} (npm run fetch:correction-runtime)`);
     } else if (p.startsWith('file:')) {
       if (!existsSync(path.join(repo, p.slice(5)))) missing.push(p);
     } else missing.push(`unknown prerequisite: ${p}`);
