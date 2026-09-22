@@ -1637,6 +1637,17 @@ days (probe geometry like `width` instead).
   and flaked on a loaded CI runner; a `/proc` read that LOST the race to a complete reap
   returned "" and also scored as alive. Poll to a deadline instead — it still fails a
   surviving descendant, it just stops putting a stopwatch on the scheduler.
+- **`npm run check` is not the type gate.** CI runs `npm run check && npm run check:headless`,
+  and the second one is `tsc` over `tsconfig.headless.json` — which type-checks the `.cjs`
+  main-process files under `noImplicitAny`. A new helper there passed svelte-check and turned
+  CI red on the very next push (2026-09-22). Run both before claiming a green type-check.
+- **A COMPUTED path handed to a stored-path validator must be converted first.**
+  `renderFigureSvg` resolved a plot's manifest candidate, then passed `path.relative(root, cand)`
+  to a reader that validates its argument as a stored asset path — and `storedAssetPath` rejects
+  backslashes on purpose, because a stored path never has one. On Windows the renderer therefore
+  rejected its own path and lost EVERY semantic manifest, silently dropping part overrides from
+  headless renders and exports. The rule is not "normalize at the boundary" but "a value crossing
+  INTO stored-path form is converted at that crossing".
 - **A path that gets PERSISTED must be POSIX, whatever the platform.** `flux-core/slides.ts`
   derived a plot's `svgPath` with `path.join`, so a deck authored on Windows stored
   `fig\assets\x.svg` into deck.json — a path no other platform resolves, shipped inside a
@@ -6281,3 +6292,18 @@ other platform resolves — now `path.posix.join`.
 - A platform-specific harness defect is indistinguishable from a product regression until you
   read the failure. Three separate red gates here were the harness, one was the product, and
   the product one was only reachable after the other three were fixed.
+
+### 2026-09-22 (later) — What the Windows sweep turned up once the gates could run (Claude Opus 5, `main`)
+**Work:** With the harness fixed, the remaining red gates started saying useful things. Two were
+real: `renderFigureSvg` fed a `path.relative` result to a stored-path validator, so headless
+renders on Windows silently lost every semantic plot manifest; and the new fs-retry helper was
+untyped for `check:headless`, which is a separate tsc project CI runs and `npm run check` does
+not. One looked real and was not — `verify-doc-delete` keyed its snapshot with platform
+separators, so the two files it had just DELETED failed to match its own skip list and read as
+"deleting a document rewrote a sibling". It does not.
+**Learnings:**
+- Promoted to §9: run both type projects, and convert a computed path AT the crossing into
+  stored-path form.
+- A gate that compares paths is guilty until proven innocent on Windows. Of the failures that
+  looked like product bugs this session, the majority were the gate's own separators — but not
+  all of them, which is exactly why each one has to be read rather than dismissed.
