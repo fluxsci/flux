@@ -21,7 +21,12 @@ const config = path.join(scratch, "FluxConfig");
 const resources = path.join(scratch, "resources");
 const runtimeDir = path.join(resources, "corrections", "runtime");
 mkdirSync(runtimeDir, { recursive: true });
-const server = path.join(runtimeDir, "llama-server");
+// The product looks for llama-server.exe on win32, so the fixture must be
+// named the same way or verifyRuntime reports a healthy runtime as missing —
+// which read as "the packaged Flux correction runtime is unavailable" and was
+// mistaken for a missing staged download (2026-09-22).
+const SERVER_NAME = process.platform === "win32" ? "llama-server.exe" : "llama-server";
+const server = path.join(runtimeDir, SERVER_NAME);
 writeFileSync(server, "verified helper");
 chmodSync(server, 0o755);
 writeFileSync(path.join(runtimeDir, "runtime-manifest.json"), JSON.stringify({ release: "verify", serverSha256: createHash("sha256").update("verified helper").digest("hex") }));
