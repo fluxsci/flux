@@ -111,8 +111,13 @@ try {
  activeRoot=A;focus=2;const live=await native.claim(senders[1],{root:A,owner:'live'});
  const transport={renew:async(token:string,generation:number)=>native.renew(senders[1],{token,generation}),claim:async(root:string,owner:string)=>native.claim(senders[1],{root,owner}),publish:async(token:string,generation:number,ctx:any)=>native.publish(senders[1],{token,generation,context:ctx}),release:async(token:string)=>native.release(senders[1],token)};
  const publisher=createReaderContextPublisher(transport,'heartbeat',{heartbeatMs:5});publisher.update(A,context('long-read'),true);await publisher.flush();
- const firstTime=JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt;await new Promise(r=>setTimeout(r,18));await publisher.flush();
- h.ok(JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt>firstTime,'focused long read renews context without user interaction');
+ // The 5ms heartbeat needs a tick to land, and a fixed sleep assumes the
+ // runner grants one — it did not, under load (CI, 2026-09-22). Poll for the
+ // renewal instead: this still fails a heartbeat that never renews.
+ const firstTime=JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt;
+ let renewed=firstTime;
+ for(let i=0;i<100;i++){await new Promise(r=>setTimeout(r,20));await publisher.flush();renewed=JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt;if(renewed>firstTime)break;}
+ h.ok(renewed>firstTime,'focused long read renews context without user interaction');
  focus=0;publisher.update(A,context('must-not-publish-background-change'),true,false);await publisher.flush();
  const external=await readReaderContext(A);h.ok(external?.citekey==='long-read'&&external.foreground===false,'external-agent OS focus retains the exact last reader context without publishing new background text');
  const contentAt=external?.updatedAt;await new Promise(r=>setTimeout(r,12));await publisher.flush();
