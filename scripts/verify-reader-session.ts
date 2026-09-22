@@ -15,6 +15,8 @@ import { harness } from './lib/harness.mjs';
 import { fileLinksSupported, fileLinkSkipNote } from "./lib/symlinks.mjs";
 const require=createRequire(import.meta.url),{createFileCore}=require('../electron/ipc/files.cjs'),{createReaderContext}=require('../electron/ipc/readerContext.cjs');
 const h=harness('verify-reader-session');
+/** Poll `cond` to a deadline. Returns false if it never held — the caller still asserts. */
+const until=async(cond:()=>Promise<boolean>,ms=5000):Promise<boolean>=>{const end=Date.now()+ms;for(;;){if(await cond())return true;if(Date.now()>end)return false;await new Promise(r=>setTimeout(r,10))}};
 const deferred=<T>()=>{let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>resolve=r);return {promise,resolve};};
 const tick=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
 // Version-specific structural guard. PDF.js6 removed the old no-eval switch;
@@ -112,10 +114,14 @@ try {
  activeRoot=A;focus=2;const live=await native.claim(senders[1],{root:A,owner:'live'});
  const transport={renew:async(token:string,generation:number)=>native.renew(senders[1],{token,generation}),claim:async(root:string,owner:string)=>native.claim(senders[1],{root,owner}),publish:async(token:string,generation:number,ctx:any)=>native.publish(senders[1],{token,generation,context:ctx}),release:async(token:string)=>native.release(senders[1],token)};
  const publisher=createReaderContextPublisher(transport,'heartbeat',{heartbeatMs:5});publisher.update(A,context('long-read'),true);await publisher.flush();
- const firstTime=JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt;await new Promise(r=>setTimeout(r,18));await publisher.flush();
- h.ok(JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt>firstTime,'focused long read renews context without user interaction');
+ const firstTime=JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt;
+ // Poll the heartbeat rather than sleeping a guess: one renewal is an atomic
+ // write, and on a loaded machine it does not fit in a fixed 18ms.
+ const renewed=await until(async()=>{await publisher.flush();return JSON.parse(fs.readFileSync(pA,'utf8')).expiresAt>firstTime});
+ h.ok(renewed,'focused long read renews context without user interaction');
  focus=0;publisher.update(A,context('must-not-publish-background-change'),true,false);await publisher.flush();
  const external=await readReaderContext(A);h.ok(external?.citekey==='long-read'&&external.foreground===false,'external-agent OS focus retains the exact last reader context without publishing new background text');
+ // annotated: a genuine ELAPSE, not a wait — the assertion is that content time does NOT move.
  const contentAt=external?.updatedAt;await new Promise(r=>setTimeout(r,12));await publisher.flush();
  h.ok((await readReaderContext(A))?.updatedAt===contentAt,'background heartbeat renews liveness without falsely restamping content time');
  focus=2;
