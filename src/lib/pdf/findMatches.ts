@@ -70,14 +70,20 @@ export function createFindMatchCollector() {
   return (snapshot: PdfFindSnapshot | null, queryIdentity: unknown): FindMatch[] => {
     if (queryIdentity !== query) { query = queryIdentity; cached = []; result = []; }
     if (!snapshot?.pageMatches || !snapshot._pageContents) return [];
-    let changed = cached.length !== snapshot.pageMatches.length;
+    // The FIRST page whose descriptors changed. Everything before it keeps both
+    // its rows and its indices, so only the tail is rebuilt: pdf.js reports its
+    // scan page by page, and rebuilding the whole list on every report made the
+    // cost quadratic in page count (300 pages × 305 hits: 13.8M row visits,
+    // 1.05s here and 2.9s on a CI runner, against a 2s budget). Appending only
+    // the new page's rows makes the same scan linear.
+    let firstDirty = cached.length === snapshot.pageMatches.length ? -1 : Math.min(cached.length, snapshot.pageMatches.length);
     for (let page = 0; page < snapshot.pageMatches.length; page++) {
       const offsets = snapshot.pageMatches[page] ?? noMatches;
       const lengths = snapshot.pageMatchesLength?.[page];
       const text = snapshot._pageContents[page] ?? "";
       const prior = cached[page];
       if (prior && prior.offsets === offsets && prior.lengths === lengths && prior.text === text) continue;
-      changed = true;
+      if (firstDirty < 0 || page < firstDirty) firstDirty = page;
       const rows = offsets.map((start, matchInPage) => {
         const length = lengths?.[matchInPage] ?? 0;
         let snippets: { before: string; hit: string; after: string } | undefined;
@@ -87,9 +93,17 @@ export function createFindMatchCollector() {
       cached[page] = { offsets, lengths, text, rows };
     }
     cached.length = snapshot.pageMatches.length;
-    if (changed) {
-      result = cached.flatMap(page => page.rows);
-      for (let i = 0; i < result.length; i++) result[i].index = i;
+    if (firstDirty >= 0) {
+      // Rows of the untouched prefix keep the indices they already have; the
+      // array is reused, which callers already rely on (an unchanged scan has
+      // always returned the same instance).
+      let head = 0;
+      for (let page = 0; page < firstDirty; page++) head += cached[page].rows.length;
+      result.length = head;
+      for (let page = firstDirty; page < cached.length; page++) {
+        const rows = cached[page].rows;
+        for (let i = 0; i < rows.length; i++) { rows[i].index = result.length; result.push(rows[i]); }
+      }
     }
     return result;
   };
