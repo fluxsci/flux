@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { hashBytes, downloadAsset, inventory, replacePrepared, recoverPrevious, gunzipBounded, verifyExecutable } from './lib/runtimeAssets.mjs';
+import { fileLinksSupported, fileLinkSkipNote } from './lib/symlinks.mjs';
 import { fetchVideoEncoder, verifyVideoEncoder } from './fetch-video-encoder.mjs';
 import { fetchCorrectionRuntime, verifyCorrectionRuntime } from './fetch-correction-runtime.mjs';
 const root=await mkdtemp(path.join(os.tmpdir(),'flux-runtime-assets-'));let checks=0;
@@ -26,7 +27,9 @@ try{
   await writeFile(path.join(first.target,'LICENSE'),'corrupt');await reject(()=>verifyVideoEncoder(first.target,opts),/checksum mismatch/);
   const corrupt=await readFile(path.join(first.target,'LICENSE'));await reject(()=>fetchVideoEncoder({...opts,fetchImpl:async()=>{throw Error('offline');}}),/offline/);assert.deepEqual(await readFile(path.join(first.target,'LICENSE')),corrupt);pass();
   assert.equal((await fetchVideoEncoder(opts)).cached,false);pass();
-  await chmod(path.join(first.target,'ffmpeg'),0o644);await reject(()=>verifyVideoEncoder(first.target,opts),/not executable/);await chmod(path.join(first.target,'ffmpeg'),0o755);
+  // chmod cannot clear an exec bit NTFS never had, so this negative case exists
+  // only where the host filesystem carries POSIX modes.
+  if(process.platform!=='win32'){await chmod(path.join(first.target,'ffmpeg'),0o644);await reject(()=>verifyVideoEncoder(first.target,opts),/not executable/);await chmod(path.join(first.target,'ffmpeg'),0o755);}
   const cached=JSON.parse(await readFile(path.join(first.target,'manifest.json'),'utf8'));cached.arch='arm64';await writeFile(path.join(first.target,'manifest.json'),JSON.stringify(cached));await reject(()=>verifyVideoEncoder(first.target,opts),/identity/);
   await fetchVideoEncoder(opts);await writeFile(path.join(first.target,'unexpected'),'extra');await reject(()=>verifyVideoEncoder(first.target,opts),/missing or unexpected/);await rm(path.join(first.target,'unexpected'));
   const badArch=path.join(root,'bad-arch');const arm=Buffer.from(elf);arm.writeUInt16LE(183,18);await writeFile(badArch,arm,{mode:0o755});await reject(()=>verifyExecutable(badArch,'linux','x64'),/architecture/);
@@ -42,7 +45,8 @@ try{
   await reject(()=>replacePrepared(prepared,target,{renameImpl:async(from,to)=>{if(from===prepared)throw Error('injected rename failure');return rename(from,to);}}),/injected rename/);assert.equal(await readFile(path.join(target,'bytes'),'utf8'),'LAST GOOD');pass();
   await rename(target,target+'.previous');await recoverPrevious(target);assert.equal(await readFile(path.join(target,'bytes'),'utf8'),'LAST GOOD');pass();
   await replacePrepared(prepared,target);assert.equal(await readFile(path.join(target,'bytes'),'utf8'),'replacement');pass();
-  await symlink(badArch,path.join(target,'escape'));await reject(()=>inventory(target),/escapes/);
+  if(fileLinksSupported()){await symlink(badArch,path.join(target,'escape'));await reject(()=>inventory(target),/escapes/);}
+  else console.log(fileLinkSkipNote('runtime inventory refuses a link escaping its bundle'));
   // Correction bundle cache must rehash every library, not just the server.
   const archive=Buffer.from('pinned correction archive fixture');const asset={name:'fixture.tar.gz',size:archive.length,sha256:hashBytes(archive),acceleration:'vulkan',backendPrefix:'libggml-vulkan'};
   const extract=async(_archive,dir)=>{await writeFile(path.join(dir,'llama-server'),elf);for(const name of ['LICENSE','libllama.so','libggml-base.so','libggml-vulkan.so'])await writeFile(path.join(dir,name),'correct resource');};

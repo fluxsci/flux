@@ -68,8 +68,18 @@ try {
   h.ok(isChosenFigure(await fs.readFile(chosenRender,'utf8'))&&!(await fs.access(mainRender).then(()=>true,()=>false)),'HTML freshly materializes only the chosen document figure');
   h.eq(await fs.readFile(path.join(root,'manuscript/main.qmd'),'utf8'),a,'unselected main document remains byte-identical');
   const bin = path.join(root,'fault-bin'); await fs.mkdir(bin);
-  await fs.writeFile(path.join(bin,'quarto'),`#!/usr/bin/env node\nconst fs=require('node:fs'),p=require('node:path'); const args=process.argv.slice(2), output=args[args.indexOf('--output')+1], target=p.join(p.dirname(args[1]),output);fs.writeFileSync(target,'corrupt artifact');console.log('Output created: '+output);\n`,{mode:0o755});
-  process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+  const faultBody = `const fs=require('node:fs'),p=require('node:path'); const args=process.argv.slice(2), output=args[args.indexOf('--output')+1], target=p.join(p.dirname(args[1]),output);fs.writeFileSync(target,'corrupt artifact');console.log('Output created: '+output);\n`;
+  // Windows runs no shebang and resolves a bare name through PATHEXT, so the
+  // fault quarto is a .cmd launching node over the same body. An extensionless
+  // script there is simply never found, and the corrupt artifact never appears.
+  if (process.platform === 'win32') {
+    await fs.writeFile(path.join(bin,'quarto-fault.js'),faultBody);
+    await fs.writeFile(path.join(bin,"quarto.cmd"),`@"${process.execPath}" "%~dp0quarto-fault.js" %*\r\n`);
+  } else await fs.writeFile(path.join(bin,'quarto'),`#!/usr/bin/env node\n${faultBody}`,{mode:0o755});
+  // execResolve deliberately prefers a real .exe in ANY PATH dir over an earlier
+  // batch shim, so prepending the fault bin would still run the installed
+  // quarto.exe: on win32 the fault bin has to BE the whole PATH.
+  process.env.PATH = process.platform === 'win32' ? bin : `${bin}${path.delimiter}${oldPath}`;
   let refused=false;try{await compile(root,'docx',{doc:'manuscript/chosen.qmd'});}catch{refused=true;}
   h.ok(refused,'corrupt zero-exit DOCX is rejected');
   h.ok(Buffer.from(await fs.readFile(output)).equals(Buffer.from(bytes)),'corrupt result preserves last good artifact bytes');

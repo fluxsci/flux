@@ -29,7 +29,12 @@ export async function inventory(directory, exclude = new Set()) {
 /** Header validation works when cross-building; execution is a separate platform smoke. */
 export async function verifyExecutable(file, platform, arch) {
   const info=await stat(file);if(!info.isFile()||!info.size)throw new Error(`Missing executable: ${file}`);
-  if(platform!=='win32'&&(info.mode&0o111)===0)throw new Error(`Runtime is not executable: ${file}`);
+  // The exec bit is a property of the HOST filesystem, not of the target: NTFS
+  // has none, so every staged file reads 0o666 there and a cross-build from
+  // Windows would report its own runtime as not executable. Asserted wherever the
+  // host can hold the bit; a POSIX runtime staged on Windows has it restored by
+  // the packaging step that lands it on a POSIX filesystem.
+  if(platform!=='win32'&&process.platform!=='win32'&&(info.mode&0o111)===0)throw new Error(`Runtime is not executable: ${file}`);
   const fd=await open(file,'r');const bytes=Buffer.alloc(4096);let size;
   try {size=(await fd.read(bytes,0,bytes.length,0)).bytesRead;}finally{await fd.close();}
   let valid=false;
