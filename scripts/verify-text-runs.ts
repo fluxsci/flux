@@ -34,6 +34,10 @@ import {
 import { blockLayout } from "../src/lib/text";
 import { textSvgLayout, elementToSvg } from "../src/lib/export";
 import { harness } from "./lib/harness.mjs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as core from "../flux-core/index";
 import { migrateProject } from "../src/lib/migrate";
 import type { Project, TextElement } from "../src/lib/types";
 
@@ -241,6 +245,45 @@ const text = (extra: Partial<TextElement> = {}): TextElement =>
   const runs = (migrateProject(p).figures[0].elements[0] as TextElement).runs;
   h.ok(eq(runs, [{ from: 5, to: 12, italic: true }, { from: 12, to: 17, bold: true }]),
     `loading clamps, sorts and drops runs a hand edit left behind (${JSON.stringify(runs)})`);
+}
+
+// --------------------------------------------------------------- on disk
+{
+  // The real writer and the real loader, not a hand-built object: runs are
+  // element data like any other, and the point is that nothing along the way
+  // drops or rewrites them.
+  const root = await mkdtemp(join(tmpdir(), "flux-text-runs-"));
+  try {
+    await core.scaffold(root, { title: "Runs" });
+    {
+      const m = await core.loadFigModel(root);
+      m.project.figures.push({
+        id: "figR", canvasId: m.project.canvases[0]?.id ?? "canvas-1", name: "Fig R",
+        x: 0, y: 0, width: 300, height: 200,
+        elements: [text({ id: "tR", text: "Homo sapiens here", runs: [{ from: 5, to: 12, italic: true }] })],
+      } as Project["figures"][number]);
+      await core.saveFigModel(root, m.project, m.index);
+    }
+    const reloaded = await core.loadFigModel(root);
+    const el = reloaded.project.figures.find((x) => x.id === "figR")!.elements[0] as TextElement;
+    h.ok(eq(el.runs, [{ from: 5, to: 12, italic: true }]),
+      `runs survive the fig writer and the load gate (${JSON.stringify(el.runs)})`);
+    h.ok(elementToSvg(el).includes('<tspan font-style="italic">sapiens</tspan>'),
+      "...and the headless render of the reloaded element still nests the segment");
+
+    // An element with nothing to say must not gain the field on a round trip.
+    {
+      const m = await core.loadFigModel(root);
+      const plain = text({ id: "tP", text: "Plain label" });
+      m.project.figures.find((x) => x.id === "figR")!.elements.push(plain);
+      await core.saveFigModel(root, m.project, m.index);
+    }
+    const again = await core.loadFigModel(root);
+    const plain = again.project.figures.find((x) => x.id === "figR")!.elements[1] as TextElement;
+    h.ok(!("runs" in plain), "an unformatted text is written and read back with NO runs field at all");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 await h.done();
