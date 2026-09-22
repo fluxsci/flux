@@ -85,6 +85,8 @@ const COLOR_PROPS = new Set(["fill", "stroke", "color"]);
 const METRIC_PROPS = new Set([
   "text", "fontSize", "fontFamily", "fontWeight", "fontStyle", "width",
   "sizing", "lineHeight", "underline", "letterSpacing", "paragraphSpacing",
+  // Per-range formatting is a metric too: a bolded word re-wraps the line.
+  "runs",
 ]);
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Project, SemanticPlotElement, TextStyle } from "./types";
+import { normalizeRuns, elementFlags } from "./textRuns";
 import { enforceZContiguity, gcGroups, nextGroupName } from "./groups";
 import { applyFamilyNumbers, derivedFigureName, familyById, parseLegacyName } from "./figfamily";
 
@@ -55,6 +56,16 @@ export function migrateProject(p: Project): Project {
         e.sizing = legacy.autoWidth === false ? "fixed" : "auto";
       }
       delete legacy.autoWidth;
+      // Per-range formatting is offsets into `text`, and everything downstream
+      // (segmentRange, the painter, the serializer) reads them as sorted and
+      // non-overlapping. The schema stays lenient, so normalize what a hand
+      // edit or a future writer may have left: clamp, sort, merge, and drop a
+      // range that says nothing or only what the element already says.
+      if (e.runs) {
+        const runs = normalizeRuns(e.runs, e.text?.length ?? 0, elementFlags(e));
+        if (runs.length) e.runs = runs;
+        else delete e.runs;
+      }
     }
     // figure-v1 P7: group registry migration.
     for (const e of f.elements ?? []) {

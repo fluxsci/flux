@@ -33,7 +33,7 @@ const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", impor
 const actualCases = [
   ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
   // The text painter's arrangement source and its serializer route together.
-  ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "tier:pure"]],
+  ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure"]],
   ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],
   ["scripts/perf/frame-oracle.cjs", ["verify-frame-oracle.ts"]],
   ["scripts/verify-manifest.json", ["verify-changed-pathmap.mjs", "tier:pure"]],

@@ -6,6 +6,7 @@ import { pathRender } from "./path";
 import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
+import { resolvedRunStyle, type TextSegment } from "./textRuns";
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
@@ -44,6 +45,22 @@ export interface TextSpan {
   x: number;
   dy: number;
   textLength?: number;
+  /** Present only when per-range formatting touches this line: the pieces to
+   *  nest inside the line's own tspan, each carrying whatever differs from the
+   *  element. Absent means the line is one plain string, exactly as before. */
+  segments?: TextSegment[];
+}
+
+/** The attributes a segment needs on top of the element's own — nothing at all
+ *  for a piece that already looks like the element, which is what keeps an
+ *  unformatted text's SVG byte-identical. */
+export function segmentAttrs(e: TextElement, segment: TextSegment): Record<string, string> {
+  const style = resolvedRunStyle(e, segment);
+  const attrs: Record<string, string> = {};
+  if (style.fontWeight !== e.fontWeight) attrs["font-weight"] = String(style.fontWeight);
+  if (style.fontStyle !== e.fontStyle) attrs["font-style"] = style.fontStyle;
+  if (style.underline !== !!e.underline) attrs["text-decoration"] = style.underline ? "underline" : "none";
+  return attrs;
 }
 
 /** Shared text presentation for SVG serialization and cached slide bindings.
@@ -75,6 +92,7 @@ export function textSvgLayout(e: TextElement): {
       x: L.x,
       dy: ln.dy,
       ...(ln.justifyWidth != null ? { textLength: ln.justifyWidth } : {}),
+      ...(ln.segments ? { segments: ln.segments } : {}),
     })),
     x: L.x,
     advance: lineH(e),
@@ -218,12 +236,26 @@ export function elementToSvg(
       const { attrs, spans } = textSvgLayout(e);
       const P = elementPaints(e);
       if (P.defs.length) attrs.fill = P.fill;
+      // A formatted line nests one tspan per differing piece. The nested tspans
+      // carry NO x: that would restart the line at the anchor instead of
+      // continuing it, and the justification stays on the line's own tspan.
+      const content = (sp: (typeof spans)[number]) =>
+        sp.segments
+          ? sp.segments
+              .map((seg) => {
+                const segAttrs = Object.entries(segmentAttrs(e, seg));
+                return segAttrs.length
+                  ? `<tspan ${segAttrs.map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${esc(seg.text)}</tspan>`
+                  : esc(seg.text);
+              })
+              .join("")
+          : esc(sp.text);
       const tspans = spans
         .map(
           (sp) =>
             `<tspan x="${sp.x}" dy="${sp.dy}"` +
             (sp.textLength != null ? ` textLength="${sp.textLength}" lengthAdjust="spacing"` : "") +
-            `>${esc(sp.text)}</tspan>`,
+            `>${content(sp)}</tspan>`,
         )
         .join("");
       return rot(

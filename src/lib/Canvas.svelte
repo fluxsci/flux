@@ -55,6 +55,7 @@
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
   import { applyTextLayout, blockLayout, letterSpacing as textTracking } from "./text";
+  import { remapRuns } from "./textRuns";
   import {
     elementBBox,
     rotatedAABB,
@@ -1686,6 +1687,14 @@
     textEdits.run(() => mutate((p) => {
       const f = findElement(p, id);
       if (f && f.element.type === "text") {
+        // Per-range formatting is stored as character offsets, so every edit has
+        // to carry it: text typed inside an italic word stays italic, and a
+        // deleted word takes its formatting with it (textRuns.remapRuns).
+        if (f.element.runs?.length) {
+          const runs = remapRuns(f.element.runs, f.element.text, val);
+          if (runs.length) f.element.runs = runs;
+          else delete f.element.runs;
+        }
         f.element.text = val;
         applyTextLayout(f.element);
       }
@@ -1697,11 +1706,24 @@
   function onTextEditToggle(which: "bold" | "italic" | "underline") {
     if (!editingId) return;
     const id = editingId;
+    // With PART of the text selected the chord formats that range; with nothing
+    // selected — or with all of it selected, which is how the editor opens
+    // (startEdit selects everything) — it means the whole box, which is what it
+    // has always meant. Formatting every character IS formatting the element,
+    // and saying it that way keeps the element's own font honest.
+    const value = taEl?.value ?? "";
+    const from = taEl?.selectionStart ?? 0;
+    const to = taEl?.selectionEnd ?? 0;
+    const ranged = to > from && !(from === 0 && to === value.length);
     textEdits.run(() => mutate((p) => {
-      ops.toggleTextStyle(p, [id], which);
+      if (ranged) ops.toggleTextRunStyle(p, id, from, to, which);
+      else ops.toggleTextStyle(p, [id], which);
       const f = findElement(p, id);
       if (f) applyTextLayout(f.element); // bold changes metrics → re-wrap
     }));
+    // A mutation re-renders the overlay; put the user's selection back so the
+    // next chord (bold THEN italic) acts on the same words.
+    if (ranged) requestAnimationFrame(() => taEl?.setSelectionRange(from, to));
   }
   function finishEdit() {
     if (!editingId) return;

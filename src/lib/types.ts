@@ -12,6 +12,8 @@
 // ---------------------------------------------------------------------------
 
 import type { FigureFamilyDef } from "./figfamily";
+// Type-only, so the textRuns ↔ types cycle is erased at build time.
+import type { TextRun } from "./textRuns";
 export type { FigureFamilyDef } from "./figfamily";
 
 export type Id = string;
@@ -276,6 +278,12 @@ export interface TextElement extends ElementBase {
   // (loadFigInto heals flagged elements on open); headless render/export
   // paths WARN naming the element instead of diverging silently.
   needsLayout?: true;
+  // Per-RANGE formatting inside `text` — bold/italic/underline for character
+  // ranges, on top of the element's own font (textRuns.ts is the ONE source:
+  // normalization, toggling, remapping across edits, segmentation). ABSENT
+  // means the element's font everywhere, which is what keeps every file
+  // written before 2026-09-22 byte-identical.
+  runs?: TextRun[];
   // Linked named style (Project.textStyles). Manual font edits detach it.
   styleId?: Id;
   // Marked (Alt+L / inspector) as a figure panel label. Each marked text becomes

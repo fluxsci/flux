@@ -299,6 +299,16 @@ spacing — the space added after every letter. Both are in **points**, like the
 negative tracking pulls letters together. Tracking changes how much fits on a line, so a
 wrapping box re-wraps as you adjust it.
 
+**Italic for one word, not the whole box.** Double-click the text to edit it, select the part
+you want — a species name, a gene symbol, a single letter — and press **Ctrl+I**, **Ctrl+B** or
+**Ctrl+U**. Only that stretch changes; the box keeps its own font, so the rest of the label is
+untouched. With nothing selected those keys still apply to the whole text, exactly as before.
+The formatting sticks to the letters it was given: type in the middle of an italic word and the
+new letters are italic too, type against its edge and they are not, and deleting the word takes
+its formatting with it. One thing to expect — the typing box shows plain text while you work,
+because a typing box cannot mix fonts, so the italics appear on the canvas as soon as you click
+away and the edit is committed. (**Escape** throws the whole edit away, formatting included.)
+
 All of these sit in the Inspector's Text section and in the **F** menu, they apply to every
 selected text at once, and each adjustment is one undo step. A **named text style** (the
 Inspector's *Style* row) carries them too, so "Panel body, justified, 1.4 line height" becomes

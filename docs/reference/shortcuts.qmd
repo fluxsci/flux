@@ -100,7 +100,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Arrows** | Nudge 1 px (**Shift**: 10 px) — also nudges a drilled plot part |
 | **Alt+↑** / **Alt+↓** | Move the figure up / down the sidebar's Figures list (the picked rows move as a block; nothing moves on the canvas, nothing is renumbered) |
 | **Ctrl+R** | Name the figure — family (Figure / Supplementary / Extended Data / custom), number (insert-and-shift), nickname |
-| **Ctrl+B** / **I** / **U** | Bold / italic / underline on text (and text-like plot parts) |
+| **Ctrl+B** / **I** / **U** | Bold / italic / underline on text (and text-like plot parts) — inside the editor with part of the text selected, only that part |
 | **Ctrl+B** (nothing text-like selected) | Hide/show the left sidebar |
 | **Ctrl+Shift+L** | Lock / unlock |
 | **Shift+R** / **Shift+G** | Rulers / background grid |

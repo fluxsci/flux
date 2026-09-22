@@ -60,6 +60,7 @@ import {
   unitOf,
 } from "./groups";
 import { refitPath, pathToNodes } from "./path";
+import { normalizeRuns, toggleRunRange, elementFlags } from "./textRuns";
 import {
   arrangeGrid,
   alignElements,
@@ -1475,6 +1476,7 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
           if (patch.letterSpacing === 0) delete e.letterSpacing;
           else e.letterSpacing = patch.letterSpacing;
         }
+        if (patch.fontWeight != null || patch.fontStyle != null || patch.underline != null) pruneTextRuns(e);
         if (layoutTouched) invalidateTextLayout(e);
         detachOnManualEdit(p, e, Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] != null));
       } else if (e.type === "line") {
@@ -1625,9 +1627,41 @@ export function toggleTextStyle(p: Project, ids: Id[], which: TextToggle): void 
     if (which === "bold") e.fontWeight = allOn ? 400 : 700;
     else if (which === "italic") e.fontStyle = allOn ? "normal" : "italic";
     else e.underline = !allOn;
+    pruneTextRuns(e); // a range that now merely restates the element says nothing
     if (which !== "underline") invalidateTextLayout(e); // bold/italic change metrics
     detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
   }
+}
+
+/** Re-normalize `runs` against the element's own font and DELETE the field when
+ *  nothing is left to say — italicising a whole box makes an italic word inside
+ *  it redundant, and the default has to stay absence. */
+export function pruneTextRuns(e: TextElement): void {
+  if (!e.runs) return;
+  const runs = normalizeRuns(e.runs, e.text.length, elementFlags(e));
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+}
+
+/**
+ * Toggle bold/italic/underline over ONE text element's character range —
+ * the inline editor's selection. An empty or collapsed range is a no-op, so a
+ * caller can route a chord here unconditionally and fall back to the
+ * whole-element toggle itself. DOM-free: the GUI reflows after (bold changes
+ * metrics, so the wrap cache is invalidated here).
+ */
+export function toggleTextRunStyle(p: Project, id: Id, from: number, to: number, which: TextToggle): void {
+  const e = textById(p, id);
+  if (!e) return;
+  const runs = toggleRunRange(e, from, to, which);
+  const before = JSON.stringify(e.runs ?? []);
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+  if (JSON.stringify(e.runs ?? []) === before) return;
+  if (which !== "underline") invalidateTextLayout(e);
+  // A per-range edit is a manual font edit like any other: a named style
+  // describes ONE font for the whole element and can no longer describe this.
+  detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
 }
 
 const textById = (p: Project, id: Id): TextElement | null => {
@@ -1656,6 +1690,7 @@ function assignTextStyle(e: TextElement, st: TextStyle): void {
   if (st.letterSpacing != null) e.letterSpacing = st.letterSpacing;
   if (st.paragraphSpacing != null) e.paragraphSpacing = st.paragraphSpacing;
   e.styleId = st.id;
+  pruneTextRuns(e); // the style set the element's font; a range restating it says nothing
   invalidateTextLayout(e); // metrics changed — GUI reflows, headless falls back
 }
 

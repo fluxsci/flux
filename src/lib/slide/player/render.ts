@@ -25,7 +25,7 @@ import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { prefixIds, applyOverrides } from "../../plot/parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
-import { elementToSvg, textSvgLayout, type AssetSizeFn } from "../../export";
+import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
 import { lerpColor } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
@@ -202,6 +202,7 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
     const svg = w.firstElementChild, text = svg?.querySelector("text");
     if (!svg || !text) return null;
     const spans = Array.from(text.children);
+    const segmentKeys: (string | null)[] = [];
     let priorAttrs = Object.keys(textSvgLayout(pre).attrs);
     return (el) => {
       if (el.type !== "text") return;
@@ -214,8 +215,8 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
       priorAttrs = Object.keys(attrs);
       // A wrap boundary changes only tspan count. Other frames update cached
       // nodes in place; no serialization, parser, or selector on the frame path.
-      while (spans.length > laid.length) spans.pop()!.remove();
-      while (spans.length < laid.length) { const span = document.createElementNS(SVG_NS, "tspan"); text.appendChild(span); spans.push(span); }
+      while (spans.length > laid.length) { spans.pop()!.remove(); segmentKeys.pop(); }
+      while (spans.length < laid.length) { const span = document.createElementNS(SVG_NS, "tspan"); text.appendChild(span); spans.push(span); segmentKeys.push(null); }
       for (let i = 0; i < spans.length; i++) {
         const sp = laid[i];
         spans[i].setAttribute("x", String(sp.x)); spans[i].setAttribute("dy", String(sp.dy));
@@ -223,7 +224,30 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
         // that becomes a paragraph's last stops stretching) — remove, never stale.
         if (sp.textLength != null) { spans[i].setAttribute("textLength", String(sp.textLength)); spans[i].setAttribute("lengthAdjust", "spacing"); }
         else if (spans[i].hasAttribute("textLength")) { spans[i].removeAttribute("textLength"); spans[i].removeAttribute("lengthAdjust"); }
-        if (spans[i].textContent !== sp.text) spans[i].textContent = sp.text;
+        // Per-range formatting nests one tspan per differing piece. Rebuilding
+        // costs DOM, so it happens only when the pieces actually changed — an
+        // unformatted line keeps the plain textContent fast path untouched.
+        const key = sp.segments ? JSON.stringify(sp.segments.map((seg) => [seg.text, segmentAttrs(el, seg)])) : null;
+        if (key !== null) {
+          if (segmentKeys[i] !== key) {
+            spans[i].textContent = "";
+            for (const seg of sp.segments!) {
+              const attrs = Object.entries(segmentAttrs(el, seg));
+              if (!attrs.length) { spans[i].appendChild(document.createTextNode(seg.text)); continue; }
+              const piece = document.createElementNS(SVG_NS, "tspan");
+              for (const [name, value] of attrs) piece.setAttribute(name, value);
+              piece.textContent = seg.text;
+              spans[i].appendChild(piece);
+            }
+            segmentKeys[i] = key;
+          }
+        } else {
+          segmentKeys[i] = null;
+          // textContent of a span with nested pieces already EQUALS the plain
+          // line, so the child check is what actually clears formatting a
+          // frame has dropped.
+          if (spans[i].firstElementChild || spans[i].textContent !== sp.text) spans[i].textContent = sp.text;
+        }
       }
     };
   }

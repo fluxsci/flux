@@ -282,7 +282,8 @@
       "verify-v020-native-video-launch.cjs",
       "verify-recovery-entry.ts",
       "verify-eyedropper.ts",
-      "verify-text-arrange.ts"
+      "verify-text-arrange.ts",
+      "verify-text-runs.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -406,7 +407,8 @@
       "verify-library-world-ownership.mjs",
       "verify-canvas-zoom-raster.mjs",
       "verify-eyedropper-gui.mjs",
-      "verify-text-arrange-gui.mjs"
+      "verify-text-arrange-gui.mjs",
+      "verify-text-runs-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -738,6 +740,7 @@
     ],
     "main-merge-ui": [
       "verify-text-arrange-gui.mjs",
+      "verify-text-runs-gui.mjs",
       "verify-text-resize.mjs",
       "verify-text-biu.mjs",
       "verify-text-styles.mjs",
@@ -749,7 +752,7 @@
   "pathMap": [
     {
       "$why": "2026-09-18 text arrangement — text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
-      "glob": "{src/lib/text.ts,src/lib/export.ts}",
+      "glob": "{src/lib/text.ts,src/lib/export.ts,src/lib/textRuns.ts}",
       "run": [
         "verify-text-arrange.ts",
         "verify-text-wrap.ts",
@@ -757,6 +760,8 @@
         "verify-text-arrange-gui.mjs",
         "verify-text-resize.mjs",
         "verify-slide-export-parity.ts",
+        "verify-text-runs.ts",
+        "verify-text-runs-gui.mjs",
         "tier:pure"
       ]
     },
@@ -6562,6 +6567,26 @@
       "coverage": "behavior"
     },
     "verify-text-arrange-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-text-runs.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-text-runs-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
         "server"
