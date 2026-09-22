@@ -291,8 +291,12 @@ try {
   ok(drawnPainted.spans.slice(0, -1).every((s) => Number(s.len) === 220 && s.adjust === "spacing") && drawnPainted.spans.at(-1).len === null, "…and Justify fills the drawn width on every line but the last");
 
   // A CLICK is unchanged: a hugging label.
+  // The Inspector select above still holds focus for a moment on a loaded
+  // runner, and a "t" typed into a focused control never reaches the tool
+  // shortcut — the click then selected instead of creating, and this read the
+  // DRAGGED box as the new label (CI, 2026-09-22). Wait for the tool itself.
   await page.keyboard.press("t");
-  await sleep(120);
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.activeTool) === "text", null, { label: "T tool armed" });
   await page.mouse.click(...at(100, 320));
   await waitFor(page, () => !!document.querySelector("textarea.text-edit"), null, { label: "editor opens after the click" });
   await page.keyboard.type("a hugging label that becomes a paragraph once justified and narrowed");

@@ -40,7 +40,9 @@ jobs:
       - name: Provision PDF dependencies before offline artifact checks
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends texlive-latex-extra texlive-fonts-recommended lmodern
+          # librsvg2-bin: Quarto needs rsvg-convert to place an SVG figure in a
+          # PDF, and verify-slide-embed-export compiles a document that does.
+          sudo apt-get install -y --no-install-recommends texlive-latex-extra texlive-fonts-recommended lmodern librsvg2-bin
       - name: Provision and rehash the pinned host video encoder
         run: node scripts/fetch-video-encoder.mjs
       - name: Type-check (svelte-check must be 0 errors)
