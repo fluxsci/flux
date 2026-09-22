@@ -1575,6 +1575,16 @@ days (probe geometry like `width` instead).
   A second Windows-only tell: restarting the dev server can leave a stale dep-optimizer cache,
   and Paper then mounts to a blank pane with `504 (Outdated Optimize Dep)` in the console —
   `rm -rf node_modules/.vite` and restart.
+- **A session that validates in a SEPARATE worktree/install leaves this checkout's `node_modules`
+  stale.** After pulling such a merge, `npm run build` dies in esbuild with `Could not resolve
+  "css-tree/parser"` and its siblings (2026-09-22, at `266ddf5`): the dependency is in
+  `package.json` AND the lockfile, it was simply never installed here. The error names a source
+  import, so it reads as a code bug — check `node_modules/<pkg>` before touching the import, and
+  diff every declared dependency against `node_modules` rather than trusting the first unresolved
+  one (three packages were missing, not one). `npm install` is the fix, but on Windows it aborts
+  with `EBUSY` renaming `node_modules/electron/dist/…` while a Flux Electron process is running;
+  either close the app or, to leave a running app alone, extract the `npm pack` tarballs of just
+  the missing packages into `node_modules/` at their locked versions.
 - Check a delegated agent's actual working directory and branch before assigning edits.
   Agents sharing this checkout see one another's edits immediately: assign distinct file
   ownership and never reset their tree. A separately created worktree may start from a default
@@ -6088,3 +6098,19 @@ Validation uses a separate integration worktree/install; existing Electron proce
 the fortification checkout are untouched. Main receives the validated history and current
 build/dependencies. No push, release, signing or unavailable platform claim. The final
 integration documentation commit does not change tested product code.
+
+### 2026-09-22 — Stale `node_modules` after the integration merge (Claude Opus 5, `main`)
+**Work:** `npm run build` failed on this checkout with four esbuild "Could not resolve
+`css-tree/*`" errors. The cause was environmental, not a code defect: the integration session
+validated in a separate worktree with its own install, so `css-tree`, `mdn-data` and
+`@types/css-tree` were never installed in the main checkout. Installed those three at their
+lockfile versions (tarball extraction, because a full `npm install` hit `EBUSY` against the
+owner's running Electron); `npm run build` and `npm run check` (870 files, 0 errors) then pass.
+No product source changed — the committed imports and `package.json` were already correct.
+**Learnings:**
+- Promoted to §9 (Environment): a separate-worktree validation leaves this tree's
+  `node_modules` stale, an unresolved bare import is a missing install before it is a bad
+  import, and on Windows `npm install` cannot replace Electron while the app is running.
+- css-tree 3.2.1 does export `./parser`, `./generator`, `./walker` and `./utils`; the subpath
+  imports in `src/lib/plot/passiveSvg.ts` are valid and must not be rewritten to dodge a
+  resolve error.
