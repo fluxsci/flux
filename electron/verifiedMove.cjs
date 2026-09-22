@@ -38,7 +38,10 @@ function createVerifiedMove({fs=require("node:fs"),fsp=fs.promises,path=require(
         const tmp = `${dst}.pending-${crypto.randomUUID()}`;
         try {
           await fsp.copyFile(src, tmp, fs.constants.COPYFILE_EXCL);
-          const fd = await fsp.open(tmp, "r"); try { await fd.sync(); } finally { await fd.close(); }
+          // "r+", not "r": Windows refuses FlushFileBuffers on a read-only handle
+          // (EPERM), and intake swallows the throw as "retry next pass" — so every
+          // cross-device capture failed to publish there, forever and silently.
+          const fd = await fsp.open(tmp, "r+"); try { await fd.sync(); } finally { await fd.close(); }
           if (await digest(tmp) !== sha256 || await digest(src) !== sha256) throw new Error("Capture copy verification failed; original retained");
           await fsp.link(tmp, dst); published = true;
         } finally { await fsp.rm(tmp, {force:true}).catch(() => {}); }

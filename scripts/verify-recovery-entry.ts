@@ -12,6 +12,7 @@ import { buildScaffoldTree } from '../src/lib/project/scaffoldTree';
 import { createDeck } from '../src/lib/slide/ops';
 import { TEXT_GENERATION_JOURNAL } from '../src/lib/project/textGeneration';
 import { EXPORT_RECOVERY_FILE } from '../src/lib/project/exportRecovery';
+import { linkDir } from "./lib/symlinks.mjs";
 
 const scratch=await fs.mkdtemp(path.join(os.tmpdir(),'flux-recovery-entry-'));
 const root=path.join(scratch,'project'), require=createRequire(import.meta.url);
@@ -109,7 +110,7 @@ try {
 
   const outside=path.join(scratch,'outside'),linked=path.join(scratch,'linked');
   await fs.mkdir(outside);await fs.mkdir(linked);await fs.writeFile(path.join(linked,'project.json'),'{}');
-  await fs.symlink(outside,path.join(linked,'.meta'),'dir');
+  await linkDir(outside,path.join(linked,'.meta'));
   await assert.rejects(recoverProjectForAuthoring(linked),/escapes project/);
   assert.deepEqual(await fs.readdir(outside),[]);
   pass('even absent journals behind an escaping metadata symlink are refused');

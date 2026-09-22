@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { harness } from "./lib/harness.mjs";
+import { linkDir, fileLinksSupported, fileLinkSkipNote } from "./lib/symlinks.mjs";
 const { createCaptureIntake } = createRequire(import.meta.url)("../electron/captureIntake.cjs");
 const h = harness("verify-capture-integrity");
 const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "flux-capture-integrity-"));
@@ -35,7 +36,7 @@ try {
   const switchedName="flux-switch.fluxcap", nested=path.join(downloads,"flux"), moved=path.join(root,"moved-nested");
   await fs.promises.writeFile(path.join(nested,switchedName),"original nested bytes");
   const switched=(await intake.intake()).sidecars.find((row:any)=>row.name===`flux/${switchedName}`);
-  await fs.promises.rename(nested,moved);await fs.promises.symlink(moved,nested);
+  await fs.promises.rename(nested,moved);await linkDir(moved,nested);
   h.ok((await intake.discard(switched.id)).error,"capture disposal refuses a parent switched to an outside symlink after intake");
   h.eq(await fs.promises.readFile(path.join(moved,switchedName),"utf8"),"original nested bytes","parent symlink swap preserves exact captured bytes");
   await fs.promises.unlink(nested);await fs.promises.rename(moved,nested);
@@ -60,8 +61,12 @@ try {
     link: fsp.link, copyFile: async (_from:string,to:string)=>fs.promises.writeFile(to,"corrupted")},loadRules:()=>import("../electron/captureRules.js")});
   h.eq((await corrupt.intake()).pdfs,[],"corrupted cross-device copy cannot publish or report success");
   h.eq(await fs.promises.readFile(src),pdf,"copy checksum failure preserves exact captured source");
-  await fs.promises.symlink(src,path.join(downloads,"flux-symlink.pdf"));
-  h.eq(await corrupt.count(),1,"symlink capture is excluded from intake candidates");
+  // A FILE symlink has no privilege-free equivalent on Windows (a junction takes
+  // only a directory), so this one check is announced rather than asserted there.
+  if (fileLinksSupported()) {
+    await fs.promises.symlink(src,path.join(downloads,"flux-symlink.pdf"));
+    h.eq(await corrupt.count(),1,"symlink capture is excluded from intake candidates");
+  } else console.log(fileLinkSkipNote("symlink capture is excluded from intake candidates"));
 
 } finally { await fs.promises.rm(root,{recursive:true,force:true}); }
 h.done();

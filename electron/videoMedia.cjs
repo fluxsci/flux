@@ -180,7 +180,9 @@ async function videoPreview(file, { encoder = encoderPath(), signal, width = 480
   if (!png.length) throw new Error("This video contains no decodable frames");
   return { ...info, poster: `data:image/png;base64,${png.toString("base64")}` };
 }
-async function syncFile(file) { const h = await fsp.open(file, "r"); try { await h.sync(); } finally { await h.close(); } }
+// "r+", not "r": Windows refuses FlushFileBuffers on a read-only handle (EPERM),
+// so a durability fsync taken through a read handle fails the import outright there.
+async function syncFile(file) { const h = await fsp.open(file, "r+"); try { await h.sync(); } finally { await h.close(); } }
 function toneMapFilter(info) {
   // Common iPhone/QuickTime HDR sources carry PQ/HLG in their colr metadata.
   // Convert linear-light luminance and gamut before the portable 8-bit encode;
