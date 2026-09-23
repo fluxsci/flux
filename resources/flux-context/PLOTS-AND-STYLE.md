@@ -81,7 +81,7 @@ plots/growth.recipe.json    ← recipe (how it was made — re-runnable; used to
 - **Signature fluxplots** — complete preset plot types unique to Flux, seaborn-style (a
   DataFrame + column names, every part named for you). **Prefer them over hand-building the
   same plot.** `fp.glowbar(df, x=, y=, units=, ax=)`: every observation as a dot beside a glowing
-  interval bar (IQR by default; `interval="sem"|"sd"`) with a haloed **mean** line and a
+  interval bar (mean ± SEM by default; `interval="iqr"|"sd"`) with a haloed **mean** line and a
   **median** notch. With `units=` (subject / animal) each unit keeps a fixed lane + colour taken
   from the table, so separate measures of the same animals agree across panels;
   `connect_identical_points_across_x_values=True` joins a unit across conditions (paired designs).
