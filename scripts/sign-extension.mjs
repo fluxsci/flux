@@ -70,12 +70,20 @@ if (!existsSync(path.join(dist, "manifest.json"))) die("extension/dist is missin
 await mkdir(out, { recursive: true });
 
 console.log("• uploading to Mozilla for signing (usually a minute or two)…");
+// web-ext is fetched on demand rather than installed, but NOT through a bare
+// `npx`: win32 has no such executable, only `npx.cmd`, and modern Node refuses
+// to spawn a .cmd without a shell — the trap scripts/lib/tsxRun.mjs documents,
+// which made this script die with ENOENT before it ever reached Mozilla.
+// `npm run` hands every script npm's own JS entry point, so run THIS node
+// against that and let npm fetch the tool. Falling back to npx.cmd under a
+// shell covers someone invoking the file directly.
+const webExtArgs = ["web-ext", "sign", "--channel=unlisted", `--source-dir=${dist}`, `--artifacts-dir=${out}`, "--no-input"];
+const npmCli = process.env.npm_execpath;
+const viaNpm = !!npmCli && npmCli.endsWith(".js");
 const code = await new Promise((res) => {
-  const p = spawn(
-    "npx",
-    ["--yes", "web-ext", "sign", "--channel=unlisted", `--source-dir=${dist}`, `--artifacts-dir=${out}`, "--no-input"],
-    { stdio: "inherit", cwd: root, env: process.env },
-  );
+  const p = viaNpm
+    ? spawn(process.execPath, [npmCli, "exec", "--yes", "--", ...webExtArgs], { stdio: "inherit", cwd: root, env: process.env })
+    : spawn("npx", ["--yes", ...webExtArgs], { stdio: "inherit", cwd: root, env: process.env, shell: process.platform === "win32" });
   p.on("exit", (c) => res(c ?? 1));
 });
 

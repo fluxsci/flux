@@ -327,7 +327,44 @@ function inflateChain(nodes: VectorNode[]): VectorNode[] {
 /** Build the correspondence between two outlines (in their own unit frames).
  *  Both chains come back with the same node count, aligned start and
  *  direction; every original node of either side is a node of both. */
+/** The correspondence is a pure function of the two outlines, their boxes and
+ *  the strategy, and it is the most expensive thing in this file by a wide
+ *  margin — a 200-node ring against an ellipse costs ~30ms, nearly all of it
+ *  inverting arc length. Two facts make caching it worth the key: a deck that
+ *  morphs a ROW of identical shapes asks the identical question once per shape,
+ *  and the animator warms a slide's morphs when it opens so that pressing play
+ *  finds them already built (`warmSlideMorphs`). Keyed on everything the result
+ *  depends on and nothing else; the entries are immutable and read-only to
+ *  every caller (`sampleElementMorph` builds fresh nodes), so they are shared,
+ *  not copied. Bounded, oldest-out — a long editing session must not grow it
+ *  without limit. */
+const CORRESPONDENCE_CACHE_MAX = 48;
+const correspondenceCache = new Map<string, { a: VectorNode[]; b: VectorNode[]; closed: boolean }>();
+
+function outlineKey(o: Outline, w: number, h: number): string {
+  let s = (o.closed ? "C" : "O") + w + ":" + h;
+  for (const n of o.nodes) {
+    s += "|" + n.x + "," + n.y + "," + (n.type ?? "");
+    if (n.hIn) s += ";" + n.hIn.dx + "," + n.hIn.dy;
+    if (n.hOut) s += ":" + n.hOut.dx + "," + n.hOut.dy;
+  }
+  return s;
+}
+
 export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy = "cut"): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
+  const key = strategy + " " + outlineKey(A, aw, ah) + " " + outlineKey(B, bw, bh);
+  const hit = correspondenceCache.get(key);
+  if (hit) return hit;
+  const built = correspond(A, aw, ah, B, bw, bh, strategy);
+  if (correspondenceCache.size >= CORRESPONDENCE_CACHE_MAX) {
+    const oldest = correspondenceCache.keys().next().value;
+    if (oldest !== undefined) correspondenceCache.delete(oldest);
+  }
+  correspondenceCache.set(key, built);
+  return built;
+}
+
+function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
   let ua: Outline = { nodes: unit(A.nodes, aw, ah), closed: A.closed };
   let ub: Outline = { nodes: unit(B.nodes, bw, bh), closed: B.closed };
   if (ua.closed !== ub.closed && strategy === "inflate") {
@@ -383,6 +420,16 @@ export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw:
   return { a, b, closed };
 }
 
+/** Whether the correspondence `planOutlines` builds will be a ring, decided
+ *  from the two outlines alone so a caller can know it without paying for the
+ *  correspondence. It mirrors that function exactly: `inflate` closes the open
+ *  side, so the pair is a ring when EITHER side is one, and every other
+ *  strategy opens the closed side, so the pair is a ring only when BOTH are.
+ *  `verify-slide-outline` holds the two in step. */
+export function morphIsClosed(a: Outline, b: Outline, strategy: RingStrategy): boolean {
+  return strategy === "inflate" ? a.closed || b.closed : a.closed && b.closed;
+}
+
 // --- the element-level plan + sampler --------------------------------------
 
 export interface ElementMorphPlan extends OutlineMorphPlan {
@@ -398,6 +445,9 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
    *  driver draws mapped into the current box and fades (out for `pre`, in for
    *  `end`) while the ring swells or deflates. */
   fixedHeads: FixedHead[];
+  /** Force the deferred node correspondence (see planElementMorph). Safe to
+   *  call more than once; reading a/b/closed does it implicitly. */
+  prepare?: () => void;
 }
 
 export interface FixedHead {
@@ -473,13 +523,30 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   // opens up and unrolls instead
   const ringStyle = A.closed === B.closed ? null : A.closed ? preStyle : endStyle;
   const strategy: RingStrategy = ringStyle && (!!ringStyle.fillMap?.stops?.length || !isNoneColor(ringStyle.fill)) ? "inflate" : "cut";
-  const { a, b, closed } = planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy);
+  // `planOutlines` is the expensive half of this by a wide margin — three
+  // become transforms measured 40.7ms inside it against 0.1ms to build the
+  // outlines it works from — and nothing reads the corresponded chains until a
+  // frame is actually drawn. Everything the compiler needs up front (can this
+  // morph at all, is the result a ring, does it carry arrowheads) comes from
+  // the outlines and the strategy alone, so the correspondence is computed on
+  // first use and the player warms it once the preview is on screen.
+  // (2026-09-22: the first preview cost 113ms against a 100ms budget, and this
+  // was almost all of it.)
+  let corresponded: ReturnType<typeof planOutlines> | null = null;
+  const outlines = () => (corresponded ??= planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy));
+  const closed = morphIsClosed(A, B, strategy);
   const fixedHeads = strategy === "inflate" ? [...strokeHeads(pre, A, pb, "pre"), ...strokeHeads(end, B, eb, "end")] : [];
   return {
-    a, b, closed, pre, end, strategy, fixedHeads,
-    preBox: pb, endBox: eb, preStyle, endStyle,
+    get a() { return outlines().a; },
+    get b() { return outlines().b; },
+    closed,
     arrowStart: !closed && (preStyle.arrowStart || endStyle.arrowStart),
     arrowEnd: !closed && (preStyle.arrowEnd || endStyle.arrowEnd),
+    /** Force the correspondence now. The player calls this once the preview is
+     *  on screen, so the first morph frame never pays for it. */
+    prepare() { outlines(); },
+    pre, end, strategy, fixedHeads,
+    preBox: pb, endBox: eb, preStyle, endStyle,
   };
 }
 

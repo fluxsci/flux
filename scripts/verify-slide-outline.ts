@@ -10,6 +10,7 @@ import {
   arrowFade, fixedHeadOpacity,
 } from "../src/lib/slide/outline";
 import { applyState, diffState, lerpElement, contentPlan, transformEndState } from "../src/lib/slide/tween";
+import { elementBBox } from "../src/lib/geometry";
 import type { Element, RectElement, EllipseElement, LineElement, PathElement, TextElement, VectorNode } from "../src/lib/types";
 
 const h = harness("verify-slide-outline");
@@ -20,6 +21,10 @@ const finite = (nodes: VectorNode[]) => nodes.every((n) => Number.isFinite(n.x) 
 const rect = (o: Partial<RectElement> = {}): RectElement => ({ type: "rect", id: "el", x: 10, y: 20, width: 200, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0, ...o });
 const ellipse = (o: Partial<EllipseElement> = {}): EllipseElement => ({ type: "ellipse", id: "el", x: 300, y: 40, width: 120, height: 120, rotation: 0, fill: "#d14d41", stroke: "#000000", strokeWidth: 2, ...o });
 const line = (o: Partial<LineElement> = {}): LineElement => ({ type: "line", id: "el", x: 50, y: 50, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 180, y2: 0, stroke: "#222222", strokeWidth: 3, arrowStart: false, arrowEnd: true, ...o });
+const boxWH = (e: Element): [number, number] => {
+  const b = elementBBox({ ...e, rotation: 0 });
+  return [b.w || 1e-9, b.h || 1e-9];
+};
 const arc = (o: Partial<PathElement> = {}): PathElement => ({ type: "path", id: "el", x: 0, y: 0, width: 100, height: 60, rotation: 0, d: "", fill: "none", stroke: "#00aa00", strokeWidth: 2, closed: false,
   nodes: [{ x: 0, y: 60, type: "corner" }, { x: 50, y: 0, type: "smooth", hIn: { dx: -20, dy: 0 }, hOut: { dx: 20, dy: 0 } }, { x: 100, y: 60, type: "corner" }], ...o });
 const text = (o: Partial<TextElement> = {}): TextElement => ({ type: "text", id: "el", x: 0, y: 0, width: 200, height: 40, rotation: 0, text: "hello", fontFamily: "Arial", fontSize: 16, fontWeight: 400, fontStyle: "normal", align: "left", color: "#ffffff", sizing: "auto", ...o });
@@ -116,6 +121,33 @@ h.section("tween integration: lerpElement across kinds");
   h.eq(contentPlan(rect(), rect({ x: 40 })).mode, "tween", "contentPlan: same kind stays a tween");
   const pp = lerpElement(arc(), arc({ closed: true }), 0.5) as PathElement;
   h.ok(pp.type === "path" && finite(pp.nodes!), "closedness change samples a finite path mid-flight");
+}
+
+h.section("the plan answers without the correspondence");
+{
+  // Opening the animator builds every become transform, and each one asks its
+  // plan whether the pair ends up a ring and whether it carries arrowheads.
+  // Those answers must not drag in `planOutlines`, which dominates that cost.
+  const pairs: [string, Element, Element][] = [
+    ["rect -> ellipse", rect(), ellipse()],
+    ["arrow -> filled ellipse (inflate)", line(), ellipse()],
+    ["stroke-only ellipse -> arrow (cut)", ellipse({ fill: "none" }), line()],
+    ["arc -> line (both open)", arc(), line()],
+    ["open path -> closed path", arc(), arc({ closed: true })],
+  ];
+  for (const [what, pre, end] of pairs) {
+    const plan = planElementMorph(pre, end)!;
+    const [aw, ah] = boxWH(pre), [bw, bh] = boxWH(end);
+    const truth = planOutlines(elementOutline(pre)!, aw, ah, elementOutline(end)!, bw, bh, plan.strategy);
+    h.eq(plan.closed, truth.closed, what + ": the plan's own `closed` equals the correspondence's");
+  }
+  const plan = planElementMorph(rect(), ellipse())!;
+  const own = (k: string) => Object.getOwnPropertyDescriptor(plan, k)!;
+  h.ok(own("closed").get === undefined && own("arrowStart").get === undefined && own("arrowEnd").get === undefined,
+    "closed / arrowStart / arrowEnd are plain values — reading them cannot build the correspondence");
+  h.ok(typeof own("a").get === "function" && typeof own("b").get === "function",
+    "the corresponded chains stay behind getters, so nothing pays for them until a frame is drawn");
+  h.ok(plan.a.length === plan.b.length && plan.a.length >= 32, "...and asking for them still yields the matched chains");
 }
 
 h.section("the retype law: applyState / diffState");

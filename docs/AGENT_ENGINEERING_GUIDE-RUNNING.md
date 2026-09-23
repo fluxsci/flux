@@ -6478,3 +6478,44 @@ selection; a bold run changes advances, so that case keeps the plain editor.
   `textLength` attribute, so it passed all the way through a defect the owner could see at a
   glance. It now asserts the outcome — the line lands on the box's right edge, and the slack
   is in the gaps — which is what the guide's "choose the assertion the user would make" means.
+
+### 2026-09-22 (later still) — The animator's first preview, and the cost nobody was reading (Claude Opus 5, `main`)
+**Work:** `verify-v020-morph-startup` held the cold first preview over its 100 ms budget
+(140 ms on CI, 137 ms here). Profiling down the stack — preview to `createPlayer` to `build()`
+to `computeSlideAnims` to `createTransform` to `planElementMorph` — put 40.7 ms of a 45 ms plan
+inside `planOutlines`, the node correspondence for three become transforms, and a counter
+inside the arc-length inversion put 86 of 89 ms in `arcT`, which bisects twenty times and
+rebuilds a curve segment on every step. The fix is three small pieces rather than a faster
+`arcT`: the correspondence is built on first use, it is memoized on the inputs it actually
+depends on, and the animator warms the current slide's morphs when the DOCK OPENS. That last
+one is the whole idea — opening the animator is a moment with real time in it, because nobody
+presses play in the same frame, while play → first frame is tens of milliseconds and budgeted.
+Preview 137 → ~66 ms, first seek 111 → ~28 ms, both against 100.
+**Learnings:**
+- **A deferral is only as good as its last reader.** Moving the work behind getters changed
+  nothing at first, because putting the whole plan behind them swept up `closed`, which the
+  compiler reads while it builds the morph layers. It is answerable without the
+  correspondence — `inflate` closes the open side, so the pair is a ring when EITHER side is
+  one, and every other strategy opens the closed side, so it is a ring only when BOTH are — so
+  only the two chains stay lazy. The counter that proved the first attempt was inert sat inside
+  the lazy resolve: measure whether the work RAN, not how long the caller took.
+- **Deferring work does not remove it; it relocates it, and a budget was watching the old
+  place.** The first attempt turned a red preview budget into a red SEEK budget, because the
+  correspondence simply moved to the first drawn frame. Work only truly leaves a budgeted path
+  when there is somewhere genuinely idle to put it — here, the dock opening — and when
+  something (the memo) lets the early work count for the later one.
+- **Moving a cost moves what a gate measures.** This gate proves the point memo pays off by
+  running the app twice, once with the memo patched out. It compared the PREVIEW, which no
+  longer touches the memo at all, so it had quietly become two samples of the same noise and
+  still passed by 6 ms. Moving the comparison to the first seek was wrong too, for the same
+  reason one step later. It now times the whole cold path, dock open through first seek, where
+  both runs do identical work: 374 ms without the memo against 228 ms with it.
+- The structural half of the guard is in `verify-slide-outline`: `closed`/`arrowStart`/
+  `arrowEnd` must be data properties while `a`/`b` are getters, and the cheap `closed` must
+  equal what `planOutlines` computes for five representative pairs. A property-descriptor
+  assertion fails the moment someone makes one of them eager again, which no timing assertion
+  would catch.
+- `warmWhenIdle` takes NO idle deadline on purpose. A deadline makes the browser run the job
+  whether or not it has time, which would let warming compete with the canvas snapshot's own
+  idle callback. Warming work must be safe to skip entirely; on a page too busy to ever go
+  idle, not running is the right answer rather than a stolen frame.

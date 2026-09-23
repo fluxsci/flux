@@ -58,6 +58,19 @@ export interface TransformCtx extends SlideRenderCtx {
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
+/** Run `job` once the browser is genuinely idle, or on the next macrotask
+ *  where there is no idle callback (headless). Deliberately NO idle deadline:
+ *  a deadline makes the browser run the job whether or not it has time, which
+ *  would let warming compete with the canvas snapshot's own idle callback on a
+ *  busy page. Warming work only — every caller must stay correct if it never
+ *  runs at all, and on a page too busy to ever go idle, that is the right
+ *  answer rather than a stolen frame. */
+function warmWhenIdle(job: () => void): void {
+  const g = globalThis as { requestIdleCallback?: (cb: () => void) => number; setTimeout?: typeof setTimeout };
+  if (typeof g.requestIdleCallback === "function") g.requestIdleCallback(job);
+  else if (typeof g.setTimeout === "function") g.setTimeout(job, 0);
+}
+
 export function createTransform(
   wrap: HTMLElement,
   pre: FigElement,
@@ -350,6 +363,17 @@ export function createTransform(
   // Build in story order, before later tracks resolve their targets. A B-only
   // semantic part after A→B must bind B's nodes even on the first random seek.
   if (plan.mode === "crossfade") { ensureLayers(); layerB!.style.opacity = "0"; }
-  if (morphPlan) { showMorphLayer(0); return { seek, targetRoot: ensureMorphLayers().B }; }
+  if (morphPlan) {
+    showMorphLayer(0);
+    // The node correspondence is deferred (outline.planElementMorph) so opening
+    // the animator does not wait for it. Warm it while the browser is idle, so
+    // the first frame of the morph finds it already built; a seek that arrives
+    // first just builds it on the spot.
+    // …and skip it if this slide was torn down first: scrubbing a deck builds
+    // a transform per slide, and a warm for one already off the document is
+    // pure waste at exactly the moment the machine is busiest.
+    warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
+    return { seek, targetRoot: ensureMorphLayers().B };
+  }
   return { seek, targetRoot: layerB ?? contentHost };
 }

@@ -94,6 +94,7 @@
   import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
   import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
+  import { warmSlideMorphs } from "../../../lib/slide/tween";
   import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -597,6 +598,23 @@
       exitEndpointEdit(); // closing the animator ends any endpoint checkout
     }
   }
+
+  // Pressing play must put a frame on screen inside the responsiveness budget
+  // (§6), and the costly half of a BECOME transform is matching the two shapes'
+  // nodes up. Opening the dock is the moment with time in it — nobody presses
+  // play in the same frame — so warm this slide's morphs here, when the browser
+  // is next idle. Safe to skip and safe to repeat: the correspondence is a pure
+  // function of the deck and is memoized, so this only ever moves the work
+  // earlier, never duplicates it.
+  let warmedSlideId: string | null = null;
+  $effect(() => {
+    const slide = animatorOpen ? activeSlide : null;
+    if (!slide || warmedSlideId === slide.id) return;
+    warmedSlideId = slide.id;
+    const idle = (globalThis as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    const run = () => { try { warmSlideMorphs(slide); } catch { /* warming must never break the editor */ } };
+    if (idle) idle(run); else setTimeout(run, 0);
+  });
 
   const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{plotManifest:id=>$plotManifests[id]}).issues : []);
   function inspectIssue(trackId?:string){

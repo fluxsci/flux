@@ -25,13 +25,16 @@ for(const cached of [false,true])for(let trial=0;trial<3;trial++){
    }
    f.slide.loadDeckModel(d);window.__morphSaved=JSON.stringify(f.slide.currentDeck());
   });
-  await page.evaluate(()=>[...document.querySelectorAll('.deckbar button')].find(b=>b.textContent.includes('Animate')).click());await waitFor(page,()=>!!document.querySelector('.animator .bar .play'),null,{label:'play control'});
+  // Opening the animator is where the node correspondences get warmed, so the
+  // clock for the whole cold path starts HERE, not at the play click.
+  await page.evaluate(()=>{window.__openedAt=performance.now();[...document.querySelectorAll('.deckbar button')].find(b=>b.textContent.includes('Animate')).click();});await waitFor(page,()=>!!document.querySelector('.animator .bar .play'),null,{label:'play control'});
   const timing=await page.evaluate(async()=>{
    const start=performance.now();document.querySelector('.animator .bar .play').click();
    await new Promise((resolve,reject)=>{let count=0;const frame=()=>{if(document.querySelector('.preview-host [data-el-id="shape0"]'))return resolve();if(++count>120)return reject(Error('preview never mounted'));requestAnimationFrame(frame)};requestAnimationFrame(frame)});
    const previewMs=performance.now()-start;const ruler=document.querySelector('.animator .ruler'),r=ruler.getBoundingClientRect(),t=performance.now();ruler.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,clientX:r.x+r.width*.5,clientY:r.y+5}));window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0}));await new Promise(resolve=>requestAnimationFrame(resolve));
    const seekMs=performance.now()-t,geometry=[...document.querySelectorAll('.preview-host [data-el-id^="shape"] path')].map(e=>e.getAttribute('d'));
-   return {previewMs,seekMs,geometry,saved:JSON.stringify(window.__flux.slide.currentDeck())===window.__morphSaved};
+   const totalMs=performance.now()-window.__openedAt;
+   return {previewMs,seekMs,totalMs,geometry,saved:JSON.stringify(window.__flux.slide.currentDeck())===window.__morphSaved};
   });
   assert.ok(cached||bypassed);assert.ok(timing.saved);assert.ok(timing.geometry.length>=3);assert.equal(realErrors(page).length,0);evidence.push({cached,trial,...timing});
   if(cached){assert.ok(timing.previewMs<=100,`cold first preview ${timing.previewMs}ms <=100`);assert.ok(timing.seekMs<=100,`first seek ${timing.seekMs}ms <=100`);}
@@ -40,5 +43,16 @@ for(const cached of [false,true])for(let trial=0;trial<3;trial++){
 }
 for(const value of evidence)assert.deepEqual(value.geometry,evidence[0].geometry,"cached and pre-memo first-seek paths are numerically identical");
 const median=a=>a.toSorted((a,b)=>a-b)[Math.floor(a.length/2)];
-const oldMs=median(evidence.filter(x=>!x.cached).map(x=>x.previewMs)),newMs=median(evidence.filter(x=>x.cached).map(x=>x.previewMs));assert.ok(newMs<oldMs,`actual cold-preview median improves ${oldMs}→${newMs}`);
-await fs.writeFile(`${OUT}/v020-morph-startup.json`,JSON.stringify({evidence,baselineMedianMs:oldMs,cachedMedianMs:newMs,speedup:oldMs/newMs},null,2));console.log(JSON.stringify({baselineMedianMs:oldMs,cachedMedianMs:newMs,speedup:oldMs/newMs,passed:true}));
+// Where the point memo shows up. It pays for itself inside `planOutlines`,
+// and since 2026-09-22 that work happens when the ANIMATOR OPENS rather than
+// while the preview compiles — so neither the preview nor the first seek
+// touches it any more, and comparing either of those medians would be
+// comparing two samples of the same noise. The honest measure is the whole
+// cold path, from opening the dock to the first seek being on screen: both
+// runs do identical work there, and only one of them has the memo.
+const totalOld=median(evidence.filter(x=>!x.cached).map(x=>x.totalMs)),totalNew=median(evidence.filter(x=>x.cached).map(x=>x.totalMs));
+assert.ok(totalNew*1.5<totalOld,`memo-less cold path is far slower: ${totalOld}→${totalNew}`);
+const seekOld=median(evidence.filter(x=>!x.cached).map(x=>x.seekMs)),seekNew=median(evidence.filter(x=>x.cached).map(x=>x.seekMs));
+const oldMs=median(evidence.filter(x=>!x.cached).map(x=>x.previewMs)),newMs=median(evidence.filter(x=>x.cached).map(x=>x.previewMs));
+const report={previewMedianMs:{baseline:oldMs,cached:newMs},seekMedianMs:{baseline:seekOld,cached:seekNew},coldPathMedianMs:{baseline:totalOld,cached:totalNew},coldPathSpeedup:totalOld/totalNew};
+await fs.writeFile(`${OUT}/v020-morph-startup.json`,JSON.stringify({evidence,...report},null,2));console.log(JSON.stringify({...report,passed:true}));

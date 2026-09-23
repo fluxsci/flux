@@ -547,3 +547,28 @@ export function transformEndState(pre: Element, track: { to?: { state?: Record<s
   if (track.to?.assetId && (end.type === "plot" || end.type === "image")) end.assetId = track.to.assetId;
   return end;
 }
+
+/** Build, ahead of time, the node correspondences this slide's BECOME
+ *  transforms will need, so pressing play does not wait for them and neither
+ *  does the first frame after it. The work is a pure function of the deck
+ *  (`planOutlines` memoizes it), so doing it early is doing it once: the
+ *  player's own `planElementMorph` then finds every answer already there.
+ *
+ *  The animator calls this when it OPENS, which is the only moment with real
+ *  time in it — a person spends at least a few hundred milliseconds looking at
+ *  the timeline before they press play, while play → first frame is measured
+ *  in tens of milliseconds and budgeted (§6). Warming is never required for
+ *  correctness: skip it, interrupt it, call it twice, and every caller still
+ *  gets the same answer, only later. */
+export function warmSlideMorphs(slide: Slide): void {
+  for (let bi = 0; bi < slide.beats.length; bi++) {
+    for (const track of slide.beats[bi].tracks) {
+      if (track.disabled || track.keyframes || familyOf(track) !== "transform") continue;
+      const pre = transformPreState(slide, track.target, bi);
+      if (!pre) continue;
+      const end = transformEndState(pre, track);
+      if (!outlineMorphable(pre, end)) continue;
+      planElementMorph(pre, end)?.prepare?.();
+    }
+  }
+}
