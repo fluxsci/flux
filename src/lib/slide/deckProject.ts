@@ -241,6 +241,13 @@ function scaleElementInPlace(e: Element, s: number): void {
   e.height *= s;
   if (e.type === "text") {
     e.fontSize *= s;
+    // Tracking and paragraph gaps are stored in canvas px, so they scale with
+    // the type exactly as editing.scaleRemap does (the K tool). Left at their
+    // figure values, a figure shrunk onto a slide came out over-tracked with
+    // paragraph gaps too tall for its font. Absent stays absent so historical
+    // text acquires no extra properties.
+    if (e.letterSpacing != null) e.letterSpacing *= s;
+    if (e.paragraphSpacing != null) e.paragraphSpacing *= s;
     delete e.lines; // wrap cache is metric-derived; GUI reflows, headless falls back
     delete e.lineWidths;
   } else if (e.type === "line") {
