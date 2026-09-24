@@ -271,6 +271,14 @@ elements and ruler guides adjust their local coordinates to stay in place. Artwo
 the new frame remains in the project and reappears if you enlarge the boundary again.
 Dragging the title still moves the whole figure. Slides use a shared deck stage size.
 
+**Resizing a plot and its content scale.** Resizing a placed plot changes its axes and data
+area but keeps its text and line widths at their true point size, the way changing a
+figure's size in matplotlib does. The Inspector's **Content scale** (or the **K** scale tool)
+is the other dial: it makes the plot's text and lines bigger or smaller inside the same box.
+Pictures that have no text or lines, such as a PNG saved inside an SVG, have nothing for
+content scale to change, so the Inspector says so instead of showing the field. Resize the
+box to make them bigger.
+
 # Drawing
 
 The shape tools do what you expect; the **pen** (P) is placement-assisted: click to place

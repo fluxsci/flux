@@ -109,7 +109,8 @@
   import SlideThumb from "./SlideThumb.svelte";
   import SlideVideoDialog from "./SlideVideoDialog.svelte";
   import { editorStashedElements, editorStashedParts } from "../../../lib/editorPresentation";
-  import { fileBridge } from "../../../lib/project/types";
+  import { fileBridge, joinPath } from "../../../lib/project/types";
+  import { deckPdfDocument, type DeckPdfPages } from "../../../lib/slide/export/deckPdf";
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
@@ -847,22 +848,60 @@
   let exporting = $state(false);
   let exportMsg = $state<{ ok: boolean; text: string } | null>(null);
   let exportMsgTimer: ReturnType<typeof setTimeout> | undefined;
+  // Export formats (2026-09-24): the interactive .html, plus PDF, one page per
+  // slide (every build applied) or one page per build step.
+  let exportMenuOpen = $state(false);
+  const canExportPdf = typeof fileBridge()?.printPdf === "function";
+  $effect(() => {
+    if (!exportMenuOpen) return;
+    const close = (e: PointerEvent) => { if (!(e.target as HTMLElement | null)?.closest?.(".export-wrap")) exportMenuOpen = false; };
+    document.addEventListener("pointerdown", close, true);
+    return () => document.removeEventListener("pointerdown", close, true);
+  });
+  /** Both formats export the SAVED deck: seal the history, refresh linked
+   *  sources, flush the autosave, and refuse while anything is unsaved. */
+  async function exportPreflight(root: string, id: string) {
+    exitEndpointEdit(); // export the persisted deck, never a checkout view
+    sealHistory();
+    await refreshDeckSources(root);
+    await autosave.flush();
+    if ($figDirty || $saveErr) throw new Error("Save the deck successfully before exporting");
+    if (pm?.root !== root || activeDeckId !== id) throw new Error("The deck changed before export started");
+  }
   async function onExport() {
     const id = activeDeckId, root = pm?.root;
+    exportMenuOpen = false;
     if (!pm || !root || !id || exporting) return;
-    exitEndpointEdit(); // export the persisted deck, never a checkout view
     exporting = true;
     exportMsg = null;
     try {
-      sealHistory();
-      await refreshDeckSources(root);
-      await autosave.flush();
-      if ($figDirty || $saveErr) throw new Error("Save the deck successfully before exporting");
-      if (pm.root !== root || activeDeckId !== id) throw new Error("The deck changed before export started");
+      await exportPreflight(root, id);
       const result = await exportDeckBridge(root, id);
       if (pm.root === root && activeDeckId === id) flashExport(true, `Exported → ${result.path.split("/").slice(-2).join("/")}${result.warnings.length ? ` — ${result.warnings.join("; ")}` : ""}`);
     } catch (e) {
       flashExport(false, e instanceof Error ? e.message : "Export failed");
+    } finally {
+      exporting = false;
+    }
+  }
+  async function onExportPdf(plan: DeckPdfPages) {
+    const id = activeDeckId, root = pm?.root, fb = fileBridge();
+    exportMenuOpen = false;
+    if (!pm || !root || !id || exporting || !fb?.printPdf) return;
+    exporting = true;
+    exportMsg = null;
+    try {
+      await exportPreflight(root, id);
+      const doc = await deckPdfDocument(root, id, fb, plan);
+      const dir = joinPath(root, "exports");
+      await fb.mkdir(dir);
+      const out = joinPath(dir, `${id}${plan === "steps" ? "-steps" : ""}.pdf`);
+      // Zero margins: each sheet is exactly one stage (the @page rule sets the size).
+      await fb.printPdf(doc.html, out, { margins: { top: 0, bottom: 0, left: 0, right: 0 } });
+      if (pm.root === root && activeDeckId === id)
+        flashExport(true, `Exported → exports/${out.split("/").pop()} (${doc.pages} page${doc.pages === 1 ? "" : "s"})${doc.warnings.length ? ` — ${doc.warnings.join("; ")}` : ""}`);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "PDF export failed");
     } finally {
       exporting = false;
     }
@@ -1324,10 +1363,24 @@
         title="Toggle the animation dock (beats, tracks, preview)">Animate ⏱</button>
       <button class="btn" onclick={() => launchPresent(false)} disabled={!overlay?.slides.length}
         title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
-      <button class="btn ghost" onclick={onExport} disabled={!overlay || !canExport || exporting}
-        title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
-        {exporting ? "Exporting…" : "Export"}
-      </button>
+      <span class="export-wrap">
+        <button class="btn ghost export-btn" onclick={() => (exportMenuOpen = !exportMenuOpen)} disabled={!overlay || (!canExport && !canExportPdf) || exporting}
+          aria-haspopup="menu" aria-expanded={exportMenuOpen}
+          title={canExport || canExportPdf ? "Export the deck as an interactive .html or a PDF" : "Export is available in the desktop app"}>
+          {exporting ? "Exporting…" : "Export ▾"}
+        </button>
+        {#if exportMenuOpen}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="export-menu" role="menu" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); exportMenuOpen = false; } }}>
+            <button role="menuitem" class="export-item" data-export="html" disabled={!canExport} onclick={onExport}>
+              <b>HTML</b><span>Interactive, animations and video included</span></button>
+            <button role="menuitem" class="export-item" data-export="pdf" disabled={!canExportPdf} onclick={() => onExportPdf("final")}>
+              <b>PDF</b><span>One page per slide, every build step applied</span></button>
+            <button role="menuitem" class="export-item" data-export="pdf-steps" disabled={!canExportPdf} onclick={() => onExportPdf("steps")}>
+              <b>PDF, each step</b><span>One page per build step</span></button>
+          </div>
+        {/if}
+      </span>
       <button class="btn ghost video-export" onclick={openVideoExport} disabled={!activeSlide || !canExportVideo || $slideVideoJob?.running}
         aria-label="Export current slide as MP4" title={canExportVideo ? "Export the current slide and its animations as an MP4 video" : "Video export is available in the desktop app"}>Video…</button>
       {#if $saveErr}
@@ -1630,6 +1683,21 @@
   .btn:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .btn:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
   .btn.ghost { background: transparent; }
+  .export-wrap { position: relative; display: inline-flex; }
+  .export-menu {
+    position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; min-width: 240px;
+    display: flex; flex-direction: column; padding: 4px; gap: 2px;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
+  .export-item {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left;
+    padding: 5px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui);
+    color: var(--c-tx); font: 12px var(--font-ui); cursor: var(--cursor-cross-hover);
+  }
+  .export-item span { font-size: 11px; color: var(--c-tx-muted); }
+  .export-item:hover:not(:disabled) { border-color: var(--c-line-strong); background: var(--c-accent-tint); }
+  .export-item:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
   .btn.active { border-color: var(--c-accent); background: var(--c-accent-tint); color: var(--c-tx-hi); }
   .dirty { color: var(--c-tx-faint); opacity: 0; transition: opacity 0.15s; font-size: 12px; }
   .dirty.on { opacity: 1; color: var(--c-accent); }

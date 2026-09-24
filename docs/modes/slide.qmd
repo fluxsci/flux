@@ -244,10 +244,18 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
 
 # Export
 
-**Export** writes the deck to **one self-contained `.html`** in the project's `exports/` —
-every slide, beat, animation, transform, and font, playing in any web browser with the same keys
-as Present mode. No Flux on the presenting machine, no network, nothing to install: open the
-file, give the talk.
+**Export ▾** offers three formats, each written to the project's `exports/`:
+
+- **HTML** — **one self-contained `.html`** with every slide, beat, animation, transform, and
+  font, playing in any web browser with the same keys as Present mode. No Flux on the
+  presenting machine, no network, nothing to install: open the file, give the talk.
+- **PDF** — one page per slide, showing the slide with every build step applied: a handout or
+  a copy to send before the talk (`<deck>.pdf`). Plots and text stay sharp at any zoom.
+- **PDF, each step** — one page per build step, so a slide that reveals three things becomes
+  three pages (`<deck>-steps.pdf`).
+
+Pages are exactly the slide size. A PDF cannot play, so videos show their poster frame and
+animations show where they end.
 
 **Video…** exports the **current slide** and all of its animation steps as one continuous
 `.mp4`. Set **Delay between steps**, **Hold at start**, and **Hold at end**, then choose

@@ -123,6 +123,7 @@
       "verify-slide-figure-separation.ts",
       "verify-slide-headless-e2e.ts",
       "verify-slide-decks.ts",
+      "verify-slide-pdf.ts",
       "verify-slide-reload-supersede.ts",
       "verify-deck-diagnostics.ts",
       "verify-slide-easing.ts",
@@ -341,6 +342,7 @@
       "verify-shape-nofill.mjs",
       "verify-colorpicker-narrow.mjs",
       "verify-slide-save-shortcut.mjs",
+      "verify-slide-export-menu.mjs",
       "verify-primitives-gui.mjs",
       "verify-importer-multi.mjs",
       "verify-importer-reserved.mjs",
@@ -1538,6 +1540,14 @@
       "glob": "{src/lib/io.ts,src/lib/tenancy.ts,src/shell/lifecycle.ts}",
       "run": [
         "verify-slide-save-shortcut.mjs"
+      ]
+    },
+    {
+      "$why": "2026-09-24 slide PDF export (one page per slide / per build step) and the content-scale applicability note.",
+      "glob": "{src/lib/slide/export/deckPdf.ts,src/lib/slide/embedRender.ts,src/lib/plot/compensate.ts,src/lib/interact/elementProperties.ts,electron/ipc/staticPrint.cjs}",
+      "run": [
+        "verify-slide-pdf.ts",
+        "verify-slide-export-menu.mjs"
       ]
     }
   ],
@@ -4606,6 +4616,17 @@
       "exclusive": true,
       "coverage": "behavior"
     },
+    "verify-slide-export-menu.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
     "verify-colorpicker-narrow.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -4729,6 +4750,15 @@
       "coverage": "behavior"
     },
     "verify-slide-decks.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-pdf.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
