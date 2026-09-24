@@ -67,7 +67,9 @@ export default defineConfig({
 
   // Bundle Web Workers as ES modules — the pdf.js worker (src/lib/pdf/pdfjsWorker.ts,
   // which pre-loads a Uint8Array base64/hex polyfill) is ESM and uses import.meta.
-  worker: { format: "es" },
+  // Worker sub-builds run their own bundler pass, which prints its own copy of
+  // the timing report, so the check is off here too (see build.rolldownOptions).
+  worker: { format: "es", rolldownOptions: { checks: { pluginTimings: false } } },
 
   server: {
     // Worktrees may share a dependency directory via symlink. Permit only that
@@ -88,5 +90,19 @@ export default defineConfig({
     // SHL-20: hidden sourcemaps — emitted for crash triage / stack symbolication but NOT
     // referenced from the bundle, so DevTools doesn't surface source by default in a shipped app.
     sourcemap: "hidden",
+    rolldownOptions: {
+      // [PLUGIN_TIMINGS] reports which plugins a build spends its time in. Here
+      // that is only Vite's own: vite:worker bundling the four web workers
+      // (the pdf.js worker alone is 1.2 MB), vite:build-import-analysis and
+      // vite:css. The whole build takes ~8 s, and none of it is Flux plugin
+      // code, so there is nothing to act on and the report only buries real
+      // warnings. Measured 2026-09-24.
+      checks: { pluginTimings: false },
+    },
+    // The 500 kB default is a web-download heuristic; Flux loads its bundle
+    // from local disk in Electron and already lazy-loads each mode. The limit
+    // sits just above today's largest chunk (the pdf.js worker, 1,184 kB; the
+    // Paper editor, 1,019 kB) so a new accidental heavyweight import still warns.
+    chunkSizeWarningLimit: 1300,
   },
 });
