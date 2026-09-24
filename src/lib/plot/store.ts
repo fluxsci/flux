@@ -24,12 +24,27 @@ import { preparePlot, bakePlotStyles, hoistPlotClips } from "./parse";
 import { getAssetData, dataUrlToBytes } from "../assets";
 import { isDerivedManifest } from "./derive";
 import { storeTenant } from "../tenancy";
+import { hasContentScaleTargets } from "./compensate";
 
 export const plotManifests = writable<Record<Id, FluxPlotManifest>>({});
 export const plotRecipes = writable<Record<Id, unknown>>({});
 
 // Pristine parsed plot SVG roots, keyed by assetId. Cloned per placement on mount.
 export const plotDom = new Map<Id, SVGSVGElement>();
+
+// Whether a plot holds anything content scale acts on (text, glyph marks,
+// strokes). Cached per prepared DOM: a re-import makes a new root, so the
+// answer can never go stale.
+const contentScaleTargets = new WeakMap<Element, boolean>();
+/** False only when the plot is loaded and provably has nothing content scale
+ *  changes (a PNG wrapped in SVG, filled shapes only). Unknown -> true. */
+export function plotHasContentScaleTargets(assetId: Id): boolean {
+  const root = plotDom.get(assetId);
+  if (!root) return true;
+  let known = contentScaleTargets.get(root);
+  if (known === undefined) { known = hasContentScaleTargets(root); contentScaleTargets.set(root, known); }
+  return known;
+}
 
 // F2: a per-asset generation counter, bumped whenever a plot's cached DOM is
 // (re)written. mountPlot folds this into its re-clone signature so a hot-swap

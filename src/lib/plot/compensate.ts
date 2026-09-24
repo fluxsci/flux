@@ -98,6 +98,29 @@ export function compilePtTrueBindings(inst: Element): PtTrueBindings {
   return { nodes };
 }
 
+/** Does this plot hold anything content scale acts on? Content scale multiplies
+ *  TEXT (and glyph / <use> marks) and STROKES; everything else scales with the
+ *  box. A placed graphic that is only a raster <image>, or only filled shapes,
+ *  therefore looks identical at every content scale — the Inspector says so
+ *  instead of offering a field that silently does nothing (owner report
+ *  2026-09-24: "the content scale seems not to work" on PNG-in-SVG pictures).
+ *  Same traversal rules as compensatePtTrue. */
+export function hasContentScaleTargets(root: Element): boolean {
+  const walk = (el: Element): boolean => {
+    const tag = el.tagName?.toLowerCase() ?? "";
+    if (SKIP_SUBTREES.has(tag)) return false;
+    if (tag === "text" || tag === "use" || el.getAttribute("data-flux-glyph") === "1") return true;
+    if (STROKABLE.has(tag)) {
+      const d = declaredStrokeProps(el);
+      if (d.hasStroke || d.width != null) return true;
+    }
+    for (const child of Array.from(el.children ?? [])) if (walk(child)) return true;
+    return false;
+  };
+  for (const child of Array.from(root.children ?? [])) if (walk(child)) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // RE-APPLICATION support (animation rework): compensatePtTrue is a ONE-SHOT
 // pass — it prepends transforms and multiplies stroke styles, so calling it

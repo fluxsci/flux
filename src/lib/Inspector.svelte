@@ -33,7 +33,7 @@
     applyLibraryStyle,
     libraryOnly,
   } from "./textStyles";
-  import { plotManifests } from "./plot/store";
+  import { plotManifests, plotHasContentScaleTargets } from "./plot/store";
   import { buildPartIndex } from "./plot/parse";
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
@@ -246,6 +246,9 @@
   $: ranged = rangeFor($textEditRange, $project, $selection);
   $: rangeOn = (which: "bold" | "italic" | "underline") =>
     ranged ? rangeIsOn(ranged.element, ranged.range.from, ranged.range.to, which) : false;
+  // Plot DOMs load lazily; the manifest store updates when one does, so it is
+  // passed in to make the template re-ask.
+  const contentScalable = (assetId: string, _loaded: unknown) => plotHasContentScaleTargets(assetId);
   $: rangeHex = ranged ? rangeColor(ranged.element, ranged.range.from, ranged.range.to) : null;
   // While typing at a bare caret, the buttons show (and set) the TYPING style:
   // what the next characters will look like (textEditRange.ts typingStyle).
@@ -590,6 +593,7 @@
         {#if single.type === "plot"}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->
+          {#if contentScalable(single.assetId, $plotManifests)}
           <div class="row wh">
             <NumberField label="Content scale" value={single.contentScale ?? 1} min={0.01} step={0.05}
               title="Geometric scale of the plot's text/strokes (the K tool writes this; 1 = true point sizes)"
@@ -599,6 +603,16 @@
               <button class="true-size" title="Reset content scale to 1 (true point sizes)" on:click={resetContentScale}>1×</button>
             {/if}
           </div>
+          {:else}
+          <!-- Content scale multiplies text and strokes only; a picture with
+               neither (a PNG wrapped in SVG) would not change at any value. -->
+          <div class="row content-scale-na" data-content-scale-na>
+            <span class="note">No text or strokes to scale in this graphic. Resize its box to make it bigger.</span>
+            {#if (single.contentScale ?? 1) !== 1}
+              <button class="true-size" title="Clear the unused content scale ({single.contentScale}×)" on:click={resetContentScale}>Clear {single.contentScale}×</button>
+            {/if}
+          </div>
+          {/if}
         {/if}
       {/if}
       {#if dissectKey}
@@ -1309,6 +1323,8 @@
     color: var(--c-tx-muted);
   }
   .note.mono { font-family: var(--font-mono); }
+  .content-scale-na { align-items: center; gap: 8px; }
+  .content-scale-na .note { margin: 0; }
   .range-note { align-items: center; gap: 8px; }
   .range-note .note { margin: 0; color: var(--c-accent); }
   .range-note .mini {
