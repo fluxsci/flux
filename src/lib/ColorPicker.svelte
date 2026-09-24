@@ -396,12 +396,18 @@
 
 <style>
   .drop-error { font-size: 11px; color: var(--c-tx-2); }
-  /* Two columns: the palette gets the room (every row on ONE line, the whole
-     grid visible — the menu grows instead of scrolling), the spectrum sits in a
-     fixed 204 px column on the right. */
-  .cs { display: grid; grid-template-columns: minmax(0, 1fr) 204px; gap: 6px 14px; align-items: start; font-family: inherit; }
-  .left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
+  /* Two columns when they fit: the palette gets the room (every row on ONE
+     line, the whole grid visible — the menu grows instead of scrolling), the
+     spectrum sits in a 204 px column on the right. A flex WRAP rather than a
+     fixed grid, because the picker also lives in the Inspector, whose width the
+     user sets: when the palette's own width plus the spectrum no longer fit,
+     the spectrum drops below the palette and takes the full width, instead of
+     the swatch rows running underneath it (owner report 2026-09-24). Slack on a
+     shared line goes to the palette side (flex-grow 1000 vs 1), so the wide
+     layout keeps its 204 px spectrum. Narrower still, swatch rows wrap. */
+  .cs { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: flex-start; font-family: inherit; }
+  .left { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1000 1 max-content; }
+  .tabs { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
   .tab { height: 22px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: 12px var(--font-serif); white-space: nowrap; }
   .tab:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
   .tab.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
@@ -412,13 +418,13 @@
   .grid:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 0; border-radius: var(--r-0); }
   .prow { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 6px; }
   .plabel { font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sws { display: flex; flex-wrap: nowrap; gap: 3px; }
+  .sws { display: flex; flex-wrap: wrap; gap: 3px; }
   .sw { width: 17px; height: 17px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent); cursor: var(--cursor-cross-hover); box-sizing: border-box; position: relative; }
   .sw.none { background: var(--c-surface); }
   .sw.none::after { content: ""; position: absolute; inset: 3px; border-top: 1.5px solid var(--c-danger); transform: rotate(-45deg); transform-origin: center; }
   .sw.live { box-shadow: inset 0 0 0 1px var(--c-tx-hi); }
   .sw.cur { outline: 2px solid var(--c-accent); outline-offset: 1px; }
-  .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1 0 204px; max-width: 100%; }
   .bar { display: flex; align-items: center; gap: 6px; height: 22px; }
   .hexrow { display: flex; align-items: center; gap: 6px; }
   .dot { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid var(--c-line-strong); flex: none; }

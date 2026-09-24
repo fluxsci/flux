@@ -339,6 +339,7 @@
       "verify-shell-complete.mjs",
       "verify-fig-esc.mjs",
       "verify-shape-nofill.mjs",
+      "verify-colorpicker-narrow.mjs",
       "verify-primitives-gui.mjs",
       "verify-importer-multi.mjs",
       "verify-importer-reserved.mjs",
@@ -773,6 +774,7 @@
     {
       "glob": "{src/lib/color/eyedropper.ts,src/lib/ColorPicker.svelte,electron/ipc/colorPicker*}",
       "run": [
+        "verify-colorpicker-narrow.mjs",
         "verify-eyedropper.ts",
         "verify-eyedropper-gui.mjs",
         "verify-ipc-contract.ts",
@@ -1042,6 +1044,7 @@
       "$why": "2026-09-16 colour collections — fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
       "glob": "{src/lib/color/**,src/lib/ColormapPicker.svelte,src/lib/ColorPicker.svelte,src/lib/plot/ColorScaleControls.svelte,scripts/gen-color-collections.mjs}",
       "run": [
+        "verify-colorpicker-narrow.mjs",
         "verify-color-collections.ts",
         "verify-gradient-fill.ts",
         "verify-color-space.ts",
@@ -1473,6 +1476,7 @@
       "$why": "2026-09-15 surface redesign — the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
       "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
       "run": [
+        "verify-colorpicker-narrow.mjs",
         "verify-surface-anchor.ts",
         "verify-wheel-law.ts",
         "verify-color-space.ts",
@@ -4580,6 +4584,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-colorpicker-narrow.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     },
