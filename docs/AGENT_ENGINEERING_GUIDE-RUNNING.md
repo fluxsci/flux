@@ -2161,6 +2161,13 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   stays selected and its text is unchanged. Inspector B/I/U, the colour picker
   (`colors.applyColor`) and Ctrl+B/I/U consult it before falling back to whole elements.
   B/I/U use `mousedown|preventDefault` so the editor stays open for a second button.
+- **`dist/flux-cli.mjs` is a launcher; the CLI bundle is `dist/flux-cli-core.mjs`.** V8 spent
+  ~80 ms compiling the ~6 MB bundle before `flux help` printed anything, which kept help over
+  its 150 ms cold-start budget on CI. `scripts/build-cli.mjs` now writes a small launcher that
+  prints help captured from the core bundle at build time (bare `flux` and `flux help` only)
+  and imports the core for everything else. Anything that copies the CLI into another layout
+  (probes, packaging, isolated-export checks) must copy BOTH files. `verify-w13-cli` checks the
+  launcher's help is byte-identical to the core's and keeps the 8 MB budget on the core.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -6540,3 +6547,4 @@ Preview 137 → ~66 ms, first seek 111 → ~28 ms, both against 100.
 **Learnings:**
 - Two traps promoted to §9: `editGen.n` versus `editGen.edits`, and panel controls that must know the inline text editor's selection.
 - A clean-copy reproduction can hide a timing bug: the deck opened fine until the probe drove the CLI against it while it was open. Drive the real concurrent writer, not just its resulting file.
+- Later the same day: fixed a 50 ms sleep race in `verify-fluxplot-recipe-ipc`, and brought `flux help` from ~175 ms to ~50 ms by splitting the CLI into a launcher plus core bundle (promoted to §9). `verify-extension-build` still fails until the owner re-signs the extension with their AMO credentials (`npm run sign:extension`); agents must not do that step.

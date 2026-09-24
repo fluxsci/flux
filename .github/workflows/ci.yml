@@ -61,7 +61,7 @@ jobs:
           path: test-results/runs/**
       - name: Assert the packaged bundles were emitted
         run: |
-          for f in dist/flux-cli.mjs dist/flux-mcp.mjs dist/flux-fulltext-worker.mjs dist/slide-export-assets.json; do
+          for f in dist/flux-cli.mjs dist/flux-cli-core.mjs dist/flux-mcp.mjs dist/flux-fulltext-worker.mjs dist/slide-export-assets.json; do
             test -f "$f" || { echo "::error::missing build artifact $f"; exit 1; }
           done
       - name: Bundle handshakes (CLI + MCP over stdio against the built bundles)

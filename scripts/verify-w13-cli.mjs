@@ -14,7 +14,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CLI = path.join(repoRoot, "dist", "flux-cli.mjs");
+const CLI = path.join(repoRoot, "dist", "flux-cli.mjs"); // the `flux` launcher
+const CORE = path.join(repoRoot, "dist", "flux-cli-core.mjs"); // the full bundle it fronts
 const SIDECAR = path.join(repoRoot, "dist", "slide-export-assets.json");
 const TMP = path.join(repoRoot, "scripts", ".w13-tmp");
 const PROJ = path.join(TMP, "proj");
@@ -30,7 +31,7 @@ try {
   mkdirSync(TMP, { recursive: true });
 
   // 1. bundle + sidecar exist, plain-node shebang -----------------------------
-  if (existsSync(CLI) && existsSync(SIDECAR)) ok("dist/flux-cli.mjs + slide-export-assets.json exist");
+  if (existsSync(CLI) && existsSync(CORE) && existsSync(SIDECAR)) ok("dist/flux-cli.mjs + flux-cli-core.mjs + slide-export-assets.json exist");
   else bad("build artifacts", "run `npm run build` first");
 
   const head = readFileSync(CLI, "utf8").slice(0, 64);
@@ -52,9 +53,17 @@ try {
   const timing = `${dt}ms (bare node ${control}ms; overhead ${over}ms; budget <150ms)`;
   if (dt < 150) ok(`flux help cold start ${timing}`);
   else bad("help cold start", timing);
+  // The launcher's help fast path must print exactly what the full CLI prints.
+  for (const args of [[], ["help"]]) {
+    const fast = node([CLI, ...args]), full = node([CORE, ...args]);
+    const form = ["flux", ...args].join(" ");
+    if (fast === full && fast.includes("Registry commands")) ok(`launcher "${form}" prints the core bundle's help byte-for-byte`);
+    else bad("launcher help drift", `${form}: ${fast.length} vs ${full.length} chars (rebuild with npm run build:cli)`);
+  }
   // The structural companion to that timing: a heavy import shows up as bytes
   // long before it shows up as milliseconds, and bytes do not depend on load.
-  const bundleMB = statSync(CLI).size / (1024 * 1024);
+  // The budget is on the CORE bundle, which every verb but help still parses.
+  const bundleMB = statSync(CORE).size / (1024 * 1024);
   if (bundleMB < 8) ok(`bundle is ${bundleMB.toFixed(1)} MB (<8 MB — no accidental heavyweight import)`);
   else bad("bundle size", `${bundleMB.toFixed(1)} MB`);
 
@@ -81,6 +90,7 @@ try {
   // 4. THE SHIP-BLOCKER: export from an isolated copy (no node_modules / src) --
   mkdirSync(FAKE, { recursive: true });
   copyFileSync(CLI, path.join(FAKE, "flux-cli.mjs"));
+  copyFileSync(CORE, path.join(FAKE, "flux-cli-core.mjs"));
   copyFileSync(SIDECAR, path.join(FAKE, "slide-export-assets.json"));
   rmSync(exp, { force: true });
   // Run with cwd inside the isolated tree so a stray node_modules lookup can't

@@ -40,6 +40,7 @@ console.log("PROBE headless shared preparation, geometry, locked persistence, co
 const unpacked = path.join(scratch, "resources/app.asar.unpacked"), encoderDir = path.join(scratch, "resources/video-encoder");
 await fs.mkdir(path.join(unpacked, "dist"), { recursive: true }); await fs.mkdir(path.join(unpacked, "electron"), { recursive: true }); await fs.mkdir(encoderDir, { recursive: true });
 await fs.copyFile(path.resolve("dist/flux-cli.mjs"), path.join(unpacked, "dist/flux-cli.mjs"));
+await fs.copyFile(path.resolve("dist/flux-cli-core.mjs"), path.join(unpacked, "dist/flux-cli-core.mjs")); // the launcher's bundle
 await fs.copyFile(path.resolve("electron/videoMedia.cjs"), path.join(unpacked, "electron/videoMedia.cjs"));
 const encoder = media.encoderPath(); await fs.copyFile(encoder, path.join(encoderDir, path.basename(encoder))); await fs.chmod(path.join(encoderDir, path.basename(encoder)), 0o755);
 const env = { ...process.env }; delete env.FLUX_VIDEO_APP_ROOT; delete env.FLUX_VIDEO_ENCODER;

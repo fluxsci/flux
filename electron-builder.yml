@@ -50,6 +50,8 @@ asarUnpack:
   # which has NO asar support — so the bundle + its prebaked export assets must be
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.
   - dist/flux-cli.mjs
+  # The launcher above imports this full bundle from beside itself.
+  - dist/flux-cli-core.mjs
   - dist/flux-fulltext-worker.mjs
   - dist/slide-export-assets.json
   - electron/slideVideoWorker.cjs

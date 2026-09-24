@@ -123,7 +123,7 @@ try {
   const app = path.join(resources, "app"); await fs.mkdir(path.join(app, "electron"), { recursive: true }); await fs.mkdir(path.join(app, "dist"));
   await fs.writeFile(path.join(app, "package.json"), JSON.stringify({ name: "flux-video-probe", version: "1.0.0", main: "electron/entry.cjs" }));
   for (const name of ["entry.cjs", "slideVideoWorker.cjs", "slideAudioGraph.cjs"]) await fs.copyFile(path.join(repo,"electron",name),path.join(app,"electron",name));
-  for (const name of ["flux-cli.mjs", "slide-export-assets.json"]) await fs.copyFile(path.join(repo,"dist",name),path.join(app,"dist",name));
+  for (const name of ["flux-cli.mjs", "flux-cli-core.mjs", "slide-export-assets.json"]) await fs.copyFile(path.join(repo,"dist",name),path.join(app,"dist",name));
   const child = scope.spawn(path.join(app, "dist/flux-cli.mjs"), ["export-slide-video", still.id, "still", "--root", root, "--out", path.join(artifacts,"packaged.mp4"), "--start-hold", "0", "--end-hold", "0", "--height", "720"], { nodeArgs: [], deadlineMs: 90000,
     env: { ...process.env, FLUX_VIDEO_ELECTRON: packaged, FLUX_VIDEO_APP_ROOT: app, FLUX_VIDEO_ENCODER: encoder } });
   assert.equal((await scope.waitExit(child)).code, 0, child.stderr); assert.equal(JSON.parse(child.stdout).frames, 1);
