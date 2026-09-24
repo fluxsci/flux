@@ -142,16 +142,75 @@ try {
   await mod("i");
   await commitEdit();
 
-  // ---- no selection still means the whole box ------------------------------------
+  // ---- a bare caret: the chord styles what you type NEXT (2026-09-24) -------------
+  // Owner decision, superseding "with nothing selected the chord bolds the whole
+  // box": "if I press Ctrl+I while writing, I only want the following
+  // characters styled. If I wanted the whole box, I click on the box, or select
+  // the whole text."
   await page.evaluate(() => window.__flux.fig.selectOnly("runs-t1"));
   await sleep(150);
   assert(await openEditor(), "the editor opens again");
-  await select(0, 0);
-  await mod("b");
+  await select(17, 17); // the end of "Homo sapiens here"
+  await mod("i");
   e = await el();
-  assert(e.fontWeight === 700 && (!e.runs || !e.runs.length),
-    `with nothing selected the chord still bolds the whole element (${e.fontWeight}, ${JSON.stringify(e.runs)})`);
+  assert(e.fontStyle === "normal" && (!e.runs || !e.runs.length), `Ctrl+I at a bare caret changes nothing yet (${e.fontStyle}, ${JSON.stringify(e.runs)})`);
+  assert(await page.evaluate(() => document.querySelector('button.biu[title^="Italic"]')?.getAttribute("aria-pressed") === "true"),
+    "the Inspector's Italic button shows the typing style");
+  await page.keyboard.type(" now");
+  await sleep(250);
+  e = await el();
+  assert(e.text === "Homo sapiens here now" && JSON.stringify(e.runs) === JSON.stringify([{ from: 17, to: 21, italic: true }]) && e.fontStyle === "normal",
+    `only the characters typed after Ctrl+I are italic (${JSON.stringify(e.runs)})`);
+  await page.keyboard.press("Home");
+  await page.keyboard.type("Z");
+  await sleep(250);
+  e = await el();
+  assert(e.text.startsWith("Z") && JSON.stringify(e.runs) === JSON.stringify([{ from: 18, to: 22, italic: true }]),
+    `moving the caret ends the typing style (${JSON.stringify(e.runs)})`);
+  // The Inspector button at a bare caret arms the same typing style, and the
+  // editor keeps focus so typing simply continues.
+  await select(1, 1);
+  const boldBtn = await page.evaluate(() => { const b = document.querySelector('button.biu[title^="Bold"]').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  await page.mouse.click(boldBtn.x, boldBtn.y);
+  await sleep(150);
+  await page.keyboard.type("Q");
+  await sleep(250);
+  e = await el();
+  assert(e.text.startsWith("ZQ") && (e.runs ?? []).some((r) => r.from === 1 && r.to === 2 && r.bold === true) && e.fontWeight === 400,
+    `the Inspector's Bold at a bare caret bolds only the next character typed (${JSON.stringify(e.runs)})`);
+  // Superscript and subscript: the chords on a selection.
+  await page.evaluate(() => window.__flux.fig.commit((p) => { const t = p.figures.flatMap((f) => f.elements).find((x) => x.id === "runs-t1"); t.text = "x2 + H2O"; delete t.runs; }));
   await commitEdit();
+  await page.evaluate(() => window.__flux.fig.selectOnly("runs-t1"));
+  await sleep(150);
+  assert(await openEditor(), "the editor opens for superscript and subscript");
+  await select(1, 2);
+  await page.keyboard.down("Control"); await page.keyboard.press("+"); await page.keyboard.up("Control");
+  await sleep(200);
+  await select(6, 7);
+  await page.keyboard.down("Control"); await page.keyboard.press("="); await page.keyboard.up("Control");
+  await sleep(200);
+  e = await el();
+  assert(JSON.stringify(e.runs) === JSON.stringify([{ from: 1, to: 2, script: "super" }, { from: 6, to: 7, script: "sub" }]),
+    `Ctrl++ superscripts and Ctrl+= subscripts the selected characters (${JSON.stringify(e.runs)})`);
+  await commitEdit();
+  const scripted = await page.evaluate(() => [...document.querySelectorAll('[data-editor-element-id="runs-t1"] text tspan tspan')]
+    .map((s) => [s.textContent, s.getAttribute("dy"), s.getAttribute("font-size")]));
+  const sup = scripted.find(([t, dy]) => t === "2" && Number(dy) < 0), sub = scripted.find(([t, dy]) => t === "2" && Number(dy) > 0);
+  assert(!!sup && !!sub && Number(sup[2]) < 18 && Number(sub[2]) < 18,
+    `the canvas paints them smaller, raised and lowered (${JSON.stringify(scripted)})`);
+  await shot(page, "text-runs-03-scripts");
+  // The Inspector's X² toggles the selected letters back to the baseline.
+  assert(await openEditor(), "the editor reopens");
+  await select(1, 2);
+  const supBtn = await page.evaluate(() => { const b = document.querySelector('button.biu[title^="Superscript"]').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  await page.mouse.click(supBtn.x, supBtn.y);
+  await sleep(200);
+  e = await el();
+  assert(JSON.stringify(e.runs) === JSON.stringify([{ from: 6, to: 7, script: "sub" }]),
+    `the Inspector's Superscript button toggles a superscript back to the baseline (${JSON.stringify(e.runs)})`);
+  await commitEdit();
+  await page.evaluate(() => window.__flux.fig.commit((p) => { const t = p.figures.flatMap((f) => f.elements).find((x) => x.id === "runs-t1"); t.text = "Homo sapiens here"; delete t.runs; t.fontWeight = 400; t.fontStyle = "normal"; }));
 
   // ---- the Inspector acts on the selected letters, not the box (2026-09-24) -----
   // Owner report: "the style would just apply to the whole box instead of to the

@@ -55,8 +55,8 @@
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
   import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
-  import { remapRuns } from "./textRuns";
-  import { publishTextRange, detachTextRange, registerLiveRangeToggle } from "./textEditRange";
+  import { remapRuns, normalizeRuns, elementFlags, rangeIsOn, rangeScript } from "./textRuns";
+  import { publishTextRange, detachTextRange, registerLiveRangeToggle, typingStyle, type RangeStyle } from "./textEditRange";
   import {
     elementBBox,
     rotatedAABB,
@@ -1676,6 +1676,7 @@
     if (found) activeFigureId.set(found.figure.id);
     selectOnly(el.id);
     publishTextRange(null);
+    typingStyle.set(null);
     editingId = el.id;
     requestAnimationFrame(() => {
       taEl?.focus();
@@ -1709,51 +1710,100 @@
     if (!editingId) return;
     const val = (e.currentTarget as HTMLTextAreaElement).value;
     const id = editingId;
+    const pending = get(typingStyle);
+    const caret = taEl?.selectionEnd ?? val.length;
+    let typedTo = -1;
     textEdits.run(() => mutate((p) => {
       const f = findElement(p, id);
       if (f && f.element.type === "text") {
+        const old = f.element.text;
+        // The typing style applies to text INSERTED where it was armed, and to
+        // nothing else: a deletion, a paste elsewhere or an undo ends it.
+        const inserted = !!pending && pending.id === id && caret > pending.at &&
+          val.length - old.length === caret - pending.at &&
+          val.slice(0, pending.at) === old.slice(0, pending.at) && val.slice(caret) === old.slice(pending.at);
         // Per-range formatting is stored as character offsets, so every edit has
         // to carry it: text typed inside an italic word stays italic, and a
         // deleted word takes its formatting with it (textRuns.remapRuns).
-        if (f.element.runs?.length) {
-          const runs = remapRuns(f.element.runs, f.element.text, val);
-          if (runs.length) f.element.runs = runs;
-          else delete f.element.runs;
-        }
+        let runs = f.element.runs?.length ? remapRuns(f.element.runs, old, val) : [];
         f.element.text = val;
+        if (inserted && pending) {
+          runs = normalizeRuns([...runs, { from: pending.at, to: caret, ...pending.flags }], val.length, elementFlags(f.element));
+          typedTo = caret;
+        }
+        if (runs.length) f.element.runs = runs;
+        else delete f.element.runs;
         applyTextLayout(f.element);
       }
     }));
+    // Typing continues from the new caret; any other edit retires the style.
+    if (pending) typingStyle.set(typedTo >= 0 ? { ...pending, at: typedTo } : null);
     publishEditSelection();
+  }
+  /** A caret the user MOVES (arrows, Home/End, Page keys) ends the typing
+   *  style; typing itself advances it in onTextInput, a click ends it too. */
+  function endTypingStyleOnNavigation(e: KeyboardEvent) {
+    if (!get(typingStyle)) return;
+    if (/^(Arrow|Home|End|Page)/.test(e.key)) typingStyle.set(null);
   }
   // Ctrl/Cmd+B/I/U inside the inline editor: toggle on the edited element via
   // mutate — the edit session already opened ONE beginGesture, so the whole
   // session (typing + toggles) stays a single undo entry.
-  function onTextEditToggle(which: "bold" | "italic" | "underline") {
+  function onTextEditToggle(which: RangeStyle) {
     if (!editingId) return;
     const id = editingId;
-    // With PART of the text selected the chord formats that range; with nothing
-    // selected — or with all of it selected, which is how the editor opens
-    // (startEdit selects everything) — it means the whole box, which is what it
-    // has always meant. Formatting every character IS formatting the element,
-    // and saying it that way keeps the element's own font honest.
+    // With PART of the text selected the chord formats that range. With ALL of
+    // it selected (how the editor opens: startEdit selects everything) B/I/U
+    // mean the whole box: formatting every character IS formatting the element,
+    // and saying it that way keeps the element's own font honest. With NOTHING
+    // selected the chord sets the typing style, so only the characters typed
+    // next take it (owner request 2026-09-24; it used to restyle the whole box).
     const value = taEl?.value ?? "";
     const from = taEl?.selectionStart ?? 0;
     const to = taEl?.selectionEnd ?? 0;
-    const ranged = to > from && !(from === 0 && to === value.length);
+    if (from === to) { armTypingStyle(id, from, which); return; }
+    const whole = from === 0 && to === value.length;
     textEdits.run(() => mutate((p) => {
-      if (ranged) ops.toggleTextRunStyle(p, id, from, to, which);
+      if (which === "super" || which === "sub") ops.toggleTextRunScript(p, id, from, to, which);
+      else if (!whole) ops.toggleTextRunStyle(p, id, from, to, which);
       else ops.toggleTextStyle(p, [id], which);
       const f = findElement(p, id);
-      if (f) applyTextLayout(f.element); // bold changes metrics → re-wrap
+      if (f) applyTextLayout(f.element); // bold and scripts change metrics: re-wrap
     }));
     // A mutation re-renders the overlay; put the user's selection back so the
     // next chord (bold THEN italic) acts on the same words.
-    if (ranged) requestAnimationFrame(() => taEl?.setSelectionRange(from, to));
+    requestAnimationFrame(() => taEl?.setSelectionRange(from, to));
+  }
+  /** Toggle `which` in the typing style armed at `at`. The reference look is
+   *  the character before the caret (at the very start, the one after it; in an
+   *  empty box, the box itself), so Ctrl+I right after an italic word turns
+   *  italic OFF for what comes next, as in a word processor. Toggling back to
+   *  that look drops the flag, and an empty style disarms. */
+  function armTypingStyle(id: string, at: number, which: RangeStyle) {
+    const f = findElement($project, id);
+    if (!f || f.element.type !== "text") return;
+    const el = f.element;
+    const ref: [number, number] | null = el.text.length === 0 ? null : at > 0 ? [at - 1, at] : [0, 1];
+    const current = get(typingStyle);
+    const flags = { ...(current && current.id === id && current.at === at ? current.flags : {}) };
+    if (which === "super" || which === "sub") {
+      const here = ref ? rangeScript(el, ref[0], ref[1]) ?? "normal" : "normal";
+      const next = (flags.script ?? here) === which ? "normal" : which;
+      if (next === here) delete flags.script;
+      else flags.script = next;
+    } else {
+      const here = ref ? rangeIsOn(el, ref[0], ref[1], which) : elementFlags(el)[which];
+      const next = !(flags[which] ?? here);
+      if (next === here) delete flags[which];
+      else flags[which] = next;
+    }
+    typingStyle.set(Object.keys(flags).length ? { id, at, flags } : null);
+    requestAnimationFrame(() => { taEl?.focus(); taEl?.setSelectionRange(at, at); });
   }
   function finishEdit() {
     if (!editingId) return;
     detachTextRange();
+    typingStyle.set(null);
     const f = findElement($project, editingId);
     if (f && f.element.type === "text" && f.element.text.trim() === "") {
       const id = editingId;
@@ -4339,13 +4389,14 @@
         ) * $viewport.zoom + 2}px;`}
       on:input={onTextInput}
       on:blur={finishEdit}
-      on:pointerdown|stopPropagation
+      on:pointerdown|stopPropagation={() => typingStyle.set(null)}
       on:dblclick|stopPropagation
       on:keydown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
           e.stopPropagation();
           publishTextRange(null);
+          typingStyle.set(null);
           textEdits.cancel();
           editingId = null;
           return;
@@ -4356,8 +4407,18 @@
             e.preventDefault();
             e.stopPropagation();
             onTextEditToggle(k === "b" ? "bold" : k === "i" ? "italic" : "underline");
+            return;
+          }
+          // Superscript: Ctrl+"+" (Ctrl+Shift+= on a US layout) or Ctrl+".".
+          // Subscript: Ctrl+"=" or Ctrl+",". Read from e.key so any layout works.
+          if (k === "+" || k === "." || k === "=" || k === ",") {
+            e.preventDefault();
+            e.stopPropagation();
+            onTextEditToggle(k === "+" || k === "." ? "super" : "sub");
+            return;
           }
         }
+        endTypingStyleOnNavigation(e);
       }}
     ></textarea>
   {/if}

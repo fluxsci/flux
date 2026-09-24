@@ -31,6 +31,9 @@ import {
   elementFlags,
   setRunColor,
   rangeColor,
+  toggleScriptRange,
+  rangeScript,
+  scriptMetrics,
   type TextRun,
 } from "../src/lib/textRuns";
 import * as ops from "../src/lib/ops";
@@ -257,6 +260,44 @@ const text = (extra: Partial<TextElement> = {}): TextElement =>
   const p = { figures: [{ id: "f", elements: [text({ id: "tc", text: "abc" })] }], textStyles: [] } as unknown as Project;
   ops.setTextRunColor(p, "tc", 1, 2, "#24837B");
   h.ok(eq((p.figures[0].elements[0] as TextElement).runs, [{ from: 1, to: 2, color: "#24837B" }]), "ops.setTextRunColor writes the run on the element");
+}
+
+// ------------------------------------------------- superscript / subscript
+// (2026-09-24) A run's `script` sets smaller glyphs off the baseline. SVG dy is
+// relative and persists, so a piece entering a script shifts and the next
+// piece shifts back; a line ENDING shifted hands the correction to the next
+// line's own dy, so no later line drifts.
+{
+  const e = text({ text: "x2 + y2", fontSize: 20 });
+  let runs = toggleScriptRange(e, 1, 2, "super");
+  h.ok(eq(runs, [{ from: 1, to: 2, script: "super" }]), `superscript on one character stores that run (${JSON.stringify(runs)})`);
+  h.ok(eq(toggleScriptRange({ ...e, runs }, 1, 2, "super"), []), "superscripting it again returns it to the baseline, leaving no run");
+  h.ok(eq(toggleScriptRange({ ...e, runs }, 1, 2, "sub"), [{ from: 1, to: 2, script: "sub" }]), "subscript over a superscript switches it in one press");
+  h.ok(rangeScript({ ...e, runs }, 1, 2) === "super" && rangeScript({ ...e, runs }, 0, 2) === null && rangeScript(e, 0, 2) === "normal",
+    "rangeScript reports one script, or null when mixed");
+  h.ok(eq(normalizeRuns([{ from: 0, to: 3, script: "normal" }], 7, elementFlags(e)), []), "an explicit baseline run says nothing and is pruned");
+  runs = toggleScriptRange({ ...e, runs }, 6, 7, "super");
+  const sized = text({ text: "x2 + y2", fontSize: 20, sizing: "auto", runs });
+  const L = blockLayout(sized);
+  const segs = L.lines[0].segments ?? [];
+  const m = scriptMetrics("super", 20);
+  const two = segs.find((s) => s.from === 1 && s.to === 2), after = segs.find((s) => s.from === 2);
+  h.ok(two?.script === "super" && two.dy === m.shift && after?.dy === -m.shift,
+    `layout raises the superscript and brings the next piece back (${JSON.stringify(segs.map((s) => [s.text, s.dy ?? 0]))})`);
+  const svg = elementToSvg(sized);
+  h.ok(svg.includes(`<tspan dy="${m.shift}" font-size="${m.size}">2</tspan>`) && svg.includes(`<tspan dy="${-m.shift}">`),
+    "the SVG export sets the superscript smaller and shifted, and restores the baseline");
+  const wrapped = text({ text: "a2\nb", fontSize: 20, sizing: "auto", runs: [{ from: 1, to: 2, script: "sub" }] });
+  const W = blockLayout(wrapped);
+  const plain = blockLayout(text({ text: "a2\nb", fontSize: 20, sizing: "auto" }));
+  const sub = scriptMetrics("sub", 20).shift;
+  h.ok(W.lines[1].dy === plain.lines[1].dy - sub,
+    `a line ending in a subscript hands the correction to the next line (${W.lines[1].dy} vs ${plain.lines[1].dy})`);
+  h.ok(eq(remapRuns([{ from: 1, to: 2, script: "super" }], "x2", "x2 + 1")[0], { from: 1, to: 2, script: "super" }), "a script run survives typing after it");
+  const p = { figures: [{ id: "f", elements: [text({ id: "ts", text: "H2O" })] }], textStyles: [] } as unknown as Project;
+  ops.toggleTextRunScript(p, "ts", 1, 2, "sub");
+  const el = p.figures[0].elements[0] as TextElement;
+  h.ok(eq(el.runs, [{ from: 1, to: 2, script: "sub" }]), "ops.toggleTextRunScript writes the run");
 }
 
 // ------------------------------------------------------------------ loading

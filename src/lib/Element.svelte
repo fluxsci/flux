@@ -230,6 +230,8 @@
           lengthAdjust={ln.justifyWidth != null ? "spacing" : undefined}
           >{#if ln.segments}{#each ln.segments as seg}{@const a = segmentAttrs(element, seg)}<tspan
                 dx={seg.dx}
+                dy={seg.dy}
+                font-size={a["font-size"]}
                 font-weight={a["font-weight"]}
                 font-style={a["font-style"]}
                 text-decoration={a["text-decoration"]}

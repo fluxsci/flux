@@ -31,6 +31,25 @@ export interface TextRun {
   underline?: boolean;
   /** Fill for this range; absent inherits the element's `color`. Metric-neutral. */
   color?: string;
+  /** Superscript / subscript: smaller glyphs raised or lowered off the
+   *  baseline (SCRIPT_* below). "normal" cancels a script beneath it, and is
+   *  what the element says, so normalization prunes it. */
+  script?: TextScript;
+}
+
+export type TextScript = "super" | "sub" | "normal";
+/** Script glyphs are this fraction of the element's font size. */
+export const SCRIPT_SCALE = 0.62;
+/** Baseline offset of each script, as a fraction of the element's font size
+ *  (SVG y grows downward: a superscript rises, a subscript drops). */
+export const SCRIPT_SHIFT: Record<"super" | "sub", number> = { super: -0.36, sub: 0.16 };
+/** The size and baseline offset a segment's script puts on its glyphs. */
+export function scriptMetrics(script: TextScript | undefined, fontSize: number): { size: number; shift: number } {
+  if (script !== "super" && script !== "sub") return { size: fontSize, shift: 0 };
+  // Rounded to 1/100 px: exact enough for any render, and it keeps float noise
+  // (-6.4799999999999995) out of every saved SVG.
+  const round = (v: number) => Math.round(v * 100) / 100;
+  return { size: round(fontSize * SCRIPT_SCALE), shift: round(fontSize * SCRIPT_SHIFT[script]) };
 }
 
 /** What an absent run field inherits: the element's flags, plus its color when known. */
@@ -46,6 +65,11 @@ export interface TextSegment {
   italic?: boolean;
   underline?: boolean;
   color?: string;
+  script?: TextScript;
+  /** Baseline offset (SVG dy) placed on this piece: into a script, out of one,
+   *  or between two. Set by text.ts blockLayout, which also carries a shift a
+   *  line ends on into the next line's own dy. Absent everywhere else. */
+  dy?: number;
   /** Extra advance placed BEFORE this piece, in canvas px. Justification uses
    *  it to widen a word gap; absent everywhere else. */
   dx?: number;
@@ -66,14 +90,15 @@ const sameColor = (a: string | undefined, b: string | undefined) =>
 function copyFields(into: TextRun | TextSegment, from: TextRun): void {
   for (const key of RUN_KEYS) if (typeof from[key] === "boolean") into[key] = from[key];
   if (typeof from.color === "string" && from.color) into.color = from.color;
+  if (from.script === "super" || from.script === "sub" || from.script === "normal") into.script = from.script;
 }
 
 function flagsEqual(a: TextRun, b: TextRun): boolean {
-  return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && sameColor(a.color, b.color);
+  return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && sameColor(a.color, b.color) && a.script === b.script;
 }
 
 function empty(run: TextRun): boolean {
-  return run.bold === undefined && run.italic === undefined && run.underline === undefined && run.color === undefined;
+  return run.bold === undefined && run.italic === undefined && run.underline === undefined && run.color === undefined && run.script === undefined;
 }
 
 /**
@@ -112,6 +137,7 @@ export function normalizeRuns(
     if (base) {
       for (const key of RUN_KEYS) if (piece[key] === base[key]) delete piece[key];
       if (base.color !== undefined && sameColor(piece.color, base.color)) delete piece.color;
+      if (piece.script === "normal") delete piece.script; // the element never scripts itself
     }
     if (empty(piece)) continue;
     const prev = out[out.length - 1];
@@ -305,7 +331,41 @@ export function resolvedRunStyle(
 
 /** Does this segment carry anything the element does not already say? */
 export function segmentFormatted(segment: TextSegment): boolean {
-  return segment.bold !== undefined || segment.italic !== undefined || segment.underline !== undefined || segment.color !== undefined;
+  return segment.bold !== undefined || segment.italic !== undefined || segment.underline !== undefined || segment.color !== undefined || (segment.script !== undefined && segment.script !== "normal");
+}
+
+/** Does this segment change glyph advances (bold, or a script's smaller size)?
+ *  The inline editor can only mirror one font, so these are what can move a
+ *  wrap point (text.ts plainWrapMatches). */
+export function runChangesMetrics(run: Pick<TextRun, "bold" | "script">): boolean {
+  return run.bold !== undefined || run.script === "super" || run.script === "sub";
+}
+
+/** The script every character of [from, to) has ("normal" when none), or null
+ *  when the range mixes them. */
+export function rangeScript(e: Pick<TextElement, "text" | "runs">, from: number, to: number): TextScript | null {
+  const segments = segmentRange(e.text, e.runs, from, to);
+  if (!segments.length) return null;
+  const at = (s: TextSegment) => (s.script === "super" || s.script === "sub" ? s.script : "normal");
+  const first = at(segments[0]);
+  return segments.every((s) => at(s) === first) ? first : null;
+}
+
+/** Toggle superscript or subscript over [from, to): a range that already is
+ *  `which` everywhere goes back to the baseline, anything else becomes `which`
+ *  (so super -> sub is one press). Returns NEW normalized runs; never mutates. */
+export function toggleScriptRange(
+  e: Pick<TextElement, "text" | "runs" | "fontWeight" | "fontStyle" | "underline" | "color">,
+  from: number,
+  to: number,
+  which: "super" | "sub",
+): TextRun[] {
+  const lo = Math.max(0, Math.min(e.text.length, Math.floor(from)));
+  const hi = Math.max(0, Math.min(e.text.length, Math.floor(to)));
+  const base = elementFlags(e);
+  if (!(hi > lo)) return normalizeRuns(e.runs, e.text.length, base);
+  const script: TextScript = rangeScript(e, lo, hi) === which ? "normal" : which;
+  return normalizeRuns([...(e.runs ?? []), { from: lo, to: hi, script }], e.text.length, base);
 }
 
 /** Does this element carry any per-range formatting at all? */

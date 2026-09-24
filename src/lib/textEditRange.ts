@@ -19,6 +19,23 @@ import { commit, project, selection } from "./store";
 import * as ops from "./ops";
 import { applyTextLayout } from "./text";
 import type { Id, Project, TextElement } from "./types";
+import type { TextScript } from "./textRuns";
+
+/** A style toggle a text control can ask for: the three flags, or a script. */
+export type RangeStyle = "bold" | "italic" | "underline" | "super" | "sub";
+
+/** The TYPING style (2026-09-24, owner request): a chord pressed with nothing
+ *  selected while writing styles only the characters typed next, as in a word
+ *  processor, instead of the whole box. Canvas owns it: it lives while the
+ *  caret stays where the typing continues, and ends on any caret move, click,
+ *  deletion or blur. Published so the Inspector can show what typing will do. */
+export interface TypingStyle {
+  id: Id;
+  /** Where the next typed character goes. */
+  at: number;
+  flags: { bold?: boolean; italic?: boolean; underline?: boolean; script?: TextScript };
+}
+export const typingStyle = writable<TypingStyle | null>(null);
 
 export interface TextEditRange {
   id: Id;
@@ -36,7 +53,7 @@ export const textEditRange = writable<TextEditRange | null>(null);
  *  session (one undo entry, selection restored) instead of a separate commit.
  *  Every mounted canvas registers one; each returns true only when it owns the
  *  focused editor. */
-type LiveToggle = (which: "bold" | "italic" | "underline") => boolean;
+type LiveToggle = (which: RangeStyle) => boolean;
 const liveToggles = new Set<LiveToggle>();
 export function registerLiveRangeToggle(fn: LiveToggle): () => void {
   liveToggles.add(fn);
@@ -75,15 +92,18 @@ export function activeTextRange(p: Project = get(project), sel: Set<Id> = get(se
   return { range, element };
 }
 
-/** Toggle bold/italic/underline on the active range. Returns false when there
- *  is none, so the caller falls back to formatting whole elements. */
-export function toggleActiveRange(which: "bold" | "italic" | "underline"): boolean {
+/** Toggle a style on what the text controls currently mean: the focused inline
+ *  editor first (its selection, or its typing style at a bare caret), else a
+ *  kept range of selected letters. Returns false when there is neither, so the
+ *  caller formats whole elements. */
+export function toggleActiveRange(which: RangeStyle): boolean {
+  for (const fn of liveToggles) if (fn(which)) return true;
   const hit = activeTextRange();
   if (!hit) return false;
-  if (hit.range.live) for (const fn of liveToggles) if (fn(which)) return true;
   const { id, from, to } = hit.range;
   commit((p) => {
-    ops.toggleTextRunStyle(p, id, from, to, which);
+    if (which === "super" || which === "sub") ops.toggleTextRunScript(p, id, from, to, which);
+    else ops.toggleTextRunStyle(p, id, from, to, which);
     const e = findText(p, id);
     if (e) applyTextLayout(e); // bold changes metrics, so re-wrap
   });

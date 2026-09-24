@@ -60,7 +60,7 @@ import {
   unitOf,
 } from "./groups";
 import { refitPath, pathToNodes } from "./path";
-import { normalizeRuns, toggleRunRange, elementFlags, setRunColor } from "./textRuns";
+import { normalizeRuns, toggleRunRange, elementFlags, setRunColor, toggleScriptRange } from "./textRuns";
 import {
   arrangeGrid,
   alignElements,
@@ -1663,6 +1663,22 @@ export function toggleTextRunStyle(p: Project, id: Id, from: number, to: number,
   // A per-range edit is a manual font edit like any other: a named style
   // describes ONE font for the whole element and can no longer describe this.
   detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
+}
+
+/** Toggle superscript / subscript over ONE text element's range [from, to).
+ *  There is no whole-element script: every character selected means a run over
+ *  all of them. Changes advances (smaller glyphs), so the wrap cache goes. */
+export function toggleTextRunScript(p: Project, id: Id, from: number, to: number, which: "super" | "sub"): void {
+  const e = textById(p, id);
+  if (!e) return;
+  const before = JSON.stringify(e.runs ?? []);
+  const runs = toggleScriptRange(e, from, to, which);
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+  if (JSON.stringify(e.runs ?? []) === before) return;
+  invalidateTextLayout(e);
+  // Like a bold range: a named style describes one font size for the element.
+  detachOnManualEdit(p, e, ["fontSize"]);
 }
 
 /** Paint ONE text element's character range [from, to) with `color`, or with

@@ -6,7 +6,7 @@ import { pathRender } from "./path";
 import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
-import { resolvedRunStyle, type TextSegment } from "./textRuns";
+import { resolvedRunStyle, scriptMetrics, type TextSegment } from "./textRuns";
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
@@ -61,6 +61,7 @@ export function segmentAttrs(e: TextElement, segment: TextSegment): Record<strin
   if (style.fontStyle !== e.fontStyle) attrs["font-style"] = style.fontStyle;
   if (style.underline !== !!e.underline) attrs["text-decoration"] = style.underline ? "underline" : "none";
   if (segment.color !== undefined && style.color !== undefined && style.color.toLowerCase() !== e.color.toLowerCase()) attrs.fill = passivePaint(style.color);
+  if (segment.script === "super" || segment.script === "sub") attrs["font-size"] = String(scriptMetrics(segment.script, e.fontSize).size);
   return attrs;
 }
 
@@ -248,6 +249,8 @@ export function elementToSvg(
                 // `dx` is the justified word gap — an ordinary tspan offset, so
                 // it survives every renderer that can place a tspan at all.
                 if (seg.dx != null) segAttrs.unshift(["dx", String(seg.dx)]);
+                // A superscript/subscript's baseline offset (and the way back).
+                if (seg.dy != null) segAttrs.unshift(["dy", String(seg.dy)]);
                 return segAttrs.length
                   ? `<tspan ${segAttrs.map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${esc(seg.text)}</tspan>`
                   : esc(seg.text);

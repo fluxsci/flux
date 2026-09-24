@@ -6548,3 +6548,10 @@ Preview 137 → ~66 ms, first seek 111 → ~28 ms, both against 100.
 - Two traps promoted to §9: `editGen.n` versus `editGen.edits`, and panel controls that must know the inline text editor's selection.
 - A clean-copy reproduction can hide a timing bug: the deck opened fine until the probe drove the CLI against it while it was open. Drive the real concurrent writer, not just its resulting file.
 - Later the same day: fixed a 50 ms sleep race in `verify-fluxplot-recipe-ipc`, and brought `flux help` from ~175 ms to ~50 ms by splitting the CLI into a launcher plus core bundle (promoted to §9). `verify-extension-build` still fails until the owner re-signs the extension with their AMO credentials (`npm run sign:extension`); agents must not do that step.
+
+### 2026-09-24 — Typing style, superscript/subscript, Ctrl+S in decks, faster arcT (Claude Opus 5.5, `main`)
+**Work:** Owner-driven text and slide fixes, each with a gate. A bare-caret chord now styles only the characters typed next (the old "nothing selected = whole box" contract is superseded by owner decision). Runs gained `script` (super/sub). Ctrl+S in Slide mode saves the deck. The colour picker stacks in a narrow Inspector. arcT is allocation-free, which stabilised verify-v020-morph-startup. `npm run build` is warning-free.
+**Learnings:**
+- SVG `dy` is relative and persists, so a shifted segment must be followed by a restoring `dy`, and a line that ENDS shifted must hand the correction to the next line tspan's own `dy` (text.ts blockLayout does both). `baseline-shift` would avoid this but is not portable across SVG consumers.
+- An inline `color:` on the textarea outranked the `.ghost-text` class, so the "transparent" editor drew plain glyphs over the formatted ones. Assert computed styles, not class names.
+- Global chords (Ctrl+S) that reach a subsystem through a shared store must route by `storeTenant()`: the tenancy guard refusing them is correct, and the bug is in the caller.

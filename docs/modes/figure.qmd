@@ -319,14 +319,22 @@ wrapping box re-wraps as you adjust it.
 **Italic for one word, not the whole box.** Double-click the text to edit it, select the part
 you want — a species name, a gene symbol, a single letter — and press **Ctrl+I**, **Ctrl+B** or
 **Ctrl+U**. Only that stretch changes; the box keeps its own font, so the rest of the label is
-untouched. With nothing selected those keys still apply to the whole text, exactly as before.
-The formatting sticks to the letters it was given: type in the middle of an italic word and the
+untouched. With nothing selected, while you are typing, the same keys style only what you type
+next: press **Ctrl+I**, type the species name, press **Ctrl+I** again and carry on upright. Moving
+the cursor or clicking ends that. To style the whole box, click the box without editing it, or
+select all of its text first. The formatting sticks to the letters it was given: type in the middle of an italic word and the
 new letters are italic too, type against its edge and they are not, and deleting the word takes
 its formatting with it. The formatting shows on the canvas as you work. Bold makes letters
 wider, so after a bold word the text cursor can sit a few pixels off the letters. In the rare
 case where a bold word pushes text onto another line, the box shows plain text while you type,
 and the bold appears when you click away. (**Escape** throws the whole edit away, formatting
 included.)
+
+**Superscript and subscript.** Select the characters and press **Ctrl++** (superscript) or
+**Ctrl+=** (subscript), or use the Inspector's **X²** and **X₂** buttons. The characters are set
+smaller and raised or lowered, so *x²* and *H₂O* stay in one text box. **Ctrl+.** and **Ctrl+,**
+do the same, as in Google Docs. Pressing the same one again puts the characters back on the line,
+and with nothing selected it applies to what you type next, like the other styles.
 
 **Color and the Inspector work on the selected letters too.** While letters are selected, the
 Inspector's Text section says *Styling N selected characters*. Its **B**, **I** and **U** buttons

@@ -27,7 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Element, Id, Project, TextElement } from "./types";
-import { resolvedRunStyle, segmentFormatted, segmentRange, type TextSegment } from "./textRuns";
+import { resolvedRunStyle, segmentFormatted, segmentRange, scriptMetrics, runChangesMetrics, type TextSegment } from "./textRuns";
 
 // Default line height as a multiple of fontSize; overridable per element.
 export const LINE_HEIGHT = 1.2;
@@ -99,7 +99,9 @@ export function elementMeasure(e: TextElement): TextMeasure {
   const cache = new Map<string, (s: string) => number>();
   const forSegment = (segment: TextSegment) => {
     const style = resolvedRunStyle(e, segment);
-    const font = `${style.fontStyle} ${style.fontWeight} ${e.fontSize}px ${e.fontFamily}`;
+    // A superscript / subscript is set smaller, so it advances less.
+    const size = scriptMetrics(segment.script, e.fontSize).size;
+    const font = `${style.fontStyle} ${style.fontWeight} ${size}px ${e.fontFamily}`;
     let measure = cache.get(font);
     if (!measure) cache.set(font, (measure = browserMeasure(font, track)));
     return measure;
@@ -278,7 +280,7 @@ export function applyTextLayout(el: Element): void {
  *  on everything the wrap reads: typing re-asks it on every keystroke. */
 let plainWrapMemo: { key: string; value: boolean } | null = null;
 export function plainWrapMatches(el: TextElement): boolean {
-  if (el.sizing === "auto" || !el.sizing || !el.runs?.some((r) => r.bold !== undefined)) return true;
+  if (el.sizing === "auto" || !el.sizing || !el.runs?.some(runChangesMetrics)) return true;
   if (!canMeasureText()) return false;
   const key = JSON.stringify([el.text, el.width, el.fontFamily, el.fontSize, el.fontWeight, el.fontStyle, el.letterSpacing, el.runs, el.lines]);
   if (plainWrapMemo?.key === key) return plainWrapMemo.value;
@@ -474,6 +476,11 @@ export function blockLayout(e: TextElement): TextBlockLayout {
   const spans = e.runs?.length || widths ? visualLineSpans(e.text, vis) : null;
   const lines: LaidOutLine[] = new Array(vis.length);
   let breaks = 0;
+  // Superscript / subscript ride on SVG dy, which is relative and persists to
+  // the next glyph: a piece entering a script shifts, the next piece shifts
+  // back. A line that ENDS shifted hands the correction to the next line's own
+  // dy (a line tspan's x is absolute, its dy relative), so no line drifts.
+  let carry = 0;
   for (let k = 0; k < vis.length; k++) {
     const paragraphEnd = ends[k];
     const line: LaidOutLine = {
@@ -489,8 +496,17 @@ export function blockLayout(e: TextElement): TextBlockLayout {
     const wordGap = stretch && spans && widths ? wordGapFor(vis[k], justifyWidth - widths[k]) : 0;
     if (spans) {
       const segments = lineSegments(e, spans[k].from, spans[k].to, wordGap);
-      if (segments && (wordGap > 0 || segments.some(segmentFormatted))) line.segments = segments;
-    }
+      if (segments && (wordGap > 0 || segments.some(segmentFormatted))) {
+        let at = 0;
+        for (const seg of segments) {
+          const shift = scriptMetrics(seg.script, e.fontSize).shift;
+          if (shift !== at) { seg.dy = shift - at; at = shift; }
+        }
+        line.segments = segments;
+        if (carry) line.dy += carry;
+        carry = -at;
+      } else if (carry) { line.dy += carry; carry = 0; }
+    } else if (carry) { line.dy += carry; carry = 0; }
     // Without measured widths there is nothing to share out, so a line that
     // must still fill its box falls back to stretching as a whole.
     if (stretch && !wordGap) line.justifyWidth = justifyWidth;

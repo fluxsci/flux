@@ -227,13 +227,14 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
         // Per-range formatting nests one tspan per differing piece. Rebuilding
         // costs DOM, so it happens only when the pieces actually changed — an
         // unformatted line keeps the plain textContent fast path untouched.
-        const key = sp.segments ? JSON.stringify(sp.segments.map((seg) => [seg.text, segmentAttrs(el, seg)])) : null;
+        const key = sp.segments ? JSON.stringify(sp.segments.map((seg) => [seg.text, segmentAttrs(el, seg), seg.dx ?? 0, seg.dy ?? 0])) : null;
         if (key !== null) {
           if (segmentKeys[i] !== key) {
             spans[i].textContent = "";
             for (const seg of sp.segments!) {
               const attrs = Object.entries(segmentAttrs(el, seg));
               if (seg.dx != null) attrs.unshift(["dx", String(seg.dx)]);
+              if (seg.dy != null) attrs.unshift(["dy", String(seg.dy)]);
               if (!attrs.length) { spans[i].appendChild(document.createTextNode(seg.text)); continue; }
               const piece = document.createElementNS(SVG_NS, "tspan");
               for (const [name, value] of attrs) piece.setAttribute(name, value);

@@ -23,8 +23,8 @@
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
   import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
   import { applyTextLayout, reflowTexts } from "./text";
-  import { textEditRange, activeTextRange, toggleActiveRange, publishTextRange } from "./textEditRange";
-  import { rangeIsOn, rangeColor } from "./textRuns";
+  import { textEditRange, activeTextRange, toggleActiveRange, publishTextRange, typingStyle, type RangeStyle } from "./textEditRange";
+  import { rangeIsOn, rangeColor, rangeScript } from "./textRuns";
   import {
     globalTextStyles,
     loadGlobalTextStyles,
@@ -247,6 +247,14 @@
   $: rangeOn = (which: "bold" | "italic" | "underline") =>
     ranged ? rangeIsOn(ranged.element, ranged.range.from, ranged.range.to, which) : false;
   $: rangeHex = ranged ? rangeColor(ranged.element, ranged.range.from, ranged.range.to) : null;
+  // While typing at a bare caret, the buttons show (and set) the TYPING style:
+  // what the next characters will look like (textEditRange.ts typingStyle).
+  $: typing = $typingStyle && single && $typingStyle.id === single.id ? $typingStyle : null;
+  $: flagPressed = (which: "bold" | "italic" | "underline", boxOn: boolean) =>
+    typing?.flags[which] !== undefined ? !!typing.flags[which] : ranged ? rangeOn(which) : boxOn;
+  $: scriptPressed = (which: "super" | "sub") =>
+    typing?.flags.script !== undefined ? typing.flags.script === which
+      : ranged ? rangeScript(ranged.element, ranged.range.from, ranged.range.to) === which : false;
   const swatchName = (hex: string) => (hex === "none" ? "none" : (nameForHex(hex) ?? hex));
 
   // Panel-label (caption) state across the selected text elements.
@@ -331,12 +339,17 @@
   }
 
   // --- text styling (B/I/U, sizing mode, named styles) ---
-  function toggleSelText(which: ops.TextToggle) {
+  function toggleSelText(which: RangeStyle) {
     if (toggleActiveRange(which)) return;
     const list = editableIds();
     if (!list.length) return;
     commit((p) => {
-      ops.toggleTextStyle(p, list, which);
+      // A box has no script of its own: superscripting a selected box means
+      // every character of it.
+      if (which === "super" || which === "sub") {
+        for (const f of p.figures) for (const e of f.elements)
+          if (list.includes(e.id) && e.type === "text") ops.toggleTextRunScript(p, e.id, 0, e.text.length, which);
+      } else ops.toggleTextStyle(p, list, which);
       reflowTexts(p, list);
     });
   }
@@ -831,9 +844,11 @@
       <div class="row biu-row">
         <!-- mousedown|preventDefault keeps the inline editor focused, so the
              letters stay selected and the next button acts on them too. -->
-        <button class="biu" aria-pressed={ranged ? rangeOn("bold") : single.fontWeight >= 600} title={ranged ? "Bold the selected letters (Ctrl+B)" : "Bold (Ctrl+B)"} on:mousedown|preventDefault on:click={() => toggleSelText("bold")}><b>B</b></button>
-        <button class="biu" aria-pressed={ranged ? rangeOn("italic") : single.fontStyle === "italic"} title={ranged ? "Italicise the selected letters (Ctrl+I)" : "Italic (Ctrl+I)"} on:mousedown|preventDefault on:click={() => toggleSelText("italic")}><i>I</i></button>
-        <button class="biu" aria-pressed={ranged ? rangeOn("underline") : !!single.underline} title={ranged ? "Underline the selected letters (Ctrl+U)" : "Underline (Ctrl+U)"} on:mousedown|preventDefault on:click={() => toggleSelText("underline")}><u>U</u></button>
+        <button class="biu" aria-pressed={flagPressed("bold", single.fontWeight >= 600)} title={ranged ? "Bold the selected letters (Ctrl+B)" : "Bold (Ctrl+B)"} on:mousedown|preventDefault on:click={() => toggleSelText("bold")}><b>B</b></button>
+        <button class="biu" aria-pressed={flagPressed("italic", single.fontStyle === "italic")} title={ranged ? "Italicise the selected letters (Ctrl+I)" : "Italic (Ctrl+I)"} on:mousedown|preventDefault on:click={() => toggleSelText("italic")}><i>I</i></button>
+        <button class="biu" aria-pressed={flagPressed("underline", !!single.underline)} title={ranged ? "Underline the selected letters (Ctrl+U)" : "Underline (Ctrl+U)"} on:mousedown|preventDefault on:click={() => toggleSelText("underline")}><u>U</u></button>
+        <button class="biu script" aria-pressed={scriptPressed("super")} title={ranged ? "Superscript the selected letters (Ctrl++ or Ctrl+.)" : "Superscript (Ctrl++ or Ctrl+. while typing)"} on:mousedown|preventDefault on:click={() => toggleSelText("super")}>X<sup>2</sup></button>
+        <button class="biu script" aria-pressed={scriptPressed("sub")} title={ranged ? "Subscript the selected letters (Ctrl+= or Ctrl+,)" : "Subscript (Ctrl+= or Ctrl+, while typing)"} on:mousedown|preventDefault on:click={() => toggleSelText("sub")}>X<sub>2</sub></button>
         <NumberField label="Line height" value={single.lineHeight ?? 1.2} min={0.5} step={0.05}
           title="Line height as a multiple of the font size"
           on:commit={(e) => updateSelected((el, p) => { if (el.type === "text") { el.lineHeight = e.detail; ops.detachOnManualEdit(p, el, ["lineHeight"]); } })}
@@ -1433,7 +1448,10 @@
   /* B/I/U toggles */
   .biu-row {
     align-items: flex-end;
+    /* five style buttons plus the line-height field: wrap in a narrow panel */
+    flex-wrap: wrap;
   }
+  .biu.script sup, .biu.script sub { font-size: 0.62em; line-height: 0; }
   .biu {
     flex: 0 0 auto;
     min-width: 26px;
