@@ -57,9 +57,18 @@ fs.writeFileSync('plot.recipe.json', JSON.stringify({...${JSON.stringify(recipe)
   fs.writeFileSync(scriptPath, `process.exit(3);`);
   const failed = await handler({sender}, {recipePath});
   assert.equal(failed.code, 3); assert.equal(failed.svgText, null, "failed command cannot label existing old SVG as newly generated");
-  fs.writeFileSync(scriptPath, `setInterval(()=>{},100);`);
+  // The handler registers the job only after its lease, reads, import and
+  // snapshot, then spawns. A fixed 50ms sleep lost that race on a busy CI
+  // runner (cancel found no job yet). The recipe writes a marker when it
+  // starts; the job is registered before the spawn, so once the marker exists
+  // both cancel checks below exercise a live job.
+  const started = path.join(scratch, "started.flag");
+  fs.writeFileSync(scriptPath, `import fs from 'node:fs'; fs.writeFileSync('started.flag','1'); setInterval(()=>{},100);`);
   const job = handler({sender}, {recipePath,jobId:"owned-cancel-test"});
-  await new Promise(resolve => setTimeout(resolve,50));
+  for (const deadline = Date.now() + 20000; !fs.existsSync(started); ) {
+    if (Date.now() > deadline) throw new Error("recipe never started within 20s");
+    await new Promise(resolve => setTimeout(resolve, 25)); // poll interval, not a timing assumption
+  }
   const cancel = handlers.get("recipe:cancel")!;
   assert.equal(await cancel({sender:{id:2}}, "owned-cancel-test"), false, "foreign renderer cannot cancel another job");
   assert.equal(await cancel({sender}, "owned-cancel-test"), true, "requesting renderer cancels its own job");
