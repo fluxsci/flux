@@ -66,7 +66,7 @@ try {
     await page.click(".export-btn");
     await sleep(150);
     const items = await page.evaluate(() => [...document.querySelectorAll(".export-menu [data-export]")].map((b) => b.getAttribute("data-export")));
-    assert(JSON.stringify(items) === JSON.stringify(["html", "pdf", "pdf-steps"]), `Export offers HTML, PDF and PDF per step (${JSON.stringify(items)})`);
+    assert(JSON.stringify(items) === JSON.stringify(["html", "pdf", "pdf-steps", "pptx"]), `Export offers HTML, PDF, PDF per step and PowerPoint (${JSON.stringify(items)})`);
     await page.keyboard.press("Escape");
     await page.focus(".export-menu").catch(() => {});
     await page.evaluate(() => document.querySelector(".export-menu")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));

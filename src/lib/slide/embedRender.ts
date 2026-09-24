@@ -39,8 +39,21 @@ export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {
   return copy;
 }
 
-/** Shared evaluated endpoints → ordinary SVG, usable by Word, PDF and plain Quarto. */
-export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
+/** A slide evaluated at one build step, ready for any static writer: the
+ *  elements as they stand (unborn or invisible ones marked hidden, appearance
+ *  opacity folded in), a plot's markup with its part states applied, the
+ *  camera and the background. The one source for the SVG poster (Word, PDF,
+ *  plain Quarto, the PDF deck export) and the PowerPoint export. */
+export interface EvaluatedSlide {
+  slide: Deck["slides"][number];
+  elements: Figure["elements"];
+  groups: Figure["groups"];
+  plotMarkup: (el: Figure["elements"][number]) => string | undefined;
+  camera: { x: number; y: number; zoom: number } | undefined;
+  background: string;
+  stage: { width: number; height: number };
+}
+export function evaluateSlide(payload: ExportPayload, step = 0): EvaluatedSlide {
   const deck = payload.deck, slide = deck.slides[0];
   if (!slide) throw new Error("Cannot render an absent slide");
   const frame = compileSlide(slide, deck.stage, { plotManifest: id => payload.plots?.[id]?.manifest }).sample(step);
@@ -50,9 +63,7 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
     if (unavailable.has(el.id) || appearance && !appearance.visible) el.hidden = true;
     if (appearance) el.opacity = (el.opacity ?? 1) * appearance.opacity;
   }
-  const fig: Figure = { id: `poster-${slide.id}`, name: slide.name ?? slide.id, canvasId: "slide-poster", x: 0, y: 0,
-    width: deck.stage.width, height: deck.stage.height, background: "transparent", elements: frame.elements, groups: slide.groups };
-  let svg = figureToSvg(fig, id => payload.assets?.[id], el => {
+  const plotMarkup = (el: Figure["elements"][number]) => {
     if (el.type !== "plot") return undefined;
     const plot = payload.plots?.[el.assetId];
     if (!plot) throw new Error(`Missing slide plot ${el.assetId}`);
@@ -71,11 +82,20 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
       if (!state.visible) styled.style.visibility = "hidden";
     }
     return serializeSvg(root);
-  }, id => payload.assetSizes?.[id]);
-  const bg = slide.background ?? deck.background ?? resolveTheme(deck.theme).background;
-  const { width: w, height: h } = deck.stage;
-  const c = frame.camera, camera = c ? `translate(${w / 2} ${h / 2}) scale(${c.zoom}) translate(${-c.x} ${-c.y})` : "";
+  };
+  const background = slide.background ?? deck.background ?? resolveTheme(deck.theme).background;
+  return { slide, elements: frame.elements, groups: slide.groups, plotMarkup, camera: frame.camera, background, stage: deck.stage };
+}
+
+/** Shared evaluated endpoints → ordinary SVG, usable by Word, PDF and plain Quarto. */
+export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
+  const ev = evaluateSlide(payload, step);
+  const fig: Figure = { id: `poster-${ev.slide.id}`, name: ev.slide.name ?? ev.slide.id, canvasId: "slide-poster", x: 0, y: 0,
+    width: ev.stage.width, height: ev.stage.height, background: "transparent", elements: ev.elements, groups: ev.groups };
+  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id]);
+  const { width: w, height: h } = ev.stage;
+  const c = ev.camera, camera = c ? `translate(${w / 2} ${h / 2}) scale(${c.zoom}) translate(${-c.x} ${-c.y})` : "";
   const start = svg.indexOf(">") + 1, end = svg.lastIndexOf("</svg>");
-  svg = svg.slice(0, start) + `<rect width="${w}" height="${h}" fill="${xml(bg)}"/><g${camera ? ` transform="${camera}"` : ""}>${svg.slice(start, end)}</g></svg>`;
+  svg = svg.slice(0, start) + `<rect width="${w}" height="${h}" fill="${xml(ev.background)}"/><g${camera ? ` transform="${camera}"` : ""}>${svg.slice(start, end)}</g></svg>`;
   return svg;
 }

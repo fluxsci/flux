@@ -253,9 +253,16 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
   a copy to send before the talk (`<deck>.pdf`). Plots and text stay sharp at any zoom.
 - **PDF, each step** — one page per build step, so a slide that reveals three things becomes
   three pages (`<deck>-steps.pdf`).
+- **PowerPoint** — an editable `.pptx` (`<deck>.pptx`). Text arrives as real text boxes (bold,
+  italic, colour, superscript and subscript kept), and rectangles, ellipses, lines, arrows and
+  drawn paths as real PowerPoint shapes you can restyle. Plots arrive as **vector** pictures:
+  right-click one and choose **Convert to Shape** (**Group ▸ Ungroup** in older versions) to
+  edit its individual lines, points and labels.
 
-Pages are exactly the slide size. A PDF cannot play, so videos show their poster frame and
-animations show where they end.
+Pages and slides are exactly the stage's shape; PowerPoint slides are the standard 13.33-inch
+width. These formats cannot play, so videos show their poster frame and animations show where
+they end; a PowerPoint slide shows each slide with every build step applied. Fonts that are not
+installed on the other computer (such as Gelasio) are replaced by PowerPoint.
 
 **Video…** exports the **current slide** and all of its animation steps as one continuous
 `.mp4`. Set **Delay between steps**, **Hold at start**, and **Hold at end**, then choose

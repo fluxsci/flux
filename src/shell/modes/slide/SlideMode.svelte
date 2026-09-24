@@ -111,6 +111,7 @@
   import { editorStashedElements, editorStashedParts } from "../../../lib/editorPresentation";
   import { fileBridge, joinPath } from "../../../lib/project/types";
   import { deckPdfDocument, type DeckPdfPages } from "../../../lib/slide/export/deckPdf";
+  import { deckPptxDocument, canvasRasterize } from "../../../lib/slide/export/deckPptx";
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
@@ -906,6 +907,27 @@
       exporting = false;
     }
   }
+  async function onExportPptx() {
+    const id = activeDeckId, root = pm?.root, fb = fileBridge();
+    exportMenuOpen = false;
+    if (!pm || !root || !id || exporting || !fb) return;
+    exporting = true;
+    exportMsg = null;
+    try {
+      await exportPreflight(root, id);
+      const doc = await deckPptxDocument(root, id, fb, canvasRasterize);
+      const dir = joinPath(root, "exports");
+      await fb.mkdir(dir);
+      const out = joinPath(dir, `${id}.pptx`);
+      await fb.writeFile(out, doc.bytes);
+      if (pm.root === root && activeDeckId === id)
+        flashExport(true, `Exported → exports/${id}.pptx (${doc.slides} slide${doc.slides === 1 ? "" : "s"})${doc.warnings.length ? ` — ${doc.warnings.join("; ")}` : ""}`);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "PowerPoint export failed");
+    } finally {
+      exporting = false;
+    }
+  }
   function flashExport(ok: boolean, text: string) {
     exportMsg = { ok, text };
     clearTimeout(exportMsgTimer);
@@ -1364,9 +1386,9 @@
       <button class="btn" onclick={() => launchPresent(false)} disabled={!overlay?.slides.length}
         title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
       <span class="export-wrap">
-        <button class="btn ghost export-btn" onclick={() => (exportMenuOpen = !exportMenuOpen)} disabled={!overlay || (!canExport && !canExportPdf) || exporting}
+        <button class="btn ghost export-btn" onclick={() => (exportMenuOpen = !exportMenuOpen)} disabled={!overlay || (!canExport && !canExportPdf && !fileBridge()) || exporting}
           aria-haspopup="menu" aria-expanded={exportMenuOpen}
-          title={canExport || canExportPdf ? "Export the deck as an interactive .html or a PDF" : "Export is available in the desktop app"}>
+          title={canExport || canExportPdf ? "Export the deck as an interactive .html, a PDF or a PowerPoint file" : "Export is available in the desktop app"}>
           {exporting ? "Exporting…" : "Export ▾"}
         </button>
         {#if exportMenuOpen}
@@ -1378,6 +1400,8 @@
               <b>PDF</b><span>One page per slide, every build step applied</span></button>
             <button role="menuitem" class="export-item" data-export="pdf-steps" disabled={!canExportPdf} onclick={() => onExportPdf("steps")}>
               <b>PDF, each step</b><span>One page per build step</span></button>
+            <button role="menuitem" class="export-item" data-export="pptx" disabled={!fileBridge()} onclick={onExportPptx}>
+              <b>PowerPoint</b><span>Editable .pptx: native text and shapes, plots as vector</span></button>
           </div>
         {/if}
       </span>
