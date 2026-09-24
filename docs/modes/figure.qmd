@@ -322,10 +322,11 @@ you want — a species name, a gene symbol, a single letter — and press **Ctrl
 untouched. With nothing selected those keys still apply to the whole text, exactly as before.
 The formatting sticks to the letters it was given: type in the middle of an italic word and the
 new letters are italic too, type against its edge and they are not, and deleting the word takes
-its formatting with it. Italic and underline show on the canvas as you work. Bold is the one
-exception: it changes how wide the letters are, and the typing box cannot mix widths, so a bold
-range appears when you click away and the edit is committed. (**Escape** throws the whole edit
-away, formatting included.)
+its formatting with it. The formatting shows on the canvas as you work. Bold makes letters
+wider, so after a bold word the text cursor can sit a few pixels off the letters. In the rare
+case where a bold word pushes text onto another line, the box shows plain text while you type,
+and the bold appears when you click away. (**Escape** throws the whole edit away, formatting
+included.)
 
 **Color and the Inspector work on the selected letters too.** While letters are selected, the
 Inspector's Text section says *Styling N selected characters*. Its **B**, **I** and **U** buttons

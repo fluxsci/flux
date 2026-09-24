@@ -54,7 +54,7 @@
   import { onMount, tick, onDestroy } from "svelte";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
-  import { applyTextLayout, blockLayout, letterSpacing as textTracking } from "./text";
+  import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
   import { remapRuns } from "./textRuns";
   import { publishTextRange, detachTextRange, registerLiveRangeToggle } from "./textEditRange";
   import {
@@ -1786,8 +1786,13 @@
     // METRICS (italic/underline only), the painted text can stay visible and the
     // textarea can hand it its glyphs: the caret and selection still come from
     // the textarea, and they line up because the advances are the same. A bold
-    // run does change advances, so that case keeps the plain editor.
-    const showsRuns = !!f.element.runs?.length && !f.element.runs.some((r) => r.bold !== undefined);
+    // run does change advances; it keeps the preview while the plain editor
+    // still breaks lines where the renderer does (text.ts plainWrapMatches), so
+    // the caret stays on the painted line, and falls back to the plain editor
+    // only when a bold word moves a wrap point. Before 2026-09-24 any bold run
+    // disabled the preview, so a box with one bold word showed NO formatting
+    // while editing (owner report: "for some text boxes it does not work").
+    const showsRuns = !!f.element.runs?.length && plainWrapMatches(f.element);
     return {
       el: f.element,
       L,
@@ -4320,7 +4325,7 @@
         ${editingInfo.el.underline ? "text-decoration:underline;" : ""}
         line-height:${editingInfo.el.lineHeight ?? 1.2};
         letter-spacing:${textTracking(editingInfo.el) * $viewport.zoom}px;
-        color:${editingInfo.el.color};
+        color:${editingInfo.showsRuns ? "transparent" : editingInfo.el.color};
         text-align:${editingInfo.el.align};
         white-space:${editingInfo.el.sizing === "auto" ? "pre" : "pre-wrap"};
         overflow-wrap:${editingInfo.el.sizing === "auto" ? "normal" : "break-word"};
@@ -4426,8 +4431,12 @@
   }
   /* The painted text is showing through: keep the caret and the selection
      highlight, hand the glyphs to the canvas. */
+  /* The painted text shows through; the textarea keeps only caret + selection.
+     Its inline style sets color:transparent too: an inline color (the element's
+     own, for the plain editor) outranks this class, and it did, so the upright
+     glyphs were drawn over the formatted ones (owner report 2026-09-24). */
   .text-edit.ghost-text { color: transparent; caret-color: var(--c-accent); }
-  .text-edit.ghost-text::selection { color: transparent; }
+  .text-edit.ghost-text::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
   .text-edit {
     position: absolute;
     margin: 0;

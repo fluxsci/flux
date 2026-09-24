@@ -234,6 +234,61 @@ try {
   e = await el();
   assert(e.fontWeight === 700, `...and its Bold button bolds the element (${e.fontWeight})`);
 
+  // ---- the live preview really is the painted text (2026-09-24) -----------------
+  // Owner report: while a word was selected its glyphs looked wrong, and boxes
+  // with a bold word showed no formatting at all until clicking away. Two
+  // causes: the textarea's inline color outranked the ghost class, so upright
+  // glyphs were drawn over the italic ones; and any bold run disabled the
+  // preview. A bold run now keeps it while the plain editor breaks lines where
+  // the renderer does, and only a bold word that moves a wrap point falls back.
+  const preview = async () => page.evaluate(() => {
+    const ta = document.querySelector("textarea.text-edit");
+    const g = document.querySelector('[data-editor-element-id="runs-t1"]');
+    return { ghost: ta?.classList.contains("ghost-text"), color: ta ? getComputedStyle(ta).color : null,
+      hidden: g?.classList.contains("editing-hidden"),
+      bold: [...(g?.querySelectorAll('text tspan tspan[font-weight="700"]') ?? [])].map((s) => s.textContent) };
+  });
+  const setRuns = (patch) => page.evaluate((patch) => {
+    window.__flux.fig.commit((p) => { const t = p.figures.flatMap((f) => f.elements).find((x) => x.id === "runs-t1"); Object.assign(t, patch); });
+    window.__flux.fig.selectOnly("runs-t1");
+  }, patch);
+  await setRuns({ text: "Homo sapiens here", fontWeight: 400, fontStyle: "normal", sizing: "auto", runs: [{ from: 0, to: 4, italic: true }] });
+  await sleep(200);
+  assert(await openEditor(), "the editor opens for the preview checks");
+  let pv = await preview();
+  assert(pv.ghost && pv.color === "rgba(0, 0, 0, 0)" && !pv.hidden,
+    `in preview mode the textarea's own glyphs are transparent over the painted text (${JSON.stringify(pv)})`);
+  await commitEdit();
+  await setRuns({ runs: [{ from: 5, to: 12, bold: true }] });
+  await sleep(200);
+  assert(await openEditor(), "the editor opens on a box with a bold word");
+  pv = await preview();
+  assert(pv.ghost && !pv.hidden && pv.bold.includes("sapiens"),
+    `a bold word is visible while editing when it moves no line break (${JSON.stringify(pv)})`);
+  await commitEdit();
+  // A width where the bold word pushes a word onto the next line: found with
+  // the app's own wrap and measure, so the case is exact rather than guessed.
+  const width = await page.evaluate(() => {
+    const T = window.__flux.text;
+    const base = { type: "text", id: "w", text: "Homo sapiens here", x: 0, y: 0, width: 100, height: 30, rotation: 0, fontFamily: "Arial", fontSize: 18, fontWeight: 400, fontStyle: "normal", align: "left", color: "#111111", sizing: "auto-h" };
+    const bold = { ...base, runs: [{ from: 5, to: 12, bold: true }] };
+    for (let w = 60; w < 260; w += 0.5) {
+      const a = T.wrapText(base.text, w, T.elementMeasure(base)), b = T.wrapText(bold.text, w, T.elementMeasure(bold));
+      if (a.join("\n") !== b.join("\n")) return w;
+    }
+    return null;
+  });
+  assert(width !== null, `a width exists where the bold word moves a wrap point (${width})`);
+  if (width !== null) {
+    await setRuns({ sizing: "auto-h", width, runs: [{ from: 5, to: 12, bold: true }] });
+    await page.evaluate(() => window.__flux.fig.commit((p) => { const t = p.figures.flatMap((f) => f.elements).find((x) => x.id === "runs-t1"); window.__flux.text.applyTextLayout(t); }));
+    await sleep(200);
+    assert(await openEditor(), "the editor opens on the wrap-moving case");
+    pv = await preview();
+    assert(!pv.ghost && pv.hidden, `...where it falls back to the plain editor so the caret stays on the right line (${JSON.stringify(pv)})`);
+    await commitEdit();
+  }
+
   const errs = realErrors(page);
   assert(errs.length === 0, `no renderer errors (${errs.slice(0, 2).join(" | ")})`);
 } finally {

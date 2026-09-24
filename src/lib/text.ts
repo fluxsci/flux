@@ -269,6 +269,27 @@ export function applyTextLayout(el: Element): void {
     el.height = Math.ceil(blockHeight(el, lines.length, paragraphBreaks(el, lines)));
 }
 
+/** Does a plain <textarea> break this text's lines where the renderer does?
+ *  The inline editor can only mirror one font; bold runs are wider, so they can
+ *  move a wrap point, and then the editor's caret would sit on a different line
+ *  than the painted glyphs. When the breaks agree, the editor can hand the
+ *  painted, formatted text its glyphs (the caret drifts a few pixels at most
+ *  after a bold word). A hugging box never wraps, so it always agrees. Memoized
+ *  on everything the wrap reads: typing re-asks it on every keystroke. */
+let plainWrapMemo: { key: string; value: boolean } | null = null;
+export function plainWrapMatches(el: TextElement): boolean {
+  if (el.sizing === "auto" || !el.sizing || !el.runs?.some((r) => r.bold !== undefined)) return true;
+  if (!canMeasureText()) return false;
+  const key = JSON.stringify([el.text, el.width, el.fontFamily, el.fontSize, el.fontWeight, el.fontStyle, el.letterSpacing, el.runs, el.lines]);
+  if (plainWrapMemo?.key === key) return plainWrapMemo.value;
+  const width = Math.max(1, el.width);
+  const withRuns = el.lines?.length ? el.lines : wrapText(el.text, width, elementMeasure(el));
+  const plain = wrapText(el.text, width, elementMeasure({ ...el, runs: undefined }));
+  const value = plain.length === withRuns.length && plain.every((line, i) => line === withRuns[i]);
+  plainWrapMemo = { key, value };
+  return value;
+}
+
 /** The lines a renderer draws: the wrap cache when present, else the text's
  *  own hard lines. The headless seam — flux-core can't measure fonts, so its
  *  exports render whatever the GUI last computed (or unwrapped text). */
