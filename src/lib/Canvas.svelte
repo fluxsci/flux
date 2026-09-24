@@ -56,6 +56,7 @@
   import { presentEditorParts } from "./editorPresentationDom";
   import { applyTextLayout, blockLayout, letterSpacing as textTracking } from "./text";
   import { remapRuns } from "./textRuns";
+  import { publishTextRange, detachTextRange, registerLiveRangeToggle } from "./textEditRange";
   import {
     elementBBox,
     rotatedAABB,
@@ -1674,12 +1675,36 @@
     const found = findElement($project, el.id);
     if (found) activeFigureId.set(found.figure.id);
     selectOnly(el.id);
+    publishTextRange(null);
     editingId = el.id;
     requestAnimationFrame(() => {
       taEl?.focus();
       taEl?.select();
     });
   }
+  // The textarea's selection, published for every style control outside it
+  // (Inspector B/I/U and colour, Ctrl+B after the editor closed). Kept on blur:
+  // the control that took the focus is exactly the one that needs it.
+  function publishEditSelection() {
+    if (!editingId || !taEl || document.activeElement !== taEl) return;
+    publishTextRange({ id: editingId, from: taEl.selectionStart, to: taEl.selectionEnd, text: taEl.value, live: true });
+  }
+  function retireTextRange(e: PointerEvent) {
+    if (e.target !== taEl) publishTextRange(null);
+  }
+  const onDocSelection = () => publishEditSelection();
+  onMount(() => {
+    document.addEventListener("selectionchange", onDocSelection);
+    const unregister = registerLiveRangeToggle((which) => {
+      if (!editingId || !taEl || document.activeElement !== taEl) return false;
+      onTextEditToggle(which);
+      return true;
+    });
+    return () => {
+      document.removeEventListener("selectionchange", onDocSelection);
+      unregister();
+    };
+  });
   function onTextInput(e: Event) {
     if (!editingId) return;
     const val = (e.currentTarget as HTMLTextAreaElement).value;
@@ -1699,6 +1724,7 @@
         applyTextLayout(f.element);
       }
     }));
+    publishEditSelection();
   }
   // Ctrl/Cmd+B/I/U inside the inline editor: toggle on the edited element via
   // mutate — the edit session already opened ONE beginGesture, so the whole
@@ -1727,6 +1753,7 @@
   }
   function finishEdit() {
     if (!editingId) return;
+    detachTextRange();
     const f = findElement($project, editingId);
     if (f && f.element.type === "text" && f.element.text.trim() === "") {
       const id = editingId;
@@ -3716,6 +3743,7 @@
   on:wheel={onWheel}
   on:pointerdown|capture={foldZoomNow}
   on:pointerdown|capture={beginPress}
+  on:pointerdown|capture={retireTextRange}
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
@@ -4312,6 +4340,7 @@
         if (e.key === "Escape") {
           e.preventDefault();
           e.stopPropagation();
+          publishTextRange(null);
           textEdits.cancel();
           editingId = null;
           return;

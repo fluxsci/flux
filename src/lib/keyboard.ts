@@ -46,6 +46,7 @@ import {
   type Tool,
 } from "./store";
 import { storeTenant } from "./tenancy";
+import { toggleActiveRange } from "./textEditRange";
 import type { Element, GroupDef, Figure } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
 import { archivePastedImage, importDroppedFiles } from "./io";
@@ -318,6 +319,9 @@ function toggleBIU(which: ops.TextToggle): boolean {
       }
     }
   }
+  // Letters selected in a text box (kept after the inline editor closed) take
+  // the toggle; the box does not (textEditRange.ts).
+  if (toggleActiveRange(which)) return true;
   const sel = editableIds();
   if (sel.size === 0) return false;
   const p = get(project);

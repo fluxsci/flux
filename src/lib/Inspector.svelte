@@ -23,6 +23,8 @@
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
   import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
   import { applyTextLayout, reflowTexts } from "./text";
+  import { textEditRange, activeTextRange, toggleActiveRange, publishTextRange } from "./textEditRange";
+  import { rangeIsOn, rangeColor } from "./textRuns";
   import {
     globalTextStyles,
     loadGlobalTextStyles,
@@ -237,6 +239,14 @@
   const paintName = (hex: string, g?: GradientFill | null) => (g && gradientCss(g) ? gradientLabel(g) : swatchName(hex));
   $: strokeEl = sel.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line");
   $: textEl = sel.find((e) => e.type === "text");
+  // Letters selected inside the one selected text box: B/I/U and the text colour
+  // act on them, not on the box (textEditRange.ts).
+  // The range store is an argument so Svelte re-runs this when it changes.
+  const rangeFor = (_range: unknown, p: typeof $project, sel: Set<string>) => activeTextRange(p, sel);
+  $: ranged = rangeFor($textEditRange, $project, $selection);
+  $: rangeOn = (which: "bold" | "italic" | "underline") =>
+    ranged ? rangeIsOn(ranged.element, ranged.range.from, ranged.range.to, which) : false;
+  $: rangeHex = ranged ? rangeColor(ranged.element, ranged.range.from, ranged.range.to) : null;
   const swatchName = (hex: string) => (hex === "none" ? "none" : (nameForHex(hex) ?? hex));
 
   // Panel-label (caption) state across the selected text elements.
@@ -322,6 +332,7 @@
 
   // --- text styling (B/I/U, sizing mode, named styles) ---
   function toggleSelText(which: ops.TextToggle) {
+    if (toggleActiveRange(which)) return;
     const list = editableIds();
     if (!list.length) return;
     commit((p) => {
@@ -650,11 +661,19 @@
         {#if textEl && textEl.type === "text"}
           <div class="arow">
             <span class="al">Text</span>
+            {#if ranged}
+              <button class="swrow" class:open={colorPop === "text"} on:click={() => (colorPop = colorPop === "text" ? null : "text")} title="Colour of the selected letters — pick from the palette">
+                <span class="sw" style={rangeHex ? `background:${rangeHex}` : "background:linear-gradient(90deg,#888 50%,#ccc 50%)"}></span>
+                <span class="swname">{rangeHex ? nameForHex(rangeHex) ?? rangeHex : "Mixed"}</span>
+                <span class="swhex">{rangeHex ?? ""}</span>
+              </button>
+            {:else}
             <button class="swrow" class:open={colorPop === "text"} on:click={() => (colorPop = colorPop === "text" ? null : "text")} title="Text colour — pick from the palette">
               <span class="sw" style={paintCss(textEl.color, textEl.fillMap)}></span>
               <span class="swname">{paintName(textEl.color, textEl.fillMap)}</span>
               <span class="swhex">{textEl.color}</span>
             </button>
+            {/if}
           </div>
           {#if colorPop === "text"}<div class="pop"><ColorPicker target="fill" allowNone={false} autofocus={false} onDone={() => (colorPop = null)} onCancel={() => (colorPop = null)} /></div>{/if}
         {/if}
@@ -803,10 +822,18 @@
           on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))}
           on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))} />
       </div>
+      {#if ranged}
+        <div class="row range-note" data-text-range>
+          <span class="note">Styling {ranged.range.to - ranged.range.from} selected character{ranged.range.to - ranged.range.from === 1 ? "" : "s"}</span>
+          <button class="mini" title="Apply styles to the whole text box instead" on:mousedown|preventDefault on:click={() => publishTextRange(null)}>Whole box</button>
+        </div>
+      {/if}
       <div class="row biu-row">
-        <button class="biu" aria-pressed={single.fontWeight >= 600} title="Bold (Ctrl+B)" on:click={() => toggleSelText("bold")}><b>B</b></button>
-        <button class="biu" aria-pressed={single.fontStyle === "italic"} title="Italic (Ctrl+I)" on:click={() => toggleSelText("italic")}><i>I</i></button>
-        <button class="biu" aria-pressed={!!single.underline} title="Underline (Ctrl+U)" on:click={() => toggleSelText("underline")}><u>U</u></button>
+        <!-- mousedown|preventDefault keeps the inline editor focused, so the
+             letters stay selected and the next button acts on them too. -->
+        <button class="biu" aria-pressed={ranged ? rangeOn("bold") : single.fontWeight >= 600} title={ranged ? "Bold the selected letters (Ctrl+B)" : "Bold (Ctrl+B)"} on:mousedown|preventDefault on:click={() => toggleSelText("bold")}><b>B</b></button>
+        <button class="biu" aria-pressed={ranged ? rangeOn("italic") : single.fontStyle === "italic"} title={ranged ? "Italicise the selected letters (Ctrl+I)" : "Italic (Ctrl+I)"} on:mousedown|preventDefault on:click={() => toggleSelText("italic")}><i>I</i></button>
+        <button class="biu" aria-pressed={ranged ? rangeOn("underline") : !!single.underline} title={ranged ? "Underline the selected letters (Ctrl+U)" : "Underline (Ctrl+U)"} on:mousedown|preventDefault on:click={() => toggleSelText("underline")}><u>U</u></button>
         <NumberField label="Line height" value={single.lineHeight ?? 1.2} min={0.5} step={0.05}
           title="Line height as a multiple of the font size"
           on:commit={(e) => updateSelected((el, p) => { if (el.type === "text") { el.lineHeight = e.detail; ops.detachOnManualEdit(p, el, ["lineHeight"]); } })}
@@ -1267,6 +1294,17 @@
     color: var(--c-tx-muted);
   }
   .note.mono { font-family: var(--font-mono); }
+  .range-note { align-items: center; gap: 8px; }
+  .range-note .note { margin: 0; color: var(--c-accent); }
+  .range-note .mini {
+    font-size: 11px;
+    padding: 1px 7px;
+    border: 1px solid var(--c-line);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--c-tx-muted);
+  }
+  .range-note .mini:hover { color: var(--c-tx); }
   .video-properties .note { overflow-wrap: anywhere; }
   .part-id {
     display: flex;

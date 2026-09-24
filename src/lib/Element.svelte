@@ -232,7 +232,8 @@
                 dx={seg.dx}
                 font-weight={a["font-weight"]}
                 font-style={a["font-style"]}
-                text-decoration={a["text-decoration"]}>{seg.text}</tspan
+                text-decoration={a["text-decoration"]}
+                fill={a.fill}>{seg.text}</tspan
               >{/each}{:else}{ln.text}{/if}</tspan
         >
       {/each}

@@ -6,7 +6,10 @@
 //   • typing inside a formatted word keeps it formatted (runs remap live);
 //   • one undo takes the whole range toggle back;
 //   • with NOTHING selected the same chord still toggles the whole box, which
-//     is the behaviour every earlier gate pins.
+//     is the behaviour every earlier gate pins;
+//   • (2026-09-24) the Inspector's B/I/U buttons and Text colour act on the
+//     selected letters, keep the editor focused for a second button, and go
+//     back to the whole box after a canvas click.
 // Screenshot: a label with one italic word (render evidence).
 import { launch, gotoApp, clickMode, shot, realErrors, sleep } from "./lib/driver.mjs";
 
@@ -149,6 +152,87 @@ try {
   assert(e.fontWeight === 700 && (!e.runs || !e.runs.length),
     `with nothing selected the chord still bolds the whole element (${e.fontWeight}, ${JSON.stringify(e.runs)})`);
   await commitEdit();
+
+  // ---- the Inspector acts on the selected letters, not the box (2026-09-24) -----
+  // Owner report: "the style would just apply to the whole box instead of to the
+  // selected letters". Real mouse clicks, so the focus move a panel click causes
+  // is part of what is tested.
+  await page.evaluate(() => {
+    window.__flux.fig.commit((p) => {
+      const t = p.figures.flatMap((f) => f.elements).find((x) => x.id === "runs-t1");
+      t.fontWeight = 400; t.fontStyle = "normal"; t.color = "#111111"; delete t.runs;
+    });
+    window.__flux.fig.selectOnly("runs-t1");
+  });
+  await sleep(200);
+  const clickSel = async (selector) => {
+    const c = await page.evaluate((s) => {
+      const n = document.querySelector(s);
+      if (!n) return null;
+      const b = n.getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    }, selector);
+    if (!c) throw new Error(`missing ${selector}`);
+    await page.mouse.click(c.x, c.y);
+    await sleep(250);
+  };
+  assert(await openEditor(), "the editor opens for the Inspector checks");
+  await select(5, 12); // "sapiens"
+  await sleep(150);
+  assert(await page.evaluate(() => !!document.querySelector("[data-text-range]")),
+    "the Inspector says it is styling the selected characters");
+  await clickSel('button.biu[title^="Bold"]');
+  e = await el();
+  assert(JSON.stringify(e.runs) === JSON.stringify([{ from: 5, to: 12, bold: true }]) && e.fontWeight === 400,
+    `the Inspector's Bold button bolds only the selected word (${e.fontWeight}, ${JSON.stringify(e.runs)})`);
+  assert(await page.evaluate(() => document.activeElement?.matches("textarea.text-edit") ?? false),
+    "...and the editor keeps focus, so the letters stay selected");
+  await clickSel('button.biu[title^="Italicise"]');
+  e = await el();
+  assert(JSON.stringify(e.runs) === JSON.stringify([{ from: 5, to: 12, bold: true, italic: true }]) && e.fontStyle === "normal",
+    `a second Inspector button acts on the same letters (${JSON.stringify(e.runs)})`);
+  assert(await page.evaluate(() => document.querySelector('button.biu[title^="Italicise"]')?.getAttribute("aria-pressed") === "true"),
+    "the Italic button reads pressed for the selected letters");
+  // Colour: opening the picker takes focus, which closes the editor; the letters
+  // are kept, so the pick still lands on them.
+  await clickSel('button.swrow[title^="Colour of the selected letters"]');
+  const swatch = await page.evaluate(() => {
+    // A DARK swatch, so the screenshot shows the recoloured word on white.
+    const dark = (hex) => { const v = parseInt(hex.slice(1), 16); return ((v >> 16) & 255) * 0.3 + ((v >> 8) & 255) * 0.59 + (v & 255) * 0.11 < 110; };
+    const n = [...document.querySelectorAll(".pop .sw[data-r]")].find((s) => { const hex = (s.getAttribute("title") ?? "").split("· ").pop(); return !s.classList.contains("none") && /^#[0-9a-f]{6}$/i.test(hex) && dark(hex) && hex.toLowerCase() !== "#111111"; });
+    if (!n) return null;
+    n.dataset.pick = "1";
+    n.scrollIntoView({ block: "nearest" });
+    return (n.getAttribute("title") ?? "").split("· ").pop();
+  });
+  assert(!!swatch, `the colour picker offers a palette swatch (${swatch})`);
+  if (swatch) {
+    await clickSel('.pop .sw[data-pick="1"]');
+    e = await el();
+    const colored = (e.runs ?? []).filter((r) => r.color);
+    assert(colored.length === 1 && colored[0].from === 5 && colored[0].to === 12 && colored[0].color.toLowerCase() === swatch.toLowerCase(),
+      `a palette colour paints only the selected word (${JSON.stringify(e.runs)})`);
+    assert(e.color === "#111111", `the box keeps its own colour (${e.color})`);
+    const fill = await page.evaluate(() => [...document.querySelectorAll('[data-editor-element-id="runs-t1"] text tspan tspan')].map((s) => [s.textContent, s.getAttribute("fill")]));
+    assert(fill.some(([t, f]) => t === "sapiens" && (f ?? "").toLowerCase() === swatch.toLowerCase()),
+      `the canvas paints the word in that colour (${JSON.stringify(fill)})`);
+    await shot(page, "text-runs-02-inspector-range");
+  }
+  // Clicking the canvas retires the kept letters: the box is the target again.
+  await page.keyboard.press("Escape");
+  await sleep(150);
+  await page.evaluate(() => window.__flux.fig.selectOnly("runs-t1"));
+  await sleep(150);
+  const host = await page.evaluate(() => { const b = document.querySelector(".canvas-host").getBoundingClientRect(); return { x: b.right - 30, y: b.bottom - 30 }; });
+  await page.mouse.click(host.x, host.y);
+  await sleep(200);
+  await page.evaluate(() => window.__flux.fig.selectOnly("runs-t1"));
+  await sleep(200);
+  assert(await page.evaluate(() => !document.querySelector("[data-text-range]")),
+    "after a canvas click the Inspector targets the whole box again");
+  await clickSel('button.biu[title^="Bold"]');
+  e = await el();
+  assert(e.fontWeight === 700, `...and its Bold button bolds the element (${e.fontWeight})`);
 
   const errs = realErrors(page);
   assert(errs.length === 0, `no renderer errors (${errs.slice(0, 2).join(" | ")})`);

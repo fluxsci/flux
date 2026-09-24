@@ -2146,6 +2146,21 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   Frame oracles built on `Page.startScreencast` also drop frames when the renderer is busy
   and can hand back an impossible geometry for one frame; anything they flag must be
   confirmed against the renderer log or the lab.
+- **`editGen.n` is not "the user edited".** It advances on every store change, including
+  `mutateDisplay` (the beat reconciler, resolved-asset publication), because undo coalescing
+  and gesture rollback need that. A guard meaning "don't clobber a user edit" compares
+  `editGen.edits`, which only dirtying changes advance. `loadDeckInto` compared `n`, so during
+  an agent's CLI burst a watcher source refresh landing mid-reload made the reload abandon a
+  valid file, and SlideMode reported the null as "missing or corrupt". A superseded load now
+  says so through `onSuperseded`; only a real read failure toasts
+  (`verify-slide-reload-supersede`).
+- **A panel control acting on "the selection" must know about the inline text editor.**
+  Clicking an Inspector button blurs the textarea, which commits the edit and drops the
+  character selection, so every panel style control used to format the whole box.
+  `textEditRange.ts` holds the selected letters, kept past that blur while the same element
+  stays selected and its text is unchanged. Inspector B/I/U, the colour picker
+  (`colors.applyColor`) and Ctrl+B/I/U consult it before falling back to whole elements.
+  B/I/U use `mousedown|preventDefault` so the editor stays open for a second button.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -6519,3 +6534,9 @@ Preview 137 → ~66 ms, first seek 111 → ~28 ms, both against 100.
   whether or not it has time, which would let warming compete with the canvas snapshot's own
   idle callback. Warming work must be safe to skip entirely; on a page too busy to ever go
   idle, not running is the right answer rather than a stolen frame.
+
+### 2026-09-24 — Agent deck edits reported as a corrupt deck; per-letter styling from the Inspector (Claude Opus 5.5, `main`)
+**Work:** Reproduced the owner's "Couldn't open that deck" toast in a sandboxed Electron on a copy of their project, with the deck open while the Flux CLI made the agent's kind of edit burst. Deck loads now ignore display-only store changes, report being overtaken separately from a bad file, and overtaken external reloads retry. Separately, the Inspector's B/I/U buttons and Text colour now format the selected letters instead of the whole box, and text runs gained a per-range `color`.
+**Learnings:**
+- Two traps promoted to §9: `editGen.n` versus `editGen.edits`, and panel controls that must know the inline text editor's selection.
+- A clean-copy reproduction can hide a timing bug: the deck opened fine until the probe drove the CLI against it while it was open. Drive the real concurrent writer, not just its resulting file.

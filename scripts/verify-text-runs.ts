@@ -29,8 +29,11 @@ import {
   rangeIsOn,
   resolvedRunStyle,
   elementFlags,
+  setRunColor,
+  rangeColor,
   type TextRun,
 } from "../src/lib/textRuns";
+import * as ops from "../src/lib/ops";
 import { blockLayout } from "../src/lib/text";
 import { textSvgLayout, elementToSvg } from "../src/lib/export";
 import { harness } from "./lib/harness.mjs";
@@ -227,6 +230,33 @@ const text = (extra: Partial<TextElement> = {}): TextElement =>
   h.ok(eq(resolvedRunStyle(e, { bold: false, italic: false, underline: false }),
     { fontWeight: 400, fontStyle: "normal", underline: false }),
     "explicit offs resolve against the element");
+}
+
+// ------------------------------------------------------------------- color
+// Per-range COLOR (2026-09-24): one symbol red inside a black label.
+{
+  const e = text({ text: "p < 0.05 here" });
+  let runs = setRunColor(e, 2, 3, "#AF3029");
+  h.ok(eq(runs, [{ from: 2, to: 3, color: "#AF3029" }]), `a color on one character stores exactly that run (${JSON.stringify(runs)})`);
+  h.ok(eq(setRunColor({ ...e, runs }, 2, 3, null), []), "resetting a range to the element's color removes the run");
+  h.ok(eq(setRunColor(e, 0, 4, "#000000"), []), "a color equal to the element's (any case) says nothing and is pruned");
+  const both = normalizeRuns([{ from: 0, to: 8, italic: true }, { from: 2, to: 3, color: "#af3029" }], e.text.length, elementFlags(e));
+  h.ok(eq(both, [{ from: 0, to: 2, italic: true }, { from: 2, to: 3, italic: true, color: "#af3029" }, { from: 3, to: 8, italic: true }]),
+    `a color overlapping an italic run splits it and keeps both (${JSON.stringify(both)})`);
+  h.ok(eq(remapRuns(runs, "p < 0.05 here", "p <= 0.05 here").map(r => [r.from, r.to, r.color]), [[2, 3, "#AF3029"]]),
+    "a colored range survives an edit next to it");
+  h.ok(rangeColor({ ...e, runs }, 2, 3) === "#AF3029" && rangeColor({ ...e, runs }, 0, 4) === null && rangeColor(e, 0, 4) === "#000000",
+    "rangeColor reports one color, or null when the range is mixed");
+  const colored = text({ text: "p < 0.05", runs: [{ from: 2, to: 3, color: "#AF3029" }], sizing: "auto", width: 200 });
+  const L = blockLayout(colored);
+  h.ok(L.lines[0].segments?.some(s => s.text === "<" && s.color === "#AF3029"), "layout cuts a colored-only range into its own segment");
+  const svg = elementToSvg(colored);
+  h.ok(svg.includes('<tspan fill="#AF3029">&lt;</tspan>'), "the SVG export paints just that character");
+  h.ok(eq(resolvedRunStyle(colored, {}), { fontWeight: 400, fontStyle: "normal", underline: false }),
+    "a segment without a color of its own resolves to the element font with no color field");
+  const p = { figures: [{ id: "f", elements: [text({ id: "tc", text: "abc" })] }], textStyles: [] } as unknown as Project;
+  ops.setTextRunColor(p, "tc", 1, 2, "#24837B");
+  h.ok(eq((p.figures[0].elements[0] as TextElement).runs, [{ from: 1, to: 2, color: "#24837B" }]), "ops.setTextRunColor writes the run on the element");
 }
 
 // ------------------------------------------------------------------ loading

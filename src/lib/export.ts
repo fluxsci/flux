@@ -60,6 +60,7 @@ export function segmentAttrs(e: TextElement, segment: TextSegment): Record<strin
   if (style.fontWeight !== e.fontWeight) attrs["font-weight"] = String(style.fontWeight);
   if (style.fontStyle !== e.fontStyle) attrs["font-style"] = style.fontStyle;
   if (style.underline !== !!e.underline) attrs["text-decoration"] = style.underline ? "underline" : "none";
+  if (segment.color !== undefined && style.color !== undefined && style.color.toLowerCase() !== e.color.toLowerCase()) attrs.fill = passivePaint(style.color);
   return attrs;
 }
 

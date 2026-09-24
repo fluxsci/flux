@@ -27,7 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Element, Id, Project, TextElement } from "./types";
-import { resolvedRunStyle, segmentRange, type TextSegment } from "./textRuns";
+import { resolvedRunStyle, segmentFormatted, segmentRange, type TextSegment } from "./textRuns";
 
 // Default line height as a multiple of fontSize; overridable per element.
 export const LINE_HEIGHT = 1.2;
@@ -468,7 +468,7 @@ export function blockLayout(e: TextElement): TextBlockLayout {
     const wordGap = stretch && spans && widths ? wordGapFor(vis[k], justifyWidth - widths[k]) : 0;
     if (spans) {
       const segments = lineSegments(e, spans[k].from, spans[k].to, wordGap);
-      if (segments && (wordGap > 0 || segments.some((s) => s.bold !== undefined || s.italic !== undefined || s.underline !== undefined))) line.segments = segments;
+      if (segments && (wordGap > 0 || segments.some(segmentFormatted))) line.segments = segments;
     }
     // Without measured widths there is nothing to share out, so a line that
     // must still fill its box falls back to stretching as a whole.

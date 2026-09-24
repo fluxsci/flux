@@ -23,7 +23,7 @@ const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 // Per-range text formatting (textRuns.ts). Lenient like every other element
 // branch: the loader normalizes (clamps, sorts, merges, drops the meaningless)
 // rather than refusing a file over a run it can repair.
-const TEXT_RUNS = { type: "array", items: { type: "object", required: ["from", "to"], properties: { from: { type: "number" }, to: { type: "number" }, bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { type: "boolean" } }, additionalProperties: true } };
+const TEXT_RUNS = { type: "array", items: { type: "object", required: ["from", "to"], properties: { from: { type: "number" }, to: { type: "number" }, bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { type: "boolean" }, color: { type: "string" } }, additionalProperties: true } };
 const TEXT_STYLES = { type:"array", items:{ type:"object", required:["id","name","fontFamily","fontSize","fontWeight"], properties:{id:{type:"string"},name:{type:"string"},fontFamily:{type:"string"},fontSize:{type:"number",exclusiveMinimum:0},fontWeight:{type:"number"},fontStyle:{enum:["normal","italic"]},underline:{type:"boolean"},lineHeight:{type:"number",exclusiveMinimum:0}}, additionalProperties:true } };
 
 const POINT = { type: "object", required: ["x", "y"], properties: { x: { type: "number" }, y: { type: "number" } } };

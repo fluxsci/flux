@@ -60,7 +60,7 @@ import {
   unitOf,
 } from "./groups";
 import { refitPath, pathToNodes } from "./path";
-import { normalizeRuns, toggleRunRange, elementFlags } from "./textRuns";
+import { normalizeRuns, toggleRunRange, elementFlags, setRunColor } from "./textRuns";
 import {
   arrangeGrid,
   alignElements,
@@ -1663,6 +1663,18 @@ export function toggleTextRunStyle(p: Project, id: Id, from: number, to: number,
   // A per-range edit is a manual font edit like any other: a named style
   // describes ONE font for the whole element and can no longer describe this.
   detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
+}
+
+/** Paint ONE text element's character range [from, to) with `color`, or with
+ *  null hand it back to the element's color. Metric-neutral: no re-wrap. */
+export function setTextRunColor(p: Project, id: Id, from: number, to: number, color: string | null): void {
+  const e = textById(p, id);
+  if (!e) return;
+  const runs = setRunColor(e, from, to, color);
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+  // Like a whole-box colour edit, this detaches a named style that defines one.
+  detachOnManualEdit(p, e, ["color"]);
 }
 
 const textById = (p: Project, id: Id): TextElement | null => {

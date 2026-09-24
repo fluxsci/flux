@@ -327,6 +327,13 @@ exception: it changes how wide the letters are, and the typing box cannot mix wi
 range appears when you click away and the edit is committed. (**Escape** throws the whole edit
 away, formatting included.)
 
+**Color and the Inspector work on the selected letters too.** While letters are selected, the
+Inspector's Text section says *Styling N selected characters*. Its **B**, **I** and **U** buttons
+then format just those letters, and you can press several in a row. The *Text* color swatch
+paints just those letters as well, so one symbol can be red inside a black label. Click
+**Whole box**, or click the canvas, to style the whole text again. A colormap gradient always
+covers the whole box, so it is not offered for a few selected letters.
+
 All of these sit in the Inspector's Text section and in the **F** menu, they apply to every
 selected text at once, and each adjustment is one undo step. A **named text style** (the
 Inspector's *Style* row) carries them too, so "Panel body, justified, 1.4 line height" becomes

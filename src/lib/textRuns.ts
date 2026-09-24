@@ -2,16 +2,16 @@
 //
 // A text element keeps ONE font (family/size/weight/style/underline) — that is
 // the element's own look and the default for every character. `runs` overrides
-// bold/italic/underline for character ranges of `text`, so a species name can
-// be italic inside an otherwise upright label without splitting the box into
-// several elements.
+// bold/italic/underline and the text COLOR for character ranges of `text`, so a
+// species name can be italic, or one symbol red, inside an otherwise plain label
+// without splitting the box into several elements.
 //
 // Invariants, all enforced by `normalizeRuns` and pinned by verify-text-runs:
 //   * offsets index `text` in UTF-16 code units, `from` inclusive, `to`
 //     exclusive, and are clamped to the text;
 //   * runs are sorted, non-empty and NON-OVERLAPPING — resolving a character
 //     is a lookup, never a fold over a stack;
-//   * a flag left ABSENT inherits the element (tri-state); an explicit value
+//   * a flag or color left ABSENT inherits the element (tri-state); an explicit value
 //     equal to what the element already says is pruned, so `runs` disappears
 //     entirely when it carries nothing the element does not. Absence is the
 //     default, which is what keeps every pre-2026-09-22 file byte-identical.
@@ -29,7 +29,12 @@ export interface TextRun {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /** Fill for this range; absent inherits the element's `color`. Metric-neutral. */
+  color?: string;
 }
+
+/** What an absent run field inherits: the element's flags, plus its color when known. */
+export type RunBase = Record<RunKey, boolean> & { color?: string };
 
 /** A piece of one visual line that carries a single resolved look. */
 export interface TextSegment {
@@ -40,22 +45,35 @@ export interface TextSegment {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  color?: string;
   /** Extra advance placed BEFORE this piece, in canvas px. Justification uses
    *  it to widen a word gap; absent everywhere else. */
   dx?: number;
 }
 
 /** What the ELEMENT itself says, i.e. what an absent run flag inherits. */
-export function elementFlags(e: Pick<TextElement, "fontWeight" | "fontStyle" | "underline">): Record<RunKey, boolean> {
-  return { bold: e.fontWeight >= 600, italic: e.fontStyle === "italic", underline: !!e.underline };
+export function elementFlags(e: Pick<TextElement, "fontWeight" | "fontStyle" | "underline"> & { color?: string }): RunBase {
+  const base: RunBase = { bold: e.fontWeight >= 600, italic: e.fontStyle === "italic", underline: !!e.underline };
+  if (typeof e.color === "string") base.color = e.color;
+  return base;
+}
+
+const sameColor = (a: string | undefined, b: string | undefined) =>
+  a === b || (a !== undefined && b !== undefined && a.toLowerCase() === b.toLowerCase());
+
+/** Copy every run field a source actually carries (booleans for the flags, a
+ *  non-empty string for color). The one place that knows the field set. */
+function copyFields(into: TextRun | TextSegment, from: TextRun): void {
+  for (const key of RUN_KEYS) if (typeof from[key] === "boolean") into[key] = from[key];
+  if (typeof from.color === "string" && from.color) into.color = from.color;
 }
 
 function flagsEqual(a: TextRun, b: TextRun): boolean {
-  return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline;
+  return a.bold === b.bold && a.italic === b.italic && a.underline === b.underline && sameColor(a.color, b.color);
 }
 
 function empty(run: TextRun): boolean {
-  return run.bold === undefined && run.italic === undefined && run.underline === undefined;
+  return run.bold === undefined && run.italic === undefined && run.underline === undefined && run.color === undefined;
 }
 
 /**
@@ -67,7 +85,7 @@ function empty(run: TextRun): boolean {
 export function normalizeRuns(
   runs: readonly TextRun[] | undefined,
   length: number,
-  base?: Record<RunKey, boolean>,
+  base?: RunBase,
 ): TextRun[] {
   if (!runs || !runs.length || length <= 0) return [];
   const clamped: TextRun[] = [];
@@ -76,7 +94,7 @@ export function normalizeRuns(
     const to = Math.max(0, Math.min(length, Math.floor(run.to)));
     if (!(to > from)) continue;
     const next: TextRun = { from, to };
-    for (const key of RUN_KEYS) if (typeof run[key] === "boolean") next[key] = run[key];
+    copyFields(next, run);
     if (!empty(next)) clamped.push(next);
   }
   if (!clamped.length) return [];
@@ -89,9 +107,12 @@ export function normalizeRuns(
     const piece: TextRun = { from, to };
     for (const run of clamped) {
       if (run.from > from || run.to < to) continue;
-      for (const key of RUN_KEYS) if (typeof run[key] === "boolean") piece[key] = run[key];
+      copyFields(piece, run);
     }
-    if (base) for (const key of RUN_KEYS) if (piece[key] === base[key]) delete piece[key];
+    if (base) {
+      for (const key of RUN_KEYS) if (piece[key] === base[key]) delete piece[key];
+      if (base.color !== undefined && sameColor(piece.color, base.color)) delete piece.color;
+    }
     if (empty(piece)) continue;
     const prev = out[out.length - 1];
     if (prev && prev.to === from && flagsEqual(prev, piece)) prev.to = to;
@@ -128,7 +149,7 @@ export function segmentRange(
   const push = (stop: number, run?: TextRun) => {
     if (stop <= at) return;
     const segment: TextSegment = { text: text.slice(at, stop), from: at, to: stop };
-    if (run) for (const key of RUN_KEYS) if (typeof run[key] === "boolean") segment[key] = run[key];
+    if (run) copyFields(segment, run);
     out.push(segment);
     at = stop;
   };
@@ -180,6 +201,39 @@ export function toggleRunRange(
 }
 
 /**
+ * Paint [from, to) with `color`, or with `null` hand the range back to the
+ * element's own color. Returns the element's NEW normalized runs; it never
+ * mutates. A color equal to the element's is pruned, so recoloring a word back
+ * to the box color leaves no run behind.
+ */
+export function setRunColor(
+  e: Pick<TextElement, "text" | "runs" | "fontWeight" | "fontStyle" | "underline" | "color">,
+  from: number,
+  to: number,
+  color: string | null,
+): TextRun[] {
+  const lo = Math.max(0, Math.min(e.text.length, Math.floor(from)));
+  const hi = Math.max(0, Math.min(e.text.length, Math.floor(to)));
+  const base = elementFlags(e);
+  if (!(hi > lo)) return normalizeRuns(e.runs, e.text.length, base);
+  // null resets: a run of the element's own color overrides whatever color lay
+  // beneath it, and normalization then prunes it as saying nothing.
+  return normalizeRuns([...(e.runs ?? []), { from: lo, to: hi, color: color ?? e.color }], e.text.length, base);
+}
+
+/** The single color every character of [from, to) shows, or null when mixed. */
+export function rangeColor(
+  e: Pick<TextElement, "text" | "runs" | "color">,
+  from: number,
+  to: number,
+): string | null {
+  const segments = segmentRange(e.text, e.runs, from, to);
+  if (!segments.length) return null;
+  const first = segments[0].color ?? e.color;
+  return segments.every((s) => sameColor(s.color ?? e.color, first)) ? first : null;
+}
+
+/**
  * Carry runs across a text edit. The edit is derived as ONE replaced range
  * (common prefix/suffix), which is exactly what a textarea `input` gives us
  * and what typing, pasting and deleting all reduce to.
@@ -227,7 +281,7 @@ export function remapRuns(
     const to = mapEnd(run.to);
     if (!(to > from)) continue; // the edit swallowed this run whole
     const next: TextRun = { from, to };
-    for (const key of RUN_KEYS) if (typeof run[key] === "boolean") next[key] = run[key];
+    copyFields(next, run);
     mapped.push(next);
   }
   return normalizeRuns(mapped, newText.length);
@@ -235,14 +289,23 @@ export function remapRuns(
 
 /** The look a segment actually renders with, resolved against the element. */
 export function resolvedRunStyle(
-  e: Pick<TextElement, "fontWeight" | "fontStyle" | "underline">,
-  segment: Pick<TextSegment, RunKey>,
-): { fontWeight: number; fontStyle: "normal" | "italic"; underline: boolean } {
+  e: Pick<TextElement, "fontWeight" | "fontStyle" | "underline"> & { color?: string },
+  segment: Pick<TextSegment, RunKey | "color">,
+): { fontWeight: number; fontStyle: "normal" | "italic"; underline: boolean; color?: string } {
+  // color appears only when the RANGE sets one, so an unformatted segment
+  // resolves to exactly the element font it always did.
+  const color = segment.color;
   return {
     fontWeight: segment.bold === undefined ? e.fontWeight : segment.bold ? 700 : 400,
     fontStyle: segment.italic === undefined ? e.fontStyle : segment.italic ? "italic" : "normal",
     underline: segment.underline === undefined ? !!e.underline : segment.underline,
+    ...(color !== undefined ? { color } : {}),
   };
+}
+
+/** Does this segment carry anything the element does not already say? */
+export function segmentFormatted(segment: TextSegment): boolean {
+  return segment.bold !== undefined || segment.italic !== undefined || segment.underline !== undefined || segment.color !== undefined;
 }
 
 /** Does this element carry any per-range formatting at all? */
