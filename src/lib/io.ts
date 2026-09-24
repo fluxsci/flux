@@ -527,6 +527,13 @@ export async function importPalette() {
 export async function saveProject() {
   try {
     const root = get(embeddedProjectRoot);
+    // Embedded: save whichever mode owns the shared editing store. Slide mode
+    // loads the deck into that store too, and Ctrl+S there used to call
+    // saveFigFrom, which the tenancy guard (rightly) refused — "Save failed:
+    // fig/ save refused … owned by slide mode" on every Ctrl+S in a deck (owner
+    // report 2026-09-24). The deck saves through its own autosave controller,
+    // so a conflict raises Slide mode's diverged-on-disk banner as usual.
+    if (root && storeTenant() === "slide") return await flushById("slide");
     if (root) return await saveFigFrom(root); // embedded → the project's fig/ subsystem
     const dir = get(projectDir);
     if (!dir) return await saveProjectAs();
@@ -543,7 +550,7 @@ export async function saveProjectAs() {
     // (W5 registry) instead of a bare saveFigFrom: a ConflictError then raises
     // FigureMode's diverged-on-disk banner (W7), and other failures get the
     // controller's retry + sticky toast rather than an unhandled rejection.
-    if (root) return await flushById("figure");
+    if (root) return await flushById(storeTenant() === "slide" ? "slide" : "figure");
     const p = get(project);
     const path = await window.fig.save(`${p.name || "Untitled"}.flux`, [
       { name: "Flux project", extensions: ["flux"] },

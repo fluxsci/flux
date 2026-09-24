@@ -340,6 +340,7 @@
       "verify-fig-esc.mjs",
       "verify-shape-nofill.mjs",
       "verify-colorpicker-narrow.mjs",
+      "verify-slide-save-shortcut.mjs",
       "verify-primitives-gui.mjs",
       "verify-importer-multi.mjs",
       "verify-importer-reserved.mjs",
@@ -1530,6 +1531,13 @@
       "run": [
         "verify-gallery-scope.ts",
         "verify-shell-complete.mjs"
+      ]
+    },
+    {
+      "$why": "2026-09-24 Ctrl+S routes by store tenant: Slide mode saves the deck, Figure mode fig/.",
+      "glob": "{src/lib/io.ts,src/lib/tenancy.ts,src/shell/lifecycle.ts}",
+      "run": [
+        "verify-slide-save-shortcut.mjs"
       ]
     }
   ],
@@ -4584,6 +4592,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-save-shortcut.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     },
