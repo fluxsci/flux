@@ -554,10 +554,17 @@ function clearFuture() {
 // W4: monotonic edit counter. A save snapshots `editGen.n` before its async
 // writes and clears `dirty` only if no edit landed meanwhile — otherwise a
 // mid-save edit's dirty flag was silently clobbered and never persisted.
-export const editGen = { n: 0 };
+// `n` advances on EVERY store change, display-only ones included (undo
+// coalescing and gesture rollback need that). `edits` advances only on changes
+// that dirty the document: a load that must not clobber a user edit compares
+// `edits`, because a display refresh landing mid-load (the slide beat
+// reconciler, resolved-asset publication) is not an edit and the load
+// replaces it anyway.
+export const editGen = { n: 0, edits: 0 };
 
 function markEdited() {
   editGen.n++;
+  editGen.edits++;
   dirty.set(true);
 }
 
@@ -722,6 +729,7 @@ export function rollbackGesture(token?: GestureCheckpoint): boolean {
   if (!token || activeGesture === token) activeGesture = null;
   pruneSelection();
   editGen.n++;
+  editGen.edits++;
   dirty.set(token ? token.dirty || token.cleanEpoch !== cleanEpoch || token.persistenceEpoch !== persistenceEpoch : true);
   publishHistory();
   return true;

@@ -123,6 +123,7 @@
       "verify-slide-figure-separation.ts",
       "verify-slide-headless-e2e.ts",
       "verify-slide-decks.ts",
+      "verify-slide-reload-supersede.ts",
       "verify-deck-diagnostics.ts",
       "verify-slide-easing.ts",
       "verify-slide-exits.ts",
@@ -925,6 +926,7 @@
         "verify-v020-conversion.ts",
         "verify-v020-figure.ts",
         "verify-v020-slide-persistence.ts",
+        "verify-slide-reload-supersede.ts",
         "verify-slide-source-sync-gui.mjs",
         "verify-v020-native-journey.cjs",
         "group:paper-gate",
@@ -4693,6 +4695,15 @@
       "coverage": "behavior"
     },
     "verify-slide-decks.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-reload-supersede.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

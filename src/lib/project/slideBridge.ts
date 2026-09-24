@@ -501,24 +501,31 @@ export function refreshDeckSources(root: string): Promise<void> {
 }
 
 /** Load a deck into the live editing stores (figure store + slide overlay).
- *  Returns the deck + resolution diagnostics, or null. */
+ *  Returns the deck + resolution diagnostics, or null. Null means the deck is
+ *  missing/unreadable UNLESS `onSuperseded` fired: then a newer load, a user
+ *  edit, or a tenancy/root change overtook this one mid-flight — not a bad file.
+ *  Only document edits (`editGen.edits`) supersede; a display-only refresh
+ *  landing mid-load (a source refresh publishing resolved assets while an agent
+ *  rewrites the deck) is replaced by this load and must not abort it. */
 let deckLoadGeneration = 0;
-export async function loadDeckInto(root: string, deckId: string, opts: { isCurrent?: () => boolean } = {}): Promise<{ deck: Deck; diagnostics: DeckDiag[] } | null> {
-  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot), editingGeneration = editGen.n;
+export async function loadDeckInto(root: string, deckId: string, opts: { isCurrent?: () => boolean; onSuperseded?: () => void } = {}): Promise<{ deck: Deck; diagnostics: DeckDiag[] } | null> {
+  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot), editingGeneration = editGen.edits;
   if (previousRoot !== null && previousRoot !== root) return null;
-  const current = () => generation === deckLoadGeneration && editGen.n === editingGeneration && storeTenant() === tenant && get(embeddedProjectRoot) === previousRoot && (opts.isCurrent?.() ?? true);
+  const current = () => generation === deckLoadGeneration && editGen.edits === editingGeneration && storeTenant() === tenant && get(embeddedProjectRoot) === previousRoot && (opts.isCurrent?.() ?? true);
+  const superseded = () => { opts.onSuperseded?.(); return null; };
   const deck = await readDeck(root, deckId);
-  if (!deck || !current()) return null;
+  if (!deck) return null;
+  if (!current()) return superseded();
   if (await fileBridge()?.exists(joinPath(root, "fig/index.json"))) await syncProjectSources(root, { isCurrent: current });
   await syncDeckSourceFiles(root, deck, current);
-  if (!current()) return null;
+  if (!current()) return superseded();
   const resolved = await resolveDeckAssets(root, deck, current, true);
-  if (!current()) return null;
+  if (!current()) return superseded();
   return withDeckMutation(root, async assertOwned => {
     const evidence = deckReadEvidence.get(deck);
     if (evidence && await fileBridge()!.readText(evidence.path) !== evidence.text) throw new ConflictError("deck changed while opening");
     await assertOwned();
-    if (!current()) return null;
+    if (!current()) return superseded();
     clearPlots(); acceptedPlotCache.clear(); resolved.publish();
     if (evidence) deckBaseline.set(evidence.path,evidence.text);
     loadDeckModel(deck,resolved.assets,resolved.external);assetData.set(resolved.data);clearAllAssetsDirty();
@@ -603,9 +610,9 @@ export async function createDeckInProject(
 
 /** Load an in-memory deck into the stores (asset resolution included). */
 async function loadDeckIntoStores(root: string, d: Deck): Promise<void> {
-  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot), editingGeneration = editGen.n;
+  const generation = ++deckLoadGeneration, tenant = storeTenant(), previousRoot = get(embeddedProjectRoot), editingGeneration = editGen.edits;
   if (previousRoot !== null && previousRoot !== root) return;
-  const current = () => generation === deckLoadGeneration && tenant === storeTenant() && previousRoot === get(embeddedProjectRoot) && editingGeneration === editGen.n;
+  const current = () => generation === deckLoadGeneration && tenant === storeTenant() && previousRoot === get(embeddedProjectRoot) && editingGeneration === editGen.edits;
   const resolved = await resolveDeckAssets(root, d, current, true);
   if (!current()) return;
   clearPlots(); acceptedPlotCache.clear(); resolved.publish();

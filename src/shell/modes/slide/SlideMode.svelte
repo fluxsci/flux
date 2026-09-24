@@ -224,8 +224,12 @@
       if (await deckDiskDiverged(pm.root, activeDeckId)) deckDiverged = true;
       return;
     }
-    if (await deckDiskDiverged(pm.root, activeDeckId)) {
-      await openDeck(activeDeckId, { force: true, preserveView: true });
+    // An agent writes in bursts (one CLI verb every ~2s), so a reload can be
+    // overtaken mid-flight. A superseded reload is retried while the editor
+    // stays clean, so the burst's last version always lands.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!pm || !activeDeckId || get(figDirty) || !(await deckDiskDiverged(pm.root, activeDeckId))) return;
+      if (await openDeck(activeDeckId, { force: true, preserveView: true }) || !lastOpenSuperseded) return;
     }
   }
   async function reloadDeckTheirs() {
@@ -282,10 +286,14 @@
   // their zoom. Keep the current slide + beat where they still exist; the load
   // itself lands on slides[0], so restore through selectSlide (the sanctioned
   // switch — display reconciliation included).
+  // True when the last openDeck returned false because a newer load or a user
+  // edit overtook it — the file itself was fine.
+  let lastOpenSuperseded = false;
   async function openDeck(
     id: string,
     opts: { force?: boolean; preserveView?: boolean } = {},
   ): Promise<boolean> {
+    lastOpenSuperseded = false;
     if (!pm || !alive) return false;
     const epoch=++deckOpenEpoch;
     const isCurrent=()=>alive && epoch===deckOpenEpoch;
@@ -298,8 +306,10 @@
     try {
       await autosave.flush();
       if(!isCurrent())return false;
-      const loaded = await loadDeckInto(pm.root, id, {isCurrent});
+      let superseded = false;
+      const loaded = await loadDeckInto(pm.root, id, {isCurrent, onSuperseded: () => { superseded = true; }});
       if(!isCurrent())return false;
+      if (!loaded && superseded) { lastOpenSuperseded = true; return false; }
       if (!loaded) {
         pushToast("error", "Couldn't open that deck — its file may be missing or corrupt.");
         return false;
