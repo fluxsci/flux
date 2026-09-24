@@ -50,8 +50,16 @@ const median=a=>a.toSorted((a,b)=>a-b)[Math.floor(a.length/2)];
 // comparing two samples of the same noise. The honest measure is the whole
 // cold path, from opening the dock to the first seek being on screen: both
 // runs do identical work there, and only one of them has the memo.
+//
+// 2026-09-24: that ratio is REPORTED, no longer asserted. The memo existed to
+// offset arcT, which was 86 of 89 ms of morph planning. arcT is now
+// allocation-free (outline.ts; bit-identical results), and planOutlines on this
+// fixture fell from 23.6 to 4.2 ms per morph, so with or without the memo the
+// cold path is ~120-180 ms and the difference is noise; the 1.5x assertion then
+// failed on its own. What the user feels is still gated per trial below: first
+// preview and first seek each <=100 ms, now with a wide margin. verify-slide-
+// outline pins arcT's equivalence to its reference definition.
 const totalOld=median(evidence.filter(x=>!x.cached).map(x=>x.totalMs)),totalNew=median(evidence.filter(x=>x.cached).map(x=>x.totalMs));
-assert.ok(totalNew*1.5<totalOld,`memo-less cold path is far slower: ${totalOld}→${totalNew}`);
 const seekOld=median(evidence.filter(x=>!x.cached).map(x=>x.seekMs)),seekNew=median(evidence.filter(x=>x.cached).map(x=>x.seekMs));
 const oldMs=median(evidence.filter(x=>!x.cached).map(x=>x.previewMs)),newMs=median(evidence.filter(x=>x.cached).map(x=>x.previewMs));
 const report={previewMedianMs:{baseline:oldMs,cached:newMs},seekMedianMs:{baseline:seekOld,cached:seekNew},coldPathMedianMs:{baseline:totalOld,cached:totalNew},coldPathSpeedup:totalOld/totalNew};

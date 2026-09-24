@@ -7,10 +7,11 @@
 import { harness } from "./lib/harness.mjs";
 import {
   elementOutline, splitOutline, planOutlines, planElementMorph, sampleElementMorph, outlineMorphable,
-  arrowFade, fixedHeadOpacity,
+  arrowFade, fixedHeadOpacity, arcT,
 } from "../src/lib/slide/outline";
 import { applyState, diffState, lerpElement, contentPlan, transformEndState } from "../src/lib/slide/tween";
 import { elementBBox } from "../src/lib/geometry";
+import { segLength, splitSeg, type PathSeg } from "../src/lib/path";
 import type { Element, RectElement, EllipseElement, LineElement, PathElement, TextElement, VectorNode } from "../src/lib/types";
 
 const h = harness("verify-slide-outline");
@@ -169,6 +170,28 @@ h.section("the retype law: applyState / diffState");
   h.ok(chained.type === "ellipse" && chained.fill === "#00ff00" && chained.x === 1, "later patches fold onto the retyped element");
   const plotEnd = transformEndState(rect(), { to: { state: { type: "plot", overrides: { "a.line": { stroke: "#f00" } } }, assetId: "asset-9" } });
   h.ok(plotEnd.type === "plot" && (plotEnd as { assetId: string }).assetId === "asset-9", "transformEndState puts the content half on a retyped plot");
+}
+
+// --- arcT is the reference bisection, just faster (2026-09-24) ----------------
+// arcT was rewritten allocation-free (the hot loop of morph planning). It must
+// return what its definition returns: bisection on the 16-station polyline
+// length of the left de Casteljau half. Pinned on seeded random cubics.
+{
+  const reference = (seg: PathSeg, len: number, dist: number): number => {
+    if (dist <= 0) return 0;
+    if (dist >= len) return 1;
+    let lo = 0, hi = 1, t = dist / len;
+    for (let k = 0; k < 20; k++) { t = (lo + hi) / 2; if (segLength(splitSeg(seg, t)[0], 16) < dist) lo = t; else hi = t; }
+    return t;
+  };
+  let seed = 11, worst = 0, calls = 0;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) * 400 - 200;
+  for (let i = 0; i < 1500; i++) {
+    const seg: PathSeg = { x0: rnd(), y0: rnd(), x1: rnd(), y1: rnd(), x2: rnd(), y2: rnd(), x3: rnd(), y3: rnd(), line: false };
+    const len = segLength(seg, 24);
+    for (const f of [0, 0.13, 0.5, 0.77, 1]) { worst = Math.max(worst, Math.abs(arcT(seg, len, len * f) - reference(seg, len, len * f))); calls++; }
+  }
+  h.ok(worst <= 1e-9, `arcT matches its reference bisection on ${calls} random cubic stations (worst |dt| ${worst})`);
 }
 
 await h.done();
