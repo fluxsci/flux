@@ -32,7 +32,7 @@ survives.
 - The **Inspector** puts the selection’s position, size and appearance first. Alignment and
   arrangement tools, the color palette and journal export options can be expanded as needed; drag its left edge to resize it, **Ctrl+Shift+B** hides it for a
   clean canvas.
-- **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–1600%).
+- **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–25600%).
   Undo and redo buttons show when a step is available. The toolbar distinguishes waiting
   changes, saving, and a failed save with **Retry**. If a save fails, switching between Figure
   and Slide keeps your edits in the original editor until they can be saved.

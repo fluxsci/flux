@@ -1058,6 +1058,16 @@ Persistence invariants (all machine-checked — do not weaken):
     pins this lifecycle, exact mapping, authored-data preservation and subsequent fast pan;
     the native `input-probe.cjs --phases=zoomDeep --frames --assert-no-flicker --maximize`
     covers the actual deep-zoom reproduction and records GPU/viewport/DPR evidence.
+  - **The zoom range is 5%–25600% and lives in ONE module** (`interact/zoomLimits.ts`,
+    2026-09-25; the ceiling was 16× until the owner asked for far more). The Ctrl-wheel
+    (Canvas) and the toolbar −/+ clamp through `clampZoom`; programmatic writes (fit,
+    centre-on-figure, gates) pick their zoom deliberately and are not clamped. The ceiling
+    is a float32 precision guard (device px stay under ~1e6 for figures up to 3,000 units),
+    NOT a raster budget: the settle fold bakes any zoom into `scale(renderZoom)` and tiles
+    are viewport-bound, so deeper zoom costs nothing extra. `verify-zoom-limits.ts` (pure)
+    pins the range and the sharing; `input-probe.cjs --phases=zoomDeep` derives its notch
+    count from the resting baked zoom because it used to lean on the old ceiling to land
+    at exactly 16×.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
     After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
     serialized in world units and rasterized once to PNG. Caps are 4096 px / 3 MP
@@ -6555,3 +6565,18 @@ Preview 137 → ~66 ms, first seek 111 → ~28 ms, both against 100.
 - SVG `dy` is relative and persists, so a shifted segment must be followed by a restoring `dy`, and a line that ENDS shifted must hand the correction to the next line tspan's own `dy` (text.ts blockLayout does both). `baseline-shift` would avoid this but is not portable across SVG consumers.
 - An inline `color:` on the textarea outranked the `.ghost-text` class, so the "transparent" editor drew plain glyphs over the formatted ones. Assert computed styles, not class names.
 - Global chords (Ctrl+S) that reach a subsystem through a shared store must route by `storeTenant()`: the tenancy guard refusing them is correct, and the bug is in the caller.
+
+### 2026-09-25 — Figure/Slide zoom ceiling 16× → 256× (Claude Fable 5.1, `main`)
+**Work:** The owner hit the editor's zoom cap. The wheel (Canvas.svelte) and the toolbar
+buttons each carried their own literal 0.05/16 clamp; both now clamp through
+`interact/zoomLimits.ts` (5%–25600%), with `verify-zoom-limits.ts` (pure) pinning the range and
+the sharing. Drove the dev app: 40 notches fold at `scale(256)`, the readout says 25600%, a
+rect corner renders as a crisp 256 px stroke band, zoom-about-cursor stays exact, no console
+errors. Docs page and the §4 body bullet updated; `input-probe.cjs --phases=zoomDeep` no longer
+leans on the ceiling to reach 16×.
+**Learnings:**
+- A cap that exists only as a literal in two files is two caps. Anything user-tunable that two
+  input routes share belongs in one pure module with a gate that greps the routes for it.
+- Before raising a limit, find what actually depended on it: here no gate did, but the perf
+  probe's deep-zoom phase silently relied on the wheel clamp to land at exactly 16×. Grep the
+  probes and scripts for the literal, not just `src/`.

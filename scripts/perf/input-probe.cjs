@@ -398,9 +398,19 @@ async function figurePhases(mode = 'figure') {
     // baked raster followed by a rapid zoom-out, the owner's reported failure.
     if (wantPhase('zoomDeep')) R.zoomDeep = await measureFrames(`${mode}:${sc}:zoomDeep`, region, async () => {
       ctrlDown();
+      // This burst used to lean on the wheel CEILING (16×) to land at exactly 16. The
+      // ceiling is 256× since 2026-09-25 (src/lib/interact/zoomLimits.ts), so the notch
+      // count is derived from the resting baked zoom instead — the ~16× deep raster the
+      // phase measures is unchanged. 120 px per notch is ×e^0.18 (Canvas.svelte's wheel
+      // law); a bounded top-up covers a platform that scales wheel deltas.
+      const bakedJs = `Number(/scale\\(([-\\d.e]+)/.exec(document.querySelector('${modeRoot} .scene-svg > g').getAttribute('transform'))[1])`;
+      const effectiveJs = `(new DOMMatrix(getComputedStyle(document.querySelector('${modeRoot} .scene')).transform).a * ${bakedJs})`;
       for (let cycle = 0; cycle < 3; cycle++) {
-        for (let i = 0; i < 36; i++) { wheel(cx, cy, 0, 120, ['control']); await sleep(8); }
-        await wait(() => js(`Number(/scale\\(([-\\d.e]+)/.exec(document.querySelector('${modeRoot} .scene-svg > g').getAttribute('transform'))[1]) === 16`), 'deep zoom reached and folded');
+        const z0 = await js(bakedJs);
+        const notches = Math.max(1, Math.ceil(Math.log(16 / z0) / 0.18));
+        for (let i = 0; i < notches; i++) { wheel(cx, cy, 0, 120, ['control']); await sleep(8); }
+        for (let guard = 0; guard < 60 && (await js(effectiveJs)) < 16; guard++) { wheel(cx, cy, 0, 120, ['control']); await sleep(8); }
+        await wait(() => js(`${bakedJs} >= 16`), 'deep zoom reached and folded');
         await sleep(250); // include a cold high-resolution raster before revealing the full scene
         for (let i = 0; i < 36; i++) { wheel(cx, cy, 0, -120, ['control']); await sleep(8); }
         await sleep(350);

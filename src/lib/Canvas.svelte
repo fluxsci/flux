@@ -46,6 +46,7 @@
   import { restorePlotClip } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
+  import { clampZoom } from "./interact/zoomLimits";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
@@ -137,8 +138,6 @@
     presentationHighlight = { x: x - host.left - 3, y: y - host.top - 3, w: Math.max(...boxes.map((b) => b.right)) - x + 6, h: Math.max(...boxes.map((b) => b.bottom)) - y + 6 };
   }
 
-  const MIN_ZOOM = 0.05;
-  const MAX_ZOOM = 16;
   const HS = 9; // on-screen handle size in px (constant)
   const RULER = 20; // ruler strip thickness in screen px (Feature 11)
 
@@ -1020,7 +1019,7 @@
     const py = e.clientY - r.top;
     if (e.ctrlKey || e.metaKey) {
       const factor = Math.exp(-e.deltaY * 0.0015);
-      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, $viewport.zoom * factor));
+      const next = clampZoom($viewport.zoom * factor);
       const wx = (px - $viewport.panX) / $viewport.zoom;
       const wy = (py - $viewport.panY) / $viewport.zoom;
       viewport.set({ zoom: next, panX: px - wx * next, panY: py - wy * next });

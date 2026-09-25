@@ -230,6 +230,7 @@
       "verify-xray-multi.ts",
       "verify-animate-selection.ts",
       "verify-wheel-law.ts",
+      "verify-zoom-limits.ts",
       "verify-feedback-snapshot.ts",
       "verify-feedback-withdraw.ts",
       "verify-color-space.ts",
@@ -1070,6 +1071,14 @@
         "verify-crisp.mjs",
         "verify-vanilla-inline.mjs",
         "verify-text-arrange-gui.mjs"
+      ]
+    },
+    {
+      "$why": "2026-09-25 the editor zoom range lives in ONE module — the wheel (Canvas.svelte) and the toolbar buttons clamp through it; the raster gate proves the deep-zoom path.",
+      "glob": "{src/lib/interact/zoomLimits.ts,src/lib/Toolbar.svelte}",
+      "run": [
+        "verify-zoom-limits.ts",
+        "verify-canvas-zoom-raster.mjs"
       ]
     },
     {
@@ -5880,6 +5889,15 @@
       "coverage": "behavior"
     },
     "verify-xray-tree.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-zoom-limits.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

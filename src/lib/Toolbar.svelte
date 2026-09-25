@@ -18,6 +18,7 @@
   export let saveError: string | null = null;
   export let retrySave: (() => void) | null = null;
   import { settingsOpen, settings } from "./settings";
+  import { clampZoom } from "./interact/zoomLimits";
 
   // Slide-migration: the same toolbar serves both editors; only the mode title
   // differs (subtly accented in Slide mode — the sanctioned differentiator).
@@ -89,9 +90,9 @@
     <span class="path">{$projectDir ?? "unsaved"}</span>
   {/if}
   <div class="group zoom">
-    <button title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(Math.max(0.05, $viewport.zoom / 1.25))}>−</button>
+    <button title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(clampZoom($viewport.zoom / 1.25))}>−</button>
     <span class="zoomval">{Math.round($viewport.zoom * 100)}%</span>
-    <button title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(Math.min(16, $viewport.zoom * 1.25))}>+</button>
+    <button title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(clampZoom($viewport.zoom * 1.25))}>+</button>
     <button on:click={() => setZoom(1)}>100%</button>
   </div>
   <button class="gear" title="Settings" on:click={() => settingsOpen.set(true)}>⚙</button>
