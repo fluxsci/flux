@@ -1,7 +1,7 @@
 import { recoverItemPublication, type ItemRecoveryResult } from "../src/lib/references/itemRecovery";
 import { createReadStream } from "node:fs";
 import { prepareItemLocators } from "./itemLocators";
-import { withLockAt, fluxlibLockDir, getLockClient, assertLockOwned } from "./locks";
+import { withLockAt, fluxlibLockDir, getLockClient, assertLockOwned, CONTENTION_RETRIES } from "./locks";
 import { pdfIdentityAt, fulltextIsCurrent } from "./itemGeneration";
 // flux-core/items.ts — the FluxLib "items/" store (Node side: CLI/MCP/agents).
 // Per-paper artifacts under <lib>/items/<citekey>/ — the filesystem IS the source of
@@ -129,7 +129,7 @@ export async function currentPdfIdentity(key: string, libPath?: string): Promise
   return pdfIdentityAt(itemDir(await lib(libPath), key));
 }
 export async function withItemLease<T>(key: string, L: string, fn: (assertOwned: () => Promise<void>) => Promise<T>): Promise<T> {
-  return withLockAt(fluxlibLockDir(L), `item-${safeKey(key)}`, getLockClient(), async lease => { await assertLockOwned(lease); return fn(() => assertLockOwned(lease)); }, {retries: 8});
+  return withLockAt(fluxlibLockDir(L), `item-${safeKey(key)}`, getLockClient(), async lease => { await assertLockOwned(lease); return fn(() => assertLockOwned(lease)); }, { retries: CONTENTION_RETRIES });
 }
 
 /** The link-mode pointer for `key`, or null (absent/malformed). */

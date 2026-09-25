@@ -2227,6 +2227,33 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `npx`, replace-vs-unlink, separators, signals, symlinks) or a Windows product bug; it is
   never fixed by loosening the gate.
 
+- **GitHub's Windows runners hand out an 8.3 SHORT temp path** (`C:\Users\RUNNER~1\…`), and
+  anything that canonicalizes — `realpath`, the IPC asset resolver, every handler that answers
+  in the form the filesystem resolves to — returns the LONG name. A gate that takes `tmpdir()`
+  verbatim as its expected root fails every path equality on that host alone and nowhere else
+  (`verify-native-boundaries`, 2026-09-25). Take the scratch root through `realpath` once, at
+  creation; a developer's Windows laptop never shows this, which is why it reached CI first.
+- **An agent lock budget has to outlast the holder's BURST, not one cycle.** `withLock` polls
+  every 250 ms and the holder re-acquires in the gap before the waiter's next poll, so a
+  waiter only gets in when the holder pauses. On Linux a fig save cycle is ~100 ms and three
+  back-to-back creates finish inside the old 2 s budget; on Windows every lease step is a file
+  operation and the save fsyncs, the same burst ran past 2 s, and the waiter was told
+  "deferred" on a healthy project (`verify-w3-locks` on windows-latest, 2026-09-25; the lock
+  tier ran 5× slower there at equal CPU speed). `CONTENTION_RETRIES` (locks.ts, ≈10 s) is the
+  one budget every agent-vs-agent lease uses; a human-held lease still defers at once. A
+  child spawned by a gate gets the same treatment: `verify-figure-reference-safety`'s 3 s
+  deadline was a hang guard sized for Linux's tsx cold start and killed a healthy child there.
+- **The "pinned" video encoder is not one ffmpeg.** `build/video-encoder.json` pins one
+  ffmpeg-static release, but that project repackages three builders: Linux ships ffmpeg 7.0.2,
+  Windows 6.1.1 (gyan essentials), and the macOS binary's strings say 6.0 — while the NOTICE
+  names n6.1.1. `verify-v020-hdr-media`'s oracle (Hable + BT.2020→709 + BT.1886) is within
+  2/255 of 7.0.2 and 8/255 off 6.1.x on the saturated green patch, reproduced on Linux with a
+  6.1.3 build (2026-09-25), so the Windows red on that gate is the ffmpeg version, not
+  Windows. Users on different platforms get different HDR tone mapping today. The fix is one
+  ffmpeg version on every platform (a manifest with per-target archives — zip/tar.xz, not the
+  single `.gz` the fetcher assumes), which is packaging work with a licensing notice to match;
+  do not widen the tolerance to hide it.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
@@ -6725,3 +6752,31 @@ upgrade that fixes this upstream says so instead of leaving an orphan override. 
 - **A non-owner's AMO "Forbidden" is not a credentials problem.** The add-on id is bound to the
   first uploading account for good; the fix is that account signing or adding an owner, and
   the script's failure text now says so instead of pointing at the key page.
+
+### 2026-09-25 (later) — The first Windows CI run: 284/288, and what the four reds were (Claude Fable 5.1, `main`)
+**Work:** `test-windows` ran end to end on its first try — install, Quarto, Chrome, the encoder
+fetch, both type checks and the build all passed on windows-latest; the pure tier came back
+284/288 in under 8 minutes. Each red was a different class. `verify-native-boundaries`: the
+runner's TEMP is an 8.3 short path, the handler answers in long form — gate takes its root
+through `realpath` now. `verify-figure-reference-safety`: a 3 s child deadline killed a healthy
+child mid tsx cold start — one 15 s hang guard for all three children. `verify-w3-locks`: not a
+mutual-exclusion hole (the 240-increment hot-contention check passed there) but the 2 s
+agent-vs-agent budget, which a three-create burst outran on Windows's slower lease I/O — the
+budget is `CONTENTION_RETRIES` (≈10 s) in locks.ts, used by every project and FluxLib lease,
+and the gate now holds a lease for 3 s to pin that a burst longer than the old budget no longer
+defers. `verify-v020-hdr-media`: ffmpeg 6.1.1 on Windows versus 7.0.2 on Linux — reproduced on
+Linux with a 6.1.3 build (patch 10 red channel 51 vs the oracle's 59, identical to the Windows
+number) — left red on purpose; the pin needs to become one version everywhere (§9). Timing:
+the Linux and Windows runners have equal CPU speed (median gate ratio 0.96) and the lock- and
+transaction-heavy gates alone run 5–6× slower on Windows. Checks 0/0, headless clean, pure
+288/288 at `--jobs 4`.
+**Learnings:**
+- Promoted to §9: the 8.3 temp path, the burst-not-cycle lock budget, and the three-version
+  encoder pin.
+- **Compare the two runners' per-gate timings before touching a budget.** The summary
+  artifacts carry ms per gate; one join showed CPU parity and a filesystem-bound 5× — which is
+  what turned "Windows is slow" into "lease I/O is slow", and a budget change into one with a
+  stated cause.
+- **A cross-platform product difference can be reproduced on the platform you have.** The HDR
+  question was "Windows or ffmpeg 6.1?"; a Linux 6.1 build answered it in one probe, without a
+  Windows machine.

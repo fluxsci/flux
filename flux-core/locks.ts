@@ -33,6 +33,16 @@ export async function releaseLockAt(dir: string, name: string, client?: string):
   if (!lease) return;
   manual.delete(key); await leases.release(lease);
 }
+/** How long an agent verb keeps polling for a lease another AGENT holds before it defers
+ *  (retries × the 250 ms delay ≈ 10 s). A human-held lease still defers immediately. The
+ *  budget used to be 8 (2 s), sized for Linux, where a full fig save cycle is ~100 ms; on
+ *  Windows the same cycle is several times slower (every lease step is a file operation and
+ *  the save fsyncs), and a second agent's three back-to-back creates took longer than 2 s, so
+ *  the first agent was told "deferred" on a healthy project (verify-w3-locks on
+ *  windows-latest, 2026-09-25). Polling favours the holder — it re-acquires in the gap
+ *  before the waiter's next poll — so the budget has to outlast a holder's BURST, not one
+ *  cycle. */
+export const CONTENTION_RETRIES = 40;
 export interface LockOptions { retries?: number; delayMs?: number; heartbeatMs?: number; parent?: LockLease }
 export async function withLockAt<T>(dir: string, name: string, client: string, fn: (lease: LockLease) => Promise<T>, opts: LockOptions = {}): Promise<T> {
   if (opts.parent) {
@@ -70,4 +80,4 @@ export async function assertLockOwned(lease: LockLease): Promise<void> { return 
 export const heldByOther = (root: string, name: string, client: string) => heldByOtherAt(projectLockDir(root), name, client);
 export const acquireLock = (root: string, name: string, client: string) => acquireLockAt(projectLockDir(root), name, client);
 export const releaseLock = (root: string, name: string, client?: string) => releaseLockAt(projectLockDir(root), name, client);
-export const withLock = <T>(root: string, name: string, client: string, fn: (lease: LockLease) => Promise<T>, opts: LockOptions = {}) => withLockAt(projectLockDir(root), name, client, fn, { retries: 8, ...opts });
+export const withLock = <T>(root: string, name: string, client: string, fn: (lease: LockLease) => Promise<T>, opts: LockOptions = {}) => withLockAt(projectLockDir(root), name, client, fn, { retries: CONTENTION_RETRIES, ...opts });

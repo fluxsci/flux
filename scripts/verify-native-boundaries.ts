@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { reconstructAbstract, batchByDoiUrl } from "../src/lib/references/openalex";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { harness } from "./lib/harness.mjs";
@@ -14,7 +14,10 @@ const { createFileCore } = require("../electron/ipc/files.cjs");
 const { createFlushCoordinator } = require("../electron/appLifecycle.cjs");
 const { isPrivateAddress, publicHttpUrl, readBoundedBody } = require("../electron/netFetch.cjs");
 const h = harness("verify-native-boundaries");
-const root = await mkdtemp(path.join(tmpdir(), "flux-native-boundary-"));
+// Canonical, not merely absolute: GitHub's Windows runners hand out an 8.3 SHORT temp path
+// (C:\Users\RUNNER~1\…), and the handlers under test answer in the long form the filesystem
+// resolves to, so a root taken from tmpdir() verbatim fails every equality on that host alone.
+const root = await realpath(await mkdtemp(path.join(tmpdir(), "flux-native-boundary-")));
 try {
   const project = path.join(root, "project"), outside = path.join(root, "outside");
   await mkdir(project); await mkdir(outside);

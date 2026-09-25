@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { scaffold, createFigure, loadFigModel, setClient } from "../flux-core/index";
 import { addToFluxLib, loadLibrary, mergeEnrichDelta, loadEnrich, writeEnrich, ensureFluxLib } from "../flux-core/fluxlib";
-import { acquireLockAt, projectLockDir, withLockAt } from "../flux-core/locks";
+import { acquireLockAt, projectLockDir, withLockAt, CONTENTION_RETRIES } from "../flux-core/locks";
 import type { EnrichEntry } from "../src/lib/references/types";
 
 let failures = 0;
@@ -114,15 +114,19 @@ function run(script: string, args: string[]): Promise<{ code: number; err: strin
 {
   const dir = path.join(work, "retry-locks");
   await acquireLockAt(dir, "thing", "agentA");
+  // Held for 3 s — longer than the 2 s budget agents used to get. A Windows save cycle is
+  // several times slower than Linux's, so a holder's short burst outlasted that budget and the
+  // waiter was told "deferred" on a healthy project (2026-09-25); the budget is ~10 s now.
+  const HOLD_MS = 3000;
   setTimeout(async () => {
     const { releaseLockAt } = await import("../flux-core/locks");
     await releaseLockAt(dir, "thing", "agentA");
-  }, 600);
+  }, HOLD_MS);
   const t0 = Date.now();
   try {
-    await withLockAt(dir, "thing", "agentB", async () => "ran", { retries: 8 });
+    await withLockAt(dir, "thing", "agentB", async () => "ran", { retries: CONTENTION_RETRIES });
     const ms = Date.now() - t0;
-    if (ms >= 400) ok(`agent-vs-agent contention retried and succeeded after ${ms}ms`);
+    if (ms >= HOLD_MS - 200) ok(`agent-vs-agent contention retried and succeeded after ${ms}ms (holder kept it ${HOLD_MS}ms)`);
     else fail(`retry succeeded suspiciously fast (${ms}ms) — was the lock ever held?`);
   } catch (e) {
     fail(`retry path deferred instead of succeeding: ${(e as Error).message}`);

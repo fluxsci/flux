@@ -24,7 +24,7 @@ import { enrichCoverage, projectEnrichForGrid } from "../src/lib/references/enri
 import { planAdds, appendedBib } from "../src/lib/references/addPlan";
 import { validateOrganize, addTag, removeTag, bulkAddTag, setTags, setStatus, setCollections, mergeOrganize, type OrganizeData, type ReadingStatus } from "../src/lib/references/organize";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
-import { withLockAt, withLock, fluxlibLockDir, getLockClient, assertLockOwned } from "./locks";
+import { withLockAt, withLock, fluxlibLockDir, getLockClient, assertLockOwned, CONTENTION_RETRIES } from "./locks";
 import { splitBibEntries, lightEntry, lightBibEntries, bibtexKey } from "../src/lib/references/bibtex";
 import * as fluxPaths from "../electron/fluxPaths.cjs";
 
@@ -182,7 +182,7 @@ export async function ensureFluxLib(libPath?: string): Promise<string> {
       true,
     );
   }
-  }, { retries: 8 });
+  }, { retries: CONTENTION_RETRIES });
   return lib;
 }
 
@@ -336,7 +336,7 @@ export async function mergeEnrichDelta(
       await assertLockOwned(lease);
       await atomicWrite(libEnrichPath(lib), JSON.stringify({ ...fresh, ...delta }, null, 2) + "\n");
     },
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 
@@ -381,7 +381,7 @@ async function mutateOrganize(fn: (d: OrganizeData) => OrganizeData, libPath?: s
       await atomicWrite(libOrganizePath(lib), JSON.stringify(next, null, 2) + "\n");
       return next;
     },
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 
@@ -436,7 +436,7 @@ export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxK
       await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n", false, 0o600);
       return next;
     },
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 
@@ -482,7 +482,7 @@ export async function addToFluxLib(
     "library",
     getLockClient(),
     lease => addToFluxLibLocked(lib, bibtex, source, () => assertLockOwned(lease)),
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 

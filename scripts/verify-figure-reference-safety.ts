@@ -28,6 +28,11 @@ if (process.argv[2] === '--recover-child') {
   await addNote(process.argv[3], { text: 'New retained scientific note', title: 'After recovery' }); console.log('NOTE_DONE');
 } else {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-reference-safety-'));
+  // A hang guard for the self-spawned children, not a budget: each one re-imports this file
+  // and flux-core through tsx before doing a lease-guarded write, and on GitHub's Windows
+  // runner that took longer than the 3 s two of them used to get (killed at the deadline,
+  // 2026-09-25) — a self-deadlock still shows as a kill, only later.
+  const CHILD_DEADLINE_MS = 15_000;
   const children = new TestProcessScope(); let checks = 0, sequence = 0;
   const originalText = 'Scientific prose and @fig-study-a.\n', changedText = 'Scientific prose and @fig-study-b.\n';
   const journalRel = '.meta/figure-reference-update.json';
@@ -114,7 +119,7 @@ if (process.argv[2] === '--recover-child') {
     }
     {
       const f = await fixture('node'), p = await f.prepare(), journal = await fs.readFile(f.journal,'utf8');
-      const child = children.spawn(fileURLToPath(import.meta.url),['--recover-child',f.root],{readyLine:'RECOVERY_READY',deadlineMs:8000}); await child.ready;
+      const child = children.spawn(fileURLToPath(import.meta.url),['--recover-child',f.root],{readyLine:'RECOVERY_READY',deadlineMs:CHILD_DEADLINE_MS}); await child.ready;
       await new Promise(resolve => setTimeout(resolve,100));
       assert.equal(await fs.readFile(f.journal,'utf8'),journal,'another process cannot clear the active writer prepared journal');
       await f.publishFigures(); await commitFigureReferenceUpdate(f.root,p,f.io);
@@ -122,13 +127,13 @@ if (process.argv[2] === '--recover-child') {
     }
     {
       const f = await fixture('node'), p = await f.prepare(); await f.publishFigures(); await releasePlan(f.root,p);
-      const child = children.spawn(fileURLToPath(import.meta.url),['--folder-child',f.root],{deadlineMs:3000});
+      const child = children.spawn(fileURLToPath(import.meta.url),['--folder-child',f.root],{deadlineMs:CHILD_DEADLINE_MS});
       const exit = await child.closed; assert.equal(exit.code,0,String(child.stderr)); assert.equal(await fs.readFile(f.doc,'utf8'),changedText); assert.ok((await fs.stat(path.join(f.root,'paper/new-folder'))).isDirectory());
       ok('actual createFolder recovers pending reference text before taking its manuscript operation without self-deadlock');
     }
     {
       const f = await fixture('node'), p = await f.prepare(); await f.publishFigures(); await releasePlan(f.root,p);
-      const child = children.spawn(fileURLToPath(import.meta.url),['--note-child',f.root],{deadlineMs:3000});
+      const child = children.spawn(fileURLToPath(import.meta.url),['--note-child',f.root],{deadlineMs:CHILD_DEADLINE_MS});
       const exit = await child.closed; assert.equal(exit.code,0,String(child.stderr)); assert.equal(await fs.readFile(f.doc,'utf8'),changedText);
       assert.match(await fs.readFile(path.join(f.root,CONTEXT_PATHS.notebook),'utf8'),/New retained scientific note/);
       ok('actual addNote recovers pending reference text before manuscript lease and preserves the newly authored note');
