@@ -4,7 +4,8 @@ name: ci
 # headless: type-check → build → hermetic pure verify tier
 # (build (which proves BOTH the Vite bundle and the CLI+MCP node bundles)) →
 # CLI/MCP stdio handshakes against the built bundles. A broken commit can't reach
-# a release tag (release.yml runs the same gate first).
+# a release tag (release.yml runs the same gate first). `test-windows` repeats
+# the headless path on a Windows runner (observing until promoted, see below).
 
 on:
   push:
@@ -68,6 +69,73 @@ jobs:
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
         run: node scripts/run-verifies.mjs --tier bundle
+
+  # Windows correctness gate (2026-09-25). The pure tier was green on Linux CI
+  # while being UNRUNNABLE on a Windows checkout in about twenty-five separate
+  # ways (npx has no executable there, sharing violations on replace, path
+  # separators, absent signals/shebangs/symlinks), and seven real Windows-only
+  # product bugs sat behind that — none of which a Linux runner can ever see
+  # (notes/flux-windows-and-ci-2026-09-22.md). So the same type-check → build →
+  # pure tier runs here too. The bundle tier is NOT run on Windows yet: its
+  # slide-embed export gate needs a TeX toolchain and rsvg-convert provisioned
+  # on the runner, a separate step.
+  #
+  # OBSERVING, on the same rule as ui-gate: continue-on-error keeps it
+  # non-blocking until 5 consecutive green runs on main, then the flip is
+  # deleting the single line below. Do not flip early, and do not loosen a gate
+  # to get there — a Windows red is either a harness portability defect (fix
+  # the gate; §9 of the engineering guide lists the recurring shapes) or a
+  # Windows product bug (fix the product).
+  test-windows:
+    runs-on: windows-latest
+    continue-on-error: true # DELETE THIS LINE after 5 consecutive green main runs
+    defaults:
+      run:
+        shell: bash # Git Bash, so the step scripts are the Linux job's, verbatim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      # Two pure gates render through Quarto (export recovery, DOCX publication);
+      # neither needs TeX.
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: '1.7.32'
+      # The slide gates in the pure tier drive a real Chrome (FLUX_CHROME) even
+      # though they need no dev server. `stable` = the codec-bearing build, as
+      # in the Linux jobs.
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+      - name: Provision and rehash the pinned host video encoder
+        run: node scripts/fetch-video-encoder.mjs
+      - name: Type-check (svelte-check must be 0 errors)
+        run: npm run check && npm run check:headless
+      - name: Build (Vite bundle + dist/flux-cli.mjs + dist/flux-mcp.mjs)
+        run: npm run build
+      # --jobs 2, not the Linux job's 4: the 2026-09-22 session saw contention
+      # failures at 4 on a Windows laptop that were not regressions, and a
+      # hosted Windows runner has 4 vCPUs of slower I/O. Raise it only with the
+      # evidence of green runs.
+      - name: Pure verify tier (hermetic — no network, no dev server)
+        env:
+          FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: node scripts/run-verifies.mjs --tier pure --jobs 2
+      - name: Upload verify summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pure-verify-summary-windows
+          path: test-results/runs/**
+      - name: Assert the packaged bundles were emitted
+        run: |
+          for f in dist/flux-cli.mjs dist/flux-cli-core.mjs dist/flux-mcp.mjs dist/flux-fulltext-worker.mjs dist/slide-export-assets.json; do
+            test -f "$f" || { echo "::error::missing build artifact $f"; exit 1; }
+          done
 
   # Browser gate (WS-7.2) — the FULL de-flaked ui tier (post sleep→condition
   # conversion: 41 scripts, retryOnce on the known-sensitive ones). Currently

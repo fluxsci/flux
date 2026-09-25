@@ -76,6 +76,7 @@
       "verify-render-concurrency.ts",
       "verify-paper-commands.ts",
       "verify-paper-textscale.ts",
+      "verify-paper-history-keys.ts",
       "verify-docx-svg-fallback.ts",
       "verify-loadgate.ts",
       "verify-fwdguard.ts",
@@ -591,6 +592,7 @@
       "verify-paper-files-gui.mjs",
       "verify-paper-sidebar-layout.mjs",
       "verify-paper-textscale.ts",
+      "verify-paper-history-keys.ts",
       "verify-paper-textsize-gui.mjs",
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
@@ -1158,7 +1160,7 @@
     },
     {
       "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here — a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
-      "glob": "{extension/**,scripts/build-extension.mjs}",
+      "glob": "{extension/**,scripts/build-extension.mjs,scripts/sign-extension.mjs,scripts/lib/extensionVersion.mjs}",
       "run": [
         "verify-extension.ts",
         "tier:pure"
@@ -1232,6 +1234,15 @@
       "glob": "scripts/figenh-*",
       "run": [
         "self",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "historyKeys.ts binds Paper's redo chord on Windows, where CodeMirror's stock keymap leaves Ctrl+Shift+Z dead; the gate resolves the chord through CodeMirror's own builder with only the Windows-visible entries.",
+      "glob": "src/shell/modes/paper/historyKeys.ts",
+      "run": [
+        "verify-paper-history-keys.ts",
+        "group:paper-gate",
         "tier:pure"
       ]
     },
@@ -4103,6 +4114,15 @@
       "coverage": "behavior"
     },
     "verify-paper-textscale.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-paper-history-keys.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

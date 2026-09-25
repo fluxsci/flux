@@ -1441,6 +1441,11 @@ and `JSON.parse` throws; (3) npx announces itself with `npm notice run …` on S
 gate comparing a help golden or a CLI success line byte-for-byte will fail on. All three look
 like product bugs and none are. `spawn("npm", …)` for npm itself (audit, `run dev`) still needs
 `shell: true` on win32, and a win32 teardown needs `taskkill /T` — there are no process groups.
+CI (`.github/workflows/ci.yml`) runs type-check → build → pure tier → bundle tier on
+`ubuntu-latest` as the blocking `test` job, the ui tier as `ui-gate`, and since 2026-09-25 the
+headless path again on `windows-latest` as `test-windows` — both of the latter observing
+(`continue-on-error`, promotion rule in §10). A gate that is green on Linux and red on Windows
+is the reason the Windows job exists; read §9's Windows entries before touching the gate.
 
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
@@ -2201,6 +2206,27 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `evaluateSlide`/`Figure.elements` must filter with `effectiveHidden({elements, groups}, el)`
   (groups.ts); `verify-slide-pptx` pins it for the deck exporter.
 
+- **CodeMirror's stock `historyKeymap` binds Ctrl+Shift+Z to redo on Linux and macOS only.**
+  Redo there is `Mod-y` with `mac: "Mod-Shift-z"` and a separate `linux: "Ctrl-Shift-z"` entry,
+  so on Windows the shifted chord matches nothing and does nothing — while Flux documents it as
+  redo "in every editor" and the Figure/Slide editor accepts it everywhere (`keyboard.ts`). The
+  redo step of `verify-paper-slide-embeds` passed on Linux CI and failed on a Windows checkout,
+  and it was the product (2026-09-25). Paper now assembles `paperHistoryKeymap`
+  (`src/shell/modes/paper/historyKeys.ts`) — the chord bound with NO platform qualifier ahead of
+  the stock list. `verify-paper-history-keys.ts` (pure) proves it through CodeMirror's own
+  builder and `runScopeHandlers` over a fake `{state, dispatch}` view with the bindings filtered
+  to what a Windows platform reads (`win ?? key`; `mac`/`linux` entries are invisible there) —
+  a DOM-free way to test any CM key binding on a platform this host is not. Any new CM keymap
+  with a `linux:`/`mac:` entry needs a Windows reading before it ships.
+- **A `continue-on-error` CI job hides its red inside a green run.** `test-windows` in
+  `ci.yml` (2026-09-25) repeats type-check → build → pure tier on `windows-latest` under the
+  same observation rule as `ui-gate`: non-blocking until five consecutive green main runs,
+  then the marked line is deleted. Until then its result is only in the job list and the
+  `pure-verify-summary-windows` artifact, never in the run's overall status — read the job,
+  not the check mark. A Windows red there is a harness portability defect (the shapes above:
+  `npx`, replace-vs-unlink, separators, signals, symlinks) or a Windows product bug; it is
+  never fixed by loosening the gate.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
@@ -2239,6 +2265,10 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `needsLayout` is the shipped interim.
 - **CI ui-gate flip**: `.github/workflows/ci.yml` has one marked `continue-on-error` line to
   delete after 5 consecutive green main runs. Do not flip early.
+- **CI test-windows flip**: the second marked `continue-on-error` line in `ci.yml`
+  (the `windows-latest` job, 2026-09-25) — same rule, 5 consecutive green main runs, then delete
+  it. Bundle tier on Windows (TeX + rsvg-convert on the runner) and a Windows entry in
+  `release.yml` are separate, unstarted steps.
 - **Electron `project` IPC family** (watch/locks/prefs/config) is the one family still in
   `main.cjs` — mechanical follow-up, pattern established.
 - **Presence→behavioral test conversions** for `verify-p4-*`/`verify-p5-library`: convert as
@@ -6657,3 +6687,41 @@ pathMap rule.
 - A gesture that needs "which frame is under the cursor" per move should derive the world
   point from the pointerdown sample + client delta, not from `getBoundingClientRect` on every
   pointermove; the move gesture never touched layout before and must not start now.
+
+### 2026-09-25 — CI on Windows, a transactional extension bump, and Paper's dead redo key (Claude Fable 5.1, `main`)
+**Work:** Acted on the 2026-09-22 Windows report (`notes/flux-windows-and-ci-2026-09-22.md`).
+The owner re-signed the capture extension (0.1.2, `4483f28`) — `background.js` had changed in
+`d80a690` with no re-sign, so `verify-extension-build` had been red since; the add-on id is
+owned by the owner's AMO account, which is why a collaborator's attempt got "Forbidden".
+Three follow-ups: (1) `ci.yml` gained `test-windows`, the headless path (type-check → build →
+pure tier, `--jobs 2`) on `windows-latest`, observing under the ui-gate promotion rule; the
+bundle tier stays Linux-only until TeX + rsvg-convert are provisioned there. (2)
+`sign-extension.mjs` now bumps through `scripts/lib/extensionVersion.mjs`'s `withVersionBump`:
+a failed or Ctrl+C'd upload restores `extension/manifest.json` byte-for-byte and rebuilds
+`dist/` to match, so a failed attempt no longer leaves the manifest claiming a version nothing
+signed (the report's §1 trap). Dry-run through a fake npm exec: bump → build → "upload" fails →
+restored to 0.1.2, dist rebuilt, tree clean, gate green. Pinned in `verify-extension.ts` §2d.
+(3) The report's "redo step fails on Windows, passes on CI" in `verify-paper-slide-embeds` was
+a product bug, not a gate one: CodeMirror's stock `historyKeymap` binds Ctrl+Shift+Z to redo
+via a `linux:` entry (and Cmd+Shift+Z via `mac:`), so Windows had only Ctrl+Y while the docs
+promise Ctrl+Shift+Z in every editor and the Figure editor honours it everywhere. Paper now
+spreads `paperHistoryKeymap` (`historyKeys.ts`): the chord bound unqualified, ahead of the stock
+list. `verify-paper-history-keys.ts` (pure, paper-gate) resolves the chord through CodeMirror's
+own builder + `runScopeHandlers` over a fake view with the bindings filtered to what a Windows
+platform reads, and pins that the stock list alone does NOT redo there — so a CodeMirror
+upgrade that fixes this upstream says so instead of leaving an orphan override. Checks: 0/0,
+`check:headless` clean, paper-gate 65/65 (the runner flagged a mid-run edit to the new pure gate; no ui gate reads it), pure tier 288/288 at `--jobs 4`.
+**Learnings:**
+- Promoted to §9: the CodeMirror platform-split keymap, and that a `continue-on-error` job's
+  red lives only in the job list; §10: the test-windows flip; §7: the CI job map.
+- **A key binding can be tested on a platform you are not on, without a DOM.** CodeMirror's
+  builder reads `b[platform] ?? b.key`, so filtering the bindings to that subset and dispatching
+  a keydown-shaped object through `runScopeHandlers` over `{state, dispatch}` reproduces the
+  other platform's resolution exactly; only `Mod`'s spelling follows the host, and the synthetic
+  event uses the same modifier. Cheaper and more honest than a source grep for the binding.
+- **Restore the bytes, not the object.** The bump helper keeps the original manifest TEXT and
+  writes it back on failure; re-serializing the parsed object would have been a silent
+  reformat of a committed file on every failed attempt.
+- **A non-owner's AMO "Forbidden" is not a credentials problem.** The add-on id is bound to the
+  first uploading account for good; the fix is that account signing or adding an owner, and
+  the script's failure text now says so instead of pointing at the key page.

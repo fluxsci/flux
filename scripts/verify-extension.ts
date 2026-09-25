@@ -12,7 +12,8 @@
 // happened to have built recently. It cannot be moved back without turning CI red again.
 //
 // Run: npx tsx scripts/verify-extension.ts
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { transformSync } from "esbuild";
 import { readZip } from "./lib/readZip.mjs";
@@ -196,6 +197,46 @@ function run(page: { meta?: Record<string, string>; anchors?: Anchor[]; href?: s
   // verify-extension-build.ts — it is a property of dist/, not of the source.
   const sign = readFileSync("scripts/sign-extension.mjs", "utf8");
   ok(/WEB_EXT_API_KEY/.test(sign) && !/const .*SECRET *= *"/.test(sign), "signing reads credentials from the environment, never the repo");
+}
+
+// --- 2d: a bump that nothing signed does not survive ----------------------------------------
+// sign-extension used to bump the source manifest BEFORE uploading and leave the bump behind
+// when the upload failed (wrong key, "Forbidden" from a non-owner account, no network). The
+// manifest then claimed a version no signed file had, verify-extension-build went red for a
+// different reason than the real one, and the next attempt bumped from the wrong base
+// (2026-09-22 Windows report §1). The lifetime now lives in scripts/lib/extensionVersion.mjs,
+// exercised here on a scratch manifest: success keeps the number, failure restores the bytes.
+{
+  const { bumpPatch, withVersionBump } = await import("./lib/extensionVersion.mjs");
+  ok(bumpPatch("0.1.1") === "0.1.2" && bumpPatch("1.2") === "1.2.1" && bumpPatch(undefined) === "0.1.1", "bumpPatch increments the patch slot and tolerates short input");
+  const dir = mkdtempSync(path.join(tmpdir(), "flux-ext-version-"));
+  const scratch = path.join(dir, "manifest.json");
+  // Deliberately NOT JSON.stringify(…, 2) formatting: the restore must return the original
+  // BYTES, not a re-serialization that happens to parse the same.
+  const originalText = '{"manifest_version": 3,\n  "name":"x",   "version": "0.1.1"}\n';
+  writeFileSync(scratch, originalText);
+  try {
+    let restored: string | null = null;
+    let seen: string[] = [];
+    await withVersionBump(scratch, "0.1.2", async (next: string, prev: string) => {
+      seen = [next, prev, JSON.parse(readFileSync(scratch, "utf8")).version];
+      throw new Error("upload failed");
+    }, { onRestore: async (prev: string) => { restored = prev; } }).then(
+      () => ok(false, "a failing signer rejects"),
+      (e: Error) => ok(e.message === "upload failed", "the signer's own error is what surfaces (not a restore error)"),
+    );
+    ok(seen[0] === "0.1.2" && seen[1] === "0.1.1" && seen[2] === "0.1.2", "the work sees the bumped manifest on disk while it runs", seen.join(","));
+    ok(readFileSync(scratch, "utf8") === originalText, "a failed run restores the manifest BYTE-FOR-BYTE (formatting and all)");
+    ok(restored === "0.1.1", "…and tells the caller the version it went back to, so dist/ can be rebuilt to match", String(restored));
+    const result = await withVersionBump(scratch, "0.1.2", async (next: string) => `signed ${next}`);
+    ok(result === "signed 0.1.2" && JSON.parse(readFileSync(scratch, "utf8")).version === "0.1.2", "a successful run keeps the bump and returns the work's result");
+    ok(readFileSync(scratch, "utf8").endsWith("\n"), "the kept manifest is newline-terminated like the committed one");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const sign = readFileSync("scripts/sign-extension.mjs", "utf8");
+  ok(/withVersionBump\(/.test(sign) && !/^\s*await writeFile\(srcManifest/m.test(sign), "sign-extension bumps through withVersionBump and never writes the manifest itself");
+  ok(/process\.once\("SIGINT"/.test(sign) && /restoreManifestSync/.test(sign), "an interrupted upload restores the manifest too");
 }
 
 // --- 3: names the PRODUCER actually builds survive to the receiver -------------------------
