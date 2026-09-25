@@ -1,4 +1,4 @@
-// The colour picker at every Inspector width (2026-09-24).
+// The colour picker at every Inspector width (2026-09-24; conventions 2026-09-25).
 //
 // Owner report: with a narrow sidebar the picker's spectrum column (name, hex,
 // saturation square, hue bar) sat ON TOP of the swatch grid. The picker was a
@@ -14,14 +14,13 @@
 //   • a wide Inspector and the 620 px F menu keep the side-by-side layout,
 //     with the 204 px spectrum;
 //   • a narrow Inspector stacks the spectrum under the palette at full width.
-// Screenshots: colorpicker-narrow-<width>.png.
-import { launch, gotoApp, clickMode, shot, realErrors, sleep } from "./lib/driver.mjs";
+// Every wait is a condition (guide §7): the picker being open, the selected tab
+// being on, a frame having painted after a width write. Screenshots:
+// colorpicker-narrow-<width>.png.
+import { launch, gotoApp, clickMode, shot, realErrors, waitFor, waitForSelector, waitForFrame, APP_URL } from "./lib/driver.mjs";
+import { harness } from "./lib/harness.mjs";
 
-let fails = 0;
-function assert(cond, msg) {
-  if (cond) console.log("  ok:", msg);
-  else { fails++; console.error("  FAIL:", msg); }
-}
+const h = harness("verify-colorpicker-narrow");
 
 // Measured in the page: the geometry of the picker inside `root`.
 const geometry = (root) => {
@@ -42,9 +41,9 @@ const geometry = (root) => {
 
 const { browser, page } = await launch({ width: 1600, height: 1000 });
 try {
-  await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
+  await gotoApp(page, { url: APP_URL + "?fixture=demo" });
   await clickMode(page, "Figure");
-  await sleep(700);
+  await waitFor(page, () => !!window.__flux?.fig && !!document.querySelector(".canvas-host"), null, { label: "Figure editor mounted" });
   await page.evaluate(() => {
     const F = window.__flux.fig;
     F.commit((p) => {
@@ -53,45 +52,46 @@ try {
     });
     F.selectOnly("cp-t");
   });
-  await sleep(300);
+  // The Inspector shows the text rows once the selection has landed.
+  await waitFor(page, () => [...document.querySelectorAll("button.swrow")].some((b) => (b.getAttribute("title") ?? "").startsWith("Text colour")), null, { label: "Inspector shows the Text colour row" });
   await page.evaluate(() => [...document.querySelectorAll("button.swrow")].find((b) => (b.getAttribute("title") ?? "").startsWith("Text colour"))?.click());
-  await sleep(400);
-  assert(await page.evaluate(() => !!document.querySelector(".inspector .pop .cs")), "the Inspector's text-colour picker opens");
+  await waitForSelector(page, ".inspector .pop .cs", { label: "the text-colour picker opens" });
+  h.ok(true, "the Inspector's text-colour picker opens");
 
   for (const width of [900, 760, 620, 520, 420, 320, 248]) {
     await page.evaluate((w) => document.querySelector(".inspector").parentElement.style.setProperty("--insp-w", w + "px"), width);
-    await sleep(150);
+    await waitForFrame(page); // the layout has painted at the new width
     const g = await page.evaluate(geometry, ".inspector .pop");
-    assert(g && !g.overlap && !g.overflow, `Inspector ${width}px: no swatch under the spectrum or past the edge (${JSON.stringify(g)})`);
-    if (width >= 760) assert(g && !g.stacked && g.sideWidth === 204, `Inspector ${width}px keeps the spectrum beside the palette at 204px`);
-    if (width <= 520) assert(g && g.stacked && g.sideWidth > 204, `Inspector ${width}px stacks the spectrum below the palette, full width`);
+    h.ok(g && !g.overlap && !g.overflow, `Inspector ${width}px: no swatch under the spectrum or past the edge (${JSON.stringify(g)})`);
+    if (width >= 760) h.ok(g && !g.stacked && g.sideWidth === 204, `Inspector ${width}px keeps the spectrum beside the palette at 204px`);
+    if (width <= 520) h.ok(g && g.stacked && g.sideWidth > 204, `Inspector ${width}px stacks the spectrum below the palette, full width`);
     if (width === 520 || width === 248) await shot(page, `colorpicker-narrow-${width}`);
   }
 
   // The F menu's colour mode is a fixed 620px: it must keep the side-by-side
   // layout it was designed with, for every bundled collection.
   await page.evaluate(() => document.querySelector(".inspector").parentElement.style.removeProperty("--insp-w"));
-  await page.evaluate(() => [...document.querySelectorAll(".inspector .pop .tab")].length && document.activeElement?.blur());
-  await page.mouse.click(900, 600);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.mouse.click(900, 600); // an empty canvas spot: closes the picker, clears the selection
+  await waitFor(page, () => !document.querySelector(".inspector .pop .cs"), null, { label: "the Inspector picker closed" });
   await page.evaluate(() => window.__flux.fig.selectOnly("cp-t"));
-  await sleep(200);
+  await waitFor(page, () => window.__flux.get(window.__flux.fig.selection).has("cp-t"), null, { label: "the text box is selected again" });
   await page.keyboard.press("f");
-  await sleep(400);
+  await waitForSelector(page, ".colorbtn", { label: "the F menu opens with a colour button" });
   await page.evaluate(() => [...document.querySelectorAll(".colorbtn")][0]?.click());
-  await sleep(500);
-  assert(await page.evaluate(() => !!document.querySelector(".color-mode .cs")), "the F menu's colour mode opens");
+  await waitForSelector(page, ".color-mode .cs", { label: "the F menu's colour mode opens" });
+  h.ok(true, "the F menu's colour mode opens");
   for (const tab of ["Flexoki", "ColorBrewer", "Paul Tol"]) {
     await page.evaluate((t) => [...document.querySelectorAll(".color-mode .tab")].find((b) => b.textContent.trim() === t)?.click(), tab);
-    await sleep(250);
+    await waitFor(page, (t) => [...document.querySelectorAll(".color-mode .tab")].some((b) => b.textContent.trim() === t && b.getAttribute("aria-selected") === "true"), tab, { label: `${tab} tab selected` });
+    await waitForFrame(page);
     const g = await page.evaluate(geometry, ".color-mode");
-    assert(g && !g.stacked && !g.overlap && !g.overflow, `F menu (${tab}): side by side, nothing overlapping (${JSON.stringify(g)})`);
+    h.ok(g && !g.stacked && !g.overlap && !g.overflow, `F menu (${tab}): side by side, nothing overlapping (${JSON.stringify(g)})`);
   }
 
-  const errs = realErrors(page);
-  assert(errs.length === 0, `no renderer errors (${errs.slice(0, 2).join(" | ")})`);
-} finally {
-  await browser.close();
+  h.eq(realErrors(page), [], "clean browser console");
+} catch (error) {
+  h.fail(String(error));
+  console.error(error);
 }
-
-console.log(fails === 0 ? "\nCOLORPICKER NARROW: ALL PASS" : `\nCOLORPICKER NARROW: ${fails} FAILURE(S)`);
-process.exit(fails === 0 ? 0 : 1);
+await h.done(() => browser.close());

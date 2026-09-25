@@ -255,9 +255,13 @@
   $: typing = $typingStyle && single && $typingStyle.id === single.id ? $typingStyle : null;
   $: flagPressed = (which: "bold" | "italic" | "underline", boxOn: boolean) =>
     typing?.flags[which] !== undefined ? !!typing.flags[which] : ranged ? rangeOn(which) : boxOn;
+  // With no typing style and no live range the buttons read the BOX's own
+  // look, like flagPressed: a selected box whose whole text is one script run
+  // shows X² / X₂ pressed (and a click on it clears the run, as before).
   $: scriptPressed = (which: "super" | "sub") =>
     typing?.flags.script !== undefined ? typing.flags.script === which
-      : ranged ? rangeScript(ranged.element, ranged.range.from, ranged.range.to) === which : false;
+      : ranged ? rangeScript(ranged.element, ranged.range.from, ranged.range.to) === which
+      : single?.type === "text" ? rangeScript(single, 0, single.text.length) === which : false;
   const swatchName = (hex: string) => (hex === "none" ? "none" : (nameForHex(hex) ?? hex));
 
   // Panel-label (caption) state across the selected text elements.

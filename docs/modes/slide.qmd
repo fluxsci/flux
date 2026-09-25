@@ -321,5 +321,5 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
 | A plot Become crossfades instead of morphing its data | The plots have incompatible structures → use matching series ids, point counts and axis scales for continuous data morphing |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
-| "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | Fixed on 2026-09-24: a reload overtaken by the agent's next edit was reported as a bad file. Update Flux. The deck on disk was never damaged, so reopening it shows the agent's version |
+| "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | An older Flux mistook a reload overtaken by the agent’s next edit for a bad file → update Flux; the deck on disk is intact, so reopening it shows the agent’s version |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

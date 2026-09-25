@@ -13,7 +13,7 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
-const { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } = await import("../src/lib/plot/compensate");
+const { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue, hasContentScaleTargets } = await import("../src/lib/plot/compensate");
 const { parsePlotSvg } = await import("../src/lib/plot/parse");
 const { normalizeSvgForParts } = await import("../src/lib/plot/derive");
 
@@ -152,5 +152,21 @@ const rN = parsePlotSvg(NESTED) as unknown as Element;
 const beforeN = String(rN);
 compensatePtTrue(rN, { elW: 50, elH: 50, intrinsic: { w: 100, h: 100 } });
 assert(String(rN) === beforeN, "defs / nested-svg / clipPath subtrees untouched");
+
+// ---------------------------------------------------------------------------
+// 7. content-scale applicability (owner report 2026-09-24: "the content scale
+//    seems not to work" on PNG-wrapped-in-SVG pictures). hasContentScaleTargets
+//    walks with compensatePtTrue's own rules: false for a raster-only or
+//    fill-only graphic, true once there is text or a declared stroke, and
+//    <defs> never counts. Rehomed here from verify-slide-pdf (2026-09-25):
+//    this is the module's own gate.
+// ---------------------------------------------------------------------------
+console.log("content-scale applicability:");
+const svgOf = (body: string) => new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60">${body}</svg>`, "image/svg+xml").documentElement as unknown as Element;
+assert(!hasContentScaleTargets(svgOf(`<image width="80" height="60" href="data:image/png;base64,AAAA"/>`)), "a raster picture wrapped in SVG has nothing content scale acts on");
+assert(!hasContentScaleTargets(svgOf(`<rect width="10" height="10" fill="#f00"/><path d="M0 0L5 5" fill="#00f"/>`)), "filled shapes alone have nothing content scale acts on");
+assert(hasContentScaleTargets(svgOf(`<g><text x="1" y="10">label</text></g>`)), "text is a content-scale target");
+assert(hasContentScaleTargets(svgOf(`<path d="M0 0L5 5" stroke="#000"/>`)), "a stroke is a content-scale target");
+assert(!hasContentScaleTargets(svgOf(`<defs><text>x</text></defs><image width="8" height="6"/>`)), "text inside <defs> does not count");
 
 console.log("\nverify-compensate: ALL OK");

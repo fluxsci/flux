@@ -77,6 +77,10 @@ usage: flux <verb> [root] [args] [--flags]
             window (intrinsic content px; content stays pinned — the box follows)
   reset-crop <id> [--root R]           remove a crop (full content at current scale)
   toggle-text-style <bold|italic|underline> <id…> [--root R]   B/I/U toggle on texts
+  toggle-text-run-style <id> <from> <to> <bold|italic|underline> [--root R]   B/I/U on a
+            character range [from, to) of one text (0-based, to exclusive)
+  toggle-text-run-script <id> <from> <to> <super|sub> [--root R]   super/subscript a range
+  set-text-run-color <id> <from> <to> <#hex|inherit> [--root R]   colour a range (inherit clears)
   add-fig-text <figId> "text…" [--x --y --width --height --size-pt n --weight n
             --font F --color c --align a --valign v --letter-spacing n
             --paragraph-spacing n --sizing m] [--panel-label] [--root R]

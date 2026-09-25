@@ -1660,9 +1660,12 @@ export function toggleTextRunStyle(p: Project, id: Id, from: number, to: number,
   else delete e.runs;
   if (JSON.stringify(e.runs ?? []) === before) return;
   if (which !== "underline") invalidateTextLayout(e);
-  // A per-range edit is a manual font edit like any other: a named style
-  // describes ONE font for the whole element and can no longer describe this.
-  detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
+  // No named-style detach (2026-09-25): runs are a separate layer over the
+  // element's BASE look — absolute flags, pruned when they restate the base —
+  // and a later change to the linked style never overwrites them, so there is
+  // nothing to protect. Detaching here silently unlinked a "Body" caption from
+  // Body for bolding one word; only the whole-box toggle (toggleTextStyle)
+  // changes element properties and keeps its detach.
 }
 
 /** Toggle superscript / subscript over ONE text element's range [from, to).
@@ -1677,8 +1680,8 @@ export function toggleTextRunScript(p: Project, id: Id, from: number, to: number
   else delete e.runs;
   if (JSON.stringify(e.runs ?? []) === before) return;
   invalidateTextLayout(e);
-  // Like a bold range: a named style describes one font size for the element.
-  detachOnManualEdit(p, e, ["fontSize"]);
+  // No named-style detach: scripts are relative to the element's size (see
+  // toggleTextRunStyle).
 }
 
 /** Paint ONE text element's character range [from, to) with `color`, or with
@@ -1689,8 +1692,8 @@ export function setTextRunColor(p: Project, id: Id, from: number, to: number, co
   const runs = setRunColor(e, from, to, color);
   if (runs.length) e.runs = runs;
   else delete e.runs;
-  // Like a whole-box colour edit, this detaches a named style that defines one.
-  detachOnManualEdit(p, e, ["color"]);
+  // No named-style detach: a coloured range overrides the base colour only
+  // where it lies (see toggleTextRunStyle).
 }
 
 const textById = (p: Project, id: Id): TextElement | null => {

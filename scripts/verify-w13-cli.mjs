@@ -53,6 +53,16 @@ try {
   const timing = `${dt}ms (bare node ${control}ms; overhead ${over}ms; budget <150ms)`;
   if (dt < 150) ok(`flux help cold start ${timing}`);
   else bad("help cold start", timing);
+  // A REAL verb pays what help no longer does: the launcher imports the core
+  // bundle (~6 MB of V8 compile) before any work. `help <verb>` is the cheapest
+  // such path (no project, no FluxConfig), so its cold start is the bundle's
+  // cost floor for every agent call. One-shot commands are the 1 s navigation
+  // class (guide section 6); the number is reported so a regression shows as a
+  // trend long before it reaches the budget.
+  const verbDt = timed([CLI, "help", "new"]);
+  const verbTiming = `${verbDt}ms (bare node ${control}ms; overhead ${verbDt - control}ms; budget <1000ms)`;
+  if (verbDt < 1000) ok(`flux help new (core bundle) cold start ${verbTiming}`);
+  else bad("verb cold start", verbTiming);
   // The launcher's help fast path must print exactly what the full CLI prints.
   for (const args of [[], ["help"]]) {
     const fast = node([CLI, ...args]), full = node([CORE, ...args]);

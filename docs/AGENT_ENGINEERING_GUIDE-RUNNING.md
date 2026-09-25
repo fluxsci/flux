@@ -2177,7 +2177,17 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   prints help captured from the core bundle at build time (bare `flux` and `flux help` only)
   and imports the core for everything else. Anything that copies the CLI into another layout
   (probes, packaging, isolated-export checks) must copy BOTH files. `verify-w13-cli` checks the
-  launcher's help is byte-identical to the core's and keeps the 8 MB budget on the core.
+  launcher's help is byte-identical to the core's and keeps the 8 MB budget on the core. The
+  150 ms budget now measures only that fast path; every real verb still pays the core compile,
+  so the gate also times `flux help new` (launcher → core import, no project) under a 1 s
+  navigation-class budget and reports the number — the bundle's cost floor for every agent
+  call (2026-09-25; ~95 ms on the Linux workstation).
+- **Every renderer decides "hidden" with `effectiveHidden`, never `el.hidden`.** The Layers
+  eye on a GROUP hides its members without touching their own flags; `figureToSvg` (canvas,
+  poster, PDF, HTML) honours it, and the PowerPoint writer did not until 2026-09-25, so a
+  group hidden by its eye was absent from the PDF and present in the PPTX. A new consumer of
+  `evaluateSlide`/`Figure.elements` must filter with `effectiveHidden({elements, groups}, el)`
+  (groups.ts); `verify-slide-pptx` pins it for the deck exporter.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -6580,3 +6590,38 @@ leans on the ceiling to reach 16×.
 - Before raising a limit, find what actually depended on it: here no gate did, but the perf
   probe's deep-zoom phase silently relied on the wheel clamp to land at exactly 16×. Grep the
   probes and scripts for the literal, not just `src/`.
+
+### 2026-09-25 (later) — Follow-ups from the review of Lorenzo's 09-23/24 batch (Claude Fable 5.1, `main`)
+**Work:** Reviewed his 13 commits (deck PDF/PPTX export, per-letter styling + sup/sub, deck
+reload fix, CLI launcher); all kept, six adjustments landed: (1) the PowerPoint writer now honours
+a group's Layers eye via `effectiveHidden`, as the PDF/HTML path always did (`verify-slide-pptx`
++1); (2) the content-scale predicate cases moved from `verify-slide-pdf` into
+`verify-compensate` (the module's own gate) and the deck-export path map now includes
+`plot/store.ts` + `Inspector.svelte`; (3) the per-plan point memo in `outline.ts` is gone — with
+arcT allocation-free it measured as noise — and `verify-v020-morph-startup` runs the one real
+path (cold path 46 ms median, preview 14, seek 5; `verify-v020-morph-cache` proves the sampled
+geometry is bit-identical); (4) `verify-w13-cli` times a real verb's cold start through the
+launcher (`help new`, 1 s navigation budget, ~95 ms here) so the bundle compile is measured
+again; (5) `verify-colorpicker-narrow` uses `APP_URL`, condition waits and the harness; (6)
+per-range text formatting no longer detaches a linked named style, X²/X₂ read pressed for a
+wholly-scripted selected box, and three registry verbs — `toggle-text-run-style`,
+`toggle-text-run-script`, `set-text-run-color` (0-based offsets, `to` exclusive, `inherit`
+clears a colour) — give agents the GUI's letter-selection formatting headless with named errors
+for bad ranges (`verify-text-runs` 70 → 80, MCP golden +3 tools). The slide docs' troubleshooting
+row about the deck-reload fix was reworded from a changelog into the user register.
+**Learnings:**
+- Two lessons promoted to §9: every renderer decides hidden with `effectiveHidden`; and a
+  cold-start budget that measures a fast path only is not measuring the product — time the
+  path agents actually take.
+- A memo whose reason has gone is complexity with a gate that can only report noise. When a
+  later optimisation removes the cost a cache offset, delete the cache and let the output
+  oracle prove the deletion, rather than keep an unasserted ratio "for information".
+- Range formatting is a layer over the element's base look; a named-style detach belongs to
+  edits that change element properties, not to runs. The old contract came from treating a
+  bold range as "a manual font edit like any other" (3578ea1/5b47293); reversed here.
+- `scripts/fixtures/cli-help.golden.txt` is read by no gate and is stale; `HELP_GOLDEN` in
+  `verify-registry-parity` is an unused constant. Left alone under rule 6 — decide whether to
+  wire it back or delete it.
+- The shell's `grep` in Claude Code sessions is a wrapper that silently skips files it deems
+  binary; `outline.ts` and other sources with non-ASCII bytes return NOTHING. Use
+  `command grep -a` (or `git grep`) when a search over `src/` comes back empty.

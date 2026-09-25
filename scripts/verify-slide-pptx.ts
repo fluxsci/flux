@@ -14,7 +14,7 @@
 //     (custom geometry) are native shapes;
 //   • a plot is a VECTOR picture: the SVG part plus the PNG fallback
 //     (asvg:svgBlip), and the SVG is the plot's own markup, not a raster;
-//   • a raster image keeps its crop; hidden and not-yet-born elements are out;
+//   • a raster image keeps its crop; hidden (own flag or a group eye) and not-yet-born elements are out;
 //   • the build's final step is what is written.
 // Native checks (PowerPoint opens it without repair, shape kinds, render) were
 // run against the owner's deck through PowerPoint's COM interface.
@@ -58,8 +58,11 @@ deck.slides = [{
     { ...base, id: "plot", type: "plot", name: "Scatter", x: 400, y: 180, width: 200, height: 150, assetId: "plot-asset", overrides: {} },
     { ...base, id: "img", type: "image", name: "Photo", x: 20, y: 280, width: 80, height: 40, assetId: "png-asset", crop: { x: 10, y: 5, width: 20, height: 10 } },
     { ...base, id: "hid", type: "rect", name: "Hidden", x: 0, y: 0, width: 10, height: 10, fill: "#000000", stroke: "none", strokeWidth: 0, cornerRadius: 0, hidden: true },
+    { ...base, id: "eyed", type: "rect", name: "Eyed", x: 0, y: 20, width: 10, height: 10, fill: "#000000", stroke: "none", strokeWidth: 0, cornerRadius: 0, groupId: "g-eye" },
     { ...base, id: "late", type: "rect", name: "Late", x: 500, y: 20, width: 40, height: 40, fill: "#24837B", stroke: "none", strokeWidth: 0, cornerRadius: 0 },
   ],
+  // A group whose Layers eye is closed: its member is visible by its own flag.
+  groups: { "g-eye": { id: "g-eye", name: "Eyed group", hidden: true } },
 }] as typeof deck.slides;
 deck.background = "#FFFCF0";
 const payload = { deck, plots: { "plot-asset": { svg: PLOT_SVG, manifest: PLOT_MANIFEST } }, assets: { "png-asset": PNG }, assetSizes: { "png-asset": { width: 40, height: 20 } } };
@@ -120,6 +123,7 @@ h.ok(svgTarget?.endsWith(".svg") && svgPart.startsWith("<svg") && svgPart.includ
 h.ok(rasterCalls >= 1 && names.some((n) => n.startsWith("ppt/media/") && n.endsWith(".png")), "a PNG fallback rides along for readers without SVG");
 h.ok(/name="Photo"[^]*?<a:srcRect l="25000" t="25000" r="25000" b="25000"\/>/.test(slide), "a cropped image keeps its crop");
 h.ok(!slide.includes('name="Hidden"'), "a hidden element is left out");
+h.ok(!slide.includes('name="Eyed"'), "a member of a group hidden by its Layers eye is left out, as in the PDF and HTML");
 h.ok(slide.includes('name="Late"'), "the element born at the last step is in (the final state is written)");
 
 // ---- colour parsing ---------------------------------------------------------

@@ -26,6 +26,8 @@ import { zipSync, strToU8 } from "fflate";
 import type { Element } from "../../types";
 import type { ExportPayload } from "../payload";
 import { evaluateSlide, type EvaluatedSlide } from "../embedRender";
+import { effectiveHidden } from "../../groups";
+import type { Figure as FigureShape } from "../../types";
 import { elementToSvg } from "../../export";
 import { elementOutline } from "../outline";
 import { segsFromNodes } from "../../path";
@@ -334,7 +336,13 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
       },
     };
     const shapes: string[] = [];
+    // Layers eyes: an element hidden itself OR by any ancestor group's eye is
+    // out, exactly as figureToSvg (export.ts) decides for the poster, PDF and
+    // HTML paths. Array order is draw order here too: a group's members occupy
+    // one contiguous run of the elements array (groups.ts invariant).
+    const eyes = { elements: ev.elements, groups: ev.groups } as unknown as FigureShape;
     for (const el of ev.elements) {
+      if (effectiveHidden(eyes, el)) continue;
       try {
         const xml = await elementXml(ctx, el);
         if (xml) shapes.push(xml);

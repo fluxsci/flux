@@ -10,10 +10,6 @@
 //   • pages are exactly the deck stage (@page size, page boxes, block svgs), and
 //     the last page does not push a blank sheet after itself;
 //   • a slide's video contributes its poster, never the movie bytes.
-// Also the content-scale applicability check (owner report 2026-09-24: "the
-// content scale seems not to work" on PNG-wrapped-in-SVG pictures):
-// hasContentScaleTargets is false for a raster-only or fill-only graphic and
-// true once there is text or a stroke.
 //   Run: node --import tsx scripts/verify-slide-pdf.ts
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -23,7 +19,6 @@ import { harness } from "./lib/harness.mjs";
 import { createDeck } from "../src/lib/slide/ops";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import { deckPdfDocument, pdfStepsFor } from "../src/lib/slide/export/deckPdf";
-import { hasContentScaleTargets } from "../src/lib/plot/compensate";
 
 const h = harness("verify-slide-pdf");
 const { document, DOMParser, XMLSerializer } = parseHTML("<!doctype html><html><body></body></html>");
@@ -84,15 +79,5 @@ try {
 } finally {
   await fs.rm(root, { recursive: true, force: true });
 }
-
-// ---- content scale applicability -------------------------------------------
-const svg = (body: string) => new DOMParser().parseFromString(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60">${body}</svg>`, "image/svg+xml").documentElement as unknown as Element;
-h.ok(!hasContentScaleTargets(svg(`<image width="80" height="60" href="data:image/png;base64,AAAA"/>`)),
-  "a raster picture wrapped in SVG has nothing content scale acts on");
-h.ok(!hasContentScaleTargets(svg(`<rect width="10" height="10" fill="#f00"/><path d="M0 0L5 5" fill="#00f"/>`)),
-  "filled shapes alone have nothing content scale acts on");
-h.ok(hasContentScaleTargets(svg(`<g><text x="1" y="10">label</text></g>`)), "text is a content-scale target");
-h.ok(hasContentScaleTargets(svg(`<path d="M0 0L5 5" stroke="#000"/>`)), "a stroke is a content-scale target");
-h.ok(!hasContentScaleTargets(svg(`<defs><text>x</text></defs><image width="8" height="6"/>`)), "text inside <defs> does not count");
 
 await h.done();

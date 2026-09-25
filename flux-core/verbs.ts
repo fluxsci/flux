@@ -915,6 +915,66 @@ export const VERBS: VerbDef[] = [
       mcp: (_r, a) => text(`toggled ${a.which} on ${sArr(a.ids).length} element(s)`),
     },
   },
+  // Per-RANGE text formatting (2026-09-25): what the GUI does to selected
+  // letters, headless. Offsets are 0-based characters into the element's
+  // `text`, `to` exclusive; an out-of-range pair or a non-text id is an error.
+  {
+    name: "toggle_text_run_style",
+    cli: "toggle-text-run-style",
+    cliRoot: "flags",
+    summary:
+      "Toggle bold/italic/underline on ONE text element's character range [from, to) (0-based offsets into its text, `to` exclusive): a range that is entirely on turns off, anything else turns on. Runs are stored relative to the element's own look, so a range that merely restates it leaves nothing behind.",
+    params: { id: z.string(), from: z.number().int().nonnegative(), to: z.number().int().positive(), which: z.enum(["bold", "italic", "underline"]) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      { kind: "pos", at: 1, into: "from", required: true, as: "number" },
+      { kind: "pos", at: 2, into: "to", required: true, as: "number" },
+      { kind: "pos", at: 3, into: "which", required: true },
+    ],
+    handler: (ctx, a) => core.toggleTextRunStyle(ctx.root, s(a.id), n(a.from), n(a.to), a.which as "bold" | "italic" | "underline"),
+    render: {
+      human: (_r, a) => ({ err: `✓ toggled ${a.which} on ${a.id}[${a.from}, ${a.to})` }),
+      mcp: (_r, a) => text(`toggled ${a.which} on ${a.id}[${a.from}, ${a.to})`),
+    },
+  },
+  {
+    name: "toggle_text_run_script",
+    cli: "toggle-text-run-script",
+    cliRoot: "flags",
+    summary:
+      "Toggle superscript (`super`) or subscript (`sub`) on ONE text element's character range [from, to) (0-based offsets, `to` exclusive): pressing the script the range already has returns it to the baseline; the other script switches it. Glyphs are set at 0.62 of the font size and shifted.",
+    params: { id: z.string(), from: z.number().int().nonnegative(), to: z.number().int().positive(), which: z.enum(["super", "sub"]) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      { kind: "pos", at: 1, into: "from", required: true, as: "number" },
+      { kind: "pos", at: 2, into: "to", required: true, as: "number" },
+      { kind: "pos", at: 3, into: "which", required: true },
+    ],
+    handler: (ctx, a) => core.toggleTextRunScript(ctx.root, s(a.id), n(a.from), n(a.to), a.which as "super" | "sub"),
+    render: {
+      human: (_r, a) => ({ err: `✓ toggled ${a.which}script on ${a.id}[${a.from}, ${a.to})` }),
+      mcp: (_r, a) => text(`toggled ${a.which}script on ${a.id}[${a.from}, ${a.to})`),
+    },
+  },
+  {
+    name: "set_text_run_color",
+    cli: "set-text-run-color",
+    cliRoot: "flags",
+    summary:
+      "Paint ONE text element's character range [from, to) (0-based offsets, `to` exclusive) with a colour (#rrggbb), or pass `inherit` to hand the range back to the element's own colour. The rest of the text keeps its colour.",
+    params: { id: z.string(), from: z.number().int().nonnegative(), to: z.number().int().positive(), color: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "id", required: true },
+      { kind: "pos", at: 1, into: "from", required: true, as: "number" },
+      { kind: "pos", at: 2, into: "to", required: true, as: "number" },
+      { kind: "pos", at: 3, into: "color", required: true },
+    ],
+    handler: (ctx, a) => core.setTextRunColor(ctx.root, s(a.id), n(a.from), n(a.to), s(a.color) === "inherit" ? null : s(a.color)),
+    render: {
+      human: (_r, a) => ({ err: `✓ ${a.color === "inherit" ? "cleared the colour of" : `coloured ${a.color}`} ${a.id}[${a.from}, ${a.to})` }),
+      mcp: (_r, a) => text(`${a.color === "inherit" ? "cleared the colour of" : `coloured ${a.color}`} ${a.id}[${a.from}, ${a.to})`),
+    },
+  },
   {
     name: "set_guides",
     cli: "set-guides",

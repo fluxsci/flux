@@ -300,6 +300,32 @@ const text = (extra: Partial<TextElement> = {}): TextElement =>
   h.ok(eq(el.runs, [{ from: 1, to: 2, script: "sub" }]), "ops.toggleTextRunScript writes the run");
 }
 
+// ------------------------------------------------------- named styles
+// (2026-09-25) Runs are a layer OVER the element's base look: absolute flags,
+// pruned when they restate the base, never overwritten by a later change to a
+// linked named style. So formatting a range must not detach the style — it
+// used to, and bolding one word in a "Body" caption silently unlinked it from
+// Body. Only the whole-box toggle changes element properties and detaches.
+{
+  const styled = () => ({
+    figures: [{ id: "f", elements: [text({ id: "tn", text: "Body text here", styleId: "st-body" })] }],
+    textStyles: [{ id: "st-body", name: "Body", fontFamily: "Arial", fontSize: 10, fontWeight: 400, fontStyle: "normal", color: "#000000" }],
+  }) as unknown as Project;
+  const el = (p: Project) => p.figures[0].elements[0] as TextElement;
+  let p = styled();
+  ops.toggleTextRunStyle(p, "tn", 0, 4, "bold");
+  h.ok(el(p).styleId === "st-body" && eq(el(p).runs, [{ from: 0, to: 4, bold: true }]), "bolding a range keeps the element linked to its named style");
+  p = styled();
+  ops.toggleTextRunScript(p, "tn", 5, 6, "sub");
+  h.ok(el(p).styleId === "st-body" && eq(el(p).runs, [{ from: 5, to: 6, script: "sub" }]), "subscripting a range keeps the named style");
+  p = styled();
+  ops.setTextRunColor(p, "tn", 0, 4, "#AF3029");
+  h.ok(el(p).styleId === "st-body" && eq(el(p).runs, [{ from: 0, to: 4, color: "#AF3029" }]), "colouring a range keeps the named style, even though the style defines a colour");
+  p = styled();
+  ops.toggleTextStyle(p, ["tn"], "bold");
+  h.ok(el(p).styleId === undefined && el(p).fontWeight === 700, "the whole-box toggle still detaches the named style (it rewrites the element's font)");
+}
+
 // ------------------------------------------------------------------ loading
 {
   // The schema is lenient by design, so the LOADER is what guarantees the
@@ -352,6 +378,24 @@ const text = (extra: Partial<TextElement> = {}): TextElement =>
     const again = await core.loadFigModel(root);
     const plain = again.project.figures.find((x) => x.id === "figR")!.elements[1] as TextElement;
     h.ok(!("runs" in plain), "an unformatted text is written and read back with NO runs field at all");
+
+    // The headless verbs (flux-core) format a RANGE through the same ops the
+    // GUI uses, on the real files, and refuse what an agent gets wrong.
+    await core.toggleTextRunStyle(root, "tR", 0, 4, "bold");
+    await core.toggleTextRunScript(root, "tR", 13, 17, "super");
+    await core.setTextRunColor(root, "tR", 5, 12, "#AF3029");
+    const verbed = (await core.loadFigModel(root)).project.figures.find((x) => x.id === "figR")!.elements[0] as TextElement;
+    h.ok(eq(verbed.runs, [{ from: 0, to: 4, bold: true }, { from: 5, to: 12, italic: true, color: "#AF3029" }, { from: 13, to: 17, script: "super" }]),
+      `the three range verbs land on disk beside the existing run (${JSON.stringify(verbed.runs)})`);
+    await core.setTextRunColor(root, "tR", 5, 12, null);
+    const cleared = (await core.loadFigModel(root)).project.figures.find((x) => x.id === "figR")!.elements[0] as TextElement;
+    h.ok(eq(cleared.runs, [{ from: 0, to: 4, bold: true }, { from: 5, to: 12, italic: true }, { from: 13, to: 17, script: "super" }]),
+      "handing a range back to the element's colour (inherit) drops just the colour");
+    const refused = async (fn: () => Promise<void>, re: RegExp) => { try { await fn(); return false; } catch (e) { return re.test(String(e)); } };
+    h.ok(await refused(() => core.toggleTextRunStyle(root, "tR", 4, 4, "bold"), /bad character range/), "an empty range is refused with the offsets and the text length");
+    h.ok(await refused(() => core.toggleTextRunStyle(root, "tR", 0, 99, "bold"), /bad character range/), "a range past the end is refused");
+    h.ok(await refused(() => core.setTextRunColor(root, "nope", 0, 1, "#000000"), /element not found/), "an unknown element is named in the error");
+    h.ok(await refused(() => core.toggleTextRunScript(root, "figR", 0, 1, "sub"), /not found|not a text element/), "a non-text id is refused rather than ignored");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

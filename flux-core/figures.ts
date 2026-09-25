@@ -37,7 +37,7 @@ import {
   manifestHasLogAxis,
   absurdCoordWarning,
 } from "./coordscan";
-import type { Figure, Element, Project, PartOverride, VectorNode, TextStyle, SemanticPlotElement } from "../src/lib/types";
+import type { Figure, Element, Project, PartOverride, VectorNode, TextStyle, TextElement, SemanticPlotElement } from "../src/lib/types";
 import { slugify } from "../src/lib/project/types";
 import { readProjectDependencies } from "../src/lib/project/dependencies";
 import { toProjectRelativeSource, isUnderRoot } from "../src/lib/plot/source";
@@ -726,6 +726,49 @@ export async function toggleTextStyle(
 ): Promise<void> {
   await mutateFigModel(root, "toggle_text_style", ({ project }) => {
     ops.toggleTextStyle(project, ids, which);
+  });
+}
+
+/** Per-RANGE text formatting (parity with the GUI's letter selection,
+ *  2026-09-25): the three helpers share one lookup that names the element and
+ *  checks the character offsets, so an agent gets a reason instead of a silent
+ *  no-op. `from`/`to` are 0-based offsets into `text`, `to` exclusive. */
+function textRangeTarget(project: Project, id: string, from: number, to: number): TextElement {
+  let el: Element | undefined;
+  for (const f of project.figures) {
+    el = f.elements.find((e) => e.id === id);
+    if (el) break;
+  }
+  if (!el) throw new Error(`element not found: ${id}`);
+  if (el.type !== "text") throw new Error(`not a text element: ${id} (${el.type})`);
+  const len = el.text.length;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to > len || from >= to)
+    throw new Error(`bad character range [${from}, ${to}) for ${id}: text has ${len} character${len === 1 ? "" : "s"}, need 0 <= from < to <= ${len}`);
+  return el;
+}
+
+/** toggle bold/italic/underline over one text element's character range [from, to). */
+export async function toggleTextRunStyle(root: string, id: string, from: number, to: number, which: ops.TextToggle): Promise<void> {
+  await mutateFigModel(root, "toggle_text_run_style", ({ project }) => {
+    textRangeTarget(project, id, from, to);
+    ops.toggleTextRunStyle(project, id, from, to, which);
+  });
+}
+
+/** toggle superscript/subscript over one text element's character range [from, to). */
+export async function toggleTextRunScript(root: string, id: string, from: number, to: number, which: "super" | "sub"): Promise<void> {
+  await mutateFigModel(root, "toggle_text_run_script", ({ project }) => {
+    textRangeTarget(project, id, from, to);
+    ops.toggleTextRunScript(project, id, from, to, which);
+  });
+}
+
+/** paint one text element's character range [from, to) with a colour, or hand
+ *  it back to the element's colour (`color === null`). */
+export async function setTextRunColor(root: string, id: string, from: number, to: number, color: string | null): Promise<void> {
+  await mutateFigModel(root, "set_text_run_color", ({ project }) => {
+    textRangeTarget(project, id, from, to);
+    ops.setTextRunColor(project, id, from, to, color);
   });
 }
 

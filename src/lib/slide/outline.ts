@@ -102,24 +102,19 @@ export function elementOutline(el: Element): Outline | null {
 
 // --- arc-length parameterization + splitting ------------------------------------
 
-interface Param { segs: PathSeg[]; lens: number[]; total: number; points: Map<number, { x: number; y: number }> }
+interface Param { segs: PathSeg[]; lens: number[]; total: number }
 
 function parameterize(nodes: VectorNode[], closed: boolean): Param {
   const segs = segsFromNodes(nodes, closed);
   const lens = segs.map((s) => segLength(s, 24));
-  return { segs, lens, total: lens.reduce((a, b) => a + b, 0), points: new Map() };
+  return { segs, lens, total: lens.reduce((a, b) => a + b, 0) };
 }
 
-/** The point at normalized arc length s ∈ [0,1]. */
+/** The point at normalized arc length s in [0,1]. Computed every time: a
+ *  per-plan station memo used to sit here to offset a slow arcT; with arcT
+ *  allocation-free (below) the memo measured as noise on the cold path
+ *  (verify-v020-morph-startup, 2026-09-24/25) and was removed. */
 function pointAt(p: Param, s: number): { x: number; y: number } {
-  const cached = p.points.get(s); if (cached) return cached;
-  const point = pointAtUncached(p, s);
-  // Exact numeric stations only, scoped to this immutable plan. No LUT or
-  // changed correspondence tolerance; the cap bounds pathological node counts.
-  if (p.points.size < 4096) p.points.set(s, point);
-  return point;
-}
-function pointAtUncached(p: Param, s: number): { x: number; y: number } {
   if (!p.segs.length) return { x: 0, y: 0 };
   let d = Math.max(0, Math.min(1, s)) * p.total;
   for (let i = 0; i < p.segs.length; i++) {

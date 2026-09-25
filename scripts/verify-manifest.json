@@ -1554,7 +1554,7 @@
     },
     {
       "$why": "2026-09-24 slide PDF export (one page per slide / per build step) and the content-scale applicability note. PowerPoint export (native shapes, SVG plots).",
-      "glob": "{src/lib/slide/export/deckPdf.ts,src/lib/slide/export/deckPptx.ts,src/lib/slide/embedRender.ts,src/lib/plot/compensate.ts,src/lib/interact/elementProperties.ts,electron/ipc/staticPrint.cjs}",
+      "glob": "{src/lib/slide/export/deckPdf.ts,src/lib/slide/export/deckPptx.ts,src/lib/slide/embedRender.ts,src/lib/plot/compensate.ts,src/lib/plot/store.ts,src/lib/interact/elementProperties.ts,src/lib/Inspector.svelte,electron/ipc/staticPrint.cjs}",
       "run": [
         "verify-slide-pdf.ts",
         "verify-slide-export-menu.mjs",
