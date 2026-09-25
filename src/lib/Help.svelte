@@ -125,7 +125,7 @@
             ["⌃ + R", "Name figure — family · number · nickname"],
             ["Alt + ↑ / ↓", "Move the figure up / down the sidebar list (drag a row does the same)"],
             ["⌃ + D", "Duplicate"],
-            ["⌃ + C / V", "Copy / paste"],
+            ["⌃ + X / C / V", "Cut / copy / paste"],
             ["⌃ + B / I / U", "Bold / italic / underline (text or text part)"],
             ["⌘⌥C / ⌘⌥V", "Copy / paste style"],
             ["⌘⇧L", "Lock / unlock selection"],
@@ -238,7 +238,7 @@
           title: "Arrange",
           items: [
             ["⌘A", "Select all"],
-            ["⌘C / ⌘V", "Copy / paste"],
+            ["⌘X / ⌘C / ⌘V", "Cut / copy / paste"],
             ["⌘D", "Duplicate"],
             ["⌘G", "Group"],
             ["Arrows", "Nudge · Delete removes · Esc deselects"],

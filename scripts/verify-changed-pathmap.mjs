@@ -43,16 +43,17 @@ const actualCases = [
   ["src/lib/plot/galleryNames.ts", ["group:plot-gallery", "tier:pure"]],
   ["src/lib/dissect/DissectGrid.svelte", ["verify-dissections.ts", "verify-dissect-gui.mjs", "verify-gallery-workflow.mjs", "tier:pure"]],
   ["src/lib/store.ts", ["group:slide-stash", "tier:pure"]],
-  ["src/lib/ops.ts", ["group:slide-stash", "tier:pure"]],
+  // 2026-09-25: ops.ts has its own first-match rule (the headless ops gate + the real cross-figure drag).
+  ["src/lib/ops.ts", ["verify-ops.ts", "verify-cross-figure-drag.mjs", "group:slide-stash", "tier:pure"]],
   ["src/lib/XrayNode.svelte", ["group:slide-stash", "tier:pure"]],
   ["src/lib/Xray.svelte", ["group:slide-stash", "tier:pure"]],
-  ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure"]],
+  ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure", "verify-cross-figure-drag.mjs"]],
   ["scripts/lib/slideStashNativeEntry.cjs", ["group:slide-stash"]],
   // 2026-09-15: the crosshair cursor family owns Canvas.svelte first (its own pathMap entry).
-  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs"]],
+  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
   // 2026-09-16: the compositor drive and the zoom proxy ride the same entry as the canvas they move.
-  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs"]],
-  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs"]],
+  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
+  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],

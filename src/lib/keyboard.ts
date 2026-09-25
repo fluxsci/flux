@@ -482,8 +482,8 @@ function deleteFrame(): boolean {
   return true;
 }
 
-function copySelected() {
-  const sel = get(selection);
+function copySelected(ids: ReadonlySet<string> = get(selection)) {
+  const sel = ids;
   const fig = activeFig();
   if (!fig) return;
   clipboard = fig.elements.filter((e) => sel.has(e.id)).map((e) => structuredClone(e));
@@ -495,6 +495,21 @@ function copySelected() {
   // most recent one (clipboardPaste.decidePaste). Fire-and-forget: headless
   // or permission-denied environments just keep the internal fallback path.
   if (clipboard.length) void navigator.clipboard?.writeText(FLUX_CLIP_MARKER).catch(() => {});
+}
+
+/** Ctrl/Cmd+X: cut = copy + delete, one undo entry (the removal). What lands
+ *  on the clipboard is exactly what leaves the figure: the EDITABLE targets of
+ *  the selection (locked / hidden units stay behind, the same rule Delete
+ *  applies), so a cut never copies something it did not remove. */
+function cutSelected() {
+  const sel = editableIds();
+  const fig = activeFig();
+  if (!fig || sel.size === 0) return;
+  const targets = new Set(selectionTargets(fig, sel, { editable: true }).map((e) => e.id));
+  if (!targets.size) return;
+  copySelected(targets);
+  commit((p) => ops.deleteElements(p, [...targets]));
+  selection.set(new Set([...get(selection)].filter((id) => !targets.has(id))));
 }
 
 function paste() {
@@ -999,6 +1014,11 @@ export function handleKey(e: KeyboardEvent) {
       copySelected();
       // NOTE: no Ctrl+V branch — pasting rides the native "paste" event
       // (handleEditorPaste), which arbitrates elements vs OS-clipboard images.
+    } else if (k === "x" && !e.shiftKey && !e.altKey) {
+      // Cut, as everywhere else: the selection goes to the clipboard and
+      // leaves the figure. (Plain X is hide/show; the chord is distinct.)
+      e.preventDefault();
+      cutSelected();
     } else if (k === "a" && !e.shiftKey) {
       // !shiftKey: Ctrl+Shift+A is the slide animator's "add appearance"
       // chord (same hygiene as Ctrl+Shift+D above).

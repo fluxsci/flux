@@ -503,6 +503,18 @@ Persistence invariants (all machine-checked — do not weaken):
   retain local bounds and project the current viewport; compositor warmth never delays new
   settled-target hover. Panel auto-lettering refuses beyond the supported26 rather than
   creating duplicate caption keys.
+- **Cross-figure drop (2026-09-25):** an element move released over ANOTHER figure's frame
+  re-parents the selection into that figure through `ops.moveElementsToFigure` — world
+  position kept (the frames' offset folds into local x/y), the moved run on top of the
+  destination's z-order, a group travelling only when every deep member moves (a partial
+  member arrives loose), panel captions following their labels, one gesture = one undo entry.
+  The target is the frame under the CURSOR (Figma), computed from the pointerdown world point
+  plus the client delta so the gesture never reads layout; the frame lights up via the same
+  `droptarget` class as an OS file drop. The commit is an unscoped `mutate` (two figures
+  change) and the destination becomes the active figure. Figure editor only — the slide
+  `frame` view shows one slide, so there is nothing to drop onto. Ctrl+X (`cutSelected`)
+  copies the EDITABLE targets and deletes them, so what lands on the clipboard is exactly what
+  left. Gates: `verify-ops.ts` (pure) + `verify-cross-figure-drag.mjs` (ui, real gestures).
 - **Figure export jobs:** resolve SVG/plot DOM/assets and dimensions before any dialog await.
   Detached export prepares every required SVG independently of the capped editor DOM cache;
   unavailable required assets fail by name. `plot/passiveSvg.ts` applies a namespace-aware
@@ -6625,3 +6637,23 @@ row about the deck-reload fix was reworded from a changelog into the user regist
 - The shell's `grep` in Claude Code sessions is a wrapper that silently skips files it deems
   binary; `outline.ts` and other sources with non-ASCII bytes return NOTHING. Use
   `command grep -a` (or `git grep`) when a search over `src/` comes back empty.
+
+### 2026-09-25 — Drag between figures + Ctrl+X cut (Claude Fable 5.1, `main`)
+
+**Work:** Owner: moving a plot from figure 2 to figure 3 needed copy → paste → delete, and
+Ctrl+X did nothing. Added the drag-between-frames gesture (Canvas `moveDropTarget` +
+`ops.moveElementsToFigure`, lit target frame, one undo entry, groups/captions along, promoted
+to §4) and `cutSelected` on Ctrl+X (editable targets only — a locked unit neither leaves nor
+gets copied). Help panel, `docs/modes/figure.qmd` and `reference/shortcuts.qmd` updated.
+Gates: `verify-ops.ts` gained the op's cases; new `verify-cross-figure-drag.mjs` (ui, 31
+checks: mid-drag highlight, re-parent, captions, undo/redo, empty-canvas drop stays a plain
+move, cut/paste round trip, locked no-op, console clean); `ops.ts` got its own first-match
+pathMap rule.
+**Learnings:**
+
+- `ops.group` takes ELEMENT ids and resolves each to its unit — a group id in the list is
+  silently ignored (one unit → returns null). To nest an existing group, name one of its
+  members.
+- A gesture that needs "which frame is under the cursor" per move should derive the world
+  point from the pointerdown sample + client delta, not from `getBoundingClientRect` on every
+  pointermove; the move gesture never touched layout before and must not start now.

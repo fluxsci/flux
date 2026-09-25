@@ -417,7 +417,8 @@
       "verify-canvas-zoom-raster.mjs",
       "verify-eyedropper-gui.mjs",
       "verify-text-arrange-gui.mjs",
-      "verify-text-runs-gui.mjs"
+      "verify-text-runs-gui.mjs",
+      "verify-cross-figure-drag.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -1004,6 +1005,16 @@
       ]
     },
     {
+      "$why": "2026-09-25 the pure mutation core is proved headless by verify-ops (incl. moveElementsToFigure) and through the real drag by the cross-figure gate; the shared store/ops/Xray rule below keeps its slide-stash routing.",
+      "glob": "src/lib/ops.ts",
+      "run": [
+        "verify-ops.ts",
+        "verify-cross-figure-drag.mjs",
+        "group:slide-stash",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "src/lib/{store.ts,ops.ts,Xray.svelte,XrayNode.svelte}",
       "run": [
         "group:slide-stash",
@@ -1097,7 +1108,8 @@
         "verify-render-optimizations.mjs",
         "verify-canvas-coverage.mjs",
         "verify-canvas-zoom-raster.mjs",
-        "verify-text-arrange-gui.mjs"
+        "verify-text-arrange-gui.mjs",
+        "verify-cross-figure-drag.mjs"
       ]
     },
     {
@@ -1430,7 +1442,8 @@
         "verify-fig-order-gui.mjs",
         "verify-fig-namer.mjs",
         "group:slide-stash",
-        "tier:pure"
+        "tier:pure",
+        "verify-cross-figure-drag.mjs"
       ]
     },
     {
@@ -6730,6 +6743,17 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-cross-figure-drag.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

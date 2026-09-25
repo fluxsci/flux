@@ -171,4 +171,69 @@ assert(solo.figures.length === 0, "deleteFigure allowEmpty leaves the canvas emp
   assert(runOf(gA), `partial-group bump keeps A contiguous (${order()})`);
 }
 
+// ---------------------------------------------------------------------------
+// moveElementsToFigure — the drag-between-frames op (2026-09-25). World
+// position is kept across the two frames' offset, groups travel only when
+// every deep member moves, captions follow panel labels, sources GC.
+// ---------------------------------------------------------------------------
+{
+  const mp: Project = { version: 2, name: "", canvases: [{ id: "c", name: "C" }], figures: [], assets: [], palette: [] };
+  const A = ops.createFigure(mp, { canvasId: "c", x: 0, y: 0, width: 600, height: 300 });
+  const B = ops.createFigure(mp, { canvasId: "c", x: 100, y: 500, width: 600, height: 300 });
+  const mk = (f: typeof A, id: string, x: number, y: number) => {
+    f.elements.push({ type: "rect", id, x, y, width: 10, height: 10, rotation: 0, fill: "#000", stroke: "#000", strokeWidth: 1, cornerRadius: 0 } as import("../src/lib/types").Element);
+    return id;
+  };
+  // A: [p1, p2 (group G), q (group G), r (loose), lbl (panel label with a caption)]
+  mk(A, "p1", 20, 30); mk(A, "p2", 40, 30); mk(A, "q", 60, 30); mk(A, "r", 200, 200);
+  const lblId = ops.addPanelLabel(mp, A.id, { text: "a", x: 20, y: 6 })!;
+  A.captions = { [lblId]: "Control vs treatment." };
+  const gG = ops.group(mp, ["p2", "q"])!;
+  const gH = ops.group(mp, ["p1", "p2"])!; // p2 resolves to its whole unit G → H = {p1, G{p2, q}}
+  assert(A.groups![gG].parentId === gH, "fixture: G nests under H");
+  mk(B, "b0", 0, 0);
+
+  // 1. world position kept + extra delta; z lands on top; ids returned in z-order
+  const moved = ops.moveElementsToFigure(mp, ["r"], B.id, { dx: 5, dy: -7 });
+  assert(JSON.stringify(moved) === JSON.stringify(["r"]), `move returns the moved ids (${moved})`);
+  const rB = B.elements.find((e) => e.id === "r")!;
+  assert(!A.elements.some((e) => e.id === "r") && !!rB, "r left A and joined B");
+  assert(rB.x === 200 + (0 - 100) + 5 && rB.y === 200 + (0 - 500) - 7, `r keeps its world position plus the drag delta (${rB.x},${rB.y})`);
+  assert(B.elements[B.elements.length - 1].id === "r", "moved element lands on top of the destination z-order");
+
+  // 2. a partial group move arrives LOOSE; the group stays behind intact
+  ops.moveElementsToFigure(mp, ["p2"], B.id);
+  const p2B = B.elements.find((e) => e.id === "p2")!;
+  assert(!!p2B && p2B.groupId === undefined, "partially moved group member arrives loose");
+  assert(!!A.groups![gG] && A.elements.find((e) => e.id === "q")!.groupId === gG, "the source group survives with its remaining member");
+  assert(!B.groups?.[gG], "no group def was transferred for a partial move");
+
+  // 3. a whole group moves WITH its def, detached from the ancestor that stays
+  ops.moveElementsToFigure(mp, ["q"], B.id); // G's remaining deep members = {q}
+  assert(!!B.groups?.[gG] && B.groups![gG].parentId === undefined, "a fully moved group re-registers on the destination without its stay-behind parent");
+  assert(B.elements.find((e) => e.id === "q")!.groupId === gG, "…and its member keeps the membership");
+  assert(!A.groups?.[gG], "the emptied group is GC'd from the source");
+  assert(!!A.groups?.[gH] && A.groups![gH].parentId === undefined, "the ancestor group stays registered in the source (still has p1)");
+
+  // 4. captions keyed by a moved panel label follow it
+  ops.moveElementsToFigure(mp, [lblId], B.id);
+  assert(B.captions?.[lblId] === "Control vs treatment." && !(lblId in (A.captions ?? {})), "the panel caption moved with its label");
+
+  // 5. no-ops: unknown destination, and ids already on the destination
+  assert(ops.moveElementsToFigure(mp, ["p1"], "nope").length === 0 && A.elements.some((e) => e.id === "p1"), "unknown destination moves nothing");
+  const beforeB = B.elements.map((e) => e.id).join(",");
+  assert(ops.moveElementsToFigure(mp, ["b0", "r"], B.id).length === 0 && B.elements.map((e) => e.id).join(",") === beforeB, "ids already on the destination stay put, in place");
+
+  // 6. nested groups moving together keep both defs and the nesting
+  const C = ops.createFigure(mp, { canvasId: "c", x: 0, y: 1000, width: 600, height: 300 });
+  mk(C, "n1", 0, 0); mk(C, "n2", 0, 0); mk(C, "n3", 0, 0);
+  const gIn = ops.group(mp, ["n1", "n2"])!;
+  const gOut = ops.group(mp, ["n1", "n3"])!; // n1 → its unit (gIn) nests under the new group
+  ops.moveElementsToFigure(mp, ["n1", "n2", "n3"], B.id);
+  assert(B.groups![gIn]?.parentId === gOut && !!B.groups![gOut] && !B.groups![gOut].parentId, "a nested pair moved whole keeps its nesting on the destination");
+  assert(C.elements.length === 0 && !C.groups, "the source is empty and its registry GC'd");
+  const runIn = B.elements.map((e, i) => (e.groupId === gIn ? i : -1)).filter((i) => i >= 0);
+  assert(runIn.length === 2 && runIn[1] - runIn[0] === 1, "the moved inner group's run is contiguous on the destination");
+}
+
 console.log("\nALL OPS TESTS PASSED");

@@ -157,6 +157,11 @@
         figId: string;
         sx: number;
         sy: number;
+        // World point under the pointer at pointerdown: the cross-figure drop
+        // target is the frame under the cursor, derived per move from this +
+        // the client delta so the gesture never asks layout for the host rect.
+        wx: number;
+        wy: number;
         origs: Map<string, Element>;
         ob: Rect;
         xs: number[];
@@ -1984,7 +1989,8 @@
     for (const el of sel) origs.set(el.id, structuredClone(el));
     const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
     const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
-    gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
+    const w0 = clientToWorld(e.clientX, e.clientY);
+    gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, wx: w0.x, wy: w0.y, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
     committed = false;
@@ -2560,6 +2566,10 @@
       gDX = dx;
       gDY = dy;
       liveBox = { x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h };
+      // Another figure's frame under the cursor lights up: releasing there
+      // moves the selection INTO that figure (same class as the file-drop
+      // target). Only the figure editor shows several frames at once.
+      dropFigId = frame ? null : (moveDropTarget(g, e)?.id ?? null);
     } else if (g.kind === "resize") {
       const lp = localPoint(e.clientX, e.clientY, fig);
       if (g.crop) {
@@ -2678,7 +2688,32 @@
         mutateFigure(g.figId, p => ops.resizeFigureFrame(p, g.figId, box));
       }
     } else if (g.kind === "move") {
-      if (dragging && (gDX !== 0 || gDY !== 0)) {
+      const target = dragging && !frame ? moveDropTarget(g, e) : null;
+      if (target) {
+        // Released over ANOTHER figure's frame: the selection changes figure
+        // (Figma re-parents to the frame under the cursor) — one undo entry,
+        // world position kept, the frames' offset folded into local x/y by the
+        // shared op. Unscoped mutate: two figures change.
+        ensureCommitted();
+        const ids = [...g.origs.keys()];
+        const snapPx = $settings.snapPixel;
+        mutate((p) => {
+          const moved = new Set(ops.moveElementsToFigure(p, ids, target.id, { dx: gDX, dy: gDY }));
+          if (!snapPx || !moved.size) return;
+          const f = p.figures.find((ff) => ff.id === target.id);
+          for (const el of f?.elements ?? []) {
+            if (!moved.has(el.id)) continue;
+            el.x = Math.round(el.x);
+            el.y = Math.round(el.y);
+          }
+        });
+        // The selection now lives on the target: make it the active figure so
+        // the Layers panel, Alt+C and every "active figure" chord follow it,
+        // and drop an entered-group scope the move left behind.
+        activeFigureId.set(target.id);
+        const scope = $enteredGroupId;
+        if (scope && !target.groups?.[scope]) enteredGroupId.set(null);
+      } else if (dragging && (gDX !== 0 || gDY !== 0)) {
         ensureCommitted();
         mutateFigure(g.figId, (p) => {
           const f = p.figures.find((ff) => ff.id === g.figId);
@@ -2824,6 +2859,7 @@
   function resetGestureTransients() {
     frameDraft = null;
     figureFramePreview.set(null);
+    dropFigId = null;
     checkpoint = null;
     duplicateSelection = null;
     committed = false;
@@ -3099,15 +3135,30 @@
     return false;
   }
 
-  // --- OS file drag-and-drop (from the file explorer) ---
+  // --- drop targets: OS files (from the file explorer) + the element drag ---
+  // The lit frame — shared by the file drop and the cross-figure element move
+  // (both mean "this frame will receive what you are holding").
   let dropFigId: string | null = null;
-  function figureAt(clientX: number, clientY: number): Figure | null {
-    const w = clientToWorld(clientX, clientY);
+  function figureAtWorld(wx: number, wy: number): Figure | null {
     return (
       canvasFigures.find(
-        (f) => w.x >= f.x && w.x <= f.x + f.width && w.y >= f.y && w.y <= f.y + f.height,
+        (f) => wx >= f.x && wx <= f.x + f.width && wy >= f.y && wy <= f.y + f.height,
       ) ?? null
     );
+  }
+  function figureAt(clientX: number, clientY: number): Figure | null {
+    const w = clientToWorld(clientX, clientY);
+    return figureAtWorld(w.x, w.y);
+  }
+  /** The OTHER figure under the cursor during an element move — the frame the
+   *  selection would join on release — or null while over its own figure /
+   *  empty canvas. Pointer-based like Figma (not the dragged box's centre), so
+   *  the lit frame is always the one the cursor is in. No layout read: the
+   *  world point comes from the pointerdown sample plus the client delta. */
+  function moveDropTarget(g: Extract<Gesture, { kind: "move" }>, e: PointerEvent): Figure | null {
+    const z = $viewport.zoom;
+    const f = figureAtWorld(g.wx + (e.clientX - g.sx) / z, g.wy + (e.clientY - g.sy) / z);
+    return f && f.id !== g.figId ? f : null;
   }
   function onDragOver(e: DragEvent) {
     if (!e.dataTransfer || $captionOpen) return;

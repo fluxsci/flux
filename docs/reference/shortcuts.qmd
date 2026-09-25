@@ -91,7 +91,7 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **Ctrl+P** | Insert a design preset |
 | **Ctrl+G** / **Ctrl+Shift+G** | Group / ungroup |
 | **Ctrl+D** | Duplicate (repeats continue the offset) |
-| **Ctrl+A** / **Ctrl+C** / **Ctrl+V** | Select all / copy / paste |
+| **Ctrl+A** / **Ctrl+X** / **Ctrl+C** / **Ctrl+V** | Select all / cut / copy / paste |
 | **Ctrl+Alt+C** / **Ctrl+Alt+V** | Copy style / paste style |
 | **Ctrl+Alt+A** | Select all elements with the same fill (**+Shift**: whole project) |
 | **Alt+A** / **Alt+W** / **Alt+S** / **Alt+D** | Align left / top / bottom / right |

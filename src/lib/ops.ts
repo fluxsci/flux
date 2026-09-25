@@ -51,6 +51,7 @@ import {
   ancestorsOf,
   chainOf,
   cloneGroupsFor,
+  enforceZContiguity,
   gcGroups,
   groupDefs,
   membersDeep,
@@ -1219,6 +1220,81 @@ export function deleteElements(p: Project, ids: Id[]): void {
     f.elements = f.elements.filter((e) => !set.has(e.id));
     if (f.elements.length !== before) gcGroups(f); // drop now-empty group defs
   }
+}
+
+/** Move elements out of whatever figure holds them INTO `toFigId` — the
+ *  drag-between-frames gesture (Figma: drop an object on another frame and it
+ *  becomes that frame's child), with no copy-paste-delete detour. Each element
+ *  keeps its WORLD position (the two frames' offset folds into its local x/y)
+ *  and takes the optional extra delta (`dx`/`dy`, figure units — the drag).
+ *  The moved run lands on TOP of the destination's z-order in its original
+ *  relative order, which keeps every group run contiguous. Groups travel with
+ *  their members: a group whose members (deep) ALL move is re-registered on the
+ *  destination under the same id — detached from any ancestor that stays
+ *  behind — while an element whose immediate group only partly moves arrives
+ *  loose (Figma drops the membership too). Per-panel captions keyed by a moved
+ *  panel label follow it. Sources are GC'd. Returns the moved ids in z-order;
+ *  empty when the destination is unknown or nothing needed to move (an id
+ *  already on the destination stays put). */
+export function moveElementsToFigure(
+  p: Project,
+  ids: Id[],
+  toFigId: Id,
+  opts: { dx?: number; dy?: number } = {},
+): Id[] {
+  const dst = figById(p, toFigId);
+  if (!dst) return [];
+  const want = new Set(ids);
+  const dx = opts.dx ?? 0;
+  const dy = opts.dy ?? 0;
+  const moved: Id[] = [];
+  for (const src of p.figures) {
+    if (src === dst) continue;
+    const moving = src.elements.filter((e) => want.has(e.id));
+    if (!moving.length) continue;
+    const movingIds = new Set(moving.map((e) => e.id));
+    // A group transfers when every deep member moves. Transferability is
+    // monotone up a chain (a parent's deep members include its child's), so an
+    // element's immediate group decides its membership at the destination.
+    const defs = groupDefs(src);
+    const transferable = new Set<Id>();
+    const seen = new Set<Id>();
+    for (const e of moving)
+      for (const gid of ancestorsOf(src, e.groupId)) {
+        if (seen.has(gid)) continue;
+        seen.add(gid);
+        if (membersDeep(src, gid).every((m) => movingIds.has(m.id))) transferable.add(gid);
+      }
+    const ox = src.x - dst.x + dx;
+    const oy = src.y - dst.y + dy;
+    for (const e of moving) {
+      e.x += ox;
+      e.y += oy;
+      if (e.groupId && !transferable.has(e.groupId)) delete e.groupId;
+    }
+    if (transferable.size) {
+      dst.groups = dst.groups ?? {};
+      for (const gid of transferable) {
+        const def = structuredClone(defs[gid]);
+        if (def.parentId && !transferable.has(def.parentId)) delete def.parentId;
+        dst.groups[gid] = def;
+      }
+    }
+    if (src.captions) {
+      for (const id of movingIds) {
+        if (!(id in src.captions)) continue;
+        dst.captions = dst.captions ?? {};
+        dst.captions[id] = src.captions[id];
+        delete src.captions[id];
+      }
+    }
+    src.elements = src.elements.filter((e) => !movingIds.has(e.id));
+    gcGroups(src);
+    dst.elements.push(...moving);
+    moved.push(...movingIds);
+  }
+  if (moved.length) enforceZContiguity(dst);
+  return moved;
 }
 
 /** Move one element — or a whole GROUP (pass its registry id) — to an absolute

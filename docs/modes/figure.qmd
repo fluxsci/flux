@@ -194,10 +194,15 @@ swatch, an object — it gains an accent dot, and it tightens while you press.
 Text fields keep the I-beam; handles keep their resize arrows and pan keeps the hand.
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
-duplicate, **Shift+drag** to constrain to an axis. **Ctrl+G** groups (**Ctrl+Shift+G**
-ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they move one step),
-**Shift+H** / **Shift+V** flip, **Delete** removes, **Escape** cancels whatever you're midway
-through. The Inspector's Align row lines selections up, distributes them, and sets exact gaps.
+duplicate, **Shift+drag** to constrain to an axis. To move something to a **different
+figure**, just drag it there: the figure under the pointer lights up, and releasing puts the
+selection into that figure where you dropped it (groups and panel captions come along; one
+Undo brings it back). **Ctrl+X** cuts, **Ctrl+C** copies and **Ctrl+V** pastes, so a cut in
+one figure and a paste in another is the keyboard way to do the same thing. **Ctrl+G** groups
+(**Ctrl+Shift+G** ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they
+move one step), **Shift+H** / **Shift+V** flip, **Delete** removes, **Escape** cancels whatever
+you're midway through. The Inspector's Align row lines selections up, distributes them, and
+sets exact gaps.
 
 Press **F** with anything selected for the **property menu** — the fastest way to edit, built
 for one hand on the keyboard and one on the mouse. It opens **beside the selection**, never on
