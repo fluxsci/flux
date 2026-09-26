@@ -26,8 +26,8 @@
     n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 
   async function act(c: SyncConflict, action: ConflictAction) {
-    const root = $currentProject?.path;
-    if (!root || busy) return;
+    const root = $currentProject?.path ?? null;
+    if ((!root && !c.libraryRoot) || busy) return;
     busy = c.rel;
     const err = await resolveConflict(root, c, action);
     if (err) pushToast("error", `Could not resolve ${c.base}`, { detail: err });
@@ -40,8 +40,8 @@
   }
 
   async function clearIdentical() {
-    const root = $currentProject?.path;
-    if (!root || busy) return;
+    const root = $currentProject?.path ?? null;
+    if (busy) return;
     busy = "*";
     const n = await resolveIdentical(root);
     busy = "";
@@ -50,6 +50,7 @@
   }
 
   const identicalCount = $derived($conflicts.filter((c) => c.identical).length);
+  const isBib = (c: SyncConflict) => /\.bib$/i.test(c.base);
 </script>
 
 {#if $conflicts.length}
@@ -72,7 +73,9 @@
       <b>Resolve sync conflicts</b>
       <span class="sub">
         Your sync tool kept both versions rather than picking one. Choose which side wins; the extra
-        copy is removed either way.
+        copy is removed either way{$conflicts.some((c) => c.libraryRoot)
+          ? " (reference-library copies are archived under .fluxlib/sync-conflicts/, never deleted)"
+          : ""}.
       </span>
       {#if identicalCount}
         <button class="bulk" disabled={!!busy} onclick={clearIdentical}>
@@ -88,12 +91,15 @@
         <li class:working={busy === c.rel || busy === "*"}>
           <div class="who">
             <span class="file">{c.base}</span>
+            {#if c.libraryRoot}
+              <span class="tag lib">reference library</span>
+            {/if}
             {#if c.identical}
               <span class="tag same">identical — nothing lost</span>
             {:else if !c.baseExists}
               <span class="tag gone">your copy is gone</span>
             {:else if c.mergeable}
-              <span class="tag merge">append-only ledger</span>
+              <span class="tag merge">{isBib(c) ? "mergeable by entry" : "append-only ledger"}</span>
             {/if}
           </div>
           <div class="meta">
@@ -101,8 +107,13 @@
           </div>
           <div class="acts">
             {#if c.mergeable && c.baseExists}
-              <button disabled={!!busy} onclick={() => act(c, "merge")} title="Union both sets of lines">
-                Merge both
+              <button
+                disabled={!!busy}
+                onclick={() => act(c, "merge")}
+                title={isBib(c)
+                  ? "Add every reference the other machine has that this one lacks; yours are all kept"
+                  : "Union both sets of lines"}>
+                {isBib(c) ? "Merge entries" : "Merge both"}
               </button>
             {/if}
             <button disabled={!!busy} onclick={() => act(c, "keepMine")}>
@@ -228,6 +239,9 @@
   }
   .tag.gone {
     background: rgba(180, 60, 40, 0.16);
+  }
+  .tag.lib {
+    background: rgba(70, 110, 180, 0.16);
   }
   .meta {
     opacity: 0.6;

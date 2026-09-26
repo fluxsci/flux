@@ -3,6 +3,7 @@
   import { project } from "./store";
   import { colorTarget, applyColor, addRecentColor } from "./colors";
   import { importPalette } from "./io";
+  import ColorField from "./ColorField.svelte";
 
   let error = "";
 
@@ -82,10 +83,8 @@
 
   <div class="actions">
     <button class="import" on:click={onImport}>Import palette…</button>
-    <label class="add" title="Add custom colour">
-      +
-      <input type="color" on:change={(e) => pick(e.currentTarget.value)} />
-    </label>
+    <!-- ColorField, never a native <input type="color">: its eyedropper segfaults Electron on Linux/Wayland. -->
+    <ColorField compact title="Add custom colour" label="Add custom colour" value="#888888" onchange={(hex) => pick(hex)} />
   </div>
   {#if error}<p class="err">{error}</p>{/if}
 </section>
@@ -212,26 +211,6 @@
   .import:hover {
     border-color: var(--c-tx-muted);
     color: var(--c-tx-hi);
-  }
-  .add {
-    position: relative;
-    width: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: 1px solid var(--c-line-strong);
-    border-radius: var(--r-ui);
-    color: var(--c-tx-muted);
-    font-size: 14px;
-    cursor: var(--cursor-cross-hover);
-  }
-  .add:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
-  .add input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: var(--cursor-cross-hover);
   }
   .hint {
     font-size: 11px;

@@ -1196,12 +1196,16 @@ const CONFLICT_SCAN_SKIP_DIRS = new Set([".git", "node_modules", ".stversions", 
 const CONFLICT_SCAN_MAX = 200;
 const CONFLICT_IDENTICAL_MAX_BYTES = 8 * 1024 * 1024;
 
-async function scanConflicts(root) {
+async function scanConflicts(root, opts = {}) {
   if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
   if (!conflictRules || !root) return [];
   const fsp = require("node:fs/promises");
   const out = [];
-  const walk = async (dirAbs, dirRel) => {
+  // maxDepth: the FluxLib scan looks only at the library's top level (library.bib and its
+  // manifests) — walking items/<key>/ for ~2,000 references on every refresh is not a scan,
+  // it is a stall. Projects keep the full walk (default: unbounded).
+  const maxDepth = Number.isFinite(opts.maxDepth) ? opts.maxDepth : Infinity;
+  const walk = async (dirAbs, dirRel, depth = 0) => {
     if (out.length >= CONFLICT_SCAN_MAX) return;
     let entries;
     try {
@@ -1213,9 +1217,10 @@ async function scanConflicts(root) {
       if (out.length >= CONFLICT_SCAN_MAX) return;
       const rel = dirRel ? `${dirRel}/${e.name}` : e.name;
       if (e.isDirectory()) {
+        if (depth >= maxDepth) continue;
         if (CONFLICT_SCAN_SKIP_DIRS.has(e.name)) continue;
         if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) continue;
-        await walk(path.join(dirAbs, e.name), rel);
+        await walk(path.join(dirAbs, e.name), rel, depth + 1);
         continue;
       }
       if (!e.isFile() || !conflictRules.isConflictPath(e.name)) continue;
@@ -1260,11 +1265,11 @@ async function scanConflicts(root) {
   return out;
 }
 
-ipcMain.handle("conflicts:scan", async (e, root) => {
+ipcMain.handle("conflicts:scan", async (e, root, opts) => {
   const r = root ? path.resolve(root) : rootFor(e);
   if (!r) return [];
   try {
-    return await scanConflicts(r);
+    return await scanConflicts(r, opts && typeof opts === "object" ? opts : {});
   } catch {
     return [];
   }

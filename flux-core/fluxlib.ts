@@ -22,6 +22,8 @@ export type { AddResult };
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage, projectEnrichForGrid } from "../src/lib/references/enrich";
 import { planAdds, appendedBib } from "../src/lib/references/addPlan";
+import { planBibConflictMerge, archivedConflictName, LIBRARY_CONFLICT_ARCHIVE } from "../src/lib/references/bibConflict";
+import { conflictBaseFor } from "../src/lib/project/conflictRules";
 import { validateOrganize, addTag, removeTag, bulkAddTag, setTags, setStatus, setCollections, mergeOrganize, type OrganizeData, type ReadingStatus } from "../src/lib/references/organize";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
 import { withLockAt, withLock, fluxlibLockDir, getLockClient, assertLockOwned, CONTENTION_RETRIES } from "./locks";
@@ -486,18 +488,61 @@ export async function addToFluxLib(
   );
 }
 
+export interface LibraryConflictMerge { copy: string; added: string[]; alreadyPresent: number; archivedTo: string }
+
+/**
+ * Fold every `library.sync-conflict-*.bib` beside library.bib into it (the Node twin of
+ * fluxlibBridge.mergeLibraryConflictCopies — same planner, same archive folder): union of
+ * entries, the copy's citekeys and dateadded kept, then the copy archived under
+ * .fluxlib/sync-conflicts/ (never deleted). Caller holds the "library" lock.
+ */
+async function mergeLibraryConflictCopiesLocked(lib: string, assertOwned: () => Promise<void>): Promise<LibraryConflictMerge[]> {
+  let names: string[];
+  try { names = await fs.readdir(lib); } catch { return []; }
+  const copies = names.filter((n) => conflictBaseFor(n) === "library.bib").sort();
+  const out: LibraryConflictMerge[] = [];
+  for (const copy of copies) {
+    const copyAbs = path.join(lib, copy);
+    const mine = await fs.readFile(libBib(lib), "utf8");
+    const theirs = await fs.readFile(copyAbs, "utf8");
+    const plan = planBibConflictMerge(mine, theirs);
+    if (!plan.nothingToMerge) {
+      await assertCanonicalText(libBib(lib), mine, () => readCanonicalText(libBib(lib), () => fs.readFile(libBib(lib), "utf8")));
+      await assertOwned();
+      await atomicWrite(libBib(lib), plan.text);
+    }
+    const dir = path.join(lib, LIBRARY_CONFLICT_ARCHIVE);
+    await fs.mkdir(dir, { recursive: true });
+    const archived = archivedConflictName(copy);
+    let dst = path.join(dir, archived);
+    for (let i = 2; await fs.access(dst).then(() => true, () => false); i++) dst = path.join(dir, archived.replace(/(\.[^.]+)?$/, `-${i}$1`));
+    await fs.rename(copyAbs, dst);
+    out.push({ copy, added: plan.added, alreadyPresent: plan.alreadyPresent, archivedTo: dst });
+  }
+  if (out.some((m) => m.added.length)) await buildIndex(lib);
+  return out;
+}
+
+/** Merge + archive any library.bib conflict copies, under the library lock. */
+export async function mergeLibraryConflictCopies(libPath?: string): Promise<LibraryConflictMerge[]> {
+  const lib = await ensureFluxLib(libPath);
+  return withLockAt(fluxlibLockDir(lib), "library", getLockClient(), lease => mergeLibraryConflictCopiesLocked(lib, () => assertLockOwned(lease)), { retries: CONTENTION_RETRIES });
+}
+
 async function addToFluxLibLocked(
   lib: string,
   bibtex: string,
   source: "doi" | "bibtex",
   assertOwned: () => Promise<void>,
 ): Promise<AddResult> {
+  // A sync tool's conflict copy of library.bib is folded in first — a library write must
+  // never be refused because of a stray sibling file (2026-09-26).
+  await mergeLibraryConflictCopiesLocked(lib, assertOwned);
   const curText = await fs.readFile(libBib(lib), "utf8");
   // The dedupe/rekey decision (DOI, then title+year+author signature, incl. intra-batch)
   // lives in the shared pure planner so preview == outcome; this twin only does the write.
   const plan = planAdds(curText, bibtex, source);
   if (plan.appendText) {
-    await assertNoCanonicalConflict(libBib(lib), dir=>fs.readdir(dir));
     await assertCanonicalText(libBib(lib), curText, () => readCanonicalText(libBib(lib), () => fs.readFile(libBib(lib), "utf8")));
     await assertOwned();
     await atomicWrite(libBib(lib), appendedBib(curText, plan));

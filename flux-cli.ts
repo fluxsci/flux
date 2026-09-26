@@ -536,8 +536,9 @@ async function main() {
       for (const it of r.results) {
         if (it.action === "unresolved") console.error(`  ? ${it.file}  UNRESOLVED — ${it.reason}`);
         else if (it.action === "deferred") console.error(`  ~ ${it.file}  deferred (left in inbox) — ${it.reason}`);
+        else if (it.action === "error") console.error(`  ! ${it.file}  ERROR (left in inbox) — ${it.reason}`);
         else if (it.action === "discarded")
-          console.error(`  = ${it.file}  ${verb}duplicate of ${it.key}${it.keptAs ? ` — kept as supplements/${it.keptAs}` : " (byte-identical, dropped)"}  ${it.doi}`);
+          console.error(`  = ${it.file}  ${verb}duplicate of ${it.key}${it.keptAs ? ` — kept as supplements/${it.keptAs}` : dryRun ? " (kept in supplements unless byte-identical)" : " (byte-identical, dropped)"}  ${it.doi}`);
         else if (it.action === "attached") console.error(`  + ${it.file}  ${verb}attach → ${it.key}  [${it.method}] ${it.doi}`);
         else console.error(`  ★ ${it.file}  ${verb}add+attach${it.key ? ` → ${it.key}` : ""}  [${it.method}] ${it.doi}`);
       }
@@ -545,7 +546,9 @@ async function main() {
         `\n${dryRun ? "DRY RUN — " : "✓ "}${r.total} PDF(s) in ${r.dir}: ` +
           `${r.attached} attach, ${r.addedAttached} add+attach, ${r.discarded} duplicate, ${r.unresolved} unresolved` +
           (r.deferred ? `, ${r.deferred} deferred (network — left in inbox)` : "") +
+          (r.errors ? `, ${r.errors} error${r.errors === 1 ? "" : "s"} (left in inbox)` : "") +
           (r.abortedOffline ? " — ABORTED: network unavailable" : "") +
+          (r.abortedError ? ` — ABORTED: ${r.abortedError}` : "") +
           (dryRun ? " (nothing changed)" : ""),
       );
       break;

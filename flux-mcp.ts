@@ -225,8 +225,10 @@ server.registerTool(
         ? `  ? ${it.file} — UNRESOLVED: ${it.reason}`
         : it.action === "deferred"
           ? `  ~ ${it.file} — deferred (left in inbox): ${it.reason}`
+          : it.action === "error"
+          ? `  ! ${it.file} — ERROR (left in inbox): ${it.reason}`
           : it.action === "discarded"
-            ? `  = ${it.file} — ${verb}duplicate of ${it.key}${it.keptAs ? `, kept as supplements/${it.keptAs}` : " (byte-identical, dropped)"} [${it.doi}]`
+            ? `  = ${it.file} — ${verb}duplicate of ${it.key}${it.keptAs ? `, kept as supplements/${it.keptAs}` : dryRun ? " (kept in supplements unless byte-identical)" : " (byte-identical, dropped)"} [${it.doi}]`
             : it.action === "attached"
               ? `  + ${it.file} — ${verb}attach → ${it.key} [${it.method}] ${it.doi}`
               : `  ★ ${it.file} — ${verb}add+attach${it.key ? ` → ${it.key}` : ""} [${it.method}] ${it.doi}`,
@@ -234,7 +236,9 @@ server.registerTool(
     return ok(
       `${dryRun ? "DRY RUN — " : ""}${s.total} PDF(s) in ${s.dir}: ${s.attached} attach, ${s.addedAttached} add+attach, ${s.discarded} duplicate, ${s.unresolved} unresolved` +
         (s.deferred ? `, ${s.deferred} deferred (network — left in inbox)` : "") +
+        (s.errors ? `, ${s.errors} error${s.errors === 1 ? "" : "s"} (left in inbox)` : "") +
         (s.abortedOffline ? " — ABORTED: network unavailable" : "") +
+        (s.abortedError ? ` — ABORTED: ${s.abortedError}` : "") +
         (dryRun ? " (nothing changed)" : "") +
         (lines.length ? "\n" + lines.join("\n") : ""),
     );

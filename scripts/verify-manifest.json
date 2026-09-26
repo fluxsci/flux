@@ -15,6 +15,8 @@
       "verify-an-validate-plot.ts",
       "verify-an-validate.ts",
       "verify-assign-hardening.ts",
+      "verify-assign-outcome.ts",
+      "verify-no-native-color-input.ts",
       "verify-citenum.ts",
       "verify-enrich-cache.ts",
       "verify-f1-core.ts",
@@ -1021,6 +1023,7 @@
       "run": [
         "verify-ops.ts",
         "verify-cross-figure-drag.mjs",
+      "verify-color-field.mjs",
         "group:slide-stash",
         "tier:pure"
       ]
@@ -2090,6 +2093,24 @@
       "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
+    },
+    "verify-assign-outcome.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-no-native-color-input.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "none",
+      "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "structural"
     },
     "verify-assign-hardening.ts": {
       "runtime": "tsx",
@@ -6781,6 +6802,17 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-color-field.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-cross-figure-drag.mjs": {

@@ -83,6 +83,7 @@
   import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
+  import ColorField from "../../../lib/ColorField.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
@@ -1537,10 +1538,12 @@
           <label class="full">Name
             <input value={activeSlide.name ?? ""} onchange={(e) => onSlideName(e.currentTarget.value)} />
           </label>
-          <label class="full">Background
-            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(effectiveBg) ? effectiveBg : "#100f0f"}
-              onchange={(e) => onSlideBackground(e.currentTarget.value)} />
-          </label>
+          <!-- ColorField, never a native <input type="color">: its eyedropper segfaults
+               Electron on Linux/Wayland. -->
+          <div class="full fieldlbl">
+            <span>Background</span>
+            <ColorField value={effectiveBg} fallback="#100f0f" label="Slide background" onchange={(hex) => onSlideBackground(hex)} />
+          </div>
           <label class="full">Transition
             <select value={activeSlide.transition ?? overlay.defaults.transition} onchange={(e) => onSlideTransition(e.currentTarget.value)}>
               <option value="none">none</option><option value="fade">fade</option>
@@ -1831,7 +1834,7 @@
   }
   .panel input:focus, .panel select:focus, .panel textarea:focus { outline: none; border-color: var(--c-accent); }
   .panel textarea { resize: vertical; height: auto; padding: 4px 6px; line-height: 1.4; }
-  .panel input[type="color"] { padding: 1px 2px; }
+  .panel .fieldlbl { display: flex; flex-direction: column; gap: 2px; width: 100%; font: 10.5px var(--font-ui); color: var(--c-tx-muted); letter-spacing: 0.02em; }
   .convertrow { display: flex; padding: 0 10px; }
   .act {
     flex: 1; height: 24px; background: transparent; color: var(--c-tx-2); border: 1px solid var(--c-line-strong);

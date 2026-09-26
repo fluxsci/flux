@@ -22,12 +22,12 @@ import { isPdfBytes, bareDoi } from "../src/lib/references/pdfFinder";
 import { lightEntry } from "../src/lib/references/bibtex";
 import { identify, reconcile, unresolvedSidecar, type PaperMeta, type SearchHit, type IdResult, type IdentifyDeps } from "../src/lib/references/pdfIdentify";
 import { searchWorld } from "./enrich";
+import { failureAction, OFFLINE_BREAKER, ERROR_BREAKER } from "../src/lib/references/assignOutcome";
 
 const UA = "Flux/0.1 (pdf assign; +https://github.com/fluxsci/flux)";
 /** Politeness gap between successive DOI resolutions (Crossref/doi.org are limiter-exempt). */
 const RESOLVE_GAP_MS = 200;
 /** This many consecutive transient (network) results aborts the scan — we're offline. */
-const OFFLINE_BREAKER = 3;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -41,11 +41,15 @@ async function politeMailto(): Promise<string | undefined> {
  *  failures per the IdentifyDeps contract, so identify() defers instead of quarantining.
  *  (Deliberately stricter than pdfFinderBridge.isTransientErr, where any HTTP status counts as
  *  definitive — for DOI resolution a 429/5xx must never condemn a PDF.) */
-async function resolveDoiMeta(doi: string, mailto?: string): Promise<PaperMeta | null> {
+export async function resolveDoiMeta(doi: string, mailto?: string, fetchImpl: typeof fetch = fetch): Promise<PaperMeta | null> {
   const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}` + (mailto ? `?mailto=${encodeURIComponent(mailto)}` : "");
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } }); // network error → throw = transient
+  const res = await fetchImpl(url, { headers: { "User-Agent": UA, Accept: "application/json" } }); // network error → throw = transient
   if (res.ok) {
-    const m = (JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8")).catch(() => null))?.message;
+    // A successful reply must never THROW past here: identify() reads any throw as a
+    // transient network failure and defers the file. (2026-09-21 → 09-26 this line called
+    // `.catch` on the parsed object, so every good Crossref answer "failed as network".)
+    let m: any = null;
+    try { m = JSON.parse((await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8"))?.message; } catch { m = null; }
     const title = Array.isArray(m?.title) ? m.title[0] : m?.title;
     if (m && title) {
       const authors = Array.isArray(m.author)
@@ -59,7 +63,7 @@ async function resolveDoiMeta(doi: string, mailto?: string): Promise<PaperMeta |
   } else if (res.status !== 404 && res.status !== 410) {
     throw new Error(`crossref HTTP ${res.status}`);
   }
-  const r2 = await fetch(`https://doi.org/${encodeURIComponent(doi)}`, {
+  const r2 = await fetchImpl(`https://doi.org/${encodeURIComponent(doi)}`, {
     headers: { Accept: "application/x-bibtex", "User-Agent": UA },
     redirect: "follow",
   });
@@ -87,7 +91,7 @@ async function fetchDoiBibtex(doi: string): Promise<string> {
   return b;
 }
 
-export type AssignAction = "attached" | "added-attached" | "discarded" | "unresolved" | "deferred";
+export type AssignAction = "attached" | "added-attached" | "discarded" | "unresolved" | "deferred" | "error";
 export interface AssignItemResult {
   file: string;
   action: AssignAction;
@@ -107,7 +111,9 @@ export interface AssignSummary {
   discarded: number;
   unresolved: number;
   deferred: number; // transient (network) — left in the inbox to retry
+  errors: number; // non-transient failures (a refused library write, a lost lock) — left in the inbox, reported
   abortedOffline?: boolean; // the offline breaker tripped; remaining files untouched
+  abortedError?: string; // the error breaker tripped on this reason; remaining files untouched
   results: AssignItemResult[];
 }
 
@@ -215,7 +221,9 @@ export async function assignPdfs(
 
     let done = 0;
     let consecutiveTransient = 0;
+    let consecutiveErrors = 0;
     let abortedOffline = false;
+    let abortedError: string | undefined;
     for (const name of names) {
       const src = path.join(dir, name);
       const rec: AssignItemResult = { file: name, action: "unresolved" };
@@ -266,25 +274,34 @@ export async function assignPdfs(
                   await attach(key, new Uint8Array(bytes), name, L);
                   await fs.promises.rm(src, { force: true });
                 } catch (e) {
-                  rec.action = "deferred";
-                  rec.reason = "couldn't create library entry: " + String((e as Error)?.message || e);
-                  // leave the file in place to retry next run (do NOT quarantine — identity was fine)
+                  // Leave the file in place either way (do NOT quarantine — identity was fine):
+                  // a network blink defers quietly, anything else is reported as an error.
+                  const msg = String((e as Error)?.message || e);
+                  rec.action = failureAction(msg);
+                  rec.reason = "couldn't create library entry: " + msg;
                 }
               }
             }
           }
         }
       } catch (e) {
-        // Unexpected failure (fs hiccup, pdf.js crash): NEVER destructive — leave the file in
-        // place and report it; a definitive "can't identify" is the only road to _unresolved/.
-        rec.action = "deferred";
-        rec.reason = "error: " + String((e as Error)?.message || e);
+        // Unexpected failure (fs hiccup, pdf.js crash, a refused write): NEVER destructive —
+        // leave the file in place and report it; a definitive "can't identify" is the only
+        // road to _unresolved/. Only a genuinely transient failure is a silent "deferred".
+        const msg = String((e as Error)?.message || e);
+        rec.action = failureAction(msg);
+        rec.reason = msg;
       }
       results.push(rec);
       consecutiveTransient = rec.action === "deferred" ? consecutiveTransient + 1 : 0;
+      consecutiveErrors = rec.action === "error" ? consecutiveErrors + 1 : 0;
       opts.onProgress?.(++done, total, name);
       if (consecutiveTransient >= OFFLINE_BREAKER && done < total) {
         abortedOffline = true; // network is down — stop grinding; everything stays in the inbox
+        break;
+      }
+      if (consecutiveErrors >= ERROR_BREAKER && done < total) {
+        abortedError = rec.reason; // something systemic fails every file — say so once, stop
         break;
       }
     }
@@ -298,7 +315,9 @@ export async function assignPdfs(
       discarded: results.filter((r) => r.action === "discarded").length,
       unresolved: results.filter((r) => r.action === "unresolved").length,
       deferred: results.filter((r) => r.action === "deferred").length,
+      errors: results.filter((r) => r.action === "error").length,
       abortedOffline: abortedOffline || undefined,
+      abortedError,
       results,
     };
   };

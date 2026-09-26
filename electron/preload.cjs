@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld("fig", {
   // result says which happened).
   trash: (p) => ipcRenderer.invoke("fs:trash", p),
   // Sync-conflict leftovers in the open project (read-only; resolution uses fs:*).
-  conflictsScan: (root) => ipcRenderer.invoke("conflicts:scan", root),
+  conflictsScan: (root, opts) => ipcRenderer.invoke("conflicts:scan", root, opts),
   exportPdf: (svg, outPath, w, h) => ipcRenderer.invoke("export:pdf", { svg, outPath, w, h }),
   // Render a full HTML document (multi-page, CSS @page-driven) to a PDF.
   printPdf: (html, outPath, opts) => ipcRenderer.invoke("print:pdf", { html, outPath, opts }),

@@ -285,6 +285,20 @@ Persistence invariants (all machine-checked — do not weaken):
   (union the lines); everything else is the user's call. The scan runs on project open, not just
   from watcher events: conflicts arrive while Flux is CLOSED, which is exactly when the other
   machine was in use.
+- **The reference library's `library.bib` is the second shape with an automatic answer (2026-09-26):
+  union the ENTRIES.** A `library.sync-conflict-*.bib` beside FluxLib's `library.bib` merges
+  itself — `src/lib/references/bibConflict.ts` `planBibConflictMerge` (pure: same-citekey =
+  same record, then the add planner's DOI/signature dedupe, the copy's citekeys + `dateadded`
+  kept, canonical entries never modified or removed) — at app start, on Library open, and
+  before ANY library write in both engines (`fluxlibBridge.mergeLibraryConflictCopies`,
+  `flux-core/fluxlib.ts mergeLibraryConflictCopies`). The copy is ARCHIVED to
+  `.fluxlib/sync-conflicts/library.other-machine-<stamp>-<device>.bib` (renamed so the scan
+  stops reporting it), never deleted. A library write is never refused because of a stray
+  sibling file: from the 09-21 fortification to 09-26 `assertNoCanonicalConflict` blocked every
+  add while such a copy existed, and the only symptom was the assign inbox saying "network
+  unavailable" for a day. Other FluxLib files (`.fluxlib/organize.json`) still block on a copy
+  and reach the same Shell banner as project conflicts (the scan covers FluxLib's top level,
+  `maxDepth: 1`, project open or not). Gated by `verify-assign-outcome.ts`.
 - **Figure ORDER is `p.figures`' array order, per canvas, and it is the user's** (2026-08-19):
   the sidebar's Figures list renders that order, the user drags rows (or presses Alt+↑/↓) to
   change it, and `planFigSave` persists it — canvas files list figures in it and `index.json`
@@ -2298,6 +2312,29 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   Electron over `--remote-debugging-port` must first prove the port is FREE — a stale instance
   from an earlier run answered three probes in a row with the old bundle and a
   `bind() failed` line in the new one's log, which made a working fix look broken.
+
+- **A `.catch` on a non-promise is a throw, and a throw inside a resolver is "network".**
+  `flux-core/assign.ts resolveDoiMeta` did `JSON.parse(await readBoundedBody(…)).catch(…)` for
+  five days (d80a690 → 2026-09-26): every SUCCESSFUL Crossref reply threw a TypeError, and
+  `identify()` classifies any resolver throw as transient, so the CLI/MCP twin deferred every
+  DOI as a network blink while the network was fine. The hardening gate injects `resolveDoi`,
+  so it never ran the real resolver — the producer-never-run trap again (§9 capture). Now
+  `verify-assign-outcome.ts` runs `resolveDoiMeta` over a fake `fetch`.
+- **"deferred (network)" must mean network.** Both assign engines used to fold EVERY exception
+  into "deferred", and three in a row tripped the offline breaker, so a refused library write
+  read as "network unavailable" and nobody looked at the library. `assignOutcome.ts` now
+  classifies failures (`failureAction`: transient → "deferred", anything else → "error" with the
+  reason in the summary; `ERROR_BREAKER` stops a scan on a systemic error and names it), and the
+  Library toast counts what was FILED, not what was scanned ("Assigned 3 PDFs · 3 deferred"
+  once meant nothing happened).
+- **Never render a native `<input type="color">` in the renderer.** Chromium's colour popup has
+  an eyedropper button that invokes EyeDropperView, which SEGFAULTS Electron on Linux/Wayland —
+  no JavaScript can catch it. The 09-21 fix moved the F-menu picker to the desktop-portal dropper
+  (`color/eyedropper.ts`); the figure/slide Background fields and the palette "+" kept the
+  native input and took the app down (owner report 09-26). Every colour field is
+  `src/lib/ColorField.svelte` (controlled swatch → spectrum popover + hex + portal dropper) or
+  `ColorPicker.svelte`; `verify-no-native-color-input.ts` (pure, structural) and
+  `verify-color-field.mjs` (ui) gate it.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -6893,3 +6930,37 @@ right after the worktree's cold start on the shared dep cache, then green four t
 - **A probe against a long-lived port must prove the port is free.** Three consecutive
   Electron probes silently talked to a stale instance; the tell was `bind() failed` in the new
   instance's log and an old bundle hash in the page.
+
+### 2026-09-26 (evening) — The assign inbox "network unavailable" that wasn't, and the Background eyedropper crash (Claude Fable 5.1, `main`)
+**Work:** Owner's 11 captured PDFs sat unfiled behind "3 deferred (network) — network unavailable"
+while every service answered in 100 ms. Two independent faults: the Node twin's DOI resolver threw on
+every good Crossref reply (`.catch` on a parsed object, since d80a690), and the GUI's entry creation
+was refused by `assertNoCanonicalConflict` because a Syncthing conflict copy sat beside
+`library.bib` — both exceptions were labelled "deferred", three in a row tripped the offline breaker.
+Fixed the resolver; failures now classify (`assignOutcome.ts`, "error" vs "deferred", an error
+breaker that names its reason, a toast that counts what was filed); `library.bib` conflict copies
+merge themselves by entry and are archived (§3), in both engines, so a library write is never refused
+by a sibling file. Owner's library: the copy carried 9 entries added on the other machine on 09-06
+(NMF papers) — merged (1839 → 1848; backup at `.fluxlib/library.bib.pre-conflict-merge-2026-09-26`),
+then all 11 PDFs filed (9 add+attach, 2 duplicates kept as supplements; 1857 entries). Second bug:
+the figure Background field (also slide Background and the palette "+") was still a native
+`<input type="color">` whose eyedropper segfaults Electron on Wayland — replaced by
+`ColorField.svelte` (portal dropper), structural + ui gates. Pure gates green
+(assign-outcome, assign-hardening, canonical-reads, sync-conflicts, pdfidentify, bib-scanner),
+`verify-color-field` 5/5 on a warm server, real-Electron assign probe with a conflict copy in a
+scratch library: 3/3 filed, copy merged + archived.
+**Learnings:**
+- Promoted to §3 (library.bib conflict copies merge themselves, archived not deleted) and §9 (three
+  traps: `.catch` on a non-promise inside a resolver; "deferred (network)" must mean network; never a
+  native colour input).
+- **Reproduce the GUI path in the real renderer before theorizing.** A 40-line Electron probe (the
+  `verify-library-native.cjs` recipe: scratch HOME, `VITE_DEV_SERVER_URL`, `executeJavaScript` importing
+  `assignJob.svelte.ts`) proved the GUI job itself was sound and pointed straight at the owner's
+  library — the conflict copy — instead of at any of the four plausible code suspects.
+- **A cold dev server fails ui gates that pass warm.** The first page load after `npm run dev` can
+  re-optimize a dep mid-gate (504 "Outdated Optimize Dep", full reload); judge a gate on the second
+  run against the same server. `pkill -f vite` also matches the shell that spawned it — kill by process
+  group (`setsid`, `kill -- -PGID`).
+- **In a synced copy of a library, same citekey = same record.** The add planner's DOI/signature dedupe
+  cannot see a title-only record (no DOI, no author); three came back re-minted as duplicates on the
+  first real merge. `planBibConflictMerge` filters same-key blocks first.

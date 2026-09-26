@@ -46,14 +46,15 @@ export interface AddPlan {
  *
  * Every NEW entry is stamped with a `dateadded` field (one shared timestamp per plan —
  * a bulk import is one moment of arrival). Merged entries keep their existing stamp.
- * `addedAt` exists for deterministic tests; callers normally omit it.
+ * `addedAt` exists for deterministic tests; callers normally omit it. `keepDateAdded`
+ * (sync-conflict merges) leaves an incoming entry's own stamp in place.
  */
 export function planAdds(
   currentBibText: string,
   incomingBibText: string,
   source: "doi" | "bibtex" = "bibtex",
   addedAt?: string,
-  options: { restore?: boolean } = {},
+  options: { restore?: boolean; keepDateAdded?: boolean } = {},
 ): AddPlan {
   assertBibValid(currentBibText);
   const incomingScan = assertBibValid(incomingBibText);
@@ -105,7 +106,9 @@ export function planAdds(
 
     const key = source === "bibtex" && orig && ![...taken].some(k => identity(k) === identity(orig)) && !/[\\/\x00-\x1f<>:"|?*]/.test(orig) && !/^(?:\.{1,2}|con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(orig) && !/[. ]$/.test(orig) && orig.length <= 180 ? orig : makeCitekey(e, taken);
     if (options.restore && key !== orig) throw new Error(`Cannot restore ${orig}: its identity conflicts with an intervening edit`);
-    const outRaw = options.restore ? raw : stampDateAdded(rekeyBibtex(raw, key), stamp);
+    // keepDateAdded (sync-conflict merges): an entry that already carries the day it arrived
+    // on the other machine keeps it — a merge is not a new arrival.
+    const outRaw = options.restore ? raw : options.keepDateAdded && e.dateAdded ? rekeyBibtex(raw, key) : stampDateAdded(rekeyBibtex(raw, key), stamp);
     taken.add(key);
     if (doi) { doiToKey.set(doi, key); keyDoi.set(key, doi); }
     if (sig && !sigToKey.has(sig)) sigToKey.set(sig, key);

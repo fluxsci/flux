@@ -45,6 +45,7 @@
   import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
   import ColorPicker from "./ColorPicker.svelte";
+  import ColorField from "./ColorField.svelte";
   import NumberField from "./NumberField.svelte";
   import { commitDeckLive } from "./slide/store";
   import { setVideoSettings } from "./slide/ops";
@@ -1027,9 +1028,12 @@
           }} />
       </label>
       <button class="full figure-details" on:click={() => figureCatalog.set({ figureId: fig.id })}>Reference, sources &amp; used in…</button>
-      <label class="full">Background
-        <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />
-      </label>
+      <!-- Never a native <input type="color"> here: its eyedropper segfaults Electron on
+           Linux/Wayland (ColorField routes the dropper through the desktop portal). -->
+      <div class="full fieldlbl">
+        <span>Background</span>
+        <ColorField value={fig.background === "transparent" ? "#ffffff" : fig.background} fallback="#ffffff" label="Figure background" onchange={(hex) => updateFigure((f) => (f.background = hex))} />
+      </div>
       <button class="fig-act" on:click={() => duplicateFigure(fig.id)}>Duplicate figure</button>
       <button class="fig-act" on:click={() => { try { autoLetterPanels(fig.id); } catch (error) { pushToast("error", "Panels could not be lettered", { detail: String((error as Error).message) }); } }}>Auto-letter panels (a, b, c)</button>
       {#if $embeddedProjectRoot}
@@ -1380,7 +1384,16 @@
     margin: 0;
     accent-color: var(--c-accent);
   }
-  input[type="color"] { padding: 1px 2px; }
+  .fieldlbl {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    margin-top: 6px;
+    font: 10.5px var(--font-ui);
+    color: var(--c-tx-muted);
+    letter-spacing: 0.02em;
+  }
   textarea {
     resize: vertical;
     height: auto;
