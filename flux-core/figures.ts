@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import { figureSourceOwners } from "../src/lib/project/figureSourceOwners";
 import * as path from "node:path";
 import { membersDeep } from "../src/lib/groups";
-import { composeCaption, panelLetters, figurePanels, panelKey, splitCaption } from "../src/lib/captions";
+import { composeCaption, panelLetters, figurePanels, panelKey, splitCaption, POSTSCRIPT_CAPTION } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { buildPartIndex } from "../src/lib/plot/parse";
@@ -109,9 +109,12 @@ export async function setCaption(
     // before) let the GUI's next save recompose from an empty captions map and
     // silently wipe the agent's caption.
     if (opts.panel) {
-      // --panel a: write ONE panel's text (keyed by its label element's id).
+      // --panel a writes one label-backed block; __ps__ always targets closing
+      // prose. The ps shorthand must not steal an existing panel named ps.
       const key = opts.panel.toLowerCase();
-      const panel = figurePanels(fig).find((p) => panelKey(p.label) === key);
+      const closing = { id: POSTSCRIPT_CAPTION, label: 'ps' };
+      const panel = key === POSTSCRIPT_CAPTION ? closing :
+        figurePanels(fig).find((p) => panelKey(p.label) === key) ?? (key === 'ps' ? closing : undefined);
       if (!panel || panel.id === "__figure__")
         throw new Error(`figure "${figId}" has no panel "${opts.panel}" (panels: ${panelLetters(fig).join("") || "none"})`);
       fig.captions = { ...(fig.captions ?? {}), [panel.id]: trimmed };
@@ -121,7 +124,8 @@ export async function setCaption(
       // box per panel — a monolithic __figure__ blob mis-structures all of it).
       // No recognizable markers → the whole string is the figure-level lead.
       const split = splitCaption(fig, trimmed);
-      fig.captions = split ?? { ...(fig.captions ?? {}), __figure__: trimmed };
+      const { [POSTSCRIPT_CAPTION]: _oldClosing, ...remaining } = fig.captions ?? {};
+      fig.captions = split ?? { ...remaining, __figure__: trimmed };
     }
     // WS-5.6: the save that follows (mutateFigModel) composes + emits the
     // fig/captions/<id>.md file AND the index caption cache from Figure.captions

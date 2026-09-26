@@ -133,7 +133,7 @@ import-plots → arrange → auto-label route works on a blank figure too).
 
 ## Captions
 
-Captions live on the figure MODEL (a lead sentence + one block per panel — what the app's
+Captions live on the figure MODEL (a lead sentence + one block per panel + optional closing prose — what the app's
 Figure-Meta Captions tab shows (Alt+M in Figure or Paper)); `fig/captions/<id>.md` is the composed read-out. Write them journal
 style — bold letter + comma:
 
@@ -141,8 +141,14 @@ style — bold letter + comma:
 {{FLUX_CLI}} set-caption growth "Growth of control vs treatment under nutrient stress over 24 h. **a**, Control. **b**, Treatment."
 #   the '**a**, …' convention is DISTRIBUTED into the per-panel blocks automatically
 {{FLUX_CLI}} set-caption growth "Control (revised)." --panel a   # rewrite ONE panel
+{{FLUX_CLI}} set-caption growth "All error bars show SEM." --panel __ps__ # closing prose, no label
 {{FLUX_CLI}} caption growth      # read the composed caption back
 ```
+
+The `__ps__` block stays last regardless of panel order. Its readable projection has no marker;
+whole-caption edits preserve an unchanged known suffix, while rewritten closing prose is imported
+into the ordinary blocks without duplicating the old text. `--panel ps` is also accepted when no
+actual panel is named ps.
 
 The manuscript reads captions from the model (embed lines carry NO caption text — see
 `MANUSCRIPT-AND-REVIEW.md`); use `@fig-growth-a` in the caption/prose to refer to panels.

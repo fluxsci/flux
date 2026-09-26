@@ -3,6 +3,7 @@
 import type { Project } from '../types';
 import type { FigureFamilyDef } from '../figfamily';
 import * as ops from '../ops';
+import { POSTSCRIPT_CAPTION } from '../captions';
 export type FigureIdentity = { family: string; number: number; nickname: string };
 export type MetadataChange =
   | { kind: 'caption'; figureId: string; key: string; before: string; after: string }
@@ -17,7 +18,7 @@ export function applyMetadataChange(p: Project, change: MetadataChange): void {
     const current = f.captions?.[change.key] ?? '';
     if (current === change.after) return;
     if (current !== change.before) throw new Error('This caption changed elsewhere. Your draft has been kept; copy it before reloading.');
-    if (change.key !== '__figure__' && !f.elements.some(e => e.id === change.key && e.type === 'text' && e.panelLabel))
+    if (change.key !== '__figure__' && change.key !== POSTSCRIPT_CAPTION && !f.elements.some(e => e.id === change.key && e.type === 'text' && e.panelLabel))
       throw new Error('This panel label was removed. Your draft has been kept.');
     (f.captions ??= {})[change.key] = change.after;
   } else {

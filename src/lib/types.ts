@@ -138,7 +138,7 @@ export interface Figure {
   groups?: Record<Id, GroupDef>;
   // Per-panel caption text, keyed by the panel-label element's id (see
   // captions.ts / figure/FigureMeta.svelte). Edited in Figure-Meta (Alt+M).
-  captions?: Record<Id, string>;
+  captions?: Record<Id, string>; // __figure__ lead, label-element IDs, optional __ps__ closing prose
   // Ruler guides (Feature 11), figure-local. `x` = vertical guide lines at those
   // x positions; `y` = horizontal guides. Elements snap to them while moving.
   guides?: { x?: number[]; y?: number[] };

@@ -5,8 +5,11 @@
 
 import type { Figure, Id } from "./types";
 
+/** Optional closing prose, independent of the last panel's identity or letter. */
+export const POSTSCRIPT_CAPTION = "__ps__";
+
 export interface Panel {
-  /** The label element's id, or "__figure__" for the whole-figure fallback. */
+  /** The label element's id; caption blocks also use __figure__ and __ps__. */
   id: Id;
   /** The displayed label ("" for the fallback). */
   label: string;
@@ -56,13 +59,14 @@ export function panelLetters(fig: Figure): string[] {
 }
 
 /**
- * Editor blocks for the Caption Editor: a leading whole-figure block (the
+ * Editor blocks for Figure-Meta: a leading whole-figure block (the
  * caption's overall sentence) followed by one block per panel label. With no
- * panels it is just the single whole-figure block. (F7.)
+ * panels it is just the single whole-figure block. An optional postscript is last.
  */
 export function captionBlocks(fig: Figure): Panel[] {
   const blocks: Panel[] = [{ id: "__figure__", label: "Figure" }];
   if (hasPanels(fig)) for (const p of figurePanels(fig)) blocks.push(p);
+  if (fig.captions?.[POSTSCRIPT_CAPTION]?.trim()) blocks.push({ id: POSTSCRIPT_CAPTION, label: "ps" });
   return blocks;
 }
 
@@ -71,17 +75,19 @@ export function captionBlocks(fig: Figure): Panel[] {
  * that flows Figure → fig/captions/<id>.md → Manuscript (F7). The whole-figure
  * sentence leads; each non-empty panel follows as "**a**, text" (bold letter +
  * comma, journal style — the owner's requested format; no parentheses).
+ * Optional closing prose follows as plain text, with no ps marker.
  */
 export function composeCaption(fig: Figure): string {
   const caps = fig.captions ?? {};
   const lead = (caps["__figure__"] ?? "").trim();
-  if (!hasPanels(fig)) return lead;
   const parts: string[] = [];
   if (lead) parts.push(lead);
-  for (const p of figurePanels(fig)) {
+  for (const p of hasPanels(fig) ? figurePanels(fig) : []) {
     const t = (caps[p.id] ?? "").trim();
     if (t) parts.push(`**${panelKey(p.label) || p.label.trim()}**, ${t}`);
   }
+  const postscript = (caps[POSTSCRIPT_CAPTION] ?? "").trim();
+  if (postscript) parts.push(postscript);
   return parts.join(" ");
 }
 
@@ -90,12 +96,21 @@ export function composeCaption(fig: Figure): string {
  * caption string on the documented `**a**, …` convention (also tolerating
  * legacy "(a) …") into the whole-figure lead + per-panel texts, keyed by the
  * figure's ACTUAL panel labels. Text for letters the figure doesn't have stays
- * in the lead (never silently dropped). Returns null when the string has no
- * panel markers matching the figure — caller stores it whole in __figure__.
+ * in the lead (never silently dropped). Returns null when neither a known ps
+ * suffix nor panel markers match — caller stores it whole in __figure__.
  */
 export function splitCaption(fig: Figure, md: string): Record<Id, string> | null {
+  // The readable projection deliberately has no ps marker. Retain its known
+  // boundary only when the exact old closing prose is still an unambiguous
+  // suffix. If it was rewritten, import all prose into the ordinary blocks;
+  // never retain an obsolete ps as an orphan and append it a second time.
+  const ps = fig.captions?.[POSTSCRIPT_CAPTION]?.trim();
+  const text = md.trim();
+  const tail = ps && (text === ps || text.endsWith(` ${ps}`) || text.endsWith(`\n${ps}`)) ? ps : '';
+  const closing: Record<Id, string> = tail ? { [POSTSCRIPT_CAPTION]: tail } : {};
+  if (tail) md = text.slice(0, -tail.length).trimEnd();
   const panels = figurePanels(fig).filter((p) => p.id !== "__figure__");
-  if (!panels.length) return null;
+  if (!panels.length) return tail ? { __figure__: md.trim(), ...closing } : null;
   const byKey = new Map(panels.map((p) => [panelKey(p.label), p.id] as const));
   const order = new Map(panels.map((p, i) => [panelKey(p.label), i] as const));
   // A panel marker: `**a**,` / `**a**.` / `**a**:` or legacy `(a)` at a
@@ -116,9 +131,10 @@ export function splitCaption(fig: Figure, md: string): Record<Id, string> | null
     lastOrder = ord;
     markers.push({ idx: (m.index ?? 0) + m[1].length, len: m[0].length - m[1].length, key });
   }
-  if (!markers.length) return null;
+  if (!markers.length) return tail ? { __figure__: md.trim(), ...closing } : null;
   const out: Record<Id, string> = {
     __figure__: md.slice(0, markers[0].idx).trim(),
+    ...closing,
   };
   markers.forEach((mk, i) => {
     const end = i + 1 < markers.length ? markers[i + 1].idx : md.length;

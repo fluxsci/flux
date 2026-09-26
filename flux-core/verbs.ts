@@ -197,7 +197,7 @@ export const VERBS: VerbDef[] = [
     name: "set_caption",
     cli: "set-caption",
     summary:
-      "Write a figure's caption. Whole-string form distributes the 'Lead. **a**, … **b**, …' convention into the per-panel caption blocks (the app's Caption Editor structure); pass panel:'a' to write ONE panel's text.",
+      "Write a figure's caption. Whole-string form distributes the 'Lead. **a**, … **b**, …' convention into the per-panel caption blocks (Figure-Meta); pass panel:'a' to write one panel, or panel:'__ps__' for unlabelled closing prose (panel:'ps' also works unless a panel is named ps).",
     params: { id: z.string(), markdown: z.string(), panel: z.string().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "id", required: true },

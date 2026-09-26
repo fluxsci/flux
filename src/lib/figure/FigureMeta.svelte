@@ -14,15 +14,16 @@
   import { metadataUsesLiveFigure, readMetadataProject, writeMetadataChange } from './metadataBridge';
   import { type MetadataChange, reverseMetadataChange } from './metadata';
   import { familyMap, familyById, formatCaptionLabel } from '../figfamily';
-  import { captionBlocks, composeCaption } from '../captions';
+  import { captionBlocks, composeCaption, POSTSCRIPT_CAPTION } from '../captions';
   import { loadFigures, renderFigureImageUrl, captureFigureExport, figureSvgImageUrl } from '../../shell/modes/paper/scholar/figures';
   import { openUtilityWindow } from '../plot/galleryWindow';
   import { modalFocus } from '../ui/modalFocus';
   import { pointerDrag } from '../ui/pointerDrag';
   import { autogrow } from '../ui/autogrow';
-  import { mdInlineFragment } from '../../shell/modes/paper/science/mdInline';
   import Logomark from '../../shell/Logomark.svelte';
   import FigureIdentityForm from './FigureIdentityForm.svelte';
+  import FigureMetaPreview from './FigureMetaPreview.svelte';
+  import Icon from '../../shell/Icon.svelte';
 
   const root = get(projectModel)?.root ?? null;
   $: if (($projectModel?.root ?? null) !== root) figureMeta.set(null);
@@ -39,9 +40,11 @@
     reconnectList = () => { observer?.disconnect(); const owner = node.ownerDocument.defaultView as Window & typeof globalThis; observer = new owner.ResizeObserver(() => listHeight = node.clientHeight); observer.observe(node); listHeight = node.clientHeight; };
     reconnectList(); return { destroy() { observer.disconnect(); reconnectList = () => {}; } };
   }
-  function moved() { reconnectList(); for (const textarea of wrap?.querySelectorAll('textarea') ?? []) textarea.dispatchEvent(new Event('flux:document-change')); }
+  function moved() { reconnectList(); previewView?.reconnect(); for (const textarea of wrap?.querySelectorAll('textarea') ?? []) textarea.dispatchEvent(new Event('flux:document-change')); }
   let detached = false, wrap: HTMLDivElement, splitEl: HTMLDivElement;
   let nameForm: FigureIdentityForm | undefined;
+  let previewView: FigureMetaPreview | undefined;
+  let collapsed = new Set<string>(), addedPs = new Set<string>();
   let split = .52, scroll = 0, listHeight = 500;
   let listEl: HTMLElement, revealedFigure = '';
   $: if (selected && filtered.length && selected.id !== revealedFigure) {
@@ -69,7 +72,7 @@
   $: { query; family; canvas; scroll = 0; }
   $: start = Math.max(0, Math.min(Math.max(0, filtered.length - 1), Math.floor(scroll / 54) - 3));
   $: shown = filtered.slice(start, start + Math.ceil(listHeight / 54) + 7);
-  $: blocks = selected ? captionBlocks(selected) : [];
+  $: blocks = selected ? [...captionBlocks(selected), ...(addedPs.has(selected.id) && !selected.captions?.[POSTSCRIPT_CAPTION]?.trim() ? [{id:POSTSCRIPT_CAPTION,label:'ps'}] : [])] : [];
   $: previewFigure = selected ? { ...selected, captions: { ...selected.captions, ...Object.fromEntries([...drafts.values()].filter(d => d.figureId === selected?.id).map(d => [d.key, d.after])) } } : null;
   $: caption = previewFigure ? composeCaption(previewFigure) : '';
   $: captionLabel = selected ? formatCaptionLabel(familyById(selected.family, model?.figureFamilies), selected.number ?? 1) : '';
@@ -189,9 +192,22 @@
     cancelDrag = pointerDrag(e, event => split = Math.max(.25, Math.min(.75, (event.clientX-box.left)/box.width)), () => split = initial, () => { cancelDrag = undefined; try { localStorage.setItem('flux.figureMeta.split', String(split)); } catch {} });
   }
   function splitKeys(e: KeyboardEvent) { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); split = Math.max(.25, Math.min(.75, split + (e.key === 'ArrowLeft' ? -.02 : .02))); try { localStorage.setItem('flux.figureMeta.split', String(split)); } catch {} }
-  function inlineCaption(node: HTMLElement, text: string) {
-    const update = (value: string) => node.replaceChildren(mdInlineFragment(value));
-    update(text); return { update };
+  function changeTextSize(delta: number) { settings.update(s => ({...s, captionFontSize:Math.max(9,Math.min(28,s.captionFontSize+delta))})); }
+  function toggleBlock(id: string) {
+    const key = `${selected?.id}:${id}`;
+    const next = new Set(collapsed); if (next.has(key)) next.delete(key); else next.add(key); collapsed = next;
+  }
+  async function addPostscript() {
+    if (!selected) return;
+    addedPs = new Set([...addedPs,selected.id]);
+    collapsed.delete(`${selected.id}:${POSTSCRIPT_CAPTION}`); collapsed = new Set(collapsed);
+    await tick(); wrap.querySelector<HTMLTextAreaElement>('[aria-label="ps caption"]')?.focus();
+  }
+  async function removePostscript() {
+    if (!selected) return;
+    const id = selected.id;
+    editCaption(POSTSCRIPT_CAPTION,'');
+    if (await flushCaptions()) { addedPs.delete(id); addedPs = new Set(addedPs); }
   }
   async function copyReference() { if (!selected) return; try { await navigator.clipboard.writeText(`@${selected.referenceKey}`); status = 'Reference copied'; } catch { status = 'Select the reference below to copy it.'; } }
 
@@ -217,10 +233,10 @@
   {#if !detached}<button class="backdrop" aria-label="Close Figure-Meta" on:click={close}></button>{/if}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="figure-meta" role="dialog" aria-label="Figure-Meta" aria-modal={!detached} tabindex="-1" use:modalFocus on:keydown={onKey}>
-    <header><div class="brand"><Logomark size={24} /><span>Flux <b>Figure-Meta</b></span></div><span class="space"></span><button title="Undo metadata edit" aria-label="Undo metadata edit" disabled={!history.length || saving} on:click={() => undoMeta()}>↶</button><button title="Redo metadata edit" aria-label="Redo metadata edit" disabled={!redo.length || saving} on:click={() => undoMeta(false)}>↷</button><button class="pin" title={detached ? 'Return to workspace' : 'Pin in a separate window (Shift+Alt+M)'} on:click={() => detached ? dock() : pin()}>{detached ? 'Dock' : 'Pin open'} ↗</button><button aria-label="Close Figure-Meta" title="Close (Esc)" on:click={close}>✕</button></header>
+    <header><div class="brand"><Logomark size={30} /><span class="brand-word">Flux</span><div class="brand-title"><b>Figure-Meta</b><span>Alt + M</span></div></div><span class="space"></span><button title="Undo metadata edit" aria-label="Undo metadata edit" disabled={!history.length || saving} on:click={() => undoMeta()}>↶</button><button title="Redo metadata edit" aria-label="Redo metadata edit" disabled={!redo.length || saving} on:click={() => undoMeta(false)}>↷</button><button class="pin" title={detached ? 'Return to workspace' : 'Pin in a separate window (Shift+Alt+M)'} on:click={() => detached ? dock() : pin()}>{detached ? 'Dock' : 'Pin open'} ↗</button><button aria-label="Close Figure-Meta" title="Close (Esc)" on:click={close}>✕</button></header>
     <div class="body">
       <aside>
-        <div class="filters"><input class="meta-search" aria-label="Search figures" placeholder="Search figures…" bind:value={query} /><select aria-label="Filter figure family" bind:value={family}><option value="">All families</option>{#each families as f (f.id)}<option value={f.id}>{f.displayName}</option>{/each}</select>{#if (model?.canvases.length ?? 0) > 1}<select aria-label="Filter figure canvas" bind:value={canvas}><option value="">All canvases</option>{#each model?.canvases ?? [] as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>{/if}</div>
+        <div class="filters"><div class="section-label">Collection <span>{model?.figures.length ?? 0}</span></div><input class="meta-search" aria-label="Search figures" placeholder="Search figures…" bind:value={query} /><select aria-label="Filter figure family" bind:value={family}><option value="">All families</option>{#each families as f (f.id)}<option value={f.id}>{f.displayName}</option>{/each}</select>{#if (model?.canvases.length ?? 0) > 1}<select aria-label="Filter figure canvas" bind:value={canvas}><option value="">All canvases</option>{#each model?.canvases ?? [] as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>{/if}</div>
         <nav aria-label="Figures" class="figure-list" bind:this={listEl} use:listSize on:scroll={e => scroll = e.currentTarget.scrollTop}>
           <div style={`height:${filtered.length*54}px;position:relative`}>
             {#each shown as f,i (f.id)}<button class="figure-row" class:selected={f.id === selected?.id} aria-current={f.id === selected?.id ? 'true' : undefined} style={`top:${(start+i)*54}px`} on:click={() => choose(f.id)}><b>{f.name}</b><span>{f.nickname || (model?.canvases.find(c => c.id === f.canvasId)?.name ?? '')}</span></button>{/each}
@@ -230,19 +246,36 @@
       </aside>
       <div class="detail" bind:this={splitEl} style={`--preview-share:${split*100}%`}>
         <div class="preview-pane">
-          {#if selected}<div class="figure-heading"><span>{selected.name}</span><h2>{selected.nickname || selected.name}</h2></div><div class="art">{#if preview}<img src={preview} alt={selected.nickname || selected.name} />{:else}<p class="empty">{previewError || 'Preparing preview…'}</p>{/if}</div><div class="caption-preview"><strong>{captionLabel}</strong><span use:inlineCaption={caption || 'No caption yet.'}></span></div>{/if}
+          {#if selected}
+            <div class="figure-heading"><span>{selected.name}</span><h2>{selected.nickname || 'Untitled figure'}</h2></div>
+            <FigureMetaPreview bind:this={previewView} figureId={selected.id} title={selected.nickname || selected.name} image={preview} error={previewError} {caption} {captionLabel} aspect={selected.width/selected.height} />
+          {/if}
         </div>
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div class="splitter" role="separator" aria-label="Resize figure preview" aria-orientation="vertical" aria-valuenow={Math.round(split*100)} aria-valuemin="25" aria-valuemax="75" tabindex="0" on:pointerdown={resize} on:keydown={splitKeys} on:dblclick={() => split = .52}></div>
         <div class="edit-pane">
-          <div class="tabs" role="tablist" aria-label="Figure metadata"><button role="tab" aria-selected={tab==='captions'} class:on={tab==='captions'} on:click={() => selectTab('captions')}>Captions</button><button role="tab" aria-selected={tab==='name'} class:on={tab==='name'} on:click={() => selectTab('name')}>Name</button></div>
+          <div class="tabs" role="tablist" aria-label="Figure metadata">
+            <button role="tab" aria-selected={tab==='captions'} class:on={tab==='captions'} on:click={() => selectTab('captions')}><Icon name="textFlow" size={18} /><span>Captions<small>The story behind the figure</small></span></button>
+            <button role="tab" aria-selected={tab==='name'} class:on={tab==='name'} on:click={() => selectTab('name')}><Icon name="hash" size={18} /><span>Name<small>Title, family & number</small></span></button>
+          </div>
           <div class="fields" role="tabpanel" aria-label={tab === 'captions' ? 'Captions' : 'Name'}>
             {#if selected && model}
               {#key selected.id}
                 {#if tab==='captions'}
-                  <p class="hint">The caption follows this figure everywhere it is used.</p>
-                  {#each blocks as block (block.id)}<label class="caption-block"><span>{block.label || 'Figure'}</span><textarea aria-label={`${block.label || 'Figure'} caption`} style={`font-size:${$settings.captionFontSize}px`} value={draftValue(block.id)} rows="2" placeholder={block.id==='__figure__' ? 'Describe the figure…' : `Describe panel ${block.label}…`} on:input={e => editCaption(block.id,e.currentTarget.value)} on:change={() => flushCaptions()} use:autogrow={{value:draftValue(block.id),fs:$settings.captionFontSize}}></textarea></label>{/each}
-                  {#if blocks.length===1}<p class="hint">Mark text as a Panel label in the F-menu to add panel captions.</p>{/if}
+                  <div class="caption-toolbar"><span class="section-label">Caption blocks</span><div class="text-size" role="group" aria-label="Caption text size"><span>Aa</span><button aria-label="Decrease caption text size" title="Smaller caption text" disabled={$settings.captionFontSize<=9} on:click={() => changeTextSize(-1)}><Icon name="min" size={13} /></button><output aria-label="Caption text size">{$settings.captionFontSize}</output><button aria-label="Increase caption text size" title="Larger caption text" disabled={$settings.captionFontSize>=28} on:click={() => changeTextSize(1)}><Icon name="plus" size={13} /></button></div></div>
+                  <p class="hint">One caption, wherever this figure appears. Click a label to fold it.</p>
+                  {#each blocks as block (block.id)}
+                    {@const folded = collapsed.has(`${selected.id}:${block.id}`)}
+                    <div class="caption-block" class:folded class:postscript={block.id===POSTSCRIPT_CAPTION}>
+                      <div class="block-heading">
+                        <button class="block-toggle" aria-expanded={!folded} aria-controls={`caption-${selected.id}-${block.id}`} aria-label={`${folded ? 'Expand' : 'Collapse'} ${block.label || 'Figure'} caption`} on:click={() => toggleBlock(block.id)}><span class="block-tag">{block.label || 'Figure'}</span><span class="block-rule"></span><span class="block-kind">{block.id==='__figure__' ? 'Opening' : block.id===POSTSCRIPT_CAPTION ? 'Closing' : 'Panel'}</span><Icon name={folded ? 'chevronRight' : 'chevronDown'} size={12} /></button>
+                        {#if block.id===POSTSCRIPT_CAPTION}<button class="remove-ps" aria-label="Remove closing caption" title="Remove closing caption (undo available)" on:click={removePostscript}><Icon name="x" size={12} /></button>{/if}
+                      </div>
+                      {#if !folded}<div class="caption-content" id={`caption-${selected.id}-${block.id}`}><textarea aria-label={`${block.label || 'Figure'} caption`} style={`font-size:${$settings.captionFontSize}px`} value={draftValue(block.id)} rows="2" placeholder={block.id==='__figure__' ? 'Introduce the figure…' : block.id===POSTSCRIPT_CAPTION ? 'Add a closing sentence…' : `Describe panel ${block.label}…`} on:input={e => editCaption(block.id,e.currentTarget.value)} on:change={() => flushCaptions()} use:autogrow={{value:draftValue(block.id),fs:$settings.captionFontSize}}></textarea></div>{/if}
+                    </div>
+                  {/each}
+                  {#if !blocks.some(b => b.id===POSTSCRIPT_CAPTION)}<button class="add-ps" on:click={addPostscript}><Icon name="plus" size={13} /><span>Add closing caption <b>ps</b></span></button>{:else}<p class="hint ps-hint">The closing text follows the last panel, without a label.</p>{/if}
+                  {#if blocks.every(b => b.id==='__figure__' || b.id===POSTSCRIPT_CAPTION)}<p class="hint">Mark text as a Panel label in the F-menu to add panel captions.</p>{/if}
                 {:else}<FigureIdentityForm {model} figure={selected} save={apply} bind:this={nameForm} />{/if}
               {/key}
               <div class="reference"><span>Permanent reference</span><code>@{selected.referenceKey}</code><button on:click={copyReference}>Copy</button></div>
@@ -257,23 +290,28 @@
 <style>
   .meta-wrap { position:fixed; inset:0; z-index:110; display:grid; place-items:center; padding:24px; box-sizing:border-box; pointer-events:none; }
   .backdrop { position:absolute; inset:0; border:0; background:#0005; pointer-events:auto; }
-  .figure-meta { position:relative; pointer-events:auto; width:min(1380px,100%); height:min(900px,100%); display:flex; flex-direction:column; overflow:hidden; background:var(--c-surface); color:var(--c-tx); font:12px/1.4 var(--font-ui); border:1px solid var(--c-line-strong); border-radius:var(--r-panel); box-shadow:var(--elev-2); outline:none; }
+  .figure-meta { position:relative; pointer-events:auto; width:min(1420px,100%); height:min(920px,100%); display:flex; flex-direction:column; overflow:hidden; background:var(--c-surface); color:var(--c-tx); font:12px/1.4 var(--font-ui); border:1px solid var(--c-line-strong); border-radius:var(--r-panel); box-shadow:var(--elev-2); outline:none; }
   .detached { padding:0; } .detached .figure-meta { width:100%; height:100%; border:0; border-radius:0; box-shadow:none; }
-  header { display:flex; align-items:center; gap:8px; height:46px; flex-shrink:0; padding:0 12px; border-bottom:1px solid var(--c-line); }
-  .brand { display:flex; align-items:center; gap:10px; font:14px var(--font-serif); } .brand b { font-weight:400; padding-left:10px; margin-left:10px; border-left:1px solid var(--c-line-strong); }
-  .space { flex:1; } button { color:var(--c-tx-2); background:transparent; border:1px solid var(--c-line); border-radius:var(--r-ui); padding:4px 8px; font:inherit; } button:hover { color:var(--c-tx); border-color:var(--c-accent); } button:disabled { opacity:.35; } button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:1px solid var(--c-accent); outline-offset:1px; }
-  .body { flex:1; min-height:0; display:flex; } aside { width:210px; flex-shrink:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--c-line); }
-  .filters { padding:12px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--c-line); } input,select { min-width:0; width:100%; box-sizing:border-box; height:28px; background:var(--c-bg); border:1px solid var(--c-line); border-radius:var(--r-ui); color:var(--c-tx); font:12px var(--font-ui); padding:4px 6px; }
+  header { display:flex; align-items:center; gap:8px; height:62px; flex-shrink:0; padding:0 16px; border-bottom:1px solid var(--c-line); }
+  .brand { display:flex; align-items:center; gap:10px; } .brand-word { font:20px var(--font-serif); letter-spacing:-.04em; } .brand-title { display:flex; flex-direction:column; gap:3px; margin-left:5px; padding-left:15px; border-left:1px solid var(--c-line-strong); } .brand-title b { font:13px var(--font-ui); letter-spacing:.02em; } .brand-title span { font:9px var(--font-mono); color:var(--c-tx-muted); }
+  .space { flex:1; } button { color:var(--c-tx-2); background:transparent; border:1px solid var(--c-line); border-radius:var(--r-ui); padding:4px 8px; font:inherit; } button:hover:not(:disabled) { color:var(--c-accent); border-color:var(--c-accent); } button:disabled { opacity:.35; } button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:1px solid var(--c-accent); outline-offset:1px; }
+  .body { flex:1; min-height:0; display:flex; } aside { width:200px; flex-shrink:0; min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--c-line); }
+  .filters { padding:15px 12px 12px; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--c-line); } .section-label { display:flex; align-items:center; justify-content:space-between; font:10px var(--font-mono); text-transform:uppercase; letter-spacing:.09em; color:var(--c-tx-muted); } .section-label span { color:var(--c-accent); }
+  input,select { min-width:0; width:100%; box-sizing:border-box; height:28px; background:var(--c-bg); border:1px solid var(--c-line); border-radius:var(--r-ui); color:var(--c-tx); font:12px var(--font-ui); padding:4px 6px; }
   .figure-list { flex:1; min-height:0; overflow:auto; } .figure-row { position:absolute; left:0; width:100%; height:54px; display:flex; flex-direction:column; align-items:start; justify-content:center; gap:4px; text-align:left; border:0; border-radius:0; padding:6px 14px; } .figure-row.selected { background:var(--c-accent-tint); box-shadow:inset 2px 0 var(--c-accent); } .figure-row b { font:12px var(--font-ui); color:var(--c-tx); } .figure-row span { font:11px var(--font-ui); color:var(--c-tx-muted); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   footer { padding:9px 12px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:10px var(--font-mono); }
   .detail { display:grid; grid-template-columns:minmax(0,var(--preview-share)) 5px minmax(0,1fr); flex:1; min-width:0; min-height:0; }
-  .preview-pane { overflow:auto; padding:22px; min-width:0; background:var(--c-bg); } .figure-heading span { font:10px var(--font-mono); color:var(--c-tx-muted); text-transform:uppercase; letter-spacing:.08em; } h2 { font:22px/1.2 var(--font-serif); margin:7px 0 20px; overflow-wrap:anywhere; }
-  .art { background:#fff; display:flex; align-items:center; justify-content:center; min-height:100px; } .art img { display:block; width:100%; height:auto; } .caption-preview { font:14px/1.65 var(--font-serif); padding:20px 0; overflow-wrap:anywhere; white-space:pre-wrap; } .caption-preview strong { font-weight:700; margin-inline-end:.3em; }
+  .preview-pane { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--c-bg); } .figure-heading { padding:20px 20px 15px; border-bottom:1px solid var(--c-line); } .figure-heading span { font:10px var(--font-mono); color:var(--c-accent); text-transform:uppercase; letter-spacing:.08em; } h2 { font:22px/1.2 var(--font-serif); margin:5px 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .splitter { background:var(--c-line); cursor:col-resize; touch-action:none; } .splitter:hover,.splitter:focus-visible { background:var(--c-accent); }
-  .edit-pane { display:flex; flex-direction:column; min-width:0; min-height:0; } .tabs { display:flex; gap:4px; padding:10px 16px; border-bottom:1px solid var(--c-line); } .tabs button { min-width:80px; border-color:transparent; padding:6px 12px; font:14px var(--font-serif); } .tabs .on { background:var(--c-accent-tint); color:var(--c-accent); box-shadow:inset 0 -2px var(--c-accent); }
-  .fields { flex:1; min-height:0; overflow:auto; padding:18px; } .hint { margin:0 0 18px; color:var(--c-tx-muted); font:11px/1.5 var(--font-ui); } .caption-block { display:flex; flex-direction:column; gap:7px; margin-bottom:18px; } .caption-block span { font:12px var(--font-mono); color:var(--c-accent); } textarea { box-sizing:border-box; width:100%; min-height:70px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx); padding:10px; font:14px/1.55 var(--font-serif); resize:none; overflow:hidden; }
-  .reference { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:24px; padding-top:14px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font-size:10px; } .reference code { width:100%; font:11px var(--font-mono); overflow-wrap:anywhere; user-select:text; }
+  .edit-pane { display:flex; flex-direction:column; min-width:0; min-height:0; } .tabs { display:flex; gap:6px; padding:12px; border-bottom:1px solid var(--c-line); } .tabs button { display:flex; flex:1; align-items:center; gap:9px; text-align:left; border-color:transparent; padding:10px; font:13px var(--font-ui); } .tabs button span { display:flex; flex-direction:column; gap:4px; } .tabs small { font:9px var(--font-ui); color:var(--c-tx-muted); } .tabs .on { background:var(--c-accent-tint); color:var(--c-accent); box-shadow:inset 2px 0 var(--c-accent); border-color:var(--c-line); }
+  .fields { flex:1; min-height:0; overflow:auto; padding:18px; } .caption-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; } .text-size { display:flex; align-items:center; gap:3px; } .text-size>span { margin-right:6px; font:15px var(--font-serif); color:var(--c-tx-muted); } .text-size button { display:grid; place-items:center; width:25px; height:25px; padding:0; } .text-size output { min-width:24px; text-align:center; font:11px var(--font-mono); color:var(--c-tx-2); }
+  .caption-toolbar { position:sticky; top:-18px; z-index:1; background:var(--c-surface); margin:-18px -18px 12px; padding:14px 18px 10px; border-bottom:1px solid var(--c-line); }
+  .hint { margin:0 0 18px; color:var(--c-tx-muted); font:11px/1.5 var(--font-ui); } .caption-block { display:flex; flex-direction:column; gap:7px; margin-bottom:18px; } .block-heading { display:flex; align-items:center; gap:3px; } .block-toggle { display:flex; align-items:center; flex:1; min-width:0; gap:8px; padding:0; border:0; text-align:left; } .block-tag { min-width:22px; padding:3px 5px; box-sizing:border-box; text-align:center; font:11px var(--font-mono); color:var(--c-accent); border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-accent-tint); } .block-rule { height:1px; flex:1; background:var(--c-line); } .block-kind { font:9px var(--font-mono); color:var(--c-tx-muted); } .folded { gap:0; } .folded .block-tag { background:transparent; } .remove-ps { display:grid; place-items:center; padding:3px; border:0; }
+  textarea { box-sizing:border-box; width:100%; min-height:70px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); background:var(--c-bg); color:var(--c-tx); padding:12px; font:16px/1.55 var(--font-serif); resize:none; overflow:hidden; display:block; } textarea::placeholder { color:var(--c-tx-muted); opacity:.7; } .caption-content { animation:caption-reveal 80ms ease-out; } @keyframes caption-reveal { from {opacity:0} to {opacity:1} } @media(prefers-reduced-motion:reduce) { .caption-content { animation:none; } }
+  .add-ps { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; padding:10px; border-style:dashed; font:11px var(--font-ui); color:var(--c-tx-muted); margin:4px 0 18px; } .add-ps b { margin-left:6px; font:10px var(--font-mono); color:var(--c-accent); } .ps-hint { margin-top:-7px; }
+  .reference { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:24px; padding-top:14px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font-size:10px; } .reference code { flex:1; font:11px var(--font-mono); overflow-wrap:anywhere; user-select:text; } .reference>span { width:100%; font:9px var(--font-mono); text-transform:uppercase; letter-spacing:.06em; }
   .status { min-height:30px; display:flex; gap:10px; align-items:center; padding:4px 12px; border-top:1px solid var(--c-line); color:var(--c-tx-muted); font:10px var(--font-mono); } .status .error { color:var(--c-danger); } .empty { padding:12px; color:var(--c-tx-muted); }
-  @media(max-width:900px) { .meta-wrap { padding:10px; } .detached { padding:0; } aside { width:165px; } .preview-pane { padding:12px; } .fields { padding:12px; } }
-  @media(max-width:650px) { aside { width:140px; } .detail { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(100px,35%) minmax(0,1fr); } .splitter { display:none; } .preview-pane { border-bottom:1px solid var(--c-line); } .art img { max-height:180px; object-fit:contain; } .brand b { padding-left:4px; margin-left:4px; } }
+  @media(max-width:1100px) { .tabs small { display:none; } .tabs button { padding:8px; } }
+  @media(max-width:900px) { .meta-wrap { padding:10px; } .detached { padding:0; } aside { width:150px; } .fields { padding:12px; } .caption-toolbar { top:-12px; margin:-12px -12px 12px; padding:10px 12px; } .figure-heading { padding:12px; } .brand-title span { display:none; } }
+  @media(max-width:650px) { aside { width:125px; } .detail { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(180px,40%) minmax(0,1fr); } .splitter { display:none; } .preview-pane { border-bottom:1px solid var(--c-line); } .figure-heading { display:none; } header { gap:4px; padding:0 8px; } .brand-word { display:none; } .brand-title { border:0; margin:0; padding:0; } .brand-title b { font-size:11px; } .brand { gap:4px; } .caption-toolbar>.section-label { font-size:9px; } }
 </style>

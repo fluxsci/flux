@@ -974,6 +974,13 @@ Persistence invariants (all machine-checked — do not weaken):
   independent snapshot and publishes a recoverable generation under project/manifest leases.
   Never load that snapshot into a Slide tenant. Keep drafts on failure and drain newer input
   arriving during async saves before closing or changing project. Retain orphan captions.
+  `captions.__ps__` holds optional unlabelled closing prose; shared `captions.ts` composes it
+  after every panel. It is a reserved active block, never an orphan during Markdown import.
+  A plain-text projection cannot encode a new boundary: retain an unchanged known suffix,
+  otherwise import the rewritten prose into ordinary blocks without reappending obsolete ps.
+  `FigureMetaPreview` fits artwork plus caption as one measured sheet; zoom changes only its
+  view transform. Reconnect both viewport/sheet observers after pin/dock. Caption folding is
+  view state; typing size uses the existing caption preference and autogrow action.
   Live previews snapshot the current model into Paper’s sliced serializer and font/image
   renderer; disk previews use Paper’s revision cache. Utility windows host the same mounted
   view in exact-allowlisted inert HTML; reconnect
@@ -6992,3 +6999,14 @@ the behavior guidance and help.
   committed after Figure's flush must itself wait for that owner's resulting save.
 - Empty SVG tspans do not advance the pen; carry their line advances and script reset to the next
   glyph-bearing line in the shared layout, preserving authored newlines and measured block height.
+
+### 2026-09-26 23:00 UTC — Figure-Meta feedback refinements (Codex, codex/meta-refinements-20260926)
+**Work:** Added caption size controls, foldable blocks, whole-composition fit/zoom/pan, optional
+unlabelled closing prose and a refined metadata surface. Focused browser/core checks, production
+native save/reload, Svelte/headless checks and the staged build pass; full regression qualification
+is recorded with the integration follow-up.
+**Learnings:**
+- Promoted the reserved closing-caption and marker-free import rules into the metadata guidance:
+  unchanged suffixes can retain their block; rewritten prose must not reappend an obsolete ps.
+- Preview fitting measures the entire artwork/caption sheet, and both measurement observers must
+  reconnect to the destination document when the view is pinned or docked.

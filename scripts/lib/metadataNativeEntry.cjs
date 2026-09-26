@@ -24,6 +24,10 @@ async function main(){
  await wait(()=>saved().captions['label-0']==='Native cold caption','cold metadata disk save');
  check(fs.readFileSync(path.join(root,'fig/captions/meta-0.md'),'utf8').includes('Native cold caption'),'readable caption and canonical model agree');
  check(saved().captions.orphan==='Keep orphan','orphan captions preserved');
+ await click(child,'.add-ps');await fill(child,'[aria-label="ps caption"]','Native closing sentence.');key(child,'Tab');
+ await wait(()=>saved().captions.__ps__==='Native closing sentence.','postscript saved');
+ check(fs.readFileSync(path.join(root,'fig/captions/meta-0.md'),'utf8').trim().endsWith('Native closing sentence.')&&!fs.readFileSync(path.join(root,'fig/captions/meta-0.md'),'utf8').includes('**ps**'),'native closing prose persists with no output label');
+
  await click(child,'.tabs button:nth-child(2)');await wait(()=>js(child,"!!document.querySelector('[aria-label=\"Figure title\"]')"),'Name');
  await fill(child,'[aria-label="Figure title"]','Native title');await click(child,'.new-family');await fill(child,'[aria-label="Family name"]','Movie');key(child,'Enter');await click(child,'.save');
  await wait(()=>saved().family==='movie'&&saved().nickname==='Native title','custom family saved');
@@ -31,12 +35,18 @@ async function main(){
  await click(child,'.tabs button:first-child');await wait(()=>js(child,"!!document.querySelector('[aria-label=\"Figure caption\"]')"),'captions tab');win.hide();child.focus();child.setSize(820,660);await wait(()=>js(child,'innerWidth<830'),'utility resized with hidden owner');
  await fill(child,'[aria-label="Figure caption"]','Long native caption. '.repeat(60));key(child,'Tab');
  await wait(()=>js(child,"[...document.querySelectorAll('textarea')].every(t=>t.scrollHeight<=t.clientHeight+2)"),'fields refit with hidden owner');check(true,'native resize refits captions while owner is hidden');
+ await wait(()=>js(child,`(()=>{const v=document.querySelector('.preview-viewport'),s=document.querySelector('.preview-sheet');const a=v.getBoundingClientRect(),b=s.getBoundingClientRect();return b.top>=a.top-1&&b.bottom<=a.bottom+1&&b.left>=a.left-1&&b.right<=a.right+1})()`),'whole figure and caption fit with hidden owner');
+ await click(child,'[aria-label="Collapse a caption"]');check(await js(child,`!document.querySelector('[aria-label="a caption"]')`),'native caption folding');
+ await click(child,'[aria-label="Increase caption text size"]');await click(child,'[aria-label="Expand a caption"]');
+ await click(child,'[aria-label="Zoom in preview"]');await wait(()=>js(child,`document.querySelector('.preview-viewport').dataset.fit==='false'`),'native zoom');
+ await click(child,'[aria-label="Fit figure and caption"]');
+ check(await js(child,`document.querySelector('.preview-viewport').dataset.fit==='true'`),'native zoom returns to fit');
  fs.writeFileSync(path.join(out,'metadata-pinned.png'),(await child.webContents.capturePage()).toPNG());
  win.show();await click(child,'.pin');await wait(()=>child.isDestroyed(),'docked utility closes');win.focus();key(win,'Escape');await wait(()=>js(win,"!document.querySelector('.figure-meta')"),'docked focus supports Escape');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'resident Figure');key(win,'m',['alt','shift']);await pinned();
  await fill(child,'[aria-label="a caption"]','Saved on native close');child.close();await wait(()=>saved().captions['label-0']==='Saved on native close','OS close saves unblurred caption');
  check(true,'resident Figure autosave persists edits on native close');
- win.webContents.reload();await wait(()=>js(win,"!!document.querySelector('.recent')"),'Home after reload');await click(win,'.recent');await wait(()=>js(win,"!!document.querySelector('.cm-editor,.figure-mode .canvas-host')"),'reloaded workspace');key(win,'m',['alt']);await wait(()=>js(win,"document.querySelector('[aria-label=\"a caption\"]')?.value==='Saved on native close'"),'reloaded caption');check(true,'reload reads exact saved metadata');
+ win.webContents.reload();await wait(()=>js(win,"!!document.querySelector('.recent')"),'Home after reload');await click(win,'.recent');await wait(()=>js(win,"!!document.querySelector('.cm-editor,.figure-mode .canvas-host')"),'reloaded workspace');key(win,'m',['alt']);await wait(()=>js(win,"document.querySelector('[aria-label=\"a caption\"]')?.value==='Saved on native close'"),'reloaded caption');check(true,'reload reads exact saved metadata');check(await js(win,`document.querySelector('[aria-label="ps caption"]')?.value==='Native closing sentence.'`),'postscript survives full native reload');
  await click(win,'header [aria-label="Close Figure-Meta"]');await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'Figure again');key(win,'g',['alt','shift']);
  child=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==win),'direct gallery');await wait(()=>js(child,"!!document.querySelector('.detached .importer')"),'direct gallery mounted');check(true,'Shift+Alt+G creates the native gallery directly');
  child.close();win.destroy();

@@ -387,7 +387,13 @@ one gesture.
   them. The Name tab includes family, number, title and custom families. Existing captions
   and permanent references are preserved. Captions flow into the [manuscript](paper.qmd)
   and exports automatically. Each field grows to fit; the fields column scrolls. Set the
-  typing size in **Settings → Figure → Figure-Meta captions**.
+  typing size with the **− / +** controls above the blocks (also in **Settings → Figure**).
+  Click a block's letter or heading to collapse or expand it.
+- The preview fits the entire figure **and caption** by default. **Ctrl-scroll** zooms around
+  the pointer; drag to pan, choose a percentage, or press **Fit** to see everything again.
+- **Add closing caption · ps** adds optional prose after the final panel caption. It appears
+  as ordinary text, with no “ps” label, and stays at the end when panels are added or reordered.
+  Remove it with its **×** button; metadata Undo can restore it.
 - **Shift+Alt+M** opens Figure-Meta already pinned in a separate window; **Pin open** and
   **Dock** move the same view between windows. You can keep editing the workspace while
   it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.

@@ -52,7 +52,7 @@ const DEFAULTS: Settings = {
   gridSize: 8,
   snapGrid: false,
   snapPixel: false,
-  captionFontSize: 13,
+  captionFontSize: 16,
   plotSearchScope: DEFAULT_PLOT_SEARCH_SCOPE,
   paperMarginScene: "inkwind",
   paperMaxMarginPanes: 4,

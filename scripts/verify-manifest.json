@@ -293,7 +293,8 @@
       "verify-eyedropper.ts",
       "verify-text-arrange.ts",
       "verify-text-runs.ts",
-      "verify-figure-metadata.ts"
+      "verify-figure-metadata.ts",
+      "verify-caption-postscript.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -428,7 +429,8 @@
       "verify-figure-metadata.mjs",
       "verify-text-blank-lines.mjs",
       "verify-metadata-save-safety.mjs",
-      "verify-panel-label-menu.mjs"
+      "verify-panel-label-menu.mjs",
+      "verify-figure-meta-refinements.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -622,7 +624,9 @@
       "verify-v020-paper-lifecycle.mjs",
       "verify-v020-morph-startup.mjs",
       "verify-figure-reference-safety.ts",
-      "verify-figure-metadata.mjs"
+      "verify-figure-metadata.mjs",
+      "verify-caption-postscript.ts",
+      "verify-figure-meta-refinements.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -786,13 +790,15 @@
       "verify-fmenu-surface.mjs",
       "verify-text-arrange-gui.mjs",
       "verify-gallery-workflow.mjs",
-      "verify-plot-gallery.mjs"
+      "verify-plot-gallery.mjs",
+      "verify-caption-postscript.ts",
+      "verify-figure-meta-refinements.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
-      "glob": "src/lib/figure/{metadata*,FigureMeta.svelte,FigureIdentityForm.svelte}",
+      "glob": "src/lib/figure/{metadata*,FigureMeta*.svelte,FigureIdentityForm.svelte}",
       "run": [
         "verify-figure-metadata.ts",
         "verify-figure-metadata.mjs",
@@ -1478,6 +1484,7 @@
     {
       "glob": "src/lib/captions.ts",
       "run": [
+        "group:paper-gate",
         "verify-caption-fit.mjs",
         "verify-f7.mjs",
         "tier:pure"
@@ -6927,6 +6934,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-caption-postscript.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-meta-refinements.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

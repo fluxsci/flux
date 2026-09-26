@@ -429,7 +429,7 @@
                 max="28"
                 step="1"
                 value={$settings.captionFontSize}
-                onchange={(e) => settings.update((v) => ({ ...v, captionFontSize: Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 13))) }))}
+                onchange={(e) => settings.update((v) => ({ ...v, captionFontSize: Math.min(28, Math.max(9, Math.round(parseFloat(e.currentTarget.value) || 16))) }))}
               />
               px
             </label>

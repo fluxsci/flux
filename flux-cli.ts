@@ -33,7 +33,7 @@ usage: flux <verb> [root] [args] [--flags]
   set-caption [root] <id> <md…|--file f> [--panel a]   write the caption; the
                                        "Lead. **a**, … **b**, …" convention is
                                        distributed into per-panel blocks
-                                       (--panel writes ONE panel's text)
+                                       (--panel writes one panel; --panel __ps__ writes closing prose)
   add-reference [root] <bibtex…|--file f>   append a BibTeX entry to library.bib
   add-panel [root] <id> <svg> [--x --y --width --height]   import an SVG panel
   import-plots <figId> <plot.svg…> [--root R]   batch-import plots onto an EXISTING
