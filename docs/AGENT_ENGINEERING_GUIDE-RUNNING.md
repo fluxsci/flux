@@ -2207,6 +2207,10 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   Frame oracles built on `Page.startScreencast` also drop frames when the renderer is busy
   and can hand back an impossible geometry for one frame; anything they flag must be
   confirmed against the renderer log or the lab.
+- **Native click probes need settled coordinates and delivered input.** A dialog's DOM/path
+  can be ready while its finite opening transform still moves the buttons. Await those
+  animations before measuring coordinates, and wait for the resulting UI state after
+  `sendInputEvent`; do not replace real input with DOM clicks or fixed sleeps.
 - **`editGen.n` is not "the user edited".** It advances on every store change, including
   `mutateDisplay` (the beat reconciler, resolved-asset publication), because undo coalescing
   and gesture rollback need that. A guard meaning "don't clobber a user edit" compares

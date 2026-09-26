@@ -59,6 +59,10 @@ async function main(){
  }
  for(const [rel,text]of Object.entries(originals))assert.equal(fs.readFileSync(path.join(root,rel),'utf8'),text,'opening preserves exact source bytes');
  await click('.statusbar .seg','export');await wait(()=>js("!!document.querySelector('.export-dialog')"),'export dialog');
+ // Coordinate-based native input must wait for the finite popIn transform.
+ // A ready DOM/path can precede its final screen position, so a fast Word →
+ // Change click otherwise intermittently misses without invoking the picker.
+ await js("Promise.all(document.querySelector('.export-dialog').getAnimations({subtree:true}).map(a=>a.finished.catch(()=>{})))");
  await click('.export-dialog .seg','Word');await wait(()=>js("document.querySelector('.export-dialog .path-text')?.textContent.trim().endsWith('.docx')"),'Word destination');
  await click('.export-dialog button','Change');await wait(()=>js(`document.querySelector('.export-dialog .path-text')?.textContent.trim()===${JSON.stringify(out)}`),'chosen destination');
  armed=true;await click('.export-dialog button.primary','Export');
