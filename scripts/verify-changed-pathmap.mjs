@@ -44,7 +44,7 @@ const actualCases = [
   ["src/lib/dissect/DissectGrid.svelte", ["verify-dissections.ts", "verify-dissect-gui.mjs", "verify-gallery-workflow.mjs", "tier:pure"]],
   ["src/lib/store.ts", ["group:slide-stash", "tier:pure"]],
   // 2026-09-25: ops.ts has its own first-match rule (the headless ops gate + the real cross-figure drag).
-  ["src/lib/ops.ts", ["verify-ops.ts", "verify-cross-figure-drag.mjs", "group:slide-stash", "tier:pure"]],
+  ["src/lib/ops.ts", ["verify-ops.ts", "verify-cross-figure-drag.mjs", "verify-color-field.mjs", "group:slide-stash", "tier:pure"]],
   ["src/lib/XrayNode.svelte", ["group:slide-stash", "tier:pure"]],
   ["src/lib/Xray.svelte", ["group:slide-stash", "tier:pure"]],
   ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure", "verify-cross-figure-drag.mjs"]],
