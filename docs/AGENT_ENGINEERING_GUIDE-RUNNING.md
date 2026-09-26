@@ -7014,3 +7014,10 @@ is recorded with the integration follow-up.
   unchanged suffixes can retain their block; rewritten prose must not reappend an obsolete ps.
 - Preview fitting measures the entire artwork/caption sheet, and both measurement observers must
   reconnect to the destination document when the view is pinned or docked.
+
+### 2026-09-26 23:21 UTC — Figure-Meta refinement qualification (Codex, codex/meta-refinements-20260926)
+**Work:** The shared-core revision passed 293/293 pure checks; after the compact-layout and native
+probe corrections, fixed revision 17a8a8b passed 81/81 complete Paper/metadata checks, covering 344
+distinct regressions overall. Production Linux pin/dock/save/reload passes; all six new-control
+input-to-paint samples with 30 caption blocks were 16.3–29.4 ms. Svelte/headless checks and build
+pass. The native coordinate-readiness lesson was promoted into the known-traps section.
