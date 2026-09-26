@@ -69,10 +69,13 @@ export default defineConfig({
   // broadcasts a FULL RELOAD to every client. Under the ui verify tier that reload lands on
   // whatever gate is running (2026-09-26: the plot-gallery gate's opener reloaded, its
   // `pagehide` closed the pinned popup, and the next click hit a closed target — the
-  // ui-gate red on `main`). The spell-check worker is the one such graph; listing its imports
-  // here makes the cold crawl complete, so the dev server never re-optimizes mid-run.
-  // verify-dev-prebundle.ts (pure) pins that every worker-only import is in this list.
-  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary"] },
+  // ui-gate red on `main`). Two such graphs: the spell-check worker (harper.js) and the pdf.js
+  // worker entry (`pdfjsWorker?worker`, whose only import is the pdf.js worker module — the
+  // CI dev-server log caught that one eight minutes into a green run, logged in the singular:
+  // "dependency optimized: …"). Listing them here makes the cold crawl complete, so the dev
+  // server never re-optimizes mid-run. verify-dev-prebundle.ts (pure) finds every worker entry
+  // (`new Worker(new URL(…))` targets and `?worker` imports) and pins their imports into this list.
+  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"] },
 
   clearScreen: false,
 

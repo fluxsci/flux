@@ -187,9 +187,11 @@ jobs:
       - name: The dev server never re-optimized mid-run
         if: always()
         run: |
-          # Vite's wording: "dependencies optimized: <pkgs>" after start-up (the
-          # start-up line is "Forced re-optimization of dependencies" and is fine).
-          if grep -qE "dependencies optimized:|optimized dependencies changed" test-results/dev-server.log; then
+          # Vite's wording after start-up: "dependencies optimized: <pkgs>" — or the
+          # SINGULAR "dependency optimized: <pkg>" (the pdf.js worker slipped past a
+          # plural-only pattern on 2026-09-26). The start-up line is "Forced
+          # re-optimization of dependencies" and is fine.
+          if grep -qE "dependenc(y|ies) optimized:|optimized dependencies changed" test-results/dev-server.log; then
             echo "::error::the dev server discovered dependencies after start-up and reloaded every client mid-run — add them to optimizeDeps.include in vite.config.ts"
             grep -n "optimized\|reload" test-results/dev-server.log
             exit 1

@@ -2276,7 +2276,12 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   bare import of every `src/**/*.worker.ts` into it; ci.yml keeps the dev server's log as an
   artifact and fails the ui job on a post-start optimization line. Diagnose this class by
   diffing a cold `vite optimize` against a warm `node_modules/.vite/deps/_metadata.json` —
-  the warm-only keys are exactly the late discoveries.
+  the warm-only keys are exactly the late discoveries — but only for deps the warm session
+  ever loaded: the pdf.js worker module (`pdfjsWorker.ts`, imported via `?worker`) was missing
+  from both caches locally and showed up only in CI's captured dev-server log, eight minutes
+  into an otherwise green run, in the SINGULAR ("dependency optimized: …"). The gate therefore
+  derives worker entries from the source (`new Worker(new URL(…))` targets and `?worker`
+  imports), not from a naming convention or a cache.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -6838,7 +6843,7 @@ vite.config.ts; the cold crawl now equals the warm set (53 = 53) and the same co
 shows no post-start optimization. New pure gate `verify-dev-prebundle.ts` (fails on the old
 config, 3/7); ci.yml's ui job now writes the dev server's output to
 `test-results/dev-server.log`, uploads it with the summary, and fails on a post-start
-optimization line. Checks 0/0, pure 289/289 at `--jobs 4`.
+optimization line. The first green run's captured log then showed a SECOND late discovery, the pdf.js worker module (singular wording, past the plural-only grep): now in the include list too, the gate derives worker entries from `new Worker(new URL(…))` targets and `?worker` imports rather than a filename convention, and it names exactly the imports no non-worker file shares. Checks 0/0, pure 289/289 at `--jobs 4`.
 **Learnings:**
 - Promoted to §9: worker-only dependencies and the mid-run reload, with the diff recipe.
 - **Read GitHub's per-commit check-runs, not the commit list's fraction.** "2/3" on five

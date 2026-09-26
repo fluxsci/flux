@@ -25,25 +25,42 @@ const h = harness("verify-dev-prebundle");
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // --- 1: what the workers import ---------------------------------------------------------------
+// Worker ENTRIES are whatever the app hands to the browser as a worker: the target of every
+// `new Worker(new URL("./x", import.meta.url))` and every `import X from "./x?worker"`, resolved
+// from the importing file. (A `*.worker.ts` naming convention alone missed the pdf.js worker
+// entry, `pdfjsWorker.ts`, on 2026-09-26.) Their imports — `from "pkg"`, `import("pkg")` and
+// the side-effect form `import "pkg"` — are the bare specifiers the start-up crawl cannot see.
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const p = path.join(dir, entry);
     if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.worker\.(ts|js|mjs)$/.test(entry)) out.push(p);
+    else if (/\.(ts|js|mjs|svelte)$/.test(entry)) out.push(p);
   }
   return out;
 }
-const workers = walk(path.join(repo, "src"));
-h.ok(workers.length > 0, `worker entries found: ${workers.map((w) => path.relative(repo, w)).join(", ")}`);
-const bare = new Set<string>();
-for (const file of workers) {
+const sources = walk(path.join(repo, "src"));
+const resolveEntry = (from: string, rel: string) => {
+  const base = path.resolve(path.dirname(from), rel);
+  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}.mjs`]) if (sources.includes(candidate)) return candidate;
+  throw new Error(`${path.relative(repo, from)}: worker entry "${rel}" does not resolve to a source file`);
+};
+const entries = new Set<string>();
+for (const file of sources) {
   const src = readFileSync(file, "utf8");
-  for (const m of src.matchAll(/\bfrom\s+["']([^"'./][^"']*)["']|\bimport\(\s*["']([^"'./][^"']*)["']\s*\)/g)) {
-    const spec = m[1] ?? m[2];
+  for (const m of src.matchAll(/new\s+(?:Shared)?Worker\(\s*new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g)) entries.add(resolveEntry(file, m[1]));
+  for (const m of src.matchAll(/from\s+["']([^"']+)\?(?:shared)?worker(?:&[^"']*)?["']/g)) entries.add(resolveEntry(file, m[1]));
+}
+h.ok(entries.size >= 4, `worker entries found from the source: ${[...entries].map((w) => path.relative(repo, w)).sort().join(", ")}`);
+const bare = new Set<string>();
+for (const file of entries) {
+  const src = readFileSync(file, "utf8");
+  for (const m of src.matchAll(/\bfrom\s+["']([^"'./][^"']*)["']|\bimport\(\s*["']([^"'./][^"']*)["']\s*\)|^\s*import\s+["']([^"'./][^"']*)["']/gm)) {
+    const spec = m[1] ?? m[2] ?? m[3];
     if (spec && !spec.startsWith("node:")) bare.add(spec);
   }
 }
-h.ok(bare.has("harper.js") && bare.has("harper.js/slimBinary"), `the spell-check worker imports harper.js and harper.js/slimBinary (worker-only imports: ${[...bare].sort().join(", ")})`);
+h.ok(bare.has("harper.js") && bare.has("harper.js/slimBinary"), "the spell-check worker imports harper.js and harper.js/slimBinary");
+h.ok(bare.has("pdfjs-dist/legacy/build/pdf.worker.min.mjs"), `the pdf.js worker entry imports the pdf.js worker module (all worker-only imports: ${[...bare].sort().join(", ")})`);
 
 // --- 2: what the cold crawl finds -------------------------------------------------------------
 const scratch = mkdtempSync(path.join(tmpdir(), "flux-prebundle-"));
@@ -65,6 +82,19 @@ for (const spec of [...bare].sort())
 
 // --- 3: the config says so explicitly ---------------------------------------------------------
 const cfg = readFileSync(path.join(repo, "vite.config.ts"), "utf8");
-h.ok(/optimizeDeps:\s*\{[^}]*include:\s*\[[^\]]*"harper\.js"[^\]]*"harper\.js\/slimBinary"/.test(cfg), "vite.config.ts lists the spell-check worker's imports in optimizeDeps.include");
+// Only the imports the main graph never touches need naming: a package the app also imports
+// from ordinary code (katex, from the math worker AND the editor) is found by the crawl.
+const mainImports = new Set<string>();
+for (const file of sources) {
+  if (entries.has(file)) continue;
+  for (const m of readFileSync(file, "utf8").matchAll(/\bfrom\s+["']([^"'./][^"']*)["']|\bimport\(\s*["']([^"'./][^"']*)["']\s*\)|^\s*import\s+["']([^"'./][^"']*)["']/gm)) {
+    const spec = m[1] ?? m[2] ?? m[3];
+    if (spec) mainImports.add(spec);
+  }
+}
+const workerOnly = [...bare].filter((spec) => !mainImports.has(spec)).sort();
+h.ok(workerOnly.length >= 3, `imports reachable ONLY through a worker entry: ${workerOnly.join(", ")}`);
+const include = /optimizeDeps:\s*\{[^}]*include:\s*\[([^\]]*)\]/.exec(cfg)?.[1] ?? "";
+for (const spec of workerOnly) h.ok(include.includes(`"${spec}"`), `vite.config.ts names "${spec}" in optimizeDeps.include`);
 
 await h.done();
