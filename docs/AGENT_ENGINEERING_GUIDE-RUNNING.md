@@ -6982,9 +6982,11 @@ scratch library: 3/3 filed, copy merged + archived.
 **Work:** Replaced the canvas caption overlay and naming popup with Figure-Meta in Figure/Paper,
 including shared live previews, family/name editing, filters, split resizing and native pin/dock;
 added direct pin chords for metadata/gallery, preserved blank SVG text lines, and added the text
-F-menu Panel label toggle. Svelte/headless checks, build, 292 pure gates, browser save-failure and
-late-input checks, and native saved-byte/reload checks passed; the testing project's existing
-figure snapshot loads completely without migration errors. Updated the behavior guidance and help.
+F-menu Panel label toggle. Svelte/headless checks, build, 342 distinct regression scripts
+(pure + complete paper-gate + snapshot-feedback; native export recovery retried successfully
+after fixing virtual-display authorization), and native saved-byte/reload checks passed; the
+testing project's existing figure snapshot loads completely without migration errors. Updated
+the behavior guidance and help.
 **Learnings:**
 - Promoted the metadata ownership, lifecycle flush and inert-window rules into the body: a draft
   committed after Figure's flush must itself wait for that owner's resulting save.
