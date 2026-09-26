@@ -7,6 +7,8 @@
 // the exact failure mode this whole area has already had once.
 //
 // Dependency-free (Windows port: no shelling out to `unzip`), no ZIP64 — an .xpi is ~40KB.
+// The video-encoder fetcher reads a ~190 MB Windows build through it too: pass `only` (a Set
+// of member names) and every other entry is skipped without being inflated.
 import { inflateRawSync } from "node:zlib";
 
 const EOCD = 0x06054b50;
@@ -16,7 +18,7 @@ const CEN = 0x02014b50;
  * Read every file entry: Map<name, Buffer>. Throws on anything it doesn't understand rather
  * than returning a partial archive — a gate must not silently check fewer files than it says.
  */
-export function readZip(buf) {
+export function readZip(buf, { only = null } = {}) {
   // The end-of-central-directory record sits last, after an optional trailing comment.
   let eocd = -1;
   for (let i = buf.length - 22; i >= 0 && i >= buf.length - 22 - 0xffff; i--) {
@@ -41,6 +43,7 @@ export function readZip(buf) {
     const name = buf.toString("utf8", p + 46, p + 46 + nameLen);
     p += 46 + nameLen + extraLen + commentLen;
     if (name.endsWith("/")) continue; // directory entry
+    if (only && !only.has(name)) continue;
 
     // The local header repeats the name/extra with its OWN lengths — the data starts after
     // those, not after the central-directory copy.
@@ -52,5 +55,6 @@ export function readZip(buf) {
     else if (method === 8) out.set(name, inflateRawSync(raw));
     else throw new Error(`${name}: unsupported compression method ${method}`);
   }
+  if (only) for (const name of only) if (!out.has(name)) throw new Error(`${name}: not in archive`);
   return out;
 }

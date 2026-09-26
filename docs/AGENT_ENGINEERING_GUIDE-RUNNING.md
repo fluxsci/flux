@@ -2243,16 +2243,25 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   one budget every agent-vs-agent lease uses; a human-held lease still defers at once. A
   child spawned by a gate gets the same treatment: `verify-figure-reference-safety`'s 3 s
   deadline was a hang guard sized for Linux's tsx cold start and killed a healthy child there.
-- **The "pinned" video encoder is not one ffmpeg.** `build/video-encoder.json` pins one
-  ffmpeg-static release, but that project repackages three builders: Linux ships ffmpeg 7.0.2,
-  Windows 6.1.1 (gyan essentials), and the macOS binary's strings say 6.0 — while the NOTICE
-  names n6.1.1. `verify-v020-hdr-media`'s oracle (Hable + BT.2020→709 + BT.1886) is within
-  2/255 of 7.0.2 and 8/255 off 6.1.x on the saturated green patch, reproduced on Linux with a
-  6.1.3 build (2026-09-25), so the Windows red on that gate is the ffmpeg version, not
-  Windows. Users on different platforms get different HDR tone mapping today. The fix is one
-  ffmpeg version on every platform (a manifest with per-target archives — zip/tar.xz, not the
-  single `.gz` the fetcher assumes), which is packaging work with a licensing notice to match;
-  do not widen the tolerance to hide it.
+- **The video encoder pin is one ffmpeg on every platform — keep it that way.** Until
+  2026-09-25 `build/video-encoder.json` pinned one ffmpeg-static release that repackaged three
+  builders at three versions (Linux 7.0.2, Windows 6.1.1, macOS 6.0) while the NOTICE named
+  6.1.1. `verify-v020-hdr-media`'s oracle (Hable + BT.2020→709 + BT.1886) is within 2/255 of
+  ffmpeg ≥ 7 and 8/255 off 6.x on the saturated green patch — reproduced on Linux with a 6.1.3
+  build, so the Windows red on that gate was the ffmpeg version, not Windows — and users on
+  different platforms got different HDR tone mapping. Now: ffmpeg **9.0.2** everywhere (BtbN's
+  dated GPL release for Linux x64/arm64 + Windows, Martin Riedl's per-build directories for both
+  Macs), each target an immutable archive (URL + size + SHA-256), the executable's path inside
+  it, and LICENSE/README each as an archive `member` or a pinned `url`. The fetcher reads zip
+  in-process (`readZip`, only the pinned members) and tar.xz through the host's `tar`; the
+  staged layout (`ffmpeg`, `LICENSE`, `README`, `NOTICE.md`, `manifest.json`) is unchanged, so
+  electron-builder and the packaged smoke need nothing. `verify-runtime-assets` pins the real
+  manifest: five targets, every `version` carrying the one `release`, no shared archive. When
+  the pin moves, move all five and re-run the HDR gate on at least one; the version is what the
+  oracle is calibrated against. Two traps met on the way: `raw.githubusercontent.com` and other
+  text hosts gzip small files, so the downloader asks for `identity` encoding (the byte-size
+  contract is about bytes on disk); and evermeet/gyan delete old versions, so only dated,
+  immutable release assets are pinnable.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -6780,3 +6789,22 @@ transaction-heavy gates alone run 5–6× slower on Windows. Checks 0/0, headles
 - **A cross-platform product difference can be reproduced on the platform you have.** The HDR
   question was "Windows or ffmpeg 6.1?"; a Linux 6.1 build answered it in one probe, without a
   Windows machine.
+
+### 2026-09-26 — One ffmpeg on every platform (Claude Fable 5.1, `main`)
+**Work:** Owner chose to fix the encoder pin rather than carry the Windows HDR red. The 7.x line
+was a dead end — no stable 7.x build exists for Intel Macs any more — and 9.0.2 is the one
+version every builder still offers for all five targets from immutable URLs; a Linux 9.0.2
+probe put the HDR oracle at the same 2/255 as 7.0.2. `build/video-encoder.json` is a new shape
+(per-target archive + executable path + LICENSE/README pins), `fetch-video-encoder.mjs` reads
+zip (`readZip` gained `only`) and tar.xz (host `tar`, named members only), the downloader asks
+for identity encoding, and the NOTICE names both builders and GPL v3. Verified: the hermetic
+gate on a real stored-method zip fixture plus the real manifest's consistency (44 checks); the
+real Linux fetch; the macOS and Windows archives cross-fetched from Linux (Mach-O/PE headers
+checked by `verifyExecutable`); HDR, audio, video and media gates green on 9.0.2; pure tier
+288/288 at `--jobs 4`.
+**Learnings:**
+- **"Pinned" has to mean the same version, not the same download page.** A hash pin on a
+  repackager's release is a pin on whatever three builders that repackager chose; the gate that
+  noticed was the one with an independent numerical oracle.
+- **Check `content-encoding` before trusting `content-length`.** A size contract that reads the
+  header sees the compressed length for gzip-served text and rejects a correct file.

@@ -65,7 +65,7 @@ export async function downloadAsset(url,destination,expected,{fetchImpl=fetch,ti
   if(!Number.isSafeInteger(expected.size)||expected.size<1||expected.size>512*1024*1024||!/^[a-f0-9]{64}$/.test(expected.sha256))throw new Error('Invalid pinned download contract');
   const deadline=AbortSignal.timeout(timeoutMs),stop=signal?AbortSignal.any([deadline,signal]):deadline;
   let fetchAbort;const fetchAborted=new Promise((_,reject)=>{fetchAbort=()=>reject(stop.reason??new Error('Runtime download cancelled'));stop.addEventListener('abort',fetchAbort,{once:true});if(stop.aborted)fetchAbort();});
-  let response;try {response=await Promise.race([fetchImpl(url,{redirect:'follow',signal:stop}),fetchAborted]);}finally{stop.removeEventListener('abort',fetchAbort);}
+  let response;try {response=await Promise.race([fetchImpl(url,{redirect:'follow',signal:stop,headers:{'accept-encoding':'identity'}}),fetchAborted]);}finally{stop.removeEventListener('abort',fetchAbort);}
   if(!response.ok)throw new Error(`Runtime download HTTP ${response.status}`);
   if(!response.body)throw new Error('Runtime download has no body');
   const advertised=response.headers.get('content-length');if(advertised&&Number(advertised)!==expected.size){void response.body.cancel().catch(()=>{});throw new Error('Runtime download size header mismatch');}
