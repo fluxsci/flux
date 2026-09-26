@@ -24,7 +24,7 @@ const gestures=[];
 async function seedElement(kind,rotation,flip=false){
   await page.evaluate(({kind,rotation,flip})=>{
     const F=window.__flux,s=F.fig;
-    s.clearSelection();s.activeTool.set('select');s.captionOpen.set(false);s.nodeEditId.set(null);
+    s.clearSelection();s.activeTool.set('select');s.nodeEditId.set(null);
     F.settings.update(v=>({...v,snapPixel:false,snapGrid:false,snapObjects:false}));
     const base={id:'geometry-target',x:140,y:120,width:140,height:90,rotation,flipX:flip,fill:'#d95f02',stroke:'#222222',strokeWidth:2};
     const el=kind==='text'?{...base,type:'text',text:'Scientific text',fontSize:24,fontFamily:'Arial',fontWeight:400,fontStyle:'normal',align:'left',color:'#222222'}:

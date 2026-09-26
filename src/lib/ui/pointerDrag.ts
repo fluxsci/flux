@@ -3,6 +3,8 @@
 export function pointerDrag(event: PointerEvent, move: (event: PointerEvent) => void, rollback: () => void, ended: () => void) {
   const node = event.currentTarget as HTMLElement;
   const pointer = event.pointerId;
+  const document = node.ownerDocument;
+  const window = document.defaultView!;
   const userSelect = document.body.style.userSelect;
   let active = true;
   document.body.style.userSelect = 'none';

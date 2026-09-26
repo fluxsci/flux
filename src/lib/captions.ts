@@ -1,7 +1,7 @@
 // Caption panels: a figure's captions are one-per-panel, where panels are the
 // text elements the user has explicitly marked as panel labels (Alt+L / the
 // inspector toggle — TextElement.panelLabel). Caption text is stored on
-// Figure.captions keyed by the label element's id (see CaptionEditor).
+// Figure.captions keyed by the label element's id (see figure/FigureMeta).
 
 import type { Figure, Id } from "./types";
 

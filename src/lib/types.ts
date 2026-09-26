@@ -137,7 +137,7 @@ export interface Figure {
   // tolerated (treated as loose by the derived tree; see groups.ts).
   groups?: Record<Id, GroupDef>;
   // Per-panel caption text, keyed by the panel-label element's id (see
-  // captions.ts / CaptionEditor.svelte). Edited via the caption editor (Alt+C).
+  // captions.ts / figure/FigureMeta.svelte). Edited in Figure-Meta (Alt+M).
   captions?: Record<Id, string>;
   // Ruler guides (Feature 11), figure-local. `x` = vertical guide lines at those
   // x positions; `y` = horizontal guides. Elements snap to them while moving.

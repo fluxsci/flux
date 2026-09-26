@@ -134,7 +134,7 @@ import-plots → arrange → auto-label route works on a blank figure too).
 ## Captions
 
 Captions live on the figure MODEL (a lead sentence + one block per panel — what the app's
-Caption Editor shows); `fig/captions/<id>.md` is the composed read-out. Write them journal
+Figure-Meta Captions tab shows (Alt+M in Figure or Paper)); `fig/captions/<id>.md` is the composed read-out. Write them journal
 style — bold letter + comma:
 
 ```bash

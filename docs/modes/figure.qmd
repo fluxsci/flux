@@ -16,7 +16,7 @@ survives.
 - **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
   **R** rectangle, **O** ellipse, **L** line, **A** arrow, **P** pen.
 - The **sidebar** lists Canvases (pages — add, rename, delete), Figures on the active canvas
-  (family-aware number badges — "2", "S2", "ED3"; double-click opens the figure namer), and
+  (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
   **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
   collapsible groups. Drag its right edge to resize it; **Ctrl+B** hides it (bold still wins
   when a text element is selected).
@@ -27,7 +27,7 @@ survives.
   **Alt+↑** / **Alt+↓**. **Shift+click** picks a run of rows and **Ctrl+click**
   (**⌘+click** on macOS) adds or drops one, and the whole pick then moves as a block.
   This changes the *order of the list only*: nothing moves on the canvas, and no figure is
-  renumbered — reordering and renumbering are separate on purpose, so use the figure namer
+  renumbered — reordering and renumbering are separate on purpose, so use Figure-Meta’s Name tab
   below when you want the numbers to follow.
 - The **Inspector** puts the selection’s position, size and appearance first. Alignment and
   arrangement tools, the color palette and journal export options can be expanded as needed; drag its left edge to resize it, **Ctrl+Shift+B** hides it for a
@@ -374,17 +374,23 @@ one gesture.
 
 # Panels and captions
 
-- Mark a text element as a **panel label** with **Alt+L**; **Auto-letter panels** (in the
+- Mark a text element as a **panel label** with **Alt+L** or the **Panel label** toggle
+  in its **F-menu**; **Auto-letter panels** (in the
   Inspector's Figure section) letters them a, b, c… in reading order.
 - Panel references follow the panel itself when you relabel or auto-letter panels. Flux updates
   saved manuscript references and open editor buffers automatically. If removing a referenced
   panel would make its reference point somewhere else, the save stops with a clear conflict
   until you restore the panel or repair that reference.
-- **Alt+C** opens the **caption editor** — a manuscript-style caption page beside the figure,
-  one block per panel. Captions live with the figure and flow into your
-  [manuscript](paper.qmd) and exports automatically. Each block grows to fit whatever you
-  type, so a caption is never hidden behind a scrollbar; when the blocks outgrow the page,
-  scroll the page itself. Set the typing size in **Settings → Figure → Caption editor**.
+- **Alt+M** opens **Figure-Meta** in Figure or Paper, starting with the active figure.
+  Browse every canvas, search and filter families, and edit the **Captions** or **Name** tab.
+  The figure and composed caption preview sit beside the fields; drag the divider to resize
+  them. The Name tab includes family, number, title and custom families. Existing captions
+  and permanent references are preserved. Captions flow into the [manuscript](paper.qmd)
+  and exports automatically. Each field grows to fit; the fields column scrolls. Set the
+  typing size in **Settings → Figure → Figure-Meta captions**.
+- **Shift+Alt+M** opens Figure-Meta already pinned in a separate window; **Pin open** and
+  **Dock** move the same view between windows. You can keep editing the workspace while
+  it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.
 - **Alt+T** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
   the keyboard, live, as one undo step.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.

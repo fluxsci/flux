@@ -37,7 +37,7 @@
   import { galleryNameSimilarity } from "./plot/galleryNames";
   import { clearDissectCache } from "./dissect/loader";
   import { openGalleryWindow } from "./plot/galleryWindow";
-  import { importerOpen, importerDetached, embeddedProjectRoot, projectDir, activeFigureId, project } from "./store";
+  import { importerOpen, importerDetached, importerPinRequested, embeddedProjectRoot, projectDir, activeFigureId, project } from "./store";
   import { settings } from "./settings";
   import {
     GALLERY_SCOPES,
@@ -155,6 +155,10 @@
       detached = true;
       importerDetached.set(true);
     } catch (e) { error = errMsg(e); }
+  }
+  $: if ($importerOpen && $importerPinRequested && wrapEl) {
+    importerPinRequested.set(false);
+    if (!detached) pin(); else popup?.focus();
   }
   function dock() {
     popup?.close(); popup = undefined;
@@ -602,7 +606,9 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    if (expanded || e.defaultPrevented) return;
+    if (e.defaultPrevented) return;
+    if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyG') { e.preventDefault(); e.stopPropagation(); pin(); return; }
+    if (expanded) return;
     const target = e.target as HTMLElement;
     // Virtual scrolling can move another tile beneath a stationary pointer.
     // Keyboard navigation starts at the focused row, independently of hover.

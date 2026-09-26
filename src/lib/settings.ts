@@ -23,7 +23,7 @@ export interface Settings {
   snapGrid: boolean; // snap moves/resizes to the grid
   snapPixel: boolean; // round committed coords to whole pixels (crisp export)
   // Figure — the caption editor (Alt+C).
-  captionFontSize: number; // caption body size in WORLD px (scales with canvas zoom)
+  captionFontSize: number; // Figure-Meta caption typing size in screen px
   // Figure — what a Plot gallery (Alt+G) search reaches (plot/galleryScope.ts).
   plotSearchScope: PlotSearchScope; // "current" | "folder" | "project" | "global" | "all"
   // Paper — the dynamic margin.

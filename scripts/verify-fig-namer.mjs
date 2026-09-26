@@ -1,4 +1,4 @@
-// Figure Namer (Ctrl+R) + rail toggles — the keyboard-first paths that
+// Figure-Meta Name tab (Ctrl+R) + rail toggles — the keyboard-first paths that
 // verify-m11-m14.mjs (dblclick entry) doesn't cover:
 //   • Ctrl+R opens the namer for the active figure; Ctrl+R again commits
 //     (the open → digits → Ctrl+R rhythm)
@@ -8,6 +8,8 @@
 //   • Ctrl+B toggles the left sidebar (no text selected), Ctrl+Shift+B the
 //     right rail; both restore
 //   Run (dev server on :1420 must be up): node scripts/verify-fig-namer.mjs
+import { harness } from "./lib/harness.mjs";
+const h=harness("verify-fig-namer");
 import { launch, gotoApp, clickMode, shot, sleep, errors } from "./lib/driver.mjs";
 
 const FIG = ".sidebar section:nth-of-type(2)";
@@ -16,7 +18,7 @@ await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 }
 await clickMode(page, "Figure").catch(() => {});
 await sleep(600);
 
-const namerOpen = () => page.evaluate(() => !!document.querySelector(".namer"));
+const namerOpen = () => page.evaluate(() => !!document.querySelector(".figure-meta"));
 const rowTexts = () => page.$$eval(`${FIG} li`, (els) => els.map((e) => e.textContent.trim()));
 
 // Focus the canvas so keyboard.ts owns the keys.
@@ -29,7 +31,7 @@ await page.keyboard.press("KeyR");
 await page.keyboard.up("Control");
 await sleep(250);
 const openedByKey = await namerOpen();
-// number input is focused + selected; type a number then commit via Ctrl+R
+// title input is focused + selected; type a title then commit via Ctrl+R
 await page.keyboard.type("1");
 await page.keyboard.down("Control");
 await page.keyboard.press("KeyR");
@@ -60,14 +62,18 @@ await page.keyboard.down("Control");
 await page.keyboard.press("KeyR");
 await page.keyboard.up("Control");
 await sleep(250);
-await page.click(".namer .fam.add");
+await page.click(".figure-meta .new-family");
 await sleep(150);
+await page.click('[aria-label="Family name"]');
 await page.keyboard.type("Movie"); // display name (templates auto-suggest)
 await page.keyboard.press("Enter"); // accept → back to main view, family staged
 await sleep(150);
-await page.click(".namer .nick");
+await page.click('[aria-label="Figure title"]');
+await page.keyboard.down("Control"); await page.keyboard.press("KeyA"); await page.keyboard.up("Control");
 await page.keyboard.type("teaser clip");
-await page.keyboard.press("Enter"); // commit
+await page.keyboard.press("Enter"); // save
+await page.waitForFunction(()=>document.querySelector(".status")?.textContent.includes("Saved"));
+await page.keyboard.press("Escape"); // close
 await sleep(350);
 const rows = await rowTexts();
 const badgesNow = await page.$$eval(`${FIG} .fnum`, (els) => els.map((e) => e.textContent.trim()));
@@ -102,8 +108,6 @@ const errs = errors(page);
 const res = { openedByKey, committedByKey, inertWhileTyping, movieOk, movieBadgeOk, railsOk };
 console.log(JSON.stringify({ ...res, rows, badgesNow, errs }, null, 2));
 await browser.close();
-if (!Object.values(res).every(Boolean) || errs.length) {
-  console.error("\nFIG-NAMER VERIFY: FAIL");
-  process.exit(1);
-}
-console.log("\nFIG-NAMER VERIFY: PASS");
+for(const [name,value] of Object.entries(res)) h.ok(value,name);
+h.ok(!errs.length,'clean console');
+await h.done();

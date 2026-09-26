@@ -475,9 +475,10 @@ function createWindow(initialRoot) {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
   const galleryUrl = new URL("plot-gallery.html", appUrl).href;
+  const metadataUrl = new URL("figure-meta.html", appUrl).href;
   const galleryWindows = new Set();
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    if (url === galleryUrl && frameName === "flux-plot-gallery") return {
+    if ((url === galleryUrl && frameName === "flux-plot-gallery") || (url === metadataUrl && frameName === "flux-figure-meta")) return {
       action: "allow",
       overrideBrowserWindowOptions: {
         width: 1060, height: 780, minWidth: 480, minHeight: 420,
@@ -489,13 +490,13 @@ function createWindow(initialRoot) {
     return { action: "deny" };
   });
 
-  win.webContents.on("did-create-window", (child) => {
+  win.webContents.on("did-create-window", (child, details) => {
     galleryWindows.add(child);
     child.setMenuBarVisibility(false);
     // A gallery is an inert view, never another project session or an external browser.
     // Electron emits the initial window.open navigation after did-create-window.
     // Admit that inert document; denying it too leaves a never-loaded blank window.
-    child.webContents.on("will-navigate", (e, url) => { if (url !== galleryUrl) e.preventDefault(); });
+    child.webContents.on("will-navigate", (e, url) => { if (url !== details.url) e.preventDefault(); });
     child.webContents.on("will-redirect", e => e.preventDefault());
     child.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     child.on("closed", () => galleryWindows.delete(child));

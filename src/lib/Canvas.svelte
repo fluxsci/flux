@@ -33,7 +33,6 @@
     newId,
     findElement,
     lastDupOffset,
-    captionOpen,
     hoverId,
     nodeEditId,
     arrange,
@@ -81,7 +80,6 @@
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
   import { plotManifests, plotGen } from "./plot/store";
   import ElementView from "./Element.svelte";
-  import CaptionEditor from "./CaptionEditor.svelte";
 
   // ===========================================================================
   // Rendering architecture (performance-critical):
@@ -999,24 +997,6 @@
 
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
-    // The caption editor's page scrolls between blocks (captions themselves
-    // never scroll — CaptionEditor.svelte). This handler preventDefaults every
-    // wheel, so without this branch the column could not scroll at all. The
-    // delta is divided by zoom because the column is inside the world-space
-    // scale transform: apparent scroll speed then matches the mouse at any zoom.
-    // At either end it falls through to a canvas pan.
-    if ($captionOpen && !e.ctrlKey && !e.metaKey) {
-      const col = (e.target as HTMLElement | null)?.closest?.(".cap-scroll") as HTMLElement | null;
-      if (col) {
-        const max = col.scrollHeight - col.clientHeight;
-        const next = Math.min(max, Math.max(0, col.scrollTop + e.deltaY / $viewport.zoom));
-        if (next !== col.scrollTop) {
-          e.preventDefault();
-          col.scrollTop = next;
-          return;
-        }
-      }
-    }
     e.preventDefault();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
@@ -1058,7 +1038,6 @@
       commitArrange(); // click applies the live arrangement and exits the mode
       return;
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     if (editPathId) {
       // pen sub-mode with a live draft: an off-canvas click cancels the draft
       // but stays in the mode; otherwise leave node-edit as before.
@@ -1079,7 +1058,6 @@
       commitArrange();
       return;
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     // Node-edit sub-modes intercept figure clicks: pen places/connects draft
     // points; delete de-escalates back to edit on a background click. Plain
     // edit mode exits as before (unless the pen TOOL is active — then it's
@@ -1870,7 +1848,6 @@
       commitArrange();
       return;
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     // Pen/delete sub-modes: a click on ANY element routes like a figure click
     // (pen places a draft point "through" element bodies; delete de-escalates)
     // — never starts a move/selection.
@@ -2143,7 +2120,6 @@
   // GPU transform on the live figure group; the model commits on pointer-up).
   function startFigMove(e: PointerEvent, fig: Figure) {
     e.stopPropagation();
-    if ($captionOpen) return;
     selectFrame(fig.id);
     enteredGroupId.set(null); // P7: frame selection is a full scope exit
     activeFigureId.set(fig.id);
@@ -2164,7 +2140,7 @@
   }
 
   function startFrameResize(e: PointerEvent, handle: Handle) {
-    if (frame || !af || $selectedFrameId !== af.id || $captionOpen || e.button !== 0) return;
+    if (frame || !af || $selectedFrameId !== af.id || e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     const ob = { x: af.x, y: af.y, w: af.width, h: af.height };
@@ -2231,7 +2207,7 @@
   // Drag from a ruler strip → begin creating a guide (axis "x" = vertical guide
   // from the LEFT ruler; "y" = horizontal guide from the TOP ruler).
   function onRulerDown(e: PointerEvent, axis: "x" | "y") {
-    if (!af || $captionOpen) return;
+    if (!af) return;
     e.preventDefault();
     e.stopPropagation();
     const w = clientToWorld(e.clientX, e.clientY);
@@ -2240,7 +2216,7 @@
     hostEl.setPointerCapture(e.pointerId);
   }
   function onGuideDown(e: PointerEvent, axis: "x" | "y", pos: number) {
-    if (!af || $captionOpen) return;
+    if (!af) return;
     e.stopPropagation();
     guideDrag = { axis, pos, creating: false, origPos: pos };
     hostEl.setPointerCapture(e.pointerId);
@@ -2288,7 +2264,6 @@
 
   function onHandleDown(e: PointerEvent, handle: Handle) {
     e.stopPropagation();
-    if ($captionOpen) return; // read-only while the caption editor is open
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
     const sel = selectedEls(fig);
@@ -2322,7 +2297,6 @@
   // the model stores anyway).
   function onLineEndDown(e: PointerEvent, which: 1 | 2) {
     e.stopPropagation();
-    if ($captionOpen) return;
     const fig = activeFigure();
     if (!fig || !selLine) return;
     const { p1, p2 } = lineWorldEndpoints(selLine);
@@ -2346,7 +2320,6 @@
   // compounds); Shift snaps the primary element's resulting angle to 15°.
   function onRotateDown(e: PointerEvent) {
     e.stopPropagation();
-    if ($captionOpen) return;
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
     const sel = selectedEls(fig);
@@ -2425,7 +2398,6 @@
       !e.shiftKey &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
-      !$captionOpen &&
       !editPathId
     ) {
       partHover = partHoverBox(e);
@@ -3065,7 +3037,6 @@
       const hasHandle = [last.hIn, last.hOut].some(h => h && (h.dx !== 0 || h.dy !== 0));
       if (last.x === previous.x && last.y === previous.y && !hasHandle) penNodes = penNodes.slice(0, -1);
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     if (editPathId) {
       // pen sub-mode: double-click finishes the draft (open / extend-merge)
       if (editMode === "pen" && penNodes.length >= 2) finishPenDraft(null);
@@ -3103,7 +3074,7 @@
   // handler (real mice, via lastDownEl) AND from the per-element on:dblclick
   // (synthetic dispatches in tests) — stopPropagation keeps the two disjoint.
   function onElementDblClick(e: MouseEvent, el: Element, fig: Figure): boolean {
-    if ($captionOpen || editPathId) return false;
+    if (editPathId) return false;
     if ($activeTool !== "select" && $activeTool !== "scale") return false;
     if (effLocked(el)) return false;
     const unit = unitOf(fig, el, $enteredGroupId);
@@ -3161,7 +3132,7 @@
     return f && f.id !== g.figId ? f : null;
   }
   function onDragOver(e: DragEvent) {
-    if (!e.dataTransfer || $captionOpen) return;
+    if (!e.dataTransfer) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
     dropFigId = figureAt(e.clientX, e.clientY)?.id ?? null;
@@ -3172,7 +3143,6 @@
   }
   function onDrop(e: DragEvent) {
     e.preventDefault();
-    if ($captionOpen) return;
     const fig = figureAt(e.clientX, e.clientY);
     dropFigId = null;
     const files = [...(e.dataTransfer?.files ?? [])];
@@ -3207,7 +3177,7 @@
   // for axis-aligned lines and only bbox-scales). Dragging one endpoint pivots
   // the line about the fixed other.
   $: selLine = (() => {
-    if (!af || selLocked || $captionOpen || $selection.size !== 1) return null;
+    if (!af || selLocked || $selection.size !== 1) return null;
     const el = af.elements.find((e) => $selection.has(e.id));
     return el && el.type === "line" ? el : null;
   })();
@@ -3236,7 +3206,6 @@
       dragging ||
       editingId ||
       editPathId ||
-      $captionOpen ||
       ($activeTool !== "select" && $activeTool !== "scale") ||
       $selection.has($hoverId)
     )
@@ -3501,7 +3470,7 @@
   // to the figure edges. Pure overlay; suppressed mid-gesture so Alt-drag-dup and
   // Alt-disable-snap keep working.
   $: measure = (() => {
-    if (!altDown || !af || gesture || dragging || editPathId || $captionOpen || $activeTool !== "select") return null;
+    if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select") return null;
     const sel = af.elements.filter((e) => $selection.has(e.id) && !absentPresentationIds.has(e.id));
     if (!sel.length) return null;
     const S = selectionBBox(sel);
@@ -3936,7 +3905,7 @@
                   use:sceneTransforms.register={el.id}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
                   on:pointerenter={() => {
-                    if (($activeTool === "select" || $activeTool === "scale") && !$captionOpen) hoverId.set(el.id);
+                    if ($activeTool === "select" || $activeTool === "scale") hoverId.set(el.id);
                   }}
                   on:pointerleave={() => {
                     if ($hoverId === el.id) hoverId.set(null);
@@ -4113,7 +4082,7 @@
       <text class="measure-label" x={m.mx} y={m.my} text-anchor="middle" dominant-baseline="central">{m.label}</text>
     {/each}
 
-    {#if frameBoxScreen && !$captionOpen && ($activeTool === "select" || $activeTool === "scale")}
+    {#if frameBoxScreen && ($activeTool === "select" || $activeTool === "scale")}
       <rect class="sel-box" x={frameBoxScreen.x} y={frameBoxScreen.y} width={frameBoxScreen.w} height={frameBoxScreen.h} fill="none" />
       {#each HANDLES as handle}
         {@const hit = frameHandleRect(handle, frameBoxScreen)}
@@ -4147,7 +4116,7 @@
       />
     {:else if selScreen && !editingInfo && !editPathId}
       <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
-      {#if !$captionOpen && !selLocked}
+      {#if !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
         <line
           class="rot-stem"
@@ -4386,10 +4355,6 @@
       <rect class="ruler-corner" x="0" y="0" width={RULER} height={RULER} />
     {/if}
   </svg>
-
-  {#if $captionOpen}
-    <CaptionEditor />
-  {/if}
 
   {#if editPathId}
     <!-- node-edit sub-mode HUD: which mode is live + the hotkeys -->

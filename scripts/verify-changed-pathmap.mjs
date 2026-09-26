@@ -33,7 +33,7 @@ const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", impor
 const actualCases = [
   ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
   // The text painter's arrangement source and its serializer route together.
-  ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure"]],
+  ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure", "verify-text-blank-lines.mjs"]],
   ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],
   ["scripts/perf/frame-oracle.cjs", ["verify-frame-oracle.ts"]],
   ["scripts/verify-manifest.json", ["verify-changed-pathmap.mjs", "tier:pure"]],
@@ -69,7 +69,7 @@ const actualCases = [
   ["electron/captureInstall.cjs", ["verify-capture-intake.ts", "verify-capture-e2e.cjs", "tier:pure"]],
   ["resources/csl/nature.csl", ["verify-journal-assets.ts"]],
   ["resources/docx/templates/nature.docx", ["verify-journal-assets.ts"]],
-  ["src/lib/FigureNamer.svelte", ["verify-fig-namer.mjs", "verify-m11-m14.mjs"]],
+  ["src/lib/figureLayoutStore.ts", ["verify-fig-namer.mjs", "verify-m11-m14.mjs"]],
   ["docs/AGENT_ENGINEERING_GUIDE-RUNNING.md", ["verify-docs.ts"]],
   ["scripts/lib/driver.mjs", ["tier:pure"]],
   ["scripts/verify-changed-pathmap.mjs", ["self:scripts/verify-changed-pathmap.mjs", "tier:pure"]],
@@ -78,7 +78,7 @@ for (const [file, expected] of actualCases) {
   equal([...collectChangedRuns([file], manifest.pathMap)], expected, `actual manifest routes ${file}`);
 }
 
-const figureSelection = resolveChangedRuns(collectChangedRuns(["src/lib/FigureNamer.svelte"], manifest.pathMap), manifest);
+const figureSelection = resolveChangedRuns(collectChangedRuns(["src/lib/figureLayoutStore.ts"], manifest.pathMap), manifest);
 equal(figureSelection, { scripts: ["verify-fig-namer.mjs", "verify-m11-m14.mjs"], diagnostics: [] }, "literal filenames resolve to the actual GUI gates");
 const slideSelection = resolveChangedRuns(collectChangedRuns(["src/lib/slide/player/player.ts"], manifest.pathMap), manifest);
 equal(slideSelection.scripts.includes("verify-slide-authoring-gui.mjs"), true, "slide changes select the authoring GUI gate");

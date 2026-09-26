@@ -292,7 +292,8 @@
       "verify-recovery-entry.ts",
       "verify-eyedropper.ts",
       "verify-text-arrange.ts",
-      "verify-text-runs.ts"
+      "verify-text-runs.ts",
+      "verify-figure-metadata.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -423,7 +424,11 @@
       "verify-text-arrange-gui.mjs",
       "verify-text-runs-gui.mjs",
       "verify-cross-figure-drag.mjs",
-      "verify-color-field.mjs"
+      "verify-color-field.mjs",
+      "verify-figure-metadata.mjs",
+      "verify-text-blank-lines.mjs",
+      "verify-metadata-save-safety.mjs",
+      "verify-panel-label-menu.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -535,7 +540,8 @@
       "verify-native-diagnostics-electron.cjs",
       "verify-v020-gui-export-recovery.cjs",
       "verify-eyedropper-portal.cjs",
-      "verify-eyedropper-electron.cjs"
+      "verify-eyedropper-electron.cjs",
+      "verify-figure-metadata-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -615,7 +621,8 @@
       "verify-v020-worker-lifecycle.ts",
       "verify-v020-paper-lifecycle.mjs",
       "verify-v020-morph-startup.mjs",
-      "verify-figure-reference-safety.ts"
+      "verify-figure-reference-safety.ts",
+      "verify-figure-metadata.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -764,10 +771,39 @@
       "verify-text-styles.mjs",
       "verify-gallery-workflow.mjs",
       "verify-slide-video-clips-gui.mjs"
+    ],
+    "snapshot-feedback": [
+      "verify-figure-metadata.ts",
+      "verify-figure-metadata.mjs",
+      "verify-metadata-save-safety.mjs",
+      "verify-caption-fit.mjs",
+      "verify-text-blank-lines.mjs",
+      "verify-panel-label-menu.mjs",
+      "verify-fig-namer.mjs",
+      "verify-m11-m14.mjs",
+      "verify-figure-editing-gui.mjs",
+      "verify-v020-geometry-gui.mjs",
+      "verify-fmenu-surface.mjs",
+      "verify-text-arrange-gui.mjs",
+      "verify-gallery-workflow.mjs",
+      "verify-plot-gallery.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/figure/{metadata*,FigureMeta.svelte,FigureIdentityForm.svelte}",
+      "run": [
+        "verify-figure-metadata.ts",
+        "verify-figure-metadata.mjs",
+        "verify-caption-fit.mjs",
+        "verify-fig-namer.mjs",
+        "verify-m11-m14.mjs",
+        "group:paper-gate",
+        "verify-metadata-save-safety.mjs",
+        "verify-figure-metadata-electron.cjs"
+      ]
+    },
     {
       "$why": "A dependency the start-up crawl misses is optimized on first use and every open page is reloaded — under the ui tier that reload lands on whatever gate is running (the 2026-09-26 plot-gallery popup close). The gate runs the real cold crawl and pins every worker-only import into optimizeDeps.include.",
       "glob": "vite.config.ts",
@@ -788,7 +824,8 @@
         "verify-slide-export-parity.ts",
         "verify-text-runs.ts",
         "verify-text-runs-gui.mjs",
-        "tier:pure"
+        "tier:pure",
+        "verify-text-blank-lines.mjs"
       ]
     },
     {
@@ -1024,7 +1061,7 @@
       "run": [
         "verify-ops.ts",
         "verify-cross-figure-drag.mjs",
-      "verify-color-field.mjs",
+        "verify-color-field.mjs",
         "group:slide-stash",
         "tier:pure"
       ]
@@ -1312,7 +1349,7 @@
       ]
     },
     {
-      "glob": "src/lib/{FigureNamer.svelte,figureLayoutStore.ts}",
+      "glob": "src/lib/figureLayoutStore.ts",
       "run": [
         "verify-fig-namer.mjs",
         "verify-m11-m14.mjs"
@@ -1439,7 +1476,7 @@
       ]
     },
     {
-      "glob": "src/lib/{CaptionEditor.svelte,captions.ts}",
+      "glob": "src/lib/captions.ts",
       "run": [
         "verify-caption-fit.mjs",
         "verify-f7.mjs",
@@ -1542,7 +1579,8 @@
         "figenh-14-partui.mjs",
         "verify-figure-editing-gui.mjs",
         "verify-figure-controls-gui.mjs",
-        "verify-menu.mjs"
+        "verify-menu.mjs",
+        "verify-panel-label-menu.mjs"
       ]
     },
     {
@@ -6824,6 +6862,71 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-figure-metadata.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-metadata.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-text-blank-lines.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-metadata-save-safety.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-panel-label-menu.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-figure-metadata-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     }

@@ -15,7 +15,7 @@ async function record(name,extra={}) {
 async function seed(opts={}) {
   await page.evaluate(opts=>{
     const F=window.__flux, s=F.fig;
-    s.clearSelection();s.activeTool.set('select');s.captionOpen.set(false);s.nodeEditId.set(null);
+    s.clearSelection();s.activeTool.set('select');s.nodeEditId.set(null);
     s.commit(p=>{
       const f=p.figures[0];p.figures=[f];f.x=0;f.y=0;f.width=800;f.height=600;delete f.groups;delete f.guides;
       f.elements=[{type:'rect',id:'review-a',name:'Review A',x:40,y:40,width:120,height:100,rotation:0,fill:'#d95f02',stroke:'#222222',strokeWidth:2,cornerRadius:0},{type:'rect',id:'review-b',name:'Review B',x:300,y:240,width:160,height:120,rotation:0,fill:'#4385be',stroke:'#222222',strokeWidth:2,cornerRadius:0}];

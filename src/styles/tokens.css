@@ -238,7 +238,7 @@
    The whole paper module renders on cream while the rest of the app stays dark.
    This is a container-scoped override: redefining the semantic --c-* tokens on
    the .paper subtree cascades to every descendant (CodeMirror DOM + tooltips,
-   chips, cards, the three columns) for free, exactly like CaptionEditor's
+   chips, cards, the three columns) for free, like other editor surfaces'
    .cap-layer. Accent TEXT must stay AA-legible on cream, so --c-accent /
    --c-accent-bright become text-grade blues (blue-600/500); the lighter
    blue-400 survives only inside tints/glow (backgrounds). See PAPER_DESIGN_SPEC.

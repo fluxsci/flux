@@ -79,12 +79,12 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | **F** | Property menu, beside the selection (each row shows its own **left-hand** key; the key arms the row, then the **mouse wheel** — anywhere on screen — or **↑/↓** adjusts a number, an expanded choice takes **w/a/s/d**, **1–9** or the wheel, a colour opens the palette — hover previews, click applies; **Space**/**Enter** applies, **Escape** reverts; **s** searches) |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
-| **Alt+G** | Open the Plot gallery, or focus its pinned window |
+| **Alt+G** / **Shift+Alt+G** | Open the Plot gallery / open it pinned |
 | **Alt+1** / **Alt+2** | In the Plot gallery: browse the project's plots / your global plot library |
 | **Ctrl+Shift+K** | Import image files |
 | **Ctrl+Shift+I** | Bring selection inside the frame (never resizes) |
 | **Alt+R** | X-ray the selected plot(s) or group — several selected plots x-ray together with the parts they share; in the tree **Shift+click** / **Ctrl+click** pick several rows, **Ctrl+A** all, **x** hides the pick, **Enter** opens their properties, **double-click** re-roots |
-| **Alt+C** | Caption editor |
+| **Alt+M** / **Shift+Alt+M** | Figure-Meta / open it pinned (Figure and Paper) |
 | **Alt+L** | Mark selected text as a panel label |
 | **Alt+T** | Arrange mode — then **A** row/column, **G** grid, **D**/**F** rows, **Enter** apply |
 | **Ctrl+Shift+C** | Cascade a stepped delta across the selection |

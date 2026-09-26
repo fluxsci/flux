@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openFigureMeta } from "./figure/metadataState";
   import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
   import { editSession } from "./interact/editSession";
   const textSession = editSession();
@@ -13,7 +14,7 @@
   import { buildMenuFields, fieldRange, type Field } from "./interact/propertyMenu";
   import { get } from "svelte/store";
   import { onMount, onDestroy, getContext } from "svelte";
-  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog, enteredGroupId } from "./store";
+  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figureCatalog, enteredGroupId } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextAlign, TextStyle, TextVAlign } from "./types";
@@ -897,7 +898,7 @@
         />
         Panel label <span class="hk">Alt+L</span>
       </label>
-      <p class="note">Marked text becomes a block in the caption editor (Alt+C).</p>
+      <p class="note">Marked text becomes a caption block in Figure-Meta (Alt+M).</p>
       </div>
     </section>
   {/if}
@@ -1006,12 +1007,12 @@
       <p class="note mono">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
 
       <!-- Identity is family + number (figfamily.ts) — the name is derived, so
-           the row opens the Figure Namer instead of editing text. The nickname
+           the row opens the Figure-Meta Name tab instead of editing text. The nickname
            stays inline-editable (it's free text). -->
       <button
         class="identity"
         title="Rename (Ctrl+R)"
-        on:click={() => figNamer.set({ figId: fig.id })}>
+        on:click={() => openFigureMeta(fig.id, "name")}>
         <b>{fig.name}</b>
         <span class="id-ref">{formatFamilyRef(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
       </button>
@@ -1444,7 +1445,7 @@
     border-radius: var(--r-ui);
     padding: 0 5px;
   }
-  /* Figure identity row — opens the Figure Namer (Ctrl+R). */
+  /* Figure identity row — opens the Figure-Meta Name tab (Ctrl+R). */
   .identity {
     display: flex;
     align-items: center; /* sans name + mono ref sit on one visual centre line, not two baselines */

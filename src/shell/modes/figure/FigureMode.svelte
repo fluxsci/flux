@@ -21,7 +21,6 @@
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
-  import FigureNamer from "../../../lib/FigureNamer.svelte";
   import FigureDeletionDialog from "../../../lib/FigureDeletionDialog.svelte";
   import FigureCatalog from "../../../lib/FigureCatalog.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
@@ -30,7 +29,7 @@
   import DissectOverlay from "../../../lib/dissect/DissectOverlay.svelte";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
-  import { activeFigureId, dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
+  import { activeFigureId, dirty as figDirty, embeddedProjectRoot } from "../../../lib/store";
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../../../lib/figureLayoutStore";
   import { projectModel } from "../../shellStore";
@@ -232,12 +231,10 @@
     <main class="canvas-wrap">
       <Canvas paneActive={active} /><ArrangeHud /><CascadePopover />
       <!-- Only the focused pane owns/hosts the namer (split-workspace safe). -->
-      {#if focused}<FigureNamer /><FigureCatalog /><FigureDeletionDialog />{/if}
+      {#if focused}<FigureCatalog /><FigureDeletionDialog />{/if}
     </main>
-    <!-- The Inspector steps aside while the caption editor is open, giving the
-         caption page room (and keeping the figure read-only / distraction-free).
-         Ctrl+Shift+B (keyboard.ts) hides it entirely. -->
-    {#if !$captionOpen && !$inspectorHidden}
+    <!-- Ctrl+Shift+B toggles the Inspector. -->
+    {#if !$inspectorHidden}
       <div
         class="rail-gutter"
         role="separator"
@@ -247,7 +244,7 @@
         ondblclick={resetInspW}>
       </div>
       <Inspector />
-    {:else if !$captionOpen}
+    {:else}
       <button class="edgetab right" title="Show right rail (Ctrl+Shift+B)" onclick={() => inspectorHidden.set(false)}>‹</button>
     {/if}
   </div>

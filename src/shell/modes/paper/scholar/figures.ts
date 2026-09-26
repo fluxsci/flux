@@ -325,12 +325,24 @@ export async function renderFigureImageUrl(id: string): Promise<string | undefin
   if (imageUrlCache.has(id)) return imageUrlCache.get(id);
   const rev = figuresRev;
   let svg = await renderFigureSvgInSlices(id, rev);
+  if (rev !== figuresRev) return undefined;
+  const url = svg ? await figureSvgImageUrl(svg) : undefined;
+  if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
+  imageUrlCache.set(id, url);
+  const stale = staleImageUrls.get(id);
+  if (stale && stale !== url) URL.revokeObjectURL(stale);
+  staleImageUrls.delete(id);
+  return url;
+}
+
+/** Standalone image renderer shared by Paper and live Figure-Meta previews.
+ * The caller owns the returned blob URL. */
+export async function figureSvgImageUrl(svg: string): Promise<string | undefined> {
   if (svg) {
     // An SVG image has no access to fonts loaded by its containing document.
     const fonts = await svgFontCss(svg);
     if (fonts) svg = svg.replace(">", `><style>${fonts}</style>`);
   }
-  if (rev !== figuresRev) return undefined;
   let url: string | undefined;
   if (svg) {
     url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
@@ -343,11 +355,6 @@ export async function renderFigureImageUrl(id: string): Promise<string | undefin
       url = undefined;
     }
   }
-  if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
-  imageUrlCache.set(id, url);
-  const stale = staleImageUrls.get(id);
-  if (stale && stale !== url) URL.revokeObjectURL(stale);
-  staleImageUrls.delete(id);
   return url;
 }
 
@@ -613,9 +620,9 @@ if (import.meta.env?.DEV) {
 }
 
 /** Immutable export inputs; serialization yields between plot preparations. */
-export function captureFigureExport() {
-  const refs = structuredClone(get(figureRefs)), figures = structuredClone(figuresById);
-  const data = { ...assetData }, manifests = structuredClone(assetManifests), assets = structuredClone(assetMeta), families = structuredClone(familyDefs);
+export function captureFigureExport(source?: { figures: Record<string, Figure>; assetData: Record<string,string>; assetManifests: Record<string,FluxPlotManifest>; assets: Asset[] }) {
+  const refs = structuredClone(get(figureRefs)), figures = structuredClone(source?.figures ?? figuresById);
+  const data = { ...(source?.assetData ?? assetData) }, manifests = structuredClone(source?.assetManifests ?? assetManifests), assets = structuredClone(source?.assets ?? assetMeta), families = structuredClone(familyDefs);
   const resolve = createFigureReferenceResolver(refs);
   return {
     refs, root: loadedRoot,
@@ -629,15 +636,17 @@ export function captureFigureExport() {
       const panel = hit.panelSpec?.replace(/-/g, "–");
       return { ref: hit.ref, display: panel ? formatFamilyRef(familyById(hit.ref.family, families), hit.ref.number, panel) : hit.ref.display, ...(panel ? { panel } : {}) };
     },
-    async render(id: string, namespaced = true): Promise<string | undefined> {
+    async render(id: string, namespaced = true, isCurrent: () => boolean = () => true): Promise<string | undefined> {
       const figure = figures[id]; if (!figure) return undefined;
       const plots = new Map<Element, string | undefined>(); let began = performance.now();
       for (const el of figure.elements) {
+        if (!isCurrent()) return undefined;
         if (el.type !== "plot" || effectiveHidden(figure, el)) continue;
         const url = data[el.assetId];
         if (url?.startsWith("data:image/svg+xml")) plots.set(el, buildPlotMarkup(new TextDecoder().decode(dataUrlToBytes(url)), (namespaced ? { ...el, id: `${PAPER_SVG_NS}__${el.id}` } : el), el.overrides, manifests[el.assetId]) ?? undefined);
         if (performance.now() - began >= 6) { await new Promise<void>(resolve => setTimeout(resolve, 0)); began = performance.now(); }
       }
+      if (!isCurrent()) return undefined;
       return figureToSvg(figure, aid => data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined);
     },
   };

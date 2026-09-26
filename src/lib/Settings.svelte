@@ -420,7 +420,7 @@
               Snap to pixel (round coords on commit — crisp export)
             </label>
 
-            <h3>Caption editor</h3>
+            <h3>Figure-Meta captions</h3>
             <label class="chk num">
               Font size
               <input
@@ -433,7 +433,7 @@
               />
               px
             </label>
-            <p class="hint">The size captions are typed at in the caption page (<b>Alt+C</b>). World px, so it scales with the canvas zoom just like the figure. Every caption grows to fit its text — the page scrolls between them, the boxes never do.</p>
+            <p class="hint">The typing size in Figure-Meta (<b>Alt+M</b>). Each field grows to fit its text; scroll the fields column to move between captions.</p>
 
             <h3>Plot gallery</h3>
             <label class="row">

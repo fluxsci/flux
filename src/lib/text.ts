@@ -481,6 +481,7 @@ export function blockLayout(e: TextElement): TextBlockLayout {
   // back. A line that ENDS shifted hands the correction to the next line's own
   // dy (a line tspan's x is absolute, its dy relative), so no line drifts.
   let carry = 0;
+  let emptyAdvance = 0;
   for (let k = 0; k < vis.length; k++) {
     const paragraphEnd = ends[k];
     const line: LaidOutLine = {
@@ -507,6 +508,11 @@ export function blockLayout(e: TextElement): TextBlockLayout {
         carry = -at;
       } else if (carry) { line.dy += carry; carry = 0; }
     } else if (carry) { line.dy += carry; carry = 0; }
+    // SVG ignores positioning on a tspan with no glyphs. Carry blank lines'
+    // advances to the next painted line, including any script reset. The
+    // authored text and measured block height still retain every empty line.
+    line.dy += emptyAdvance;
+    emptyAdvance = line.text.length === 0 ? line.dy : 0;
     // Without measured widths there is nothing to share out, so a line that
     // must still fill its box falls back to stretching as a whole.
     if (stretch && !wordGap) line.justifyWidth = justifyWidth;

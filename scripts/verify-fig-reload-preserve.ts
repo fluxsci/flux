@@ -70,7 +70,6 @@ assert(get(store.project).name === "t" && get(store.dirty) === false, "initial l
 store.setActiveCanvas("c2");
 store.selectOnly("e2");
 store.partSelection.set({ elementId: "e2", partId: "control.line" });
-store.captionOpen.set(true);
 store.commit((p) => {
   p.figures.find((f) => f.id === "f2")!.name = "Renamed by user";
 });
@@ -81,7 +80,6 @@ assert(get(store.activeCanvasId) === "c2", "reload preserves the active canvas")
 assert(get(store.activeFigureId) === "f2", "reload preserves the active figure");
 assert(get(store.selection).has("e2"), "reload preserves the selection (surviving ids)");
 assert(get(store.partSelection)?.elementId === "e2", "reload preserves the part selection");
-assert(get(store.captionOpen) === true, "reload keeps the caption editor open (figure survived)");
 assert(fillOf("e2") === "#00ff00", "the agent's change is live after the reload");
 assert(get(store.dirty) === false, "landing an external change leaves the editor clean");
 
@@ -107,7 +105,6 @@ store.loadProject(makeProject("#0000ff", { dropC2: true }), null, { reload: true
 assert(get(store.activeCanvasId) === "c1", "a deleted active canvas falls back to the first");
 assert(get(store.selection).size === 0, "selection ids that vanished are dropped");
 assert(get(store.partSelection) === null, "part selection dropped with its element");
-assert(get(store.captionOpen) === false, "caption editor closes when its figure is gone");
 store.undo();
 assert(get(store.selection).size === 0 && fillOf("e2") === "#00ff00", "even the fallback reload is one undo step back");
 

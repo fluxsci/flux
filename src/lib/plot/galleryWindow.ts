@@ -1,13 +1,13 @@
 /** Move the mounted view, retaining its Svelte state and the opener's store/IO.
  * The destination is an inert same-origin document with no application scripts.
  * All listeners/observers and the native window are owned by this one handle. */
-export function openGalleryWindow(node: HTMLElement, onClose: () => void, onDocumentChange: () => void) {
+export function openUtilityWindow(node: HTMLElement, onClose: () => void, onDocumentChange: () => void, options: { page: string; frame: string; title: string; focus: string }) {
   const owner = node.ownerDocument;
   const parent = node.parentNode!;
-  const marker = owner.createComment("plot gallery");
-  const opened = window.open(new URL("plot-gallery.html", owner.baseURI).href,
-    "flux-plot-gallery", "popup,width=1060,height=780,resizable=yes,scrollbars=no");
-  if (!opened) throw new Error("The gallery window could not open. Allow pop-up windows and try again.");
+  const marker = owner.createComment(options.title);
+  const opened = window.open(new URL(options.page, owner.baseURI).href,
+    options.frame, "popup,width=1060,height=780,resizable=yes,scrollbars=no");
+  if (!opened) throw new Error("The window could not open. Allow pop-up windows and try again.");
   const popup: Window = opened;
   parent.insertBefore(marker, node);
   let disposed = false;
@@ -35,12 +35,12 @@ export function openGalleryWindow(node: HTMLElement, onClose: () => void, onDocu
     syncStyles();
     popup.document.body.appendChild(node);
     onDocumentChange();
-    popup.document.title = "Plot gallery";
+    popup.document.title = options.title;
     styles.observe(owner.head, { childList: true, subtree: true, characterData: true });
     theme.observe(owner.documentElement, { attributes: true });
     theme.observe(owner.body, { attributes: true });
     popup.addEventListener("pagehide", closed);
-    node.querySelector<HTMLInputElement>(".search-in")?.focus();
+    node.querySelector<HTMLElement>(options.focus)?.focus();
   }
   function closed() { if (!disposed) onClose(); }
   popup.addEventListener("load", mount, { once: true });
@@ -60,4 +60,8 @@ export function openGalleryWindow(node: HTMLElement, onClose: () => void, onDocu
     if (!popup.closed) popup.close();
   }
   return { close: dispose, focus: () => popup.focus() };
+}
+
+export function openGalleryWindow(node: HTMLElement, onClose: () => void, onDocumentChange: () => void) {
+  return openUtilityWindow(node, onClose, onDocumentChange, { page: "plot-gallery.html", frame: "flux-plot-gallery", title: "Plot gallery", focus: ".search-in" });
 }

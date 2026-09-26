@@ -488,6 +488,13 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     // yields to the Fill section's fill colour in mixed selections.
     const tcKey = shapeEl ? "n" : "c";
     const tEl = textEl as Element & { type: "text" };
+    const texts = els.filter((e) => e.type === "text");
+    F.push({ key: "h", label: "panel label", group: "Text", kind: "toggle",
+      count: texts.length,
+      mixed: texts.some((e) => !!e.panelLabel !== !!tEl.panelLabel),
+      get: () => texts.every((e) => e.panelLabel),
+      apply: () => { const value = !texts.every(e => e.panelLabel); upd((e) => { if (e.type === "text") e.panelLabel = value; }); },
+    });
     F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => tEl.text, apply: (v) => upd((e) => { if (e.type === "text") e.text = String(v); }) });
     // Font size in POINTS (stored px × 0.75) — same unit as journal specs.
     property("fontSize");

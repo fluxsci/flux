@@ -1,3 +1,4 @@
+import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";
 import { editSession } from "./interact/editSession";
 import { selectionTargets } from "./interact/selectionTargets";
@@ -23,7 +24,6 @@ import {
   duplicateFigure,
   newId,
   lastDupOffset,
-  captionOpen,
   nodeEditId,
   expandGroups,
   enteredGroupId,
@@ -39,7 +39,7 @@ import {
   xrayRoot,
   importerOpen,
   importerDetached,
-  figNamer,
+  importerPinRequested,
   figureCatalog,
   embeddedProjectRoot,
   projectDir,
@@ -79,16 +79,6 @@ let clipboardGroups: Record<string, GroupDef> = {};
 function activeFig() {
   const p = get(project);
   return p.figures.find((f) => f.id === get(activeFigureId)) ?? null;
-}
-
-// Alt+C: open the caption editor (needs an active figure with a selection —
-// i.e. the user is "in" a figure), or close it if already open.
-function toggleCaption() {
-  if (get(captionOpen)) {
-    captionOpen.set(false);
-    return;
-  }
-  if (activeFig() && get(selection).size > 0) captionOpen.set(true);
 }
 
 // Alt+L: toggle the selected text element(s) as figure panel labels (each marked
@@ -448,7 +438,7 @@ function nudgeFrame(dx: number, dy: number) {
  *  Figures list (the model order the canvas files persist). Acts on the row
  *  pick (Shift/Ctrl+click in the sidebar) or, with none, on the active figure.
  *  Order only: nothing moves on the canvas and no number changes — renumbering
- *  stays the namer's job (Ctrl+R). Returns false when there is nothing to move
+ *  stays Figure-Meta’s job (Ctrl+R). Returns false when there is nothing to move
  *  (no figure, or the block is already against that end), so the chord falls
  *  through instead of silently eating the key. */
 function moveFigureInOrder(delta: number): boolean {
@@ -764,7 +754,7 @@ export function handleKey(e: KeyboardEvent) {
   if (owner?.closest('.animator, [data-command-scope="animation"]')) return;
   if (owner?.tagName === "SELECT") return;
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
-  // Figure Namer / Dissect viewer own all keys while open.
+  // Figure-Meta Name tab / Dissect viewer own all keys while open.
   if (
     get(fluxFigMenuOpen) ||
     get(settingsOpen) ||
@@ -772,7 +762,6 @@ export function handleKey(e: KeyboardEvent) {
     get(xrayOpen) ||
     (get(importerOpen) && !get(importerDetached)) ||
     get(cascadeState) ||
-    get(figNamer) ||
     (get(figureCatalog) || get(figureDeletion)) ||
     get(dissectTarget) ||
     get(shellModalOpen)
@@ -799,23 +788,6 @@ export function handleKey(e: KeyboardEvent) {
       if (k === "f") return e.preventDefault(), arrangeStep(-1);
     }
     e.preventDefault();
-    return;
-  }
-
-  // Caption editor: Alt+C toggles it open/closed; Esc closes it. While open the
-  // canvas is read-only, so every other shortcut is swallowed here. (We don't
-  // preventDefault on the swallowed keys, so typing in a caption textarea still
-  // works — the global shortcuts simply don't fire.)
-  if (e.altKey && !mod && e.code === "KeyC") {
-    e.preventDefault();
-    toggleCaption();
-    return;
-  }
-  if (get(captionOpen)) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      captionOpen.set(false);
-    }
     return;
   }
 
@@ -871,7 +843,7 @@ export function handleKey(e: KeyboardEvent) {
   // Alt+G: open the Plot Gallery (search/browse the project's plots/ dir).
   if (e.altKey && !mod && e.code === "KeyG") {
     e.preventDefault();
-    if (get(embeddedProjectRoot) || get(projectDir)) importerOpen.set(true);
+    if (get(embeddedProjectRoot) || get(projectDir)) { importerPinRequested.set(e.shiftKey); importerOpen.set(true); }
     return;
   }
 
@@ -883,7 +855,7 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Ctrl/Cmd+R: the Figure Namer (family · number · nickname). Figure tenant
+  // Ctrl/Cmd+R: the Figure-Meta Name tab (family · number · nickname). Figure tenant
   // only — in slide mode the store's "figures" are slides; family identity is
   // meaningless there and would be folded into the deck. preventDefault always,
   // so a stray reload accelerator can never fire (dev menu binds reload to
@@ -892,14 +864,14 @@ export function handleKey(e: KeyboardEvent) {
     e.preventDefault();
     if (storeTenant() !== "figure") return;
     const fid = frameSelected() ?? get(activeFigureId);
-    if (fid) figNamer.set({ figId: fid });
+    if (fid) openFigureMeta(fid, "name");
     return;
   }
 
   // Alt+↑ / Alt+↓: move this figure up/down the sidebar's Figures list — the
   // editor's "move this block up a list" chord (VS Code / Obsidian). NOT
   // Shift+arrows, which is the 10px nudge. The figure keeps its place on the
-  // canvas and its number: this reorders the list, the namer renumbers.
+  // canvas and its number: this reorders the list, Figure-Meta renumbers.
   if (e.altKey && !mod && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
     if (moveFigureInOrder(e.key === "ArrowUp" ? -1 : 1)) {
       e.preventDefault();

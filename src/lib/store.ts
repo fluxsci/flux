@@ -321,11 +321,8 @@ export const xrayRoot = writable<XrayTarget | null>(null);
 export const importerOpen = writable<boolean>(false);
 // The detached gallery owns only its own keys; the authoring canvas stays live.
 export const importerDetached = writable<boolean>(false);
+export const importerPinRequested = writable(false);
 
-// Figure Namer (Ctrl+R): the fast family · number · nickname popup
-// (FigureNamer.svelte). Lives here (not in the component) so keyboard.ts,
-// Sidebar and Inspector can all open it — the importerOpen layering rule.
-export const figNamer = writable<{ figId: Id } | null>(null);
 /** Project-wide figure identity, source and usage inspector. */
 export const figureCatalog = writable<{ figureId?: Id; section?: "details" | "numbering" } | null>(null);
 
@@ -362,10 +359,6 @@ export function selectedFigureIds(p: Project, canvasId: Id | null): Id[] {
 }
 // The canvas (page) currently shown in the editor.
 export const activeCanvasId = writable<Id | null>(get(project).canvases[0]?.id ?? null);
-
-// Caption editor (Alt+C): when open, a caption page is shown beside the active
-// figure and the rest of the canvas is read-only (pan/zoom still allowed).
-export const captionOpen = writable<boolean>(false);
 
 // The element currently under the cursor (select tool), for the Figma-style
 // hover outline. Null when nothing is hovered / during a drag.
@@ -964,14 +957,12 @@ export function loadProject(p: Project, dir: string | null, opts: LoadProjectOpt
     // Selection/part/frame/group/xray keep every id that still exists —
     // pruneSelection is the same dangling-id sweep undo/redo run.
     pruneSelection();
-    if (!keptFig) captionOpen.set(false);
   } else {
     const firstCanvas = p.canvases[0]?.id ?? null;
     activeCanvasId.set(firstCanvas);
     const firstFig = p.figures.find((f) => f.canvasId === firstCanvas) ?? p.figures[0] ?? null;
     activeFigureId.set(firstFig?.id ?? null);
     clearSelection();
-    captionOpen.set(false);
   }
   hoverId.set(null);
   nodeEditId.update(id => p.figures.some(f => f.elements.some(e => e.id === id && e.type === "path")) ? id : null);
@@ -993,7 +984,6 @@ export function setActiveCanvas(id: Id) {
   const fig = figuresOnCanvas(get(project), id)[0] ?? null;
   activeFigureId.set(fig?.id ?? null);
   clearSelection(); // rows included — a pick never carries over to another canvas
-  captionOpen.set(false);
 }
 
 // Add a new canvas (with one blank figure) and switch to it.

@@ -307,7 +307,7 @@ Persistence invariants (all machine-checked — do not weaken):
   shared array are permuted, so canvas B's order can never disturb canvas A's). Order and
   NUMBERING are deliberately orthogonal: reordering touches no geometry and no
   family/number, and `computeFamilyNumbers` sorts by claimed number, not by array position —
-  renumbering stays `assignFamilyNumber`'s insert-and-shift (the namer, Ctrl+R). The paper
+  renumbering stays `assignFamilyNumber`'s insert-and-shift (Figure-Meta Name tab, Ctrl+R). The paper
   side is unaffected either way: its pickers/completions sort by family rank + number.
   Gates: `verify-fig-order.ts` (pure) + `verify-fig-order-gui.mjs` (ui).
 - **Document ORDER is the user's too, and it is a manifest field** (2026-08-20): the Paper
@@ -966,6 +966,19 @@ Persistence invariants (all machine-checked — do not weaken):
   when the gallery closes. Recreate list size observers in the destination window on pin
   and dock: an observer created in a hidden opener stops delivering resizes, leaving the
   pinned gallery's columns and virtual row count stale until the opener regains focus.
+- **Figure-Meta (2026-09-26)** replaces the Figure caption overlay and naming popup.
+  Workspace lazy-loads `figure/FigureMeta.svelte` for Alt+M in Figure/Paper; Ctrl+R and
+  sidebar double-click open Name. Shift+Alt+M/G opens metadata/gallery pinned.
+  Metadata changes use pure `figure/metadata.ts` operations and field-level expected values.
+  A resident Figure commits through its history/autosave owner; cold Paper reads a complete
+  independent snapshot and publishes a recoverable generation under project/manifest leases.
+  Never load that snapshot into a Slide tenant. Keep drafts on failure and drain newer input
+  arriving during async saves before closing or changing project. Retain orphan captions.
+  Live previews snapshot the current model into Paper’s sliced serializer and font/image
+  renderer; disk previews use Paper’s revision cache. Utility windows host the same mounted
+  view in exact-allowlisted inert HTML; reconnect
+  document-bound observers and focus after pin/dock. Gates: `verify-figure-metadata.*`,
+  `verify-caption-fit.mjs`, `verify-fig-namer.mjs`, `verify-m11-m14.mjs` and paper-gate.
 - **The 2026-09-15 editing surface (Figure + Slide): one style, one property model, one wheel.**
   Chrome follows the surface contract pinned by `verify-xray-theme.mjs` / `verify-fmenu-surface.mjs`:
   sans chrome (`--font-ui`), mono values and eyebrows, `--r-ui` 2px / `--r-panel` 3px radii,
@@ -973,7 +986,7 @@ Persistence invariants (all machine-checked — do not weaken):
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
   (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G plot gallery, Alt+T arrange,
-  Alt+C caption; the align chords are `e.code` too. Settings is a tabbed dialog (General /
+  Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
   Shift+Tab, and closing restores the invoking control. The collection defaults share the
@@ -1936,7 +1949,7 @@ real exports Word refused):
 
 **World-space DOM (anything mounted inside the canvas):**
 
-- Overlays like the caption editor ride `transform: scale($viewport.zoom)`. **Never measure them
+- Canvas overlays ride `transform: scale($viewport.zoom)`. **Never measure them
   with `getBoundingClientRect`** — it is transform-scaled, so any value you write back is wrong
   at zoom ≠ 1. `scrollHeight`/`clientHeight`/`offsetTop`/`offsetHeight` are pre-transform layout
   px: measure and write in those and the result is zoom-invariant for free.
@@ -6964,3 +6977,16 @@ scratch library: 3/3 filed, copy merged + archived.
 - **In a synced copy of a library, same citekey = same record.** The add planner's DOI/signature dedupe
   cannot see a title-only record (no DOI, no author); three came back re-minted as duplicates on the
   first real merge. `planBibConflictMerge` filters same-key blocks first.
+
+### 2026-09-26 — Snapshot feedback: Figure-Meta and text fixes (Codex, codex/snapshot-feedback-20260926)
+**Work:** Replaced the canvas caption overlay and naming popup with Figure-Meta in Figure/Paper,
+including shared live previews, family/name editing, filters, split resizing and native pin/dock;
+added direct pin chords for metadata/gallery, preserved blank SVG text lines, and added the text
+F-menu Panel label toggle. Svelte/headless checks, build, 292 pure gates, browser save-failure and
+late-input checks, and native saved-byte/reload checks passed; the testing project's existing
+figure snapshot loads completely without migration errors. Updated the behavior guidance and help.
+**Learnings:**
+- Promoted the metadata ownership, lifecycle flush and inert-window rules into the body: a draft
+  committed after Figure's flush must itself wait for that owner's resulting save.
+- Empty SVG tspans do not advance the pen; carry their line advances and script reset to the next
+  glyph-bearing line in the shared layout, preserving authored newlines and measured block height.

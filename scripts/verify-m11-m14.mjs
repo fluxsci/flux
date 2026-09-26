@@ -1,11 +1,13 @@
 // M11 (no window.prompt) + M14 (figure number badges) — figure-families era.
 // A figure's name is DERIVED (family + number, figfamily.ts), so double-click
-// opens the Figure Namer (Ctrl+R popup) instead of an inline text field:
-//   • dblclick a figure row → .namer appears (never window.prompt)
+// opens the Figure-Meta Name tab (Ctrl+R) instead of an inline text field:
+//   • dblclick a figure row → .figure-meta appears (never window.prompt)
 //   • digits + Enter renumber with insert-and-shift (badges + names follow)
 //   • Alt+ArrowDown cycles the family (figure → supplementary → …), Enter commits
 //   • Escape cancels without touching the model
 // Canvas/layer rows keep the old inline rename — not exercised here.
+import { harness } from "./lib/harness.mjs";
+const h=harness("verify-m11-m14");
 import { launch, gotoApp, clickMode, shot, sleep, errors } from "./lib/driver.mjs";
 
 const FIG = ".sidebar section:nth-of-type(2)";
@@ -26,7 +28,7 @@ await page.evaluate(() => {
 const items = () => page.$$eval(`${FIG} .fnum`, (els) => els.map((e) => e.title));
 const rowLabels = () => page.$$eval(`${FIG} .item`, (els) => els.map((e) => e.textContent.trim()));
 const badges = () => page.$$eval(`${FIG} .fnum`, (els) => els.map((e) => e.textContent.trim()));
-const namerOpen = () => page.evaluate(() => !!document.querySelector(".namer"));
+const namerOpen = () => page.evaluate(() => !!document.querySelector(".figure-meta"));
 
 async function openNamerOnRow(i) {
   await page.evaluate(
@@ -52,12 +54,14 @@ const n = startItems.length;
 // --- renumber: last figure → number 1 (insert-and-shift) -----------------------
 const opened1 = await openNamerOnRow(n - 1);
 await page.evaluate(() => {
-  const el = document.querySelector(".namer .numin");
+  const el = document.querySelector("[aria-label='Figure number']");
   el.focus();
   el.select();
 });
 await page.keyboard.type("1");
 await page.keyboard.press("Enter");
+await page.waitForFunction(()=>document.querySelector(".status")?.textContent.includes("Saved"));
+await page.keyboard.press("Escape");
 await sleep(300);
 const afterRenumber = { items: await items(), badges: await badges() };
 const renumberOk =
@@ -87,6 +91,8 @@ await page.keyboard.press("ArrowDown"); // figure → supplementary
 await page.keyboard.up("Alt");
 await sleep(120);
 await page.keyboard.press("Enter");
+await page.waitForFunction(()=>document.querySelector(".status")?.textContent.includes("Saved"));
+await page.keyboard.press("Escape");
 await sleep(300);
 const afterFamily = { items: await items(), badges: await badges() };
 const familyOk =
@@ -104,8 +110,6 @@ const errs = errors(page);
 const res = { renumberOk, escOk, familyOk, noNativePrompt, nicknamePreserved };
 console.log(JSON.stringify({ ...res, startItems, startBadges, afterRenumber, afterFamily, errs }, null, 2));
 await browser.close();
-if (!Object.values(res).every(Boolean) || errs.length) {
-  console.error("\nM11-M14 VERIFY: FAIL");
-  process.exit(1);
-}
-console.log("\nM11-M14 VERIFY: PASS");
+for(const [name,value] of Object.entries(res)) h.ok(value,name);
+h.ok(!errs.length,'clean console');
+await h.done();
