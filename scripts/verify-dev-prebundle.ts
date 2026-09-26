@@ -17,10 +17,12 @@
 import { readFileSync, readdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { harness } from "./lib/harness.mjs";
 
 const h = harness("verify-dev-prebundle");
-const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+// fileURLToPath, never URL.pathname: on Windows that is "/D:/…" and resolves to "D:\D:\…" (§9).
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // --- 1: what the workers import ---------------------------------------------------------------
 function walk(dir: string, out: string[] = []): string[] {
