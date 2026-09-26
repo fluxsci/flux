@@ -6921,7 +6921,7 @@ edits broke every Paper gate in the ui tier here, so the change set was validate
 worktree at HEAD instead: annotate + math gates green, paper-gate 63/65 — one blocked (no
 build in the worktree), and `verify-v020-morph-startup` red twice on a "clean console" count
 right after the worktree's cold start on the shared dep cache, then green four times in a row
-(no local server log to prove the re-optimization; the CI job keeps one).
+(no local server log to prove the re-optimization; the CI job keeps one). The push's browser run then went 122/123 on `verify-text-arrange-gui`, whose own comment records the race: a "t" typed while an Inspector control still holds focus never reaches the tool shortcut. It now releases the focus before pressing (`armText`); 3/3 green on a clean worktree.
 **Learnings:**
 - Promoted to §9: tracked reads in effect helpers, harness bridges mirroring the real one,
   and the stale-instance probe trap.

@@ -92,6 +92,16 @@ try {
     await sleep(250);
   };
   // The Inspector's selects are found by their aria-label or their <label> text.
+  // Arm the T tool by its shortcut the way a user does — but a "t" typed while an
+  // Inspector control still holds focus (a select just changed, a loaded runner
+  // is slow to blur) goes into that control and never reaches the tool, and the
+  // wait below then times out (CI 2026-09-22 and 2026-09-26). Release the focus
+  // to the document first, then press, then wait for the tool itself.
+  const armText = async () => {
+    await page.evaluate(() => { const el = document.activeElement; if (el && el !== document.body && typeof el.blur === "function") el.blur(); });
+    await page.keyboard.press("t");
+    await waitFor(page, () => window.__flux.get(window.__flux.fig.activeTool) === "text", null, { label: "T tool armed" });
+  };
   const setSelect = async (label, value) => {
     await page.evaluate(
       (label, value) => {
@@ -275,7 +285,7 @@ try {
   await sleep(250);
   const at = (x, y) => [host.left + host.panX + x * host.zoom, host.top + host.panY + y * host.zoom];
   const texts = () => page.evaluate(() => window.__flux.figures().flatMap((f) => f.elements).filter((e) => e.type === "text").map((e) => structuredClone(e)));
-  await page.keyboard.press("t");
+  await armText();
   await sleep(120);
   await page.mouse.move(...at(100, 100));
   await page.mouse.down();
@@ -302,8 +312,7 @@ try {
   // runner, and a "t" typed into a focused control never reaches the tool
   // shortcut — the click then selected instead of creating, and this read the
   // DRAGGED box as the new label (CI, 2026-09-22). Wait for the tool itself.
-  await page.keyboard.press("t");
-  await waitFor(page, () => window.__flux.get(window.__flux.fig.activeTool) === "text", null, { label: "T tool armed" });
+  await armText();
   await page.mouse.click(...at(100, 320));
   await waitFor(page, () => !!document.querySelector("textarea.text-edit"), null, { label: "editor opens after the click" });
   await page.keyboard.type("a hugging label that becomes a paragraph once justified and narrowed");
