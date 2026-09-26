@@ -8,7 +8,7 @@
   // beside the image. A browser build has no window capture: marks and anchors
   // are still recorded and the note says so (image stays null).
   import { modalFocus } from "../../lib/ui/modalFocus";
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { annotateCaptureOpen, feedbackCaptureOpen } from "../command/commandBus";
   import { setPendingSnapshot } from "./feedbackStore";
   import { fileBridge } from "../../lib/project/types";
@@ -35,9 +35,20 @@
   let host = $state<HTMLDivElement | undefined>(undefined);
   let win = $state({ w: 0, h: 0, dpr: 1 });
 
+  // The effect depends on the store and NOTHING else. `open()`/`reset()` read `frozen` (to
+  // revoke the old object URL), and a tracked read there made the effect re-run every time
+  // the capture arrived and set `frozen`: reset → capture again → set `frozen` → reset …, so
+  // `ready` never survived to a paint and the overlay never opened in any build with a real
+  // window capture — Electron on every platform — while the browser harness, which had no
+  // capture, took the synchronous branch and stayed green (2026-09-26). `untrack` keeps the
+  // work out of the dependency set; the demo bridge now captures too, so the gate walks
+  // this path.
   $effect(() => {
-    if ($annotateCaptureOpen) void open();
-    else reset();
+    const isOpen = $annotateCaptureOpen;
+    untrack(() => {
+      if (isOpen) void open();
+      else reset();
+    });
   });
 
   async function open() {

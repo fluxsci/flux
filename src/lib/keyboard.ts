@@ -62,7 +62,7 @@ import {
   balancedRows,
   type AlignKind,
 } from "./geometry";
-import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
+import { saveProject, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
@@ -825,9 +825,14 @@ export function handleKey(e: KeyboardEvent) {
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
   // Shortcuts that work even while typing: save/open, rail toggle.
-  if (mod && e.key.toLowerCase() === "s") {
+  // Ctrl+Shift+S is NOT save-as: that chord is the shell's Snapshot & annotate
+  // (Workspace.svelte, docs/reference/shortcuts.qmd), and until 2026-09-26 this
+  // branch also caught it — `key` ignores Shift — and raised the native save-as
+  // dialog under the overlay in a real build. Save-as stays reachable through
+  // the palette; the plain chord saves.
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
-    e.shiftKey ? saveProjectAs() : saveProject();
+    saveProject();
     return;
   }
   // Ctrl/Cmd+Shift+B: hide/show the right rail (Inspector; in slide mode the

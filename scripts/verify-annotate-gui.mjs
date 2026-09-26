@@ -1,7 +1,8 @@
 // 2026-09-15 Snapshot & annotate (ui tier — dev server on :1420, demo fixture).
 //   node scripts/verify-annotate-gui.mjs
 // Covers the freeze-and-draw overlay end to end in a browser build (no window
-// capture there — the note records marks + DOM anchors and says "no screenshot"):
+// capture there — the note records marks + DOM anchors and says "no screenshot"); the demo
+// bridge now captures, so this gate walks the ASYNC capture path every real build takes:
 // Ctrl+Shift+S opens it, dragging draws a numbered arrow anchored to the element
 // under its head, `b` + drag draws a box, Backspace undoes, Escape cancels
 // cleanly, Enter hands the crop to the Note-to-agent popover (chip + draft text
@@ -42,7 +43,7 @@ await key("KeyS", { ctrlKey: true, shiftKey: true });
 await waitFor(page, () => !!document.querySelector(".annot .annot-tools"), null, { timeout: 5000, label: "annotate overlay open" });
 let o = await overlay();
 ok(o && o.covers, "Ctrl+Shift+S opens the annotate overlay across the whole window");
-ok(o && !o.frozen && /no screenshot/.test(o.hint), "a browser build says it has no screenshot (marks still count)");
+ok(o && o.frozen && !/no screenshot/.test(o.hint), "the frozen window capture is under the overlay — the async path every real build takes (the demo bridge captures too since 2026-09-26)");
 ok(o && o.tool === "aarrow", `the arrow tool is armed by default (${o?.tool})`);
 
 // --- 2. drag = a numbered arrow anchored to the element under its head --------------
@@ -69,7 +70,7 @@ ok(true, "Backspace removes the last mark");
 await page.keyboard.press("Enter");
 await waitFor(page, () => !!document.querySelector(".fc textarea") && !document.querySelector(".annot"), null, { timeout: 5000, label: "note popover with the crop" });
 const chip = await page.evaluate(() => document.querySelector(".fc .fc-cap")?.textContent?.replace(/\s+/g, " ").trim() ?? "");
-ok(/snapshot · 1 mark/.test(chip) && /no screenshot/.test(chip), `the popover shows the snapshot chip (${chip})`);
+ok(/snapshot · 1 mark/.test(chip) && !/no screenshot/.test(chip), `the popover shows the snapshot chip with a capture (${chip})`);
 const stampLine = await page.evaluate(() => document.querySelector(".fc-stamp")?.textContent ?? "");
 ok(/snapshot ×1 \(1 → .*button/.test(stampLine), `the stamp line names the anchored button (${stampLine})`);
 await page.type(".fc textarea", "1 should sit flush with the left rail");
@@ -80,11 +81,11 @@ const lines = ledger.trim().split("\n").map((l) => JSON.parse(l));
 const note = lines.find((l) => l.kind === "note");
 const snap = note?.context?.snapshot;
 ok(lines.length === 1 && note?.text === "1 should sit flush with the left rail", "ONE ledger line: the note");
-ok(snap && snap.image === null && snap.marks.length === 1 && snap.marks[0].kind === "arrow" && snap.marks[0].n === 1, `the stamp carries the snapshot (marks=${snap?.marks?.length}, image=${snap?.image})`);
+ok(snap && typeof snap.image === "string" && snap.marks.length === 1 && snap.marks[0].kind === "arrow" && snap.marks[0].n === 1, `the stamp carries the snapshot (marks=${snap?.marks?.length}, image=${snap?.image})`);
 ok(snap && typeof snap.marks[0].anchor?.path === "string" && /button/.test(snap.marks[0].anchor.path) && /Gallery/.test(snap.marks[0].anchor.text ?? ""), `arrow #1 is anchored to the Gallery button (${snap?.marks?.[0]?.anchor?.path} "${snap?.marks?.[0]?.anchor?.text}")`);
 ok(snap && snap.rect.w >= 240 && snap.rect.h >= 160 && snap.rect.x >= 0 && snap.rect.y >= 0 && snap.window.w > 0, `the crop is a sane window rect (${JSON.stringify(snap?.rect)})`);
 const pngWritten = await page.evaluate(() => { const f = window.fig._files; for (const k of f.keys()) if (/\.meta\/feedback\/.*\.png$/.test(k)) return true; return false; });
-ok(!pngWritten, "no PNG is written when there is no window capture");
+ok(pngWritten, "the crop PNG is written from the window capture");
 await waitFor(page, () => !document.querySelector(".fc textarea"), null, { timeout: 5000, label: "popover closed after Add" });
 ok(true, "Add closes the popover");
 

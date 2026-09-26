@@ -2283,6 +2283,22 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   derives worker entries from the source (`new Worker(new URL(…))` targets and `?worker`
   imports), not from a naming convention or a cache.
 
+- **A Svelte 5 `$effect` tracks every `$state` read inside the helpers it calls — and an
+  async helper that later WRITES that state re-runs the effect.** `AnnotateCapture`'s effect
+  called `open()`, whose `reset()` read `frozen` to revoke the old object URL; when the window
+  capture arrived and set `frozen`, the effect re-ran, reset, captured again, forever — `ready`
+  never survived to a paint, so Ctrl+Shift+S did nothing in every real build (Electron, all
+  platforms) while the browser harness, whose demo bridge had no `captureWindow`, took the
+  synchronous branch and stayed green (2026-09-26). Read the store into a local and do the work
+  under `untrack`. The general rule: **a harness bridge must have every method the real bridge
+  has** — a missing optional method silently selects the branch nothing else tests. The demo
+  bridge now captures (an OffscreenCanvas PNG), and `verify-annotate-gui` walks the async path.
+  Two more from the same chase: the figure editor's Ctrl+S branch matched the shifted chord
+  too (`e.key` ignores Shift) and raised save-as under the overlay; and a probe that connects to
+  Electron over `--remote-debugging-port` must first prove the port is FREE — a stale instance
+  from an earlier run answered three probes in a row with the old bundle and a
+  `bind() failed` line in the new one's log, which made a working fix look broken.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
@@ -6851,3 +6867,29 @@ optimization line. The first green run's captured log then showed a SECOND late 
 - **A flake with a mechanism is a bug.** The reload had a deterministic trigger and a
   timing-dependent victim; finding the trigger (a cold crawl diff) took less time than any
   retry policy would have cost, and the fix removes the whole class.
+
+### 2026-09-26 (evening) — Ctrl+Shift+S did nothing: an effect that re-ran on its own capture (Claude Fable 5.1, `main`)
+**Work:** The owner reported Snapshot & annotate dead on Linux. Not the key path (a CDP
+listener census showed the workspace handler registered and running, one `preventDefault`,
+no propagation stop), not the capture IPC (10 ms under native Wayland), not the build (dist
+was fresh). The overlay's `$effect` depended on `frozen` through `reset()`; every capture set
+`frozen`, re-ran the effect, and reset the overlay before it painted — an infinite capture
+loop with no error. Fixed with `untrack`; the demo bridge gained a real `captureWindow` so
+`verify-annotate-gui` reproduces the bug (fails before the fix, passes after) and now asserts
+the frozen shot, the chip and the written PNG. The figure editor's Ctrl+S branch no longer
+swallows the shifted chord into save-as. Verified in the rebuilt real app on this Wayland
+desktop: overlay in 195 ms with the frozen capture, Escape closes. Checks 0/0, pure 289/289;
+another session was editing this checkout (library conflicts work, 18 files) and its in-flight
+edits broke every Paper gate in the ui tier here, so the change set was validated on a clean
+worktree at HEAD instead: annotate + math gates green, paper-gate 63/65 — one blocked (no
+build in the worktree), and `verify-v020-morph-startup` red twice on a "clean console" count
+right after the worktree's cold start on the shared dep cache, then green four times in a row
+(no local server log to prove the re-optimization; the CI job keeps one).
+**Learnings:**
+- Promoted to §9: tracked reads in effect helpers, harness bridges mirroring the real one,
+  and the stale-instance probe trap.
+- **Enumerate the listeners before theorizing about the key path.** `DOMDebugger.getEventListeners`
+  over CDP answered "is the handler even there, and does anything stop the event?" in one call.
+- **A probe against a long-lived port must prove the port is free.** Three consecutive
+  Electron probes silently talked to a stale instance; the tell was `bind() failed` in the new
+  instance's log and an old bundle hash in the page.

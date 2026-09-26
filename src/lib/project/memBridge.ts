@@ -56,6 +56,24 @@ export function createMemBridge(): FileBridge & {
     _emitFsChange: (info) => {
       for (const l of fsListeners) l(info);
     },
+    // Dev-only stand-in for Electron's win:capture (Snapshot & annotate): a PNG the size of
+    // the window, so the overlay's ASYNC capture path — the one every real build takes — runs
+    // in the browser harness too. Without it the ui gate only ever saw the synchronous
+    // no-capture branch, and the overlay could fail to open in Electron with the gate green
+    // (2026-09-26). The blue corner marks the image as a capture, not the live DOM.
+    async captureWindow(rect) {
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, Math.round((rect?.width ?? window.innerWidth) * dpr));
+      const h = Math.max(1, Math.round((rect?.height ?? window.innerHeight) * dpr));
+      const c = new OffscreenCanvas(w, h);
+      const ctx = c.getContext("2d")!;
+      ctx.fillStyle = "#fffcf0";
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#205ea6";
+      ctx.fillRect(0, 0, Math.min(w, 64 * dpr), Math.min(h, 64 * dpr));
+      const blob = await c.convertToBlob({ type: "image/png" });
+      return { png: new Uint8Array(await blob.arrayBuffer()), width: w, height: h };
+    },
     watchRoot() {
       return true;
     },
