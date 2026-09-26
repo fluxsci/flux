@@ -188,7 +188,7 @@ export async function assignPdfs(
   const dir = opts.dir ? path.resolve(opts.dir) : assignInboxDir(L);
   const dryRun = !!opts.dryRun;
   const results: AssignItemResult[] = [];
-  const empty = { dir, dryRun, total: 0, attached: 0, addedAttached: 0, discarded: 0, unresolved: 0, deferred: 0, results };
+  const empty = { dir, dryRun, total: 0, attached: 0, addedAttached: 0, discarded: 0, unresolved: 0, deferred: 0, errors: 0, results };
   if (!fs.existsSync(dir)) return empty;
 
   const names = (await fs.promises.readdir(dir, { withFileTypes: true }))
