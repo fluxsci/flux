@@ -2263,6 +2263,21 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   contract is about bytes on disk); and evermeet/gyan delete old versions, so only dated,
   immutable release assets are pinnable.
 
+- **A dependency Vite's start-up crawl cannot see reloads every open page when it is first
+  used.** The crawl follows index.html's import graph; a package imported only from a Web
+  Worker entry (the spell-check worker's `harper.js`) is invisible to it, gets optimized on
+  first use, and Vite then broadcasts a FULL RELOAD to every client — logged as
+  `dependencies optimized: <pkgs>` (the start-up `Forced re-optimization` line is normal).
+  Under the ui tier that reload lands on whatever gate is running: 2026-09-26 it reloaded the
+  plot-gallery gate's opener, whose `pagehide` closed the pinned popup, and the next click hit
+  a closed target — a red that came and went with timing, on a gate three positions after the
+  first Paper gate. `optimizeDeps.include` in vite.config.ts names the worker-only imports;
+  `verify-dev-prebundle.ts` (pure) runs the real cold crawl into a scratch cache and pins every
+  bare import of every `src/**/*.worker.ts` into it; ci.yml keeps the dev server's log as an
+  artifact and fails the ui job on a post-start optimization line. Diagnose this class by
+  diffing a cold `vite optimize` against a warm `node_modules/.vite/deps/_metadata.json` —
+  the warm-only keys are exactly the late discoveries.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
@@ -6808,3 +6823,26 @@ checked by `verifyExecutable`); HDR, audio, video and media gates green on 9.0.2
   noticed was the one with an independent numerical oracle.
 - **Check `content-encoding` before trusting `content-length`.** A size contract that reads the
   header sees the compressed length for gzip-served text and rejects a correct file.
+
+### 2026-09-26 (later) — The ui-gate red: a dev-server reload under a popup (Claude Fable 5.1, `main`)
+**Work:** The owner saw 2/3 checks on every recent commit. Per-commit check-runs showed three
+different reds: the Windows job before its fixes, one run cancelled by the next push, and on
+the newest commit the ui tier at 122/123 — `verify-plot-gallery` with `Target closed` on the
+first click inside the pinned gallery popup, 6.8 s in, where the four runs before had passed.
+The popup document has no scripts; its opener closes it on `pagehide`. A cold
+`vite optimize` diffed against the warm dep cache named the late discoveries — `harper.js`
+and `harper.js/slimBinary`, imported only by the correction worker — and a cold-cache local
+run of the four gates around the failure logged `dependencies optimized: harper.js` seven
+seconds after start, during the first Paper gate. Fix: `optimizeDeps.include` in
+vite.config.ts; the cold crawl now equals the warm set (53 = 53) and the same cold-cache run
+shows no post-start optimization. New pure gate `verify-dev-prebundle.ts` (fails on the old
+config, 3/7); ci.yml's ui job now writes the dev server's output to
+`test-results/dev-server.log`, uploads it with the summary, and fails on a post-start
+optimization line. Checks 0/0, pure 289/289 at `--jobs 4`.
+**Learnings:**
+- Promoted to §9: worker-only dependencies and the mid-run reload, with the diff recipe.
+- **Read GitHub's per-commit check-runs, not the commit list's fraction.** "2/3" on five
+  commits was three different failures; the API names the job and the run for each.
+- **A flake with a mechanism is a bug.** The reload had a deterministic trigger and a
+  timing-dependent victim; finding the trigger (a cold crawl diff) took less time than any
+  retry policy would have cost, and the fix removes the whole class.

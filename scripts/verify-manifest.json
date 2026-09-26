@@ -77,6 +77,7 @@
       "verify-paper-commands.ts",
       "verify-paper-textscale.ts",
       "verify-paper-history-keys.ts",
+      "verify-dev-prebundle.ts",
       "verify-docx-svg-fallback.ts",
       "verify-loadgate.ts",
       "verify-fwdguard.ts",
@@ -764,6 +765,14 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "$why": "A dependency the start-up crawl misses is optimized on first use and every open page is reloaded — under the ui tier that reload lands on whatever gate is running (the 2026-09-26 plot-gallery popup close). The gate runs the real cold crawl and pins every worker-only import into optimizeDeps.include.",
+      "glob": "vite.config.ts",
+      "run": [
+        "verify-dev-prebundle.ts",
+        "tier:pure"
+      ]
+    },
     {
       "$why": "2026-09-18 text arrangement — text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
       "glob": "{src/lib/text.ts,src/lib/export.ts,src/lib/textRuns.ts}",
@@ -4123,6 +4132,15 @@
       "coverage": "behavior"
     },
     "verify-paper-history-keys.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-dev-prebundle.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

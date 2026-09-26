@@ -63,6 +63,17 @@ export default defineConfig({
   // Relative paths so the built bundle loads under Electron's file:// protocol.
   base: "./",
 
+  // Pre-bundle what the start-up crawl cannot see. Vite discovers dependencies by crawling
+  // index.html's import graph; a package imported ONLY inside a Web Worker entry is invisible
+  // to that crawl and gets optimized the first time the worker asks for it — after which Vite
+  // broadcasts a FULL RELOAD to every client. Under the ui verify tier that reload lands on
+  // whatever gate is running (2026-09-26: the plot-gallery gate's opener reloaded, its
+  // `pagehide` closed the pinned popup, and the next click hit a closed target — the
+  // ui-gate red on `main`). The spell-check worker is the one such graph; listing its imports
+  // here makes the cold crawl complete, so the dev server never re-optimizes mid-run.
+  // verify-dev-prebundle.ts (pure) pins that every worker-only import is in this list.
+  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary"] },
+
   clearScreen: false,
 
   // Bundle Web Workers as ES modules — the pdf.js worker (src/lib/pdf/pdfjsWorker.ts,

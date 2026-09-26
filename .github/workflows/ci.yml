@@ -169,17 +169,36 @@ jobs:
         with:
           chrome-version: stable
           install-dependencies: true
+      # The server's own output is evidence: a mid-run "new dependencies
+      # optimized … reloading" line is a full reload of every open page, which
+      # once closed a gate's popup under it (2026-09-26). Keep it in a file and
+      # ship it with the summary; a backgrounded process's later output is not
+      # otherwise in the job log.
       - name: Start the dev server
-        run: npm run dev &
+        run: |
+          mkdir -p test-results
+          npm run dev > test-results/dev-server.log 2>&1 &
       - name: Wait for the dev server on :1420
         run: npx wait-on tcp:127.0.0.1:1420 --timeout 120000
       - name: Full ui tier
         env:
           FLUX_CHROME: ${{ steps.chrome.outputs.chrome-path }}
         run: node scripts/run-verifies.mjs --tier ui
+      - name: The dev server never re-optimized mid-run
+        if: always()
+        run: |
+          # Vite's wording: "dependencies optimized: <pkgs>" after start-up (the
+          # start-up line is "Forced re-optimization of dependencies" and is fine).
+          if grep -qE "dependencies optimized:|optimized dependencies changed" test-results/dev-server.log; then
+            echo "::error::the dev server discovered dependencies after start-up and reloaded every client mid-run — add them to optimizeDeps.include in vite.config.ts"
+            grep -n "optimized\|reload" test-results/dev-server.log
+            exit 1
+          fi
       - name: Upload ui verify summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ui-verify-summary
-          path: test-results/runs/**
+          path: |
+            test-results/runs/**
+            test-results/dev-server.log
