@@ -36,11 +36,11 @@ async function main(){
  await fill(child,'[aria-label="Figure caption"]','Long native caption. '.repeat(60));key(child,'Tab');
  await wait(()=>js(child,"[...document.querySelectorAll('textarea')].every(t=>t.scrollHeight<=t.clientHeight+2)"),'fields refit with hidden owner');check(true,'native resize refits captions while owner is hidden');
  await wait(()=>js(child,`(()=>{const v=document.querySelector('.preview-viewport'),s=document.querySelector('.preview-sheet');const a=v.getBoundingClientRect(),b=s.getBoundingClientRect();return b.top>=a.top-1&&b.bottom<=a.bottom+1&&b.left>=a.left-1&&b.right<=a.right+1})()`),'whole figure and caption fit with hidden owner');
- await click(child,'[aria-label="Collapse a caption"]');check(await js(child,`!document.querySelector('[aria-label="a caption"]')`),'native caption folding');
+ await click(child,'[aria-label="Collapse a caption"]');await wait(()=>js(child,`!document.querySelector('[aria-label="a caption"]')`),'caption folded after native input delivery');check(true,'native caption folding');
  await click(child,'[aria-label="Increase caption text size"]');await click(child,'[aria-label="Expand a caption"]');
  await click(child,'[aria-label="Zoom in preview"]');await wait(()=>js(child,`document.querySelector('.preview-viewport').dataset.fit==='false'`),'native zoom');
  await click(child,'[aria-label="Fit figure and caption"]');
- check(await js(child,`document.querySelector('.preview-viewport').dataset.fit==='true'`),'native zoom returns to fit');
+ await wait(()=>js(child,`document.querySelector('.preview-viewport').dataset.fit==='true'`),'native fit click delivered');check(true,'native zoom returns to fit');
  fs.writeFileSync(path.join(out,'metadata-pinned.png'),(await child.webContents.capturePage()).toPNG());
  win.show();await click(child,'.pin');await wait(()=>child.isDestroyed(),'docked utility closes');win.focus();key(win,'Escape');await wait(()=>js(win,"!document.querySelector('.figure-meta')"),'docked focus supports Escape');
  await click(win,'button[aria-label=Figure]');await wait(()=>js(win,"!!document.querySelector('.figure-mode .canvas-host')"),'resident Figure');key(win,'m',['alt','shift']);await pinned();
