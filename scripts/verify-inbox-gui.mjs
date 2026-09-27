@@ -201,7 +201,7 @@ try {
   await page.keyboard.press('Escape');
   await openAnnotation(page); await page.click('.to-pill');
   const recipients = () => page.$$eval('.routes button', es => es.map(e => e.dataset.recipient));
-  h.eq(await recipients(), ['none', 'any', f.heron.id, wren.id], 'To: puts watching agents first, then non-watching; background is hidden');
+  h.eq(await recipients(), ['none', 'any', f.heron.id, wren.id, 'background'], 'To: puts watching agents first, then non-watching, then a new background agent (a CLI is installed)');
   h.ok(await page.$eval(`.routes [data-recipient="${wren.id}"]`, e => e.classList.contains('muted') && !e.disabled && e.textContent.includes('queued until it watches')), 'non-watching recipient is greyed, explained and selectable');
   await page.click('.to-pill');
   await fillNote(page, '@wren move this below the axis');
@@ -214,7 +214,7 @@ try {
   await openInbox(page); await queryInbox(page, 'all'); await choose(legend.id);
   h.eq(await page.$eval('.detail .status-chip', e => e.textContent), 'Queued → wren (not watching)', 'worked example: legend waits in wren queue');
   await page.click('.assign-button');
-  h.eq(await recipients(), ['none', 'any', f.heron.id, wren.id], 'Assign uses the exact To: recipient list');
+  h.eq(await recipients(), ['none', 'any', f.heron.id, wren.id, 'background'], 'Assign uses the exact To: recipient list');
   await page.keyboard.press('Escape');
   h.ok(!!await page.$('.inbox-panel') && !await page.$('.routes'), 'Escape dismisses Assign before Inbox');
   await closeInbox(page);

@@ -51,7 +51,7 @@
   const hit = $derived(hover[specificity]);
   const hasMarks = $derived(marks.length > 0 || !!editing?.context?.snapshot?.marks.length);
   const attach = $derived($settings["annotate.attachView"] || hasMarks);
-  const canAdd = $derived(ready && !busy && !!$currentProject?.path && !!parsed.text && !background);
+  const canAdd = $derived(ready && !busy && !!$currentProject?.path && !!parsed.text && (!background || $backgroundAvailable));
 
   function clearPicture() { if (frozen) URL.revokeObjectURL(frozen); frozen = null; frozenImg = null; }
   function resetDraft() {
@@ -72,6 +72,8 @@
 
   async function openSurface(req: AnnotationRequest, refresh = false) {
     const owner = ++generation;
+    // "To: New background agent" / @new need the installed CLIs; the probe is cached and async.
+    void import("../inbox/backgroundStore").then(m => m.refreshBackgroundCapabilities());
     bufferAnnotationInput();
     ready = false; busy = false; error = "";
     const editRequest = get(editAnnotationRequest);
@@ -344,7 +346,7 @@
       </div>
       {#if staleView && !editing}<p class="hint">Your draft keeps its earlier view. To draw on the current view, <button onclick={() => { if ($annotationRequest) void openSurface($annotationRequest, true); }}>Refresh view (clears marks)</button>.</p>{/if}
       {#if editing}<p class="hint">Editing the saved annotation; its original picture is preserved.</p>{/if}
-      {#if background}<p class="hint">Background agents are not available yet. Choose Inbox or a connected agent.</p>{/if}
+      {#if background && !$backgroundAvailable}<p class="hint">No background agent is available: install and sign in to Claude Code or Codex (AI status). Choose Inbox or a connected agent.</p>{/if}
       {#if error}<p role="alert">{error} Your draft is retained.</p>{/if}
       {#if !$currentProject?.path}<p class="hint">Demo project — annotations are not saved</p>{/if}
       {#if !frozen && attach}<p class="hint">Screenshot unavailable — your targets and marks will still be saved.</p>{/if}

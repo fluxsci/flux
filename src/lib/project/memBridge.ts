@@ -11,7 +11,7 @@
 // never ships in a production build.
 
 import { scaffoldProject } from "./scaffold";
-import { joinPath, type FileBridge, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
+import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -33,11 +33,17 @@ function baseOf(p: string): string {
 export function createMemBridge(): FileBridge & {
   _runnerCalls: { method: string; options: unknown }[];
   _emitRunnerEvent: (runId: string, event: RunnerPayload) => void;
+  /** Gates pin "no installed CLI" (or a subset) before the first probe. */
+  _setRunnerCapabilities: (caps: RunnerCapability[]) => void;
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
 } {
   const runnerCalls: { method: string; options: unknown }[] = [];
+  let runnerCaps: RunnerCapability[] = [
+    { driver: "claude", detected: true, available: true, version: "fixture", model: true, effort: true },
+    { driver: "codex", detected: true, available: true, version: "fixture", model: true, effort: true },
+  ];
   const runnerEvents = new Set<(event: RunnerEvent) => void>();
   const runs = new Map<string, { seq: number; options: RunnerStart }>();
   const emitRunner = (runId: string, event: RunnerPayload) => {
@@ -62,10 +68,8 @@ export function createMemBridge(): FileBridge & {
   return {
     _runnerCalls: runnerCalls,
     _emitRunnerEvent: emitRunner,
-    async runnerCapabilities() { return [
-      { driver: "claude", detected: true, available: true, version: "fixture", model: true, effort: true },
-      { driver: "codex", detected: true, available: true, version: "fixture", model: true, effort: true },
-    ]; },
+    _setRunnerCapabilities: (caps) => { runnerCaps = caps; },
+    async runnerCapabilities() { return runnerCaps.map(c => ({ ...c })); },
     async runnerStart(options) {
       const runId = crypto.randomUUID(), driver = options.driver ?? "claude";
       runnerCalls.push({ method: "start", options: { ...options, runId } });

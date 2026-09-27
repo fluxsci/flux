@@ -1,6 +1,6 @@
 import { launch, gotoApp, realErrors, waitFor, APP_URL } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
-import { seedAnnotationFigure, chord } from './lib/annotationFixture.mjs';
+import { seedAnnotationFigure, chord, openAnnotation, fillNote, NOTE, ledger } from './lib/annotationFixture.mjs';
 const h = harness('verify-background-run-gui'), { browser, page } = await launch({width:1440,height:1000});
 async function emit(event) {
   await page.evaluate(event => { const run=window.fig._runnerCalls.filter(c=>c.method==='start').at(-1);window.fig._emitRunnerEvent(run.options.runId,event); },event);
@@ -45,6 +45,17 @@ try {
   h.ok(await page.$eval('[aria-label="Background activity"]',e=>e.textContent.includes('cancelled')),'Stop updates the activity strip');
   await page.evaluate(async()=>{const a=await import('/src/shell/agent/annotationStore.ts');await a.addAnnotation('Routed task',{surface:'figure'},{background:'codex'});});
   h.ok(await page.evaluate(()=>window.fig._runnerCalls.filter(c=>c.method==='start').at(-1).options.driver==='codex'),'saving a background-routed annotation starts its selected driver');
+  // The user's path: Annotate, "@new …", Enter. The composer must offer and save the route.
+  await page.keyboard.press('Escape'); await waitFor(page,()=>!document.querySelector('.inbox-panel'),null,{label:'Inbox closed'});
+  const starts=await page.evaluate(()=>window.fig._runnerCalls.filter(c=>c.method==='start').length);
+  await openAnnotation(page); await page.click('.to-pill');
+  h.ok(await page.$$eval('.routes button',es=>es.some(e=>e.dataset.recipient==='background'&&/New background agent/.test(e.textContent))),'To: offers New background agent when a CLI is installed');
+  await page.click('.to-pill'); await fillNote(page,'@new move the legend below the axis');
+  h.ok(await page.$eval('.actions .primary',e=>!e.disabled),'a background-routed note can be added');
+  await page.focus(NOTE); await page.keyboard.press('Enter');
+  await waitFor(page,(n)=>window.fig._runnerCalls.filter(c=>c.method==='start').length>n,starts,{label:'composer background start'});
+  const saved=(await ledger(page)).filter(e=>e.kind==='note').at(-1);
+  h.ok(await page.evaluate(id=>{const o=window.fig._runnerCalls.filter(c=>c.method==='start').at(-1).options;return o.mode==='task'&&o.driver==='claude'&&o.itemId===id;},saved.id)&&saved.text==='move the legend below the axis','Annotate @new saves the note and starts a Claude task run for exactly that item');
   h.eq(realErrors(page),[],'console clean');
 } catch(e) {h.fail(e.stack||String(e));}
 await h.done(()=>browser.close());

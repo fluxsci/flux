@@ -1,7 +1,8 @@
 // Small shell-facing state. Runner IO and the approval UI load separately.
 import { writable } from "svelte/store";
 import type { RunnerDriver, RunnerEvent, RunnerPayload } from "../../lib/project/types";
-export const backgroundAvailable = writable(false);
+// One availability store: the recipient lists (F2) read it, background runs set it.
+export { backgroundAvailable } from "../agent/backgroundAvailability";
 export const backgroundDrivers = writable<RunnerDriver[]>([]);
 export interface BackgroundRun {
   runId: string; itemId: string; root: string; driver: RunnerDriver; sessionId?: string;

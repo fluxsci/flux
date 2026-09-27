@@ -18,6 +18,10 @@ try {
  await waitFor(page,()=>document.body.textContent.includes('Open a project to annotate'),null,{label:'Home toast'});
  h.ok(!await page.$('[data-annotation-surface]'),'Home toasts without opening a surface');
  await gotoApp(page,{url:APP_URL+'?fixture=demo'}); await seedAnnotationFigure(page);
+ // No installed CLI in this run: the background route must explain itself and refuse to save
+ // (verify-inbox-gui and verify-background-run-gui cover the available case).
+ await waitFor(page,()=>!!window.__fluxRefreshBackground,null,{label:'background store'});
+ await page.evaluate(async()=>{window.fig._setRunnerCapabilities([{driver:'claude',detected:false,available:false,reason:'Claude Code is not installed on PATH'},{driver:'codex',detected:false,available:false,reason:'Codex is not installed on PATH'}]);await window.__fluxRefreshBackground();});
  const p=await findPlotPoint(page), textPoint=await center(page,'[data-editor-element-id="annot-text"]');
  // Hold capture on a barrier. The real cold/async path must keep every key.
  await page.evaluate(()=>{const capture=window.fig.captureWindow;window.__annotationCapture=capture;window.fig.captureWindow=async options=>{window.__captureSawOverlay=!!document.querySelector('[data-annotation-surface]');await new Promise(r=>window.__releaseCapture=r);return capture(options);};window.__annotationStart=performance.now();});

@@ -36,13 +36,21 @@ function receive(event: RunnerEvent) {
     }
   }
 }
-export function refreshBackgroundCapabilities(): Promise<void> {
+// Each probe spawns the installed CLIs' --version in main; opening Annotate or an item should not.
+const PROBE_TTL_MS = 5 * 60_000;
+let probedAt = 0;
+export function refreshBackgroundCapabilities(force = false): Promise<void> {
+  if (!force && probedAt && Date.now() - probedAt < PROBE_TTL_MS) return Promise.resolve();
   return probing ??= (async () => {
+    probedAt = Date.now();
     const caps = await fileBridge()?.runnerCapabilities?.() ?? [];
     backgroundDrivers.set(caps.filter(c => c.available).map(c => c.driver));
     backgroundAvailable.set(caps.some(c => c.available));
-  })().catch(() => { backgroundDrivers.set([]); backgroundAvailable.set(false); }).finally(() => { probing = undefined; });
+  })().catch(() => { probedAt = 0; backgroundDrivers.set([]); backgroundAvailable.set(false); }).finally(() => { probing = undefined; });
 }
+// Dev-only: gates pin the fake runner's capabilities, then re-probe past the TTL.
+if (import.meta.env?.DEV && typeof window !== "undefined")
+  (window as unknown as { __fluxRefreshBackground?: () => Promise<void> }).__fluxRefreshBackground = () => refreshBackgroundCapabilities(true);
 export function initBackgroundRuns() {
   if (wired) return;
   wired = true;
