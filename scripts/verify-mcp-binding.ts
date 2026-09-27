@@ -40,14 +40,16 @@ try {
   const composed = await c.call('compose_figure', { plotPaths: ['plots/binding.svg'], id: 'binding-figure' });
   h.ok(!composed.isError, `real compose_figure reads root-relative plotPaths from a different server cwd: ${textOf(composed)}`);
   h.ok((await c.call('ensure_context', { project: temp })).isError && !await fs.stat(path.join(temp, 'Context')).catch(() => null), 'project guard runs before heal writes');
-  let rejected = false; try { await ensureProjectContext(temp, { title: 'bypass' }); } catch { rejected = true; }
-  h.ok(rejected && !await fs.stat(path.join(temp, 'Context')).catch(() => null), 'direct heal guard also applies with a prepared title');
+  const direct = await ensureProjectContext(temp, { title: 'bypass' }).catch(() => ({ created: [], skipped: 'threw' }));
+  h.ok(!!direct.skipped && !direct.created.length && !await fs.stat(path.join(temp, 'Context')).catch(() => null), 'direct heal guard also applies with a prepared title');
   const list = (await c.request('tools/list')).result.tools.map(t => t.name);
   const log = list.includes('write_log') ? 'write_log' : 'note';
   const written = await c.call(log, { text: 'identity proof', title: 'MCP identity' });
   h.ok(!written.isError, 'log-writing tool executes');
   const journal = (await fs.readFile(path.join(a, '.meta', 'journal.ndjson'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   h.eq(journal.at(-1).client, 'claude-code', 'handshake clientInfo stamps the journal identity');
+  const byline = /— MCP identity\n\n\*(.+)\*\n/.exec(await fs.readFile(path.join(a, 'Context', 'NOTEBOOK.md'), 'utf8'))?.[1];
+  h.eq(byline, `Claude Code · unknown surface · ${os.hostname().split('.')[0]}`, 'the MCP byline names the handshake product and omits the server cwd');
   await c.call('connect', { target: 'global' });
   h.eq(JSON.parse(textOf(await c.call('list_project'))).title, 'Project A', 'global connect preserves an existing project binding');
   h.eq(JSON.parse(textOf(await c.call('list_project', { project: a }))).title, 'Project A', 'per-call project still works after global connect');

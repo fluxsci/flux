@@ -2137,7 +2137,6 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "checkpoint", into: "checkpoint", as: "boolean" },
     ],
     handler: (ctx, a) => {
-      const caller = ctx as typeof ctx & import("./context").LogCaller;
       return core.writeLog(ctx.root, {
         text: a.text as string | undefined,
         file: a.file as string | undefined,
@@ -2145,8 +2144,8 @@ export const VERBS: VerbDef[] = [
         agent: a.agent as string | undefined,
         surface: a.surface as string | undefined,
         checkpoint: a.checkpoint as boolean | undefined,
-        identity: caller.identity,
-        cwd: caller.cwd,
+        identity: ctx.identity,
+        cwd: ctx.cwd,
       });
     },
     render: {

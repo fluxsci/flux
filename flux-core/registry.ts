@@ -86,6 +86,9 @@ export interface CliArgSpec {
 export interface VerbCtx {
   root: string;
   identity?: AgentIdentity;
+  /** The caller's working directory: the shell's on the CLI; null over MCP,
+   *  where the server's cwd says nothing reliable about the agent's. */
+  cwd?: string | null;
 }
 
 export interface VerbDef {
@@ -370,7 +373,7 @@ export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, 
       ? await getRoot(parsed) : options.defaultRoot?.() ?? "";
     if (projectScope) { await requireProject(root); await recoverProjectForAuthoring(root); }
     const args = resolvePathParams(v, parsed, root);
-    const r = await v.handler({ root, identity: options.identity?.() }, args);
+    const r = await v.handler({ root, identity: options.identity?.(), cwd: null }, args);
     if (v.bindsRoot) {
       const next = (r as { root?: string | null }).root;
       if (next !== undefined && next !== null && typeof next !== "string") throw new ValidationError("connect returned an invalid root");
