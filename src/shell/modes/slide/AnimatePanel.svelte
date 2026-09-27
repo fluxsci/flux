@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
+  import { animatorAnnotationTargets } from "./animator/annotationTargets";
   // flux-slide — the ANIMATOR dock (animation rework §6): the shell that
   // composes the Properties mini-pane (the selected track's parameters) and
   // the BeatRail (collapsed beat chips + one expanded beat with grouped,
@@ -99,6 +102,7 @@
     if(t){selection.set(new Set(t.target.startsWith("@")?[]:[t.target]));partSelection.set(t.part?{elementId:t.target,partId:t.part}:null);requestAnimationFrame(()=>document.querySelector(`[data-track-id="${t.id}"]`)?.scrollIntoView({block:"nearest"}));}
   }
   function onAnimKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     const tgt = e.target as HTMLElement;
     if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "SELECT" || tgt.tagName === "TEXTAREA")) {
       if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); tgt.blur(); animEl?.focus({ preventScroll: true }); }
@@ -107,7 +111,7 @@
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); const tracks=slide?.beats[$activeBeat]?.tracks??[]; selTrackIds.set(tracks.map(t=>t.id!).filter(Boolean)); selection.set(new Set(tracks.filter(t=>!t.target.startsWith("@")).map(t=>t.target))); partSelection.set(null); return; }
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? onRedo?.() : onUndo?.(); return; }
-    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); onSave?.(); return; }
+    if (mod && !e.shiftKey && e.code === "KeyS") { e.preventDefault(); onSave?.(); return; }
     if (e.code === "Space") { e.preventDefault(); playing ? onPause?.() : previewing ? onResume?.() : onPreview?.($activeBeat); return; }
     if (mod && (e.key === "d" || e.key === "D") && !e.shiftKey) { e.preventDefault(); duplicateSelectedTracks(); return; }
     if (mod && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); railRef?.cascadeSelection(); return; }
@@ -139,6 +143,7 @@
     }
   }
   function onWinKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (animEl && document.activeElement?.closest('[data-command-scope="animation"]')) onAnimKey(e);
   }
 
@@ -263,7 +268,7 @@
 <svelte:window onkeydown={onWinKey} />
 {#if slide}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="animator" bind:this={animEl} tabindex="0" role="group" data-command-scope="animation" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
+  <div class="animator" bind:this={animEl} use:animatorAnnotationTargets={() => slide} tabindex="0" role="group" data-command-scope="animation" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
     <div class="dock-gutter" class:active={dockResize} role="separator" aria-orientation="horizontal"
       aria-label="Resize animator" onpointerdown={startDockDrag} ondblclick={toggleDockSize}><span class="grip"></span></div>
     <div class="bar">

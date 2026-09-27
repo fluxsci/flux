@@ -1,3 +1,4 @@
+import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
 import type { FileBridge } from '../project/types';
 
 type BrowserDropper = new () => { open(options: { signal: AbortSignal }): Promise<{ sRGBHex: string }> };
@@ -95,6 +96,7 @@ async function pickWindowColor(capture: NonNullable<FileBridge['captureWindow']>
       }
       function cancel() { finish(null); }
       function key(event: KeyboardEvent) {
+        if (yieldsToShellModal(event) || isAnnotateChord(event)) return;
         event.preventDefault(); event.stopImmediatePropagation();
         if (event.key === 'Escape') cancel();
       }

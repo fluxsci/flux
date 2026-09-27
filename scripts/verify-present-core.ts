@@ -5,6 +5,8 @@
 // the export runtime maps it to none — everything else is identical).
 //   npx tsx scripts/verify-present-core.ts
 
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   reducePresentKey,
   hudModel,
@@ -125,6 +127,18 @@ for (const [key, plain, shifted] of [
   assert(r.state.reducedMotion === true && r.effect.kind === "rebuild", "m → reducedMotion + rebuild effect");
   r = reducePresentKey("Escape", false, S0, nav, TOTAL);
   assert(r.effect.kind === "close" && !r.preventDefault, "Escape → close effect");
+}
+
+// The app filters modifiers before this shared reducer. Portable HTML retains
+// its existing keymap byte-for-byte; Annotate must never leak into that runtime.
+{
+  const source = readFileSync(new URL("../src/lib/slide/export/runtime.ts", import.meta.url), "utf8");
+  const start = source.indexOf("  function onKey(e: KeyboardEvent)");
+  const end = source.indexOf('  mount.addEventListener("keydown", onKey);', start);
+  assert(start >= 0 && end > start && createHash("sha256").update(source.slice(start, end)).digest("hex") === "b37263863751863654e802c833874ecafc058746b2e3f62f1e9c778a93007485", "exported presentation key runtime is unchanged by the app annotation chord");
+  const { nav } = navRecorder();
+  assert(reducePresentKey("M", true, S0, nav, TOTAL).state.reducedMotion && reducePresentKey("S", true, S0, nav, TOTAL).state.showNotes,
+    "portable M/S retain motion and notes behavior (modifier filtering belongs to the app host)");
 }
 
 // ---- view-models -------------------------------------------------------------------

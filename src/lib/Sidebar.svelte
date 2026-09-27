@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   import { openFigureMeta } from "./figure/metadataState";
   import { onMount, tick } from "svelte";
   import { editSession } from "./interact/editSession";
@@ -198,6 +200,7 @@
   }
   onMount(() => {
     const key = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       if (e.key === "Escape" && cancelReorder()) { e.preventDefault(); e.stopImmediatePropagation(); }
     };
     window.addEventListener("keydown", key, true);

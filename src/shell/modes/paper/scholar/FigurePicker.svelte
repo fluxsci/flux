@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+
   import { onMount } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
   import { type FigureRef, figureImage } from "./figures";
@@ -56,6 +58,7 @@
     sel = Math.max(0, Math.min(filtered.length - 1, sel + d));
   }
   function onkeydown(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     // The keydown that OPENED the picker (e.g. Enter accepting the /figure
     // completion) is still bubbling when this window listener mounts — anything
     // already claimed upstream must not double-fire here.

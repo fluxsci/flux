@@ -4,6 +4,7 @@
 // No-ops unless running under Electron with the bridge preload (so dev/web are
 // unaffected).
 
+import { annotationOpen } from "../../shell/agent/annotationVisibility";
 import { get, type Readable } from "svelte/store";
 import {
   project,
@@ -17,6 +18,8 @@ import {
   dirty,
   embeddedProjectRoot,
 } from "../store";
+import { readerContext, libraryContext, slideContext, presentContext, paperHeading } from "./contextStamp";
+import { paperSelection } from "../project/paperSelectionStore";
 import { getAppContext } from "./appContext";
 import { dispatchCommand, captureDispatchOwner, type Command } from "./commands";
 import { touchActivityLock } from "./activityLock";
@@ -54,6 +57,7 @@ export function installBridge(): void {
 
   const watched: Readable<unknown>[] = [
     currentProject, view, focusedMode, focusedPaneId, embeddedProjectRoot,
+    paperSelection, paperHeading, readerContext, libraryContext, slideContext, presentContext,
     storeTenantState, flushOwnerRevision,
     project,
     selection,
@@ -77,6 +81,7 @@ export function installBridge(): void {
       let applied = false;
       try {
         assertOwner();
+        if (get(annotationOpen)) throw new Error("not-applied: Annotate is open; retry after the user closes it");
         const assertPersistenceOwner = captureDispatchOwner({ allowEdits: true });
         const result = await dispatchCommand(command as Command);
         applied = true;

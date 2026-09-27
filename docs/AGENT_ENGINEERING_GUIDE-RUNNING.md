@@ -75,6 +75,12 @@ capabilities as the GUI, through three surfaces:
   Code prompt hook (`connect --hook-delta`, launcher fast path `connect/hookFast.ts`).
   Gates: verify-connect-render / -connect / -connect-delta / -connect-mcp (pure),
   verify-connect-hook (bundle).
+  and `<project>/Context/` (MISSION/NOTEBOOK/RULES as first-class Paper documents).
+  Agents use the CLI/MCP tools alongside the app. The feedback ledger
+  (`.meta/feedback.ndjson`, append-only, shared core `src/lib/project/annotations.ts`)
+  carries context-stamped review notes (Ctrl+Shift+M capture); agents read and resolve
+  them through the same shared core. Gates: verify-context-scheme / -feedback (pure),
+  verify-context-gui / -annotation-surface-gui (ui).
 
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
@@ -1099,6 +1105,47 @@ Persistence invariants (all machine-checked — do not weaken):
     mtime/TTL fallback; opaque cursors fingerprint item state, not only timestamps.
     `inspect` reads saved target state without rendering. MCP packets cap inline snapshots
     at six, resized to a 1600 px long edge; `get_inbox_image` fetches remaining images.
+  - **Annotate (Ctrl/Cmd+Shift+M) = `shell/agent/AnnotationSurface.svelte` +
+    `annotationStore.ts`; pure geometry = `project/annotationCapture.ts`.** One lazy
+    composer over a frozen window. Shell installs `annotateChord.ts` FIRST, before
+    children mount capture listeners; it buffers immediate typing until textarea focus.
+    Home toasts; Ctrl+Shift+S is retired and absorbed, including utility children.
+    Alt+A/B/P choose arrow/box/pen by `code`; Alt+Z undoes. Enter adds, Shift+Enter
+    inserts a newline, Escape/toggling keeps the draft. The picture is captured before
+    drawing UI, cropped around marks (unmarked whole views have a 1600px long-edge cap),
+    and written before the ledger append. Attach view is persisted as `annotate.attachView`;
+    marks force it on. A missing native capture keeps semantic targets and marks.
+    A retained draft keeps its picture and context together; a changed view requires
+    explicit refresh before drawing again, preserving text and clearing old marks.
+  - **One context/target vocabulary.** `bridge/contextStamp.ts` feeds annotations AND
+    `getAppContext` (the Figure digest remains). Modes register in `bridge/targetResolvers.ts`;
+    selection chips and hover use pure `TargetRef` / `describeTarget` / `widenTarget`.
+    Canvas prepares model and semantic-part indexes once for capture; hover walks the
+    browser hit node's ancestors, never rescans the scene or manifest. The animator's
+    nested resolver wins before the canvas. Paper uses CM positions and syntax-tree
+    paragraph ranges; Reader uses the pdf.js text layer, Library citekey rows, Figure-Meta
+    caption blocks. Alt+↑/↓ or wheel adjusts hover specificity; chips widen and remove.
+  - **Route and queue.** `annotations.ts` + `inbox.ts` are the shared fold/status/sort
+    law. Inbox is the remembered per-project default, Tab cycles the To pill, and live
+    `parseRoute` recognizes @mentions. Named notes append `note` + `assign` together.
+    Edit appends `withdraw` + replacement note in one write, retaining the original
+    picture/context. Withdraw never pretends the work was resolved. Status chips and
+    toasts name the agent; needs-input opens its replies. Presence reads use FileBridge
+    and run only while Annotate is visible, at most once per 5s; the native watcher
+    batches `.meta/live/sessions` notifications at ≥2s.
+  - **Modal ownership and native windows.** All window key handlers yield through
+    `yieldsToShellModal`/`isAnnotateChord` (source census, documented narrow exemptions).
+    External model reloads defer while Annotate is open; ledger/presence updates continue.
+    Live bridge writes refuse before mutation while the picture is frozen. Present's
+    modifier filter lives in its app host, never in the shared/exported key reducer;
+    the annotation portal is INSIDE its fullscreen root. Inert utility children forward
+    the chord to the opener; `win:capture {target:"child"}` can capture only that opener's
+    focused child. Surface z-index is 2000, above Help, Settings and Present.
+    Gates: `verify-annotate-chord-census.ts`, `verify-context-stamp.ts`,
+    `verify-feedback-snapshot.ts`, `verify-annotation-core.ts` (pure);
+    `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
+    `verify-annotate-utility-electron.cjs` (browser/scale/native). Retain `paper-gate`,
+    `verify-scale-paper`, and the 800KB startup ceiling after context/keyboard changes.
   - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
     note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
     under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot) and press
@@ -7190,3 +7237,13 @@ predecessor to arbitrate competing takeovers; an unmarked losing claim never bec
 winner when the old presence expires. Presence is a lifetime owned only by explicit
 connect, including simultaneous connects; cwd discovery creates no session. A bound result
 includes its session, and the connect engine can read `currentSession()` after binding.
+### 2026-09-27 07:26 UTC — Unified Annotate surface (Codex, aio/w4b-annotate)
+**Work:** Replaced the two capture surfaces with one lazy composer, shared context/semantic
+targets, named routing/statuses, and scoped utility-window capture; restored Reader passage
+actions. Pure tier passed 295/295, Svelte 0 errors/0 warnings, headless and production build
+passed; browser, scale, native and startup qualification are assigned to the orchestrator.
+**Learnings:**
+- Promoted bootstrap key buffering, fullscreen portal ownership, indexed hover resolution,
+  presence throttling, and retained-picture/context coherence into §4; updated §1's shared-core pointer.
+- Updated the retired Reader gate contract from hiding ✦ to exact passage/highlight routing;
+  the portable presentation key runtime remains pinned unchanged.

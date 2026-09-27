@@ -1,4 +1,12 @@
 <script lang="ts">
+  import { annotationOpen, yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
+  import { slideContext } from "../../../lib/bridge/contextStamp";
+  $effect(() => {
+    const deck = $deckOverlay, id = $activeFigureId;
+    if (deck && focused) slideContext.set({ deckId: deck.id, slideId: id ?? undefined, slideIndex: Math.max(0, deck.slides.findIndex(s => s.id === id)), beat: $activeBeat });
+  });
+  onDestroy(() => slideContext.set(null));
   // flux-slide — the Slide mode. Slides-are-figures (slide-migration): the
   // static editing surface IS the figure editor — the deck's slides load into
   // the app-global figure store (projected one slide = one Figure on the
@@ -702,6 +710,7 @@
     p.pause();p.seek(previewSlideIndex,beat,time);previewTime=p.state().time;previewPlaying=false;
   }
   function pausePreview(){player?.pause();previewPlaying=false;}
+  $effect(() => { if ($annotationOpen) pausePreview(); });
   function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration && !state.mediaPaused){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing || player.state().mediaPlaying;}
   function stopPreview() {
     previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;
@@ -1166,6 +1175,7 @@
 
   // --- keyboard: slide navigation first, then the FIGURE keymap wholesale --------
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || presentOpen) return; // the presenter overlay owns the keyboard
     // The cascade popover owns the keyboard while open (its own window
     // listener registers later, so this handler must yield first).

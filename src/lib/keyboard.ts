@@ -1,3 +1,4 @@
+import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
 import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";
 import { editSession } from "./interact/editSession";
@@ -747,6 +748,8 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
+
+  if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
   // A focused editing surface owns its commands even when window listeners
   // were registered in a different order. Never also nudge/delete the canvas.
   if (e.defaultPrevented) return;
@@ -797,11 +800,7 @@ export function handleKey(e: KeyboardEvent) {
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
   // Shortcuts that work even while typing: save/open, rail toggle.
-  // Ctrl+Shift+S is NOT save-as: that chord is the shell's Snapshot & annotate
-  // (Workspace.svelte, docs/reference/shortcuts.qmd), and until 2026-09-26 this
-  // branch also caught it — `key` ignores Shift — and raised the native save-as
-  // dialog under the overlay in a real build. Save-as stays reachable through
-  // the palette; the plain chord saves.
+  // Save As remains in the palette. The retired shifted chord is inert.
   if (mod && !e.shiftKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     saveProject();

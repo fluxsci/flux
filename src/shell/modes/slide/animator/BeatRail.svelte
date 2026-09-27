@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+
   import { onDestroy, tick } from "svelte";
   import { activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
   import { selection, partSelection } from "../../../../lib/store";
@@ -278,6 +280,7 @@
     cancelMarquee();selectTracks(ids);
   }
   function marqueeKey(e:KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     // Capture before the dock's Escape/Delete/navigation handlers can run.
     if(!marquee)return;
     if(e.key==="Escape"){e.preventDefault();e.stopImmediatePropagation();cancelMarquee();}
@@ -292,7 +295,10 @@
     stopScrub=()=>{window.removeEventListener("pointermove",seek);window.removeEventListener("pointerup",stopScrub);window.removeEventListener("pointercancel",stopScrub);};
     seek(e);window.addEventListener("pointermove",seek);window.addEventListener("pointerup",stopScrub);window.addEventListener("pointercancel",stopScrub);
   }
-  function keyCancel(e:KeyboardEvent){if(e.key==="Escape"&&drag){e.preventDefault();cancel();}}
+  function keyCancel(e:KeyboardEvent){
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if(e.key==="Escape"&&drag){e.preventDefault();cancel();}
+  }
   onDestroy(()=>{cancelMarquee();cancel();stopScrub();hoverTrackId.set(null);});
   $effect(()=>{const context=slide.id+":"+beat.id+":"+scale+":"+selectedOnly;void context;cancelMarquee();});
   $effect(()=>{const i=$activeBeat;void tick().then(()=>document.querySelector(`[data-step-index="${i}"]`)?.scrollIntoView({block:"nearest",inline:"nearest"}));});
@@ -302,7 +308,7 @@
 <div class="beatrail" bind:clientWidth={timelineWidth}>
   <div class="step-strip" aria-label="Presentation steps">
     {#each slide.beats as b,i (b.id)}
-      <button class="step" class:active={i===$activeBeat} class:drop={drag?.over===i} data-step-index={i}
+      <button class="step" class:active={i===$activeBeat} class:drop={drag?.over===i} data-step-index={i} data-beat={i}
         aria-pressed={i===$activeBeat} draggable={i>0} ondragstart={()=>beatDragId=b.id} ondragover={e=>e.preventDefault()} ondrop={e=>{e.preventDefault();reorderStep(i);}} ondragend={()=>beatDragId=null}
         onclick={()=>chooseBeat(i)} oncontextmenu={e=>stepMenu(e,b,i)} title={`${b.label||`Step ${i}`} · ${b.tracks.length} effects`}>
         <span class="step-num">{i||"○"}</span><span>{i===0?"Start":b.label||`Step ${i}`}<small>{i===0?"Initial frame":b.advance==="auto"?`After previous · ${(b.autoDelayMs??600)/1000}s`:b.advance==="with-prev"?"With previous":"On click"}</small></span>
@@ -352,7 +358,7 @@
           </div>
         {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
+          <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} data-beat={$activeBeat} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
             <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t)}`}>
               <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{trackKindLabel(t)}{t.disabled?" · disabled":""}</small>
             </button>

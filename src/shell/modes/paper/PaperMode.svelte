@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { appendCommentMessage } from "../../../lib/project/comments";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
+  import { paperHeading } from "../../../lib/bridge/contextStamp";
+  import { registerPaperTargets, nearestHeading } from "./paperTargets";
   import { onMount, onDestroy } from "svelte";
   import { get } from "svelte/store";
   import { EditorView } from "@codemirror/view";
@@ -31,7 +36,7 @@
   import { paperPaletteRequest, openDocRequest } from "../../command/commandBus";
   import { contextCommands } from "../../command/globalCommands";
   import { makePaperSelectionWatcher } from "./paperContext";
-  import { setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
+  import { paperSelection, setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
   import { paperLayout } from "./view-mode/paperLayoutStore";
   import { paperTextScale } from "./view-mode/paperTextScaleStore";
   import {
@@ -210,6 +215,7 @@
     get(settings).paperLocalCorrections ? "loading" : "off",
   );
   let outline = $state<OutlineItem[]>([]);
+  $effect(() => { if (focused) paperHeading.set(nearestHeading(outline, $paperSelection?.from ?? 0)); });
   // PAP-7: a debounced mirror of `latest` for the whole-document passes that feed only
   // cosmetic/occasional UI — the TOC (a full syntax-tree walk) and the cited-key red-dots
   // (a regex over the whole document). These don't need to run on every keystroke; recompute
@@ -702,7 +708,7 @@
   function submitNew(id: string, body: string) {
     threads = threads.map((t) =>
       t.id === id
-        ? { ...t, draft: false, messages: [{ author: commentAuthor, body, createdAt: new Date().toISOString() }] }
+        ? { ...t, draft: false, messages: [{ author: commentAuthor, body, createdAt: new Date().toISOString(), kind: "human" as const }] }
         : t,
     );
     scheduleCommentSave();
@@ -714,11 +720,8 @@
     syncRanges();
   }
   function replyComment(id: string, body: string) {
-    threads = threads.map((t) =>
-      t.id === id
-        ? { ...t, messages: [...t.messages, { author: commentAuthor, body, createdAt: new Date().toISOString() }] }
-        : t,
-    );
+    // The same pure append the headless inbox uses (twin rule); `kind` tells the inbox a human answered.
+    threads = appendCommentMessage({ version: 1, threads }, id, { author: commentAuthor, body, createdAt: new Date().toISOString(), kind: "human" }).threads;
     scheduleCommentSave();
   }
   function resolveComment(id: string) {
@@ -1639,7 +1642,11 @@
     });
   }
 
+  let unregisterTargets: (() => void) | undefined;
+  onDestroy(() => unregisterTargets?.());
   function onReady(v: EditorView) {
+    unregisterTargets?.();
+    unregisterTargets = registerPaperTargets(v, () => activeDocPath, () => outline, () => focused);
     view = v;
     // Dual-paper: this editor's widget handlers key off its DOM root.
     unregHandlers?.();
@@ -2510,9 +2517,11 @@
     // own command, making the left-panel toggle fail on the first press.
     // Keep overlays/search inputs on their ordinary bubbling route.
     const capturePaneCommand = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       if (e.target instanceof Node && view?.contentDOM.contains(e.target) && dispatchWindowKey(e, cmdCtx)) e.stopPropagation();
     };
     const h = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       // Table-driven chords first (view toggle, margin panes, …).
       if (dispatchWindowKey(e, cmdCtx)) return;
       // Esc layering guards — MODAL, kept verbatim (not commands).

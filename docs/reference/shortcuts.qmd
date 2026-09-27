@@ -13,8 +13,7 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | Shortcut | Action |
 |---|---|
 | **Ctrl+K** | Command palette (in Paper: the full Paper palette; in Library it goes to the add box instead) |
-| **Ctrl+Shift+M** | Note to agent — a one-liner stamped with what you're looking at |
-| **Ctrl+Shift+S** | Snapshot & annotate — freeze the window, draw numbered arrows (**a**), boxes (**b**) or pen strokes (**p**), **Enter** writes the note with the crop attached |
+| **Ctrl+Shift+M** | Annotate — a note, targets, and a frozen view for your agents |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
 | **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Paper, Slide, Library, Reader) |
@@ -25,6 +24,20 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 manuscript panes show two *different* documents of the project (asking for one that's open
 in the other pane focuses that pane instead). Figure and Slide stay single-pane — they share
 the editing engine.
+
+# While Annotate is open
+
+| Shortcut | Action |
+|---|---|
+| **Alt+A** / **Alt+B** / **Alt+P** | Arrow / box / pen; drag on the picture to mark a target |
+| **Alt+Z** | Undo the last mark (also **Backspace** with an empty note) |
+| **Alt+↑** / **Alt+↓**, or wheel over the picture | Widen / narrow the hovered target |
+| **Tab** in the note | Cycle **To:** Inbox, Any watching agent, named agents |
+| **Enter** / **Shift+Enter** | Add / new line |
+| **Esc**, or **Ctrl+Shift+M** again | Cancel and keep the draft |
+
+**Attach view** is remembered. Marks always attach the picture. The **Annotate…** command
+also appears in the global and Paper palettes and Library's **Commands…** menu.
 
 # Paper
 

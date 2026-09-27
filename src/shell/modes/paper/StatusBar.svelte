@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { yieldsToShellModal } from "../../agent/annotateChord";
   // Persistent, glanceable status — a slim translucent pill bottom-right of
   // the editor column (Obsidian's placement). Dumb component: PaperMode feeds
   // it already-computed values (words from the 150ms-debounced latestIdle —
@@ -83,11 +84,12 @@
   $effect(() => {
     if (!scopeOpen) return;
     const away = (e: PointerEvent) => {
+      if (yieldsToShellModal(e)) return;
       const t = e.target as Node | null;
       if (t && (scopeEl?.contains(t) || zoomEl?.contains(t))) return;
       scopeOpen = false;
     };
-    const esc = (e: KeyboardEvent) => {
+    const esc = (e: KeyboardEvent) => { if (yieldsToShellModal(e)) return;
       if (e.key !== "Escape") return;
       e.preventDefault();
       e.stopPropagation();

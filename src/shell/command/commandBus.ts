@@ -26,8 +26,3 @@ let sn = 0;
 export function requestOpenSlide(deckId: string, slideId?: string): void {
   openSlideRequest.set({ deckId, slideId, n: ++sn });
 }
-
-/** The feedback capture popover (FeedbackCapture.svelte, mounted in Workspace). */
-export const feedbackCaptureOpen = writable(false);
-/** Snapshot & annotate (Ctrl+Shift+S): the freeze-and-draw overlay that feeds a note. */
-export const annotateCaptureOpen = writable(false);

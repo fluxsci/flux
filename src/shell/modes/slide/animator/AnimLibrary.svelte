@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+
   // The animation preset/template LIBRARY popover (rework §7) — reachable
   // from the Animator bar. Presets tab: apply one track's saved settings to
   // the current selection (smart per-kind targeting under the preset's
@@ -172,6 +174,7 @@
     if (el && !el.contains(e.target as Node)) onClose();
   }
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onClose();

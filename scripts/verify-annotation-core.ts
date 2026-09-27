@@ -64,6 +64,8 @@ h.eq(widenTarget(samples[7])?.kind, "beat", "a clip at a step widens to that ste
 h.eq(widenTarget(samples[6])?.kind, "slide", "a step widens to its slide");
 h.eq(widenTarget(samples[0]), null, "a figure is the widest");
 h.eq(uniqueTargets([samples[0], { kind: "figure", figureId: "fig-2" }, samples[1]]).length, 2, "uniqueTargets de-duplicates by identity, not names");
+h.eq(uniqueTargets([{kind:"passage",citekey:"smith2020",page:4,quote:"first result"},{kind:"passage",citekey:"smith2020",page:4,quote:"second result"},{kind:"passage",citekey:"smith2020",page:4,quote:"first result"}]).length, 2, "two marked passages on one PDF page remain distinct targets");
+h.ok(describeTarget({kind:"track",deckId:"d",slideId:"s",trackId:"camera-1",family:"camera"}).startsWith("camera clip"), "camera targets retain their actual authoring family");
 
 // ---------------------------------------------------------------------------
 h.section("presence");

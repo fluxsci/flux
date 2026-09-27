@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   // The property menu — `f` (2026-09-15 surface redesign). The main way
   // of editing object properties without the right rail: left hand on the
   // keyboard, right hand on the mouse, and neither ever has to leave.
@@ -319,6 +321,7 @@
   /** Window-level, capture phase: once a row is armed (f, then its letter) the
    *  wheel adjusts it wherever the mouse is — the canvas must not zoom. */
   function onWinWheel(e: WheelEvent) {
+    if (yieldsToShellModal(e)) return;
     if (!$fluxFigMenuOpen || !(mode === "field" || mode === "option") || !active) return;
     if (panelEl?.contains(e.target as Node)) return; // the panel's own handler (hover-arming) takes it
     e.preventDefault();
@@ -372,6 +375,7 @@
 
   // --- keyboard ---------------------------------------------------------------------------
   function onWin(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || !$fluxFigMenuOpen) return;
     const t = e.target as HTMLElement | null;
     const typing = !!t && (t.matches("input, textarea, select") || t.isContentEditable);

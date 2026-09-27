@@ -1,3 +1,4 @@
+import { requestAnnotation } from "../agent/annotateChord";
 // The GlobalPalette command list (non-paper modes; PaperMode appends the same
 // entries to its own palette). Context-doc commands switch to Paper and open
 // the doc; machine-context commands open the file in the OS editor.
@@ -5,7 +6,7 @@
 import { openFigureMeta } from "../../lib/figure/metadataState";
 import { get } from "svelte/store";
 import type { Command } from "./commands";
-import { requestOpenDoc, feedbackCaptureOpen, annotateCaptureOpen } from "./commandBus";
+import { requestOpenDoc } from "./commandBus";
 import { setFocusedMode } from "../paneStore";
 import { currentProject } from "../shellStore";
 import { fileBridge } from "../../lib/project/types";
@@ -41,10 +42,9 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
     { id: "ctx-global-rules", title: "Open global rules", hint: "Context", keywords: "user conventions machine", run: () => void openMachineContext("UserContext/RULES.md") },
     { id: "ctx-who", title: "Open who-am-I", hint: "Context", keywords: "profile background user", run: () => void openMachineContext("UserContext/WHO-AM-I.md") },
   );
-  if (hasProject) {
+  if (get(currentProject)) {
     cmds.push(
-      { id: "agent-note", title: "Note to agent", hint: "Agent", keywords: "feedback capture tell", run: () => feedbackCaptureOpen.set(true) },
-      { id: "agent-annotate", title: "Snapshot & annotate for agent", hint: "Agent", keywords: "feedback screenshot arrow point mark draw", run: () => annotateCaptureOpen.set(true) },
+      { id: "agent-annotate", title: "Annotate…", hint: "Agent", keywords: "feedback screenshot arrow point mark draw", run: () => requestAnnotation() },
     );
   }
   return cmds;

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
+
   // The Dissect viewer (plain `d` on a selected plot): full-screen overlay by default,
   // shrinkable to a draggable/resizable floating window (the FigurePanel chrome), showing a
   // plot's companion material from plots/_dissections/<key>/ — subfolders are group tabs,
@@ -156,6 +158,7 @@
 
   // ---- modal keyboard (capture phase; Space passes through to the detail's hand tool) ----
   function onKeyDown(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!target) return;
     if (e.code === "Space" && detailIdx !== null) return; // the hand tool owns held-Space
     if (e.key === "Alt" || e.key === "Control" || e.key === "Shift" || e.key === "Meta") return;

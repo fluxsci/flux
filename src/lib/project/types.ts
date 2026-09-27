@@ -288,9 +288,9 @@ export interface FileBridge {
   openDocs?(): Promise<{ ok: boolean; error?: string }>;
   /** Append one NDJSON line to the feedback ledger (O_APPEND — never rewrites). */
   feedbackAppend?(p: string, line: string): Promise<boolean>;
-  /** Snapshot & annotate: a PNG of this window (device pixels), optionally one
+  /** Annotate: a PNG of this window or its utility child (device pixels), optionally one
    *  CSS-px rect. Electron only — a browser build has no window capture. */
-  captureWindow?(rect?: { x: number; y: number; width: number; height: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
+  captureWindow?(options?: { target?: "sender" | "child"; childId?: number; x?: number; y?: number; width?: number; height?: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
   /** Linux screen color picker; the desktop portal owns consent/cancellation. */
   pickScreenColor?(requestId: string): Promise<{ status: "picked"; hex: string } | { status: "cancelled" | "unavailable" } | { status: "error"; message?: string }>;
   cancelScreenColor?(requestId: string): Promise<boolean>;

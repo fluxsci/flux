@@ -73,42 +73,7 @@ const key = (code, opts = {}) =>
   ok(true, "Ctrl+K → paper palette → Open notebook switches the doc");
 }
 
-// --- 4. feedback capture: stamped note -------------------------------
-{
-  await key("KeyM", { ctrlKey: true, shiftKey: true });
-  await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { timeout: 5000, label: "capture popover open" });
-  const stampLine = await page.evaluate(() => document.querySelector(".fc-stamp")?.textContent ?? "");
-  ok(/paper/.test(stampLine) && /NOTEBOOK\.md/.test(stampLine), `stamp previews the live context (${stampLine || "EMPTY"})`);
-  await page.type(".fc textarea", "tighten this paragraph");
-  await page.evaluate(() => {
-    const add = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add to queue");
-    add?.click();
-  });
-  await waitFor(
-    page,
-    () => {
-      const f = window.fig?._files;
-      if (!f) return false;
-      for (const k of f.keys()) if (k.endsWith(".meta/feedback.ndjson")) return true;
-      return false;
-    },
-    null,
-    { timeout: 8000, label: "ledger written" },
-  );
-  const ledger = await page.evaluate(() => {
-    const f = window.fig._files;
-    for (const [k, v] of f.entries()) {
-      if (k.endsWith(".meta/feedback.ndjson")) return new TextDecoder().decode(v);
-    }
-    return "";
-  });
-  const events = ledger.trim().split("\n").map((l) => JSON.parse(l));
-  const note = events.find((e) => e.kind === "note");
-  ok(note && note.text === "tighten this paragraph", "note appended to the ledger");
-  ok(note?.context?.surface === "paper" && note?.context?.doc?.path === "Context/NOTEBOOK.md", "note carries the paper context stamp (surface + docRel)");
-  // Add closes after refreshing the ledger; do not switch modes mid-operation.
-  await waitFor(page, () => !document.querySelector(".fc textarea"), null, { timeout: 8000, label: "queued note operation completed" });
-}
+// Annotation interaction coverage lives in verify-annotation-surface-gui.mjs.
 
 // --- 5. figure mode gets the GLOBAL palette ---------------------------------
 {
@@ -122,8 +87,7 @@ const key = (code, opts = {}) =>
   const titles = await page.evaluate(() =>
     [...document.querySelectorAll(".global-palette .cp li .ct")].map((n) => n.textContent?.trim()),
   );
-  ok(titles.includes("Open project context") && titles.includes("Note to agent"), "global palette carries the context/agent commands");
-  await page.keyboard.press("Escape");
+  ok(titles.includes("Open project context") && titles.includes("Annotate…"), "global palette carries the context/agent commands");  await page.keyboard.press("Escape");
 }
 
 const errs = await realErrors(page);

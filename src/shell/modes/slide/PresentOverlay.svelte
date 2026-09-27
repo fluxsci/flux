@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { presentContext } from "../../../lib/bridge/contextStamp";
+  import { annotationOpen } from "../../agent/annotateChord";
+
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
   // Present mode — a fullscreen overlay that runs the ONE player (createPlayer)
   // over the deck, scaled-to-fit (letterboxed) on any screen. Clicker-friendly
   // keymap (§6.1). The stage IS the player; Esc exits. The same player powers the
@@ -56,6 +61,10 @@
     }),
   );
   const nextIdx = $derived(panel.nextIdx);
+  $effect(() => { presentContext.set({ deckId: deck.id, slideIndex: st.slide, beat: st.beat, slideId: deck.slides[st.slide]?.id }); });
+  // A capture freezes the current player frame and its media until the user resumes.
+  $effect(() => { if ($annotationOpen) { player?.pause(); player?.setMediaPaused(true); } });
+
 
   function playerOpts(): PlayerOpts {
     return {
@@ -101,6 +110,7 @@
     bumpIdle();
   });
   onDestroy(() => {
+    presentContext.set(null);
     player?.destroy();
     if (timer) clearInterval(timer);
     if (idleTimer) clearTimeout(idleTimer);
@@ -125,7 +135,7 @@
   }
 
   // Blank/away pauses videos so audio doesn't play to a black screen (B15).
-  $effect(() => { player?.setMediaPaused(!!blank); });
+  $effect(() => { player?.setMediaPaused(!!blank || $annotationOpen); });
 
   // Render the next-slide preview whenever the panel opens or the position moves
   // (the panel — hence nextMount — only exists while showNotes is true).
@@ -135,7 +145,8 @@
   });
 
   function onKey(e: KeyboardEvent) {
-    if (!player) return;
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if (!player || e.ctrlKey || e.metaKey) return;
     bumpIdle();
     // WS-3.3: clicker semantics live in present/core's reducer — this host
     // applies the state and runs the effects (close/fullscreen/rebuild/timer).
@@ -164,11 +175,11 @@
     else root?.requestFullscreen?.().catch(() => {});
   }
   function onClick(e: MouseEvent) {
-    if (!player) return;
+    if (!player || get(annotationOpen)) return;
     bumpIdle();
     // ignore clicks on interactive video controls / the presenter panel (B4).
     const t = e.target as HTMLElement;
-    if (t.closest("video") || t.closest(".notes") || t.closest(".hud")) return;
+    if (t.closest("[data-annotation-surface]") || t.closest("video") || t.closest(".notes") || t.closest(".hud")) return;
     // left quarter = back, rest = forward (clicker-like)
     if (e.clientX < vw * 0.25) player.prev();
     else player.next();

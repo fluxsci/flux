@@ -8,6 +8,7 @@
 </script>
 
 <script lang="ts">
+  import { yieldsToShellModal } from "../shell/agent/annotateChord";
   // Plot gallery (Alt+G): a windowed contact sheet over the project's plots/ dir —
   // or, via the Project | Global switch (Alt+1 / Alt+2), over the user's global plot
   // library (<FluxConfig>/plot_library, any folder structure, shared by every project).
@@ -707,7 +708,7 @@
   }
 </script>
 
-<svelte:window on:keydown={e => { if (active && detached && e.altKey && e.code === "KeyG") { e.preventDefault(); popup?.focus(); } }} />
+<svelte:window on:keydown={e => { if (yieldsToShellModal(e)) return; if (active && detached && e.altKey && e.code === "KeyG") { e.preventDefault(); popup?.focus(); } }} />
 
 {#if $importerOpen}
   {#if !detached}

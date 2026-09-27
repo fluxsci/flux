@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 // 2026-09-15 Snapshot & annotate — the pure half of "point at it" feedback
-// (src/lib/project/feedbackCapture.ts + the stamp in feedback.ts) gates
+// (src/lib/project/annotationCapture.ts + the stamp in annotations.ts) gates
 // hermetically: the crop law, badge/target points, the DOM-anchor path builder
 // (fed fake nodes), the stamp's one-line description and the ledger roundtrip.
 //   Run: npx tsx scripts/verify-feedback-snapshot.ts
@@ -16,7 +16,7 @@ import {
   type FeedbackMark,
   type FeedbackSnapshot,
   type AnchorNode,
-} from "../src/lib/project/feedbackCapture";
+} from "../src/lib/project/annotationCapture";
 import { describeStamp, foldAnnotations, makeNote, parseLedger, serializeEvent } from "../src/lib/project/annotations";
 
 function assert(cond: unknown, msg: string) {

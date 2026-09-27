@@ -8,7 +8,7 @@
 // skipped, so older ledgers and future event kinds never break a reader.
 // Pure module (no Svelte, no DOM, no Node): shared by the GUI and flux-core.
 
-import { describeSnapshot, type FeedbackSnapshot } from "./feedbackCapture";
+import { describeSnapshot, type FeedbackSnapshot } from "./annotationCapture";
 import { describeTarget, type TargetRef } from "./targets";
 
 export const ANNOTATIONS_REL = ".meta/feedback.ndjson";
@@ -38,7 +38,7 @@ export interface ContextStamp {
   viewport?: { panX: number; panY: number; zoom: number } | null;
   doc?: { path: string; from: number; to: number; quote: string; heading?: string } | null;
   slide?: { deckId: string; slideIndex: number; beat: number; slideId?: string } | null;
-  present?: { deckId: string; slideIndex: number; beat: number } | null;
+  present?: { deckId: string; slideIndex: number; beat: number; slideId?: string } | null;
   reader?: { citekey: string; title?: string; page?: number; selection?: string; highlightId?: string; source?: "main" | { supplement: string } } | null;
   library?: { query?: string; selectedKeys?: string[]; collection?: string } | null;
   /** The resolved "this": selection plus every mark's target, most specific first. */

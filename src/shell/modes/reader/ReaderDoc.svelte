@@ -1,4 +1,10 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
+  import { readerContext } from "../../../lib/bridge/contextStamp";
+  import { registerReaderTargets } from "../../../lib/bridge/readerTargets";
+  import { requestAnnotation } from "../../agent/annotateChord";
+
   // FluxReader document — everything scoped to ONE open paper. Loads the paper named by
   // the (immutable) `citekey` prop from <FluxLib>/items/<citekey>/ (PDF bytes +
   // annotations) and renders it with PdfView, flanked by a reference sidebar (the
@@ -754,6 +760,18 @@
   // Annotations in reading order (page, then first-seen).
   const orderedAnns = $derived([...annotations].sort((a, b) => a.page - b.page));
 
+  const readingStamp = () => ({ citekey, title: entry?.title, page: popAnn?.page ?? (selection ? selPage : curPage),
+    selection: popAnn?.anchor.quote ?? selection, highlightId: popAnn?.id,
+    source: activePdf.kind === "main" ? "main" as const : { supplement: activePdf.name } });
+  onDestroy(registerReaderTargets(() => rootEl ?? null, readingStamp, () => focused && active));
+  $effect(() => {
+    if (!focused || !active) return;
+    const stamp = readingStamp(); readerContext.set(stamp);
+    return () => { if (get(readerContext) === stamp) readerContext.set(null); };
+  });
+  function annotatePassage(quote: string, page: number, highlightId?: string) {
+    requestAnnotation({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
+  }
   function handleSelect(text: string, page?: number) {
     selection = text;
     if (page != null) selPage = page;
@@ -821,6 +839,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
     // Alt chords: the panels (R = library, A = highlights).
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
@@ -1121,7 +1140,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key bufferGen}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotate={annotatePassage} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
         </div>
@@ -1190,6 +1209,7 @@
             onSaveNote={(n) => handleUpdate(ann.id, { note: n || undefined })}
             onRecolor={(c) => void handleUpdate(ann.id, { color: c }).catch(() => {})}
             onCopy={() => copyQuote(ann)}
+            onAnnotate={() => annotatePassage(ann.anchor.quote, ann.page, ann.id)}
             onDelete={() => void handleDelete(ann.id)}
             onClose={() => (popover = null)} />
         {/if}

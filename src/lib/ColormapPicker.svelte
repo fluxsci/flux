@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   // The colormap picker (2026-09-16, owner request): every map fluxplot ships,
   // one collection at a time — tabs across the top (click, or Shift+Tab cycles),
   // the maps of the collection grouped by type (sequential · diverging · cyclic ·
@@ -79,6 +81,7 @@
   // Shift+Tab cycles the collections from anywhere while the picker is up —
   // never dependent on which element holds focus (window, capture phase).
   function onWinKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === "Tab" && e.shiftKey) {
       e.preventDefault();
       e.stopImmediatePropagation();

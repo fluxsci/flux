@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { fade } from "svelte/transition";
   import TitleBar from "./TitleBar.svelte";
   import Home from "./Home.svelte";
@@ -20,6 +20,14 @@
   import { assignJob } from "../lib/references/assignJob.svelte";
   import { captureStatus } from "../lib/references/captureStatus";
   import { captureIntakeOnStartup } from "../lib/references/captureIntake.svelte";
+
+  import { installAnnotateChord, annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
+  // Run during parent initialization, before any child mounts its listeners.
+  onDestroy(installAnnotateChord());
+  let Annotation: typeof import("./agent/AnnotationSurface.svelte").default | null = $state(null);
+  const loadAnnotation = () => import("./agent/AnnotationSurface.svelte").then(m => Annotation = m.default);
+  $effect(() => { if ($annotationOpen && !Annotation) void loadAnnotation(); });
+  $effect(() => { if ($view === "workspace") void import("./agent/annotationStore").then(m => m.initAnnotationStore()); });
 
   // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
   // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
@@ -59,6 +67,7 @@
     const idle: (fn: () => void) => void =
       typeof requestIdleCallback === "function" ? (fn) => requestIdleCallback(fn) : (fn) => void setTimeout(fn, 250);
     idle(() => warmModes(["paper"]));
+    idle(() => void loadAnnotation());
     // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
     // auto-export once the app is idle. Dynamic import — the job (and, through it,
     // the bib/import stack) must never ride the eager Home bundle (W15).
@@ -95,6 +104,7 @@
     // Multi-window: Ctrl/Cmd+Shift+N opens a fresh window at Home. Shell-level
     // so it works in every mode and on Home; macOS also has the File-menu item.
     const onNewWindowKey = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e)) return;
       if (e.code === "KeyN" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.altKey) {
         e.preventDefault();
         void fileBridge()?.newWindow?.();
@@ -133,6 +143,7 @@
   <!-- Keyboard reference: mounted at the Shell so "?" works on Home too, not
        just inside a project (its own listener ignores typing targets). -->
   <Help />
+  {#if Annotation}<Annotation />{/if}
 
   {#if capture}
     <div

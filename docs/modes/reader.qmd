@@ -69,6 +69,12 @@ every mode.)
 
 # Highlights and notes
 
+Select a passage or open a saved highlight and click **✦ Annotate this passage** to open the shared Annotate surface
+with the citekey, page, and selected text already attached as a target. Add your note and
+choose **To:** Inbox, Any watching agent, or a named session. **Ctrl+Shift+M** does the same
+from the current Reader view; **Escape** keeps the draft. PDF highlights remain available
+through the color buttons.
+
 Select any text and a small color menu appears — five highlight colors (yellow, green, blue,
 pink, orange). Click one and the highlight is saved. Click a highlight later to open its
 popover: recolor it, attach a **comment**, copy the text, or delete it. The right sidebar's

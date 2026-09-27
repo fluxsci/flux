@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   // X-Ray (Alt+R) — figure-v1 P8, rebuilt as a surface (2026-09-15). One
   // radiograph panel over ANY x-rayable target: a semantic plot (its manifest
   // part tree), SEVERAL plots at once (each under a synthetic "N plots" row,
@@ -559,6 +561,7 @@
   }
 
   function onWin(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     // The property menu (opened ON TOP by Show Properties) owns the keyboard
     // while it is up — everything here yields until it closes.
     if (!$xrayOpen || $fluxFigMenuOpen || mode !== "tree") return;

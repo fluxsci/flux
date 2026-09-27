@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
   // FluxReader — the PDF reading mode shell. Everything scoped to ONE open paper lives
   // in ReaderDoc.svelte (one instance per live tab); this shell owns what is shared
   // across documents: the tab strip, the keep-alive policy, the tab keyboard, the
@@ -51,6 +53,7 @@
   // window listeners stay disjoint. Ctrl only — on macOS Cmd+W stays the app
   // menu's close-window.
   function onShellKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!focused) return; // kept-alive hidden panes must not react
     const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
     if (!ctrl) return;

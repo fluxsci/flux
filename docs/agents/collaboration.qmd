@@ -57,57 +57,55 @@ to your agents.
 
 # The review loop (in the app)
 
-- **Comments** on any document — threaded, anchored to exact text.
-- **Ctrl+Shift+M** anywhere — "Note to agent": one line, automatically **stamped with
-  what you're looking at** (figure/element/plot part, document + selected text, slide +
-  beat). **Add to queue** saves the note. The buttons in detail: @sec-note-popover. When words aren't enough,
-  **Ctrl+Shift+S** freezes the window so you can draw numbered arrows on it and the note
-  arrives with the picture: @sec-annotate.
-- Ask an agent to read the inbox (`flux inbox --json`), fix each item,
-  and resolve it with a note — threads close live in your margin. When unsure, it asks
-  *you* via a margin comment instead of guessing.
-- **In the reader**: any external agent session can read the live paper, page, and
-  selection through `get_reading_context`.
-- **Ctrl+K palette**: open project context/notebook/rules, global rules, and Note to agent.
+- **Margin comments** anchor a discussion to document text.
+- **Ctrl+Shift+M** opens **Annotate** in Figure, Paper, Slide, Library, Reader, Present,
+  and utility windows. Your current selection becomes a target chip. Type immediately:
+  the note keeps keystrokes even while the frozen view is being captured.
+- **Annotate…** is also in the global and Paper palettes and Library's **Commands…** menu.
+- In Reader, select PDF text or open a saved highlight and click **✦ Annotate this passage**
+  to prefill a passage target.
 
-## The note popover: Add, Edit, Withdraw {#sec-note-popover}
+## Point, type, add {#sec-annotate}
 
-The **Ctrl+Shift+M** popover saves context-stamped notes in the project's feedback
-ledger (`.meta/feedback.ndjson`). Its header previews the context stamp, and the
-footer counts the open notes.
+The frozen view fills the window, with drawing tools at the top left and a focused note
+at the bottom right. Hover to see the target's outline and name: a plot series, text box,
+figure, caption, paragraph, slide, animation clip, PDF passage, or reference.
 
-- **Add to queue** (or **Enter** / **Ctrl+Enter**) records the note and closes the
-  popover. You can collect notes as you walk through a figure or manuscript, then ask
-  an agent to read them with `flux inbox --json` and address them.
-- **Edit** puts a queued note back in the box, including its stamp and snapshot.
-  **Add to queue** replaces it; **Escape** keeps the original.
-- **Withdraw** takes a note out of the open queue. The ledger retains its history:
-  `flux inbox --status all` shows it as *withdrawn*. An agent that already read it can
-  see why it disappeared.
+**Drag** to draw a numbered arrow. **Alt+A**, **Alt+B**, and **Alt+P** select arrow, box,
+and pen. An arrow names its tip's target; a box names the objects inside; a pen names its
+starting target. **Alt+Z** undoes a mark. Use **Alt+↑ / ↓** or the wheel to widen/narrow the
+hovered target; each chip also has widening and remove controls.
 
-As an agent resolves notes, Flux shows an **Agent resolved: …** toast.
+**Enter** adds the annotation; **Shift+Enter** inserts a newline. **Escape** or the chord
+again closes the surface and keeps the draft and its picture. **Attach view** is on by
+default and remembered; drawing marks forces it on. The saved picture is cropped around
+marks, or captures the whole window when there are none. If capture is unavailable, the
+note still carries targets and marks and tells you there is no screenshot.
 
-## Point at it: snapshot & annotate {#sec-annotate}
+If the view changed while a draft was closed, its earlier picture and targets stay together.
+Choose **Refresh view (clears marks)** to keep the note and draw on the current view.
 
-Some feedback is about *pixels* — a gap, an alignment, a control you can't select — and a
-selection stamp can't carry it. **Ctrl+Shift+S** (or the **Snapshot & annotate** button in
-the note popover, or the **Ctrl+K** command) freezes the window under a drawing surface:
+## To: choose who receives it
 
-- **Drag** draws the current tool — **a** arrow (a plain click drops a short arrow at the
-  spot), **b** box, **p** freehand pen. Every mark gets a **number badge**, so the note can
-  say *"1 is too big, 2 should align with 3"*. **Backspace** undoes the last mark.
-- **Enter** hands the picture to the note popover, which widens to show the crop at a readable
-  size (the note is about that picture); your draft text is kept, and **Add to queue** saves it as usual. **Escape** cancels
-  the overlay and attaches nothing.
-- The picture is a **crop** around your marks (the whole window if you drew none), saved
-  beside the ledger as `.meta/feedback/<note id>.png` when the note is added — never
-  before, so a cancelled note leaves no file. Each mark also remembers the **element under
-  its tip** (`header.toolbar > button "Gallery"`), so `flux inbox --json` prints where every
-  number points even before the image is opened.
+**Inbox** is the default: collect notes until you ask an agent to address them. **Any
+watching agent** lets the first watching session claim the item. Choose a connected agent
+by name to queue the annotation for that session. Agents that are connected but not watching
+are greyed and marked **queued until it watches**. Your choice is remembered per project.
 
-In a browser build there is no window capture; the overlay still records the marks and
-their anchors, and the note says *no screenshot*.
+**Tab** in the note cycles recipients. Typing **@any** or **@heron** also sets **To:**;
+recognized routing mentions are removed from the saved text. **#tags** appear as chips.
+Background-agent routing is not yet available; choose Inbox or a connected session.
 
+## Queued: Edit, Withdraw, and status {#sec-note-popover}
+
+Expand **Queued** to review annotations. **Edit** loads the original text, targets, and
+picture; **Add** replaces that annotation while preserving its history. **Withdraw** removes
+it from the active queue. The ledger is append-only at `.meta/feedback.ndjson`; pictures live
+in `.meta/feedback/`. A picture is saved before its note is published.
+
+Status chips update as agents work: **Queued → heron**, **Claimed by heron**, **heron needs
+your input**, and **Resolved by heron**. Toasts name the agent. A question's toast opens the
+annotation and its replies. You can reassign an item or release its claim from the queued list.
 
 # Design properties
 

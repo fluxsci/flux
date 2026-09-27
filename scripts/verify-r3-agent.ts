@@ -129,14 +129,17 @@ assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electro
 assert(!/agent:principalSpec/.test(read("electron/ipc/contract.cjs")), "no principal launch channel exists in the contract");
 
 // D13 retires the in-app shell and its passage prefill. Reader context remains
-// available to external agents; Phase 4 will use the selection/annotation anchors.
+// available to external agents; Phase 4 routes the passage directly into Annotate.
 console.log("\nR3 — reader context without an in-app terminal (source):");
 const rm = read("src/shell/modes/reader/ReaderMode.svelte");
 const rd = read("src/shell/modes/reader/ReaderDoc.svelte");
 const pv = read("src/shell/modes/reader/PdfView.svelte");
 const hp = read("src/shell/modes/reader/HighlightPopover.svelte");
 assert(!/TerminalPane|terminalPrefill|askAgent|agentPane/.test(rm + rd), "Reader has no terminal mount or prefill route");
-assert(!/onAskSelection|onAsk|✦/.test(pv + hp), "Reader passage actions stay hidden until Annotate is implemented");
+assert(!/onAskSelection|onAsk/.test(pv + hp), "Reader has no retired terminal passage-prefill callbacks");
+assert(/aria-label="Annotate this passage"/.test(pv) && /onAnnotate\?\.\(menu\.anchor\.quote, menu\.page\)/.test(pv), "Reader selection action passes the exact quote/page to Annotate");
+assert(/onAnnotate=\{annotatePassage\}/.test(rd) && /requestAnnotation\(\{ targets: \[\{ kind: "passage"/.test(rd), "Reader passage action reaches the unified surface with a passage target");
+assert(/aria-label="Annotate this passage"/.test(hp) && /onAnnotate=\{\(\) => annotatePassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "Saved highlight action preserves its quote, page, and highlight id");
 assert(/onSelect=\{handleSelect\}/.test(rd) && /onSelect\?\.\(anchor\.quote, page\)/.test(pv), "selection still publishes the exact passage and page");
 assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
 for (const file of ["src/shell/terminal/terminalSession.ts", "src/shell/terminal/TerminalPane.svelte", "src/shell/modes/paper/margin/views/TerminalView.svelte", "electron/ipc/terminal.cjs"]) {

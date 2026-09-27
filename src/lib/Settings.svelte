@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   // Shell-global Settings dialog (title-bar gear / the `settingsOpen` store).
   // A tabbed surface — General · Figure · Paper · Corrections — in the editor
   // chrome language (2026-09-15 surface redesign): one flat panel, hairline
@@ -295,6 +297,7 @@
   });
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if ($settingsOpen && e.key === "Escape") {
       e.preventDefault();
       settingsOpen.set(false);

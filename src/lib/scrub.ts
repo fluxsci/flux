@@ -1,3 +1,4 @@
+import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
 /** Numeric label drag. Pointer mechanics only: the owner supplies its editing
  * transaction (or edits a local tool parameter without touching history). */
 export interface ScrubParams {
@@ -55,6 +56,7 @@ export function scrub(node: HTMLElement, params: ScrubParams) {
   const up = () => finish(false);
   const cancel = () => finish(true);
   function key(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (pointer === null || e.key !== 'Escape') return;
     e.preventDefault();
     e.stopImmediatePropagation();

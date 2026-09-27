@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Click-a-highlight popover: comment, recolor, copy, ask Claude, delete. Anchored
+  // Click-a-highlight popover: comment, recolor, copy, annotate, delete. Anchored
   // at fixed viewport coords computed by ReaderMode (clamped; `place` flips it above/
   // below the highlight). A dirty note is saved on ANY close path (outside click,
   // explicit ✕, Save, Esc/teardown — the onDestroy flush) so a half-typed comment
@@ -20,6 +20,7 @@
     onSaveNote,
     onRecolor,
     onCopy,
+    onAnnotate,
     onDelete,
     onClose,
   }: {
@@ -33,6 +34,7 @@
     onRecolor?: (color: string) => void;
     /** Returns the clipboard promise — "Copied ✓" shows only when it resolves. */
     onCopy?: () => void | Promise<void>;
+    onAnnotate?: () => void;
     onDelete?: () => void;
     onClose?: () => void;
   } = $props();
@@ -139,6 +141,7 @@
       {/each}
     </div>
     <span class="ppage">p{annotation.page}</span>
+    {#if onAnnotate}<button class="pico annotate" title="Annotate this passage" aria-label="Annotate this passage" onclick={onAnnotate}>✦</button>{/if}
     <button class="pico" title="Close" aria-label="Close" onclick={requestClose}>✕</button>
   </div>
 
@@ -224,6 +227,7 @@
   .pico:hover {
     color: var(--c-tx-1);
   }
+  .pico.annotate { color: var(--c-accent); width: 24px; height: 24px; }
   .pquote {
     font-family: var(--font-serif);
     font-style: italic;

@@ -147,9 +147,10 @@ export function resolvePartId(
   manifest: FluxPlotManifest | undefined,
   node: Element | null,
   elementId: string,
+  index?: ReturnType<typeof buildPartIndex>,
 ): string | null {
   const p = elementId + "__";
-  const idx = buildPartIndex(manifest);
+  const idx = index ?? buildPartIndex(manifest);
   let nearest: string | null = null;
   let el: Element | null = node;
   while (el) {

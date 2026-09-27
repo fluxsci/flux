@@ -12,6 +12,7 @@ export type CorrectionDialect = "american" | "british" | "canadian" | "australia
 export type CorrectionAggressiveness = "standard" | "aggressive" | "really-aggressive";
 
 export interface Settings {
+  "annotate.attachView": boolean;
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
   // Colour pickers (2026-09-16): which collection opens first.
   paletteCollection: string; // "flexoki" | "brewer" | "tol" | "project"
@@ -44,6 +45,7 @@ export interface Settings {
 
 const KEY = "flux.settings";
 const DEFAULTS: Settings = {
+  "annotate.attachView": true,
   flexokiDefault: true,
   paletteCollection: "flexoki",
   colormapCollection: "mpl",
@@ -171,6 +173,6 @@ leftRailHidden.subscribe((v) => {
 export const settingsOpen = writable(false);
 export const fluxFigMenuOpen = writable(false);
 export const helpOpen = writable(false); // shell-global keyboard-shortcut reference
-/** A shell surface (Note to agent, Snapshot & annotate) owns the keyboard: the
+/** A shell surface (Annotate, Figure-Meta) owns the keyboard: the
  *  editor's single-letter tools must not fire while a note is being typed. */
 export const shellModalOpen = writable(false);

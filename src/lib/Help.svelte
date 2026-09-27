@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   // Shell-global keyboard reference. Mounted once (Shell — so `?` works on Home
   // too); opened with `?` from anywhere or the title-bar help button (the
   // `helpOpen` store). Tabs cover every mode; opening jumps to the mode you're
@@ -19,6 +21,10 @@
           title: "Everywhere",
           items: [
             ["?", "Show / hide this reference"],
+            ["⌃⇧M", "Annotate (note + picture for your agents)"],
+            ["Alt+A / B / P · Alt+Z", "In Annotate: arrow / box / pen · undo mark"],
+            ["Alt+↑ / ↓", "In Annotate: widen / narrow the hovered target"],
+            ["Enter / Shift+Enter · Tab", "In Annotate: add / new line · change recipient"],
             ["Esc", "Close menus & overlays"],
             ["Click a mode icon (top bar)", "Switch mode"],
             ["⌃1 – ⌃5", "Switch mode (Figure, Paper, Slide, Library, Reader)"],
@@ -136,7 +142,7 @@
             ["⌃⇧K", "Import PNG/SVG files"],
             ["Alt + G / R", "Plot gallery / X-ray (⇧ or ⌃-click picks several rows; a animates them in Slide)"],
             ["Alt + 1 / 2", "In the Plot gallery: project plots / global plot library"],
-            ["⌃ + S / Shift + S", "Save / save as"],
+            ["⌃ + S", "Save"],
           ],
         },
         {
@@ -288,6 +294,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if ($helpOpen && e.key === "Escape") {
       e.preventDefault();
       helpOpen.set(false);

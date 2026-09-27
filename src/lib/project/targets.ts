@@ -13,7 +13,7 @@ export type TargetRef =
   | { kind: "doc"; path: string; from: number; to: number; quote?: string; heading?: string }
   | { kind: "slide"; deckId: string; slideId: string; index?: number; name?: string }
   | { kind: "beat"; deckId: string; slideId: string; beat: number; label?: string }
-  | { kind: "track"; deckId: string; slideId: string; trackId: string; family?: "appearance" | "transform" | "media"; elementId?: string; beat?: number; label?: string }
+  | { kind: "track"; deckId: string; slideId: string; trackId: string; family?: "appearance" | "transform" | "media" | "camera"; elementId?: string; beat?: number; label?: string }
   | { kind: "passage"; citekey: string; page: number; quote?: string; highlightId?: string; title?: string }
   | { kind: "library-item"; citekey: string; title?: string }
   | { kind: "region"; surface: string; rect: { x: number; y: number; w: number; h: number } };
@@ -204,12 +204,17 @@ export function targetDeckId(t: TargetRef): string | null {
   return t.kind === "slide" || t.kind === "beat" || t.kind === "track" ? t.deckId : null;
 }
 
-/** De-duplicate by identity, keeping the first occurrence (and its names). */
+/** A page shorthand can address several distinct selected passages/highlights. */
+export function resolvedTargetKey(t: TargetRef): string {
+  return t.kind === "passage" ? JSON.stringify([formatTarget(t), t.highlightId ?? "", t.quote ?? ""]) : formatTarget(t);
+}
+
+/** De-duplicate resolved objects, retaining distinct anchors on the same PDF page. */
 export function uniqueTargets(list: readonly TargetRef[]): TargetRef[] {
   const seen = new Set<string>();
   const out: TargetRef[] = [];
   for (const t of list) {
-    const k = formatTarget(t);
+    const k = resolvedTargetKey(t);
     if (!seen.has(k)) {
       seen.add(k);
       out.push(t);

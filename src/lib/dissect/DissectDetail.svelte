@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
   import { nativeClick, nativePointerDown, nativePointerMove, nativePointerUp } from "../ui/nativeEvents";
   // The expanded view of one dissection file. Images get the lighttable viewer feel (ported,
   // not imported): "fit" is pure CSS object-fit; user zoom renders at natural size inside a
@@ -173,6 +174,7 @@
     if (!view) return;
     const keyHost = keyboardTarget ?? view;
     const down = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       if (e.code !== "Space") return;
       const target = e.target as HTMLElement | null;
       if (keyboardTarget && (target?.isContentEditable || target?.closest?.("button,input,textarea,select,video,a[href],[role='button']"))) return;

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
   // Zotero connection panel — connect FluxLib to a Better BibTeX "Keep updated"
   // auto-export and sync from it (see zoteroSyncJob.svelte.ts for the engine;
   // this dialog is only settings + status). Modal idiom mirrors ImportDialog.
@@ -94,6 +96,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onClose();

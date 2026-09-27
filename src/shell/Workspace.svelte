@@ -4,14 +4,11 @@
   import PaneArea from "./PaneArea.svelte";
   import Settings from "../lib/Settings.svelte";
   import CommandPalette from "./command/CommandPalette.svelte";
-  import FeedbackCapture from "./agent/FeedbackCapture.svelte";
   import { contextCommands } from "./command/globalCommands";
-  import { requestPaperPalette, feedbackCaptureOpen, annotateCaptureOpen } from "./command/commandBus";
+  import { requestPaperPalette } from "./command/commandBus";
   import { figureMeta, figureMetaDetached, openFigureMeta } from "../lib/figure/metadataState";
   import { activeFigureId } from "../lib/store";
   import { storeTenant } from "../lib/tenancy";
-  import AnnotateCapture from "./agent/AnnotateCapture.svelte";
-  import { initFeedbackStore } from "./agent/feedbackStore";
   import { shellModalOpen } from "../lib/settings";
   import { focusedMode, setFocusedMode } from "./paneStore";
   import type { ModeId } from "./shellStore";
@@ -26,15 +23,16 @@
   let Meta: typeof import("../lib/figure/FigureMeta.svelte").default | null = $state(null);
   $effect(() => { if ($figureMeta && !Meta) void import("../lib/figure/FigureMeta.svelte").then(m => Meta = m.default); });
 
-  initFeedbackStore();
+  import { annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
   // (its own Mod+K chord was retired to keep this single-fire); Library focused →
   // LibraryMode's own listener claims it (jump to the add box, per Help), so the
   // shell stands down; anywhere else → the shell GlobalPalette. Ctrl+Shift+M
-  // toggles the feedback capture ("Note to agent").
+  // opens Annotate.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e)) return;
       const mod = e.metaKey || e.ctrlKey;
       if (e.defaultPrevented) return;
       if (e.altKey && !mod && e.code === "KeyM" && ["paper", "figure"].includes(get(focusedMode))) {
@@ -50,17 +48,6 @@
           globalCommandList = contextCommands({ inPaper: false });
           globalPaletteOpen = !globalPaletteOpen;
         }
-      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyM") {
-        e.preventDefault();
-        feedbackCaptureOpen.update((v) => !v);
-      } else if (mod && !e.altKey && e.shiftKey && e.code === "KeyS") {
-        // Snapshot & annotate (⌃⇧S — ⌃⇧A is the slide animator's "add
-        // appearance"): freeze the window, draw, then write the note. An
-        // open note popover hides first (its draft survives) so the capture
-        // never contains the popover itself.
-        e.preventDefault();
-        if (get(feedbackCaptureOpen)) feedbackCaptureOpen.set(false);
-        annotateCaptureOpen.update((v) => !v);
       } else if (mod && !e.altKey && !e.shiftKey && /^Digit[1-5]$/.test(e.code)) {
         // Mode switching by number — mirrors the title-bar strip left to right.
         e.preventDefault();
@@ -68,10 +55,10 @@
       }
     };
     window.addEventListener("keydown", onKey);
-    // While the note popover or the annotate overlay is up, the editor's
+    // While Annotate or Figure-Meta is up, the editor's
     // keyboard yields (lib/keyboard.ts reads shellModalOpen).
-    const sync = () => shellModalOpen.set(get(feedbackCaptureOpen) || get(annotateCaptureOpen) || (!!get(figureMeta) && !get(figureMetaDetached)));
-    const unsubs = [feedbackCaptureOpen.subscribe(sync), annotateCaptureOpen.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
+    const sync = () => shellModalOpen.set(get(annotationOpen) || (!!get(figureMeta) && !get(figureMetaDetached)));
+    const unsubs = [annotationOpen.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
     return () => {
       window.removeEventListener("keydown", onKey);
       for (const u of unsubs) u();
@@ -90,8 +77,6 @@
       <CommandPalette commands={globalCommandList} onClose={() => (globalPaletteOpen = false)} />
     </div>
   {/if}
-  <FeedbackCapture />
-  <AnnotateCapture />
   {#if $figureMeta && Meta}<Meta />{/if}
 </div>
 

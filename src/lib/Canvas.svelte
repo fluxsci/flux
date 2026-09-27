@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
+  import { canvasAnnotationTargets } from "./bridge/canvasTargets";
   import { editSession } from "./interact/editSession";
   const textEdits = editSession();
   import { transientSceneTransforms } from "./interact/sceneTransforms";
@@ -2902,6 +2905,7 @@
 
   // --- keyboard (space-pan, pen finish; global shortcuts live in keyboard.ts) ---
   function onKeyDown(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.animator, [data-command-scope="animation"]'))) return;
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
@@ -3807,6 +3811,7 @@
 
 <div
   class="canvas-host"
+  use:canvasAnnotationTargets
   class:frame
   bind:this={hostEl}
   bind:clientWidth={hostW}
@@ -3855,7 +3860,7 @@
             style:transform={figMoveId === fig.id ? frameTransform : null}
             style:will-change={figMoveId === fig.id ? "transform" : null}
           >
-          <g transform={`translate(${fig.x} ${fig.y})`}>
+          <g data-annotation-figure={fig.id} transform={`translate(${fig.x} ${fig.y})`}>
             <rect class="fig-shadow" x={bounds.x + 3} y={bounds.y + 4} width={bounds.w} height={bounds.h} />
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <rect

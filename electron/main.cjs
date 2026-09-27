@@ -63,6 +63,7 @@ function loadChokidar() {
 // `currentRoot` / `projectWatcher` slots are gone — the moment window B opened
 // a project they silently took window A's watcher, bridge, and locks
 // (notes/aug_10_deferred_updates/multi_window_and_dual_paper_panes.md, A1).
+const utilityChildren = new Map(); // opener webContents.id -> its inert utility children
 const sessions = new Map(); // webContents.id -> { win, root, watcher, watchGen, initialRoot }
 function sessionFor(e) {
   return e && e.sender ? sessions.get(e.sender.id) : undefined;
@@ -466,6 +467,8 @@ function createWindow(initialRoot) {
   const galleryUrl = new URL("plot-gallery.html", appUrl).href;
   const metadataUrl = new URL("figure-meta.html", appUrl).href;
   const galleryWindows = new Set();
+  const utilityOwnerId = win.webContents.id;
+  utilityChildren.set(utilityOwnerId, galleryWindows);
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
     if ((url === galleryUrl && frameName === "flux-plot-gallery") || (url === metadataUrl && frameName === "flux-figure-meta")) return {
       action: "allow",
@@ -490,7 +493,7 @@ function createWindow(initialRoot) {
     child.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     child.on("closed", () => galleryWindows.delete(child));
   });
-  win.on("closed", () => { for (const child of galleryWindows) if (!child.isDestroyed()) child.destroy(); });
+  win.on("closed", () => { utilityChildren.delete(utilityOwnerId); for (const child of galleryWindows) if (!child.isDestroyed()) child.destroy(); });
 
   // Keep the renderer's custom maximize/restore button in sync.
   win.on("maximize", () => win.webContents.send("win:maximized", true));
@@ -752,8 +755,8 @@ ipcMain.handle("win:maximizeToggle", (e) => {
 ipcMain.handle("win:close", (e) =>
   BrowserWindow.fromWebContents(e.sender)?.close(),
 );
-// Snapshot & annotate (Note to agent): a PNG of the calling window — its own
-// pixels only (capturePage on the sender), optionally one CSS-px rect. Read
+// Annotate: a PNG of the sender or one of its own inert utility windows,
+// optionally one CSS-px rect. Read
 // scope: nothing touches the filesystem here; the renderer composes the crop and
 // writes it into the project's .meta/feedback/ through the guarded fs:writeFile.
 ipcMain.handle("win:capture", async (e, rect) => {
@@ -766,7 +769,14 @@ ipcMain.handle("win:capture", async (e, rect) => {
           height: Math.max(1, Math.round(rect.height)),
         }
       : undefined;
-  const img = await e.sender.capturePage(r);
+  let target = e.sender;
+  if (rect?.target === "child") {
+    const children = utilityChildren.get(e.sender.id);
+    const child = children && [...children].find(w => !w.isDestroyed() && (rect.childId ? w.webContents.id === rect.childId : w.isFocused()));
+    if (!child) throw new Error("No focused utility window belongs to this window");
+    target = child.webContents;
+  }
+  const img = await target.capturePage(r);
   const size = img.getSize();
   return { png: img.toPNG(), width: size.width, height: size.height };
 });
@@ -1147,6 +1157,7 @@ function subsystemFor(root, abs) {
   // Context docs (+ their comments sidecars) live-reload through the same chain
   // as manuscript docs; the renderer suffix-matches the active document.
   if (rel.startsWith("Context/")) return "context";
+  if (rel.startsWith(".meta/live/sessions/")) return "presence";
   if (rel === ".meta/feedback.ndjson") return "feedback";
   return null;
 }
@@ -1227,7 +1238,10 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
     ),
     // The feedback ledger: agent resolutions live-refresh the open app.
     path.join(projectRoot, ".meta", "feedback.ndjson"),
+    path.join(projectRoot, ".meta", "live", "sessions"),
   ];
+  let presenceTimer = null;
+  let presencePath = "";
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
   const flush = () => {
@@ -1255,6 +1269,14 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
     if (isSelfWrite(abs)) return;
     const subsystem = subsystemFor(projectRoot, abs);
     if (!subsystem) return;
+    if (subsystem === "presence") {
+      presencePath = abs;
+      if (!presenceTimer) presenceTimer = setTimeout(() => {
+        presenceTimer = null;
+        if (s.watchGen === gen && !s.win.isDestroyed()) s.win.webContents.send("fs:changed", { subsystem: "presence", path: presencePath });
+      }, 2000);
+      return;
+    }
     pending.set(subsystem, abs);
     if (!timer) timer = setTimeout(flush, 200);
   });

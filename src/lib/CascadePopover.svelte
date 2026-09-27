@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+
   // Cascade popover (Ctrl+Shift+C): apply a stepped delta across the selected
   // ELEMENTS (figure/slide canvas) or the animator's selected TRACKS. One
   // component serves both flavors; the track flavor is driven through the
@@ -250,6 +252,7 @@
   }
 
   function onWin(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!open) return;
     // The popover owns the keyboard while open (f-menu pattern); handleKey is
     // additionally gated on cascadeState — belt and suspenders.
@@ -266,6 +269,7 @@
   }
 
   function onWinPointerDown(e: PointerEvent) {
+    if (yieldsToShellModal(e)) return;
     if (!open || !panelEl) return;
     // Outside interaction = Enter semantics: keep the preview, close, and let
     // the pointer proceed into the canvas — a foreign gesture can then never

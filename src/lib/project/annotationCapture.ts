@@ -1,9 +1,11 @@
-// Snapshot & annotate — the pure half of "point at it" feedback (2026-09-15).
+import type { TargetRef } from "./targets";
+
+// Annotate — the pure half of "point at it" feedback (2026-09-15).
 // A note can carry a SNAPSHOT: a crop of the frozen window plus the numbered
 // marks (arrows, boxes, pen strokes) the user drew on it, each mark anchored to
 // the element under its tip so the agent can find the thing by name as well as
 // by eye. Pure (no DOM, no Node): shared by the overlay, the ledger, flux-core's
-// `flux feedback` and the gates. The PNG itself lives beside the ledger at
+// annotation inbox and the gates. The PNG itself lives beside the ledger at
 // .meta/feedback/<noteId>.png; the stamp carries only its project-relative path.
 
 export type MarkKind = "arrow" | "box" | "pen";
@@ -14,7 +16,9 @@ export interface FeedbackMark {
   n: number;
   /** CSS-px window coordinates. arrow: [tail, head]; box: [corner, corner]; pen: the stroke. */
   points: [number, number][];
-  /** The element under the mark's tip (arrow head / box centre / stroke start), if any. */
+  /** Model objects resolved from the tip, enclosed box, or stroke start. */
+  targets?: TargetRef[];
+  /** DOM breadcrumb retained alongside semantic targets for visual context. */
   anchor?: { path: string; text?: string } | null;
 }
 

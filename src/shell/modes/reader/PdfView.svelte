@@ -54,6 +54,7 @@
     hoverId = null,
     onCreate,
     onSelect,
+    onAnnotate,
     onAnnotationClick,
     onAnnotationHover,
     onCitePreview,
@@ -80,6 +81,7 @@
      *  selection is then kept alive so the user can retry. */
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
     onSelect?: (text: string, page?: number) => void;
+    onAnnotate?: (text: string, page: number) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
     onAnnotationHover?: (id: string | null) => void;
@@ -946,12 +948,13 @@
     <div class="msg loading">Loading…{loadNote ? ` ${loadNote}` : ""}</div>
   {/if}
 
-  {#if menu && canHighlight}
+  {#if menu && (canHighlight || onAnnotate)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="hl-menu" class:below={menu.below} style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
-      {#each ANNOTATION_COLORS as c}
+      {#if canHighlight}{#each ANNOTATION_COLORS as c}
         <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
-      {/each}
+      {/each}{/if}
+      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAnnotate?.(menu.anchor.quote, menu.page); }}>✦</button>{/if}
     </div>
   {/if}
 </div>
@@ -1070,6 +1073,7 @@
     transform: translate(-50%, -100%);
     display: flex;
     gap: 5px;
+    align-items: center;
     padding: 5px 7px;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
@@ -1080,6 +1084,8 @@
   .hl-menu.below {
     transform: translate(-50%, 0);
   }
+  .annotate-passage { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-accent); font: 18px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .annotate-passage:hover, .annotate-passage:focus-visible { background: var(--c-accent-tint); outline: 1px solid var(--c-accent); }
   .dot {
     width: 16px;
     height: 16px;

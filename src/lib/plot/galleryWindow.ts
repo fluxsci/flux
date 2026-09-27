@@ -1,3 +1,5 @@
+import { get } from "svelte/store";
+import { isAnnotateChord, requestAnnotation, annotationOpen } from "../../shell/agent/annotateChord";
 /** Move the mounted view, retaining its Svelte state and the opener's store/IO.
  * The destination is an inert same-origin document with no application scripts.
  * All listeners/observers and the native window are owned by this one handle. */
@@ -30,9 +32,24 @@ export function openUtilityWindow(node: HTMLElement, onClose: () => void, onDocu
   }
   const styles = new MutationObserver(syncStyles);
   const theme = new MutationObserver(syncStyles);
+  function annotationKey(e: KeyboardEvent) {
+    if (isAnnotateChord(e)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) requestAnnotation({ utility: { name: options.frame === "flux-plot-gallery" ? "gallery" : "figure-meta", window: popup } });
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyS") {
+      e.preventDefault(); e.stopImmediatePropagation();
+    } else if (get(annotationOpen)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, code: e.code, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, bubbles: true, cancelable: true }));
+    }
+  }
+  const annotationPointer = (e: Event) => { if (get(annotationOpen)) { e.preventDefault(); e.stopImmediatePropagation(); } };
   function mount() {
     if (disposed || popup.closed) return;
     syncStyles();
+    popup.addEventListener("keydown", annotationKey, true);
+    popup.addEventListener("pointerdown", annotationPointer, true);
+    popup.addEventListener("wheel", annotationPointer, { capture: true, passive: false });
     popup.document.body.appendChild(node);
     onDocumentChange();
     popup.document.title = options.title;
@@ -52,6 +69,9 @@ export function openUtilityWindow(node: HTMLElement, onClose: () => void, onDocu
     disposed = true;
     styles.disconnect(); theme.disconnect();
     window.removeEventListener("pagehide", unload);
+    popup.removeEventListener("keydown", annotationKey, true);
+    popup.removeEventListener("pointerdown", annotationPointer, true);
+    popup.removeEventListener("wheel", annotationPointer, true);
     popup.removeEventListener("load", mount);
     popup.removeEventListener("pagehide", closed);
     marker.parentNode?.insertBefore(node, marker);

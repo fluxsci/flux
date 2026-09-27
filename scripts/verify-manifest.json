@@ -303,7 +303,9 @@
       "verify-connect-mcp.ts",
       "verify-inbox.ts",
       "verify-inbox-wait.ts",
-      "verify-presence.ts"
+      "verify-presence.ts",
+      "verify-annotate-chord-census.ts",
+      "verify-context-stamp.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -312,7 +314,6 @@
     ],
     "ui": [
       "verify-context-gui.mjs",
-      "verify-annotate-gui.mjs",
       "verify-cursor-gui.mjs",
       "verify-figure-input-hygiene.mjs",
       "verify-zoom-proxy.mjs",
@@ -439,7 +440,8 @@
       "verify-text-blank-lines.mjs",
       "verify-metadata-save-safety.mjs",
       "verify-panel-label-menu.mjs",
-      "verify-figure-meta-refinements.mjs"
+      "verify-figure-meta-refinements.mjs",
+      "verify-annotation-surface-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -516,7 +518,8 @@
       "verify-scale-slide-dense.mjs",
       "verify-scale-paper-slide-embeds.mjs",
       "verify-fulltext-corpus.ts",
-      "verify-library-20k.mjs"
+      "verify-library-20k.mjs",
+      "verify-scale-annotate-hover.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
@@ -552,7 +555,8 @@
       "verify-v020-gui-export-recovery.cjs",
       "verify-eyedropper-portal.cjs",
       "verify-eyedropper-electron.cjs",
-      "verify-figure-metadata-electron.cjs"
+      "verify-figure-metadata-electron.cjs",
+      "verify-annotate-utility-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -563,7 +567,8 @@
       "verify-update-check.ts",
       "verify-writer-latency.ts",
       "verify-crisp-source.ts",
-      "figenh-importer-parity.ts"
+      "figenh-importer-parity.ts",
+      "verify-annotate-chord-census.ts"
     ]
   },
   "groups": {
@@ -852,19 +857,35 @@
       ]
     },
     {
+      "$why": "W4b retires the two-stage Note/Snapshot UI and Ctrl+Shift+S. The unified surface gate replaces verify-annotate-gui and context-gui section 4; all other context assertions remain. This first-match entry prevents general project mappings from shadowing annotation/inbox/capture coverage.",
+      "glob": "{src/shell/agent/**,src/lib/project/{annotations,annotationCapture,inbox,presence,targets}.ts,src/lib/bridge/{contextStamp,targetResolvers,canvasTargets,readerTargets}.ts,src/shell/modes/paper/paperTargets.ts,src/shell/modes/slide/animator/annotationTargets.ts,scripts/lib/annotationFixture.mjs}",
+      "run": [
+        "verify-annotation-core.ts",
+        "verify-feedback-snapshot.ts",
+        "verify-context-stamp.ts",
+        "verify-annotate-chord-census.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-context-gui.mjs",
+        "verify-scale-annotate-hover.mjs",
+        "verify-annotate-utility-electron.cjs",
+        "verify-ipc-contract.ts",
+        "verify-present-core.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/annotateUtilityProbeEntry.cjs",
+      "run": [
+        "verify-annotate-utility-electron.cjs"
+      ]
+    },
+    {
       "glob": "flux-core/connect/**",
       "run": [
         "verify-connect-mcp.ts",
         "verify-connect-delta.ts",
         "verify-connect.ts",
         "verify-connect-render.ts",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "src/lib/project/{annotations,inbox,presence,targets}.ts",
-      "run": [
-        "verify-annotation-core.ts",
         "tier:pure"
       ]
     },
@@ -2237,17 +2258,6 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-annotate-gui.mjs": {
-      "runtime": "tsx",
-      "prerequisites": [
-        "server"
-      ],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": true,
       "coverage": "behavior"
     },
     "verify-annotations-md.ts": {
@@ -7152,6 +7162,58 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-annotate-chord-census.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "presence"
+    },
+    "verify-context-stamp.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-annotation-surface-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-annotate-hover.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-annotate-utility-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

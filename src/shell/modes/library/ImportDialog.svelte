@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+
   // 2.4 Bulk import — a modal that ingests a .bib or .ris file into FluxLib. RIS is
   // normalized to BibTeX up front (shared ris.ts), a dedupe PREVIEW is computed from the
   // SAME planner the commit uses (addPlan.ts — so "N new · M merged" can't lie), and with
@@ -194,6 +196,7 @@
   });
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === "Escape" && phase !== "importing") {
       e.stopPropagation();
       close();

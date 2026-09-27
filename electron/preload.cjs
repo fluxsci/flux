@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld("fig", {
   writeText: (p, text, options) => ipcRenderer.invoke("fs:writeText", p, text, options),
   feedbackAppend: (p, line) => ipcRenderer.invoke("feedback:append", p, line),
   // Snapshot & annotate: this window's pixels (device px), optionally one CSS-px rect.
-  captureWindow: (rect) => ipcRenderer.invoke("win:capture", rect),
+  captureWindow: (options) => ipcRenderer.invoke("win:capture", options),
   pickScreenColor: (requestId) => ipcRenderer.invoke("color:pickScreen", requestId),
   cancelScreenColor: (requestId) => ipcRenderer.invoke("color:cancelScreen", requestId),
   fsyncDir: (p) => ipcRenderer.invoke("fs:fsyncDir", p),
