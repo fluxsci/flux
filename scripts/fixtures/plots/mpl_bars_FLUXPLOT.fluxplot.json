@@ -1,0 +1,267 @@
+{
+  "artifact": {
+    "svgSha256": "e536b2f1c062ff44f826193e1ad95b4bd29864d77f5ef7687198612838cd5f8a"
+  },
+  "axes": [
+    {
+      "id": "plot-area",
+      "pixelBox": {
+        "x0": 25.9552,
+        "x1": 40.1713,
+        "y0": 3.0002,
+        "y1": 133.2525
+      },
+      "svgId": "plot-area",
+      "x": {
+        "anchors": [
+          {
+            "data": -0.49,
+            "svg": 25.9552
+          },
+          {
+            "data": 1.49,
+            "svg": 83.3998
+          }
+        ],
+        "domain": [
+          -0.49,
+          1.49
+        ],
+        "label": "",
+        "scale": "linear"
+      },
+      "y": {
+        "anchors": [
+          {
+            "data": 0.0,
+            "svg": 164.1563
+          },
+          {
+            "data": 7.77,
+            "svg": 3.0002
+          }
+        ],
+        "domain": [
+          0.0,
+          7.77
+        ],
+        "label": "viability (a.u.)",
+        "scale": "linear"
+      }
+    }
+  ],
+  "build": {
+    "order": [
+      "axis.x",
+      "axis.y",
+      "gridlines",
+      "viability.bar.0",
+      "viability.bar.1",
+      "viability.errorbar",
+      "viability.errorbar.1",
+      "viability.errorbar.2"
+    ],
+    "presets": {
+      "axis": {
+        "animation": "draw-on",
+        "durationMs": 400
+      },
+      "bar": {
+        "animation": "grow-from-baseline",
+        "durationMs": 500
+      },
+      "errorbar": {
+        "animation": "fade-in",
+        "durationMs": 300
+      },
+      "gridline": {
+        "animation": "fade-in",
+        "durationMs": 300
+      }
+    }
+  },
+  "generator": {
+    "matplotlib": "3.11.0",
+    "name": "fluxplot",
+    "version": "0.1.0"
+  },
+  "guides": [
+    {
+      "axis": "x",
+      "id": "axis.x",
+      "role": "axis",
+      "svgId": "axis.x"
+    },
+    {
+      "axis": "y",
+      "id": "axis.y",
+      "role": "axis",
+      "svgId": "axis.y"
+    }
+  ],
+  "overlays": [],
+  "parts": {
+    "children": [
+      {
+        "children": [
+          {
+            "axis": "x",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.x.spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.x.ticks",
+                "kind": "line",
+                "members": [
+                  "axis.x.tick.0",
+                  "axis.x.tick.1"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.x.tick-labels",
+                "kind": "text",
+                "members": [
+                  "axis.x.ticklabel.0",
+                  "axis.x.ticklabel.1"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "axis.x",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "axis": "y",
+            "children": [
+              {
+                "kind": "line",
+                "ref": "axis.y.spine"
+              },
+              {
+                "groupRole": "tick",
+                "id": "axis.y.ticks",
+                "kind": "line",
+                "members": [
+                  "axis.y.tick.0",
+                  "axis.y.tick.1",
+                  "axis.y.tick.2",
+                  "axis.y.tick.3",
+                  "axis.y.tick.4",
+                  "axis.y.tick.5",
+                  "axis.y.tick.6",
+                  "axis.y.tick.7"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "tick-label",
+                "id": "axis.y.tick-labels",
+                "kind": "text",
+                "members": [
+                  "axis.y.ticklabel.0",
+                  "axis.y.ticklabel.1",
+                  "axis.y.ticklabel.2",
+                  "axis.y.ticklabel.3",
+                  "axis.y.ticklabel.4",
+                  "axis.y.ticklabel.5",
+                  "axis.y.ticklabel.6",
+                  "axis.y.ticklabel.7"
+                ],
+                "role": "group"
+              },
+              {
+                "kind": "text",
+                "ref": "axis.y.title"
+              }
+            ],
+            "id": "axis.y",
+            "kind": "container",
+            "role": "axis"
+          },
+          {
+            "children": [
+              {
+                "groupRole": "bar",
+                "id": "viability.bars",
+                "kind": "shape",
+                "members": [
+                  "viability.bar.0",
+                  "viability.bar.1"
+                ],
+                "role": "group"
+              },
+              {
+                "groupRole": "errorbar",
+                "id": "viability.errorbars",
+                "kind": "line",
+                "members": [
+                  "viability.errorbar",
+                  "viability.errorbar.1",
+                  "viability.errorbar.2"
+                ],
+                "role": "group"
+              }
+            ],
+            "id": "viability",
+            "kind": "container",
+            "role": "series"
+          }
+        ],
+        "id": "plot-area",
+        "kind": "container",
+        "role": "plot-area"
+      }
+    ],
+    "id": "figure",
+    "kind": "container",
+    "role": "figure"
+  },
+  "plotType": "bar",
+  "schemaVersion": "0.2.0",
+  "series": [
+    {
+      "data": {
+        "x": [
+          0.0,
+          1.0
+        ],
+        "y": [
+          4.2,
+          6.8
+        ]
+      },
+      "id": "viability",
+      "kind": "bar",
+      "name": "viability",
+      "roles": [
+        "bar",
+        "errorbar"
+      ],
+      "svg": {
+        "bars": [
+          "viability.bar.0",
+          "viability.bar.1"
+        ],
+        "errorbar": "viability.errorbar",
+        "errorbars": [
+          "viability.errorbar",
+          "viability.errorbar.1",
+          "viability.errorbar.2"
+        ]
+      }
+    }
+  ],
+  "size": {
+    "height": 180.0,
+    "unit": "pt",
+    "width": 86.4
+  },
+  "spec": "fluxplot/manifest",
+  "svg": "mpl_bars_FLUXPLOT.svg"
+}
