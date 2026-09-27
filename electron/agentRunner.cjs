@@ -166,6 +166,7 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
     run.dir = dir;
     run.log = createWriteStream(path.join(logDir, `${run.id}.jsonl`), { flags: "a", mode: 0o600 });
     run.log.on("error", e => fail(run, e));
+    await fs.access(launcher).catch(() => { throw new Error("The flux command-line launcher is missing — run AI status → Repair"); });
     const result = await collect(launcher, ["connect", run.root, "--depth", "ask", "--json"], { env: { ...runEnv, FLUX_PROJECT: run.root }, cwd: run.cwd, trackChild }, run.abort.signal, 60000);
     const packPath = JSON.parse(result).askPackPath;
     if (typeof packPath !== "string" || !path.isAbsolute(packPath)) throw new Error("Flux connect returned no Ask pack; repair the Flux AI Bundle");

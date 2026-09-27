@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { requestAsk } from "../shell/agent/askChord";
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // The property menu — `f` (2026-09-15 surface redesign). The main way
@@ -483,7 +482,7 @@
           <span class="vsep" aria-hidden="true"></span>
           <span class="ttl">{head.name}</span>
           {#if head.ctx}<span class="ctx">{head.ctx}</span>{/if}
-          <button on:click={() => requestAsk()} aria-label="Ask about this">✦ Ask</button>
+          <button class="askbtn" on:click={() => { close(); void import("../shell/agent/askChord").then((m) => m.requestAsk()); }} title="Ask about this — read-only" aria-label="Ask about this">✦ Ask</button>
           <button class="xbtn" on:click={close} aria-label="Close properties">×</button>
         </header>
         <div class="search-row" class:active={mode === "search"}>
@@ -638,6 +637,8 @@
   .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
   .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); }
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
+  .askbtn { height: 22px; padding: 0 8px; background: none; border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-muted); font-size: 11px; }
+  .askbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .hk {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 16px; height: 16px; padding: 0 3px;

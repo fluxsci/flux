@@ -1182,7 +1182,7 @@ Persistence invariants (all machine-checked — do not weaken):
     batches `.meta/live/sessions` notifications at ≥2s.
   - **Modal ownership and native windows.** All window key handlers yield through
     `yieldsToShellModal`/`isAnnotateChord` (source census, documented narrow exemptions).
-    External model reloads defer while Annotate is open; ledger/presence updates continue.
+    External model reloads defer while Annotate or Ask is open; ledger/presence updates continue.
     Live bridge writes refuse before mutation while the picture is frozen. Present's
     modifier filter lives in its app host, never in the shared/exported key reducer;
     the annotation portal is INSIDE its fullscreen root. Inert utility children forward

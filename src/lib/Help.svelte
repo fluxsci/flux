@@ -23,6 +23,7 @@
             ["?", "Show / hide this reference"],
             ["Alt+Q", "Inbox: annotations and margin comments"],
             ["⌃⇧M", "Annotate (note + picture for your agents)"],
+            ["⌃⇧J", "Ask about this (read-only question to Claude Code or Codex)"],
             ["Alt+A / B / P · Alt+Z", "In Annotate: arrow / box / pen · undo mark"],
             ["Alt+↑ / ↓", "In Annotate: widen / narrow the hovered target"],
             ["Enter / Shift+Enter · Tab", "In Annotate: add / new line · change recipient"],

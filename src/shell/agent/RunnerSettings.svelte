@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fileBridge, type RunnerCapability, type RunnerDriver } from "../../lib/project/types";
+  let { heading = true }: { heading?: boolean } = $props();
   let caps = $state<RunnerCapability[]>([]), loaded = $state(false), error = $state("");
   let driver = $state<RunnerDriver | "">(""), model = $state(""), effort = $state("");
   let saving: Promise<unknown> = Promise.resolve();
@@ -30,7 +31,7 @@
   }
 </script>
 <section aria-label="Agent that Flux launches">
-  <h3>Agent that Flux launches</h3>
+  {#if heading}<h3>Agent that Flux launches</h3>{/if}
   <p>Runs your installed CLI with your own login; usage counts against your plan.</p>
   {#if !loaded}<p role="status">Checking installed agents…</p>{/if}
   {#if loaded && !choices.length && !error}<p>Install and sign in to Claude Code or Codex in your terminal to use Ask.</p>{/if}

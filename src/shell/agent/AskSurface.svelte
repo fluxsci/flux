@@ -7,6 +7,7 @@
   import { anchorPanel, reanchorPanel } from "../../lib/ui/anchor";
   import { mdInlineFragment } from "../modes/paper/science/mdInline";
   import { modalFocus } from "../../lib/ui/modalFocus";
+  import { fullscreenPortal } from "../../lib/ui/portal";
   import { initAnnotationStore, keepAsk } from "./annotationStore";
   let { request }: { request: AskRequest } = $props();
   const req = untrack(() => request);
@@ -119,6 +120,8 @@
     try { await navigator.clipboard.writeText(driver === "claude" ? `claude --resume ${sessionId}` : `codex resume ${sessionId}`); copied = true; }
     catch (e) { error = `Could not copy: ${(e as Error).message}`; }
   }
+  /** "get_figure_image", not "mcp__flux__get_figure_image" (Claude) or "flux.get_figure_image" (Codex). */
+  const toolName = (title: string) => title.replace(/^mcp__flux__|^flux\./, "");
   function markdown(node: HTMLElement, text: string) {
     const update = (value: string) => node.replaceChildren(mdInlineFragment(value));
     update(text); return { update };
@@ -127,10 +130,6 @@
     const focused = document.activeElement === req.input;
     node.append(req.input); req.bootstrap.remove();
     if (focused) req.input.focus({ preventScroll: true });
-  }
-  function portal(node: HTMLElement) {
-    (document.fullscreenElement ?? document.querySelector(".present") ?? document.body).append(node);
-    return { destroy() { node.remove(); } };
   }
   function place(node: HTMLElement) {
     let at = anchorPanel({ avoid: req.avoid, size: { w: node.offsetWidth, h: node.offsetHeight }, viewport: { w: innerWidth, h: innerHeight } });
@@ -150,7 +149,7 @@
   onDestroy(dispose);
 </script>
 
-<div class="ask-layer" use:portal>
+<div class="ask-layer" use:fullscreenPortal>
   <div class="ask-backdrop" aria-hidden="true"></div>
   <div class="ask-panel" data-ask-surface role="dialog" aria-modal="true" aria-label="Ask about this" tabindex="-1" use:place use:modalFocus>
     <header><strong>Ask about this</strong><span>read-only</span><button aria-label="Close Ask" title="Discard this exchange. The CLI's own session history remains." onclick={closeAsk}>×</button></header>
@@ -159,7 +158,7 @@
     <div class="exchange" aria-live="polite" aria-relevant="additions text">
       {#each messages as message, i (i)}<div class:question={message.role === "human"} class="message" use:markdown={message.text}></div>{/each}
       {#each tools as tool (tool.toolId)}
-        <details class="tool-line"><summary>{tool.status === "started" ? "Reading" : tool.status === "failed" ? "Failed" : "Used"} · {tool.title} · {typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input)}</summary>
+        <details class="tool-line"><summary>{tool.status === "started" ? "Reading" : tool.status === "failed" ? "Failed" : "Used"} · {toolName(tool.title)} · {typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input)}</summary>
           <pre>{JSON.stringify({ input: tool.input, output: tool.output }, null, 2)}</pre>
         </details>
       {/each}
