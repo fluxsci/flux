@@ -319,7 +319,9 @@
       "verify-agent-routing.ts",
       "verify-background-run.ts",
       "verify-preset-catalog.ts",
-      "verify-correspondence.ts"
+      "verify-correspondence.ts",
+      "verify-target-geometry.ts",
+      "verify-target-geometry-browser.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -870,6 +872,30 @@
         "tier:pure",
         "group:inline-slides",
         "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/paint.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/svgMatrix.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/targetGeometry.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure"
       ]
     },
     {
@@ -7713,6 +7739,24 @@
       "coverage": "behavior"
     },
     "verify-correspondence.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-target-geometry.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-target-geometry-browser.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

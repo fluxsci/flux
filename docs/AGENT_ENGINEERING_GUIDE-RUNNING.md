@@ -981,6 +981,19 @@ Persistence invariants (all machine-checked — do not weaken):
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
+  The animation-v2 geometry bridge (`slide/targetGeometry.ts`, exported by flux-core)
+  supplies `StageOutline` rings/chains in stage px for compiled element states and
+  pristine `preparePlot` roots. It shares `elementPaint`, SVG matrices, multi-subpath
+  parsing, `readPaint` and `ptTrueFactors`; glyph markers can be paths OR groups.
+  Flips precede rotation about the box centre, matching the renderer's CSS list.
+  Roots/manifests must be immutable: regeneration replaces their identity and releases
+  weak geometry caches. Pass the owning slide's registry as `GeometryCtx.groups` for
+  nested group refs (`SlideFrame` does not carry it). Bounds include control handles,
+  not curve extrema or stroke overhang. Text is a box-only crossfade target: explicit
+  SVG bounds/textLength are used when present; otherwise its anchor is retained without
+  guessing glyph metrics. The eventual clone-rendering consumer owns text measurement.
+  Gates: `verify-target-geometry` (linkedom plus core parity) and
+  `verify-target-geometry-browser` (real renderSlide/Chrome CTM, pure tier).
 - **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
   **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
@@ -7657,6 +7670,12 @@ animation, X-ray, transform and trim cohorts, both GUI gates on :1423, and both 
   to preserve behavior (promoted to §4).
 - Exact-path manifest entries must retain prior regression groups (promoted to §7).
 - Corrected §3's stale deck version/migration range to match the base's existing 0.6.0 seams.
+
+### 2026-09-27 22:59 UTC — Animation v2 stage geometry bridge (Codex, av2/B1)
+**Work:** Added the pure target-to-stage outline bridge, shared SVG matrices/paint/subpath parsing/pt-true factors, and flux-core exports. New linkedom/core-parity and real-renderSlide Chrome gates pass (59 and 32 checks); both fail with the base path reader and with the crop-origin subtraction removed. Required slide/outline/compensate/plot/figenh regressions, both type checks and CLI build pass.
+**Learnings:**
+- Prepared scatter glyphs can be paths themselves, not just wrappers. The bridge handles both and retains their translate anchors during compensation.
+- Promoted the immutable-root cache contract, group-registry context seam, and text/control-polygon bounds to §4. The 60-point selector measured 0.724 ms warm p95 on this host.
 
 ### 2026-09-27 23:00 UTC — Animation v2 correspondence core (Codex, `av2/B2`)
 **Work:** Added pure N↔M planning and buffered sampling over StageOutline, including merged chains,

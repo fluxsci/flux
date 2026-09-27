@@ -10,6 +10,7 @@
 // builds while the scene is otherwise still. `transform`/`countUp` live elsewhere.
 // ---------------------------------------------------------------------------
 
+import { readPaint } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
 import { PRESET_CATALOG, isEnterPreset, isExitPreset } from "../presetCatalog";
 import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
@@ -77,20 +78,8 @@ function inDefs(el: Element): boolean {
  *  the whole-node fade fallback instead of silently no-oping. */
 const GEO_TAGS = "path,line,polyline,polygon,rect,ellipse,circle";
 function paintOf(el: Element): { stroked: boolean; filled: boolean } {
-  const styleAttr = el.getAttribute?.("style") ?? "";
-  const val = (name: string): string => {
-    const m = styleAttr.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, "i"));
-    return (m?.[1] ?? el.getAttribute?.(name) ?? "").trim().toLowerCase();
-  };
-  const stroke = val("stroke");
-  const fill = val("fill");
-  const tag = el.tagName?.toLowerCase() ?? "";
-  // SVG default fill is BLACK when unspecified — but line/polyline never fill.
-  const fillable = tag !== "line" && tag !== "polyline";
-  return {
-    stroked: stroke !== "" && stroke !== "none",
-    filled: fillable && fill !== "none" && fill !== "transparent",
-  };
+  const paint = readPaint(el);
+  return { stroked: paint.stroke !== "none", filled: paint.fill !== "none" };
 }
 function drawGeometry(node: TargetNode): { strokes: SVGElement[]; fills: SVGElement[] } {
   const el = node as Element;

@@ -182,7 +182,8 @@ line becomes an ellipse, a bracket becomes an arrow, a rounded rectangle becomes
 morph is continuous: outlines are put into correspondence and glide into each other, strokes
 inflate into filled shapes (or shapes deflate into strokes), colors blend, widths and dashes tween,
 and arrowheads fade rather than pop. Text, images and video have no outline to morph, so they
-crossfade while their box, rotation and opacity still tween. A Become at a step that already has a
+crossfade while their box, rotation and opacity still tween. Text stays readable as text; its
+letters are not traced into shape outlines. A Become at a step that already has a
 Change replaces that Change's endpoint; a ghost copy can Become something at its birth step.
 
 **Plots become other plots** in two ways. Click another plot placed on the slide and the source

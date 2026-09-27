@@ -100,6 +100,7 @@ export { exportSlideVideo } from "./slideVideo";
 export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef } from "../src/lib/slide/targets";
 export { PRESET_CATALOG, presetDef, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
 export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
+export { targetOutlines, elementStageOutlines, partStageOutlines, type GeometryCtx } from "../src/lib/slide/targetGeometry";
 export {
   loadDeck,
   saveDeck,

@@ -11,6 +11,7 @@ import type { FluxPlotManifest, PartNode } from "./types";
 import type { SemanticPlotElement, PartOverride } from "../types";
 import { drawablesUnder, buildPartIndex, partDomId } from "./parse";
 import { inferRole, labelForPart } from "./tree";
+import { parseStyleAttr } from "./paint";
 import { plotDom } from "./store";
 
 export type PartKind = "text" | "line" | "shape" | "container";
@@ -46,20 +47,6 @@ const KNOWN_KINDS = new Set<string>(["text", "line", "shape", "container"]);
 // Whole-plot scaffolding: clicking these must keep dragging the WHOLE plot
 // (the plot would otherwise be un-draggable by its own background / frame).
 const SCAFFOLD_ROLES = new Set(["figure", "plot-area", "panel", "background", "axis"]);
-
-// --- tiny inline-style reader (linkedom-safe; mirrors derive.ts semantics) ---
-function parseStyleAttr(s: string | null | undefined): Map<string, string> {
-  const m = new Map<string, string>();
-  if (!s) return m;
-  for (const decl of s.split(";")) {
-    const i = decl.indexOf(":");
-    if (i < 0) continue;
-    const k = decl.slice(0, i).trim().toLowerCase();
-    const v = decl.slice(i + 1).trim();
-    if (k) m.set(k, v);
-  }
-  return m;
-}
 
 function q(s: string): string {
   return s.replace(/"/g, '\\"');

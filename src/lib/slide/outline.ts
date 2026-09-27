@@ -528,6 +528,7 @@ interface OutlineStyle {
 
 /** The paint of one side. Open strokes never fill (the serializer's own rule)
  *  and only open strokes carry caps/arrowheads. */
+export { styleOf as elementPaint };
 function styleOf(el: Element): OutlineStyle {
   const e = el as unknown as Record<string, unknown>;
   const open = el.type === "line" || (el.type === "path" && !el.closed);

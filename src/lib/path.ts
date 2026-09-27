@@ -56,10 +56,16 @@ function classify(n: VectorNode): "corner" | "smooth" {
   return "corner";
 }
 
+function pathTokens(d: string, legacy = false): string[] {
+  // The authoring reader deliberately retains its original restricted grammar.
+  return d.match(legacy ? /[MLCQZmlcqz]|-?\d*\.?\d+(?:[eE]-?\d+)?/g
+    : /[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:[eE][-+]?\d+)?/g) ?? [];
+}
+
 /** Parse the M/L/C/Q/Z grammar we emit into editable nodes (best-effort for any
  *  legacy straight-pen `d`). Handles command repeats; treats coords as absolute. */
 export function pathToNodes(d: string): VectorNode[] {
-  const toks = d.match(/[MLCQZmlcqz]|-?\d*\.?\d+(?:[eE]-?\d+)?/g) || [];
+  const toks = pathTokens(d, true);
   const nodes: VectorNode[] = [];
   let i = 0;
   let cmd = "";
@@ -112,6 +118,85 @@ export function pathToNodes(d: string): VectorNode[] {
   }
   for (const n of nodes) n.type = classify(n);
   return nodes;
+}
+
+/** Read SVG subpaths independently, preserving relative movetos and each Z.
+ *  Normalize SVG commands to the authoring reader's M/L/C/Q grammar, so handle
+ *  classification and duplicate closure folding have only one implementation. */
+export function pathToSubpaths(d: string): { nodes: VectorNode[]; closed: boolean }[] {
+  const tokens = pathTokens(d), out: { nodes: VectorNode[]; closed: boolean }[] = [];
+  const arity: Record<string, number> = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7 };
+  let i = 0, cmd = "", previous = "", x = 0, y = 0, sx = 0, sy = 0;
+  let control = { x: 0, y: 0 }, chunk: string[] = [], closed = false;
+  const flush = () => {
+    if (chunk.length) out.push({ nodes: pathToNodes(chunk.join(" ")), closed });
+    chunk = []; closed = false;
+  };
+  while (i < tokens.length) {
+    if (/^[a-z]$/i.test(tokens[i])) cmd = tokens[i++];
+    const c = cmd.toUpperCase(), relative = cmd !== c;
+    if (c === "Z") {
+      chunk.push("Z"); closed = true; x = sx; y = sy; previous = "Z"; cmd = "";
+      continue;
+    }
+    const count = arity[c];
+    if (!count || i + count > tokens.length) { i++; continue; }
+    const v = tokens.slice(i, i + count).map(Number);
+    if (!v.every(Number.isFinite)) { i++; cmd = ""; continue; }
+    i += count;
+    if (c !== "M") closed = false;
+    const point = (k: number) => ({ x: v[k] + (relative ? x : 0), y: v[k + 1] + (relative ? y : 0) });
+    let end = { x, y };
+    if (c === "M") {
+      end = point(0); flush(); sx = end.x; sy = end.y;
+      chunk.push(`M ${end.x} ${end.y}`); cmd = relative ? "l" : "L";
+    } else if (c === "L" || c === "H" || c === "V") {
+      end = c === "L" ? point(0) : c === "H" ? { x: v[0] + (relative ? x : 0), y } : { x, y: v[0] + (relative ? y : 0) };
+      chunk.push(`L ${end.x} ${end.y}`);
+    } else if (c === "C" || c === "S") {
+      const a = c === "C" ? point(0) : /[CS]/.test(previous) ? { x: 2 * x - control.x, y: 2 * y - control.y } : { x, y };
+      const b = point(c === "C" ? 2 : 0); end = point(c === "C" ? 4 : 2); control = b;
+      chunk.push(`C ${a.x} ${a.y} ${b.x} ${b.y} ${end.x} ${end.y}`);
+    } else if (c === "Q" || c === "T") {
+      const q = c === "Q" ? point(0) : /[QT]/.test(previous) ? { x: 2 * x - control.x, y: 2 * y - control.y } : { x, y };
+      end = point(c === "Q" ? 2 : 0); control = q;
+      chunk.push(`Q ${q.x} ${q.y} ${end.x} ${end.y}`);
+    } else if (c === "A") {
+      end = point(5);
+      chunk.push(...arcCubics(x, y, v[0], v[1], v[2], !!v[3], !!v[4], end.x, end.y));
+    }
+    x = end.x; y = end.y; previous = c;
+  }
+  flush();
+  return out.filter((p) => p.nodes.length > 0);
+}
+
+/** SVG endpoint arc → cubics, at most a quarter ellipse per segment. */
+function arcCubics(x: number, y: number, rx: number, ry: number, degrees: number, large: boolean, sweep: boolean, ex: number, ey: number): string[] {
+  rx = Math.abs(rx); ry = Math.abs(ry);
+  if (x === ex && y === ey) return [];
+  if (!rx || !ry) return [`L ${ex} ${ey}`];
+  const phi = degrees * Math.PI / 180, c = Math.cos(phi), s = Math.sin(phi);
+  const px = c * (x - ex) / 2 + s * (y - ey) / 2, py = -s * (x - ex) / 2 + c * (y - ey) / 2;
+  const fit = Math.hypot(px / rx, py / ry);
+  if (fit > 1) { rx *= fit; ry *= fit; }
+  const u = px / rx, v = py / ry, norm = u * u + v * v;
+  const k = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, (1 - norm) / norm));
+  const cx = k * rx * v, cy = -k * ry * u;
+  const ox = c * cx - s * cy + (x + ex) / 2, oy = s * cx + c * cy + (y + ey) / 2;
+  const start = Math.atan2((py - cy) / ry, (px - cx) / rx);
+  let delta = Math.atan2((-py - cy) / ry, (-px - cx) / rx) - start;
+  if (sweep && delta < 0) delta += 2 * Math.PI;
+  if (!sweep && delta > 0) delta -= 2 * Math.PI;
+  const n = Math.ceil(Math.abs(delta) / (Math.PI / 2)), step = delta / n, parts: string[] = [];
+  const p = (a: number) => ({ x: ox + c * rx * Math.cos(a) - s * ry * Math.sin(a), y: oy + s * rx * Math.cos(a) + c * ry * Math.sin(a) });
+  const tangent = (a: number) => ({ x: -c * rx * Math.sin(a) - s * ry * Math.cos(a), y: -s * rx * Math.sin(a) + c * ry * Math.cos(a) });
+  for (let j = 0; j < n; j++) {
+    const a = start + j * step, b = a + step, f = 4 / 3 * Math.tan(step / 4);
+    const p0 = p(a), p1 = j === n - 1 ? { x: ex, y: ey } : p(b), t0 = tangent(a), t1 = tangent(b);
+    parts.push(`C ${p0.x + f * t0.x} ${p0.y + f * t0.y} ${p1.x - f * t1.x} ${p1.y - f * t1.y} ${p1.x} ${p1.y}`);
+  }
+  return parts;
 }
 
 /** Does the path close (ends with Z)? Pairs with pathToNodes for legacy paths. */
