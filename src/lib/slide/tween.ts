@@ -271,20 +271,24 @@ export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: 
  *  pattern with zero GAPS (so dashes fade in/out smoothly rather than pop).
  *  Odd-length patterns are doubled first (SVG's own repeat rule), then both
  *  are padded by repetition to a common length and lerped elementwise. */
-export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: number): number[] | undefined {
-  const has = (d?: number[]) => !!d && d.length > 0;
-  if (!has(a) && !has(b)) return undefined;
-  if (t <= 0) return a ? [...a] : undefined;
-  if (t >= 1) return b ? [...b] : undefined;
-  const even = (d: number[]) => (d.length % 2 ? [...d, ...d] : [...d]);
-  const solidTwin = (other: number[]) => even(other).map((v, i) => (i % 2 ? 0 : v));
-  const da = has(a) ? even(a!) : solidTwin(b!);
-  const db = has(b) ? even(b!) : solidTwin(a!);
-  const n = Math.max(da.length, db.length);
-  // pad by repetition to the common length (both even → repeats stay aligned)
-  const pad = (d: number[]) => Array.from({ length: n }, (_, i) => d[i % d.length]);
-  const pa = pad(da), pb = pad(db);
-  return pa.map((v, i) => Math.max(0, lerp(v, pb[i], t)));
+export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: number, out: number[] = []): number[] | undefined {
+  if (!a?.length && !b?.length) return undefined;
+  if (t <= 0 || t >= 1) {
+    const d = t <= 0 ? a : b;
+    if (!d) return undefined;
+    for (let i = 0; i < d.length; i++) out[i] = d[i];
+    out.length = d.length;
+    return out;
+  }
+  const da = a?.length ? a : b!, db = b?.length ? b : a!;
+  const n = Math.max(da.length * (da.length % 2 ? 2 : 1), db.length * (db.length % 2 ? 2 : 1));
+  for (let i = 0; i < n; i++) {
+    const va = !a?.length && i % 2 ? 0 : da[i % da.length];
+    const vb = !b?.length && i % 2 ? 0 : db[i % db.length];
+    out[i] = Math.max(0, lerp(va, vb, t));
+  }
+  out.length = n;
+  return out;
 }
 
 // --- the content plan (what the driver renders) -------------------------------

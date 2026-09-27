@@ -194,6 +194,14 @@ through smoothly interpolated axes; other pairs crossfade while the frame still 
 path is retained so linked data can update, and **Keep own data** drops the data target again.
 There is no separate "data morph": it is a Become.
 
+Hand-off pairing connects shapes and plot parts by **position**, **order**, **data**, or
+**tiling**. Connected strokes, such as the two axis spines, form one path. Order follows point
+indices; tiling divides one outline among several partners by their lengths. **By data** lands
+each point at its value on the destination axis and divides the destination curve halfway
+between neighbouring points. This is **data ↔ summary**: points can become a distribution,
+or a summary can expand back into its points. Unmatched sources fade during the first 40%
+of the animation; unmatched destinations appear during the last 40%. Text and images crossfade.
+
 The Animation inspector's **Destination** row states what the object becomes at the step
 ("Becomes an ellipse", "Data becomes growth-b.svg") and offers **Become an object…** to point an
 existing transform somewhere else.

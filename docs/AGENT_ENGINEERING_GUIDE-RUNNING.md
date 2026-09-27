@@ -156,6 +156,7 @@ The established shared cores — extend these, don't duplicate them:
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
+| N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
@@ -935,8 +936,17 @@ Persistence invariants (all machine-checked — do not weaken):
   seams/winding, and chooses `inflate` (the ring side is FILLED: the stroke doubles back on
   itself as a degenerate ring that swells into the shape — no wedge) or `cut` (a stroke-only
   ring opens where it is nearest both of the stroke's ends and unrolls into it);
-  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke and
-  the driver draws three layers — A the original nodes (t=0), M one live `<path>` written
+  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke through the shared
+  `sampleNodes` node loop. Animation v2's `correspondence.ts` merges stage outlines and
+  pairs spatial/order/data/tile sets through that same 1↔1 planner. Pair arrays remain in
+  unit coordinates for exact compatibility; the sampler applies their stage bboxes.
+  Call `CorrespondencePlan.prepare()` in the warm hook before sampling (unprepared sampling
+  refuses instead of planning on the frame path), and retain its output array to reuse all
+  geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
+  `owner.members` are the reveal inventory. Large marker sets expose glyph landing points;
+  text/raster pairs expose crossfade boxes without a path plan. The core does not mount the
+  hand-off flight layer. The existing element driver draws three layers — A the original
+  nodes (t=0), M one live `<path>` written
   per frame with no serialization, B the end markup from the ONE serializer (t=1, later
   tracks bind here). Heads that only one side draws fade (`fixedHeadOpacity`/`arrowFade`);
   the body is never trimmed under a fading head. **The placement law (render.ts):** a
@@ -7647,3 +7657,14 @@ animation, X-ray, transform and trim cohorts, both GUI gates on :1423, and both 
   to preserve behavior (promoted to §4).
 - Exact-path manifest entries must retain prior regression groups (promoted to §7).
 - Corrected §3's stale deck version/migration range to match the base's existing 0.6.0 seams.
+
+### 2026-09-27 23:00 UTC — Animation v2 correspondence core (Codex, `av2/B2`)
+**Work:** Added pure N↔M planning and buffered sampling over StageOutline, including merged chains,
+data/length tiling, leftovers, lazy 1↔1 plans and glyph landing points. The new public-path gate
+passes 125 checks and fails on the base code and both merge/midpoint fault controls; all 51 pure
+slide gates pass. User and transform docs now describe pairing and the warm/sampling seam.
+**Learnings:**
+- Keep pair chains in the existing planner's unit coordinates to preserve exact array compatibility;
+  stage placement belongs in the shared sampler. Promoted this contract into §4.
+- A bounded batch memo retains warmed large plans beyond the 256-entry individual-pair cache;
+  snapshot inputs on a miss so later producer edits cannot mutate a retained plan.

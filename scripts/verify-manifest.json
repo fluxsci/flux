@@ -318,7 +318,8 @@
       "verify-connect-e2e.ts",
       "verify-agent-routing.ts",
       "verify-background-run.ts",
-      "verify-preset-catalog.ts"
+      "verify-preset-catalog.ts",
+      "verify-correspondence.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -858,6 +859,13 @@
         "tier:pure",
         "group:inline-slides",
         "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/correspondence.ts",
+      "run": [
+        "verify-correspondence.ts",
+        "tier:pure"
       ]
     },
     {
@@ -7692,6 +7700,15 @@
       "coverage": "behavior"
     },
     "verify-preset-catalog.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-correspondence.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

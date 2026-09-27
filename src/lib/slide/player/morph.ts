@@ -19,7 +19,7 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 /** A one-axis data→svg-pixel fit `svg = m·f(data) + c` (f = log on log scales),
  *  derived from the manifest's anchor table (handles the y-flip + domain). */
 interface Fit { m: number; c: number; log: boolean; }
-function axisFit(axis: FluxPlotAxis): Fit {
+export function axisFit(axis: FluxPlotAxis): Fit {
   const log = axis.scale === "log";
   const f = (v: number) => (log ? Math.log(v) : v);
   const as = axis.anchors?.length >= 2 ? axis.anchors : [{ data: axis.domain[0], svg: 0 }, { data: axis.domain[1], svg: 1 }];
@@ -28,7 +28,7 @@ function axisFit(axis: FluxPlotAxis): Fit {
   const m = (a1.svg - a0.svg) / denom;
   return { m, c: a0.svg - m * f(a0.data), log };
 }
-const projectWith = (ft: Fit, v: number) => ft.m * (ft.log ? Math.log(v) : v) + ft.c;
+export const projectWith = (ft: Fit, v: number) => ft.m * (ft.log ? Math.log(v) : v) + ft.c;
 const blendFit = (a: Fit, b: Fit, t: number): Fit => ({ m: lerp(a.m, b.m, t), c: lerp(a.c, b.c, t), log: a.log });
 const lerpData = (vA: number, vB: number, t: number, log: boolean) =>
   log ? Math.exp(lerp(Math.log(vA), Math.log(vB), t)) : lerp(vA, vB, t);

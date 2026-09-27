@@ -108,6 +108,33 @@ the pure sampler — no serialization or parsing on the frame path, and **B** = 
 rendered once through the one serializer (shown at t = 1; later tracks bind to it via
 `targetRoot`). Same-kind transforms keep their existing attribute-binding fast path.
 
+### Animation v2: N↔M correspondence core
+
+`slide/correspondence.ts` accepts the shared `StageOutline` type. It merges open chains,
+selects spatial/order/data/tile pairing, and retains the unsliced destinations for the reveal.
+`owner.members` preserves every merged leaf. Data hints name `axis` (`x` or `y`) and
+`destAxisFit`: either `{m,c,log}` or a manifest axis whose anchors already use stage pixels.
+Reverse summary→data can supply `sourceAxisFit` for the summary's own placement.
+
+Pair plans retain the exact unit-coordinate arrays from `planOutlines`; `sampleNodes` places
+them through each pair's interpolated bbox. `prepare()` warms every lazy pair before sampling;
+the sampler refuses an unprepared plan rather than planning during a frame. Pass the previous
+`SampledPath[]` back to reuse path/node/handle/dash buffers and prepared color conversions.
+Only CSS color strings are rebuilt during repeated sampling. Exact endpoint node chains have
+separate reusable buffers, so seeking through either endpoint does not discard the flight buffer.
+
+Above 64 small source rings (both bbox dimensions ≤12 stage px), the plan selects `glyph`
+and supplies each matched marker's landing point and stroke-to-marker size ratio. The runtime
+integration owns the glyph clones and visibility flip; this core does not mount DOM. Text/raster
+pairs instead expose `crossfade` and both bboxes, with no outline plan. A bounded four-batch memo
+keeps warmed large correspondences alive beyond the 256-entry individual-pair cache and
+invalidates when input geometry, identity, paint or data hints change.
+
+`verify-correspondence.ts` drives these public exports (including flux-core identity parity),
+pins full tiled coverage and exact 1↔1 compatibility, and budgets the warmed 1,200-marker
+plan including `prepare()` at 15 ms. Negative controls remove the public planner's merge step
+and bias the midpoint rule; both must fail their behavioral assertions.
+
 ## 5. UI
 
 - Animator bar: **Transform ▾** → *Change* (⌃⇧T), *Ghost…*, *Become…* (⌃⇧E). The old separate
