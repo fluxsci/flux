@@ -175,10 +175,18 @@ const opts = { pair: "data" as const, data: { destAxisFit: fit } };
 const coldStart = performance.now();
 const warm = planCorrespondence(dense, [sine], opts); warm.prepare();
 console.log(`cold plan + prepare: ${(performance.now() - coldStart).toFixed(2)} ms`);
+// A cache MISS with warm code: shift every ring by a sub-pixel so the batch key differs.
+const dense2 = dense.map((o) => ({ ...o, nodes: o.nodes.map((n) => ({ ...n, x: n.x + 0.001 })), bbox: { ...o.bbox, x: o.bbox.x + 0.001 } }));
 const start = performance.now();
-const large = planCorrespondence(dense, [sine], opts); large.prepare();
+const large = planCorrespondence(dense2, [sine], opts); large.prepare();
 const ms = performance.now() - start;
-h.ok(ms <= 15, `(f) 1,200-ring plan including prepare after ONE warm run: ${ms.toFixed(2)} ms ≤ 15 ms`);
+// Warm-hook work (never a frame): what remains is the exact batch key (~3 ms), the protective
+// input clone (~7 ms) and the data pairing itself; 40 ms leaves headroom for a loaded machine.
+h.ok(ms <= 40, `(f) 1,200-ring plan including prepare, warm code but a cache MISS: ${ms.toFixed(2)} ms ≤ 40 ms (glyph pairs plan no outline correspondence)`);
+h.ok(large.pairs.every((p) => !p.plan), "(f) glyph pairs carry landings only — no per-pair outline plan to prepare");
+const hitStart = performance.now();
+planCorrespondence(dense2, [sine], opts).prepare();
+h.ok(performance.now() - hitStart <= 5, "(f) a repeated plan is a cache hit");
 h.eq(large.driver, "glyph", "(f) large small-ring set selects glyph flights");
 h.ok(large.pairs.length === 1200 && large.pairs.every((p) => p.landing && p.landing.x >= sine.bbox.x && p.landing.x <= sine.bbox.x + sine.bbox.w && near(p.landing.scale, 0.5)), "(f) every marker has an on-curve landing and stroke-to-marker scale");
 h.ok(large.pairs.every((p) => {

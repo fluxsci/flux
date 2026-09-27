@@ -124,8 +124,17 @@ function spatial(A: StageOutline[], B: StageOutline[]): CorrespondencePair[] {
 
 /** Nearest station, either in 2D or along the projected data axis. Original
  *  segments remain intact; a bounded search refines curved segments only. */
+// Planning asks "nearest station on this chain" once per source outline —
+// 1,200 times for a dense scatter — so the chain is parameterized once, not
+// per question (measured: the re-parameterization was most of a 35 ms plan).
+const paramCache = new WeakMap<Outline, ReturnType<typeof parameterize>>();
+function paramOf(o: Outline): ReturnType<typeof parameterize> {
+  let p = paramCache.get(o);
+  if (!p) { p = parameterize(o.nodes, o.closed); paramCache.set(o, p); }
+  return p;
+}
 function nearest(o: Outline, p: { x: number; y: number }, axis?: "x" | "y"): { station: number; distance: number } {
-  const param = parameterize(o.nodes, o.closed);
+  const param = paramOf(o);
   let station = 0, distance = Infinity, acc = 0;
   const cost = (s: PathSeg, t: number) => {
     const q = segPoint(s, t);
@@ -243,7 +252,7 @@ function byData(A: StageOutline[], B: StageOutline[], hint: DataHint): Correspon
     for (let j = 0; j < group.length; j++) {
       const o = group[j].o;
       result.push({ a: o, b: tiles[j], landing: {
-        ...pointAt(parameterize(b.nodes, b.closed), group[j].station),
+        ...pointAt(paramOf(b), group[j].station),
         scale: b.paint.strokeWidth / (Math.max(o.bbox.w, o.bbox.h) || 1),
       } });
     }
@@ -306,9 +315,12 @@ export function planCorrespondence(A: StageOutline[], B: StageOutline[], opts: {
   } else { policy = "spatial"; pairs = spatial(as, bs); }
   const driver = pairs.length > GLYPH_FLIGHT_THRESHOLD && as.length > 0 && as.every((o) => o.closed && !boxOnly(o) && o.bbox.w <= 12 && o.bbox.h <= 12) ? "glyph" : "path";
   for (const pair of pairs) {
-    planPair(pair);
+    // A glyph flight moves the marker nodes themselves and never samples a
+    // path plan, so planning 1,200 outline correspondences would only burn the
+    // warm hook (measured: ~65 of ~90 ms). Glyph pairs keep their landing only.
+    if (driver !== "glyph") planPair(pair);
     if (driver === "glyph" && pair.a && pair.b && !pair.landing) {
-      const station = pointAt(parameterize(pair.b.nodes, pair.b.closed), 0.5);
+      const station = pointAt(paramOf(pair.b), 0.5);
       pair.landing = { ...station, scale: pair.b.paint.strokeWidth / (Math.max(pair.a.bbox.w, pair.a.bbox.h) || 1) };
     }
   }
