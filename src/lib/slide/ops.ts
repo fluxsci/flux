@@ -22,6 +22,7 @@ import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { familyOf } from "./family";
+import { isExitPreset } from "./presetCatalog";
 import { compileSlide, trackDuration } from "./compile";
 import { diffState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
@@ -812,7 +813,7 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   const beat = slide.beats[bi];
   const whole = beat.tracks.filter(t => t.target === sourceId && !hasPartBinding(t) && !t.disabled);
   const changes = whole.filter(t => familyOf(t) === "transform");
-  const exits = whole.filter(t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? ""));
+  const exits = whole.filter(t => isExitPreset(t.preset));
   if (changes.length > 1 || exits.length > 1 || original === "stay" && (changes.length || exits.length) || original === "transform" && exits.length || original === "disappear" && changes.length)
     throw new Error(`The original already has a Change or exit in this step. Choose its existing behavior or edit those effects first.`);
   if (opts.sourceSnapshot && (opts.sourceSnapshot.id !== sourceId || opts.sourceSnapshot.type !== source.type)) throw new Error("Copy snapshot must belong to the selected source object");

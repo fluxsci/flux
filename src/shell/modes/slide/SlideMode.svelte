@@ -39,6 +39,7 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
+  import { isExitPreset } from "../../../lib/slide/presetCatalog";
   import { addAppearanceTracks } from "../../../lib/slide/animateSelection";
   import { xrayAnimate, type XrayAnimateRequest } from "../../../lib/xray/animateHook";
   import {
@@ -1108,7 +1109,7 @@
       return;
     }
     const tracks = s.beats[beatIndex]?.tracks.filter(t => t.target === sourceId && !t.part && !t.selector && !t.disabled) ?? [];
-    const original = tracks.some(t => familyOf(t) === "transform") ? "transform" : tracks.some(t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? "")) ? "disappear" : "stay";
+    const original = tracks.some(t => familyOf(t) === "transform") ? "transform" : tracks.some(t => isExitPreset(t.preset)) ? "disappear" : "stay";
     ghostDialog = { sourceId, beatIndex, original };
   }
   function createGhosts(count: number, original: "stay" | "disappear" | "transform") {

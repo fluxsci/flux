@@ -12,6 +12,8 @@ import { autoAnimatePlot, suggestTrack } from "../src/lib/slide/autobuild";
 import { isVideoCommand } from "../src/lib/slide/mediaTimeline";
 import { PRESET_COLOR, EDIT_PRESETS, presetLabel } from "../src/shell/modes/slide/animator/shared";
 import * as core from "../flux-core/index";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import * as path from "node:path";
 
 const h = harness("verify-preset-catalog");
 type Snapshot = readonly [label: string, colour: string, wrapperProps: readonly string[], duration: number,
@@ -116,4 +118,43 @@ h.eq(rejected.cues[0].tracks.length, 0, "the compiler rejects unknown effects be
 h.eq(rejected.issues[0]?.reason, "Unknown effect: unknown-effect", "unknown effect diagnostics are unchanged");
 h.ok(core.PRESET_CATALOG === PRESET_CATALOG && core.presetDef === presetDef && core.isEnterPreset === isEnterPreset && core.isExitPreset === isExitPreset && core.EDITABLE_PRESETS === EDITABLE_PRESETS && core.KNOWN_PRESETS === KNOWN_PRESETS,
   "flux-core exports the same catalog and helpers, not a second implementation");
+
+h.section("no hand-kept enter/exit lists outside the catalog");
+// Plan §2.2 item 7: a second list of enter or exit names is how a new preset
+// silently misses a consumer. Any bracket literal (array / Set / `.includes`
+// operand) naming two or more presets of one phase is such a list; derive it
+// from presetCatalog.ts instead (isEnterPreset / isExitPreset / ENTER_PRESETS).
+const phaseNames = (phase: string) => new Set(Object.values(PRESET_CATALOG).filter(def => def.phase === phase).map(def => def.name as string));
+const enterNames = phaseNames("enter"), exitNames = phaseNames("exit");
+function phaseLists(source: string): string[] {
+  const found: string[] = [];
+  for (const m of source.matchAll(/\[[^\[\]]*\]/g)) {
+    const quoted = [...m[0].matchAll(/["'`]([A-Za-z]+)["'`]/g)].map(q => q[1]);
+    if (quoted.filter(n => enterNames.has(n)).length >= 2 || quoted.filter(n => exitNames.has(n)).length >= 2)
+      found.push(m[0].replace(/\s+/g, " ").slice(0, 90));
+  }
+  return found;
+}
+h.ok(phaseLists(`t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? "")`).length === 1, "the census detects an inline exit list");
+h.ok(phaseLists(`new Set([\n  "fade", "fadeRise",\n])`).length === 1, "the census detects a multi-line enter Set");
+h.ok(phaseLists(`const RISE = new Set(["fadeRise"]), POP_OUT = new Set(["popOut"]); a[i] === "fadeOut"`).length === 0,
+  "single-preset special cases and index expressions are not lists");
+const repo = path.join(import.meta.dirname, "..");
+const scanned: string[] = [];
+const walk = (dir: string): void => {
+  for (const name of readdirSync(dir)) {
+    const file = path.join(dir, name);
+    if (statSync(file).isDirectory()) walk(file);
+    else if (/\.(ts|svelte|js|mjs)$/.test(name)) scanned.push(file);
+  }
+};
+walk(path.join(repo, "src/lib/slide"));
+walk(path.join(repo, "src/shell/modes/slide"));
+scanned.push(path.join(repo, "flux-core/slides.ts"));
+const catalogFile = path.join(repo, "src/lib/slide/presetCatalog.ts");
+h.ok(["src/lib/slide/presetCatalog.ts", "src/lib/slide/ops.ts", "src/lib/slide/compile.ts", "src/shell/modes/slide/SlideMode.svelte", "src/shell/modes/slide/animator/shared.ts"]
+  .every(f => scanned.includes(path.join(repo, f))) && scanned.length > 60,
+  `the census covers src/lib/slide/**, src/shell/modes/slide/** and flux-core/slides.ts (${scanned.length} files)`);
+const offenders = scanned.filter(f => f !== catalogFile).flatMap(f => phaseLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`));
+h.eq(offenders, [], "no literal enter/exit preset list outside presetCatalog.ts");
 await h.done();
