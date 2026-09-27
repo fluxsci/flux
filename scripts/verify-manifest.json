@@ -290,7 +290,8 @@
       "verify-text-arrange.ts",
       "verify-text-runs.ts",
       "verify-figure-metadata.ts",
-      "verify-caption-postscript.ts"
+      "verify-caption-postscript.ts",
+      "verify-agent-identity.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -792,6 +793,13 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "flux-core/agentIdentity.ts",
+      "run": [
+        "verify-agent-identity.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "src/lib/figure/{metadata*,FigureMeta*.svelte,FigureIdentityForm.svelte}",
       "run": [
@@ -6879,6 +6887,15 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-agent-identity.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }
