@@ -292,7 +292,8 @@
       "verify-figure-metadata.ts",
       "verify-caption-postscript.ts",
       "verify-agent-identity.ts",
-      "verify-oneoff-migration.ts"
+      "verify-oneoff-migration.ts",
+      "verify-annotation-core.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -794,6 +795,13 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/project/{annotations,inbox,presence,targets}.ts",
+      "run": [
+        "verify-annotation-core.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "scripts/oneoff/**",
       "run": [
@@ -6907,6 +6915,15 @@
       "coverage": "behavior"
     },
     "verify-oneoff-migration.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-annotation-core.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
