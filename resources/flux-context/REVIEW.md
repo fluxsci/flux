@@ -112,9 +112,9 @@ and item locations before acting; explicit flags are useful when a phrase is amb
    `flux reply <id> "Which scale should I use?" --needs-input`. Do not resolve unfinished work.
 
 The app shows named status chips and toasts: Queued → heron, Claimed by heron,
-heron needs your input, Resolved by heron. Margin comments refresh in Paper, and
-annotation replies appear in Annotate's queued list; the Inbox panel, when available,
-brings both together. Let a user composing a reply finish; do not replace their sidecar.
+heron needs your input, Resolved by heron. Margin comments refresh in Paper, and the
+Inbox panel (Alt+Q) shows annotations and comments together with their threads and
+chips. Let a user composing a reply finish; do not replace their sidecar.
 
 ## Watch-mode protocol — only when asked
 

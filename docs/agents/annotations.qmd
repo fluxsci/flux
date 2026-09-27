@@ -188,14 +188,14 @@ The agent is a session like any other: it appears in **AI status → Sessions** 
 titlebar agents chip with a name such as **bg · claude · wren**, claims the item, and
 signs its replies with that name. The item shows a live activity strip with the actual
 tool inputs, progress and reported usage. **Stop** (on the strip or the session row)
-cancels the run; the item returns to Open, marked "bg · claude · wren disconnected —
-reassign?". Replying in the item's thread continues the same session when it can; a
+cancels the run and releases its claim; the item returns to Open ("Open (last held by
+bg · claude · wren)"), ready to run again or assign. Replying in the item's thread continues the same session when it can; a
 reply sent while the agent is working waits for that turn to finish. If a run ends
 without replying or resolving, its last message is added to the thread.
 
-A background agent may edit the project and its analysis workspace. It may run the
-`flux` command, and `uv run` in a uv workspace, without asking. Anything else Claude
-Code wants to do opens a dialog showing the **exact** command or input: **Allow once**
+A background agent may edit the project and its analysis workspace, and use Flux's
+tools (and `uv run` in a uv workspace) without asking. Anything else Claude Code wants
+to do opens a dialog showing the **exact** command or input: **Allow once**
 or **Deny**. Closing the window, or leaving the dialog for two minutes, denies it. Codex
 runs with workspace-write access and refuses anything that would need more approval.
 Both are told never to push, publish or delete, and to propose those instead.
