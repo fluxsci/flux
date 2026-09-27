@@ -1,4 +1,4 @@
-import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
+import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 import type { FileBridge } from '../project/types';
 
 type BrowserDropper = new () => { open(options: { signal: AbortSignal }): Promise<{ sRGBHex: string }> };

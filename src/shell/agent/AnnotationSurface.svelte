@@ -100,11 +100,13 @@
     if (buffered.submit) void add();
   }
   // Move the modal into the fullscreen root; a sibling cannot paint in fullscreen.
+  // Only when there is one: a node moved out of its block's anchor range is not
+  // removed when the block is, so destroy() removes it itself.
   function portal(node: HTMLElement) {
-    const parent = node.parentNode!, marker = document.createComment("annotation");
-    parent.insertBefore(marker, node);
-    (document.fullscreenElement ?? document.querySelector(".present") ?? parent).appendChild(node);
-    return { destroy() { marker.parentNode?.insertBefore(node, marker); marker.remove(); } };
+    const root = document.fullscreenElement ?? document.querySelector(".present");
+    if (!root || root === node.parentNode) return {};
+    root.appendChild(node);
+    return { destroy() { node.remove(); } };
   }
   function point(e: PointerEvent): [number, number] {
     const ctm = svg?.getScreenCTM();

@@ -16,7 +16,7 @@
   import CommandPalette from "../../command/CommandPalette.svelte";
   import { contextCommands } from "../../command/globalCommands";
   let commandsOpen = $state(false);
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { libraryContext } from "../../../lib/bridge/contextStamp";
   import { registerTargetResolver, boundsOf } from "../../../lib/bridge/targetResolvers";

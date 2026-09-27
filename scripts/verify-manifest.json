@@ -308,7 +308,8 @@
       "verify-context-stamp.ts",
       "verify-agent-setup.ts",
       "verify-connect-doctor.ts",
-      "verify-skill-template.ts"
+      "verify-skill-template.ts",
+      "verify-command-rank.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -815,6 +816,13 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/shell/command/{commands.ts,CommandPalette.svelte}",
+      "run": [
+        "verify-command-rank.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "flux-core/connect/hook*.ts",
       "run": [
@@ -7267,6 +7275,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-command-rank.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
     }

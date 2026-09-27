@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // Shell-global keyboard reference. Mounted once (Shell — so `?` works on Home
   // too); opened with `?` from anywhere or the title-bar help button (the

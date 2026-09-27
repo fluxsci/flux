@@ -1,4 +1,4 @@
-import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
+import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 /** Shared lifecycle for rail/dock resizing. Preserve double-click behavior,
  * restore the original preference on cancellation, and always release capture. */
 export function pointerDrag(event: PointerEvent, move: (event: PointerEvent) => void, rollback: () => void, ended: () => void) {

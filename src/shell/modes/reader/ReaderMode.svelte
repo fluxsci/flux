@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   // FluxReader — the PDF reading mode shell. Everything scoped to ONE open paper lives
   // in ReaderDoc.svelte (one instance per live tab); this shell owns what is shared

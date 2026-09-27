@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-  import { yieldsToShellModal } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal } from "../shell/agent/annotationVisibility";
   // Plot gallery (Alt+G): a windowed contact sheet over the project's plots/ dir —
   // or, via the Project | Global switch (Alt+1 / Alt+2), over the user's global plot
   // library (<FluxConfig>/plot_library, any folder structure, shared by every project).

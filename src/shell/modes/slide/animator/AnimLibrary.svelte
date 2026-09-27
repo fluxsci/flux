@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
   // The animation preset/template LIBRARY popover (rework §7) — reachable
   // from the Animator bar. Presets tab: apply one track's saved settings to

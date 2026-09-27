@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
   import { nativeClick, nativePointerDown, nativePointerMove, nativePointerUp } from "../ui/nativeEvents";
   // The expanded view of one dissection file. Images get the lighttable viewer feel (ported,
   // not imported): "fit" is pure CSS object-fit; user zoom renders at natural size inside a

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   import { canvasAnnotationTargets } from "./bridge/canvasTargets";
   import { editSession } from "./interact/editSession";

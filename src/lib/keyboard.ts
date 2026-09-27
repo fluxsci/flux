@@ -1,4 +1,4 @@
-import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";
 import { editSession } from "./interact/editSession";

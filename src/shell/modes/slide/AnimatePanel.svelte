@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { animatorAnnotationTargets } from "./animator/annotationTargets";
   // flux-slide — the ANIMATOR dock (animation rework §6): the shell that

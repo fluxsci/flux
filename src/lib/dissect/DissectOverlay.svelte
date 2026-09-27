@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 
   // The Dissect viewer (plain `d` on a selected plot): full-screen overlay by default,
   // shrinkable to a draggable/resizable floating window (the FigurePanel chrome), showing a

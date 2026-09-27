@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // The palette picker (2026-09-15 surface redesign) — replaces the old
   // name-search colour field. The whole point: F, then c, and the colour is

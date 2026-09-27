@@ -23,7 +23,7 @@
   let Meta: typeof import("../lib/figure/FigureMeta.svelte").default | null = $state(null);
   $effect(() => { if ($figureMeta && !Meta) void import("../lib/figure/FigureMeta.svelte").then(m => Meta = m.default); });
 
-  import { annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
+  import { annotationOpen, yieldsToShellModal } from "./agent/annotationVisibility";
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
   // (its own Mod+K chord was retired to keep this single-fire); Library focused →

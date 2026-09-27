@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
   import { onMount, tick } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";

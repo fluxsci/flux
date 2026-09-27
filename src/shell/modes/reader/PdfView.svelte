@@ -152,15 +152,20 @@
     return { text, nodes };
   }
   function charOffset(info: PageInfo, node: Node, offset: number): number | null {
-    let textNode: Text | null = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
-    if (!textNode) {
-      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-      textNode = walker.nextNode() as Text | null;
-      offset = 0;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const entry = info.nodes.find((e) => e.node === node);
+      return entry ? entry.start + offset : null;
     }
-    if (!textNode) return null;
-    const entry = info.nodes.find((e) => e.node === textNode);
-    return entry ? entry.start + offset : null;
+    // An element boundary (selectNodeContents, triple-click) sits between
+    // child[offset-1] and child[offset]: its text offset is the start of the
+    // first text node after it, else the end of the page's text. Taking the
+    // element's first text node instead collapsed (span, 1) onto the span's start.
+    const at = document.createRange();
+    at.setStart(node, offset);
+    at.collapse(true);
+    for (const e of info.nodes) if (at.comparePoint(e.node, 0) >= 0) return e.start;
+    const last = info.nodes.at(-1);
+    return last ? last.start + last.node.length : null;
   }
   function nodeAt(info: PageInfo, off: number): { node: Text; local: number } | null {
     let res: { node: Text; start: number } | null = null;

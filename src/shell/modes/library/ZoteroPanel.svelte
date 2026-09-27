@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   // Zotero connection panel — connect FluxLib to a Better BibTeX "Keep updated"
   // auto-export and sync from it (see zoteroSyncJob.svelte.ts for the engine;

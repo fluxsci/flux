@@ -1,4 +1,4 @@
-import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 /** Numeric label drag. Pointer mechanics only: the owner supplies its editing
  * transaction (or edits a local tool parameter without touching history). */
 export interface ScrubParams {

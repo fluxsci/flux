@@ -1,7 +1,7 @@
 <script lang="ts">
   import { modalFocus } from "../../lib/ui/modalFocus";
   import { popIn } from "../../lib/motion/actions";
-  import type { Command } from "./commands";
+  import { rankCommands, type Command } from "./commands";
 
   let { commands, onClose }: { commands: Command[]; onClose: () => void } = $props();
 
@@ -11,13 +11,7 @@
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
   let listEl = $state<HTMLUListElement | undefined>(undefined);
 
-  const filtered = $derived.by(() => {
-    const t = q.trim().toLowerCase();
-    if (!t) return commands;
-    return commands.filter((c) =>
-      (c.title + " " + (c.keywords ?? "") + " " + (c.hint ?? "")).toLowerCase().includes(t),
-    );
-  });
+  const filtered = $derived(rankCommands(commands, q));
 
   // Keep the selection in range as the filter narrows.
   $effect(() => {

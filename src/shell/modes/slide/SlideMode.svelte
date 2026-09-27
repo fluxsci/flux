@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { annotationOpen, yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { annotationOpen, yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { slideContext } from "../../../lib/bridge/contextStamp";
   $effect(() => {

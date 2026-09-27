@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { readerContext } from "../../../lib/bridge/contextStamp";
   import { registerReaderTargets } from "../../../lib/bridge/readerTargets";

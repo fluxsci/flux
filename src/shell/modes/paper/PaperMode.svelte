@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appendCommentMessage } from "../../../lib/project/comments";
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { paperHeading } from "../../../lib/bridge/contextStamp";
   import { registerPaperTargets, nearestHeading } from "./paperTargets";

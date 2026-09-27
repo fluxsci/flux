@@ -9,8 +9,8 @@ import { buildContextStamp } from "../../lib/bridge/contextStamp";
 import type { ContextStamp } from "../../lib/project/annotations";
 import type { TargetRef } from "../../lib/project/targets";
 
-import { annotationOpen } from "./annotationVisibility";
-export { annotationOpen } from "./annotationVisibility";
+import { annotationOpen, isAnnotateChord } from "./annotationVisibility";
+export { annotationOpen, isAnnotateChord, yieldsToShellModal } from "./annotationVisibility";
 export interface AnnotationRequest {
   stamp: ContextStamp;
   shot: Promise<{ png: Uint8Array; width: number; height: number } | null>;
@@ -27,11 +27,6 @@ let submitBuffered = false;
 let inputReady = false;
 let originalFocus: HTMLElement | null = null;
 let originalWindow: Window | null = null;
-export function isAnnotateChord(e: KeyboardEvent): boolean {
-  return (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyM";
-}
-/** Window-level handlers yield without swallowing the composer's own events. */
-export function yieldsToShellModal(_e: Event): boolean { return get(annotationOpen); }
 export function closeAnnotation(): void {
   annotationOpen.set(false);
   cancelledBuffer += buffer;

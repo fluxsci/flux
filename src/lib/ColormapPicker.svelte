@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // The colormap picker (2026-09-16, owner request): every map fluxplot ships,
   // one collection at a time — tabs across the top (click, or Shift+Tab cycles),

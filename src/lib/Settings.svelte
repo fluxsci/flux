@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // Shell-global Settings dialog (title-bar gear / the `settingsOpen` store).
   // A tabbed surface — General · Figure · Paper · Corrections — in the editor

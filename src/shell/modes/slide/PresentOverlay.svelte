@@ -1,8 +1,8 @@
 <script lang="ts">
   import { presentContext } from "../../../lib/bridge/contextStamp";
-  import { annotationOpen } from "../../agent/annotateChord";
+  import { annotationOpen } from "../../agent/annotationVisibility";
 
-  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   // Present mode — a fullscreen overlay that runs the ONE player (createPlayer)
   // over the deck, scaled-to-fit (letterboxed) on any screen. Clicker-friendly

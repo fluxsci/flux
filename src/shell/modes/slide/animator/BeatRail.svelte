@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
   import { onDestroy, tick } from "svelte";
   import { activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";

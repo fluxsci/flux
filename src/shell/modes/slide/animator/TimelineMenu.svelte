@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
   // A lightweight positioned context menu for the animator (chips + beat
   // headers). Closes on outside pointerdown, Esc, or after an action.

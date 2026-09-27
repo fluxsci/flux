@@ -12,18 +12,26 @@ export async function seedAnnotationFigure(page, count=2) {
   const manifest=JSON.parse(readFileSync('scripts/fixtures/pre-regen/06_scatter_regression.fluxplot.json','utf8'));
   await clickMode(page,'Figure');
   await waitFor(page,()=>!!document.querySelector('.canvas-host'),null,{label:'Figure mounted'});
-  await page.evaluate(({svg,manifest,count})=>{
+  const box=/viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/.exec(svg), size={w:Math.round(Number(box?.[1]??480)),h:Math.round(Number(box?.[2]??360))};
+  await page.evaluate(({svg,manifest,count,size})=>{
     const F=window.__flux, f=F.fig;
     F.io.reimportPlot('annot-asset',svg,manifest);
+    // A figure of its own (its own canvas): overwriting the demo's first figure
+    // deleted panels the manuscript cites, so every later figure save was refused.
+    f.addCanvas();
+    const figId=F.get(f.activeFigureId);
     f.commit(p=>{
-      const g=p.figures[0];g.x=0;g.y=0;g.width=800;g.height=600;g.nickname='Annotation figure';
+      // Register the plot's bytes as a project asset, as an import would (the
+      // saved figure must not reference a missing asset).
+      if(!p.assets.some(a=>a.id==='annot-asset'))p.assets.push({id:'annot-asset',name:'annotation',kind:'svg',path:'assets/annot-asset.svg',naturalWidth:size.w,naturalHeight:size.h});
+      const g=p.figures.find(x=>x.id===figId);g.x=0;g.y=0;g.width=800;g.height=600;g.nickname='Annotation figure';
       g.elements=[{type:'plot',id:'annot-plot',name:'Density',assetId:'annot-asset',x:20,y:60,width:380,height:260,rotation:0,overrides:{},source:{svgPath:'plots/annotation.svg'}},
         {type:'text',id:'annot-text',text:'n = 12',name:'Sample size',x:50,y:360,width:100,height:30,rotation:0,fontFamily:'Inter',fontSize:20,fill:'#222',align:'left'}];
       for(let i=0;i<count;i++)g.elements.push({type:'rect',id:'annot-box'+i,name:'Box '+i,x:200+(i%30)*18,y:360+Math.floor(i/30)*18,width:15,height:15,rotation:0,fill:'#205ea6',stroke:'none',strokeWidth:0,cornerRadius:0});
       f.activeFigureId.set(g.id);
     });
     f.selection.set(new Set(['annot-plot']));f.viewport.set({panX:30,panY:40,zoom:.8});
-  },{svg,manifest,count});
+  },{svg,manifest,count,size});
   await waitFor(page,()=>!!document.querySelector('[id^="annot-plot__"]'),null,{label:'semantic plot rendered'});
 }
 export const ledger = page => page.evaluate(async()=>{

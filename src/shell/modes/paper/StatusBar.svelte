@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal } from "../../agent/annotateChord";
+  import { yieldsToShellModal } from "../../agent/annotationVisibility";
   // Persistent, glanceable status — a slim translucent pill bottom-right of
   // the editor column (Obsidian's placement). Dumb component: PaperMode feeds
   // it already-computed values (words from the 150ms-debounced latestIdle —

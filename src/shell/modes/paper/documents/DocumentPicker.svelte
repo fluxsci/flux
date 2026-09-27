@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal } from "../../../agent/annotateChord";
+  import { yieldsToShellModal } from "../../../agent/annotationVisibility";
   import { tick, onDestroy, untrack } from 'svelte';
   import type { DocEntry } from './documents';
   import { documentRemovalBlocker } from '../../../../lib/project/docOrder';

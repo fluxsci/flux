@@ -3,7 +3,7 @@
   import { describeTarget, type TargetRef } from "../project/targets";
   import { focusedMode } from "../../shell/paneStore";
 
-  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';

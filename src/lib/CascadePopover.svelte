@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotateChord";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // Cascade popover (Ctrl+Shift+C): apply a stepped delta across the selected
   // ELEMENTS (figure/slide canvas) or the animator's selected TRACKS. One

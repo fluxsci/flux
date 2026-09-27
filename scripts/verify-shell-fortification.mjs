@@ -42,15 +42,15 @@ try {
   });
   assert.match(dispatch.message,/not-applied/);assert.equal(dispatch.unchanged,true);
   const feedback=await page.evaluate(async()=>{
-    const {feedback,shell,get}=window.__flux; const original=get(shell.currentProject); const bridge=window.fig;
+    const {annotations,shell,get}=window.__flux; const original=get(shell.currentProject); const bridge=window.fig;
     const append=bridge.feedbackAppend; let release; const started=new Promise(r=>release=r); let resolveWrite; const held=new Promise(r=>resolveWrite=r); const paths=[];
     bridge.feedbackAppend=async(p,line)=>{paths.push(p);release();await held;return true;};
-    const work=feedback.addFeedbackNote('Project A note'); await started;
+    const work=annotations.addAnnotation('Project A note',{surface:'figure'},'none'); await started;
     shell.currentProject.set({name:'B',path:'/different-project'});resolveWrite();await work;
-    const state=get(feedback.feedbackState);bridge.feedbackAppend=append;shell.currentProject.set(original);
+    const state=get(annotations.annotationState);bridge.feedbackAppend=append;shell.currentProject.set(original);
     return {paths,state,root:original.path};
   });
-  assert.equal(feedback.paths.length,1);assert.ok(feedback.paths[0].startsWith(feedback.root+'/'));assert.equal(feedback.state?.notes.length ?? 0,0);
+  assert.equal(feedback.paths.length,1);assert.ok(feedback.paths[0].startsWith(feedback.root+'/'));assert.equal(feedback.state?.items.length ?? 0,0);
   await shot(page,'shell-fortification');
   const transitions=await page.evaluate(async()=>{
     const {shell,get}=window.__flux, bridge=window.fig, original=get(shell.currentProject), read=bridge.readText;
@@ -82,7 +82,7 @@ try {
   await page.focus('[role="dialog"] textarea');await page.keyboard.press('Enter');
   await page.waitForFunction(()=>!document.querySelector('[role="dialog"] textarea'));
   assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'Settings');
-  const notes=await page.evaluate(()=>window.__flux.get(window.__flux.feedback.feedbackState)?.notes.filter(n=>n.text==='Keep this draft on failed append.').length);
+  const notes=await page.evaluate(()=>window.__flux.get(window.__flux.annotations.annotationState)?.items.filter(n=>n.note.text==='Keep this draft on failed append.').length);
   assert.equal(notes,1);
   assert.deepEqual(await realErrors(page),[]);
   // One controlled loader rejection tests the actual recovery view/cache.
