@@ -64,6 +64,10 @@ const actualCases = [
   // 2026-09-27 animation v2: an exact-path gate entry keeps the regression groups of the broad
   // src/lib/slide entry it supersedes (first match wins; guide §7, the --changed paragraph).
   ["src/lib/slide/correspondence.ts", ["verify-correspondence.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  // B1's exact entries keep the broad src/lib/slide and src/lib/plot routes they supersede.
+  ["src/lib/slide/targetGeometry.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/plot/paint.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/plot/svgMatrix.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],

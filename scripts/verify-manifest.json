@@ -879,7 +879,11 @@
       "run": [
         "verify-target-geometry-browser.ts",
         "verify-target-geometry.ts",
-        "tier:pure"
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
       ]
     },
     {
@@ -887,7 +891,11 @@
       "run": [
         "verify-target-geometry-browser.ts",
         "verify-target-geometry.ts",
-        "tier:pure"
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
       ]
     },
     {
@@ -895,7 +903,11 @@
       "run": [
         "verify-target-geometry-browser.ts",
         "verify-target-geometry.ts",
-        "tier:pure"
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {
