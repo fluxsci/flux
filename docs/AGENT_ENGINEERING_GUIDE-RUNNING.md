@@ -1532,6 +1532,16 @@ free to name the failure modes plainly. Facts in
 the mode guides were swept from source (chords from `keyboard.ts`/`commands.ts` etc.); when a
 chord or label changes, grep `docs/` for the old one.
 
+**Historical project migrations:** `scripts/oneoff/migrate-2026-09-flux-connect.mjs` is
+an offline September 2026 migration record, independent of the app and using only Node
+builtins. Its dry run changes no project/machine state; the complete report is its only
+write. Archive moves never fall back to copying, generated prose requires a whole exact
+match (LF/trailing-whitespace normalized), and authored content is preserved. Use
+`docs/for_agents/migrate-to-flux-connect.md` for the reviewed apply/setup procedure.
+`verify-oneoff-migration.ts` exercises it only in child processes with scratch HOME/roots,
+including real Git tracking, read-only failure, cross-device failure and interrupted rename.
+Run it through the hermetic runner; never validate a migration on real projects.
+
 ## 9. Known traps (each of these cost real time)
 
 - **Legacy Svelte reactive statements cannot see store reads hidden in helpers.** The Figure
@@ -6999,3 +7009,14 @@ A controlled local reproduction preserved the deck, edit destination and preview
 changed true → false. The gate now awaits that save before its baseline and retains every
 scrub invariant; the corrected complete authoring gate passes locally. No product code changed.
 **Learnings:** The view-only snapshot rule above now names the affected gate and its CI case.
+
+### 2026-09-27 06:11 UTC — Standalone flux-connect migration (Codex, aio/w2m-migration)
+**Work:** Added the offline one-shot migration, its agent runbook and a registered scratch-only
+behavior gate. Historical generated templates were collected from Git, including seven
+older guide variants; authored text, comment IDs, archive bytes and Git indexes are preserved.
+Svelte checks pass at 0 errors/0 warnings; headless checks pass. The final pure tier passes
+294/294, including 125 migration checks and 159 docs checks. Two initially blocked media
+gates passed after provisioning the pinned encoder inside this worktree.
+**Learnings:**
+- An interrupted rename needs both a flushed pre-apply report and a rerunnable exact-text
+  update at the destination. The migration gate exercises the actual child-process interruption.
