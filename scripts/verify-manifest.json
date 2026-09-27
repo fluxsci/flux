@@ -842,7 +842,11 @@
       "glob": "src/lib/slide/resolve.ts",
       "run": [
         "verify-slide-resolve.ts",
-        "tier:pure"
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {

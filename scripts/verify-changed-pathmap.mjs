@@ -72,6 +72,7 @@ const actualCases = [
   ["src/lib/slide/targetGeometry.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/plot/paint.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
   ["src/lib/plot/svgMatrix.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/slide/resolve.ts", ["verify-slide-resolve.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
