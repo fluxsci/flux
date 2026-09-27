@@ -23,7 +23,7 @@
 import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
-import { prefixIds, applyOverrides } from "../../plot/parse";
+import { prefixIds, applyOverrides, partDomId } from "../../plot/parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
@@ -344,7 +344,7 @@ export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: 
   const factors = ctx.ghostPartFactors?.[el.id];
   if (el.type !== "plot" || !factors) return;
   const bindings = Object.entries(factors).flatMap(([part, state]) => {
-    const node = scope.querySelector<SVGElement>(`[id="${el.id}__${part}"]`);
+    const node = scope.querySelector<SVGElement>(`[id="${partDomId(el.id, part)}"]`);
     if (!node) return [];
     const raw = node.style.opacity || node.getAttribute("opacity") || "1";
     const base = ghostOpacityBase.get(node) ?? (Number.isFinite(Number(raw)) ? Number(raw) : 1);

@@ -12,8 +12,8 @@
 // ---------------------------------------------------------------------------
 
 import type { FluxPlotManifest, FluxPlotAxis, FluxPlotSeries } from "../../plot/types";
+import { partDomId } from "../../plot/parse";
 
-const SEP = "__";
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** A one-axis data→svg-pixel fit `svg = m·f(data) + c` (f = log on log scales),
@@ -138,7 +138,7 @@ export function createMorph(wrap: ParentNode, elId: string, A: FluxPlotManifest,
   // selectors, map construction, axis fitting, or source-array searches.
   const nodes = new Map<string, Element>();
   for (const node of Array.from(wrap.querySelectorAll("[id]"))) nodes.set(node.id, node);
-  const q = (id: string) => nodes.get(`${elId}${SEP}${id}`);
+  const q = (id: string) => nodes.get(partDomId(elId, id));
   const bSeries = new Map((B.series ?? []).map((s) => [s.id, s]));
   const pairs = (A.series ?? []).map((a) => {
     const b = bSeries.get(a.id) ?? a;

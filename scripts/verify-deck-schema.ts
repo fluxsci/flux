@@ -1,14 +1,16 @@
 #!/usr/bin/env -S npx tsx
-// The deck load gate (0.5.0, video clips — supersedes the 0.2.0 pin):
+// The deck load gate (0.6.0, animation v2 — supersedes the 0.5.0 pin):
 //   • a good deck validates (pre-generated Ajv, CSP-safe)
 //   • malformed decks are REJECTED (missing stage, bad element, wrong version)
-//   • 0.2.0–0.4.0 decks are VALID INPUT: the file schema accepts the 0.2/0.3/0.4
-//     generation and ops.migrateDeck stamps it 0.5.0 at every load seam
+//   • 0.2.0–0.5.0 decks are VALID INPUT: the file schema accepts the 0.2–0.5
+//     generations and ops.migrateDeck stamps them 0.6.0 at every load seam
 //     (pure version stamps preserve existing deck content)
+//   • the 0.6 additive fields (to.become, Track.parts/styleId/anchor,
+//     deck.animStyles, a plot's view) validate; a malformed one is rejected
 //   • an OLD-format (0.1.x) deck fails validation — the sanctioned clean break
 //     (owner decision, slide-migration plan §0.2.1): the GUI read seam
 //     QUARANTINES it (.corrupt-<ts> copy) and skips, never half-loads
-//   • a NEWER deck (0.6.x) is refused by the forward-version guard BEFORE
+//   • a NEWER deck (0.7.x) is refused by the forward-version guard BEFORE
 //     validation
 //   • dangling beat targets are WARNINGS (validate_deck), never rejections
 //   npx tsx scripts/verify-deck-schema.ts
@@ -28,22 +30,48 @@ function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); 
 // --- a good deck (built through the one blank-deck source) validates -----------
 const good = slideOps.createDeck({ id: "g", title: "Good" });
 slideOps.addSlideText(good, good.slides[0].id, { text: "hi", x: 10, y: 10 });
-assert(DECK_SCHEMA_VERSION === "0.5.0", "the video-clip format is 0.5.0 (0.x minor = the breaking slot)");
+assert(DECK_SCHEMA_VERSION === "0.6.0", "the animation-v2 format is 0.6.0 (0.x minor = the breaking slot)");
 assert(validateDeckFile(good).length === 0, "a createDeck() deck validates against the bundled schema");
 
-// --- 0.2.0/0.3.0 → 0.5.0: valid input, migrated at the chokepoint -----------------------
+// --- 0.2.0–0.5.0 → 0.6.0: valid input, migrated at the chokepoint -----------------------
 {
-  for (const version of ["0.2.0", "0.3.0", "0.4.0"]) {
+  for (const version of ["0.2.0", "0.3.0", "0.4.0", "0.5.0"]) {
     const v02 = structuredClone(good) as unknown as { schemaVersion: string };
     v02.schemaVersion = version;
     assert(validateDeckFile(v02).length === 0, `${version} is valid input (auto-migratable generation)`);
     assert(!isNewerSchema(v02.schemaVersion, DECK_SCHEMA_VERSION), "…and not 'newer' — it loads");
     const migrated = slideOps.normalizeDeck(structuredClone(v02) as unknown as typeof good);
-    assert(migrated.schemaVersion === "0.5.0", `normalizeDeck stamps ${version} to 0.5.0`);
+    assert(migrated.schemaVersion === "0.6.0", `normalizeDeck stamps ${version} to 0.6.0`);
     const before = JSON.stringify({ ...v02, schemaVersion: "x" });
     const after = JSON.stringify({ ...(migrated as unknown as Record<string, unknown>), schemaVersion: "x" });
-    assert(before === after, `${version}→0.5 migration is a PURE stamp — no other byte changes`);
+    assert(before === after, `${version}→0.6 migration is a PURE stamp — no other byte changes`);
   }
+}
+
+// --- the 0.6 additive fields validate; malformed ones are rejected -----------------
+{
+  const v6 = structuredClone(good);
+  const sid = v6.slides[0].id;
+  const el = v6.slides[0].elements[0].id;
+  const plot = slideOps.addPlotToSlide(v6, sid, { assetId: "asset-p", x: 0, y: 0, width: 200, height: 120 })!;
+  const beat = slideOps.addBeat(v6, sid, { label: "step" })!;
+  slideOps.setAnimation(v6, sid, beat.id, { target: el, preset: "fade", styleId: "st-1", anchor: { trackId: "t-0", edge: "end", offsetMs: 50 } });
+  slideOps.setTransform(v6, sid, beat.id, el, { state: {} });
+  const tf = beat.tracks.find((t) => t.preset === "transform")!;
+  tf.to = { become: { ref: { element: plot, parts: ["axis.x.spine", "axis.y.spine"] }, mode: "handoff", pair: "auto" }, state: {} };
+  slideOps.setAnimation(v6, sid, beat.id, { target: plot, parts: ["peaches.box", "oranges.box"], preset: "fade" });
+  v6.animStyles = [{ id: "st-1", name: "Soft fade", family: "appearance", track: { preset: "fade", duration: 400 } }];
+  (v6.slides[0].elements.find((e) => e.id === plot) as { view?: unknown }).view = { x: { domain: [0, 5] }, y: { scale: "log" } };
+  assert(validateDeckFile(v6).length === 0, "a 0.6 deck with become/parts/styleId/anchor/animStyles/view validates");
+  const badAnchor = structuredClone(v6) as unknown as { slides: { beats: { tracks: { anchor?: unknown }[] }[] }[] };
+  badAnchor.slides[0].beats[1].tracks[0].anchor = { trackId: "t-0", edge: "middle" };
+  assert(validateDeckFile(badAnchor).length > 0, "an anchor edge outside start|end → rejected");
+  const badStyle = structuredClone(v6) as unknown as { animStyles: { family: string }[] };
+  badStyle.animStyles[0].family = "camera";
+  assert(validateDeckFile(badStyle).length > 0, "an animStyle with an unknown family → rejected");
+  const badView = structuredClone(v6) as unknown as { slides: { elements: { id: string; view?: unknown }[] }[] };
+  badView.slides[0].elements.find((e) => e.id === plot)!.view = { x: { domain: [0] } };
+  assert(validateDeckFile(badView).length > 0, "a view domain that is not a pair → rejected");
 }
 
 // --- malformed decks are rejected -----------------------------------------------
@@ -83,8 +111,9 @@ assert(validateDeckFile(oldDeck).length > 0, "a 0.1.x deck (textBox elements) FA
 assert(!isNewerSchema(oldDeck.schemaVersion, DECK_SCHEMA_VERSION), "…and it is NOT 'newer' — it takes the quarantine path, not the refuse path");
 
 // --- forward-version guard runs BEFORE validation ---------------------------------
-assert(isNewerSchema("0.6.0", DECK_SCHEMA_VERSION), "a 0.6.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
-assert(!isNewerSchema("0.5.9", DECK_SCHEMA_VERSION), "0.5.x patch versions are OUR line (loadable)");
+assert(isNewerSchema("0.7.0", DECK_SCHEMA_VERSION), "a 0.7.x deck is NEWER (refuse + toast; never rewritten, never quarantined)");
+assert(!isNewerSchema("0.6.9", DECK_SCHEMA_VERSION), "0.6.x patch versions are OUR line (loadable)");
+assert(!isNewerSchema("0.5.0", DECK_SCHEMA_VERSION), "0.5.x is OLDER — it takes the migrate path, never the refuse path");
 assert(!isNewerSchema("0.2.0", DECK_SCHEMA_VERSION), "0.2.x is OLDER — it takes the migrate path, never the refuse path");
 
 // --- validate_deck: dangling targets are warnings, not errors ---------------------
@@ -107,7 +136,7 @@ try {
   const reread = JSON.parse(await fs.readFile(path.join(root, "slides", "dangle", "deck.json"), "utf8"));
   assert(JSON.stringify(reread).includes("deleted-el"), "the save does NOT auto-prune dangling targets (undo may restore the element)");
 
-  // --- flux-core round trip: a 0.2.0 file on disk loads as 0.5.0, and the
+  // --- flux-core round trip: a 0.2.0 file on disk loads as 0.6.0, and the
   // first mutation persists the stamp (mutateDeck saves the migrated deck) ---
   const legacy = slideOps.createDeck({ id: "legacy", title: "Legacy" });
   (legacy as unknown as { schemaVersion: string }).schemaVersion = "0.2.0";
@@ -115,12 +144,12 @@ try {
   await fs.mkdir(path.dirname(legacyPath), { recursive: true });
   await fs.writeFile(legacyPath, JSON.stringify(legacy, null, 2) + "\n");
   const loaded = await loadDeck(root, "legacy");
-  assert(loaded.schemaVersion === "0.5.0", "flux-core loadDeck migrates a 0.2.0 file to 0.5.0 in memory");
+  assert(loaded.schemaVersion === "0.6.0", "flux-core loadDeck migrates a 0.2.0 file to 0.6.0 in memory");
   assert(JSON.parse(await fs.readFile(legacyPath, "utf8")).schemaVersion === "0.2.0", "…without rewriting the file on a pure read");
   await mutateDeck(root, "legacy", "noop", () => {});
-  assert(JSON.parse(await fs.readFile(legacyPath, "utf8")).schemaVersion === "0.5.0", "the first mutation persists the 0.5.0 stamp to disk");
+  assert(JSON.parse(await fs.readFile(legacyPath, "utf8")).schemaVersion === "0.6.0", "the first mutation persists the 0.6.0 stamp to disk");
 } finally {
   await fs.rm(root, { recursive: true, force: true });
 }
 
-console.log("\nDECK SCHEMA (0.5.0 load gate + 0.2 migration + clean break + dangling-target posture): PASS");
+console.log("\nDECK SCHEMA (0.6.0 load gate + 0.2–0.5 migration + clean break + dangling-target posture): PASS");

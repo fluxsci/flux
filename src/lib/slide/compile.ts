@@ -2,8 +2,6 @@
  * playback binds its targets once and samples only the active cue's properties. */
 import type { Element } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
-import { resolveTargets } from "../plot/tree";
-import { buildPartIndex } from "../plot/parse";
 import type { Slide, StageSize, Track, Camera } from "./types";
 import { lerpElement, transformEndState, transformPreState } from "./tween";
 import { resolveEasingFn } from "./easing";
@@ -12,6 +10,7 @@ import { morphCompatible } from "./player/morph";
 import { staggerRanks, staggerSpan } from "./stagger";
 import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
+import { targetPartIds, hasPartBinding, trackKey } from "./targets";
 export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
@@ -48,16 +47,15 @@ export function trackDuration(track: Track): number {
   if (familyOf(track) === "media") return 0;
   return Math.max(0, track.duration ?? (track.preset === "transform" ? 600 : track.preset === "countUp" ? 800 : 320));
 }
+/** The plot leaf ids a track's binding names (`part` ∪ `parts` ∪ `selector`,
+ *  minus `selector.except`) under the target's manifest at its beat — ONE
+ *  resolver shared with the player (`targets.targetPartIds`). [] for a
+ *  whole-element track. */
 export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions, beatIndex = slide.beats.findIndex((b) => b.tracks.some((t) => t === track || !!track.id && t.id === track.id))): string[] {
+  if (!hasPartBinding(track)) return [];
   const el = transformPreState(slide, track.target, Math.max(0, beatIndex));
   const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
-  if (track.part) return resolveTargets(manifest, track.part);
-  if (track.selector) {
-    const sel = track.selector;
-    const indices = sel.index == null ? null : new Set(Array.isArray(sel.index) ? sel.index : [sel.index]);
-    return Object.values(buildPartIndex(manifest)).filter((p) => (!sel.role || p.role === sel.role) && (!sel.series || p.series === sel.series) && (!indices || p.index != null && indices.has(p.index))).sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map((p) => p.id);
-  }
-  return [];
+  return targetPartIds(track, manifest);
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample"> {
@@ -82,7 +80,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         }
       }
       const parts = semanticTargets(track, slide, opts, bi);
-      if ((track.part || track.selector) && !parts.length) issues.push({ trackId: track.id, target: track.target, reason: "No matching plot parts. Retarget this effect." });
+      if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target, reason: "No matching plot parts. Retarget this effect." });
       const start = Math.max(0, track.start ?? 0), duration = trackDuration(track);
       const el = transformPreState(slide, track.target, bi), manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
       const by = track.stagger?.by;
@@ -95,7 +93,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     for (let i = 0; i < tracks.length; i++) for (let j = i + 1; j < tracks.length; j++) {
       const a = tracks[i], b = tracks[j];
       const family = familyOf;
-      if (a.track.target === b.track.target && (a.track.part ?? "") === (b.track.part ?? "") && JSON.stringify(a.track.selector ?? null) === JSON.stringify(b.track.selector ?? null) && family(a.track) === family(b.track) && a.start < b.end && b.start < a.end) {
+      if (trackKey(a.track) === trackKey(b.track) && family(a.track) === family(b.track) && a.start < b.end && b.start < a.end) {
         issues.push({ trackId: b.track.id, target: b.track.target, reason: "Effects overlap on the same target. Later effects take precedence; move their timing to play sequentially." });
       }
     }
@@ -108,7 +106,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     const spatial = new Map<string, Map<string, number[]>>();
     const partStates: SlideFrame["partStates"] = {};
     let camera = slide.camera ? { ...slide.camera } : undefined;
-    const targetsFor = (ct: CompiledTrack) => ct.track.part || ct.track.selector ? ct.parts.map((p) => `${ct.track.target}\0${p}`) : [ct.track.target];
+    const targetsFor = (ct: CompiledTrack) => hasPartBinding(ct.track) ? ct.parts.map((p) => `${ct.track.target}\0${p}`) : [ct.track.target];
     // Future first entrances hide; an exit before an entrance still starts
     // visible. This baseline is independent of prior seeks/playback history.
     const first = new Set<string>(), firstCount = new Set<string>();

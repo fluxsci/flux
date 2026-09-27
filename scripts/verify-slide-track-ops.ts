@@ -9,6 +9,8 @@ import { suggestElementTrack, animateElement, animatePart, listMorphCandidates }
 import type { Track } from "../src/lib/slide/types";
 import type { Element as SlideElement } from "../src/lib/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
+import { familyOf } from "../src/lib/slide/family";
+import { targetPartIds, trackKey } from "../src/lib/slide/targets";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -168,6 +170,48 @@ assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.
   const st2 = t1.to?.state as Record<string, unknown>;
   assert(st2.opacity === 0.5 && !("x" in st2), "replaceState swaps the whole patch");
   assert(beat.tracks.filter((t) => t.target === "el-2").length === 1, "setTransform never stacks a second transform");
+
+  // 0.6 (animation v2): the family law keys on the FULL target — element +
+  // sorted part ids + selector (targets.trackKey) — so a whole-plot transform
+  // and a one-box transform coexist, and the same part-set replaces itself.
+  const tp = ops.setTransform(d, s, beat.id, "plot-1", { state: { x: 5 } })!;
+  const tb = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["oranges.box"] }, state: {} })!;
+  assert(tp.id !== tb.id && beat.tracks.filter((t) => t.target === "plot-1" && t.preset === "transform").length === 2, "a whole-plot transform and a part-set transform COEXIST in one beat");
+  assert(tb.part === "oranges.box" && !tb.parts, "a single-part ref is written as `part`");
+  const tb2 = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["oranges.box"] }, state: { fill: "#f00" } })!;
+  assert(tb2.id === tb.id && beat.tracks.filter((t) => t.target === "plot-1" && t.preset === "transform").length === 2, "the same part-set finds THE existing transform (no stacking)");
+  const tm = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["axis.y.spine", "axis.x.spine"] }, state: {} })!;
+  assert(Array.isArray(tm.parts) && tm.parts.length === 2 && !tm.part, "a multi-part ref is written as `parts`");
+  const tm2 = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["axis.x.spine", "axis.y.spine"] }, state: {} })!;
+  assert(tm2.id === tm.id, "part order does not change the target identity (sorted key)");
+  ops.setAnimation(d, s, beat.id, { target: "plot-1", parts: ["axis.x.spine", "axis.y.spine"], preset: "fade" });
+  ops.setAnimation(d, s, beat.id, { target: "plot-1", parts: ["axis.y.spine", "axis.x.spine"], preset: "drawOn" });
+  assert(beat.tracks.filter((t) => t.target === "plot-1" && familyOf(t) === "appearance").length === 1, "appearances on the same part-set replace within family, order-blind");
+  assert(beat.tracks.filter((t) => t.target === "plot-1" && t.preset === "transform").length === 3, "…and never touch the transforms");
+}
+
+// --- 0.6: the ONE part-binding resolver (part ∪ parts ∪ selector − except) ----
+{
+  const manifest = {
+    spec: "fluxplot/manifest", schemaVersion: "0.2.0", plotType: "line", svg: "p.svg", size: { width: 1, height: 1, unit: "px" },
+    axes: [], series: [
+      { id: "control", svg: { line: "control.line", points: "control.points" }, points: [{ index: 0, svgId: "control.point.0", x: 0, y: 0 }, { index: 1, svgId: "control.point.1", x: 1, y: 1 }] },
+      { id: "treat", svg: { line: "treat.line", points: "treat.points" }, points: [{ index: 0, svgId: "treat.point.0", x: 0, y: 0 }] },
+    ],
+    parts: { id: "figure", role: "figure", children: [{ id: "plot-area", role: "plot-area", children: [
+      { id: "axis.x", role: "axis", axis: "x", children: [{ ref: "axis.x.spine", role: "spine" }, { id: "axis.x.ticks", role: "group", groupRole: "tick", members: ["axis.x.tick.0", "axis.x.tick.1"] }] },
+    ] }] },
+  } as unknown as FluxPlotManifest;
+  const ids = (b: Parameters<typeof targetPartIds>[0]) => targetPartIds(b, manifest).join(",");
+  assert(ids({ part: "axis.x" }) === "axis.x.spine,axis.x.tick.0,axis.x.tick.1", "a container id expands to its leaves in tree order");
+  assert(ids({ part: "axis.x.spine", parts: ["axis.x.ticks", "axis.x.spine"] }) === "axis.x.spine,axis.x.tick.0,axis.x.tick.1", "part ∪ parts, deduplicated, authored order");
+  assert(ids({ selector: { role: "point" } }) === "control.point.0,treat.point.0,control.point.1", "a role selector lists LEAVES by datum index — never a series' points group as well (the old double-animation)");
+  assert(ids({ part: "control.points" }) === "control.point.0,control.point.1", "a points GROUP the parts tree does not describe still expands through the series table");
+  assert(ids({ selector: { role: "point", except: ["control.points"] } }) === "treat.point.0", "selector.except drops a group's leaves");
+  assert(ids({ selector: { series: "control", except: ["control.line"] } }) === "control.point.0,control.point.1", "except works on a leaf id too");
+  assert(ids({}) === "", "a whole-element binding names no parts");
+  assert(trackKey({ target: "p", parts: ["b", "a"] }) === trackKey({ target: "p", part: "a", parts: ["b"] }), "trackKey is order-blind and part/parts-blind");
+  assert(trackKey({ target: "p" }) !== trackKey({ target: "p", part: "a" }), "…but distinguishes whole element from a part");
 }
 
 // --- 0.3.0 track groups: lifecycle + contiguity + GC + duplication remap ------

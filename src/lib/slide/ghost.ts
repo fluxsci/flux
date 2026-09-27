@@ -3,6 +3,7 @@
 import type { Element } from "../types";
 import type { Slide, Track } from "./types";
 import type { AnimationIssue, PartFrame, SlideFrame } from "./compile";
+import { hasPartBinding } from "./targets";
 
 export interface GhostBirth { target: string; source: string; beat: number; start: number; enabled: boolean; track: Track }
 export function ghostTargetIds(slide: Slide): string[] {
@@ -62,7 +63,7 @@ export function resolveGhosts(slide: Slide, sample: (resolved: Slide, beat: numb
   for (const birth of births) {
     if (owners.has(birth.target)) { birth.enabled = false; owners.get(birth.target)!.enabled = false; issues.push({ trackId: birth.track.id, target: birth.target, reason: "This ghost result has more than one birth. Keep one Ghost transform." }); }
     else owners.set(birth.target, birth);
-    if (birth.track.preset !== "transform" || birth.track.part || birth.track.selector || birth.beat === 0 || resolved.elements.some(e => e.type === "video" && (e.id === birth.source || e.id === birth.target))) {
+    if (birth.track.preset !== "transform" || hasPartBinding(birth.track) || birth.beat === 0 || resolved.elements.some(e => e.type === "video" && (e.id === birth.source || e.id === birth.target))) {
       birth.enabled = false;
       issues.push({ trackId: birth.track.id, target: birth.target, reason: "Ghost births require a whole-object Change after Design." });
     }

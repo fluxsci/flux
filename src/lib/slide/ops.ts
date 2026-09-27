@@ -26,6 +26,7 @@ import { compileSlide, trackDuration } from "./compile";
 import { diffState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
+import { trackKey, targetKey, hasPartBinding } from "./targets";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
@@ -809,7 +810,7 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   if (!slide || !source || bi < 1) return null;
   if (source.type === "video") throw new Error("Duplicate the video clip to create an independent copy; Ghost transforms do not support video.");
   const beat = slide.beats[bi];
-  const whole = beat.tracks.filter(t => t.target === sourceId && !t.part && !t.selector && !t.disabled);
+  const whole = beat.tracks.filter(t => t.target === sourceId && !hasPartBinding(t) && !t.disabled);
   const changes = whole.filter(t => familyOf(t) === "transform");
   const exits = whole.filter(t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? ""));
   if (changes.length > 1 || exits.length > 1 || original === "stay" && (changes.length || exits.length) || original === "transform" && exits.length || original === "disappear" && changes.length)
@@ -887,26 +888,28 @@ export function setTrackEnabled(deck: Deck, slideId: Id, trackId: Id, enabled: b
 }
 
 /** Two tracks "match" (and thus replace, rather than stack) when they animate
- *  in the same FAMILY (family.ts) on the same target with the same part/
- *  selector signature — so an appearance and a transform coexist on one
- *  object in one beat. Transforms are whole-element and unique per target:
- *  two transform-family tracks match on target alone (the "max one transform
- *  per target per beat" law — chaining happens across beats). */
+ *  in the same FAMILY (family.ts) on the same TARGET — the full target
+ *  identity (`targets.trackKey`: element + sorted part ids + selector), so an
+ *  appearance and a transform coexist on one object in one beat, a whole-plot
+ *  Change and a one-box Become coexist too, and two transforms of the SAME
+ *  target (whole element, or the same part-set) replace each other: "max one
+ *  transform per target per beat" — chaining happens across beats. Media
+ *  commands stay whole-clip and unique per clip. */
 function tracksMatch(a: Track, b: Track): boolean {
   if (a.target !== b.target) return false;
   const fam = familyOf(a);
   if (fam !== familyOf(b)) return false;
-  if (fam === "transform" || fam === "media") return true;
-  if ((a.part ?? "") !== (b.part ?? "")) return false;
-  return JSON.stringify(a.selector ?? null) === JSON.stringify(b.selector ?? null);
+  if (fam === "media") return true;
+  return trackKey(a) === trackKey(b);
 }
+export { tracksMatch as sameTargetAndFamily };
 
 /** Add or replace an animation track on a beat (the keystone animation op). */
 export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): boolean {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b) return false;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return false;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
@@ -931,24 +934,28 @@ export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Trac
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(track)) && b.tracks.some(t => tracksMatch(t, track)))) return null;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return null;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);
   return added;
 }
 
-/** Add (or update) the ONE transform track for `targetId` on a beat — the
+/** Add (or update) the ONE transform track for a target on a beat — the
  *  ergonomic form agents and the GUI use so nobody hand-builds `to.state`
- *  diffs. Merges `state` keys over the existing patch (a key of undefined is
- *  skipped; an explicit null persists as "delete this prop at t2");
- *  `replaceState` swaps the whole patch. Timing/easing patch only when given.
- *  Returns the track (created or updated), or null. */
+ *  diffs. The target is `targetId` (the whole element) or, with `opts.ref`, a
+ *  part-set of that element (`parts`/`selector`); the track found or created is
+ *  the one whose `targetKey` matches. Merges `state` keys over the existing
+ *  patch (a key of undefined is skipped; an explicit null persists as "delete
+ *  this prop at t2"); `replaceState` swaps the whole patch. Timing/easing patch
+ *  only when given. Returns the track (created or updated), or null. */
 export function setTransform(
   deck: Deck,
   slideId: Id,
   beatId: Id,
   targetId: Id,
   opts: {
+    /** Part-set binding of the target (0.6); absent = the whole element. */
+    ref?: { parts?: string[]; selector?: Track["selector"] };
     state?: Record<string, unknown>;
     replaceState?: boolean;
     start?: number;
@@ -966,9 +973,15 @@ export function setTransform(
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b) return null;
-  let t = b.tracks.find((x) => x.target === targetId && familyOf(x) === "transform");
+  const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
+  let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
   if (!t) {
     t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
+    if (opts.ref?.parts?.length) {
+      if (opts.ref.parts.length === 1) t.part = opts.ref.parts[0];
+      else t.parts = [...opts.ref.parts];
+    }
+    if (opts.ref?.selector) t.selector = structuredClone(opts.ref.selector);
     b.tracks.push(t);
   }
   t.to = t.to ?? {};
@@ -1185,10 +1198,8 @@ export function removeAnimation(
   // Deliberately FAMILY-BLIND (unlike tracksMatch): "remove the animation on
   // this object/part" means every family — an appearance and its sibling
   // transform both go. Family scoping exists for add/replace, not removal.
-  const sameSig = (t: Track) =>
-    t.target === match.target &&
-    (t.part ?? "") === (match.part ?? "") &&
-    JSON.stringify(t.selector ?? null) === JSON.stringify(match.selector ?? null);
+  const want = trackKey({ target: match.target, part: match.part, selector: match.selector });
+  const sameSig = (t: Track) => trackKey(t) === want;
   ensureTrackIds(deck);
   removeTracks(deck, slideId, b.tracks.filter(sameSig).flatMap(t => t.id ? [t.id] : []));
 }
@@ -1277,12 +1288,13 @@ export function ensureTrackIds(deck: Deck): Deck {
   return deck;
 }
 
-/** 0.2/0.3/0.4 → 0.5: a pure stamp — older decks contain no video additions.
+/** 0.2/0.3/0.4/0.5 → 0.6: a pure stamp — older decks contain none of the
+ *  0.5 video or 0.6 animation-v2 additions, and every 0.6 field is additive.
  *  Existing element/timeline behavior is preserved without identity rewrites.
  *  Anything else (0.1.x, garbage) passes through untouched and fails
  *  validation downstream exactly as before. Mutates + returns. */
 export function migrateDeck(deck: Deck): Deck {
-  if (typeof deck?.schemaVersion === "string" && /^0\.[234]\./.test(deck.schemaVersion)) {
+  if (typeof deck?.schemaVersion === "string" && /^0\.[2345]\./.test(deck.schemaVersion)) {
     deck.schemaVersion = DECK_SCHEMA_VERSION;
   }
   // The legacy data-space `morph` preset IS a transform (Become, content
@@ -1300,8 +1312,8 @@ export function migrateDeck(deck: Deck): Deck {
 }
 
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
- *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2/0.3/0.4 →
- *  0.5 stamp) then id normalization. A 0.1.x deck is untouched here and
+ *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2–0.5 →
+ *  0.6 stamp) then id normalization. A 0.1.x deck is untouched here and
  *  fails validation downstream (quarantine — the sanctioned clean break);
  *  newer-than-ours files are refused earlier by the forward-version guard. */
 export function normalizeDeck(deck: Deck): Deck {

@@ -156,6 +156,8 @@ export function projectIntoDeck(
     ...(project.textStyles !== undefined ? { textStyles: structuredClone(project.textStyles) } : {}),
     assets: structuredClone(project.assets.filter((a) => !external?.has(a.id))),
     ...(prev.externalAssetSizes ? { externalAssetSizes: structuredClone(prev.externalAssetSizes) } : {}),
+    // 0.6 animation styles are presentation (never projected): copied back verbatim
+    ...(prev.animStyles ? { animStyles: structuredClone(prev.animStyles) } : {}),
     slides,
   };
 }

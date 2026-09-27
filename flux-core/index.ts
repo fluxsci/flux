@@ -96,6 +96,8 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 // re-exported here so the CLI + MCP reach them through one flux-core surface.
 // --------------------------------------------------------------------------
 export { exportSlideVideo } from "./slideVideo";
+// animation v2 target vocabulary (pure; the family law's identity)
+export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef } from "../src/lib/slide/targets";
 export {
   loadDeck,
   saveDeck,

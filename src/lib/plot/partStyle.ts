@@ -9,7 +9,7 @@
 
 import type { FluxPlotManifest, PartNode } from "./types";
 import type { SemanticPlotElement, PartOverride } from "../types";
-import { drawablesUnder, buildPartIndex } from "./parse";
+import { drawablesUnder, buildPartIndex, partDomId } from "./parse";
 import { inferRole, labelForPart } from "./tree";
 import { plotDom } from "./store";
 
@@ -85,7 +85,7 @@ function findPartNode(manifest: FluxPlotManifest | undefined, partId: string): P
  *  per placement), else the pristine cached DOM's node (headless fallback). */
 export function partNode(el: SemanticPlotElement, partId: string): Element | null {
   if (typeof document !== "undefined") {
-    const live = document.getElementById(`${el.id}__${partId}`);
+    const live = document.getElementById(partDomId(el.id, partId));
     if (live) return live as unknown as Element;
   }
   const cached = plotDom.get(el.assetId);

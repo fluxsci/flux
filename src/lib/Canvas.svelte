@@ -45,7 +45,7 @@
   import { perfCounters } from "./dev/perfCounters";
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
-  import { restorePlotClip } from "./plot/parse";
+  import { restorePlotClip, partDomId } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
@@ -129,7 +129,7 @@
     const parts = target.partIds?.filter(id => !stashedParts.get(target.elementId)?.has(id));
     if (target.partIds?.length && !parts?.length) { presentationHighlight = null; return; }
     const nodes = parts?.length && parts.length <= 256
-      ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(`${target.elementId}__${id}`)}"]`)).filter((n): n is globalThis.Element => !!n)
+      ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(partDomId(target.elementId, id))}"]`)).filter((n): n is globalThis.Element => !!n)
       : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(target.elementId)}"]`)].filter((n): n is globalThis.Element => !!n);
     const boxes = nodes.map((node) => node.getBoundingClientRect()).filter((b) => b.width || b.height);
     if (!boxes.length) { presentationHighlight = null; return; }
@@ -2006,7 +2006,7 @@
     if (!f || f.element.type !== "plot" || effLocked(f.element)) return null;
     const pid = partAtPoint(f.element, ev);
     if (!pid || isScaffoldPart($plotManifests[f.element.assetId], pid)) return null;
-    const node = document.getElementById(`${f.element.id}__${pid}`);
+    const node = document.getElementById(partDomId(f.element.id, pid));
     if (!node) return null;
     const r = node.getBoundingClientRect();
     const h = hostEl.getBoundingClientRect();
@@ -2020,7 +2020,7 @@
   function beginPartMove(e: PointerEvent, fig: Figure, elementId: string, partId: string): boolean {
     const found = findElement($project, elementId);
     if (!found || found.element.type !== "plot" || effHidden(found.element) || stashedPresentationParts.get(elementId)?.has(partId)) return false;
-    const node = document.getElementById(`${elementId}__${partId}`) as unknown as SVGGraphicsElement | null;
+    const node = document.getElementById(partDomId(elementId, partId)) as unknown as SVGGraphicsElement | null;
     if (!node || typeof node.getScreenCTM !== "function") return false;
     restorePlotClip(node);
     // The override translate is PREPENDED to the node's transform list, so it
@@ -3630,7 +3630,7 @@
     if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
     const ps=get(partSelection);
     if (!ps) return;
-    const node=hostEl.querySelector(`[id="${CSS.escape(`${ps.elementId}__${ps.partId}`)}"]`);
+    const node=hostEl.querySelector(`[id="${CSS.escape(partDomId(ps.elementId, ps.partId))}"]`);
     if (!node) {partWorldBox=null;return;}
     const r=node.getBoundingClientRect(),h=hostEl.getBoundingClientRect(),v=get(viewport);
     partWorldBox={x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom};

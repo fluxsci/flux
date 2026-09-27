@@ -10,9 +10,9 @@
 import { DUR } from "../../motion/tokens";
 import { smoothstep, cubicBezierFn } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
-import { buildPartIndex } from "../../plot/parse";
-import { resolveTargets } from "../../plot/tree";
+import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
+import { targetPartIds, hasPartBinding, trackKey } from "../targets";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { morphCompatible, type MorphController } from "./morph";
@@ -21,8 +21,6 @@ import { createTransform } from "./transform";
 import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
 import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
-
-const SEP = "__"; // mirrors plot/parse prefixIds — plot part DOM id = `${elId}__${semanticId}`
 
 export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   theme: DeckTheme;
@@ -72,27 +70,16 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
   if (!wrap) return [];
   const content = contentRoots?.get(track.target) ?? wrap;
 
-  // a plot part OR a part-GROUP by parts-tree id: a leaf id → that one node; a
-  // group/container id (e.g. "axis.x", "series.main.point-group") → every leaf
-  // member, in tree order. This is the only path that reaches axis parts (spine/
-  // ticks/labels/gridlines live in the parts tree, not the series part-index).
-  if (track.part) {
-    const ids = resolveTargets(manifestFor(track.target, slide, opts, beatIndex), track.part);
+  // plot parts (a leaf id, a parts-tree group/container id → its leaf members
+  // in tree order, several ids, or a role/series/index selector) resolve through
+  // the ONE binding resolver the compiler uses (targets.targetPartIds) — a
+  // track can never animate one set and be inspected as another. This is the
+  // only path that reaches axis parts (spine/ticks/labels/gridlines live in the
+  // parts tree, not the series part-index).
+  if (hasPartBinding(track)) {
+    const ids = targetPartIds(track, manifestFor(track.target, slide, opts, beatIndex));
     return ids
-      .map((id) => content.querySelector<SVGElement>(`[id="${track.target}${SEP}${id}"]`))
-      .filter((n): n is SVGElement => !!n);
-  }
-
-  // a plot part-set by role / series / index
-  const sel = track.selector;
-  if (sel && (sel.role || sel.series || sel.index != null)) {
-    const idx = buildPartIndex(manifestFor(track.target, slide, opts, beatIndex));
-    const wantIdx = sel.index == null ? null : new Set(Array.isArray(sel.index) ? sel.index : [sel.index]);
-    const parts = Object.values(idx)
-      .filter((p) => (!sel.role || p.role === sel.role) && (!sel.series || p.series === sel.series) && (!wantIdx || (p.index != null && wantIdx.has(p.index))))
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-    return parts
-      .map((p) => content.querySelector<SVGElement>(`[id="${track.target}${SEP}${p.id}"]`))
+      .map((id) => content.querySelector<SVGElement>(`[id="${partDomId(track.target, id)}"]`))
       .filter((n): n is SVGElement => !!n);
   }
 
@@ -149,7 +136,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   // effects operate on a child layer, so rising in cannot erase a concurrent
   // position change or an authored rotation/translucency.
   for (const beat of slide.beats) for (const track of beat.tracks) {
-    if (track.disabled || track.part || track.selector || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
+    if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
     const wrap = rendered.elements.get(track.target) as (HTMLElement & { __slideEffects?: HTMLElement }) | undefined;
     if (!wrap?.firstElementChild || wrap.__slideEffects) continue;
     const effects = document.createElement("div");
@@ -164,7 +151,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
       if (track.disabled || track.keyframes || isVideoCommand(track) || track.preset && !(track.preset in PRESETS) && !["transform", "countUp"].includes(track.preset)) continue;
-      const key = `${track.target}|${track.part ?? ""}|${JSON.stringify(track.selector ?? null)}`;
+      const key = trackKey(track);
       // transform — the state tween (rework §4). Pre = fold of earlier
       // transforms; end = pre ⊕ to.state. Plots may ALSO carry a content
       // morph target (to.assetId) — one track, both halves.
@@ -203,7 +190,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       // the tween text doesn't flatten the rendered markup.
       if (track.preset === "countUp") {
         let node = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots)[0];
-        if (!track.part && !track.selector) node = contentRoots.get(track.target) ?? node;
+        if (!hasPartBinding(track)) node = contentRoots.get(track.target) ?? node;
         const leaves = Array.from((node as HTMLElement | undefined)?.querySelectorAll?.("tspan") ?? []);
         const textNode = leaves.find((n) => /\d/.test(n.textContent ?? "")) ?? leaves[0] ??
           (node as HTMLElement | undefined)?.querySelector?.("text");

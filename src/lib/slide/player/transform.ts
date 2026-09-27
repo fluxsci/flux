@@ -31,7 +31,7 @@ import { elementPaints, gradientSvg } from "../../color/gradient";
 import { get } from "svelte/store";
 import type { Element as FigElement, SemanticPlotElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
-import { applyOverrides } from "../../plot/parse";
+import { applyOverrides, partDomId } from "../../plot/parse";
 import { compensatePtTrue, restorePtTrue, compilePtTrueBindings, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
@@ -123,8 +123,8 @@ export function createTransform(
   const isPlot = pre.type === "plot" && end.type === "plot";
   let innerMorph: MorphController | null = null;
   const plotUpdate = isPlot && ctx.morphTo ? compileStaticContent(contentHost, pre, end, ctx, {
-    circles: new Set(ctx.morphTo.A.series.flatMap((s) => (s.points ?? []).map((p) => `${pre.id}__${p.svgId}`))),
-    lines: new Set(ctx.morphTo.A.series.flatMap((s) => s.svg?.line ? [`${pre.id}__${s.svg.line}`] : [])),
+    circles: new Set(ctx.morphTo.A.series.flatMap((s) => (s.points ?? []).map((p) => partDomId(pre.id, p.svgId)))),
+    lines: new Set(ctx.morphTo.A.series.flatMap((s) => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
   }) : null;
   if (isPlot && ctx.morphTo) {
     // A compatible data match with different SVG topology needs a complete

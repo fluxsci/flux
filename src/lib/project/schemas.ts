@@ -65,6 +65,11 @@ const ELEMENT_DEF = {
       contentScale: { type: "number" },
       source: { type: "object" },
       manifestRef: { type: "object" },
+      // animation v2: the data view (axis domain/scale crop), per axis
+      view: { type: "object", properties: Object.fromEntries(["x", "y"].map((axis) => [axis, {
+        type: "object",
+        properties: { domain: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, scale: { enum: ["linear", "log"] } },
+      }])) },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },
@@ -393,13 +398,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/deck.schema.json",
     title: "Flux Slide deck (slides/<id>/deck.json)",
     type: "object",
-    // 0.5 extends the shared figure scene with slide-only video. Figure
-    // schemas retain ELEMENT_DEF; only this deck definition adds the branch.
-    // 0.2–0.4 input migrates by stamp. Older apps refuse 0.5 before validation;
+    // 0.5 extends the shared figure scene with slide-only video; 0.6 (animation
+    // v2) adds part-set transform targets, the hand-off Become, animation
+    // styles, timing anchors and the plot data view. Figure schemas retain
+    // ELEMENT_DEF; only this deck definition adds the video branch.
+    // 0.2–0.5 input migrates by stamp. Older apps refuse 0.6 before validation;
     // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[2345]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[23456]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -439,6 +446,20 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         additionalProperties: {
           type: "object", required: ["width", "height"],
           properties: { width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 } },
+        },
+      },
+      // 0.6: linkable animation styles (Track.styleId → id)
+      animStyles: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "name", "family", "track"],
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            family: { enum: ["appearance", "transform", "media"] },
+            track: { type: "object" },
+          },
         },
       },
       slides: {
@@ -489,6 +510,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         target: { type: "string" },
                         ghostFrom: { type: "string", pattern: "[\\s\\S]" },
                         part: { type: "string" },
+                        parts: { type: "array", items: { type: "string" } }, // 0.6: several parts of one plot
                         selector: { type: "object" },
                         preset: { type: "string" },
                         params: { type: "object" },
@@ -501,6 +523,12 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         to: { type: "object" },
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
+                        styleId: { type: "string" }, // 0.6: deck AnimStyle ref
+                        // 0.6: relative timing — start at another track's edge
+                        anchor: {
+                          type: "object", required: ["trackId", "edge"],
+                          properties: { trackId: { type: "string" }, edge: { enum: ["start", "end"] }, offsetMs: { type: "number" } },
+                        },
                       },
                       allOf: [{
                         if: { required: ["ghostFrom"] },

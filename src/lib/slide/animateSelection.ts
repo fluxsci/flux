@@ -12,6 +12,7 @@ import { suggestTrack, suggestElementTrack } from "./autobuild";
 import { familyOf } from "./family";
 import { semanticTargets, trackDuration } from "./compile";
 import { staggerSpan } from "./stagger";
+import { trackKey } from "./targets";
 
 export interface AnimateTarget {
   elementId: string;
@@ -73,9 +74,8 @@ export function addAppearanceTracks(
       track.preset = "highlight";
       track.duration = 500;
     }
-    const prior = beat.tracks.filter(
-      (x) => x.target === el.id && (x.part ?? "") === (track.part ?? "") && familyOf(x) === "appearance",
-    );
+    const key = trackKey(track);
+    const prior = beat.tracks.filter((x) => trackKey(x) === key && familyOf(x) === "appearance");
     track.start = prior.reduce(
       (end, x) =>
         Math.max(
