@@ -24,12 +24,12 @@ cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
 cat project.json                       # the map
 cat Context/ProjectContext.qmd   # background and links to must-read material
 cat Context/RULES.md             # standing project rules
-$F read-log --since-checkpoint   # recent Log; --titles indexes all entries
+"$F" read-log --since-checkpoint   # recent Log; --titles indexes all entries
 tail -5 .meta/journal.ndjson     # what changed since last session
 "$F" feedback && "$F" comments       # open notes + project-wide document threads (each names its doc)
 ```
 
-When the user asks you to record work, use `$F log --agent "<your model>" --title "…" "…"`.
+When the user asks you to record work, use `"$F" log --agent "<your model>" --title "…" "…"`.
 The agent/surface/host byline is automatic. Use `--checkpoint` only for a requested summary;
 older entries stay intact.
 
