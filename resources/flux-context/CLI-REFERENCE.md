@@ -127,6 +127,7 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `fetch-pdfs [--key K]` · `ingest-pdf <file> --key K` | `fetch_pdfs` · `ingest_pdf` | download OA PDFs / file a hand-downloaded PDF into `items/<citekey>/` |
 | `highlights [search q] [--key K] [--md]` · `add-highlight --key K --page N --quote "…"` | `list_highlights`/`search_highlights` · `add_highlight` | read / add FluxReader highlights & notes |
 | — | `get_app_context` · `dispatch_command` · `act_on_selection` | the **live bridge** (app open only) |
+| `view --png --out <file> [--max-edge n] [--root R]` | `get_view {maxEdge?}` | capture the open project's Flux window as PNG plus current context; maxEdge defaults to 1600, clamped to 256–1600; requires viewing enabled in Settings |
 
 ### Slides (Flux Slide — see `SLIDES.md`)
 

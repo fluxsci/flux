@@ -343,7 +343,7 @@
         {#if routeOpen}<div class="routes" role="group" aria-label="Annotation recipient">
           <button onclick={() => chooseRoute("none")}>Inbox <small>Nobody acts until you ask</small></button>
           <button onclick={() => chooseRoute("any")}>Any watching agent <small>First to claim takes it</small></button>
-          {#each $sessions as s}<button class:muted={!s.watching} onclick={() => chooseRoute({ session: { id: s.id, name: s.name, client: s.client } })}>{s.name}<small>{s.watching ? s.display : "queued until it watches"}</small></button>{/each}
+          {#each $sessions as s}<button class:muted={!s.watching} onclick={() => chooseRoute({ session: { id: s.id, name: s.name, client: s.client } })}>{s.name}{#if s.live}<span class="pairing">Pairing</span>{/if}<small>{s.watching ? s.display : "queued until it watches"}</small></button>{/each}
         </div>{/if}
       </div>
       {#if staleView && !editing}<p class="hint">Your draft keeps its earlier view. To draw on the current view, <button onclick={() => { if ($annotationRequest) void openSurface($annotationRequest, true); }}>Refresh view (clears marks)</button>.</p>{/if}
@@ -365,7 +365,7 @@
               {#if item.status !== "resolved"}<div class="queue-actions">
                 <button disabled={busy} onclick={() => void edit(item)}>Edit</button><button disabled={busy} onclick={() => void act(() => withdrawAnnotation(item.id))}>Withdraw</button>
                 <select aria-label="Assign annotation" disabled={busy} value={item.assignedTo?.id ?? ""} onchange={e => { const id = e.currentTarget.value; void act(() => assignAnnotation(item.id, $sessions.find(s => s.id === id) ?? null)); }}>
-                  <option value="">Unassigned</option>{#each $sessions as s}<option value={s.id}>{s.name}{s.watching ? "" : " (not watching)"}</option>{/each}
+                  <option value="">Unassigned</option>{#each $sessions as s}<option value={s.id}>{s.name}{s.live ? " · Pairing" : ""}{s.watching ? "" : " (not watching)"}</option>{/each}
                 </select>
                 {#if item.claimedBy}<button disabled={busy} onclick={() => void act(() => releaseAnnotation(item.id))}>Release claim</button>{/if}
               </div>{/if}
@@ -381,6 +381,7 @@
 {/if}
 
 <style>
+  .pairing { color: var(--c-accent); border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 1px 4px; font-size: var(--ts-xs); }
   .annotation-surface { position: fixed; inset: 0; z-index: 2000; user-select: none; cursor: var(--cursor-cross); }
   .annotation-shot, .annotation-marks { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .annotation-shot { pointer-events: none; background: var(--c-bg); }

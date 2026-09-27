@@ -377,6 +377,12 @@
             </div>
             {#if libNotice}<p class="hint">{libNotice}</p>{/if}
 
+            <h3>Agents</h3>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.allowAgentView} onchange={(e) => settings.update((v) => ({ ...v, allowAgentView: e.currentTarget.checked }))} />
+              Allow agents to view the Flux window
+            </label>
+
             <h3>Updates</h3>
             <label class="chk">
               <input

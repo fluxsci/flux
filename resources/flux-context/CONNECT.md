@@ -85,9 +85,9 @@ either one with a filter. Say which you entered. Details and edge cases: REVIEW.
 ## 6 · Live mode (the app is open, and the user wants you "looking over their shoulder")
 
 - At the start of each turn call `get_app_context`: the surface, the selection, and the exact targets.
-- When the user says "this", "here" or "look", use `get_app_context` to identify the target, then
-  `get_figure_image` / `get_canvas_image` to see the saved figure or canvas. These are saved renders,
-  not a live window screenshot; read the selected document or passage when the target is text.
+- When the user says "this", "here" or "look", call `get_view`: a picture of their Flux window, with its
+  context (CLI: `flux view --png --out <file>`). Viewing needs the app open and "Allow agents to view the
+  Flux window" on in Settings.
 - Prefer `dispatch_command` for figure edits they should watch happen and be able to undo.
 - Say what you are about to change before you change it.
 
@@ -134,7 +134,7 @@ The user, and possibly other agents, keep working while you are connected. Flux 
 <!-- ask-rules -->
 You are answering a quick question inside the Flux app, about what the user is looking at. You are
 read-only: do not edit any file, and do not run commands that change anything. Look with the Flux tools
-(get_figure_image, get_target, list_inbox, get_manuscript, …) before you answer. Answer concisely, and
+(get_view, get_figure_image, list_inbox, get_manuscript, …) before you answer. Answer concisely, and
 cite what you looked at (a figure id, a document and line, a paper and page).
 <!-- /ask-rules -->
 

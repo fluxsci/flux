@@ -28,11 +28,20 @@ import { currentProject, view } from "../../shell/shellStore";
 import { focusedMode, focusedPaneId } from "../../shell/paneStore";
 import { storeTenant, storeTenantState } from "../tenancy";
 import { fileBridge } from "../project/types";
+import { settings } from "../settings";
+import { liveViewActivity } from "./liveView";
 
 export function installBridge(): void {
   // SHL-16: the live bridge (window.fig.bridge) is typed centrally on FileBridge (LiveBridge).
   const bridge = fileBridge()?.bridge;
   if (!bridge) return; // only under Electron + the bridge preload
+
+  currentProject.subscribe(p => liveViewActivity.setRoot(p?.path ?? null));
+  bridge.onViewed(event => { void liveViewActivity.record(event); });
+  // Read-only: Annotate's frozen surface blocks writes below, never this handshake.
+  bridge.onContextRequest(({ id }) => {
+    bridge.replyContext(id, getAppContext(), get(settings).allowAgentView);
+  });
 
   // WS6/W3: hold the advisory "project" activity lock while the human is
   // actively editing figures (grace-windowed + heartbeat-restamped), so a

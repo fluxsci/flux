@@ -35,7 +35,7 @@ free();assert.deepEqual(await closing,{ok:true,failed:[]});removePane();removeNe
 
 // Drive the production subscription bridge, not getAppContext directly.
 const pushed: {activeFigure:unknown;projectRoot:string|null}[]=[];
-Object.assign(globalThis,{window:{fig:{bridge:{pushContext:(context:any)=>pushed.push(context),onDispatch:()=>{},reply:()=>{}}}}});
+Object.assign(globalThis,{window:{fig:{bridge:{onContextRequest:()=>{},replyContext:()=>{},onViewed:()=>{},pushContext:(context:any)=>pushed.push(context),onDispatch:()=>{},reply:()=>{}}}}});
 setFocusedMode('figure');setStoreTenant('figure');embeddedProjectRoot.set(root);
 let ready=false;
 const removeFigure=registerFlushable({id:'figure',isReady:()=>ready,isDirty:()=>false,flush:async()=>{}});

@@ -20,7 +20,7 @@ For another image, use `flux_verb {verb:"get_inbox_image",args:{id:"<item-id>"}}
 Without MCP, read `flux inbox --json` and open the snapshot path with an image viewer.
 A missing image does not erase semantic targets; report the missing view if it matters.
 
-`get_target {target:…}` / `flux inspect <target>` reads current saved state without
+`get_target {target:…}` (in the core toolset through `flux_verb`) / `flux inspect <target>` reads current saved state without
 rendering. Pass the packet's TargetRef, or a shorthand such as
 `part:fig-2/el-9#control` or `doc:paper/notes.qmd@120-180`. Do not guess which object
 an arrow means from a nearby name when the packet already supplies its identity.
@@ -142,11 +142,17 @@ brings both together. Let a user composing a reply finish; do not replace their 
 ## Live mode — the user means "this", "here" or "look"
 
 With the app open on this project, start each live turn with `get_app_context`.
-Use its surface, selection and targets to identify what the user means. For a figure
-or canvas, call `get_figure_image` / `get_canvas_image` and look. These render saved
-content; they do not capture the live window or prove unsaved edits were rendered.
-For text, read the target/document; Reader's current passage is available through
+Use its surface, selection and targets to identify what the user means. When the user
+says this/here/look/what I'm seeing, call `get_view`: it captures the project's Flux
+window (unsaved edits included, and while Annotate is open) with its context. Each view
+shows "◉ <session name> viewed your window" to the user for two seconds; with Settings →
+"Allow agents to view the Flux window" off it refuses with `live-view-disabled`. For a
+saved figure or canvas at full resolution, `get_figure_image` / `get_canvas_image`. For
+text, read the target/document; Reader's current passage is available through
 `get_reading_context` (use `flux_verb` if absent from core).
+
+Sessions connected with `--live` show a **Pairing** badge in Annotate's To: menu:
+choose the session there to hand it an annotation directly.
 
 Prefer `dispatch_command` for visible, undoable Figure edits. Discover its exact
 allow-list with `flux_verbs {query:"dispatch_command"}`; pass `{command:{type:…}}`.

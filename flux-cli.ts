@@ -29,6 +29,7 @@ usage: flux <verb> [root] [args] [--flags]
   render-figure [root] <id> [--out f]  render a figure to SVG (stdout or --out)
   render-canvas [canvasId] [--root R] [--png] [--scale n] [--out f]
                                        render a WHOLE canvas (all figures at their x/y)
+  view --png --out <file> [--root R] [--max-edge n]   Capture the live Flux window (maxEdge: 256–1600 px).
   render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
   sync-figure [figId] [--root R]       refresh fig/assets copies from regenerated plots/
                                        sources IN PLACE (captions/restyles survive)
@@ -374,6 +375,21 @@ async function dispatch(
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
       }
+      break;
+    }
+    case "view": {
+      if (flags.png !== true || typeof flags.out !== "string" || !flags.out)
+        throw new Error("Usage: flux view --png --out <file> [--root R] [--max-edge n]");
+      const maxEdge = num(flags["max-edge"]);
+      if (flags["max-edge"] !== undefined && (maxEdge === undefined || !Number.isFinite(maxEdge)))
+        throw new Error("max-edge must be a finite number");
+      const { getView } = await import("./flux-core/liveClient");
+      const { detectAgentIdentity } = await import("./flux-core/agentIdentity");
+      const { describeStamp } = await import("./src/lib/project/annotations");
+      const result = await getView(R(), maxEdge, detectAgentIdentity(process.env).sessionId ?? undefined);
+      const png = Buffer.from(result.png, "base64");
+      await fs.writeFile(flags.out, png);
+      console.error(`✓ wrote ${flags.out} (${png.length} bytes) · ${describeStamp(result.stamp)}`);
       break;
     }
     case "render-canvas": {

@@ -142,6 +142,9 @@ const CHANNELS = [
   { channel: "bridge:dispatch", kind: "push", scope: "read" },
   { channel: "bridge:dispatch:reply", kind: "send", scope: "read" },
   { channel: "bridge:context", kind: "send", scope: "read" },
+  { channel: "bridge:context:request", kind: "push", scope: "read" },
+  { channel: "bridge:context:reply", kind: "send", scope: "read" },
+  { channel: "bridge:viewed", kind: "push", scope: "read" },
   // --- renders / exports -------------------------------------------------------------
   { channel: "recipe:cancel", kind: "invoke", scope: "spawn" },
   { channel: "recipe:run", kind: "invoke", scope: "spawn" },

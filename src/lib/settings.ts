@@ -12,6 +12,7 @@ export type CorrectionDialect = "american" | "british" | "canadian" | "australia
 export type CorrectionAggressiveness = "standard" | "aggressive" | "really-aggressive";
 
 export interface Settings {
+  allowAgentView: boolean;
   "annotate.attachView": boolean;
   flexokiDefault: boolean; // ship the Flexoki palette in new projects
   // Colour pickers (2026-09-16): which collection opens first.
@@ -45,6 +46,7 @@ export interface Settings {
 
 const KEY = "flux.settings";
 const DEFAULTS: Settings = {
+  allowAgentView: true,
   "annotate.attachView": true,
   flexokiDefault: true,
   paletteCollection: "flexoki",

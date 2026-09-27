@@ -91,7 +91,7 @@ export const INBOX_VERBS: VerbDef[] = [
     handler: (ctx, a) => archiveItem(ctx.root, a.id as string, archived, ctx),
   } satisfies VerbDef)),
   {
-    name: "get_target", readOnly: true, cli: "inspect", scope: "project", core: true, cliRoot: "flags",
+    name: "get_target", readOnly: true, cli: "inspect", scope: "project", cliRoot: "flags",
     notAPath: { target: "Structured TargetRef or kind-prefixed model shorthand, including project document ranges" },
     summary: "Current state of a target (figure, element, plot part, caption, document range, slide, beat, track, passage, reference), without rendering. TargetRef JSON or shorthand, e.g. part:fig-2/el-9#control, doc:paper/notes.qmd@120-180.",
     params: { target: z.union([z.string(), z.record(z.unknown())]) },

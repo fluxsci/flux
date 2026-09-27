@@ -263,6 +263,17 @@ contextBridge.exposeInMainWorld("fig", {
   // (onDispatch → reply). Main relays these to/from the loopback control server.
   bridge: {
     pushContext: (ctx) => ipcRenderer.send("bridge:context", ctx),
+    onContextRequest: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("bridge:context:request", handler);
+      return () => ipcRenderer.removeListener("bridge:context:request", handler);
+    },
+    replyContext: (id, context, allowed) => ipcRenderer.send("bridge:context:reply", { id, context, allowed }),
+    onViewed: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("bridge:viewed", handler);
+      return () => ipcRenderer.removeListener("bridge:viewed", handler);
+    },
     onDispatch: (cb) => {
       const handler = (_e, msg) => cb(msg);
       ipcRenderer.on("bridge:dispatch", handler);

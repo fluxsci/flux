@@ -51,6 +51,17 @@ capabilities as the GUI, through three surfaces:
 - **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
+- **Live view / Pair:** `get_view` / `flux view --png --out <file>` use authenticated
+  `POST /capture` on that project's bridge. Main captures only its owning window and
+  clamps maxEdge to 256–1600 px (default 1600; never upscales). A separate read-only
+  renderer handshake uses `getAppContext` and checks `settings.allowAgentView` before
+  and after capture; project changes refuse the result. Annotate blocks dispatches,
+  never capture. Successful views journal `live_view` and push `bridge:viewed`.
+  `bridge/liveView.ts` exposes `recentAgentActivity` (20 newest, cleared on root change)
+  for the AI panel and a two-second titlebar notice, resolving names from presence.
+  Annotate labels `live:true` sessions **Pairing**. Gates: `verify-live-view.ts` and
+  `verify-live-view-electron.cjs` (real PNG pixels, Settings, indicator and Pairing).
+
 - **Context layer + review channels**: agent context lives in two folders —
   `<FluxConfig>/Context/{UserContext,FluxContext}` (user identity/rules + stock docs
   synced from `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`)
@@ -7305,3 +7316,10 @@ integration acceptance remains with the orchestrator. Nothing committed.
 manual must update config sync assertions as well as content pins; generic pruning
 already handles the retired stock files. `get_view` remains a parallel F3 dependency;
 the current manual uses live target context plus saved figure/canvas images.
+### 2026-09-27 07:57 UTC — Live window view and Pair (Codex, aio/f3-live)
+**Work:** Added authenticated window capture, the core MCP `get_view` tool and CLI
+`view` twin, consent in Settings, presence-named titlebar activity and Pairing badges.
+Added the hermetic transport/renderer gate and a real Electron pixel/indicator probe;
+native and browser acceptance remains with the orchestrator. Promoted the capture
+ownership/consent contract and AI-panel activity-store integration into §1. Updated
+a stale pathMap reference from the retired Annotate gate to its W4b replacement.

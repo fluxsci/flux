@@ -309,7 +309,8 @@
       "verify-agent-setup.ts",
       "verify-connect-doctor.ts",
       "verify-skill-template.ts",
-      "verify-command-rank.ts"
+      "verify-command-rank.ts",
+      "verify-live-view.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -560,7 +561,8 @@
       "verify-eyedropper-portal.cjs",
       "verify-eyedropper-electron.cjs",
       "verify-figure-metadata-electron.cjs",
-      "verify-annotate-utility-electron.cjs"
+      "verify-annotate-utility-electron.cjs",
+      "verify-live-view-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -824,6 +826,18 @@
       ]
     },
     {
+      "glob": "{electron/bridgeServer.cjs,electron/ipc/agent.cjs,flux-core/liveClient.ts,src/lib/bridge/liveView.ts,src/shell/TitleBar.svelte,scripts/lib/liveViewProbeEntry.cjs}",
+      "run": [
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-an-bridge.ts",
+        "verify-ipc-contract.ts",
+        "verify-startup.mjs",
+        "tier:pure",
+        "verify-shell-complete.mjs"
+      ]
+    },
+    {
       "glob": "flux-core/connect/hook*.ts",
       "run": [
         "verify-connect-hook.mjs",
@@ -849,7 +863,9 @@
         "verify-registry-parity.ts",
         "verify-mcp-binding.ts",
         "verify-log.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -881,7 +897,9 @@
         "verify-annotate-utility-electron.cjs",
         "verify-ipc-contract.ts",
         "verify-present-core.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -1084,7 +1102,9 @@
       "glob": "{src/shell/lifecycle.ts,src/lib/bridge/install.ts,src/lib/tenancy.ts}",
       "run": [
         "verify-shell-owner-epochs.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -1636,7 +1656,9 @@
       "glob": "{electron/{main,preload}.cjs,electron/ipc/{files,sourceWatch,contract}.cjs}",
       "run": [
         "verify-source-watch.ts",
-        "tier:presence"
+        "tier:presence",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -1658,7 +1680,9 @@
         "verify-registry-parity.ts",
         "verify-f1-mcp.ts",
         "verify-recovery-entry.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -1801,7 +1825,9 @@
       "glob": "{src/lib/settings.ts,src/lib/Settings.svelte}",
       "run": [
         "verify-gallery-scope.ts",
-        "verify-shell-complete.mjs"
+        "verify-shell-complete.mjs",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -7287,6 +7313,27 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-live-view.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-live-view-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

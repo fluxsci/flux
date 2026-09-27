@@ -171,7 +171,7 @@ try {
   for (const target of targets) {
     const result = await inspectTarget(root, target);
     h.ok(!!result.target && !!result.description, `inspect ${target}`);
-    const fromMcp = dataOf(await mcp.call("get_target", { target }));
+    const fromMcp = dataOf(await mcp.call("flux_verb", { verb: "get_target", args: { target } }));
     h.eq(fromMcp, result, "MCP inspect executes the same current-state reader");
   }
   const doc = await inspectTarget(root, { kind: "doc", path: f.docs[0], from: 13, to: 33 });

@@ -67,7 +67,7 @@ try {
   mountFigureCommandFixture(root);
   let receive!: (request: {id:string;command:unknown})=>void;
   const replies = new Map<string, {result:unknown;error?:string}>();
-  Object.assign(globalThis, {window:{fig:{bridge:{pushContext:()=>{},onDispatch:(cb:typeof receive)=>{receive=cb;},reply:(id:string,result:unknown,error?:string)=>{replies.set(id,{result,error});}}}}});
+  Object.assign(globalThis, {window:{fig:{bridge:{onContextRequest:()=>{},replyContext:()=>{},onViewed:()=>{},pushContext:()=>{},onDispatch:(cb:typeof receive)=>{receive=cb;},reply:(id:string,result:unknown,error?:string)=>{replies.set(id,{result,error});}}}}});
   installBridge();
   const request = async (id:string,command:unknown) => {
     receive({id,command});

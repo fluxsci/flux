@@ -122,6 +122,18 @@ are greyed and marked **queued until it watches**. Your choice is remembered per
 recognized routing mentions are removed from the saved text. **#tags** appear as chips.
 Background-agent routing is not yet available; choose Inbox or a connected session.
 
+## Pair with the live window
+
+Connect with `--live` to pair with the open project. A connected session in live mode
+shows **Pairing** in Annotate's **To:** menu; choose its name to hand it an annotation.
+An agent can use `get_view` to see the current Flux window and its context, including
+while Annotate is open. Each view briefly shows **◉ heron viewed your window** in the
+titlebar, using that session's name.
+
+**Settings → General → Allow agents to view the Flux window** is on by default.
+Turn it off to refuse agent screenshots. The agent receives a clear disabled message.
+Viewing captures only that project's Flux window.
+
 ## Queued: Edit, Withdraw, and status {#sec-note-popover}
 
 Expand **Queued** to review annotations. **Edit** loads the original text, targets, and

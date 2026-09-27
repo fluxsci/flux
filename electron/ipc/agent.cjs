@@ -25,6 +25,7 @@ function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
   const bridges = new Map(); // root -> { bridge, latestContext, win }
   let dispatchSeq = 0;
   const dispatchPending = new Map(); // id -> { resolve, reject, timer, root }
+  const contextPending = new Map(); // read-only capture handshakes, separate from dispatch
 
   function stopBridgeEntry(root) {
     const entry = bridges.get(root);
@@ -35,9 +36,9 @@ function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
     } catch {
       /* ignore */
     }
-    for (const [id, p] of [...dispatchPending]) {
+    for (const pending of [dispatchPending, contextPending]) for (const [id, p] of [...pending]) {
       if (p.root !== root) continue;
-      dispatchPending.delete(id);
+      pending.delete(id);
       clearTimeout(p.timer);
       p.reject(new Error("bridge stopped"));
     }
@@ -49,9 +50,29 @@ function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
     if (!root) return;
     stopBridgeEntry(root); // a stale entry for this root (defensive — see map comment)
     const entry = { bridge: null, latestContext: null, win };
+    const assertOwner = () => {
+      if (bridges.get(root) !== entry || win.isDestroyed() || win.webContents.isDestroyed())
+        throw new Error("bridge project ownership changed");
+    };
     entry.bridge = startBridge({
       root,
       getContext: () => entry.latestContext,
+      prepareCapture: () => new Promise((resolve, reject) => {
+        assertOwner();
+        const id = ++dispatchSeq;
+        const timer = setTimeout(() => {
+          contextPending.delete(id);
+          reject(new Error("live-view-unavailable: renderer timed out"));
+        }, 4000);
+        contextPending.set(id, { resolve, reject, timer, root, sender: win.webContents });
+        win.webContents.send("bridge:context:request", { id });
+      }),
+      capture: () => { assertOwner(); return win.webContents.capturePage(); },
+      onCaptured: event => {
+        assertOwner();
+        appendJournalLine(root, { action: "live_view", client: event.client, sessionId: event.sessionId });
+        win.webContents.send("bridge:viewed", event);
+      },
       dispatch: (command) =>
         new Promise((resolve, reject) => {
           if (entry.win.isDestroyed() || entry.win.webContents.isDestroyed())
@@ -90,9 +111,18 @@ function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
       // The context belongs to the SENDER's project — route by its root.
       const root = rootForSender(e);
       const entry = root ? bridges.get(root) : undefined;
-      if (!entry) return;
+      if (!entry || entry.win.webContents !== e.sender) return;
       entry.latestContext = ctx;
       entry.bridge.pushContext(ctx);
+    });
+    ipc.on("bridge:context:reply", (e, { id, context, allowed }) => {
+      const p = contextPending.get(id);
+      if (!p || p.sender !== e.sender) return;
+      contextPending.delete(id);
+      clearTimeout(p.timer);
+      if (rootForSender(e) !== p.root || context?.projectRoot !== p.root)
+        p.reject(new Error("bridge project ownership changed"));
+      else p.resolve({ stamp: context, allowed: allowed === true });
     });
     ipc.on("bridge:dispatch:reply", (_e, { id, result, error }) => {
       const p = dispatchPending.get(id);

@@ -317,7 +317,7 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
 
 const READ_ONLY = { readOnlyHint: true } as const;
 
-export const projectParam = z.string().optional().describe("Project root; default: the connected project");
+export const projectParam = z.string().optional().describe("Project root (default: the connected one)");
 export type RootResolver = (args: Record<string, unknown>) => string | Promise<string>;
 export type McpToolset = "core" | "full";
 export interface McpVerbOptions {

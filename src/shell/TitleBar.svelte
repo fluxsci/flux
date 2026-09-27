@@ -9,6 +9,7 @@
   import { anyDirty } from "./lifecycle";
   import { fileBridge } from "../lib/project/types";
   import { pushToast } from "../lib/toast";
+  import { lastAgentView } from "../lib/bridge/liveView";
 
   const fig = fileBridge();
   const win = fig?.win;
@@ -102,6 +103,10 @@
   {/if}
 
   <div class="spacer"></div>
+
+  {#if $lastAgentView}
+    <span class="agent-view" role="status" title={`${$lastAgentView.name} viewed your window`}>◉ {$lastAgentView.name} viewed your window</span>
+  {/if}
 
   <!-- Utility strip: deliberately smaller + fainter than the mode strip (the
        "secondary chrome" register), and available on Home too. -->
@@ -268,6 +273,13 @@
 
   .spacer {
     flex: 1 1 auto;
+  }
+  .agent-view {
+    color: var(--c-tx-muted);
+    font-size: var(--ts-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* ---- utility strip (secondary register) -------------------------------- */

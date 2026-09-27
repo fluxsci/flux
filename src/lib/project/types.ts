@@ -134,6 +134,9 @@ export interface WinBridge {
  *  only). `command` is untyped JSON off the wire; the consumer narrows it. */
 export interface LiveBridge {
   pushContext: (ctx: unknown) => void;
+  onContextRequest: (cb: (msg: { id: number }) => void) => () => void;
+  replyContext: (id: number, context: unknown, allowed: boolean) => void;
+  onViewed: (cb: (event: import("../bridge/liveView").LiveViewEvent) => void) => () => void;
   onDispatch: (cb: (msg: { id: number; command: unknown }) => void) => () => void;
   reply: (id: number, result?: unknown, error?: string) => void;
 }

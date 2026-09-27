@@ -70,6 +70,7 @@
   "get_paper_text",
   "get_reading_context",
   "get_target",
+  "get_view",
   "ghost_transform",
   "grobid",
   "group_elements",
