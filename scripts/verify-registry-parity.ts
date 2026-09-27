@@ -2,18 +2,18 @@
 // WS-6.3 (fortify plan) — the verb-registry parity gate:
 //   (a) the REAL MCP server's tools/list === the committed golden snapshot
 //       (a rename/removal on either surface fails here first);
-//   (b) `flux help` === the committed golden text;
+//   (b) `flux help` lists every registered CLI verb;
 //   (c) registered verbs produce the SAME core strings on both surfaces
 //       (CLI decorates with "✓ "), and shared failures map per the taxonomy
 //       (CLI exit codes incl. 75 for locks; MCP isError);
 //   (d) surface inventory — every registry verb appears in the CLI help AND
 //       the MCP tool list, and every `flux <verb>` the agent skill doc
-//       (skills/flux/references/cli.md) names exists on the CLI surface;
+//       (resources/flux-context/CLI-REFERENCE.md) names exists on the CLI surface;
 //   (e) core-import integrity — every `core.<name>` a verb handler references
 //       resolves against flux-core/index's REAL export surface (the explicit
 //       re-export lists can silently drop one; the verb then crashes only
 //       when invoked).
-// Regenerate goldens deliberately:  REGEN_GOLDEN=1 npx tsx scripts/verify-registry-parity.ts
+// Regenerate deliberately: REGEN_GOLDEN=1 node scripts/run-verifies.mjs --tier pure --only registry-parity
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
@@ -23,7 +23,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const REPO = path.resolve(import.meta.dirname, "..");
 const GOLDEN_DIR = path.join(REPO, "scripts", "fixtures");
 const TOOLS_GOLDEN = path.join(GOLDEN_DIR, "mcp-tools.golden.json");
-const HELP_GOLDEN = path.join(GOLDEN_DIR, "cli-help.golden.txt");
 const REGEN = !!process.env.REGEN_GOLDEN;
 
 let failures = 0;

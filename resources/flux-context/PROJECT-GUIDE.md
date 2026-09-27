@@ -9,15 +9,14 @@ open you can also read its live UI state and act on the human's current selectio
 ## Read first
 1. `project.json` — the map (title, authors, documents, figures rollup, references).
 2. `Context/` — the project's agent layer: `Project/MISSION.qmd` (goals),
-   `NOTEBOOK.md` (the principal's memory), `RULES.md` (project rules),
-   `Transcripts/` + `Dispatches/` (archives). See the sibling `README.md` here.
+   `NOTEBOOK.md` (the project log), `RULES.md` (project rules). See the sibling `README.md` here.
 3. `flux list` — figures + references at a glance.
 
 ## Layout & ownership
 - `paper/` — user-owned documents and arbitrary nested folders, starting with
   `notes.qmd`. No `main.qmd` filename is required. Legacy `manuscript/` trees remain
   supported and are never automatically renamed. Both are scanned recursively, as is
-  Context (excluding Transcripts/Dispatches archives). Discovery skips generated Quarto
+  Context. Discovery skips generated Quarto
   support/cache trees and unused legacy `sections/` scaffolds. Ordinary existing folders
   stay visible; new folders carry a hidden `.flux-folder` marker to preserve user intent,
   even when empty or named like render output. No generated files are deleted.
@@ -25,10 +24,7 @@ open you can also read its live UI state and act on the human's current selectio
   and keep `manuscript.path` as an ordinary default export pointer, empty when no documents
   remain. New-project comments are document-named; legacy main comments retain comments.json.
 - `Context/` — the agent context layer (see above). `NOTEBOOK.md` is agent-owned;
-  `MISSION.qmd` and `RULES.md` are co-owned with the user; `Transcripts/` is
-  machine-captured and append-only. Session-log entries in `NOTEBOOK.md` go through
-  `flux note` (locked, concurrent-writer safe — see PRINCIPAL.md's notebook law);
-  its body is edited in place, surgically.
+  `MISSION.qmd` and `RULES.md` are co-owned with the user.
 - `plots/` — **user-owned**. Analysis software drops plot SVGs here (+ optional
   `*.fluxplot.json` manifest and `*.recipe.json`) in any structure. A plot with a
   manifest imports as a **semantic** panel whose parts are addressable + restylable
@@ -53,6 +49,13 @@ open you can also read its live UI state and act on the human's current selectio
   FLUX-CLI.md). `.meta/locks/` — advisory locks: while the human is mid-edit the app
   holds the `project` lock, so a file write **defers with a warning instead of
   clobbering** — retry in a moment. `.meta/live/bridge.json` — the live bridge (below).
+
+Log entries go through `flux note`, which appends to `Context/NOTEBOOK.md` under the
+manuscript lock so concurrent writers cannot overwrite each other. Edit the notebook body
+in place, keeping unrelated content intact.
+
+When the user states a standing preference, propose adding it to `Context/RULES.md`.
+Keep one-off requests in their review threads.
 
 ## Conventions
 - **Stable IDs / slugs** identify things; **numbers** (Figure 3) are derived from
@@ -104,8 +107,7 @@ comments (each thread's `anchor.quote` is the exact text it targets);
 `resolve-comment <id|quote> [--note "…"]` / `resolve_comment` — mark one resolved
 *after* addressing it; `add-comment` / `add_comment` — open a thread yourself (for
 questions back to the human). `feedback` / `list_feedback` + `resolve-feedback` /
-`resolve_feedback` — the context-stamped feedback ledger; `send` marks a review-pass
-boundary. Threads live in `<base>.comments.json` beside each document; legacy mains retain
+`resolve_feedback` — the context-stamped feedback ledger. Threads live in `<base>.comments.json` beside each document; legacy mains retain
 `manuscript/comments.json` — never in the `.qmd`.
 
 **See / verify:** `render-figure <id> [--png]` / `get_figure_image` (returns a PNG so

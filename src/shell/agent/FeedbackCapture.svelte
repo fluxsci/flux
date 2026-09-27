@@ -2,7 +2,7 @@
   // "Note to agent" — the context-stamped quick-capture popover (Ctrl+Shift+M /
   // palette). The note is stamped with what the user is looking at RIGHT NOW
   // (figure/element/part, document + selection quote, slide + beat) and appended
-  // to .meta/feedback.ndjson; Send marks the review-pass boundary.
+  // to .meta/feedback.ndjson.
   import { currentProject } from "../shellStore";
   import { modalFocus } from "../../lib/ui/modalFocus";
   import { tick } from "svelte";
@@ -15,7 +15,6 @@
     clearPendingSnapshot,
     feedbackState,
     pendingSnapshot,
-    sendFeedback,
     setPendingSnapshot,
     snapshotOfNote,
     withdrawFeedbackNote,
@@ -36,7 +35,7 @@
   let editing = $state<FeedbackNote | null>(null);
 
   const openCount = $derived($feedbackState?.open.length ?? 0);
-  // Newest first — the one you just sent by accident is on top.
+  // Newest first — the one you just added by accident is on top.
   const queued = $derived([...($feedbackState?.open ?? [])].reverse());
 
   $effect(() => {
@@ -88,7 +87,7 @@
     annotateCaptureOpen.set(true);
   }
 
-  async function add(thenSend: boolean) {
+  async function add() {
     if (busy) return;
     const owner = ownerGeneration;
     error = null;
@@ -96,9 +95,7 @@
     try {
       if (text.trim()) await addFeedbackNote(text, editing ? { replaces: editing.id, context: editing.context } : {});
       if (owner !== ownerGeneration) return;
-      // An added note is durable even if Send later fails; retry must not duplicate it.
       text = ""; editing = null;
-      if (thenSend) await sendFeedback();
       if (owner === ownerGeneration) close();
     } catch (e) { if (owner === ownerGeneration) error = String(e);
     } finally {
@@ -113,7 +110,7 @@
       close();
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void add(e.metaKey || e.ctrlKey); // Ctrl+Enter = add & send
+      void add();
     }
   }
 </script>
@@ -185,14 +182,8 @@
         <button class="ghost fc-annot" disabled={busy} onclick={annotate} title="Freeze the window and draw on it (Ctrl+Shift+S)">
           Snapshot &amp; annotate
         </button>
-        <button class="ghost" disabled={busy || openCount === 0} onclick={() => void add(true)}>
-          Send {openCount || ""}
-        </button>
-        <button class="ghost" disabled={busy || !text.trim()} onclick={() => void add(false)} title="Queue this note for the agent (Enter)">
+        <button class="primary" disabled={busy || !text.trim()} onclick={() => void add()} title="Queue this note for the agent (Enter)">
           Add to queue
-        </button>
-        <button class="primary" disabled={busy || !text.trim()} onclick={() => void add(true)} title="Ctrl+Enter">
-          Add &amp; send
         </button>
       </div>
     </div>

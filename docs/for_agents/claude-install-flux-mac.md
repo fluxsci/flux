@@ -44,7 +44,7 @@ Read these before running anything:
    stop and fix it (or report it) — don't pile steps onto a broken base.
 6. **Steps marked 🧑 need the user at the keyboard** (the admin password pop-up, visually
    confirming the app window). Narrate what they should do and wait.
-7. At the end, produce the **final report** (section 14) so the user knows exactly what was
+7. At the end, produce the **final report** (section 13) so the user knows exactly what was
    installed, what was skipped, and what (if anything) is left.
 
 **What "fully ready to go" means** (the finish line):
@@ -53,7 +53,6 @@ Read these before running anything:
 - [ ] `npm ci` completed in the Flux repo; Electron 43 launches
 - [ ] `npm run build` produced `dist/` (renderer + `flux-cli.mjs` + `flux-mcp.mjs`)
 - [ ] First run initialized `~/FluxConfig` and installed the `flux` shim in `~/.local/bin`
-- [ ] `~/FluxConfig/agents.json` defaults point at **claude** (this machine has Claude Code)
 - [ ] Quarto + TinyTeX (+ `lineno`, `setspace`) installed; `quarto check` clean; user docs rendered for the in-app
       Docs button
 - [ ] uv installed; fluxplot cloned to `~/fluxplot` and importable
@@ -119,7 +118,7 @@ nvm install 22 && nvm alias default 22
 ```
 
 nvm's installer wires itself into `~/.zshrc`. Additionally append this marked block (it
-puts `~/.local/bin` on PATH for the `flux` command installed in step 5; put any later PATH
+puts `~/.local/bin` on PATH for the `flux` command installed in step 4; put any later PATH
 additions inside this same block, and tell the user what you added):
 
 ```bash
@@ -134,7 +133,7 @@ block too.
 
 ✅ **Check:** in a fresh shell, `node --version` prints v22.x with x ≥ 12, and
 `npm --version` works. Record the output of `dirname "$(command -v node)"` — the launcher
-in step 13 bakes this path in.
+in step 12 bakes this path in.
 
 ---
 
@@ -166,7 +165,7 @@ npm run build
 `dist/pdfjs/`) **plus** the slide-export sidecar (`dist/slide-export-assets.json`) **plus**
 the bundled agent CLI (`dist/flux-cli.mjs`, `dist/flux-mcp.mjs`). All three matter — never
 substitute plain `vite build` here (it would leave the CLI bundle stale or missing, and the
-`flux` shim in step 5 points at it).
+`flux` shim in step 4 points at it).
 
 Treat any esbuild `import-is-undefined` warning during the build as an error and report it
 — on a fresh tagged clone there should be none.
@@ -209,8 +208,7 @@ That one command runs the full first-run initialization (the app does the identi
 first launch): it creates **`~/FluxConfig`** (the user-level home for everything Flux:
 agent context, the FluxLib reference library, presets), seeds
 `~/FluxConfig/Context/UserContext/` (blank, user-owned templates) and
-`~/FluxConfig/Context/FluxContext/` (the stock agent docs), writes a default
-`~/FluxConfig/agents.json`, and installs the `~/.local/bin/flux` shim. Machine-level
+`~/FluxConfig/Context/FluxContext/` (the stock agent docs), and installs the `~/.local/bin/flux` shim. Machine-level
 preferences live at `~/Library/Application Support/flux/preferences.json` (lowercase
 `flux` — created automatically; never create or reference a capital-F `Flux` path).
 
@@ -219,38 +217,13 @@ preferences live at `~/Library/Application Support/flux/preferences.json` (lower
 ```bash
 node dist/flux-cli.mjs config              # prints resolved FluxConfig/FluxLib paths
 test -x ~/.local/bin/flux && echo shim-ok
-test -f ~/FluxConfig/agents.json && echo agents-ok
 ```
 
 And in a **fresh** shell (so the step-2 PATH block is active): `flux version` works.
 
 ---
 
-## 5. Point the agent roster at Claude
-
-`~/FluxConfig/agents.json` seeds with **Codex as the default principal**. This machine has
-the Claude Code CLI, so switch the standing defaults. Edit only the `defaults` object —
-leave the `families` section (both `codex` and `claude` templates) intact:
-
-```json
-"defaults": {
-  "principal": { "family": "claude", "model": "fable",  "effort": "default" },
-  "worker":    { "family": "claude", "model": "sonnet", "effort": "default" },
-  "pass":      { "family": "claude", "model": "fable",  "effort": "default" }
-}
-```
-
-(The `claude` family's model menu is `fable | opus | sonnet`. The user can change any of
-this later — interactively via the `flux principal` picker, which remembers the last choice,
-or by editing this file.)
-
-✅ **Check:** `python3 -c "import json;json.load(open('$HOME/FluxConfig/agents.json'))"`
-parses clean, and `claude --version` works (it should — the user was told to have Claude
-Code installed; if it's missing, flag it in the final report).
-
----
-
-## 6. Quarto + TinyTeX (manuscript compilation)
+## 5. Quarto + TinyTeX (manuscript compilation)
 
 Flux detects Quarto at runtime and uses it for `flux compile` and Word/PDF export of
 manuscripts; it also renders this repo's user docs for the in-app Docs button.
@@ -327,7 +300,7 @@ cd "$FLUX_REPO" && quarto render docs
 
 ---
 
-## 7. uv + fluxplot (the plotting layer)
+## 6. uv + fluxplot (the plotting layer)
 
 fluxplot is Flux's semantic-plot Python library — a **separate repo** that, by convention,
 **must live at `~/fluxplot`**: that is where agents look for it (and add it as an editable
@@ -363,7 +336,7 @@ and is per-project setup, not machine setup.
 
 ---
 
-## 8. Zotero — deliberately nothing to do
+## 7. Zotero — deliberately nothing to do
 
 The user may well have Zotero installed. **Do not set up, configure, or even ask about
 Zotero during this install.** The reference library (FluxLib) starts empty, and that is the
@@ -372,13 +345,13 @@ intended state — connecting a Zotero library happens later, entirely from insi
 no decisions now.
 
 The only Zotero-related thing you do in this whole runbook is include the Zotero docs page
-in the reading tips of your final report (section 14).
+in the reading tips of your final report (section 13).
 
 ✅ **Check:** nothing — move on.
 
 ---
 
-## 9. Health verification
+## 8. Health verification
 
 Run these from `$FLUX_REPO` and require all of them green:
 
@@ -410,7 +383,7 @@ Everything else in the pure tier should pass; report anything else that fails.
 
 ---
 
-## 10. First real launch
+## 9. First real launch
 
 Launch the built app (production-style — loads `dist/`, no dev server):
 
@@ -419,7 +392,7 @@ cd "$FLUX_REPO" && ./node_modules/.bin/electron .
 ```
 
 🧑 Ask the user to confirm: the Flux window opens, Home shows the Flux mark and the New/Open
-buttons (the five mode icons appear in the top bar once a project is open), and — since step 6 ran — the **Docs** button near
+buttons (the five mode icons appear in the top bar once a project is open), and — since step 5 ran — the **Docs** button near
 the Settings gear opens the user documentation in their browser. Then they can quit it
 (⌘Q), or keep it open.
 
@@ -435,14 +408,14 @@ Two useful pointers for the user at this moment (don't do these for them):
 
 ---
 
-## 11. Optional extras (offer, don't push)
+## 10. Optional extras (offer, don't push)
 
 - **Google Chrome + `FLUX_CHROME`** — only if the user intends to run the full test suite
-  (see step 9). (Lighttable is not optional — it's part of step 3.)
+  (see step 8). (Lighttable is not optional — it's part of step 3.)
 
 ---
 
-## 12. Ask about the launcher
+## 11. Ask about the launcher
 
 🧑 Ask the user, explicitly:
 
@@ -450,12 +423,12 @@ Two useful pointers for the user at this moment (don't do these for them):
 > launcher on your Desktop? Double-clicking it opens Flux directly — it rebuilds
 > automatically only if you've updated the repo since the last build."
 
-**Only if they say yes**, continue to step 13. If no, tell them the manual launch command
+**Only if they say yes**, continue to step 12. If no, tell them the manual launch command
 (`cd <repo> && ./node_modules/.bin/electron .`) and go to the final report.
 
 ---
 
-## 13. Write the launcher
+## 12. Write the launcher
 
 Write the file below to `~/Desktop/LAUNCH-FLUX.command`, substituting the two
 `__PLACEHOLDERS__`, then `chmod +x ~/Desktop/LAUNCH-FLUX.command`.
@@ -521,15 +494,15 @@ confirm Flux opens.
 
 ---
 
-## 14. Final report
+## 13. Final report
 
 End your session with a summary containing:
 
 1. **Installed / already present / skipped**, per component (Node, Electron deps, build,
-   FluxConfig + shim, agents.json, Quarto + TinyTeX, docs render, uv, fluxplot,
+   FluxConfig + shim, Quarto + TinyTeX, docs render, uv, fluxplot,
    Lighttable, launcher) — with versions.
 2. **Every file you created or modified outside the repo** (`~/.zshrc` block,
-   `~/FluxConfig/agents.json` edit, `~/Desktop/LAUNCH-FLUX.command`, …).
+   `~/Desktop/LAUNCH-FLUX.command`, …).
 3. **Anything left undone or needing the user** (e.g. Claude CLI missing, a failed check),
    each with the exact command or action to finish it.
 4. How to launch Flux (the launcher, or the manual command), and how to update
@@ -551,12 +524,12 @@ End your session with a summary containing:
 | `npx electron --version` → missing binary | Interrupted download → `rm -rf node_modules/electron && npm ci` |
 | `flux: command not found` | `~/.local/bin` missing at first run (shim never installed) or not on PATH → `mkdir -p ~/.local/bin`, re-run any verb (`node dist/flux-cli.mjs config`), check the step-2 PATH block |
 | `flux` prints a stale version/commit | `dist/flux-cli.mjs` predates the checkout → `npm run build:cli` (or full `npm run build`) |
-| Docs button shows "Docs aren't rendered yet" | `quarto render docs` hasn't been run in this checkout → run it (step 6) |
+| Docs button shows "Docs aren't rendered yet" | `quarto render docs` hasn't been run in this checkout → run it (step 5) |
 | Lighttable button errors ("isn't installed" / "isn't built yet") | The sidecar's own deps/build are missing → `cd lighttable && npm ci && npm run build` (step 3) |
 | App can't find `quarto`/`claude` when launched from Finder | Finder PATH is minimal → launch via `LAUNCH-FLUX.command` (it exports a full PATH), or from a terminal |
 | `flux compile --to pdf` fails, html/docx fine | No TeX → `quarto install tinytex`, then `quarto check` |
 | `tlmgr` / `kpsewhich`: command not found (but TeX looks installed) | `quarto install tinytex` never touches PATH → call them at `~/Library/TinyTeX/bin/universal-darwin/`, and add that dir to the step-2 `~/.zshrc` block. Flux/Quarto are unaffected — they resolve TinyTeX internally |
-| Launcher opens Terminal but no Flux window | Baked paths stale (repo moved / node reinstalled) → regenerate the launcher (step 13); check `dist/index.html` exists |
+| Launcher opens Terminal but no Flux window | Baked paths stale (repo moved / node reinstalled) → regenerate the launcher (step 12); check `dist/index.html` exists |
 | Double-click does nothing / "cannot execute" | Lost the executable bit → `chmod +x ~/Desktop/LAUNCH-FLUX.command` |
 | Admin password pop-up never appears / `osascript` errors ("Not authorized", −10004) | No GUI session (SSH’d in) or a non-admin account → fall back per ground rule 2: give the user the exact `sudo` command to run in their own terminal |
-| Pure-tier failures on macOS: `verify-fluxconfig`, `verify-zotero-sync`, 3 slide-export scripts | Known platform assumptions in the scripts (XDG isolation; Linux Chrome path) — not an install problem; see step 9 |
+| Pure-tier failures on macOS: `verify-fluxconfig`, `verify-zotero-sync`, 3 slide-export scripts | Known platform assumptions in the scripts (XDG isolation; Linux Chrome path) — not an install problem; see step 8 |

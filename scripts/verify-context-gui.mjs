@@ -1,10 +1,5 @@
-// Principal-agent scheme, GUI half (ui tier — dev server on :1420, demo fixture).
-//   node scripts/verify-context-gui.mjs
-// Covers: Context docs scaffolded into the fixture + surfaced as first-class
-// paper documents (grouped picker), palette routing (shell Ctrl+K → paper
-// palette; context command switches the doc; figure mode gets the global
-// palette), the feedback capture popover (stamped note → memBridge ledger,
-// Send event), and the Agent drawer's graceful no-PTY fallback.
+// Context layer, GUI half (ui tier): first-class Context documents, palette
+// routing and context-stamped feedback capture into the memBridge ledger.
 import { launch, gotoApp, clickMode, realErrors, waitFor } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
@@ -76,7 +71,7 @@ const key = (code, opts = {}) =>
   ok(true, "Ctrl+K → paper palette → Open notebook switches the doc");
 }
 
-// --- 4. feedback capture: stamped note + send -------------------------------
+// --- 4. feedback capture: stamped note -------------------------------
 {
   await key("KeyM", { ctrlKey: true, shiftKey: true });
   await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { timeout: 5000, label: "capture popover open" });
@@ -109,49 +104,11 @@ const key = (code, opts = {}) =>
   const note = events.find((e) => e.kind === "note");
   ok(note && note.text === "tighten this paragraph", "note appended to the ledger");
   ok(note?.context?.surface === "paper" && note?.context?.doc?.path === "Context/NOTEBOOK.md", "note carries the paper context stamp (surface + docRel)");
-
-  // Add returns only after ledger refresh; wait for its completed close before reopening.
+  // Add closes after refreshing the ledger; do not switch modes mid-operation.
   await waitFor(page, () => !document.querySelector(".fc textarea"), null, { timeout: 8000, label: "queued note operation completed" });
-  // Send the already queued note in the reopened popover.
-  await key("KeyM", { ctrlKey: true, shiftKey: true });
-  await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { timeout: 5000, label: "capture popover reopened" });
-  await page.evaluate(() => {
-    window.__feedbackAppend = window.fig.feedbackAppend;
-    window.fig.feedbackAppend = async (p,line) => line.includes('"kind":"send"') ? false : window.__feedbackAppend(p,line);
-    const send = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim().startsWith("Send"));
-    send?.click();
-  });
-  await waitFor(page, () => !!document.querySelector('.fc [role="alert"]'), null, { timeout: 5000, label: "failed Send retains its queue and reports the failure" });
-  ok(await page.evaluate(()=>document.querySelectorAll('.fc .fc-q').length===1), "failed Send retains the queued note for explicit retry");
-  await page.evaluate(() => {
-    window.fig.feedbackAppend = window.__feedbackAppend;
-    const send = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim().startsWith("Send"));
-    send?.click();
-  });
-  await waitFor(
-    page,
-    () => {
-      const f = window.fig._files;
-      for (const [k, v] of f.entries()) {
-        if (k.endsWith(".meta/feedback.ndjson")) return new TextDecoder().decode(v).includes('"kind":"send"');
-      }
-      return false;
-    },
-    null,
-    { timeout: 8000, label: "send event appended" },
-  );
-  ok(true, "Send appends the review-pass boundary");
 }
 
-// --- 5. the drawer is GONE (terminal-first rework, 2026-07-20) --------------
-{
-  await key("KeyJ", { ctrlKey: true, shiftKey: true });
-  await new Promise((r) => setTimeout(r, 400)); // annotated: give a would-be drawer time to mount
-  const drawer = await page.evaluate(() => !!document.querySelector(".pd"));
-  ok(!drawer, "Ctrl+Shift+J no longer opens an in-app drawer (flux principal owns sessions)");
-}
-
-// --- 6. figure mode gets the GLOBAL palette ---------------------------------
+// --- 5. figure mode gets the GLOBAL palette ---------------------------------
 {
   await clickMode(page, "Figure");
   await new Promise((r) => setTimeout(r, 600)); // mode mount settle (keep-alive swap)
@@ -163,8 +120,7 @@ const key = (code, opts = {}) =>
   const titles = await page.evaluate(() =>
     [...document.querySelectorAll(".global-palette .cp li .ct")].map((n) => n.textContent?.trim()),
   );
-  ok(titles.includes("Open mission") && titles.includes("Copy principal prompt"), "global palette carries the context/agent commands");
-  ok(!titles.includes("Toggle agent drawer"), "the retired drawer command is gone from the palette");
+  ok(titles.includes("Open mission") && titles.includes("Note to agent"), "global palette carries the context/agent commands");
   await page.keyboard.press("Escape");
 }
 

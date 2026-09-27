@@ -1,8 +1,8 @@
 #!/usr/bin/env -S npx tsx
-// The feedback ledger + add-comment (principal-agent scheme, pure tier).
+// The feedback ledger + add-comment (pure tier).
 //   npx tsx scripts/verify-feedback.ts
 // Covers: shared-core fold/find semantics, the flux-core engine (append/list/
-// resolve/send + journaling), event-sourced append-only discipline (torn lines
+// resolve + journaling), event-sourced append-only discipline (torn lines
 // tolerated, resolves never rewrite), and add_comment anchoring (unique quote,
 // ambiguity, --at, prefix/suffix, GUI-shape sidecar).
 import { legacyPaperFixture } from "./lib/legacyPaperFixture";
@@ -44,7 +44,7 @@ try {
     ok(/paper.*manuscript\/main\.qmd.*"intro"/.test(shared.describeStamp(ev[1].context)), "describeStamp: paper stamp reads humanly");
   }
 
-  // --- engine: append → list → resolve → send -------------------------------
+  // --- engine: append → list → resolve -------------------------------
   const stamp1 = {
     surface: "figure",
     activeFigureId: "fig-1",
@@ -71,21 +71,19 @@ try {
 
   const n2 = shared.makeNote("axis label clipped", { surface: "slide", slide: { deckId: "d", slideIndex: 2, beat: 1 } }, "human");
   await core.appendFeedbackEvent(root, n2);
-  await core.sendFeedback(root, { note: "one more round" });
-  const n3 = shared.makeNote("after the send", null, "human");
+  const n3 = shared.makeNote("another note", null, "human");
   await core.appendFeedbackEvent(root, n3);
   list = await core.listFeedback(root);
-  ok(list.open === 2 && list.sentPending === 1 && list.lastSend !== null, "engine: send boundary — only pre-send notes are the work order");
 
   // --- append-only discipline -----------------------------------------------
   const ledger = path.join(root, ".meta", "feedback.ndjson");
   const lines = fs.readFileSync(ledger, "utf8").trim().split("\n");
-  ok(lines.length === 5, `ledger is event-sourced (5 events on 5 writes, got ${lines.length})`);
+  ok(lines.length === 4, `ledger is event-sourced (4 events on 4 writes, got ${lines.length})`);
   fs.appendFileSync(ledger, '{"kind":"note","id":"torn'); // simulated crash mid-append
   list = await core.listFeedback(root);
   ok(list.open === 2, "torn trailing line tolerated (crash-safe parse)");
   const journal = fs.readFileSync(path.join(root, ".meta", "journal.ndjson"), "utf8");
-  ok(/resolve_feedback/.test(journal) && /send_feedback/.test(journal), "resolve + send journaled");
+  ok(/resolve_feedback/.test(journal), "resolution journaled");
 
   // --- add_comment -----------------------------------------------------------
   const qmd = path.join(root, "manuscript", "main.qmd");

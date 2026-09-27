@@ -25,7 +25,7 @@ export interface FsChange {
  *  Context/ doc changes ride the same signal (same handler, same protections). */
 export const externalManuscriptChange = writable<(FsChange & { n: number }) | null>(null);
 let mn = 0;
-/** External .meta/feedback.ndjson change (agent resolve/send) → consumers re-read. */
+/** External .meta/feedback.ndjson change (agent resolution) → consumers re-read. */
 export const feedbackRevision = writable(0);
 let unsub: (() => void) | null = null;
 let watchGeneration = 0;

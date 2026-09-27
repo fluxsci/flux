@@ -307,7 +307,7 @@ export function parseCliFlags(verb: string | undefined, argv: string[]): { _: st
   const specs = definition?.cliArgs.filter(s => s.kind === 'flag') ?? [];
   const declared = new Map(specs.map(s => [String(s.at), s]));
   const rest = definition?.cliArgs.some(s => s.kind === 'flagRest');
-  const legacyBooleans = new Set(['print','no-picker','no-transcript','echo','png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
+  const legacyBooleans = new Set(['png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
   const flags: Record<string, string | boolean> = {}, pos: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];

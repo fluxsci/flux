@@ -19,8 +19,6 @@ files:
   - dist/**/*
   - package.json
   - "!**/node_modules/**/*"
-  # flux principal's transcript capture (pure JS; required by the unpacked CLI)
-  - node_modules/@xterm/headless/**/*
 
 # Web capture: the browser extension ships WITH the app — the Library's setup panel opens the
 # signed .xpi (Firefox) or reveals the unpacked folder (Chromium), so both must be on disk.
@@ -36,9 +34,6 @@ extraResources:
 asar: true
 npmRebuild: false
 asarUnpack:
-  # flux principal (ELECTRON_RUN_AS_NODE child / external node) resolves these
-  # beside the unpacked CLI bundle — they must live on real disk.
-  - node_modules/@xterm/headless/**
   # W13: the slide-export CLI runs in a child launched with ELECTRON_RUN_AS_NODE,
   # which has NO asar support — so the bundle + its prebaked export assets must be
   # on real disk (app.asar.unpacked/dist/), where main.cjs spawns them from.
@@ -50,7 +45,8 @@ asarUnpack:
   - electron/slideVideoWorker.cjs
   - electron/videoMedia.cjs
   - electron/entry.cjs
-  # The MCP server also runs as an Electron-as-Node child from real disk.
+  # External agents launch the MCP server as a Node child too, so it needs
+  # the same real-disk layout.
   - dist/flux-mcp.mjs
 
 # Ad-hoc signs the .app on macOS when no Developer ID is configured, so unsigned

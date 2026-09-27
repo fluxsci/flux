@@ -3,8 +3,7 @@
 The concrete session recipe: analysis results → blessed figures → write-up → review.
 `README.md` (sibling) is the mental model — workshop vs. showroom, the two Context
 folders; this is the "what to actually do." Commands assume you've `cd`'d into the Flux
-project and run `export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent` (principals use
-`FLUX_CLIENT=principal`, dispatched workers `worker` — see `CLI-REFERENCE.md`).
+project and run `export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent` (see `CLI-REFERENCE.md`).
 `F=` below is shorthand:
 
 ```bash
@@ -20,7 +19,7 @@ cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
 $F config                        # machine paths — note userContextPath + fluxContextPath (+ plotLibraryPath: the user's global plots)
 # read EVERYTHING in <userContextPath>/ (every .md + image) before working —
 # who the user is + their standing rules for all Flux output; then orient in
-# <fluxContextPath>/ (stock: README → PROJECT-GUIDE; principals: PRINCIPAL.md)
+# <fluxContextPath>/ (stock: README → PROJECT-GUIDE)
 $F list                          # current figures + references
 cat project.json                       # the map
 cat Context/Project/MISSION.qmd        # the project's goals (the charter)
@@ -90,7 +89,7 @@ Render the figures to PNGs and present them (inline if you have MCP `get_figure_
 short written summary of what each shows and how it was made. End by telling the user they can
 mark up the documents in the Flux app and you'll address the comments.
 
-## 5. Review loop (a send arrived, or the user says "address my feedback")
+## 5. Review loop (the user says "address my feedback")
 
 ```bash
 $F feedback                    # context-stamped notes: each carries WHAT the user was looking at
@@ -105,8 +104,8 @@ $F add-comment --quote "the exact doc text" --body "your question"
 
 Full procedure + the on-disk formats: `MANUSCRIPT-AND-REVIEW.md`. With the app open, your
 prose edits, resolves, and new threads all refresh live in the user's margin. When feedback
-expresses a STANDING preference (not a one-off), also promote it into `Context/RULES.md`
-(see `PRINCIPAL.md` §promotion).
+expresses a STANDING preference (not a one-off), propose adding it to `Context/RULES.md`
+(see `PROJECT-GUIDE.md`).
 
 ## 6. Iterate / regenerate (no stale clutter)
 

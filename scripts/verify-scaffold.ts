@@ -45,7 +45,7 @@ const schemas = fs.readdirSync(path.join(root, ".meta", "schema"));
 ok(schemas.length >= 7, `.meta/schema/ ships the contract (${schemas.length} files; GUI projects used to get an empty dir)`);
 
 // --- AGENTS.md is the Context stub; the verb guide lives in FluxContext ------------------
-// (principal-agent scheme, 2026-07-19: per-project baked guides went stale on
+// (Per-project baked guides went stale on
 // every release — PROJECT-GUIDE.md in the machine FluxContext re-syncs with the
 // app. The stock docs themselves are pinned by verify-context-scheme.ts.)
 const agents = read("AGENTS.md");
@@ -57,7 +57,6 @@ ok(!/compose-figure/.test(agents), "the verb guide no longer bakes into projects
 ok(has("Context/Project/MISSION.qmd"), "Context mission doc scaffolded");
 ok(has("Context/NOTEBOOK.md") && read("Context/NOTEBOOK.md").includes("Session log"), "Context notebook scaffolded (body + session log)");
 ok(has("Context/RULES.md"), "Context project rules scaffolded");
-ok(fs.existsSync(path.join(root, "Context", "Transcripts")) && fs.existsSync(path.join(root, "Context", "Dispatches")), "Transcripts/ + Dispatches/ dirs scaffolded");
 
 // --- validate: the scaffolded tree passes its own shipped schemas ------------------------
 const v = await core.validate(root);

@@ -1,9 +1,9 @@
 // The feedback ledger: context-stamped notes from the human to the agent, plus
-// send/resolve events. Event-sourced NDJSON at .meta/feedback.ndjson — strictly
+// resolution and withdrawal events. Event-sourced NDJSON at .meta/feedback.ndjson — strictly
 // append-only, so concurrent writers (app appending notes, agent appending
 // resolves) never read-modify-write the same bytes.
-// Pure module (no Svelte, no DOM, no Node) — shared by the GUI, flux-core, and
-// the attend watcher (twin-engine rule).
+// Pure module (no Svelte, no DOM, no Node) — shared by the GUI and flux-core
+// (twin-engine rule).
 
 import { describeSnapshot, type FeedbackSnapshot } from "./feedbackCapture";
 
@@ -44,15 +44,6 @@ export interface FeedbackResolveEvent {
   note?: string;
 }
 
-/** A send marks a review-pass boundary: "everything open is now a work order." */
-export interface FeedbackSendEvent {
-  kind: "send";
-  id: string;
-  ts: string;
-  client: string;
-  note?: string;
-}
-
 /** The human took a note back (a stray Enter, a rewrite): it leaves the queue for
  *  good, but the line stays — an agent that already read it sees WHY it is gone. */
 export interface FeedbackWithdrawEvent {
@@ -64,17 +55,14 @@ export interface FeedbackWithdrawEvent {
   note?: string;
 }
 
-export type FeedbackEvent = FeedbackNoteEvent | FeedbackResolveEvent | FeedbackSendEvent | FeedbackWithdrawEvent;
+export type FeedbackEvent = FeedbackNoteEvent | FeedbackResolveEvent | FeedbackWithdrawEvent;
 
 /** A note with its folded resolution state. */
 export interface FeedbackNote extends FeedbackNoteEvent {
   resolved: boolean;
-  /** Taken back by the human — never open, never part of a work order. */
+  /** Taken back by the human — never open. */
   withdrawn: boolean;
   withdrawnAt?: string;
-  /** Position in the ledger — the event ORDER is authoritative (timestamps tie
-   *  within a millisecond; the send boundary must never capture later notes). */
-  seq: number;
   resolvedAt?: string;
   resolvedBy?: string;
   resolveNote?: string;
@@ -82,12 +70,8 @@ export interface FeedbackNote extends FeedbackNoteEvent {
 
 export interface FeedbackState {
   notes: FeedbackNote[];
-  /** Most recent send event, if any. */
-  lastSend: FeedbackSendEvent | null;
   /** Notes still open (unresolved), oldest first. */
   open: FeedbackNote[];
-  /** Open notes created at-or-before the last send (the current work order). */
-  sent: FeedbackNote[];
 }
 
 export function feedbackId(): string {
@@ -105,7 +89,7 @@ export function parseLedger(text: string): FeedbackEvent[] {
     if (!t) continue;
     try {
       const v = JSON.parse(t);
-      if (v && (v.kind === "note" || v.kind === "resolve" || v.kind === "send" || v.kind === "withdraw")) out.push(v);
+      if (v && (v.kind === "note" || v.kind === "resolve" || v.kind === "withdraw")) out.push(v);
     } catch {
       // tolerate a torn trailing line (crash mid-append); never fail the whole ledger
     }
@@ -116,11 +100,9 @@ export function parseLedger(text: string): FeedbackEvent[] {
 export function foldLedger(events: FeedbackEvent[]): FeedbackState {
   const notes: FeedbackNote[] = [];
   const byId = new Map<string, FeedbackNote>();
-  let lastSend: FeedbackSendEvent | null = null;
-  let lastSendSeq = -1;
-  events.forEach((ev, seq) => {
+  events.forEach((ev) => {
     if (ev.kind === "note") {
-      const n: FeedbackNote = { ...ev, resolved: false, withdrawn: false, seq };
+      const n: FeedbackNote = { ...ev, resolved: false, withdrawn: false };
       notes.push(n);
       byId.set(n.id, n);
     } else if (ev.kind === "resolve") {
@@ -137,14 +119,10 @@ export function foldLedger(events: FeedbackEvent[]): FeedbackState {
         n.withdrawn = true;
         n.withdrawnAt = ev.ts;
       }
-    } else if (ev.kind === "send") {
-      lastSend = ev;
-      lastSendSeq = seq;
     }
   });
   const open = notes.filter((n) => !n.resolved && !n.withdrawn);
-  const sent = lastSend ? open.filter((n) => n.seq < lastSendSeq) : [];
-  return { notes, lastSend, open, sent };
+  return { notes, open };
 }
 
 export function makeNote(text: string, context: FeedbackStamp | null, client: string): FeedbackNoteEvent {
@@ -159,12 +137,6 @@ export function makeResolve(target: string, client: string, note?: string): Feed
 
 export function makeWithdraw(target: string, client: string, note?: string): FeedbackWithdrawEvent {
   const ev: FeedbackWithdrawEvent = { kind: "withdraw", target, ts: new Date().toISOString(), client };
-  if (note) ev.note = note;
-  return ev;
-}
-
-export function makeSend(client: string, note?: string): FeedbackSendEvent {
-  const ev: FeedbackSendEvent = { kind: "send", id: feedbackId(), ts: new Date().toISOString(), client };
   if (note) ev.note = note;
   return ev;
 }
@@ -184,7 +156,7 @@ export function findNote(state: FeedbackState, idOrText: string): FeedbackNote {
   );
 }
 
-/** One-line human summary of a stamp, for CLI listings and the drawer. */
+/** One-line human summary of a stamp, for CLI listings and the popover. */
 export function describeStamp(c: FeedbackStamp | null | undefined): string {
   if (!c) return "";
   const bits: string[] = [c.surface];

@@ -161,5 +161,5 @@ From here:
   [shortcut reference](reference/shortcuts.qmd) beside them.
 - When the study grows, [regenerate plots instead of re-saving them](concepts/semantic-plots.qmd#regenerate-dont-re-save).
 - And when you're ready for a collaborator who does the composing and citing *for* you, meet
-  the [agent system](agents/collaboration.qmd): the same three steps you just did by hand are
-  one instruction to `flux principal`.
+  [agent tools](agents/collaboration.qmd): an agent can carry out the same three steps
+  from your instructions.

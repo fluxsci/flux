@@ -162,19 +162,17 @@ if (process.platform !== "win32") {
     assert(seededWho.includes("not filled out yet"), "UserContext WHO-AM-I.md seeded blank");
     assert(!fs.existsSync(path.join(cfg, "Guidelines")), "no legacy Guidelines dir on a fresh machine");
     const fc1 = path.join(cfg, "Context", "FluxContext");
-    assert(fs.readFileSync(path.join(fc1, "PRINCIPAL.md"), "utf8").includes("Boot sequence"), "FluxContext stock docs synced");
+    assert(fs.readFileSync(path.join(fc1, "README.md"), "utf8").includes("UserContext"), "FluxContext stock docs synced");
     const unsubbed = fs.readdirSync(fc1).filter(
       (n) => n.endsWith(".md") && /\{\{(FLUX_(CLI|MCP|MCP_PATH|REPO)|LIGHTTABLE_DIR)\}\}/.test(fs.readFileSync(path.join(fc1, n), "utf8")),
     );
     assert(unsubbed.length === 0, `every synced FluxContext doc substituted its placeholders (${unsubbed.join(", ") || "all clean"})`);
-    const seededRoster = JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8"));
-    assert(seededRoster.families && seededRoster.defaults.principal.family, "agents.json roster seeded (family-template schema)");
+    assert(!fs.existsSync(path.join(cfg, "agents.json")), "agents.json is not seeded");
     const shim = path.join(f1.home, ".local", "bin", "flux");
     assert(fs.existsSync(shim) && (fs.statSync(shim).mode & 0o111) !== 0, "flux PATH shim installed executable in ~/.local/bin");
     assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && /exec .*flux-cli/.test(fs.readFileSync(shim, "utf8")), "shim carries the managed marker + real CLI");
     fs.writeFileSync(shim, "#!/bin/sh\necho my own flux\n", { mode: 0o755 }); // user replaces it → opt-out
     // (asserted after the no-op re-run below: the user's file must survive)
-    assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");
     assert(info.plotLibraryPath === path.join(cfg, "plot_library"), "configInfo reports plotLibraryPath (derived <FluxConfig>/plot_library)");
     assert(fp.plotLibraryPathSync() === info.plotLibraryPath, "plotLibraryPathSync resolves the same path configInfo reports");

@@ -1,14 +1,5 @@
-// W13 build step, extended for the agent surface: bundle BOTH headless entry
-// points into self-contained ESM bundles in dist/:
-//   • flux-cli.ts → dist/flux-cli-core.mjs, fronted by the small launcher
-//     dist/flux-cli.mjs (see the end of this file) — packaged slide export (SHL-1) spawns this,
-//     and it's the real `flux` binary for agents (AGT-9; no tsx cold start, no
-//     repo-clone dependency);
-//   • flux-mcp.ts → dist/flux-mcp.mjs — the packaged app's agent:mcpSpec points
-//     `claude` at this (app.asar.unpacked/dist/, ELECTRON_RUN_AS_NODE); without it
-//     the Reader's "Ask Claude" cannot register the flux MCP server in any
-//     packaged build.
-// One shared externals list so the two bundles can never drift.
+// Bundle the headless CLI, MCP server and fulltext worker into dist/. The CLI
+// core is fronted by a small help launcher; CLI and MCP share one externals list.
 //
 // esbuild itself is marked external: the only code path that imports it is the
 // dev-only fresh-compute fallback in exportDeck.ts, which never runs in a packaged
@@ -40,11 +31,6 @@ try {
 const FLUX_BUILD = { version: pkg.version, commit, builtAt: new Date().toISOString() };
 
 const EXTERNAL = [
-  // Principal PTY transcript wrapper (flux principal): native pty + the pure-JS
-  // headless terminal must resolve at runtime, not bundle (the pty is native;
-  // headless is kept external so app + CLI share one copy).
-  "@lydell/node-pty",
-  "@xterm/headless",
   // Dev-only fresh-compute fallback in exportDeck.ts; never reached packaged.
   "esbuild",
   // Video jobs use the installed Electron executable, supplied explicitly by

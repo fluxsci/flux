@@ -68,9 +68,9 @@ try {
     ok(/^### \d{4}-\d{2}-\d{2} \d{2}:\d{2} — First$/.test(r1.heading), `stamped heading: ${r1.heading}`);
     ok(read().includes(`${r1.heading}\n\ndid the first thing\n`), "entry text lands under its heading");
     ok(read().includes("*(Append-only, newest last:"), "template placeholder line preserved");
-    const r2 = await core.addNote(root, { text: "second", author: "principal-a" });
-    ok(r2.heading.endsWith("— principal-a"), "no title → author names the entry");
-    ok(read().indexOf("— First") < read().indexOf("— principal-a"), "entries append newest-last");
+    const r2 = await core.addNote(root, { text: "second", author: "agent-a" });
+    ok(r2.heading.endsWith("— agent-a"), "no title → author names the entry");
+    ok(read().indexOf("— First") < read().indexOf("— agent-a"), "entries append newest-last");
     const briefFile = path.join(scratch, "note-body.md");
     fs.writeFileSync(briefFile, "body from a file\nwith two lines\n");
     await core.addNote(root, { file: briefFile, title: "From file" });

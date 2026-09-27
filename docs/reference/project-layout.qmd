@@ -28,10 +28,8 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 ├── references/library.bib       # YOURS — the project's cited subset (BibTeX)
 ├── Context/                     # the agent layer
 │   ├── Project/MISSION.qmd      #   the charter (co-owned: you have final say)
-│   ├── NOTEBOOK.md              #   the principal agent's running memory
-│   ├── RULES.md                 #   project rules (recurring feedback lands here)
-│   ├── Transcripts/             #   captured agent-session transcripts
-│   └── Dispatches/              #   worker briefs, logs, and results
+│   ├── NOTEBOOK.md              #   the project notebook
+│   └── RULES.md                 #   project rules (recurring feedback lands here)
 ├── styles/  assets/  exports/   # figure styles · media · compiled output (derived)
 └── .meta/                       # tool state: journal, feedback ledger, locks, schemas
 ```

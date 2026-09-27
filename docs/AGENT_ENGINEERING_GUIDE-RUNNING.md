@@ -51,18 +51,15 @@ capabilities as the GUI, through three surfaces:
 - **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
-- **The Context layer + principal runtime** (principal-agent scheme, 2026-07-19): all agent
-  memory/context lives in two folders — `<FluxConfig>/Context/{UserContext,FluxContext}`
-  (machine: user identity/rules + stock docs synced from `resources/flux-context/` via
-  generated `electron/fluxContextDocs.gen.cjs`) and `<project>/Context/` (MISSION/NOTEBOOK/
-  RULES as first-class paper docs + Transcripts/Dispatches archives). `<FluxConfig>/agents.json`
-  (shared core `electron/agentsConfig.cjs`) names the user's principal/worker CLIs;
-  `flux principal` (alias `flux agent`) launches in the user's terminal, `flux dispatch`
-  launches workers, and `flux attend` runs feedback-triggered review passes. The dedicated
-  agent drawers and Ctrl+Shift+J were retired; the app remains the review surface. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
-  append-only, shared core `src/lib/project/feedback.ts`) carries context-stamped review notes
-  (Ctrl+Shift+M capture). Gates: verify-context-scheme / -feedback / -dispatch (pure),
-  verify-context-gui (ui), verify-principal-electron (electron).
+- **Context layer + review channels**: agent context lives in two folders —
+  `<FluxConfig>/Context/{UserContext,FluxContext}` (user identity/rules + stock docs
+  synced from `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`)
+  and `<project>/Context/` (MISSION/NOTEBOOK/RULES as first-class Paper documents).
+  Agents use the CLI/MCP tools alongside the app. The feedback ledger
+  (`.meta/feedback.ndjson`, append-only, shared core `src/lib/project/feedback.ts`)
+  carries context-stamped review notes (Ctrl+Shift+M capture); agents read and resolve
+  them through the same shared core. Gates: verify-context-scheme / -feedback (pure),
+  verify-context-gui / -annotate-gui (ui).
 
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
@@ -106,7 +103,7 @@ The established shared cores — extend these, don't duplicate them:
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
-| External-command launch (quarto, recipes, agent roster) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
+| External-command launch (quarto, recipes, terminal) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
 
@@ -114,7 +111,7 @@ A project is a folder: `project.json` (manifest), `paper/**.qmd` (text is truth;
 `Context/` (the agent layer: `Project/MISSION.qmd` + `NOTEBOOK.md` + `RULES.md` are
 first-class paper documents — discovered by the Context scan in both listDocuments
 twins, comments sidecars derive beside them, watcher subsystem "context" rides the
-manuscript reload chain; `Transcripts/`+`Dispatches/` are archives, not documents;
+manuscript reload chain;
 pre-Context projects heal on open via contextHeal.ts / `flux context-init`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
 `slides/<deckId>/deck.json` (0.5.0: shared figure editor elements plus slide-only video
@@ -1320,8 +1317,8 @@ an isolated scratch project. Their artifacts live under `test-results/inline-sli
    inline script in the manuscript preview needs its sha256 hash added in `index.html` AND
    `electron/main.cjs` (`verify-w12-security.ts` recomputes them from source).
 6. **Never hand-edit generated/golden files**: `validators.gen.js`,
-   `scripts/fixtures/{mcp-tools.golden.json,cli-help.golden.txt}`. Goldens change only via
-   `REGEN_GOLDEN=1 npx tsx scripts/verify-registry-parity.ts`, deliberately, with the diff
+   `scripts/fixtures/mcp-tools.golden.json`. Goldens change only via
+   `REGEN_GOLDEN=1 node scripts/run-verifies.mjs --tier pure --only registry-parity`, deliberately, with the diff
    explained in the commit.
 7. **Don't bypass the mutation cores.** GUI model edits go through `ops.ts` + store commits;
    headless edits go through `mutateFigModel`/registry verbs. Hand-rolled JSON surgery on

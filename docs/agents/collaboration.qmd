@@ -1,73 +1,16 @@
 ---
 title: "The agent context & collaboration system"
-subtitle: "One principal per project, workers on demand, files as the memory"
+subtitle: "Shared context, review notes, and tools for any agent"
 ---
 
-Flux treats an AI agent as a first-class user: everything the app can do, an agent can do
-through files and typed verbs. On top of that sits a **standing collaborator per project —
-the principal** — which knows who you are and what the project is trying to achieve,
-takes your feedback without you leaving the app, and **dispatches worker agents** for
-substantial analysis and coding.
+Flux gives agents access to the same project files and editing tools as the app. Run
+an agent in your preferred terminal or vendor app, give it the project's context, and
+ask it to compose figures, write prose, or address your review notes.
 
-Two principles carry the whole design:
-
-1. **The files are the memory.** Everything the system knows lives in two plain-text
-   `Context` folders. Any agent CLI can be the principal or a worker; swapping vendors
-   or models is a launch-time choice, and continuity comes from *rehydration* — the
-   principal writes its memory down as it works, so a fresh session picks up exactly
-   where the last one stopped.
-2. **Your terminal is the cockpit.** Sessions run in *your* terminals (as many as you
-   like, across projects); the Flux app is the review surface — figures, manuscripts,
-   comments, feedback — and works independently alongside them.
-
-# Talking to the principal
-
-From a terminal in (or near) a Flux project:
-
-```bash
-flux principal
-```
-
-A minimal picker appears — **Principal** and **Workers** rows, each *family · model ·
-effort*, pre-filled with your last choice — so a bare **Enter launches immediately**
-(`p`/`w` customize a row, `q` quits). The session then runs right there, in whatever
-terminal stack you use (ghostty, zellij, tmux, ssh — all fine), with three things done
-for you:
-
-- **Boot**: the agent receives the machine-resolved boot prompt and reads its way in —
-  your `UserContext`, the stock doctrine, the project's mission/notebook/rules, the
-  journal tail, open feedback — then opens with a **standup**. On a fresh project it
-  *interviews you* and drafts the mission instead.
-- **Transcripts**: the rendered conversation is captured to `Context/Transcripts/`
-  (a PTY interposer + headless terminal — works identically under any terminal;
-  `--no-transcript` opts out).
-- **Environment**: `FLUX_PROJECT`, identity, the worker policy, and MCP wiring are set
-  so the typed Flux tools (inline figure PNGs, the live bridge) point at the right
-  project.
-
-Run as many principals as you have projects — one per zellij pane if you like. The
-sessions are independent; each project's Context keeps its own memory.
-
-**Resuming:** prefer a fresh `flux principal` — rehydration reads *current* files, while
-a resumed conversation remembers stale ones. For genuinely mid-thought work, the vendor's
-own resume works (e.g. `codex resume <id>` — the id is printed at session end and
-captured in the transcript); run it from the project directory so MCP roots correctly.
-
-# Workers
-
-The principal dispatches workers itself:
-
-```bash
-flux dispatch <name> --brief-file brief.md [--model m --effort e]
-```
-
-Under the default **"principal decides"** policy, the principal picks each worker's
-model and effort per task (its boot prompt carries the menu and guidance: mechanical
-work low/medium, hard analysis high tiers); a fixed policy from the picker applies
-automatically. Every dispatch is recorded in `Context/Dispatches/<stamp>-<name>/` —
-`brief.md` (the exact instructions), `log.txt` (live-streaming output; `tail -f` it to
-watch a worker think), and `result.md` (outcome + the agent used). The principal reviews
-each result against the mission before you see it.
+The files carry the context between sessions. Your machine's `UserContext` folder
+holds your background and standing rules; each project's `Context` folder holds its
+goals, notebook, and project rules. The Flux app is the review surface alongside the
+agent: figures, manuscripts, comments, and context-stamped feedback.
 
 # Where everything lives
 
@@ -79,7 +22,6 @@ Run `flux config` for this machine's resolved paths.
 |---|---|---|
 | `Context/UserContext/` | `WHO-AM-I.md` (you) + `RULES.md` (your standing rules) + any files you add | **You** |
 | `Context/FluxContext/` | The stock docs — the single canonical home of agent-facing Flux knowledge (doctrine, workflow, every verb, slides, python/uv conventions, Lighttable…). Re-synced on every Flux update with machine paths baked in. | **Flux** |
-| `agents.json` | The roster **matrix**: per-vendor command templates + their model/effort menus, and standing defaults (see @sec-roster) | **You** |
 | `plot_library/` | Your **global plot library**: reusable plots (any folders) that every project's Plot gallery can insert under **Global**. `flux config` reports it as `plotLibraryPath`. | **You** (and agents you ask) |
 
 **Project level — `<project>/Context/`** (scaffolded for new projects; healed into old
@@ -88,89 +30,57 @@ ones on first open, or via `flux context-init`):
 | Path | What | Who writes |
 |---|---|---|
 | `Project/MISSION.qmd` | The charter: question, data, deliverable, scope | Co-owned — you have final say |
-| `NOTEBOOK.md` | The principal's memory: state, decisions + why, dead ends, session log | **The agent** — you read + comment |
+| `NOTEBOOK.md` | The project notebook: state, decisions + why, dead ends, session log | **The agent** — you read + comment |
 | `RULES.md` | Project rules; recurring feedback gets promoted here | Co-owned |
-| `Transcripts/` | Session transcripts (machine-captured) | **Flux** |
-| `Dispatches/` | Worker briefs/logs/results | **The principal** |
 
 Mission, notebook, and rules are **first-class Flux Paper documents** — they appear in
 the document picker's Context group, and **margin comments work on them**: annotate your
 agent's understanding or memory and it treats those threads as corrections. The
-operational machinery (`.meta/feedback.ndjson` ledger, `journal.ndjson` provenance,
-attend state) lives in `.meta/` and takes care of itself.
+feedback ledger and provenance journal live in `.meta/`.
 
 # The review loop (in the app)
 
 - **Comments** on any document — threaded, anchored to exact text.
 - **Ctrl+Shift+M** anywhere — "Note to agent": one line, automatically **stamped with
   what you're looking at** (figure/element/plot part, document + selected text, slide +
-  beat). **Add to queue** queues notes; **Send** marks the boundary: everything open becomes the
-  work order. The buttons in detail: @sec-note-popover. When words aren't enough,
+  beat). **Add to queue** saves the note. The buttons in detail: @sec-note-popover. When words aren't enough,
   **Ctrl+Shift+S** freezes the window so you can draw numbered arrows on it and the note
   arrives with the picture: @sec-annotate.
-- The principal drains both queues (`flux feedback`, `flux comments`), fixes each item,
-  and resolves it with a note — threads close live in your margin. When unsure, it asks
+- Ask an agent to read both queues (`flux feedback`, `flux comments`), fix each item,
+  and resolve it with a note — threads close live in your margin. When unsure, it asks
   *you* via a margin comment instead of guessing.
-- **While you're away**: leave `flux attend` running — your Send wakes one
-  non-interactive principal pass that drains the queue and updates the notebook.
 - **In the reader**: any external agent session can read the live paper, page, and
   selection through `get_reading_context`.
-- **⌘K palette**: open mission/notebook/rules, global rules, Note to agent, and *Copy
-  principal prompt* (paste the boot prompt into any existing session).
+- **Ctrl+K palette**: open mission/notebook/rules, global rules, and Note to agent.
 
-## The note popover: Add vs Send {#sec-note-popover}
+## The note popover: Add, Edit, Withdraw {#sec-note-popover}
 
-The **Ctrl+Shift+M** popover has three buttons — **Send**, **Add to queue**, and **Add & send** —
-because *capturing* feedback and *dispatching* it are deliberately separate steps. Every
-note and every send is one line appended to the project's feedback ledger
-(`.meta/feedback.ndjson`); the buttons differ only in which lines they write. The grey
-text in the popover's header is the context stamp that will be saved with the note, and
-the footer counts the notes currently queued ("2 open notes").
+The **Ctrl+Shift+M** popover saves context-stamped notes in the project's feedback
+ledger (`.meta/feedback.ndjson`). Its header previews the context stamp, and the
+footer counts the open notes.
 
-- **Add to queue** (or **Enter**) records the note and closes the popover. That is *all* that
-  happens — no toast, no agent activity, nothing changes on the canvas. The note is
-  queued: reopen the popover and the footer counts it, and `flux feedback` lists it from
-  any terminal. Adding never wakes an agent, so you can walk through a whole figure or
-  manuscript jotting every issue as you spot it — each note stamped with exactly what
-  you were looking at when you wrote it.
-- **Send** appends a *send* mark: a review-pass boundary that turns everything currently
-  open into the agent's work order. Use it to fire off a batch of earlier Adds; it is
-  greyed out until at least one note is open. A toast confirms ("Sent — 3 note(s) are
-  now the agent's work order").
-- **Queued notes are listed in the popover**, newest first, each with **Edit** and
-  **Withdraw**. Sent one too early? *Edit* puts it back in the box — text, stamp and
-  snapshot — and *Add to queue* then replaces it; *Withdraw* takes it out of the queue for
-  good. Both are append-only *withdraw* lines: nothing is rewritten, agents simply stop
-  seeing the note (`flux feedback --all` still shows it as *withdrawn*, so an agent that
-  had already read it knows why it vanished). If a Send had already gone out, the agent may
-  have started on it — withdrawing still removes it from the work order.
-- **Add & send** (or **Ctrl+Enter**) does both at once — the common case when a single
-  request should go out immediately.
+- **Add to queue** (or **Enter** / **Ctrl+Enter**) records the note and closes the
+  popover. You can collect notes as you walk through a figure or manuscript, then ask
+  an agent to read them with `flux feedback` and address them.
+- **Edit** puts a queued note back in the box, including its stamp and snapshot.
+  **Add to queue** replaces it; **Escape** keeps the original.
+- **Withdraw** takes a note out of the open queue. The ledger retains its history:
+  `flux feedback --all` shows it as *withdrawn*. An agent that already read it can
+  see why it disappeared.
 
-What a send *triggers* depends on who is listening:
-
-- **`flux attend` is running** — the watcher notices within a couple of seconds and
-  wakes one non-interactive principal pass over the open notes. As the agent resolves
-  each one you get an in-app toast ("Agent resolved: …").
-- **An interactive principal session** — open feedback is part of its boot reading, and
-  it drains the queue on request; the send boundary tells it which notes form the
-  current work order.
-- **Nobody** — nothing visible happens beyond the toast, and nothing is lost. The notes
-  and the send mark are durably recorded, and the next `flux attend` (or principal
-  session) picks up the outstanding send the moment it starts. You never need to
-  re-send.
+As an agent resolves notes, Flux shows an **Agent resolved: …** toast.
 
 ## Point at it: snapshot & annotate {#sec-annotate}
 
 Some feedback is about *pixels* — a gap, an alignment, a control you can't select — and a
 selection stamp can't carry it. **Ctrl+Shift+S** (or the **Snapshot & annotate** button in
-the note popover, or the ⌘K command) freezes the window under a drawing surface:
+the note popover, or the **Ctrl+K** command) freezes the window under a drawing surface:
 
 - **Drag** draws the current tool — **a** arrow (a plain click drops a short arrow at the
   spot), **b** box, **p** freehand pen. Every mark gets a **number badge**, so the note can
   say *"1 is too big, 2 should align with 3"*. **Backspace** undoes the last mark.
 - **Enter** hands the picture to the note popover, which widens to show the crop at a readable
-  size (the note is about that picture); your draft text is kept, and **Add to queue** / **Add & send** work as usual. **Escape** cancels
+  size (the note is about that picture); your draft text is kept, and **Add to queue** saves it as usual. **Escape** cancels
   the overlay and attaches nothing.
 - The picture is a **crop** around your marks (the whole window if you drew none), saved
   beside the ledger as `.meta/feedback/<note id>.png` when the note is added — never
@@ -182,47 +92,16 @@ In a browser build there is no window capture; the overlay still records the mar
 their anchors, and the note says *no screenshot*.
 
 
-# The roster — `agents.json` {#sec-roster}
-
-The full reference is `FluxContext/AGENTS-CONFIG.md`. Shape:
-
-``` json
-{
-  "families": {
-    "codex":  { "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
-                "efforts": ["low", "medium", "high", "xhigh"],
-                "interactive": ["codex", "--model", "{model}", "…", "{prompt}"],
-                "exec":        ["codex", "exec", "--model", "{model}", "…", "{prompt}"] },
-    "claude": { "models": ["fable", "opus", "sonnet"], "efforts": ["default"], "…": "…" }
-  },
-  "defaults": {
-    "principal": { "family": "codex", "model": "gpt-5.6-sol", "effort": "xhigh" },
-    "worker":    { "family": "codex", "model": "principal-decides", "effort": "principal-decides" },
-    "pass":      { "family": "codex", "model": "gpt-5.6-sol", "effort": "xhigh" }
-  }
-}
-```
-
-Families are command *templates* (`{model}`/`{effort}` substitute inside args; `{prompt}`,
-`{mcpJson}`, etc. resolve at launch); the picker menus come from each family's lists.
-**This file is the whole vendor coupling** — pick a different family and your
-collaborator gets a new brain with the same memory.
-
 # Design properties
 
-- **Agent-agnostic by construction**: plain files, spawned CLIs, terminal-host
-  transcripts — no vendor session stores, formats, or UI surfaces to chase.
-- **Crash-safe**: the ledger is append-only; attend state survives restarts; a dead
-  session loses nothing that was written down.
-- **Auditable**: briefs, worker logs, transcripts, the journal, and the notebook record
-  what every agent did and why — including which model/effort ran each task.
+- **Agent-agnostic**: context lives in plain files, and CLI/MCP tools expose the edits.
+- **Durable**: notes and resolutions append to the feedback ledger.
+- **Auditable**: the journal and notebook record work and its rationale.
 - **Safe with several writers**: notebook session-log entries go through `flux note`,
-  which appends under the same lock the app holds while you edit — so two principals
-  working side by side (or a review pass running during a session) never overwrite each
-  other's log, and an agent write always defers to your in-app edit.
-- **Self-improving**: feedback that expresses a preference gets promoted into RULES;
-  decisions land in the notebook as they're made. Session ten needs less correcting
-  than session one.
+  which appends under the same lock the app holds while you edit. Concurrent agents
+  cannot overwrite each other's entries, and an agent write defers to your in-app edit.
+- **Reusable preferences**: when you state a standing preference, an agent can propose
+  adding it to `Context/RULES.md` for future sessions.
 
 # Troubleshooting
 
@@ -231,5 +110,3 @@ collaborator gets a new brain with the same memory.
 - A verb says `deferred: … is locked` → you're mid-edit in the app; the agent retries.
   That's the coexistence model working.
 - Old project without `Context/` → open it once in the app, or `flux context-init`.
-- The picker shows a "legacy roster" note → your `agents.json` uses the old
-  fixed-command form; it still works, or reseed with the matrix schema.

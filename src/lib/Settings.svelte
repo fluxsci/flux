@@ -367,7 +367,7 @@
           <div class="pane" role="tabpanel" id="settings-pane-general" aria-labelledby="settings-tab-general" hidden={tab !== "general"}>
             <h3>FluxConfig folder</h3>
             <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
-            <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), the agent Context folders, and agents.json.</p>
+            <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), and the agent Context folders.</p>
             <div class="libbtns">
               <button class="ghost" onclick={revealCfg} disabled={!cfgPath}>Reveal</button>
               <button class="ghost" onclick={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>

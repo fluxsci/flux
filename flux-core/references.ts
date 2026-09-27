@@ -384,7 +384,7 @@ export async function libraryInfo(): Promise<{
 }
 
 // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
-// move, Context layer sync, agents.json seed) — idempotent + fast after the
+// move, Context layer sync) — idempotent + fast after the
 // first run.
 export { ensureFluxConfig } from "./fluxlib";
 
@@ -397,7 +397,6 @@ export async function configInfo(): Promise<{
   contextPath: string;
   userContextPath: string;
   fluxContextPath: string;
-  agentsConfigPath: string;
   plotLibraryPath: string;
   userDataDir: string;
   build: BuildInfo;
@@ -409,7 +408,6 @@ export async function configInfo(): Promise<{
     contextPath: info.contextPath,
     userContextPath: info.userContextPath,
     fluxContextPath: info.fluxContextPath,
-    agentsConfigPath: info.agentsConfigPath,
     plotLibraryPath: info.plotLibraryPath,
     userDataDir: info.userDataDir,
     build: buildInfo(),

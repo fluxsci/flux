@@ -1,6 +1,6 @@
 // flux-core/context.ts — the project Context layer, headless engine.
 // ensureProjectContext heals Context/ into projects scaffolded before the
-// principal-agent scheme (additive + existence-guarded; the GUI twin is
+// Context layer (additive + existence-guarded; the GUI twin is
 // src/lib/project/contextHeal.ts — both drive contextTemplates.ts).
 // addNote appends notebook session-log entries under the manuscript lock.
 
@@ -62,10 +62,10 @@ export interface NoteResult {
 /** `flux note` — append a stamped entry to the notebook's Session log. The whole
  *  read→insert→write cycle runs INSIDE the `manuscript` lock (the same name the
  *  GUI holds while the human edits a paper-surfaced doc — NOTEBOOK.md is one),
- *  so entries from concurrent principals serialize instead of clobbering, and a
+ *  so entries from concurrent agents serialize instead of clobbering, and a
  *  human mid-edit defers the write with the standard "deferred" message. This is
  *  the ONLY sanctioned way to write the session log; body edits stay direct and
- *  surgical (PRINCIPAL.md's notebook law). */
+ *  surgical. */
 export async function addNote(
   root: string,
   opts: { text?: string; file?: string; title?: string; author?: string } = {},

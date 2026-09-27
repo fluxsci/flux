@@ -25,8 +25,7 @@ This skill is only the trigger. Do this:
 2. Read **everything** under `<userContextPath>/` — who the user is + their standing
    rules for all Flux output.
 3. Orient in `<fluxContextPath>/`: start with `README.md` (the scheme + reading map),
-   then `WORKFLOW.md` (the session playbook). Principals follow `PRINCIPAL.md`;
-   dispatched workers follow `WORKERS.md`; the complete references
+   then `WORKFLOW.md` (the session playbook). The complete references
    (`CLI-REFERENCE.md`, `PLOTS-AND-STYLE.md`, `PROJECT-AND-FIGURES.md`,
    `MANUSCRIPT-AND-REVIEW.md`, `SLIDES.md`, `TEMPLATES.md`) are siblings.
 4. In a project, read `Context/Project/MISSION.qmd`, `Context/NOTEBOOK.md`, and

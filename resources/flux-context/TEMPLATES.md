@@ -1,9 +1,7 @@
 # Analysis-dir glue templates (stock — shipped with Flux, do not edit)
 
 Copy-paste starters for wiring an **analysis workspace** (the directory a Flux project
-lives inside) so agents launched there find Flux frictionlessly. The principal and
-dispatched workers do NOT need any of this — their launch wires context and MCP
-automatically; these serve standalone sessions you start yourself.
+lives inside) so agents launched there can find Flux and its MCP server.
 
 ## `<analysis-dir>/AGENTS.md` (Codex and other AGENTS-aware CLIs)
 

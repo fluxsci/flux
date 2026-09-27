@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // Windows spawn-portability gate: electron/execResolve.cjs is the ONE seam
 // through which Flux launches external commands by bare name (quarto, recipe
-// commands, the agent roster). Two contracts pinned here:
+// commands, the terminal). Two contracts pinned here:
 //   1. Off win32 the resolvers are a strict IDENTITY — POSIX/macOS behavior
 //      cannot drift through this module (same command, same args reference).
 //   2. On win32 (simulated via the injectable {platform, env, exists}, the

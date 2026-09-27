@@ -116,7 +116,7 @@ function enterLoaded(loaded: LoadedProject) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(loaded.root); // F1: live-reload agent/script edits
-  // Principal-agent scheme: pre-Context projects gain Context/ on first open
+  // Pre-Context projects gain Context/ on first open
   // (additive, existence-guarded, best-effort — see contextHeal.ts).
   void ensureProjectContext(loaded);
   // FluxLib: reconcile this project's cited-subset library.bib against the global

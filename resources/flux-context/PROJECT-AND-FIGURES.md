@@ -8,10 +8,8 @@
 ├── AGENTS.md                    # stub → routes agents to the two Context folders
 ├── Context/                     # the agent layer (see README.md here)
 │   ├── Project/MISSION.qmd      #   goals/charter (co-owned with the user)
-│   ├── NOTEBOOK.md              #   the principal's running memory (agent-owned)
-│   ├── RULES.md                 #   project rules (promoted from feedback)
-│   ├── Transcripts/             #   principal-session transcripts (machine-captured)
-│   └── Dispatches/              #   worker dispatch records (brief/log/result)
+│   ├── NOTEBOOK.md              #   the project log (agent-owned)
+│   └── RULES.md                 #   project rules (promoted from feedback)
 ├── paper/                  # USER-OWNED prose — source of truth
 │   ├── notes.qmd                 #   a starter document; no required main filename
 │   └── notes.comments.json      #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)

@@ -16,7 +16,6 @@ export interface FluxConfigInfo {
   contextPath: string;
   userContextPath: string;
   fluxContextPath: string;
-  agentsConfigPath: string;
   /** The global plot library, <FluxConfig>/plot_library (derived). */
   plotLibraryPath: string;
   userDataDir: string;

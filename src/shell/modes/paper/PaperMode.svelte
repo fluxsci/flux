@@ -2445,7 +2445,7 @@
   }
   const commands = $derived<Command[]>([
     ...paletteFromTable(cmdCtx),
-    // Context/agent commands (principal-agent scheme) — same set as the shell
+    // Context/agent commands — same set as the shell
     // GlobalPalette, but opening docs stays in-pane via loadDocument.
     ...contextCommands({ inPaper: true, openDoc: (rel) => void loadDocument(rel) }),
     ...[25, 50, 75, 100, null].map((pct) => ({

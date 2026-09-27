@@ -1,8 +1,8 @@
-// The shell-level command bus (principal-agent scheme). The shell owns the
+// The shell-level command bus. The shell owns the
 // global Ctrl+K: when Paper is the focused mode the request routes to
 // PaperMode's own (richer) palette via `paperPaletteRequest`; every other mode
 // gets the shell GlobalPalette. Cross-mode actions (open a document in Paper,
-// toggle the agent drawer, capture feedback) ride these stores so any surface
+// capture feedback) ride these stores so any surface
 // can trigger them without importing mode internals.
 
 import { writable } from "svelte/store";

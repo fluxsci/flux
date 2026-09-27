@@ -65,7 +65,7 @@ The same folder is the agents' workspace, and two mechanisms keep the coexistenc
   which agent), what, and when. If something looks different than you left it, the journal says
   exactly what happened.
 
-The rest of the agent machinery — memory, feedback, transcripts — is the
+The rest of the agent machinery — context and feedback — is the
 [collaboration system](../agents/collaboration.qmd).
 
 # Version control and portability

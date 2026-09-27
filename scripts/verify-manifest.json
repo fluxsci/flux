@@ -51,8 +51,6 @@
       "verify-note.ts",
       "verify-context-scheme.ts",
       "verify-docs.ts",
-      "verify-dispatch.ts",
-      "verify-principal-pty.ts",
       "verify-line-arrow.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",
@@ -517,7 +515,6 @@
       "verify-startup.mjs"
     ],
     "electron": [
-      "verify-principal-electron.cjs",
       "verify-w6-flush.cjs",
       "verify-multiwindow.cjs",
       "verify-cellpress.cjs",
@@ -1372,7 +1369,7 @@
       ]
     },
     {
-      "glob": "electron/{agentsConfig,fluxContextDocs.gen}.cjs",
+      "glob": "electron/fluxContextDocs.gen.cjs",
       "run": [
         "verify-context-scheme.ts",
         "verify-fluxconfig.ts"
@@ -1412,22 +1409,6 @@
         "verify-w3-locks.ts",
         "verify-note.ts",
         "verify-an-journal-locks.ts"
-      ]
-    },
-    {
-      "glob": "flux-core/agents.ts",
-      "run": [
-        "verify-dispatch.ts",
-        "verify-principal-pty.ts",
-        "verify-registry-parity.ts"
-      ]
-    },
-    {
-      "glob": "electron/agentsConfig.cjs",
-      "run": [
-        "verify-context-scheme.ts",
-        "verify-dispatch.ts",
-        "verify-principal-pty.ts"
       ]
     },
     {
@@ -2525,15 +2506,6 @@
       "coverage": "behavior"
     },
     "verify-delete-prune.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-dispatch.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -4378,27 +4350,6 @@
       "coverage": "behavior"
     },
     "verify-primitives.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-principal-electron.cjs": {
-      "runtime": "node-electron",
-      "prerequisites": [
-        "build",
-        "display"
-      ],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": true,
-      "coverage": "behavior"
-    },
-    "verify-principal-pty.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

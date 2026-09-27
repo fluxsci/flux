@@ -12,8 +12,7 @@ result. This file is the orientation; the full references are siblings — `WORK
 - MCP server (stdio): `{{FLUX_MCP}} /path/to/project` — same verbs as typed tools, plus
   `get_figure_image` / `get_canvas_image` (inline PNGs) and the live-bridge tools.
 - Set identity and project once per shell:
-  `export FLUX_PROJECT=/path/to/project FLUX_CLIENT=agent` (principals use
-  `FLUX_CLIENT=principal`; dispatched workers `FLUX_CLIENT=worker`).
+  `export FLUX_PROJECT=/path/to/project FLUX_CLIENT=agent`.
 
 ## The project at a glance
 

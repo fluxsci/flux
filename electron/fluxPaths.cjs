@@ -20,7 +20,6 @@ const path = require("node:path");
 const os = require("node:os");
 const fsSync = require("node:fs");
 const fsp = require("node:fs/promises");
-const agentsConfig = require("./agentsConfig.cjs");
 const { FLUX_CONTEXT_FILES, FLUX_CONTEXT_HASH } = require("./fluxContextDocs.gen.cjs");
 
 // ---------------------------------------------------------------------------
@@ -210,8 +209,7 @@ async function withConfigLock(fn) {
 //   (d) ensure Context/UserContext (Guidelines migrates in; WHO-AM-I + RULES
 //       seeded once — user-owned afterwards)
 //   (e) sync Context/FluxContext (stock docs, re-synced on content-hash change)
-//   (f) seed agents.json (once — user-owned afterwards)
-//   (g) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
+//   (f) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
 // Idempotent: every step is existence-guarded; later runs hit a statSync-only
 // fast path. Failures never throw past this function's contract lightly — a
 // deferred/failed move leaves the resolver fallbacks working and is recorded.
@@ -245,7 +243,6 @@ function configInfoSync(prefs = readPrefsRawSync()) {
     contextPath: contextPathSync(prefs),
     userContextPath: userContextPathSync(prefs),
     fluxContextPath: fluxContextPathSync(prefs),
-    agentsConfigPath: agentsConfig.agentsConfigPathSync(resolveFluxConfigPathSync(prefs)),
     plotLibraryPath: plotLibraryPathSync(prefs),
     userDataDir: userDataDir(),
   };
@@ -358,13 +355,12 @@ async function migrateFluxLib(cfg, events) {
 }
 
 // ---------------------------------------------------------------------------
-// The machine Context layer (principal-agent scheme, 2026-07).
+// The machine Context layer.
 //   <cfg>/Context/UserContext/  — user-owned: WHO-AM-I.md + RULES.md (+ any
 //     files the user adds). The pre-Context Guidelines/ folder migrates in.
 //   <cfg>/Context/FluxContext/  — stock docs from fluxContextDocs.gen.cjs,
 //     re-synced whenever their content hash changes ({{FLUX_CLI}}/{{FLUX_MCP}}
 //     placeholders substituted with this install's resolved commands).
-//   <cfg>/agents.json           — the agent roster (electron/agentsConfig.cjs).
 // ---------------------------------------------------------------------------
 
 async function ensureUserContext(cfg, events) {
@@ -484,8 +480,8 @@ function stampedCliDanglingSync(stampedCli) {
 }
 
 // ---------------------------------------------------------------------------
-// The `flux` PATH shim: ~/.local/bin/flux → this install's CLI, so `flux
-// principal` etc. work by name. Managed-marker policy: we only create or
+// The `flux` PATH shim: ~/.local/bin/flux → this install's CLI, so commands
+// work by name. Managed-marker policy: we only create or
 // rewrite a file that WE wrote (marker line) — a user's own `flux` binary is
 // never touched, and replacing the shim with an unmarked file opts out.
 // ---------------------------------------------------------------------------
@@ -551,7 +547,6 @@ function fluxContextUpToDateSync(cfg) {
   } catch {
     return false;
   }
-  if (!fsSync.existsSync(agentsConfig.agentsConfigPathSync(cfg))) return false;
   if (fsSync.existsSync(path.join(cfg, "Guidelines"))) return false;
   if (!cliShimUpToDateSync()) return false;
   const uc = path.join(cfg, "Context", "UserContext");
@@ -647,9 +642,6 @@ async function ensureFluxConfig() {
       await ensureUserContext(cfg, events);
       await syncFluxContext(cfg, events);
       await installCliShim(events);
-      if (agentsConfig.seedAgentsConfigSync(cfg)) {
-        events.push({ action: "seed-agents-config", detail: agentsConfig.agentsConfigPathSync(cfg) });
-      }
       await appendMarker(cfg, events);
       return { ...configInfoSync(), events };
     });

@@ -101,8 +101,7 @@ flux feedback                 # open notes (JSON; `where` = human summary, `cont
 flux resolve-feedback <id|text substring> --note "what you did"   # user sees it close live
 ```
 
-A `send` event in the ledger marks a **review-pass boundary** — everything open is a work
-order (this is what wakes `flux attend`). MCP: `list_feedback` / `resolve_feedback`.
+Ask an agent to read and address the notes. MCP: `list_feedback` / `resolve_feedback`.
 The ledger is event-sourced and append-only — never rewrite it; use the verbs.
 
 ## Context docs are documents too
@@ -134,9 +133,7 @@ If `.meta/live/bridge.json` is absent, the app is closed → use the file verbs 
 
 ## Wiring MCP into a standalone agent (per analysis project)
 
-The **principal and dispatched workers get MCP automatically** (the `{mcpJson}` roster
-placeholder — `AGENTS-CONFIG.md`); this section is only for a standalone session you start
-yourself. The server's project root is fixed at launch, so configure it per analysis
+The server's project root is fixed at launch, so configure it per analysis
 project (ready-to-copy versions of these: `TEMPLATES.md`). For **Codex**,
 `<analysis-dir>/.codex/config.toml` with the final argument set to the Flux project path:
 

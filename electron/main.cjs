@@ -261,15 +261,13 @@ function invalidatePathCaches() {
 // Read in main so credentials are attached here, never baked into renderer URLs.
 const fluxLibDir = () => getFluxLibRoot();
 
-// WS-9.4b: the AGENT family (live bridge + agent:mcpSpec) lives in ipc/agent.cjs.
+// WS-9.4b: the AGENT family (live bridge) lives in ipc/agent.cjs.
 // Multi-window: bridges are keyed by root, one per open project, each pinned to
 // the window that opened it — see agent.cjs.
 const agentFamily = require("./ipc/agent.cjs").createAgentFamily({
-  app,
   rootForSender: (e) => rootFor(e),
   appendJournalLine,
   noteWrite,
-  appRoot: path.resolve(__dirname, ".."),
 });
 agentFamily.registerHandlers(ipcMain);
 const { setBridgeFor, stopBridgeForWindow, stopAllBridges } = agentFamily;
@@ -827,7 +825,7 @@ ipcMain.handle("prefs:get", () => ({
   ...readPrefs(),
   fluxLibResolved: fluxLibDir(),
   fluxConfigResolved: getFluxConfigRoot(),
-  // The machine Context layer (principal-agent scheme) — display/open helpers.
+  // The machine Context layer — display/open helpers.
   contextResolved: fluxPaths.contextPathSync(readPrefs()),
   // The global plot library (<FluxConfig>/plot_library) the Plot gallery's
   // Global scope browses — see fluxPaths.plotLibraryPathSync.
@@ -1145,9 +1143,8 @@ function subsystemFor(root, abs) {
   if (rel.startsWith("paper/") || rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
   if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
-  // Principal-agent scheme: Context docs (+ their comments sidecars) live-reload
-  // through the same chain as manuscript docs. Transcripts/Dispatches writes
-  // also land here — harmless: the renderer suffix-matches the active doc.
+  // Context docs (+ their comments sidecars) live-reload through the same chain
+  // as manuscript docs; the renderer suffix-matches the active document.
   if (rel.startsWith("Context/")) return "context";
   if (rel === ".meta/feedback.ndjson") return "feedback";
   return null;
@@ -1218,7 +1215,7 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
     ...["plots", "fig", "manuscript", "references", "slides", "Context"].map((d) =>
       path.join(projectRoot, d),
     ),
-    // The feedback ledger: agent resolves/sends live-refresh the open app.
+    // The feedback ledger: agent resolutions live-refresh the open app.
     path.join(projectRoot, ".meta", "feedback.ndjson"),
   ];
   const pending = new Map(); // subsystem -> latest changed path
@@ -1709,7 +1706,7 @@ ipcMain.handle("shell:showItemInFolder", (e, p) => {
 });
 
 // Open a file in the OS default editor. Deliberately TIGHTER than fsGuard:
-// only files under the FluxConfig root (the Context layer / agents.json) or the
+// only files under the FluxConfig root (the Context layer) or the
 // open project qualify — this spawns an external program on the path.
 ipcMain.handle("shell:openPath", async (_e, p) => {
   const abs = path.resolve(String(p || ""));
@@ -1781,4 +1778,3 @@ ipcMain.handle("docs:open", async () => {
     sourceRoot: path.join(__dirname, '..') }, index => shell.openPath(index));
 });
 
-// (agent:mcpSpec lives in ipc/agent.cjs)

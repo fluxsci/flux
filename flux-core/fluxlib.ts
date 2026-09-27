@@ -93,7 +93,7 @@ export async function fluxContextPath(): Promise<string> {
 }
 
 /** One-time machine init/migration (FluxConfig + lowercase config dir +
- *  FluxLib move + Context layer sync + agents.json seed). Idempotent, locked,
+ *  FluxLib move + Context layer sync). Idempotent, locked,
  *  fast after first run. */
 export const ensureFluxConfig = fluxPaths.ensureFluxConfig;
 

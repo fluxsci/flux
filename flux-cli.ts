@@ -131,7 +131,7 @@ usage: flux <verb> [root] [args] [--flags]
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
   lib                                  show the FluxLib path + entry count
-  config                               machine paths (FluxConfig, FluxLib, Context, agents.json) + build info as JSON;
+  config                               machine paths (FluxConfig, FluxLib, Context) + build info as JSON;
                                        first run initializes ~/FluxConfig (and migrates old layouts)
   version                              this build's version/commit/entry (bundle vs source) as JSON
   lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
@@ -177,17 +177,9 @@ usage: flux <verb> [root] [args] [--flags]
   add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)
   feedback [--root R] [--all]          list the user's context-stamped feedback notes
   resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
-  send [--root R] [--note "…"]         mark a review-pass boundary in the feedback ledger
   context-init [--root R]              ensure the project's Context/ layer (heal old projects)
   note <text…> [--title "…"] [--file f] [--author a] [--root R]   append a stamped entry to the notebook's
                                        Session log under the manuscript lock (concurrent-writer safe)
-  agents                               show the machine's agent roster (agents.json)
-  principal [root] [--print] [--no-picker] [--no-transcript]   the launch picker + YOUR principal,
-                                       in THIS terminal, with transcript capture (alias: agent);
-                                       [--model m] [--effort e] [--family f] [--worker-model m] [--worker-effort e] skip the picker
-  dispatch <name> --brief-file f [--model m] [--effort e] [--family fam] [--root R]   run a worker with a brief,
-                                       recorded in Context/Dispatches/ (model/effort default to the session's worker policy)
-  attend [root] [--interval ms] [--echo]   watch the feedback ledger; Send wakes a principal review pass
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe
@@ -304,41 +296,6 @@ async function main() {
       const dir = path.resolve(_[0] ?? ".");
       await core.scaffold(dir, { title: flags.title as string, author: flags.author as string });
       console.error(`✓ scaffolded Flux project at ${dir}`);
-      break;
-    }
-    // Principal-agent scheme: interactive launch + the attend daemon are
-    // deliberately CLI-only legacy verbs (they own the terminal / never return —
-    // inexpressible as registry/MCP tools, like `new`).
-    case "principal":
-    case "agent": {
-      if (flags.print) {
-        console.log(JSON.stringify(core.principalSpec(root()), null, 2));
-        break;
-      }
-      process.exitCode = await core.runPrincipal(root(), {
-        family: flags.family as string | undefined,
-        model: flags.model as string | undefined,
-        effort: flags.effort as string | undefined,
-        workerFamily: flags["worker-family"] as string | undefined,
-        workerModel: flags["worker-model"] as string | undefined,
-        workerEffort: flags["worker-effort"] as string | undefined,
-        noPicker: !!flags["no-picker"],
-        noTranscript: !!flags["no-transcript"],
-      });
-      // This verb owns the terminal and has nothing left to flush, so it exits
-      // rather than waiting for the loop to drain: on Windows node-pty leaves a
-      // MessagePort and a Socket open after the child exits, and `flux principal`
-      // with a transcript never returned to the shell (measured: still alive
-      // indefinitely, the gate's 60s exit wait timed out). stdout here is a
-      // terminal, where Windows writes are synchronous.
-      process.exit(process.exitCode);
-    }
-    case "attend": {
-      await core.attend(root(), {
-        intervalMs: num(flags.interval),
-        echo: !!flags.echo,
-        onEvent: (m) => console.error(`[attend] ${m}`),
-      });
       break;
     }
     case "render-figure": {

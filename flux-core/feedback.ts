@@ -11,7 +11,6 @@ import {
   parseLedger,
   foldLedger,
   makeResolve,
-  makeSend,
   findNote,
   describeStamp,
   serializeEvent,
@@ -49,12 +48,11 @@ export interface FeedbackRow {
   resolveNote?: string;
 }
 
-/** list feedback notes — open only by default; `all` includes resolved. Also
- *  reports whether a send (review-pass request) is pending. */
+/** List feedback notes — open only by default; `all` includes resolved and withdrawn. */
 export async function listFeedback(
   root: string,
   opts: { all?: boolean } = {},
-): Promise<{ notes: FeedbackRow[]; open: number; lastSend: string | null; sentPending: number }> {
+): Promise<{ notes: FeedbackRow[]; open: number }> {
   const st = await readFeedbackState(root);
   const src = opts.all ? st.notes : st.open;
   return {
@@ -68,8 +66,6 @@ export async function listFeedback(
       ...(n.resolveNote ? { resolveNote: n.resolveNote } : {}),
     })),
     open: st.open.length,
-    lastSend: st.lastSend?.ts ?? null,
-    sentPending: st.sent.length,
   };
 }
 
@@ -87,19 +83,6 @@ export async function resolveFeedback(
   await appendEvent(root, makeResolve(note.id, CLIENT, opts.note));
   await journal(root, { action: "resolve_feedback", target: note.id });
   return { id: note.id, text: note.text, open: st.open.length - 1 };
-}
-
-/** append a send event — "everything open is now a work order" (the review-pass
- *  boundary the attend watcher wakes on). */
-export async function sendFeedback(
-  root: string,
-  opts: { note?: string } = {},
-): Promise<{ id: string; open: number }> {
-  const st = await readFeedbackState(root);
-  const ev = makeSend(CLIENT, opts.note);
-  await appendEvent(root, ev);
-  await journal(root, { action: "send_feedback", open: st.open.length });
-  return { id: ev.id, open: st.open.length };
 }
 
 /** GUI-parity helper: append a pre-built event (the renderer builds note events

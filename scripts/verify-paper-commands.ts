@@ -106,7 +106,7 @@ function recorderCtx(): { ctx: PaperCmdCtx; calls: string[] } {
   assert(dispatchWindowKey(mk({ ctrlKey: true, altKey: true, code: "KeyP" }), t5.ctx) && t5.calls.join() === "closeAllPanes", "Mod+Alt+P → close all panes");
   const t6 = recorderCtx();
   assert(dispatchWindowKey(mk({ altKey: true, code: "KeyP" }), t6.ctx) && t6.calls.join() === "closeActivePane", "Alt+P (no mod) → close active pane");
-  // Principal-agent scheme (2026-07-19): the ⌘K chord moved to the SHELL
+  // Shell palette routing: the ⌘K chord moved to the SHELL
   // (Workspace routes it back via commandBus.paperPaletteRequest) — a table row
   // too would double-fire and net to a no-op. The table must NOT own it.
   const t7 = recorderCtx();

@@ -75,10 +75,9 @@ With the session export above, `render-figure growth --png` just works.
 | `zotero-sync [--bib f] [--data-dir d] [--attach copy\|link] [--defer-fulltext] [--force] [--save]` | `zotero_sync` | pull new references + PDFs from the connected Zotero Better-BibTeX auto-export into FluxLib (one-way, idempotent; an UNCHANGED export is skipped from a stat alone — `--force` re-scans and also picks up attach backfill; `--defer-fulltext` links pointers without reading the PDFs — text backfills lazily; `--save` persists overrides as the machine settings) |
 | `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | project-wide list/unique resolve by default; `--doc` targets one document (see MANUSCRIPT-AND-REVIEW.md) |
 | `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
-| `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` · `send` | `list_feedback` · `resolve_feedback` · `send_feedback` | the **feedback ledger** (context-stamped notes from the app; see MANUSCRIPT-AND-REVIEW.md) |
-| `context-init` · `agents` · `dispatch <name> --brief-file f [--model m] [--effort e] [--family fam]` | `ensure_context` · `list_agents` · `dispatch` | heal `Context/` / show the roster matrix / run a worker with a brief (recorded in `Context/Dispatches/`; model/effort default to the session's worker policy — a principal-decides policy REQUIRES the flags) |
+| `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` | `list_feedback` · `resolve_feedback` | the **feedback ledger** (context-stamped notes from the app; see MANUSCRIPT-AND-REVIEW.md) |
+| `context-init` | `ensure_context` | ensure the project's `Context/` layer exists |
 | `note <text…> [--title "…"] [--file f] [--author a]` | `note` | append a stamped entry to the notebook's **Session log** (`Context/NOTEBOOK.md`) under the manuscript lock — the concurrency-safe log write (multiple agents + the app coexist); notebook BODY edits stay direct and surgical |
-| `principal [root] [--no-picker] [--no-transcript] [--print]` (alias `agent`) · `attend [root] [--interval ms]` | — | CLI-only: the launch picker + YOUR principal in THIS terminal with transcript capture / watch the ledger — Send wakes a review pass |
 | `compile [--doc path.qmd] [--to pdf\|html\|docx] [--zotero-fields] [--zotero-library a.docx,b.docx]` | `compile` | render via Quarto (needs `quarto`); reports the output path + figures/citations resolution (unresolved `@keys` named). `--zotero-fields` writes docx citations as live Zotero fields (refreshable/restylable in Word); `--zotero-library` takes .docx files already written with Zotero, binding citations to the same works to that library |
 | `validate [file]` · `validate-plot <svg>` | `validate_project` · `validate_plot` | check writes + lint (EMPTY figures, figures embedded in no doc, overlapping frames) / check a semantic plot (manifest ids + geometry — rejects log-zero bar anchors) |
 | `rerun-plot <recipe.json> [--key v…] [--only [name]]` | `rerun_plot` | **regenerate** a plot from its recipe; `--only` reruns just this recipe's plot from a figure-level script (sibling files untouched) |
@@ -114,10 +113,7 @@ Start per-project (the root is fixed at launch):
 {{FLUX_MCP}} /path/to/project
 ```
 
-Usually you do not start it by hand: the **principal and dispatched workers get it wired
-automatically** via the `{mcpJson}` placeholder in `agents.json` (see `AGENTS-CONFIG.md`),
-and standalone sessions configure it per analysis dir with `.codex/config.toml` /
-`.mcp.json` (templates in `TEMPLATES.md`). Prefer MCP when you want to **see** a figure
+Configure it with the templates in `TEMPLATES.md`. Prefer MCP when you want to **see** a figure
 (`get_figure_image` returns the PNG inline) or act on the user's live selection.
 
 ## Provenance & locks

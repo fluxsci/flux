@@ -54,8 +54,8 @@ packaged builds.
 
 ## Node.js ≥ 22.15
 
-The entire agent layer — the `flux` CLI, the MCP server, worker dispatch, the attend
-watcher — runs on your system `node`, and the machine-context docs bake `node …` commands
+The `flux` CLI and MCP server run on your system `node`, and the machine-context
+docs bake `node …` commands
 in at sync time. Install via your platform's usual channel (nvm, Homebrew, apt) and check:
 
 ```bash
@@ -158,17 +158,6 @@ installed on the machine. The house style's stacks lead with **Arial / Helvetica
   consistent — matplotlib embeds whichever family it actually picked, and the renderer
   substitutes anything missing, which shifts text metrics subtly.
 
-## Agent CLIs (for the collaboration system)
-
-The principal-agent workflow launches whatever CLIs your roster
-(`~/FluxConfig/agents.json`) names — typically [Codex](https://github.com/openai/codex)
-and/or [Claude Code](https://claude.com/claude-code). Install and authenticate at least
-one. See [the agent context & collaboration system](agents/collaboration.qmd) for the
-full system.
-
-(That roster file doesn't exist yet — nothing you've installed so far creates it.
-[First run](#first-run) below is what writes `~/FluxConfig` and a default `agents.json`.)
-
 # First run
 
 **Create `~/.local/bin` before you launch anything.** Flux installs its `flux` command shim
@@ -181,14 +170,14 @@ mkdir -p ~/.local/bin      # do this FIRST; also make sure it's on your PATH
 
 Launching the app (or running any `flux` CLI verb) initializes `~/FluxConfig`: the
 Context layer (your `UserContext/` + the stock `FluxContext/` docs, with this machine's
-paths baked in), the reference library home, and a default `agents.json`. It also
+paths baked in) and the reference library home. It also
 installs a **`flux` command shim into `~/.local/bin`** when that directory exists — so
-`flux principal`, `flux config`, etc. work by name (the shim carries a managed marker;
+`flux config` and other commands work by name (the shim carries a managed marker;
 replace it with your own file to opt out, and it will never be touched again). Then:
 
 1. Fill out `~/FluxConfig/Context/UserContext/WHO-AM-I.md`.
-2. Adjust `UserContext/RULES.md` and `agents.json` to taste.
-3. Moving machines? `~/FluxConfig` is portable — copy `UserContext/`, `agents.json`,
+2. Adjust `UserContext/RULES.md` to taste.
+3. Moving machines? `~/FluxConfig` is portable — copy `UserContext/`,
    `FluxLib/`, and `plot_library/` (your global plots) over; `FluxContext/` is regenerated for the new machine.
 
 # Verify the setup
@@ -212,7 +201,6 @@ node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
 | Plots import as flat images; `restyle` finds no parts | Plot not saved via `fp.save` (or fluxplot missing) → check `flux validate-plot` |
 | Figure PNGs render with wrong/shifted text | Missing fonts on this machine → install the stacks above; keep machines consistent |
 | `flux: command not found` | `~/.local/bin` missing or not on `PATH` → create it and re-run any flux verb (the shim installs itself), or use the full `node …/dist/flux-cli.mjs` path |
-| `codex exec` refuses to run in a directory | Untrusted non-git dir → the roster's `--skip-git-repo-check` flag (seeded by default) |
 | `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
 | Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |
 | Flux "won't start" — no window, no error | A windowless earlier instance is holding the single-instance lock (the launch now says so in the terminal) → `pgrep -af electron` to find it, then `kill <pid>` (plain SIGTERM — it saves unsaved work on the way out; keep `kill -9` as the last resort) |

@@ -183,7 +183,7 @@ export const VERBS: VerbDef[] = [
     cli: "config",
     aliases: ["config-paths"],
     summary:
-      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), contextPath/userContextPath/fluxContextPath (the machine Context layer), agentsConfigPath (the agent roster), plotLibraryPath (the global plot library, <FluxConfig>/plot_library — reusable plots every project's Plot gallery can insert; any folder structure), and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Before working, read every file in userContextPath (who the user is + their standing rules) and orient via fluxContextPath/README.md.",
+      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), contextPath/userContextPath/fluxContextPath (the machine Context layer), plotLibraryPath (the global plot library, <FluxConfig>/plot_library — reusable plots every project's Plot gallery can insert; any folder structure), and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Before working, read every file in userContextPath (who the user is + their standing rules) and orient via fluxContextPath/README.md.",
     params: {},
     cliArgs: [],
     handler: () => references.configInfo(),
@@ -1952,7 +1952,7 @@ export const VERBS: VerbDef[] = [
     cli: "feedback",
     cliRoot: "flags",
     summary:
-      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved and withdrawn — a withdrawn note was taken back by the user; never act on it); also reports the last send (review-pass request). Address each note, then resolve_feedback.",
+      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved and withdrawn — a withdrawn note was taken back by the user; never act on it). Address each note, then resolve_feedback.",
     params: { all: z.boolean().optional() },
     cliArgs: [{ kind: "flag", at: "all", into: "all", as: "boolean" }],
     handler: (ctx, a) => core.listFeedback(ctx.root, { all: a.all as boolean | undefined }),
@@ -1985,91 +1985,10 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "send_feedback",
-    cli: "send",
-    cliRoot: "flags",
-    summary:
-      "Mark a review-pass boundary in the feedback ledger: everything open is now a work order (the attend watcher wakes the principal on this). Humans trigger this from the app; agents rarely need it.",
-    params: { note: z.string().optional() },
-    cliArgs: [{ kind: "flag", at: "note", into: "note" }],
-    handler: (ctx, a) => core.sendFeedback(ctx.root, { note: a.note as string | undefined }),
-    render: {
-      human: (r) => {
-        const c = r as { open: number };
-        return { err: `✓ sent — ${c.open} open note(s) now a work order` };
-      },
-      mcp: (r) => {
-        const c = r as { open: number };
-        return text(`sent (${c.open} open notes)`);
-      },
-    },
-  },
-  {
-    name: "list_agents",
-    cli: "agents",
-    summary:
-      "Show the machine's agent roster (<FluxConfig>/agents.json): the FAMILIES (per-vendor command templates with their model/effort menus) and the standing defaults for principal/worker/pass — worker values of 'principal-decides' mean dispatch requires --model/--effort. Edit that file to change agents — see FluxContext/AGENTS-CONFIG.md.",
-    params: {},
-    cliArgs: [],
-    handler: () => core.readRoster(),
-    render: {
-      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
-      mcp: (r) => text(JSON.stringify(r, null, 2)),
-    },
-  },
-  {
-    name: "dispatch",
-    cli: "dispatch",
-    cliRoot: "flags",
-    summary:
-      "Dispatch a WORKER agent with a brief, and wait for it. <name> labels the dispatch; the worker's model/effort resolve from --family/--model/--effort → the session's worker policy (FLUX_WORKER_POLICY, set at principal launch) → the roster defaults — a standing 'principal-decides' policy means YOU pass --model/--effort per task (match effort to difficulty). The brief is the worker's whole contract — write it complete (goal + why, exact paths, environment, conventions, what done looks like, what to report). Recorded under Context/Dispatches/<stamp>-<name>/ (brief.md, log.txt, result.md + the agent used); returns the report tail. Prefer --brief-file (briefs are reviewable craft).",
-    params: {
-      role: z.string(),
-      brief: z.string().optional(),
-      briefFile: z.string().optional(),
-      name: z.string().optional(),
-      family: z.string().optional(),
-      model: z.string().optional(),
-      effort: z.string().optional(),
-    },
-    cliArgs: [
-      { kind: "pos", at: 0, into: "role", required: true },
-      { kind: "flag", at: "brief", into: "brief" },
-      { kind: "flag", at: "brief-file", into: "briefFile" },
-      { kind: "flag", at: "name", into: "name" },
-      { kind: "flag", at: "family", into: "family" },
-      { kind: "flag", at: "model", into: "model" },
-      { kind: "flag", at: "effort", into: "effort" },
-    ],
-    handler: (ctx, a) =>
-      core.dispatch(ctx.root, {
-        role: s(a.role),
-        brief: a.brief as string | undefined,
-        briefFile: a.briefFile as string | undefined,
-        name: a.name as string | undefined,
-        family: a.family as string | undefined,
-        model: a.model as string | undefined,
-        effort: a.effort as string | undefined,
-      }),
-    render: {
-      human: (r) => {
-        const d = r as { dir: string; exitCode: number; ms: number; report: string; agent: string };
-        return {
-          out: JSON.stringify({ dir: d.dir, agent: d.agent, exitCode: d.exitCode, seconds: +(d.ms / 1000).toFixed(1), report: d.report }, null, 2),
-          exit: d.exitCode === 0 ? 0 : 1,
-        };
-      },
-      mcp: (r) => {
-        const d = r as { dir: string; exitCode: number; report: string; agent: string };
-        return text(`dispatch (${d.agent}) ${d.exitCode === 0 ? "succeeded" : `FAILED (exit ${d.exitCode})`} — record: ${d.dir}\n\n${d.report}`);
-      },
-    },
-  },
-  {
     name: "ensure_context",
     cli: "context-init",
     summary:
-      "Ensure this project has its Context/ layer (Project/MISSION.qmd, NOTEBOOK.md, RULES.md, Transcripts/, Dispatches/) — heals projects created before the principal-agent scheme. Additive and existence-guarded; safe to run any time.",
+      "Ensure this project has its Context/ layer (Project/MISSION.qmd, NOTEBOOK.md, RULES.md) — heals projects created before the Context layer. Additive and existence-guarded; safe to run any time.",
     params: {},
     cliArgs: [],
     handler: (ctx) => core.ensureProjectContext(ctx.root),

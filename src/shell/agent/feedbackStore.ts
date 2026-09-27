@@ -1,6 +1,6 @@
-// Shell-level feedback-ledger state (principal-agent scheme): reads/folds the
-// project's .meta/feedback.ndjson, appends context-stamped notes and send
-// events, and toasts when an agent resolves notes externally (the watcher's
+// Shell-level feedback-ledger state: reads/folds the project's
+// .meta/feedback.ndjson, appends context-stamped notes and withdrawals,
+// and toasts when an agent resolves notes externally (the watcher's
 // feedbackRevision bump). Slide state is dynamically imported at capture time
 // so the slide module never enters the eager startup bundle.
 
@@ -10,7 +10,6 @@ import {
   FEEDBACK_REL,
   foldLedger,
   makeNote,
-  makeSend,
   makeWithdraw,
   type FeedbackNote,
   parseLedger,
@@ -192,7 +191,7 @@ export async function addFeedbackNote(
 }
 
 /** Take a queued note back: an append-only withdraw line — the note leaves the
- *  queue (and any work order) for good; an agent that already listed it sees why. */
+ *  queue for good; an agent that already listed it sees why. */
 export async function withdrawFeedbackNote(id: string): Promise<void> {
   const ownerRoot = root, owner = generation;
   await append(ownerRoot, serializeEvent(makeWithdraw(id, "human")));
@@ -226,15 +225,4 @@ export async function snapshotOfNote(note: FeedbackNote): Promise<PendingSnapsho
   }
   if (owner !== generation) return null;
   return { info: { ...snap, marks: snap.marks.map((m) => ({ ...m })) }, png: null, preview };
-}
-
-export async function sendFeedback(note?: string): Promise<number> {
-  const ownerRoot = root, owner = generation;
-  const st = get(feedbackState);
-  const open = st?.open.length ?? 0;
-  await append(ownerRoot, serializeEvent(makeSend("human", note)));
-  if (owner !== generation) return open;
-  await refresh(false);
-  pushToast("info", open ? `Sent — ${open} note(s) are now the agent's work order` : "Sent");
-  return open;
 }

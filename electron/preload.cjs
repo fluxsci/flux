@@ -258,11 +258,6 @@ contextBridge.exposeInMainWorld("fig", {
   initialProjectRoot: () => ipcRenderer.invoke("win:initialProject"),
   projectOpenElsewhere: (root) => ipcRenderer.invoke("win:projectOpenElsewhere", root),
 
-  // R3 (FluxReader "Ask Claude"): how to launch the flux MCP server for the open
-  // project — embedded by the agent drawer in `claude --mcp-config` so the spawned
-  // session can see the paper (get_reading_context / get_paper_text / annotations).
-  agentPrincipalSpec: (opts) => ipcRenderer.invoke("agent:principalSpec", opts),
-
   // WS4: live agent context bridge. The renderer pushes its UI context up
   // (pushContext) and answers dispatch requests from an external agent
   // (onDispatch → reply). Main relays these to/from the loopback control server.

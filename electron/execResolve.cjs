@@ -1,6 +1,5 @@
 // electron/execResolve.cjs — Windows-aware resolution for spawning EXTERNAL
-// commands by bare name ("quarto", a recipe's "python", an agent roster's
-// "claude"). Shared by the Electron main process (require) and flux-core
+// commands by bare name ("quarto", a recipe's "python", a terminal shell). Shared by the Electron main process (require) and flux-core
 // (ESM import of CJS), like fluxPaths.cjs; must run under plain Node.
 //
 // The problem (win32 only): npm/installer shims are .cmd/.bat batch files.

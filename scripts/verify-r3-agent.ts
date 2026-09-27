@@ -21,7 +21,7 @@ function assert(cond: unknown, msg: string) {
 }
 const read = (p: string) => readFileSync(join(root, p), "utf8");
 
-// --- 1. live MCP handshake (both commands agent:mcpSpec can return) -----------------
+// --- 1. live MCP handshake (source and bundled entry points) -----------------
 // Dev: repo tsx bin + flux-mcp.ts. Packaged: the esbuild bundle dist/flux-mcp.mjs
 // (spawned via ELECTRON_RUN_AS_NODE from app.asar.unpacked — here plain `node` is
 // the equivalent runtime). Both must complete the same stdio JSON-RPC handshake.
@@ -102,7 +102,7 @@ function mcpHandshake(cmd: string, cmdArgs: string[], label: string): Promise<vo
 }
 
 console.log("R3 — live flux MCP server, dev command (get_reading_context):");
-// Spawn tsx the way mcpSpecForCli does: this node + the installed CLI. The
+// Spawn tsx through this node + the installed CLI. The
 // .bin shim is an sh script on Windows and its .cmd twin cannot be spawned
 // without a shell on current Node, so neither is a portable command.
 const tsxCli = resolveTsxCli();
@@ -111,7 +111,7 @@ assert(existsSync(tsxCli) && existsSync(entry), "dev MCP command exists (the ins
 await mcpHandshake(process.execPath, [tsxCli, entry, fakeProject], "dev");
 
 // Packaged twin: if the CLI bundle was built, the MCP bundle MUST exist beside it
-// (a built-but-drifted dist/ is exactly the state that shipped a broken Ask Claude).
+// Both headless entry points ship together.
 const cliBundle = join(root, "dist", "flux-cli.mjs");
 const mcpBundle = join(root, "dist", "flux-mcp.mjs");
 if (existsSync(cliBundle)) {
@@ -123,14 +123,10 @@ if (existsSync(cliBundle)) {
 }
 
 // --- 2. source wiring -----------------------------------------------------------------
-console.log("\nR3 — main-process MCP resolution (source):");
-const agentCjs = read("electron/ipc/agent.cjs");
-assert(/function mcpSpecFor\(/.test(agentCjs), "agent family resolves the MCP spec (mcpSpecFor)");
-assert(/node_modules",\s*"\.bin",/.test(agentCjs) && /"tsx\.cmd" : "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute; tsx.cmd twin on win32 — the agent spawns from its own cwd)");
-assert(/app\.asar\.unpacked", "dist", "flux-mcp\.mjs"/.test(agentCjs) && /ELECTRON_RUN_AS_NODE/.test(agentCjs), "packaged spec = unpacked bundle on Electron-as-Node");
-assert(/mcpSpec: mcp\.ok \? \{ command: mcp\.command/.test(agentCjs), "principalSpec embeds the MCP spec ({mcpJson} roster placeholder)");
+console.log("\nR3 — MCP packaging and IPC contract (source):");
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");
-assert(!/agent:mcpSpec/.test(read("electron/ipc/contract.cjs")), "the retired agent:mcpSpec channel is gone from the contract");
+// Temporary retirement pin; folded into the remnants gate in overhaul §10.5.
+assert(!/agent:principalSpec/.test(read("electron/ipc/contract.cjs")), "no principal launch channel exists in the contract");
 
 // D13 retires the in-app shell and its passage prefill. Reader context remains
 // available to external agents; Phase 4 will use the selection/annotation anchors.
