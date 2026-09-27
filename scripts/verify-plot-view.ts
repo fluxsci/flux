@@ -197,6 +197,25 @@ fixedLine.setAttribute = (name, value) => { lineWrites++; setAttribute(name, val
 mover.seek(0, 1, 500);
 h.ok(lineWrites === 0, "moving an unchanged view never rewrites plot geometry");
 mover.destroy();
+h.section("authored paint survives projected frames at a non-intrinsic size");
+// The driver binds neutral (intrinsic-size) endpoint renders against the live,
+// pt-compensated plot, so a style string equal at both endpoints still differs
+// from the live node and gets a binding. That constant must be written back
+// verbatim: re-stringifying its "numbers" turned stroke #4169e1 into #41690 (the
+// line vanished mid-flight, 2026-09-27 QA screenshot). 720x216 = 1.5x intrinsic.
+const authored = sine.root().querySelector('[id="2hz.line"] path')!.getAttribute("style")!;
+h.ok(authored.includes("#4169e1"), "fixture line is authored with stroke #4169e1");
+for (const [label, patch] of [["view Change", { state: { view: zoom } }], ["data Become", { toAssetId: "sine-b" }]] as const) {
+  const paintDeck = createDeck({ withTitleSlide: false }), paintSlide = addSlide(paintDeck, { layout: "blank" });
+  addElement(paintDeck, paintSlide.id, { ...el, width: 720, height: 216 });
+  const paintBeat = addBeat(paintDeck, paintSlide.id)!;
+  setTransform(paintDeck, paintSlide.id, paintBeat.id, el.id, { ...patch, duration: 1000, easing: "linear" });
+  const painter = createPlayer(host, paintDeck, { theme: FLUX_DARK, reducedMotion: true, plotManifest: id => id === "sine" ? sine.manifest : mb });
+  const styles: string[] = [];
+  for (const time of [250, 500, 750]) { painter.seek(0, 1, time); styles.push(host.querySelector('[id="p__2hz.line"] path')!.getAttribute("style") ?? ""); }
+  h.ok(styles.every(s => /(^|;)\s*stroke:\s*#4169e1\s*(;|$)/.test(s)), `${label}: the line keeps its authored stroke colour mid-flight (${styles[1]})`);
+  painter.destroy();
+}
 h.section("manifests without series keep the base behaviour");
 // A custom/legacy manifest may carry no series or axes (verify-v020-slide-paint's
 // compound-hole plot). The retired morphCompatible answered false for it; the

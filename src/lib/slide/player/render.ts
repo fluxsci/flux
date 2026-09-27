@@ -278,7 +278,10 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
       // still holds the old frame's value. Never replace those shared nodes.
       if (av === bv && node.getAttribute(name) === av) continue;
       let sample: (t: number) => string | null = (t) => t < .5 ? av : bv;
-      if (av !== null && bv !== null) {
+      // Equal endpoints are a constant: write it back verbatim. Re-stringifying
+      // its "numbers" is lossy (a hex colour's digit-e-digit run: #4169e1 → #41690).
+      if (av === bv) sample = () => av;
+      else if (av !== null && bv !== null) {
         if (name === "fill" || name === "stroke") sample = (t) => lerpColor(av, bv, t);
         else {
           const an = (av.match(numbers) ?? []).map(Number), bn = (bv.match(numbers) ?? []).map(Number);
