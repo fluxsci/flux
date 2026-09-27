@@ -34,13 +34,16 @@ try {
   h.ok(events.some(e => e.reason?.includes('Repair')) && !events.some(e => e.fatal), 'missing MCP warns; empty skills and apiKeySource:none are not bare evidence');
   parse({ type: 'system', subtype: 'init', bare: true });
   h.ok(events.some(e => e.fatal && e.message.includes('bare mode')), 'explicit bare mode fails with guidance');
-  const cc = claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --permission-mode --permission-prompts --disallowedTools --strict-mcp-config --mcp-config --resume --append-system-prompt');
+  const cc = claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt');
   h.ok(cc.available && !cc.promptFile && !claude.capabilities('old','').available, 'Claude caps require safe flags and support prompt-text fallback');
   h.ok(!codex.capabilities('old', '--json', '').available, 'Codex missing flags disable driver');
-  const o = { caps: cc, packText: 'PACK', packPath: '/pack', mcpPath: '/mcp', launcher: '/flux', root: '/project', cwd: '/project', model: 'model', effort: 'high', resume: 'thread', images: ['/a.png','/b.png'] };
+  const o = { caps: cc, packText: 'PACK', packPath: '/pack', mcpPath: '/mcp', runDir: '/run', launcher: '/flux', root: '/project', cwd: '/project', model: 'model', effort: 'high', resume: 'thread', images: ['/a.png','/b.png'] };
   const a = claude.args(o), c = codex.args(o);
   h.eq(a.slice(a.indexOf('--disallowedTools')), ['--disallowedTools','Bash','Edit','Write','NotebookEdit'], 'Claude deny list last, no positional prompt');
   h.ok(a.includes('dontAsk') && a[a.indexOf('--permission-prompts')+1] === 'none' && a.includes('--strict-mcp-config') && a.includes('PACK'), 'Claude safe profile and fallback pack');
+  const after = (flag: string) => a[a.indexOf(flag) + 1];
+  h.eq([after('--tools'), after('--allowedTools'), after('--add-dir')], ['Read,Grep,Glob', 'mcp__flux', '/run'], 'Claude built-ins are Read/Grep/Glob only; the read-only Flux server and the image run dir are pre-approved');
+  h.ok(!claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --permission-mode --permission-prompts --disallowedTools --strict-mcp-config --mcp-config --resume --append-system-prompt').available, 'Claude without --tools/--allowedTools/--add-dir is unavailable, not unrestricted');
   h.ok(JSON.parse(claude.turn('QUESTION',['/a.png'])).message.content.includes('/a.png'), 'Claude image fallback asks Read on exact PNG path');
   h.eq(c.slice(-2), ['--','-'], 'Codex images end before stdin sentinel');
   h.ok(c.includes('resume') && c[c.indexOf('resume')+1] === 'thread' && !c.includes('-C') && !c.includes('-s'), 'Codex resume respects its smaller argument grammar');

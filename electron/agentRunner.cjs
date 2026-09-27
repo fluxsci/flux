@@ -175,7 +175,7 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
     const mcpPath = path.join(dir, "mcp.json");
     await fs.writeFile(mcpPath, JSON.stringify({ mcpServers: { flux: { command: launcher, args: ["mcp", run.root],
       env: { FLUX_MCP_READONLY: "1", FLUX_CLIENT: "fluxchat", FLUX_PROJECT: run.root } } } }), { mode: 0o600 });
-    return { caps: cap, binary: cap.binary, packPath, packText, mcpPath, launcher, root: run.root, cwd: run.cwd,
+    return { caps: cap, binary: cap.binary, packPath, packText, mcpPath, runDir: dir, launcher, root: run.root, cwd: run.cwd,
       model: run.model, effort: run.effort, env: { ...runEnv, FLUX_PROJECT: run.root, FLUX_MCP_READONLY: "1" } };
   }
   async function imagePaths(run, images) {

@@ -1,6 +1,6 @@
 "use strict";
 
-const REQUIRED = ["--input-format", "--output-format", "--verbose", "--include-partial-messages", "--permission-mode", "--permission-prompts", "--disallowedTools", "--strict-mcp-config", "--mcp-config", "--resume"];
+const REQUIRED = ["--input-format", "--output-format", "--verbose", "--include-partial-messages", "--tools", "--permission-mode", "--permission-prompts", "--allowedTools", "--disallowedTools", "--add-dir", "--strict-mcp-config", "--mcp-config", "--resume"];
 function capabilities(version, help) {
   const missing = REQUIRED.filter(flag => !help.includes(flag));
   const promptFile = help.includes("--append-system-prompt-file");
@@ -11,7 +11,12 @@ function capabilities(version, help) {
 function args(o) {
   const a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     o.caps.promptFile ? "--append-system-prompt-file" : "--append-system-prompt", o.caps.promptFile ? o.packPath : o.packText,
-    "--permission-mode", "dontAsk", "--permission-prompts", "none", "--strict-mcp-config", "--mcp-config", o.mcpPath];
+    // Read-only by construction: the only built-ins are Read/Grep/Glob, and dontAsk denies
+    // anything not pre-approved. Flux's server runs read-only, so all of its tools are
+    // allowed (dontAsk otherwise denies every MCP call); the run directory holds the
+    // attached view PNGs, which live outside the project. Verified on Claude Code 2.1.283.
+    "--tools", "Read,Grep,Glob", "--permission-mode", "dontAsk", "--permission-prompts", "none",
+    "--strict-mcp-config", "--mcp-config", o.mcpPath, "--add-dir", o.runDir, "--allowedTools", "mcp__flux"];
   if (o.model) a.push("--model", o.model);
   if (o.effort) a.push("--effort", o.effort);
   if (o.resume) a.push("--resume", o.resume);

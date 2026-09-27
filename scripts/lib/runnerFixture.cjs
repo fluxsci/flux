@@ -11,7 +11,7 @@ const name=process.argv[2],args=process.argv.slice(3),log=process.env.FAKE_RUNNE
 if(log)fs.appendFileSync(log,JSON.stringify({name,args,pid:process.pid})+'\\n');
 if(args.includes('--version')){console.log(name==='claude'?'2.1.283 (Claude Code)':'codex-cli 0.157.1');process.exit(0)}
 if(args.includes('--help')){
- console.log(name==='claude'?'--input-format --output-format --verbose --include-partial-messages --permission-mode --permission-prompts --disallowedTools --strict-mcp-config --mcp-config --resume --append-system-prompt --append-system-prompt-file --model --effort':'--json --skip-git-repo-check --sandbox --cd --image --config --model [PROMPT]');process.exit(0)
+ console.log(name==='claude'?'--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt --append-system-prompt-file --model --effort':'--json --skip-git-repo-check --sandbox --cd --image --config --model [PROMPT]');process.exit(0)
 }
 if(name==='flux'){console.log(JSON.stringify({askPackPath:path.join(__dirname,'ask.md')}));process.exit(0)}
 let init=false;
