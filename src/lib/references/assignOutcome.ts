@@ -1,11 +1,6 @@
 // Shared by BOTH assign engines (flux-core/assign.ts, assignJob.svelte.ts): when filing a
 // PDF fails, is that a network blink worth a silent retry, or a fault the user must see?
 //
-// Before 2026-09-26 every exception was reported as "deferred (network)". The owner's
-// real inbox then sat unfiled for a day behind "network unavailable" while the network
-// was fine — the actual cause was a Syncthing conflict copy beside library.bib, which the
-// fortified add path refuses to write over. A fault labelled as weather never gets fixed.
-//
 // Transient = the request itself could not complete (offline, timeouts, 429/5xx). Anything
 // else — a refused write, a lock lost, a malformed file, a bug — is an ERROR: the file stays
 // in the inbox exactly like a deferral (never destructive), but the scan says why.
@@ -28,9 +23,3 @@ export const OFFLINE_BREAKER = 3;
 /** This many consecutive ERRORS aborts a scan — something systemic (a refused library
  *  write, a lost lock) is failing every file, and grinding on would only repeat it. */
 export const ERROR_BREAKER = 3;
-
-/** A library write refused because a sync tool left a conflict copy beside library.bib.
- *  The Library banner resolves it; the assign summary points there instead of at the network. */
-export function isLibraryConflictFailure(message: string): boolean {
-  return /canonical sync conflict/i.test(String(message || ""));
-}

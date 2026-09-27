@@ -4,7 +4,6 @@ import type { ProjectManifest } from './types';
 import { slugify } from './types';
 import { commentsMainPath, commentsSidecarRel, sortDocuments, documentRemovalBlocker, pruneDocumentFromManifest, type DocRow } from './docOrder';
 import { CONTEXT_DOC_RELS } from './contextTemplates';
-import { isConflictPath, isSyncTempPath } from './conflictRules';
 import { frontMatterField } from '../../shell/modes/paper/frontmatter';
 import { parser } from '@lezer/markdown';
 
@@ -104,7 +103,7 @@ export async function discoverDocuments(m: ProjectManifest, io: DocumentIO): Pro
     catch (error) { if (!(await io.exists(dir))) return; throw error; }
     const sourceStems = new Set(entries.filter(e => !e.dir && /\.(qmd|md|rmd|ipynb|html)$/i.test(e.name)).map(e => e.name.replace(/\.[^.]+$/, '')));
     for (const e of entries) {
-      if (e.name.startsWith('.') || isConflictPath(e.name) || isSyncTempPath(e.name)) continue;
+      if (e.name.startsWith('.')) continue;
       const rel = dir ? `${dir}/${e.name}` : e.name;
       if (/^Context\/(Transcripts|Dispatches)(\/|$)/.test(rel)) continue;
       if (e.dir) {
@@ -120,7 +119,7 @@ export async function discoverDocuments(m: ProjectManifest, io: DocumentIO): Pro
   };
   for (const root of new Set([...roots, 'Context'])) await scan(root);
   for (const rel of [m.manuscript.path, ...(m.supplementary ?? []).map(s => s.path)]) {
-    if (rel && !isConflictPath(rel) && await io.exists(rel)) rels.add(rel);
+    if (rel && await io.exists(rel)) rels.add(rel);
   }
   const out: DocRow[] = [];
   for (const rel of rels) {

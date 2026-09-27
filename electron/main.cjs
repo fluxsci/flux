@@ -1145,22 +1145,11 @@ sourceWatchCore.registerHandlers(ipcMain);
 // ESM/dynamic-import story): exploratory image sets Flux never reads. They are pruned from the
 // watch targets outright — this is the belt to that braces, so a path that slips through can
 // still never be mistaken for a plot re-sync.
-// A sync tool's leftovers get their own treatment BEFORE any subsystem sees them
-// (conflictRules.js, same ESM/dynamic-import story). Without this a Syncthing conflict
-// copy of main.qmd routes to "manuscript" and lands in the document list as a document,
-// and every in-flight `.syncthing.*.tmp` transfer bumps a revision for nothing. Temp
-// files vanish; conflict copies raise the dedicated "conflict" subsystem, which the
-// renderer turns into a banner the user has to clear.
-let conflictRules = null;
 let plotFolderRules = null;
 let dissectRules = null;
 function subsystemFor(root, abs) {
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
-  if (conflictRules) {
-    if (conflictRules.isSyncTempPath(rel)) return null;
-    if (conflictRules.isConflictPath(rel)) return "conflict";
-  }
   if (rel.startsWith("plots/")) {
     if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) return null;
     return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
@@ -1184,97 +1173,6 @@ screenColorPicker.registerHandlers(ipcMain);
 app.on("before-quit", () => screenColorPicker.cancelAll());
 const captureDir = captureFamily.captureDir;
 app.on("will-quit", () => { void captureFamily.dispose(); });
-
-// ---------------------------------------------------------------------------
-// Sync-conflict scan. The watcher only sees a conflict copy that lands while the app is
-// OPEN; most arrive while it is closed, so the renderer also scans on project open and
-// after every "conflict" event. Walks the whole project — including .meta/, whose
-// append-only ledgers are the likeliest thing to conflict — and skips only VCS/tooling
-// internals. Capped, because an unresolved conflict is a handful of files, never
-// thousands: hitting the cap still surfaces the banner, which is the point.
-// ---------------------------------------------------------------------------
-const CONFLICT_SCAN_SKIP_DIRS = new Set([".git", "node_modules", ".stversions", ".stfolder"]);
-const CONFLICT_SCAN_MAX = 200;
-const CONFLICT_IDENTICAL_MAX_BYTES = 8 * 1024 * 1024;
-
-async function scanConflicts(root, opts = {}) {
-  if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
-  if (!conflictRules || !root) return [];
-  const fsp = require("node:fs/promises");
-  const out = [];
-  // maxDepth: the FluxLib scan looks only at the library's top level (library.bib and its
-  // manifests) — walking items/<key>/ for ~2,000 references on every refresh is not a scan,
-  // it is a stall. Projects keep the full walk (default: unbounded).
-  const maxDepth = Number.isFinite(opts.maxDepth) ? opts.maxDepth : Infinity;
-  const walk = async (dirAbs, dirRel, depth = 0) => {
-    if (out.length >= CONFLICT_SCAN_MAX) return;
-    let entries;
-    try {
-      entries = await fsp.readdir(dirAbs, { withFileTypes: true });
-    } catch {
-      return; // unreadable dir — nothing to report
-    }
-    for (const e of entries) {
-      if (out.length >= CONFLICT_SCAN_MAX) return;
-      const rel = dirRel ? `${dirRel}/${e.name}` : e.name;
-      if (e.isDirectory()) {
-        if (depth >= maxDepth) continue;
-        if (CONFLICT_SCAN_SKIP_DIRS.has(e.name)) continue;
-        if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) continue;
-        await walk(path.join(dirAbs, e.name), rel, depth + 1);
-        continue;
-      }
-      if (!e.isFile() || !conflictRules.isConflictPath(e.name)) continue;
-      const info = conflictRules.parseConflictPath(rel);
-      if (!info) continue;
-      const abs = path.join(dirAbs, e.name);
-      const baseAbs = path.join(root, info.base);
-      let size = 0;
-      let baseExists = false;
-      let identical = false;
-      try {
-        size = (await fsp.stat(abs)).size;
-      } catch {
-        continue; // vanished mid-scan (someone resolved it) — not an error
-      }
-      try {
-        const bs = await fsp.stat(baseAbs);
-        baseExists = bs.isFile();
-        // Byte-identical sides happen a lot (both machines saved the same text).
-        // Saying so up front turns a scary banner into one Discard click.
-        if (baseExists && bs.size === size && size <= CONFLICT_IDENTICAL_MAX_BYTES) {
-          const [a, b] = await Promise.all([fsp.readFile(abs), fsp.readFile(baseAbs)]);
-          identical = a.equals(b);
-        }
-      } catch {
-        /* no base file — the "restore or discard" case */
-      }
-      out.push({
-        rel,
-        base: info.base,
-        when: info.when,
-        device: info.device,
-        baseExists,
-        identical,
-        mergeable: conflictRules.isMergeableConflict(rel),
-        size,
-      });
-    }
-  };
-  await walk(root, "");
-  out.sort((a, b) => a.rel.localeCompare(b.rel));
-  return out;
-}
-
-ipcMain.handle("conflicts:scan", async (e, root, opts) => {
-  const r = root ? path.resolve(root) : rootFor(e);
-  if (!r) return [];
-  try {
-    return await scanConflicts(r, opts && typeof opts === "object" ? opts : {});
-  } catch {
-    return [];
-  }
-});
 
 // ---------------------------------------------------------------------------
 // The watcher split (multi-window A3.4). One PROCESS-WIDE watcher covers the
@@ -1327,7 +1225,6 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   }
   if (!dissectRules) dissectRules = await import("./dissectRules.js").catch(() => null);
   if (!plotFolderRules) plotFolderRules = await import("./plotsFolders.js").catch(() => null);
-  if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
   if (gen !== s.watchGen) return false; // superseded by a newer registration
   const projectRoot = s.root;
   const targets = [

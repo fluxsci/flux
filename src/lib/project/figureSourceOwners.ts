@@ -35,7 +35,7 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
     let entries: { name: string; dir: boolean }[];
     try { entries = await io.readdir(`${root}/${dir}`); } catch { return; }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name.includes(".sync-conflict-")) continue;
+      if (entry.name.startsWith(".")) continue;
       const path = `${dir}/${entry.name}`;
       if (entry.dir && !["assets", "renders", "exports"].includes(entry.name)) await scan(path, depth + 1);
       else if (!entry.dir && entry.name === "deck.json") paths.add(path);

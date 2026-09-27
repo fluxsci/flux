@@ -61,8 +61,6 @@
   import { mergeOrganize, organizeOf, allTags, allCollections, emptyOrganize, READING_STATUSES, type OrganizeData, type ReadingStatus } from "../../../lib/references/organize";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
-  import { isLibraryConflictFailure } from "../../../lib/references/assignOutcome";
-  import { conflictsOpen, refreshConflicts } from "../../../lib/project/conflicts";
   import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
 
   let { focused = true }: { focused?: boolean } = $props();
@@ -571,8 +569,6 @@
     });
     // How many captures are waiting to be pulled in — read-only, so the button can offer them.
     void refreshCaptureWaiting();
-    // A conflict copy beside library.bib blocks every add; make sure the banner knows now.
-    void refreshConflicts($currentProject?.path ?? null);
     let first = true;
     const unsubLib = fluxLibRevision.subscribe(() => {
       if (first) {
@@ -654,23 +650,19 @@
         skipped > 0 ? `${skipped} not scanned` : "",
       ].filter(Boolean);
       const firstError = r.find((x) => x.action === "error")?.reason ?? "";
-      const conflict = isLibraryConflictFailure(assignJob.halted || firstError);
       const suffix = assignJob.offline
         ? " — network unavailable; files left in the inbox to retry"
-        : conflict
-          ? " — your reference library has an unresolved sync conflict; no entry can be added until it is resolved. Files stay in the inbox."
-          : assignJob.halted
-            ? ` — stopped: ${assignJob.halted}. Files stay in the inbox.`
-            : firstError
-              ? ` — ${firstError}. Files stay in the inbox.`
-              : assignJob.unresolved
-                ? " — see pdfs_to_assign/_unresolved/"
-                : "";
+        : assignJob.halted
+          ? ` — stopped: ${assignJob.halted}. Files stay in the inbox.`
+          : firstError
+            ? ` — ${firstError}. Files stay in the inbox.`
+            : assignJob.unresolved
+              ? " — see pdfs_to_assign/_unresolved/"
+              : "";
       const bad = assignJob.unresolved > 0 || assignJob.errors > 0;
       pushToast(bad ? "error" : "success", filed ? `Assigned ${filed} of ${r.length} PDF${r.length === 1 ? "" : "s"}` : `No PDFs assigned (${r.length} scanned)`, {
         detail: bits.join(" · ") + suffix,
         ttl: bad ? 0 : 6000,
-        action: conflict ? { label: "Resolve", run: () => conflictsOpen.set(true) } : undefined,
       });
     }
     void (async () => {

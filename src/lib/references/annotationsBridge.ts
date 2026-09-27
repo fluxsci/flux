@@ -7,7 +7,7 @@
 // no longer read the same stale file), and (b) the RMW runs under the FluxLib IPC
 // lock (libLock.ts) so an agent's flux-core write (same lock dir) can't interleave.
 // The main-process fs:writeText handler is already atomic (tmp+rename).
-import { assertNoCanonicalConflict, parseCanonical, rememberCanonical, assertCanonicalSnapshot } from "./canonical";
+import { parseCanonical, rememberCanonical, assertCanonicalSnapshot } from "./canonical";
 import { writable } from "svelte/store";
 import { fileBridge } from "../project/types";
 import { resolveFluxLibPath } from "./fluxlibBridge";
@@ -65,7 +65,6 @@ export async function saveAnnotations(key: string, file: AnnotationFile, assertO
   const fb = fileBridge();
   const lib = await resolveFluxLibPath();
   if (!fb || !lib) return;
-  if (fb.readdir) await assertNoCanonicalConflict(annotationsPath(lib,key), async dir => (await fb.readdir!(dir)).map(e=>e.name));
   await assertCanonicalSnapshot(file, async p => await fb.exists(p) ? await fb.readText(p) : null);
   validateAnnotations(file);
   await fb.mkdir(itemDir(lib, key));

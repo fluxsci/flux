@@ -75,7 +75,7 @@ export async function readProjectDependencies(root: string, io: DependencyIO, li
     let entries: { name: string; dir: boolean }[];
     try { entries = await io.readdir(`${root}/${rel}`); } catch { return; }
     for (const e of entries) {
-      if (e.name.startsWith(".") || e.name.includes(".sync-conflict-")) continue;
+      if (e.name.startsWith(".")) continue;
       if (rel === "Context" && (e.name === "Transcripts" || e.name === "Dispatches")) continue;
       const path = `${rel}/${e.name}`;
       if (e.dir) await walk(path, depth + 1);

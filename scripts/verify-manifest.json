@@ -194,7 +194,6 @@
       "verify-plot-source.ts",
       "verify-plot-style-scope.ts",
       "verify-plot-style-bake.ts",
-      "verify-sync-conflicts.ts",
       "verify-library-pdffilter.ts",
       "verify-figure-reference-identity.ts",
       "verify-figure-sources.ts",
@@ -5545,15 +5544,6 @@
       "coverage": "behavior"
     },
     "verify-surface-anchor.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-sync-conflicts.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

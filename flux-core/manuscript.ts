@@ -44,7 +44,6 @@ import {
   sortDocuments,
 } from "../src/lib/project/docOrder";
 import { NotFoundError, ValidationError } from "./errors";
-import { isConflictPath } from "../electron/conflictRules.js";
 
 // --------------------------------------------------------------------------
 // manuscript + documents + references + compile (the Paper-side parity verbs).

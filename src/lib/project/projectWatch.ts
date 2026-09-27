@@ -15,7 +15,6 @@ import { writable } from "svelte/store";
 import { bumpSlideEmbeds, bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
 import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
 import { invalidateEnrichCache } from "../references/fluxlibBridge";
-import { refreshConflicts } from "./conflicts";
 
 export interface FsChange {
   subsystem: string;
@@ -71,12 +70,6 @@ export function startProjectWatch(root: string | null): void {
       // catch it anyway — this makes the refresh immediate, not next-stat).
       if (info.path.endsWith("enrich.json")) invalidateEnrichCache();
       bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
-    } else if (info.subsystem === "conflict") {
-      // A sync tool dropped a `.sync-conflict-*` copy into the project WHILE we are open.
-      // It is deliberately NOT routed to the owning subsystem (main.cjs subsystemFor):
-      // a conflict copy of main.qmd is not a manuscript edit, and letting it through put
-      // it in the document list. Re-scan so the banner reflects reality.
-      void refreshConflicts(root);
     } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
     else if (info.subsystem === "capture") {
       // A capture landed in the download folder. Deliberately does NOT file it: intake is the

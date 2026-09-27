@@ -5,7 +5,6 @@
   import Home from "./Home.svelte";
   import Workspace from "./Workspace.svelte";
   import Toasts from "./Toasts.svelte";
-  import SyncConflicts from "./SyncConflicts.svelte";
   import Help from "../lib/Help.svelte";
   import { view, openProjectAt } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
@@ -21,7 +20,6 @@
   import { assignJob } from "../lib/references/assignJob.svelte";
   import { captureStatus } from "../lib/references/captureStatus";
   import { captureIntakeOnStartup } from "../lib/references/captureIntake.svelte";
-  import { conflictsOnStartup } from "../lib/project/conflicts";
 
   // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
   // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
@@ -83,9 +81,6 @@
         // Web capture: pull in anything captured while Flux was closed. The only other pull is
         // the Library's Assign button — never on focus, never on a watcher event.
         captureIntakeOnStartup();
-        // The reference library syncs between machines like a project does, and its
-        // conflicts mostly arrive while Flux is closed: scan it now, banner if needed.
-        void conflictsOnStartup();
         // Multi-window: a window created to open a specific project (a CLI
         // project-dir arg, or `flux <dir>` relayed via second-instance) boots
         // straight into it instead of Home. One-shot; best-effort.
@@ -115,9 +110,6 @@
 
 <div class="shell">
   <TitleBar />
-  <!-- Sync conflicts: shell-level so the banner shows in every mode, and directly under
-       the title bar so it reads as a condition of the window rather than of one pane. -->
-  <SyncConflicts />
   <div class="shell-body">
     {#if $view === "home"}
       <div

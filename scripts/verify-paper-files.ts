@@ -66,11 +66,12 @@ try {
   await io.write('manuscript/legacy/deep/old.md','# Old notes\n');
   await io.write('Context/Reading/analysis.md','# Analysis\n');
   await io.write('Context/Transcripts/ignore.md','not a document');
-  await io.write('paper/a.sync-conflict-20260101-120000-ABCDEFG.qmd','not a document');
+  await io.write('paper/.hidden.qmd','not a document');
+  await io.write('paper/.hidden-folder/notes.md','not a document');
   const listing = await listDocuments(root);
   h.ok(listing.some(d=>d.path==='manuscript/legacy/deep/old.md'),'legacy manuscript tree remains discoverable alongside paper');
   h.ok(listing.some(d=>d.path==='Context/Reading/analysis.md'),'custom Context descendants are discoverable');
-  h.ok(!listing.some(d=>/ignore|sync-conflict/.test(d.path)),'archives and conflict copies stay out');
+  h.ok(!listing.some(d=>/ignore|\.hidden/.test(d.path)),'archives and dot files/folders stay out');
   m = JSON.parse(await io.read('project.json'));
   const scan = await discoverDocuments(m,io);
   h.ok(scan.folders.includes('paper/Empty'),'empty folders survive scans');

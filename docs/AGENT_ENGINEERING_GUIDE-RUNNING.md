@@ -271,34 +271,6 @@ Persistence invariants (all machine-checked — do not weaken):
   hold a security boundary (`flux-core/render.ts`, where a canvas file is untrusted input)
   filter candidates through `isUnderRoot` rather than dropping `safeJoin`'s guarantee.
   Gated by `verify-plot-source.ts`.
-- **A sync tool's leftovers are never ordinary files.** `electron/conflictRules.js` is the ONE
-  definition (typed wrapper `src/lib/project/conflictRules.ts`), loaded by the watcher, the
-  scan, the resolver and `listDocuments` alike. Two shapes, opposite treatment: an in-flight
-  `.syncthing.*.tmp` transfer is **silent** (it is noise, not an event), while a
-  `<base>.sync-conflict-<date>-<time>-<device7>` copy raises the dedicated `"conflict"`
-  subsystem — checked FIRST in `subsystemFor`, before any path prefix, because a conflict copy
-  of `main.qmd` is not a manuscript edit. Two rules follow and are gated by
-  `verify-sync-conflicts.ts`: **a conflict copy must never appear as a document** (listDocuments
-  scans directories, so it used to offer one as an editable twin), and **an unresolved conflict
-  must never be silently ignored or silently deleted** — the banner is non-dismissable and every
-  resolution ends with the copy gone. Only append-only `.ndjson` ledgers get an automatic answer
-  (union the lines); everything else is the user's call. The scan runs on project open, not just
-  from watcher events: conflicts arrive while Flux is CLOSED, which is exactly when the other
-  machine was in use.
-- **The reference library's `library.bib` is the second shape with an automatic answer (2026-09-26):
-  union the ENTRIES.** A `library.sync-conflict-*.bib` beside FluxLib's `library.bib` merges
-  itself — `src/lib/references/bibConflict.ts` `planBibConflictMerge` (pure: same-citekey =
-  same record, then the add planner's DOI/signature dedupe, the copy's citekeys + `dateadded`
-  kept, canonical entries never modified or removed) — at app start, on Library open, and
-  before ANY library write in both engines (`fluxlibBridge.mergeLibraryConflictCopies`,
-  `flux-core/fluxlib.ts mergeLibraryConflictCopies`). The copy is ARCHIVED to
-  `.fluxlib/sync-conflicts/library.other-machine-<stamp>-<device>.bib` (renamed so the scan
-  stops reporting it), never deleted. A library write is never refused because of a stray
-  sibling file: from the 09-21 fortification to 09-26 `assertNoCanonicalConflict` blocked every
-  add while such a copy existed, and the only symptom was the assign inbox saying "network
-  unavailable" for a day. Other FluxLib files (`.fluxlib/organize.json`) still block on a copy
-  and reach the same Shell banner as project conflicts (the scan covers FluxLib's top level,
-  `maxDepth: 1`, project open or not). Gated by `verify-assign-outcome.ts`.
 - **Figure ORDER is `p.figures`' array order, per canvas, and it is the user's** (2026-08-19):
   the sidebar's Figures list renders that order, the user drags rows (or presses Alt+↑/↓) to
   change it, and `planFigSave` persists it — canvas files list figures in it and `index.json`
@@ -347,7 +319,7 @@ Persistence invariants (all machine-checked — do not weaken):
   paper-gate).
 - **Paper file moves have a shared IO-independent core** (`documentFiles.ts`). Discovery
   scans both paper/manuscript roots recursively, including empty folders, plus Context
-  without its Transcripts/Dispatches archives; sync leftovers stay excluded. Generated
+  without its Transcripts/Dispatches archives; dot files stay excluded. Generated
   Quarto output/cache trees are pruned before recursion (suffixes need a matching source or
   generated-content signature); unused root `sections/` scaffolds stay hidden. New folders
   carry `.flux-folder` to preserve explicit intent even for empty or generated-looking names;

@@ -1,6 +1,6 @@
 import { itemKey } from "../src/lib/references/itemLocator";
 import { prepareItemLocators } from "./itemLocators";
-import { assertNoCanonicalConflict, readCanonicalText, parseCanonical, rememberCanonical, assertCanonicalSnapshot } from "../src/lib/references/canonical";
+import { readCanonicalText, parseCanonical, rememberCanonical, assertCanonicalSnapshot } from "../src/lib/references/canonical";
 // flux-core/annotate.ts — FluxReader annotations (Node side: CLI/MCP/agents).
 // Highlights/notes live in items/<citekey>/annotations.json (the filesystem is truth);
 // anchored by quote (see src/lib/references/annotations.ts). The renderer twin is
@@ -45,7 +45,6 @@ export async function loadAnnotations(key: string, libPath?: string): Promise<An
 export async function saveAnnotations(key: string, file: AnnotationFile, libPath?: string, assertOwned?: () => Promise<void>): Promise<void> {
   if (!assertOwned) return withAnnotationLock(key, libPath, guard => saveAnnotations(key, file, libPath, guard));
   const p = annotationsPath(await lib(libPath), key);
-  await assertNoCanonicalConflict(p, dir=>fs.readdir(dir));
   await assertCanonicalSnapshot(file, p => readCanonicalText(p, () => fs.readFile(p, "utf8")));
   validateAnnotations(file);
   await assertOwned();

@@ -199,10 +199,6 @@ export interface FileBridge {
   // WS-5.3: fsync a DIRECTORY after a rename-into-place batch (crash-durability
   // of the rename itself). Optional; no-op on win32 / older bridges.
   fsyncDir?(p: string): Promise<void>;
-  // Walk the open project for a sync tool's `.sync-conflict-*` leftovers
-  // (electron/conflictRules.js). Read-only — resolution goes through fs:* above.
-  // Optional: the web demo has no filesystem to conflict on.
-  conflictsScan?(root: string, opts?: { maxDepth?: number }): Promise<import("./conflictRules").SyncConflict[]>;
   paths(): Promise<{ home: string; userData: string; documents: string }>;
   openDirectory(title?: string): Promise<string | null>;
   openFiles(filters?: unknown[]): Promise<string[] | null>;
