@@ -1,7 +1,7 @@
 #!/usr/bin/env -S npx tsx
 // Windows spawn-portability gate: electron/execResolve.cjs is the ONE seam
 // through which Flux launches external commands by bare name (quarto, recipe
-// commands, the terminal). Two contracts pinned here:
+// commands, agent CLIs). Two contracts pinned here:
 //   1. Off win32 the resolvers are a strict IDENTITY — POSIX/macOS behavior
 //      cannot drift through this module (same command, same args reference).
 //   2. On win32 (simulated via the injectable {platform, env, exists}, the
@@ -13,7 +13,7 @@
 //      files without a shell).
 //   npx tsx scripts/verify-win-spawn.ts
 
-import { resolveSpawn, resolvePtySpawn } from "../electron/execResolve.cjs";
+import { resolveSpawn } from "../electron/execResolve.cjs";
 import { harness } from "./lib/harness.mjs";
 
 const h = harness("verify-win-spawn");
@@ -47,8 +47,6 @@ for (const platform of ["linux", "darwin"] as const) {
   h.ok(r.args === args, `${platform}: args are the SAME array (no copy, no rewrite)`);
   h.ok(!("windowsVerbatimArguments" in r) || r.windowsVerbatimArguments === undefined,
     `${platform}: no verbatim flag`);
-  const p = resolvePtySpawn("claude", args, { platform });
-  h.ok(p.command === "claude" && p.args === args, `${platform}: pty resolver is identity too`);
 }
 
 h.section("win32: real executables spawn directly, no shell");
@@ -106,22 +104,7 @@ h.section("win32: batch shims wrap in ComSpec /d /s /c");
   h.eq(r.command, "C:\\WINDOWS\\system32\\cmd.exe", "PATH honored when Path is empty");
 }
 
-h.section("win32: pty flavor and edge cases");
-{
-  const r = resolvePtySpawn("claude", ["two words"], win());
-  h.eq(r.command, "C:\\WINDOWS\\system32\\cmd.exe", "pty batch → ComSpec");
-  h.eq(
-    r.args,
-    '/d /s /c ""C:\\shims\\claude.cmd" "two words""',
-    "pty batch wrap returns ONE verbatim command-line STRING (node-pty re-quotes arrays)",
-  );
-}
-{
-  const args = ["--x"];
-  const r = resolvePtySpawn("mytool", args, win());
-  h.ok(r.command === "C:\\tools\\mytool.exe" && r.args === args,
-    "pty direct executable keeps the args array");
-}
+h.section("win32: edge cases");
 {
   const r = resolveSpawn("ghost", ["a"], win());
   h.ok(r.command === "ghost" && !r.windowsVerbatimArguments,

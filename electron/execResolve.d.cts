@@ -17,18 +17,6 @@ export interface ResolvedSpawn {
   windowsVerbatimArguments?: boolean;
 }
 
-export interface ResolvedPtySpawn {
-  command: string;
-  /** A single verbatim command-line string for a win32 batch wrap. */
-  args: string[] | string;
-}
-
 /** Identity off win32; on win32 resolves PATH × PATHEXT, wrapping batch shims in ComSpec. */
 export function resolveSpawn(command: string, args?: string[], o?: ResolveSpawnOpts): ResolvedSpawn;
 
-/** node-pty flavor of resolveSpawn (batch wrap → string command line). */
-export function resolvePtySpawn(
-  command: string,
-  args?: string[],
-  o?: ResolveSpawnOpts,
-): ResolvedPtySpawn;
