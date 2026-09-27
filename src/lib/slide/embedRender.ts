@@ -4,7 +4,7 @@ import type { Figure } from "../types";
 import { preparePlot } from "../plot/parse";
 import { buildPlotMarkup } from "../plot/inlineMarkup";
 import { figureToSvg } from "../export";
-import { compileSlide } from "./compile";
+import { compileSlide, type CompiledSlide } from "./compile";
 import { resolveTheme } from "./theme";
 import type { PlayerOpts } from "./player/player";
 
@@ -39,6 +39,14 @@ export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {
   return copy;
 }
 
+/** The payload's slide compiled once, for callers that sample it repeatedly
+ *  (the PowerPoint export samples every phase of every build). */
+export function compileSlideFor(payload: ExportPayload): CompiledSlide {
+  const slide = payload.deck.slides[0];
+  if (!slide) throw new Error("Cannot render an absent slide");
+  return compileSlide(slide, payload.deck.stage, { plotManifest: id => payload.plots?.[id]?.manifest });
+}
+
 /** A slide evaluated at one build step, ready for any static writer: the
  *  elements as they stand (unborn or invisible ones marked hidden, appearance
  *  opacity folded in), a plot's markup with its part states applied, the
@@ -53,10 +61,10 @@ export interface EvaluatedSlide {
   background: string;
   stage: { width: number; height: number };
 }
-export function evaluateSlide(payload: ExportPayload, step = 0): EvaluatedSlide {
+export function evaluateSlide(payload: ExportPayload, step = 0, timeMs = Infinity, compiled?: CompiledSlide): EvaluatedSlide {
   const deck = payload.deck, slide = deck.slides[0];
   if (!slide) throw new Error("Cannot render an absent slide");
-  const frame = compileSlide(slide, deck.stage, { plotManifest: id => payload.plots?.[id]?.manifest }).sample(step);
+  const frame = (compiled ?? compileSlideFor(payload)).sample(step, timeMs);
   const unavailable = new Set(frame.presentation.unbornElementIds ?? []);
   for (const el of frame.elements) {
     const appearance = frame.presentation.elementStates[el.id];

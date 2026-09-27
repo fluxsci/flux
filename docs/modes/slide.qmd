@@ -244,7 +244,7 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
 
 # Export
 
-**Export ▾** offers three formats, each written to the project's `exports/`:
+**Export ▾** offers these formats, each written to the project's `exports/`:
 
 - **HTML** — **one self-contained `.html`** with every slide, beat, animation, transform, and
   font, playing in any web browser with the same keys as Present mode. No Flux on the
@@ -253,16 +253,38 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
   a copy to send before the talk (`<deck>.pdf`). Plots and text stay sharp at any zoom.
 - **PDF, each step** — one page per build step, so a slide that reveals three things becomes
   three pages (`<deck>-steps.pdf`).
-- **PowerPoint** — an editable `.pptx` (`<deck>.pptx`). Text arrives as real text boxes (bold,
-  italic, colour, superscript and subscript kept), and rectangles, ellipses, lines, arrows and
-  drawn paths as real PowerPoint shapes you can restyle. Plots arrive as **vector** pictures:
+- **PowerPoint** — an editable `.pptx` (`<deck>.pptx`) that **plays your builds and
+  transitions** in PowerPoint's slide show. Text arrives as real text boxes (bold, italic,
+  colour, superscript and subscript kept), and rectangles, ellipses, lines, arrows and drawn
+  paths as real PowerPoint shapes you can restyle. Plots arrive as **vector** pictures:
   right-click one and choose **Convert to Shape** (**Group ▸ Ungroup** in older versions) to
   edit its individual lines, points and labels.
+- **PowerPoint, final state** — the same, but one PowerPoint slide per slide with every build
+  step applied and no animation (`<deck>-final.pptx`): the easiest file to edit further.
+
+**How builds play in PowerPoint.** PowerPoint's **Morph** transition tweens every object that
+appears under the same name on two consecutive slides, so it can carry what Flux animates —
+moves, Changes of size, colour or text, the camera, entrances and exits. A slide with builds
+becomes its resting state plus **one PowerPoint slide per click**, each entered by Morph over
+the effect's duration:
+
+- effects that play one after another within a click become extra slides that advance by
+  themselves after the same gap; an **auto** step advances after its delay; steps chained
+  **with previous** land on the same click;
+- entrances and exits fade; **Rise in** and **Pop in** keep their lift or pop, and **Pop
+  out** its shrink;
+- the slide's transition (fade, slide, push) plays when the slide is entered.
+
+Objects are named with a leading `!!` (the Selection Pane shows it) — that is how Morph pairs
+them across slides, so keep the names if you edit a build. Morph uses its own ease, so a
+step's easing is not copied; a plot whose parts build in cross-fades from one state to the
+next, and a count-up cross-fades from its first number to its last. Morph needs PowerPoint 2019
+or Microsoft 365; older versions show a plain fade.
 
 Pages and slides are exactly the stage's shape; PowerPoint slides are the standard 13.33-inch
-width. These formats cannot play, so videos show their poster frame and animations show where
-they end; a PowerPoint slide shows each slide with every build step applied. Fonts that are not
-installed on the other computer (such as Gelasio) are replaced by PowerPoint.
+width. Videos show their poster frame in PDF and PowerPoint, and PDF pages show where
+animations end. Fonts that are not installed on the other computer (such as Gelasio) are
+replaced by PowerPoint.
 
 **Video…** exports the **current slide** and all of its animation steps as one continuous
 `.mp4`. Set **Delay between steps**, **Hold at start**, and **Hold at end**, then choose

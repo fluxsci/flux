@@ -120,7 +120,8 @@
   import { editorStashedElements, editorStashedParts } from "../../../lib/editorPresentation";
   import { fileBridge, joinPath } from "../../../lib/project/types";
   import { deckPdfDocument, type DeckPdfPages } from "../../../lib/slide/export/deckPdf";
-  import { deckPptxDocument, canvasRasterize } from "../../../lib/slide/export/deckPptx";
+  import { deckPptxDocument, canvasRasterize, domMeasure } from "../../../lib/slide/export/deckPptx";
+  import type { PptxPages } from "../../../lib/slide/export/pptxBuilds";
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
@@ -926,7 +927,7 @@
       exporting = false;
     }
   }
-  async function onExportPptx() {
+  async function onExportPptx(pages: PptxPages) {
     const id = activeDeckId, root = pm?.root, fb = fileBridge();
     exportMenuOpen = false;
     if (!pm || !root || !id || exporting || !fb) return;
@@ -934,13 +935,13 @@
     exportMsg = null;
     try {
       await exportPreflight(root, id);
-      const doc = await deckPptxDocument(root, id, fb, canvasRasterize);
+      const doc = await deckPptxDocument(root, id, fb, canvasRasterize, domMeasure, pages);
       const dir = joinPath(root, "exports");
       await fb.mkdir(dir);
-      const out = joinPath(dir, `${id}.pptx`);
-      await fb.writeFile(out, doc.bytes);
+      const file = `${id}${pages === "final" ? "-final" : ""}.pptx`;
+      await fb.writeFile(joinPath(dir, file), doc.bytes);
       if (pm.root === root && activeDeckId === id)
-        flashExport(true, `Exported → exports/${id}.pptx (${doc.slides} slide${doc.slides === 1 ? "" : "s"})${doc.warnings.length ? ` — ${doc.warnings.join("; ")}` : ""}`);
+        flashExport(true, `Exported → exports/${file} (${doc.slides} slide${doc.slides === 1 ? "" : "s"})${doc.warnings.length ? ` — ${doc.warnings.join("; ")}` : ""}`);
     } catch (e) {
       flashExport(false, e instanceof Error ? e.message : "PowerPoint export failed");
     } finally {
@@ -1420,8 +1421,10 @@
               <b>PDF</b><span>One page per slide, every build step applied</span></button>
             <button role="menuitem" class="export-item" data-export="pdf-steps" disabled={!canExportPdf} onclick={() => onExportPdf("steps")}>
               <b>PDF, each step</b><span>One page per build step</span></button>
-            <button role="menuitem" class="export-item" data-export="pptx" disabled={!fileBridge()} onclick={onExportPptx}>
-              <b>PowerPoint</b><span>Editable .pptx: native text and shapes, plots as vector</span></button>
+            <button role="menuitem" class="export-item" data-export="pptx" disabled={!fileBridge()} onclick={() => onExportPptx("animated")}>
+              <b>PowerPoint</b><span>Editable .pptx, builds and transitions played with Morph</span></button>
+            <button role="menuitem" class="export-item" data-export="pptx-final" disabled={!fileBridge()} onclick={() => onExportPptx("final")}>
+              <b>PowerPoint, final state</b><span>One slide per slide, every build step applied</span></button>
           </div>
         {/if}
       </span>
