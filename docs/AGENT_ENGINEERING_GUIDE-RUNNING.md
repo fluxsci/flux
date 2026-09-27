@@ -129,6 +129,15 @@ clean break — they fail validation and quarantine, no migration),
 `<FluxConfig>/FluxLib` — never persist or read a separate `fluxLibPath`
 (`verify-fluxconfig.ts` gates this). Machine config dir is lowercase `~/.config/flux` only.
 
+Machine-local project history is `<userDataDir>/projects.json` (`v:1`, at most 100
+entries, newest open/connection first). `electron/projectsRegistry.cjs` is the one
+Node/Electron implementation: async `recordProjectOpened`, `recordProjectConnected`
+and `listKnownProjects`; reads lazily prune missing roots. An operation lease protects
+read/modify/write across processes; publication is temp + file fsync + rename + directory
+fsync where supported. Main records opens after `watch:setRoot` via a deferred task,
+without waiting on history IO. Renderer localStorage recents remain independent.
+Gate: `verify-projects-registry.ts` (scratch HOME/XDG, concurrent writers and IO faults).
+
 Persistence invariants (all machine-checked — do not weaken):
 
 - **Review discovery is project-wide by default**: headless `comments` / `list_comments`
@@ -1309,8 +1318,9 @@ an isolated scratch project. Their artifacts live under `test-results/inline-sli
 3. **Never loosen a failing gate to make it pass.** The gates encode contracts; a failure means
    fix the regression (or, if the gate encodes a *superseded* contract, prove that from git
    history and update the gate with the evidence in the commit message).
-4. **No native Node dependencies** (`npmRebuild: false`; prebuilt-only posture). No SQLite/FTS5 —
-   the pure-JS fulltext index exists precisely because of this.
+4. **No locally compiled native Node dependencies** (`npmRebuild: false`; prebuilt-only
+   posture). The shipped `@resvg/resvg-js` prebuilt runs only in the raster child process,
+   never Electron main. No SQLite/FTS5 — the pure-JS fulltext index exists precisely because of this.
 5. **CSP:** never add `script-src 'unsafe-inline'` or `'unsafe-eval'`. Runtime `new Function` is
    banned in the renderer — Ajv validators are **pre-generated**
    (`node --import tsx scripts/gen-validators.mjs`, drift-gated in `verify-loadgate.ts`). A new
@@ -1891,8 +1901,9 @@ real exports Word refused):
   `docxSvgFallback.ts` rasterizes and splices the PNG in after Quarto, keeping the svgBlip so a
   capable Word still gets the vector. Rasterization is INJECTED: the OPC surgery gates
   hermetically in Node; the GUI injects its canvas rasterizer and headless `compile`
-  injects flux-core's out-of-process resvg rasterizer. The latter requires the existing
-  checkout/CLI resvg dependency (it is not packaged into the app). Both paths report
+  injects flux-core's out-of-process resvg rasterizer. The app ships its wrapper and
+  platform prebuilt under `app.asar.unpacked/node_modules/@resvg/`; source/dist use
+  their installed dependency. Both paths report
   failed raster fallbacks instead of treating an absent picture as verified output.
 - Corollary for both: **"the export succeeded" is not evidence the figures are in it.** Check
   `drawings` vs `hyperlinks` in `word/document.xml` and whether each `a:blip` carries an
@@ -1955,6 +1966,22 @@ from `flux-core/index.ts`'s explicit re-export lists is silently `undefined` at 
 static signal except esbuild's `import-is-undefined` warning during `npm run build`. Treat that
 warning as an error (it shipped a dead `cascade-tracks` verb); registry-parity §(e) now pins
 every `core.<name>` reference in verbs.ts against the real index surface.
+
+**Packaged PNG rendering:** `electron-builder.yml` must both include and unpack
+`node_modules/@resvg/**` (wrapper plus the platform prebuilt). `flux-core/render.ts`
+resolves an `app.asar` module URL through its `app.asar.unpacked` sibling and starts the
+raster child with `ELECTRON_RUN_AS_NODE=1`; Node cannot load a `.node` from the archive.
+`verify-w13-cli.mjs` exercises source-dist and an isolated unpacked CLI, including a
+missing-dependency negative control. Keep its fixture OUTSIDE the repo: changing cwd
+does not prevent Node from finding a package in the entry file's ancestor directories.
+`verify-packaged-app.mjs` checks the actual installed CLI's PNG signature and pixels.
+**macOS dual-arch limit:** npm normally installs only the host's optional prebuilt.
+Both `@resvg/resvg-js-darwin-arm64` and `@resvg/resvg-js-darwin-x64`, at the wrapper's
+locked version, must be present before a single-tree dual-arch build, or build each
+architecture on its native runner. `npmRebuild:false` cannot supply a missing optional
+dependency. This work does not qualify either macOS artifact; run the packaged smoke
+on each target architecture before release. PDF snip/text native dependencies remain
+outside this PNG packaging change.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
@@ -7020,3 +7047,12 @@ gates passed after provisioning the pinned encoder inside this worktree.
 **Learnings:**
 - An interrupted rename needs both a flushed pre-apply report and a rerunnable exact-text
   update at the destination. The migration gate exercises the actual child-process interruption.
+
+### 2026-09-27 06:21 UTC — Packaged PNG and machine project history (Codex, aio/w3b-render-registry)
+**Work:** Included/unpacked resvg and kept PNG rendering in the isolated child, with source/dist
+and packaged CLI smoke coverage. Added the shared machine project registry and deferred native
+open recording; its gate passes 41 checks, the full pure tier passes 291/291, Svelte check is
+0/0, headless check and CLI build pass. Bundle/native smoke execution remains with the
+orchestrator; no packaged or macOS qualification is claimed.
+**Learnings:** Promoted the macOS optional-prebuilt prerequisite and Node ancestor-resolution
+trap into §9, corrected the retired packaging limitation, and documented registry ownership in §3.

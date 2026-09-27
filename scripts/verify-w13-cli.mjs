@@ -9,17 +9,24 @@
 // prebaked sidecar.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync, rmSync, mkdirSync, copyFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, mkdtempSync, copyFileSync, cpSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
+import os from "node:os";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { harness } from "./lib/harness.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(repoRoot, "dist", "flux-cli.mjs"); // the `flux` launcher
 const CORE = path.join(repoRoot, "dist", "flux-cli-core.mjs"); // the full bundle it fronts
 const SIDECAR = path.join(repoRoot, "dist", "slide-export-assets.json");
-const TMP = path.join(repoRoot, "scripts", ".w13-tmp");
+// Outside the repo: Node resolves packages through the entry's ANCESTORS,
+// regardless of cwd, so a scripts/.w13-tmp copy could borrow checkout packages.
+const TMP = mkdtempSync(path.join(os.tmpdir(), "flux-w13-"));
 const PROJ = path.join(TMP, "proj");
-const FAKE = path.join(TMP, "asar-unpacked", "dist"); // simulates app.asar.unpacked/dist
+const FAKE = path.join(TMP, "app.asar.unpacked", "dist");
+const require = createRequire(import.meta.url);
+const h = harness("verify-w13-cli");
 
 const results = [];
 const ok = (n) => results.push([true, n]);
@@ -114,7 +121,52 @@ try {
     ok("export from isolated bundle (packaged-app layout) works");
   else bad("isolated export", "HTML missing runtime/fonts — packaged export would fail");
 
-  // 5. if a packaged build exists, assert the unpacked layout is correct -------
+  // 5. PNG through source-dist and the packaged CLI entry, outside the checkout.
+  const plot = path.join(TMP, "red.svg"), pngPath = path.join(TMP, "figure.png");
+  writeFileSync(plot, '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24"><rect width="32" height="24" fill="#ff0000"/></svg>');
+  const isolatedCli = path.join(FAKE, "flux-cli.mjs");
+  const isolatedEnv = { ...process.env, NODE_PATH: "" };
+  const isolated = { cwd: TMP, env: isolatedEnv, stdio: "pipe" };
+  node([isolatedCli, "compose-figure", plot, "--root", PROJ, "--id", "packaged-png", "--no-label", "--no-caption"], isolated);
+  const renderArgs = ["render-figure", PROJ, "packaged-png", "--png", "--out", pngPath];
+  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const validPng = () => {
+    const bytes = readFileSync(pngPath);
+    return bytes.subarray(0, 8).equals(signature) && bytes.readUInt32BE(16) > 0 && bytes.readUInt32BE(20) > 0;
+  };
+  node([CLI, ...renderArgs], isolated);
+  if (validPng()) ok("ordinary dist CLI renders a valid PNG from unrelated cwd");
+  else bad("dist PNG signature/dimensions");
+  rmSync(pngPath);
+  let missingFailed = false;
+  try { node([isolatedCli, ...renderArgs], isolated); }
+  catch (error) { missingFailed = /rasterization failed/.test(String(error.stderr)) && !existsSync(pngPath); }
+  if (missingFailed) ok("isolated CLI cannot borrow resvg from the checkout");
+  else bad("PNG negative control", "render must fail until the prebuilt packages are shipped");
+  const resvgDir = path.dirname(require.resolve("@resvg/resvg-js/package.json"));
+  const resvg = JSON.parse(readFileSync(path.join(resvgDir, "package.json"), "utf8"));
+  cpSync(resvgDir, path.join(FAKE, "..", "node_modules", "@resvg", "resvg-js"), { recursive: true });
+  for (const name of Object.keys(resvg.optionalDependencies)) {
+    let entry;
+    try { entry = require.resolve(`${name}/package.json`); } catch { continue; } // only installed platform prebuilts
+    cpSync(path.dirname(entry), path.join(FAKE, "..", "node_modules", name), { recursive: true });
+  }
+  node([isolatedCli, ...renderArgs], isolated);
+  if (validPng()) ok("packaged CLI entry renders a valid PNG using unpacked resvg");
+  else bad("packaged PNG signature/dimensions");
+
+  // Also exercise resolution when Electron supplies an app.asar module URL:
+  // the raster child must find the real-disk sibling, never the archive path.
+  const archiveDist = path.join(TMP, "app.asar", "dist");
+  mkdirSync(archiveDist, { recursive: true });
+  copyFileSync(CLI, path.join(archiveDist, "flux-cli.mjs"));
+  copyFileSync(CORE, path.join(archiveDist, "flux-cli-core.mjs"));
+  rmSync(pngPath);
+  node([path.join(archiveDist, "flux-cli.mjs"), ...renderArgs], isolated);
+  if (validPng()) ok("app.asar module URL resolves PNG dependency in app.asar.unpacked");
+  else bad("archive-to-unpacked PNG resolution");
+
+  // 6. if a packaged build exists, assert the unpacked layout is correct -------
   const rel = path.join(repoRoot, "release");
   const unpackedGuess = existsSync(rel)
     ? readdirSync(rel)
@@ -129,10 +181,7 @@ try {
   rmSync(TMP, { recursive: true, force: true });
 }
 
-let failed = 0;
 for (const [pass, name] of results) {
-  console.log(`${pass ? "✓" : "✗"} ${name}`);
-  if (!pass) failed++;
+  h.ok(pass, name);
 }
-console.log(failed === 0 ? "W13 VERIFY: PASS" : `W13 VERIFY: FAIL (${failed})`);
-process.exit(failed === 0 ? 0 : 1);
+await h.done();

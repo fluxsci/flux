@@ -23,6 +23,7 @@ const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
 const { pickRelease } = require("./updateCheck.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
+const { recordProjectOpened } = require("./projectsRegistry.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
 
 // Machine config is ALWAYS the lowercase app dir (~/.config/flux on Linux) —
@@ -1184,6 +1185,15 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   pendingRoots.delete(senderId);
   // M9: the open project root joins the fs allowlist union (roots() above).
   s.root = root ? path.resolve(root) : null;
+  if (s.root) {
+    const openedRoot = s.root;
+    // Remember the opened project without delaying its watcher/bridge or UI.
+    setImmediate(() => {
+      void fs.promises.readFile(path.join(openedRoot, "project.json"), "utf8")
+        .then(text => recordProjectOpened(openedRoot, JSON.parse(text).title))
+        .catch(error => console.warn("Could not update project history:", error.message));
+    });
+  }
   await sourceWatchCore.setRoot(senderId, s.root);
   // WS4: bring THIS window's live agent bridge up/down with its open project.
   setBridgeFor(s.root, s.win);

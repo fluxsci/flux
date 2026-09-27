@@ -294,7 +294,8 @@
       "verify-agent-identity.ts",
       "verify-oneoff-migration.ts",
       "verify-annotation-core.ts",
-      "verify-connect-render.ts"
+      "verify-connect-render.ts",
+      "verify-projects-registry.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -796,6 +797,21 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "electron/projectsRegistry.*",
+      "run": [
+        "verify-projects-registry.ts",
+        "verify-electron-no-undef.ts",
+        "verify-fluxconfig.ts"
+      ]
+    },
+    {
+      "glob": "{electron-builder.yml,flux-core/render.ts}",
+      "run": [
+        "tier:pure",
+        "verify-w13-cli.mjs"
+      ]
+    },
     {
       "glob": "flux-core/connect/**",
       "run": [
@@ -6941,6 +6957,15 @@
       "coverage": "behavior"
     },
     "verify-connect-render.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-projects-registry.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

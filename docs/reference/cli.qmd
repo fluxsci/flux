@@ -32,6 +32,9 @@ variable, else the current directory. `cd` into a project (or export `FLUX_PROJE
 
 # A taste
 
+The installed app includes the PNG renderer used by the CLI and MCP. An agent can
+view figures and canvas overviews without a source checkout or a separate renderer install.
+
 ```bash
 flux compose-figure plots/*.svg --id fig1 --rows 2   # plots → one labeled multi-panel figure
 flux render-figure fig1 --png --out /tmp/fig1.png    # render it to look at

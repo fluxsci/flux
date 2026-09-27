@@ -5,6 +5,7 @@
 
 import * as fs from "node:fs/promises";
 import { relative, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { buildPlotMarkup } from "../src/lib/plot/inlineMarkup";
@@ -231,14 +232,13 @@ process.stdout.write(r.render().asPng());
 async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", RASTER_CHILD], {
-      // Resolve @resvg/resvg-js from THIS module's location — works from the
-      // repo checkout (tsx) and from dist/flux-{cli,mcp}.mjs while node_modules
-      // is present. NOTE: resvg is deliberately NOT shipped/asarUnpacked in the
-      // packaged app (native raster stays out of the app process), so render-figure
-      // is a checkout/CLI-with-node_modules capability, not a packaged-binary one.
+      // Electron-as-Node cannot read asar. Resolve beside the unpacked CLI/MCP
+      // and its shipped @resvg packages; source and ordinary dist stay unchanged.
       env: {
         ...process.env,
-        FLUX_RESVG_FROM: import.meta.url,
+        ELECTRON_RUN_AS_NODE: "1",
+        FLUX_RESVG_FROM: pathToFileURL(fileURLToPath(import.meta.url)
+          .replace(/([\\/])app\.asar([\\/])/, "$1app.asar.unpacked$2")).href,
         FLUX_RESVG_SCALE: String(scale),
         FLUX_RESVG_WIDTH: String(width),
       },
@@ -251,7 +251,7 @@ async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buff
     child.on("error", reject);
     child.on("close", (code) => {
       const png = Buffer.concat(out);
-      const isPng = png.length > 8 && png[0] === 0x89 && png[1] === 0x50;
+      const isPng = png.length > 8 && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
       if (code === 0 && isPng) return resolve(png);
       // Surface the MESSAGE, not node's stack/version noise: prefer the first
       // "Error:"/panic line, else the first non-frame line.
@@ -271,9 +271,8 @@ async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buff
  *  pictures the raster fallback Word requires (docxSvgFallback.ts).
  *
  *  Rides the same out-of-process resvg child as every other rasterization here, so a
- *  pathological SVG cannot take the CLI down with it. NOTE the same shipping
- *  constraint as renderFigurePng: resvg is deliberately not packed into the app
- *  bundle, so this is a checkout / CLI-with-node_modules capability. Callers treat a
+ *  pathological SVG cannot take the CLI down with it. Source, dist and packaged
+ *  CLI/MCP installs all use this same child and their local resvg prebuilt. Callers treat a
  *  throw as "no fallback for this picture" and carry on. */
 export async function rasterizeSvgToPng(svg: string, width: number): Promise<Buffer> {
   return rasterizePng(svg, 1, Math.max(1, Math.round(width)));

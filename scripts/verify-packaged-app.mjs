@@ -28,7 +28,7 @@ await verifyCorrectionRuntime(correction,{platform,arch});await verifyVideoEncod
 const docs=path.join(resources,'docs'),docsInventory=JSON.parse(await fs.readFile(path.join(docs,'.flux-docs.json'),'utf8'));
 assert.equal(docsInventory.version,1);assert.ok(docsInventory.pages.includes('index.html'));
 assert.deepEqual(await validateDocumentation(docs,docsInventory.pages),docsInventory.files,'packaged offline help must retain every validated page and resource byte');
-const scratch=await fs.mkdtemp(path.join(os.tmpdir(),'Flux packaged smoke ')),evidence=path.join(directory,'smoke-evidence');await fs.mkdir(evidence,{recursive:true});
+const scratch=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'Flux packaged smoke '))),evidence=path.join(directory,'smoke-evidence');await fs.mkdir(evidence,{recursive:true});
 const scope=new TestProcessScope(),env=isolatedEnv(path.join(scratch,'configuration'));
 const cwd=path.join(scratch,'unrelated directory');await fs.mkdir(cwd);
 const capture=path.join(cwd,'browser downloads');await fs.mkdir(capture);
@@ -40,6 +40,15 @@ try{
  assert.match(await command(executable,[cli,'help'],{ELECTRON_RUN_AS_NODE:'1'}),/compose-figure/);
  const version=JSON.parse(await command(executable,[cli,'version'],{ELECTRON_RUN_AS_NODE:'1'}));assert.equal(version.entry,'bundle');
  const project=path.join(cwd,'scientific project');await command(executable,[cli,'new',project,'--title','Packaged scientific smoke'],{ELECTRON_RUN_AS_NODE:'1'});
+ // Only the installed entry/dependencies may supply this rasterizer. The cwd
+ // is unrelated to the checkout, and no source-module import runs the render.
+ const plot=path.join(project,'plots','packaged-red.svg'),figurePngPath=path.join(evidence,'packaged-figure.png');
+ await fs.writeFile(plot,'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24"><rect width="32" height="24" fill="#ff0000"/></svg>');
+ await command(executable,[cli,'compose-figure',plot,'--root',project,'--id','packaged-png','--no-label','--no-caption'],{ELECTRON_RUN_AS_NODE:'1',NODE_PATH:''});
+ await command(executable,[cli,'render-figure',project,'packaged-png','--png','--out',figurePngPath],{ELECTRON_RUN_AS_NODE:'1',NODE_PATH:''});
+ const figurePng=await fs.readFile(figurePngPath);
+ assert.ok(figurePng.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),'packaged CLI must produce a PNG');
+ assert.ok(figurePng.readUInt32BE(16)>0&&figurePng.readUInt32BE(20)>0,'packaged PNG has nonzero dimensions');
  const mcp=scope.spawn(path.join(dist,'flux-mcp.mjs'),[project],{command:executable,nodeArgs:[],cwd,env:{...env,ELECTRON_RUN_AS_NODE:'1'},deadlineMs:60000});
  const response=new Promise((resolve,reject)=>{let buffer='',done=false;const timer=setTimeout(()=>reject(Error('Packaged MCP handshake timed out')),20000);mcp.child.stdout.on('data',chunk=>{buffer+=chunk;for(let at;(at=buffer.indexOf('\n'))>=0;){const line=buffer.slice(0,at);buffer=buffer.slice(at+1);let msg;try{msg=JSON.parse(line)}catch{continue}if(msg.id===1){assert.equal(msg.result?.serverInfo?.name,'flux');mcp.child.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');mcp.child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/list',params:{}})+'\n');}if(msg.id===2){if(!msg.result?.tools?.some(t=>t.name==='list_project'))return reject(Error('Packaged MCP lacks project tool'));mcp.child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'list_project',arguments:{}}})+'\n');}if(msg.id===3&&!done){done=true;clearTimeout(timer);resolve(msg.result)}}});});
  mcp.child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'packaged-smoke',version:'1'}}})+'\n');assert.match(JSON.stringify(await response),/Packaged scientific smoke/);await scope.reap(mcp);
@@ -71,9 +80,21 @@ try{
  const pages=await browser.pages(),page=pages.find(p=>p.url().startsWith('file:'))??pages[0];
  const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.waitForFunction(()=>window.fig&&document.body.textContent.includes('Packaged scientific smoke'),{timeout:60000});
+ // Recording is deliberately deferred beyond the project-open IPC. Observe
+ // the eventual machine-local record without adding a wait to production open.
+ const registryFile=path.join(platform==='darwin'?path.join(env.HOME,'Library','Application Support'):env.XDG_CONFIG_HOME,'flux','projects.json');
+ let openedProject;
+ const registryDeadline=Date.now()+10000;
+ while(Date.now()<registryDeadline){
+  try{openedProject=JSON.parse(await fs.readFile(registryFile,'utf8')).projects.find(p=>p.root===project&&p.title==='Packaged scientific smoke'&&p.lastOpened);if(openedProject)break}catch(error){if(error.code!=='ENOENT')throw error}
+  await new Promise(resolve=>setTimeout(resolve,50)); // poll deferred history publication
+ }
+ assert.ok(openedProject,'native project-open path records the project title and timestamp');
  const runtimeEnvironment=await recordBrowserRuntime(page,{label:'installed-native-window',directory:evidence,appBuild:version});
  assert.ok(runtimeEnvironment.viewport.width>=940 && runtimeEnvironment.viewport.height>=620,'observe actual native minimum window without synthetic viewport override');
  const encoderPixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(16,12,1,1).data]},'data:image/png;base64,'+png.toString('base64'));
+ const figurePixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(Math.floor(image.width/2),Math.floor(image.height/2),1,1).data]},'data:image/png;base64,'+figurePng.toString('base64'));
+ assert.deepEqual(figurePixels,[255,0,0,255],'packaged figure PNG contains the fixture artwork');
  assert.ok(encoderPixels[0]>240&&encoderPixels[1]<15&&encoderPixels[2]<15&&encoderPixels[3]===255,`Encoder pixel mismatch ${encoderPixels}`);
  const videoPixels=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const context=canvas.getContext('2d');context.drawImage(image,0,0);return [...context.getImageData(640,360,1,1).data]},'data:image/png;base64,'+frame.toString('base64'));
  assert.ok(videoPixels[0]>240&&videoPixels[1]<15&&videoPixels[2]>240&&videoPixels[3]===255,`Packaged worker pixel mismatch ${videoPixels}`);
@@ -114,6 +135,6 @@ try{
  const documentationResults=await help.$$eval('.aa-Item',items=>items.map(el=>({text:el.textContent,href:el.querySelector('a')?.href})));
  assert.ok(documentationResults.some(item=>/semantic/i.test(item.text)));assert.deepEqual(documentationErrors,[]);assert.deepEqual(documentationDialogs,[]);
  await help.screenshot({path:path.join(evidence,'packaged-docs-search.png'),fullPage:true});await docsBrowser.close();docsBrowser=null;
- await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,encoderPixels,videoPixels,captureResult},null,2));
+ await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','packaged CLI figure PNG signature and pixels','native project-open registry','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,openedProject,figurePixels,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
 }finally{await docsBrowser?.close();browser?.disconnect();await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});await fs.rm(env.TMPDIR,{recursive:true,force:true});}
