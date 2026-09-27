@@ -14,17 +14,15 @@
 // The law: an appearance and a transform COEXIST on one object in one beat
 // (setAnimation replaces only within-family), and a target carries at most
 // ONE transform per beat (chaining happens across beats). Pure — flux-core
-// loads this module; keep it dependency-free.
+// loads this module; keep its dependencies pure.
 // ---------------------------------------------------------------------------
 
 import type { Track } from "./types";
+import { presetDef } from "./presetCatalog";
 
 export type TrackFamily = "appearance" | "transform" | "camera" | "media";
 
 /** The family a track animates in (see module doc for the law it drives). */
 export function familyOf(track: Pick<Track, "preset">): TrackFamily {
-  if (track.preset === "transform") return "transform";
-  if (track.preset === "videoStart" || track.preset === "videoPause" || track.preset === "videoStop") return "media";
-  if (track.preset === "camera") return "camera";
-  return "appearance";
+  return presetDef(track.preset).family;
 }

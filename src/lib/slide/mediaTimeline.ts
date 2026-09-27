@@ -2,12 +2,13 @@
  * is shared by live seeking and continuous capture, including audio mixing. */
 import type { Slide, Track } from "./types";
 import type { VideoPlan } from "./video";
+import { presetDef } from "./presetCatalog";
 
 export type VideoCommand = "videoStart" | "videoPause" | "videoStop";
 export interface VideoEvent { target: string; command: VideoCommand; at: number; order: number }
 export interface VideoSample { timeMs: number; running: boolean; started: boolean }
 export interface VideoAudioSegment { assetId: string; startMs: number; endMs: number; offsetMs: number; loop: boolean }
-export const isVideoCommand = (track: Track): boolean => ["videoStart", "videoPause", "videoStop"].includes(track.preset ?? "");
+export const isVideoCommand = (track: Track): boolean => presetDef(track.preset).family === "media";
 
 function visibleVideo(slide: Slide, element: Slide["elements"][number]): boolean {
   if (element.type !== "video" || element.hidden) return false;

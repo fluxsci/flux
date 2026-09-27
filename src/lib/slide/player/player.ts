@@ -15,6 +15,7 @@ import type { FluxPlotManifest } from "../../plot/types";
 import { targetPartIds, hasPartBinding, trackKey } from "../targets";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
+import { KNOWN_PRESETS } from "../presetCatalog";
 import { morphCompatible, type MorphController } from "./morph";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
@@ -150,7 +151,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     for (const track of beat.tracks) {
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
-      if (track.disabled || track.keyframes || isVideoCommand(track) || track.preset && !(track.preset in PRESETS) && !["transform", "countUp"].includes(track.preset)) continue;
+      if (track.disabled || track.keyframes || isVideoCommand(track) || !KNOWN_PRESETS.has(track.preset ?? "fade")) continue;
       const key = trackKey(track);
       // transform — the state tween (rework §4). Pre = fold of earlier
       // transforms; end = pre ⊕ to.state. Plots may ALSO carry a content

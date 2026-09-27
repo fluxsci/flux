@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Flux Slide — the preset catalog (§5.3). Each preset turns a track's resolved
+// Flux Slide — the WAAPI preset compilers (§5.3). Each turns a track's resolved
 // target nodes into per-node WAAPI keyframes [from, to]. The player owns timing
 // (start + stagger → delay) and static-state (apply `from` before a node's intro
 // beat, `to` after); a preset only declares WHAT moves.
@@ -7,10 +7,11 @@
 // Two-tier law (style_principles.md P5): every preset here is Tier-1
 // (transform/opacity, compositor-free) EXCEPT `drawOn` (stroke-dashoffset, paint)
 // and `writeOn` (clip-path) — Tier-2, reserved for the few signature plot/curve
-// builds while the scene is otherwise still. `morph`/`countUp` live elsewhere.
+// builds while the scene is otherwise still. `transform`/`countUp` live elsewhere.
 // ---------------------------------------------------------------------------
 
 import type { Track, DeckTheme, StageSize } from "../types";
+import { PRESET_CATALOG, isEnterPreset, isExitPreset } from "../presetCatalog";
 import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
 
@@ -367,12 +368,12 @@ export const PRESETS: Record<string, Preset> = {
 
 /** Whether a preset name introduces its targets (hidden before its beat). Used
  *  by the player's static-state pass for nodes it hasn't computed specs for yet. */
-export const ENTER_PRESETS = new Set(["fade", "fadeRise", "popIn", "growBaseline", "writeOn", "drawOn", "stagger"]);
+export const ENTER_PRESETS = new Set(Object.keys(PRESET_CATALOG).filter(isEnterPreset));
 
 /** The disappear family — targets are hidden AFTER their beat. A later enter
  *  re-baselines the node (the player's static accumulation restarts at the last
  *  enter), so enter → exit → re-enter sequences are deterministic + reversible. */
-export const EXIT_PRESETS = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
+export const EXIT_PRESETS = new Set(Object.keys(PRESET_CATALOG).filter(isExitPreset));
 
 /** The WRAPPER-level style props each appearance preset animates — the
  *  transform-conflict map (rework §4.1): a transform on the same element in
@@ -380,19 +381,6 @@ export const EXIT_PRESETS = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"])
  *  them for the overlap (and, at rest, the static pass's later-spec-wins
  *  ordering resolves the same way). Presets that drill to INNER geometry
  *  (drawOn/drawOff) touch no wrapper props and are absent deliberately. */
-export const PRESET_WRAPPER_PROPS: Record<string, readonly string[]> = {
-  fade: ["opacity"],
-  fadeRise: ["opacity", "transform"],
-  popIn: ["opacity", "transform"],
-  growBaseline: ["transform"],
-  writeOn: ["clipPath"],
-  stagger: ["opacity", "transform"],
-  fadeOut: ["opacity"],
-  popOut: ["opacity", "transform"],
-  wipeOut: ["clipPath"],
-  highlight: ["opacity"],
-  dim: ["opacity"],
-  move: ["transform"],
-  scale: ["transform"],
-  rotate: ["transform"],
-};
+export const PRESET_WRAPPER_PROPS: Record<string, readonly string[]> = Object.fromEntries(
+  Object.values(PRESET_CATALOG).filter(def => def.wrapperProps.length).map(def => [def.name, def.wrapperProps]),
+);

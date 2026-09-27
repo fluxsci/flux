@@ -10,6 +10,7 @@ import { morphCompatible } from "./player/morph";
 import { staggerRanks, staggerSpan } from "./stagger";
 import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
+import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
 import { targetPartIds, hasPartBinding, trackKey } from "./targets";
 export { ghostTargetIds } from "./ghost";
 
@@ -40,12 +41,10 @@ export interface CompiledSlide {
   preState(target: string, beat: number): Element | null;
   copySourceState(source: string, birthBeat: number): Element | null;
 }
-const enters = new Set(["fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn"]);
-const exits = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
-const known = new Set([...enters, ...exits, "highlight", "dim", "move", "scale", "rotate", "camera", "countUp", "transform", "videoStart", "videoPause", "videoStop"]);
 export function trackDuration(track: Track): number {
-  if (familyOf(track) === "media") return 0;
-  return Math.max(0, track.duration ?? (track.preset === "transform" ? 600 : track.preset === "countUp" ? 800 : 320));
+  const def = presetDef(track.preset);
+  if (def.family === "media") return 0;
+  return Math.max(0, track.duration ?? def.defaultDurationMs);
 }
 /** The plot leaf ids a track's binding names (`part` ∪ `parts` ∪ `selector`,
  *  minus `selector.except`) under the target's manifest at its beat — ONE
@@ -66,7 +65,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       if (track.disabled) continue;
       let reason = "";
       if (track.keyframes) reason = "Custom keyframes are unsupported. Choose an effect or Change instead.";
-      else if (!known.has(track.preset ?? "fade")) reason = `Unknown effect: ${track.preset}`;
+      else if (!KNOWN_PRESETS.has(track.preset ?? "fade")) reason = `Unknown effect: ${track.preset}`;
       else if (!track.target.startsWith("@") && !slide.elements.some((e) => e.id === track.target)) reason = "Target object is missing. Retarget or remove this effect.";
       else if (familyOf(track) === "media" && bi === 0) reason = "Add video commands to a playback step after Design.";
       else if (familyOf(track) === "media" && slide.elements.find(e => e.id === track.target)?.type !== "video") reason = "Video commands require a video clip target.";
@@ -118,7 +117,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       }
       if (familyOf(ct.track) === "media") continue;
       if (ct.track.preset === "transform" || ct.track.preset === "camera") continue;
-      for (const key of targetsFor(ct)) if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: enters.has(ct.track.preset ?? "fade") ? 0 : 1, visible: !enters.has(ct.track.preset ?? "fade") }); }
+      for (const key of targetsFor(ct)) if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: isEnterPreset(ct.track.preset) ? 0 : 1, visible: !isEnterPreset(ct.track.preset) }); }
     }
     for (let bi = 0; bi <= Math.min(beatIndex, cues.length - 1); bi++) for (const ct of cues[bi].tracks) {
       const track = ct.track, preset = track.preset ?? "fade";
@@ -149,7 +148,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       for (const [i, key] of targetsFor(ct).entries()) {
         const at = ct.duration > 0 ? ct.ease(clamp((local - ct.start - (ct.ranks[i] ?? 0) * (track.stagger?.perMs ?? 0)) / ct.duration)) : 1;
         const previous = appearance.get(key) ?? { opacity: 1, visible: true };
-        const opacity = enters.has(preset) ? at : exits.has(preset) ? 1 - at : preset === "dim" ? 1 - .7 * at : preset === "highlight" ? .4 + .6 * at : previous.opacity;
+        const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? 1 - .7 * at : preset === "highlight" ? .4 + .6 * at : previous.opacity;
         appearance.set(key, { opacity, visible: opacity > 0 });
       }
       // Legacy spatial effects remain inspectable at their endpoint.

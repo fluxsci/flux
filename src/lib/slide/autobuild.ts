@@ -30,6 +30,7 @@ import type { Beat, Track, PresetName, Deck } from "./types";
 import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
+import { presetDef } from "./presetCatalog";
 
 // manifest animation name → player preset name
 const ANIM_TO_PRESET: Record<string, PresetName> = {
@@ -64,10 +65,6 @@ const PHASE: Record<string, number> = {
   legend: 3, "legend-entry": 3, "legend-swatch": 3, "legend-label": 3, annotation: 3, overlay: 3,
 };
 const PHASE_LABELS = ["Axes", "Gridlines", "Data", "Legend & annotations"];
-
-const DEFAULT_DUR: Partial<Record<PresetName, number>> = {
-  fade: 300, drawOn: 600, stagger: 240, growBaseline: 500, writeOn: 500, popIn: 300, fadeRise: 320,
-};
 
 /** The reveal preset for a role, honouring the plot's authored animation but
  *  refusing nonsense (draw-on a text label) and routing points to a stagger. */
@@ -135,7 +132,7 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
       part: node.id,
       role: node.role,
       preset,
-      durationMs: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400,
+      durationMs: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400,
       staggerMs: cfg?.staggerMs,
       nLeaves: node.targets.length,
     });
@@ -199,7 +196,7 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const anim = presets[role]?.animation ?? presets[highLevelKey(role)]?.animation;
   const preset = presetForRole(role, anim);
   const cfg = presets[role] ?? presets[highLevelKey(role)];
-  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400, start: 0 };
+  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, start: 0 };
   if (preset === "stagger") {
     track.stagger = { perMs: cfg?.staggerMs ?? 40, by: "x", from: "start" };
     track.params = { child: "fade" };

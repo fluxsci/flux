@@ -157,6 +157,7 @@ The established shared cores — extend these, don't duplicate them:
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
@@ -181,12 +182,12 @@ missing standard files heal on open via contextHeal.ts / `flux context-init`, on
 `project.json` exists; project-root `AGENTS.md` is a passive flux-connect pointer and
 `CLAUDE.md` imports it with `@AGENTS.md`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json` (0.5.0: shared figure editor elements plus slide-only video
+`slides/<deckId>/deck.json` (0.6.0: shared figure editor elements plus slide-only video
 and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
 FAMILIES — appearances, media commands, and transforms (`to.state` = a sparse t2 patch folded
 left-to-right across beats; `Beat.groups` = collapsible animator lanes);
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
-plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4` decks migrate via a
+plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4/0.5` decks migrate via a
 pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old players
 refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
@@ -858,6 +859,12 @@ Persistence invariants (all machine-checked — do not weaken):
   scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
+  Preset facts live in the pure `slide/presetCatalog.ts`; compiler, player metadata,
+  family law and Animator lists derive from it. `defaultDurationMs` is the omitted-track
+  timing default; `autoBuildDurationMs` preserves the separate plot-build recommendation
+  (for example, fade is 320 ms in playback and 300 ms in autobuild). Role/element
+  recommendation policy stays in `autobuild.ts`. Legacy move/scale/rotate remain
+  appearance-family compatibility effects, excluded from the editable preset list.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
   the shared constructor and `ops.ts` the independent zero-duration media commands.
   `electron/videoMedia.cjs` prepares H.264/AAC MP4 + PNG poster, called by both IPC and
@@ -1659,6 +1666,8 @@ that isn't in the manifest doesn't exist.** Tiers:
   `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
   registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
   check defeats the verification contract.
+  An exact-path entry must retain the regression groups of the broader entry it supersedes:
+  pathMap uses the first matching entry, not the union of all matching entries.
   `group:paper-gate` is the paper editor's regression suite. Use
   `node scripts/run-verifies.mjs --list` for current tier/group counts and membership. For parallel
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
@@ -7627,3 +7636,14 @@ out-of-tree Reads, Codex approval mode; tsx child of the test launcher; Electron
 private-display mode; `$effect` early returns; stale `dist/`; tool-output truncation; variadic
 flags; child-process exit handlers). Entries from 2026-07-19 to 2026-09-26 describe the retired
 principal/worker workflow. They are history, not current guidance.
+
+### 2026-09-27 22:52 UTC — Animation v2 preset catalog (Codex, `av2/A1`)
+**Work:** Consolidated preset facts into the pure shared catalog and derived the compiler,
+player metadata, family law, Animator and autobuild views, with flux-core re-exports.
+The 300-check base snapshot gate passes and detects a changed colour; the requested slide,
+animation, X-ray, transform and trim cohorts, both GUI gates on :1423, and both type checks pass.
+**Learnings:**
+- Playback and autobuild had different duration defaults; both are now explicit in the catalog
+  to preserve behavior (promoted to §4).
+- Exact-path manifest entries must retain prior regression groups (promoted to §7).
+- Corrected §3's stale deck version/migration range to match the base's existing 0.6.0 seams.

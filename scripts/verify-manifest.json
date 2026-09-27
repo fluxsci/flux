@@ -317,7 +317,8 @@
       "verify-no-retired-agent-layer.ts",
       "verify-connect-e2e.ts",
       "verify-agent-routing.ts",
-      "verify-background-run.ts"
+      "verify-background-run.ts",
+      "verify-preset-catalog.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -832,6 +833,33 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/slide/player/presets.ts",
+      "run": [
+        "verify-preset-catalog.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/presetCatalog.ts",
+      "run": [
+        "verify-preset-catalog.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
     {
       "glob": "scripts/lib/retiredAgentScan.ts",
       "run": [
@@ -7661,6 +7689,15 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-preset-catalog.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

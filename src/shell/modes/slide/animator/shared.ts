@@ -5,28 +5,16 @@ import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { staggerSpan } from "../../../../lib/slide/stagger";
+import { PRESET_CATALOG, presetDef, EDITABLE_PRESETS, KNOWN_PRESETS } from "../../../../lib/slide/presetCatalog";
 
-export const PRESET_COLOR: Record<string, string> = {
-  drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
-  growBaseline: "#d0a215", popIn: "#8b7ec8", writeOn: "#3aa99f", highlight: "#d0a215",
-  dim: "#6f6e69", move: "#4385be", scale: "#4385be", rotate: "#4385be", camera: "#a02f6f",
-  // the TRANSFORM family reads GREEN (the mockups' t1—t2 lanes) — one color
-  // for all three ways (Change · Ghost · Become). (Distinct from fade's
-  // lighter green; the full family palette lands with the Phase-3 animator.)
-  transform: "#66800b",
-  // exits render in the muted red family — visually "this leaves the stage"
-  fadeOut: "#af3029", popOut: "#af3029", drawOff: "#af3029", wipeOut: "#af3029", countUp: "#66800b",
-  videoStart: "#3aa99f", videoPause: "#d0a215", videoStop: "#af3029",
-};
+export const PRESET_COLOR: Record<string, string> = Object.fromEntries(
+  Object.values(PRESET_CATALOG).map(def => [def.name, def.colour]),
+);
 
-export const EDIT_PRESETS: PresetName[] = [
-  "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
-  "fadeOut", "popOut", "drawOff", "wipeOut", "highlight", "dim", "countUp",
-];
+export const EDIT_PRESETS: PresetName[] = [...EDITABLE_PRESETS];
 export const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
 export function presetLabel(preset: string): string {
-  return ({fade:"Fade in",fadeRise:"Rise in",popIn:"Pop in",drawOn:"Draw on",growBaseline:"Grow",stagger:"Stagger in",writeOn:"Wipe in",
-    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Transform",camera:"Camera",videoStart:"Start video",videoPause:"Pause video",videoStop:"Stop video"} as Record<string,string>)[preset] ?? preset;
+  return KNOWN_PRESETS.has(preset) ? presetDef(preset).label : preset;
 }
 
 /** The three WAYS of transforming, read off the one transform track: a birth
