@@ -74,8 +74,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   }));
 
   /** `listDescription`: a shorter text for tools/list (every session pays for it); flux_verbs keeps the full one. */
-  function registerTool<S extends z.ZodRawShape>(name: string, meta: { description: string; listDescription?: string; inputSchema: S; scope: "project" | "machine"; core?: boolean }, fn: (args: z.infer<z.ZodObject<S>> & { project?: string }) => Promise<McpRender>) {
-    const inputSchema = meta.scope === "project" ? { ...meta.inputSchema, project: projectParam } : meta.inputSchema;
+  function registerTool<S extends z.ZodRawShape>(name: string, meta: { description: string; listDescription?: string; inputSchema: S; scope: "project" | "machine"; core?: boolean; annotations?: { readOnlyHint?: boolean; openWorldHint?: boolean } }, fn: (args: z.infer<z.ZodObject<S>> & { project?: string }) => Promise<McpRender>) {    const inputSchema = meta.scope === "project" ? { ...meta.inputSchema, project: projectParam } : meta.inputSchema;
     const run = async (args: Record<string, unknown>): Promise<McpRender> => {
       try {
         if (meta.scope === "project") await recoverProjectForAuthoring(await getRoot(args));
@@ -85,8 +84,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     // Every hand-written tool stays reachable through flux_verb, listed or not.
     extraTools.set(name, { description: meta.description, inputSchema: inputSchema as z.ZodRawShape, scope: meta.scope, run });
     if (toolset === "core" && !meta.core) return;
-    server.registerTool(name, { description: meta.listDescription ?? meta.description, inputSchema: inputSchema as z.ZodRawShape }, run);
-  }
+    server.registerTool(name, { description: meta.listDescription ?? meta.description, inputSchema: inputSchema as z.ZodRawShape, annotations: meta.annotations }, run);  }
 
   const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
@@ -96,6 +94,16 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     inputSchema: { id: z.string() },
   }, async ({ id, project }) => ({ content: [await getInboxImage(await getRoot({ project }), id)] }));
 
+  registerTool("connect_doctor", {
+    scope: "machine", core: true,
+    description: "Read-only health checks for the Flux AI Bundle, agent registrations, skills and refresh hooks.",
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    inputSchema: { checkReceipt: z.object({ packId: z.string(), proof: z.union([z.string(), z.array(z.string())]) }).optional() },
+  }, async (args) => {
+    const { connectDoctor } = await import("./agentSetup");
+    const report = await connectDoctor(args);
+    return { ...ok(JSON.stringify(report)), structuredContent: report };
+  });
   // OpenAlex sort presets for the whole-world tools (undefined = relevance).
   const SORT: Record<string, string | undefined> = {
     relevance: undefined,

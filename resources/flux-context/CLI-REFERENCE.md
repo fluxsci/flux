@@ -154,3 +154,23 @@ line each; `flux_verbs {query}` returns the matches with their schemas; `flux_ve
 {verb, args}` runs any of them with the same validation and result as its dedicated
 tool, including tools the core list does not show. Select `--toolset full` or `FLUX_MCP_TOOLSET=full` to
 expose all dedicated tools. The MCP `connect` prompt provides a skill-free entry.
+
+
+## Agent installation and health
+
+Setup is a user-authorized CLI operation, outside the MCP verb registry:
+
+```sh
+"{{FLUX_CLI}}" connect setup --dry-run
+"{{FLUX_CLI}}" connect setup --agents claude,codex
+"{{FLUX_CLI}}" connect doctor --json
+"{{FLUX_CLI}}" connect remove --agents codex --yes
+```
+
+Setup preserves unmanaged skills and unrelated registrations, and backs up changes.
+Use `--yes` to confirm a replacement, `--use-this-install` to select the launcher
+owner, or `--create-local-bin` for convenience shims. Restart agent sessions afterward.
+Codex users review the installed refresh hook in `/hooks`. The read-only core MCP
+`connect_doctor` returns the same per-check diagnostics; it cannot change agent config.
+Personal UserContext skills publish only to connected vendors, with collisions and
+edited copies left intact. The flux-connect skill itself requires explicit invocation.

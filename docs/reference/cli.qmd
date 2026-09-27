@@ -75,3 +75,19 @@ Project tools can also take a `project` argument for one call.
 
 Relative filesystem inputs use the shell cwd on the CLI and the project root over
 MCP. Absolute paths are honoured. Document identifiers remain project-relative.
+
+
+## Agent setup and diagnostics
+
+`flux connect setup --dry-run` previews installation. Apply with `flux connect setup`;
+`--agents claude,codex` selects vendors, `--yes` confirms replacing an existing Flux
+registration, and `--create-local-bin` creates the optional convenience shims.
+Flux prints the macOS PATH instruction; it never edits shell startup files.
+
+`flux connect doctor` checks the launcher, full MCP handshake, PNG rendering,
+context files, published skills, hooks, registrations and known projects.
+`--json` returns the same checks as the read-only MCP tool `connect_doctor`.
+Setup and removal are CLI actions and cannot be invoked over MCP.
+
+On Windows, setup registers the pinned runtime and CLI script directly; MCP
+hosts do not have to execute a `.cmd` shim. Run setup again after relocating Flux.

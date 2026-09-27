@@ -65,6 +65,32 @@ to your agents.
 - In Reader, select PDF text or open a saved highlight and click **✦ Annotate this passage**
   to prefill a passage target.
 
+## Connect an agent
+
+Run `flux connect setup --dry-run` to preview agent setup, then `flux connect setup`
+to install the flux-connect skill and user-scope MCP registration for detected
+Claude Code and Codex installations. Use `--agents claude,codex` to choose them,
+`--yes` to confirm replacement of an existing Flux registration, and
+`--use-this-install` to select this Flux installation as the launcher's owner.
+Restart open agent sessions afterward. Setup backs up changed files and preserves
+unmanaged skills and unrelated Claude MCP servers.
+
+Invoke `/flux-connect <project>` in Claude Code or `$flux-connect <project>` in
+Codex when you want to connect. The skill only runs on an explicit request.
+Setup also installs a prompt-submit refresh hook. In Codex, review and trust it
+through `/hooks`; if that Codex version lacks hooks, MCP refresh remains available.
+
+Place personal skills in `FluxConfig/Context/UserContext/Skills/<name>/SKILL.md`,
+with YAML `name` matching the folder and a nonempty `description`. Setup publishes
+these to connected vendors as symlinks, so edits are live. Windows installations
+without symlink privileges use managed copies. Opening Flux or running its CLI
+resyncs copies and unpublishes deleted skills. Name collisions and edited vendor
+copies are preserved and reported by `flux connect doctor`.
+
+Use `flux connect doctor --json` for structured diagnostics, or `flux connect remove
+--agents codex --yes` to disconnect a vendor. Removal restores replaced registration
+content while preserving unrelated changes. The shared Flux launcher stays installed.
+
 ## Point, type, add {#sec-annotate}
 
 The frozen view fills the window, with drawing tools at the top left and a focused note

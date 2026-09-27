@@ -571,10 +571,13 @@ async function installLaunchers(events = [], options = {}) {
     const cur = readShim(file);
     if (cur !== null && !cur.includes(SHIM_MARKER) || index === 0 && !own) continue;
     if (cur === body) continue;
-    await fsp.mkdir(path.dirname(file), { recursive: true });
-    const tmp = file + ".tmp-" + process.pid;
-    await fsp.writeFile(tmp, body, { mode: 0o755 });
-    await fsp.rename(tmp, file);
+    if (options.publish) await options.publish(file, cur, body);
+    else {
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      const tmp = file + ".tmp-" + process.pid;
+      await fsp.writeFile(tmp, body, { mode: 0o755 });
+      await fsp.rename(tmp, file);
+    }
     events.push({ action: "install-agent-launcher", detail: file });
   }
   return { launcher: runtime.cli, owner: launcherOwnerSync(runtime.cli) };
@@ -644,6 +647,30 @@ function fluxContextUpToDateSync(cfg) {
     fsSync.existsSync(path.join(uc, "Skills", "README.md"));
 }
 
+function renderFluxContextFiles(cli) {
+  const docCli = cli.replaceAll("\\", "/");
+  return Object.fromEntries(Object.entries(FLUX_CONTEXT_FILES).map(([name, text]) => [name, text
+    .replaceAll("{{FLUX_CLI}}", docCli)
+    .replaceAll("{{FLUX_MCP}}", `${shellQuote(docCli)} mcp`)
+    .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync())
+    .replaceAll("{{FLUX_REPO}}", resolveRepoDirSync())]));
+}
+
+/** Read-only doctor check; uses the same renderer as stock-manual publication. */
+function inspectFluxContextSync() {
+  const cfg = resolveFluxConfigPathSync(), dir = path.join(cfg, "Context", "FluxContext");
+  try {
+    const stamp = JSON.parse(fsSync.readFileSync(fluxContextStampPath(cfg), "utf8"));
+    if (stamp.hash !== FLUX_CONTEXT_HASH) return { ok: false, message: "FluxContext template hash is outdated." };
+    const expected = renderFluxContextFiles(stamp.cli);
+    for (const [name, text] of Object.entries(expected)) {
+      if (fsSync.readFileSync(path.join(dir, name), "utf8") !== text) return { ok: false, message: `FluxContext/${name} differs from the bundled manual.` };
+    }
+    const stray = fsSync.readdirSync(dir).filter(name => name !== ".version" && !Object.hasOwn(expected, name));
+    return stray.length ? { ok: false, message: `Unexpected FluxContext files: ${stray.join(", ")}` } : { ok: true };
+  } catch (e) { return { ok: false, message: `FluxContext is missing or unreadable: ${e.message}` }; }
+}
+
 async function syncFluxContext(cfg, events) {
   const dir = path.join(cfg, "Context", "FluxContext");
   let cur = null;
@@ -670,12 +697,9 @@ async function syncFluxContext(cfg, events) {
   // Forward slashes keep the same Windows path valid inside JSON/TOML strings.
   const docCli = cli.replaceAll("\\", "/");
   const cmds = { cli: docCli, mcp: `${shellQuote(docCli)} mcp` };
+  const rendered = renderFluxContextFiles(cli);
   for (const name of names) {
-    const out = FLUX_CONTEXT_FILES[name]
-      .replaceAll("{{FLUX_CLI}}", cmds.cli)
-      .replaceAll("{{FLUX_MCP}}", cmds.mcp)
-      .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync())
-      .replaceAll("{{FLUX_REPO}}", resolveRepoDirSync());
+    const out = rendered[name];
     const p = path.join(dir, name);
     try {
       if (fsSync.readFileSync(p, "utf8") === out) continue;
@@ -732,6 +756,7 @@ async function ensureFluxConfig() {
     !legacyDirDistinct() &&
     fluxContextUpToDateSync(resolveFluxConfigPathSync(pre))
   ) {
+    await require("./agentSetup.cjs").refreshInstalledSkills();
     return configInfoSync(pre);
   }
   try {
@@ -743,6 +768,7 @@ async function ensureFluxConfig() {
       await ensureUserContext(cfg, events);
       await syncFluxContext(cfg, events);
       await installLaunchers(events);
+      await require("./agentSetup.cjs").refreshInstalledSkills();
       await appendMarker(cfg, events);
       return { ...configInfoSync(), events };
     });
@@ -883,6 +909,7 @@ const USER_RULES_SEED = `# Rules
 `;
 
 module.exports = {
+  inspectFluxContextSync,
   userDataDir,
   legacyUserDataDir,
   defaultFluxConfigPath,

@@ -33,6 +33,7 @@
   "compose_figure",
   "config_paths",
   "connect",
+  "connect_doctor",
   "create_deck",
   "create_document",
   "create_document_folder",

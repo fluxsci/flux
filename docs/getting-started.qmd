@@ -163,3 +163,12 @@ From here:
 - And when you're ready for a collaborator who does the composing and citing *for* you, meet
   [agent tools](agents/collaboration.qmd): an agent can carry out the same three steps
   from your instructions.
+
+
+## Connect your AI agent
+
+Run `flux connect setup --dry-run` to preview setup for Claude Code or Codex,
+then `flux connect setup` to apply it. Restart the agent and explicitly invoke
+`/flux-connect <project>` in Claude Code or `$flux-connect <project>` in Codex.
+See [Working with agents](agents/collaboration.qmd) for personal skills,
+refresh hooks, and `flux connect doctor` diagnostics.

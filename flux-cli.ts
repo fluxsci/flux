@@ -11,6 +11,10 @@ import { runCliVerb, parseCliFlags, registryHelp, registeredCliVerbs, errorToCli
 
 const HELP = `flux — drive a Flux project from the terminal
 
+  connect setup [--agents claude,codex] [--yes] [--dry-run] [--create-local-bin] [--use-this-install]
+  connect doctor [--json]             Check the Flux AI Bundle and agent registrations.
+  connect remove [--agents claude,codex] [--yes]   Disconnect managed agent integrations.
+
   mcp [root] [--toolset core|full]  Start the stdio MCP server (core by default).
 
 usage: flux <verb> [root] [args] [--flags]
@@ -247,7 +251,7 @@ function help(verb?: string): string {
   let keep = true;
   const legacy = HELP.split('\n').filter(line => {
     const match = /^  ([a-z][a-z-]*) /.exec(line);
-    if (match) keep = !registered.has(match[1]);
+    if (match) keep = !registered.has(match[1]) || /^  connect (setup|doctor|remove) /.test(line);
     return keep;
   }).join('\n');
   return `${legacy}\nRegistry commands (flags from the shared CLI/MCP contract):\n${registryHelp()}`;
@@ -259,6 +263,11 @@ const num = (v: unknown): number | undefined =>
 async function main() {
   core.setClient(process.env.FLUX_CLIENT || "cli"); // WS6: journal/lock identity
   const [verb, ...rest] = process.argv.slice(2);
+  if (verb === "connect" && ["setup", "doctor", "remove"].includes(rest[0])) {
+    const { runAgentSetupCli } = await import("./flux-core/agentSetup");
+    await runAgentSetupCli(rest);
+    return;
+  }
   const { _, flags } = parseCliFlags(verb, rest);
   if (flags.help) { console.log(help(verb)); return; }
   // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib

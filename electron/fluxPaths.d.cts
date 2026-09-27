@@ -86,4 +86,7 @@ export function launcherOwnerSync(file?: string): { target: string; build: strin
 export function launchersUpToDateSync(): boolean;
 export function installLaunchers(events?: Array<{ action: string; detail: string }>, options?: {
   runtime?: AgentRuntime; useThisInstall?: boolean; createConvenience?: boolean;
+  publish?: (file: string, before: string | null, after: string) => Promise<void>;
 }): Promise<{ skipped?: boolean; launcher?: string; owner?: { target: string; build: string } | null }>;
+
+export function inspectFluxContextSync(): { ok: boolean; message?: string };

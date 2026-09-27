@@ -305,7 +305,10 @@
       "verify-inbox-wait.ts",
       "verify-presence.ts",
       "verify-annotate-chord-census.ts",
-      "verify-context-stamp.ts"
+      "verify-context-stamp.ts",
+      "verify-agent-setup.ts",
+      "verify-connect-doctor.ts",
+      "verify-skill-template.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -1673,6 +1676,30 @@
         "verify-mcp-launcher.ts",
         "verify-w13-cli.mjs",
         "tier:pure"
+      ]
+    },
+    {
+      "glob": "electron/agentSetup.{cjs,d.cts}",
+      "run": [
+        "verify-agent-setup.ts",
+        "verify-connect-doctor.ts",
+        "verify-skill-template.ts"
+      ]
+    },
+    {
+      "glob": "resources/agent-skills/**",
+      "run": [
+        "verify-agent-setup.ts",
+        "verify-connect-doctor.ts",
+        "verify-skill-template.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/agentSetup.ts",
+      "run": [
+        "verify-agent-setup.ts",
+        "verify-connect-doctor.ts",
+        "verify-skill-template.ts"
       ]
     },
     {
@@ -7214,6 +7241,33 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-agent-setup.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-doctor.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-skill-template.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

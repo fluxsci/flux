@@ -1622,6 +1622,21 @@ its Phase 3 handler returns a bind-only message until the full brief engine land
 Global connect preserves a prior binding. Handshake identity feeds the journal unless
 FLUX_CLIENT overrides it. MCP instructions say to connect only when asked.
 
+`electron/agentSetup.cjs` is the shared agent-setup implementation. Probe first, then
+pass the immutable snapshot to the pure `planSetup`/`planRemove`; apply rechecks
+baselines under a machine lease. CLI setup/remove are intercepted before registry
+parsing or config initialization, so dry-run is read-only and MCP cannot rewrite
+vendor config. `connect_doctor` is a read-only core tool. Doctor handshakes against
+`--toolset full` (>=100 tools), while registrations use the compact default.
+`ensureFluxConfig`, including its fast path, refreshes only managed, unedited stock
+skills and syncs UserContext skills to connected vendors. Removal preserves edited
+skills with an explicit disconnected receipt. Skill directory backups are regular
+JSON files, never a second discoverable SKILL.md tree. See
+`docs/for_agents/agent-setup.md` for the API, vendor contract evidence, hook-trust
+requirements and native acceptance boundaries. Gates: `verify-agent-setup.ts`,
+`verify-connect-doctor.ts`, `verify-skill-template.ts` (hermetic pure tier).
+
+
 **Add an IPC channel:** declare it in `electron/ipc/contract.cjs` (kind: invoke/send/push +
 scope), register through the wrapped `ipcMain` in the right family module, expose in
 `preload.cjs`, add the FileBridge type in `src/lib/project/types.ts`. `verify-ipc-contract.ts`
@@ -2486,6 +2501,12 @@ outside this PNG packaging change.
   `verify-color-field.mjs` (ui) gate it.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
+
+- **Agent registration:** automatic setup supports Claude Code and Codex. Other
+  vendors receive the MCP spec and launcher instructions; automatic integration
+  is deferred. Codex hook installation depends on the installed CLI's capability
+  probe, and users review/trust newly installed hooks in `/hooks`.
+
 
 - **In-app terminal retired (D13, 2026-09-27).** Paper and Reader have no terminal pane,
   PTY bridge, or passage prefill. Reader still publishes its selection/page through the
@@ -7247,3 +7268,15 @@ passed; browser, scale, native and startup qualification are assigned to the orc
   presence throttling, and retained-picture/context coherence into §4; updated §1's shared-core pointer.
 - Updated the retired Reader gate contract from hiding ✦ to exact passage/highlight routing;
   the portable presentation key runtime remains pinned unchanged.
+
+### 2026-09-27 07:20 UTC — Shared agent setup and health checks (Codex, aio-w5b-setup)
+**Work:** Implemented shared probe/plan/apply/remove/doctor, vendor skills and MCP registration,
+managed refresh hooks, and connected-vendor UserContext skill publishing. Added CLI-only
+mutation entry points and the read-only MCP doctor, preserved launcher ownership, and
+registered three scratch-home gates. Vendor contract evidence and integration boundaries
+are in `docs/for_agents/agent-setup.md`; UI/native acceptance remains with the orchestrator.
+**Learnings:**
+- A backup directory containing SKILL.md becomes another vendor skill; use a lossless
+  regular-file archive for directory backups and removals.
+- Codex now has an explicit invocation policy and prompt-submit hooks. Capability-probe
+  the installed CLI, and preserve its separate hook-trust decision.
