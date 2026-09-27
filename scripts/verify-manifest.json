@@ -313,7 +313,9 @@
       "verify-live-view.ts",
       "verify-ai-monitor.ts",
       "verify-runner-drivers.ts",
-      "verify-mcp-readonly.ts"
+      "verify-mcp-readonly.ts",
+      "verify-no-retired-agent-layer.ts",
+      "verify-connect-e2e.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -582,7 +584,8 @@
       "verify-writer-latency.ts",
       "verify-crisp-source.ts",
       "figenh-importer-parity.ts",
-      "verify-annotate-chord-census.ts"
+      "verify-annotate-chord-census.ts",
+      "verify-no-retired-agent-layer.ts"
     ]
   },
   "groups": {
@@ -827,6 +830,18 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "scripts/lib/retiredAgentScan.ts",
+      "run": [
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "glob": "scripts/verify-{no-retired-agent-layer,connect-e2e}.ts",
+      "run": [
+        "self"
+      ]
+    },
+    {
       "glob": "src/shell/command/{commands.ts,CommandPalette.svelte}",
       "run": [
         "verify-command-rank.ts",
@@ -915,7 +930,8 @@
       "glob": "flux-core/connect/hook*.ts",
       "run": [
         "verify-connect-hook.mjs",
-        "tier:bundle"
+        "tier:bundle",
+        "verify-connect-e2e.ts"
       ]
     },
     {
@@ -927,7 +943,8 @@
         "verify-scale-inbox.mjs",
         "verify-annotate-chord-census.ts",
         "verify-annotation-surface-gui.mjs",
-        "verify-annotate-utility-electron.cjs"
+        "verify-annotate-utility-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1031,7 +1048,8 @@
         "verify-m11-m14.mjs",
         "group:paper-gate",
         "verify-metadata-save-safety.mjs",
-        "verify-figure-metadata-electron.cjs"
+        "verify-figure-metadata-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1073,7 +1091,8 @@
         "figenh-14-partui.mjs",
         "verify-figure-controls-gui.mjs",
         "verify-eyedropper-portal.cjs",
-        "verify-eyedropper-electron.cjs"
+        "verify-eyedropper-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1284,7 +1303,8 @@
     {
       "glob": "{src/lib/slide/outline.ts,src/lib/slide/tween.ts,src/lib/slide/player/transform.ts,src/lib/slide/ops.ts,src/shell/modes/slide/AnimatePanel.svelte,src/shell/modes/slide/animator/PropertiesPane.svelte,src/shell/modes/slide/animator/TimelineMenu.svelte}",
       "run": [
-        "group:slide-transforms"
+        "group:slide-transforms",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1323,7 +1343,8 @@
       "glob": "{src/lib/slide/video*.ts,src/lib/slide/export/videoRuntime.ts,flux-core/slideVideo.ts,electron/entry.cjs,electron/slideVideoWorker.cjs,electron/ipc/slideVideo.cjs,src/shell/modes/slide/SlideVideoDialog.svelte,scripts/lib/slideVideo*,scripts/fetch-video-encoder.mjs,build/video-encoder.json}",
       "run": [
         "group:slide-video",
-        "verify-ipc-contract.ts"
+        "verify-ipc-contract.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1351,7 +1372,8 @@
         "verify-fmenu-surface.mjs",
         "verify-fluxplot03-gui.mjs",
         "figenh-14-partui.mjs",
-        "verify-figure-controls-gui.mjs"
+        "verify-figure-controls-gui.mjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1373,7 +1395,8 @@
       "glob": "{src/lib/interact/zoomLimits.ts,src/lib/Toolbar.svelte}",
       "run": [
         "verify-zoom-limits.ts",
-        "verify-canvas-zoom-raster.mjs"
+        "verify-canvas-zoom-raster.mjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1593,7 +1616,15 @@
       "run": [
         "verify-context-scheme.ts",
         "verify-registry-parity.ts",
-        "verify-fluxconfig.ts"
+        "verify-fluxconfig.ts",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "glob": "docs/{**/*.qmd,for_agents/**}",
+      "run": [
+        "verify-docs.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1606,7 +1637,8 @@
       "glob": "electron/fluxContextDocs.gen.cjs",
       "run": [
         "verify-context-scheme.ts",
-        "verify-fluxconfig.ts"
+        "verify-fluxconfig.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1633,7 +1665,9 @@
         "verify-paper-files.ts",
         "verify-doc-order-gui.mjs",
         "verify-doc-delete-gui.mjs",
-        "verify-paper-files-gui.mjs"
+        "verify-paper-files-gui.mjs",
+        "verify-no-retired-agent-layer.ts",
+        "verify-connect-e2e.ts"
       ]
     },
     {
@@ -1779,7 +1813,8 @@
       "run": [
         "verify-launcher.ts",
         "verify-mcp-launcher.ts",
-        "verify-mcp-binding.ts"
+        "verify-mcp-binding.ts",
+        "verify-connect-e2e.ts"
       ]
     },
     {
@@ -1806,7 +1841,8 @@
       "run": [
         "verify-agent-setup.ts",
         "verify-connect-doctor.ts",
-        "verify-skill-template.ts"
+        "verify-skill-template.ts",
+        "verify-connect-e2e.ts"
       ]
     },
     {
@@ -1814,7 +1850,8 @@
       "run": [
         "verify-agent-setup.ts",
         "verify-connect-doctor.ts",
-        "verify-skill-template.ts"
+        "verify-skill-template.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1884,7 +1921,8 @@
         "verify-figure-editing-gui.mjs",
         "verify-figure-controls-gui.mjs",
         "verify-menu.mjs",
-        "verify-panel-label-menu.mjs"
+        "verify-panel-label-menu.mjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1916,7 +1954,8 @@
         "verify-gallery-scope.ts",
         "verify-shell-complete.mjs",
         "verify-live-view.ts",
-        "verify-live-view-electron.cjs"
+        "verify-live-view-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1933,6 +1972,12 @@
         "verify-slide-pdf.ts",
         "verify-slide-export-menu.mjs",
         "verify-slide-pptx.ts"
+      ]
+    },
+    {
+      "glob": "{README.md,docs/**/*.qmd,docs/for_agents/**,resources/{flux-context,agent-skills}/**,src/**/*.svelte,src/shell/command/*.ts}",
+      "run": [
+        "verify-no-retired-agent-layer.ts"
       ]
     }
   ],
@@ -7505,6 +7550,24 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-no-retired-agent-layer.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "presence"
+    },
+    "verify-connect-e2e.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

@@ -125,8 +125,6 @@ if (existsSync(cliBundle)) {
 // --- 2. source wiring -----------------------------------------------------------------
 console.log("\nR3 — MCP packaging and IPC contract (source):");
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");
-// Temporary retirement pin; folded into the remnants gate in overhaul §10.5.
-assert(!/agent:principalSpec/.test(read("electron/ipc/contract.cjs")), "no principal launch channel exists in the contract");
 
 // D13 retires the in-app shell and its passage prefill. Reader context remains
 // available to external agents; F4 routes questions into the read-only Ask popover.

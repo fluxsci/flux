@@ -33,7 +33,8 @@ const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", impor
 const actualCases = [
   ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure"]],
   ["electron/ipc/agentSetup.cjs", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure"]],
-  ["src/shell/inbox/InboxPanel.svelte", ["verify-inbox.ts", "verify-inbox-gui.mjs", "verify-scale-inbox.mjs", "verify-annotate-chord-census.ts", "verify-annotation-surface-gui.mjs", "verify-annotate-utility-electron.cjs"]],  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
+  ["src/shell/inbox/InboxPanel.svelte", ["verify-inbox.ts", "verify-inbox-gui.mjs", "verify-scale-inbox.mjs", "verify-annotate-chord-census.ts", "verify-annotation-surface-gui.mjs", "verify-annotate-utility-electron.cjs", "verify-no-retired-agent-layer.ts"]],
+  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
   // The text painter's arrangement source and its serializer route together.
   ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure", "verify-text-blank-lines.mjs"]],
   ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],
@@ -73,6 +74,10 @@ const actualCases = [
   ["resources/docx/templates/nature.docx", ["verify-journal-assets.ts"]],
   ["src/lib/figureLayoutStore.ts", ["verify-fig-namer.mjs", "verify-m11-m14.mjs"]],
   ["docs/AGENT_ENGINEERING_GUIDE-RUNNING.md", ["verify-docs.ts"]],
+  ["docs/agents/collaboration.qmd", ["verify-docs.ts", "verify-no-retired-agent-layer.ts"]],
+  ["scripts/lib/retiredAgentScan.ts", ["verify-no-retired-agent-layer.ts"]],
+  ["scripts/verify-no-retired-agent-layer.ts", ["self:scripts/verify-no-retired-agent-layer.ts"]],
+  ["scripts/verify-connect-e2e.ts", ["self:scripts/verify-connect-e2e.ts"]],
   ["scripts/lib/driver.mjs", ["tier:pure"]],
   ["scripts/verify-changed-pathmap.mjs", ["self:scripts/verify-changed-pathmap.mjs", "tier:pure"]],
 ];
@@ -89,6 +94,15 @@ equal(slideSelection.scripts.includes("verify-slide-ghost-gui.mjs"), true, "slid
 equal(slideSelection.scripts.includes("verify-paper-slide-embeds.mjs"), true, "shared player changes select inline slide playback");
 equal(slideSelection.scripts.includes("verify-scale-paper-slide-embeds.mjs"), true, "shared player changes select inline slide performance");
 equal(slideSelection.diagnostics, [], "overhaul mapping has no unresolved references");
+
+for (const file of ['README.md', 'resources/flux-context/REVIEW.md', 'resources/agent-skills/flux-connect/SKILL.md', 'electron/fluxContextDocs.gen.cjs', 'src/lib/Help.svelte', 'src/shell/command/commands.ts']) {
+  const selection = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest);
+  equal(selection.scripts.includes('verify-no-retired-agent-layer.ts'), true, `${file} selects the remnants gate`);
+}
+for (const file of ['electron/fluxPaths.cjs', 'electron/agentSetup.cjs', 'flux-core/connect/index.ts', 'flux-core/mcpServer.ts', 'src/lib/project/contextTemplates.ts', 'scripts/lib/mcpFixture.ts', 'scripts/oneoff/migrate-2026-09-flux-connect.mjs']) {
+  const selection = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest);
+  equal(selection.scripts.includes('verify-connect-e2e.ts'), true, `${file} selects end-to-end acceptance`);
+}
 
 // Isolate union/order/fallback from the real map, whose broad rules evolve.
 const map = [

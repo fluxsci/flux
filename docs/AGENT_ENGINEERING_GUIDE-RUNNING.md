@@ -1578,6 +1578,12 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **presence** — the source-shape/static scripts (main-process/build config that headless
   drivers can't exercise; incl. `verify-electron-no-undef.ts`, the TS-checker undefined-identifier
   gate over `electron/**/*.cjs`). They also live in pure; the tier exists for `--changed` mapping.
+  `verify-no-retired-agent-layer.ts` scans current docs, templates and parsed UI strings,
+  plus actual CLI help and both live MCP toolsets. History, code comments and the one-shot
+  migration runbook are excluded; do not broaden the token census into a history purge.
+  `verify-connect-e2e.ts` (pure) installs the real launcher in a scratch machine and runs
+  setup, one-shot migration, connect/render, MCP watch/claim/resolve and disconnect, with
+  fake vendor CLIs only. Its EOF cleanup must reach the server below the tsx wrapper.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Linux Electron
   harnesses may need `--ozone-platform=x11` (§9); do not pass Linux display flags on macOS.
   For an owned Xvfb display, set `FLUX_PRIVATE_DISPLAY=1` and `DISPLAY` (or the explicit
@@ -2570,8 +2576,9 @@ outside this PNG packaging change.
 
 - **In-app terminal retired (D13, 2026-09-27).** Paper and Reader have no terminal pane,
   PTY bridge, or passage prefill. Reader still publishes its selection/page through the
-  context seam; passage annotations are a later phase. Alt+T and Mod+Backquote are free in
-  Paper; Alt+T is free in Reader. Figure/Slide still use Alt+T for Arrange.
+  context seam; passage actions route to Annotate and the read-only Ask popover.
+  Alt+T and Mod+Backquote are free in Paper; Alt+T is free in Reader.
+  Figure/Slide still use Alt+T for Arrange.
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
   notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`
@@ -7398,3 +7405,16 @@ remain assigned to the orchestrator.
 **Learnings:** The Ask section above documents actual Claude permission/bare-mode evidence and
 Codex's smaller resume flag grammar. The retired Reader callback ban now pins the new Ask route
 while continuing to prohibit terminal prefills.
+
+### 2026-09-27 10:18 UTC — Remnants and connect acceptance gates (Codex, aio-p7a-remnants)
+**Work:** Added the scoped remnants census (presence/pure) and real-launcher connect acceptance
+(pure), including setup/remove, migrated fixture, decoded canvas PNGs, a second-process
+annotation, MCP watch/claim/resolve and EOF presence cleanup. Moved only R3's temporary IPC ban;
+its positive Reader Ask checks remain. The initial census found no wording to replace across
+154 current files, CLI help and 31/157 core/full tools. Both gates and path-map checks pass;
+injected documentation/UI remnants fail with exact source lines. UI/native acceptance remains
+with the orchestrator; no application UI or generated manual was changed.
+**Learnings:** Promoted gate scope and launcher/server cleanup into §7 and corrected Reader
+passage-action status in §10. Owner ruling 2 requires applying the committed one-shot migrator
+before connecting a legacy fixture; connect itself remains read-only. Authored links stay
+unchanged by migration, so the fixture's linked methods use an absolute path valid after the move.
