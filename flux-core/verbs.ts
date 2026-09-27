@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { ValidationError } from "./errors";
 import { text } from "./registry";
+import { renderLogEntries } from "../src/lib/project/contextTemplates";
 import * as core from "./index";
 import * as model from "./model";
 import * as references from "./references";
@@ -2061,17 +2062,30 @@ export const VERBS: VerbDef[] = [
       tail: z.number().int().nonnegative().optional(),
       sinceCheckpoint: z.boolean().optional(),
       titles: z.boolean().optional(),
+      json: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "flag", at: "tail", into: "tail", as: "number" },
       { kind: "flag", at: "since-checkpoint", into: "sinceCheckpoint", as: "boolean" },
       { kind: "flag", at: "titles", into: "titles", as: "boolean" },
+      { kind: "flag", at: "json", into: "json", as: "boolean" },
     ],
     handler: (ctx, a) => core.readLog(ctx.root, {
       tail: a.tail as number | undefined,
       sinceCheckpoint: a.sinceCheckpoint as boolean | undefined,
       titles: a.titles as boolean | undefined,
     }),
+    render: {
+      human: (r, a) => {
+        const entries = r as import("./context").LogEntry[];
+        if (a.json) return { out: JSON.stringify(entries, null, 2) };
+        return { out: renderLogEntries(entries, !!a.titles), err: `✓ ${entries.length} Log entr${entries.length === 1 ? "y" : "ies"}` };
+      },
+      mcp: (r, a) => {
+        const entries = r as import("./context").LogEntry[];
+        return text(a.json ? JSON.stringify(entries, null, 2) : renderLogEntries(entries, !!a.titles));
+      },
+    },
   },
   {
     name: "add_annotation",

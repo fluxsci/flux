@@ -30,6 +30,10 @@ process.env.FLUX_NO_MIGRATE = "1";
 process.env.HOME = path.join(scratch, "home");
 process.env.XDG_CONFIG_HOME = path.join(scratch, "xdg");
 fs.mkdirSync(process.env.HOME, { recursive: true });
+// Bylines detect the calling agent from the environment; the gate must not
+// depend on who runs it (a Claude Code or Codex shell sets these).
+const AGENT_ENV = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "AI_AGENT", "CODEX_THREAD_ID", "CODEX_CI", "CODEX_SANDBOX", "GEMINI_CLI", "FLUX_CLIENT"];
+for (const k of AGENT_ENV) delete process.env[k];
 
 try {
   h.section("appendLogEntry (pure)");
@@ -117,7 +121,7 @@ try {
     await core.writeLog(root, { text: "Next step", identity: id, cwd: "/client/work", agent: "Model name", surface: "desktop app" });
     const recent = await core.readLog(root, { sinceCheckpoint: true });
     ok(recent.length === 2 && recent[0].isCheckpoint, "sinceCheckpoint includes the latest checkpoint and everything after it");
-    ok(recent[1].byline === `Model name · desktop app · ${os.hostname().split(".")[0]}:/client/work`, "explicit agent and surface override detection; client cwd is used");
+    ok(recent[1].byline === `Model name (Codex) · desktop app · ${os.hostname().split(".")[0]}:/client/work`, "explicit agent name is kept beside the detected product; surface overrides; client cwd is used");
     ok((await core.readLog(root, { sinceCheckpoint: true, tail: 1 }))[0].body === "Next step", "tail applies after the checkpoint filter");
     ok((await core.readLog(root, { tail: 0 })).length === 0, "tail zero is empty");
     const titles = await core.readLog(root, { titles: true });
@@ -125,6 +129,8 @@ try {
     let badTail = false;
     try { await core.readLog(root, { tail: -1 }); } catch { badTail = true; }
     ok(badTail, "invalid tail refused");
+    await core.writeLog(root, { text: "Named product", identity: id, cwd: null, agent: "Codex GPT-6" });
+    ok((await core.readLog(root, { tail: 1 }))[0].byline === `Codex GPT-6 · VS Code · ${os.hostname().split(".")[0]}`, "an agent name that already names the product is not repeated");
     await core.writeLog(root, { text: "A".repeat(80) });
     ok((await core.readLog(root, { tail: 1 }))[0].title === "A".repeat(60), "fallback title uses the first 60 body characters");
     const bare = detectAgentIdentity({});
@@ -137,8 +143,15 @@ try {
       process.env.FLUX_CLIENT = "lab-agent";
       await core.writeLog(root, { text: "Fallback", identity: bare });
       ok((await core.readLog(root, { tail: 1 }))[0].byline?.startsWith("lab-agent · "), "FLUX_CLIENT is the product fallback");
+      delete process.env.FLUX_CLIENT;
+      process.env.CLAUDECODE = "1";
+      process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+      await core.writeLog(root, { text: "from claude", agent: "Claude Opus 5.5" });
+      ok((await core.readLog(root, { tail: 1 }))[0].byline?.startsWith("Claude Opus 5.5 (Claude Code) · CLI · "), "the model name sits beside the product detected from the environment");
     } finally {
       if (priorClient === undefined) delete process.env.FLUX_CLIENT; else process.env.FLUX_CLIENT = priorClient;
+      delete process.env.CLAUDECODE;
+      delete process.env.CLAUDE_CODE_ENTRYPOINT;
     }
   }
 
@@ -146,10 +159,13 @@ try {
   {
     const cli = (...args: string[]) => execFileSync(process.execPath, [tsxCli(), path.join(repoRoot, "flux-cli.ts"), ...args, "--root", root], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     cli("log", "plots/result.svg", "checked", "--agent", "CLI model", "--surface", "CLI", "--title", "CLI title", "--checkpoint");
-    const entries = JSON.parse(cli("read-log", "--tail", "1"));
+    const entries = JSON.parse(cli("read-log", "--tail", "1", "--json"));
     ok(entries.length === 1 && entries[0].title === "Checkpoint: CLI title" && entries[0].body === "plots/result.svg checked", "CLI keeps slash-bearing free text and maps flags");
     ok(entries[0].byline.startsWith("CLI model · CLI · "), "CLI title preserves the byline");
-    ok(JSON.parse(cli("read-log", "--since-checkpoint")).length === 1, "the latest checkpoint wins when several exist");
+    ok(JSON.parse(cli("read-log", "--since-checkpoint", "--json")).length === 1, "the latest checkpoint wins when several exist");
+    const md = cli("read-log", "--tail", "1");
+    ok(md.startsWith("### ") && md.includes("— Checkpoint: CLI title") && md.includes("\n\n*CLI model · CLI · ") && md.trimEnd().endsWith("plots/result.svg checked"), "read-log prints Markdown entries by default");
+    ok(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} — /m.test(cli("read-log", "--titles")), "read-log --titles prints a one-line index");
     const { VERBS } = await import("../flux-core/registry");
     ok(!VERBS.some(v => v.name === "note" || v.cli === "note"), "retired note verb has no alias");
     const writer = VERBS.find(v => v.name === "write_log")!;

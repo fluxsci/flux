@@ -42,7 +42,7 @@ ProjectContext is the place to put background an agent keeps missing. Link plans
 and other must-read files there; connected agents read those links too.
 
 Ask an agent to log work when you want it recorded. `flux log` adds a dated entry with an
-automatic agent · surface · host:cwd byline. `flux read-log` reads entries; a requested
+automatic agent · surface · host:cwd byline (the model name you pass, plus the product Flux detects). `flux read-log` reads entries; a requested
 checkpoint summarizes earlier work without deleting it, so agents can catch up from the
 latest checkpoint while the full history remains available.
 

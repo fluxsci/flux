@@ -180,7 +180,7 @@ usage: flux <verb> [root] [args] [--flags]
   context-init [--root R]              ensure missing Context documents and agent pointers
   log <text…> [--title "…"] [--file f] [--agent a] [--surface s] [--checkpoint] [--root R]
                                        append to the project Log when asked (automatic byline, manuscript lock)
-  read-log [--tail n] [--since-checkpoint] [--titles] [--root R]   read parsed Log entries
+  read-log [--tail n] [--since-checkpoint] [--titles] [--json] [--root R]   read Log entries (Markdown; --json)
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe

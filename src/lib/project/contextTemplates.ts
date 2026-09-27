@@ -147,6 +147,16 @@ export function parseLog(doc: string): LogEntry[] {
   return entries;
 }
 
+/** Entries back as readable Markdown (read-log's default output); titles-only
+ *  is a one-line-per-entry index. */
+export function renderLogEntries(entries: readonly LogEntry[], titlesOnly = false): string {
+  if (!entries.length) return "The Log has no entries yet.";
+  if (titlesOnly) return entries.map((e) => `- ${e.stamp} — ${e.title}${e.byline ? ` (${e.byline})` : ""}`).join("\n");
+  return entries
+    .map((e) => [`### ${e.stamp} — ${e.title}`, e.byline ? `*${e.byline}*` : "", e.body].filter(Boolean).join("\n\n"))
+    .join("\n\n");
+}
+
 export function projectRulesTemplate(): string {
   return `# Project rules
 

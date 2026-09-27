@@ -98,9 +98,13 @@ export async function writeLog(root: string, opts: WriteLogOptions = {}): Promis
   if (!body?.trim()) throw new Error("log needs text (positional or --text) or --file <path>");
   const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
   const identity = opts.identity ?? detectAgentIdentity(process.env);
+  // The model name the agent passes, plus the product Flux detected, so an
+  // entry says both: "Claude Opus 5.5 (Claude Code) · CLI · host:cwd".
+  const agent = oneLine(opts.agent ?? "");
+  const detected = identity.product ?? (process.env.FLUX_CLIENT || null);
   const bylineIdentity = {
     ...identity,
-    product: opts.agent?.trim() || identity.product || process.env.FLUX_CLIENT || null,
+    product: agent && detected && !agent.toLowerCase().includes(detected.toLowerCase()) ? `${agent} (${detected})` : agent || detected,
     surface: opts.surface?.trim() || identity.surface,
   };
   const cwd = opts.cwd === undefined ? (CLIENT === "mcp" ? null : process.cwd()) : opts.cwd;
