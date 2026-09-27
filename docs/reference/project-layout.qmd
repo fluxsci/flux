@@ -33,7 +33,10 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 │   ├── NOTEBOOK.md              #   append-only Log, written when requested
 │   └── RULES.md                 #   your standing project rules
 ├── styles/  assets/  exports/   # figure styles · media · compiled output (derived)
-└── .meta/                       # tool state: journal, feedback ledger, locks, schemas
+└── .meta/                       # tool state: journal, annotation ledger, locks, schemas
+    ├── feedback.ndjson          # append-only annotations, routes, claims and status
+    ├── feedback/                # annotation pictures
+    ├── live/sessions/           # connected-session presence (disposable)
     └── archive/                 # historical material moved by the one-shot migration
 ```
 
@@ -85,9 +88,11 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   ordinary plot-importer search, however many thousands of images they hold; type **`_`** in
   the importer to list them and **Enter** to search inside one.
 - **`.meta/`** holds the operational machinery: `journal.ndjson` (every write: who/what/when),
-  `feedback.ndjson` (your context-stamped notes to agents), advisory `locks/`, JSON `schema/`
-  for every file type, and the live-bridge descriptor while the app is open.
-- **`Context/`** is explained in full in [the collaboration system](../agents/collaboration.qmd).
+  `feedback.ndjson` (annotations and inbox status), advisory `locks/`, JSON `schema/`
+  for every file type, and the live-bridge descriptor while the app is open. Connected
+  MCP sessions publish heartbeats in `live/sessions/`; these are disposable. Migration
+  archives are stored in `archive/2026-09-agent-workflow/`.
+- **`Context/`** is explained in full in [Your context and your project's](../agents/context.qmd).
 
 For the philosophy behind the layout — source vs. derived, crash safety, live reload —
 see [Projects are folders, files are the truth](../concepts/projects-and-files.qmd).

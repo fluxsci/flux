@@ -48,7 +48,8 @@ should read), `NOTEBOOK.md` (the append-only **Log**, newest last), and `RULES.m
 standing project rules). Open and comment on these just like other documents. Log entries
 are written when you ask, with an automatic agent and location byline; checkpoints keep
 older history intact. The project-root `AGENTS.md` suggests flux-connect when needed and
-`CLAUDE.md` imports it. Neither connects an agent automatically.
+`CLAUDE.md` imports it. Neither connects an agent automatically. See [Your context and your project's](../agents/context.qmd)
+for the Log, personal skills and older-project migration.
 
 New projects store documents in **`paper/`**, starting with `notes.qmd`. There is no required
 `main.qmd` filename. You can add research notes, protocols, reports, and drafts in the same
@@ -321,7 +322,7 @@ opening it twice.
 Select text and click the comment button in the floating toolbar (or press **Ctrl+Alt+M**) to
 start a thread anchored to that exact passage. Threads live in the Comments pane: reply,
 **Resolve**, reopen, delete. They're stored beside the document — never inside your prose —
-and they're the shared review channel with [agents](../agents/collaboration.qmd): an agent
+and they're the shared review channel with [agents](../agents/annotations.qmd): an agent
 addressing your comments resolves them with a note, and you watch threads close live in your
 margin. If the underlying text is edited away, a comment is kept as *Detached* rather than
 lost.

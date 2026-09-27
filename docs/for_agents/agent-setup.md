@@ -1,7 +1,7 @@
 # Flux agent setup: implementation and verification
 
 For agents maintaining setup or wiring the AI status monitor. User-facing instructions
-are in [Working with agents](../agents/collaboration.qmd).
+are in [Working with AI agents](../agents/connect.qmd).
 
 1. Call `probeAgents()` in Electron main (or flux-core), then pass its snapshot as
    `planSetup({probe, agents?, createLocalBin?, useThisInstall?})`. Planning is pure.

@@ -43,7 +43,7 @@ Flux is a desktop **scientific writing studio**: manuscript editor (Paper), figu
 (Figure), slide deck builder (Slide), PDF reader/annotator (Reader), and reference library
 (Library) over one project format. Stack: **Svelte 5 + Vite + Electron** (Tauri remnants are
 vestigial). It is deliberately **agent-native**: an AI agent is a first-class user with the same
-capabilities as the GUI, through three surfaces:
+capabilities as the GUI, through these surfaces:
 
 - **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-core/mcpServer.ts`; `flux-mcp.ts` is the compatibility entry) — most file verbs share **one
   verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`); legacy wrappers and handwritten
@@ -62,30 +62,28 @@ capabilities as the GUI, through three surfaces:
   Annotate labels `live:true` sessions **Pairing**. Gates: `verify-live-view.ts` and
   `verify-live-view-electron.cjs` (real PNG pixels, Settings, indicator and Pairing).
 
-- **Context layer + review channels**: agent context lives in two folders —
-  `<FluxConfig>/Context/{UserContext,FluxContext}` (user identity/rules + stock docs
-  synced from `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`)
-  and `<project>/Context/` (ProjectContext/NOTEBOOK/RULES as first-class Paper documents).
-  Agents use the CLI/MCP tools alongside the app. The v2 annotation ledger
-  (`.meta/feedback.ndjson`, append-only, shared `project/annotations.ts`) and all comment
-  sidecars feed one pure `project/inbox.ts` model. `flux inbox` / `list_inbox` expose its
-  filters and packets; `claim` / `reply` / `resolve` mutate through `flux-core/annotations.ts`.
-  The send boundary and old feedback verbs are retired. The MCP server starts an atomic
-  presence writer only after explicit project `connect`; it heartbeats every 15 s and
-  removes its file on rebind/exit. Shared `project/presence.ts` owns liveness and names.
-  Gates: `verify-annotation-core`, `verify-inbox`, `verify-inbox-wait`, `verify-presence`
-  (pure); annotation/margin rendering still requires the GUI gates.
-
-- **flux-connect** (`flux-core/connect/`): `flux connect [<project>|global]` / MCP `connect`
-  hydrates any agent in one step. It collects facts read-only (`collect.ts`), plans what to
-  include (`budget.ts`), renders the bundle, the ≤10k-char brief and canvas overviews with
-  proof codes (`bundle.ts`, `brief.ts`, `images.ts`), and writes a pack to
-  `<userDataDir>/connect/` (`cache.ts`). `refresh.ts` keeps connected agents current: a stat-only
-  no-change check, then a delta against the session's cursor, delivered as one
-  "↻ Since you last looked" line on MCP tool results (`connect/mcp.ts`) and through the Claude
-  Code prompt hook (`connect --hook-delta`, launcher fast path `connect/hookFast.ts`).
-  Gates: verify-connect-render / -connect / -connect-delta / -connect-mcp (pure),
-  verify-connect-hook (bundle).
+- **flux-connect layer:** the stable `<binDir>/flux` launcher (+ `flux-connect` alias,
+  `electron/fluxPaths.cjs`) is the entry for CLI, vendor skills and MCP registration.
+  `electron/agentSetup.cjs` shares setup/doctor with the lazy AI status monitor.
+  MCP `connect` binds a project explicitly; cwd discovery is only a tool default.
+  `flux-core/connect/` collects read-only facts (`collect.ts`), plans inclusion (`budget.ts`),
+  renders the ≤10k-character brief, bundle and proof-coded images (`brief.ts`, `bundle.ts`,
+  `images.ts`), and writes a machine-local pack (`cache.ts`). Default `core` includes
+  ProjectContext's direct links and canvas overviews; `full` adds all documents and figures.
+  `refresh.ts` delivers other writers' changes on tool results (`connect/mcp.ts`) and
+  supported prompt hooks (`connect/hookFast.ts`).
+  Context lives in `<FluxConfig>/Context/{UserContext,FluxContext}` and the project's
+  `Context/{ProjectContext.qmd,NOTEBOOK.md,RULES.md}`; stock Markdown comes from
+  `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`.
+  Ctrl+Shift+M Annotate and every document's margin comments feed the one pure inbox
+  model. The append-only annotation ledger is `.meta/feedback.ndjson`; CLI `inbox` /
+  MCP `list_inbox`, claim/reply/resolve and opt-in waits share the headless IO layer.
+  Explicit MCP project connection starts presence at `.meta/live/sessions/`, with a
+  15-second heartbeat and cleanup on rebind/exit; shared `project/presence.ts` owns
+  names and liveness. Alt+Q opens Inbox; Ctrl/Cmd+Shift+J opens read-only Ask.
+  Gates: `verify-connect*`, `verify-launcher`, `verify-agent-setup`,
+  `verify-context-scheme`, `verify-log`, `verify-annotation-core`, `verify-inbox*`,
+  `verify-presence`, `verify-ai-monitor*` and the surface/native gates listed in §7.
 
 - **FluxChat background tasks:** `electron/agentRunner.cjs` uses the same installed-CLI
   drivers as Ask, with task packs from `connect --depth task` (the shared `connect/ask.ts`
@@ -149,8 +147,11 @@ The established shared cores — extend these, don't duplicate them:
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
-| Annotation ledger, claims, routing, filtering, packets and presence policy | `src/lib/project/{annotations,inbox,presence,targets}.ts` | `verify-annotation-core.ts`, `verify-inbox.ts`, `verify-inbox-wait.ts`, `verify-presence.ts` |
-| Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI Reply integration belongs to W4b) |
+| Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
+| Inbox filtering, packets, recipient order and session work | `src/lib/project/inbox.ts` + `agentRouting.ts` + `presence.ts` | `verify-inbox.ts`, `verify-inbox-wait.ts`, `verify-presence.ts`, `verify-agent-routing.ts` |
+| Agent identity (MCP clientInfo, environment, bylines) | `flux-core/agentIdentity.ts` | `verify-agent-identity.ts` |
+| Agent setup and health (CLI and Electron callers) | `electron/agentSetup.cjs` | `verify-agent-setup.ts`, `verify-connect-doctor.ts`, `verify-ai-monitor.ts` |
+| Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -167,7 +168,7 @@ The established shared cores — extend these, don't duplicate them:
 | flux-connect packs (brief, bundle, proof codes, delta summaries) | `flux-core/connect/{budget,bundle,brief,codes,refresh}.ts` (pure); `collect.ts`/`cache.ts`/`images.ts` do the IO | `verify-connect-render.ts` (pure renderers), `verify-connect.ts` (end to end), `verify-connect-delta.ts` |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
-| External-command launch (quarto, recipes, terminal) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
+| External-command launch (Quarto, recipes, installed agent CLIs) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
 
@@ -190,7 +191,14 @@ pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old playe
 refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
 `references/library.bib` (the project's *cited subset*),
-`.meta/` (locks, journal, live bridge). Machine-global state lives in `~/FluxConfig`
+`.meta/` (locks, journal, live bridge and `.meta/live/sessions/<id>.json` presence).
+The one-shot migration moves historical records out of Context into
+`.meta/archive/2026-09-agent-workflow/`; the app never reads those archives.
+The v2 ledger at `.meta/feedback.ndjson` folds `note`, `assign`, `claim`, `release`,
+`reply`, `state`, `resolve`, `reopen`, `withdraw`, `archive`, `unarchive` and
+`release-session` in **ledger order**, never timestamp order. Pictures live in
+`.meta/feedback/`; comment text stays in the owning document's sidecar, with routing
+and status overlaid by the ledger. Machine-global state lives in `~/FluxConfig`
 (pointer pref `fluxConfigPath`); the reference library is **always derived** as
 `<FluxConfig>/FluxLib` — never persist or read a separate `fluxLibPath`
 (`verify-fluxconfig.ts` gates this). Machine config dir is lowercase `~/.config/flux` only.
@@ -215,10 +223,13 @@ Persistence invariants (all machine-checked — do not weaken):
   `writeLog` accepts a caller `identity` and `cwd` (MCP supplies null when unknown).
   Missing Context documents and agent pointers heal additively; existing documents
   and user-written stubs stay untouched. Renaming old layouts belongs to the one-shot
-  migration script, never the app. Stock FluxContext Markdown files absent from the
-  bundled set are pruned generically; UserContext and its Skills README are seeded once.
+  migration script, never the app. An unmigrated project gains a fresh
+  ProjectContext beside its old files; the script refuses a destination collision,
+  requiring deliberate preservation and resolution before rerunning. Stock FluxContext
+  Markdown files absent from the bundled set are pruned generically; UserContext and its Skills README are seeded once.
 
-- **flux-connect never writes into the project.** Collection is read-only (verify-connect
+- **Connect hydration never edits project content.** MCP binding separately publishes
+  disposable presence; collection is read-only (verify-connect
   diffs the whole project tree around a connect); packs, the render cache and CLI session
   cursors live under `<userDataDir>/connect/` (tmp fallback, then stdout-only parts that refuse
   a changed source). A project defect (e.g. a damaged figure snapshot) becomes a "Project
@@ -1032,6 +1043,8 @@ Persistence invariants (all machine-checked — do not weaken):
   fails with guidance. Copy resume command is the handoff to the user's own terminal.
   Gates: `verify-runner-drivers`, `verify-mcp-readonly`, IPC/chord census (pure),
   `verify-ask-gui` (UI), `verify-ask-electron` (native), and startup after shell changes.
+  Main owns the process lifetime; a popover mount does not. Capture/draft handoff keeps
+  input while lazy UI loads, and sending remains an explicit user action.
 - **Multi-window (2026-08-11): one process, N windows, one project per window.** All
   per-window lifecycle state lives in main's `sessions` registry (webContents id → {win, root,
   watcher}); handlers resolve the sender's root via `rootFor(e)` — never a global. The watcher
@@ -1172,7 +1185,7 @@ Persistence invariants (all machine-checked — do not weaken):
     mtime/TTL fallback; opaque cursors fingerprint item state, not only timestamps.
     `inspect` reads saved target state without rendering. MCP packets cap inline snapshots
     at six, resized to a 1600 px long edge; `get_inbox_image` fetches remaining images.
-  - **Annotate (Ctrl/Cmd+Shift+M) = `shell/agent/AnnotationSurface.svelte` +
+  - **Annotation surface contract — Annotate (Ctrl/Cmd+Shift+M) = `shell/agent/AnnotationSurface.svelte` +
     `annotationStore.ts`; pure geometry = `project/annotationCapture.ts`.** One lazy
     composer over a frozen window. Shell installs `annotateChord.ts` FIRST, before
     children mount capture listeners; it buffers immediate typing until textarea focus.
@@ -1232,8 +1245,9 @@ Persistence invariants (all machine-checked — do not weaken):
     Live bridge writes refuse before mutation while the picture is frozen. Present's
     modifier filter lives in its app host, never in the shared/exported key reducer;
     the annotation portal is INSIDE its fullscreen root. Inert utility children forward
-    the chord to the opener; `win:capture {target:"child"}` can capture only that opener's
-    focused child. Surface z-index is 2000, above Help, Settings and Present.
+    the chord to the opener; `win:capture {target:"sender"}` captures the sender window;
+    `{target:"child"}` can capture only that opener's focused child. Surface z-index is
+    2000, above Help, Settings and Present.
     Gates: `verify-annotate-chord-census.ts`, `verify-context-stamp.ts`,
     `verify-feedback-snapshot.ts`, `verify-annotation-core.ts` (pure);
     `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
@@ -1598,6 +1612,8 @@ within budget. Update these measurements when the corresponding workflow is chan
 
 ## 7. The verification system (how you prove your work)
 
+Run the hermetic runner from the repository root; never invoke a verify `.ts` directly.
+
 The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A new verify script
 that isn't in the manifest doesn't exist.** Tiers:
 
@@ -1648,6 +1664,28 @@ that isn't in the manifest doesn't exist.** Tiers:
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
+
+Native IPC behavior can be probed through the real preload (`window.fig.*`) with
+`executeJavaScript`; a user-interaction claim still needs actual native input and output.
+
+**Agent-layer gate map** (exact current names; the manifest remains authoritative):
+
+| Tier | Gates |
+| --- | --- |
+| pure | `verify-launcher`, `verify-agent-identity`, `verify-mcp-launcher`, `verify-mcp-binding`, `verify-context-scheme`, `verify-log`, `verify-oneoff-migration` |
+| pure | `verify-connect-render`, `verify-connect`, `verify-connect-delta`, `verify-connect-mcp`, `verify-connect-doctor`, `verify-connect-e2e` |
+| pure | `verify-annotation-core` (targets, presence, ledger and inbox model), `verify-inbox`, `verify-inbox-wait`, `verify-presence`, `verify-agent-routing`, `verify-context-stamp`, `verify-feedback-snapshot` |
+| pure | `verify-agent-setup`, `verify-skill-template`, `verify-ai-monitor`, `verify-runner-drivers`, `verify-mcp-readonly`, `verify-command-rank`, `verify-docs` |
+| presence + pure | `verify-annotate-chord-census`, `verify-no-retired-agent-layer` |
+| ui | `verify-context-gui`, `verify-annotation-surface-gui`, `verify-inbox-gui`, `verify-ai-monitor-gui`, `verify-ask-gui` |
+| scale | `verify-scale-annotate-hover`, `verify-scale-inbox` |
+| bundle | `verify-connect-hook` |
+| electron | `verify-annotate-utility-electron`, `verify-live-view-electron`, `verify-ask-electron` |
+| pure transport | `verify-live-view` (pair with its Electron gate for real window pixels) |
+
+Shell/context changes also retain `verify-startup` (startup tier) and the affected
+Paper regression group. `verify-annotation-core` covers the ledger/targets contract;
+there are no separate `verify-targets` or `verify-annotation-ledger` scripts.
 
 **Never spawn a gate's child through `npx`.** Use `process.execPath` with `--import tsx` — the
 same runtime, one process, and none of the three separate failures `npx` causes (all three hit
@@ -1705,7 +1743,8 @@ Project tools receive an optional `project` override and require project.json be
 generated. Then `REGEN_GOLDEN=1` the parity gate (tools/help goldens change — quote the diff),
 and run `verify-registry-parity` + `verify-f1-mcp` + `verify-w11-verbs`. Errors: throw the typed
 taxonomy (`flux-core/errors.ts`) — Locked→CLI exit 75, ExternalToolError carries exitCode+log,
-everything is `isError` on MCP. A handful of verbs are deliberately legacy (inexpressible
+everything is `isError` on MCP. Free text or file-shaped non-root positionals require
+`cliRoot:"flags"` so the root heuristic cannot consume them. A handful of verbs are deliberately legacy (inexpressible
 CLI/MCP asymmetries — listed in the batch D/E commit bodies); don't force them into the table.
 
 **Agent launchers and MCP:** `electron/fluxPaths.cjs` owns the stable launcher in
@@ -1745,9 +1784,31 @@ not decoration: preserve their unique delimiters and the 400/400/600 token budge
 headers, entry points and watch protocol. `verify-registry-parity` checks CLI and MCP
 names across all stock docs, including the CLI tables. After any edit, run
 `node scripts/gen-flux-context.mjs` then `npm run build:cli`; the bundled CLI must
-carry the same manual hash. Generic FluxContext pruning removes retired stock docs
+carry the same manual hash. Then run
+`node scripts/run-verifies.mjs --tier pure --only context-scheme` and the registry parity
+gate. Generic FluxContext pruning removes retired stock docs
 without a hand-maintained filename list. Keep merge accounting in the review record
 when deleting a manual; the 2026-09 rewrite's record is kept with the overhaul notes (outside the repository).
+
+**Change the connect pack:** inclusion belongs in pure `budget.ts`, brief rendering in
+`brief.ts`, bundle text in `bundle.ts`; keep IO in `collect.ts`/`cache.ts`/`images.ts`.
+Run the hermetic `verify-connect-render`, `verify-connect`, `verify-connect-delta` and
+`verify-connect-mcp` gates. Preserve the brief cap, section/end sentinels, proof locations,
+read-only collection and default canvas overviews. Record a sample pack from a **copy**
+of a representative real project in the work ledger, under scratch HOME/XDG with
+`FLUX_NO_MIGRATE=1`: reading coverage, trims, image inspection and cold/cached timing.
+Do not publish private bundle contents. Build the CLI before the bundle hook gate.
+
+**Add an agent vendor to setup:** extend `electron/agentSetup.cjs`'s probe, immutable
+plan and guarded apply/remove paths; reuse launcher ownership and managed-file rules.
+Verify the installed vendor's config/skill/hook contracts before emitting them. Keep
+unrelated settings, back up replacements, preserve edited skills, and restore prior
+registrations only when baselines still match. Extend doctor, skill publication and
+the monitor's safe projection, with hermetic fake-binary fixtures in
+`verify-agent-setup`, `verify-connect-doctor`, `verify-skill-template` and
+`verify-ai-monitor`. A new run driver is a separate capability, with capability probes
+and recorded stream fixtures. Update the bundle's UI/docs together; keep probes off
+the eager startup path. See `docs/for_agents/agent-setup.md`.
 
 **Add an IPC channel:** declare it in `electron/ipc/contract.cjs` (kind: invoke/send/push +
 scope), register through the wrapped `ipcMain` in the right family module, expose in
@@ -1804,6 +1865,57 @@ including real Git tracking, read-only failure, cross-device failure and interru
 Run it through the hermetic runner; never validate a migration on real projects.
 
 ## 9. Known traps (each of these cost real time)
+
+**Agent tools, launchers and processes:**
+
+- Tool output can lose its middle as well as its end. Keep the connect brief ≤10,000
+  characters, with every section marker and the final sentinel; use `read_pack` chunks
+  for the bundle and verify proof codes instead of assuming a long response arrived intact.
+- A shell sandbox may refuse CLI writes outside its workspace. Prefer the registered
+  MCP path; connect falls back to a temporary cache, then stdout-only parts. Setup does
+  not change the user's sandbox policy. Do not treat a cache fallback as permission
+  to bypass a refused project write.
+- Codex MCP servers do not inherit Codex's identifying environment reliably. Use MCP
+  `clientInfo` through `agentIdentity.ts`, with explicit FLUX_CLIENT overrides, rather
+  than assuming shell environment identifies every session.
+- Claude Code's `--allowedTools` and `claude mcp add` variadic flags consume later
+  positionals. Put positionals first or use the CLI's explicit separator/stdin grammar.
+  The Ask driver sends prompts on stream-json stdin; Codex image flags are variadic
+  too, so it ends options with `-- -` and sends the prompt on stdin. Pin argv in the
+  driver/setup gates and verify binding against the installed binary when it changes.
+- Claude Code `-p --permission-mode dontAsk` denies every MCP call and Read outside
+  its working directories unless pre-approved (`--allowedTools mcp__flux`, `--add-dir`).
+  `--tools` names the built-ins. Ask combines a read-only MCP server with the explicit
+  `Read,Grep,Glob` built-in set; an MCP allow rule alone does not constrain built-ins.
+- Codex `approval_policy="never"` refuses MCP tools without `readOnlyHint`. A trusted
+  server's per-server `default_tools_approval_mode="approve"` permits its writes;
+  this is a scoped trust choice, not Ask's profile. Ask retains read-only server tools.
+- Running Claude Code rewrites `~/.claude.json`. Use `claude mcp` for registration,
+  recheck baselines and verify the result; a direct JSON edit can lose a concurrent change.
+- Headless Claude `-p` behavior may change, including a future bare-mode default.
+  Feature-check `system/init`, fail on explicit bare markers, and report missing Flux
+  MCP. Empty skills or `apiKeySource:none` alone are not bare-mode evidence (§4).
+- Attach child exit/error handlers **before** any interaction, including stdin writes;
+  an early exit is not replayed. Own descendants through teardown. From source, the
+  test launcher's child is tsx and the server is its child: signal the **server pid**,
+  not just the launcher child, and verify EOF removes presence.
+- A stale `dist/` can answer MCP gates with old code. Judge source MCP gates with no
+  `dist/` present; explicitly rebuild when qualifying the bundled path. Do not infer
+  which implementation answered from the working directory.
+- Generated CJS with long string literals can defeat named-export detection. Dynamic
+  imports need the `.default` interop guard (`fluxContextDocs.gen.cjs` is one example).
+- External commands use `resolveSpawn` and its `windowsVerbatimArguments` result:
+  prefer `.exe`, otherwise ComSpec wraps `.cmd`/`.bat`. Empty `env.Path` must fall
+  through to `env.PATH` (`||`, not `??`). Simulated resolver tests do not qualify
+  a native Windows launch. Optional model/effort flags and their values are added or
+  omitted together; avoid free-form argv template substitution.
+- A `$effect` that returns early on a non-reactive value before reading its reactive
+  inputs never subscribes to those inputs. Read them first; PdfView's scroll target
+  exposed this when navigation arrived after the effect's initial run.
+- Contention tests need start barriers to collide writers; arbitrary parallel launches
+  can miss the race. Publish lock claims with their payload atomically; unreadable
+  claims mean unknown/in-flight, not stale. Restore fault-injected source from an
+  exact pre-test copy, never `git checkout` over uncommitted work.
 
 - **Legacy Svelte reactive statements cannot see store reads hidden in helpers.** The Figure
   selection rectangle regressed when an inline `$selection` filter became `selectedEls(fig)`
@@ -1905,7 +2017,9 @@ days (probe geometry like `width` instead).
   looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` **as a
   real command-line argument** — from a detached shell native Wayland can also hang Electron
   *after* JS starts but before `app.whenReady` ever resolves, and an `appendSwitch` inside the
-  script is parsed too late to save it (2026-08-11) — and demand **positive** boot evidence
+  script is parsed too late to save it (2026-08-11). On this Linux host,
+  `FLUX_PRIVATE_DISPLAY=1 DISPLAY=:0` makes the runner add the real argv;
+  `ELECTRON_OZONE_PLATFORM_HINT` alone is not honoured. Demand **positive** boot evidence
   (e.g. a probe printing `windows=1 title=Flux`), never absence-of-errors.
 - **On Wayland a client cannot set its own window icon** — no protocol exists for it, so
   `BrowserWindow.icon` is silently ignored (on X11 the same option works, via `_NET_WM_ICON`).
@@ -2574,15 +2688,15 @@ outside this PNG packaging change.
   imports), not from a naming convention or a cache.
 
 - **A Svelte 5 `$effect` tracks every `$state` read inside the helpers it calls — and an
-  async helper that later WRITES that state re-runs the effect.** `AnnotateCapture`'s effect
+  async helper that later WRITES that state re-runs the effect.** The capture surface's effect
   called `open()`, whose `reset()` read `frozen` to revoke the old object URL; when the window
   capture arrived and set `frozen`, the effect re-ran, reset, captured again, forever — `ready`
-  never survived to a paint, so Ctrl+Shift+S did nothing in every real build (Electron, all
+  never survived to a paint, so capture never became ready in real builds (Electron, all
   platforms) while the browser harness, whose demo bridge had no `captureWindow`, took the
   synchronous branch and stayed green (2026-09-26). Read the store into a local and do the work
   under `untrack`. The general rule: **a harness bridge must have every method the real bridge
   has** — a missing optional method silently selects the branch nothing else tests. The demo
-  bridge now captures (an OffscreenCanvas PNG), and `verify-annotate-gui` walks the async path.
+  bridge now captures (an OffscreenCanvas PNG), and `verify-annotation-surface-gui` walks the async path.
   Two more from the same chase: the figure editor's Ctrl+S branch matched the shifted chord
   too (`e.key` ignores Shift) and raised save-as under the overlay; and a probe that connects to
   Electron over `--remote-debugging-port` must first prove the port is FREE — a stale instance
@@ -2620,11 +2734,16 @@ outside this PNG packaging change.
   probe, and users review/trust newly installed hooks in `/hooks`.
 
 
-- **In-app terminal retired (D13, 2026-09-27).** Paper and Reader have no terminal pane,
-  PTY bridge, or passage prefill. Reader still publishes its selection/page through the
-  context seam; passage actions route to Annotate and the read-only Ask popover.
+- **Agent conversations:** use vendor apps or the user's own terminal for general work;
+  Flux supplies the anchored Inbox and read-only Ask. Reader still publishes its
+  selection/page through the context seam; passage actions route to Annotate and the read-only Ask popover.
   Alt+T and Mod+Backquote are free in Paper; Alt+T is free in Reader.
   Figure/Slide still use Alt+T for Arrange.
+
+- **Deferred agent work:** FluxChat F6 (general unanchored chat), an ACP driver and
+  a Codex app-server driver remain deferred. Do not infer them from Ask's runner.
+  `scripts/oneoff/migrate-2026-09-flux-connect.mjs` is a historical migration record,
+  not app startup code; it may be removed once every intended machine has run it.
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
   notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`

@@ -51,7 +51,9 @@ Flux is built so an AI agent can be a real collaborator: everything you can do i
 agent can do through Flux's command-line and assistant interfaces — compose figures, edit the
 manuscript, fetch papers, restyle plots — while you watch the results appear live. You can
 ignore this entirely, or lean on it heavily; the app works the same either way. When you're
-ready, [the collaboration system](agents/collaboration.qmd) explains the whole setup.
+ready, [Working with AI agents](agents/connect.qmd) explains setup and the connection receipt.
+Use **Ctrl+Shift+M** to annotate, **Alt+Q** for [Inbox](agents/annotations.qmd),
+or **Ctrl+Shift+J** to ask a read-only question about your selection.
 
 # Where to go next
 

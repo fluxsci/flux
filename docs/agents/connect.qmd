@@ -1,9 +1,12 @@
 ---
-title: "Connect an AI agent"
+title: "Working with AI agents"
 subtitle: "The Flux AI Bundle, its status, and your own skills"
 ---
 
-Flux includes the tools, skills and context that let agents work with your project.
+**flux-connect** brings an agent up to speed on Flux, your preferences and a project.
+It gives the agent a reading plan and asks it to confirm what it read and saw, then
+wait for your instructions. Use Claude Code, Codex, or another agent in its own app
+or your preferred terminal. Flux includes the tools, skills and context they need.
 Click **AI** in the title bar, or use **Ctrl+K** → **AI status**, to open the monitor.
 **Pin** moves the same panel into its own window; **Dock** brings it back.
 
@@ -24,6 +27,73 @@ the command uses `global` to introduce Flux and your user context.
 Flux-owned integration and restores prior registrations where safe; edited skills
 are kept. Your projects stay available. Connecting or repairing another app's
 configuration always starts with your click.
+
+## Set up from a terminal
+
+The same setup is available through the [installed launcher](../reference/cli.qmd):
+
+```bash
+flux connect setup --dry-run
+flux connect setup
+flux connect doctor
+```
+
+Use `--agents claude,codex` to choose vendors. Setup preserves unrelated configuration
+and backs up changed files; `--yes` confirms replacement of an existing Flux registration.
+`--use-this-install` explicitly chooses the launcher owner. `flux connect remove --agents
+codex --yes` disconnects that vendor without removing the shared launcher.
+
+For another agent, give it the **Other agents…** MCP configuration, or ask it to run
+`flux-connect /path/to/project` (equivalently `flux connect /path/to/project`) in its shell
+and follow the printed reading plan. The MCP route provides tools to read the pack and
+images even when the agent's shell cannot access the cache.
+
+## What the agent reads
+
+Default connection depth is `core`:
+
+- The short Flux primer and connection contract.
+- Your UserContext text; your reference images and skills are indexed for use when needed.
+- ProjectContext and its directly linked files, project Rules, and the recent Log with
+  an index of all entry titles.
+- A project map of documents, figures, decks and plots, open inbox items, and recent activity.
+- Rendered canvas overviews so the agent can see the figures.
+
+FluxLib is introduced by its purpose, location and tools; connect does not summarize
+your papers. Task manuals and other project documents are indexed for reading on demand.
+Large linked files may be shortened; the brief reports omissions and rendering problems.
+`--depth full` includes all documents and Log entries, follows project-context links
+more deeply, and adds individual figure images and deck contact sheets.
+
+The command returns a **brief**, a short reading plan. The **bundle** holds the text;
+together with the rendered images and manifest, it forms a cached **pack**. The agent's
+receipt names the project and pack, states what it read and saw, lists open items, and
+ends with **Ready.** Its **Proof:** line repeats codes from the ends of bundle sections
+and image corners. Check a receipt with `flux connect --check-receipt <packId> "<proof line>"`.
+A receipt should acknowledge anything it could not read or view.
+
+Connect is passive: it does not start editing, watching the inbox, or writing the Log.
+Give the agent its task after the receipt. See [Annotations, comments and the inbox](annotations.qmd)
+for the review loop and [Your context and your project's](context.qmd) for what to maintain.
+
+## Global connection, refresh and live pairing
+
+Use `/flux-connect global`, `$flux-connect global`, or `flux-connect global` to introduce
+Flux and your personal context without choosing a project. It also lists known projects.
+An already-bound MCP session keeps its project binding when you connect globally.
+
+Connected MCP tools add a **↻ Since you last looked** notice when others change the project;
+the agent can read the details with `read_delta`. Setup also installs supported prompt hooks
+so changes can reach the agent on your next message. Claude Code's hook refreshes automatically;
+Codex hooks require the installed version's support and your **/hooks** trust decision.
+For a fresh reading plan on demand, ask for `flux connect /path/to/project --refresh`.
+
+Add `--live` when connecting to pair with the open project. The agent checks the current
+selection each turn and can use `get_view` when you mean “this” or “what I'm seeing.”
+The titlebar briefly shows **◉ heron viewed your window**, using the session's name.
+**Settings → General → Allow agents to view the Flux window** controls this access and is
+on by default. Capture covers only that project's Flux window. See
+[live pairing](annotations.qmd#pair-with-the-live-window) for handoffs through Annotate.
 
 ## Read the status
 
@@ -84,7 +154,8 @@ and edited vendor copies are reported and preserved.
 
 The section references in this product table identify the Flux AI overhaul plan.
 The bundle ships with Flux. **Connect** is the step that registers it with an agent.
-See [Working with agents](collaboration.qmd) for annotations, routing and context.
+See [Annotations, comments and the inbox](annotations.qmd) for routing and replies,
+and [Your context and your project's](context.qmd) for the files agents read.
 
 ## Troubleshooting
 
@@ -99,3 +170,8 @@ files alone; the row explains any collision or permission error.
 If no sessions appear, run the copied connection command in the agent. Presence
 appears after an explicit project connection and expires when its heartbeat stops.
 The monitor does not start an agent or enable watch mode by itself.
+
+If `flux` is not on PATH, use the full launcher path in the [installation guide](../installation.qmd#first-run).
+Run `flux connect doctor` (or `--json`) for the same diagnostics from a terminal.
+If an agent's shell cannot write outside its workspace, use the registered MCP tools;
+connect also has a temporary-cache fallback. Setup does not change the agent's sandbox policy.

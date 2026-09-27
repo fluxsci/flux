@@ -128,7 +128,7 @@ library; highlights always anchor to the main text.
 
 An agent in your own terminal or editor can read your live reading context through Flux's
 MCP tools: which paper is open, the current page, and the selected passage. See
-[AI collaboration](../agents/collaboration.qmd).
+[Annotations, comments and the inbox](../agents/annotations.qmd).
 
 # Troubleshooting
 

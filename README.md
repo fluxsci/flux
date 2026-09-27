@@ -42,7 +42,8 @@ A [Flux project is a folder](docs/concepts/projects-and-files.qmd) containing
 readable Markdown/Quarto, JSON, SVG, and media files. Flux autosaves and watches for
 external edits, so analysis scripts, Git, and editors can work with the same project.
 Local editing and reading work offline; online reference services and external
-agent providers use their own connections.
+agents use their own connections. Ask runs your installed Claude Code or Codex CLI
+with your existing login; usage counts against your plan.
 
 For plots that retain named series, data, and regeneration recipes, use
 [**fluxplot**](https://github.com/fluxsci/fluxplot), the companion Python library.
@@ -81,7 +82,7 @@ first project, from reading a paper to exporting a manuscript.
 | Export manuscripts to HTML or Word | Install **Quarto**. |
 | Export manuscripts to PDF | Install Quarto and a TeX distribution, such as **TinyTeX** (`quarto install tinytex`); see the install guide for SVG support and journal-style packages. |
 | Generate semantic plots with Python | Set up **[fluxplot](https://github.com/fluxsci/fluxplot)** in your analysis environment. |
-| Work with an assistant in Flux | Install and configure your preferred agent CLI; see [agent collaboration](docs/agents/collaboration.qmd). |
+| Work with an assistant in Flux | Install and sign in to Claude Code or Codex, then use **AI status → Connect**; see [Working with AI agents](docs/agents/connect.qmd). |
 
 The **[full installation guide](docs/installation.qmd)** covers platform setup,
 companion tools, and troubleshooting. There is also an
@@ -116,16 +117,23 @@ projects from scripts and assistants. They share operations with the desktop app
 the live bridge also lets an agent work with the current selection through
 undoable edits.
 
+Open Flux once to install its stable launcher, then use this quick start:
+
 ```sh
-# Run these from the Flux source checkout
-npm run flux -- help
-npm run flux -- list --root /path/to/project
-npm run flux:mcp -- /path/to/project
+flux connect setup --dry-run             # preview the agent integration
+flux connect setup                      # install skills and MCP registration
+flux connect doctor                     # verify the connection tools
+flux connect /path/to/project            # ask your agent to follow the brief and return its receipt
 ```
 
-See the [CLI reference](docs/reference/cli.qmd) and
-[agent collaboration guide](docs/agents/collaboration.qmd) for figure composition,
-plot regeneration, library access, exports, and live app controls.
+Restart open agent sessions after setup. In Claude Code invoke `/flux-connect <project>`;
+in Codex invoke `$flux-connect <project>`. The launcher also provides `flux mcp` for stdio
+MCP clients. If `flux` is not on PATH, use the full launcher path shown in the
+[CLI guide](docs/reference/cli.qmd).
+
+See [Working with AI agents](docs/agents/connect.qmd) for setup, reading coverage and
+live pairing; [Annotations, comments and the inbox](docs/agents/annotations.qmd) explains
+**Ctrl+Shift+M** Annotate, **Alt+Q** Inbox, and **Ctrl/Cmd+Shift+J** Ask.
 
 ## Documentation and contributing
 

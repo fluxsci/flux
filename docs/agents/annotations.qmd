@@ -1,0 +1,217 @@
+---
+title: "Annotations, comments and the inbox"
+subtitle: "Point at anything, choose an agent, and follow the conversation"
+---
+
+Annotations combine your note with exactly what you were looking at. Paper margin
+comments stay attached to document text. Both appear in **Inbox**, where you can reply,
+choose who handles each item, and see its status. Reader PDF **Highlights** remain in
+[your reference library](../modes/reader.qmd); annotate a passage to bring it into Inbox.
+
+# Point out what needs attention
+
+- **Margin comments** anchor a discussion to document text.
+- **Ctrl+Shift+M** opens **Annotate** in Figure, Paper, Slide, Library, Reader, Present,
+  and utility windows. Your current selection becomes a target chip. Type immediately:
+  the note keeps keystrokes even while the frozen view is being captured.
+- **Annotate…** is also in the global and Paper palettes and Library's **Commands…** menu.
+- In Reader, select PDF text or open a saved highlight and click **✦ Annotate this passage**
+  to prefill a passage target.
+
+## Point, type, add {#sec-annotate}
+
+The frozen view fills the window, with drawing tools at the top left and a focused note
+at the bottom right. Hover to see the target's outline and name: a plot series, text box,
+figure, caption, paragraph, slide, animation clip, PDF passage, or reference.
+
+**Drag** to draw a numbered arrow. **Alt+A**, **Alt+B**, and **Alt+P** select arrow, box,
+and pen. An arrow names its tip's target; a box names the objects inside; a pen names its
+starting target. **Alt+Z** undoes a mark. Use **Alt+↑ / ↓** or the wheel to widen/narrow the
+hovered target; each chip also has widening and remove controls.
+
+**Enter** adds the annotation; **Shift+Enter** inserts a newline. **Escape** or the chord
+again closes the surface and keeps the draft and its picture. **Attach view** is on by
+default and remembered; drawing marks forces it on. The saved picture is cropped around
+marks, or captures the whole window when there are none. If capture is unavailable, the
+note still carries targets and marks and tells you there is no screenshot.
+
+If the view changed while a draft was closed, its earlier picture and targets stay together.
+Choose **Refresh view (clears marks)** to keep the note and draw on the current view.
+
+## To: choose who receives it
+
+**Inbox** is the default: collect notes until you ask an agent to address them. **Any
+watching agent** lets the first watching session claim the item. Choose a connected agent
+by name to queue the annotation for that session. Agents that are connected but not watching
+appear after watching agents, greyed and marked **queued until it watches**. They remain
+selectable. Your choice is remembered per project.
+
+**Tab** in the note cycles recipients. Typing **@any** or **@heron** also sets **To:**;
+recognized routing mentions are removed from the saved text. **#tags** appear as chips.
+**New background agent** appears when background runs are available ([below](#sec-background)).
+
+## Pair with the live window
+
+Connect with `--live` to pair with the open project. A connected session in live mode
+shows **Pairing** in Annotate's **To:** menu; choose its name to hand it an annotation.
+An agent can use `get_view` to see the current Flux window and its context, including
+while Annotate is open. Each view briefly shows **◉ heron viewed your window** in the
+titlebar, using that session's name.
+
+**Settings → General → Allow agents to view the Flux window** is on by default.
+Turn it off to refuse agent screenshots. The agent receives a clear disabled message.
+Viewing captures only that project's Flux window.
+
+## Inbox: review, reply, and status {#sec-note-popover}
+Open **Inbox** from the titlebar (the badge counts open items), **Alt+Q**, or the **Inbox**
+command in the command palette. The composer's **Open inbox** link opens the same panel.
+It combines annotations with margin comments from every project document. **Pin open**
+keeps it in a separate window; **Dock** brings it back without losing a reply draft.
+
+The list groups items into **Needs input**, **Open**, **Claimed**, and a collapsed **Resolved**
+section. Type a filter such as `draft_1 #claude figure`; chips show the document, tag, and
+surface filters. You can also use `comments`, `annotations`, `figure:Density`, `deck:talk`,
+`status:resolved`, or free text. `archived` includes archived items; `all` includes withdrawn
+items. The same query works with `flux inbox`.
+
+Select an item to see its full text, picture, numbered anchors, and conversation. **R** focuses
+Reply; **Enter** sends, and **Shift+Enter** adds a newline. Agent replies show the agent's name.
+**Jump to** returns to the document range, figure selection, slide and beat, or Reader page.
+**↑/↓** move between rows; **Enter** on a row jumps; **E** archives. **Unarchive** restores an
+archived item, and **Reopen** returns resolved work to the inbox. **Copy agent prompt** copies
+an instruction you can give your agent.
+
+**Edit** loads an annotation's original text, targets, and picture; **Add** replaces it while
+preserving history. **Withdraw** removes your annotation from the active list. The ledger is
+append-only at `.meta/feedback.ndjson`; pictures live in `.meta/feedback/` and are saved before
+their notes are published. Replies to margin comments stay in their document's comment sidecar.
+
+Status chips update as agents work: **Queued → heron**, **Claimed by heron**, **heron needs
+your input**, and **Resolved by heron**. Toasts name the agent; a question's toast opens that
+item in Inbox.
+
+**Assign ▾** (or **A** on a row) uses the same recipients as **To:**. **Unassign** returns
+an item to Inbox, where nobody watches it automatically. **Release claim** pulls work back
+from its current holder while keeping its route. The released agent receives a notice and
+cannot continue writing to that item; explicitly assigning it back authorizes it again.
+Reassigning or unassigning held work also releases the previous holder.
+
+If an assignment expires, its chip reads **heron disconnected — reassign?**, and the item
+returns to Open with its previous holder retained. Claims stay active while the agent is
+connected or has acted on the item in the last 30 minutes; once both expire, they show the
+same reassign prompt.
+
+The titlebar's **2 agents ▾** chip and **AI status → Sessions** show the same connected
+sessions: name, product and surface, connected-since time, **👁 Watching · queue**,
+**👁 Watching · annotations**, or **👁 Watching · filter**, and **🖥 Live** when pairing.
+Each row shows pending queue count and current claims. **Copy name** copies the handle;
+**Show its items** opens Inbox with that agent's `@name` filter. **Stop watching** ends its
+wait and releases its claims. The titlebar chip disappears when no sessions are connected.
+
+## Who gets what: a worked example
+
+1. Two agents are connected: **heron** is watching my annotations; **wren** is connected
+   but not watching. Both appear in the titlebar agents chip and **AI status → Sessions**.
+2. I annotate a legend with `@wren move this below the axis`. **To:** switches to wren,
+   and after I add it the Inbox chip reads **Queued → wren (not watching)**. Heron cannot
+   take it. Wren's row shows **1 queued**.
+3. I annotate a caption and choose **To: Any watching agent**. Heron claims it, and the
+   live chip becomes **Claimed by heron**. Heron's current claim names the caption item.
+4. Later I tell wren, “check your queue.” It checks `flux inbox --mine`, claims the legend
+   item, and resolves it after moving the legend. A named queue reaches its agent even
+   when that agent's watch filter would otherwise exclude the item.
+5. The chip becomes **Resolved by wren**, and the toast reads
+   **wren resolved: move this below the axis**.
+
+I can change either annotation's recipient with **Assign ▾**, return it to **Inbox** with
+**Unassign**, or pull back work in progress with **Release claim**. Nothing starts merely
+because an agent is connected; watching and addressing a queue are explicit actions.
+
+# Ask an agent to address your notes
+
+[Connect your agent](connect.qmd), then tell it what to work on. For example:
+
+- “Address my open annotations.”
+- “Address all my comments in draft_1.”
+- “Address everything tagged #stats in Figure.”
+- “Address the annotation I just made.”
+- “Check your queue.”
+
+The agent reads the item, its picture, targets and thread, claims it, and replies or
+resolves it after checking its work. **Needs input** means it has a question for you;
+reply in the Inbox thread. Tags help filter work; a **#claude** tag alone does not assign
+an item to Claude. Use **To:** or **Assign ▾** to choose the recipient.
+
+## Watch mode
+
+Say “watch my annotations,” “watch my queue,” or “watch annotations tagged #stats.”
+Watching is opt-in and lasts until you tell the agent to stop or choose **Stop watching**
+in Sessions. Connecting alone never starts it.
+
+A watcher receives items routed to **Any watching agent** that match its scope, plus
+items assigned to its own name even outside that filter. Queue-only watching receives
+its named queue. **Inbox** items stay passive until you explicitly ask an agent to
+address them. With several watchers, the first successful claim owns an Any item.
+
+For agents, the waiting tool is `wait_for_inbox`; the CLI twin is `flux wait-inbox`.
+These return the request, targets, picture and thread together. Agents claim before
+working, respect reassignment and release, and ask in the thread when they need input.
+See the [CLI reference](../reference/cli.qmd) for the complete tool reference.
+
+## Ask about what you see
+
+Press **Ctrl+Shift+J**, choose **Ask about this…** in **Ctrl+K**, or use **Ask** beside
+Reader's passage action. The Figure properties menu also offers **✦ Ask**. Ask captures
+your current selection and window; type immediately, then press **Enter** to send.
+**Shift+Enter** adds a newline. It works in every project surface, including Present and
+pinned utility windows.
+
+Choose your installed agent, model, and effort in **Settings → General → Agent that
+Flux launches** (also in **AI status → Agents → Agent that Flux launches (Ask)…**). Flux runs your own Claude Code or Codex CLI with your existing login;
+usage counts against your plan. Install and sign in using that CLI first. Flux does not
+handle vendor logins.
+
+Answers appear in a popover with expandable tool activity showing the actual inputs.
+Ask is read-only. **Stop** cancels the run. **Escape** or **Close Ask** discards the
+exchange from Flux; the CLI's own session history remains. **Keep** saves the question,
+answers, captured view, and targets as a resolved annotation. **Copy resume command**
+copies a command you can paste into your own terminal to continue the vendor session.
+
+## Run an item in the background {#sec-background}
+
+Open the **Inbox** (**Alt+Q**), select an open item, and choose **Run in background ▾ →
+Claude Code** or **Codex**. Or send a new annotation **To: New background agent**, or
+start it with `@new` (Claude Code) or `@new-codex` (Codex). The option appears when
+AI status finds an installed, signed-in CLI.
+
+The agent is a session like any other: it appears in **AI status → Sessions** and the
+titlebar agents chip with a name such as **bg · claude · wren**, claims the item, and
+signs its replies with that name. The item shows a live activity strip with the actual
+tool inputs, progress and reported usage. **Stop** (on the strip or the session row)
+cancels the run; the item returns to Open, marked "bg · claude · wren disconnected —
+reassign?". Replying in the item's thread continues the same session when it can; a
+reply sent while the agent is working waits for that turn to finish. If a run ends
+without replying or resolving, its last message is added to the thread.
+
+A background agent may edit the project and its analysis workspace. It may run the
+`flux` command, and `uv run` in a uv workspace, without asking. Anything else Claude
+Code wants to do opens a dialog showing the **exact** command or input: **Allow once**
+or **Deny**. Closing the window, or leaving the dialog for two minutes, denies it. Codex
+runs with workspace-write access and refuses anything that would need more approval.
+Both are told never to push, publish or delete, and to propose those instead.
+
+One agent works on each item. **Agent that Flux launches** (Settings, or AI status)
+sets how many background runs go at once (1–3, default 2); further items wait for a
+slot. Usage counts against the plan of the CLI you signed in to.
+
+# Troubleshooting
+
+- No agent takes a note → check **To:** and Sessions. An Inbox-only item stays passive;
+  a named queue waits until its agent watches or checks it.
+- An agent disconnected → use **Assign ▾** to choose another connected session.
+- A verb says `deferred: … is locked` → you're mid-edit in the app; the agent retries
+  after you finish.
+- Ask reports a missing or outdated CLI → install/update it and sign in from your own
+  terminal, then reopen Settings. For missing Flux tools, use **AI status → Repair**.
+- No screenshot → the annotation still keeps its text and targets; the composer reports
+  that capture was unavailable. Check **Attach view** before adding another note.

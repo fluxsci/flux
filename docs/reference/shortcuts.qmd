@@ -14,7 +14,8 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 |---|---|
 | **Ctrl+K** | Command palette (in Paper: the full Paper palette; in Library it goes to the add box instead) |
 | **Alt+Q** | Open or close Inbox (also available as **Inbox** in the command palette) |
-| **Ctrl+Shift+M** | Annotate — a note, targets, and a frozen view for your agents |
+| **Ctrl+Shift+M** | Annotate (note + picture for your agents) |
+| **Ctrl+Shift+J** | Ask about this (read-only question to Claude Code or Codex) |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
 | **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Paper, Slide, Library, Reader) |
@@ -33,6 +34,7 @@ the editing engine.
 | **↑ / ↓** | Move between rows |
 | **Enter** on a row | Jump to its saved location |
 | **R** | Focus Reply |
+| **A** | Assign the selected item |
 | **E** | Archive / unarchive the selected item |
 | **Enter** in Reply | Send a human reply |
 | **Shift+Enter** in Reply | Insert a newline |
@@ -54,6 +56,16 @@ The Annotate chord also works from the pinned window.
 
 **Attach view** is remembered. Marks always attach the picture. The **Annotate…** command
 also appears in the global and Paper palettes and Library's **Commands…** menu.
+
+# While Ask is open
+
+| Shortcut | Action |
+|---|---|
+| **Enter** / **Shift+Enter** | Send / new line |
+| **Esc** | Discard the exchange from Flux |
+
+**Stop** cancels the answer; **Keep** saves it as a resolved annotation. See
+[Ask about what you see](../agents/annotations.qmd#ask-about-what-you-see).
 
 # Paper
 

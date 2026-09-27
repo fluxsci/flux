@@ -16,7 +16,7 @@ exhaustive where a user page must be short.
 
 | Document | What it does |
 |---|---|
-| [`claude-install-flux-mac.md`](claude-install-flux-mac.md) | Takes a Mac from a bare clone to a verified, fully capable Flux install. The executable counterpart to the human-facing `../installation.qmd`. Invoked by the user saying *"read `docs/for_agents/claude-install-flux-mac.md` and set up Flux on this Mac."* |
+| [`claude-install-flux-mac.md`](claude-install-flux-mac.md) | Takes a Mac from a bare clone to a verified, fully capable Flux install, including stable launchers, agent setup and doctor checks. The executable counterpart to the human-facing `../installation.qmd`. Invoked by the user saying *"read `docs/for_agents/claude-install-flux-mac.md` and set up Flux on this Mac."* |
 | [`agent-setup.md`](agent-setup.md) | Maintains and verifies shared agent setup, doctor, removal, skill publishing and refresh hooks. |
 | [`migrate-to-flux-connect.md`](migrate-to-flux-connect.md) | Migrates existing projects and machine state to flux-connect with a reviewed dry run, preservation checks, and agent setup on every machine. |
 | [`slide-video-verification.md`](slide-video-verification.md) | Reproduces continuous single-slide MP4 acceptance, including decoded frames, cancellation, packaged launch, and responsiveness. |

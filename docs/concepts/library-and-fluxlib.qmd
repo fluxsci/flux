@@ -47,5 +47,5 @@ clear source-vs-derived split:
 # Portability
 
 Because it's all files, moving machines is copying a folder: `~/FluxConfig` carries your
-library (`FluxLib/`), your agent context (`Context/UserContext/`),
+library (`FluxLib/`), your agent context and skills (`Context/UserContext/`, including `Skills/`),
 and your global plot library (`plot_library/`). Back it up like you'd back up your documents — it *is* documents.

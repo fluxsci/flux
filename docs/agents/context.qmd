@@ -1,0 +1,100 @@
+---
+title: "Your context and your project's"
+subtitle: "Teach agents once, keep a shared project hub, and record work when you ask"
+---
+
+Your personal context travels across projects; ProjectContext explains one project's
+background. [flux-connect](connect.qmd) brings both to an agent before it starts work.
+
+# Where everything lives
+
+Run `flux config` for this machine's resolved paths.
+
+**Machine level — `<FluxConfig>/`:**
+
+| Path | What | Who writes |
+|---|---|---|
+| `Context/UserContext/` | `WHO-AM-I.md` (you), `RULES.md` (standing rules), `Skills/<name>/SKILL.md`, and your other files | **You** |
+| `Context/FluxContext/` | The stock docs — the single canonical home of agent-facing Flux knowledge (the primer, connection contract, and task references). Re-synced on every Flux update with machine paths baked in. | **Flux** |
+| `plot_library/` | Your **global plot library**: reusable plots (any folders) that every project's Plot gallery can insert under **Global**. `flux config` reports it as `plotLibraryPath`. | **You** (and agents you ask) |
+
+**Project level — `<project>/Context/`** (scaffolded for new projects; missing standard files are added
+on open or via `flux context-init`; `project.json` is required):
+
+| Path | What | Who writes |
+|---|---|---|
+| `ProjectContext.qmd` | Background, goals if any, data/code, and links every connected agent should read | You have final say |
+| `NOTEBOOK.md` | The append-only **Log**, newest last | You, or an agent **when you ask** |
+| `RULES.md` | Your standing project rules; agents may propose additions | **You** |
+
+ProjectContext, notebook, and rules are **first-class Flux Paper documents** — they appear in
+the document picker's Context group, and **margin comments work on them**: annotate your
+agent's understanding or memory and it treats those threads as corrections. The
+annotation ledger and provenance journal live in `.meta/`.
+
+ProjectContext is the place to put background an agent keeps missing. Link plans, data notes,
+and other must-read files there; connected agents read those links too.
+
+Ask an agent to log work when you want it recorded. `flux log` adds a dated entry with an
+automatic agent · surface · host:cwd byline (the model name you pass, plus the product Flux detects). `flux read-log` reads entries; a requested
+checkpoint summarizes earlier work without deleting it, so agents can catch up from the
+latest checkpoint while the full history remains available. Default connect includes at most
+the newest ten entries from that point, plus an index of all entry titles; `--depth full`
+includes the complete Log.
+
+Project-root `AGENTS.md` suggests connecting through flux-connect only when asked.
+`CLAUDE.md` contains `@AGENTS.md`, so Claude Code reads the same pointer. Existing user-written
+files are preserved.
+
+Your `Context/UserContext/Skills/` folder holds one `<name>/SKILL.md` per skill, with
+`name` and `description` front matter. Its seeded README describes the format. Use
+**AI status → Bundle → Skills → New skill…** to create one. Connected agents receive
+these skills: invoke `/stats-conventions` in Claude Code or `$stats-conventions` in
+Codex. Edits to linked skills are live; managed copies resync when Flux starts or its
+CLI runs. **Re-publish** checks now. See [Working with AI agents](connect.qmd#your-skills).
+
+# What to put in ProjectContext
+
+Keep the background, goals or questions, data/code locations, and deliverables here.
+Link the plans, methods and notes every agent must read instead of copying them in.
+Default connect follows links one level deep, including local Markdown links, images
+and Quarto includes. Large linked text may be shortened and reported in the brief;
+the agent can read the original. Other documents are indexed for reading on demand.
+If agents keep missing something, add it here or link it directly.
+
+# The stock manual
+
+`FluxContext/FLUX.md` introduces Flux and points to the task references;
+`CONNECT.md` explains how a connected agent behaves. The remaining manual covers
+figures, plots, writing, slides, references and review. Flux regenerates this folder
+with the installation's paths. Put your own guidance in **UserContext** or the project's
+**RULES.md**, so it survives manual updates.
+
+# Moving an older project to flux-connect
+
+Use the committed one-shot script `scripts/oneoff/migrate-2026-09-flux-connect.mjs`
+from an updated Flux checkout. Save and close projects and stop their writing agents
+first. Follow the [migration runbook](https://github.com/fluxsci/flux/blob/main/docs/for_agents/migrate-to-flux-connect.md):
+run a dry run, review its report and root list, then repeat with `--apply`.
+
+The script moves the old project-context document and its comments to the current
+location, preserves authored text and Log history, updates generated pointers, and
+moves historical records under `.meta/archive/2026-09-agent-workflow/`. It reports
+links that need review and never overwrites a colliding destination. Run it on each
+machine with an older installation, then set up the agents there.
+
+Opening an unmigrated old project in the app just adds a fresh `ProjectContext.qmd`
+beside the old files. It does **not** transfer the old context into that file. The remedy
+is to run the script. If both documents now exist, the script keeps both and reports
+the collision: compare and preserve their content and comments, resolve the destination
+deliberately, then rerun. Do not assume the new blank template contains the old context.
+
+# Troubleshooting
+
+- An agent misses background → add it or a direct link to **ProjectContext**, then ask
+  the agent to refresh its connection.
+- A personal rule disappears → keep it in **UserContext**, not the regenerated stock manual.
+- An old project shows two context documents → follow the migration procedure above;
+  opening the app alone does not migrate it.
+- A skill is missing → use **Re-publish**, check **AI status** for a collision, and
+  restart the agent session. Edited or unmanaged vendor files are preserved.

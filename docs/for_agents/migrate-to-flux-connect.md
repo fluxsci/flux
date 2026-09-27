@@ -2,7 +2,7 @@
 
 This runbook is for an agent working for a user, including Lorenzo, who already has Flux
 projects from before September 2026. It accompanies the [one-shot migration script](../../scripts/oneoff/migrate-2026-09-flux-connect.mjs).
-The human-facing background is in [Agents and automation](../agents/collaboration.qmd).
+The human-facing background is in [Your context and your project's](../agents/context.qmd).
 
 The script is a historical migration record, independent of the app and its dependencies.
 It needs **Node 22.15 or newer**. It does not launch Flux, run Git, install agents, or connect
