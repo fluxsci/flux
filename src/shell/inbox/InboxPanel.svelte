@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fullscreenPortal } from "../../lib/ui/portal";
   import { onDestroy, onMount, tick } from "svelte";
   import { get } from "svelte/store";
   import { currentProject } from "../shellStore";
@@ -81,11 +82,6 @@
       observer.observe(node); height = node.clientHeight;
     };
     reconnect(); return { destroy() { observer.disconnect(); reconnect = () => {}; } };
-  }
-  function portal(node: HTMLElement) {
-    const parent = node.parentNode!, marker = document.createComment("inbox"); parent.insertBefore(marker, node);
-    (document.fullscreenElement ?? document.querySelector(".present") ?? parent).appendChild(node);
-    return { destroy() { marker.parentNode?.insertBefore(node, marker); marker.remove(); } };
   }
   function moved() { reconnect(); }
   function pin() {
@@ -183,7 +179,7 @@
   onDestroy(() => { alive = false; popup?.close(); images.dispose(); inboxDetached.set(false); if (restoreFocus?.isConnected) restoreFocus.focus({ preventScroll: true }); });
 </script>
 
-<div class="inbox-wrap" class:detached bind:this={wrap} use:portal>
+<div class="inbox-wrap" class:detached bind:this={wrap} use:fullscreenPortal>
   {#if !detached}<button class="backdrop" aria-label="Close Inbox" on:click={close}></button>{/if}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="inbox-panel" role="dialog" aria-label="Inbox" aria-modal={!detached} tabindex="-1" use:modalFocus on:keydown={onKey}>

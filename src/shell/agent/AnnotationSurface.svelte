@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fullscreenPortal } from "../../lib/ui/portal";
   import { onDestroy, tick, untrack } from "svelte";
   import { get } from "svelte/store";
   import { annotationOpen, annotationRequest, closeAnnotation, bufferAnnotationInput, focusAnnotationInput, type AnnotationRequest } from "./annotateChord";
@@ -108,15 +109,6 @@
     await tick();
     input.setSelectionRange(input.value.length, input.value.length);
     if (buffered.submit) void add();
-  }
-  // Move the modal into the fullscreen root; a sibling cannot paint in fullscreen.
-  // Only when there is one: a node moved out of its block's anchor range is not
-  // removed when the block is, so destroy() removes it itself.
-  function portal(node: HTMLElement) {
-    const root = document.fullscreenElement ?? document.querySelector(".present");
-    if (!root || root === node.parentNode) return {};
-    root.appendChild(node);
-    return { destroy() { node.remove(); } };
   }
   function point(e: PointerEvent): [number, number] {
     const ctm = svg?.getScreenCTM();
@@ -300,7 +292,7 @@
 <svelte:window onkeydowncapture={onKey} />
 
 {#if $annotationOpen && ready}
-  <div class="annotation-surface" data-annotation-surface bind:this={host} use:portal use:modalFocus role="dialog" aria-modal="true" aria-label="Annotate" tabindex="-1"
+  <div class="annotation-surface" data-annotation-surface bind:this={host} use:fullscreenPortal use:modalFocus role="dialog" aria-modal="true" aria-label="Annotate" tabindex="-1"
     onkeydown={e => e.stopPropagation()} onclick={e => e.stopPropagation()}
     onpointerdown={e => e.stopPropagation()} onpointermove={e => e.stopPropagation()} onpointerup={e => e.stopPropagation()}
     onmousedown={e => e.stopPropagation()} onmousemove={e => e.stopPropagation()} onmouseup={e => e.stopPropagation()}>

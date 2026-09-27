@@ -465,7 +465,9 @@
     const t = scrollTo;
     const epoch = ++refineEpoch;
     clearTimeout(refineTimer);
-    if (!t || !viewer || status !== "ready") return;
+    // Read `status` first: a target that arrives before the PDF loads must re-run this
+    // effect when it turns ready (`viewer` is a plain variable, so it can't).
+    if (status !== "ready" || !t || !viewer) return;
     void t.nonce;
     if (t.page != null) viewer.currentPageNumber = Math.min(Math.max(1, t.page), numPages || 1);
     if (t.id) refineScroll(t.id, 12, epoch);

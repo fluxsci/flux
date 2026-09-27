@@ -158,7 +158,8 @@ try {
   await clickMode(page, 'Reader'); await waitFor(page, () => !!window.__fluxSeedReaderItem, null, { label: 'Reader seed hook' });
   await page.evaluate(b64 => window.__fluxSeedReaderItem('fixture2026', b64, { version: 1, annotations: [] }), (await fs.readFile('scripts/fixtures/reader-sample.pdf')).toString('base64'));
   await openInbox(page); await queryInbox(page, 'all'); await choose(f.notes[3].id); await detailAction(page, 'Jump to ↗');
-  await waitFor(page, () => window.__fluxReaderKey === 'fixture2026' && document.querySelector('[aria-label="Jump to page"]')?.value === '2', null, { label: 'Reader page destination' });
+  await waitFor(page, () => window.__fluxReaderKey === 'fixture2026' && document.querySelector('[aria-label="Jump to page"]')?.value === '2', null, { label: 'Reader page destination' })
+    .catch(async e => { throw new Error(`${e.message}; the Reader shows ${await page.evaluate(() => JSON.stringify({ key: window.__fluxReaderKey, page: [...document.querySelectorAll('[aria-label="Jump to page"]')].map(i => i.value), pages: document.querySelectorAll('.pdf-page').length, mode: window.__flux.get(window.__flux.shell.view) }))}`); });
   h.ok(true, 'Reader Jump opens the saved citekey and page');
   await openInbox(page); await queryInbox(page, 'all'); await choose(f.extra.library); await detailAction(page, 'Jump to ↗');
   await waitFor(page, () => !!document.querySelector('.lib'), null, { label: 'Library destination' }); h.ok(true, 'Library Jump opens the reference surface');
