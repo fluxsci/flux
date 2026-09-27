@@ -124,7 +124,6 @@
   import { createRefReveal } from "./margin/refReveal";
   import { BG_SOURCES, rerollBgSeed } from "./margin/bgSources";
   import { settings } from "../../../lib/settings";
-  import * as terminalSession from "../../terminal/terminalSession";
   import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
   import PreviewPane from "./render/PreviewPane.svelte";
   import { renderManuscript, captureManuscriptSnapshot } from "./render/renderManuscript";
@@ -1399,9 +1398,6 @@
   });
 
   onMount(async () => {
-    // PAP-17: the integrated terminal is an app-lifetime singleton with a fixed cwd. Retire any
-    // shell left over from a different project so it can't run commands in the wrong directory.
-    void terminalSession.syncRoot(pm?.root ?? null);
     if (pm) {
       await refreshDocuments();
       if (disposed) return;

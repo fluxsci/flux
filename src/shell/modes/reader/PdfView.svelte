@@ -54,7 +54,6 @@
     hoverId = null,
     onCreate,
     onSelect,
-    onAskSelection,
     onAnnotationClick,
     onAnnotationHover,
     onCitePreview,
@@ -73,7 +72,7 @@
     buffer: ArrayBuffer;
     annotations?: Annotation[];
     /** False on a supplement PDF — highlights anchor to the main paper only, so the
-     *  selection menu hides its colour dots (✦ send-to-terminal stays available). */
+     *  selection menu is hidden; the selection still reaches onSelect. */
     canHighlight?: boolean;
     /** Externally-hovered annotation id (e.g. a sidebar row) → its on-page boxes glow. */
     hoverId?: string | null;
@@ -81,8 +80,6 @@
      *  selection is then kept alive so the user can retry. */
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
     onSelect?: (text: string, page?: number) => void;
-    /** ✦ on the selection menu — send the selected passage to the terminal (R3). */
-    onAskSelection?: (text: string, page: number) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
     onAnnotationHover?: (id: string | null) => void;
@@ -821,12 +818,6 @@
       /* rejected create — same: keep the selection (the parent surfaces the error) */
     }
   }
-  function askSelection() {
-    if (menu) onAskSelection?.(menu.anchor.quote, menu.page);
-    menu = null;
-    window.getSelection()?.removeAllRanges();
-  }
-
   onMount(() => {
     let cancelled = false;
     const host = container!;
@@ -955,18 +946,12 @@
     <div class="msg loading">Loading…{loadNote ? ` ${loadNote}` : ""}</div>
   {/if}
 
-  {#if menu && (canHighlight || onAskSelection)}
+  {#if menu && canHighlight}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="hl-menu" class:below={menu.below} style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
-      {#if canHighlight}
-        {#each ANNOTATION_COLORS as c}
-          <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
-        {/each}
-      {/if}
-      {#if onAskSelection}
-        {#if canHighlight}<span class="mdiv"></span>{/if}
-        <button class="mask" title="Send passage to terminal" aria-label="Send passage to terminal" onclick={askSelection}>✦</button>
-      {/if}
+      {#each ANNOTATION_COLORS as c}
+        <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
+      {/each}
     </div>
   {/if}
 </div>
@@ -1104,24 +1089,6 @@
     padding: 0;
   }
   .dot:hover {
-    transform: scale(1.15);
-  }
-  .mdiv {
-    width: 1px;
-    align-self: stretch;
-    background: var(--c-line);
-    margin: 0 1px;
-  }
-  .mask {
-    border: none;
-    background: none;
-    color: var(--c-accent);
-    cursor: var(--cursor-cross-hover);
-    font-size: 13px;
-    line-height: 1;
-    padding: 0 3px;
-  }
-  .mask:hover {
     transform: scale(1.15);
   }
 </style>

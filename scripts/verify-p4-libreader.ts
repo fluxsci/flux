@@ -12,8 +12,7 @@
 //        orphaned to the annotations panel (a detached highlight is no longer silently invisible).
 //  LR-14 (presence): the proxy PDF grab also accepts a full 200 whose byte length == Content-Length
 //        (rescues valid PDFs whose %%EOF sits beyond the last-8KB window).
-//  SHL-18(presence): pty:create returns the shell PATH (not the electron `shell` module); fs:exists
-//        distinguishes ENOENT (absent) from EACCES (exists-but-blocked).
+//  SHL-18(tested): fs:exists distinguishes ENOENT (absent) from EACCES (exists-but-blocked).
 //  LR-10 (presence): an all-batches-failed enrich run throws instead of reporting "Enriched 0".
 //  LR-8  (presence): GUI-fetched PDFs stay searchable via getPaperText's extract-on-demand.
 //   Run: npx tsx scripts/verify-p4-libreader.ts
@@ -80,9 +79,6 @@ assert(/sigToKey/.test(addPlan) && /dupeSignature/.test(addPlan), "LR-9: the sha
 assert(/const locCache = new Map/.test(pdfView) && /onOrphans\?\.\(/.test(pdfView), "LR-13: PdfView caches located ranges + reports orphans");
 assert(/onOrphans=\{/.test(reader) && /class:orphan=/.test(reader), "LR-13: ReaderDoc surfaces orphaned highlights in the panel");
 assert(/g\.len === g\.contentLength/.test(proxy) && /const whole =/.test(proxy), "LR-14: the proxy grab accepts a whole (length==Content-Length) download");
-// WS-9.4b: pty:create lives in the TERMINAL family module now.
-const terminalCjs = await fs.readFile(new URL("../electron/ipc/terminal.cjs", import.meta.url), "utf8");
-assert(/shell: command/.test(terminalCjs), "SHL-18: pty:create returns the shell PATH, not the electron shell module");
 // WS-9.4b: fs:exists lives in the FILES family module now.
 const filesCjs = await fs.readFile(new URL("../electron/ipc/files.cjs", import.meta.url), "utf8");
 const require = createRequire(import.meta.url);

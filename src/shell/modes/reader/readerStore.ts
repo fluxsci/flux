@@ -79,11 +79,7 @@ export const readerKey = derived(readerTabs, (s) => s.active);
 // contract behind readerKey, __fluxReaderKey, and get_reading_context.
 export const paneActiveTab = writable<Record<string, string>>({});
 
-/** The pane whose ReaderMode currently hosts the shared terminal — one mount only
- * (terminalSession has a single detached host div; two mounts would steal it). */
-export const readerTerminalPane = writable<string | null>(null);
-
-// Drop assignments (and the terminal claim) for panes that no longer exist.
+// Drop assignments for panes that no longer exist.
 panes.subscribe((ps) => {
   const ids = new Set(ps.map((p) => p.id));
   paneActiveTab.update((m) => {
@@ -93,7 +89,6 @@ panes.subscribe((ps) => {
     for (const id of stale) delete next[id];
     return next;
   });
-  readerTerminalPane.update((id) => (id && !ids.has(id) ? null : id));
 });
 
 // readerKey follows pane focus: focusing a reader pane makes ITS paper the active one.

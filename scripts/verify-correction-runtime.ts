@@ -169,8 +169,7 @@ h.ok(fetchScript.includes("libggml-metal") && fetchScript.includes("libggml-vulk
 h.ok(builder.includes("build/correction-runtime/darwin-${arch}/") && builder.includes("build/correction-runtime/linux-${arch}/"), "each packaged architecture receives only its matching helper runtime");
 const releaseCheck = readFileSync(path.join(process.cwd(), "scripts/release-check.mjs"), "utf8");
 h.ok(release.includes("scripts/release-check.mjs --platform") && release.includes("platform: darwin") && release.includes("arch: arm64") && release.includes("arch: x64") && releaseCheck.includes("'correction-runtime','video-encoder'") && releaseCheck.includes("fetch-${helper}.mjs"), "all native CI targets use the shared qualification fetchers before packaging");
-const lockfile = JSON.parse(readFileSync(path.join(process.cwd(), "package-lock.json"), "utf8"));
-h.ok(release.includes("macos-15-intel") && release.includes("macos-15") && lockfile.packages["node_modules/@lydell/node-pty-darwin-arm64"]?.version === "1.1.0" && lockfile.packages["node_modules/@lydell/node-pty-darwin-x64"]?.version === "1.1.0", "both native macOS jobs npm-ci their locked architecture-specific terminal prebuilds");
+h.ok(release.includes("macos-15-intel") && release.includes("macos-15"), "both macOS architectures build on their native CI runners");
 
 writeFileSync(path.join(modelDir, tiny.file), "abd");
 const tampered = createCorrectionRuntime({

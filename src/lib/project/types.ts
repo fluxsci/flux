@@ -130,23 +130,6 @@ export interface WinBridge {
   setDocumentEdited?: (edited: boolean) => void;
 }
 
-/** Integrated-terminal (PTY) bridge (Electron only). */
-export interface TermBridge {
-  create(opts?: {
-    cols?: number;
-    rows?: number;
-    cwd?: string;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-  }): Promise<{ ok: true; id: string; shell: string; cwd: string; pid: number } | { ok: false; error: string }>;
-  write(id: string, data: string): void;
-  resize(id: string, cols: number, rows: number): void;
-  kill(id: string): Promise<boolean>;
-  onData(cb: (m: { id: string; data: string }) => void): () => void;
-  onExit(cb: (m: { id: string; exitCode: number; signal?: number }) => void): () => void;
-}
-
 /** Live agent bridge (WS4) — renderer half of the loopback control server (Electron
  *  only). `command` is untyped JSON off the wire; the consumer narrows it. */
 export interface LiveBridge {
@@ -468,7 +451,6 @@ export interface FileBridge {
   // the single contract. All optional (absent under the web/dev fallback).
   platform?: string; // process.platform ("darwin" | "linux" | "win32")
   win?: WinBridge;
-  term?: TermBridge;
   bridge?: LiveBridge;
   /** Principal-agent scheme: the resolved launch spec for the user's configured
    *  principal (agents.json roster + boot prompt + MCP wiring + cwd rule).

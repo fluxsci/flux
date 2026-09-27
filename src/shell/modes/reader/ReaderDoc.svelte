@@ -6,7 +6,7 @@
   // paper's highlights → click to scroll, delete). Highlights persist to
   // items/<citekey>/annotations.json. ReaderMode hosts one instance per open document;
   // switching papers mounts a fresh instance, so per-paper state needs no reset path.
-  import { onMount, onDestroy, tick, type Snippet } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { readerFind } from "./readerStore";
   import { fluxLibRevision } from "../../../lib/references/revision";
   import {
@@ -64,10 +64,6 @@
     paneId = "",
     active = true,
     focused = true,
-    agentOpen = false,
-    onToggleAgent,
-    onAsk,
-    agentPane,
   }: {
     /** The paper this instance renders — immutable for the instance's lifetime. */
     citekey: string;
@@ -76,13 +72,6 @@
     active?: boolean;
     /** Active AND the hosting pane is focused — gates the window keyboard handler. */
     focused?: boolean;
-    /** The shell's shared-terminal state + toggle (the terminal itself is ReaderMode's). */
-    agentOpen?: boolean;
-    onToggleAgent?: () => void;
-    /** Route an Ask-AI question (prefix + quote) into the shell's shared terminal. */
-    onAsk?: (prefix: string, quote: string) => void;
-    /** The shell-owned terminal pane, rendered inside this doc's PDF column when open. */
-    agentPane?: Snippet;
   } = $props();
 
   // The citekey never changes for a mounted instance (a paper switch mounts a fresh
@@ -733,10 +722,6 @@
       ? navigator.clipboard.writeText(a.anchor.quote)
       : Promise.reject(new Error("Clipboard unavailable"));
   }
-  function sendHighlightToTerminal(a: Annotation) {
-    const note = a.note ? ` (my note: ${a.note})` : "";
-    onAsk?.(`About my highlight on p${a.page}${note}:`, a.anchor.quote);
-  }
   async function addRef(b: WorldBrief) {
     if (!b.doi || addingId) return;
     addingId = b.openalexId;
@@ -837,7 +822,7 @@
 
   function onKey(e: KeyboardEvent) {
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
-    // Alt chords: the panels (R = library, A = annotations, T = terminal).
+    // Alt chords: the panels (R = library, A = annotations).
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -847,11 +832,6 @@
       if (e.code === "KeyA") {
         e.preventDefault();
         summonAnnotations();
-        return;
-      }
-      if (e.code === "KeyT") {
-        e.preventDefault();
-        onToggleAgent?.();
         return;
       }
     }
@@ -870,7 +850,6 @@
     } else if (e.key === "Escape") {
       if (switchOpen) switchOpen = false;
       else if (popover) popover = null;
-      else if (agentOpen) onToggleAgent?.();
     } else if (!typing && buffer && !e.metaKey && !e.ctrlKey && !e.altKey) {
       // Reader nav keys (skipped while typing in find/note/page inputs).
       if (e.key === "+" || e.key === "=") pdfView?.zoomIn();
@@ -1142,12 +1121,9 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key bufferGen}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => onAsk?.(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
-          {#if agentOpen && active}
-            {@render agentPane?.()}
-          {/if}
         </div>
 
         {#each figPanels as f (f.id)}
@@ -1214,7 +1190,6 @@
             onSaveNote={(n) => handleUpdate(ann.id, { note: n || undefined })}
             onRecolor={(c) => void handleUpdate(ann.id, { color: c }).catch(() => {})}
             onCopy={() => copyQuote(ann)}
-            onAsk={() => sendHighlightToTerminal(ann)}
             onDelete={() => void handleDelete(ann.id)}
             onClose={() => (popover = null)} />
         {/if}

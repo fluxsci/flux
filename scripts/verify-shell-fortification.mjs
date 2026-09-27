@@ -51,13 +51,6 @@ try {
     return {paths,state,root:original.path};
   });
   assert.equal(feedback.paths.length,1);assert.ok(feedback.paths[0].startsWith(feedback.root+'/'));assert.equal(feedback.state?.notes.length ?? 0,0);
-  const terminal=await page.evaluate(async()=>{
-    const {terminal}=window.__flux; const old=window.fig.term;let release;const killed=[];
-    window.fig.term={create:()=>new Promise(r=>release=r),kill:async id=>{killed.push(id);},write(){},resize(){},onData(){return()=>{};},onExit(){return()=>{};}};
-    const start=terminal.restart(); await Promise.resolve(); await terminal.kill(); release({ok:true,id:'stale-pty',shell:'fixture',cwd:'/A',pid:7}); await start;
-    window.fig.term=old;return killed;
-  });
-  assert.deepEqual(terminal,['stale-pty']);
   await shot(page,'shell-fortification');
   const transitions=await page.evaluate(async()=>{
     const {shell,get}=window.__flux, bridge=window.fig, original=get(shell.currentProject), read=bridge.readText;
@@ -114,5 +107,5 @@ try {
   await recovery.waitForSelector('.lib .ltitle');
   assert.equal(await recovery.evaluate(id=>window.__flux.get(window.__flux.panes.panes).some(p=>p.id===id&&p.mode==='paper')&&window.__neighborEditor.state.doc.toString()===window.__neighborText,neighbor),true);
   assert.deepEqual(recoveryErrors,[]);await recovery.close();
-  console.log('shell preservation, unknown dirty state, independent pane flush, keyboard separator, absent live owner, feedback root, stale PTY regressions PASS');
+  console.log('shell preservation, unknown dirty state, independent pane flush, keyboard separator, absent live owner, feedback root regressions PASS');
 } finally {await browser.close();}

@@ -82,9 +82,8 @@ try{
   const valid=await window.fig.lockCheck('project','project',lock.token);await window.fig.lockRelease('project','project',lock.token);
   const text=root+'/packaged-io.txt';await window.fig.writeText(text,'saved scientific bytes');if(await window.fig.readText(text)!=='saved scientific bytes')throw Error('saved bytes mismatch');
   const pdf=root+'/packaged-no-script.pdf';await window.fig.printPdf('<html><body><p>STATIC_SCIENTIFIC_OUTPUT</p><script>document.body.textContent="SCRIPT_EXECUTED"</script></body></html>',pdf,{baseDir:root});
-  let output='';const stop=window.fig.term.onData(e=>{output+=e.data});const pty=await window.fig.term.create({cwd:root,command:'/bin/sh',args:['-c','printf PACKAGED_PTY_OK']});if(!pty.ok)throw Error(pty.error);
-  const until=Date.now()+5000;while(!output.includes('PACKAGED_PTY_OK')&&Date.now()<until)await new Promise(r=>setTimeout(r,20));await window.fig.term.kill(pty.id);stop();if(!output.includes('PACKAGED_PTY_OK'))throw Error('packaged terminal did not execute');
-  return {valid,pdf,output};
+  if ('term' in window.fig) throw Error('retired terminal bridge is exposed');
+  return {valid,pdf};
  },project);
  assert.equal(nativeResult.valid,true);assert.equal(await fs.readFile(path.join(project,'packaged-io.txt'),'utf8'),'saved scientific bytes');
  const pdf=await fs.readFile(nativeResult.pdf);assert.ok(pdf.subarray(0,5).equals(Buffer.from('%PDF-')));await fs.copyFile(nativeResult.pdf,path.join(evidence,'no-script.pdf'));
@@ -115,6 +114,6 @@ try{
  const documentationResults=await help.$$eval('.aa-Item',items=>items.map(el=>({text:el.textContent,href:el.querySelector('a')?.href})));
  assert.ok(documentationResults.some(item=>/semantic/i.test(item.text)));assert.deepEqual(documentationErrors,[]);assert.deepEqual(documentationDialogs,[]);
  await help.screenshot({path:path.join(evidence,'packaged-docs-search.png'),fullPage:true});await docsBrowser.close();docsBrowser=null;
- await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal native module','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,encoderPixels,videoPixels,captureResult},null,2));
+ await fs.writeFile(path.join(evidence,'smoke.json'),JSON.stringify({version,platform,arch,checks:['CLI outside repo','MCP handshake','encoder pixels','packaged CLI video worker and decoded pixels','correction dynamic libraries','offline documentation inventory, file navigation and search','native application','lease','saved bytes','PDF scripts disabled','terminal bridge absent','installed capture intake and decoy preservation','resident fulltext worker'],documentation:{pages:docsInventory.pages.length,files:Object.keys(docsInventory.files).length,results:documentationResults,errors:documentationErrors,dialogs:documentationDialogs,blockedExternalResources:[...new Set(blockedExternalResources)]},nativeResult,encoderPixels,videoPixels,captureResult},null,2));
  console.log(`Packaged application smoke PASS ${platform}-${arch}: ${evidence}`);
 }finally{await docsBrowser?.close();browser?.disconnect();await scope.dispose();await fs.rm(scratch,{recursive:true,force:true});await fs.rm(env.TMPDIR,{recursive:true,force:true});}

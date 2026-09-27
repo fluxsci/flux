@@ -5,8 +5,8 @@
 //   (b) no window chord collides with the CodeMirror keymap layer's set
 //       (both tables imported and intersected — the drift class that produced
 //       hints promising keys another layer owned);
-//   (c) dispatch semantics: exact modifier matching, both terminal chords on
-//       one row, palette hints derived from the chords.
+//   (c) dispatch semantics: exact modifier matching, retired terminal chords
+//       unclaimed, palette hints derived from the chords.
 //   npx tsx scripts/verify-paper-commands.ts
 
 import "./lib/cssStub.mjs";
@@ -95,13 +95,13 @@ function recorderCtx(): { ctx: PaperCmdCtx; calls: string[] } {
     ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code: "", key: "", preventDefault() {}, ...over }) as KeyboardEvent;
 
   const t1 = recorderCtx();
-  assert(dispatchWindowKey(mk({ altKey: true, code: "KeyT" }), t1.ctx) && t1.calls.join() === "summonPane:terminal", "Alt+T → terminal");
+  assert(!dispatchWindowKey(mk({ altKey: true, code: "KeyT" }), t1.ctx) && t1.calls.length === 0, "Alt+T is free in Paper (D13)");
   const t2 = recorderCtx();
-  assert(dispatchWindowKey(mk({ ctrlKey: true, code: "Backquote" }), t2.ctx) && t2.calls.join() === "summonPane:terminal", "Mod+` → terminal (both chords, one row)");
+  assert(!dispatchWindowKey(mk({ ctrlKey: true, code: "Backquote" }), t2.ctx) && t2.calls.length === 0, "Mod+` is free in Paper (D13)");
   const t3 = recorderCtx();
   assert(dispatchWindowKey(mk({ ctrlKey: true, shiftKey: true, code: "KeyE" }), t3.ctx) && t3.calls.join() === "togglePreview", "Mod+Shift+E → preview toggle");
   const t4 = recorderCtx();
-  assert(!dispatchWindowKey(mk({ altKey: true, shiftKey: true, code: "KeyT" }), t4.ctx), "extra Shift breaks the Alt+T match (exact modifiers)");
+  assert(!dispatchWindowKey(mk({ altKey: true, shiftKey: true, code: "KeyP" }), t4.ctx), "extra Shift breaks the Alt+P match (exact modifiers)");
   const t5 = recorderCtx();
   assert(dispatchWindowKey(mk({ ctrlKey: true, altKey: true, code: "KeyP" }), t5.ctx) && t5.calls.join() === "closeAllPanes", "Mod+Alt+P → close all panes");
   const t6 = recorderCtx();
@@ -123,8 +123,7 @@ function recorderCtx(): { ctx: PaperCmdCtx; calls: string[] } {
   // palette hint derivation for window rows
   const { ctx } = recorderCtx();
   const palette = paletteFromTable(ctx);
-  const term = palette.find((p) => p.id === "margin-terminal");
-  assert(term?.hint === "Alt+T · ⌘`", `terminal palette hint advertises BOTH chords (${term?.hint})`);
+  assert(!palette.some((p) => p.id === "margin-terminal"), "the retired terminal is absent from the palette (D13)");
   assert(chordHint("Mod+Shift+KeyE") === "⌘⇧E", "chordHint ⌘⇧E");
   const vt = palette.find((p) => p.id === "view-toggle");
   assert(vt?.hint === "⌘⇧E", "view-toggle hint derived from its chord");

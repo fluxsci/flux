@@ -263,26 +263,6 @@ contextBridge.exposeInMainWorld("fig", {
   // session can see the paper (get_reading_context / get_paper_text / annotations).
   agentPrincipalSpec: (opts) => ipcRenderer.invoke("agent:principalSpec", opts),
 
-  // Integrated terminal: drive a native shell (PTY) living in the main process.
-  // write/resize are fire-and-forget; onData/onExit return an unsubscribe fn and
-  // carry the session id so the renderer can filter. Mirrors onFsChanged's shape.
-  term: {
-    create: (opts) => ipcRenderer.invoke("pty:create", opts),
-    write: (id, data) => ipcRenderer.send("pty:write", id, data),
-    resize: (id, cols, rows) => ipcRenderer.send("pty:resize", id, cols, rows),
-    kill: (id) => ipcRenderer.invoke("pty:kill", id),
-    onData: (cb) => {
-      const handler = (_e, msg) => cb(msg);
-      ipcRenderer.on("pty:data", handler);
-      return () => ipcRenderer.removeListener("pty:data", handler);
-    },
-    onExit: (cb) => {
-      const handler = (_e, msg) => cb(msg);
-      ipcRenderer.on("pty:exit", handler);
-      return () => ipcRenderer.removeListener("pty:exit", handler);
-    },
-  },
-
   // WS4: live agent context bridge. The renderer pushes its UI context up
   // (pushContext) and answers dispatch requests from an external agent
   // (onDispatch → reply). Main relays these to/from the loopback control server.

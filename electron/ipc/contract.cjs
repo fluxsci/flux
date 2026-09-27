@@ -144,13 +144,6 @@ const CHANNELS = [
   { channel: "bridge:dispatch", kind: "push", scope: "read" },
   { channel: "bridge:dispatch:reply", kind: "send", scope: "read" },
   { channel: "bridge:context", kind: "send", scope: "read" },
-  // --- terminal (PTY) --------------------------------------------------------------
-  { channel: "pty:create", kind: "invoke", scope: "spawn" },
-  { channel: "pty:write", kind: "send", scope: "spawn" },
-  { channel: "pty:resize", kind: "send", scope: "spawn" },
-  { channel: "pty:kill", kind: "invoke", scope: "spawn" },
-  { channel: "pty:data", kind: "push", scope: "read" },
-  { channel: "pty:exit", kind: "push", scope: "read" },
   // --- renders / exports -------------------------------------------------------------
   { channel: "recipe:cancel", kind: "invoke", scope: "spawn" },
   { channel: "recipe:run", kind: "invoke", scope: "spawn" },

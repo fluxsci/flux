@@ -1,7 +1,7 @@
 // Dynamic-margin pane gate — the summonable frosted-glass pane stack
 // (src/shell/modes/paper/margin/marginPanes.ts + MarginPaneFrame.svelte).
 // Verifies the owner's contract: at rest the margin shows NOTHING but the
-// outline + dynamic background; Alt+R/T/A/F summon panes (open-or-FOCUS if
+// outline + dynamic background; Alt+R/J/A/F summon panes (open-or-FOCUS if
 // already open); panes stack in one column splitting the height equally;
 // Alt+P closes the active pane and Ctrl+Alt+P clears all (focus → editor);
 // past the max (default 4) the oldest pane is evicted; Escape in a pane input
@@ -49,10 +49,10 @@ await alt("KeyR");
 const s1 = await panesState();
 const summonOk = s1.ids.join() === "reference-search" && s1.focusPane === "reference-search";
 
-// --- Alt+T splits with the terminal, equal heights ---------------------------------
-await alt("KeyT");
+// --- Alt+J splits with Journal Check, equal heights ---------------------------------
+await alt("KeyJ");
 const s2 = await panesState();
-const splitOk = s2.ids.length === 2 && s2.ids.includes("terminal") && Math.abs(s2.heights[0] - s2.heights[1]) <= 2;
+const splitOk = s2.ids.length === 2 && s2.ids.includes("journal-check") && Math.abs(s2.heights[0] - s2.heights[1]) <= 2;
 
 // --- Alt+A + Alt+F → four equal panes ----------------------------------------------
 await alt("KeyA");
@@ -129,13 +129,13 @@ const notch = await (async () => {
 const notchOk = notch.length === 3 && notch.every((r) => r.coverage < 0.6);
 
 // --- eviction past the max (default 4): oldest goes --------------------------------
-// Stack is [terminal, comments, figure]; + stats = 4; + bibliography evicts terminal.
+// Stack is [journal-check, comments, figure]; + stats = 4; + bibliography evicts journal-check.
 await page.evaluate(() => window.__fluxMargin.summon("stats"));
 await sleep(250);
 await page.evaluate(() => window.__fluxMargin.summon("bibliography"));
 await sleep(250);
 const s7 = await panesState();
-const evictOk = s7.ids.length === 4 && !s7.ids.includes("terminal") && s7.ids.includes("bibliography");
+const evictOk = s7.ids.length === 4 && !s7.ids.includes("journal-check") && s7.ids.includes("bibliography");
 
 // --- Ctrl+Alt+P clears the margin, editor refocused --------------------------------
 await page.keyboard.down("Control");
@@ -214,7 +214,7 @@ await clickMode(page, "Paper").catch(() => {});
 await sleep(500);
 await page.evaluate(() => window.__fluxView.focus());
 await alt("KeyR");
-await alt("KeyT");
+await alt("KeyJ");
 await alt("KeyA"); // third summon with max 2 → the oldest (reference-search) evicts
 const sm1 = await panesState();
 const maxOk = sm1.ids.length === 2 && !sm1.ids.includes("reference-search");

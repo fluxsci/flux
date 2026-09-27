@@ -52,7 +52,6 @@
             ["Alt+R", "Reference search"],
             ["Alt+F", "Figures"],
             ["Alt+A", "Comments"],
-            ["Alt+T / ⌘`", "Terminal"],
             ["Alt+P / ⌃Alt+P", "Close pane / clear all"],
           ],
         },
@@ -183,13 +182,11 @@
             ["⌃B / ⌃⇧B", "Show/hide the left / right sidebar"],
             ["⌘F", "Search this PDF (results list in the left sidebar)"],
             ["Alt+R / Alt+A", "Library search / annotations (right sidebar)"],
-            ["Alt+T", "Terminal drawer (drag its top edge to resize)"],
           ],
         },
         {
           title: "Actions",
           items: [
-            ["✦ on a selection", "Send that passage to the terminal"],
             ["Alt+drag", "Pop a page region out into a floating panel"],
             ["Ctrl+Alt+drag", "Snip a region → PNG in plots/paper_snips (with citation)"],
             ["Esc", "Close the topmost menu / popover"],

@@ -330,24 +330,6 @@ try {
   ok("highlight lands in BOTH views of the paper", annRows[0] === 1 && annRows[1] === 1, annRows.join(" | "));
   await shot(page, "r7-05-split-annotation-sync");
 
-  // --- the shared terminal lives in exactly one pane at a time -------------------------
-  await page.keyboard.down("Alt");
-  await page.keyboard.press("t");
-  await page.keyboard.up("Alt");
-  await sleep(300);
-  const agentPaneCounts = () =>
-    page.evaluate(() => [...document.querySelectorAll(".pane")].map((p) => p.querySelectorAll(".agentpane").length));
-  let agentPanes = await agentPaneCounts();
-  ok("terminal opens in the focused pane only", agentPanes[0] === 0 && agentPanes[1] === 1, agentPanes.join(" | "));
-  await clickIn(0, ".phead .label");
-  await sleep(150);
-  await page.keyboard.down("Alt");
-  await page.keyboard.press("t");
-  await page.keyboard.up("Alt");
-  await sleep(300);
-  agentPanes = await agentPaneCounts();
-  ok("summoning it from the other pane MOVES it", agentPanes[0] === 1 && agentPanes[1] === 0, agentPanes.join(" | "));
-
   // --- closing the split falls back to one pane ----------------------------------------
   await clickIn(1, '.pbtn[title="Close pane"]');
   await sleep(400);

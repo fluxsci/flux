@@ -294,7 +294,6 @@ Helper panes summon beside your text and stack in one column:
 | **Alt+F** | Figures — zoom/pan any figure, insert it, or open it in Figure mode |
 | **Alt+A** | Comments — the review threads on this document |
 | **Alt+C** | Citation group — edit the citation at the caret |
-| **Alt+T** | Terminal — a real shell (this is where `flux principal` runs nicely) |
 | **Alt+J** | Journal Check — the selected journal's rulebook, as advice |
 
 **Alt+P** closes the active pane, and **Escape** always returns focus to your writing.
@@ -308,8 +307,7 @@ Settings › Paper.)
 the main text on the left, the supplement (or any other document) on the right. Each pane
 has its own outline, margin, and helper panes, and each edits its own document; asking a
 pane for a document that's already open in the other pane focuses that pane instead of
-opening it twice. There's one terminal between them — summoning it in the other pane moves
-it there.
+opening it twice.
 
 # Comments and review
 

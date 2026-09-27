@@ -268,7 +268,6 @@
       "verify-v020-slide-persistence.ts",
       "verify-release-policy.mjs",
       "verify-runtime-assets.mjs",
-      "verify-terminal-ownership.cjs",
       "verify-v020-crash-recovery.ts",
       "verify-documentation-package.mjs",
       "verify-item-recovery.ts",
@@ -1587,13 +1586,6 @@
         "verify-figure-controls-gui.mjs",
         "verify-menu.mjs",
         "verify-panel-label-menu.mjs"
-      ]
-    },
-    {
-      "glob": "electron/ipc/terminal.cjs",
-      "run": [
-        "verify-terminal-ownership.cjs",
-        "tier:electron"
       ]
     },
     {
@@ -6339,15 +6331,6 @@
       "coverage": "behavior"
     },
     "verify-runtime-assets.mjs": {
-      "runtime": "node",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-terminal-ownership.cjs": {
       "runtime": "node",
       "prerequisites": [],
       "externalNetwork": false,

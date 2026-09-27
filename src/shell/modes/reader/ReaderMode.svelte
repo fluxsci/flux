@@ -2,13 +2,11 @@
   // FluxReader — the PDF reading mode shell. Everything scoped to ONE open paper lives
   // in ReaderDoc.svelte (one instance per live tab); this shell owns what is shared
   // across documents: the tab strip, the keep-alive policy, the tab keyboard, the
-  // empty state, and the persistent terminal pane (terminalSession — the SAME shell
-  // the Paper margin mounts), which must have exactly one mount.
-  import { tick, untrack } from "svelte";
+  // empty state.
+  import { untrack } from "svelte";
   import {
     readerTabs,
     paneActiveTab,
-    readerTerminalPane,
     activateReaderTab,
     closeReaderTab,
     cycleReaderTab,
@@ -17,9 +15,6 @@
   } from "./readerStore";
   import ReaderDoc from "./ReaderDoc.svelte";
   import ReaderTabs from "./ReaderTabs.svelte";
-  import { readerLayout, READER_LAYOUT_DEFAULTS } from "./readerLayoutStore";
-  import TerminalPane from "../../terminal/TerminalPane.svelte";
-  import { prefill as terminalPrefill } from "../../terminal/terminalSession";
 
   let { focused = true, paneId = "" }: { focused?: boolean; paneId?: string } = $props();
 
@@ -50,54 +45,6 @@
     }
     if (next.length !== cur.length || next.some((x, i) => x !== cur[i])) liveKeys = next;
   });
-
-  // R3 (terminal-first rework): "Ask AI" opens the shared terminal and PREFILLS
-  // a question about the passage — never submits. Run whatever agent you like
-  // there (`flux principal` typically); the quote grounds it, and the live
-  // context file / MCP get_reading_context carry the full reader state.
-  // The terminal session has ONE detached host div, so exactly one reader pane
-  // hosts it at a time (readerTerminalPane) — opening it here closes it there.
-  const agentOpen = $derived($readerTerminalPane === paneId);
-  function toggleAgent() {
-    readerTerminalPane.update((id) => (id === paneId ? null : paneId));
-  }
-  async function askAgent(prefix: string, quote: string) {
-    readerTerminalPane.set(paneId);
-    await tick(); // mount the terminal pane before prefilling
-    const q = quote.length > 220 ? quote.slice(0, 220) + "…" : quote;
-    terminalPrefill(`${prefix} "${q}" —`);
-  }
-
-  // The terminal drawer resizes by its TOP edge: drag up to grow it, double-click to
-  // reset. Same no-preventDefault-on-pointerdown rule as the rails (it would kill the
-  // derived dblclick); the height is measured against the doc column, not the window,
-  // so a split pane clamps against its own box.
-  let docsEl = $state<HTMLElement | null>(null);
-  let cancelDrawerDrag: (() => void) | null = null;
-  $effect(() => () => cancelDrawerDrag?.());
-  function startDrawerDrag() {
-    cancelDrawerDrag?.();
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.userSelect = "none";
-    const move = (e: PointerEvent) => {
-      if (!docsEl) return;
-      const r = docsEl.getBoundingClientRect();
-      const h = Math.max(120, Math.min(Math.round(r.height * 0.8), r.bottom - e.clientY));
-      readerLayout.update((s) => ({ ...s, terminalH: Math.round(h) }));
-    };
-    const up = () => {
-      document.body.style.userSelect = previousUserSelect;
-      cancelDrawerDrag = null;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-    };
-    cancelDrawerDrag = up;
-    window.addEventListener("pointercancel", up);
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-  const resetDrawerH = () => readerLayout.update((s) => ({ ...s, terminalH: READER_LAYOUT_DEFAULTS.terminalH }));
 
   // Tab chords. ReaderDoc's own handler never claims these (its ctrl branch is
   // F and B/Shift+B; its bare PageUp/Down branch requires no modifier), so the two
@@ -136,36 +83,14 @@
       onClose={closeReaderTab}
       onSplit={openReaderTabInSplit}
       onMove={moveReaderTab} />
-    <div class="docs" bind:this={docsEl}>
+    <div class="docs">
       {#each liveKeys as key (key)}
         <div class="docslot" class:hidden={key !== activeKey} inert={key !== activeKey}>
           <ReaderDoc
             {paneId}
             citekey={key}
             active={key === activeKey}
-            focused={focused && key === activeKey}
-            {agentOpen}
-            onToggleAgent={toggleAgent}
-            onAsk={askAgent}>
-            {#snippet agentPane()}
-              <div
-                class="drawer-gutter"
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="Resize the terminal (double-click resets)"
-                onpointerdown={startDrawerDrag}
-                ondblclick={resetDrawerH}>
-              </div>
-              <div class="agentpane" style={`height:${$readerLayout.terminalH}px`}>
-                <div class="agentpane-bar">
-                  <span class="agentpane-title">Terminal</span>
-                  <span class="agentpane-hint">run `flux principal` (or claude, codex…) here — ✦ sends passages down</span>
-                  <button class="agentpane-close" onclick={() => readerTerminalPane.set(null)} title="Alt+T">Close</button>
-                </div>
-                <TerminalPane />
-              </div>
-            {/snippet}
-          </ReaderDoc>
+            focused={focused && key === activeKey} />
         </div>
       {/each}
     </div>
@@ -193,58 +118,6 @@
      geometry survives being backgrounded; inert (markup) blocks focus + input. */
   .docslot.hidden {
     visibility: hidden;
-  }
-  .drawer-gutter {
-    flex: 0 0 5px;
-    margin: -2px 0;
-    cursor: row-resize;
-    z-index: 5;
-    background: transparent;
-  }
-  .drawer-gutter:hover {
-    background: color-mix(in srgb, var(--c-accent) 35%, transparent);
-  }
-  .agentpane {
-    position: relative;
-    flex: 0 0 auto;
-    min-height: 120px;
-    border-top: 1px solid var(--c-line-strong);
-    display: flex;
-    flex-direction: column;
-  }
-  .agentpane-bar {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 3px 10px;
-    border-bottom: 1px solid var(--c-line);
-    background: var(--c-surface);
-  }
-  .agentpane-title {
-    font-size: var(--ts-xs, 11px);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--c-tx-faint);
-  }
-  .agentpane-hint {
-    font-size: var(--ts-xs, 11px);
-    color: var(--c-tx-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
-  .agentpane-close {
-    margin-left: auto;
-    font: inherit;
-    font-size: var(--ts-xs, 11px);
-    background: none;
-    border: 1px solid var(--c-edge);
-    border-radius: var(--r-1, 4px);
-    color: var(--c-tx-2);
-    padding: 1px 8px;
-    cursor: var(--cursor-cross-hover);
   }
   .empty {
     display: flex;

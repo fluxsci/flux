@@ -59,8 +59,7 @@ capabilities as the GUI, through three surfaces:
   (shared core `electron/agentsConfig.cjs`) names the user's principal/worker CLIs;
   `flux principal` (alias `flux agent`) launches in the user's terminal, `flux dispatch`
   launches workers, and `flux attend` runs feedback-triggered review passes. The dedicated
-  agent drawers and Ctrl+Shift+J were retired; Paper and Reader share the terminal in
-  `src/shell/terminal/`, and the app remains the review surface. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
+  agent drawers and Ctrl+Shift+J were retired; the app remains the review surface. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
   append-only, shared core `src/lib/project/feedback.ts`) carries context-stamped review notes
   (Ctrl+Shift+M capture). Gates: verify-context-scheme / -feedback / -dispatch (pure),
   verify-context-gui (ui), verify-principal-electron (electron).
@@ -865,9 +864,7 @@ Persistence invariants (all machine-checked — do not weaken):
   `ReaderDoc.svelte` (`citekey` immutable per instance — a switch mounts a fresh one);
   `ReaderMode` is the shell: tab strip, keep-alive (`MAX_LIVE_DOCS = 3`, MRU,
   ModeContent-style visibility flip — warm tab switch is instantaneous; cold tabs restore
-  page/zoom from `flux-reader-view:<key>`, flushed on destroy), and the ONE shared-terminal
-  mount (`agentPane` snippet rendered by the active doc only; across panes the host is claimed
-  via `readerTerminalPane`). Split panes: `paneId` threads Pane → ModeContent → mode;
+  page/zoom from `flux-reader-view:<key>`, flushed on destroy). Split panes: `paneId` threads Pane → ModeContent → mode;
   a reader pane shows `paneActiveTab[paneId] ?? readerTabs.active`, with every reader pane
   PINNED to its current paper before any re-target (one pane's change never retargets the
   other). reader-context.json has one native sender/token owner across windows, with
@@ -906,9 +903,9 @@ Persistence invariants (all machine-checked — do not weaken):
   until that operation settles. These are local worker/cache guarantees, not instant
   cross-machine filesystem synchronization.
 - Electron: `main.cjs` is a **composition root**; handler families live in
-  `electron/ipc/{contract,files,terminal,network,agent,capture,readJobs,staticPrint}.cjs`.
+  `electron/ipc/{contract,files,network,agent,capture,readJobs,staticPrint}.cjs`.
   `globalLibraryWatcher.cjs` owns the process-wide watcher; native diagnostics/recovery are
-  independently instantiated with explicit dependencies and terminal disposal. Every IPC channel is declared in
+  independently instantiated with explicit dependencies and lifecycle disposal. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
   under a **CSP with no `unsafe-eval`** — see §5.
 - **Multi-window (2026-08-11): one process, N windows, one project per window.** All
@@ -1708,10 +1705,6 @@ days (probe geometry like `width` instead).
   bumps an epoch per tick, which cancels the claim/publish in flight; when one atomic write
   outlasts the interval, every tick discards the previous tick's work and the view publishes
   NOTHING. Skip a tick while a pass is running — only a real state change preempts.
-- **node-pty leaves a MessagePort and a Socket open on Windows after the child exits**, so a
-  process that owned a PTY never returns to the shell (`flux principal` with a transcript hung
-  forever; `--no-transcript`, which never opens one, was fine). A terminal-owning verb with
-  nothing left to flush should exit explicitly.
 - **A WASM call is an indivisible scheduling unit — queue priority cannot preempt one.**
   The correction worker reorders its queue so a live repair jumps ahead of annotation-only
   work, but a backlog window already inside `linter.lint()` holds the thread until it
@@ -2335,6 +2328,11 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `verify-color-field.mjs` (ui) gate it.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
+
+- **In-app terminal retired (D13, 2026-09-27).** Paper and Reader have no terminal pane,
+  PTY bridge, or passage prefill. Reader still publishes its selection/page through the
+  context seam; passage annotations are a later phase. Alt+T and Mod+Backquote are free in
+  Paper; Alt+T is free in Reader. Figure/Slide still use Alt+T for Arrange.
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
   notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`

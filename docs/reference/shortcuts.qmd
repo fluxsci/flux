@@ -43,7 +43,6 @@ the editing engine.
 | **Alt+F** | Figures pane |
 | **Alt+A** | Comments pane |
 | **Alt+C** | Edit the citation at the cursor |
-| **Alt+T** or **Ctrl+`** | Terminal pane |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
 | **Ctrl+Alt+M** | Comment on the current selection |
 | **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |
@@ -162,7 +161,6 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 | **Ctrl+F** | Search this PDF — opens the Search tab (**Enter** / **Shift+Enter** step matches) |
 | **Ctrl+B** / **Ctrl+Shift+B** | Show/hide the left / right sidebar |
 | **Alt+A** | Annotations pane (right sidebar) |
-| **Alt+T** | Terminal drawer (drag its top edge to resize) |
 | **+** / **−** / **0** | Zoom in / out / fit width |
 | **PageUp** / **PageDown** | Previous / next page |
 | **Home** / **End** | First / last page |
@@ -170,7 +168,7 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 | **Ctrl+W** | Close the active tab (middle-click a tab works too) |
 | **Alt+click** a tab | Open that paper in a split pane beside this one |
 | **Alt+R** | Search your reference library in the right sidebar |
-| **Escape** | Close the topmost thing (menu → popover → terminal) |
+| **Escape** | Close the topmost thing (menu → popover) |
 
 Mouse: select text → highlight colors appear · **Alt+drag** = pop out a figure region ·
 **Ctrl+Alt+drag** = save a [paper snip](../modes/reader.qmd#figures-and-snips) ·

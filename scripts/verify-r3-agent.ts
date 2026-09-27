@@ -1,14 +1,7 @@
-// R3 — FluxReader "Ask AI" context handoff (terminal-first rework, 2026-07-20:
-// the bespoke AgentDrawer is retired — the reader mounts the SHARED terminal
-// session and PREFILLS questions; agents get reader state via the flux MCP's
-// get_reading_context). Two parts:
-// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
-//  1. LIVE: launch the flux MCP server both ways a principal launch resolves it
-//     (repo tsx + flux-mcp.ts; the packaged bundle) and drive a real stdio
-//     JSON-RPC handshake through tools/call get_reading_context.
-//  2. SOURCE: assert the wiring (agent.cjs mcpSpecFor + roster {mcpJson} embed,
-//     ReaderMode terminal pane + prefill routing, PdfView ✦ menu).
-//   Run: npx tsx scripts/verify-r3-agent.ts
+// R3 — FluxReader context handoff to external agents. The live MCP handshakes
+// cover source and bundled entry points; source checks pin the Reader selection
+// seam and the D13 terminal removal.
+// Run through scripts/run-verifies.mjs --tier pure --only r3-agent.
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -139,18 +132,29 @@ assert(/mcpSpec: mcp\.ok \? \{ command: mcp\.command/.test(agentCjs), "principal
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");
 assert(!/agent:mcpSpec/.test(read("electron/ipc/contract.cjs")), "the retired agent:mcpSpec channel is gone from the contract");
 
-console.log("\nR3 — reader terminal + prefill routing (source):");
+// D13 retires the in-app shell and its passage prefill. Reader context remains
+// available to external agents; Phase 4 will use the selection/annotation anchors.
+console.log("\nR3 — reader context without an in-app terminal (source):");
 const rm = read("src/shell/modes/reader/ReaderMode.svelte");
-assert(/import TerminalPane from "\.\.\/\.\.\/terminal\/TerminalPane\.svelte"/.test(rm), "reader mounts the SHARED terminal pane (one session with the paper margin)");
-assert(/async function askAgent\(/.test(rm) && /terminalPrefill\(/.test(rm), "askAgent opens the pane and PREFILLS the question (never submits)");
 const rd = read("src/shell/modes/reader/ReaderDoc.svelte");
-assert(/onAsk=\{\(\) => sendHighlightToTerminal\(\w+!?\)\}/.test(rd), "popover ✦ routes the highlight into the terminal");
-assert(/onAskSelection=\{\(text, page\)/.test(rd), "selection ✦ routes the passage into the terminal");
-const ts = read("src/shell/terminal/terminalSession.ts");
-assert(/export function prefill\(/.test(ts) && /t \+ " "/.test(ts), "terminalSession.prefill writes WITHOUT a newline (prefill, not submit)");
-assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
 const pv = read("src/shell/modes/reader/PdfView.svelte");
-assert(/onAskSelection\?: \(text: string, page: number\)/.test(pv) && /class="mask"/.test(pv), "selection menu carries the ✦ ask button");
+const hp = read("src/shell/modes/reader/HighlightPopover.svelte");
+assert(!/TerminalPane|terminalPrefill|askAgent|agentPane/.test(rm + rd), "Reader has no terminal mount or prefill route");
+assert(!/onAskSelection|onAsk|✦/.test(pv + hp), "Reader passage actions stay hidden until Annotate is implemented");
+assert(/onSelect=\{handleSelect\}/.test(rd) && /onSelect\?\.\(anchor\.quote, page\)/.test(pv), "selection still publishes the exact passage and page");
+assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
+for (const file of ["src/shell/terminal/terminalSession.ts", "src/shell/terminal/TerminalPane.svelte", "src/shell/modes/paper/margin/views/TerminalView.svelte", "electron/ipc/terminal.cjs"]) {
+  assert(!existsSync(join(root, file)), `retired terminal file is absent: ${file}`);
+}
+assert(!/pty:/.test(read("electron/ipc/contract.cjs") + read("electron/preload.cjs")), "the PTY IPC surface is absent");
+assert(!/TermBridge/.test(read("src/lib/project/types.ts")), "FileBridge has no terminal API");
+assert(!/nodePty|terminalFamily|reapPtys/.test(read("electron/main.cjs")), "Electron no longer loads or registers the terminal backend");
+const pkg = JSON.parse(read("package.json"));
+const lock = JSON.parse(read("package-lock.json"));
+for (const name of ["@lydell/node-pty", "@xterm/xterm", "@xterm/addon-fit"]) {
+  assert(!pkg.dependencies?.[name] && !lock.packages?.[`node_modules/${name}`], `${name} is absent from runtime dependencies and lockfile`);
+}
+assert(!/@lydell|node-pty/.test(read("electron-builder.yml")), "packaging has no PTY native-module entries or architecture caveats");
 
 if (failures) {
   console.error(`\nR3 AGENT-HANDOFF VERIFY: FAIL — ${failures} assertion(s)`);

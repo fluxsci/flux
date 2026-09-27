@@ -53,16 +53,6 @@ function loadChokidar() {
   return chokidarLoad;
 }
 
-// Integrated-terminal backend (native shell in a PTY). A native module, so the
-// app must still run if it failed to load/unpack — the renderer shows a notice.
-let nodePty;
-try {
-  nodePty = require("@lydell/node-pty");
-} catch (err) {
-  nodePty = null;
-  console.warn("[flux] @lydell/node-pty unavailable; integrated terminal disabled:", err && err.message);
-}
-
 // Multi-window (2026-08-11): one process, N windows, each on its own project.
 // ALL per-window lifecycle state lives in one session record — the window, its
 // open project root, its project file-watcher, and the root it was created to
@@ -542,14 +532,13 @@ function createWindow(initialRoot) {
     requestClose();
   });
 
-  // Per-window teardown: reap this renderer's PTYs, stop ITS agent bridge
+  // Per-window teardown: stop ITS agent bridge
   // (removes .meta/live/bridge.json), close ITS project watcher, release ITS
   // locks/approvals — and ONLY its own; another window's project must keep its
   // watcher, bridge, and locks (SHL-7 + multi-window A3.1). The quit decision
   // then goes through the app-window policy, which ignores hidden utility
   // windows (quit-wedge R2).
   win.on("closed", () => {
-    reapPtys((s) => s.wc.isDestroyed());
     stopBridgeForWindow(win);
     releaseGuiLocksFor(wcId);
     fileCore.clearApprovals(wcId);
@@ -716,10 +705,8 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Never leave a shell child behind.
 app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => {
-  reapPtys();
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   stopAllBridges(); // W12 (SHL-8): remove every .meta/live/bridge.json (+ tokens) on quit
   try {
@@ -1794,21 +1781,4 @@ ipcMain.handle("docs:open", async () => {
     sourceRoot: path.join(__dirname, '..') }, index => shell.openPath(index));
 });
 
-// ---------------------------------------------------------------------------
-// IPC: integrated terminal. The renderer's xterm.js front-end drives a native
-// login shell ($SHELL on macOS/Linux) running in a real PTY here, so colors,
-// curses apps, and job control all work. A session outlives margin view
-// switches (the renderer keeps one alive) and is reaped with its window / on
-// quit. Streaming mirrors quarto:log + onFsChanged (send + on/unsubscribe).
-// ---------------------------------------------------------------------------
-// WS-9.4b: the TERMINAL (PTY) family lives in ipc/terminal.cjs.
-const terminalFamily = require("./ipc/terminal.cjs").createTerminalFamily({
-  app,
-  nodePty,
-  rootForSender: (e) => rootFor(e),
-});
-const { reapPtys } = terminalFamily;
-
 // (agent:mcpSpec lives in ipc/agent.cjs)
-
-terminalFamily.registerHandlers(ipcMain);

@@ -113,10 +113,8 @@ attend state) lives in `.meta/` and takes care of itself.
   *you* via a margin comment instead of guessing.
 - **While you're away**: leave `flux attend` running — your Send wakes one
   non-interactive principal pass that drains the queue and updates the notebook.
-- **In the reader**: ✦ Ask AI opens the shared in-app terminal pane and *prefills* a
-  question about your selection or highlight (run `flux principal` in that pane — or
-  anywhere; any session can read the live reader state via `get_reading_context`). The
-  same shared terminal is available in the Paper margin.
+- **In the reader**: any external agent session can read the live paper, page, and
+  selection through `get_reading_context`.
 - **⌘K palette**: open mission/notebook/rules, global rules, Note to agent, and *Copy
   principal prompt* (paste the boot prompt into any existing session).
 

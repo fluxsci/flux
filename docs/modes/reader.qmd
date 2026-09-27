@@ -118,18 +118,11 @@ The **⧉ PDF** switcher in the toolbar flips between the main paper and its sup
 files, and **Add supplement…** attaches new ones. Supplements live beside the paper in your
 library; highlights always anchor to the main text.
 
-# The terminal
+# Working with an agent
 
-**Alt+T** opens a terminal drawer under the paper — run `flux principal` (or `claude`,
-`codex`, whatever you use) there and you have
-[your collaborator](../agents/collaboration.qmd) beside the paper. Drag the drawer's top edge
-to resize it; double-click that edge to reset it.
-
-Select any text and press the **✦** button that appears — or the one on a highlight's
-popover — to **send that passage to the terminal**. It is typed in for you, never sent, so
-you can add your own question before pressing Enter. Whatever agent is running there can also
-read your live reading context — which paper, which page, your highlights — so "what does this
-figure mean?" needs no copy-pasting.
+An agent in your own terminal or editor can read your live reading context through Flux's
+MCP tools: which paper is open, the current page, and the selected passage. See
+[AI collaboration](../agents/collaboration.qmd).
 
 # Troubleshooting
 

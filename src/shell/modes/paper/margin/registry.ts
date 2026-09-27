@@ -2,8 +2,7 @@
 // summoned by hotkey or ⌘K, stacked vertically in the margin, splitting its
 // height equally. Adding a pane is a single entry here (plus a hotkey branch
 // in PaperMode if it earns one). Colors are the pane's outline/legend ink,
-// matching the owner's color-coding: search blue, terminal green, comments
-// magenta, figures cyan.
+// matching the owner's color-coding: search blue, comments magenta, figures cyan.
 
 import type { PaneDescriptor } from "./types";
 import StatsView from "./views/StatsView.svelte";
@@ -11,10 +10,8 @@ import FigureView from "./views/FigureView.svelte";
 import BibliographyView from "./views/BibliographyView.svelte";
 import CommentsView from "./views/CommentsView.svelte";
 import JournalCheckView from "./views/JournalCheckView.svelte";
-import TerminalView from "./views/TerminalView.svelte";
 import ReferenceSearchPane from "./panes/ReferenceSearchPane.svelte";
 import CitationGroupPane from "./panes/CitationGroupPane.svelte";
-import { focus as focusTerminal } from "../../../terminal/terminalSession";
 
 export const PANES: PaneDescriptor[] = [
   {
@@ -23,14 +20,6 @@ export const PANES: PaneDescriptor[] = [
     color: "var(--flx-blue-600)",
     hotkey: "Alt+R",
     component: ReferenceSearchPane,
-  },
-  {
-    id: "terminal",
-    title: "Terminal",
-    color: "var(--flx-olive-600)",
-    hotkey: "Alt+T",
-    focus: focusTerminal,
-    component: TerminalView,
   },
   {
     id: "comments",
