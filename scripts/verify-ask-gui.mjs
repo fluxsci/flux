@@ -97,7 +97,10 @@ try {
   await clickMode(page,'Slide');
   await waitFor(page,()=>!!window.__flux.get(window.__flux.slide.deckOverlay),null,{label:'Slide deck'});
   await page.evaluate(()=>[...document.querySelectorAll('.deckbar button')].find(b=>/Present/.test(b.textContent))?.click()); await page.waitForSelector('.present');
-  await page.keyboard.press('f'); await waitFor(page,()=>!!document.fullscreenElement,null,{label:'Present fullscreen'});
+  // Present enters fullscreen itself; F toggles it, so press it only if Present did not.
+  await waitFor(page,()=>!!document.fullscreenElement,null,{timeout:2000,label:'Present auto-fullscreen'}).catch(()=>{});
+  if(!await page.evaluate(()=>!!document.fullscreenElement))await page.keyboard.press('f');
+  await waitFor(page,()=>!!document.fullscreenElement,null,{label:'Present fullscreen'});
   await open();
   h.ok(await page.evaluate(()=>document.fullscreenElement.contains(document.querySelector('[data-ask-surface]'))),'Ask is inside the fullscreen presentation');
   h.ok(await page.$eval('.ask-panel .context',e=>e.textContent.startsWith('present')),'Ask captures the presentation stamp');

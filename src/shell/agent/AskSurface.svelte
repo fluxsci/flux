@@ -12,8 +12,10 @@
   let { request }: { request: AskRequest } = $props();
   const req = untrack(() => request);
   const fb = fileBridge();
-  let messages = $state<AskMessage[]>([]);
-  let tools = $state<Extract<RunnerEvent, { type: "tool" }>[]>([]);
+  type ToolEvent = Extract<RunnerEvent, { type: "tool" }>;
+  // One list in arrival order, so each turn reads question → tools it used → answer.
+  let entries = $state<({ key: string; message: AskMessage; tool?: undefined } | { key: string; tool: ToolEvent; message?: undefined })[]>([]);
+  const messages = $derived(entries.flatMap(e => e.message ? [e.message] : []));
   let busy = $state(false), keeping = $state(false), error = $state(""), reason = $state("");
   let sessionId = $state(""), driver = $state<RunnerDriver>("claude"), copied = $state(false);
   let runId: string | null = null, disposed = false, turn = 0, seq = 0, generation = 0;
@@ -44,13 +46,13 @@
     if (event.type === "session") sessionId = event.sessionId;
     else if (event.type === "message" || event.type === "message.delta") {
       const id = `${turn}:${event.messageId ?? "answer"}`;
-      const i = messages.findIndex(m => m.id === id);
-      if (i < 0) messages = [...messages, { role: "agent", id, text: event.text }];
-      else messages[i] = { ...messages[i], text: event.type === "message" ? event.text : messages[i].text + event.text };
+      const i = entries.findIndex(e => e.message?.id === id);
+      if (i < 0) entries = [...entries, { key: `a:${id}`, message: { role: "agent", id, text: event.text } }];
+      else { const m = entries[i].message!; entries[i] = { key: entries[i].key, message: { ...m, text: event.type === "message" ? event.text : m.text + event.text } }; }
     } else if (event.type === "tool") {
-      const id = `${turn}:${event.toolId}`, i = tools.findIndex(t => t.toolId === id);
+      const id = `${turn}:${event.toolId}`, i = entries.findIndex(e => e.tool?.toolId === id);
       const next = { ...event, toolId: id };
-      if (i < 0) tools = [...tools, next]; else tools[i] = next;
+      if (i < 0) entries = [...entries, { key: `t:${id}`, tool: next }]; else entries[i] = { key: entries[i].key, tool: next };
     } else if (event.type === "error") { error = event.message; busy = false; }
     else if (event.type === "status") {
       if (event.reason) reason = event.reason;
@@ -87,7 +89,7 @@
     const started = generation;
     busy = true; error = ""; reason = "Preparing agent…";
     req.input.value = "";
-    messages = [...messages, { role: "human", text }]; turn++;
+    entries = [...entries, { key: `q:${turn}`, message: { role: "human", text } }]; turn++;
     try {
       if (!runId) await prepare();
       if (disposed || started !== generation) return;
@@ -156,11 +158,12 @@
     <div class="context" title={describeStamp(stamp)}>{describeStamp(stamp)}</div>
     {#if preview}<details class="view"><summary>Captured view</summary><img src={preview} alt="View captured when Ask opened" /></details>{/if}
     <div class="exchange" aria-live="polite" aria-relevant="additions text">
-      {#each messages as message, i (i)}<div class:question={message.role === "human"} class="message" use:markdown={message.text}></div>{/each}
-      {#each tools as tool (tool.toolId)}
+      {#each entries as entry (entry.key)}
+        {#if entry.message}<div class:question={entry.message.role === "human"} class="message" use:markdown={entry.message.text}></div>
+        {:else}{@const tool = entry.tool}
         <details class="tool-line"><summary>{tool.status === "started" ? "Reading" : tool.status === "failed" ? "Failed" : "Used"} · {toolName(tool.title)} · {typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input)}</summary>
           <pre>{JSON.stringify({ input: tool.input, output: tool.output }, null, 2)}</pre>
-        </details>
+        </details>{/if}
       {/each}
     </div>
     {#if busy || reason}<div class="progress" role="status">{busy ? reason || "Working…" : reason}</div>{/if}
