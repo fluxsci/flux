@@ -47,7 +47,6 @@
       "verify-crop-math.ts",
       "figenh-crop-parity.ts",
       "verify-fluxconfig.ts",
-      "verify-feedback.ts",
       "verify-log.ts",
       "verify-context-scheme.ts",
       "verify-docs.ts",
@@ -233,7 +232,6 @@
       "verify-wheel-law.ts",
       "verify-zoom-limits.ts",
       "verify-feedback-snapshot.ts",
-      "verify-feedback-withdraw.ts",
       "verify-color-space.ts",
       "verify-cursor-policy.ts",
       "verify-color-collections.ts",
@@ -302,7 +300,10 @@
       "verify-reader-highlights.ts",
       "verify-connect.ts",
       "verify-connect-delta.ts",
-      "verify-connect-mcp.ts"
+      "verify-connect-mcp.ts",
+      "verify-inbox.ts",
+      "verify-inbox-wait.ts",
+      "verify-presence.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -819,6 +820,19 @@
         "verify-reader-highlights.ts",
         "verify-canonical-reads.ts",
         "verify-annotations-md.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{flux-core/{annotations,inboxVerbs,inboxWait,inspect,presence,mcpServer,registry,comments}.ts,src/lib/project/{annotations,inbox,comments,presence,targets}.ts,scripts/{lib/inboxFixture.ts,fixtures/inbox-worker.mjs}}",
+      "run": [
+        "verify-inbox.ts",
+        "verify-inbox-wait.ts",
+        "verify-presence.ts",
+        "verify-annotation-core.ts",
+        "verify-registry-parity.ts",
+        "verify-mcp-binding.ts",
+        "verify-log.ts",
         "tier:pure"
       ]
     },
@@ -1464,9 +1478,9 @@
       ]
     },
     {
-      "glob": "src/lib/project/{feedback,contextTemplates,contextHeal,paperSelectionStore}.ts",
+      "glob": "src/lib/project/{annotations,contextTemplates,contextHeal,paperSelectionStore}.ts",
       "run": [
-        "verify-feedback.ts",
+        "verify-inbox.ts",
         "verify-context-scheme.ts",
         "verify-scaffold.ts",
         "verify-log.ts",
@@ -1480,9 +1494,9 @@
       ]
     },
     {
-      "glob": "flux-core/{feedback,context,comments}.ts",
+      "glob": "flux-core/{annotations,context,comments}.ts",
       "run": [
-        "verify-feedback.ts",
+        "verify-inbox.ts",
         "verify-registry-parity.ts",
         "verify-log.ts"
       ]
@@ -1497,10 +1511,10 @@
     },
     {
       "$why": "2026-09-15 Snapshot & annotate — the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay → popover → ledger); the IPC contract pins the win:capture channel.",
-      "glob": "{src/shell/agent/**,src/lib/project/feedback.ts,src/lib/project/feedbackCapture.ts}",
+      "glob": "{src/shell/agent/**,src/lib/project/annotations.ts,src/lib/project/feedbackCapture.ts}",
       "run": [
         "verify-feedback-snapshot.ts",
-        "verify-feedback-withdraw.ts",
+        "verify-inbox.ts",
         "verify-annotate-gui.mjs",
         "verify-context-gui.mjs",
         "verify-ipc-contract.ts",
@@ -2977,24 +2991,6 @@
       "coverage": "behavior"
     },
     "verify-feedback-snapshot.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-feedback-withdraw.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-feedback.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -7124,6 +7120,33 @@
     },
     "verify-connect-hook.mjs": {
       "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-inbox.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-inbox-wait.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-presence.ts": {
+      "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",

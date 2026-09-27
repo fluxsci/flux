@@ -7,6 +7,7 @@
 
 import {
   annotationThread,
+  parseRoute,
   claimIsLive,
   describeStamp,
   statusChip,
@@ -30,7 +31,7 @@ export interface InboxComment {
   doc: string;
   anchor: { start: number; end: number; quote: string; prefix?: string; suffix?: string };
   resolved: boolean;
-  messages: { author: string; body: string; createdAt: string }[];
+  messages: { author: string; body: string; createdAt: string; kind?: "agent" | "human" }[];
 }
 
 export type InboxSurface = "paper" | "figure" | "slide" | "present" | "reader" | "library" | "home" | "unknown";
@@ -52,6 +53,7 @@ export interface InboxItem {
   claimedBy: (SessionRef & { since: string; live: boolean }) | null;
   assignedTo: SessionRef | null;
   lastHolder: SessionRef | null;
+  revokedSession?: string | null;
   createdAt: string;
   lastActivity: string;
   doc?: string;
@@ -94,6 +96,14 @@ function stampTargets(c: ContextStamp | null): TargetRef[] {
   return out;
 }
 
+/** Expired presence changes the view, never the persisted ledger. */
+function effectiveOverlay<T extends ItemOverlay>(o: T, ctx: LivenessContext): T {
+  const claim = o.claim && !claimIsLive(o.claim, ctx) ? null : o.claim;
+  const assignedTo = o.assignedTo && ctx.liveSessionIds && !ctx.liveSessionIds.has(o.assignedTo.id) ? null : o.assignedTo;
+  return { ...o, claim, assignedTo, lastHolder: o.claim && !claim ? o.claim.session : o.assignedTo && !assignedTo ? o.assignedTo : o.lastHolder,
+    agentState: o.claim && !claim ? null : o.agentState };
+}
+
 function overlayView(o: ItemOverlay | undefined, liveness: InboxBuildInput["liveness"]) {
   const claim = o?.claim ?? null;
   return {
@@ -101,11 +111,15 @@ function overlayView(o: ItemOverlay | undefined, liveness: InboxBuildInput["live
     assignedTo: o?.assignedTo ?? null,
     lastHolder: o?.lastHolder ?? null,
     archived: o?.archived ?? false,
+    revokedSession: o?.revokedSession ?? null,
   };
 }
 
 function annotationItem(a: AnnotationItem, liveness: InboxBuildInput["liveness"]): InboxItem {
+  a = effectiveOverlay(a, liveness);
   const c = a.note.context;
+  const routeSessions = typeof a.route === "object" && "session" in a.route ? [a.route.session] : [];
+  const text = parseRoute(a.note.text, routeSessions).text;
   const targets = stampTargets(c);
   const figureIds = [...new Set([c?.activeFigureId, ...targets.map(targetFigureId)].filter((x): x is string => !!x))];
   const deckIds = [...new Set([c?.slide?.deckId, c?.present?.deckId, ...targets.map(targetDeckId)].filter((x): x is string => !!x))];
@@ -114,7 +128,7 @@ function annotationItem(a: AnnotationItem, liveness: InboxBuildInput["liveness"]
     kind: "annotation",
     surface: surfaceOf(c),
     where: describeStamp(c),
-    text: a.note.text,
+    text,
     tags: a.tags,
     status: statusOf(a),
     chip: statusChip(a, liveness),
@@ -128,18 +142,19 @@ function annotationItem(a: AnnotationItem, liveness: InboxBuildInput["liveness"]
     ...(c?.reader?.citekey ? { citekey: c.reader.citekey } : {}),
     ...(c?.snapshot?.image ? { image: c.snapshot.image } : {}),
     targets,
-    thread: annotationThread(a),
+    thread: annotationThread(a).map((m, i) => i === 0 ? { ...m, text } : m),
     context: c,
   };
 }
 
 function commentItem(t: InboxComment, o: ItemOverlay | undefined, input: InboxBuildInput): InboxItem {
   const human = new Set(["You", ...(input.humanAuthors ?? [])]);
-  const thread: ThreadMessage[] = t.messages.map((m) => ({ kind: human.has(m.author) ? "human" : "agent", author: m.author, text: m.body, ts: m.createdAt }));
+  const thread: ThreadMessage[] = t.messages.map((m) => ({ kind: m.kind ?? (human.has(m.author) ? "human" : "agent"), author: m.author, text: m.body, ts: m.createdAt }));
   const first = t.messages[0];
   const humanText = thread.filter((m) => m.kind === "human").map((m) => m.text).join("\n");
-  const overlay = o ?? null;
+  const overlay = o ? effectiveOverlay(o, input.liveness) : null;
   const pseudo = { ...(overlay ?? emptyView(t.id)), resolved: t.resolved, withdrawn: false };
+  if (pseudo.agentState === "needs-input" && thread.some(m => m.kind === "human" && m.ts > pseudo.lastActivity)) pseudo.agentState = null;
   const quote = t.anchor.quote.length > 48 ? t.anchor.quote.slice(0, 45) + "…" : t.anchor.quote;
   return {
     id: t.id,
@@ -147,7 +162,7 @@ function commentItem(t: InboxComment, o: ItemOverlay | undefined, input: InboxBu
     surface: "paper",
     where: `${t.doc} · "${quote}"`,
     text: first?.body ?? "",
-    tags: parseTags(humanText),
+    tags: parseTags([first?.body ?? "", humanText].join("\n")),
     status: statusOf(pseudo),
     chip: statusChip(pseudo, input.liveness),
     route: overlay?.assignedTo ? { session: overlay.assignedTo } : "none",
@@ -201,9 +216,11 @@ export interface InboxFilter {
   text?: string;
   /** Items assigned to or claimed by this session name/id. */
   holder?: string;
+  claimed?: "me" | "others" | "none" | "any";
 }
 
 export interface FilterContext {
+  sessionId?: string;
   /** Figure id → aliases (display name, nickname, referenceKey, "Figure 3", …). */
   figureAliases?: ReadonlyMap<string, readonly string[]>;
 }
@@ -239,9 +256,16 @@ export function matchesFilter(item: InboxItem, f: InboxFilter, ctx: FilterContex
   if (f.deck && !item.deckIds.some((d) => norm(d) === norm(f.deck!))) return false;
   if (f.tag?.length && !f.tag.every((t) => item.tags.includes(norm(t).replace(/^#/, "")))) return false;
   if (f.since && !(item.createdAt >= f.since || item.lastActivity >= f.since)) return false;
+  if (f.claimed) {
+    const holder = item.claimedBy?.live ? item.claimedBy.id : null;
+    if (f.claimed === "me" && (!holder || holder !== ctx.sessionId)) return false;
+    if (f.claimed === "others" && (!holder || holder === ctx.sessionId)) return false;
+    if (f.claimed === "none" && holder) return false;
+    if (f.claimed === "any" && !holder) return false;
+  }
   if (f.holder) {
     const h = norm(f.holder).replace(/^@/, "");
-    const who = [item.claimedBy?.name, item.claimedBy?.id, item.assignedTo?.name, item.assignedTo?.id].filter(Boolean).map((x) => norm(x!));
+    const who = [item.claimedBy?.live ? item.claimedBy.name : undefined, item.claimedBy?.live ? item.claimedBy.id : undefined, item.assignedTo?.name, item.assignedTo?.id].filter(Boolean).map((x) => norm(x!));
     if (!who.includes(h)) return false;
   }
   if (f.text) {
@@ -351,13 +375,14 @@ export type WatchSpec =
  * - nothing resolved, withdrawn, archived, or held by another live session.
  */
 export function deliverableTo(item: InboxItem, session: SessionRef, watch: WatchSpec, ctx: FilterContext = {}): boolean {
+  if (item.revokedSession === session.id) return false;
   if (item.status === "resolved" || item.status === "withdrawn" || item.archived) return false;
   if (item.claimedBy && item.claimedBy.id !== session.id && item.claimedBy.live) return false;
   if (item.assignedTo) return item.assignedTo.id === session.id;
   if (watch.mode === "queue") return false;
   if (item.route !== "any") return false;
   const f = watch.filter ?? {};
-  return matchesFilter(item, { ...f, status: "all", archived: false }, ctx);
+  return matchesFilter(item, { ...f, archived: false }, ctx);
 }
 
 // ---------------------------------------------------------------------------

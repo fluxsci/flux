@@ -104,12 +104,12 @@ BibTeX/RIS, with Zotero PDF attachments), `fetch-pdfs` / `ingest-pdf` (store a P
 `cite-doi <doi>` / `cite_doi`, `render-figures` (materialize fig/renders/ for bare
 quarto), `compile [--to pdf|html|docx]` / `compile`.
 
-**Review (comments + feedback):** `comments` / `list_comments` — the human's margin
+**Review (annotations + comments):** `comments` / `list_comments` — the human's margin
 comments (each thread's `anchor.quote` is the exact text it targets);
 `resolve-comment <id|quote> [--note "…"]` / `resolve_comment` — mark one resolved
 *after* addressing it; `add-comment` / `add_comment` — open a thread yourself (for
-questions back to the human). `feedback` / `list_feedback` + `resolve-feedback` /
-`resolve_feedback` — the context-stamped feedback ledger. Threads live in `<base>.comments.json` beside each document; legacy mains retain
+questions back to the human). `inbox` / `list_inbox` + `resolve` /
+`resolve_item` — the unified inbox with claims, replies and exact targets. Threads live in `<base>.comments.json` beside each document; legacy mains retain
 `manuscript/comments.json` — never in the `.qmd`.
 
 **See / verify:** `render-figure <id> [--png]` / `get_figure_image` (returns a PNG so

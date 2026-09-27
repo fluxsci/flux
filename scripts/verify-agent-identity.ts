@@ -12,6 +12,7 @@ h.section("Claude Code (env reaches its shells AND its MCP servers)");
 const cli = detectAgentIdentity({ CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ID: "c4c8", AI_AGENT: "claude-code_2-1-283_agent" });
 h.eq([cli.product, cli.surface, cli.client, cli.sessionId, cli.vendor], ["Claude Code", "CLI", "claude-code", "c4c8", "anthropic"], "the CLI");
 h.eq(detectAgentIdentity({ CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "claude-vscode" }).surface, "VS Code", "the VS Code extension");
+h.eq(detectAgentIdentity({ CLAUDE_CODE_SESSION_ID: "session-only", CODEX_THREAD_ID: "outer-codex" }).sessionId, "session-only", "visible Claude session id takes precedence even without entrypoint markers");
 h.eq(detectAgentIdentity({ CLAUDE_CODE_ENTRYPOINT: "claude-desktop" }).surface, "desktop app", "the desktop app");
 h.eq(detectAgentIdentity({ CLAUDE_CODE_ENTRYPOINT: "sdk-cli" }).surface, "headless", "claude -p");
 h.eq(detectAgentIdentity({ CLAUDE_CODE_ENTRYPOINT: "something-new" }).surface, "something-new", "an unknown entrypoint is kept raw");

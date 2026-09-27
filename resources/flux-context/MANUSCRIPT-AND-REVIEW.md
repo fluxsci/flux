@@ -87,22 +87,41 @@ after you've actually addressed it in the prose.
 `flux add-comment --quote "exact doc text" --body "your question" [--doc rel] [--at n]` —
 it appears live in their margin; they reply at their leisure. Use it instead of guessing.
 
-## The feedback ledger (context-stamped notes from anywhere in the app)
+## One inbox for annotations and comments
 
-Comments cover manuscript text; the **feedback ledger** covers everything else. The user hits
-a hotkey anywhere in the app and types a one-liner; the note lands in `.meta/feedback.ndjson`
-**stamped with what they were looking at** — active figure, selected elements, drilled-in plot
-part, paper doc + selection offsets + quoted text, or slide + beat. "Make this bigger" arrives
-with *this* machine-resolved.
+`inbox` covers both margin comments and context-stamped annotations from any surface.
+Each annotation carries exact targets, optional snapshot marks, and a thread. Comment
+messages remain in their document's sidecar; claims and status live in the append-only
+`.meta/feedback.ndjson` ledger. New items are visible immediately.
 
-```bash
-flux feedback                 # open notes (JSON; `where` = human summary, `context` = full stamp)
-# … address each item (regenerate/restyle/edit) …
-flux resolve-feedback <id|text substring> --note "what you did"   # user sees it close live
+```sh
+"{{FLUX_CLI}}" inbox --json
+"{{FLUX_CLI}}" inbox 'draft_1 #stats' --json
+"{{FLUX_CLI}}" claim <id> --note "Checking the labels."
+"{{FLUX_CLI}}" reply <id> "Which scale should I use?" --needs-input
+"{{FLUX_CLI}}" resolve <id> --note "Updated the labels and checked the figure."
 ```
 
-Ask an agent to read and address the notes. MCP: `list_feedback` / `resolve_feedback`.
-The ledger is event-sourced and append-only — never rewrite it; use the verbs.
+Claim before working. If `claimed:false` names another holder, move on. A live
+presence heartbeat or activity in the last 30 minutes keeps a claim live. Use
+`--force` only when the user explicitly requests a takeover. A user release blocks
+further writes from the released session. Archive only when asked.
+
+Routing is explicit: **Inbox** means nobody acts until asked; **Any watching agent**
+means every matching watcher receives the item and the first claim wins; a named
+session receives its own queue, even if it starts watching later. A disconnected
+assignee's item becomes Open with its last holder retained.
+
+MCP `list_inbox {packets:true}` and `wait_for_inbox` include current saved target
+state, threads and up to six inline snapshots (long edge ≤1600 px). Fetch remaining
+images with `get_inbox_image {id}`. `get_target` / `inspect` reads an exact target
+without rendering, for example `part:fig-2/el-9#control` or
+`doc:paper/notes.qmd@120-180`.
+
+Watching is opt-in. `wait-inbox --timeout 540 --cursor <previous-cursor>` returns
+`{items,cursor,stopped,revoked}`. An empty timeout means wait again; stop when
+`stopped:true`, and stop work on items named in `revoked`. Never start a watch loop
+merely because a project is connected. `inbox --mine` reads your queue and claims.
 
 ## Context docs are documents too
 

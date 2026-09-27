@@ -55,11 +55,15 @@ capabilities as the GUI, through three surfaces:
   `<FluxConfig>/Context/{UserContext,FluxContext}` (user identity/rules + stock docs
   synced from `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`)
   and `<project>/Context/` (ProjectContext/NOTEBOOK/RULES as first-class Paper documents).
-  Agents use the CLI/MCP tools alongside the app. The feedback ledger
-  (`.meta/feedback.ndjson`, append-only, shared core `src/lib/project/feedback.ts`)
-  carries context-stamped review notes (Ctrl+Shift+M capture); agents read and resolve
-  them through the same shared core. Gates: verify-context-scheme / -feedback (pure),
-  verify-context-gui / -annotate-gui (ui).
+  Agents use the CLI/MCP tools alongside the app. The v2 annotation ledger
+  (`.meta/feedback.ndjson`, append-only, shared `project/annotations.ts`) and all comment
+  sidecars feed one pure `project/inbox.ts` model. `flux inbox` / `list_inbox` expose its
+  filters and packets; `claim` / `reply` / `resolve` mutate through `flux-core/annotations.ts`.
+  The send boundary and old feedback verbs are retired. The MCP server starts an atomic
+  presence writer only after explicit project `connect`; it heartbeats every 15 s and
+  removes its file on rebind/exit. Shared `project/presence.ts` owns liveness and names.
+  Gates: `verify-annotation-core`, `verify-inbox`, `verify-inbox-wait`, `verify-presence`
+  (pure); annotation/margin rendering still requires the GUI gates.
 
 - **flux-connect** (`flux-core/connect/`): `flux connect [<project>|global]` / MCP `connect`
   hydrates any agent in one step. It collects facts read-only (`collect.ts`), plans what to
@@ -100,6 +104,8 @@ The established shared cores — extend these, don't duplicate them:
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
+| Annotation ledger, claims, routing, filtering, packets and presence policy | `src/lib/project/{annotations,inbox,presence,targets}.ts` | `verify-annotation-core.ts`, `verify-inbox.ts`, `verify-inbox-wait.ts`, `verify-presence.ts` |
+| Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI Reply integration belongs to W4b) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -1072,18 +1078,27 @@ Persistence invariants (all machine-checked — do not weaken):
     `.meta/feedback/<noteId>.png` and
     appends the note whose stamp carries `snapshot` (image path, rect, window, marks) —
     never the other order, so a cancelled note leaves no file. `describeStamp` prints
-    `snapshot ×N (1 → button.tool "Gallery", …)` for the popover header and `flux feedback`
+    `snapshot ×N (1 → button.tool "Gallery", …)` for the popover header and `flux inbox`
     alike. A browser build has no capture: marks + anchors still land, `image` is null.
     Gates: `verify-feedback-snapshot.ts` (pure), `verify-annotate-gui.mjs` (ui),
     `verify-ipc-contract.ts` (the channel).
-  - **Taking a note back = the `withdraw` ledger event.** The popover lists the open queue
-    (newest first) with Edit / Withdraw; `foldLedger` marks the target `withdrawn` and drops
-    it from `open` and `sent` (never `resolved` — nobody did the work), `flux feedback` hides
-    it, `--all` reports status `withdrawn`, `resolve-feedback` refuses it. Edit re-queues in
-    ONE append (`withdraw(old)` + `note(new)` in the same O_APPEND write, so a reader never
-    sees both) and keeps the original stamp + snapshot file. Gate:
-    `verify-feedback-withdraw.ts` (pure, scratch root) + the edit/withdraw leg of
-    `verify-annotate-gui.mjs`.
+  - **Taking a note back = the `withdraw` ledger event.** `foldAnnotations` retains a
+    withdrawn item for audit; `flux inbox` hides it by default, `--status all` includes it,
+    and `resolve` refuses it. The v2 ledger has no sent queue or send boundary. The
+    withdrawn-state and append-only checks are in `verify-annotation-core.ts` and
+    `verify-inbox.ts`; the visual Edit / Withdraw flow remains a GUI gate.
+  - **Headless inbox IO.** Append newline-terminated records with O_APPEND, one syscall
+    per record; preserve a torn final record and add a separator before the next event.
+    Claims append then re-fold in ledger order. Stale takeovers name the observed claim
+    (`previousClaim`) / assignee (`previousAssignee`) so simultaneous stale contenders
+    cannot both replace it. Presence OR recent item activity protects a holder. Every
+    mutation checks `writeAllowed`; user release/release-session is a refusal, never an
+    implicit force. Comment replies hold the manuscript lease across read/append/write,
+    use `appendCommentMessage`, journal, then append ledger state to renew holder activity.
+    `waitForInbox` watches metadata and discovered sidecar directories with a one-second
+    mtime/TTL fallback; opaque cursors fingerprint item state, not only timestamps.
+    `inspect` reads saved target state without rendering. MCP packets cap inline snapshots
+    at six, resized to a 1600 px long edge; `get_inbox_image` fetches remaining images.
   - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
     note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
     under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot) and press
@@ -4680,7 +4695,6 @@ zero metadata drift).
 - `loadIndex` compared mtimes only, so a parser-shape change with an unchanged .bib would
   serve a stale index forever; it now also rebuilds on a `schemaVersion` mismatch.
 
-
 ### 2026-08-09 — Reserved folders under plots/: `_lighttable` joins `_dissections` (Claude Opus 5, `main`)
 
 Owner-requested: Lighttable collections belong inside the project, at
@@ -5927,7 +5941,6 @@ all six plots validate and offline browser checks verify actual data interpolati
 opaque intermediate frames, chained/reverse seeking and clean playback. No application
 implementation changed.
 
-
 ### 2026-09-13 23:30 CDT — Slide video clips (Codex, `main`)
 
 **Work:** Added MP4/MOV gallery import from `plots/_videos`, ordinary geometry editing,
@@ -6556,7 +6569,6 @@ distribution, CI/release evidence, implementation sequence, and maintenance/reco
 Read the active fortification release seams without modifying that worktree. Recorded the
 owner's no-paid-Apple constraint in §10; application code and release infrastructure unchanged.
 
-
 ### 2026-09-21 18:54 UTC — Main integration with current upstream text and CI work
 
 Combined fortification/zoom/eyedropper through `acd1ff3`, upstream through `7d90525`,
@@ -7161,3 +7173,20 @@ Timings on a copy of a real 7-figure project: core connect 1.5 s cold / 0.3 s ca
 - Pure MCP gates that spawn the launcher run `dist/` when it exists: rebuild (`npm run
   build:cli`) before judging them locally, or a stale bundle answers.
 
+### 2026-09-27 07:18 UTC — Headless inbox and presence (Codex, aio-w4a-inbox)
+**Work:** Replaced the headless feedback API with the v2 annotation engine, unified
+inbox/claim/reply/resolve verbs, cursor waits, saved-target inspection and capped MCP images.
+Added explicit-connect presence with serialized rebind/exit cleanup, and the shared pure
+comment append helper. Updated the stock manual, generated docs, MCP golden and gate manifest.
+The old feedback/withdraw gates were consolidated because the send boundary is retired.
+**Verification:** Full pure tier passes 298/298; CLI build and headless typecheck pass.
+Svelte check reports 7 errors/0 warnings exclusively in the two GUI feedback importers
+awaiting W4b's separately owned replacement; no shell or bridge files were changed here.
+The orchestrator must merge that work, wire GUI Reply to `appendCommentMessage`, then run
+check, annotation/context UI, paper-gate, startup and native coverage. Nothing committed.
+**Learnings:** Use item fingerprints in wait cursors so equal-timestamp appends are visible;
+a torn tail needs a separator before the next atomic event. Stale claims name their observed
+predecessor to arbitrate competing takeovers; an unmarked losing claim never becomes a
+winner when the old presence expires. Presence is a lifetime owned only by explicit
+connect, including simultaneous connects; cwd discovery creates no session. A bound result
+includes its session, and the connect engine can read `currentSession()` after binding.

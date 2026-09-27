@@ -54,9 +54,10 @@ try {
   h.eq(JSON.parse(textOf(await c.call('list_project'))).title, 'Project A', 'global connect preserves an existing project binding');
   h.eq(JSON.parse(textOf(await c.call('list_project', { project: a }))).title, 'Project A', 'per-call project still works after global connect');
   const child = path.join(a, 'nested', 'cwd'); await fs.mkdir(child, { recursive: true });
+  const presenceBeforeAuto = await fs.readdir(path.join(a, ".meta", "live", "sessions")).catch(() => []);
   const auto = await rawMcp(launcher, child, [], env); clients.push(auto); await auto.initialize('codex');
   h.eq(JSON.parse(textOf(await auto.call('list_project'))).title, 'Project A', 'cwd walk-up supplies default root');
-  h.ok(!await fs.stat(path.join(a, '.meta', 'live', 'sessions')).catch(() => null), 'auto-binding creates no connected presence');
+  h.eq(await fs.readdir(path.join(a, ".meta", "live", "sessions")).catch(() => []), presenceBeforeAuto, "auto-binding creates no additional connected presence");
   const explicit = await createMcpBinding(a, { FLUX_PROJECT: b }, temp);
   h.eq(explicit.bound, a, 'explicit startup root takes precedence over FLUX_PROJECT');
   h.eq((await createMcpBinding(undefined, { FLUX_PROJECT: b }, child)).bound, b, 'FLUX_PROJECT takes precedence over cwd');

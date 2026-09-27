@@ -7,7 +7,8 @@
 
 import { z } from "zod";
 import type { VerbDef, CliArgSpec } from "./registry";
-import { ValidationError } from "./errors";
+import { INBOX_VERBS } from "./inboxVerbs";
+import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
 import * as core from "./index";
@@ -212,6 +213,7 @@ export const VERBS: VerbDef[] = [
         noRender: a.noRender as boolean | undefined,
         identity,
         sessionName: ctx.mcp?.name() ?? null,
+        ...(ctx.mcp?.bind ? { bindSession: async (root: string) => (await ctx.mcp!.bind!(root, !!a.live))?.name ?? null } : {}),
         sessionKey: ctx.mcp ? null : identity.sessionId,
         progress: ctx.mcp ? undefined : (line) => { if (process.stderr.isTTY) console.error(line); },
       });
@@ -1267,7 +1269,7 @@ export const VERBS: VerbDef[] = [
     cli: "compose-figure",
     cliRoot: "flags",
     summary:
-      "Assemble multiple plots into ONE labeled multi-panel figure: imports each plot (semantic FluxPlot if a .fluxplot.json sidecar is present), grid-arranges them, auto-letters the panels (a, b, c…), and writes a caption stub. The flagship figure-building verb — e.g. turn 10 analysis plots into Figure 6.",
+      "Assemble plots into ONE labeled multi-panel figure: imports each (semantic when a .fluxplot.json sidecar exists), grid-arranges them, letters the panels (a, b, c…) and writes a caption stub. E.g. 10 analysis plots → Figure 6.",
     params: {
       plotPaths: z.array(z.string()),
       id: z.string().optional(),
@@ -1541,7 +1543,7 @@ export const VERBS: VerbDef[] = [
     cli: "sync-figure",
     cliRoot: "flags",
     summary:
-      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive. A changed intrinsic plot size resizes its element (physical-size-true) and grows the figure frame when needed (re-pack with arrange if the grid should reflow).",
+      "Refresh figures' plot copies IN PLACE from their regenerated plots/ sources (after rerun_plot): captions, positions and per-part restyles survive; a changed plot size resizes its element and grows the frame when needed.",
     params: { figureId: z.string().optional() },
     cliArgs: [{ kind: "pos", at: 0, into: "figureId" }],
     handler: (ctx, a) => core.syncFigureAssets(ctx.root, a.figureId as string | undefined),
@@ -1765,7 +1767,7 @@ export const VERBS: VerbDef[] = [
     cli: "search",
     cliRoot: "flags",
     summary:
-      "Search the machine-global FluxLib reference library with a structured query, e.g. 'author:smith year:2020 journal:nature' (fields: author, year, journal, title, doi; bare words match any). Returns matching entries — cite one via its `key` as @key. Each hit also carries `enrich` (abstract, topics, keywords, citedByCount, openalexId) when the entry has been hydrated (see hydrate_library).",
+      "Search FluxLib, the machine-wide library, with a structured query like 'author:smith year:2020 journal:nature' (fields author, year, journal, title, doi; bare words match any). Cite a hit as @key; hydrated entries carry `enrich` (abstract, topics, citedByCount).",
     params: { query: z.string() },
     cliArgs: [{ kind: "rest", at: 0, into: "query", as: "joined", default: "" }],
     // ONE core call now (the enriched search) — the CLI previously printed the
@@ -2068,10 +2070,9 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "note", into: "note" },
     ],
     handler: (ctx, a) =>
-      core.resolveProjectComment(ctx.root, s(a.id), {
-        docRel: a.doc as string | undefined,
-        note: a.note as string | undefined,
-      }),
+      resolveItem(ctx.root, s(a.id), {
+        doc: a.doc as string | undefined, note: a.note as string | undefined,
+      }, ctx),
     render: {
       human: (r) => {
         const c = r as { id: string; resolved: number; total: number };
@@ -2107,7 +2108,7 @@ export const VERBS: VerbDef[] = [
         quote: s(a.quote),
         body: s(a.body),
         docRel: a.doc as string | undefined,
-        at: a.at as number | undefined,
+        at: a.at as number | undefined, author: inboxAuthor(ctx).name, client: inboxAuthor(ctx).client, session: inboxSession(ctx),
       }),
     render: {
       human: (r) => {
@@ -2120,45 +2121,7 @@ export const VERBS: VerbDef[] = [
       },
     },
   },
-  {
-    name: "list_feedback",
-    scope: "project",
-    cli: "feedback",
-    cliRoot: "flags",
-    summary:
-      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved and withdrawn — a withdrawn note was taken back by the user; never act on it). Address each note, then resolve_feedback.",
-    params: { all: z.boolean().optional() },
-    cliArgs: [{ kind: "flag", at: "all", into: "all", as: "boolean" }],
-    handler: (ctx, a) => core.listFeedback(ctx.root, { all: a.all as boolean | undefined }),
-    render: {
-      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
-      mcp: (r) => text(JSON.stringify(r, null, 2)),
-    },
-  },
-  {
-    name: "resolve_feedback",
-    scope: "project",
-    cli: "resolve-feedback",
-    cliRoot: "flags",
-    summary:
-      "Mark a feedback note resolved — by id, or a unique substring of its text — with a note on what you did (the user sees it in the app). Call AFTER actually addressing the item. Appends to the ledger (never rewrites) + journals.",
-    params: { id: z.string(), note: z.string().optional() },
-    cliArgs: [
-      { kind: "pos", at: 0, into: "id", required: true },
-      { kind: "flag", at: "note", into: "note" },
-    ],
-    handler: (ctx, a) => core.resolveFeedback(ctx.root, s(a.id), { note: a.note as string | undefined }),
-    render: {
-      human: (r) => {
-        const c = r as { id: string; open: number };
-        return { err: `✓ resolved ${c.id} (${c.open} still open)` };
-      },
-      mcp: (r) => {
-        const c = r as { id: string; open: number };
-        return text(`resolved ${c.id} (${c.open} still open)`);
-      },
-    },
-  },
+  ...INBOX_VERBS,
   {
     name: "ensure_context",
     scope: "project",
@@ -2422,7 +2385,7 @@ export const VERBS: VerbDef[] = [
     cli: "validate",
     cliRoot: "flags",
     summary:
-      "Validate the project (or one file) against the bundled JSON Schemas (.meta/schema/), plus project lint: EMPTY figures (they shift figure numbers), figures embedded in no document, and overlapping canvas frames. Use after editing files directly to confirm your writes are well-formed.",
+      "Validate the project (or one file) against the bundled schemas (.meta/schema/), plus lint: EMPTY figures (they shift figure numbers), figures embedded in no document, overlapping frames. Run after editing files directly.",
     params: { file: z.string().optional() },
     cliArgs: [{ kind: "pos", at: 0, into: "file" }],
     handler: (ctx, a) => core.validate(ctx.root, a.file as string | undefined),
@@ -2491,7 +2454,7 @@ export const VERBS: VerbDef[] = [
     cli: "rerun-plot",
     cliRoot: "flags",
     summary:
-      "Re-run a plot's recipe (regenerate the figure from its source script + params). Params may be strings, numbers, or booleans. only: true reruns just THIS recipe's plot even when the script saves several (figure-level scripts) — sibling plots stay untouched on disk; a string targets specific plot name(s)/patterns.",
+      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
     params: {
       recipePath: z.string(),
       params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),

@@ -75,7 +75,15 @@ With the session export above, `render-figure growth --png` just works.
 | `zotero-sync [--bib f] [--data-dir d] [--attach copy\|link] [--defer-fulltext] [--force] [--save]` | `zotero_sync` | pull new references + PDFs from the connected Zotero Better-BibTeX auto-export into FluxLib (one-way, idempotent; an UNCHANGED export is skipped from a stat alone — `--force` re-scans and also picks up attach backfill; `--defer-fulltext` links pointers without reading the PDFs — text backfills lazily; `--save` persists overrides as the machine settings) |
 | `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | project-wide list/unique resolve by default; `--doc` targets one document (see MANUSCRIPT-AND-REVIEW.md) |
 | `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
-| `feedback [--all]` · `resolve-feedback <id\|text> [--note "…"]` | `list_feedback` · `resolve_feedback` | the **feedback ledger** (context-stamped notes from the app; see MANUSCRIPT-AND-REVIEW.md) |
+| `inbox [query] [--kind annotation\|comment] [--surface s] [--doc d] [--figure f] [--deck d] [--tag a,b] [--status s, …\|all] [--archived] [--since ISO] [--text t] [--holder name] [--claimed me\|others\|none\|any] [--mine] [--json]` | `list_inbox` | Unified annotations and comments; `packets:true` adds current target state and up to six inline images. |
+| `wait-inbox [query] [filters] [--timeout seconds] [--cursor c] [--mode queue\|annotations\|filter]` | `wait_for_inbox` | Opt-in wait for routed items; returns `{items,cursor,stopped,revoked}`. |
+| `claim <id> [--note text] [--force]` | `claim_item` | First live claimant wins. Force only on explicit instruction. |
+| `release <id>` | `release_item` | Release your claim. |
+| `reply <id> <text…> [--needs-input]` | `reply_item` | Reply in the thread; flag a question for the user. |
+| `resolve <id\|unique quote> [--note text]` | `resolve_item` | Resolve after completing the work. |
+| `archive <id>` · `unarchive <id>` | `archive_item` · `unarchive_item` | Hide or restore items when asked. |
+| `inspect <TargetRef-json\|kind:ids>` | `get_target` | Saved target state without rendering. Example: `part:fig-2/el-9#control`. |
+| — | `get_inbox_image` | Fetch an annotation snapshot by id; PNG, long edge ≤1600 px. |
 | `context-init` | `ensure_context` | ensure the project's `Context/` layer exists |
 | `log <text…> [--title "…"] [--file f] [--agent a] [--surface s] [--checkpoint]` | `write_log` | append a dated entry to the **Log** (`Context/NOTEBOOK.md`) only when asked; automatic agent · surface · host:cwd byline, manuscript lock, newest last |
 | `read-log [--tail n] [--since-checkpoint] [--titles] [--json]` | `read_log` | read entries as Markdown (`--json` for parsed objects); checkpoints include the summary and later entries, titles omit bodies, history is never deleted |

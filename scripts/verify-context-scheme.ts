@@ -49,7 +49,7 @@ const docs = (docsMod.FLUX_CONTEXT_FILES ? docsMod : docsMod.default) as {
   ];
   ok(expect.every((n) => n in files) && Object.keys(files).length === expect.length, `stock set complete (${expect.length} docs)`);
   ok(/add-figure/.test(files["CLI-REFERENCE.md"]) && !/add-math/.test(files["CLI-REFERENCE.md"]), "CLI-REFERENCE reflects the post-migration slide surface (no retired verbs)");
-  ok(/feedback/.test(files["WORKFLOW.md"]) && /resolve-feedback/.test(files["WORKFLOW.md"]), "WORKFLOW's review loop covers the feedback ledger");
+  ok(/inbox/.test(files["WORKFLOW.md"]) && /\bresolve\b/.test(files["WORKFLOW.md"]), "WORKFLOW's review loop covers the unified inbox");
   ok(files["TEMPLATES.md"].includes('command = "{{FLUX_CLI}}"') && files["TEMPLATES.md"].includes('args = ["mcp",') && !Object.values(files).some(body => body.includes("{{FLUX_MCP_PATH}}")), "manual MCP snippets use the canonical launcher; retired MCP path placeholder is absent");
   ok(/aligned by filename|SAME item filenames/.test(files["LIGHTTABLE.md"]) && /\{\{LIGHTTABLE_DIR\}\}/.test(files["LIGHTTABLE.md"]), "LIGHTTABLE carries the alignment convention + dir placeholder");
   ok(/uv init/.test(files["PYTHON-CONVENTIONS.md"]) && /uv add --editable ~\/fluxplot/.test(files["PYTHON-CONVENTIONS.md"]) && /uv init --lib/.test(files["PYTHON-CONVENTIONS.md"]), "PYTHON-CONVENTIONS carries the uv doctrine (project + fluxplot dep + library form)");

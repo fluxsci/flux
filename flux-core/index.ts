@@ -76,7 +76,9 @@ export * from "./manuscript";
 
 // Review-comment threads (list/resolve) live in ./comments.
 export * from "./comments";
-export * from "./feedback";
+export * from "./annotations";
+export { waitForInbox } from "./inboxWait";
+export { inspectTarget, inboxPackets, getInboxImage } from "./inspect";
 export * from "./context";
 
 // WS2 JSON-schema validation + project lint + validate-plot live in ./validate.

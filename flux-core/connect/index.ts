@@ -46,6 +46,8 @@ export interface ConnectOptions {
   identity: AgentIdentity;
   /** The presence name of an MCP session (shown in the brief and receipt). */
   sessionName?: string | null;
+  /** MCP: start the session's presence on the resolved project; returns its name. */
+  bindSession?: (root: string) => Promise<string | null>;
   /** CLI sessions: the vendor session id; keys the hook cursor (§8.8 Delivery 2). */
   sessionKey?: string | null;
   progress?: (line: string) => void;
@@ -228,6 +230,7 @@ export async function connect(opts: ConnectOptions): Promise<ConnectResult> {
   const packId = opts.packId ?? newPackId(now.getTime());
   const title = root ? ((await loadManifest(root)).title || path.basename(root)) : "global";
   const previous = await latestPack(target.mode, root, title);
+  const sessionName = root && opts.bindSession ? ((await opts.bindSession(root)) ?? opts.sessionName ?? null) : (opts.sessionName ?? null);
 
   const { facts, sources, state, watch, texts } = await collectFacts({
     root,
@@ -235,7 +238,7 @@ export async function connect(opts: ConnectOptions): Promise<ConnectResult> {
     packId,
     createdAt: now.toISOString().replace(/\.\d{3}Z$/, "Z"),
     identity: opts.identity,
-    sessionName: opts.sessionName ?? null,
+    sessionName,
     live: !!opts.live,
     previous: previous ? { createdAt: previous.manifest.createdAt, sources: previous.manifest.sources } : null,
     progress: opts.progress,

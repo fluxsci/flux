@@ -17,7 +17,9 @@ import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-sc
 import { getParseErrorMessage } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { requireProject } from "./model";
-import type { AgentIdentity } from "./agentIdentity";
+import { detectAgentIdentity, type AgentIdentity } from "./agentIdentity";
+import type { SessionRef } from "../src/lib/project/annotations";
+import type { WatchSpec } from "../src/lib/project/inbox";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { classifyError, ExternalToolError, LockedError, ValidationError } from "./errors";
@@ -85,6 +87,10 @@ export interface CliArgSpec {
 
 export interface VerbCtx {
   root: string;
+  session?: SessionRef;
+  transport?: "cli" | "mcp";
+  signal?: AbortSignal;
+  watching?: (pending: boolean, watch: WatchSpec) => Promise<void>;
   identity?: AgentIdentity;
   /** The caller's working directory: the shell's on the CLI; null over MCP,
    *  where the server's cwd says nothing reliable about the agent's. */
@@ -292,7 +298,7 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
       await requireProject(root);
       await recoverProjectForAuthoring(root);
     }
-    const r = await v.handler({ root }, args);
+    const r = await v.handler({ root, identity: detectAgentIdentity(process.env), cwd: process.cwd(), transport: "cli" }, args);
     const h = (v.render?.human ?? defaultHuman)(r, args);
     if (h.outRaw !== undefined) (io.raw ?? io.log)(h.outRaw);
     if (h.out !== undefined) io.log(h.out);
@@ -306,12 +312,13 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   return true;
 }
 
-export const projectParam = z.string().optional().describe("Flux project root; defaults to the connected project");
+export const projectParam = z.string().optional().describe("Project root; default: the connected project");
 export type RootResolver = (args: Record<string, unknown>) => string | Promise<string>;
 export type McpToolset = "core" | "full";
 export interface McpVerbOptions {
   toolset?: McpToolset;
-  bindRoot?: (root: string | null) => void;
+  bindRoot?: (root: string | null, args: Record<string, unknown>) => void | SessionRef | Promise<void | SessionRef>;
+  sessionContext?: (root: string) => Pick<VerbCtx, "session" | "signal" | "watching">;
   defaultRoot?: () => string | null;
   identity?: () => AgentIdentity;
   /** The server's flux-connect session (connect reports its pack and cursor to it). */
@@ -380,11 +387,15 @@ export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, 
       ? await getRoot(parsed) : options.defaultRoot?.() ?? "";
     if (projectScope) { await requireProject(root); await recoverProjectForAuthoring(root); }
     const args = resolvePathParams(v, parsed, root);
-    const r = await v.handler({ root, identity: options.identity?.(), cwd: null, ...(options.session ? { mcp: options.session } : {}) }, args);
-    if (v.bindsRoot) {
+    const r = await v.handler({ root, identity: options.identity?.(), cwd: null, transport: "mcp", ...options.sessionContext?.(root), ...(options.session ? { mcp: options.session } : {}) }, args);    if (v.bindsRoot) {
       const next = (r as { root?: string | null }).root;
       if (next !== undefined && next !== null && typeof next !== "string") throw new ValidationError("connect returned an invalid root");
-      if (next !== undefined) options.bindRoot?.(next);
+      if (next !== undefined) {
+        const session = await options.bindRoot?.(next, args);
+        if (session && r && typeof r === "object") {
+          Object.assign(r, { session });
+        }
+      }
     }
     return (v.render?.mcp ?? defaultMcp)(r, args);
   } catch (e) { return errorToMcp(e); }

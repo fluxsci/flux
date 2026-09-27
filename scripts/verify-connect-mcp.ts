@@ -34,6 +34,11 @@ try {
   h.ok(!r.isError && brief.startsWith(`# FLUX-CONNECT BRIEF · project "MCP Connect" · pack ${sc.packId}`), "connect returns the brief as text");
   h.ok(sc.root === root && fsSync.existsSync(sc.briefPath) && fsSync.existsSync(sc.bundlePath) && sc.images.every((i) => fsSync.existsSync(i.path)), "structuredContent paths exist");
   h.ok(brief.includes("You: Claude Code"), "the brief names the handshake product");
+  const sessions = await fs.readdir(path.join(root, ".meta", "live", "sessions")).catch(() => []);
+  const me = sessions.length === 1 ? JSON.parse(await fs.readFile(path.join(root, ".meta", "live", "sessions", sessions[0]), "utf8")) : null;
+  h.ok(!!me?.name, `connect started this session's presence (${me?.name})`);
+  h.ok(!!me && brief.includes(`your name here is **${me.name}**`) && brief.includes(`pack ${sc.packId} · You are ${me.name}`), "the brief and its receipt template carry the session's name");
+  h.ok(brief.trimEnd().endsWith(`END OF FLUX-CONNECT BRIEF ${sc.packId}`), "nothing follows the brief's END sentinel");
   h.eq(JSON.parse(textOf(await c.call("list_project"))).title, "MCP Connect", "connect binds the project for later tools");
 
   h.section("reading the pack over MCP");

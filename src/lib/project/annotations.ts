@@ -71,12 +71,12 @@ export interface Author {
  */
 export type Route = "none" | "any" | { session: SessionRef } | { background: "claude" | "codex" };
 
-interface Base { ts: string; client: string }
+interface Base { ts: string; client: string; author?: Author; session?: SessionRef | null }
 
 export interface NoteEvent extends Base { kind: "note"; id: string; text: string; context: ContextStamp | null; route?: Route }
 export interface ResolveEvent extends Base { kind: "resolve"; target: string; note?: string; author?: Author; session?: SessionRef }
 export interface WithdrawEvent extends Base { kind: "withdraw"; target: string; note?: string }
-export interface ClaimEvent extends Base { kind: "claim"; target: string; session: SessionRef; force?: boolean; takeover?: "stale" }
+export interface ClaimEvent extends Base { kind: "claim"; target: string; session: SessionRef; force?: boolean; takeover?: "stale"; previousClaim?: { id: string; since: string }; previousAssignee?: string }
 export interface ReleaseEvent extends Base { kind: "release"; target: string; by: "agent" | "human"; session?: SessionRef }
 export interface ReplyEvent extends Base { kind: "reply"; target: string; id: string; author: Author; text: string; state?: "working" | "needs-input" | "info"; session?: SessionRef }
 export interface StateEvent extends Base { kind: "state"; target: string; state: "working" | "needs-input" | "clear"; session?: SessionRef }
@@ -249,7 +249,7 @@ export function claimLiveByActivity(claim: Claim, at: number): boolean {
   return at - ms(claim.lastActivity) < CLAIM_TTL_MS;
 }
 
-export function foldAnnotations(events: readonly AnnotationEvent[]): AnnotationState {
+export function foldAnnotations(events: readonly AnnotationEvent[], ctx?: LivenessContext): AnnotationState {
   const items: AnnotationItem[] = [];
   const byId = new Map<string, AnnotationItem>();
   const overlays = new Map<string, ItemOverlay>();
@@ -331,18 +331,28 @@ export function foldAnnotations(events: readonly AnnotationEvent[]): AnnotationS
         if (a && (a.resolved || a.withdrawn)) return;
         const at = ms(ev.ts);
         // Named queue: only the assignee (or an explicit force) may claim.
-        if (o.assignedTo && o.assignedTo.id !== ev.session.id && !ev.force) {
+        const staleAssignment = ev.takeover === "stale" && ev.previousAssignee === o.assignedTo?.id;
+        if (o.assignedTo && o.assignedTo.id !== ev.session.id && !ev.force && !staleAssignment) {
           o.lostClaims.push({ session: ev.session, ts: ev.ts, holder: o.assignedTo });
           return;
         }
         if (o.claim && o.claim.session.id !== ev.session.id) {
-          const live = claimLiveByActivity(o.claim, at);
-          if (live && !ev.force && !ev.takeover) {
+          const activity = claimLiveByActivity(o.claim, at);
+          // A stale takeover names the observed predecessor. Two contenders
+          // cannot both replace it, even when they read the same stale state.
+          const predecessor = !ev.previousClaim || (ev.previousClaim.id === o.claim.session.id && ev.previousClaim.since === o.claim.since);
+          // A writer records its stale observation. A previously rejected
+          // plain claim must not become a winner when presence later expires.
+          const takeover = ev.takeover === "stale" && predecessor && !activity &&
+            (!!ev.previousClaim || !ctx?.liveSessionIds?.has(o.claim.session.id));
+          if (!ev.force && !takeover) {
             o.lostClaims.push({ session: ev.session, ts: ev.ts, holder: o.claim.session });
             return;
           }
           o.lastHolder = o.claim.session;
         }
+        if (staleAssignment) o.assignedTo = null;
+        if (ev.force && o.assignedTo && o.assignedTo.id !== ev.session.id) o.assignedTo = ev.session;
         if (o.claim && o.claim.session.id === ev.session.id) o.claim.lastActivity = ev.ts;
         else o.claim = { session: ev.session, since: ev.ts, lastActivity: ev.ts };
         if (o.revokedSession === ev.session.id) o.revokedSession = null;
@@ -487,6 +497,8 @@ export type WriteCheck = { ok: true } | { ok: false; reason: string };
  */
 export function writeAllowed(o: ItemOverlay, session: SessionRef | null, ctx: LivenessContext): WriteCheck {
   if (session && o.revokedSession === session.id) return { ok: false, reason: "released by the user" };
+  if (session && o.assignedTo && o.assignedTo.id !== session.id && ctx.liveSessionIds?.has(o.assignedTo.id))
+    return { ok: false, reason: `assigned to ${o.assignedTo.name}` };
   if (session && o.claim && o.claim.session.id !== session.id && claimIsLive(o.claim, ctx))
     return { ok: false, reason: `claimed by ${o.claim.session.name}` };
   return { ok: true };
@@ -533,10 +545,12 @@ export function makeWithdraw(target: string, client: string, note?: string): Wit
   if (note) ev.note = note;
   return ev;
 }
-export function makeClaim(target: string, session: SessionRef, client: string, opts: { force?: boolean; takeover?: "stale" } = {}): ClaimEvent {
+export function makeClaim(target: string, session: SessionRef, client: string, opts: { force?: boolean; takeover?: "stale"; previousClaim?: { id: string; since: string }; previousAssignee?: string } = {}): ClaimEvent {
   const ev: ClaimEvent = { kind: "claim", target, session, ts: now(), client };
   if (opts.force) ev.force = true;
   if (opts.takeover) ev.takeover = opts.takeover;
+  if (opts.previousClaim) ev.previousClaim = opts.previousClaim;
+  if (opts.previousAssignee) ev.previousAssignee = opts.previousAssignee;
   return ev;
 }
 export function makeRelease(target: string, by: "agent" | "human", client: string, session?: SessionRef): ReleaseEvent {

@@ -24,6 +24,9 @@ export interface ConnectedInfo {
 export interface McpSessionHooks {
   /** This session's presence name, once connected (null before, or without presence). */
   name(): string | null;
+  /** Start (or keep) this session's presence on a project before the brief is written, so the
+   *  brief and its receipt can carry the session's name. */
+  bind?(root: string, live: boolean): Promise<{ id: string; name: string } | null>;
   connected(info: ConnectedInfo): void;
 }
 
@@ -47,7 +50,11 @@ export interface ConnectTool {
   fn: (args: Record<string, unknown>) => Promise<McpRender>;
 }
 
-export function createConnectSession(opts: { identity: () => AgentIdentity; name?: () => string | null }): ConnectSession {
+export function createConnectSession(opts: {
+  identity: () => AgentIdentity;
+  name?: () => string | null;
+  bind?: (root: string, live: boolean) => Promise<{ id: string; name: string } | null>;
+}): ConnectSession {
   let state: { cursor: DeltaCursor; notified: StatSnapshot; texts: Map<string, string>; title: string } | null = null;
   let connectedRoot: string | null = null;
 
@@ -57,6 +64,7 @@ export function createConnectSession(opts: { identity: () => AgentIdentity; name
   return {
     hooks: {
       name: () => opts.name?.() ?? null,
+      ...(opts.bind ? { bind: opts.bind } : {}),
       connected(info) {
         // A global connect keeps the project binding (plan §8.7), so it keeps the project's cursor too.
         if (!info.root && state) return;

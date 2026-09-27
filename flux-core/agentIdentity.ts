@@ -71,7 +71,7 @@ export function detectAgentIdentity(
 ): AgentIdentity {
   const ci = fromClientInfo(clientInfo);
   const entry = env.CLAUDE_CODE_ENTRYPOINT;
-  const claude = env.CLAUDECODE === "1" || !!entry || (env.AI_AGENT ?? "").startsWith("claude-code");
+  const claude = env.CLAUDECODE === "1" || !!env.CLAUDE_CODE_SESSION_ID || !!entry || (env.AI_AGENT ?? "").startsWith("claude-code");
   if (claude) {
     return {
       vendor: "anthropic",

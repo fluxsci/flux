@@ -20,7 +20,7 @@ result. This file is the orientation; the full references are siblings — `WORK
 `plots/` (your analysis output lands here: SVG + `.fluxplot.json` manifest + recipe) ·
 `fig/` (app-managed figures — never hand-edit; use verbs) · `references/library.bib` ·
 `slides/<deck>/deck.json` · `Context/` (the agent context layer — see `README.md` here) ·
-`.meta/` (journal, locks, feedback ledger, live bridge).
+`.meta/` (journal, locks, annotation ledger, live bridge).
 
 ## The essential loops
 
@@ -31,9 +31,8 @@ result. This file is the orientation; the full references are siblings — `WORK
 (`restyle <fig> <part> --stroke …`) survive regeneration.
 
 **Review:** bare `comments` lists the user's threads across every project document (each
-names its document and anchors to exact quoted text; `--doc` targets one); `feedback` lists context-stamped notes from the app (each carries what the user had
-selected). Address the item in place, then `resolve-comment <id> --note "…"` /
-`resolve-feedback <id> --note "…"` — the open app closes the thread live. Ask questions
+names its document and anchors to exact quoted text; `--doc` targets one); `inbox` lists both annotations and margin comments (each carries its exact target). Address the item in place, then `resolve-comment <id> --note "…"` /
+`resolve <id> --note "…"` — the open app closes the thread live. Ask questions
 with `add-comment --quote "…" --body "…"`.
 
 **Live bridge** (only while the app is open; `.meta/live/bridge.json` exists):

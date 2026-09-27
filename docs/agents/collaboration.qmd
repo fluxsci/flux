@@ -63,7 +63,7 @@ to your agents.
   beat). **Add to queue** saves the note. The buttons in detail: @sec-note-popover. When words aren't enough,
   **Ctrl+Shift+S** freezes the window so you can draw numbered arrows on it and the note
   arrives with the picture: @sec-annotate.
-- Ask an agent to read both queues (`flux feedback`, `flux comments`), fix each item,
+- Ask an agent to read the inbox (`flux inbox --json`), fix each item,
   and resolve it with a note — threads close live in your margin. When unsure, it asks
   *you* via a margin comment instead of guessing.
 - **In the reader**: any external agent session can read the live paper, page, and
@@ -78,11 +78,11 @@ footer counts the open notes.
 
 - **Add to queue** (or **Enter** / **Ctrl+Enter**) records the note and closes the
   popover. You can collect notes as you walk through a figure or manuscript, then ask
-  an agent to read them with `flux feedback` and address them.
+  an agent to read them with `flux inbox --json` and address them.
 - **Edit** puts a queued note back in the box, including its stamp and snapshot.
   **Add to queue** replaces it; **Escape** keeps the original.
 - **Withdraw** takes a note out of the open queue. The ledger retains its history:
-  `flux feedback --all` shows it as *withdrawn*. An agent that already read it can
+  `flux inbox --status all` shows it as *withdrawn*. An agent that already read it can
   see why it disappeared.
 
 As an agent resolves notes, Flux shows an **Agent resolved: …** toast.
@@ -102,7 +102,7 @@ the note popover, or the **Ctrl+K** command) freezes the window under a drawing 
 - The picture is a **crop** around your marks (the whole window if you drew none), saved
   beside the ledger as `.meta/feedback/<note id>.png` when the note is added — never
   before, so a cancelled note leaves no file. Each mark also remembers the **element under
-  its tip** (`header.toolbar > button "Gallery"`), so `flux feedback` prints where every
+  its tip** (`header.toolbar > button "Gallery"`), so `flux inbox --json` prints where every
   number points even before the image is opened.
 
 In a browser build there is no window capture; the overlay still records the marks and

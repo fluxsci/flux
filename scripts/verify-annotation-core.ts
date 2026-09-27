@@ -136,6 +136,9 @@ h.eq(st2.byId.get(n1.id)!.claim?.session.id, wren.id, "a takeover:stale claim re
 h.eq(st2.byId.get(n1.id)!.lastHolder?.id, heron.id, "…and remembers who held it");
 const early = { ...makeClaim(n1.id, wren, "codex"), ts: iso(clock + 60_000) };
 h.eq(foldAnnotations([...parseLedger(text), early]).byId.get(n1.id)!.claim?.session.id, heron.id, "a plain claim within the TTL loses");
+const latePlain = { ...early, ts: iso(late) };
+h.eq(foldAnnotations([...parseLedger(text), latePlain]).byId.get(n1.id)!.claim?.session.id, heron.id, "a failed plain claim cannot become a takeover when the original presence expires");
+h.eq(foldAnnotations([...parseLedger(text), take], { now: late, liveSessionIds: new Set([heron.id]) }).byId.get(n1.id)!.claim?.session.id, heron.id, "a legacy stale claim without a recorded predecessor still checks presence");
 const forced = { ...makeClaim(n1.id, wren, "codex", { force: true }), ts: iso(clock + 60_000) };
 h.eq(foldAnnotations([...parseLedger(text), forced]).byId.get(n1.id)!.claim?.session.id, wren.id, "force (the user's explicit instruction) wins");
 const liveCtx = { now: late, liveSessionIds: new Set([heron.id]) };

@@ -177,8 +177,17 @@ usage: flux <verb> [root] [args] [--flags]
   comments [--root R] [--doc rel] [--all]   list project-wide review comments (open by default; --doc targets one)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   resolve a project-wide unique match (--doc targets one)
   add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)
-  feedback [--root R] [--all]          list the user's context-stamped feedback notes
-  resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
+  inbox [query] [--root R] [--json]    annotations + comments; --kind/--surface/--doc/--figure/--deck
+                                     --tag a,b --status open,claimed|all --archived --since ISO
+                                     --text text --holder name --claimed me|others|none|any --mine
+  wait-inbox [query] [filters] [--timeout seconds] [--cursor token] [--mode queue|annotations|filter]
+                                     wait for routed items; JSON {items,cursor,stopped,revoked}
+  claim <id> [--note text] [--force]   first live claimant wins (force only on request)
+  release <id>                       release your inbox claim
+  reply <id> <text…> [--needs-input]  reply in the item's thread
+  resolve <id|quote> [--note text]    resolve an annotation or margin comment
+  archive <id> · unarchive <id>       hide/restore an inbox item on request
+  inspect <TargetRef JSON|shorthand>  inspect saved state without rendering
   context-init [--root R]              ensure missing Context documents and agent pointers
   log <text…> [--title "…"] [--file f] [--agent a] [--surface s] [--checkpoint] [--root R]
                                        append to the project Log when asked (automatic byline, manuscript lock)

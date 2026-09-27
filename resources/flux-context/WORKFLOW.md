@@ -26,7 +26,7 @@ cat Context/ProjectContext.qmd   # background and links to must-read material
 cat Context/RULES.md             # standing project rules
 "$F" read-log --since-checkpoint   # recent Log; --titles indexes all entries
 tail -5 .meta/journal.ndjson     # what changed since last session
-"$F" feedback && "$F" comments       # open notes + project-wide document threads (each names its doc)
+"$F" inbox --json                      # annotations + every document's margin comments
 ```
 
 When the user asks you to record work, use `"$F" log --agent "<your model>" --title "…" "…"`.
@@ -97,11 +97,12 @@ mark up the documents in the Flux app and you'll address the comments.
 ## 5. Review loop (the user says "address my feedback")
 
 ```bash
-"$F" feedback                    # context-stamped notes: each carries WHAT the user was looking at
+"$F" inbox --json                    # annotations + comments, with exact targets
 "$F" comments                    # all docs: each thread has doc + id + anchor.quote
 "$F" comments --doc paper/notes.qmd   # optional: target one document only
 # for each item: make the change (regenerate / restyle / edit the .qmd), then close it:
-"$F" resolve-feedback <id|text> --note "Done: <what you changed>."
+"$F" claim <id>                         # claimed:false means another agent holds it
+"$F" resolve <id|text> --note "Done: <what you changed>."
 "$F" resolve-comment <id> --note "Done: <what you changed>."   # project-wide unique id
 # unsure about an item? ask in the user's margin instead of guessing:
 "$F" add-comment --quote "the exact doc text" --body "your question"
