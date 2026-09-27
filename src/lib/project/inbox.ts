@@ -102,7 +102,8 @@ function effectiveOverlay<T extends ItemOverlay>(o: T, ctx: LivenessContext): T 
   const claim = o.claim && !claimIsLive(o.claim, ctx) ? null : o.claim;
   const assignedTo = o.assignedTo && ctx.liveSessionIds && !ctx.liveSessionIds.has(o.assignedTo.id) ? null : o.assignedTo;
   return { ...o, claim, assignedTo, lastHolder: o.claim && !claim ? o.claim.session : o.assignedTo && !assignedTo ? o.assignedTo : o.lastHolder,
-    agentState: o.claim && !claim ? null : o.agentState };
+    disconnected: o.claim && !claim ? o.claim.session : !claim && o.assignedTo && !assignedTo ? o.assignedTo : undefined,
+    agentState: !claim && (o.claim || o.assignedTo && !assignedTo) ? null : o.agentState };
 }
 
 function overlayView(o: ItemOverlay | undefined, liveness: InboxBuildInput["liveness"]) {
@@ -119,7 +120,8 @@ function overlayView(o: ItemOverlay | undefined, liveness: InboxBuildInput["live
 function annotationItem(a: AnnotationItem, liveness: InboxBuildInput["liveness"]): InboxItem {
   a = effectiveOverlay(a, liveness);
   const c = a.note.context;
-  const routeSessions = typeof a.route === "object" && "session" in a.route ? [a.route.session] : [];
+  const originalRoute = a.note.route;
+  const routeSessions = originalRoute && typeof originalRoute === "object" && "session" in originalRoute ? [originalRoute.session] : [];
   const text = parseRoute(a.note.text, routeSessions).text;
   const targets = stampTargets(c);
   const figureIds = [...new Set([c?.activeFigureId, ...targets.map(targetFigureId)].filter((x): x is string => !!x))];
@@ -166,7 +168,7 @@ function commentItem(t: InboxComment, o: ItemOverlay | undefined, input: InboxBu
     tags: parseTags([first?.body ?? "", humanText].join("\n")),
     status: statusOf(pseudo),
     chip: statusChip(pseudo, input.liveness),
-    route: overlay?.assignedTo ? { session: overlay.assignedTo } : "none",
+    route: overlay?.route ?? (overlay?.assignedTo ? { session: overlay.assignedTo } : "none"),
     ...overlayView(overlay ?? undefined, input.liveness),
     createdAt: first?.createdAt ?? "",
     lastActivity: [overlay?.lastActivity, ...t.messages.map((m) => m.createdAt)].filter((x): x is string => !!x).sort().at(-1) ?? "",

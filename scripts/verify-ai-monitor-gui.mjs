@@ -124,7 +124,7 @@ try {
     await window.__aiPublish({});
   });
   await page.click('[aria-label="AI status"]');
-  await page.waitForSelector('[data-session="heron-session"]'); await page.click('[data-session="heron-session"] summary'); await clickText('[data-session="heron-session"]', 'Stop watching');
+  await page.waitForSelector('[data-session="heron-session"]'); await clickText('[data-session="heron-session"]', 'Stop watching');
   await waitFor(page, () => document.querySelector('[data-session="heron-session"]')?.textContent.includes('Stopped'), null, { label: 'session released' });
   h.ok(await page.evaluate(async () => {
     const root = window.__flux.get(window.__flux.shell.currentProject).path;

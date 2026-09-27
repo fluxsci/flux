@@ -76,7 +76,9 @@ export async function readAnnotationState(root: string) {
   const now = Date.now();
   const presence = liveSessions(sessions, now, { host: os.hostname(), pidAlive: localPidAlive });
   const liveness = { now, liveSessionIds: new Set(presence.keys()), watchingSessionIds: new Set([...presence.values()].filter(s => s.watching).map(s => s.id)) };
-  return { events, presence, liveness, state: foldAnnotations(events, liveness) };
+  const state = foldAnnotations(events, liveness);
+  for (const id of state.stoppedSessions.keys()) liveness.watchingSessionIds.delete(id);
+  return { events, presence, liveness, state };
 }
 
 /** One O_APPEND write per complete event. Claim records must fit in 4 KiB. */

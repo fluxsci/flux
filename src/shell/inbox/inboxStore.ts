@@ -6,6 +6,7 @@ import { listAllComments, changeComment, commentsRevision } from "../../lib/proj
 import { ANNOTATIONS_REL, foldAnnotations, parseLedger, serializeEvent, makeReply, makeArchive, makeReopen, makeWithdraw, type AnnotationEvent } from "../../lib/project/annotations";
 import { buildInbox, filterInbox, type InboxItem } from "../../lib/project/inbox";
 import { PRESENCE_DIR_REL, parsePresence, liveSessions } from "../../lib/project/presence";
+import { visibleSessions } from "../../lib/project/agentRouting";
 import { feedbackRevision, presenceRevision, externalManuscriptChange } from "../../lib/project/projectWatch";
 import { inboxCount, inboxOpen, inboxSelection, inboxQuery, inboxDrafts } from "./inboxState";
 
@@ -17,6 +18,21 @@ export const inboxLoaded = writable(false);
 let root: string | null = null, generation = 0, wired = false;
 let pending: Promise<void> | null = null, again = false;
 let expiry: ReturnType<typeof setInterval> | undefined;
+let consumers = 0;
+function updateExpiry(): void {
+  if (expiry) clearInterval(expiry);
+  expiry = undefined;
+  if (consumers || get(inboxOpen)) {
+    void refreshInbox();
+    // Expire crashed agents even without a final filesystem event.
+    expiry = setInterval(() => void refreshInbox(), 5000);
+  }
+}
+export function retainInbox(): () => void {
+  initInboxStore();
+  consumers++; updateExpiry();
+  return () => { consumers = Math.max(0, consumers - 1); updateExpiry(); };
+}
 
 async function readSnapshot(owner: string) {
   const fb = fileBridge();
@@ -35,8 +51,8 @@ async function readSnapshot(owner: string) {
   };
   const [text, all, sessions] = await Promise.all([readLedger(), listAllComments(owner), readSessions()]);
   const now = Date.now(), live = liveSessions(sessions.filter(s => s !== null), now);
-  const liveness = { now, liveSessionIds: new Set(live.keys()), watchingSessionIds: new Set([...live.values()].filter(s => s.watching).map(s => s.id)) };
-  const state = foldAnnotations(parseLedger(text), liveness);
+  const state = foldAnnotations(parseLedger(text), { now, liveSessionIds: new Set(live.keys()) });
+  const liveness = { now, liveSessionIds: new Set(live.keys()), watchingSessionIds: new Set(visibleSessions([...live.values()], state.stoppedSessions).filter(s => s.watching).map(s => s.id)) };
   return { items: buildInbox({ state, comments: all.comments, liveness, humanAuthors: all.manifest.authors?.map(a => a.name) }), documents: all.documents.map(d => d.path), sessionIds: liveness.liveSessionIds };
 }
 
@@ -76,15 +92,7 @@ export function initInboxStore(): void {
     let first = true;
     store.subscribe(() => { if (first) first = false; else void refreshInbox(); });
   }
-  inboxOpen.subscribe(open => {
-    if (expiry) clearInterval(expiry);
-    expiry = undefined;
-    if (open) {
-      void refreshInbox();
-      // Expire a crashed agent even when no further filesystem event arrives.
-      expiry = setInterval(() => void refreshInbox(), 5000);
-    }
-  });
+  inboxOpen.subscribe(updateExpiry);
 }
 
 export async function changeInboxItem(item: InboxItem, action: "reply" | "archive" | "reopen" | "withdraw", text = ""): Promise<void> {

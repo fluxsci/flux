@@ -12,6 +12,22 @@
   import { pushToast } from "../lib/toast";
   import { lastAgentView } from "../lib/bridge/liveView";
   import { aiColor, aiOpen, openAI } from "./agent/aiMonitorState";
+  import { sessions } from "./agent/sessionState";
+  let agentsOpen = $state(false);
+  let AgentsPopover = $state<typeof import("./agent/AgentsPopover.svelte").default>();
+  async function toggleAgents() {
+    agentsOpen = !agentsOpen;
+    if (agentsOpen && !AgentsPopover) AgentsPopover = (await import("./agent/AgentsPopover.svelte")).default;
+  }
+  $effect(() => {
+    const root = $currentProject?.path;
+    agentsOpen = false;
+    if (!root) return;
+    let active = true, release: (() => void) | undefined;
+    void import("./agent/annotationStore").then(m => { if (active) release = m.retainPresence(); });
+    return () => { active = false; release?.(); };
+  });
+  $effect(() => { if (!$sessions.length) agentsOpen = false; });
   const fig = fileBridge();
   const win = fig?.win;
   // On macOS we defer to the native traffic-light controls (see main.cjs
@@ -112,6 +128,10 @@
   <!-- Utility strip: deliberately smaller + fainter than the mode strip (the
        "secondary chrome" register), and available on Home too. -->
   <div class="utils no-drag">
+    {#if $view === "workspace" && $currentProject?.path && $sessions.length}
+      <button class="ubtn agents-chip" aria-label="Connected agents" aria-expanded={agentsOpen} onclick={toggleAgents}>{$sessions.length} {$sessions.length === 1 ? "agent" : "agents"} ▾</button>
+      {#if agentsOpen && AgentsPopover}<AgentsPopover close={() => agentsOpen = false} />{/if}
+    {/if}
     <button class="ubtn ai-indicator" data-status={$aiColor} title={`AI status — ${$aiColor === 'green' ? 'ready' : $aiColor === 'red' ? 'broken' : 'needs attention'}`} aria-label="AI status" aria-expanded={$aiOpen} onclick={() => openAI()}>
       <span>AI</span><span class="ai-dot" aria-hidden="true"></span>
     </button>
@@ -150,6 +170,7 @@
 </header>
 
 <style>
+  .ubtn.agents-chip { width:auto;white-space:nowrap;padding:0 7px;font:11px var(--font-ui); }
   .ai-indicator { position: relative; font: 11px var(--font-ui); }
   .ai-dot { position: absolute; right: 1px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--flx-yellow-400, #d0a215); }
   .ai-indicator[data-status="green"] .ai-dot { background: var(--flx-green-400, #879a39); }

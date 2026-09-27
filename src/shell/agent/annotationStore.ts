@@ -11,6 +11,9 @@ import { currentProject } from "../shellStore";
 import { annotationOpen, closeAnnotation, discardAnnotationBuffer } from "./annotateChord";
 import { requestInbox } from "../inbox/inboxState";
 import { pushToast } from "../../lib/toast";
+import { sessions } from "./sessionState";
+import { visibleSessions } from "../../lib/project/agentRouting";
+export { sessions } from "./sessionState";
 
 const presenceConsumers = writable(0);
 const presenceVisible = derived([annotationOpen, presenceConsumers], ([open, count]) => open || count > 0);
@@ -21,7 +24,6 @@ export function retainPresence(): () => void {
 }
 
 export const annotationState = writable<AnnotationState>(foldAnnotations([]));
-export const sessions = writable<PresenceSession[]>([]);
 export const editAnnotationRequest = writable<InboxItem | null>(null);
 export const projectGeneration = writable(0);
 export const annotationRoute = writable<Route>("none");
@@ -32,6 +34,10 @@ export const annotationInbox = derived([annotationState, sessions], ([state, pre
 });
 let root: string | null = null, generation = 0, refreshId = 0, wired = false;
 let previous = new Map<string, string>();
+let presence: PresenceSession[] = [];
+function publishSessions(): void {
+  sessions.set(visibleSessions([...liveSessions(presence, Date.now()).values()], get(annotationState).stoppedSessions));
+}
 let presenceTimer: ReturnType<typeof setTimeout> | undefined;
 let lastPresenceRead = 0;
 const routeKey = () => `flux.annotate.route:${root ?? ""}`;
@@ -50,6 +56,7 @@ export async function refreshAnnotations(toastNew = false): Promise<void> {
   if (owner !== generation || id !== refreshId) return;
   const state = foldAnnotations(parseLedger(text));
   annotationState.set(state);
+  publishSessions();
   const items = get(annotationInbox);
   const next = new Map<string, string>();
   for (const item of items) {
@@ -57,8 +64,8 @@ export async function refreshAnnotations(toastNew = false): Promise<void> {
     next.set(item.id, key);
     if (!toastNew || !previous.has(item.id) || previous.get(item.id) === key) continue;
     const label = item.text.length > 60 ? item.text.slice(0, 57) + "…" : item.text;
-    const agent = item.claimedBy?.name ?? item.lastHolder?.name ?? state.byId.get(item.id)?.resolvedBy ?? item.thread.at(-1)?.author ?? "Agent";
-    if (item.status === "resolved") pushToast("success", `✓ ${agent} resolved: ${label}`);
+    const agent = state.byId.get(item.id)?.resolvedBy ?? item.claimedBy?.name ?? item.lastHolder?.name ?? item.thread.at(-1)?.author ?? "Agent";
+    if (item.status === "resolved") pushToast("success", `${agent} resolved: ${label}`);
     else if (item.status === "needs-input") pushToast("info", `${agent} has a question: ${label}`, { action: { label: "Open inbox", run: () => requestInbox(item.id) } });
     else if (item.status === "claimed" && !previous.get(item.id)?.startsWith(`claimed:${item.claimedBy?.id}:`)) pushToast("info", `${agent} claimed: ${label}`);
   }
@@ -79,7 +86,8 @@ async function readPresence(): Promise<void> {
     }));
   } catch { /* no connected sessions */ }
   if (owner !== generation || !get(presenceVisible)) return;
-  sessions.set([...liveSessions(found, Date.now()).values()].sort((a, b) => Number(b.watching) - Number(a.watching) || a.name.localeCompare(b.name)));
+  presence = found;
+  publishSessions();
   // Refresh expiration while visible even if a dead writer sends no more events.
   schedulePresence();
 }
@@ -100,7 +108,7 @@ export function initAnnotationStore(): void {
     lastPresenceRead = 0;
     if (presenceTimer) { clearTimeout(presenceTimer); presenceTimer = undefined; }
     schedulePresence();
-    sessions.set([]); annotationState.set(foldAnnotations([])); previous.clear();
+    presence = []; sessions.set([]); annotationState.set(foldAnnotations([])); previous.clear();
     annotationRoute.set("none");
     try {
       const r = JSON.parse(localStorage.getItem(routeKey()) ?? '"none"');
@@ -145,15 +153,20 @@ export async function withdrawAnnotation(id: string): Promise<void> {
   await append(root, [makeWithdraw(id, "human")]);
   await refreshAnnotations();
 }
-export async function assignAnnotation(id: string, session: PresenceSession | null): Promise<void> {
-  if (!root) return;
-  await append(root, [makeAssign(id, session ? { id: session.id, name: session.name, client: session.client } : null, "human")]);
-  await refreshAnnotations();
+async function changeRouting(event: AnnotationEvent): Promise<void> {
+  const ownerRoot = root, owner = generation;
+  if (!ownerRoot) throw new Error("Open a project to change an inbox item");
+  await append(ownerRoot, [event]);
+  if (owner === generation) { await refreshAnnotations(); feedbackRevision.update(n => n + 1); }
+}
+export async function assignAnnotation(id: string, route: Route): Promise<void> {
+  await changeRouting(makeAssign(id, route, "human"));
+}
+export async function unassignAnnotation(id: string): Promise<void> {
+  await changeRouting(makeAssign(id, "none", "human"));
 }
 export async function releaseAnnotation(id: string): Promise<void> {
-  if (!root) return;
-  await append(root, [makeRelease(id, "human", "human")]);
-  await refreshAnnotations();
+  await changeRouting(makeRelease(id, "human", "human"));
 }
 export async function annotationImage(item: InboxItem): Promise<string | null> {
   const ownerRoot = root, owner = generation;
@@ -164,10 +177,7 @@ export async function annotationImage(item: InboxItem): Promise<string | null> {
 }
 
 export async function stopWatching(session: PresenceSession): Promise<void> {
-  const ownerRoot = root, owner = generation;
-  if (!ownerRoot) throw new Error("Open a project to stop watching");
-  await append(ownerRoot, [makeReleaseSession({ id: session.id, name: session.name, client: session.client }, "human")]);
-  if (owner === generation) await refreshAnnotations();
+  await changeRouting(makeReleaseSession({ id: session.id, name: session.name, client: session.client }, "human"));
 }
 
 /** Keep publishes the picture before the complete, resolved Q&A in one append. */

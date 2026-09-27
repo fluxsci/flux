@@ -7,7 +7,7 @@ import { scratchProject } from "./lib/mcpFixture";
 import { repo, rawMcp, installTestLauncher, cleanEnv, until, textOf } from "./lib/inboxFixture";
 import { readPresence, readAnnotationState, appendAnnotationEvent } from "../flux-core/annotations";
 import { presenceWord, presenceFileRel, isPresenceStale } from "../src/lib/project/presence";
-import { makeReleaseSession } from "../src/lib/project/annotations";
+import { makeReleaseSession, makeNote, makeAssign, makeRelease } from "../src/lib/project/annotations";
 const h = harness("verify-presence"), temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "inbox-presence-")));
 const clients: Awaited<ReturnType<typeof rawMcp>>[] = [];
 try {
@@ -31,10 +31,26 @@ try {
   h.ok((await readPresence(root))[0].watching, "pending wait sets watching");
   await wait;
   h.ok((await readPresence(root))[0].watching, "watching survives return for the two-minute grace period");
+  h.eq((await readPresence(root))[0].watchMode, "annotations", "presence reports annotations watch mode");
+  const session = { id, name, client: "codex" };
+  const routed = makeNote("Named work ignores watch filters", { surface: "figure" }, "human", { session });
+  await appendAnnotationEvent(root, routed);
+  await appendAnnotationEvent(root, makeAssign(routed.id, session, "human"));
+  const filtered = JSON.parse(textOf(await a.call("wait_for_inbox", { mode: "filter", filter: { surface: "slide" }, timeoutMs: 1000 })));
+  h.eq(filtered.items.map(i => i.id), [routed.id], "real MCP delivers a named route despite a conflicting watch filter");
+  h.eq([(await readPresence(root))[0].watchMode, (await readPresence(root))[0].filter?.surface], ["filter", "slide"], "presence publishes filter mode and its selection");
+  h.eq(JSON.parse(textOf(await a.call("wait_for_inbox", { mode: "queue", timeoutMs: 1000 }))).items.map(i => i.id), [routed.id], "real MCP checks a queued item on its next queue wait");
+  h.eq((await readPresence(root))[0].watchMode, "queue", "presence reports queue mode");
+  await a.call("claim_item", { id: routed.id });
+  await appendAnnotationEvent(root, makeRelease(routed.id, "human", "human"));
+  const revoked = JSON.parse(textOf(await a.call("wait_for_inbox", { timeoutMs: 1000 })));
+  h.eq(revoked.revoked, [{ id: routed.id, reason: "released by the user" }], "real MCP session receives the user revocation notice");
+  h.ok((await a.call("reply_item", { id: routed.id, text: "late reply" })).isError, "real MCP refuses a revoked session's next write");
   const stoppedWait = a.call("wait_for_inbox", { timeoutMs: 5000 });
   await appendAnnotationEvent(root, makeReleaseSession({ id, name }, "human"));
   const stopped = JSON.parse(textOf(await stoppedWait));
   h.eq(stopped.stopped, true, "release-session stops a real MCP pending wait");
+  h.eq((await readPresence(root))[0].watching, false, "Stop watching clears the published grace-period watching flag");
   let collision = "";
   for (let n = 0; ; n++) if (presenceWord(`collision-${n}`) === name) { collision = `collision-${n}`; break; }
   const b = await rawMcp(launcher, temp, [], cleanEnv({ CODEX_THREAD_ID: collision })); clients.push(b); await b.initialize("codex");

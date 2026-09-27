@@ -15,6 +15,10 @@
   import { resolveAt, resolveWithin, elementUnder, type TargetHit } from "../../lib/bridge/targetResolvers";
   import { anchorPathOf, arrowHead, markBadgePoint, markTargetPoint, snapshotCrop, type FeedbackMark, type MarkKind } from "../../lib/project/annotationCapture";
 
+  import RecipientList from "./RecipientList.svelte";
+  import { recipientOptions } from "../../lib/project/agentRouting";
+  import { backgroundAvailable } from "./backgroundAvailability";
+
   initAnnotationStore();
   const INK = "#ff2bd6";
   let text = $state("");
@@ -39,7 +43,7 @@
   let selected = $state<{ ref: TargetRef; history: TargetRef[]; n?: number }[]>([]);
   let generation = 0;
   let seenProject = -1;
-  const routeOptions = $derived<Route[]>(["none", "any", ...$sessions.map(s => ({ session: { id: s.id, name: s.name, client: s.client } }))]);
+  const routeOptions = $derived(recipientOptions($sessions, $backgroundAvailable).map(o => o.route));
   const parsed = $derived(parseRoute(text, $sessions.map(({ id, name, client }) => ({ id, name, client }))));
   const route = $derived(parsed.route ?? $annotationRoute);
   const tags = $derived(parseTags(text));
@@ -336,11 +340,7 @@
       <div class="routing">
         <button class="to-pill" aria-expanded={routeOpen} onclick={() => routeOpen = !routeOpen} title="Tab in the note cycles recipients">To: <b>{describeRoute(route)}</b> ▾</button>
         {#if typeof route === "object" && "session" in route && !$sessions.some(s => s.id === route.session.id && s.watching)}<small class="muted">queued until it watches</small>{/if}
-        {#if routeOpen}<div class="routes" role="group" aria-label="Annotation recipient">
-          <button onclick={() => chooseRoute("none")}>Inbox <small>Nobody acts until you ask</small></button>
-          <button onclick={() => chooseRoute("any")}>Any watching agent <small>First to claim takes it</small></button>
-          {#each $sessions as s}<button class:muted={!s.watching} onclick={() => chooseRoute({ session: { id: s.id, name: s.name, client: s.client } })}>{s.name}{#if s.live}<span class="pairing">Pairing</span>{/if}<small>{s.watching ? s.display : "queued until it watches"}</small></button>{/each}
-        </div>{/if}
+        {#if routeOpen}<RecipientList choose={chooseRoute} />{/if}
       </div>
       {#if staleView && !editing}<p class="hint">Your draft keeps its earlier view. To draw on the current view, <button onclick={() => { if ($annotationRequest) void openSurface($annotationRequest, true); }}>Refresh view (clears marks)</button>.</p>{/if}
       {#if editing}<p class="hint">Editing the saved annotation; its original picture is preserved.</p>{/if}
@@ -359,7 +359,6 @@
 {/if}
 
 <style>
-  .pairing { color: var(--c-accent); border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 1px 4px; font-size: var(--ts-xs); }
   .annotation-surface { position: fixed; inset: 0; z-index: 2000; user-select: none; cursor: var(--cursor-cross); }
   .annotation-shot, .annotation-marks { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .annotation-shot { pointer-events: none; background: var(--c-bg); }
@@ -400,9 +399,6 @@
   .tags span { color: var(--c-accent); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 3px 5px; border-radius: var(--r-ui); }
   .routing { flex-wrap: wrap; }
   .to-pill { border-color: var(--c-line-strong); }
-  .routes { width: 100%; border: 1px solid var(--c-line); max-height: 160px; overflow: auto; }
-  .routes button { width: 100%; text-align: left; display: flex; justify-content: space-between; }
-  .routes small { color: var(--c-tx-muted); font-size: 10px; }
   .inbox-link { border-top: 1px solid var(--c-line); padding-top: 5px; }
 
   @media (max-width: 650px) { .annotation-tools { gap: 0; } .eyebrow { display: none; } .annotation-tools kbd { display: none; } }

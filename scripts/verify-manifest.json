@@ -315,7 +315,8 @@
       "verify-runner-drivers.ts",
       "verify-mcp-readonly.ts",
       "verify-no-retired-agent-layer.ts",
-      "verify-connect-e2e.ts"
+      "verify-connect-e2e.ts",
+      "verify-agent-routing.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -842,6 +843,23 @@
       ]
     },
     {
+      "glob": "{src/lib/project/agentRouting.ts,src/shell/TitleBar.svelte}",
+      "run": [
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-annotation-surface-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-startup.mjs",
+        "verify-annotate-chord-census.ts",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-an-bridge.ts",
+        "verify-ipc-contract.ts",
+        "tier:pure",
+        "verify-shell-complete.mjs"
+      ]
+    },
+    {
       "glob": "src/shell/command/{commands.ts,CommandPalette.svelte}",
       "run": [
         "verify-command-rank.ts",
@@ -867,7 +885,10 @@
         "verify-ai-monitor-gui.mjs",
         "verify-ipc-contract.ts",
         "verify-startup.mjs",
-        "tier:pure"
+        "tier:pure",
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-annotation-surface-gui.mjs"
       ]
     },
     {
@@ -944,7 +965,9 @@
         "verify-annotate-chord-census.ts",
         "verify-annotation-surface-gui.mjs",
         "verify-annotate-utility-electron.cjs",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "verify-agent-routing.ts",
+        "verify-ai-monitor-gui.mjs"
       ]
     },
     {
@@ -970,7 +993,10 @@
         "verify-live-view.ts",
         "verify-live-view-electron.cjs",
         "verify-inbox-gui.mjs",
-        "verify-scale-inbox.mjs"
+        "verify-scale-inbox.mjs",
+        "verify-agent-routing.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-ai-monitor-gui.mjs"
       ]
     },
     {
@@ -1005,7 +1031,11 @@
         "tier:pure",
         "verify-live-view.ts",
         "verify-live-view-electron.cjs",
-        "verify-ask-gui.mjs"
+        "verify-ask-gui.mjs",
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-startup.mjs"
       ]
     },
     {
@@ -1695,7 +1725,11 @@
         "verify-annotation-surface-gui.mjs",
         "verify-context-gui.mjs",
         "verify-ipc-contract.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-startup.mjs"
       ]
     },
     {
@@ -7567,6 +7601,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-agent-routing.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
     }

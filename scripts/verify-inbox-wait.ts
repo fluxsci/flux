@@ -44,6 +44,8 @@ try {
     const [ra, rb] = await Promise.all([resultOf(a), resultOf(b)]);
     h.eq(ra.items.map(i => i.id), [event.id], "named route wakes the assignee");
     h.eq(rb.items, [], "named route does not wake another watcher");
+    const filtered = await waitForInbox(root, { mode: "filter", filter: { kind: "comment", surface: "slide", tag: ["absent"], text: "absent" }, timeoutMs: 30 }, { session: heron });
+    h.eq(filtered.items.map(i => i.id), [event.id], "named route bypasses the assignee's kind, surface, tag and text filters");
     h.eq((await claimItem(root, event.id, {}, { session: wren })).claimed, false, "another session cannot claim the named queue");
     const queued = await waitForInbox(root, { cursor: ra.cursor, mode: "queue", timeoutMs: 30 }, { session: heron });
     h.eq(queued.items.map(i => i.id), [event.id], "assigned queue returns immediately even at the same cursor");
@@ -52,6 +54,7 @@ try {
     await writePresence(root, wren, 61000);
     const stale = (await listInbox(root)).items.find(i => i.id === later.id)!;
     h.eq([stale.status, stale.assignedTo, stale.lastHolder?.id], ["open", null, wren.id], "stale assignee returns to Open with last holder");
+    h.eq(stale.chip, "wren disconnected — reassign?", "stale route tells the user to reassign");
     h.ok((await claimItem(root, later.id, {}, { session: heron })).claimed, "an explicitly addressed stale queue can be claimed");
   }
   {
@@ -88,14 +91,38 @@ try {
     await claimItem(root, event.id, {}, { session: heron });
     const initial = await waitForInbox(root, { timeoutMs: 0 }, { session: heron });
     const waiter = worker(scope, root, "wait", { session: heron, cursor: initial.cursor, timeoutMs: 2000 }); await waiter.ready;
+    const nextHolder = worker(scope, root, "wait", { session: wren, timeoutMs: 2000 }); await nextHolder.ready;
     await appendAnnotationEvent(root, makeRelease(event.id, "human", "human"));
-    const revoked = await resultOf(waiter);
+    const [revoked, delivered] = await Promise.all([resultOf(waiter), resultOf(nextHolder)]);
     h.eq(revoked.revoked, [{ id: event.id, reason: "released by the user" }], "human release wakes with revoked notice");
+    h.eq(delivered.items.map(i => i.id), [event.id], "release of Any wakes the other eligible watcher");
     h.eq(revoked.items, [], "revocation does not redeliver the item to its released session");
     h.eq((await waitForInbox(root, { cursor: revoked.cursor, timeoutMs: 20 }, { session: heron })).revoked, [], "revocation cursor is idempotent");
     const stopping = worker(scope, root, "wait", { session: heron, cursor: revoked.cursor, timeoutMs: 2000 }); await stopping.ready;
     await appendAnnotationEvent(root, makeReleaseSession(heron, "human"));
     h.eq((await resultOf(stopping)).stopped, true, "release-session stops the pending wait");
+  }
+  for (const route of ["none", { session: wren }] as const) {
+    const root = await project(); await writePresence(root, heron); await writePresence(root, wren);
+    const event = await note(root, "Change who gets this");
+    await claimItem(root, event.id, {}, { session: heron });
+    const initial = await waitForInbox(root, { timeoutMs: 0 }, { session: heron });
+    const old = worker(scope, root, "wait", { session: heron, cursor: initial.cursor, timeoutMs: 2000 });
+    const next = worker(scope, root, "wait", { session: wren, mode: "filter", filter: { surface: "slide" }, timeoutMs: 700 });
+    await Promise.all([old.ready, next.ready]);
+    await appendAnnotationEvent(root, makeAssign(event.id, route, "human"));
+    const [revoked, delivered] = await Promise.all([resultOf(old), resultOf(next)]);
+    h.eq(revoked.revoked, [{ id: event.id, reason: "released by the user" }], `${route === "none" ? "Unassign" : "Reassign"} wakes the revoked holder`);
+    h.eq(delivered.items.map(i => i.id), route === "none" ? [] : [event.id], "Unassign wakes nobody else; Reassign bypasses the new assignee's filter");
+    let reason = "";
+    try { await replyItem(root, event.id, "Late work", {}, { session: heron }); } catch (e) { reason = (e as Error).message; }
+    h.ok(reason.includes("released by the user"), "the revoked writer cannot post a late reply");
+  }
+  {
+    const root = await project(); const event = await note(root, "Assign Any later", "none");
+    const waiter = worker(scope, root, "wait", { session: heron, timeoutMs: 2000 }); await waiter.ready;
+    await appendAnnotationEvent(root, makeAssign(event.id, "any", "human"));
+    h.eq((await resultOf(waiter)).items.map(i => i.id), [event.id], "Assign Any wakes an already pending watcher");
   }
   {
     const root = await project();

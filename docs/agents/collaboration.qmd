@@ -135,7 +135,8 @@ Choose **Refresh view (clears marks)** to keep the note and draw on the current 
 **Inbox** is the default: collect notes until you ask an agent to address them. **Any
 watching agent** lets the first watching session claim the item. Choose a connected agent
 by name to queue the annotation for that session. Agents that are connected but not watching
-are greyed and marked **queued until it watches**. Your choice is remembered per project.
+appear after watching agents, greyed and marked **queued until it watches**. They remain
+selectable. Your choice is remembered per project.
 
 **Tab** in the note cycles recipients. Typing **@any** or **@heron** also sets **To:**;
 recognized routing mentions are removed from the saved text. **#tags** appear as chips.
@@ -179,7 +180,44 @@ their notes are published. Replies to margin comments stay in their document's c
 
 Status chips update as agents work: **Queued → heron**, **Claimed by heron**, **heron needs
 your input**, and **Resolved by heron**. Toasts name the agent; a question's toast opens that
-item in Inbox. Assignment controls in Inbox will arrive with the routing phase.
+item in Inbox.
+
+**Assign ▾** (or **A** on a row) uses the same recipients as **To:**. **Unassign** returns
+an item to Inbox, where nobody watches it automatically. **Release claim** pulls work back
+from its current holder while keeping its route. The released agent receives a notice and
+cannot continue writing to that item; explicitly assigning it back authorizes it again.
+Reassigning or unassigning held work also releases the previous holder.
+
+If an assignment expires, its chip reads **heron disconnected — reassign?**, and the item
+returns to Open with its previous holder retained. Claims stay active while the agent is
+connected or has acted on the item in the last 30 minutes; once both expire, they show the
+same reassign prompt.
+
+The titlebar's **2 agents ▾** chip and **AI status → Sessions** show the same connected
+sessions: name, product and surface, connected-since time, **👁 Watching · queue**,
+**👁 Watching · annotations**, or **👁 Watching · filter**, and **🖥 Live** when pairing.
+Each row shows pending queue count and current claims. **Copy name** copies the handle;
+**Show its items** opens Inbox with that agent's `@name` filter. **Stop watching** ends its
+wait and releases its claims. The titlebar chip disappears when no sessions are connected.
+
+## Who gets what: a worked example
+
+1. Two agents are connected: **heron** is watching my annotations; **wren** is connected
+   but not watching. Both appear in the titlebar agents chip and **AI status → Sessions**.
+2. I annotate a legend with `@wren move this below the axis`. **To:** switches to wren,
+   and after I add it the Inbox chip reads **Queued → wren (not watching)**. Heron cannot
+   take it. Wren's row shows **1 queued**.
+3. I annotate a caption and choose **To: Any watching agent**. Heron claims it, and the
+   live chip becomes **Claimed by heron**. Heron's current claim names the caption item.
+4. Later I tell wren, “check your queue.” It checks `flux inbox --mine`, claims the legend
+   item, and resolves it after moving the legend. A named queue reaches its agent even
+   when that agent's watch filter would otherwise exclude the item.
+5. The chip becomes **Resolved by wren**, and the toast reads
+   **wren resolved: move this below the axis**.
+
+I can change either annotation's recipient with **Assign ▾**, return it to **Inbox** with
+**Unassign**, or pull back work in progress with **Release claim**. Nothing starts merely
+because an agent is connected; watching and addressing a queue are explicit actions.
 
 # Design properties
 

@@ -1037,9 +1037,12 @@ Persistence invariants (all machine-checked — do not weaken):
   and ten-minute refreshes never launch diagnostic processes. Doctor is explicit,
   publishes each check, and Copy diagnostics copies its redacted JSON.
   The Skills workflow creates exclusive template folders and uses the OS editor.
-  Sessions retain Annotate's presence reader while either surface is visible;
-  Stop watching appends `makeReleaseSession` through the shared annotation writer.
-  Inbox counts include saved document sidecars through the shared inbox fold.
+  `SessionRows.svelte` supplies both the panel and the lazy titlebar agents popover.
+  The tiny `sessionState.ts` store is the titlebar's only eager session dependency;
+  presence is retained while a project is open. Rows retain the Inbox reader too, so
+  queue counts and claims include every comment sidecar and expire while visible.
+  Stop watching appends `makeReleaseSession` through the shared annotation writer;
+  the ledger overrides the presence writer's watching grace period.
   Gates: `verify-ai-monitor.ts`, `verify-ai-monitor-gui.mjs`, IPC/docs, startup,
   Annotate/utility and multi-window integration. `docs/agents/connect.qmd` contains
   the exact bundle definition shown in the panel.
@@ -1177,9 +1180,18 @@ Persistence invariants (all machine-checked — do not weaken):
     `parseRoute` recognizes @mentions. Named notes append `note` + `assign` together.
     Edit appends `withdraw` + replacement note in one write, retaining the original
     picture/context. Withdraw never pretends the work was resolved. Status chips and
-    toasts name the agent; needs-input opens its replies. Presence reads use FileBridge
-    and run only while Annotate or a retained AI panel is visible, at most once per 5s; the native watcher
-    batches `.meta/live/sessions` notifications at ≥2s.
+    toasts name the agent; needs-input opens its replies. `RecipientList.svelte` and the
+    pure `agentRouting.ts` order Inbox, Any, watching sessions, then selectable muted
+    non-watchers. The `backgroundAvailable` store defaults false and reserves F5's slot.
+    Inbox Assign/Unassign/Release use the shared ledger builders; `assign.route` supports
+    Inbox/Any/background as well as named assignments, including comment overlays.
+    Reassigning/unassigning held work revokes its former holder; explicit assignment back
+    authorizes it again. `sessionInboxQuery` feeds Show its items through the existing
+    @holder filter. Expired assignments/claims retain the disconnected reassign prompt.
+    Presence reads use FileBridge, retained by the project titlebar, at most once per 5s;
+    the native watcher batches `.meta/live/sessions` notifications at ≥2s.
+    `verify-agent-routing.ts` pins ordering, queue accounting and persisted engine parity;
+    wait/presence gates exercise filtered named delivery and revocation over real MCP.
   - **Modal ownership and native windows.** All window key handlers yield through
     `yieldsToShellModal`/`isAnnotateChord` (source census, documented narrow exemptions).
     External model reloads defer while Annotate or Ask is open; ledger/presence updates continue.
@@ -7418,3 +7430,21 @@ with the orchestrator; no application UI or generated manual was changed.
 passage-action status in §10. Owner ruling 2 requires applying the committed one-shot migrator
 before connecting a legacy fixture; connect itself remains read-only. Authored links stay
 unchanged by migration, so the fixture's linked methods use an absolute path valid after the move.
+
+### 2026-09-27 10:23 UTC — Routing and session controls (Codex, aio-f2-routing)
+**Work:** Shared the ordered To/Assign recipients, added Inbox assignment/release actions,
+and reused session rows in the AI panel and lazy titlebar agents popover. Added the F5
+availability seam, named resolution toast, disconnected-holder prompt, and the self-contained
+heron/wren worked example. Assignment to Any/Inbox now uses the shared event builder for
+annotations and comment overlays; human reassignment revokes the previous claim.
+**Verification:** Full hermetic pure tier 313/313 (0 failed/blocked/flaky), including routing
+28, Inbox 165, wait 37 and presence 27 checks. Svelte check: 911 files, 0 errors/0 warnings;
+headless check and production build pass. Browser gates were updated and syntax-checked;
+Inbox, Annotate, AI monitor, scale, startup and native qualification belong to the
+orchestrator. Changes are uncommitted; no UI/electron/bundle tier or dev server was run.
+**Learnings:** A Stop watching ledger event must override the presence writer's two-minute
+grace period. Session rows retain the shared Inbox reader so counts expire while that panel
+is closed. Rerouting must strip the original named mention rather than the new recipient.
+Claims retain the existing presence-or-30-minute-activity liveness contract; expired
+assignments and claims keep their holder in the reassign prompt. F5 must enable
+`backgroundAvailable` and supply the background-run behavior.

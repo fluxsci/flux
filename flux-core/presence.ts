@@ -8,7 +8,8 @@ import type { WatchSpec } from "../src/lib/project/inbox";
 import type { AgentIdentity } from "./agentIdentity";
 import { atomicWrite } from "./fsx";
 import { withLock } from "./locks";
-import { confinedInboxPath, readAnnotationState, readOptional } from "./annotations";
+import { confinedInboxPath, readAnnotationEvents, readAnnotationState, readOptional } from "./annotations";
+import { foldAnnotations } from "../src/lib/project/annotations";
 
 export async function createPresenceWriter(root: string, id: string, identity: AgentIdentity, clientVersion?: string, live = false) {
   const file = await confinedInboxPath(root, presenceFileRel(id));
@@ -29,7 +30,10 @@ export async function createPresenceWriter(root: string, id: string, identity: A
   function publish() {
     tail = tail.catch(() => {}).then(async () => {
       if (stopped) return;
-      session = { ...session, heartbeatAt: new Date().toISOString(), watching: pending > 0 || Date.now() < watchingUntil,
+      // Stop watching (release-session) ends watching now, not after the grace period. A ledger
+      // read failure must never stop the heartbeat itself: the session would look gone.
+      const released = await readAnnotationEvents(root).then(events => foldAnnotations(events).stoppedSessions.has(id), () => false);
+      session = { ...session, heartbeatAt: new Date().toISOString(), watching: !released && (pending > 0 || Date.now() < watchingUntil),
         ...(latest ? { watchMode: latest.mode, filter: "filter" in latest ? latest.filter as Record<string, unknown> : undefined } : {}) };
       await atomicWrite(file, JSON.stringify(session) + "\n");
     });

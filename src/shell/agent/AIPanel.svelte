@@ -3,14 +3,12 @@
   import { get } from 'svelte/store';
   import { aiOpen, aiDetached, aiStatus, aiRequest, refreshAI } from './aiMonitorState';
   import { annotationOpen } from './annotationVisibility';
-  import { annotationState, sessions, retainPresence, stopWatching } from './annotationStore';
-  import { currentProject, projectModel } from '../shellStore';
-  import { externalManuscriptChange } from '../../lib/project/projectWatch';
+  import { sessions } from './sessionState';
+  import { inboxItems, inboxError, initInboxStore } from '../inbox/inboxStore';
+  import SessionRows from './SessionRows.svelte';
+  import { currentProject } from '../shellStore';
   import { fileBridge, joinPath } from '../../lib/project/types';
   import { agentChecks, type AgentId, type MonitorCheck, type MonitorPlan, type MonitorMutation, type MonitorSkills } from '../../lib/project/agentMonitor';
-  import { buildInbox, type InboxComment } from '../../lib/project/inbox';
-  import { listDocuments } from '../modes/paper/documents/documents';
-  import { readProjectComments } from './monitorComments';
   import { openUtilityWindow } from '../../lib/plot/galleryWindow';
   import { modalFocus } from '../../lib/ui/modalFocus';
   import AICheckRow from './AICheckRow.svelte';
@@ -25,25 +23,14 @@
   // RunnerSettings probes the installed CLIs: it mounts only when asked (refresh stays file-only).
   let launchOpen = false;
   let completed: MonitorCheck[] = [];
-  let comments: InboxComment[] = [], commentsError = '', commentsEpoch = 0;
   let projectRoot = get(currentProject)?.path ?? null;
   $: checks = $aiStatus.checks;
   $: bundleChecks = checks.filter(c => !/^(claude|codex)\./.test(c.id));
-  $: inbox = buildInbox({ state: $annotationState, comments, liveness: { now: Date.now(), liveSessionIds: new Set($sessions.map(s => s.id)), watchingSessionIds: new Set($sessions.filter(s => s.watching).map(s => s.id)) } });
+  $: inbox = $inboxItems;
   $: openItems = inbox.filter(i => !i.archived && i.status !== 'resolved' && i.status !== 'withdrawn');
-  $: { void $externalManuscriptChange; void $projectModel; void refreshComments(); }
   $: if (($currentProject?.path ?? null) !== projectRoot) { projectRoot = $currentProject?.path ?? null; aiOpen.set(false); }
   $: if ($aiRequest) { const request = $aiRequest; aiRequest.set(null); if (request.newSkill) void promptSkill(); if (request.connect) void mutate(request.connect); popup?.focus(); }
 
-  async function refreshComments() {
-    const project = get(projectModel), n = ++commentsEpoch;
-    if (!project) { comments = []; return; }
-    try {
-      const docs = await listDocuments(project);
-      const all = await readProjectComments(project, docs);
-      if (alive && n === commentsEpoch) { comments = all; commentsError = ''; }
-    } catch (e) { if (alive && n === commentsEpoch) commentsError = String(e); }
-  }
   async function task(work: () => Promise<void>) {
     if (busy) return;
     busy = true; error = ''; notice = '';
@@ -120,7 +107,7 @@
     if (!(e.ctrlKey || e.metaKey) || !(e.shiftKey && e.code === 'KeyM')) e.stopPropagation();
   }
   onMount(() => {
-    const release = retainPresence();
+    initInboxStore();
     const off = fileBridge()?.onAgentSetupProgress?.(({ check, checkedAt }) => {
       if (!busy) return;
       completed = [...completed.filter(c => c.id !== check.id), { ...check, checkedAt }];
@@ -128,9 +115,9 @@
     });
     void readSkills().catch(e => error = String(e));
     void refreshAI();
-    return () => { release(); off?.(); };
+    return () => { off?.(); };
   });
-  onDestroy(() => { alive = false; commentsEpoch++; popup?.close(); aiDetached.set(false); });
+  onDestroy(() => { alive = false; popup?.close(); aiDetached.set(false); });
 </script>
 
 <div class="ai-scrim" class:detached={$aiDetached} role="presentation" on:click|self={close}></div>
@@ -179,22 +166,12 @@
       <AIBundleTable />
     </section>
     <section aria-label="Sessions"><h2>Sessions</h2>
-      {#each $sessions as session}
-        {@const stopped = $annotationState.stoppedSessions.has(session.id)}
-        {@const queue = openItems.filter(i => i.assignedTo?.id === session.id)}
-        {@const claims = openItems.filter(i => i.claimedBy?.id === session.id)}
-        <details data-session={session.id}><summary tabindex="0">{session.display} <small>{session.watching && !stopped ? 'Watching' : stopped ? 'Stopped' : 'Connected'}{session.live ? ' · Live' : ''} · {queue.length} queued</small></summary>
-          <p>Connected since {new Date(session.startedAt).toLocaleString()}</p><p>Current claim: {claims.map(i => i.text).join('; ') || 'None'}</p>
-          <code class="path">{projectRoot}/.meta/live/sessions/{session.id.replace(/[^A-Za-z0-9._-]/g, '_')}.json</code><p>Version: {session.clientVersion || 'Not reported'} · Last check: {new Date(session.heartbeatAt).toLocaleString()}</p>
-          {#if session.watching && !stopped}<button disabled={busy} on:click={() => void task(() => stopWatching(session))}>Stop watching</button>{/if}
-        </details>
-      {/each}
-      {#if !$sessions.length}<p class="muted">{projectRoot ? 'No connected sessions on this project.' : 'Open a project to see connected sessions.'}</p>{/if}
+      <SessionRows onshow={close} />
     </section>
     <section aria-label="This project"><h2>This project</h2>
       {#if projectRoot}
         <AICheckRow check={{ id: 'Live bridge', status: $aiStatus.project?.root === projectRoot && $aiStatus.project.bridge ? 'ok' : 'warn', message: $aiStatus.project?.root === projectRoot && $aiStatus.project.bridge ? 'Running for this window.' : 'Live bridge is unavailable for this window.', paths: [joinPath(projectRoot, '.meta/live/')], checkedAt: $aiStatus.checkedAt ?? undefined }} />
-        <details><summary tabindex="0">Inbox · {openItems.length} open · {inbox.filter(i => i.status === 'resolved').length} resolved</summary><p>{openItems.filter(i => i.kind === 'annotation').length} annotations · {openItems.filter(i => i.kind === 'comment').length} comments</p><code class="path">{projectRoot}/.meta/feedback.ndjson · document comment sidecars</code>{#if commentsError}<p class="error">Comments could not be read: {commentsError}</p>{/if}</details>
+        <details><summary tabindex="0">Inbox · {openItems.length} open · {inbox.filter(i => i.status === 'resolved').length} resolved</summary><p>{openItems.filter(i => i.kind === 'annotation').length} annotations · {openItems.filter(i => i.kind === 'comment').length} comments</p><code class="path">{projectRoot}/.meta/feedback.ndjson · document comment sidecars</code>{#if $inboxError}<p class="error">Inbox could not be read: {$inboxError}</p>{/if}</details>
         <details><summary tabindex="0">Last connect</summary><p>{$aiStatus.project?.root === projectRoot && $aiStatus.project.lastConnected ? new Date($aiStatus.project.lastConnected).toLocaleString() : $sessions.length ? new Date(Math.max(...$sessions.map(s => Date.parse(s.startedAt)))).toLocaleString() : 'No recorded connection'}</p><code class="path">{projectRoot}</code></details>
       {:else}<p class="muted">Open a project to see its bridge, inbox and connections.</p>{/if}
     </section>

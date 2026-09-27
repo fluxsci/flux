@@ -82,7 +82,7 @@ export interface ReplyEvent extends Base { kind: "reply"; target: string; id: st
 export interface StateEvent extends Base { kind: "state"; target: string; state: "working" | "needs-input" | "clear"; session?: SessionRef }
 export interface ReopenEvent extends Base { kind: "reopen"; target: string }
 export interface ArchiveEvent extends Base { kind: "archive" | "unarchive"; target: string }
-export interface AssignEvent extends Base { kind: "assign"; target: string; session: SessionRef | null }
+export interface AssignEvent extends Base { kind: "assign"; target: string; session: SessionRef | null; route?: Route }
 export interface ReleaseSessionEvent extends Base { kind: "release-session"; session: SessionRef }
 
 export type AnnotationEvent =
@@ -194,6 +194,10 @@ export interface Claim {
 /** The status overlay every item carries, annotation or comment alike. */
 export interface ItemOverlay {
   id: string;
+  /** Explicit reroutes also apply to margin comments. */
+  route?: Route;
+  /** View-only: an expired holder, retained for the reassign prompt. */
+  disconnected?: SessionRef;
   claim: Claim | null;
   /** Most recent holder whose claim ended without a resolve ("heron disconnected — reassign?"). */
   lastHolder: SessionRef | null;
@@ -410,13 +414,15 @@ export function foldAnnotations(events: readonly AnnotationEvent[], ctx?: Livene
       case "assign": {
         const o = target(ev.target, ev.ts);
         o.assignedTo = ev.session;
-        const a = byId.get(ev.target);
-        if (a) {
-          if (ev.session) a.route = { session: ev.session };
-          else if (typeof a.route === "object" && "session" in a.route) a.route = "none"; // unassigned: back to the inbox
+        o.route = ev.route ?? (ev.session ? { session: ev.session } : "none");
+        // Moving work away from a holder revokes it, including Unassign.
+        if (o.claim && o.claim.session.id !== ev.session?.id) {
+          if (ev.client === "human" || ev.author?.kind === "human") o.revokedSession = o.claim.session.id;
+          endClaim(o);
+          o.agentState = null;
         }
-        // A reassignment away from the current holder ends that claim.
-        if (o.claim && ev.session && o.claim.session.id !== ev.session.id) endClaim(o);
+        // A deliberate assignment back to the released session authorizes it again.
+        if (ev.session?.id === o.revokedSession) o.revokedSession = null;
         touch(o, ev.ts);
         return;
       }
@@ -484,6 +490,7 @@ export function statusChip(
       return `Queued → ${name}`;
     }
     case "open":
+      if (o.disconnected) return `${o.disconnected.name} disconnected — reassign?`;
       return o.lastHolder ? `Open (last held by ${o.lastHolder.name})` : "Open";
   }
 }
@@ -575,8 +582,10 @@ export function makeReopen(target: string, client: string): ReopenEvent {
 export function makeArchive(target: string, archived: boolean, client: string): ArchiveEvent {
   return { kind: archived ? "archive" : "unarchive", target, ts: now(), client };
 }
-export function makeAssign(target: string, session: SessionRef | null, client: string): AssignEvent {
-  return { kind: "assign", target, session, ts: now(), client };
+export function makeAssign(target: string, recipient: SessionRef | Route | null, client: string): AssignEvent {
+  const route = recipient && typeof recipient === "object" && "id" in recipient ? { session: recipient } : recipient ?? "none";
+  const session = typeof route === "object" && "session" in route ? route.session : null;
+  return { kind: "assign", target, session, ts: now(), client, ...(!session ? { route } : {}) };
 }
 export function makeReleaseSession(session: SessionRef, client: string): ReleaseSessionEvent {
   return { kind: "release-session", session, ts: now(), client };

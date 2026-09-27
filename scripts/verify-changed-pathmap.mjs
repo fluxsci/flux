@@ -31,10 +31,13 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
-  ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure"]],
-  ["electron/ipc/agentSetup.cjs", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure"]],
-  ["src/shell/inbox/InboxPanel.svelte", ["verify-inbox.ts", "verify-inbox-gui.mjs", "verify-scale-inbox.mjs", "verify-annotate-chord-census.ts", "verify-annotation-surface-gui.mjs", "verify-annotate-utility-electron.cjs", "verify-no-retired-agent-layer.ts"]],
+  // F2 adds routing coverage without dropping the titlebar's live-view gates.
+  ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
+  ["electron/ipc/agentSetup.cjs", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
+  ["src/shell/inbox/InboxPanel.svelte", ["verify-inbox.ts", "verify-inbox-gui.mjs", "verify-scale-inbox.mjs", "verify-annotate-chord-census.ts", "verify-annotation-surface-gui.mjs", "verify-annotate-utility-electron.cjs", "verify-no-retired-agent-layer.ts", "verify-agent-routing.ts", "verify-ai-monitor-gui.mjs"]],
   ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
+  ["src/shell/TitleBar.svelte", ["verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs", "verify-ai-monitor-gui.mjs", "verify-startup.mjs", "verify-annotate-chord-census.ts", "verify-live-view.ts", "verify-live-view-electron.cjs", "verify-an-bridge.ts", "verify-ipc-contract.ts", "tier:pure", "verify-shell-complete.mjs"]],
+  ["src/lib/project/agentRouting.ts", ["verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs", "verify-ai-monitor-gui.mjs", "verify-startup.mjs", "verify-annotate-chord-census.ts", "verify-live-view.ts", "verify-live-view-electron.cjs", "verify-an-bridge.ts", "verify-ipc-contract.ts", "tier:pure", "verify-shell-complete.mjs"]],
   // The text painter's arrangement source and its serializer route together.
   ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure", "verify-text-blank-lines.mjs"]],
   ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],

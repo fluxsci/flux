@@ -15,6 +15,9 @@
   import { inboxImages } from "./images";
   import { figRevision } from "../scholar/revisions";
   import Logomark from "../Logomark.svelte";
+  import RecipientList from "../agent/RecipientList.svelte";
+  import { retainPresence, assignAnnotation, unassignAnnotation, releaseAnnotation } from "../agent/annotationStore";
+  import type { Route } from "../../lib/project/annotations";
 
   const root = get(currentProject)?.path ?? "";
   const images = inboxImages(root);
@@ -24,6 +27,7 @@
   let scroll = 0, height = 500, draft = "", draftId = "";
   let busy = false, saveFailed = false, error = "", notice = "", filterError = "";
   let resolvedOpen = false, withdrawnOpen = false;
+  let assignOpen = false;
   let figures: { id: string; name: string; nickname?: string; referenceKey?: string }[] = [];
   let figureLoad = 0;
   let pending: Promise<boolean> = Promise.resolve(true);
@@ -43,7 +47,7 @@
   $: windowed = filtered.length > 200;
   $: shown = windowed ? rows.filter(r => r.top + r.height > scroll - ROW * OVERSCAN && r.top < scroll + height + ROW * OVERSCAN) : rows;
   $: selected = filtered.find(i => i.id === $inboxSelection) ?? filtered.find(i => i.status !== "resolved" && i.status !== "withdrawn") ?? null;
-  $: if (selected?.id !== draftId) { draftId = selected?.id ?? ""; draft = inboxDrafts.get(draftId) ?? ""; zoom = false; notice = ""; }
+  $: if (selected?.id !== draftId) { draftId = selected?.id ?? ""; draft = inboxDrafts.get(draftId) ?? ""; zoom = false; assignOpen = false; notice = ""; }
   $: { $inboxQuery; scroll = 0; if (list) list.scrollTop = 0; }
   $: { $figRevision; void loadFigures(); }
   $: if (($currentProject?.path ?? "") !== root) inboxOpen.set(false);
@@ -113,6 +117,27 @@
     })();
     await pending;
   }
+  async function routeItem(action: "assign" | "unassign" | "release", route: Route = "none") {
+    if (!selected || busy) return;
+    const item = selected;
+    busy = true; saveFailed = false; error = ""; notice = "";
+    pending = (async () => {
+      try {
+        if (action === "assign") await assignAnnotation(item.id, route);
+        else if (action === "unassign") await unassignAnnotation(item.id);
+        else await releaseAnnotation(item.id);
+        await refreshInbox();
+        assignOpen = false; notice = "Saved";
+        return true;
+      } catch (e) { saveFailed = true; error = (e as Error).message; return false; }
+      finally { busy = false; }
+    })();
+    await pending;
+  }
+  async function toggleAssign() {
+    assignOpen = !assignOpen;
+    if (assignOpen) { await tick(); wrap.querySelector<HTMLButtonElement>('[aria-label="Assign recipient"] button')?.focus(); }
+  }
   async function jump() {
     if (!selected) return;
     try {
@@ -155,7 +180,7 @@
     // Stop editor/window owners even when this key belongs to a text field.
     e.stopPropagation();
     if (e.isComposing) return;
-    if (e.key === "Escape") { e.preventDefault(); if (zoom) zoom = false; else void close(); return; }
+    if (e.key === "Escape") { e.preventDefault(); if (assignOpen) { assignOpen = false; wrap.querySelector<HTMLButtonElement>('.assign-button')?.focus(); } else if (zoom) zoom = false; else void close(); return; }
     if (e.target === reply && e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); void act("reply"); return; }
     const target = e.target as HTMLElement;
     if (e.altKey || e.ctrlKey || e.metaKey) return;
@@ -164,16 +189,18 @@
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); void step(e.key === "ArrowDown" ? 1 : -1); }
     else if (e.key === "Enter" && target.closest("[data-inbox-row]")) { e.preventDefault(); void jump(); }
     else if (e.code === "KeyR") { e.preventDefault(); reply?.focus(); }
+    else if (e.code === "KeyA" && selected && !["resolved", "withdrawn"].includes(selected.status)) { e.preventDefault(); void toggleAssign(); }
     else if (e.code === "KeyE") { e.preventDefault(); void act("archive"); }
   }
   onMount(() => {
+    const releasePresence = retainPresence();
     wrap.querySelector<HTMLInputElement>(".inbox-search")?.focus();
     let first = true;
     const offClose = inboxCloseRequest.subscribe(() => { if (first) first = false; else void close(); });
     const offFocus = inboxFocusRequest.subscribe(() => {
       if (detached) popup?.focus(); else wrap.querySelector<HTMLInputElement>(".inbox-search")?.focus();
     });
-    return () => { offClose(); offFocus(); };
+    return () => { offClose(); offFocus(); releasePresence(); };
   });
   onDestroy(registerFlushable({ id: "inbox", isDirty: () => busy || saveFailed, flush: async () => { if (!await pending) throw new Error(error); } }));
   onDestroy(() => { alive = false; popup?.close(); images.dispose(); inboxDetached.set(false); if (restoreFocus?.isConnected) restoreFocus.focus({ preventScroll: true }); });
@@ -211,7 +238,7 @@
           {#if !$inboxLoaded}<p class="empty" role="status">Loading Inbox…</p>{/if}
           {#if !filtered.length && $inboxLoaded && !filterError}<div class="empty"><b>{$inboxQuery ? "No items match these filters." : "No open annotations."}</b><p>{$inboxQuery ? "Try another document, tag, or status, or clear the filters." : "Press Ctrl+Shift+M anywhere to make one. Paper margin comments appear here too."}</p><button on:click={() => $inboxQuery ? inboxQuery.set("") : requestAnnotation()}>{$inboxQuery ? "Clear filters" : "Annotate…"}</button></div>{/if}
         </div>
-        <footer>↑ ↓ move · Enter jump · R reply · E archive</footer>
+        <footer>↑ ↓ move · Enter jump · R reply · A assign · E archive</footer>
       </aside>
       <section class="detail" aria-label="Inbox detail">
         {#if selected}
@@ -224,6 +251,12 @@
             {#if selected.anchor}<blockquote>{selected.anchor.quote}</blockquote>{/if}
             <div class="thread" aria-label="Item thread">{#each selected.thread.slice(1) as message, i (`${selected.id}:${i}`)}<article class:human={message.kind === "human"} class:agent={message.kind === "agent"}><div><b>{message.author}</b><small>{message.kind === "human" ? "You" : "Agent"} · {age(message.ts)}</small></div><p>{message.text}</p></article>{/each}</div>
           </div>
+          {#if selected.status !== "resolved" && selected.status !== "withdrawn"}
+            <div class="routing-actions">
+              <div class="actions"><button class="assign-button" disabled={busy} aria-expanded={assignOpen} on:click={toggleAssign}>Assign ▾</button><button disabled={busy || selected.route === "none" && !selected.assignedTo} on:click={() => routeItem("unassign")}>Unassign</button><button disabled={busy || !selected.claimedBy} on:click={() => routeItem("release")}>Release claim</button></div>
+              {#if assignOpen}<RecipientList label="Assign recipient" disabled={busy} choose={route => void routeItem("assign", route)} />{/if}
+            </div>
+          {/if}
           <div class="actions"><button on:click={jump}>Jump to ↗</button><button disabled={busy} on:click={() => act("archive")}>{selected.archived ? "Unarchive" : "Archive"}</button>{#if selected.status === "resolved"}<button disabled={busy} on:click={() => act("reopen")}>Reopen</button>{/if}{#if selected.kind === "annotation" && selected.status !== "withdrawn" && selected.thread[0]?.kind === "human"}<button disabled={busy} on:click={editAnnotation}>Edit</button><button disabled={busy} on:click={() => act("withdraw")}>Withdraw</button>{/if}<button on:click={copyPrompt}>Copy agent prompt</button></div>
           {#if selected.status !== "resolved" && selected.status !== "withdrawn"}<div class="reply"><textarea aria-label="Reply to inbox item" placeholder="Reply… Enter to send · Shift+Enter for a new line" bind:this={reply} value={draft} on:input={e => editDraft(e.currentTarget.value)} rows="3"></textarea><button disabled={busy || !draft.trim()} on:click={() => act("reply")}>{busy ? "Saving…" : "Reply"}</button></div>{/if}
         {:else}<div class="empty"><b>Select an item to read its thread.</b><p>Annotations and margin comments share one Inbox.</p></div>{/if}

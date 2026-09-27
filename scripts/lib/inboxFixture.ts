@@ -7,7 +7,8 @@ import { createFigure, importPlots, addComment, loadFigModel } from "../../flux-
 import { appendAnnotationEvent } from "../../flux-core/annotations";
 import { makeNote, type SessionRef, type Route } from "../../src/lib/project/annotations";
 import { buildPartIndex } from "../../src/lib/plot/parse";
-import { presenceFileRel } from "../../src/lib/project/presence";
+import { presenceFileRel, type PresenceSession } from "../../src/lib/project/presence";
+import { atomicWrite } from "../../flux-core/fsx";
 
 export const repo = path.resolve(import.meta.dirname, "../..");
 export { TestProcessScope, installTestLauncher, rawMcp };
@@ -27,12 +28,12 @@ export async function until<T>(fn: () => T | Promise<T>, label: string, timeout 
     await new Promise(resolve => setTimeout(resolve, 20)); // condition polling, not a start-time assumption
   }
 }
-export async function writePresence(root: string, session: SessionRef, ago = 0) {
+export async function writePresence(root: string, session: SessionRef, ago = 0, options: Partial<Pick<PresenceSession, "watching" | "watchMode" | "filter" | "live" | "product" | "surface">> = {}) {
   const file = path.join(root, presenceFileRel(session.id));
   await fs.mkdir(path.dirname(file), { recursive: true });
   const value = { v: 1, ...session, display: session.name, product: "Codex", surface: "CLI", client: "codex", pid: process.pid,
-    host: os.hostname(), startedAt: new Date().toISOString(), heartbeatAt: new Date(Date.now() - ago).toISOString(), watching: false, live: false };
-  await fs.writeFile(file, JSON.stringify(value));
+    host: os.hostname(), startedAt: new Date().toISOString(), heartbeatAt: new Date(Date.now() - ago).toISOString(), watching: false, live: false, ...options };
+  await atomicWrite(file, JSON.stringify(value) + "\n");
   return value;
 }
 export async function fixture(root: string) {
