@@ -8,6 +8,7 @@ import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../.
 import { activeFigureId, selection, partSelection } from "../../../../lib/store";
 import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks } from "../../../../lib/slide/ops";
 import type { Track } from "../../../../lib/slide/types";
+import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
 
 function ctx(): { sid: string; ids: string[] } | null {
@@ -17,7 +18,7 @@ function ctx(): { sid: string; ids: string[] } | null {
 }
 
 /** Mutate EVERY selected track in one commit (bulk edit). */
-export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): void {
+export function withSelectedTracks(fn: (t: Track, resolved: Track) => void, coalesce?: string): void {
   const c = ctx();
   if (!c) return;
   commitDeckLive((d) => {
@@ -26,9 +27,9 @@ export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): v
       // A birth owns a result identity and must remain a whole-object Change.
       // Bulk property callbacks may share timing, never rewire that ownership.
       const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
-      fn(t);
+      fn(t, resolveTrack(t, d));
       if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
-      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
+      if (familyOf(resolveTrack(t, d)) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
     }
   }, coalesce ? { coalesce } : undefined);
 }
@@ -76,9 +77,11 @@ export function toggleSelectedDisabled(): void {
 
 /** Nudge start (or duration) by ±ms on the whole selection (keyboard retime). */
 export function nudgeSelected(field: "start" | "duration", deltaMs: number): void {
-  withSelectedTracks((t) => {
-    if (field === "start") t.start = Math.max(0, (t.start ?? 0) + deltaMs);
-    else if (familyOf(t) !== "media") t.duration = Math.max(50, trackDuration(t) + deltaMs);
+  withSelectedTracks((t, resolved) => {
+    if (field === "start") {
+      if (t.anchor) t.anchor.offsetMs = (t.anchor.offsetMs ?? 0) + deltaMs;
+      else t.start = Math.max(0, (resolved.start ?? 0) + deltaMs);
+    } else if (familyOf(resolved) !== "media") t.duration = Math.max(50, trackDuration(resolved) + deltaMs);
   }, `nudge:${field}`);
 }
 

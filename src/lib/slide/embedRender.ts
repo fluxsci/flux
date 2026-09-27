@@ -44,7 +44,7 @@ export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {
 export function compileSlideFor(payload: ExportPayload): CompiledSlide {
   const slide = payload.deck.slides[0];
   if (!slide) throw new Error("Cannot render an absent slide");
-  return compileSlide(slide, payload.deck.stage, { plotManifest: id => payload.plots?.[id]?.manifest });
+  return compileSlide(slide, payload.deck.stage, { animStyles: payload.deck.animStyles, plotManifest: id => payload.plots?.[id]?.manifest });
 }
 
 /** A slide evaluated at one build step, ready for any static writer: the

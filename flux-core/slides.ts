@@ -44,7 +44,11 @@ import { gatherPayload } from "../src/lib/slide/payload";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import type { Deck, Track } from "../src/lib/slide/types";
+import { resolveTrack } from "../src/lib/slide/resolve";
+import { compileSlide, trackDuration } from "../src/lib/slide/compile";
+import { transformPreState } from "../src/lib/slide/tween";
+import { ValidationError } from "./errors";
+import type { Deck, Track, AnimStyle } from "../src/lib/slide/types";
 import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
@@ -459,6 +463,72 @@ export async function ungroupTracksVerb(
   });
 }
 
+/** Read manifests for timing without rendering or refreshing source assets. */
+async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
+  const slide = mustSlide(deck, slideId);
+  const manifests = new Map<string, FluxPlotManifest | undefined>();
+  const styled = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.map(t => resolveTrack(t, deck)) })) };
+  for (let bi = 0; bi < styled.beats.length; bi++) for (const track of styled.beats[bi].tracks) {
+    const el = transformPreState(styled, track.target, bi);
+    if (el?.type === "plot" && !manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
+  }
+  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id) };
+}
+
+export async function compileDeckSlide(root: string, deck: Deck, slideId: string) {
+  return compileSlide(mustSlide(deck, slideId), deck.stage, await slideCompileOptions(root, deck, slideId));
+}
+
+export async function animStyleVerb(root: string, deckId: string, action: "create" | "set" | "delete" | "list", opts: {
+  id?: string; name?: string; family?: AnimStyle["family"]; track?: AnimStyle["track"];
+} = {}): Promise<AnimStyle[]> {
+  if (action === "list") return (await loadDeck(root, deckId)).animStyles ?? [];
+  return mutateDeck(root, deckId, "anim_style", deck => {
+    if (action === "create") {
+      if (!opts.name || !opts.family || !opts.track?.preset) throw new ValidationError("anim-style create needs --name, --family and --preset");
+      return [slideOps.addAnimStyle(deck, { name: opts.name, family: opts.family, track: opts.track })];
+    }
+    if (!opts.id) throw new ValidationError(`anim-style ${action} needs a style id`);
+    if (action === "delete") {
+      if (!slideOps.deleteAnimStyle(deck, opts.id, { detach: true })) throw new ValidationError(`Animation style not found: ${opts.id}`);
+      return [];
+    }
+    const patch = { ...(opts.name !== undefined ? { name: opts.name } : {}), ...(opts.family !== undefined ? { family: opts.family } : {}), ...(opts.track ? { track: opts.track } : {}) };
+    if (!slideOps.setAnimStyle(deck, opts.id, patch)) throw new ValidationError(`Animation style not found: ${opts.id}`);
+    return [deck.animStyles!.find(s => s.id === opts.id)!];
+  });
+}
+
+export async function animateLikeVerb(root: string, deckId: string, slideId: string, from: string, to: string[]) {
+  return mutateDeck(root, deckId, "animate_like", deck => {
+    mustSlide(deck, slideId);
+    return slideOps.animateLike(deck, slideId, from, to);
+  });
+}
+
+export async function setTrackVerb(root: string, deckId: string, slideId: string, trackId: string, patch: Parameters<typeof slideOps.setTrack>[3]) {
+  return mutateDeck(root, deckId, "set_track", async deck => {
+    mustSlide(deck, slideId);
+    const context = await slideCompileOptions(root, deck, slideId);
+    const found = slideOps.findTrack(deck, trackId);
+    if (!found || found.slide.id !== slideId) throw new ValidationError("Track not found on this slide");
+    const compiled = compileSlide(found.slide, deck.stage, context);
+    const bi = found.slide.beats.indexOf(found.beat);
+    const result = slideOps.setTrack(deck, slideId, trackId, patch, target => {
+      const el = compiled.preState(target, bi);
+      return el?.type === "plot" ? context.plotManifest(el.assetId) : undefined;
+    });
+    if (!result.ok) throw new ValidationError(result.reason!);
+    const after = await compileDeckSlide(root, deck, slideId);
+    const track = after.resolvedSlide.beats.flatMap(b => b.tracks).find(t => t.id === trackId)!;
+    return { track, start: track.start ?? 0, duration: trackDuration(track), anchored: !!track.anchor, issues: after.issues.filter(i => i.trackId === trackId) };
+  });
+}
+
+export function renderTrackTiming(result: Awaited<ReturnType<typeof setTrackVerb>>): string {
+  return `${result.track.id}: ${result.track.preset ?? "fade"}, start ${result.start} ms${result.anchored ? " (anchored)" : ""}, duration ${result.duration} ms`;
+}
+
 /** cascade-tracks: apply a stepped delta across tracks' timing — the track at
  *  rank k gets value ⊕ delta·step_k (step = k with firstFixed, else k+1), in
  *  timeline (beat, then lane) or list (given) order. Same pure core the GUI
@@ -670,8 +740,9 @@ export async function setPartStyle(
 async function readPlotManifest(
   root: string,
   el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } },
+  deckId?: string,
 ): Promise<FluxPlotManifest | undefined> {
-  const candidates: string[] = [];
+  const candidates: string[] = deckId ? [j("slides", deckId, "assets", `${el.assetId}.fluxplot.json`)] : [];
   if (el.source?.manifestPath) candidates.push(el.source.manifestPath);
   if (el.source?.svgPath) candidates.push(el.source.svgPath.replace(/\.svg$/i, ".fluxplot.json"));
   candidates.push(j("plots", `${el.assetId}.fluxplot.json`));

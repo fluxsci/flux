@@ -143,6 +143,11 @@ export {
   applyAnimTemplateVerb,
   // Cascade — stepped timing deltas across tracks (⌃⇧C's headless twin)
   cascadeTracksVerb,
+  animStyleVerb,
+  animateLikeVerb,
+  setTrackVerb,
+  renderTrackTiming,
+  compileDeckSlide,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";
@@ -152,3 +157,4 @@ export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, project
 export type { Fit, Fits, MorphPoint } from "../src/lib/plot/project";
 export { applyPlotView } from "../src/lib/plot/projectDom";
 export { setPlotView } from "../src/lib/ops";
+export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolve";

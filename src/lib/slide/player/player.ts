@@ -24,6 +24,7 @@ import { editorCameraTransform } from "../../editorPresentation";
 import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
 
 export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
+  animStyles?: Deck["animStyles"];
   theme: DeckTheme;
   /** assetId → its plot manifest (for role/series/index part targeting). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
@@ -136,7 +137,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
   // position change or an authored rotation/translucency.
-  for (const beat of slide.beats) for (const track of beat.tracks) {
+  for (const cue of compiled.cues) for (const { track } of cue.tracks) {
     if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
     const wrap = rendered.elements.get(track.target) as (HTMLElement & { __slideEffects?: HTMLElement }) | undefined;
     if (!wrap?.firstElementChild || wrap.__slideEffects) continue;
@@ -147,8 +148,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     wrap.appendChild(effects);
     wrap.__slideEffects = effects;
   }
-  slide.beats.forEach((beat, bi) => {
-    for (const track of beat.tracks) {
+  compiled.cues.forEach((cue, bi) => {
+    for (const ct of cue.tracks) {
+      const track = ct.track;
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
       if (track.disabled || track.keyframes || isVideoCommand(track) || !KNOWN_PRESETS.has(track.preset ?? "fade")) continue;
@@ -171,7 +173,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         specs.push({
           node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
-          delay: track.start ?? 0, duration: track.duration ?? 600,
+          delay: ct.start, duration: ct.duration,
           easing: resolveEasing(track.easing ?? "smooth", track.influence),
           morph: driver,
           morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),
@@ -192,7 +194,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         if (node) {
           specs.push({
             node, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
-            delay: track.start ?? 0, duration: track.duration ?? 800,
+            delay: ct.start, duration: ct.duration,
             easing: resolveEasing(track.easing ?? "standard", track.influence),
             morph: createCountUp(node, track),
             morphEase: resolveEasingFn(track.easing ?? "standard", track.influence),
@@ -205,7 +207,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
       const nodeAnims = preset(nodes, track, ctx);
       if (track.preset === "camera") {
-        const previous = compileSlide(slide, stage, opts).sample(bi - 1).camera;
+        const previous = compiled.sample(bi - 1).camera;
         const cameraSlide = { ...slide, camera: previous };
         for (const na of nodeAnims) na.keyframes[0] = { transform: baseCameraTransform(cameraSlide, stage) || "translate(0px, 0px) scale(1)" };
       }
@@ -219,8 +221,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           node: na.node,
           beatIndex: bi,
           keyframes: na.keyframes,
-          delay: (track.start ?? 0) + (perMs ? ranks[na.index] * perMs : 0),
-          duration: track.duration ?? DUR.gentle,
+          delay: ct.start + (perMs ? ranks[na.index] * perMs : 0),
+          duration: ct.duration,
           easing: resolveEasing(track.easing, track.influence),
           enter: na.enter,
           key,
@@ -517,7 +519,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
-    const compiled = compileSlide(slide, stage, opts);
+    const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
@@ -526,7 +528,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit("change");
-    });
+    }, compiled.cues.map(c => c.tracks.map(t => t.track)));
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);

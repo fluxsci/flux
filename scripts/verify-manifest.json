@@ -322,7 +322,8 @@
       "verify-correspondence.ts",
       "verify-target-geometry.ts",
       "verify-target-geometry-browser.ts",
-      "verify-plot-view.ts"
+      "verify-plot-view.ts",
+      "verify-slide-resolve.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -837,6 +838,13 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/slide/resolve.ts",
+      "run": [
+        "verify-slide-resolve.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "src/lib/slide/player/presets.ts",
       "run": [
@@ -7819,6 +7827,15 @@
       "coverage": "behavior"
     },
     "verify-plot-view.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-resolve.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

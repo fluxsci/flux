@@ -150,11 +150,11 @@ const walk = (dir: string): void => {
 };
 walk(path.join(repo, "src/lib/slide"));
 walk(path.join(repo, "src/shell/modes/slide"));
-scanned.push(path.join(repo, "flux-core/slides.ts"));
+scanned.push(path.join(repo, "flux-core/slides.ts"), path.join(repo, "flux-core/verbs.ts"));
 const catalogFile = path.join(repo, "src/lib/slide/presetCatalog.ts");
-h.ok(["src/lib/slide/presetCatalog.ts", "src/lib/slide/ops.ts", "src/lib/slide/compile.ts", "src/shell/modes/slide/SlideMode.svelte", "src/shell/modes/slide/animator/shared.ts"]
+h.ok(["flux-core/verbs.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/ops.ts", "src/lib/slide/compile.ts", "src/shell/modes/slide/SlideMode.svelte", "src/shell/modes/slide/animator/shared.ts"]
   .every(f => scanned.includes(path.join(repo, f))) && scanned.length > 60,
-  `the census covers src/lib/slide/**, src/shell/modes/slide/** and flux-core/slides.ts (${scanned.length} files)`);
+  `the census covers src/lib/slide/**, src/shell/modes/slide/** and flux-core/{slides,verbs}.ts (${scanned.length} files)`);
 const offenders = scanned.filter(f => f !== catalogFile).flatMap(f => phaseLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`));
 h.eq(offenders, [], "no literal enter/exit preset list outside presetCatalog.ts");
 await h.done();

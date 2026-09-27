@@ -44,6 +44,7 @@ import {
   registerEditorTransactionAdapter,
 } from "../store";
 import { familyOf } from "./family";
+import { resolveTrack } from "./resolve";
 import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourceSync";
 import { setTransform, removeTracks } from "./ops";
 import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
@@ -424,7 +425,7 @@ export function refreshBeatDisplay(): void {
   // Evaluate from canonical content; appearance and camera stay transient.
   const canonical = composedSlide(sid);
   const frame = canonical && k > 0 ? evaluateSlideState(canonical, k, Infinity, {
-    stage: o.stage, plotManifest: id => get(plotManifests)[id],
+    stage: o.stage, animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id],
   }) : null;
   const evaluated = new Map(frame?.elements.map(e => [e.id, e]) ?? []);
   slideCanvasPresentation.set(frame?.presentation ?? {elementStates:{},hiddenElementIds:[],partStates:{},
@@ -527,7 +528,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
         if (bi < 1 || unborn.has(el.id) || !diffState(previous, el)) continue;
-        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {plotManifest: id => get(plotManifests)[id]});
+        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
         const pre = compiled.preState(el.id, bi) ?? base;
         const patch = diffState(pre, el) ?? {};
         setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });
@@ -549,10 +550,11 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
 export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdit["entries"] {
   endpointEdit.set(null);
   const entries: EndpointEdit["entries"] = [];
+  const styles = get(deckOverlay) ?? {};
   const targets: Id[] = [];
   for (const trackId of trackIds) {
     const found = overlayTrack(trackId);
-    if (!found || familyOf(found.track) !== "transform") continue;
+    if (!found || familyOf(resolveTrack(found.track, styles)) !== "transform") continue;
     const target = end === "t1" && found.track.ghostFrom ? found.track.ghostFrom : found.track.target;
     targets.push(target);
     if (end === "t2") {
@@ -562,7 +564,7 @@ export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdi
       let prev: Track | null = null;
       for (let bi = 0; bi < found.beatIndex; bi++) {
         for (const t of found.slide.beats[bi].tracks) {
-          if (!t.disabled && t.target === target && familyOf(t) === "transform") prev = t;
+          if (!t.disabled && t.target === target && familyOf(resolveTrack(t, styles)) === "transform") prev = t;
         }
       }
       entries.push({ trackId: prev?.id ?? null, target });

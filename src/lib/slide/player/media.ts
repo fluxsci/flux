@@ -55,7 +55,7 @@ interface Binding {
   retry?: HTMLButtonElement;
 }
 
-export function createVideoController(root: HTMLElement, slide: Slide, durations: readonly number[], manual: boolean, onChange: () => void, onIssue: (target: string, reason: string) => void) {
+export function createVideoController(root: HTMLElement, slide: Slide, durations: readonly number[], manual: boolean, onChange: () => void, onIssue: (target: string, reason: string) => void, resolvedTracks?: readonly (readonly import("../types").Track[])[]) {
   let destroyed = false;
   const pauseReasons = new Set<string>();
   const bindings: Binding[] = [];
@@ -118,7 +118,7 @@ export function createVideoController(root: HTMLElement, slide: Slide, durations
   function begin(from: number, to: number) {
     if (!bindings.length) return;
     pauseReasons.delete("seek"); pauseReasons.delete("player");
-    activeEvents = videoEvents(slide, beat => beat >= from && beat <= to ? 0 : undefined); nextEvent = 0;
+    activeEvents = videoEvents(slide, beat => beat >= from && beat <= to ? 0 : undefined, { resolvedTracks }); nextEvent = 0;
     for (const binding of bindings) if (binding.running && binding.video.paused) tryPlay(binding);
   }
   function tick(time: number) { while (nextEvent < activeEvents.length && activeEvents[nextEvent].at <= time) applyCommand(activeEvents[nextEvent++]); }
@@ -139,7 +139,7 @@ export function createVideoController(root: HTMLElement, slide: Slide, durations
     }
     for (let i = fromBeat; i <= beat; i++) starts.set(i, origin);
     const local = Number.isFinite(time) ? Math.max(0, time) : Math.max(0, ...durations.slice(fromBeat, beat + 1));
-    const events = videoEvents(slide, b => starts.get(b));
+    const events = videoEvents(slide, b => starts.get(b), { resolvedTracks });
     seekEvents(events, origin + local);
   }
   function seekEvents(events: readonly VideoEvent[], at: number) {

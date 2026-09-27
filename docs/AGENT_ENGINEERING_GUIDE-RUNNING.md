@@ -159,6 +159,7 @@ The established shared cores — extend these, don't duplicate them:
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
+| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -2402,6 +2403,14 @@ outside this PNG packaging change.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
+- **Resolve animation styles and anchors before reading tracks.** Pass `animStyles` to
+  `compileSlide`/`evaluateSlideState`; the player binds `compiled.cues`, and
+  `compiled.resolvedSlide` includes disabled/dangling tracks for inspection. Pure authoring
+  readers use `resolveTrack`/`resolveBeat` with deck styles and target manifests. Resolve
+  authored tracks once: resolving a normalized explicit-null override against the style again
+  would reintroduce the suppressed field. Snapshot saves carry `slideAnimStyles`; cloned
+  tracks remap timing anchors beside ghost IDs. `trackDuration` remains exported by compile
+  but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
   reproduced chained plot morphs restarting from the base asset, text crossfades retaining
   a future layer after reverse seek, and ordinary fades clearing authored rotation/opacity,
@@ -7729,3 +7738,15 @@ opacity before projection edge fading. Keep unchanged-view movement on the box-o
 E4 still owns id-keyed residual fades/topology changes; Axis view UI/verbs remain later
 packets. Native, bundle and startup qualification belong to the orchestrator. Changes are
 uncommitted; no user config, main checkout or external ledger was modified.
+
+### 2026-09-27 23:45 UTC — Animation v2 linked styles and timing anchors (Codex, `av2/F1`)
+**Work:** Added pure style/anchor resolution, shared authoring ops, portable style snapshots,
+compiled-cue playback/media timing, and registry-backed CLI/MCP verbs. Resolver negative proofs
+catch precedence corruption and the base compiler's missing integration; the preset census now
+covers the headless verb enum. Updated the body with the resolution boundary and inspection rule.
+**Learnings:**
+- A fixture with DOM nodes but no model targets bypassed compiler validation; exit coverage now
+  supplies real model targets while retaining its playback assertions.
+- The packet's schema/Svelte boundary leaves explicit-null persistence and existing Svelte reader
+  wiring to integration unless the owner authorizes those compatibility edits. The current ghost
+  schema also requires an own `preset`, so a ghost inheriting `transform` cannot pass the save gate.

@@ -27,6 +27,7 @@ import { presetRel } from "../presets";
 import * as slideOps from "./ops";
 import type { SlidePresetSnapshot, SlidePresetAssetEntry } from "./ops";
 import { commitDeckLive, currentDeck, selectSlide } from "./store";
+import { slideAnimStyles } from "./resolve";
 import { underRoot } from "./payload";
 import { slideAssetIds, slideDefaultBackground } from "./deckProject";
 
@@ -112,6 +113,7 @@ export async function saveSlidePreset(
     stage: structuredClone(deck.stage),
     thumbBackground: slide.background ?? slideDefaultBackground(deck),
     slide: structuredClone(slide),
+    animStyles: slideAnimStyles(slide, deck),
     ...(assets.length ? { assets } : {}),
   };
   const ok = await fileBridge()?.writeSlideLibrary?.(rel, snap);

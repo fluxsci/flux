@@ -102,6 +102,33 @@ removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts,
 **Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
 them. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
 
+## Linked animation styles and timing
+
+Deck animation styles share an effect's preset, parameters, duration, easing, stagger and
+start. A linked effect inherits absent fields; changing a field on that effect overrides the
+style for that field. Editing the style updates every inheriting effect. Detaching a style,
+or deleting it, keeps each effect's current settings. Saved slide presets carry the styles
+they use, and insertion reuses an existing style with the same name and family.
+
+The CLI and MCP support this through `anim-style`, `animate-like` and `set-track`:
+
+```bash
+flux anim-style create talk --name "Gentle reveal" --family appearance --preset fade --duration 400
+flux set-track talk slide1 effect1 --style STYLE_ID
+flux animate-like talk slide1 --from effect1 --to effect2,effect3
+flux set-track talk slide1 effect2 --anchor effect1:end:50
+```
+
+The last command starts effect2 50 ms after effect1 ends, including its stagger tail.
+Retiming effect1 moves effect2 automatically. Anchors stay within one step; self-links and
+cycles are refused. A removed anchor target leaves a visible issue and uses the follower's
+stored start. `set-track --start` adjusts an anchored effect's offset; `--no-anchor` keeps its
+current resolved start. `--no-style` detaches its style. A start cascade adjusts anchor offsets;
+a duration cascade writes local overrides on linked effects.
+
+Successive appearance effects follow the prior effect's end. Plot Auto-reveal links the
+Data-phase geometry to the points' start plus its original half-stagger delay.
+
 ## Playback and inspection
 
 **Step** plays only the selected step. **Play** starts from that step and continues through the slide;

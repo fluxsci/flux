@@ -9,6 +9,9 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
 import { autoAnimatePlot, applyAutoAnimation } from "../src/lib/slide/autobuild";
+import { resolveBeat, resolveStart } from "../src/lib/slide/resolve";
+import { targetPartIds } from "../src/lib/slide/targets";
+import { compileSlide } from "../src/lib/slide/compile";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 
 function assert(cond: unknown, msg: string) {
@@ -48,9 +51,19 @@ assert(pts.every((t) => t.stagger?.by === "x" && t.stagger?.from === "start"), "
 assert(pts.every((t) => t.params?.child === "fade"), "Data: points fade-in (staggered), not rise");
 const line = data.tracks.find((t) => t.part === "fit.line");
 assert(line?.preset === "drawOn", "Data: the fit line draws itself on");
-assert((line?.start ?? 0) > 0, `Data: the line is offset (start=${line?.start}ms) to resolve as the points finish`);
+const expectedStart = Math.round(0.5 * targetPartIds(pts[0], manifest).length * (pts[0].stagger?.perMs ?? 40));
+assert(line?.anchor?.trackId === pts[0].id && line.anchor.edge === "start", "Data: the line anchors to the points stagger start");
+assert(resolveStart(line!, data, {}, () => manifest).start === expectedStart, `Data: resolved line start retains the exact old literal ${expectedStart}ms`);
 const area = data.tracks.find((t) => t.part === "ci95.area");
-assert(area?.preset === "fade" && (area?.start ?? 0) > 0, "Data: the CI band fades in, offset");
+assert(area?.preset === "fade" && resolveStart(area!, data, {}, () => manifest).start === expectedStart, "Data: the CI band fades in, offset");
+
+const literalData = { ...data, tracks: data.tracks.map(t => { const copy = { ...t }; delete copy.anchor; if (t.preset !== "stagger") copy.start = expectedStart; return copy; }) };
+const fixtureSlide = { id: "fixture", elements: [{ id: "plot1", type: "plot" as const, assetId: "fixture", x: 0, y: 0, width: 100, height: 100, rotation: 0 }], beats: [data] };
+const cueTimes = (b: typeof data) => compileSlide({ ...fixtureSlide, beats: [b] }, undefined, { plotManifest: () => manifest }).cues.map(c => [c.duration, c.tracks.map(t => [t.track.id, t.start, t.duration, t.end])]);
+assert(JSON.stringify(cueTimes(data)) === JSON.stringify(cueTimes(literalData)), "Data: every compiled cue time is byte-for-byte equal to the previous literal choreography");
+pts[0].start = 75;
+assert(resolveBeat(data, {}, () => manifest).tracks.find(t => t.id === line!.id)?.start === expectedStart + 75, "retiming the points moves the line through the anchor");
+pts[0].start = 0;
 
 // --- Legend: fade ------------------------------------------------------------
 const legend = beats[3];

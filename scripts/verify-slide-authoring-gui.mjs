@@ -27,7 +27,9 @@ try{
   await clickText('.animator .actions button','Emphasize');
   await clickText('.animator .actions button','Disappear');state=await read();
   check(state.beats[1].tracks.length===3,'adding emphasis and exit preserves entrance');
-  check(state.beats[1].tracks.every((t,i,a)=>!i||t.start>=a[i-1].start+a[i-1].duration),'same-target effects sequence without overlap by default');
+  check(state.beats[1].tracks.every((t,i,a)=>!i||t.anchor?.trackId===a[i-1].id&&t.anchor.edge==='end'),'successive effects follow the previous effect through stored anchors');
+  const cues=await page.evaluate(async()=>{const {compileSlide}=await import('/src/lib/slide/compile.ts');const f=window.__flux,d=f.slide.currentDeck(),s=d.slides.find(s=>s.id===f.get(f.fig.activeFigureId));return compileSlide(s,d.stage,d).cues[1].tracks.map(t=>({start:t.start,end:t.end}));});
+  check(cues.every((t,i,a)=>!i||t.start>=a[i-1].end),'same-target effects sequence without overlap at their resolved playback times');
   const geometries=await page.$$eval('.lane-row[data-track-id] .target-label',els=>els.map(el=>({x:el.getBoundingClientRect().x,width:el.getBoundingClientRect().width,text:el.textContent})));
   check(geometries.every(g=>g.width>=200&&g.x===geometries[0].x),'fixed object labels stay readable independently of duration');
   // One earlier transformation, followed by a separate step with no transform.

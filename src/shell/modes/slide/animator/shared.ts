@@ -4,6 +4,7 @@
 import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
 import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
+import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
 import { PRESET_CATALOG, presetDef, EDITABLE_PRESETS, KNOWN_PRESETS } from "../../../../lib/slide/presetCatalog";
 
@@ -30,7 +31,8 @@ export function transformWay(t: Track): TransformWay {
 }
 export const WAY_LABEL: Record<TransformWay, string> = { change: "Change", ghost: "Ghost", become: "Become" };
 /** The lane sub-label: "Transform · Become", "Fade in", … */
-export function trackKindLabel(t: Track): string {
+export function trackKindLabel(t: Track, deck: StyleContext = {}): string {
+  t = resolveTrack(t, deck);
   if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}`;
   return presetLabel(t.preset ?? "fade");
 }
@@ -50,7 +52,8 @@ export const EL_GLYPH: Record<string, string> = {
 
 /** A compact label for a track chip (prefixed with a P-tag when the slide has
  *  several plots so identical part names stay distinguishable). */
-export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>): string {
+export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>, deck: StyleContext = {}): string {
+  t = resolveTrack(t, deck);
   if (t.target.startsWith("@")) return t.target.slice(1);
   const tag = plotTags.get(t.target);
   const pre = tag ? `${tag} · ` : "";
@@ -78,22 +81,25 @@ export function isDanglingTrack(t: Track, slide: Slide | null): boolean {
 
 /** How many targets a track fans out to (drives the stagger tail length). */
 export function trackFanout(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
-  if (slide && (t.part || t.selector)) return Math.max(1, semanticTargets(t,slide,{plotManifest:()=>manifest}).length);
+  if (slide && (t.part || t.parts?.length || t.selector)) return Math.max(1, semanticTargets(t,slide,{plotManifest:()=>manifest}).length);
   return 1;
 }
 
 /** A track's time footprint within its beat: [start, start+duration+staggerSpan]. */
-export function trackEndMs(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
-  const start = t.start ?? 0;
+export function trackEndMs(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined, deck: StyleContext = {}, manifestFor: ManifestFor = () => manifest): number {
+  const beat = slide?.beats.find(b => b.tracks.some(x => x === t || t.id != null && x.id === t.id));
+  const start = beat ? resolveStart(t, beat, deck, manifestFor).start : resolveTrack(t, deck).start ?? 0;
+  t = resolveTrack(t, deck);
   const dur = trackDuration(t);
   const span = staggerSpan(t, trackFanout(t, slide, manifest));
   return start + dur + span;
 }
 
 /** The latest end time of any track on a beat (min 1ms so empty beats layout). */
-export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: (target: string) => FluxPlotManifest | undefined): number {
+export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: (target: string) => FluxPlotManifest | undefined, deck: StyleContext = {}): number {
   let end = 0;
-  for (const t of tracks.filter(t=>!t.disabled)) end = Math.max(end, trackEndMs(t, slide, manifestFor(t.target)));
+  const resolved = resolveBeat({ id: "", tracks }, deck, manifestFor).tracks;
+  for (const t of resolved) if (!t.disabled) end = Math.max(end, (t.start ?? 0) + trackDuration(t) + staggerSpan(t, trackFanout(t, slide, manifestFor(t.target))));
   return end;
 }
 

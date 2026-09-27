@@ -6,6 +6,8 @@
 // strings; verify-f1-mcp/w11-verbs/release-check stay green).
 
 import { z } from "zod";
+import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
+import type { PresetName } from "../src/lib/slide/types";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
 import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
@@ -145,12 +147,7 @@ const nodeZ = z.object({
 
 // Flux Slide vocabularies (shared with flux-mcp's remaining manual blocks:
 // set_slide uses SLIDE_LAYOUTS, set_animation uses SLIDE_PRESETS).
-export const SLIDE_PRESETS = [
-  "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
-  "fadeOut", "popOut", "drawOff", "wipeOut",
-  "highlight", "dim", "move", "scale", "rotate", "camera", "countUp",
-  "transform",
-] as const;
+export const SLIDE_PRESETS = [...EDITABLE_PRESETS, ...Object.values(PRESET_CATALOG).filter(def => !def.editable && def.family !== "media").map(def => def.name)] as [PresetName, ...PresetName[]];
 export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
 export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-paper", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
 
@@ -2929,6 +2926,75 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (_r, a) => ({ err: `✓ track ${a.trackId} ${a.enabled ? "enabled" : "disabled"}` }),
       mcp: (_r, a) => text(`track ${a.trackId} ${a.enabled ? "enabled" : "disabled"}`),
+    },
+  },
+  {
+    name: "anim_style", scope: "project", cli: "anim-style", cliRoot: "flags",
+    summary: "Create, set, delete or list deck-local linked animation styles. Deleting materializes every linked track. create requires name, family and preset; set changes only supplied fields. Machine-global presets remain copies.",
+    params: {
+      action: z.enum(["create", "set", "delete", "list"]), deckId: z.string().min(1), id: z.string().optional(),
+      name: z.string().min(1).optional(), family: z.enum(["appearance", "transform", "media"]).optional(),
+      preset: z.enum(Object.keys(PRESET_CATALOG) as [PresetName, ...PresetName[]]).optional(),
+      duration: z.number().nonnegative().optional(), start: z.number().nonnegative().optional(),
+      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      stagger: z.object({ perMs: z.number().nonnegative(), by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges"]).optional() }).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "action", required: true }, { kind: "pos", at: 1, into: "deckId", required: true }, { kind: "pos", at: 2, into: "id" },
+      ...["name", "family", "preset", "easing"].map(at => ({ kind: "flag" as const, at, into: at })),
+      ...["duration", "start"].map(at => ({ kind: "flag" as const, at, into: at, as: "number" as const })),
+      { kind: "flag", at: "stagger", into: "stagger", as: "json" },
+    ],
+    handler: (ctx, a) => core.animStyleVerb(ctx.root, s(a.deckId), a.action as "create", {
+      id: a.id as string | undefined, name: a.name as string | undefined, family: a.family as "appearance" | undefined,
+      track: pick(a, ["preset", "duration", "start", "easing", "stagger"]),
+    }),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "animate_like", scope: "project", cli: "animate-like", cliRoot: "flags",
+    summary: "Link target effects to the source effect's deck style, creating a Like <object label> style and linking the source when needed. Reports each incompatible family or missing target without changing it.",
+    params: { deckId: z.string().min(1), slideId: z.string().min(1), from: z.string().min(1), to: z.array(z.string().min(1)).min(1) },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "from", into: "from", required: true }, { kind: "flag", at: "to", into: "to", as: "csv", required: true },
+    ],
+    handler: (ctx, a) => core.animateLikeVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.from), sArr(a.to)),
+    render: { human: r => ({ out: JSON.stringify(r) }), mcp: r => text(JSON.stringify(r)) },
+  },
+  {
+    name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset.",
+    params: {
+      deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
+      styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
+      start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
+      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
+      { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
+      { kind: "flag", at: "anchor", into: "anchor" }, { kind: "flag", at: "no-anchor", into: "noAnchor", as: "boolean" },
+      { kind: "flag", at: "start", into: "start", as: "number" }, { kind: "flag", at: "duration", into: "duration", as: "number" }, { kind: "flag", at: "easing", into: "easing" },
+    ],
+    handler: (ctx, a) => {
+      if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
+      const patch: Parameters<typeof core.setTrackVerb>[4] = pick(a, ["start", "duration", "easing"]);
+      if (a.noStyle) patch.styleId = null; else if (a.styleId !== undefined) patch.styleId = s(a.styleId);
+      if (a.noAnchor) patch.anchor = null;
+      else if (a.anchor !== undefined) {
+        const match = /^(.+):(start|end)(?::(-?(?:\d+(?:\.\d*)?|\.\d+)))?$/.exec(s(a.anchor));
+        if (!match || !Number.isFinite(Number(match[3] ?? 0))) throw new ValidationError("anchor must be trackId:start|end[:offsetMs]");
+        patch.anchor = { trackId: match[1], edge: match[2] as "start" | "end", ...(match[3] !== undefined ? { offsetMs: Number(match[3]) } : {}) };
+      }
+      return core.setTrackVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId), patch);
+    },
+    render: {
+      human: r => ({ out: core.renderTrackTiming(r as Awaited<ReturnType<typeof core.setTrackVerb>>) }),
+      mcp: r => text(core.renderTrackTiming(r as Awaited<ReturnType<typeof core.setTrackVerb>>)),
     },
   },
   {

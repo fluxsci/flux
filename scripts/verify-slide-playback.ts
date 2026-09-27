@@ -75,4 +75,31 @@ const opts = { theme: FLUX_DARK, plotManifest: () => undefined, reducedMotion: t
   p.destroy();
 }
 
+// Deck styles reach the exported player without callers flattening tracks.
+{
+  const deck = ops.createDeck({ withTitleSlide: false, stage });
+  const slide = ops.addSlide(deck, { id: "styled" });
+  const id = ops.addSlideText(deck, slide.id, { text: "Fade", x: 0, y: 0, width: 100, height: 30 })!;
+  const beat = ops.addBeat(deck, slide.id)!;
+  beat.tracks = [{ id: "first", target: id, preset: "transform", duration: 100, to: { state: { x: 100 } } },
+    { id: "next", target: id, styleId: "linked", anchor: { trackId: "first", edge: "end" } }];
+  ops.addAnimStyle(deck, { name: "Fade", family: "appearance", track: { preset: "fade", duration: 200, easing: "linear" } }, "linked");
+  const saved = JSON.stringify(beat.tracks);
+  const mount = document.createElement("div") as unknown as HTMLElement;
+  let player = createPlayer(mount, deck, opts);
+  player.seek(0, 1, 99);
+  assert((mount.querySelector(".sl-effects") as HTMLElement).style.opacity === "0", "real player waits for anchor end minus 1ms");
+  player.seek(0, 1, 101);
+  assert(Number((mount.querySelector(".sl-effects") as HTMLElement).style.opacity) > 0, "real player starts at anchor end plus 1ms");
+  player.seek(0, 1, 200);
+  assert((mount.querySelector(".sl-effects") as HTMLElement).style.opacity === "0.5" && player.beatDurations()[1] === 300, "styled duration controls real playback and cue extent");
+  player.destroy();
+  ops.setAnimStyle(deck, "linked", { track: { duration: 400 } });
+  player = createPlayer(mount, deck, opts);
+  player.seek(0, 1, 200);
+  assert((mount.querySelector(".sl-effects") as HTMLElement).style.opacity === "0.25" && player.beatDurations()[1] === 500, "editing the style changes playback without editing the track");
+  assert(JSON.stringify(beat.tracks) === saved, "playback and style edits leave linked tracks untouched");
+  player.destroy();
+}
+
 console.log("\nSLIDE PLAYBACK (W5 correctness) REGRESSION PASSED");

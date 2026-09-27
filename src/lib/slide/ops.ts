@@ -21,6 +21,8 @@ import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, t
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
+import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, type StyleContext, type ManifestFor } from "./resolve";
+import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
 import { isExitPreset } from "./presetCatalog";
 import { compileSlide, trackDuration } from "./compile";
@@ -31,6 +33,7 @@ import { trackKey, targetKey, hasPartBinding } from "./targets";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
+  type AnimStyle,
   type Slide,
   type Beat,
   type Track,
@@ -247,11 +250,11 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   for (const beat of copy.beats) {
     beat.id = newId("beat");
     remapBeatGroupIds(beat);
+    remapBeatTrackIds(beat);
     if (beat.autoTarget) beat.autoTarget = idRemap.get(beat.autoTarget) ?? beat.autoTarget;
     for (const t of beat.tracks) {
       // Every track carries a stable id; a duplicated slide's tracks must get
       // FRESH ids or they collide with the source slide's.
-      t.id = newId("track");
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
       if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
@@ -291,6 +294,7 @@ export interface SlidePresetSnapshot {
   /** The slide verbatim (id/name ignored at insert; beats/tracks remapped). */
   slide: Slide;
   assets?: SlidePresetAssetEntry[];
+  animStyles?: AnimStyle[];
 }
 
 /** Insert a preset snapshot as a NEW slide (duplicateSlide's remap discipline:
@@ -303,6 +307,11 @@ export function insertSlideSnapshot(
   snap: SlidePresetSnapshot,
   opts: { at?: number } = {},
 ): { slideId: Id; assetRemap: Map<Id, Id> } {
+  const styleRemap = new Map<Id, Id>();
+  for (const style of snap.animStyles ?? []) {
+    const existing = deck.animStyles?.find(s => s.name === style.name && s.family === style.family);
+    styleRemap.set(style.id, existing?.id ?? addAnimStyle(deck, style).id);
+  }
   const assetRemap = new Map<Id, Id>();
   const embeddedIds = new Set((snap.assets ?? []).map(entry => entry.asset.id));
   for (const entry of snap.assets ?? []) {
@@ -338,9 +347,10 @@ export function insertSlideSnapshot(
   for (const beat of slide.beats) {
     beat.id = newId("beat");
     remapBeatGroupIds(beat);
+    remapBeatTrackIds(beat);
     if (beat.autoTarget) beat.autoTarget = idRemap.get(beat.autoTarget) ?? beat.autoTarget;
     for (const t of beat.tracks) {
-      t.id = newId("track");
+      if (t.styleId) t.styleId = styleRemap.get(t.styleId) ?? t.styleId;
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
       if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
@@ -599,6 +609,15 @@ export function setBeat(
   if (patch.autoDelayMs != null) b.autoDelayMs = patch.autoDelayMs;
 }
 
+/** Every copied beat owns new track identities and local anchor references. */
+function remapBeatTrackIds(beat: Beat): void {
+  const ids = new Map(beat.tracks.flatMap(t => t.id ? [[t.id, newId("track")] as const] : []));
+  for (const track of beat.tracks) {
+    track.id = track.id ? ids.get(track.id)! : newId("track");
+    if (track.anchor) track.anchor.trackId = ids.get(track.anchor.trackId) ?? track.anchor.trackId;
+  }
+}
+
 /** Remap a beat's TrackGroup ids to fresh ones (duplicated beats/slides must
  *  not share group identity with their source). Mutates the beat in place. */
 function remapBeatGroupIds(beat: Beat): void {
@@ -626,8 +645,8 @@ export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null 
   const idRemap = cloneBirthResults(s, copy.tracks);
   copy.id = newId("beat");
   if (copy.label) copy.label += " copy";
+  remapBeatTrackIds(copy);
   for (const t of copy.tracks) {
-    t.id = newId("track");
     t.target = idRemap.get(t.target) ?? t.target;
     if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
   }
@@ -684,6 +703,137 @@ export function findTrack(deck: Deck, trackId: Id): { slide: Slide; beat: Beat; 
   return null;
 }
 
+// Linked animation styles. Bindings, endpoints, anchors and identity stay on
+// the track; the reusable HOW lives in the deck.
+export interface TrackEditResult { ok: boolean; reason?: string }
+
+function styleValid(style: Omit<AnimStyle, "id">): void {
+  if (!style.name.trim()) throw new Error("Animation style needs a name");
+  if (familyOf(style.track) !== style.family) throw new Error("Style preset and family must agree");
+}
+
+export function addAnimStyle(deck: Deck, style: Omit<AnimStyle, "id">, id = newId("astyle")): AnimStyle {
+  styleValid(style);
+  if (deck.animStyles?.some(s => s.id === id)) throw new Error(`Animation style already exists: ${id}`);
+  const added = { ...structuredClone(style), id };
+  (deck.animStyles ??= []).push(added);
+  return added;
+}
+
+export function setAnimStyle(deck: Deck, id: Id, patch: Partial<Omit<AnimStyle, "id">>): boolean {
+  const style = deck.animStyles?.find(s => s.id === id);
+  if (!style) return false;
+  const next = { ...style, ...structuredClone(patch), track: { ...style.track, ...structuredClone(patch.track) } };
+  styleValid(next);
+  if (next.family !== style.family && deck.slides.some(s => s.beats.some(b => b.tracks.some(t => t.styleId === id))))
+    throw new Error("Detach linked tracks before changing a style's family");
+  Object.assign(style, next);
+  return true;
+}
+
+function materializeStyle(track: Track, deck: Deck): void {
+  const resolved = presetTrackOf(resolveTrack(track, deck));
+  for (const key of ANIM_STYLE_FIELDS) delete track[key];
+  Object.assign(track, resolved);
+  delete track.styleId;
+}
+
+export function deleteAnimStyle(deck: Deck, id: Id, opts: { detach: true }): boolean {
+  if (!opts.detach || !deck.animStyles?.some(s => s.id === id)) return false;
+  for (const slide of deck.slides) for (const beat of slide.beats) for (const track of beat.tracks)
+    if (track.styleId === id) materializeStyle(track, deck);
+  deck.animStyles = deck.animStyles.filter(s => s.id !== id);
+  if (!deck.animStyles.length) delete deck.animStyles;
+  return true;
+}
+
+export function linkTrackStyle(deck: Deck, slideId: Id, trackId: Id, styleId: Id | null): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  if (styleId === null) { materializeStyle(found.track, deck); return { ok: true }; }
+  const style = deck.animStyles?.find(s => s.id === styleId);
+  if (!style) return { ok: false, reason: "Animation style not found" };
+  const family = familyOf(resolveTrack(found.track, deck));
+  if (family !== style.family) return { ok: false, reason: `Family mismatch: ${family} track cannot link to ${style.family} style` };
+  for (const key of ANIM_STYLE_FIELDS) delete found.track[key];
+  found.track.styleId = styleId;
+  return { ok: true };
+}
+
+export function styleFromTrack(deck: Deck, slideId: Id, trackId: Id, name: string): AnimStyle | null {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return null;
+  const resolved = resolveTrack(found.track, deck), family = familyOf(resolved);
+  if (family === "camera") return null;
+  const style = addAnimStyle(deck, { name, family, track: presetTrackOf(resolved) });
+  linkTrackStyle(deck, slideId, trackId, style.id);
+  return style;
+}
+
+export function animateLike(deck: Deck, slideId: Id, fromTrackId: Id, toTrackIds: Id[]): { styleId?: Id; linked: Id[]; refused: { trackId: Id; reason: string }[] } {
+  const source = findTrack(deck, fromTrackId);
+  const refused: { trackId: Id; reason: string }[] = [], linked: Id[] = [];
+  if (!source || source.slide.id !== slideId) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Source track not found on this slide" })) };
+  const el = source.slide.elements.find(e => e.id === source.track.target);
+  const label = el?.name || (el?.type === "text" ? el.text.split("\n")[0].slice(0, 60) : el?.type) || source.track.target;
+  const style = deck.animStyles?.find(s => s.id === source.track.styleId) ?? styleFromTrack(deck, slideId, fromTrackId, `Like ${label}`);
+  if (!style) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Camera tracks cannot share animation styles" })) };
+  for (const trackId of new Set(toTrackIds)) {
+    const result = linkTrackStyle(deck, slideId, trackId, style.id);
+    if (result.ok) linked.push(trackId); else refused.push({ trackId, reason: result.reason! });
+  }
+  return { styleId: style.id, linked, refused };
+}
+
+export function setTrackAnchor(deck: Deck, slideId: Id, trackId: Id, anchor: Track["anchor"] | null): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  if (!anchor) { delete found.track.anchor; return { ok: true }; }
+  if (anchor.trackId === trackId) return { ok: false, reason: "A track cannot anchor to itself" };
+  if (!found.beat.tracks.some(t => t.id === anchor.trackId)) return { ok: false, reason: "Timing anchors must name a track in the same beat" };
+  if (!Number.isFinite(anchor.offsetMs ?? 0)) return { ok: false, reason: "Anchor offset must be finite" };
+  const candidate = { ...found.track, anchor };
+  const result = resolveStart(candidate, found.beat, deck);
+  if (result.issue) return { ok: false, reason: result.issue };
+  found.track.anchor = { ...anchor };
+  return { ok: true };
+}
+
+/** Generic timing edits share linked-style and anchored-start semantics. */
+export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
+  styleId?: Id | null; anchor?: Track["anchor"] | null;
+  start?: number; duration?: number; easing?: Track["easing"];
+}, manifestFor: ManifestFor = () => undefined): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  const saved = structuredClone(found.track);
+  const restore = (result: TrackEditResult) => {
+    for (const key of Object.keys(found.track)) delete (found.track as unknown as Record<string, unknown>)[key];
+    Object.assign(found.track, saved); return result;
+  };
+  if (patch.styleId !== undefined) {
+    const result = linkTrackStyle(deck, slideId, trackId, patch.styleId);
+    if (!result.ok) return result;
+  }
+  if (patch.anchor !== undefined) {
+    const start = resolveStart(found.track, found.beat, deck, manifestFor).start;
+    const result = setTrackAnchor(deck, slideId, trackId, patch.anchor);
+    if (!result.ok) return restore(result);
+    if (patch.anchor === null) found.track.start = start;
+  }
+  for (const key of ["start", "duration"] as const) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    if (!Number.isFinite(value) || value < 0) return restore({ ok: false, reason: `${key} must be non-negative and finite` });
+    if (key === "start" && found.track.anchor) {
+      const current = resolveStart(found.track, found.beat, deck, manifestFor).start;
+      found.track.anchor.offsetMs = (found.track.anchor.offsetMs ?? 0) + value - current;
+    } else found.track[key] = value;
+  }
+  if (patch.easing !== undefined) found.track.easing = patch.easing;
+  return { ok: true };
+}
+
 /** Move a track into another beat on the same slide (drag a chip across
  *  columns). `at` places it at a lane index (default: append). Timing (start/
  *  duration/stagger) travels untouched; a beat-local group membership is
@@ -698,7 +848,7 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
     if (i < 0) continue;
     const candidate = b.tracks[i];
     if (to === s.beats[0]) return false;
-    if (["transform", "media"].includes(familyOf(candidate)) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate))) return false;
+    if (["transform", "media"].includes(familyOf(resolveTrack(candidate, deck))) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate, deck))) return false;
     const [t] = b.tracks.splice(i, 1);
     if (b.id !== to.id && t.groupId) delete t.groupId;
     // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
@@ -721,7 +871,7 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
     if (i < 0) continue;
     const to = toBeatId ? beatById(s, toBeatId) : b;
     if (!to || to === s.beats[0] || b === s.beats[0]) return null;
-    if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(b.tracks[i])) && to.tracks.some(t => tracksMatch(t, b.tracks[i]))) return null;
+    if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(resolveTrack(b.tracks[i], deck))) && to.tracks.some(t => tracksMatch(t, b.tracks[i], deck))) return null;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
     if (copy.ghostFrom) copy.target = cloneBirthResults(s, [copy]).get(copy.target) ?? copy.target;
@@ -812,12 +962,12 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   if (source.type === "video") throw new Error("Duplicate the video clip to create an independent copy; Ghost transforms do not support video.");
   const beat = slide.beats[bi];
   const whole = beat.tracks.filter(t => t.target === sourceId && !hasPartBinding(t) && !t.disabled);
-  const changes = whole.filter(t => familyOf(t) === "transform");
-  const exits = whole.filter(t => isExitPreset(t.preset));
+  const changes = whole.filter(t => familyOf(resolveTrack(t, deck)) === "transform");
+  const exits = whole.filter(t => isExitPreset(resolveTrack(t, deck).preset));
   if (changes.length > 1 || exits.length > 1 || original === "stay" && (changes.length || exits.length) || original === "transform" && exits.length || original === "disappear" && changes.length)
     throw new Error(`The original already has a Change or exit in this step. Choose its existing behavior or edit those effects first.`);
   if (opts.sourceSnapshot && (opts.sourceSnapshot.id !== sourceId || opts.sourceSnapshot.type !== source.type)) throw new Error("Copy snapshot must belong to the selected source object");
-  const available = compileSlide(slide, deck.stage).copySourceState(sourceId, bi);
+  const available = compileSlide(slide, deck.stage, deck).copySourceState(sourceId, bi);
   if (!available) throw new Error("This source is not available before the selected step. Choose a later step or another source.");
   const snapshot = opts.sourceSnapshot ?? available;
   const groupId = newId("tgrp"), label = source.name?.trim() || source.type;
@@ -896,7 +1046,8 @@ export function setTrackEnabled(deck: Deck, slideId: Id, trackId: Id, enabled: b
  *  target (whole element, or the same part-set) replace each other: "max one
  *  transform per target per beat" — chaining happens across beats. Media
  *  commands stay whole-clip and unique per clip. */
-function tracksMatch(a: Track, b: Track): boolean {
+function tracksMatch(a: Track, b: Track, deck: StyleContext = {}): boolean {
+  a = resolveTrack(a, deck); b = resolveTrack(b, deck);
   if (a.target !== b.target) return false;
   const fam = familyOf(a);
   if (fam !== familyOf(b)) return false;
@@ -910,8 +1061,8 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b) return false;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
-  const i = b.tracks.findIndex((t) => tracksMatch(t, track));
+  if (familyOf(resolveTrack(track, deck)) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
+  const i = b.tracks.findIndex((t) => tracksMatch(t, track, deck));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
   // A matched track's group membership survives the replace (grouping is
@@ -934,8 +1085,8 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
 export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): Track | null {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
-  if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(track)) && b.tracks.some(t => tracksMatch(t, track)))) return null;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
+  if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(resolveTrack(track, deck))) && b.tracks.some(t => tracksMatch(t, track, deck)))) return null;
+  if (familyOf(resolveTrack(track, deck)) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);
   return added;
@@ -975,7 +1126,7 @@ export function setTransform(
   const b = s && beatById(s, beatId);
   if (!b) return null;
   const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
-  let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
+  let t = b.tracks.find((x) => familyOf(resolveTrack(x, deck)) === "transform" && trackKey(x) === want);
   if (!t) {
     t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
     if (opts.ref?.parts?.length) {
@@ -1056,7 +1207,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   if (source.type === "video" || target.type === "video") throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
-  const compiled = opts.compiled ?? compileSlide(slide, deck.stage);
+  const compiled = opts.compiled ?? compileSlide(slide, deck.stage, deck);
   if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
   const frame = compiled.sample(bi);
   if (frame.presentation.unbornElementIds?.includes(sourceId)) throw new Error("The source is not yet born at this step. Choose a later step.");
@@ -1066,7 +1217,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   const evaluated = frame.elements.find((e) => e.id === targetId) ?? target;
   const endEl = withGhostIdentity(sourceAt(compiled.resolvedSlide, targetId, bi + 1, evaluated), source);
   const state = diffState(pre, endEl) ?? {};
-  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(t) === "transform");
+  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(resolveTrack(t, deck)) === "transform");
   const track = setTransform(deck, slideId, beatId, sourceId, {
     state, replaceState: true,
     ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
@@ -1094,6 +1245,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
 
 /** The cascade-editable timing fields of one track at session start. */
 export interface TrackCascadeBaseline {
+  anchor?: Track["anchor"];
   start?: number;
   duration?: number;
   influence?: Influence;
@@ -1133,12 +1285,14 @@ export function cascadeTracks(
     if (!t.id) continue;
     if (!base.has(t.id))
       base.set(t.id, {
+        anchor: t.anchor ? { ...t.anchor } : undefined,
         start: t.start,
         duration: t.duration,
         influence: t.influence ? { ...t.influence } : undefined,
         stagger: t.stagger ? { ...t.stagger } : undefined,
       });
     const b0 = base.get(t.id)!;
+    if (b0.anchor === undefined) delete t.anchor; else t.anchor = { ...b0.anchor };
     if (b0.start === undefined) delete t.start;
     else t.start = b0.start;
     if (b0.duration === undefined) delete t.duration;
@@ -1148,7 +1302,7 @@ export function cascadeTracks(
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!t.stagger : true));
+  let list = found.filter(({ t }) => (familyOf(resolveTrack(t, deck)) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!resolveTrack(t, deck).stagger : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
@@ -1159,13 +1313,14 @@ export function cascadeTracks(
   for (let rank = 0; rank < list.length; rank++) {
     const t = list[rank].t;
     const step = stepOf(rank, spec.firstFixed);
-    const b0 = base.get(t.id!)!;
+    const b0 = resolveTrack(t, deck);
     switch (spec.property) {
       case "start":
-        t.start = clampTrackValue("start", cascadeValue(b0.start ?? 0, spec, step));
+        if (t.anchor) t.anchor.offsetMs = cascadeValue(t.anchor.offsetMs ?? 0, spec, step);
+        else t.start = clampTrackValue("start", cascadeValue(b0.start ?? 0, spec, step));
         break;
       case "duration":
-        t.duration = clampTrackValue("duration", cascadeValue(b0.duration ?? trackDuration(t), spec, step));
+        t.duration = clampTrackValue("duration", cascadeValue(trackDuration(b0), spec, step));
         break;
       case "influence.in":
       case "influence.out": {
@@ -1173,7 +1328,7 @@ export function cascadeTracks(
         const inf: Influence = { in: b0.influence?.in ?? 0, out: b0.influence?.out ?? 0 };
         inf[side] = clampTrackValue(spec.property, cascadeValue(inf[side], spec, step));
         // Both zero ⇒ no velocity profile at all (PropertiesPane parity).
-        if (!inf.in && !inf.out) delete t.influence;
+        if (!inf.in && !inf.out && !t.styleId) delete t.influence;
         else t.influence = inf;
         break;
       }

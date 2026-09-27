@@ -10,12 +10,15 @@ import { hasTweenableSeries, seriesAxes, seriesTweenable, plotViewIssues } from 
 import { staggerRanks, staggerSpan } from "./stagger";
 import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
-import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
+import { isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
 import { targetPartIds, hasPartBinding, trackKey } from "./targets";
+import { resolveTrack, resolveBeat, type StyleContext } from "./resolve";
+import { trackDuration } from "./timing";
+export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
-export interface CompileOptions { plotManifest?: (assetId: string) => FluxPlotManifest | undefined }
+export interface CompileOptions extends StyleContext { plotManifest?: (assetId: string) => FluxPlotManifest | undefined }
 export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; ease: (t: number) => number }
 export interface PartFrame { opacity: number; visible: boolean; transform?: string }
 export interface SlideFrame {
@@ -40,11 +43,6 @@ export interface CompiledSlide {
   sample(beat: number, timeMs?: number): SlideFrame;
   preState(target: string, beat: number): Element | null;
   copySourceState(source: string, birthBeat: number): Element | null;
-}
-export function trackDuration(track: Track): number {
-  const def = presetDef(track.preset);
-  if (def.family === "media") return 0;
-  return Math.max(0, track.duration ?? def.defaultDurationMs);
 }
 /** The plot leaf ids a track's binding names (`part` ∪ `parts` ∪ `selector`,
  *  minus `selector.except`) under the target's manifest at its beat — ONE
@@ -206,9 +204,21 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   return { cues, issues, sample };
 }
 export function compileSlide(slide: Slide, stage: StageSize = { width: 640, height: 360 }, opts: CompileOptions = {}): CompiledSlide {
-  const resolved = resolveGhosts(slide, (working, beat, factors) => compileOrdinarySlide(working, stage, opts, factors).sample(beat));
+  // Normalize before ghost and transform folds: their family/pre-state reads
+  // must see inherited presets too. Keep authored tracks untouched.
+  const styled = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.map(t => resolveTrack(t, opts)) })) };
+  const timingIssues: AnimationIssue[] = [];
+  const timed = { ...slide, beats: slide.beats.map((beat, bi) => {
+    const resolved = resolveBeat(beat, opts, target => {
+      const el = transformPreState(styled, target, bi);
+      return el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
+    });
+    timingIssues.push(...resolved.issues);
+    return { ...beat, tracks: resolved.tracks };
+  }) };
+  const resolved = resolveGhosts(timed, (working, beat, factors) => compileOrdinarySlide(working, stage, opts, factors).sample(beat));
   const plain = compileOrdinarySlide(resolved.slide, stage, opts, resolved.partFactors);
-  const issues = [...resolved.issues, ...plain.issues];
+  const issues = [...timingIssues, ...resolved.issues, ...plain.issues];
   const sample = (beat: number, time = Infinity): SlideFrame => {
     const frame = plain.sample(beat, time);
     frame.issues = issues;

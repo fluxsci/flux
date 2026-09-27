@@ -193,4 +193,23 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   player.destroy(); check(scheduled.size === 0, "destroy leaves no animation callback");
   Object.assign(globalThis, { requestAnimationFrame: oldRaf, cancelAnimationFrame: oldCancel, performance: oldPerf });
 }
+{
+  const deck = createDeck({ withTitleSlide: false });
+  deck.animStyles = [{ id: "shared", name: "Fade", family: "appearance", track: { preset: "fade", duration: 200, easing: "linear" } }];
+  const anchored: Slide = { id: "anchors", elements: [{ ...rect, rotation: 0 }], beats: [{ id: "base", tracks: [] }, { id: "cue", tracks: [
+    { id: "prior", target: "r", preset: "transform", duration: 100, to: { state: { x: 80 } } },
+    { id: "follower", target: "r", styleId: "shared", anchor: { trackId: "prior", edge: "end" } },
+  ] }] };
+  deck.slides = [anchored];
+  const options = { ...opts, animStyles: deck.animStyles };
+  const compiled = compileSlide(anchored, stage, options);
+  const rendered = renderSlide(host, compiled.resolvedSlide, stage, options);
+  // Explicit compiled input must be the only timing/preset source of the binding.
+  const specs = computeSlideAnims(anchored, rendered, host, stage, options, compiled);
+  const effect = rendered.elements.get("r")!.querySelector(".sl-effects") as HTMLElement;
+  applyAt(specs, 1, 99); check(effect.style.opacity === "0", "anchored entrance is hidden at its anchor end minus 1ms");
+  applyAt(specs, 1, 101); check(Math.abs(Number(effect.style.opacity) - .005) < 1e-9, "anchored entrance begins at the resolved end plus 1ms");
+  check(compiled.cues[1].duration === 300 && specs.find(s => s.trackId === "follower")?.duration === 200, "compiler and binding inherit the styled duration");
+  applyAt(specs, 1, 99); check(effect.style.opacity === "0", "reverse seek across an anchor restores the pre-start state");
+}
 console.log(`\nSLIDE TIMELINE: PASS (${checks} assertions)`);

@@ -33,6 +33,11 @@ const el = (id: string): HTMLElement => {
   d.dataset.elId = id;
   return d as unknown as HTMLElement;
 };
+// Model targets accompany the DOM targets: playback binds compiler-validated cues.
+const model = (id: string): Slide["elements"] => [{
+  id, type: "rect", x: 0, y: 0, width: 100, height: 40,
+  fill: "#fff", stroke: "none", strokeWidth: 0, rotation: 0, opacity: 1,
+}];
 // Whole-object effects now compose on an inner layer; inspect that layer.
 const style = (n: HTMLElement) => ((n as HTMLElement & { __slideEffects?: HTMLElement }).__slideEffects ?? n).style as unknown as Record<string, string>;
 
@@ -46,7 +51,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   const box = el("e1");
   const rendered: RenderedSlide = { elements: new Map([["e1", box]]) };
   const slide: Slide = {
-    id: "s", elements: [], beats: [
+    id: "s", elements: model("e1"), beats: [
       { id: "k0", tracks: [] },
       { id: "k1", tracks: [{ target: "e1", preset: "fadeOut", duration: 300 }] },
     ],
@@ -65,7 +70,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   const box = el("e2");
   const rendered: RenderedSlide = { elements: new Map([["e2", box]]) };
   const slide: Slide = {
-    id: "s", elements: [], beats: [
+    id: "s", elements: model("e2"), beats: [
       { id: "k0", tracks: [] },
       { id: "k1", tracks: [{ target: "e2", preset: "fadeRise", duration: 300 }] },
       { id: "k2", tracks: [{ target: "e2", preset: "popOut", duration: 250 }] },
@@ -97,7 +102,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   wrap.appendChild(path);
   const rendered: RenderedSlide = { elements: new Map([["e3", wrap]]) };
   const slide: Slide = {
-    id: "s", elements: [], beats: [
+    id: "s", elements: model("e3"), beats: [
       { id: "k0", tracks: [] },
       { id: "k1", tracks: [{ target: "e3", preset: "fade", duration: 200 }] },
       { id: "k2", tracks: [{ target: "e3", preset: "fadeOut", duration: 200 }] },
@@ -125,7 +130,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   const box = el("e4");
   const rendered: RenderedSlide = { elements: new Map([["e4", box]]) };
   const t: Track = { target: "e4", preset: "fade", duration: 300, disabled: true };
-  const slide: Slide = { id: "s", elements: [], beats: [{ id: "k0", tracks: [] }, { id: "k1", tracks: [t] }] };
+  const slide: Slide = { id: "s", elements: model("e4"), beats: [{ id: "k0", tracks: [] }, { id: "k1", tracks: [t] }] };
   const specs = computeSlideAnims(slide, rendered, el("cam"), stage, opts);
   assert(specs.length === 0, "a disabled track produces no specs (play + static + export all skip it)");
   applyStatic(specs, 0);
@@ -191,7 +196,7 @@ for (const p of ["fadeOut", "popOut", "drawOff", "wipeOut"]) {
   statEl.textContent = "42 sites";
   const rendered: RenderedSlide = { elements: new Map([["n3", statEl]]) };
   const slide: Slide = {
-    id: "s", elements: [], beats: [
+    id: "s", elements: model("n3"), beats: [
       { id: "k0", tracks: [] },
       { id: "k1", tracks: [{ target: "n3", preset: "countUp", duration: 600 }] },
     ],

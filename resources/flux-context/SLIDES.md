@@ -66,6 +66,16 @@ flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                
 flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]         #   plot data-only form: the frame stays, the content becomes that
                                                                                    #   project plot's (compatible structures tween data; others crossfade)
 
+# linked deck styles + relative timing
+flux anim-style create <deck> --name L --family appearance|transform|media --preset P
+     [--duration ms --start ms --easing e --stagger '{"perMs":30}'] # (anim_style)
+flux anim-style set <deck> <styleId> [--name L --preset P --duration ms --start ms --easing e]
+flux anim-style delete <deck> <styleId>                         # detach linked effects, preserving their settings
+flux anim-style list <deck>
+flux animate-like <deck> <slideId> --from t1 --to t2,t3          # (animate_like) share the source style; family mismatches reported
+flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
+     [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --easing e] # (set_track)
+
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
 flux ungroup-tracks <deck> <slideId> <beatId> t1,t2…              # (ungroup_tracks)
@@ -195,6 +205,19 @@ engine, so they agree by construction. Tracks whose element was deleted are TOLE
 Track groups (`Beat.groups[]` + `Track.groupId`) are presentational animator lanes — they
 never change playback. Collapse state persists in the deck (you can read the authoring
 layout).
+
+**Linked reuse:** `deck.animStyles` carries named HOW definitions. An own track field wins;
+an absent field inherits. Linking removes own HOW fields. Detaching or deleting a style
+materializes the resolved settings; bindings and transform endpoints stay on each track.
+`animate-like` links the source and targets to a shared style (creating `Like <label>` when
+needed), refusing incompatible families per target. Portable slide snapshots carry referenced
+styles; insertion merges by name and family.
+
+**Follow timing:** `anchor:{trackId,edge:"start"|"end",offsetMs?}` follows a same-step effect.
+End includes duration and the stagger tail. Cycles and missing targets produce compiler issues
+and fall back to the stored start. The setter refuses invalid anchors before saving.
+`set-track --start` moves an anchor's offset; `--no-anchor` preserves its resolved start.
+A start cascade edits offsets, and a duration cascade writes a local style override.
 
 **Reuse:** presets (one track's settings) live at `<FluxConfig>/presets/animations/`,
 templates (bundles with role/type matchers) at `<FluxConfig>/presets/anim-templates/`.

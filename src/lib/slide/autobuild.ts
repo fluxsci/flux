@@ -1,4 +1,5 @@
 import { familyOf } from "./family";
+import { resolveTrack } from "./resolve";
 // ---------------------------------------------------------------------------
 // Flux Slide — autoAnimatePlot (§ the one-click magic). Turn a FluxPlot's own
 // authored build hints (manifest.build.order + build.presets) into a ready-to-
@@ -154,7 +155,8 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
   const beats: Beat[] = [];
   phases.forEach((tracks, ph) => {
     if (!tracks.length) return;
-    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt) => ({ ...planToTrack(pt, elId, ph, tracks), generatedBy: "auto-reveal" as const })) });
+    const ids = tracks.map(() => newId("track"));
+    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
   });
   return beats;
 }
@@ -162,15 +164,15 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
 /** One plan entry → a Track. In the Data phase, points stagger left→right by x
  *  and the geometry (line/area) starts partway through that stagger so it
  *  resolves "just as the points finish" — the user's exact scatter beat. */
-function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[]): Track {
-  const track: Track = { id: newId("track"), target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
+function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[], ids: string[], index: number): Track {
+  const track: Track = { id: ids[index], target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
   if (pt.preset === "stagger") {
     track.stagger = { perMs: pt.staggerMs ?? 40, by: "x", from: "start" };
     track.params = { child: "fade" }; // points FADE in (staggered) — cleaner than rise for a scatter
   }
   if (phase === 2 && pt.preset !== "stagger") {
     const pts = peers.find((p) => p.preset === "stagger");
-    if (pts) track.start = Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40));
+    if (pts) track.anchor = { trackId: ids[peers.indexOf(pts)], edge: "start", offsetMs: Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40)) };
   }
   return track;
 }
@@ -340,9 +342,9 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
     // Legacy auto-* phase ownership is recognized once and stamped explicitly.
     const legacy = /^auto-(?:\d+|ghost-.+-\d+)$/.test(b.id);
     if (legacy) { b.generatedBy = "auto-reveal"; b.autoPhase ??= Number(b.id.match(/(\d+)$/)?.[1] ?? 0); b.autoTarget ??= b.id.match(/^auto-ghost-(.+)-\d+$/)?.[1]; }
-    const ownedGroups = new Set(b.tracks.filter(t => t.target === elId && !t.ghostFrom && (t.generatedBy === "auto-reveal" || legacy && !["transform", "media"].includes(familyOf(t)))).map(t => t.groupId).filter(Boolean));
+    const ownedGroups = new Set(b.tracks.filter(t => t.target === elId && !t.ghostFrom && (t.generatedBy === "auto-reveal" || legacy && !["transform", "media"].includes(familyOf(resolveTrack(t, deck))))).map(t => t.groupId).filter(Boolean));
     b.tracks = b.tracks.filter(t => t.target !== elId || !!t.ghostFrom ||
-      (t.generatedBy !== "auto-reveal" && !(legacy && !["transform", "media"].includes(familyOf(t)))));
+      (t.generatedBy !== "auto-reveal" && !(legacy && !["transform", "media"].includes(familyOf(resolveTrack(t, deck))))));
     if (b.groups) { const used = new Set(b.tracks.map(t => t.groupId).filter(Boolean)); b.groups = b.groups.filter(g => used.has(g.id) || !ownedGroups.has(g.id)); }
   }
 
