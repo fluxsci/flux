@@ -112,7 +112,7 @@
   import { editorStashedElements, editorStashedParts } from "../../../lib/editorPresentation";
   import { fileBridge, joinPath } from "../../../lib/project/types";
   import { deckPdfDocument, type DeckPdfPages } from "../../../lib/slide/export/deckPdf";
-  import { deckPptxDocument, canvasRasterize } from "../../../lib/slide/export/deckPptx";
+  import { deckPptxDocument, canvasRasterize, domMeasure } from "../../../lib/slide/export/deckPptx";
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
@@ -916,7 +916,7 @@
     exportMsg = null;
     try {
       await exportPreflight(root, id);
-      const doc = await deckPptxDocument(root, id, fb, canvasRasterize);
+      const doc = await deckPptxDocument(root, id, fb, canvasRasterize, domMeasure);
       const dir = joinPath(root, "exports");
       await fb.mkdir(dir);
       const out = joinPath(dir, `${id}.pptx`);

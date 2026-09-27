@@ -20,8 +20,9 @@
 //   image / video -> the raster (a video's poster frame), crop kept.
 // Animations are not translated: a slide shows where its builds end.
 //
-// Pure apart from the injected rasterizer (PNG fallbacks need a canvas): the
-// renderer passes a canvas-backed one, the pure gate a stub.
+// Pure apart from the injected rasterizer (PNG fallbacks need a canvas) and
+// measurer (a plot's painted extent needs layout): the renderer passes
+// canvas/DOM-backed ones, the pure gate stubs.
 import { zipSync, strToU8 } from "fflate";
 import type { Element } from "../../types";
 import type { ExportPayload } from "../payload";
@@ -37,6 +38,11 @@ import { dataUrlToBytes } from "../../assets";
 
 /** Renders an SVG to PNG bytes at the given pixel size (the fallback image). */
 export type Rasterize = (svg: string, widthPx: number, heightPx: number) => Promise<Uint8Array>;
+/** The painted extent of an SVG whose root maps 1:1 onto `width`×`height`, in
+ *  those units (it may reach past the root), or null when unmeasurable. A
+ *  plot's axis label can sit outside the plot frame (the canvas shows it,
+ *  overflow visible), so the picture is sized to this, not to the frame. */
+export type MeasureSvg = (svg: string, width: number, height: number) => Promise<{ x: number; y: number; width: number; height: number } | null>;
 
 export interface DeckPptxSlide { payload: ExportPayload; notes?: string }
 export interface DeckPptxResult { bytes: Uint8Array; slides: number; warnings: string[] }
@@ -93,6 +99,7 @@ interface SlideContext {
   rels: string[]; // relationship XML for this slide
   addMedia: (m: Omit<Media, "name">) => string; // returns the rId
   rasterize: Rasterize;
+  measure: MeasureSvg | undefined;
   warnings: string[];
 }
 
@@ -235,9 +242,32 @@ async function plotXml(ctx: SlideContext, el: Extract<Element, { type: "plot" }>
   // Drawn unrotated at the origin; the picture frame carries the rotation, so
   // "Convert to Shape" yields axis-aligned pieces inside a rotated group.
   const flat = { ...el, x: 0, y: 0, rotation: 0 };
-  const markup = ctx.ev.plotMarkup(flat);
+  let markup = ctx.ev.plotMarkup(flat);
   if (!markup) throw new Error(`Cannot render plot ${el.name ?? el.id}`);
-  return svgPicture(ctx, el, standaloneSvg(markup, el.width, el.height), el.x, el.y, el.width, el.height, el.rotation);
+  // Uncropped, the plot overflows its frame as on the canvas (mount.ts); a
+  // nested <svg> clips by default, and so would a picture sized to the frame,
+  // cutting an axis label that sits outside it. So: overflow visible, and the
+  // picture grown to the painted extent. A crop still clips to the frame.
+  const { width: w, height: h } = el;
+  let box = { x: 0, y: 0, width: w, height: h };
+  if (!el.crop) {
+    markup = markup.replace(/^<svg\b(?![^>]*\soverflow=)/, '<svg overflow="visible"');
+    const ink = ctx.measure ? await ctx.measure(standaloneSvg(markup, w, h), w, h) : null;
+    if (ink && ink.width > 0 && ink.height > 0) {
+      // Only a side the ink crosses grows, padded for strokes and antialiasing
+      // past the geometric box; a plot inside its frame keeps the frame.
+      const pad = 2, ix1 = ink.x + ink.width, iy1 = ink.y + ink.height;
+      let x0 = ink.x < 0 ? ink.x - pad : 0, y0 = ink.y < 0 ? ink.y - pad : 0;
+      let x1 = ix1 > w ? ix1 + pad : w, y1 = iy1 > h ? iy1 + pad : h;
+      if (el.rotation) {
+        // The frame turns about its own centre: keep that the plot's centre.
+        const dx = Math.max(-x0, x1 - w), dy = Math.max(-y0, y1 - h);
+        [x0, y0, x1, y1] = [-dx, -dy, w + dx, h + dy];
+      }
+      box = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    }
+  }
+  return svgPicture(ctx, el, standaloneSvg(markup, box.width, box.height, box.x, box.y), el.x + box.x, el.y + box.y, box.width, box.height, el.rotation);
 }
 
 async function vectorFallbackXml(ctx: SlideContext, el: Element): Promise<string> {
@@ -304,7 +334,7 @@ function themeXml(): string {
 }
 
 /** Write a PowerPoint package from each slide's payload (gatherSlidePayload). */
-export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rasterize: Rasterize): Promise<DeckPptxResult> {
+export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rasterize: Rasterize, measure?: MeasureSvg): Promise<DeckPptxResult> {
   if (!slides.length) throw new Error("This deck has no slides to export");
   const stage = slides[0].payload.deck.stage;
   const emuBase = SLIDE_WIDTH_EMU / stage.width;
@@ -321,7 +351,7 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
     const relItems: [string, string, string][] = [["rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"]];
     let shapeId = 1;
     const ctx: SlideContext = {
-      ev, payload: s.payload, emu: emuBase * zoom, zoom, warnings, rasterize, media: [], rels: [],
+      ev, payload: s.payload, emu: emuBase * zoom, zoom, warnings, rasterize, measure, media: [], rels: [],
       map: (x, y) => cam
         ? { x: ((x - cam.x) * zoom + stage.width / 2) * emuBase, y: ((y - cam.y) * zoom + stage.height / 2) * emuBase }
         : { x: x * emuBase, y: y * emuBase },
@@ -415,9 +445,38 @@ export const canvasRasterize: Rasterize = async (svg, widthPx, heightPx) => {
   }
 };
 
+/** The renderer's measurer: the SVG laid out, invisibly, at 1:1, and the
+ *  union of its painted leaves' boxes. Boxes ignore clipping, so a clipped
+ *  leaf (a data line held inside the axes) is left out rather than letting
+ *  its unclipped geometry grow the picture; so are hidden parts and defs. */
+export const domMeasure: MeasureSvg = async (svg, width, height) => {
+  const host = document.createElement("div");
+  host.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px;opacity:0;pointer-events:none;z-index:-1`;
+  host.innerHTML = svg;
+  document.body.appendChild(host);
+  try {
+    const root = host.querySelector("svg");
+    if (!root) return null;
+    const origin = root.getBoundingClientRect();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const node of Array.from(root.querySelectorAll("path,line,polyline,polygon,rect,circle,ellipse,text,image,use,foreignObject"))) {
+      if (node.closest("defs,clipPath,mask,marker,pattern,symbol,[clip-path]")) continue;
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden" || style.clipPath && style.clipPath !== "none") continue;
+      const r = node.getBoundingClientRect();
+      if (r.width <= 0 && r.height <= 0) continue;
+      x0 = Math.min(x0, r.left - origin.left); y0 = Math.min(y0, r.top - origin.top);
+      x1 = Math.max(x1, r.right - origin.left); y1 = Math.max(y1, r.bottom - origin.top);
+    }
+    return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
+  } finally {
+    host.remove();
+  }
+};
+
 /** Read a SAVED deck and write it as .pptx bytes. Static pages show a video's
  *  poster frame, so the movie itself is never read. */
-export async function deckPptxDocument(root: string, deckId: string, io: import("../payload").SlidePayloadIO, rasterize: Rasterize): Promise<DeckPptxResult> {
+export async function deckPptxDocument(root: string, deckId: string, io: import("../payload").SlidePayloadIO, rasterize: Rasterize, measure?: MeasureSvg): Promise<DeckPptxResult> {
   const { readEmbedDeck, gatherSlidePayload } = await import("../payload");
   const staticIO = { ...io, videoUrl: async () => "" };
   const deck = await readEmbedDeck(root, deckId, staticIO);
@@ -428,6 +487,6 @@ export async function deckPptxDocument(root: string, deckId: string, io: import(
     for (const w of result.warnings) if (!warnings.includes(w)) warnings.push(w);
     slides.push({ payload: result.payload });
   }
-  const out = await deckPptxBytes(deck.title, slides, rasterize);
+  const out = await deckPptxBytes(deck.title, slides, rasterize, measure);
   return { ...out, warnings: [...warnings, ...out.warnings] };
 }
