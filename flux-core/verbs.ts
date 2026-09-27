@@ -2196,12 +2196,12 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "add_annotation",
+    name: "add_highlight",
     scope: "machine",
-    cli: "add-annotation",
+    cli: "add-highlight",
     cliRoot: "flags",
     summary:
-      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same annotations FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
+      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same highlights FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
     params: {
       key: z.string(),
       page: z.number(),
@@ -2233,11 +2233,11 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => {
         const c = r as { id: string; page: number; color: string };
-        return { err: `✓ annotated @${a.key} p${c.page} [${c.color}] (${c.id})` };
+        return { err: `✓ highlighted @${a.key} p${c.page} [${c.color}] (${c.id})` };
       },
       mcp: (r, a) => {
         const c = r as { id: string; color: string };
-        return text(`added annotation ${c.id} on @${a.key} p${a.page} [${c.color}]`);
+        return text(`added highlight ${c.id} on @${a.key} p${a.page} [${c.color}]`);
       },
     },
   },

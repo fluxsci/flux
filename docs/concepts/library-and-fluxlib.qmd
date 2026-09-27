@@ -23,7 +23,7 @@ Every paper has one stable **citation key** (`smithNeuralBasis2021`-style — th
 Zotero's Better BibTeX plugin uses, so keys arriving from a [Zotero
 sync](../integrations/zotero.qmd) and keys Flux mints itself look alike). That key is how you cite
 it in any manuscript (`[@smithNeuralBasis2021]`), the name of its folder in the library, and
-the handle agents use to fetch, annotate, or discuss it. Keys are permanent join keys — they
+the handle agents use to fetch, highlight, or discuss it. Keys are permanent join keys — they
 never change out from under a project.
 
 # What's inside FluxLib
@@ -36,7 +36,7 @@ clear source-vs-derived split:
   you could open it in any reference tool ever written.
 - `items/<citekey>/` — everything belonging to one paper: the PDF (or, when Zotero sync runs
   in linked mode, a small pointer file naming the PDF in Zotero's folder), a `supplements/`
-  folder for supplementary files, your annotations, and the extracted text that powers
+  folder for supplementary files, your highlights, and the extracted text that powers
   full-text search.
 - `pdfs_to_assign/` — the watched **inbox folder**: drop PDFs here and Flux identifies each one
   from its own contents and files it under the right paper (refusing, rather than guessing, when

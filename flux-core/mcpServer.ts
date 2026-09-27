@@ -204,7 +204,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     },
   );
 
-  // --- FluxFinder (PDF acquisition) + FluxReader (full text + annotations) ------
+  // --- FluxFinder (PDF acquisition) + FluxReader (full text + highlights) ------
 
   registerTool(
     "fetch_supplements",
@@ -297,7 +297,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   );
 
   registerTool(
-    "list_annotations",
+    "list_highlights",
     {
       scope: "machine",
       description:
@@ -307,7 +307,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     async ({ key, markdown }) => {
       if (markdown) return ok(await core.annotationsMarkdown(key));
       const anns = await core.listAnnotations(key);
-      if (!anns.length) return ok(`No annotations on ${key}.`);
+      if (!anns.length) return ok(`No highlights on ${key}.`);
       return ok(anns.map((a) => `p${a.page} [${a.color}] "${a.anchor.quote}"${a.note ? ` — ${a.note}` : ""}`).join("\n"));
     },
   );
@@ -345,7 +345,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   );
 
   registerTool(
-    "search_annotations",
+    "search_highlights",
     {
       scope: "machine",
       description:
@@ -354,7 +354,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     },
     async ({ query, key }) => {
       const hits = await core.searchAnnotations(query, { key });
-      if (!hits.length) return ok(`No annotations match "${query}".`);
+      if (!hits.length) return ok(`No highlights match "${query}".`);
       return ok(hits.map((h) => `@${h.key} p${h.page} [${h.color}] "${h.anchor.quote}"${h.note ? ` — ${h.note}` : ""}`).join("\n"));
     },
   );
@@ -364,13 +364,14 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     {
       scope: "machine",
       description:
-        "What the human is reading in FluxReader RIGHT NOW — the open paper (citekey, title, authors, DOI), current page, their current text selection (if any), and their highlights. Start here when the human opens you from the reader ('what does this mean?', 'summarize this'): the `selection` is what they're pointing at. Then use get_paper_text {key} for the full text and search_annotations for their notes.",
+        "What the human is reading in FluxReader RIGHT NOW — the open paper (citekey, title, authors, DOI), current page, their current text selection (if any), and their highlights. Start here when the human opens you from the reader ('what does this mean?', 'summarize this'): the `selection` is what they're pointing at. Then use get_paper_text {key} for the full text and search_highlights for their notes.",
       inputSchema: {},
     },
     async () => {
       const c = await core.readReaderContext();
       if (!c || !c.citekey) return ok("No paper is open in FluxReader right now.");
-      return ok(JSON.stringify(c, null, 2));
+      const { annotations, ...context } = c;
+      return ok(JSON.stringify({ ...context, highlights: annotations ?? [] }, null, 2));
     },
   );
 

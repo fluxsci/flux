@@ -2,7 +2,7 @@
   // FluxReader document — everything scoped to ONE open paper. Loads the paper named by
   // the (immutable) `citekey` prop from <FluxLib>/items/<citekey>/ (PDF bytes +
   // annotations) and renders it with PdfView, flanked by a reference sidebar (the
-  // paper's OpenAlex referenced_works → add to FluxLib) and an annotations panel (this
+  // paper's OpenAlex referenced_works → add to FluxLib) and a Highlights panel (this
   // paper's highlights → click to scroll, delete). Highlights persist to
   // items/<citekey>/annotations.json. ReaderMode hosts one instance per open document;
   // switching papers mounts a fresh instance, so per-paper state needs no reset path.
@@ -580,7 +580,7 @@
     if (alive) refsState = "error";
   });
 
-  // W10 (LR-3): an external FluxLib write (e.g. an agent's add_annotation, or a new
+  // W10 (LR-3): an external FluxLib write (e.g. an agent's add_highlight, or a new
   // paper) refreshes the open paper's annotations + library membership in place —
   // and, if paper.pdf itself changed on disk (re-fetch, manual ingest), reloads the
   // bytes and remounts the PDF view (bufferGen keys it) instead of rendering stale bytes.
@@ -822,7 +822,7 @@
 
   function onKey(e: KeyboardEvent) {
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
-    // Alt chords: the panels (R = library, A = annotations).
+    // Alt chords: the panels (R = library, A = highlights).
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -1205,8 +1205,8 @@
           </div>
           <aside class="side annots">
             <div class="shead stabs">
-              <button class="stab" class:on={$readerLayout.rightTab === "annots"}
-                onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "annots" }))}>Annotations</button>
+              <button class="stab" class:on={$readerLayout.rightTab === "annots"} title="Highlights (Alt+A)"
+                onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "annots" }))}>Highlights</button>
               <button class="stab" class:on={$readerLayout.rightTab === "library"} title="Search your reference library (Alt+R)"
                 onclick={summonLibrary}>Library</button>
               {#if $readerLayout.rightTab === "annots" && annotations.length}

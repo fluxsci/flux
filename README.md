@@ -29,7 +29,7 @@ Your projects stay in ordinary files on your own machine.
 - **[Library](docs/modes/library.qmd)** — organize references and PDFs across
   projects, import BibTeX/RIS, connect Zotero, and search full text.
 - **[Reader](docs/modes/reader.qmd)** — read PDFs side by side, highlight passages,
-  attach notes, and export annotations.
+  attach notes, and export highlights.
 
 [![Flux Figure mode showing editable neuroscience plots arranged in an eight-panel figure, with layers and styling controls](https://fluxsci.github.io/assets/media/figure.webp)](https://fluxsci.github.io/#figure)
 

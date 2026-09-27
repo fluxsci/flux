@@ -179,7 +179,7 @@ try {
   ok("Open PDF from the panel opens that paper", (await page.evaluate(() => window.__fluxReaderKey)) === libKey);
   await page.click(`${ACT} .side.annots .stab:nth-child(1)`);
   await sleep(300);
-  ok("switching back to Annotations dismisses the panel", !(await page.$(`${ACT} [data-testid="reader-library"]`)));
+  ok("switching back to Highlights dismisses the panel", !(await page.$(`${ACT} [data-testid="reader-library"]`)));
 
   // --- tab drag-reorder ---------------------------------------------------------------
   const before = await tabKeys();
@@ -233,8 +233,9 @@ try {
   await chord("b", { ctrl: true, shift: true });
   ok("Ctrl+Shift+B hides the right rail", !(await page.$(`${ACT} .side.annots`)));
   await chord("a", { alt: true });
-  ok("Alt+A reopens the right rail on Annotations",
-    !!(await page.$(`${ACT} .side.annots`)) && (await storedLayout()).rightTab === "annots");
+  ok("Alt+A reopens the right rail on Highlights",
+    !!(await page.$(`${ACT} .side.annots`)) && (await storedLayout()).rightTab === "annots"
+      && await page.$eval(`${ACT} .side.annots .stab.on`, el => el.textContent.trim() === "Highlights" && el.title === "Highlights (Alt+A)"));
   await chord("r", { alt: true });
   ok("Alt+R switches it to Library", (await storedLayout()).rightTab === "library");
 

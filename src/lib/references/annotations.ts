@@ -12,6 +12,7 @@ export interface TextQuoteSelector {
   suffix: string;
 }
 
+// The user-facing name is "highlight"; the Annotation type and storage format stay unchanged.
 export interface Annotation {
   id: string;
   page: number; // 1-based
@@ -103,7 +104,7 @@ export function validateAnnotations(raw: unknown): AnnotationFile {
   for (const a of f.annotations) {
     if (!a || typeof a.id !== "string" || !a.id || ids.has(a.id) || !Number.isInteger(a.page) || a.page < 1 ||
         !a.anchor || [a.anchor.quote, a.anchor.prefix, a.anchor.suffix, a.color, a.createdAt].some(v => typeof v !== "string") ||
-        (a.note !== undefined && typeof a.note !== "string") || (a.tags !== undefined && (!Array.isArray(a.tags) || a.tags.some(v => typeof v !== "string")))) throw new Error("Invalid annotation record");
+        (a.note !== undefined && typeof a.note !== "string") || (a.tags !== undefined && (!Array.isArray(a.tags) || a.tags.some(v => typeof v !== "string")))) throw new Error("Invalid highlight record");
     ids.add(a.id);
   }
   return f;

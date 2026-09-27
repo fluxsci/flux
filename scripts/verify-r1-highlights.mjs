@@ -133,7 +133,7 @@ try {
     ok("two-line highlight → two merged boxes", n === 2, `got ${n}`);
   }
   const sidebarRows = await page.$$eval(".annlist .ann", (els) => els.length);
-  ok("sidebar shows both live annotations", sidebarRows >= 2, `rows: ${sidebarRows}`);
+  ok("sidebar shows both live highlights", sidebarRows >= 2, `rows: ${sidebarRows}`);
   await shot(page, "r1-03-created");
 
   // --- click highlight → popover; note round-trip; recolor ----------------------

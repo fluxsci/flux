@@ -85,7 +85,7 @@ With the session export above, `render-figure growth --png` just works.
 | `list-dissections [plot]` | `list_dissections` | a plot's companion material in `plots/_dissections/<plot>/` (groups + files); no arg = every plot that has a dissection folder. Writing needs no verb — drop files in the folder |
 | `version` · `config` | `config_paths` | this build's version/commit (bundle vs source) / machine paths + build info |
 | `fetch-pdfs [--key K]` · `ingest-pdf <file> --key K` | `fetch_pdfs` · `ingest_pdf` | download OA PDFs / file a hand-downloaded PDF into `items/<citekey>/` |
-| `annotations [search q] [--key K]` · `add-annotation --key K --quote "…"` | `list_annotations`/`search_annotations` · `add_annotation` | read / add FluxReader highlights & notes |
+| `highlights [search q] [--key K]` · `add-highlight --key K --quote "…"` | `list_highlights`/`search_highlights` · `add_highlight` | read / add FluxReader highlights & notes |
 | — | `get_app_context` · `dispatch_command` · `act_on_selection` | the **live bridge** (app open only) |
 
 ### Slides (Flux Slide — see `SLIDES.md`)

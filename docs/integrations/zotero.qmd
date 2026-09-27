@@ -6,7 +6,7 @@ subtitle: "Keep adding papers in Zotero — new references and their PDFs flow i
 If you already live in Zotero — or your papers arrive through its excellent browser
 connector — you don't have to choose between Zotero and Flux. Connect them once and
 Zotero becomes an intake valve for [FluxLib](../concepts/library-and-fluxlib.qmd): anything
-you add there appears in Flux, with its PDF, ready to read, annotate, cite, and search.
+you add there appears in Flux, with its PDF, ready to read, highlight, cite, and search.
 
 # What it does — and what it never does
 
@@ -19,7 +19,7 @@ contract. Concretely:
   [PDFs: copied or linked](#pdfs-copied-or-linked)).
 - **Papers you already have are recognized and left alone.** Matching is by DOI first, then
   by title + author + year for entries without one. Your existing citekeys, PDFs, notes, and
-  annotations are never touched.
+  highlights are never touched.
 - **Nothing is ever written back to Zotero.** Flux never modifies your Zotero library, its
   database, or its files.
 - **Deleting or editing in Zotero changes nothing in Flux.** FluxLib is your permanent

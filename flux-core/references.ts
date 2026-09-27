@@ -34,8 +34,8 @@ import { listAnnotations as _listAnnotations } from "./annotate";
 import { annotationsToMarkdown } from "../src/lib/references/annotationsMarkdown";
 
 /** 3.2: one paper's highlights/notes as a Markdown digest (citekey/title header, page-
- *  grouped blockquotes + notes + colours). Backs `flux annotations --md`, the MCP
- *  list_annotations `markdown` param, and (via the bridge twin) the GUI "Export notes…". */
+ *  grouped blockquotes + notes + colours). Backs `flux highlights --md`, the MCP
+ *  list_highlights `markdown` param, and (via the bridge twin) the GUI "Export notes…". */
 export async function annotationsMarkdown(key: string): Promise<string> {
   const [anns, entries] = await Promise.all([_listAnnotations(key), fluxlib.loadLibrary()]);
   const e = entries.find((x) => x.key === key);

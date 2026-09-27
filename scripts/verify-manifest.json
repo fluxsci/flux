@@ -298,7 +298,8 @@
       "verify-projects-registry.ts",
       "verify-launcher.ts",
       "verify-mcp-launcher.ts",
-      "verify-mcp-binding.ts"
+      "verify-mcp-binding.ts",
+      "verify-reader-highlights.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -653,7 +654,8 @@
       "verify-fulltext-refresh.ts",
       "verify-fulltext-progress-gui.mjs",
       "verify-reader-session.ts",
-      "verify-library-world-ownership.mjs"
+      "verify-library-world-ownership.mjs",
+      "verify-reader-highlights.ts"
     ],
     "figures-slides-overhaul": [
       "verify-figure-reference-identity.ts",
@@ -800,6 +802,15 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "{flux-core/{annotate,references}.ts,src/lib/references/annotations.ts}",
+      "run": [
+        "verify-reader-highlights.ts",
+        "verify-canonical-reads.ts",
+        "verify-annotations-md.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "electron/projectsRegistry.*",
       "run": [
@@ -1579,6 +1590,7 @@
     {
       "glob": "flux-core/{mcpServer,mcpBinding,registry,verbs,errors,liveClient}.ts",
       "run": [
+        "verify-reader-highlights.ts",
         "verify-mcp-launcher.ts",
         "verify-mcp-binding.ts",
         "verify-registry-parity.ts",
@@ -1598,6 +1610,7 @@
     {
       "glob": "flux-{cli,mcp}.ts",
       "run": [
+        "verify-reader-highlights.ts",
         "verify-mcp-launcher.ts",
         "verify-mcp-binding.ts",
         "verify-registry-parity.ts",
@@ -7056,6 +7069,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-reader-highlights.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
     }

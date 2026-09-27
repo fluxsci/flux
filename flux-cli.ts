@@ -161,7 +161,7 @@ usage: flux <verb> [root] [args] [--flags]
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
   assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in <FluxLib>/pdfs_to_assign/
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
-  annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
+  highlights [search <q>] [--key K]    list/search FluxReader highlights & notes
                                        --key K --md: export the paper's notes as Markdown
   snip-paper <key> --page N [--rect x1,y1,x2,y2]   capture a PDF page region as a PNG snip into
                                        plots/paper_snips/ (rect = PDF points, y-up; omit = whole
@@ -171,7 +171,7 @@ usage: flux <verb> [root] [args] [--flags]
   tag <citekey> <tag…> [--remove]      add/remove an organization tag on a paper
   set-status <citekey> <status>        set reading status (unread|reading|read)
   collection <citekey> <name…> [--remove]  add/remove a paper from a collection
-  add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
+  add-highlight --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--doc rel] [--to pdf|html|docx] [--style nature]   render the manuscript via Quarto
             [--zotero-fields] [--zotero-library a.docx,b.docx]   docx: citations as live Zotero fields
   comments [--root R] [--doc rel] [--all]   list project-wide review comments (open by default; --doc targets one)
@@ -520,7 +520,7 @@ async function main() {
       );
       break;
     }
-    case "annotations": {
+    case "highlights": {
       if (_[0] === "search") {
         const q = _.slice(1).join(" ");
         const hits = await core.searchAnnotations(q, {
@@ -534,11 +534,11 @@ async function main() {
       } else if (typeof flags.key === "string") {
         const list = await core.listAnnotations(flags.key);
         console.log(JSON.stringify(list, null, 2));
-        console.error(`✓ ${list.length} annotation(s) in ${flags.key}`);
+        console.error(`✓ ${list.length} highlight(s) in ${flags.key}`);
       } else {
         const hits = await core.searchAnnotations("");
         console.log(JSON.stringify(hits, null, 2));
-        console.error(`✓ ${hits.length} annotation(s) library-wide`);
+        console.error(`✓ ${hits.length} highlight(s) library-wide`);
       }
       break;
     }

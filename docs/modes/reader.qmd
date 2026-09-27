@@ -1,6 +1,6 @@
 ---
 title: "Reader"
-subtitle: "Read the papers in your library, with annotations that stick"
+subtitle: "Read the papers in your library, with highlights that stick"
 ---
 
 Reader is where you actually read. Open a paper from the [Library](library.qmd) (the **Read**
@@ -39,11 +39,11 @@ a workspace setting shared by every paper.
 # Searching your library while you read
 
 **Alt+R** — the same chord as the manuscript writer's reference search — opens a **Library**
-panel in the right sidebar, next to your annotations. Search the whole reference library by
+panel in the right sidebar, next to your highlights. Search the whole reference library by
 title, author, year, journal, or citekey (`author:siclari year:2017` works, as in the
 Library), and open any hit's **PDF** as a tab or its **DOI** in your browser. Papers already
 open as tabs are marked. The panel is a panel, not a popup: it stays until you switch back to
-the **Annotations** tab, so you can keep it beside you while you read.
+the **Highlights** tab, so you can keep it beside you while you read.
 
 # Tabs
 
@@ -72,15 +72,15 @@ every mode.)
 Select any text and a small color menu appears — five highlight colors (yellow, green, blue,
 pink, orange). Click one and the highlight is saved. Click a highlight later to open its
 popover: recolor it, attach a **comment**, copy the text, or delete it. The right sidebar's
-**Annotations** tab (**Alt+A**) lists every annotation with its page; click one to scroll to
+**Highlights** tab (**Alt+A**) lists every highlight with its page; click one to scroll to
 it, and edit or delete from there.
 
-Annotations are anchored by the quoted text (with a little context on each side), not by pixel
+Highlights are anchored by the quoted text (with a little context on each side), not by pixel
 positions — so they re-attach correctly even if the PDF is re-fetched. If a paper's text
 changes so much that a quote can't be found, the note is kept and marked *detached* rather
 than lost.
 
-**Export notes…** (on the Annotations tab, and on the paper's row in the Library) writes all of a
+**Export notes…** (on the Highlights tab, and on the paper's row in the Library) writes all of a
 paper's highlights and comments to a tidy Markdown file — grouped by page, quotes with your
 notes beneath, citation and DOI in the header — ready to drop into your own notes system.
 

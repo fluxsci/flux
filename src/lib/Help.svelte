@@ -181,7 +181,7 @@
           items: [
             ["⌃B / ⌃⇧B", "Show/hide the left / right sidebar"],
             ["⌘F", "Search this PDF (results list in the left sidebar)"],
-            ["Alt+R / Alt+A", "Library search / annotations (right sidebar)"],
+            ["Alt+R / Alt+A", "Library search / Highlights (right sidebar)"],
           ],
         },
         {

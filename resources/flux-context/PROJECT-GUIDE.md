@@ -92,7 +92,7 @@ A deck is `slides/<id>/deck.json`.
 BibTeX/RIS, with Zotero PDF attachments), `fetch-pdfs` / `ingest-pdf` (store a PDF for a citekey),
 `assign-pdfs` (identify + file everything in the FluxLib pdfs_to_assign/ inbox),
 `search-text <query>` / `search_fulltext` (scan the full text of every stored PDF),
-`add-annotation` (highlight/note), `annotations [--md]` / `list_annotations`,
+`add-highlight` (highlight/note), `highlights [--md]` / `list_highlights`,
 `tag` / `set-status` / `collection` / `organize_paper` — MCP mirrors these.
 
 **Manuscript / refs:** `manuscript` / `get_manuscript`, `set-manuscript` /

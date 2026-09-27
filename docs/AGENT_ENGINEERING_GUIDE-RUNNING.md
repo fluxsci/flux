@@ -878,6 +878,11 @@ Persistence invariants (all machine-checked — do not weaken):
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
+- **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
+  **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
+  `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
+  `<FluxLib>/items/<key>/annotations.json` storage. `get_reading_context` exposes
+  `highlights`, mapped from the unchanged `reader-context.json` field `annotations`.
 - **The reader is multi-document** (reader-tabs, 2026-08-04): `readerStore.readerTabs`
   ({tabs, active}, persisted to localStorage `flux-reader-tabs`) is the open-paper strip;
   `readerKey` is a READ-ONLY derived view meaning "the focused pane's paper" (the
@@ -7105,3 +7110,12 @@ verification and the UI/native gates reserved for integration are recorded in th
 **Learnings:**
 - A schema failure must use the SDK's own error formatter for meta-tool and dedicated-tool result parity.
 - A default project discovered at server startup is not a connected session; global connect preserves an existing project binding.
+
+### 2026-09-27 06:55 UTC — Reader Highlights naming (Codex, aio/w4c-highlights)
+**Work:** Renamed the Reader's public CLI/MCP and UI vocabulary to Highlights, preserving
+Alt+A, the Annotation model and annotations.json storage. The reading-context tool maps the
+saved annotations field to highlights; docs/help and the generated stock manual and MCP
+golden follow the rename. Added a hermetic CLI/MCP behavior gate and a rendered tab-label
+assertion; reverting the context mapping makes the new gate fail three checks.
+**Learnings:** Promoted the public-name versus storage-name boundary into §4. PDF.js link
+annotations and the Ctrl+Shift+M annotation ledger remain separate concepts.

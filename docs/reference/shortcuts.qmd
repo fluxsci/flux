@@ -160,7 +160,7 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 |---|---|
 | **Ctrl+F** | Search this PDF — opens the Search tab (**Enter** / **Shift+Enter** step matches) |
 | **Ctrl+B** / **Ctrl+Shift+B** | Show/hide the left / right sidebar |
-| **Alt+A** | Annotations pane (right sidebar) |
+| **Alt+A** | Highlights pane (right sidebar) |
 | **+** / **−** / **0** | Zoom in / out / fit width |
 | **PageUp** / **PageDown** | Previous / next page |
 | **Home** / **End** | First / last page |

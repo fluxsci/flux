@@ -43,7 +43,7 @@ copies its citation key, which you'll paste into the manuscript in step 5.
 
 **Ctrl+Shift+click** the paper's row to open it in the **Reader**. Select an interesting
 sentence — a color menu pops up; pick one and you've made a highlight. Click the highlight to
-attach a note. Annotations anchor to the text itself and stay with the paper forever; the
+attach a note. Highlights anchor to the text itself and stay with the paper forever; the
 Notes sidebar can export them all as Markdown whenever you want.
 ([More on the Reader.](modes/reader.qmd))
 
