@@ -20,6 +20,8 @@ export interface BriefPaths {
   bundlePath: string;
   flux: string;
   connect: string;
+  /** Stdout-only mode (nothing could be written): the bundle arrives in parts. */
+  parts?: { count: number; command: (n: number) => string };
 }
 
 export interface BriefInput {
@@ -82,7 +84,8 @@ export function renderBrief(input: BriefInput, opts: { compact?: boolean } = {})
     if (facts.live) L.push(`- Flux app: ${facts.live.appOpen ? `open on this project — ${facts.live.surface ?? "?"}${facts.live.selection ? `, ${facts.live.selection}` : ""}` : "not running on this project"}`);
     const who = [facts.identity.product ?? "unknown agent", facts.identity.surface ?? "unknown surface"].join(" · ");
     L.push(`- You: ${who}${facts.identity.sessionName ? ` · your name here is **${facts.identity.sessionName}**` : ""} (pass \`--agent "<your model>"\` to \`flux log\`)`);
-    if (!m.canRender) L.push("- ⚠ This install cannot render figure images; read captions in the bundle instead of viewing figures.");
+    if (!m.canRender) L.push("- ⚠ Figure images are not available this time (rendering is off or failed); read captions in the bundle instead of viewing figures.");
+    for (const pr of (p?.problems ?? []).slice(0, compact ? 2 : 5)) L.push(`- ⚠ Project problem: ${pr}`);
     S.push({ id: "1", lines: L });
   }
 
@@ -93,7 +96,10 @@ export function renderBrief(input: BriefInput, opts: { compact?: boolean } = {})
     const conn = m.stockDocs.find((d) => d.name === "CONNECT.md");
     L.push(`1. \`${paths.flux}\` — the Flux primer and the index of where everything is${flux ? ` (${k(flux.tokens)})` : ""}`);
     L.push(`2. \`${paths.connect}\` — how you behave while connected${conn ? ` (${k(conn.tokens)})` : ""}`);
-    L.push(`3. \`${paths.bundlePath}\` — the must-read material in one file (${k(bundle.tokens)}, ${bundle.lines.toLocaleString("en-US")} lines; read it in chunks of ≤1,500 lines, or with MCP \`read_pack\`): ${sectionList(bundle.sections)}`);
+    if (paths.parts)
+      L.push(`3. The must-read material (${k(bundle.tokens)}), delivered in ${plural(paths.parts.count, "part")} because nothing could be written on this machine: part 1 follows this brief; get part N with \`${paths.parts.command(2).replace(/ 2(?= |$)/, " N")}\`. Sections: ${sectionList(bundle.sections)}`);
+    else
+      L.push(`3. \`${paths.bundlePath}\` — the must-read material in one file (${k(bundle.tokens)}, ${bundle.lines.toLocaleString("en-US")} lines; read it in chunks of ≤1,500 lines, or with MCP \`read_pack\`): ${sectionList(bundle.sections)}`);
     if (images.length || input.linkedImages.length) {
       L.push(`4. Look at ${images.length + input.linkedImages.length === 1 ? "this image" : "these images"} (Claude Code: Read the file · Codex: view_image · or MCP \`get_pack_image\`):`);
       const shown = compact ? images.slice(0, 6) : images;
@@ -101,7 +107,13 @@ export function renderBrief(input: BriefInput, opts: { compact?: boolean } = {})
       if (shown.length < images.length) L.push(`   - (+${images.length - shown.length} more in \`${paths.bundlePath.replace(/bundle\.md$/, "images/")}\`)`);
       for (const li of input.linkedImages.slice(0, compact ? 3 : 12)) L.push(`   - \`${li}\` — linked from ProjectContext`);
     }
-    L.push(`${images.length || input.linkedImages.length ? 5 : 4}. Read on demand only, BEFORE you work in that area (all in \`${m.fluxContextDir}\`):`);
+    let n = images.length || input.linkedImages.length ? 5 : 4;
+    if (!p) {
+      L.push(`${n++}. Known projects on this machine, newest first (to work on one: \`flux-connect <path>\`):`);
+      if (!facts.knownProjects.length) L.push("   - (none recorded yet)");
+      for (const kp of facts.knownProjects.slice(0, compact ? 8 : 15)) L.push(`   - "${kp.title}" — \`${kp.root}\`${kp.lastOpened ? ` (last opened ${kp.lastOpened.slice(0, 10)})` : ""}`);
+    }
+    L.push(`${n}. Read on demand only, BEFORE you work in that area (all in \`${m.fluxContextDir}\`):`);
     for (const [area, doc] of ON_DEMAND) L.push(`   - ${area} → ${doc}`);
     if (facts.user.skills.length) {
       const sk = facts.user.skills.slice(0, compact ? 8 : 30);
@@ -134,7 +146,12 @@ export function renderBrief(input: BriefInput, opts: { compact?: boolean } = {})
       L.push(`  Read: primer + contract · your context · ProjectContext (+${pcLinks} linked) · Rules · Log (latest <date>) · project map`);
       L.push(`  Seen: ${plural(images.length, "image")} · Open: ${plural(ann, "annotation")} · ${plural(com, "comment")} · App: <open — surface, selection | closed>`);
       L.push(`  Proof: <the code at the end of each bundle section> · <the code in each image's corner>`);
-      L.push(`  <one line only if notable${p.projectContext.isTemplate ? ' — here: "ProjectContext is still the template — want me to help fill it in?"' : ", e.g. a template ProjectContext"}>`);
+      const notable = p.projectContext.missing
+        ? ' — here: "This project has no ProjectContext yet — want me to create one (flux context-init) and help fill it in?"'
+        : p.projectContext.isTemplate
+          ? ' — here: "ProjectContext is still the template — want me to help fill it in?"'
+          : ", e.g. a template ProjectContext";
+      L.push(`  <one line only if notable${notable}>`);
       L.push("  Ready.");
       L.push("```");
       L.push(`Expected: ${plural(bundle.sections.length, "section code")} (${bundle.sections.map((s) => s.id).join(", ")}) and ${plural(images.length, "image code")}.`);

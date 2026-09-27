@@ -63,7 +63,7 @@ const BANNER = [
 ].join("\n");
 
 const CLI_CORE = "flux-cli-core.mjs";
-const OUT_NAME = { "flux-cli.ts": CLI_CORE, "flux-mcp.ts": "flux-mcp.mjs", "flux-core/fulltextWorker.ts": "flux-fulltext-worker.mjs" };
+const OUT_NAME = { "flux-cli.ts": CLI_CORE, "flux-mcp.ts": "flux-mcp.mjs", "flux-core/fulltextWorker.ts": "flux-fulltext-worker.mjs", "flux-core/connect/hookEntry.ts": "flux-connect-hook.mjs" };
 for (const entry of Object.keys(OUT_NAME)) {
   const outfile = path.join(repoRoot, "dist", OUT_NAME[entry]);
   await build({
@@ -110,6 +110,8 @@ for (const entry of Object.keys(OUT_NAME)) {
     "const args = process.argv.slice(2);",
     `const form = args.length === 0 ? "" : args.length === 1 && args[0] === "help" ? "help" : null;`,
     "if (form !== null) process.stdout.write(HELP[form]);",
+    "// The Claude Code prompt hook runs in every session: its quiet path never loads the core.",
+    `else if (args[0] === "connect" && args.includes("--hook-delta")) await import("./flux-connect-hook.mjs");`,
     `else await import("./${CLI_CORE}");`,
     "",
   ].join("\n"));

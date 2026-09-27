@@ -44,6 +44,8 @@ asarUnpack:
   - dist/flux-cli.mjs
   # The launcher above imports this full bundle from beside itself.
   - dist/flux-cli-core.mjs
+  # …and the prompt hook's fast path (flux connect --hook-delta).
+  - dist/flux-connect-hook.mjs
   - dist/flux-fulltext-worker.mjs
   - dist/slide-export-assets.json
   - electron/slideVideoWorker.cjs

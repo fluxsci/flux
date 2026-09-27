@@ -23,7 +23,8 @@ export interface MachineFacts {
   fluxConfig: string;
   fluxContextDir: string;
   stockDocs: StockDoc[];
-  fluxLib: { path: string; entries: number; pdfs: number };
+  /** pdfs is null when FluxLib has no items index yet (connect never builds one). */
+  fluxLib: { path: string; entries: number; pdfs: number | null };
   plotLibrary: { path: string; count: number } | null;
   fluxplot: { path: string; version: string | null } | null;
   quarto: string | null;
@@ -71,6 +72,8 @@ export interface FigureFact {
   caption: string;
   panels: { label?: string; source?: string; recipe?: string }[];
   stale: boolean;
+  /** No elements at all (still numbered: it shifts every later figure's number). */
+  empty?: boolean;
 }
 
 export interface DeckFact {
@@ -137,11 +140,14 @@ export interface ProjectFacts {
   referencesCount: number;
   workspace: { dir: string; markers: string[]; entries: string[] } | null;
   git: { branch: string; dirty: number } | null;
-  projectContext: { path: string; text: string; sha: string; isTemplate: boolean; notAContext: boolean; links: LinkedFile[] };
+  /** `missing`: Context/ProjectContext.qmd does not exist (the brief says how to create it). */
+  projectContext: { path: string; text: string; sha: string; isTemplate: boolean; missing: boolean; links: LinkedFile[] };
   rules: { path: string; text: string; sha: string };
   notebook: { path: string; sha: string; entries: LogEntryFact[]; legacySections: string | null };
   review: { items: ReviewItemFact[] };
   activity: { journal: JournalGroup[]; changedSinceLastPack: string[]; lastPackAt: string | null };
+  /** Parts of the project that could not be read (connect reports them and carries on). */
+  problems: string[];
 }
 
 export interface LiveFacts {

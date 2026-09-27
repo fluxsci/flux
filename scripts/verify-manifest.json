@@ -299,7 +299,10 @@
       "verify-launcher.ts",
       "verify-mcp-launcher.ts",
       "verify-mcp-binding.ts",
-      "verify-reader-highlights.ts"
+      "verify-reader-highlights.ts",
+      "verify-connect.ts",
+      "verify-connect-delta.ts",
+      "verify-connect-mcp.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -518,7 +521,8 @@
       "verify-w13-cli.mjs",
       "verify-local-correction-bundle.mjs",
       "verify-extension-build.ts",
-      "verify-slide-embed-export.mjs"
+      "verify-slide-embed-export.mjs",
+      "verify-connect-hook.mjs"
     ],
     "startup": [
       "verify-startup.mjs"
@@ -803,6 +807,13 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "flux-core/connect/hook*.ts",
+      "run": [
+        "verify-connect-hook.mjs",
+        "tier:bundle"
+      ]
+    },
+    {
       "glob": "{flux-core/{annotate,references}.ts,src/lib/references/annotations.ts}",
       "run": [
         "verify-reader-highlights.ts",
@@ -829,6 +840,9 @@
     {
       "glob": "flux-core/connect/**",
       "run": [
+        "verify-connect-mcp.ts",
+        "verify-connect-delta.ts",
+        "verify-connect.ts",
         "verify-connect-render.ts",
         "tier:pure"
       ]
@@ -7074,6 +7088,42 @@
     },
     "verify-reader-highlights.ts": {
       "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-delta.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-mcp.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-hook.mjs": {
+      "runtime": "node",
       "prerequisites": [],
       "externalNetwork": false,
       "isolation": "scratch",

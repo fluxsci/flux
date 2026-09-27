@@ -275,6 +275,31 @@ async function main() {
   const root = () => (posIsRoot ? path.resolve(_[0]) : R());
   const A = posIsRoot ? _.slice(1) : _; // old-style verbs' own (root-stripped) args
 
+  // flux connect's CLI-only forms (plan §8.1, §8.8): stdout-only pack parts,
+  // receipt checks and the prompt hook. None of them is an MCP tool.
+  if (verb === "connect" && (flags.part !== undefined || flags["check-receipt"] !== undefined || flags["hook-delta"])) {
+    const { connectCli } = await import("./flux-core/connect/cli");
+    await connectCli(_, flags);
+    return;
+  }
+  // In a flux-connected session, fold this call's own writes into the
+  // session's cursor, so the next "since you last looked" notice is news.
+  const selfWrites = verb === "connect" || verb === "mcp" ? null : await (await import("./flux-core/connect/cli")).trackSelfWrites(R()).catch(() => null);
+  try {
+    await dispatch(verb, _, flags, A, root, R);
+  } finally {
+    await selfWrites?.finish();
+  }
+}
+
+async function dispatch(
+  verb: string,
+  _: string[],
+  flags: Record<string, string | boolean | string[]>,
+  A: string[],
+  root: () => string,
+  R: () => string,
+) {
   // WS-6.3: registered verbs route through the ONE registry (same schema +
   // handler + render as the MCP surface); everything else falls through to the
   // legacy switch until its batch migrates. The invocation carries BOTH root

@@ -32,17 +32,3 @@ export async function createMcpBinding(root?: string, env = process.env, cwd = p
     },
   };
 }
-
-/** Phase 3's binding contract; the full brief engine replaces this handler later. */
-export async function connectProject(defaultRoot: string, target?: string) {
-  const global = () => ({ title: "global", brief: "Bound to global. The full flux-connect brief arrives in a later build." });
-  if (target === "global") return global();
-  const candidate = path.resolve(defaultRoot || process.cwd(), target || ".");
-  const root = await walkProjectRoot(candidate);
-  if (!root && !target) return global();
-  if (!root) { await requireProject(candidate); throw new NotConnectedError(); }
-  await requireProject(root);
-  const manifest = JSON.parse(await fs.readFile(path.join(root, "project.json"), "utf8"));
-  const title = typeof manifest.title === "string" ? manifest.title : path.basename(root);
-  return { root, title, brief: `Bound to ${title} (${root}). The full flux-connect brief arrives in a later build.` };
-}

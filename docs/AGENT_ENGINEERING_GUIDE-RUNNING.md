@@ -61,6 +61,17 @@ capabilities as the GUI, through three surfaces:
   them through the same shared core. Gates: verify-context-scheme / -feedback (pure),
   verify-context-gui / -annotate-gui (ui).
 
+- **flux-connect** (`flux-core/connect/`): `flux connect [<project>|global]` / MCP `connect`
+  hydrates any agent in one step. It collects facts read-only (`collect.ts`), plans what to
+  include (`budget.ts`), renders the bundle, the ≤10k-char brief and canvas overviews with
+  proof codes (`bundle.ts`, `brief.ts`, `images.ts`), and writes a pack to
+  `<userDataDir>/connect/` (`cache.ts`). `refresh.ts` keeps connected agents current: a stat-only
+  no-change check, then a delta against the session's cursor, delivered as one
+  "↻ Since you last looked" line on MCP tool results (`connect/mcp.ts`) and through the Claude
+  Code prompt hook (`connect --hook-delta`, launcher fast path `connect/hookFast.ts`).
+  Gates: verify-connect-render / -connect / -connect-delta / -connect-mcp (pure),
+  verify-connect-hook (bundle).
+
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
 **flux-core** (plain Node fs). Historically these drifted; most of the hardening work exists to
@@ -102,6 +113,7 @@ The established shared cores — extend these, don't duplicate them:
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
 | Context templates, Log insertion and parsing | `src/lib/project/contextTemplates.ts` | `verify-context-scheme.ts` (GUI/Node heal parity), `verify-log.ts` (locked writes, parsing and concurrent writers) |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
+| flux-connect packs (brief, bundle, proof codes, delta summaries) | `flux-core/connect/{budget,bundle,brief,codes,refresh}.ts` (pure); `collect.ts`/`cache.ts`/`images.ts` do the IO | `verify-connect-render.ts` (pure renderers), `verify-connect.ts` (end to end), `verify-connect-delta.ts` |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
 | External-command launch (quarto, recipes, terminal) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
@@ -154,6 +166,18 @@ Persistence invariants (all machine-checked — do not weaken):
   and user-written stubs stay untouched. Renaming old layouts belongs to the one-shot
   migration script, never the app. Stock FluxContext Markdown files absent from the
   bundled set are pruned generically; UserContext and its Skills README are seeded once.
+
+- **flux-connect never writes into the project.** Collection is read-only (verify-connect
+  diffs the whole project tree around a connect); packs, the render cache and CLI session
+  cursors live under `<userDataDir>/connect/` (tmp fallback, then stdout-only parts that refuse
+  a changed source). A project defect (e.g. a damaged figure snapshot) becomes a "Project
+  problem" line in the brief, never a failed connect. The brief stays ≤10,000 characters with
+  a marker ending every section; proof codes live only at section ends and in image corners, never
+  in the brief. The no-change check is stat-only (≤30 ms; verify-connect-delta measures it) and
+  a session's own writes are folded into its cursor (MCP: around each tool call; CLI: around
+  each verb in a process carrying the vendor session id), so notices are only ever other
+  people's changes, each reported once. The prompt hook's quiet path must not load the core
+  (≤80 ms p95 through the built launcher; verify-connect-hook).
 
 - **Review discovery is project-wide by default**: headless `comments` / `list_comments`
   scans every canonical document (including Context documents) and attaches the owning
@@ -7119,3 +7143,21 @@ golden follow the rename. Added a hermetic CLI/MCP behavior gate and a rendered 
 assertion; reverting the context mapping makes the new gate fail three checks.
 **Learnings:** Promoted the public-name versus storage-name boundary into §4. PDF.js link
 annotations and the Ctrl+Shift+M annotation ledger remain separate concepts.
+
+### 2026-09-27 — flux-connect engine: collect, cache, refresh, MCP, hook (Claude Opus 5.5, `aio/cores`)
+**Work:** Wrote the connect engine's IO layer over the pure renderers: `collect.ts` (read-only
+facts with source shas, fault-tolerant per part), `cache.ts` (pack dirs, retention 5, tmp and
+stdout-only fallbacks, CLI session cursors), `index.ts` (target resolution with known-project
+suggestions, pack writing, `--refresh`, parts, read_pack, receipts), `refresh.ts` (stat snapshots,
+deltas, notices), `mcp.ts` (per-session cursor, the piggyback wrapper around every MCP tool,
+read_pack / get_pack_image / read_delta), `cli.ts` + `hookFast.ts` (the Claude Code prompt hook
+and self-write absorption), and a render cache keyed before the SVG is built. The registry
+connect verb calls the engine; `cliOnlyFlags` lets the CLI accept flags MCP never sees.
+Timings on a copy of a real 7-figure project: core connect 1.5 s cold / 0.3 s cached; full
+2.8 s / 1.1 s; hook quiet path 21 ms p95.
+**Learnings:**
+- A real project with a duplicate figure referenceKey makes every render verb refuse the
+  snapshot; connect must degrade to index-only listing and say so, never fail.
+- Pure MCP gates that spawn the launcher run `dist/` when it exists: rebuild (`npm run
+  build:cli`) before judging them locally, or a stale bundle answers.
+

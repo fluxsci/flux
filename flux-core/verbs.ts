@@ -7,7 +7,6 @@
 
 import { z } from "zod";
 import type { VerbDef, CliArgSpec } from "./registry";
-import { connectProject } from "./mcpBinding";
 import { ValidationError } from "./errors";
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
@@ -154,19 +153,90 @@ export const SLIDE_PRESETS = [
 export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
 export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-paper", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
 
+const ageOfSince = (since: string) => {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(since)) / 60000));
+  return min < 90 ? `${min} min ago` : min < 2880 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} d ago`;
+};
+
+/** `flux connect --refresh`: the delta since the session last looked, then where the full new pack is. */
+function connectRefreshBrief(c: import("./connect/index").ConnectResult): string {
+  const f = c.refresh!;
+  return [
+    `# FLUX-CONNECT REFRESH BRIEF · project "${c.title}" · pack ${c.packId} · since pack ${f.fromPack} (${ageOfSince(f.since)})`,
+    "",
+    f.details,
+    "",
+    `The full, current pack: \`${c.briefPath ?? "(not written)"}\` and \`${c.bundlePath ?? "(not written)"}\` (MCP \`read_pack {packId:"${c.packId}"}\`). Re-read only what changed.`,
+    "",
+    "Reply with:",
+    "```",
+    `↻ refreshed · ${c.title} · since ${f.fromPack} (${ageOfSince(f.since)}) · ${f.changes} change${f.changes === 1 ? "" : "s"}`,
+    "```",
+    "",
+    `END OF FLUX-CONNECT REFRESH BRIEF ${c.packId}`,
+    "",
+  ].join("\n");
+}
+
 export const VERBS: VerbDef[] = [
   {
     name: "connect", cli: "connect", cliRoot: "flags", scope: "machine", core: true, bindsRoot: true,
-    summary: "Bind this session to a Flux project, or global. Connect only when the user asks for flux-connect.",
+    summary:
+      "flux-connect: hydrate this session with a Flux project (a path to it or inside it), or `global`, or the project around the working directory. Returns a brief to follow: what to read and look at, then a receipt. Binds the project for later tools. Connect only when the user asks for flux-connect.",
     params: { target: z.string().optional(), live: z.boolean().optional(), refresh: z.boolean().optional(),
-      depth: z.enum(["core", "full", "ask"]).optional(), budget: z.number().int().positive().optional(),
-      noRender: z.boolean().optional(), part: z.number().int().positive().optional() },
+      depth: z.enum(["core", "full"]).optional(), budget: z.number().int().positive().optional(),
+      noRender: z.boolean().optional(), json: z.boolean().optional() },
+    notAPath: { target: "a project path, `global`, or omitted; resolved by connect itself (walk-up to project.json)" },
+    cliOnlyFlags: {
+      part: { value: true, help: "part N of a stdout-only pack (with --pack and --sources, as the brief prints them)" },
+      pack: { value: true, help: "the pack id, with --part" },
+      sources: { value: true, help: "the pack's sources digest, with --part" },
+      "check-receipt": { value: true, help: "<packId> \"<proof line>\": which bundle sections and images a receipt confirms" },
+      "hook-delta": { value: false, help: "the Claude Code prompt hook: one line when a connected project changed" },
+    },
     cliArgs: [{ kind: "pos", at: 0, into: "target" },
       { kind: "flag", at: "live", into: "live", as: "boolean" }, { kind: "flag", at: "refresh", into: "refresh", as: "boolean" },
       { kind: "flag", at: "depth", into: "depth" }, { kind: "flag", at: "budget", into: "budget", as: "number" },
-      { kind: "flag", at: "no-render", into: "noRender", as: "boolean" }, { kind: "flag", at: "part", into: "part", as: "number" }],
-    handler: (ctx, a) => connectProject(ctx.root, a.target as string | undefined),
-    render: { human: r => ({ out: (r as { brief: string }).brief }), mcp: r => text((r as { brief: string }).brief) },
+      { kind: "flag", at: "no-render", into: "noRender", as: "boolean" }, { kind: "flag", at: "json", into: "json", as: "boolean" }],
+    handler: async (ctx, a) => {
+      const { connect } = await import("./connect/index");
+      const identity = ctx.identity ?? (await import("./agentIdentity")).detectAgentIdentity(process.env);
+      const r = await connect({
+        target: a.target as string | undefined,
+        // Over MCP a relative or omitted target resolves from the bound project (else the server's cwd, which Claude Code sets to the session's).
+        cwd: ctx.mcp ? ctx.root || process.cwd() : process.cwd(),
+        depth: a.depth as "core" | "full" | undefined,
+        live: a.live as boolean | undefined,
+        refresh: a.refresh as boolean | undefined,
+        budget: a.budget as number | undefined,
+        noRender: a.noRender as boolean | undefined,
+        identity,
+        sessionName: ctx.mcp?.name() ?? null,
+        sessionKey: ctx.mcp ? null : identity.sessionId,
+        progress: ctx.mcp ? undefined : (line) => { if (process.stderr.isTTY) console.error(line); },
+      });
+      ctx.mcp?.connected({ root: r.root, title: r.title, packId: r.packId, cursor: r.cursor, live: !!a.live });
+      // Global leaves an existing project binding alone (plan §8.7): no root to bind.
+      return { ...r, root: r.root ?? undefined };
+    },
+    render: {
+      human: (r, a) => {
+        const c = r as import("./connect/index").ConnectResult;
+        if (a.json) {
+          const { cursor: _cursor, brief: _brief, firstPart: _part, ...rest } = c;
+          return { out: JSON.stringify(rest, null, 2) };
+        }
+        const body = c.refresh ? connectRefreshBrief(c) : c.brief + (c.firstPart ? "\n" + c.firstPart : "");
+        return { out: body, ...(c.problems.length ? { err: c.problems.map((p) => `connect: ${p}`).join("\n") } : {}) };
+      },
+      mcp: (r) => {
+        const c = r as import("./connect/index").ConnectResult;
+        return {
+          content: [{ type: "text", text: c.refresh ? connectRefreshBrief(c) : c.brief }],
+          structuredContent: { packId: c.packId, briefPath: c.briefPath, bundlePath: c.bundlePath, images: c.images, root: c.root ?? null },
+        };
+      },
+    },
   },
   // --- batch 0: trivial project verbs ------------------------------------------
   {

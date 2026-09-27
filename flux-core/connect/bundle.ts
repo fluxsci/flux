@@ -91,7 +91,7 @@ function mapSection(p: ProjectFacts, plan: InclusionPlan): string[] {
   L.push("", `### Figures (${p.figures.length})`, "");
   for (const f of p.figures) {
     const panels = f.panels.filter((x) => x.source).map((x) => `${x.label ? x.label + ": " : ""}\`${x.source}\`${x.recipe ? ` (recipe \`${x.recipe}\`)` : ""}`);
-    L.push(`- **${f.id}** "${f.displayName}" · canvas ${f.canvasId}${f.stale ? " · ⚠ stale vs plots/ (run sync-figure)" : ""} — ${f.captionLead || "(no caption yet)"}`);
+    L.push(`- **${f.id}** "${f.displayName}" · canvas ${f.canvasId}${f.empty ? " · ⚠ empty figure (no elements; it still takes a number)" : ""}${f.stale ? " · ⚠ stale vs plots/ (run sync-figure)" : ""} — ${f.captionLead || "(no caption yet)"}`);
     if (panels.length) L.push(`  - panels → ${panels.join(" · ")}`);
   }
   if (p.canvases.length > 1) {
@@ -149,7 +149,7 @@ export function renderBundle(facts: ConnectFacts, plan: InclusionPlan): Rendered
   {
     const lib = facts.machine.fluxLib;
     add("B", "FluxLib (the machine-wide reference library)", [
-      `FluxLib is at \`${lib.path}\`: ${lib.entries.toLocaleString("en-US")} references, ${lib.pdfs.toLocaleString("en-US")} with stored PDFs. It is the user's library across all projects; a project's \`references/library.bib\` is the subset it cites.`,
+      `FluxLib is at \`${lib.path}\`: ${lib.entries.toLocaleString("en-US")} references${lib.pdfs === null ? "" : `, ${lib.pdfs.toLocaleString("en-US")} with stored PDFs`}. It is the user's library across all projects; a project's \`references/library.bib\` is the subset it cites.`,
       "",
       "- Search metadata: `flux search <query>` (MCP `search_references`); search full text of stored PDFs: `flux search-text <query>` (MCP `search_fulltext`).",
       "- Add: `flux cite-doi <doi>` (also cites it in this project), `flux lib-add <file.bib>`, `flux zotero-sync`.",
@@ -168,8 +168,8 @@ export function renderBundle(facts: ConnectFacts, plan: InclusionPlan): Rendered
       const pc = p.projectContext;
       const L: string[] = [];
       if (pc.isTemplate) L.push("**ProjectContext is still the unfilled template.** Mention it in your receipt; help fill it in only when asked.", "");
-      if (pc.notAContext) L.push("**ProjectContext does not look like a project context** (none of its headings are there). Mention it in your receipt.", "");
-      L.push(...docBlock(pc.path, pc.text, pc.sha, pc.text.split("\n").length));
+      if (pc.missing) L.push("**`Context/ProjectContext.qmd` does not exist.** Mention it in your receipt; with the user's go-ahead, `flux context-init` creates it from the template.", "");
+      if (!pc.missing) L.push(...docBlock(pc.path, pc.text, pc.sha, pc.text.split("\n").length));
       const byDisplay = new Map(pc.links.map((l) => [l.display, l]));
       for (const e of plan.linked) {
         const l = byDisplay.get(e.display)!;

@@ -59,7 +59,7 @@ function facts(over: Partial<ConnectFacts> = {}): ConnectFacts {
       workspace: { dir: "/data/sleep", markers: ["pyproject.toml", ".git"], entries: ["analysis", "data", "Proj"] },
       git: { branch: "main", dirty: 3 },
       projectContext: {
-        path: "Context/ProjectContext.qmd", sha: "e".repeat(64), isTemplate: false, notAContext: false,
+        path: "Context/ProjectContext.qmd", sha: "e".repeat(64), isTemplate: false, missing: false,
         text: "---\ntitle: Project context\n---\n\n## Background\n\nSee [plan](../notes/plan.md) and ![fig](media/sketch.png) and [big](../notes/big.md).",
         links: [
           { link: "../notes/plan.md", abs: "/data/sleep/notes/plan.md", display: "/data/sleep/notes/plan.md", kind: "text", text: "# Plan\n\nThe analysis plan.", sha: "f".repeat(64), outline: [], depth: 1 },
@@ -75,6 +75,7 @@ function facts(over: Partial<ConnectFacts> = {}): ConnectFacts {
         { id: "c1", kind: "comment", where: 'paper/notes.qmd · "the density"', text: "Cite Smith", status: "queued", chip: "Queued → heron", route: "@heron", tags: [], surface: "paper", doc: "paper/notes.qmd" },
       ] },
       activity: { journal: [{ client: "claude-code", action: "log", target: "Context/NOTEBOOK.md", count: 2, first: "2026-09-26T10:00", last: "2026-09-26T11:00" }], changedSinceLastPack: ["paper/notes.qmd"], lastPackAt: "2026-09-26T09:00:00Z" },
+      problems: [],
     },
     live: { appOpen: true, surface: "figure", selection: "fig-1 selected" },
     identity: { product: "Claude Code", surface: "CLI", sessionName: "heron" },

@@ -9,10 +9,15 @@ import { imageCode } from "./codes";
 import type { BriefImage } from "./brief";
 import type { InclusionPlan } from "./budget";
 import type { ConnectFacts } from "./facts";
+import { createHash } from "node:crypto";
 import { renderCanvasSvg, renderFigureSvg, rasterizeSvgToPng } from "../render";
+import { buildInfo } from "../buildInfo";
 
 export const CANVAS_MAX_EDGE = 2000;
 export const FIGURE_MAX_EDGE = 1600;
+/** Bump when the rendering of pack images changes in a way the key cannot see. */
+export const RENDER_CACHE_VERSION = 1;
+export const RENDER_CACHE_MAX_BYTES = 500 * 1024 * 1024;
 
 /** Intrinsic size of an SVG document from its viewBox (else width/height attributes). */
 export function svgSize(svg: string): { minX: number; minY: number; w: number; h: number } | null {
@@ -33,10 +38,13 @@ export function stampSvg(svg: string, code: string, outputWidth: number): string
   const size = svgSize(svg);
   const close = svg.lastIndexOf("</svg>");
   if (!size || close < 0) return svg;
-  // Aim for ~11 output pixels of text regardless of the canvas's user units.
+  // Aim for ~11 output pixels of text regardless of the canvas's user units,
+  // scaled up on large images: vision models downscale to ~1568 px on the long
+  // edge, and the code must stay legible after that.
   const unitsPerPx = size.w / Math.max(1, outputWidth);
-  const font = 11 * unitsPerPx;
-  const padX = 5 * unitsPerPx, padY = 3 * unitsPerPx;
+  const outputHeight = outputWidth * (size.h / Math.max(1e-9, size.w));
+  const font = 11 * Math.max(1, Math.max(outputWidth, outputHeight) / 1400) * unitsPerPx;
+  const padX = font * 0.45, padY = font * 0.27;
   const boxW = font * 0.62 * code.length + padX * 2;
   const boxH = font + padY * 2;
   const x = size.minX + size.w - boxW - 4 * unitsPerPx;
@@ -55,10 +63,82 @@ function outWidth(svg: string, maxEdge: number): number {
   return Math.max(1, Math.round(s.w * scale));
 }
 
+// ---------------------------------------------------------------------------
+// The render cache: <cache base>/_render-cache/<key>.png, unstamped. The key is
+// computed WITHOUT building the SVG (the expensive half): the figure index, the
+// canvas file, the stats of every file under fig/assets, the build and a version.
+// Each pack stamps its own code onto a copy (a cheap wrapper-SVG rasterization).
+// ---------------------------------------------------------------------------
+
+const sha256 = (data: string | Uint8Array) => createHash("sha256").update(data).digest("hex");
+
+async function assetSignature(root: string): Promise<string> {
+  const dir = path.join(root, "fig", "assets");
+  const parts: string[] = [];
+  const walk = async (rel: string) => {
+    let entries: import("node:fs").Dirent[] = [];
+    try {
+      entries = await fs.readdir(path.join(dir, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) await walk(r);
+      else {
+        const st = await fs.stat(path.join(dir, r)).catch(() => null);
+        if (st) parts.push(`${r}:${st.size}:${Math.round(st.mtimeMs)}`);
+      }
+    }
+  };
+  await walk("");
+  return sha256(parts.join("\n"));
+}
+
+/** The cache key for one image, or null when the inputs cannot be read (render uncached). */
+export async function renderKey(root: string, kind: "canvas" | "figure", id: string, canvasId: string, maxEdge: number, assets: string): Promise<string | null> {
+  try {
+    const index = await fs.readFile(path.join(root, "fig", "index.json"));
+    const canvas = await fs.readFile(path.join(root, "fig", "canvases", `${canvasId}.json`));
+    const b = buildInfo();
+    return sha256([RENDER_CACHE_VERSION, b.version, b.commit, kind, id, maxEdge, sha256(index), sha256(canvas), assets].join("\0"));
+  } catch {
+    return null;
+  }
+}
+
+/** Keep the cache under its cap, oldest-used first. Best effort. */
+async function trimCache(dir: string, max = RENDER_CACHE_MAX_BYTES): Promise<void> {
+  try {
+    const files = [];
+    for (const name of await fs.readdir(dir)) {
+      if (!name.endsWith(".png")) continue;
+      const st = await fs.stat(path.join(dir, name)).catch(() => null);
+      if (st) files.push({ name, size: st.size, t: st.mtimeMs });
+    }
+    let total = files.reduce((a, f) => a + f.size, 0);
+    for (const f of files.sort((a, b) => a.t - b.t)) {
+      if (total <= max) break;
+      await fs.rm(path.join(dir, f.name), { force: true });
+      await fs.rm(path.join(dir, f.name.replace(/\.png$/, ".json")), { force: true });
+      total -= f.size;
+    }
+  } catch {
+    /* advisory */
+  }
+}
+
+/** A cached (or fresh) unstamped raster → stamped PNG, via a one-image wrapper SVG. */
+async function stampPng(png: Buffer, width: number, height: number, code: string): Promise<Buffer> {
+  const wrapper = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><image href="data:image/png;base64,${png.toString("base64")}" x="0" y="0" width="${width}" height="${height}"/></svg>`;
+  return rasterizeSvgToPng(stampSvg(wrapper, code, width), width);
+}
+
 export interface PackImagesResult {
   images: BriefImage[];
   /** Why rendering was skipped or partial (shown in the brief). */
   problems: string[];
+  cache: { hits: number; misses: number };
 }
 
 /** Render the images a plan asks for into `<packDir>/images/`. Never throws; failures are reported. */
@@ -66,34 +146,69 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
   const p = facts.project;
   const out: BriefImage[] = [];
   const problems: string[] = [];
-  if (!p) return { images: out, problems };
+  if (!p) return { images: out, problems, cache: { hits: 0, misses: 0 } };
   const dir = path.join(packDir, "images");
   await fs.mkdir(dir, { recursive: true });
+  const cacheDir = path.join(path.dirname(path.dirname(packDir)), "_render-cache");
+  await fs.mkdir(cacheDir, { recursive: true }).catch(() => {});
+  const assets = await assetSignature(root);
+  let hits = 0, misses = 0;
   const names = new Map(p.figures.map((f) => [f.id, f.displayName]));
+  // One line per distinct failure (a damaged figure model fails every render the same way).
+  const failures = new Map<string, string[]>();
   let index = 0;
-  const one = async (label: string, file: string, svg: () => Promise<string>, maxEdge: number) => {
+  const one = async (label: string, file: string, svg: () => Promise<string>, maxEdge: number, key: Promise<string | null>) => {
     try {
-      const raw = await svg();
-      const width = outWidth(raw, maxEdge);
       const code = imageCode(facts.packId, index);
-      const png = await rasterizeSvgToPng(stampSvg(raw, code, width), width);
+      const k = await key;
+      let base: { png: Buffer; width: number; height: number } | null = null;
+      if (k) {
+        try {
+          const meta = JSON.parse(await fs.readFile(path.join(cacheDir, `${k}.json`), "utf8")) as { width: number; height: number };
+          base = { png: await fs.readFile(path.join(cacheDir, `${k}.png`)), ...meta };
+          const now = new Date();
+          await fs.utimes(path.join(cacheDir, `${k}.png`), now, now).catch(() => {});
+          hits++;
+        } catch {
+          base = null;
+        }
+      }
+      if (!base) {
+        const raw = await svg();
+        const width = outWidth(raw, maxEdge);
+        const size = svgSize(raw);
+        const height = size ? Math.max(1, Math.round((width * size.h) / Math.max(1e-9, size.w))) : width;
+        base = { png: await rasterizeSvgToPng(raw, width), width, height };
+        misses++;
+        if (k) {
+          await fs.writeFile(path.join(cacheDir, `${k}.png`), base.png).catch(() => {});
+          await fs.writeFile(path.join(cacheDir, `${k}.json`), JSON.stringify({ width: base.width, height: base.height })).catch(() => {});
+        }
+      }
+      const png = await stampPng(base.png, base.width, base.height, code);
       const abs = path.join(dir, file);
       await fs.writeFile(abs, png);
       out.push({ path: abs, label });
       index++;
     } catch (e) {
-      problems.push(`${label}: ${(e as Error).message.split("\n")[0]}`);
+      const msg = String((e as Error)?.message ?? e).split("\n")[0].slice(0, 240);
+      failures.set(msg, [...(failures.get(msg) ?? []), label.split(":")[0]]);
     }
   };
+  let n = 0;
   for (const c of p.canvases) {
     if (!c.figureIds.length) continue;
     const members = c.figureIds.map((id) => `${id} "${names.get(id) ?? id}"`).join(", ");
-    await one(`canvas "${c.name}": ${members}`, `canvas-${safe(c.id)}.png`, async () => (await renderCanvasSvg(root, c.id)).svg, CANVAS_MAX_EDGE);
+    await one(`canvas "${c.name}": ${members}`, `canvas-${++n}.png`, async () => (await renderCanvasSvg(root, c.id)).svg, CANVAS_MAX_EDGE, renderKey(root, "canvas", c.id, c.id, CANVAS_MAX_EDGE, assets));
   }
   if (plan.figureImages === "canvases+figures") {
-    for (const f of p.figures) await one(`${f.id} "${f.displayName}"`, `figure-${safe(f.id)}.png`, () => renderFigureSvg(root, f.id), FIGURE_MAX_EDGE);
+    for (const f of p.figures.filter((x) => !x.empty))
+      await one(`${f.id} "${f.displayName}"`, `figure-${safe(f.id)}.png`, () => renderFigureSvg(root, f.id), FIGURE_MAX_EDGE, renderKey(root, "figure", f.id, f.canvasId, FIGURE_MAX_EDGE, assets));
   }
-  return { images: out, problems };
+  if (misses) await trimCache(cacheDir);
+  for (const [msg, labels] of failures)
+    problems.push(`could not render ${labels.length === 1 ? labels[0] : `${labels.length} images (${labels.slice(0, 3).join(", ")}${labels.length > 3 ? ", …" : ""})`}: ${msg}`);
+  return { images: out, problems, cache: { hits, misses } };
 }
 
 function safe(id: string): string {

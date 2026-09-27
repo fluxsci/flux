@@ -89,6 +89,8 @@ export interface VerbCtx {
   /** The caller's working directory: the shell's on the CLI; null over MCP,
    *  where the server's cwd says nothing reliable about the agent's. */
   cwd?: string | null;
+  /** Over MCP only: the server's session (connect reports to it). */
+  mcp?: import("./connect/mcp").McpSessionHooks;
 }
 
 export interface VerbDef {
@@ -102,6 +104,9 @@ export interface VerbDef {
   pathParams?: Record<string, "path" | "paths">;
   /** Path-like names that are model identifiers or non-path values, with reasons. */
   notAPath?: Record<string, string>;
+  /** CLI-only flags: the parser accepts them and flux-cli.ts handles them before
+   *  registry dispatch (so they never become MCP parameters). */
+  cliOnlyFlags?: Record<string, { value: boolean; help: string }>;
   /** CLI verb, e.g. "set-caption". */
   cli: string;
   aliases?: string[];
@@ -309,6 +314,8 @@ export interface McpVerbOptions {
   bindRoot?: (root: string | null) => void;
   defaultRoot?: () => string | null;
   identity?: () => AgentIdentity;
+  /** The server's flux-connect session (connect reports its pack and cursor to it). */
+  session?: import("./connect/mcp").McpSessionHooks;
   /** The server's hand-written tools (images, live bridge, FluxLib readers), so
    *  flux_verb reaches them even when the core toolset does not list them. Read
    *  at call time: the server fills it after registering the registry verbs. */
@@ -373,7 +380,7 @@ export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, 
       ? await getRoot(parsed) : options.defaultRoot?.() ?? "";
     if (projectScope) { await requireProject(root); await recoverProjectForAuthoring(root); }
     const args = resolvePathParams(v, parsed, root);
-    const r = await v.handler({ root, identity: options.identity?.(), cwd: null }, args);
+    const r = await v.handler({ root, identity: options.identity?.(), cwd: null, ...(options.session ? { mcp: options.session } : {}) }, args);
     if (v.bindsRoot) {
       const next = (r as { root?: string | null }).root;
       if (next !== undefined && next !== null && typeof next !== "string") throw new ValidationError("connect returned an invalid root");
@@ -439,7 +446,8 @@ export function registerMcpVerbs(
 export function parseCliFlags(verb: string | undefined, argv: string[]): { _: string[]; flags: Record<string, string | boolean> } {
   const definition = verb ? byCli.get(verb) : undefined;
   const specs = definition?.cliArgs.filter(s => s.kind === 'flag') ?? [];
-  const declared = new Map(specs.map(s => [String(s.at), s]));
+  const declared = new Map<string, Pick<CliArgSpec, "as" | "const">>(specs.map(s => [String(s.at), s]));
+  for (const [flag, o] of Object.entries(definition?.cliOnlyFlags ?? {})) declared.set(flag, o.value ? {} : { as: "boolean" });
   const rest = definition?.cliArgs.some(s => s.kind === 'flagRest');
   const legacyBooleans = new Set(['png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
   const flags: Record<string, string | boolean> = {}, pos: string[] = [];
@@ -469,6 +477,7 @@ export function registryHelp(verb?: string): string {
     const args = v.cliArgs.filter(s => s.kind !== 'flagRest').map(s => s.kind === 'flag'
       ? `[--${s.at}${s.as === 'boolean' || s.const !== undefined ? '' : ' <value>'}]`
       : `<${s.into}${s.kind === 'rest' ? '…' : ''}>`).join(' ');
-    return `  ${v.cli} ${v.cliRoot === 'flags' ? '' : '[root] '}${args} [--root R]\n      ${v.summary}${v.aliases?.length ? ` (aliases: ${v.aliases.join(', ')})` : ''}`;
+    const cliOnly = Object.entries(v.cliOnlyFlags ?? {}).map(([f, o]) => `\n      --${f}${o.value ? ' <value>' : ''}: ${o.help}`).join('');
+    return `  ${v.cli} ${v.cliRoot === 'flags' ? '' : '[root] '}${args} [--root R]\n      ${v.summary}${v.aliases?.length ? ` (aliases: ${v.aliases.join(', ')})` : ''}${cliOnly}`;
   }).join('\n');
 }

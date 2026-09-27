@@ -1,27 +1,34 @@
 // Links in ProjectContext: the owner's rule is "ProjectContext and everything
 // it links". Pure: extraction only. collect.ts resolves and reads them.
 
-/** Quarto/Markdown constructs that name a file, in order of appearance, de-duplicated. */
-export function extractLinks(text: string): string[] {
-  const out: string[] = [];
-  const add = (raw: string) => {
+export type LinkVia = "link" | "include" | "ref" | "code";
+
+/** Every file-naming construct, with how it was written, in order, de-duplicated by target. */
+export function extractLinkRefs(text: string): { target: string; via: LinkVia }[] {
+  const out: { target: string; via: LinkVia }[] = [];
+  const add = (raw: string, via: LinkVia) => {
     const t = raw.trim().replace(/^<|>$/g, "");
     if (!t || /^(https?|mailto|data|ftp):/i.test(t) || t.startsWith("#")) return;
     const clean = t.split("#")[0].split("?")[0];
-    if (clean && !out.includes(clean)) out.push(clean);
+    if (clean && !out.some((o) => o.target === clean)) out.push({ target: clean, via });
   };
   const body = stripCode(text);
   // Markdown links and images: [text](target "title") / ![alt](target)
-  for (const m of body.matchAll(/!?\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)/g)) add(m[1]);
+  for (const m of body.matchAll(/!?\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)/g)) add(m[1], "link");
   // Quarto includes: {{< include path >}}
-  for (const m of body.matchAll(/\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g)) add(m[1]);
+  for (const m of body.matchAll(/\{\{<\s*include\s+([^\s>]+)\s*>\}\}/g)) add(m[1], "include");
   // Reference-style definitions: [id]: target
-  for (const m of body.matchAll(/^\s*\[[^\]]+\]:\s*(\S+)/gm)) add(m[1]);
+  for (const m of body.matchAll(/^\s*\[[^\]]+\]:\s*(\S+)/gm)) add(m[1], "ref");
   // Bare paths in backticks that look like files (`../notes/plan.md`, `/data/x/README.md`)
   for (const m of text.matchAll(/`([^`\s]+\.[A-Za-z0-9]{1,6})`/g)) {
-    if (/[/\\]/.test(m[1]) || /\.(qmd|md|markdown|txt|py|r|ipynb|csv|tsv|json|yaml|yml|toml|pdf|png|jpe?g|svg)$/i.test(m[1])) add(m[1]);
+    if (/[/\\]/.test(m[1]) || /\.(qmd|md|markdown|txt|py|r|ipynb|csv|tsv|json|yaml|yml|toml|pdf|png|jpe?g|svg)$/i.test(m[1])) add(m[1], "code");
   }
   return out;
+}
+
+/** Quarto/Markdown constructs that name a file, in order of appearance, de-duplicated. */
+export function extractLinks(text: string): string[] {
+  return extractLinkRefs(text).map((r) => r.target);
 }
 
 /** Remove fenced code blocks (their contents are not links). */
