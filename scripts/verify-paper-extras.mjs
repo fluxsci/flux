@@ -98,7 +98,7 @@ await waitFor(
   null,
   { timeout: 4000, label: "command palette open + focused" },
 );
-await page.keyboard.type("flux");
+await page.keyboard.type("plain vim"); // titles outrank keywords: "flux" alone now selects "Add DOI to FluxLib"
 // Enter runs the highlighted row — wait until that row IS the flavor switch
 await waitFor(
   page,

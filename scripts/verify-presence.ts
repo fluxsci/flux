@@ -53,7 +53,9 @@ try {
   c.entry.child.kill("SIGTERM"); await c.entry.closed;
   if (process.platform !== "win32") h.eq(await readPresence(other), [], "SIGTERM removes presence before exit");
   else h.ok((await readAnnotationState(other)).presence.size === 0, "Windows termination leaves no live presence");
-  a.entry.child.kill("SIGKILL"); await a.entry.closed;
+  // Kill the server itself: run from source, the launcher's child is tsx, which runs the
+  // server as ITS child — killing tsx orphans a server that then exits cleanly.
+  process.kill(first.pid, "SIGKILL"); await a.entry.closed;
   const abandoned = (await readPresence(root)).find(s => s.id === id)!;
   h.ok(!!abandoned, "abrupt kill leaves the last atomic heartbeat readable");
   h.ok(!(await readAnnotationState(root)).presence.has(id), "same-host reader marks the killed pid stale immediately");
