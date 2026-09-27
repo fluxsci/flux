@@ -306,7 +306,29 @@ export interface McpVerbOptions {
   bindRoot?: (root: string | null) => void;
   defaultRoot?: () => string | null;
   identity?: () => AgentIdentity;
+  /** The server's hand-written tools (images, live bridge, FluxLib readers), so
+   *  flux_verb reaches them even when the core toolset does not list them. Read
+   *  at call time: the server fills it after registering the registry verbs. */
+  extraTools?: Map<string, ExtraTool>;
 }
+
+export interface ExtraTool {
+  description: string;
+  /** Including the injected `project` param for project-scope tools. */
+  inputSchema: z.ZodRawShape;
+  scope: "project" | "machine";
+  run: (args: Record<string, unknown>) => Promise<McpRender>;
+}
+
+/** The first sentence of a summary, for the compact verb index. */
+function firstSentence(summary: string, max = 120): string {
+  const m = /^(.+?[.!?])(\s|$)/.exec(summary);
+  const one = (m ? m[1] : summary).replace(/\s+/g, " ").trim();
+  return one.length > max ? one.slice(0, max - 1) + "…" : one;
+}
+
+/** At most this many schemas per flux_verbs query: the index is the cheap path. */
+export const FLUX_VERBS_MAX_SCHEMAS = 15;
 
 export function mcpParams(v: VerbDef): z.ZodRawShape {
   return (v.scope ?? "project") === "project" ? { ...v.params, project: projectParam } : v.params;
@@ -368,19 +390,45 @@ export function registerMcpVerbs(
     server.registerTool(v.name, { description: v.summary, inputSchema: mcpParams(v) }, a => runMcpVerb(v, a, getRoot, options));
   }
   server.registerTool("flux_verb", {
-    description: "Run any Flux registry verb by name with its validated arguments. Use flux_verbs to discover names and schemas.",
+    description: "Run any Flux verb or tool by name with its validated arguments, including ones this toolset does not list. flux_verbs finds names and schemas.",
     inputSchema: { verb: z.string(), args: z.record(z.unknown()).optional() },
   }, async a => {
-    const v = VERBS.find(v => v.name === a.verb);
-    return v ? runMcpVerb(v, (a.args ?? {}) as Record<string, unknown>, getRoot, options) : errorToMcp(new ValidationError(`Unknown Flux verb: ${a.verb}`));
+    const name = String(a.verb);
+    const supplied = (a.args ?? {}) as Record<string, unknown>;
+    const v = VERBS.find(v => v.name === name);
+    if (v) return runMcpVerb(v, supplied, getRoot, options);
+    const t = options.extraTools?.get(name);
+    if (!t) return errorToMcp(new ValidationError(`Unknown Flux verb: ${name}. flux_verbs lists them.`));
+    const parsed = z.object(t.inputSchema).safeParse(supplied);
+    if (!parsed.success) return errorToMcp(new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${name}: ${getParseErrorMessage(parsed.error)}`));
+    return t.run(parsed.data);
   });
   server.registerTool("flux_verbs", {
-    description: "Find Flux registry verbs with summaries and input schemas. Omit query to list all; query matches names, CLI names and summaries.",
+    description: "Find Flux verbs and tools. Without a query: a one-line index of every name. With a query (words matched against names and summaries): the matches with their input schemas, for flux_verb.",
     inputSchema: { query: z.string().optional() },
-  }, async a => text(JSON.stringify(VERBS.filter(v => !a.query || `${v.name} ${v.cli} ${v.summary}`.toLowerCase().includes(String(a.query).toLowerCase())).map(v => ({
-    name: v.name, cli: v.cli, summary: v.summary, scope: v.scope,
-    inputSchema: toJsonSchemaCompat(z.object(mcpParams(v)), { target: "jsonSchema7", strictUnions: true, pipeStrategy: "input" }),
-  })))));
+  }, async a => {
+    const entries = [
+      ...VERBS.map(v => ({ name: v.name, cli: v.cli as string | undefined, summary: v.summary, scope: v.scope as string, shape: () => mcpParams(v) })),
+      ...[...(options.extraTools ?? new Map<string, ExtraTool>())].filter(([n]) => !VERBS.some(v => v.name === n))
+        .map(([name, t]) => ({ name, cli: undefined, summary: t.description, scope: t.scope as string, shape: () => t.inputSchema })),
+    ].sort((x, y) => x.name.localeCompare(y.name));
+    const query = String(a.query ?? "").trim().toLowerCase();
+    if (!query) {
+      return text(`${entries.length} Flux verbs and tools. Call flux_verbs {query} for input schemas, then flux_verb {verb, args}.\n` +
+        entries.map(e => `${e.name} — ${firstSentence(e.summary)}`).join("\n"));
+    }
+    const terms = query.split(/\s+/);
+    const rank = (e: typeof entries[number]) => e.name === query || e.cli === query ? 0 : terms.every(t => e.name.includes(t)) ? 1 : 2;
+    const hits = entries.filter(e => terms.every(t => `${e.name} ${e.cli ?? ""} ${e.summary}`.toLowerCase().includes(t)))
+      .sort((x, y) => rank(x) - rank(y));
+    const shown = hits.slice(0, FLUX_VERBS_MAX_SCHEMAS).map(e => ({
+      name: e.name, ...(e.cli ? { cli: e.cli } : {}), summary: e.summary, scope: e.scope,
+      inputSchema: toJsonSchemaCompat(z.object(e.shape()), { target: "jsonSchema7", strictUnions: true, pipeStrategy: "input" }),
+    }));
+    const content: McpRender["content"] = [{ type: "text", text: JSON.stringify(shown) }];
+    if (hits.length > shown.length) content.push({ type: "text", text: `${hits.length - shown.length} more match; narrow the query (${hits.slice(shown.length).map(e => e.name).join(", ")}).` });
+    return { content };
+  });
 }
 
 /** Declaration-driven flag grammar. Values beginning '-' are valid values;

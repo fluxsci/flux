@@ -38,5 +38,17 @@ try {
   const defs = JSON.parse(search.content[0].text);
   h.ok(defs.length === 1 && defs[0].inputSchema.properties.project, 'flux_verbs discovers non-core schema with project override');
   h.ok((await core.call('flux_verb', { verb: 'not_a_verb' })).isError, 'unknown meta verb fails');
+  const index = await core.call('flux_verbs', {});
+  const indexText = index.content[0].text as string;
+  h.ok(Buffer.byteLength(indexText) <= 20000 && !indexText.includes('"inputSchema"'), `flux_verbs without a query is a compact index, no schemas (${Buffer.byteLength(indexText)} bytes)`);
+  h.ok(/^rotate_elements — /m.test(indexText) && /^get_paper_text — /m.test(indexText), 'the index lists registry verbs and hand-written tools alike');
+  h.ok(!coreList.tools.some(t => t.name === 'get_reading_context'), 'fixture premise: get_reading_context is not a core tool');
+  await core.call('connect', { target: root });
+  h.eq(await core.call('flux_verb', { verb: 'get_reading_context' }), await full.call('get_reading_context'), 'core flux_verb reaches a hand-written tool the core list omits, with the dedicated result');
+  h.ok((await core.call('flux_verb', { verb: 'render_figure', args: {} })).isError, 'hand-written tool arguments are validated through flux_verb');
+  const manualDefs = JSON.parse((await core.call('flux_verbs', { query: 'get_canvas_image' })).content[0].text);
+  h.ok(manualDefs[0]?.name === 'get_canvas_image' && manualDefs[0].inputSchema.properties.project, 'flux_verbs returns hand-written tool schemas, exact name first');
+  const broad = await core.call('flux_verbs', { query: 'figure' });
+  h.ok(JSON.parse(broad.content[0].text).length === 15 && /more match; narrow the query/.test(broad.content[1]?.text ?? ''), 'a broad query is capped and says what it left out');
 } finally { for (const c of clients) await c.close(); await fs.rm(temp, { recursive: true, force: true }); }
 await h.done();

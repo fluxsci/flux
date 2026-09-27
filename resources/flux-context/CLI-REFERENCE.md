@@ -141,7 +141,8 @@ relative to the project root. Absolute paths are honoured. Machine/file tools wo
 unbound with absolute paths; relative paths require a project default. Document and
 folder identifiers remain project-relative model identifiers on both surfaces.
 
-The default `core` toolset is compact. `flux_verbs {query}` discovers every registry
-verb and its schema; `flux_verb {verb, args}` runs it with the same validation and
-result as its dedicated tool. Select `--toolset full` or `FLUX_MCP_TOOLSET=full` to
+The default `core` toolset is compact. `flux_verbs` lists every verb and tool in one
+line each; `flux_verbs {query}` returns the matches with their schemas; `flux_verb
+{verb, args}` runs any of them with the same validation and result as its dedicated
+tool, including tools the core list does not show. Select `--toolset full` or `FLUX_MCP_TOOLSET=full` to
 expose all dedicated tools. The MCP `connect` prompt provides a skill-free entry.

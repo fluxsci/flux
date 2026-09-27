@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import * as path from "node:path";
 import * as core from "./index";
-import { registerMcpVerbs, projectParam, errorToMcp, type McpRender, type McpToolset } from "./registry";
+import { registerMcpVerbs, projectParam, errorToMcp, type ExtraTool, type McpRender, type McpToolset } from "./registry";
 import { createMcpBinding } from "./mcpBinding";
 import { detectAgentIdentity } from "./agentIdentity";
 import { recoverProjectForAuthoring } from "./recovery";
@@ -24,20 +24,24 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     identity = detectAgentIdentity(process.env, server.server.getClientVersion(), "mcp");
     if (!process.env.FLUX_CLIENT) core.setClient(identity.client);
   };
-  registerMcpVerbs(server, getRoot, { toolset, bindRoot: binding.bind, defaultRoot: () => binding.bound, identity: () => identity });
+  const extraTools = new Map<string, ExtraTool>();
+  registerMcpVerbs(server, getRoot, { toolset, bindRoot: binding.bind, defaultRoot: () => binding.bound, identity: () => identity, extraTools });
   server.registerPrompt("connect", { description: "Connect to Flux when requested.", argsSchema: { target: z.string().optional() } }, ({ target }) => ({
     messages: [{ role: "user", content: { type: "text", text: `flux-connect \`${target ?? ""}\`: call the \`connect\` tool with target=\`${target ?? ""}\` and follow the brief it returns.` } }],
   }));
 
   function registerTool<S extends z.ZodRawShape>(name: string, meta: { description: string; inputSchema: S; scope: "project" | "machine"; core?: boolean }, fn: (args: z.infer<z.ZodObject<S>> & { project?: string }) => Promise<McpRender>) {
-    if (toolset === "core" && !meta.core) return;
     const inputSchema = meta.scope === "project" ? { ...meta.inputSchema, project: projectParam } : meta.inputSchema;
-    server.registerTool(name, { description: meta.description, inputSchema: inputSchema as z.ZodRawShape }, async args => {
+    const run = async (args: Record<string, unknown>): Promise<McpRender> => {
       try {
         if (meta.scope === "project") await recoverProjectForAuthoring(await getRoot(args));
         return await fn(args as z.infer<z.ZodObject<S>> & { project?: string });
       } catch (e) { return errorToMcp(e); }
-    });
+    };
+    // Every hand-written tool stays reachable through flux_verb, listed or not.
+    extraTools.set(name, { description: meta.description, inputSchema: inputSchema as z.ZodRawShape, scope: meta.scope, run });
+    if (toolset === "core" && !meta.core) return;
+    server.registerTool(name, { description: meta.description, inputSchema: inputSchema as z.ZodRawShape }, run);
   }
 
   const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
