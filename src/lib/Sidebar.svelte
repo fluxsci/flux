@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openFigureMeta } from "./figure/metadataState";
   import { onMount, tick } from "svelte";
   import { editSession } from "./interact/editSession";
   import {
@@ -17,7 +18,6 @@
     setActiveCanvas,
     figureSelection,
     selectedFigureIds,
-    figNamer,
     figureCatalog,
   } from "./store";
   import { requestFigureDeletion } from "./project/figureDeletion";
@@ -50,16 +50,16 @@
   // M11: inline rename (no blocking native window.prompt). Double-click a row to
   // edit; Enter / blur commits, Esc cancels. Figures are the exception since
   // figure families landed: their name is DERIVED (family + number), so the
-  // double-click opens the Figure Namer (Ctrl+R) instead of a text field.
+  // double-click opens the Figure-Meta Name tab (Ctrl+R) instead of a text field.
   let editing: { kind: "canvas" | "layer" | "group"; id: string } | null = null;
   let editVal = "";
   function startRename(kind: "canvas" | "layer" | "group", id: string, current: string) {
     editing = { kind, id };
     editVal = current;
   }
-  function openNamer(figId: string) {
+  function openNameTab(figId: string) {
     activeFigureId.set(figId); // name what the user is looking at
-    figNamer.set({ figId });
+    openFigureMeta(figId, "name");
   }
   function commitRename() {
     if (!editing) return;
@@ -158,7 +158,7 @@
   // --- Drag-to-reorder the Figures list. The list order IS the model order
   // (planFigSave numbers `order` from it, so it persists), and reordering is
   // ORDER ONLY: x/y never move, so a figure stays exactly where it sits on the
-  // canvas, and family/number stay put — renumbering remains the namer's
+  // canvas, and family/number stay put — renumbering remains Figure-Meta’s
   // deliberate act (Ctrl+R). Alt+↑/↓ does the same from the keyboard
   // (keyboard.ts), on the same picked rows.
   //
@@ -476,7 +476,7 @@
           <button
             class="item"
             on:click={(e) => goToFigure(fig.id, e)}
-            on:dblclick={() => openNamer(fig.id)}
+            on:dblclick={() => openNameTab(fig.id)}
             title={`${fig.name} · @${fig.referenceKey ?? ""}\nClick to go to it · Shift/Ctrl+click to pick several · drag to reorder on this canvas · double-click to rename (Ctrl+R)`}>
             {fig.nickname || fig.name}
           </button>

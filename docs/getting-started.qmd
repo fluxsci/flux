@@ -106,8 +106,8 @@ series name, so re-running `make_growth.py` later — different data, more point
 plot in place *and keeps your styling*. Try **Alt+R** too: the X-ray shows the plot's whole
 anatomy, and can regenerate it from its recipe.
 
-Finish with a caption: **Alt+C** opens the caption editor beside the figure — write one
-sentence and click back onto the canvas. ([More on Figure mode.](modes/figure.qmd))
+Finish with a caption: **Alt+M** opens **Figure-Meta** — write the figure caption and
+any panel captions, then close the menu. ([More on Figure mode.](modes/figure.qmd))
 
 # Write and cite
 

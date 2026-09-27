@@ -35,20 +35,26 @@
   const runner = createQueryRunner<RefEntry>();
   const results = $derived(query.trim() ? runner(entries, query).slice(0, 200) : entries.slice(0, 200));
 
+  let reloadEpoch = 0;
+  let reloadError = $state("");
   async function reload() {
-    const lib = await loadFluxLib();
-    attachHaystacks(lib);
-    entries = lib;
+    const epoch = ++reloadEpoch;
+    try {
+      const lib = await loadFluxLib();
+      if (epoch !== reloadEpoch) return;
+      attachHaystacks(lib); entries = lib; reloadError = "";
+    } catch (error) { if (epoch === reloadEpoch) reloadError = `Library could not be refreshed: ${String(error)}`; }
   }
   onMount(() => {
     void reload();
     refreshPdfKeys();
     let first = true;
-    return fluxLibRevision.subscribe(() => {
+    const unsubscribe = fluxLibRevision.subscribe(() => {
       if (first) { first = false; return; }
       void reload();
       refreshPdfKeys(0);
     });
+    return () => { reloadEpoch++; unsubscribe(); };
   });
 
   // Focus (and select) on every Alt+R, including when the panel is already showing.
@@ -64,6 +70,7 @@
 </script>
 
 <div class="libpanel" data-testid="reader-library">
+  {#if reloadError}<div role="status">{reloadError} <button onclick={() => reload()}>Retry</button></div>{/if}
   <input
     class="libsearch"
     bind:this={input}

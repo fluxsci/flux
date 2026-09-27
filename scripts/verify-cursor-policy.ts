@@ -25,7 +25,11 @@ const files: string[] = [];
 const OUTSIDE_THE_APP = [/src\/lib\/slide\/embedPlayer\.ts$/, /src\/lib\/slide\/export\//, /src\/lib\/slide\/player\/media\.ts$/];
 const offenders: string[] = [];
 for (const f of files) {
-  if (OUTSIDE_THE_APP.some((re) => re.test(f))) continue;
+  // Compare POSIX: the exemptions are written with forward slashes, and on
+  // Windows a backslash path matched none of them — every exempt player read
+  // as an offender (2026-09-22).
+  const posix = f.split(path.sep).join("/");
+  if (OUTSIDE_THE_APP.some((re) => re.test(posix))) continue;
   const s = readFileSync(f, "utf8");
   for (const m of s.matchAll(/cursor:\s*(pointer|default)\b/g)) offenders.push(`${path.relative(root, f)}: ${m[0]}`);
 }

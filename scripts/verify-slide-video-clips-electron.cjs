@@ -10,7 +10,7 @@ async function main() {
     const fixture=scope.spawn(path.join(__dirname,'lib/slideVideoFixture.ts'),[root],{env});assert.equal((await scope.waitExit(fixture)).code,0,fixture.stderr);
     await fs.mkdir(path.join(root,'plots/_videos'),{recursive:true});
     for(const name of ['moving-box.mp4','camera.MOV'])await fs.copyFile(path.join(__dirname,'fixtures/slide-video-clips/moving-box.mp4'),path.join(root,'plots/_videos',name));
-    const native=scope.spawn(require.resolve('electron/cli.js'),[path.join(__dirname,'lib/slideVideoClipsNativeEntry.cjs'),root,...(process.platform==='linux'?['--ozone-platform=x11']:[])],{env,cwd:repo,nodeArgs:[],deadlineMs:240000});
+    const native=scope.spawn(require.resolve('electron/cli.js'),[path.join(__dirname,'lib/slideVideoClipsNativeEntry.cjs'),root,...(process.platform==='linux'?['--ozone-platform=x11']:[]),...(env.FLUX_ELECTRON_NO_SANDBOX==='1'?['--no-sandbox']:[])],{env,cwd:repo,nodeArgs:[],deadlineMs:240000});
     native.child.stdout.on('data',bytes=>{for(const line of String(bytes).split('\n'))if(line.startsWith('PROBE '))console.log(line);});
     const status=await scope.waitExit(native);await fs.writeFile(path.join(output,'native-editor.log'),native.stdout+native.stderr);
     assert.equal(status.code,0,(native.stdout+native.stderr).slice(-12000));

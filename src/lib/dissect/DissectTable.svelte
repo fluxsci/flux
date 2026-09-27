@@ -6,14 +6,27 @@
   // the classic spacer + translateY: one spacer supplies scroll height, only visible rows
   // exist. Horizontal overflow scrolls inside this container (header rides along — same
   // scroll box).
-  import { parseDelimited, numericColumns, isNumericCell, numericValue, type ParsedTable } from "./csv";
+  import { parseDelimited, parseDelimitedAsync, numericColumns, tableOrder, type ParsedTable } from "./csv";
 
-  let { text, name }: { text: string; name: string } = $props();
+  let { text, name, inputTruncated = false }: { text: string; name: string; inputTruncated?: boolean } = $props();
 
   const ROW_H = 26;
   const OVERSCAN = 6;
 
-  const table: ParsedTable = $derived(parseDelimited(text, { name }));
+  let table: ParsedTable = $state(parseDelimited(""));
+  let counting = $state(false);
+  $effect(() => {
+    const controller = new AbortController();
+    const value = text, filename = name, truncated = inputTruncated;
+    counting = true;
+    table = parseDelimited("");
+    void parseDelimitedAsync(value, { name: filename, inputTruncated: truncated, signal: controller.signal,
+      onProgress: prefix => { if (!controller.signal.aborted) table = prefix; },
+    }).then(result => { if (!controller.signal.aborted) { table = result; counting = false; } }, error => {
+      if (!controller.signal.aborted) { counting = false; console.error(error); }
+    });
+    return () => controller.abort();
+  });
   const numeric = $derived(numericColumns(table));
 
   // Column widths from a character-count sample (header + first 200 rows): stable, cheap,
@@ -34,24 +47,7 @@
   // Sort: a permutation over the body rows — the parsed table itself is never reordered.
   let sortCol = $state(-1);
   let sortDir = $state<1 | -1>(1);
-  const order = $derived.by(() => {
-    const idx = table.rows.map((_, i) => i);
-    if (sortCol < 0) return idx;
-    const c = sortCol;
-    const dir = sortDir;
-    const num = numeric[c];
-    return idx.sort((a, b) => {
-      const va = table.rows[a][c] ?? "";
-      const vb = table.rows[b][c] ?? "";
-      if (va === "" && vb === "") return a - b;
-      if (va === "") return 1; // empties last, either direction
-      if (vb === "") return -1;
-      let d: number;
-      if (num && isNumericCell(va) && isNumericCell(vb)) d = numericValue(va) - numericValue(vb);
-      else d = va.localeCompare(vb, undefined, { numeric: true });
-      return d !== 0 ? d * dir : a - b; // stable
-    });
-  });
+  const order = $derived(tableOrder(table, sortCol, sortDir, numeric));
   function clickHeader(c: number) {
     if (sortCol !== c) {
       sortCol = c;
@@ -94,7 +90,8 @@
   };
 </script>
 
-<div class="tbl" data-dissect-table bind:this={viewport} use:nativeScroll={onScroll}>
+<div class="tbl" data-dissect-table>
+ <div class="tbl-scroll" bind:this={viewport} use:nativeScroll={onScroll}>
   <div class="hdr" style:grid-template-columns={gridCols} style:width={`${totalW}px`}>
     {#each table.header as hcell, c}
       <button
@@ -119,8 +116,15 @@
       {/each}
     </div>
   </div>
-  {#if table.truncated}
-    <div class="note">Showing the first {table.rows.length.toLocaleString()} of {table.totalRows.toLocaleString()} rows.</div>
+ </div>
+  {#if table.truncated || counting}
+    <div class="note" role="status">
+      Showing the first {table.rows.length.toLocaleString()} rows{table.complete ? ` of ${table.totalRows.toLocaleString()}` : counting ? " · counting…" : " from the first 16 MiB"}.
+      {#if table.totalRows > table.rows.length} Sorting applies to the displayed rows.{/if}
+      {#if table.diagnostics.columns} Columns limited to 128.{/if}
+      {#if table.diagnostics.cells} Long cells or retained text were shortened.{/if}
+      {#if table.diagnostics.input} Open the source file for the complete dataset.{/if}
+    </div>
   {/if}
 </div>
 
@@ -128,10 +132,16 @@
   .tbl {
     flex: 1;
     min-height: 0;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 12px;
     color: var(--c-tx);
+  }
+  .tbl-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
   .hdr {
     position: sticky;
@@ -204,8 +214,9 @@
     font-variant-numeric: tabular-nums;
   }
   .note {
-    position: sticky;
-    left: 0;
+    flex-shrink: 0;
+    border-top: 1px solid var(--c-line);
+    background: var(--c-bg-raised);
     padding: 8px 12px;
     color: var(--c-tx-muted);
     font-style: italic;

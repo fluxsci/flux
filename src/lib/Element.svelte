@@ -7,6 +7,7 @@
   import { pathRender } from "./path";
   import { elementPaints } from "./color/gradient";
   import { blockLayout, letterSpacing } from "./text";
+  import { segmentAttrs } from "./export";
   import PlotElement from "./PlotElement.svelte";
 
   export let element: Element;
@@ -226,7 +227,16 @@
           x={L.x}
           dy={ln.dy}
           textLength={ln.justifyWidth}
-          lengthAdjust={ln.justifyWidth != null ? "spacing" : undefined}>{ln.text}</tspan
+          lengthAdjust={ln.justifyWidth != null ? "spacing" : undefined}
+          >{#if ln.segments}{#each ln.segments as seg}{@const a = segmentAttrs(element, seg)}<tspan
+                dx={seg.dx}
+                dy={seg.dy}
+                font-size={a["font-size"]}
+                font-weight={a["font-weight"]}
+                font-style={a["font-style"]}
+                text-decoration={a["text-decoration"]}
+                fill={a.fill}>{seg.text}</tspan
+              >{/each}{:else}{ln.text}{/if}</tspan
         >
       {/each}
     </text>

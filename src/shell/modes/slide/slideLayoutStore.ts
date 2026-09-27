@@ -1,3 +1,4 @@
+import { decodePreferences } from "../../../lib/preferences";
 // Slide-module layout preferences — persisted to localStorage exactly like
 // paper's view-mode/paperLayoutStore.ts. Holds the three reader-adjustable pane
 // sizes (filmstrip width, inspector width, Animator dock height) in px. A
@@ -22,7 +23,7 @@ const DEFAULTS: SlideLayout = { filmstripW: 172, inspectorW: 248, animatorH: 360
 function load(): SlideLayout {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<SlideLayout>) };
+    if (raw) return decodePreferences(JSON.parse(raw), DEFAULTS, { filmstripW: {min:120,max: Math.max(172, typeof window === "undefined" ? 1920 : window.innerWidth * .5)}, inspectorW: {min:200,max:Math.max(248,typeof window === "undefined" ? 1536 : window.innerWidth * .4)}, animatorH: {min:120,max:typeof window === "undefined" ? 1080 : window.innerHeight} });
   } catch {
     /* ignore */
   }

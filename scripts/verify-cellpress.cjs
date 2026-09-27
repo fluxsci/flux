@@ -1,16 +1,23 @@
 // Gate for the Cell Press → cell.com hop: the REAL capture engine must retrieve a complete
 // PDF for a Cell Press DOI whose doi.org route lands on the ScienceDirect anti-bot block.
-// Also exercises the pure helpers (PII conversion, DOI classification, host rewrite).
-//   Run: DISPLAY=:0 ./node_modules/.bin/electron scripts/verify-cellpress.cjs --no-sandbox
+// Helper behavior runs separately in verify-cellpress-helpers.cjs without Electron/network.
+// Explicit opt-in: FLUX_ALLOW_TEST_NETWORK=1 FLUX_TEST_EZPROXY_PREFIX=https://...
+// Run through scripts/run-verifies.mjs with a private display and disposable HOME.
 const { app, session, BrowserWindow } = require("electron");
+const { liveProxyFixture } = require("./lib/liveProxyFixture.cjs");
+const fixture = liveProxyFixture();
+if (fixture.missing.length) {
+  console.error("BLOCKED: " + fixture.missing.join("; "));
+  app.exit(2);
+}
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const engineMod = require("../electron/proxyFetch.cjs");
-const { createProxyEngine, hyphenatePii, isCellPressDoi, rewriteToProxyHost } = engineMod;
+const { createProxyEngine } = engineMod;
 
-const PROXY_PARTITION = "persist:fluxproxy";
-const PREFIX = String(JSON.parse(fs.readFileSync(path.join(require("../electron/fluxPaths.cjs").resolveFluxLibPathSync(), "keys.json"), "utf8")).ezproxyPrefix || "").trim();
+const PROXY_PARTITION = "cellpress-live-fixture";
+const PREFIX = fixture.prefix;
 const ezproxyPrefix = () => PREFIX;
 const proxiedUrl = (t) => PREFIX + String(t || "");
 function isProxyLoginUrl(u) {
@@ -31,36 +38,19 @@ const ok = (c, n, d = "") => {
   if (!c) failures++;
 };
 
+let engine;
+const watchdog=setTimeout(()=>{console.error("FAIL: Cell Press live probe exceeded its110s deadline");engine?.dispose();app.exit(1);},110000);
 app.whenReady().then(async () => {
-  // --- pure helpers (also importable/testable) ---
-  ok(hyphenatePii("S0896627321004955") === "S0896-6273(21)00495-5", "PII compact→hyphenated");
-  ok(hyphenatePii("not-a-pii") === null, "non-PII → null");
-  ok(isCellPressDoi("10.1016/j.neuron.2021.06.030"), "Neuron DOI classified Cell Press");
-  ok(isCellPressDoi("10.1016/j.cell.2026.05.048"), "Cell DOI classified Cell Press");
-  ok(isCellPressDoi("10.1016/j.tins.2020.01.001"), "Trends in Neurosciences classified Cell Press");
-  ok(!isCellPressDoi("10.1016/j.neuroimage.2019.116081"), "plain Elsevier (NeuroImage) NOT Cell Press");
-  ok(!isCellPressDoi("10.1038/s41586-020-2649-2"), "Nature DOI NOT Cell Press");
-  ok(
-    rewriteToProxyHost("https://www.cell.com/action/showPdf?pii=X", "ezproxy.library.wisc.edu") ===
-      "https://www-cell-com.ezproxy.library.wisc.edu/action/showPdf?pii=X",
-    "host rewrite → proxied cell.com host",
-  );
-
-  if (!PREFIX) {
-    console.log("\n(no ezproxyPrefix configured — skipping the live capture)");
-    return app.exit(failures ? 1 : 0);
-  }
-
   // --- live capture through the real engine ---
   const t0 = Date.now();
   const trace = process.env.FLUX_PROXY_DEBUG ? (m) => console.error(`  [${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`) : undefined;
-  const engine = createProxyEngine({ session, BrowserWindow, ezproxyPrefix, proxiedUrl, isProxyLoginUrl, PROXY_PARTITION, path, fs, os, log: trace });
+  engine = createProxyEngine({ session, BrowserWindow, ezproxyPrefix, proxiedUrl, isProxyLoginUrl, PROXY_PARTITION, path, fs, os, log: trace });
 
   const cases = [
     ["Neuron (Cell Press via SD block)", "10.1016/j.neuron.2021.06.030", true],
   ];
   for (const [label, doi, expect] of cases) {
-    const r = await engine.capturePdfViaBrowser({ target: "https://doi.org/" + doi });
+    const r = await engine.capturePdfViaBrowser({ target: "https://doi.org/" + doi, signal: AbortSignal.timeout(100000) });
     const buf = r && r.bytesB64 ? Buffer.from(r.bytesB64, "base64") : null;
     const got = !!(buf && isPdf(buf) && buf.length > 100 * 1024);
     ok(
@@ -73,5 +63,10 @@ app.whenReady().then(async () => {
   await new Promise((res) => setTimeout(res, 300));
 
   console.log(failures ? `\nCELLPRESS VERIFY: ${failures} FAILED` : "\nCELLPRESS VERIFY: PASS");
+  clearTimeout(watchdog);
   app.exit(failures ? 1 : 0);
+}).catch(error=>{
+  clearTimeout(watchdog);engine?.dispose();
+  console.error("FAIL: Cell Press live probe: " + String(error?.message || error));
+  app.exit(1);
 });

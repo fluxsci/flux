@@ -51,6 +51,7 @@ import {
   ancestorsOf,
   chainOf,
   cloneGroupsFor,
+  enforceZContiguity,
   gcGroups,
   groupDefs,
   membersDeep,
@@ -60,6 +61,7 @@ import {
   unitOf,
 } from "./groups";
 import { refitPath, pathToNodes } from "./path";
+import { normalizeRuns, toggleRunRange, elementFlags, setRunColor, toggleScriptRange } from "./textRuns";
 import {
   arrangeGrid,
   alignElements,
@@ -166,6 +168,8 @@ export interface CreateFigureOpts {
 }
 
 export function createFigure(p: Project, opts: CreateFigureOpts): Figure {
+  if (opts.id && p.figures.some(f => f.id === opts.id)) throw new Error(`Figure id already exists: ${opts.id}`);
+  if (!p.canvases.some(c => c.id === opts.canvasId)) throw new Error(`Canvas not found: ${opts.canvasId}`);
   const onCanvas = p.figures.filter((f) => f.canvasId === opts.canvasId);
   // Default placement stacks vertically: directly below the lowest figure on
   // the canvas, left-aligned with the first one. Headless composes used to
@@ -286,6 +290,7 @@ export function duplicateFigure(p: Project, figId: Id): Id | null {
     background: src.background,
     elements,
     captions,
+    ...(src.guides ? { guides: structuredClone(src.guides) } : {}),
     ...(Object.keys(clonedGroups).length ? { groups: clonedGroups } : {}),
   };
   p.figures.push(copy);
@@ -392,6 +397,13 @@ export function setFigureIdentity(
   return [];
 }
 
+/** Shared form/operation refusal, before history or model mutation. */
+export function figureFamilyIdError(p: Project, id: string, createOnly = false): string | null {
+  if (!FAMILY_ID_RE.test(id)) return 'Use a family name whose slug starts with a letter and contains only lowercase letters, numbers or hyphens.';
+  if (BUILTIN_FAMILIES.some(b => b.id === id)) return `"${id}" is a built-in family; choose it from the list.`;
+  if (createOnly && p.figureFamilies?.some(f => f.id === id)) return `Family "${id}" already exists; choose it from the list or use a distinct name.`;
+  return null;
+}
 /** Define (or update) a CUSTOM figure family ("movie" → "Mov. {num}{panel}").
  *  Built-in ids are reserved; missing templates default from the display name. */
 export function defineFigureFamily(
@@ -399,12 +411,8 @@ export function defineFigureFamily(
   def: { id: string; displayName: string; refTemplate?: string; captionTemplate?: string },
 ): FigureFamilyDef {
   const id = def.id.trim();
-  if (!FAMILY_ID_RE.test(id)) {
-    throw new Error(`invalid family id "${def.id}" — want a lowercase slug (a-z, 0-9, -)`);
-  }
-  if (BUILTIN_FAMILIES.some((b) => b.id === id)) {
-    throw new Error(`"${id}" is a built-in family`);
-  }
+  const invalid = figureFamilyIdError(p,id);
+  if (invalid) throw new Error(invalid);
   const displayName = def.displayName.trim();
   if (!displayName) throw new Error("family displayName must not be empty");
   const full: FigureFamilyDef = {
@@ -629,7 +637,7 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
   const f = figById(p, figId);
   if (!f) return;
   const els = targetEls(f, opts.ids);
-  const n = gridItemCount(els);
+  const n = gridItemCount(els, { figure: f });
   if (n < 2) return;
   let cols: number;
   if (opts.cols && opts.cols > 0) {
@@ -641,7 +649,7 @@ export function arrangePanels(p: Project, figId: Id, opts: ArrangeOpts = {}): vo
   } else {
     cols = Math.ceil(n / balancedRows(n));
   }
-  arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {});
+  arrangeGrid(els, cols, opts.gap != null ? { gap: opts.gap } : {}, { figure: f });
 }
 
 /** Rotate elements by `deltaDeg` about a pivot (default = the group-expanded
@@ -670,13 +678,13 @@ export function rotateElements(
 export function alignPanels(p: Project, figId: Id, kind: AlignKind, ids?: Id[]): void {
   const f = figById(p, figId);
   if (!f) return;
-  alignElements(targetEls(f, ids), kind);
+  alignElements(targetEls(f, ids), kind, { figure: f });
 }
 
 export function distributePanels(p: Project, figId: Id, axis: "h" | "v", ids?: Id[], gap?: number): void {
   const f = figById(p, figId);
   if (!f) return;
-  distributeElements(targetEls(f, ids), axis, gap);
+  distributeElements(targetEls(f, ids), axis, gap, { figure: f });
 }
 
 /** Minimal 1-D translation that brings [pos, pos+size] inside [0, frame]:
@@ -1214,6 +1222,81 @@ export function deleteElements(p: Project, ids: Id[]): void {
   }
 }
 
+/** Move elements out of whatever figure holds them INTO `toFigId` — the
+ *  drag-between-frames gesture (Figma: drop an object on another frame and it
+ *  becomes that frame's child), with no copy-paste-delete detour. Each element
+ *  keeps its WORLD position (the two frames' offset folds into its local x/y)
+ *  and takes the optional extra delta (`dx`/`dy`, figure units — the drag).
+ *  The moved run lands on TOP of the destination's z-order in its original
+ *  relative order, which keeps every group run contiguous. Groups travel with
+ *  their members: a group whose members (deep) ALL move is re-registered on the
+ *  destination under the same id — detached from any ancestor that stays
+ *  behind — while an element whose immediate group only partly moves arrives
+ *  loose (Figma drops the membership too). Per-panel captions keyed by a moved
+ *  panel label follow it. Sources are GC'd. Returns the moved ids in z-order;
+ *  empty when the destination is unknown or nothing needed to move (an id
+ *  already on the destination stays put). */
+export function moveElementsToFigure(
+  p: Project,
+  ids: Id[],
+  toFigId: Id,
+  opts: { dx?: number; dy?: number } = {},
+): Id[] {
+  const dst = figById(p, toFigId);
+  if (!dst) return [];
+  const want = new Set(ids);
+  const dx = opts.dx ?? 0;
+  const dy = opts.dy ?? 0;
+  const moved: Id[] = [];
+  for (const src of p.figures) {
+    if (src === dst) continue;
+    const moving = src.elements.filter((e) => want.has(e.id));
+    if (!moving.length) continue;
+    const movingIds = new Set(moving.map((e) => e.id));
+    // A group transfers when every deep member moves. Transferability is
+    // monotone up a chain (a parent's deep members include its child's), so an
+    // element's immediate group decides its membership at the destination.
+    const defs = groupDefs(src);
+    const transferable = new Set<Id>();
+    const seen = new Set<Id>();
+    for (const e of moving)
+      for (const gid of ancestorsOf(src, e.groupId)) {
+        if (seen.has(gid)) continue;
+        seen.add(gid);
+        if (membersDeep(src, gid).every((m) => movingIds.has(m.id))) transferable.add(gid);
+      }
+    const ox = src.x - dst.x + dx;
+    const oy = src.y - dst.y + dy;
+    for (const e of moving) {
+      e.x += ox;
+      e.y += oy;
+      if (e.groupId && !transferable.has(e.groupId)) delete e.groupId;
+    }
+    if (transferable.size) {
+      dst.groups = dst.groups ?? {};
+      for (const gid of transferable) {
+        const def = structuredClone(defs[gid]);
+        if (def.parentId && !transferable.has(def.parentId)) delete def.parentId;
+        dst.groups[gid] = def;
+      }
+    }
+    if (src.captions) {
+      for (const id of movingIds) {
+        if (!(id in src.captions)) continue;
+        dst.captions = dst.captions ?? {};
+        dst.captions[id] = src.captions[id];
+        delete src.captions[id];
+      }
+    }
+    src.elements = src.elements.filter((e) => !movingIds.has(e.id));
+    gcGroups(src);
+    dst.elements.push(...moving);
+    moved.push(...movingIds);
+  }
+  if (moved.length) enforceZContiguity(dst);
+  return moved;
+}
+
 /** Move one element — or a whole GROUP (pass its registry id) — to an absolute
  *  z-index within its figure (0 = bottom; post-removal slot, as before). Backs
  *  the Layers panel drag-reorder + the `reorder` bridge/CLI verb. Group-aware
@@ -1374,6 +1457,7 @@ const FONT_KEYS = new Set(["fontFamily", "fontSize", "fontWeight", "fontStyle", 
 function invalidateTextLayout(e: Element): void {
   if (e.type !== "text") return;
   delete e.lines;
+  delete e.lineWidths; // the widths describe THOSE lines and nothing else
   if (e.sizing === "auto-h" || e.sizing === "fixed") e.needsLayout = true;
 }
 
@@ -1469,6 +1553,7 @@ export function setElementStyle(p: Project, ids: Id[], patch: ElementStylePatch)
           if (patch.letterSpacing === 0) delete e.letterSpacing;
           else e.letterSpacing = patch.letterSpacing;
         }
+        if (patch.fontWeight != null || patch.fontStyle != null || patch.underline != null) pruneTextRuns(e);
         if (layoutTouched) invalidateTextLayout(e);
         detachOnManualEdit(p, e, Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] != null));
       } else if (e.type === "line") {
@@ -1619,9 +1704,72 @@ export function toggleTextStyle(p: Project, ids: Id[], which: TextToggle): void 
     if (which === "bold") e.fontWeight = allOn ? 400 : 700;
     else if (which === "italic") e.fontStyle = allOn ? "normal" : "italic";
     else e.underline = !allOn;
+    pruneTextRuns(e); // a range that now merely restates the element says nothing
     if (which !== "underline") invalidateTextLayout(e); // bold/italic change metrics
     detachOnManualEdit(p, e, [which === "bold" ? "fontWeight" : which === "italic" ? "fontStyle" : "underline"]);
   }
+}
+
+/** Re-normalize `runs` against the element's own font and DELETE the field when
+ *  nothing is left to say — italicising a whole box makes an italic word inside
+ *  it redundant, and the default has to stay absence. */
+export function pruneTextRuns(e: TextElement): void {
+  if (!e.runs) return;
+  const runs = normalizeRuns(e.runs, e.text.length, elementFlags(e));
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+}
+
+/**
+ * Toggle bold/italic/underline over ONE text element's character range —
+ * the inline editor's selection. An empty or collapsed range is a no-op, so a
+ * caller can route a chord here unconditionally and fall back to the
+ * whole-element toggle itself. DOM-free: the GUI reflows after (bold changes
+ * metrics, so the wrap cache is invalidated here).
+ */
+export function toggleTextRunStyle(p: Project, id: Id, from: number, to: number, which: TextToggle): void {
+  const e = textById(p, id);
+  if (!e) return;
+  const runs = toggleRunRange(e, from, to, which);
+  const before = JSON.stringify(e.runs ?? []);
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+  if (JSON.stringify(e.runs ?? []) === before) return;
+  if (which !== "underline") invalidateTextLayout(e);
+  // No named-style detach (2026-09-25): runs are a separate layer over the
+  // element's BASE look — absolute flags, pruned when they restate the base —
+  // and a later change to the linked style never overwrites them, so there is
+  // nothing to protect. Detaching here silently unlinked a "Body" caption from
+  // Body for bolding one word; only the whole-box toggle (toggleTextStyle)
+  // changes element properties and keeps its detach.
+}
+
+/** Toggle superscript / subscript over ONE text element's range [from, to).
+ *  There is no whole-element script: every character selected means a run over
+ *  all of them. Changes advances (smaller glyphs), so the wrap cache goes. */
+export function toggleTextRunScript(p: Project, id: Id, from: number, to: number, which: "super" | "sub"): void {
+  const e = textById(p, id);
+  if (!e) return;
+  const before = JSON.stringify(e.runs ?? []);
+  const runs = toggleScriptRange(e, from, to, which);
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+  if (JSON.stringify(e.runs ?? []) === before) return;
+  invalidateTextLayout(e);
+  // No named-style detach: scripts are relative to the element's size (see
+  // toggleTextRunStyle).
+}
+
+/** Paint ONE text element's character range [from, to) with `color`, or with
+ *  null hand it back to the element's color. Metric-neutral: no re-wrap. */
+export function setTextRunColor(p: Project, id: Id, from: number, to: number, color: string | null): void {
+  const e = textById(p, id);
+  if (!e) return;
+  const runs = setRunColor(e, from, to, color);
+  if (runs.length) e.runs = runs;
+  else delete e.runs;
+  // No named-style detach: a coloured range overrides the base colour only
+  // where it lies (see toggleTextRunStyle).
 }
 
 const textById = (p: Project, id: Id): TextElement | null => {
@@ -1650,6 +1798,7 @@ function assignTextStyle(e: TextElement, st: TextStyle): void {
   if (st.letterSpacing != null) e.letterSpacing = st.letterSpacing;
   if (st.paragraphSpacing != null) e.paragraphSpacing = st.paragraphSpacing;
   e.styleId = st.id;
+  pruneTextRuns(e); // the style set the element's font; a range restating it says nothing
   invalidateTextLayout(e); // metrics changed — GUI reflows, headless falls back
 }
 
@@ -1798,6 +1947,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   if (!f) return { changed: false, letters: [] };
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   if (!labels.length) return { changed: false, letters: [] };
+  if (labels.length > 26) throw new Error("Automatic panel lettering supports up to 26 panels (a–z). Keep your existing labels or split this figure.");
   const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
   const rowSpan = (e: Element): { top: number; bottom: number; x: number } => {
     const lb = elementBBox(e);
@@ -1830,7 +1980,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   for (const row of rows) {
     row.sort((a, b) => a.x - b.x);
     for (const it of row) {
-      const want = String.fromCharCode(97 + (i % 26));
+      const want = String.fromCharCode(97 + i);
       i++;
       letters.push(want);
       if (it.e.type === "text" && it.e.text !== want) {

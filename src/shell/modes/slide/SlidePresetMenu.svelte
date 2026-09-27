@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+  import { modalFocus } from "../../../lib/ui/modalFocus";
   // Slide-preset library menu — insert mode ("+ Preset" in the filmstrip)
   // browses <FluxConfig>/presets/slides and inserts the pick after the active
   // slide; save mode ("Save as preset…" in the Slide panel) names the active
@@ -37,9 +39,13 @@
   let inputEl = $state<HTMLInputElement | null>(null);
   let saving = $state(false);
 
+  let disposed = false;
+  onDestroy(() => { disposed = true; });
   $effect(() => {
     void (async () => {
-      entries = await listSlidePresets();
+      const loaded = await listSlidePresets();
+      if (disposed) return;
+      entries = loaded;
       loading = false;
     })();
   });
@@ -64,6 +70,7 @@
     saving = true;
     try {
       const res = await saveSlidePreset(name, slideId);
+      if (disposed) return;
       if (!res) {
         pushToast("error", "Couldn't save the preset", { detail: "Give it a name (slashes create folders)." });
         return;
@@ -79,7 +86,7 @@
   }
   async function doDelete(entry: SlidePresetEntry, ev: MouseEvent) {
     ev.stopPropagation();
-    if (await deleteSlidePreset(entry.rel)) entries = entries.filter((e) => e.rel !== entry.rel);
+    if (await deleteSlidePreset(entry.rel) && !disposed) entries = entries.filter((e) => e.rel !== entry.rel);
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
@@ -94,7 +101,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
 <div class="scrim" onclick={onClose} onkeydown={onKey}>
-  <div class="menu" onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Slide presets" tabindex="-1">
+  <div class="menu" use:modalFocus aria-modal="true" onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Slide presets" tabindex="-1">
     <header>
       <strong>{mode === "save" ? "Save slide as preset" : "Slide presets"}</strong>
       <button class="x" onclick={onClose} aria-label="Close">×</button>
@@ -113,12 +120,13 @@
         <div class="none">{entries.length ? "No matches." : "No slide presets yet — save one from the Slide panel."}</div>
       {:else}
         {#each shown as entry (entry.rel)}
-          <div class="card" class:pickable={mode === "insert"}
-            onclick={() => mode === "insert" && doInsert(entry)}
-            title={mode === "insert" ? `Insert "${entry.preset.name}" after the current slide` : entry.rel}>
+          <div class="card" class:pickable={mode === "insert"}>
+            <button class="preset-pick" disabled={mode !== "insert"} onclick={() => doInsert(entry)}
+              title={mode === "insert" ? `Insert "${entry.preset.name}" after the current slide` : entry.rel}>
             <img class="shot" src={slidePresetThumb(entry.preset)} alt={entry.preset.name} />
             <span class="nm">{entry.preset.name}</span>
             {#if entry.rel.includes("/")}<span class="dir">{entry.rel.split("/").slice(0, -1).join("/")}</span>{/if}
+            </button>
             <button class="del" onclick={(e) => doDelete(entry, e)} title="Delete preset" aria-label="Delete preset">×</button>
           </div>
         {/each}
@@ -128,6 +136,8 @@
 </div>
 
 <style>
+  .preset-pick { display:flex; flex-direction:column; padding:0; border:0; background:transparent; color:inherit; text-align:inherit; width:100%; }
+  .preset-pick:disabled { opacity:1; }
   /* a modal picker keeps the light scrim */
   .scrim {
     position: absolute; inset: 0; z-index: 60; background: rgba(0, 0, 0, .35);

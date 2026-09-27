@@ -12,6 +12,8 @@
 // ---------------------------------------------------------------------------
 
 import type { FigureFamilyDef } from "./figfamily";
+// Type-only, so the textRuns ↔ types cycle is erased at build time.
+import type { TextRun } from "./textRuns";
 export type { FigureFamilyDef } from "./figfamily";
 
 export type Id = string;
@@ -135,8 +137,8 @@ export interface Figure {
   // tolerated (treated as loose by the derived tree; see groups.ts).
   groups?: Record<Id, GroupDef>;
   // Per-panel caption text, keyed by the panel-label element's id (see
-  // captions.ts / CaptionEditor.svelte). Edited via the caption editor (Alt+C).
-  captions?: Record<Id, string>;
+  // captions.ts / figure/FigureMeta.svelte). Edited in Figure-Meta (Alt+M).
+  captions?: Record<Id, string>; // __figure__ lead, label-element IDs, optional __ps__ closing prose
   // Ruler guides (Feature 11), figure-local. `x` = vertical guide lines at those
   // x positions; `y` = horizontal guides. Elements snap to them while moving.
   guides?: { x?: number[]; y?: number[] };
@@ -276,6 +278,20 @@ export interface TextElement extends ElementBase {
   // (loadFigInto heals flagged elements on open); headless render/export
   // paths WARN naming the element instead of diverging silently.
   needsLayout?: true;
+  // DERIVED, beside `lines` and with the same lifecycle: the natural advance
+  // of each visual line in canvas px, measured when the wrap cache was built.
+  // JUSTIFICATION needs it — the extra width a line must absorb is shared out
+  // between its WORDS, and knowing the natural width is what turns a box width
+  // into a per-gap offset without measuring anything at render time. Absent
+  // (headless edit, pre-2026-09-22 file) falls back to the old whole-line
+  // stretch. Never edit by hand.
+  lineWidths?: number[];
+  // Per-RANGE formatting inside `text` — bold/italic/underline for character
+  // ranges, on top of the element's own font (textRuns.ts is the ONE source:
+  // normalization, toggling, remapping across edits, segmentation). ABSENT
+  // means the element's font everywhere, which is what keeps every file
+  // written before 2026-09-22 byte-identical.
+  runs?: TextRun[];
   // Linked named style (Project.textStyles). Manual font edits detach it.
   styleId?: Id;
   // Marked (Alt+L / inspector) as a figure panel label. Each marked text becomes

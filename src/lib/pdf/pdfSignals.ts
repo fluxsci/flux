@@ -3,16 +3,16 @@
 // same shared pure helpers as the Node path, so the GUI and CLI identify a PDF identically.
 import { getDocument, PDFWorker } from "./pdfjs";
 import PdfWorkerPort from "./pdfjsWorker?worker";
+import { createOwnedPdfTask } from "./taskOwner";
 import { joinTextItems, guessTitleFromItems, firstDoiIn, type PdfSignals, type TextItem } from "../references/pdfIdentify";
 
 export async function extractPdfSignals(bytes: Uint8Array): Promise<PdfSignals> {
   // Same worker + asset wiring as PdfView (no global workerSrc in this app; each open gets its
   // own PDFWorker via the Vite ?worker port) so extracted text matches what the reader renders.
   const base = new URL("pdfjs/", document.baseURI).href;
-  const worker = PDFWorker.create({ port: new PdfWorkerPort() });
-  const task = getDocument({ data: bytes, worker, cMapUrl: base + "cmaps/", cMapPacked: true, standardFontDataUrl: base + "standard_fonts/", useSystemFonts: false });
-  const doc = await task.promise;
+  const owned = createOwnedPdfTask(bytes, base, { createPort: () => new PdfWorkerPort(), createWorker: port => PDFWorker.create({port}), getDocument });
   try {
+    const doc = await owned.promise;
     const n = doc.numPages;
     let xmpDoi: string | undefined;
     let infoDoi: string | undefined;
@@ -59,7 +59,6 @@ export async function extractPdfSignals(bytes: Uint8Array): Promise<PdfSignals> 
     const arxivId = (page1Text.match(/arxiv:\s*(\d{4}\.\d{4,5})(?:v\d+)?/i) || [])[1];
     return { xmpDoi, infoDoi, xmpTitle, infoTitle, titleGuess, arxivId, page1Text, tailText: tailParts.join("\n"), numPages: n };
   } finally {
-    await task.destroy();
-    worker.destroy();
+    await owned.dispose();
   }
 }

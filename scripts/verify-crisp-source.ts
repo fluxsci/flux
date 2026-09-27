@@ -6,13 +6,15 @@
 // live behavioral gate is scripts/verify-crisp.mjs (ui-extra, DSF 2); this
 // file asserts the two hand-won invariants against source:
 //
-//   A. one repaint per zoom gesture — the scene SVG scales by renderZoom (the
-//      baked scale) and the wrapper carries only a compositor residual
+//   A. one SVG scale fold per zoom gesture — the scene SVG scales by renderZoom (the
+//      baked scale) and the wrapper carries the residual
 //      scale(zoom/renderZoom); NO live $viewport read may exist inside the
 //      scene-svg template (one missed read silently reintroduces per-tick
-//      content repaints), and the cull keys off renderZoom.
+//      content updates), and the cull keys off renderZoom. The live residual
+//      may reraster without locking the scene to an oversized compositor surface.
 //   B. will-change lifecycle — the .scene CSS rule has NO permanent
-//      will-change; promotion is inline-only while sceneHot; `contain: paint`
+//      will-change; promotion is inline-only while sceneHot, with unsettled zoom
+//      and proxy presentation excluded; `contain: paint`
 //      is forbidden (clips panned content).
 //
 // Run: npx tsx scripts/verify-crisp-source.ts
@@ -38,14 +40,14 @@ assert(sceneRule.length > 0, "the .scene CSS rule exists");
 assert(!/will-change\s*:/.test(sceneRule), "the .scene CSS rule declares NO will-change (permanent promotion = budget-limited tiles = blur at rest)");
 assert(/transform-origin:\s*0 0/.test(sceneRule), ".scene keeps transform-origin: 0 0 (the residual scale composes about the pan origin)");
 assert(
-  /style:will-change=\{sceneHot \? "transform" : null\}/.test(src),
-  'promotion is inline-only: style:will-change={sceneHot ? "transform" : null} on the scene wrapper',
+  /style:will-change=\{sceneHot && !zoomUnsettled && !proxyActive \? "transform" : null\}/.test(src),
+  'promotion is inline-only and excludes unsettled zoom and proxy presentation',
 );
 assert(!/contain\s*:\s*paint/.test(stripped), "no `contain: paint` declaration anywhere (it clips panned content — forbidden)");
 assert(/SCENE_COOL_MS\s*=\s*\d+/.test(src), "SCENE_COOL_MS exists (trailing demotion window)");
 assert(/sceneHot = false; \/\/ idle demotion/.test(src), "the idle demotion branch survives (full-quality re-raster + tile release)");
 
-// ---- A. one repaint per zoom gesture --------------------------------------------
+// ---- A. one SVG scale fold per zoom gesture --------------------------------------
 assert(/let renderZoom\b/.test(src), "renderZoom exists (the scale baked into the scene SVG)");
 assert(/ZOOM_SETTLE_MS\s*=\s*\d+/.test(src), "ZOOM_SETTLE_MS exists (settle-fold delay)");
 assert(
@@ -53,15 +55,15 @@ assert(
   "every zoom change (wheel, Toolbar, programmatic viewport.set) schedules the settle fold",
 );
 assert(
-  /renderZoom = get\(viewport\)\.zoom; \/\/ THE one content repaint/.test(src),
-  "the settle fold bakes renderZoom = zoom (the ONE content repaint per gesture)",
+  /renderZoom = get\(viewport\)\.zoom;/.test(stripped),
+  "the settle fold bakes renderZoom = zoom (one SVG scale fold per gesture)",
 );
 assert(/on:pointerdown\|capture=\{foldZoomNow\}/.test(src), "gesture pointerdowns fold immediately (capture phase on the host)");
 
-// Scene wrapper: pan translate + compositor-only residual.
+// Scene wrapper: pan translate + residual scale.
 assert(
   /translate3d\(\$\{\$viewport\.panX\}px, \$\{\$viewport\.panY\}px, 0\) scale\(\$\{\$viewport\.zoom \/ renderZoom\}\)/.test(src),
-  "the scene wrapper transform is translate3d(pan) scale(zoom/renderZoom) — residual is compositor-only",
+  "the scene wrapper transform is translate3d(pan) scale(zoom/renderZoom)",
 );
 // Scene SVG: the baked scale.
 assert(/<g transform=\{`scale\(\$\{renderZoom\}\)`\}>/.test(src), "the scene SVG scales by renderZoom, not live zoom");

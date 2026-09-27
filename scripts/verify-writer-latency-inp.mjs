@@ -138,6 +138,8 @@ for (let i = 0; i < 60 && !page; i++) {
   if (!page) await sleep(300);
 }
 if (!page) errorOut(`no app page at ${DEV_ORIGIN} (is the dev server up?)`);
+page.on("pageerror",error=>console.log(`  renderer exception: ${error.message}`));
+page.on("console",message=>{if(message.type()==="error")console.log(`  renderer error: ${message.text()}`);});
 const ua = await page.evaluate(() => navigator.userAgent);
 const electronV = (ua.match(/Electron\/([\d.]+)/) || [])[1] || "?";
 
@@ -153,7 +155,7 @@ const seeded = await page.evaluate(async (proj, corrections) => {
     }
     return false;
   };
-  if (!(await poll(() => !!window.__flux))) return { error: "window.__flux never appeared" };
+  if (!(await poll(() => !!window.__flux?.shell && !!document.querySelector('.wordmark')))) return { error: "mounted Home and its resident shell never appeared" };
   window.__flux.settings?.update?.((value) => ({
     ...value,
     paperLocalCorrections: corrections,
@@ -162,12 +164,17 @@ const seeded = await page.evaluate(async (proj, corrections) => {
   try {
     const scaffold = await import("/src/lib/project/scaffold.ts");
     await scaffold.scaffoldProject(proj, { title: "perf" });
+    const manifest=JSON.parse(await window.fig.readText(`${proj}/project.json`));
+    manifest.supplementary.push({path:"paper/background.qmd"});
+    await window.fig.writeText(`${proj}/paper/background.qmd`,"# Independent worker pane\n\nBackground scientific text.\n");
+    await window.fig.writeText(`${proj}/project.json`,JSON.stringify(manifest));
   } catch (e) {
     return { error: "scaffold: " + (e?.message || e) };
   }
   try {
-    const shell = await import("/src/shell/shellStore.ts");
+    const shell = window.__flux.shell;
     await shell.openProjectAt(proj);
+    if (window.__flux.get(shell.view) !== "workspace") return { error: `open declined: ${JSON.stringify({ project: window.__flux.get(shell.currentProject), error: window.__flux.get(shell.projectError), elsewhere: await window.fig.projectOpenElsewhere(proj), flush: await window.__flux.lifecycle.flushAll() })}` };
   } catch (e) {
     return { error: "open: " + (e?.message || e) };
   }
@@ -201,7 +208,11 @@ const seeded = await page.evaluate(async (proj, corrections) => {
   view.focus();
   return { ok: true, lines: view.state.doc.lines };
 }, PROJ, CORRECTIONS);
-if (seeded.error) fail("seed the paper editor — " + seeded.error);
+if (seeded.error) {
+  console.log("  seed DOM: " + (await page.evaluate(()=>document.body.innerText)).slice(-5000));
+  console.log("  native boot: " + bootLog);
+  fail("seed the paper editor — " + seeded.error);
+}
 console.log(`  ✓ launched Electron ${electronV} + seeded a ${seeded.lines}-line manuscript (corrections ${CORRECTIONS ? "on" : "off"})`);
 
 // ---- helpers ----------------------------------------------------------------
@@ -283,6 +294,73 @@ if (CORRECTIONS) {
   burstCorrectionsOff = await typeBurst();
   inpCorrectionsOff = censoredInpSamples(burstCorrectionsOff);
 }
+
+// ---- Native input during actual worker backlogs -----------------------------
+// Start real worker jobs in the first native keydown; no delayed/mock replies.
+// Promise settlement records prove each measured key overlapped pending work.
+await page.evaluate(()=>{
+  window.__flux.settings.update(value=>({...value,paperLocalCorrections:true,paperContextualCorrections:true}));
+  window.__fluxView.dispatch({});
+});
+const backlogAmbient = await setAmbient(true);
+if (!backlogAmbient.animating) fail("ambient must be running during native worker backlog input");
+const backlogEvidence = [];
+for (const kind of ["correction", "correction-other-pane", "math"]) {
+  if (kind === "correction-other-pane") {
+    await page.evaluate(()=>{window.__flux.panes.splitWith("paper");});
+    await page.waitForFunction(()=>window.__flux.editors.length===2 && document.querySelectorAll('.paper[data-paper-sources-ready="true"]').length===2);
+    const distinct=await page.evaluate(()=>new Set([...document.querySelectorAll(".paper .docpicker .dp-item.active")].map(e=>e.title)).size);
+    if(distinct!==2) fail("dual-pane backlog fixture must own two different saved documents");
+  }
+  await page.evaluate(async (which) => {
+    const { localCorrectionService: correction } = await import("/src/shell/modes/paper/editing/localCorrectionService.ts");
+    const { renderMath } = await import("/src/shell/modes/paper/science/mathRenderService.ts");
+    await correction.lint("The microscope is ready.", undefined, "lintOnly");
+    await renderMath("E=mc^2", false);
+    const v = window.__fluxView; v.dispatch({ selection: { anchor: v.state.doc.length }, scrollIntoView: true }); v.focus();
+    const state = window.__nativeBacklog = { kind: which, started: false, pending: 0, settled: 0, errors: [], samples: [], jobs: [], initial: v.state.doc.toString(), keys: "" };
+    const scope = "native-input-backlog";
+    const tex = "\\begin{matrix}" + Array.from({length:20},()=>Array.from({length:24},()=>"\\frac{x^2}{y+1}").join("&")).join("\\\\") + "\\end{matrix}";
+    const words = Array.from({length:17},(_,i)=>`quasineurophosphorylation${String.fromCharCode(97+i)}`).join(" ");
+    const listener = event => {
+      if (!/^[a-z]$/.test(event.key)) return;
+      const start = event.timeStamp;
+      if (!state.started) {
+        state.started = true;
+        for (let i=0; i<64; i++) {
+          state.pending++;
+          const job = which === "math" ? renderMath(`${tex}\\phantom{${i}}`, true) : correction.lint(`${words} ${String.fromCharCode(97+i%26)}`, undefined, "repair", scope);
+          state.jobs.push(job.then(()=>{state.pending--;state.settled++;},e=>{state.pending--;state.errors.push(String(e));}));
+        }
+      }
+      const pending = state.pending, key = event.key, trusted = event.isTrusted;
+      state.keys += key;
+      requestAnimationFrame(()=>requestAnimationFrame(()=>state.samples.push({key,pending,trusted,elapsed:performance.now()-start,inserted:v.state.doc.toString()===state.initial+state.keys})));
+    };
+    window.addEventListener("keydown",listener,{capture:true});
+    state.finish = async () => {
+      window.removeEventListener("keydown",listener,{capture:true});
+      if (which !== "math") correction.cancelScope(scope);
+      await Promise.all(state.jobs);
+      await correction.lint("The microscope is ready.", undefined, "lintOnly");
+      const valid = await renderMath("a^2+b^2=c^2", false);
+      return {kind:which,panes:window.__flux.editors.length,samples:state.samples,settled:state.settled,pending:state.pending,errors:state.errors,validMath:valid.includes('class="katex"'),text:v.state.doc.toString().endsWith(state.keys)};
+    };
+  }, kind);
+  for (const [i, ch] of [..."abcdefgh"].entries()) {
+    await page.keyboard.press(ch);
+    await page.waitForFunction(n => window.__nativeBacklog.samples.length >= n, {}, i+1);
+  }
+  const evidence = await page.evaluate(() => window.__nativeBacklog.finish());
+  backlogEvidence.push(evidence);
+  if (evidence.errors.length || !evidence.text || !evidence.validMath || evidence.pending !== 0 || evidence.settled !== 64) fail(`${kind} worker jobs did not complete cleanly: ${JSON.stringify(evidence)}`);
+  if (evidence.samples.length !== 8 || !evidence.samples.every(s=>s.trusted && s.pending > 0 && s.inserted && s.elapsed >= 0 && s.elapsed <= 100)) fail(`${kind} native typing while backlog pending exceeded100ms or lost input: ${JSON.stringify(evidence.samples)}`);
+  console.log(`  ✓ ${kind}: all8 native keys inserted and painted while worker jobs pending; max${round(Math.max(...evidence.samples.map(s=>s.elapsed)))}ms ≤100ms;64jobs settled, later math valid`);
+}
+const backlogArtifacts = process.env.FLUX_OUT || path.resolve("test-results/writer-native-backlog");
+mkdirSync(backlogArtifacts,{recursive:true});
+writeFileSync(path.join(backlogArtifacts,"native-worker-input.json"),JSON.stringify(backlogEvidence,null,2));
+await page.screenshot({path:path.join(backlogArtifacts,"native-worker-input.png")});
 
 // ---- verdict ----------------------------------------------------------------
 const minimumDelivered = Math.floor(BURST * 0.95);

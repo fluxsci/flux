@@ -1,3 +1,9 @@
+import { stageFigureRegistration } from "../src/lib/project/figureGeneration";
+import { commitTextGeneration, recoverTextGeneration } from "../src/lib/project/textGeneration";
+import { exportRecoveryIO } from "./recovery";
+import { storedAssetPath } from "../src/lib/project/assetPath";
+import { updateManifest } from "./manifest";
+import { decodeManifest } from "../src/lib/project/manifestTransaction";
 // flux-core/model.ts — the Flux project/figure model over Node fs (split out
 // of index.ts; WS-6.2): fs helpers + project-root path safety, project.json
 // and fig/ index/canvas-file IO, and the W3 load→mutate→save chokepoint
@@ -6,7 +12,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { panelLetters, composeCaption } from "../src/lib/captions";
-import { withLock } from "./locks";
+import { withLock, assertLockOwned, type LockLease } from "./locks";
 import { CLIENT, j, stamp, journal } from "./journal";
 import { atomicWrite, fsyncDir } from "./fsx";
 import type { Figure, Project, Asset, Canvas } from "../src/lib/types";
@@ -14,8 +20,9 @@ import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../src/l
 import { kindForFamily } from "../src/lib/figfamily";
 import { ensureFigureReferenceKeys } from "../src/lib/project/figureIdentity";
 import { reconcileCaptionFiles, captionConflictMessage, type CaptionBaseline } from "../src/lib/project/captionReconcile";
+import { readFigureSnapshot, requireCompleteFigureSnapshot, type FigureSnapshotIO } from "../src/lib/project/figureSnapshot";
 import { validateModel, sanitizeProjectGeometry } from "../src/lib/project/validate";
-import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "../src/lib/project/figureReferenceSync";
+import { confinedReferenceSyncIO, prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "../src/lib/project/figureReferenceSync";
 import type { ProjectManifest, FigureEntry } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "../src/lib/project/types";
 import {
@@ -40,6 +47,15 @@ export function safeJoin(root: string, rel: string): string {
     throw new Error(`path escapes project root: ${rel}`);
   }
   return abs;
+}
+
+/** Existing project-owned input: lexical AND realpath confinement. */
+export async function projectAssetPath(root: string, rel: string): Promise<string> {
+  const filename = safeJoin(root, storedAssetPath(rel));
+  const [base, real] = await Promise.all([fs.realpath(root), fs.realpath(filename)]);
+  const relative = path.relative(base,real);
+  if (relative === '..' || relative.startsWith('..'+path.sep) || path.isAbsolute(relative)) throw new Error(`Asset symlink escapes project root: ${rel}`);
+  return real;
 }
 
 /** AGT-5: validate an id that becomes a path segment (figure/canvas ids from CLI/MCP
@@ -67,11 +83,17 @@ export async function exists(p: string): Promise<boolean> {
 export async function writeText(p: string, t: string): Promise<void> {
   await atomicWrite(p, t); // W2: durable tmp+fsync+rename for every canonical write
 }
-const referenceSyncIO = {
+const referenceFileIO = {
   readText: (p: string) => fs.readFile(p, "utf8"), exists, writeText,
   remove: (p: string) => fs.rm(p, { force: true }),
   readdir: async (p: string) => (await fs.readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, dir: e.isDirectory() })),
 };
+
+export function referenceSyncIO(root: string) {
+  return confinedReferenceSyncIO(root, referenceFileIO, rel => generationIO(root).validatePath(rel),
+    work => withLock(root, 'manuscript', CLIENT, lease => work(() => assertLockOwned(lease))),
+    work => withLock(root, 'figure-references', CLIENT, lease => work(() => assertLockOwned(lease))));
+}
 
 // --------------------------------------------------------------------------
 // on-disk shapes + writer plan: the ONE persistence core shared with the GUI
@@ -94,13 +116,12 @@ export async function requireProject(root: string): Promise<void> {
 
 export async function loadManifest(root: string): Promise<ProjectManifest> {
   await requireProject(root);
-  await recoverFigureReferenceUpdate(root, referenceSyncIO);
-  return readJSON<ProjectManifest>(j(root, "project.json"));
+  await recoverFigureReferenceUpdate(root, referenceSyncIO(root));
+  return decodeManifest(await fs.readFile(j(root, "project.json"), "utf8"));
 }
-export async function saveManifest(root: string, m: ProjectManifest): Promise<void> {
-  m.modified = stamp();
-  await writeText(j(root, "project.json"), JSON.stringify(m, null, 2) + "\n");
-}
+/** Whole-object manifest replacement is deliberately unavailable: callers must
+ * express intent through updateManifest so unrelated registrations survive. */
+export { updateManifest } from './manifest';
 export async function readFigIndex(root: string): Promise<FigIndexFile | null> {
   const p = j(root, "fig", "index.json");
   const idx = (await exists(p)) ? await readJSON<FigIndexFile>(p) : null;
@@ -109,30 +130,26 @@ export async function readFigIndex(root: string): Promise<FigIndexFile | null> {
     throw new Error(newerSchemaMessage("fig/index.json", idx.schemaVersion, FIG_INDEX_SCHEMA_VERSION));
   return idx;
 }
+function figureSnapshotIO(root: string): FigureSnapshotIO {
+  const io = exportRecoveryIO(root);
+  return {
+    readText: rel => io.readText(safeJoin(root, rel)),
+    listDirectory: async rel => {
+      const absolute = safeJoin(root, rel);
+      await io.validatePath!(absolute);
+      try { return (await fs.readdir(absolute, { withFileTypes: true })).map(entry => ({ name: entry.name, dir: entry.isDirectory() })); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+    },
+  };
+}
 export async function readCanvasFiles(
   root: string,
   idx: FigIndexFile,
 ): Promise<{ byId: Record<string, Figure>; canvasOf: Record<string, string> }> {
-  const byId: Record<string, Figure> = {};
-  const canvasOf: Record<string, string> = {};
-  // WS-5.6: canonical canvas order (the GUI sorts; this engine used to trust
-  // array position — a hand-edited index gave the two different models).
-  for (const cm of sortedCanvasMeta(idx)) {
-    const p = safeJoin(root, `fig/canvases/${cm.id}.json`);
-    if (await exists(p)) {
-      const cf = await readJSON<CanvasFile>(p);
-      // WS-5.2 forward-version guard (see readFigIndex).
-      if (isNewerSchema(cf.schemaVersion, CANVAS_SCHEMA_VERSION))
-        throw new Error(newerSchemaMessage(`fig/canvases/${cm.id}.json`, cf.schemaVersion, CANVAS_SCHEMA_VERSION));
-      for (const f of cf.figures ?? []) {
-        (f as Figure).canvasId = cm.id;
-        byId[f.id] = f;
-        canvasOf[f.id] = cm.id;
-      }
-    } else if (idx.figures.some(f => f.canvas === cm.id)) {
-      throw new Error(`Missing fig/canvases/${cm.id}.json. Restore it before editing figures.`);
-    }
-  }
+  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotIO(root)));
+  const byId: Record<string, Figure> = Object.create(null);
+  const canvasOf: Record<string, string> = Object.create(null);
+  for (const figure of snapshot.project.figures) { byId[figure.id] = figure; canvasOf[figure.id] = figure.canvasId; }
   return { byId, canvasOf };
 }
 
@@ -149,46 +166,25 @@ const emptyIndex = (): FigIndexFile => ({
   palette: [],
   colorGroups: [],
 });
+const stagedFigureWrites = new WeakMap<Project, Map<string,string|null>>();
+export function stageFigureWrites(project: Project, writes: Map<string,string|null>) { stagedFigureWrites.set(project,writes); }
+function generationIO(root: string) {
+  const io=exportRecoveryIO(root);
+  return {validatePath:(rel:string)=>io.validatePath!(safeJoin(root,rel)),read:(rel:string)=>io.readText(safeJoin(root,rel)),write:(rel:string,text:string)=>io.writeText(safeJoin(root,rel),text),remove:(rel:string)=>io.removeFile(safeJoin(root,rel)),fsyncDir: (rel: string) => fsyncDir(safeJoin(root, rel)),readBytes:async(rel:string)=>{await io.validatePath?.(safeJoin(root,rel));try{return await fs.readFile(safeJoin(root,rel))}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw e}},writeBytes:async(rel:string,bytes:Uint8Array)=>{await io.validatePath?.(safeJoin(root,rel));await atomicWrite(safeJoin(root,rel),bytes)}};
+}
+const acceptedFiles = new WeakMap<Project, Map<string,string|null>>();
 const acceptedCaptions = new WeakMap<Project, Map<string, CaptionBaseline>>();
 
 export async function loadFigModel(root: string): Promise<{ project: Project; index: FigIndexFile }> {
-  // A missing fig/index.json is fine (fresh project) — but a missing
+  // A missing fig/index.json is writable only after an empty inventory — a missing
   // project.json means this isn't a Flux project at all: without the guard a
   // mutate verb sees an empty model and reports "figure not found" instead.
   await requireProject(root);
-  await recoverFigureReferenceUpdate(root, referenceSyncIO);
-  const index = (await readFigIndex(root)) ?? emptyIndex();
-  const { byId } = await readCanvasFiles(root, index);
-  const canvases: Canvas[] = sortedCanvasMeta(index).map((c) => ({ id: c.id, name: c.name }));
-  const figures: Figure[] = Object.values(byId); // canvas-then-file insertion order
-  const assets: Asset[] = normalizeIndexAssets(index); // WS-5.6: shared fallbacks
-  const project: Project = {
-    version: 2,
-    name: "",
-    canvases,
-    figures,
-    assets,
-    palette: index.palette ?? [],
-    colorGroups: (index.colorGroups as Project["colorGroups"]) ?? [],
-    // undefined when the index predates styles → migrate seeds the defaults;
-    // an explicit list (even []) from disk is the user's truth.
-    ...(index.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
-    ...(index.families !== undefined ? { figureFamilies: index.families } : {}),
-  };
-  // Same migration the GUI runs in normalizeProject (text autoWidth → sizing,
-  // seed default text styles) — flux-core previously did NO element
-  // normalization, so v1 docs mutated headless kept legacy fields forever.
-  migrateProject(project);
-  // Figure families (fig-subsystem-only): same seeding + healing as the GUI's
-  // loadFigInto, so both engines agree on identity before any mutation runs.
-  migrateFigureFamilies(project, familyHintsFrom(index.figures));
-  ensureFigureReferenceKeys(project, index);
-  const errors = validateModel(project);
-  if (errors.length) throw new Error(`Figure compositions failed validation: ${errors.slice(0, 5).join("; ")}`);
-  const captionState = await reconcileCaptionFiles(project, index, async (rel) =>
-    fs.readFile(safeJoin(root, rel), "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; }));
-  if (captionState.conflicts.length) throw new Error(captionConflictMessage(captionState.conflicts));
-  acceptedCaptions.set(project, captionState.baselines);
+  await recoverFigureReferenceUpdate(root, referenceSyncIO(root));
+  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotIO(root)));
+  const project = snapshot.project, index = snapshot.index ?? emptyIndex();
+  acceptedCaptions.set(project, snapshot.captionBaselines);
+  acceptedFiles.set(project, snapshot.baselines);
   return { project, index };
 }
 
@@ -200,7 +196,7 @@ export async function saveFigModel(
 ): Promise<void> {
   // WS6: an agent file-write defers (throws) rather than clobbering an in-flight
   // human edit (the GUI holds the "project" lock while actively editing). Then journal.
-  await withLock(root, "project", CLIENT, () => saveFigModelUnlocked(root, project, index));
+  await withLock(root, "project", CLIENT, async lease => { await withLock(root,"slides",CLIENT,slidesLease=>withLock(root,"manifest",CLIENT,manifestLease=>recoverTextGeneration(generationIO(root),async()=>{await assertLockOwned(lease);await assertLockOwned(slidesLease);await assertLockOwned(manifestLease)}))); await saveFigModelUnlocked(root, project, index, lease); });
   await journal(root, { action, figures: project.figures.map((f) => f.id) });
 }
 
@@ -216,12 +212,13 @@ export async function mutateFigModel<T>(
   let out!: T;
   let figIds: string[] = [];
   let changed = true;
-  await withLock(root, "project", CLIENT, async () => {
+  await withLock(root, "project", CLIENT, async lease => {
+    await withLock(root,"slides",CLIENT,slidesLease=>withLock(root,"manifest",CLIENT,manifestLease=>recoverTextGeneration(generationIO(root),async()=>{await assertLockOwned(lease);await assertLockOwned(slidesLease);await assertLockOwned(manifestLease)})));
     const m = await loadFigModel(root);
     out = await fn(m);
     changed = opts.changed?.(out) ?? true;
     figIds = m.project.figures.map((f) => f.id);
-    if (changed) await saveFigModelUnlocked(root, m.project, m.index);
+    if (changed) await saveFigModelUnlocked(root, m.project, m.index, lease);
   });
   if (changed) await journal(root, { action, figures: figIds });
   return out;
@@ -231,11 +228,16 @@ async function saveFigModelUnlocked(
   root: string,
   project: Project,
   index: FigIndexFile,
+  lease: LockLease,
 ): Promise<void> {
+  for (const [rel,before] of acceptedFiles.get(project) ?? []) {
+    if (rel === "project.json" || rel.startsWith("fig/captions/")) continue; // separately reconciled as authored text
+    const current=await generationIO(root).read(rel);
+    if (current!==before) throw new Error(`Figures changed outside this operation: ${rel}. Reload before saving.`);
+  }
   const captions = await reconcileCaptionFiles(project, index, async rel =>
     fs.readFile(safeJoin(root, rel), "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return null; throw error; }), acceptedCaptions.get(project));
   if (captions.conflicts.length) throw new Error(captionConflictMessage(captions.conflicts));
-  sanitizeProjectGeometry(project);
   const errors = validateModel(project);
   if (errors.length) throw new Error(`Figure compositions could not be saved: ${errors.slice(0, 5).join("; ")}`);
   // WS-5.6: the write set (canvases + captions + index) comes from the ONE
@@ -243,21 +245,24 @@ async function saveFigModelUnlocked(
   // verb-mutated rollup) is the prev: labels/kinds persist through it. The
   // executor owns the WS-5.3 ordering (canvases → dir fsync → captions →
   // index LAST + .bak → dir fsync) and skips byte-identical rewrites.
-  const plan = planFigSave(project, index);
+  const plan = planFigSave(project, index, acceptedFiles.get(project));
   const before = await readCanvasFiles(root, index);
-  const referenceUpdate = await prepareFigureReferenceUpdate(root, Object.values(before.byId), project.figures, referenceSyncIO, {
+  const referenceUpdate = await prepareFigureReferenceUpdate(root, Object.values(before.byId), project.figures, referenceSyncIO(root), {
     index, figureFiles: [...plan.canvases, plan.index],
   });
-  try { await executeFigSave(plan, {
-    read: async (rel) => {
-      const p = safeJoin(root, rel);
-      return (await exists(p)) ? await fs.readFile(p, "utf8") : null;
-    },
-    write: (rel, text) => writeText(safeJoin(root, rel), text),
-    fsyncDir: (rel) => fsyncDir(safeJoin(root, rel)),
-  }); } catch (e) { releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
-  await commitFigureReferenceUpdate(root, referenceUpdate, referenceSyncIO);
-  await reindex(root);
+  try {
+    const io = generationIO(root), writes = stagedFigureWrites.get(project) ?? new Map<string,string|null>();
+    await executeFigSave(plan,{read:io.read,write:async(rel,text)=>{writes.set(rel,text)}});
+    await withLock(root,"manifest",CLIENT,async manifestLease => {
+      await stageFigureRegistration(io, JSON.parse(plan.index.text), writes);
+      await commitTextGeneration(io,writes,async()=>{await assertLockOwned(lease);await assertLockOwned(manifestLease)});
+    });
+    stagedFigureWrites.delete(project);
+    const baselines=acceptedFiles.get(project) ?? new Map<string,string|null>();
+    for(const [rel,text] of writes) baselines.set(rel,text);
+    acceptedFiles.set(project,baselines);
+  } catch (e) { await releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
+  await commitFigureReferenceUpdate(root, referenceUpdate, referenceSyncIO(root));
   acceptedCaptions.set(project, new Map(project.figures.map(f => [f.id, { model: composeCaption(f).trim(), sidecar: composeCaption(f) + "\n" }])));
 }
 
@@ -283,7 +288,10 @@ export async function reindex(root: string): Promise<{ figures: number }> {
   }));
   manifest.figures = figures;
   manifest.figureFamilies = index?.families ?? [];
-  await saveManifest(root, manifest);
+  await updateManifest(root, fresh => {
+    fresh.figures = manifest.figures;
+    if (manifest.figureFamilies !== undefined) fresh.figureFamilies = manifest.figureFamilies;
+  });
   return { figures: figures.length };
 }
 

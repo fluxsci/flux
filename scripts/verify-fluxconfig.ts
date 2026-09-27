@@ -176,6 +176,8 @@ if (process.platform !== "win32") {
     // (asserted after the no-op re-run below: the user's file must survive)
     assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");
+    assert(info.plotLibraryPath === path.join(cfg, "plot_library"), "configInfo reports plotLibraryPath (derived <FluxConfig>/plot_library)");
+    assert(fp.plotLibraryPathSync() === info.plotLibraryPath, "plotLibraryPathSync resolves the same path configInfo reports");
     const marker = JSON.parse(fs.readFileSync(path.join(cfg, ".fluxconfig.json"), "utf8"));
     assert(Array.isArray(marker.events) && marker.events.some((e: { action: string }) => e.action === "move-fluxlib"), "marker records the FluxLib move");
 

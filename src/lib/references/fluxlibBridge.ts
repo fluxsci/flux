@@ -1,3 +1,8 @@
+import { conflictBaseFor } from "../project/conflictRules";
+import { restoreBibRemoval, type BibRemoval } from "./bibUndo";
+import { prepareItemLocators } from "./itemLocatorsBridge";
+import { assertCanonicalText } from "./canonical";
+import { assertBibValid } from "./bibScanner";
 // Renderer-side FluxLib adapter — the browser/Electron twin of flux-core/fluxlib.ts.
 // The renderer can't use node:fs, so this mirrors that engine's orchestration over
 // the FileBridge (window.fig), reusing the SAME pure helpers (splitBibEntries,
@@ -7,13 +12,16 @@
 // FluxLib-wide search UI is future. The agent search tool lives in flux-core.)
 import { fileBridge, joinPath, type ProjectManifest } from "../project/types";
 import type { RefEntry, AddResult } from "./types";
-import { splitBibEntries, lightEntry, bibtexKey } from "./bibtex";
+import { splitBibEntries, lightEntry, lightBibEntries, bibtexKey } from "./bibtex";
 import { planAdds, appendedBib } from "./addPlan";
 import { bumpFluxLib, fluxLibEntries } from "./revision";
 import { mergeEnrich, type EnrichMap, projectEnrichForGrid } from "./enrich";
 import { createEnrichCache } from "./enrichStore";
 import { pushToast } from "../toast";
 import { withIpcLock } from "./libLock";
+import { CanonicalReadError } from "./canonical";
+import { planBibConflictMerge, archivedConflictName, LIBRARY_CONFLICT_ARCHIVE } from "./bibConflict";
+import type { SyncConflict } from "../project/conflictRules";
 
 const SCHEMA_VERSION = "0.1.0";
 
@@ -35,16 +43,16 @@ async function readTextSafe(p: string): Promise<string> {
   if (!fb) return "";
   try {
     return (await fb.exists(p)) ? await fb.readText(p) : "";
-  } catch {
-    return "";
+  } catch (error) {
+    throw new CanonicalReadError(p, "unreadable", error);
   }
 }
 async function readManifest(root: string): Promise<ProjectManifest | null> {
   const t = await readTextSafe(joinPath(root, "project.json"));
   try {
     return t ? (JSON.parse(t) as ProjectManifest) : null;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new CanonicalReadError(joinPath(root, "project.json"), "malformed", error);
   }
 }
 
@@ -55,9 +63,11 @@ export async function resolveFluxLibPath(): Promise<string | null> {
   const fb = fileBridge();
   if (!fb) return null;
   const resolved = (await prefsGet()).fluxLibResolved;
-  if (typeof resolved === "string" && resolved.trim()) return resolved;
+  if (typeof resolved === "string" && resolved.trim()) { await prepareItemLocators(resolved); return resolved; }
   const { home } = await fb.paths();
-  return joinPath(home, "FluxConfig", "FluxLib");
+  const root = joinPath(home, "FluxConfig", "FluxLib");
+  await prepareItemLocators(root);
+  return root;
 }
 
 /** Ensure FluxLib exists (mkdir + empty library.bib + fluxlib.json), migrating a
@@ -72,6 +82,7 @@ export async function ensureFluxLib(): Promise<string | null> {
   await fb.mkdir(joinPath(lib, ".fluxlib"));
   // The watched drop-inbox must exist for anyone to drop PDFs into it.
   await fb.mkdir(joinPath(lib, "pdfs_to_assign"));
+  await withIpcLock("fluxlib", "library", async lease => {
   if (!(await fb.exists(libBib(lib)))) {
     let seed = "";
     try {
@@ -84,12 +95,15 @@ export async function ensureFluxLib(): Promise<string | null> {
     } catch {
       /* no legacy seed */
     }
+    await lease.assertOwned?.();
     await fb.writeText(
       libBib(lib),
       seed || "% FluxLib — your machine-global reference library (BibLaTeX). Canonical source of truth.\n",
+      { createOnly: true },
     );
   }
   if (!(await fb.exists(libManifest(lib)))) {
+    await lease.assertOwned?.();
     await fb.writeText(
       libManifest(lib),
       JSON.stringify(
@@ -102,8 +116,10 @@ export async function ensureFluxLib(): Promise<string | null> {
         null,
         2,
       ) + "\n",
+      { createOnly: true },
     );
   }
+  });
   return lib;
 }
 
@@ -122,7 +138,7 @@ export async function readLibraryBibText(): Promise<string> {
  *  concurrent CLI/MCP lib-add can no longer race this into a lost entry. */
 export async function addToFluxLib(
   bibtex: string,
-  opts: { source?: "doi" | "bibtex" } = {},
+  opts: { source?: "doi" | "bibtex"; restore?: boolean } = {},
 ): Promise<AddResult> {
   const fb = fileBridge();
   const empty: AddResult = { added: [], deduped: [], keys: [] };
@@ -130,7 +146,7 @@ export async function addToFluxLib(
   const source = opts.source ?? "bibtex";
   const lib = await ensureFluxLib();
   if (!lib) return empty;
-  return withIpcLock("fluxlib", "library", () => addToFluxLibLocked(fb, lib, bibtex, source));
+  return withIpcLock("fluxlib", "library", lease => addToFluxLibLocked(fb, lib, bibtex, source, opts.restore, lease.assertOwned));
 }
 
 async function addToFluxLibLocked(
@@ -138,16 +154,131 @@ async function addToFluxLibLocked(
   lib: string,
   bibtex: string,
   source: "doi" | "bibtex",
+  restore = false,
+  assertOwned?: () => Promise<void>,
 ): Promise<AddResult> {
+  // A sync tool's conflict copy of library.bib is folded in first (entry union, copy
+  // archived) — a library write must never be refused because of a stray sibling file.
+  await mergeLibraryConflictCopiesLocked(fb, lib, assertOwned);
   const curText = await readTextSafe(libBib(lib));
   // The dedupe/rekey decision (DOI, then title+year+author signature, incl. intra-batch)
   // lives in the shared pure planner so preview == outcome; this twin only does the write.
-  const plan = planAdds(curText, bibtex, source);
+  const plan = planAdds(curText, bibtex, source, undefined, { restore });
   if (plan.appendText) {
+    await assertCanonicalText(libBib(lib), curText, () => readTextSafe(libBib(lib)));
+    await assertOwned?.();
     await fb.writeText(libBib(lib), appendedBib(curText, plan));
     bumpFluxLib();
   }
   return { added: plan.added, deduped: plan.deduped, keys: plan.keys };
+}
+
+export interface LibraryConflictMerge { copy: string; added: string[]; alreadyPresent: number; archivedTo: string }
+
+/** Archive a resolved copy under .fluxlib/sync-conflicts/ (renamed so the scan stops
+ *  reporting it: `library.other-machine-<stamp>-<device>.bib`). Never deleted. */
+async function archiveLibraryCopy(fb: NonNullable<ReturnType<typeof fileBridge>>, lib: string, copyAbs: string): Promise<string> {
+  const dir = joinPath(lib, LIBRARY_CONFLICT_ARCHIVE);
+  if (fb.mkdir) await fb.mkdir(dir);
+  const name = copyAbs.slice(copyAbs.lastIndexOf("/") + 1);
+  const archived = archivedConflictName(name);
+  let dst = joinPath(dir, archived);
+  for (let i = 2; await fb.exists(dst); i++) dst = joinPath(dir, archived.replace(/(\.[^.]+)?$/, `-${i}$1`));
+  if (fb.moveFileVerified) return fb.moveFileVerified(copyAbs, dst);
+  await fb.writeFile(dst, new Uint8Array(await fb.readFile(copyAbs)));
+  await fb.remove?.(copyAbs);
+  return dst;
+}
+
+/**
+ * Fold every `library.sync-conflict-*.bib` beside library.bib into it: union of entries
+ * through the add planner (DOI/signature dedupe, the copy's citekeys kept when free, its
+ * dateadded stamps kept), then the copy is archived. Lossless at the entry level — a
+ * canonical entry is never modified or removed. Caller holds the "library" lock.
+ */
+async function mergeLibraryConflictCopiesLocked(
+  fb: NonNullable<ReturnType<typeof fileBridge>>,
+  lib: string,
+  assertOwned?: () => Promise<void>,
+): Promise<LibraryConflictMerge[]> {
+  if (!fb.readdir) return [];
+  let names: string[];
+  try { names = (await fb.readdir(lib)).filter((e) => !e.dir).map((e) => e.name); } catch { return []; }
+  const copies = names.filter((n) => conflictBaseFor(n) === "library.bib").sort();
+  const out: LibraryConflictMerge[] = [];
+  for (const copy of copies) {
+    const copyAbs = joinPath(lib, copy);
+    const mine = await readTextSafe(libBib(lib));
+    const theirs = await fb.readText(copyAbs);
+    const plan = planBibConflictMerge(mine, theirs);
+    if (!plan.nothingToMerge) {
+      await assertCanonicalText(libBib(lib), mine, () => readTextSafe(libBib(lib)));
+      await assertOwned?.();
+      await fb.writeText(libBib(lib), plan.text);
+    }
+    const archivedTo = await archiveLibraryCopy(fb, lib, copyAbs);
+    out.push({ copy, added: plan.added, alreadyPresent: plan.alreadyPresent, archivedTo });
+  }
+  if (out.some((m) => m.added.length)) bumpFluxLib();
+  return out;
+}
+
+/** The unlocked entry point (startup / Library scan): merge + archive any library.bib
+ *  conflict copies, under the library lock. Returns what was merged (empty = nothing found). */
+export async function mergeLibraryConflictCopies(lib: string): Promise<LibraryConflictMerge[]> {
+  const fb = fileBridge();
+  if (!fb) return [];
+  return withIpcLock("fluxlib", "library", (lease) => mergeLibraryConflictCopiesLocked(fb, lib, lease.assertOwned));
+}
+
+/**
+ * Resolve one sync-conflict copy inside the reference library OTHER than library.bib (which
+ * merges itself — see mergeLibraryConflictCopies; `.fluxlib/organize.json` and friends are
+ * the user's call). Under the SAME "library" lock as every other library write:
+ *   merge       .bib only — append the copy's entries this library lacks (planBibConflictMerge)
+ *   keepMine    the library stays as it is
+ *   keepTheirs  the copy's bytes replace the library file
+ * Every action ends by ARCHIVING the copy to .fluxlib/sync-conflicts/ — never deleted.
+ */
+export async function resolveLibraryConflict(
+  lib: string,
+  c: SyncConflict,
+  action: "merge" | "keepMine" | "keepTheirs",
+): Promise<{ added: string[]; alreadyPresent: number; archivedTo: string }> {
+  const fb = fileBridge();
+  if (!fb) throw new Error("no file bridge");
+  const copyAbs = joinPath(lib, c.rel);
+  const baseAbs = joinPath(lib, c.base);
+  const isBib = /\.bib$/i.test(c.base);
+  return withIpcLock("fluxlib", "library", async (lease) => {
+    let added: string[] = [];
+    let alreadyPresent = 0;
+    let wrote = false;
+    if (action === "merge") {
+      if (!isBib) throw new Error("only .bib libraries can be merged");
+      const mine = await readTextSafe(baseAbs);
+      const theirs = await fb.readText(copyAbs);
+      const plan = planBibConflictMerge(mine, theirs);
+      added = plan.added;
+      alreadyPresent = plan.alreadyPresent;
+      if (!plan.nothingToMerge) {
+        await assertCanonicalText(baseAbs, mine, () => readTextSafe(baseAbs));
+        await lease.assertOwned?.();
+        await fb.writeText(baseAbs, plan.text);
+        wrote = true;
+      }
+    } else if (action === "keepTheirs") {
+      const before = await readTextSafe(baseAbs);
+      const bytes = new Uint8Array(await fb.readFile(copyAbs));
+      await assertCanonicalText(baseAbs, before, () => readTextSafe(baseAbs));
+      await lease.assertOwned?.();
+      await fb.writeFile(baseAbs, bytes);
+      wrote = true;
+    }
+    const dst = await archiveLibraryCopy(fb, lib, copyAbs);
+    if (wrote) bumpFluxLib();
+    return { added, alreadyPresent, archivedTo: dst };
+  });
 }
 
 /** Remove entries from FluxLib by citekey. Each entry's raw block is spliced out of
@@ -156,14 +287,18 @@ async function addToFluxLibLocked(
  *  (rebuildable), but items/<key>/ (PDF, notes, annotations) is deliberately left on
  *  disk — re-adding the paper under the same key re-attaches it. Returns the removed
  *  entries (with their raw BibTeX) so callers can offer Undo via addToFluxLib. */
-export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: RefEntry[] }> {
+export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: RefEntry[]; undo?: () => Promise<void> }> {
   const fb = fileBridge();
   if (!fb || !citekeys.length) return { removed: [] };
   const lib = await ensureFluxLib();
   if (!lib) return { removed: [] };
   const want = new Set(citekeys);
-  const removed = await withIpcLock("fluxlib", "library", async () => {
+  let receipt: BibRemoval | undefined;
+  const removed = await withIpcLock("fluxlib", "library", async lease => {
+    await mergeLibraryConflictCopiesLocked(fb, lib, lease.assertOwned);
     let text = await readTextSafe(libBib(lib));
+    const before = text;
+    assertBibValid(text);
     const out: RefEntry[] = [];
     for (const raw of splitBibEntries(text)) {
       const k = bibtexKey(raw);
@@ -175,14 +310,21 @@ export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: 
       text = text.slice(0, at) + text.slice(end);
       out.push(lightEntry(raw));
     }
-    if (out.length) await fb.writeText(libBib(lib), text);
+    if (out.length) {
+    await assertCanonicalText(libBib(lib), before, () => readTextSafe(libBib(lib)));
+      await lease.assertOwned?.();
+      await fb.writeText(`${libBib(lib)}.bak`, before);
+      await lease.assertOwned?.();
+      await fb.writeText(libBib(lib), text);
+      receipt = {before, after:text, keys:out.map(entry=>entry.key)};
+    }
     return out;
   });
   if (removed.length) {
     // Drop the sidecar rows under the enrich lock (best-effort — the sidecar is derived).
     // Fresh read INSIDE the lock (never the cache), invalidate after the write.
     try {
-      await withIpcLock("fluxlib", "enrich", async () => {
+      await withIpcLock("fluxlib", "enrich", async lease => {
         const map = await loadEnrichMapFresh();
         let dirty = false;
         for (const e of removed) {
@@ -192,9 +334,11 @@ export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: 
           }
         }
         if (dirty) {
+          await lease.assertOwned?.();
           await fb.writeText(libEnrich(lib), JSON.stringify(map, null, 2) + "\n");
           // WS-8.3: keep the grid projection in lockstep (written AFTER the
           // full file — the freshness rule is grid.mtime ≥ full.mtime).
+          await lease.assertOwned?.();
           await fb.writeText(libEnrichGrid(lib), JSON.stringify(projectEnrichForGrid(map)) + "\n");
           invalidateEnrichCache();
         }
@@ -204,7 +348,18 @@ export async function removeFromFluxLib(citekeys: string[]): Promise<{ removed: 
     }
     bumpFluxLib();
   }
-  return { removed };
+  return { removed, undo: receipt ? async () => {
+    if (await resolveFluxLibPath() !== lib) throw new Error("The library changed; return to the original library before undoing deletion");
+    await withIpcLock("fluxlib", "library", async lease => {
+      await mergeLibraryConflictCopiesLocked(fb, lib, lease.assertOwned);
+      const current = await readTextSafe(libBib(lib));
+      const restored = restoreBibRemoval(current, receipt!);
+    await assertCanonicalText(libBib(lib), current, () => readTextSafe(libBib(lib)));
+      await lease.assertOwned?.();
+      await fb.writeText(libBib(lib), restored);
+    });
+    bumpFluxLib();
+  } : undefined };
 }
 
 /** Load every FluxLib entry as RefEntry[] for the Library window. Uses the cheap,
@@ -214,8 +369,7 @@ export async function loadFluxLib(): Promise<RefEntry[]> {
   const lib = await resolveFluxLibPath();
   if (!lib) return [];
   const text = await readTextSafe(libBib(lib));
-  return splitBibEntries(text)
-    .map(lightEntry)
+  return lightBibEntries(text)
     .filter((e) => e.key);
 }
 
@@ -333,7 +487,7 @@ export async function materializeIntoProject(
   const pbib = projectBibPath(root, manifest);
   // W3: the project-bib append is an RMW — locked ("references") against
   // flux-core's materialize/reconcile running concurrently.
-  return withIpcLock("project", "references", async () => {
+  return withIpcLock("project", "references", async lease => {
     const projText = await readTextSafe(pbib);
     const projKeys = new Set(splitBibEntries(projText).map(bibtexKey).filter(Boolean) as string[]);
 
@@ -347,6 +501,7 @@ export async function materializeIntoProject(
     }
     if (toAdd.length) {
       const sep = projText && !projText.endsWith("\n") ? "\n" : "";
+      await lease.assertOwned?.();
       await fb.writeText(pbib, projText + sep + toAdd.join("\n\n") + "\n");
     }
     return { added: addedKeys };

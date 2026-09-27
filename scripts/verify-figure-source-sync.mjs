@@ -111,7 +111,8 @@ try {
     finally { await fb.writeText(path, before); }
     return { error, preserved, missingAccepted };
   });
-  eq(captionRead, { error: "Verification: caption permission denied", preserved: true, missingAccepted: true }, "cold source refresh refuses unreadable captions but accepts missing projections");
+  assert.match(captionRead.error, /Cannot modify partial figure snapshot:.*caption permission denied/); checks++;
+  eq({preserved:captionRead.preserved,missingAccepted:captionRead.missingAccepted}, {preserved:true,missingAccepted:true}, "cold source refresh refuses unreadable captions but accepts missing projections");
   eq(realErrors(page), [], "no browser console errors");
   console.log(`FIGURE SOURCE SYNC: PASS (${checks} assertions)`);
 } finally { await browser.close(); }

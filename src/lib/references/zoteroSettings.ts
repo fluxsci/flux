@@ -75,6 +75,7 @@ export interface ZoteroSyncState {
   size: number; // bytes at last successful sync
   mtimeMs: number; // mtime at last successful sync
   at: string; // ISO of that sync
+  attachmentPolicy?: string;
 }
 
 /** Path of the state file (POSIX-joined, both engines accept it). */
@@ -92,8 +93,11 @@ export function parseZoteroSyncState(text: string): ZoteroSyncState | null {
 
 /** True when the export is byte-for-byte the one already synced (same file, same
  *  size, same mtime — any BBT rewrite moves the mtime). */
-export function bibUnchanged(state: ZoteroSyncState | null, bibPath: string, size: number, mtimeMs: number): boolean {
-  return !!state && state.bibPath === bibPath && state.size === size && state.mtimeMs === mtimeMs;
+export function attachmentPolicy(settings: Pick<ZoteroSettings, "attach" | "dataDir" | "deferFulltext">): string {
+  return JSON.stringify({attach: settings.attach, dataDir: settings.dataDir || "", deferFulltext: !!settings.deferFulltext});
+}
+export function bibUnchanged(state: ZoteroSyncState | null, bibPath: string, size: number, mtimeMs: number, policy?: string): boolean {
+  return !!state && state.bibPath === bibPath && state.size === size && state.mtimeMs === mtimeMs && (policy === undefined || state.attachmentPolicy === policy);
 }
 
 /** The line both surfaces show for a short-circuited sync. */

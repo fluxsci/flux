@@ -54,20 +54,20 @@ async function main() {
   // ---- 1. Live renderer acks → done fires, nothing left pending -------------
   {
     const coord = createFlushCoordinator({ timeoutMs: 4000 });
-    ipcMain.on("app:flush:done", (_e, token) => coord.ack(token));
+    ipcMain.on("app:flush:done", (e, result) => coord.ack(e.sender.id, result));
     const win = await makeWindow();
     // Register the ack handler through the REAL preload bridge (window.fig).
     await win.webContents.executeJavaScript(`
       window.__acked = false;
-      const off = window.fig.onFlushRequest((token) => {
+      const off = window.fig.onFlushRequest((request) => {
         window.__acked = true;
-        window.fig.flushDone(token);
+        window.fig.flushDone({ requestId: request.requestId, status: "saved" });
       });
       typeof off === "function";
     `);
     let done = false;
     const t0 = Date.now();
-    coord.request(win, () => { done = true; });
+    coord.request(win, (result) => { done = result.status === "saved"; });
     for (let i = 0; i < 40 && !done; i++) await sleep(25);
     const acked = await win.webContents.executeJavaScript("window.__acked");
     const dt = Date.now() - t0;
@@ -77,31 +77,33 @@ async function main() {
     win.destroy();
   }
 
-  // ---- 2. Non-acking renderer → done fires via the timeout (no brick) -------
+  // ---- 2. Timeout cannot turn into successful persistence ------------------
   {
-    const coord = createFlushCoordinator({ timeoutMs: 300 });
-    // deliberately DO NOT wire ack — simulate a wedged renderer
-    const win = await makeWindow(); // real preload, but no onFlushRequest handler
-    let done = false;
-    const t0 = Date.now();
-    coord.request(win, () => { done = true; });
-    for (let i = 0; i < 40 && !done; i++) await sleep(25);
-    const dt = Date.now() - t0;
-    if (done && dt >= 280 && dt < 1500 && coord.pendingCount() === 0) ok(`wedged renderer released by timeout (${dt}ms)`);
-    else bad("timeout release", `done=${done} dt=${dt} pending=${coord.pendingCount()}`);
+    const coord = createFlushCoordinator({ timeoutMs: 100 });
+    const win = await makeWindow();
+    let result = null;
+    coord.request(win, r => { result = r; });
+    for (let i = 0; i < 40 && !result; i++) await sleep(25);
+    if (result?.status === "blocked" && result.timedOut && coord.pendingCount() === 0 && !win.isDestroyed()) ok("hung renderer stays alive with blocked timeout outcome");
+    else bad("timeout must preserve window", JSON.stringify(result));
     win.destroy();
   }
-
-  // ---- 3. Already-gone window → done fires immediately ----------------------
+  // ---- 3. Unavailable renderer is abnormal, never saved --------------------
   {
-    const coord = createFlushCoordinator({ timeoutMs: 2500 });
-    const win = await makeWindow();
-    win.destroy();
-    let done = false;
-    coord.request(win, () => { done = true; });
-    // synchronous: no send, no timer
-    if (done && coord.pendingCount() === 0) ok("destroyed window releases synchronously");
-    else bad("destroyed window", `done=${done} pending=${coord.pendingCount()}`);
+    const coord = createFlushCoordinator(); const win = await makeWindow(); win.destroy();
+    let result = null; coord.request(win, r => { result = r; });
+    if (result?.status === "blocked" && coord.pendingCount() === 0) ok("destroyed renderer cannot claim a successful save");
+    else bad("destroyed renderer outcome", JSON.stringify(result));
+  }
+  {
+    const coord = createFlushCoordinator({ timeoutMs: 4000 });
+    const a = await makeWindow(), b = await makeWindow(); let result = null;
+    const id = coord.request(a, r => { result = r; });
+    const wrong = coord.ack(b.webContents.id, { requestId: id, status: "saved" });
+    if (!wrong && result === null) ok("wrong-window acknowledgment rejected"); else bad("wrong-window acknowledgment");
+    coord.ack(a.webContents.id, { requestId: id, status: "blocked", reason: "Save conflict" });
+    if (result?.status === "blocked" && !a.isDestroyed()) ok("actual save conflict retains the editing window"); else bad("blocked save");
+    a.destroy(); b.destroy();
   }
 
   // ---- 4. Menu templates are correct per platform + build without throwing --

@@ -56,6 +56,10 @@ try{
   check(!(await page.$('.preview-overlay')),'Stop immediately returns to editing');
   // Native ruler scrubbing remains inspection: it cannot author or dirty state.
   await page.evaluate(()=>window.__flux.slide.activeBeat.set(1));await paint();
+  // Earlier authored edits still have a pending autosave. Establish a clean
+  // baseline before comparing dirty state, so its legitimate true -> false
+  // transition cannot be attributed to the view-only scrub.
+  await waitFor(page,()=>!window.__flux.get(window.__flux.fig.dirty),null,{label:'earlier slide edits saved before scrub'});
   const beforeScrub=await page.evaluate(()=>{const f=window.__flux;return {deck:JSON.stringify(f.slide.currentDeck()),destination:JSON.stringify(f.get(f.slide.editDestination)),dirty:f.get(f.fig.dirty)};});
   const ruler=await page.$eval('.ruler',e=>{const r=e.getBoundingClientRect();return{x:r.x+45,y:r.y+r.height/2};});
   await page.mouse.click(ruler.x,ruler.y);await paint();

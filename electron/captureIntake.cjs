@@ -30,6 +30,37 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
   let rules = null;
   const ready = async () => (rules ??= await loadRules().catch(() => null));
 
+  const crypto = require("node:crypto");
+  const identities = new Map(), activeSources = new Map();
+  const fingerprint = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  let operations = Promise.resolve();
+  const serialized = fn => { const run = operations.then(fn, fn); operations = run.catch(() => {}); return run; };
+  const moveExclusive = require("./verifiedMove.cjs").createVerifiedMove({fs,fsp,path});
+  function checkedSource(source) {
+    const root = fs.realpathSync(captureDir()), parent = fs.realpathSync(path.dirname(source));
+    if (parent !== root && parent !== path.join(root, rules.CAPTURE_SUBDIR)) throw new Error("Capture source parent changed; rescan");
+    return source;
+  }
+  function sourceFor(name) {
+    if (typeof name !== "string") return null;
+    const dir = captureDir();
+    if (name.startsWith("capture-v1-")) {
+      const record = identities.get(name);
+      if (!record) throw new Error("Unknown capture identity; rescan");
+      if (record.done) return null;
+      let stat;
+      try { stat = fs.lstatSync(record.source); } catch (error) { if (error.code === "ENOENT") { record.done = true; return null; } throw error; }
+      if (!stat.isFile() || stat.isSymbolicLink() || fingerprint(stat) !== record.fingerprint) throw new Error("Capture changed after intake; rescan before disposal");
+      return checkedSource(record.source);
+    }
+    const parts = name.split("/");
+    if (parts.length === 2 && parts[0] === rules.CAPTURE_SUBDIR && path.basename(parts[1]) === parts[1] && rules.isCaptureFile(parts[1])) return checkedSource(path.join(dir, parts[0], parts[1]));
+    if (parts.length !== 1 || path.basename(name) !== name || !rules.isCaptureFile(name)) return null;
+    const matches = [path.join(dir, name), path.join(dir, rules.CAPTURE_SUBDIR, name)].filter(p => fs.existsSync(p));
+    if (matches.length > 1) throw new Error("Capture name is ambiguous; rescan to select its exact source");
+    return checkedSource(matches[0] || path.join(dir, name));
+  }
+
   /** Both drop points, in order — see captureSubsystemFor in main.cjs. Each entry keeps the
    *  subdir it came from so the file can be found again. */
   async function scan() {
@@ -39,7 +70,12 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     const found = [];
     for (const d of [dir, path.join(dir, rules.CAPTURE_SUBDIR)]) {
       try {
-        for (const n of (await fsp.readdir(d)).sort()) if (rules.isCaptureFile(n)) found.push({ dir: d, name: n });
+        const realDir = await fsp.realpath(d), root = await fsp.realpath(dir);
+        if (realDir !== root && realDir !== path.join(root, rules.CAPTURE_SUBDIR)) continue;
+        for (const n of (await fsp.readdir(d)).sort()) if (rules.isCaptureFile(n)) {
+          const stat = await fsp.lstat(path.join(d, n));
+          if (stat.isFile() && !stat.isSymbolicLink()) found.push({dir: d, name: n});
+        }
       } catch {
         /* that drop point doesn't exist yet */
       }
@@ -90,19 +126,24 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     for (const { dir: from, name } of found) {
       const src = path.join(from, name);
       try {
+        checkedSource(src);
         if (rules.isSupplementCapture(name)) {
           await fsp.mkdir(staging, { recursive: true });
           let dst = path.join(staging, name);
           for (let i = 2; fs.existsSync(dst); i++) dst = path.join(staging, `${i}-${name}`);
-          await fsp.rename(src, dst).catch(async () => {
-            await fsp.copyFile(src, dst);
-            await fsp.rm(src, { force: true });
-          });
+          dst = await moveExclusive(src, dst);
           supplements.push(path.basename(dst));
           continue;
         }
         if (/\.fluxcap$/i.test(name)) {
-          sidecars.push({ name, json: await fsp.readFile(src, "utf8") });
+          if ((await fsp.stat(src)).size > 1024 * 1024) throw new Error("Capture metadata exceeds 1 MiB");
+          const identity = fingerprint(await fsp.lstat(src));
+          const old = activeSources.get(src);
+          if (old && old.fingerprint === identity && old.until > Date.now()) continue;
+          const id = `capture-v1-${crypto.randomUUID()}`;
+          const record = {source:src,fingerprint:identity,until:Date.now()+300000,done:false};
+          identities.set(id,record); activeSources.set(src,record);
+          sidecars.push({id, name: from === captureDir() ? name : `${rules.CAPTURE_SUBDIR}/${name}`, json: await fsp.readFile(src, "utf8")});
           continue;
         }
         const st = await fsp.stat(src);
@@ -112,10 +153,7 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
         const base = name.replace(/\.pdf$/i, "");
         for (let i = 2; fs.existsSync(dst); i++) dst = path.join(inbox, `${base}-${i}.pdf`);
         // Downloads and FluxLib can live on different filesystems, where rename() fails.
-        await fsp.rename(src, dst).catch(async () => {
-          await fsp.copyFile(src, dst);
-          await fsp.rm(src, { force: true });
-        });
+        dst = await moveExclusive(src, dst);
         pdfs.push(path.basename(dst));
       } catch {
         /* leave it in place; the next pass retries */
@@ -128,26 +166,25 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
    * Set a capture aside that cannot be resolved — DEFINITIVELY, not because the network
    * blinked. It moves into FluxLib's `_unresolved/` beside a note, the same place the assign
    * flow parks a PDF it refuses to guess at. Nothing the user captured is ever deleted, and
-   * nothing unresolvable is retried forever (a permanently-403 sidecar otherwise re-failed on
-   * every startup and every window focus, toasting each time).
+   * nothing definitively absent is retried forever. Authentication/transport failures stay retryable.
    */
   async function park(name, note) {
     const dir = captureDir();
     await ready();
     if (!dir || !rules) return { error: "capture unavailable" };
-    if (typeof name !== "string" || path.basename(name) !== name || !rules.isCaptureFile(name)) return { error: "not a capture" };
-    const src = [path.join(dir, name), path.join(dir, rules.CAPTURE_SUBDIR, name)].find((p) => fs.existsSync(p));
-    if (!src) return { error: "gone" };
+    let src;
+    try { src = sourceFor(name); } catch (error) { return { error: error.message }; }
+    if (!src || !fs.existsSync(src)) return { error: "gone or invalid capture" };
+    const captureId = name;
+    name = path.basename(src);
     try {
       const out = path.join(fluxLibDir(), "pdfs_to_assign", "_unresolved");
       await fsp.mkdir(out, { recursive: true });
       let dst = path.join(out, name);
       for (let i = 2; fs.existsSync(dst); i++) dst = path.join(out, `${i}-${name}`);
-      await fsp.rename(src, dst).catch(async () => {
-        await fsp.copyFile(src, dst);
-        await fsp.rm(src, { force: true });
-      });
+      dst = await moveExclusive(src, dst);
       await fsp.writeFile(`${dst}.txt`, `Could not add "${name}" to FluxLib.\nReason: ${String(note || "unknown")}\n\nThe capture itself is intact next to this note. If the paper is reachable in your\nbrowser, capturing it again is usually the quickest fix.\n`, "utf8");
+      if (identities.has(captureId)) identities.get(captureId).done = true;
       return { ok: true, path: dst };
     } catch (e) {
       return { error: String((e && e.message) || e) };
@@ -160,17 +197,20 @@ function createCaptureIntake({ captureDir, fluxLibDir, path, fs, fsp, loadRules 
     const dir = captureDir();
     await ready();
     if (!dir || !rules) return { error: "capture unavailable" };
-    if (typeof name !== "string" || path.basename(name) !== name) return { error: "bad name" };
-    if (!rules.isCaptureFile(name)) return { error: "not a capture" };
     try {
-      await fsp.rm(path.join(dir, name), { force: true });
+      const src = sourceFor(name);
+      if (!src && identities.get(name)?.done) return {ok:true};
+      if (!src || !/\.fluxcap$/i.test(src)) return {error:"not a capture sidecar"};
+      await fsp.rm(src, {force:true});
+      if (identities.has(name)) identities.get(name).done = true;
       return { ok: true };
     } catch (e) {
       return { error: String((e && e.message) || e) };
     }
   }
 
-  return { count, intake, discard, park };
+  function release(id) { const record = identities.get(id); if (record && activeSources.get(record.source) === record) activeSources.delete(record.source); }
+  return { count, release, intake: () => serialized(intake), discard: name => serialized(() => discard(name)), park: (name, note) => serialized(() => park(name, note)) };
 }
 
 /**

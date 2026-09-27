@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { configureItemLocators, encodedItemName, itemName, itemKey } from "../src/lib/references/itemLocator";
+import { itemDir } from "../src/lib/references/items";
+import { prepareItemLocators } from "../flux-core/itemLocators";
+import { writePdf, readPdf } from "../flux-core/items";
+import { searchFulltext } from "../flux-core/fulltextSearch";
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-item-locators"), root = await mkdtemp(path.join(tmpdir(), "flux-item-locator-"));
+try {
+  configureItemLocators(root, ["ordinary", "unsafe/key", "CON", "key:colon"], ["unsafe-key"]);
+  h.eq(itemName(root, "ordinary"), "ordinary", "conventional historical paths stay unchanged");
+  h.eq(itemName(root, "unsafe/key"), "unsafe-key", "unique existing legacy artifact path stays readable without migration");
+  h.eq(itemName(root, "CON"), encodedItemName("CON"), "reserved platform names use reversible v1 locator");
+  h.ok(itemName(root, "key:colon") !== itemName(root, "CON"), "unsafe names do not alias");
+  h.eq(itemKey(root, "unsafe-key"), "unsafe/key", "directory enumeration recovers exact bibliography identity");
+  h.eq(itemDir("//server/share", "ordinary"), "//server/share/items/ordinary", "UNC authority prefix survives path construction");
+  configureItemLocators(root, ["Case", "case", "é", "e\u0301"], []);
+  for (const key of ["Case", "case", "é", "e\u0301"]) assert.throws(() => itemName(root, key), /Ambiguous/);
+  h.ok(true, "case and normalization collisions require explicit resolution");
+  await mkdir(path.join(root,"items","unsafe-key"),{recursive:true});
+  const bytes = Buffer.from("%PDF-legacy exact original");
+  await writeFile(path.join(root,"items","unsafe-key","paper.pdf"),bytes);
+  await writeFile(path.join(root,"items","unsafe-key","fulltext.txt"),"scientific locus searchable");
+  await writeFile(path.join(root,"library.bib"),'@article{unsafe/key, title={Legacy}}\n');
+  await prepareItemLocators(root);
+  h.eq(await readPdf("unsafe/key",root), bytes, "real Node adapter reads exact unsafe legacy PDF bytes");
+  h.eq((await searchFulltext("locus",{libPath:root})).hits[0]?.key,"unsafe/key", "exact search reports raw citekey rather than legacy sanitized component");
+  await writeFile(path.join(root,"library.bib"),'@article{unsafe/key, title={Legacy}}\n@article{unsafe-key, title={Other}}\n');
+  await assert.rejects(() => writePdf("unsafe/key",Buffer.from("%PDF-replacement"),{source:"ingest"},root), /Ambiguous/);
+  h.eq(await readFile(path.join(root,"items","unsafe-key","paper.pdf")),bytes,"ambiguous mutation preserves exact existing bytes");
+  h.eq(await readdir(path.join(root,"items")),["unsafe-key"],"no implicit migration or second alias directory is created");
+} finally { await rm(root,{recursive:true,force:true}); }
+h.done();

@@ -44,7 +44,7 @@ try {
   await reject(() => newSlideEmbed("paper/x.qmd", "../escape", "results"), /Invalid/, "unsafe source identity refused");
   await reject(() => underRoot(root, "../../escape"), /escapes/, "source paths stay within project");
   const deck = inlineSlideFixture(); const before = JSON.stringify(deck);
-  await io.writeText(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", title: "Embed test", documentRoot: "paper", manuscript: { path: "paper/main.qmd", config: "paper/_quarto.yml", format: "quarto" }, supplementary: [], slides: [{ id: "talk", path: "slides/talk/deck.json" }], references: { library: "references/library.bib" } }));
+  await io.writeText(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "embed-test", figures: [], title: "Embed test", documentRoot: "paper", manuscript: { path: "paper/main.qmd", config: "paper/_quarto.yml", format: "quarto" }, supplementary: [], slides: [{ id: "talk", path: "slides/talk/deck.json" }], references: { library: "references/library.bib" } }));
   await io.writeText(`${root}/slides/talk/deck.json`, before);
   await io.writeText(`${root}/slides/talk/assets/shared.svg`, inlineSlideSvg());
   await io.writeText(`${root}/fig/index.json`, JSON.stringify({ schemaVersion: "0.1.0", assets: [], canvases: [], figures: [] }));

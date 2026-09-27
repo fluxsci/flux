@@ -89,11 +89,13 @@ await waitFor(page,()=>!!window.__flux?.get(window.__flux.shell.projectModel),nu
 await page.evaluate(()=>window.__flux.shell.goHome());
 await waitFor(page,()=>!document.querySelector('.paper'),null,{timeout:5000});
 await page.evaluate(async root=>{
-  const pm=window.__flux.get(window.__flux.shell.projectModel);
-  pm.manifest.documentRoot='paper';
-  pm.manifest.manuscript={path:'paper/notes.qmd',config:'paper/_quarto.yml',format:'quarto'};
-  pm.manifest.supplementary=[];
-  await window.fig.writeText(`${root}/project.json`,JSON.stringify(pm.manifest));
+  // Home deliberately retires the resident project owner. Configure the saved
+  // fixture while closed, then reopen it through the same loader as a user.
+  const manifest=JSON.parse(await window.fig.readText(`${root}/project.json`));
+  manifest.documentRoot='paper';
+  manifest.manuscript={path:'paper/notes.qmd',config:'paper/_quarto.yml',format:'quarto'};
+  manifest.supplementary=[];
+  await window.fig.writeText(`${root}/project.json`,JSON.stringify(manifest));
   await window.fig.writeText(`${root}/paper/notes.qmd`,'---\ntitle: Notes\n---\n\n# Research notes\n');
   await window.fig.remove(`${root}/manuscript/main.qmd`);
   await window.fig.remove(`${root}/manuscript/supp.qmd`);

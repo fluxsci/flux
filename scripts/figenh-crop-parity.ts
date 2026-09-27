@@ -12,6 +12,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { ImageElement, Project, SemanticPlotElement } from "../src/lib/types";
 

@@ -6,6 +6,8 @@ import { buildScaffoldTree } from "../../src/lib/project/scaffoldTree";
 import { createDeck } from "../../src/lib/slide/ops";
 import { reconcileDeckExternalAssetSizes } from "../../src/lib/slide/sourceSync";
 import { executeFigSave, planFigSave } from "../../src/lib/project/figfiles";
+import { stageFigureRegistration } from "../../src/lib/project/figureGeneration";
+import type { GenerationWrite } from "../../src/lib/project/textGeneration";
 import type { Project, SemanticPlotElement } from "../../src/lib/types";
 
 const [root, external] = process.argv.slice(2);
@@ -44,7 +46,15 @@ const model: Project = { version: 2, name: "Native sources", canvases: [{ id: "s
     plot("figure-external", "figure-external", externalFigure, 460),
   ],
 }], assets: ["shared", "figure-frozen", "figure-external"].map(asset), palette: [] };
-await executeFigSave(planFigSave(model, null), { read: async rel => fs.readFile(path.join(root, rel), "utf8").catch(() => null), write: (rel, text) => write(path.join(root, rel), text) });
+const figPlan = planFigSave(model, null);
+const fixtureIO = { read: async (rel: string) => fs.readFile(path.join(root, rel), "utf8").catch(() => null), write: (rel: string, text: string) => write(path.join(root, rel), text) };
+await executeFigSave(figPlan, fixtureIO);
+const registration = new Map<string, GenerationWrite>();
+await stageFigureRegistration(fixtureIO, JSON.parse(figPlan.index.text), registration);
+for (const [rel, text] of registration) {
+  if (typeof text !== "string") throw new Error("Unexpected binary figure registration");
+  await fixtureIO.write(rel, text);
+}
 for (const [rel, source] of [
   ["plots/shared.svg", "shared"], ["plots/frozen.svg", "frozen"], ["plots/local.svg", "local"], ["plots/target.svg", "target"],
   ["fig/assets/shared.svg", "shared"], ["fig/assets/figure-frozen.svg", "frozen"], ["fig/assets/figure-external.svg", "external-figure"],
@@ -54,5 +64,9 @@ for (const [rel, source] of [
 for (const [p, source] of [[externalFigure, "external-figure"], [externalDeck, "external-deck"]]) {
   await write(p, svg(source)); await write(p.replace(/\.svg$/, ".fluxplot.json"), manifest);
 }
-await write(path.join(root, "manuscript/main.qmd"), "---\ntitle: Native source watcher\n---\n\n# Results\n\nSee @fig-native-source.\n\n![](../fig/renders/source-figure.svg){#fig-native-source}\n\nThe source updates while this document remains open.\n");
+const projectManifest = JSON.parse(await fs.readFile(path.join(root, "project.json"), "utf8"));
+const documentPath = path.resolve(root, projectManifest.manuscript.path);
+if (!documentPath.startsWith(path.resolve(root) + path.sep)) throw new Error("Fixture document escapes project");
+const renderPath = path.relative(path.dirname(documentPath), path.join(root, "fig/renders/source-figure.svg")).split(path.sep).join("/");
+await write(documentPath, `---\ntitle: Native source watcher\n---\n\n# Results\n\nSee @fig-native-source.\n\n![](${renderPath}){#fig-native-source}\n\nThe source updates while this document remains open.\n`);
 console.log("Native source fixture prepared");

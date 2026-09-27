@@ -5,7 +5,9 @@
 // closed), the keyboard modal while open (tool keys must NOT leak to the canvas), the
 // empty-state create-folder affordance, and live re-list on a dissections watcher bump.
 //   Run (dev server on :1420 must be up): node scripts/verify-dissect-gui.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors } from "./lib/driver.mjs";
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { launch, gotoApp, clickMode, sleep, realErrors, shot } from "./lib/driver.mjs";
 
 let fails = 0;
 const ok = (cond, msg, extra = "") =>
@@ -144,6 +146,38 @@ await page.evaluate(() => {
 await sleep(150);
 s = await snap();
 ok(s.tableFirstRow[0] === "age" && s.tableFirstRow[2] === "0.71", "second click flips the sort (p descending: age first)", s.tableFirstRow.join(","));
+
+// ---- large real table: prefix is useful while counting, sorting paints ≤100ms ---
+await page.keyboard.press("Escape");
+await page.evaluate(async root=>{
+  const filename=`${root}/plots/_dissections/growth-cal/_stats/dense.csv`;
+  const csv='name,value,p\n'+Array.from({length:200000},(_,i)=>`subject${200000-i},${i},0.05`).join('\n');
+  await window.fig.writeText(filename,csv);
+  window.__fluxEmitFsChange({subsystem:'dissections',path:filename});
+},ROOT);
+await page.waitForSelector('[data-dissect-cell][data-name="dense.csv"]');
+await page.click('[data-dissect-cell][data-name="dense.csv"]');
+await page.evaluate(()=>{
+  window.__dissectFrames=[];window.__dissectTracking=true;let previous=performance.now();
+  const frame=now=>{if(!window.__dissectTracking)return;window.__dissectFrames.push(now-previous);previous=now;requestAnimationFrame(frame);};requestAnimationFrame(frame);
+});
+await page.keyboard.press('Enter');
+await page.waitForFunction(()=>!!document.querySelector('[data-dissect-table] .row'));
+const prefix=await page.evaluate(()=>({note:document.querySelector('[data-dissect-table] .note')?.textContent,rows:document.querySelectorAll('[data-dissect-table] .row').length}));
+ok(prefix.note?.includes('counting')&&prefix.rows>0,'large CSV paints a windowed prefix while its exact row count is pending',JSON.stringify(prefix));
+await page.waitForFunction(()=>document.querySelector('[data-dissect-table] .note')?.textContent.includes('200,000'),{timeout:15000});
+const load=await page.evaluate(()=>{window.__dissectTracking=false;return {worstFrameMs:Math.max(...window.__dissectFrames),frames:window.__dissectFrames.length,note:document.querySelector('[data-dissect-table] .note')?.textContent,rendered:document.querySelectorAll('[data-dissect-table] .row').length};});
+ok(load.frames>2&&load.worstFrameMs<=100,'large CSV counting yields within100ms frame budget',JSON.stringify(load));
+ok(load.note.includes('5,000')&&load.rendered<100,'retained rows and rendered DOM stay bounded for200000 records',JSON.stringify(load));
+const sort=await page.evaluate(()=>new Promise(resolve=>{
+  const start=performance.now();document.querySelector('[data-dissect-table] .hcell').click();
+  requestAnimationFrame(()=>resolve({ms:performance.now()-start,first:document.querySelector('[data-dissect-table] .row .cell')?.textContent}));
+}));
+ok(sort.ms<=100&&sort.first==='subject195001','5000-string prefix sort paints correct order within100ms',JSON.stringify(sort));
+const noticeVisible=await page.$eval('[data-dissect-table] .note',el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&r.width>0;});
+ok(noticeVisible,'prefix limitation is visibly present without scrolling to the final retained row');
+await writeFile(path.join(process.env.FLUX_OUT??'test-results/out','dissect-dense.json'),JSON.stringify({records:200000,prefix,load,sort,noticeVisible},null,2)+'\n');
+await shot(page,'dissect-dense-table');
 
 // ---- live re-list on a dissections watcher bump ---------------------------------
 await page.keyboard.press("Escape"); // table → grid

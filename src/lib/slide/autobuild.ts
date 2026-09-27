@@ -1,3 +1,4 @@
+import { familyOf } from "./family";
 // ---------------------------------------------------------------------------
 // Flux Slide — autoAnimatePlot (§ the one-click magic). Turn a FluxPlot's own
 // authored build hints (manifest.build.order + build.presets) into a ready-to-
@@ -156,7 +157,7 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
   const beats: Beat[] = [];
   phases.forEach((tracks, ph) => {
     if (!tracks.length) return;
-    beats.push({ id: `auto-${ph}`, label: PHASE_LABELS[ph], tracks: tracks.map((pt) => planToTrack(pt, elId, ph, tracks)) });
+    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt) => ({ ...planToTrack(pt, elId, ph, tracks), generatedBy: "auto-reveal" as const })) });
   });
   return beats;
 }
@@ -317,7 +318,8 @@ export function listMorphCandidates(
  *  build. Used to slot a newly-produced phase beat into the right position. */
 function phaseRank(b: Beat, index: number): number {
   if (index === 0) return -1; // beat 0 is always the resting state
-  if (b.id.startsWith("auto-")) return Number(b.id.slice(5)) || 0;
+  if (b.generatedBy === "auto-reveal") return b.autoPhase ?? 0;
+  if (/^auto-\d+$/.test(b.id)) return Number(b.id.slice(5)) || 0;
   return Number.POSITIVE_INFINITY; // manual beats follow the auto build
 }
 
@@ -337,7 +339,15 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
 
   // 1. Drop ONLY this element's existing tracks (idempotent re-animate); every
   //    other element's tracks stay exactly where they are.
-  for (const b of slide.beats) b.tracks = b.tracks.filter((t) => t.target !== elId || !!t.ghostFrom);
+  for (const b of slide.beats) {
+    // Legacy auto-* phase ownership is recognized once and stamped explicitly.
+    const legacy = /^auto-(?:\d+|ghost-.+-\d+)$/.test(b.id);
+    if (legacy) { b.generatedBy = "auto-reveal"; b.autoPhase ??= Number(b.id.match(/(\d+)$/)?.[1] ?? 0); b.autoTarget ??= b.id.match(/^auto-ghost-(.+)-\d+$/)?.[1]; }
+    const ownedGroups = new Set(b.tracks.filter(t => t.target === elId && !t.ghostFrom && (t.generatedBy === "auto-reveal" || legacy && !["transform", "media"].includes(familyOf(t)))).map(t => t.groupId).filter(Boolean));
+    b.tracks = b.tracks.filter(t => t.target !== elId || !!t.ghostFrom ||
+      (t.generatedBy !== "auto-reveal" && !(legacy && !["transform", "media"].includes(familyOf(t)))));
+    if (b.groups) { const used = new Set(b.tracks.map(t => t.groupId).filter(Boolean)); b.groups = b.groups.filter(g => used.has(g.id) || !ownedGroups.has(g.id)); }
+  }
 
   // 2. Guarantee a resting beat 0.
   if (!slide.beats.length) slide.beats = [{ id: "base", label: "Start", tracks: [] }];
@@ -346,16 +356,17 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
   // follows its birth; ordinary plots still share the global phase beats.
   if (birth) {
     const prefix = `auto-ghost-${elId}-`;
-    slide.beats = slide.beats.filter(b => !b.id.startsWith(prefix) || b.tracks.length > 0);
+    slide.beats = slide.beats.filter(b => b.autoTarget !== elId || b.tracks.length > 0);
     let at = slide.beats.findIndex(b => b.id === birth.id) + 1;
     for (const ab of auto) {
       ab.id = `${prefix}${ab.id.slice(5)}`;
-      const existing = slide.beats.find(b => b.id === ab.id);
+      ab.autoTarget = elId;
+      const existing = slide.beats.find(b => b.generatedBy === "auto-reveal" && b.autoTarget === elId && b.autoPhase === ab.autoPhase);
       if (existing) existing.tracks.push(...ab.tracks);
       else slide.beats.splice(at++, 0, ab);
     }
   } else for (const ab of auto) {
-    const existing = slide.beats.find((b) => b.id === ab.id);
+    const existing = slide.beats.find((b) => b.generatedBy === "auto-reveal" && b.autoPhase === ab.autoPhase && !b.autoTarget);
     if (existing) {
       existing.tracks.push(...ab.tracks);
     } else {
@@ -368,6 +379,6 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
 
   // 4. Remove any auto-* phase beat left empty (a phase this element no longer
   //    produces and no other element fills) — never the resting or a manual beat.
-  slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length > 0 || !b.id.startsWith("auto-"));
+  slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length > 0 || b.generatedBy !== "auto-reveal");
   return auto.length;
 }

@@ -3,6 +3,7 @@
   import type { FluxPlotManifest } from "./types";
   import ColormapPicker from "../ColormapPicker.svelte";
   import { findColormap, colormapGradient } from "../color/collections";
+  export let assetId = "";
   export let manifest: FluxPlotManifest | undefined;
   export let params: Record<string, unknown> = {};
   export let busy = false;
@@ -13,7 +14,10 @@
   /** The draft whose colormap picker is open (2026-09-16: every fluxplot map, by collection). */
   let picking: string | null = null;
   const preview = (name: string) => { const f = findColormap(name); return f ? colormapGradient(f.map, f.reversed) : ""; };
-  $: {
+  let seededAsset = "";
+  let seededManifest: FluxPlotManifest | undefined;
+  $: if (manifest !== seededManifest || assetId !== seededAsset) {
+    seededManifest = manifest; seededAsset=assetId; picking=null;
     const unique = new Map<string, Draft>();
     for (const series of manifest?.series ?? []) {
       const field = series.field;
@@ -46,7 +50,7 @@
 {#if drafts.length}
   <details class="color-scales">
     <summary>Color scales</summary>
-    <form on:submit|preventDefault={apply}>
+    <form on:submit|preventDefault={apply} on:input={() => (error="")}>
       {#each drafts as draft (draft.key)}
         <fieldset disabled={busy}>
           <legend>{draft.label}</legend>

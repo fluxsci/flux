@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as core from "../flux-core/index";
 import { harness } from "./lib/harness.mjs";
+import { tsxCli } from "./lib/tsxRun.mjs";
 import {
   commentsSidecarRel,
   documentRemovalBlocker,
@@ -91,7 +92,11 @@ async function snapshot(dir: string, skip: (rel: string) => boolean = () => fals
   const walk = async (d: string) => {
     for (const e of await fs.readdir(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
-      const rel = path.relative(dir, p);
+      // POSIX keys: the skip predicate and every expectation below speak the
+      // project-relative, forward-slash paths the model uses, so a Windows
+      // path.relative would match none of them — the DELETED files then read
+      // as "something else changed" (2026-09-22).
+      const rel = path.relative(dir, p).split(path.sep).join("/");
       if (skip(rel)) continue;
       if (e.isDirectory()) await walk(p);
       else out.set(rel, (await fs.readFile(p)).toString("base64"));
@@ -176,7 +181,7 @@ try {
   // --- the real CLI ----------------------------------------------------------
   h.section("the CLI verb executes it");
   {
-    const tsx = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+    const tsx = tsxCli();
     const env = { ...process.env, HOME: scratchHome, XDG_CONFIG_HOME: path.join(scratchHome, ".config") };
     const run = (...args: string[]) =>
       spawnSync(process.execPath, [tsx, path.join(repoRoot, "flux-cli.ts"), ...args], { cwd: repoRoot, encoding: "utf8", env });

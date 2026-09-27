@@ -118,7 +118,7 @@ assert(dash(geoNode) !== "" && offset(geoNode) !== "" && offset(geoNode) !== "0"
 // is pinned by verify-slide-export-transform against a painted ellipse.
 assert(parseFloat(dash(geoNode)) >= 5, `…with the dasharray OVERSHOT past the measured length (seam-proof: ${dash(geoNode)} >= 5)`);
 applyStatic(drawSpecs, 1);
-assert(offset(geoNode) === "0", "beat 1: draw-on part fully drawn (offset 0, overshot dash covers the true perimeter)");
+assert(offset(geoNode) === "" && dash(geoNode) === "", "beat 1: draw-on removes its temporary dash window and restores the authored full stroke");
 applyStatic(drawSpecs, 0);
 assert(offset(geoNode) !== "0" && offset(geoNode) !== "", "back to beat 0 re-hides the draw (reversible)");
 

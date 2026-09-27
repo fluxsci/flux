@@ -7,9 +7,11 @@
 import { harness } from "./lib/harness.mjs";
 import {
   elementOutline, splitOutline, planOutlines, planElementMorph, sampleElementMorph, outlineMorphable,
-  arrowFade, fixedHeadOpacity,
+  arrowFade, fixedHeadOpacity, arcT,
 } from "../src/lib/slide/outline";
 import { applyState, diffState, lerpElement, contentPlan, transformEndState } from "../src/lib/slide/tween";
+import { elementBBox } from "../src/lib/geometry";
+import { segLength, splitSeg, type PathSeg } from "../src/lib/path";
 import type { Element, RectElement, EllipseElement, LineElement, PathElement, TextElement, VectorNode } from "../src/lib/types";
 
 const h = harness("verify-slide-outline");
@@ -20,6 +22,10 @@ const finite = (nodes: VectorNode[]) => nodes.every((n) => Number.isFinite(n.x) 
 const rect = (o: Partial<RectElement> = {}): RectElement => ({ type: "rect", id: "el", x: 10, y: 20, width: 200, height: 100, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0, ...o });
 const ellipse = (o: Partial<EllipseElement> = {}): EllipseElement => ({ type: "ellipse", id: "el", x: 300, y: 40, width: 120, height: 120, rotation: 0, fill: "#d14d41", stroke: "#000000", strokeWidth: 2, ...o });
 const line = (o: Partial<LineElement> = {}): LineElement => ({ type: "line", id: "el", x: 50, y: 50, width: 0, height: 0, rotation: 0, x1: 0, y1: 0, x2: 180, y2: 0, stroke: "#222222", strokeWidth: 3, arrowStart: false, arrowEnd: true, ...o });
+const boxWH = (e: Element): [number, number] => {
+  const b = elementBBox({ ...e, rotation: 0 });
+  return [b.w || 1e-9, b.h || 1e-9];
+};
 const arc = (o: Partial<PathElement> = {}): PathElement => ({ type: "path", id: "el", x: 0, y: 0, width: 100, height: 60, rotation: 0, d: "", fill: "none", stroke: "#00aa00", strokeWidth: 2, closed: false,
   nodes: [{ x: 0, y: 60, type: "corner" }, { x: 50, y: 0, type: "smooth", hIn: { dx: -20, dy: 0 }, hOut: { dx: 20, dy: 0 } }, { x: 100, y: 60, type: "corner" }], ...o });
 const text = (o: Partial<TextElement> = {}): TextElement => ({ type: "text", id: "el", x: 0, y: 0, width: 200, height: 40, rotation: 0, text: "hello", fontFamily: "Arial", fontSize: 16, fontWeight: 400, fontStyle: "normal", align: "left", color: "#ffffff", sizing: "auto", ...o });
@@ -118,6 +124,33 @@ h.section("tween integration: lerpElement across kinds");
   h.ok(pp.type === "path" && finite(pp.nodes!), "closedness change samples a finite path mid-flight");
 }
 
+h.section("the plan answers without the correspondence");
+{
+  // Opening the animator builds every become transform, and each one asks its
+  // plan whether the pair ends up a ring and whether it carries arrowheads.
+  // Those answers must not drag in `planOutlines`, which dominates that cost.
+  const pairs: [string, Element, Element][] = [
+    ["rect -> ellipse", rect(), ellipse()],
+    ["arrow -> filled ellipse (inflate)", line(), ellipse()],
+    ["stroke-only ellipse -> arrow (cut)", ellipse({ fill: "none" }), line()],
+    ["arc -> line (both open)", arc(), line()],
+    ["open path -> closed path", arc(), arc({ closed: true })],
+  ];
+  for (const [what, pre, end] of pairs) {
+    const plan = planElementMorph(pre, end)!;
+    const [aw, ah] = boxWH(pre), [bw, bh] = boxWH(end);
+    const truth = planOutlines(elementOutline(pre)!, aw, ah, elementOutline(end)!, bw, bh, plan.strategy);
+    h.eq(plan.closed, truth.closed, what + ": the plan's own `closed` equals the correspondence's");
+  }
+  const plan = planElementMorph(rect(), ellipse())!;
+  const own = (k: string) => Object.getOwnPropertyDescriptor(plan, k)!;
+  h.ok(own("closed").get === undefined && own("arrowStart").get === undefined && own("arrowEnd").get === undefined,
+    "closed / arrowStart / arrowEnd are plain values — reading them cannot build the correspondence");
+  h.ok(typeof own("a").get === "function" && typeof own("b").get === "function",
+    "the corresponded chains stay behind getters, so nothing pays for them until a frame is drawn");
+  h.ok(plan.a.length === plan.b.length && plan.a.length >= 32, "...and asking for them still yields the matched chains");
+}
+
 h.section("the retype law: applyState / diffState");
 {
   const pre = line({ name: "Arrow", groupId: "g1", locked: true, opacity: 0.8 });
@@ -125,10 +158,10 @@ h.section("the retype law: applyState / diffState");
   const patch = diffState(pre, { ...end, id: pre.id, name: pre.name, groupId: pre.groupId, locked: true })!;
   h.ok(patch.type === "ellipse" && "fill" in patch && "stroke" in patch && "strokeWidth" in patch && !("x1" in patch), "diffState across kinds records `type` and the whole new kind, no nulls for the old kind's props");
   const out = applyState(pre, patch) as Record<string, unknown>;
-  h.ok(out.type === "ellipse" && out.id === "el" && out.name === "Arrow" && out.groupId === "g1" && out.locked === true && out.opacity === 0.8, "applyState retypes: identity + base props survive");
+  h.ok(out.type === "ellipse" && out.id === "el" && out.name === "Arrow" && out.groupId === "g1" && out.locked === true && !("opacity" in out), "applyState retypes: identity survives and destination defaults replace old base props");
   h.ok(!("x1" in out) && !("arrowEnd" in out) && out.fill === "#d14d41" && out.width === 120, "…and nothing of the old kind lingers");
   const rt = applyState(pre, diffState(pre, { ...end, id: "el", name: "Arrow", groupId: "g1", locked: true })!);
-  h.eq(canon(rt), canon({ ...end, id: "el", name: "Arrow", groupId: "g1", locked: true, opacity: 0.8 }), "applyState(pre, diffState(pre, cur)) ≡ cur across kinds (opacity is a base prop the patch did not name)");
+  h.eq(canon(rt), canon({ ...end, id: "el", name: "Arrow", groupId: "g1", locked: true }), "applyState(pre, diffState(pre, cur)) exactly equals destination including implicit opacity default");
   const bare = applyState(rect(), { type: "line" }) as LineElement;
   h.ok(bare.type === "line" && bare.x2 === 200 && bare.y2 === 100 && bare.stroke === "#000000" && bare.arrowEnd === false, "a bare {type} patch completes the new kind's required props");
   const same = applyState(rect(), { type: "rect", x: 5 }) as RectElement;
@@ -137,6 +170,28 @@ h.section("the retype law: applyState / diffState");
   h.ok(chained.type === "ellipse" && chained.fill === "#00ff00" && chained.x === 1, "later patches fold onto the retyped element");
   const plotEnd = transformEndState(rect(), { to: { state: { type: "plot", overrides: { "a.line": { stroke: "#f00" } } }, assetId: "asset-9" } });
   h.ok(plotEnd.type === "plot" && (plotEnd as { assetId: string }).assetId === "asset-9", "transformEndState puts the content half on a retyped plot");
+}
+
+// --- arcT is the reference bisection, just faster (2026-09-24) ----------------
+// arcT was rewritten allocation-free (the hot loop of morph planning). It must
+// return what its definition returns: bisection on the 16-station polyline
+// length of the left de Casteljau half. Pinned on seeded random cubics.
+{
+  const reference = (seg: PathSeg, len: number, dist: number): number => {
+    if (dist <= 0) return 0;
+    if (dist >= len) return 1;
+    let lo = 0, hi = 1, t = dist / len;
+    for (let k = 0; k < 20; k++) { t = (lo + hi) / 2; if (segLength(splitSeg(seg, t)[0], 16) < dist) lo = t; else hi = t; }
+    return t;
+  };
+  let seed = 11, worst = 0, calls = 0;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) * 400 - 200;
+  for (let i = 0; i < 1500; i++) {
+    const seg: PathSeg = { x0: rnd(), y0: rnd(), x1: rnd(), y1: rnd(), x2: rnd(), y2: rnd(), x3: rnd(), y3: rnd(), line: false };
+    const len = segLength(seg, 24);
+    for (const f of [0, 0.13, 0.5, 0.77, 1]) { worst = Math.max(worst, Math.abs(arcT(seg, len, len * f) - reference(seg, len, len * f))); calls++; }
+  }
+  h.ok(worst <= 1e-9, `arcT matches its reference bisection on ${calls} random cubic stations (worst |dt| ${worst})`);
 }
 
 await h.done();

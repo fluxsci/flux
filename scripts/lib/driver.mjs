@@ -13,10 +13,30 @@
 // Screenshot dir defaults to test-results/out in the repo (created on demand);
 // override with FLUX_OUT (e.g. a session scratchpad).
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import puppeteer from "puppeteer-core";
+import { recordBrowserRuntime } from './runtimeEvidence.mjs';
 
-export const CHROME = process.env.FLUX_CHROME || "/usr/bin/google-chrome";
+// FLUX_CHROME wins everywhere. The fallback is the CI path on Linux; on
+// Windows there is no such path, so every ui gate died at launch unless the
+// developer knew to set the variable — probe the standard install locations
+// instead (2026-09-22). macOS gets its bundle path for the same reason.
+function defaultChrome() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env["PROGRAMFILES(X86)"] ?? "C:\\Program Files (x86)"}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env.LOCALAPPDATA ?? ""}\\Google\\Chrome\\Application\\chrome.exe`,
+          `${process.env.PROGRAMFILES ?? "C:\\Program Files"}\\Microsoft\\Edge\\Application\\msedge.exe`,
+        ]
+      : process.platform === "darwin"
+        ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome"]
+        : ["/usr/bin/google-chrome"];
+  for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate;
+  return candidates[0];
+}
+export const CHROME = process.env.FLUX_CHROME || defaultChrome();
 export const APP_URL = process.env.FLUX_URL || "http://127.0.0.1:1420/";
 export const OUT = process.env.FLUX_OUT || "test-results/out";
 try {
@@ -55,11 +75,25 @@ export async function launch({ width = 1440, height = 900 } = {}) {
     args: ["--no-sandbox", `--window-size=${width},${height}`, "--force-device-scale-factor=1"],
     defaultViewport: { width, height },
   });
+  // Windows holds a just-closed Chromium's Crashpad metrics file open for a
+  // moment, so puppeteer's own temp-profile cleanup can throw EBUSY out of
+  // close() — after a gate has already done its work. Losing the scratch
+  // profile is not a result; the OS reclaims it.
+  if (process.platform === "win32") {
+    const close = browser.close.bind(browser);
+    browser.close = async () => {
+      try { await close(); } catch (error) {
+        if (!/EBUSY|EPERM|ENOTEMPTY/.test(String(error?.code ?? error?.message))) throw error;
+        console.warn(`driver: Chrome temp profile left behind (${error.code ?? "cleanup"})`);
+      }
+    };
+  }
   const page = await browser.newPage();
   const errs = [];
   _errs.set(page, errs);
   page.on("console", (m) => m.type() === "error" && errs.push(m.text()));
   page.on("pageerror", (e) => errs.push("PAGEERR " + e.message));
+  await recordBrowserRuntime(page,{label:'browser-launch'});
   return { browser, page };
 }
 
@@ -83,6 +117,7 @@ export async function gotoApp(page, { settle = 1200, url = APP_URL } = {}) {
     try {
       await page.goto(url, { waitUntil: "networkidle0", timeout: 8000 });
       await sleep(settle);
+      await recordBrowserRuntime(page,{label:'application'});
       return;
     } catch (e) {
       lastErr = e;

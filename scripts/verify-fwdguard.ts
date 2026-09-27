@@ -59,7 +59,8 @@ try {
   idx2.canvases = [{ id: "canvas-1", name: "Canvas 1", order: 1 }];
   await fs.writeFile(idxPath, JSON.stringify(idx2, null, 2) + "\n");
   const cvPath = path.join(cvDir, "canvas-1.json");
-  const cvBytes = JSON.stringify({ schemaVersion: "0.5.0", id: "canvas-1", figures: [] }, null, 2) + "\n";
+  const currentCanvas=JSON.parse(await fs.readFile(cvPath,"utf8"));
+  const cvBytes = JSON.stringify({ ...currentCanvas, schemaVersion: "0.5.0" }, null, 2) + "\n";
   await fs.writeFile(cvPath, cvBytes);
   threw = "";
   try {
@@ -69,10 +70,10 @@ try {
   }
   assert(/newer Flux/i.test(threw), "newer canvas file refuses");
   assert((await fs.readFile(cvPath, "utf8")) === cvBytes, "canvas bytes UNCHANGED after the refusal");
-  await fs.writeFile(cvPath, JSON.stringify({ schemaVersion: "0.1.0", id: "canvas-1", figures: [] }, null, 2) + "\n");
+  await fs.writeFile(cvPath, JSON.stringify({ ...currentCanvas,schemaVersion: "0.1.0" }, null, 2) + "\n");
 
   // ---- patch-bumped canvas still loads ----------------------------------------
-  await fs.writeFile(cvPath, JSON.stringify({ schemaVersion: "0.1.9", id: "canvas-1", figures: [] }, null, 2) + "\n");
+  await fs.writeFile(cvPath, JSON.stringify({ ...currentCanvas,schemaVersion: "0.1.9" }, null, 2) + "\n");
   const m = await loadFigModel(root);
   assert(m.project.canvases.length === 1, "PATCH-bumped canvas loads fine");
 

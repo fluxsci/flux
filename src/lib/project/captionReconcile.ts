@@ -1,7 +1,7 @@
 // The canvas owns captions; .md and index text are projections. Before
 // replacing a projection, use the previous index caption as a three-way base.
 import type { Figure, Project } from "../types";
-import { composeCaption, splitCaption, figurePanels } from "../captions";
+import { composeCaption, splitCaption, figurePanels, POSTSCRIPT_CAPTION } from "../captions";
 
 export interface CaptionConflict { figureId: string; path: string; model: string; sidecar: string }
 export interface CaptionBaseline { model: string; sidecar: string | null }
@@ -24,7 +24,7 @@ export function reconcileFigureCaption(f: Figure, sidecar: string | null, base?:
   if (current === canonical(base ?? "")) {
     // Keep blocks whose label was removed recoverable; clear omitted CURRENT
     // blocks so importing an intentionally shortened caption remains exact.
-    const currentIds = new Set(["__figure__", ...figurePanels(f).map(p => p.id)]);
+    const currentIds = new Set(["__figure__", POSTSCRIPT_CAPTION, ...figurePanels(f).map(p => p.id)]);
     const orphaned = Object.fromEntries(Object.entries(f.captions ?? {}).filter(([id]) => !currentIds.has(id)));
     f.captions = { ...orphaned, ...(splitCaption(f, disk) ?? { __figure__: disk }) };
     return "imported";

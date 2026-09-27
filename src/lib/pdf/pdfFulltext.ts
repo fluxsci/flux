@@ -5,6 +5,7 @@
 // wiring as pdfSignals.ts; same page-join format as the Node path.
 import { getDocument, PDFWorker } from "./pdfjs";
 import PdfWorkerPort from "./pdfjsWorker?worker";
+import { createOwnedPdfTask } from "./taskOwner";
 import { joinTextItems, type TextItem } from "../references/pdfIdentify";
 
 export interface Fulltext {
@@ -15,26 +16,17 @@ export interface Fulltext {
 
 export async function extractFulltextText(bytes: Uint8Array): Promise<Fulltext> {
   const base = new URL("pdfjs/", document.baseURI).href;
-  const worker = PDFWorker.create({ port: new PdfWorkerPort() });
-  const task = getDocument({
-    data: bytes,
-    worker,
-    cMapUrl: base + "cmaps/",
-    cMapPacked: true,
-    standardFontDataUrl: base + "standard_fonts/",
-    useSystemFonts: false,
-  });
-  const doc = await task.promise;
+  const owned = createOwnedPdfTask(bytes, base, { createPort: () => new PdfWorkerPort(), createWorker: port => PDFWorker.create({port}), getDocument });
   const parts: string[] = [];
   try {
+    const doc = await owned.promise;
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       parts.push(joinTextItems((await page.getTextContent()).items as TextItem[]));
       page.cleanup();
     }
   } finally {
-    await task.destroy();
-    worker.destroy();
+    await owned.dispose();
   }
   const text = parts.join("\n\f\n");
   return { text, pages: parts.length, chars: text.length };

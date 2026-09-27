@@ -1,0 +1,23 @@
+import { harness } from './lib/harness.mjs';
+const h=harness('verify-figure-metadata-core');
+import assert from 'node:assert/strict';
+import { applyMetadataChange, identityOf, reverseMetadataChange, type MetadataChange } from '../src/lib/figure/metadata';
+import { makeText } from '../src/lib/ops';
+import type { Project } from '../src/lib/types';
+const label={...makeText('a',{x:2,y:3,width:10,height:20},{},true),id:'panel-a'};
+const project:Project={version:2,name:'legacy',canvases:[{id:'c',name:'Canvas'}],figures:[{id:'f',name:'Figure 1',family:'figure',number:1,referenceKey:'fig-legacy',canvasId:'c',x:12,y:14,width:500,height:400,elements:[label],captions:{__figure__:'Lead','panel-a':'Old panel',orphan:'Retain me'}}],assets:[],palette:[]};
+const original=structuredClone(project);
+const change:MetadataChange={kind:'caption',figureId:'f',key:'panel-a',before:'Old panel',after:'New panel'};
+applyMetadataChange(project,change);assert.equal(project.figures[0].captions?.['panel-a'],'New panel');
+assert.equal(project.figures[0].captions?.orphan,'Retain me');assert.deepEqual(project.figures[0].elements,original.figures[0].elements);
+applyMetadataChange(project,change); // idempotent acknowledgement
+assert.throws(()=>applyMetadataChange(project,{...change,after:'Conflicting panel'}),/changed elsewhere/);
+applyMetadataChange(project,reverseMetadataChange(change));assert.deepEqual(project,original);
+const before=identityOf(project.figures[0]);
+const name:MetadataChange={kind:'identity',figureId:'f',before,after:{family:'movie',number:1,nickname:'Teaser'},family:{id:'movie',displayName:'Movie',refTemplate:'Mov. {num}{panel}',captionTemplate:'Movie {num} | '}};
+applyMetadataChange(project,name);assert.equal(project.figures[0].nickname,'Teaser');assert.equal(project.figures[0].referenceKey,'fig-legacy');assert.deepEqual(project.figures[0].captions,original.figures[0].captions);
+assert.throws(()=>applyMetadataChange(project,{...name,after:{...name.after,nickname:'Stale'}}),/changed elsewhere/);
+applyMetadataChange(project,reverseMetadataChange(name));assert.deepEqual(identityOf(project.figures[0]),before);
+project.figures[0].elements=[];assert.throws(()=>applyMetadataChange(project,change),/panel label was removed/);
+h.ok(true,'caption and identity preservation, conflicts, inverse and deleted-panel checks');
+await h.done();

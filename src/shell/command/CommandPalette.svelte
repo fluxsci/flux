@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { modalFocus } from "../../lib/ui/modalFocus";
   import { popIn } from "../../lib/motion/actions";
   import type { Command } from "./commands";
 
   let { commands, onClose }: { commands: Command[]; onClose: () => void } = $props();
 
+  const uid = $props.id();
   let q = $state("");
   let sel = $state(0);
   let inputEl = $state<HTMLInputElement | undefined>(undefined);
@@ -39,6 +41,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    e.stopPropagation();
     if (e.key === "ArrowDown") {
       e.preventDefault();
       sel = Math.min(filtered.length - 1, sel + 1);
@@ -61,18 +64,21 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="cp-scrim" onclick={onClose}></div>
-<div class="cp" transition:popIn>
+<div class="cp" role="dialog" aria-modal="true" aria-label="Commands" tabindex="-1" use:modalFocus transition:popIn>
   <input
+    role="combobox" aria-label="Search commands" aria-expanded="true" aria-autocomplete="list"
+    aria-controls={`${uid}-list`} aria-activedescendant={filtered[sel] ? `${uid}-option-${sel}` : undefined}
     bind:this={inputEl}
     bind:value={q}
     onkeydown={onKey}
     placeholder="Type a command…"
     spellcheck="false"
     autocomplete="off" />
-  <ul bind:this={listEl}>
+  <ul id={`${uid}-list`} role="listbox" aria-label="Matching commands" bind:this={listEl}>
     {#each filtered as c, i (c.id)}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
       <li
+        id={`${uid}-option-${i}`} role="option" aria-selected={i === sel}
         class:sel={i === sel}
         onmousemove={() => (sel = i)}
         onmousedown={(e) => {
@@ -84,7 +90,7 @@
       </li>
     {/each}
     {#if filtered.length === 0}
-      <li class="empty">No matching command</li>
+      <li class="empty" role="presentation">No matching command</li>
     {/if}
   </ul>
 </div>

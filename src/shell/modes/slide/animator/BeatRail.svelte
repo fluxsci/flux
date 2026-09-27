@@ -156,7 +156,7 @@
           const ids=beat.tracks.map(t=>t.id!).filter(Boolean), rest=ids.filter(id=>!selected.has(id));
           const n=at-ids.slice(0,at).filter(id=>selected.has(id)).length;rest.splice(Math.max(0,n),0,...selected);
           reorderTracks(deck,slide.id,beat.id,rest);
-        } else for(const o of d.orig) { const id=d.copy?duplicateTrack(deck,slide.id,o.id):o.id; if(id){moveTrackToBeat(deck,slide.id,id,targetBeat.id,at+moved.length);moved.push(id);} }
+        } else for(const o of d.orig) { const id=d.copy?duplicateTrack(deck,slide.id,o.id,targetBeat.id,at+moved.length):moveTrackToBeat(deck,slide.id,o.id,targetBeat.id,at+moved.length)?o.id:null; if(id)moved.push(id); }
         if(moved.length && targetBeat.id!==beat.id)for(const g of groupCopies){const ids=g.ids.map(id=>moved[d.orig.findIndex(o=>o.id===id)]).filter(Boolean);if(ids.length){const groupId=groupTracks(deck,slide.id,targetBeat.id,ids,g.group.label);if(groupId&&g.group.collapsed)setTrackGroup(deck,slide.id,targetBeat.id,groupId,{collapsed:true});}}
       });
       if(d.over!=null)activeBeat.set(d.over);if(moved.length)selTrackIds.set(moved);

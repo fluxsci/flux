@@ -4,7 +4,7 @@
 // No-ops unless running under Electron with the bridge preload (so dev/web are
 // unaffected).
 
-import type { Readable } from "svelte/store";
+import { get, type Readable } from "svelte/store";
 import {
   project,
   selection,
@@ -15,11 +15,15 @@ import {
   viewport,
   hoverId,
   dirty,
+  embeddedProjectRoot,
 } from "../store";
 import { getAppContext } from "./appContext";
-import { dispatchCommand, type Command } from "./commands";
+import { dispatchCommand, captureDispatchOwner, type Command } from "./commands";
 import { touchActivityLock } from "./activityLock";
-import { flushById } from "../../shell/lifecycle";
+import { flushByIdChecked, flushOwnerRevision } from "../../shell/lifecycle";
+import { currentProject, view } from "../../shell/shellStore";
+import { focusedMode, focusedPaneId } from "../../shell/paneStore";
+import { storeTenant, storeTenantState } from "../tenancy";
 import { fileBridge } from "../project/types";
 
 export function installBridge(): void {
@@ -49,6 +53,8 @@ export function installBridge(): void {
   };
 
   const watched: Readable<unknown>[] = [
+    currentProject, view, focusedMode, focusedPaneId, embeddedProjectRoot,
+    storeTenantState, flushOwnerRevision,
     project,
     selection,
     partSelection,
@@ -60,19 +66,29 @@ export function installBridge(): void {
   ];
   for (const s of watched) s.subscribe(() => schedule());
 
-  bridge.onDispatch(async ({ id, command }) => {
-    try {
-      // `command` arrives as untyped JSON off the loopback wire; narrow it here.
-      const result = await dispatchCommand(command as Command);
-      // AGT-10: a dispatched edit only reaches disk via the 700ms autosave, so an
-      // agent's get_figure_image right after dispatch_command would read stale bytes.
-      // Flush the figure subsystem now (no-op for selection-only commands / when the
-      // editor isn't mounted) so the on-disk figure reflects the edit before we reply.
-      await flushById("figure");
-      bridge.reply(id, result);
-    } catch (e) {
-      bridge.reply(id, undefined, String((e as Error)?.message ?? e));
-    }
+  let pending: Promise<unknown> = Promise.resolve();
+  bridge.onDispatch(({ id, command }) => {
+    // Capture on receipt, not when the queue eventually starts.
+    let assertOwner: () => void;
+    try { assertOwner = captureDispatchOwner(); }
+    catch (error) { bridge.reply(id, undefined, String(error)); return; }
+    const tenant = storeTenant();
+    pending = pending.catch(() => {}).then(async () => {
+      let applied = false;
+      try {
+        assertOwner();
+        const assertPersistenceOwner = captureDispatchOwner({ allowEdits: true });
+        const result = await dispatchCommand(command as Command);
+        applied = true;
+        assertPersistenceOwner();
+        const saved = await flushByIdChecked(tenant);
+        if (!saved.ok) throw new Error(`applied-but-unsaved: ${saved.failed.join(', ')}; do not repeat the mutation, retry saving`);
+        bridge.reply(id, result);
+      } catch (error) {
+        const message = String((error as Error)?.message ?? error);
+        bridge.reply(id, undefined, applied ? (message.startsWith('applied-but-unsaved:') ? message : `applied-but-unsaved: ${message}`) : (message.startsWith('not-applied:') ? message : `not-applied: ${message}`));
+      }
+    });
   });
 
   push(); // initial snapshot

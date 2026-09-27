@@ -6,7 +6,7 @@
 // module so the GUI and flux-core stay in lockstep.
 
 import { fileBridge, joinPath } from "../../../../lib/project/types";
-import { bibEntries, bibError, type BibEntry } from "./bib";
+import { bibEntries, bibError, bibSource, type BibEntry } from "./bib";
 import { bumpBibRevision } from "../../../scholar/revisions";
 import { getCite, cslToEntry, lightEntry } from "../../../../lib/references/bibtex";
 import { addToFluxLib, materializeIntoProject } from "../../../../lib/references/fluxlibBridge";
@@ -17,18 +17,24 @@ const BIB_PATH = ["references", "library.bib"];
 
 /** Parse `references/library.bib` (the project's cited subset) into the bib store.
  *  Safe no-op without a project. */
+let bibLoadGeneration = 0;
 export async function loadBib(root: string | null): Promise<void> {
+  const generation = ++bibLoadGeneration;
   const fb = fileBridge();
   if (!root || !fb) return;
   const path = joinPath(root, ...BIB_PATH);
   let text = "";
   try {
     if (!(await fb.exists(path))) {
+      if (generation !== bibLoadGeneration) return;
+      bibSource.set(null);
       bibEntries.set([]);
       return;
     }
     text = await fb.readText(path);
+    if (generation !== bibLoadGeneration) return;
   } catch {
+    if (generation === bibLoadGeneration) bibSource.set(null);
     return;
   }
   // A comment-only / whitespace-only .bib is valid BibLaTeX with zero entries
@@ -38,14 +44,17 @@ export async function loadBib(root: string | null): Promise<void> {
   const atCount = (text.match(/^[ \t]*@/gm) ?? []).length;
   if (!text.trim() || atCount === 0) {
     bibEntries.set([]);
+    bibSource.set({ root, text });
     bibError.set(null);
     return;
   }
   try {
     const Cite = await getCite();
+    if (generation !== bibLoadGeneration) return;
     const cite = new Cite(text);
     const entries = (cite.data as any[]).map(cslToEntry).filter((e) => e.key);
     bibEntries.set(entries);
+    bibSource.set({ root, text });
     // M12: parsed, but a non-empty file yielding nothing usually means malformed
     // entries Citation.js skipped — say so rather than silently showing "no refs".
     bibError.set(
@@ -56,6 +65,8 @@ export async function loadBib(root: string | null): Promise<void> {
           : null,
     );
   } catch (err) {
+    if (generation !== bibLoadGeneration) return;
+    bibSource.set(null);
     console.error("[flux] library.bib parse failed", err);
     bibEntries.set([]);
     bibError.set("Couldn't parse library.bib — check the file for syntax errors.");

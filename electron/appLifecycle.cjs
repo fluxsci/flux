@@ -2,43 +2,37 @@
 // the quit/close flush handshake state machine and the platform menu template —
 // are unit-testable without launching the whole app (scripts/verify-w6-flush.cjs).
 
-/**
- * The quit/close flush handshake. main.cjs holds a window's close, calls
- * `request(win, done)`, and destroys only when `done` fires — which happens
- * either when the renderer acks via `ack(token)` or after `timeoutMs` (so a
- * wedged renderer can never brick quit). One coordinator serves every window;
- * tokens disambiguate concurrent requests.
- */
+/** A close timeout is a blocked save, never permission to discard work.
+ * Results are bound to both an opaque request ID and the initiating renderer. */
 function createFlushCoordinator({ timeoutMs = 2500 } = {}) {
-  let seq = 0;
-  const pending = new Map(); // token → finish()
-
+  const pending = new Map();
   function request(win, done) {
-    // No renderer to flush (already gone / never loaded) → let the close proceed.
+    const requestId = require("node:crypto").randomUUID();
     if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
-      done();
-      return;
+      done({ status: "blocked", reason: "The renderer is unavailable; unsaved work could not be verified.", requestId });
+      return requestId;
     }
-    const token = ++seq;
     let settled = false;
-    const finish = () => {
+    const finish = result => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      pending.delete(token);
-      done();
+      pending.delete(requestId);
+      done({ ...result, requestId });
     };
-    const timer = setTimeout(finish, timeoutMs);
-    pending.set(token, finish);
-    win.webContents.send("app:flush", token);
-    return token;
+    const timer = setTimeout(() => finish({ status: "blocked", reason: "The editor did not finish saving before the close deadline.", timedOut: true }), timeoutMs);
+    pending.set(requestId, { senderId: win.webContents.id, finish });
+    try { win.webContents.send("app:flush", { requestId, scope: "window-close" }); }
+    catch (error) { finish({ status: "blocked", reason: `The editor could not be contacted: ${error.message}` }); }
+    return requestId;
   }
-
-  function ack(token) {
-    const finish = pending.get(token);
-    if (finish) finish();
+  function ack(senderId, result) {
+    if (!result || typeof result.requestId !== "string" || !["saved", "blocked"].includes(result.status)) return false;
+    const request = pending.get(result.requestId);
+    if (!request || request.senderId !== senderId) return false;
+    request.finish({ status: result.status, reason: typeof result.reason === "string" ? result.reason.slice(0, 2000) : undefined });
+    return true;
   }
-
   return { request, ack, pendingCount: () => pending.size };
 }
 

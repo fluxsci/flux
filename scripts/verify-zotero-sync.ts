@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { tsxCli } from "./lib/tsxRun.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -182,6 +183,13 @@ async function main() {
   ok(!!lazy && lazy.includes("FluxReader Fixture"), "getOrExtractFulltext backfills through the pointer");
   ok(fs.existsSync(path.join(greenDir, "fulltext.txt")), "backfilled text is cached to fulltext.txt");
 
+  const incomplete = await refs.zoteroSync({});
+  ok(!incomplete.skipped && incomplete.summary.failed === 1, "an incomplete attachment sweep remains retryable without a bib rewrite");
+  fs.renameSync(path.join(store3, "Brown2023.moved.pdf"), path.join(store3, "Brown2023.pdf"));
+  const recovered = await refs.zoteroSync({});
+  ok(!recovered.skipped && recovered.summary.failed === 0, "restored attachment completes retry using the same bib bytes");
+  ok(Buffer.compare((await items.readPdf("brownDeepThings2023"))!, samplePdf) === 0, "retry publishes the exact restored PDF bytes");
+
   // --- pass 6: the stat short-circuit — unchanged export skips from a stat alone ----------
   const state1 = parseZoteroSyncState(fs.readFileSync(zoteroSyncStatePath(lib), "utf8"));
   ok(!!state1 && state1.bibPath === bibPath, "success stamped the fingerprint state file");
@@ -201,7 +209,7 @@ async function main() {
   ok(!!state2 && state2.mtimeMs !== state1?.mtimeMs, "re-sync re-stamped the fingerprint");
 
   // --- the real CLI executes the verb (stored settings; no flags → skip render) -----------
-  const tsx = path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+  const tsx = tsxCli();
   const cliArgs = [tsx, path.join(repoRoot, "flux-cli.ts"), "zotero-sync"];
   const cli = spawnSync(process.execPath, cliArgs, { cwd: repoRoot, encoding: "utf8", env: { ...process.env } });
   ok(cli.status === 0, `CLI zotero-sync exits 0 (${cli.status})`, cli.stderr?.slice(0, 300));

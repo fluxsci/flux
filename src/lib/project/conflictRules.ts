@@ -17,6 +17,10 @@ export {
 export interface SyncConflict {
   /** Project-relative path of the conflict COPY. */
   rel: string;
+  /** Absent for the open project. Set when the copy lives in the machine-global reference
+   *  library (FluxLib): the absolute root `rel`/`base` are relative to. Library conflicts are
+   *  archived on resolution, never deleted (see conflicts.ts). */
+  libraryRoot?: string;
   /** Project-relative path of the file it conflicts with (may no longer exist). */
   base: string;
   /** Local timestamp the losing side was written, "YYYY-MM-DD HH:MM:SS". */

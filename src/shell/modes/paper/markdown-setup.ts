@@ -15,7 +15,6 @@ import {
 } from "@codemirror/view";
 import {
   history,
-  historyKeymap,
   defaultKeymap,
   indentWithTab,
 } from "@codemirror/commands";
@@ -27,6 +26,7 @@ import type { Extension } from "@codemirror/state";
 import { fluxTheme, fluxHighlight } from "./flux-theme";
 import { livePreview } from "./live-preview/livePreview";
 import { caretFeel } from "./editing/caretFeel";
+import { paperHistoryKeymap } from "./historyKeys";
 
 // PAP-10: a themed find/replace panel (Cmd/Ctrl-F). CodeMirror ships the behavior; this just
 // dresses the panel in the manuscript surface's tokens so it doesn't look like a raw browser box.
@@ -100,6 +100,6 @@ export function createEditorExtensions(
     EditorView.scrollMargins.of(() => ({ top: 84, bottom: 96 })),
     opts.livePreview === false ? [] : livePreview,
     opts.extra ?? [],
-    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
+    keymap.of([...searchKeymap, ...defaultKeymap, ...paperHistoryKeymap, ...foldKeymap, indentWithTab]),
   ];
 }

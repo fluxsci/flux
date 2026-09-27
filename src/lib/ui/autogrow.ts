@@ -1,14 +1,8 @@
 // autogrow — size a <textarea> to its content so it never scrolls internally.
 //
-// Built for the caption editor, where the requirement is that every caption is
-// fully visible on open and the PAGE scrolls between blocks (CaptionEditor.svelte).
-// Reusable for any textarea that should grow with its text.
-//
-// Measurement rule: layout properties only (scrollHeight/clientHeight), never
-// getBoundingClientRect. The caption page lives inside a `transform: scale(zoom)`
-// world-space layer; layout values are pre-transform (what we want to write back)
-// while gBCR is transform-scaled and would corrupt the fit at any zoom ≠ 1. The
-// corollary is that a zoom change needs no re-fit at all.
+// Figure-Meta fields grow while their column scrolls. Layout measurements stay
+// independent of canvas zoom. Reconnect observers after a move into a utility
+// document: its window may keep painting while the opener is hidden.
 
 /** Extra px added to the measured height. scrollHeight is an integer while line
  *  boxes are fractional (13px × 1.45 = 18.85px), so the rounded value can land
@@ -65,9 +59,7 @@ export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
   let last = { value: params.value, fs: params.fs };
   if (params.onFit) fitCallbacks.set(node, params.onFit);
 
-  // Height is measured with box-sizing: border-box and no border/padding on the
-  // element (see .cap-text) — if a border is ever added here, the block border
-  // width has to be added to the written height.
+  // scrollHeight includes padding; ROUND_SLACK also covers the 1px borders.
   const fit = () => {
     node.style.height = "0px";
     node.style.height = `${node.scrollHeight + ROUND_SLACK}px`;
@@ -89,13 +81,20 @@ export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
   // Chrome's "ResizeObserver loop completed with undelivered notifications"
   // console error — which the verify harness treats as a failure.
   let lastWidth = 0;
-  const ro = new ResizeObserver((entries) => {
-    const w = entries[0]?.contentRect.width ?? 0;
-    if (w === lastWidth) return;
-    lastWidth = w;
-    queueFit(node);
-  });
-  ro.observe(node);
+  let ro: ResizeObserver;
+  function reconnect() {
+    ro?.disconnect();
+    const owner = node.ownerDocument.defaultView as Window & typeof globalThis;
+    ro = new owner.ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w === lastWidth) return;
+      lastWidth = w; queueFit(node);
+    });
+    lastWidth = 0; ro.observe(node); queueFit(node);
+    void node.ownerDocument.fonts?.ready.then(() => { if (node.isConnected) queueFit(node); });
+  }
+  reconnect();
+  node.addEventListener('flux:document-change', reconnect);
 
   // Georgia does not exist on Linux, so captions render in bundled Gelasio with
   // font-display: swap. A cold cache measures fallback metrics and then re-wraps.
@@ -121,6 +120,7 @@ export function autogrow(node: HTMLTextAreaElement, params: AutogrowParams) {
     destroy() {
       node.removeEventListener("input", onInput);
       ro.disconnect();
+      node.removeEventListener("flux:document-change", reconnect);
       live.delete(node);
       pending.delete(node);
       fitCallbacks.delete(node);

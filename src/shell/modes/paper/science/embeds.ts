@@ -1,3 +1,4 @@
+import { protectedDocumentSpans } from "../../../../lib/manuscript/documentContext";
 // Inline figure embeds (Flux_Paper_Plan.md B2/B4). A canonical Quarto figure
 // line — `![Caption](../fig/renders/<id>.svg){#fig-<id> width=60%}` — renders
 // as the actual figure (live, from figureToSvg) in a block widget placed AFTER
@@ -292,8 +293,12 @@ class FigureEmbedWidget extends WidgetType {
 function build(state: EditorState): DecorationSet {
   paperPerf.embeds++;
   const deco: Range<Decoration>[] = [];
+  const protectedSpans = protectedDocumentSpans(state.doc.toString());
+  let protectedIndex = 0;
   for (let i = 1; i <= state.doc.lines; i++) {
     const line = state.doc.line(i);
+    while (protectedIndex < protectedSpans.length && protectedSpans[protectedIndex].to <= line.from) protectedIndex++;
+    if (protectedSpans[protectedIndex]?.from <= line.from) continue;
     if (line.length === 0) continue;
     if (line.text.indexOf("![") < 0) continue; // fast-bail before the regex
     const m = EMBED_RE.exec(line.text);
@@ -316,7 +321,7 @@ function build(state: EditorState): DecorationSet {
 // a `![` on a touched line (old or new), a newline, or an edit within one
 // line of an existing embed decoration. Prose keystrokes map the set instead
 // of walking the whole doc. Conservative by construction (changeGate.ts).
-const EMBED_GATE = { tokens: ["!["], guardLines: 1 } as const;
+const EMBED_GATE = { tokens: ["![", "```", "~~~", "$$", "<!--", "-->", "---"], guardLines: 1 } as const;
 
 export const scienceEmbeds = StateField.define<DecorationSet>({
   create: (state) => build(state),

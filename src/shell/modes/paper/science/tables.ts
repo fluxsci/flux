@@ -357,7 +357,7 @@ function build(state: EditorState): DecorationSet {
 // keystroke, not mid-"---" — hyphen is too common in prose to be a trigger
 // token. setTableNumbers republishes exactly when a construct can change —
 // behavior identical (changeGate.ts).
-const TABLE_GATE = { tokens: ["|", ":-", "```", "~~~"], guardLines: 2 } as const;
+const TABLE_GATE = { tokens: ["|", ":-", "```", "~~~", "$$", "\\[", "\\]"], guardLines: 2 } as const;
 
 export const scienceTables = StateField.define<DecorationSet>({
   create: (state) => build(state),

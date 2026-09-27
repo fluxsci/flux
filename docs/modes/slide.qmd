@@ -244,10 +244,25 @@ Video clips belong to Slide mode; Figure canvases continue to support static con
 
 # Export
 
-**Export** writes the deck to **one self-contained `.html`** in the project's `exports/` —
-every slide, beat, animation, transform, and font, playing in any web browser with the same keys
-as Present mode. No Flux on the presenting machine, no network, nothing to install: open the
-file, give the talk.
+**Export ▾** offers three formats, each written to the project's `exports/`:
+
+- **HTML** — **one self-contained `.html`** with every slide, beat, animation, transform, and
+  font, playing in any web browser with the same keys as Present mode. No Flux on the
+  presenting machine, no network, nothing to install: open the file, give the talk.
+- **PDF** — one page per slide, showing the slide with every build step applied: a handout or
+  a copy to send before the talk (`<deck>.pdf`). Plots and text stay sharp at any zoom.
+- **PDF, each step** — one page per build step, so a slide that reveals three things becomes
+  three pages (`<deck>-steps.pdf`).
+- **PowerPoint** — an editable `.pptx` (`<deck>.pptx`). Text arrives as real text boxes (bold,
+  italic, colour, superscript and subscript kept), and rectangles, ellipses, lines, arrows and
+  drawn paths as real PowerPoint shapes you can restyle. Plots arrive as **vector** pictures:
+  right-click one and choose **Convert to Shape** (**Group ▸ Ungroup** in older versions) to
+  edit its individual lines, points and labels.
+
+Pages and slides are exactly the stage's shape; PowerPoint slides are the standard 13.33-inch
+width. These formats cannot play, so videos show their poster frame and animations show where
+they end; a PowerPoint slide shows each slide with every build step applied. Fonts that are not
+installed on the other computer (such as Gelasio) are replaced by PowerPoint.
 
 **Video…** exports the **current slide** and all of its animation steps as one continuous
 `.mp4`. Set **Delay between steps**, **Hold at start**, and **Hold at end**, then choose
@@ -306,4 +321,5 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
 | A plot Become crossfades instead of morphing its data | The plots have incompatible structures → use matching series ids, point counts and axis scales for continuous data morphing |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
+| "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | An older Flux mistook a reload overtaken by the agent’s next edit for a bad file → update Flux; the deck on disk is intact, so reopening it shows the agent’s version |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

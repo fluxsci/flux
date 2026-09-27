@@ -94,15 +94,31 @@ try {
     );
   }
 
-  // ---- (b) flux help golden --------------------------------------------------------
+  // Help flags derive from the registry. Assert capability/arguments, not prose layout.
   const help = await runCli(["help"]);
   const helpText = help.out + help.err;
-  if (REGEN) {
-    await fs.writeFile(HELP_GOLDEN, helpText);
-    ok(`REGENERATED ${path.basename(HELP_GOLDEN)} (${helpText.split("\n").length} lines)`);
-  } else {
-    const golden = await fs.readFile(HELP_GOLDEN, "utf8");
-    assert(helpText === golden, "flux help matches the golden text");
+  assert(help.code === 0 && !help.err, 'CLI help succeeds without stderr');
+  // One `--help` costs a full CLI cold start (~1.2s on Windows), and there are 122
+  // of them: run sequentially this single loop WAS the gate's whole runtime and it
+  // blew the 180s budget under `--jobs 4`. They are independent read-only
+  // invocations, so they go four at a time; the assertions still fire in verb
+  // order so the log and any failure read exactly as before.
+  const helps = new Array<{ out: string; err: string; code: number }>(VERBS.length);
+  {
+    let next = 0;
+    const worker = async () => { for (let i = next++; i < VERBS.length; i = next++) helps[i] = await runCli([VERBS[i].cli, '--help']); };
+    await Promise.all(Array.from({ length: Math.min(4, VERBS.length) }, worker));
+  }
+  for (const [i, v] of VERBS.entries()) {
+    const detailed = helps[i];
+    assert(detailed.code === 0 && detailed.out.includes(v.cli) && v.cliArgs.filter(s => s.kind === 'flag').every(s => detailed.out.includes(`--${s.at}`)), `${v.cli}: help exposes every declared flag`);
+  }
+
+  {
+    const empty = await client.callTool({name:'add_to_library',arguments:{}});
+    const conflict = await client.callTool({name:'add_to_library',arguments:{doi:'10.1234/fixture',bibtex:'@article{x,title={Fixture}}'}});
+    const cli = await runCli(['lib-add']);
+    assert(empty.isError && conflict.isError && cli.code === 1, 'empty/contradictory library input is validation failure on both real surfaces');
   }
 
   // ---- (c) representative parity: success strings + error taxonomy ------------------

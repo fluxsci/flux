@@ -1,9 +1,12 @@
+import { xmlEscape as esc } from "./xml";
+import { passivePaint } from "./plot/passiveSvg";
 import type { Element, Figure, ImageElement, TextElement } from "./types";
 import { lineRender, elementBBox, dashAttr } from "./geometry";
 import { pathRender } from "./path";
 import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
+import { resolvedRunStyle, scriptMetrics, type TextSegment } from "./textRuns";
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
@@ -11,13 +14,6 @@ function dashA(e: { dash?: number[] }): string {
   return v ? ` stroke-dasharray="${v}"` : "";
 }
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 // Wrap markup with the element's rotation + flip about its centre. (Named `rot`
 // for history; it now also handles flipX/flipY so callers stay unchanged.)
@@ -49,6 +45,24 @@ export interface TextSpan {
   x: number;
   dy: number;
   textLength?: number;
+  /** Present only when per-range formatting touches this line: the pieces to
+   *  nest inside the line's own tspan, each carrying whatever differs from the
+   *  element. Absent means the line is one plain string, exactly as before. */
+  segments?: TextSegment[];
+}
+
+/** The attributes a segment needs on top of the element's own — nothing at all
+ *  for a piece that already looks like the element, which is what keeps an
+ *  unformatted text's SVG byte-identical. */
+export function segmentAttrs(e: TextElement, segment: TextSegment): Record<string, string> {
+  const style = resolvedRunStyle(e, segment);
+  const attrs: Record<string, string> = {};
+  if (style.fontWeight !== e.fontWeight) attrs["font-weight"] = String(style.fontWeight);
+  if (style.fontStyle !== e.fontStyle) attrs["font-style"] = style.fontStyle;
+  if (style.underline !== !!e.underline) attrs["text-decoration"] = style.underline ? "underline" : "none";
+  if (segment.color !== undefined && style.color !== undefined && style.color.toLowerCase() !== e.color.toLowerCase()) attrs.fill = passivePaint(style.color);
+  if (segment.script === "super" || segment.script === "sub") attrs["font-size"] = String(scriptMetrics(segment.script, e.fontSize).size);
+  return attrs;
 }
 
 /** Shared text presentation for SVG serialization and cached slide bindings.
@@ -71,7 +85,7 @@ export function textSvgLayout(e: TextElement): {
       ...(e.fontStyle === "italic" ? { "font-style": "italic" } : {}),
       ...(e.underline ? { "text-decoration": "underline" } : {}),
       ...(track ? { "letter-spacing": String(track) } : {}),
-      fill: e.color, "text-anchor": L.anchor,
+      fill: passivePaint(e.color), "text-anchor": L.anchor,
       ...(e.opacity != null && e.opacity < 1 ? { opacity: String(e.opacity) } : {}),
     },
     lines: L.lines.map((ln) => ln.text),
@@ -80,6 +94,7 @@ export function textSvgLayout(e: TextElement): {
       x: L.x,
       dy: ln.dy,
       ...(ln.justifyWidth != null ? { textLength: ln.justifyWidth } : {}),
+      ...(ln.segments ? { segments: ln.segments } : {}),
     })),
     x: L.x,
     advance: lineH(e),
@@ -105,7 +120,7 @@ function croppedImage(
     `viewBox="${e.crop.x} ${e.crop.y} ${e.crop.width} ${e.crop.height}" ` +
     `preserveAspectRatio="none" overflow="hidden"${op(e)}>` +
     `<image x="0" y="0" width="${disp.width}" height="${disp.height}" ` +
-    `preserveAspectRatio="none" href="${href}"/></svg>`
+    `preserveAspectRatio="none" href="${esc(href)}"/></svg>`
   );
 }
 
@@ -132,7 +147,7 @@ export function elementToSvg(
       return rot(
         e,
         `<image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
-          `preserveAspectRatio="none" href="${href}"${op(e)}/>`,
+          `preserveAspectRatio="none" href="${esc(href)}"${op(e)}/>`,
       );
     }
     case "image": {
@@ -144,7 +159,7 @@ export function elementToSvg(
       return rot(
         e,
         `<image x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
-          `preserveAspectRatio="none" href="${href}"${op(e)}/>`,
+          `preserveAspectRatio="none" href="${esc(href)}"${op(e)}/>`,
       );
     }
     case "rect": {
@@ -156,7 +171,7 @@ export function elementToSvg(
         e,
         paintDefsSvg(P) +
           `<rect x="${e.x}" y="${e.y}" width="${e.width}" height="${e.height}" ` +
-          `rx="${e.cornerRadius}" fill="${P.fill}" stroke="${P.stroke}" ` +
+          `rx="${e.cornerRadius}" fill="${esc(passivePaint(P.fill))}" stroke="${esc(passivePaint(P.stroke))}" ` +
           `stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
       );
     }
@@ -166,8 +181,8 @@ export function elementToSvg(
         e,
         paintDefsSvg(P) +
           `<ellipse cx="${e.x + e.width / 2}" cy="${e.y + e.height / 2}" ` +
-          `rx="${e.width / 2}" ry="${e.height / 2}" fill="${P.fill}" ` +
-          `stroke="${P.stroke}" stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
+          `rx="${e.width / 2}" ry="${e.height / 2}" fill="${esc(passivePaint(P.fill))}" ` +
+          `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}"${dashA(e)}${op(e)}/>`,
       );
     }
     case "line": {
@@ -179,16 +194,16 @@ export function elementToSvg(
       let s =
         paintDefsSvg(P) +
         `<line x1="${e.x + lr.x1}" y1="${e.y + lr.y1}" x2="${e.x + lr.x2}" y2="${e.y + lr.y2}" ` +
-        `stroke="${P.stroke}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linecap="${lr.cap}"${dashA(e)}${op(e)}/>`;
+        `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}" ` +
+        `stroke-linecap="${esc(lr.cap)}"${dashA(e)}${op(e)}/>`;
       for (const tri of lr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${P.heads}"${op(e)}/>`;
+        s += `<polygon points="${pts}" fill="${esc(passivePaint(P.heads))}"${op(e)}/>`;
       }
       for (const v of lr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
-          `<polyline points="${pts}" fill="none" stroke="${P.heads}" ` +
+          `<polyline points="${pts}" fill="none" stroke="${esc(passivePaint(P.heads))}" ` +
           `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
       }
       return rot(e, s);
@@ -198,18 +213,18 @@ export function elementToSvg(
       const P = elementPaints(e);
       let s =
         paintDefsSvg(P) +
-        `<path d="${pr.d}" fill="${P.fill}" ` +
-        `stroke="${P.stroke}" stroke-width="${e.strokeWidth}" ` +
-        `stroke-linejoin="round" stroke-linecap="${e.cap ?? "round"}"${dashA(e)}${op(e)} ` +
+        `<path d="${esc(pr.d)}" fill="${esc(passivePaint(P.fill))}" ` +
+        `stroke="${esc(passivePaint(P.stroke))}" stroke-width="${e.strokeWidth}" ` +
+        `stroke-linejoin="round" stroke-linecap="${esc(e.cap ?? "round")}"${dashA(e)}${op(e)} ` +
         `transform="translate(${e.x} ${e.y})"/>`;
       for (const tri of pr.polys) {
         const pts = tri.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
-        s += `<polygon points="${pts}" fill="${P.heads}"${op(e)}/>`;
+        s += `<polygon points="${pts}" fill="${esc(passivePaint(P.heads))}"${op(e)}/>`;
       }
       for (const v of pr.vees) {
         const pts = v.map(([px, py]) => `${e.x + px},${e.y + py}`).join(" ");
         s +=
-          `<polyline points="${pts}" fill="none" stroke="${P.heads}" ` +
+          `<polyline points="${pts}" fill="none" stroke="${esc(passivePaint(P.heads))}" ` +
           `stroke-width="${e.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${op(e)}/>`;
       }
       return rot(e, s);
@@ -223,12 +238,31 @@ export function elementToSvg(
       const { attrs, spans } = textSvgLayout(e);
       const P = elementPaints(e);
       if (P.defs.length) attrs.fill = P.fill;
+      // A formatted line nests one tspan per differing piece. The nested tspans
+      // carry NO x: that would restart the line at the anchor instead of
+      // continuing it, and the justification stays on the line's own tspan.
+      const content = (sp: (typeof spans)[number]) =>
+        sp.segments
+          ? sp.segments
+              .map((seg) => {
+                const segAttrs = Object.entries(segmentAttrs(e, seg));
+                // `dx` is the justified word gap — an ordinary tspan offset, so
+                // it survives every renderer that can place a tspan at all.
+                if (seg.dx != null) segAttrs.unshift(["dx", String(seg.dx)]);
+                // A superscript/subscript's baseline offset (and the way back).
+                if (seg.dy != null) segAttrs.unshift(["dy", String(seg.dy)]);
+                return segAttrs.length
+                  ? `<tspan ${segAttrs.map(([name, value]) => `${name}="${esc(value)}"`).join(" ")}>${esc(seg.text)}</tspan>`
+                  : esc(seg.text);
+              })
+              .join("")
+          : esc(sp.text);
       const tspans = spans
         .map(
           (sp) =>
             `<tspan x="${sp.x}" dy="${sp.dy}"` +
             (sp.textLength != null ? ` textLength="${sp.textLength}" lengthAdjust="spacing"` : "") +
-            `>${esc(sp.text)}</tspan>`,
+            `>${content(sp)}</tspan>`,
         )
         .join("");
       return rot(
@@ -264,6 +298,9 @@ export function figureToSvg(
     groupId?: string;
   },
 ): string {
+  if (fig.background != null && typeof fig.background !== 'string') throw new Error(`Invalid figure background: ${fig.id}`);
+  for (const key of ['x','y','width','height'] as const) if (!Number.isFinite(fig[key])) throw new Error(`Invalid figure ${key}: ${fig.id}`);
+
   const nodeToSvg = (n: RenderNode): string => {
     if (n.kind === "element") {
       // Layers eyes: an element hidden itself OR by any ancestor GROUP's eye
@@ -327,7 +364,7 @@ export function figureToSvg(
   const body = tree.map(nodeToSvg).filter(Boolean).join("\n  ");
   const bg =
     fig.background && fig.background !== "transparent"
-      ? `<rect x="0" y="0" width="${fig.width}" height="${fig.height}" fill="${fig.background}"/>\n  `
+      ? `<rect x="0" y="0" width="${fig.width}" height="${fig.height}" fill="${esc(passivePaint(fig.background))}"/>\n  `
       : "";
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" ` +

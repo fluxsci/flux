@@ -28,7 +28,8 @@ const bridge = {
   exists: (p: string) => fs.access(p).then(() => true, () => false),
   readText: (p: string) => fs.readFile(p, "utf8"),
   writeText: (p: string, t: string) => fs.writeFile(p, t),
-  readFile: async (p: string) => (await fs.readFile(p)).buffer,
+  readFile: async (p: string) => { const b=await fs.readFile(p); return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength); },
+  remove: (p:string) => fs.rm(p,{force:true}),
   writeFile: (p: string, b: Uint8Array) => fs.writeFile(p, b),
   mkdir: (p: string) => fs.mkdir(p, { recursive: true }).then(() => {}),
 };
@@ -49,8 +50,12 @@ async function writeFixture(root: string) {
   await fs.mkdir(path.join(root, "fig", "captions"), { recursive: true });
   await fs.writeFile(
     path.join(root, "project.json"),
-    JSON.stringify({ formatVersion: "0.1.0", title: "Parity", figures: [] }, null, 2) + "\n",
+    JSON.stringify({ schemaVersion: "0.1.0", id:"parity", title: "Parity", manuscript:{path:"paper/notes.qmd"},references:{library:"bib/library.bib"},figures: [] }, null, 2) + "\n",
   );
+  await fs.mkdir(path.join(root,"fig","assets"),{recursive:true});
+  await fs.writeFile(path.join(root,"fig","assets","asset1.svg"),'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+  const {Resvg}=await import('@resvg/resvg-js');
+  await fs.writeFile(path.join(root,"fig","assets","asset2.png"),new Resvg('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480"/></svg>').render().asPng());
   // Index: canvases listed OUT OF ORDER (order beats array position), one
   // agent-set supplementary kind, one agent-authored label, LEGACY asset
   // entries (missing name/sizes; one with dpi).
@@ -72,7 +77,7 @@ async function writeFixture(root: string) {
           { id: "asset2", kind: "png", path: "assets/asset2.png", name: "shot", naturalWidth: 640, naturalHeight: 480, dpi: 144 },
         ],
         palette: ["#112233"],
-        colorGroups: [{ id: "g1", name: "Grays", colors: ["#888888"] }],
+        colorGroups: [{ id: "g1", name: "Grays", swatches: [{name:"Gray",hex:"#888888"}] }],
         textStyles: [],
       },
       null,

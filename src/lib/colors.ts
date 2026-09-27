@@ -4,6 +4,17 @@ import { project, selection, partSelection, partSelections, drawStyle, commit, m
 import { selectionTargets } from "./interact/selectionTargets";
 import { makeGradientFill } from "./color/collections";
 import * as ops from "./ops";
+import { activeTextRange } from "./textEditRange";
+import { rangeColor } from "./textRuns";
+
+/** Letters selected inside one editable text box: colour controls paint those
+ *  letters, not the box (textEditRange.ts). */
+function editableTextRange() {
+  const hit = activeTextRange();
+  if (!hit) return null;
+  const id = hit.range.id;
+  return get(project).figures.some((f) => selectionTargets(f, new Set([id]), { editable: true }).some((e) => e.id === id)) ? hit : null;
+}
 
 // Whether palette clicks set fill or stroke.
 export const colorTarget = writable<"fill" | "stroke">("fill");
@@ -49,6 +60,13 @@ export function applyColor(hex: string, target = get(colorTarget), preview = fal
     return;
   }
   const sel = get(selection);
+  const ranged = editableTextRange();
+  if (ranged) {
+    if (none) return; // text colour never blanks, per range as for the box
+    const { id, from, to } = ranged.range;
+    (preview ? mutate : commit)((p) => ops.setTextRunColor(p, id, from, to, hex));
+    return;
+  }
   if (sel.size === 0) {
     drawStyle.update((s) =>
       target === "fill"
@@ -92,6 +110,9 @@ export function applyColor(hex: string, target = get(colorTarget), preview = fal
 // element's solid colour stays underneath as the fallback for an unknown map.
 export function applyColormap(map: string, axis: GradientFill["axis"], target = get(colorTarget), preview = false): boolean {
   if (get(partSelection)) return false;
+  // A gradient spans a whole box; with letters selected it declines rather than
+  // repaint every letter the user did not select.
+  if (editableTextRange()) return false;
   const sel = get(selection);
   if (sel.size === 0) return false;
   // the stops are resolved here, once, and stored on each element (self-contained)
@@ -170,6 +191,8 @@ export function currentColor(target: "fill" | "stroke"): string {
           if (typeof v === "string") return v;
         }
   }
+  const ranged = activeTextRange(p, sel);
+  if (ranged) return rangeColor(ranged.element, ranged.range.from, ranged.range.to) ?? ranged.element.color;
   for (const f of p.figures)
     for (const e of f.elements) {
       if (!sel.has(e.id)) continue;

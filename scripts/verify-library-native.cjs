@@ -1,0 +1,120 @@
+// Real application/preload + two renderers + Node mutate one disposable library.
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict'),{spawn,execFileSync}=require('node:child_process');
+const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'flux-library-native-'));
+process.env.HOME=path.join(scratch,'home');process.env.USERPROFILE=process.env.HOME;process.env.XDG_CONFIG_HOME=path.join(scratch,'config');process.env.APPDATA=path.join(scratch,'appdata');process.env.FLUX_NO_MIGRATE='1';
+for(const p of [process.env.HOME,process.env.XDG_CONFIG_HOME,process.env.APPDATA])fs.mkdirSync(p,{recursive:true});
+const lib=path.join(process.env.HOME,'FluxConfig','FluxLib');fs.mkdirSync(path.join(lib,'.fluxlib'),{recursive:true});fs.writeFileSync(path.join(lib,'library.bib'),'@article{paper,title={Native fixture}}\n');
+const organization=path.join(lib,'.fluxlib','organize.json');fs.writeFileSync(organization,JSON.stringify({version:1,items:{paper:{tags:['initial']}}}));
+process.env.VITE_DEV_SERVER_URL=process.env.FLUX_URL||'http://127.0.0.1:1420/';
+const {app,BrowserWindow,dialog}=require('electron');app.disableHardwareAcceleration();
+const dialogs=[];dialog.showMessageBox=async(_window,options)=>{dialogs.push(options);return {response:1,checkboxChecked:false};};
+const timer=setTimeout(()=>{fs.writeSync(2,'NATIVE LIBRARY timeout\n');app.exit(2);},60000);
+try{require('../electron/main.cjs');}catch(error){clearTimeout(timer);fs.writeSync(2,String(error.stack||error));app.exit(1);}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function wait(fn,label){const end=Date.now()+25000;while(Date.now()<end){try{const result=await fn();if(result)return result;}catch{}await sleep(100);}throw Error(`timeout ${label}`);}
+let phase="startup";
+const progress=value=>{phase=value;fs.writeSync(1,`NATIVE LIBRARY phase: ${value}\n`);};
+const js=(win,code)=>new Promise((resolve,reject)=>{const deadline=setTimeout(()=>reject(new Error(`renderer command timeout during ${phase}: ${code.slice(0,100)}`)),12000);win.webContents.executeJavaScript(code).then(value=>{clearTimeout(deadline);resolve(value);},error=>{clearTimeout(deadline);reject(error);});});
+const node=code=>new Promise((resolve,reject)=>{const child=spawn(process.execPath,['--import','tsx','-e',code],{cwd:path.join(__dirname,'..'),env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},stdio:['ignore','pipe','pipe']});let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);child.once('error',reject);child.once('close',code=>code===0?resolve(output):reject(Error(output)));});
+app.whenReady().then(async()=>{
+ const a=await wait(()=>BrowserWindow.getAllWindows()[0],'window A');await wait(()=>js(a,'!!window.fig?.lockAcquire'),'preload A');
+ await js(a,'window.fig.newWindow()');const b=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==a),'window B');await wait(()=>js(b,'!!window.fig?.lockAcquire'),'preload B');
+ for(const w of [a,b])await js(w,'window.__changes=[];window.fig.onFsChanged(event=>window.__changes.push(event));window.fig.watchRoot(null)');
+ // Complete a real watcher handshake before competing writes; Home otherwise has no project watcher yet.
+ let watcherProbeAt=0;await wait(async()=>{if(Date.now()-watcherProbeAt>1000){watcherProbeAt=Date.now();fs.writeFileSync(path.join(lib,'library.bib'),'@article{paper,title={Native fixture '+Date.now()+'}}\n');}return await js(b,'window.__changes.some(event=>event.subsystem==="fluxlib")');},'global watcher ready');
+ for(const w of [a,b])await js(w,'window.__changes=[]');
+ const lease=await js(a,'window.fig.lockAcquire("fluxlib","library")');assert(lease.ok&&lease.token);
+ assert.equal((await js(b,'window.fig.lockAcquire("fluxlib","library")')).ok,false,'other human renderer contends');
+ const stolen=await js(b,`window.fig.lockRelease('fluxlib','library',${JSON.stringify(lease.token)}).then(value=>value).catch(()=>false)`);assert.equal(stolen,false,'foreign sender cannot release owner lease');
+ assert.equal(await js(a,`window.fig.lockCheck('fluxlib','library',${JSON.stringify(lease.token)})`),true);
+ await js(a,`window.fig.lockRelease('fluxlib','library',${JSON.stringify(lease.token)})`);
+ progress('native focused Reader context');
+ a.focus();await wait(()=>a.isFocused(),'window A native focus');
+ const contextA=await js(a,`window.fig.readerContextClaim({root:${JSON.stringify(lib)},owner:'native-A'})`);assert(contextA?.token);
+ assert.equal(await js(a,`window.fig.readerContextPublish({token:${JSON.stringify(contextA.token)},generation:1,context:{citekey:'paper',selection:'exact native A scientific context',updatedAt:new Date().toISOString()}})`),true);
+ const contextPath=path.join(lib,'.fluxlib','reader-context.json');assert.equal(JSON.parse(fs.readFileSync(contextPath,'utf8')).selection,'exact native A scientific context');
+ assert.equal(await js(b,`window.fig.readerContextRelease(${JSON.stringify(contextA.token)})`),false,'foreign context release refused');
+ a.blur();await wait(()=>!a.isFocused(),'external-agent focus leaves Flux');
+ assert.equal(await js(a,`window.fig.readerContextRenew({token:${JSON.stringify(contextA.token)},generation:2})`),true);
+ const outsideContext=JSON.parse(fs.readFileSync(contextPath,'utf8'));assert.equal(outsideContext.selection,'exact native A scientific context');assert.equal(outsideContext.foreground,false);
+ const externalAgentRead=await node(`import('./flux-core/items.ts').then(async m=>console.log(JSON.stringify(await (m.readReaderContext||m.default?.readReaderContext)(${JSON.stringify(lib)}))))`);
+ assert.equal(JSON.parse(externalAgentRead.trim()).selection,'exact native A scientific context','external agent retains actual last-reader selection after OS blur');
+ b.focus();await wait(()=>b.isFocused(),'window B native focus');
+ const contextB=await js(b,`window.fig.readerContextClaim({root:${JSON.stringify(lib)},owner:'native-B'})`);assert(contextB?.token);
+ assert.equal(await js(b,`window.fig.readerContextPublish({token:${JSON.stringify(contextB.token)},generation:1,context:{citekey:'paper',selection:'exact native B scientific context',updatedAt:new Date().toISOString()}})`),true);
+ assert.equal(await js(a,`window.fig.readerContextPublish({token:${JSON.stringify(contextA.token)},generation:2,context:{citekey:'paper',selection:'stale native A',updatedAt:new Date().toISOString()}})`),false);
+ assert.equal(await js(a,`window.fig.readerContextRelease(${JSON.stringify(contextA.token)})`),false);
+ assert.equal(JSON.parse(fs.readFileSync(contextPath,'utf8')).selection,'exact native B scientific context','late old pane cannot write or clear new focused context');
+ assert.equal(await js(b,`window.fig.readerContextRelease(${JSON.stringify(contextB.token)})`),true);assert.equal(JSON.parse(fs.readFileSync(contextPath,'utf8')).citekey,'');
+ progress('concurrent mutations');
+ const mutate=tag=>`import('/src/lib/references/organizeBridge.ts').then(m=>m.organizeAddTag('paper',${JSON.stringify(tag)}))`;
+ await Promise.all([js(a,mutate('window-a')),js(b,mutate('window-b')),node(`import('./flux-core/fluxlib.ts').then(m=>(m.organizeBulkAddTag||m.default?.organizeBulkAddTag)(['paper'],'node',${JSON.stringify(lib)}))`)]);
+ const saved=JSON.parse(fs.readFileSync(organization,'utf8'));assert.deepEqual(saved.items.paper.tags.slice().sort(),['initial','node','window-a','window-b']);
+ for(const w of [a,b])await js(w,'window.__changes=[]');
+ await node(`import('./flux-core/fluxlib.ts').then(m=>(m.organizeSetStatus||m.default?.organizeSetStatus)('paper','reading',${JSON.stringify(lib)}))`);
+ await wait(async()=>await js(a,'window.__changes.some(event=>event.path.endsWith("organize.json"))')&&await js(b,'window.__changes.some(event=>event.path.endsWith("organize.json"))'),'external Node organization change reaches both windows');
+ const beforeRevocation=fs.readFileSync(organization,'utf8');
+ const originalRead=fs.promises.readFile;let revoked=false;
+ fs.promises.readFile=async(file,...args)=>{const data=await originalRead(file,...args);if(file===organization&&!revoked){revoked=true;fs.unlinkSync(path.join(lib,'.fluxlib','locks','library.json'));}return data;};
+ try{assert.equal(await js(a,`${mutate('lost-owner')}.then(()=>false).catch(error=>/Lost lease|no longer owned/.test(String(error)))`),true);}finally{fs.promises.readFile=originalRead;}
+ assert(revoked);assert.equal(fs.readFileSync(organization,'utf8'),beforeRevocation,'native lost lease cannot publish canonical bytes');
+ const exact='{corrupt preserved canonical bytes';fs.writeFileSync(organization,exact);
+ const blocked=await js(a,`${mutate('unsafe')}.then(()=>false).catch(error=>/canonical/.test(String(error)))`);assert(blocked);assert.equal(fs.readFileSync(organization,'utf8'),exact);
+ progress('native interrupted PDF recovery');
+ const itemDir=path.join(lib,'items','paper');fs.mkdirSync(itemDir,{recursive:true});
+ const recoveredBytes=Buffer.from('%PDF-native recovered scientific bytes'),annotationBytes='{"version":1,"annotations":[],"retained":"exact"}\r\n';
+ const recoverySource={key:'paper',source:'ingest',fetchedAt:'2026-09-21T00:00:00.000Z',sha256:require('node:crypto').createHash('sha256').update(recoveredBytes).digest('hex'),bytes:recoveredBytes.length};
+ fs.writeFileSync(path.join(itemDir,'paper.pdf'),recoveredBytes);fs.writeFileSync(path.join(itemDir,'source.pending.json'),JSON.stringify({version:1,source:recoverySource}));fs.writeFileSync(path.join(itemDir,'fulltext.txt'),'stale preceding scientific text');fs.writeFileSync(path.join(itemDir,'annotations.json'),annotationBytes);
+ const recovered=await js(a,"import('/src/lib/references/itemsBridge.ts').then(m=>m.readerSource('paper'))");
+ assert.equal(recovered.sha256,recoverySource.sha256);assert.deepEqual(fs.readFileSync(path.join(itemDir,'paper.pdf')),recoveredBytes);assert.equal(fs.readFileSync(path.join(itemDir,'annotations.json'),'utf8'),annotationBytes);assert(!fs.existsSync(path.join(itemDir,'source.pending.json'))&&!fs.existsSync(path.join(itemDir,'fulltext.txt')));
+ progress('extracted native capture/read/print families');
+ const captureCount=await js(a,'window.fig.captureCount()');assert.equal(captureCount,0);
+ const extensionInfo=await js(a,'window.fig.captureExtensionInfo()');assert.equal(typeof extensionInfo.dir,'string');assert.equal(typeof extensionInfo.hasDir,'boolean');
+ const searchable=path.join(lib,'items','native-search');fs.mkdirSync(searchable);fs.writeFileSync(path.join(searchable,'fulltext.txt'),'Fortification scientific native family sentinel.');
+ const searchOne=await js(a,'window.fig.searchFulltext("fortification")');assert.deepEqual(searchOne.hits.map(hit=>hit.key),['native-search']);
+ const searchTwo=await js(a,'window.fig.searchFulltext("sentinel")');assert.deepEqual(searchTwo.hits.map(hit=>hit.key),['native-search']);
+ const figurePath=path.join(lib,'native-figure.pdf'),documentPath=path.join(lib,'native-document.pdf');
+ const figureSvg='<svg xmlns="http://www.w3.org/2000/svg" width="320" height="160"><rect x="4" y="4" width="312" height="152" fill="white" stroke="#226644"/><text x="20" y="72" font-size="22">Native scientific figure</text><text x="20" y="110" font-size="18">Intensity = 42.5</text></svg>';
+ const documentHtml='<html><head><style>@page{size:320px 160px;margin:12px}body{font:18px sans-serif}</style></head><body>Native scientific document<p>Control value = 23.75</p><script>document.body.textContent="SCRIPT EXECUTED"</script></body></html>';
+ await Promise.all([js(a,`window.fig.exportPdf(${JSON.stringify(figureSvg)},${JSON.stringify(figurePath)},320,160)`),js(b,`window.fig.printPdf(${JSON.stringify(documentHtml)},${JSON.stringify(documentPath)})`)]);
+ const figureText=execFileSync('pdftotext',[figurePath,'-'],{encoding:'utf8'}),documentText=execFileSync('pdftotext',[documentPath,'-'],{encoding:'utf8'});
+ for(const p of [figurePath,documentPath])assert.equal(fs.readFileSync(p).subarray(0,5).toString(),'%PDF-');
+ assert(figureText.includes('Native scientific figure')&&figureText.includes('42.5'));assert(documentText.includes('Native scientific document')&&documentText.includes('23.75')&&!documentText.includes('SCRIPT EXECUTED'));
+ const figureInfo=execFileSync('pdfinfo',[figurePath],{encoding:'utf8'});assert(/Pages:\s+1/.test(figureInfo)&&/Page size:\s+240 x 120 pts/.test(figureInfo));
+ const oldPdf=fs.readFileSync(figurePath);assert.equal(await js(a,`window.fig.exportPdf('<svg/>',${JSON.stringify(figurePath)},0,160).then(()=>false).catch(()=>true)`),true);assert.deepEqual(fs.readFileSync(figurePath),oldPdf,'failed print preserves prior complete output');
+ let outbound=0;const remote=require('node:http').createServer((_req,res)=>{outbound++;res.end('never requested');});await new Promise(resolve=>remote.listen(0,'127.0.0.1',resolve));
+ try {
+   const address=remote.address(),html=`<html><body>Requires prepared asset<img src="http://127.0.0.1:${address.port}/private-plot.png?credential=not-for-diagnostics"></body></html>`;
+   const failure=await js(a,`window.fig.printPdf(${JSON.stringify(html)},${JSON.stringify(figurePath)}).then(()=>null,error=>String(error))`);
+   assert(failure&&/could not load/.test(failure)&&!failure.includes('not-for-diagnostics'),'missing remote image fails with useful redacted error');assert.equal(outbound,0,'static print does not fetch remote images');assert.deepEqual(fs.readFileSync(figurePath),oldPdf,'missing image preserves exact prior PDF');
+ } finally {await new Promise(resolve=>remote.close(resolve));}
+ const out=process.env.FLUX_OUT||path.join(process.cwd(),'test-results','library-native');fs.mkdirSync(out,{recursive:true});
+ for(const [source,name] of [[figurePath,'native-figure'],[documentPath,'native-document']]){fs.copyFileSync(source,path.join(out,name+'.pdf'));execFileSync('pdftoppm',['-png','-singlefile','-r','144',source,path.join(out,name)]);}
+ const nativeFamilies={captureCount,extensionInfo,fulltextKeys:searchTwo.hits.map(hit=>hit.key),figureText,documentText,figureInfo,failedPrintPreserved:true,unpreparedImageRefused:true,remoteAssetRequests:outbound};
+ progress('recipe owner cancellation');
+ // Native recipe jobs retain sender ownership and terminate their real process family.
+ const recipePath=path.join(lib,'native.recipe.json'),scriptPath=path.join(lib,'native-child.cjs'),pidPath=path.join(lib,'native-pids.json');
+ fs.writeFileSync(scriptPath,`const fs=require('node:fs');const child=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(pidPath)},JSON.stringify([process.pid,child.pid]));setInterval(()=>{},1000);`);
+ fs.writeFileSync(recipePath,JSON.stringify({command:'node',args:[scriptPath],output:'old.svg'}));fs.writeFileSync(path.join(lib,'old.svg'),'<svg>old artifact</svg>');
+ await js(a,`window.__recipe=window.fig.runRecipe(${JSON.stringify(recipePath)},{},{jobId:'native-owned-job'});true`);
+ const pids=await wait(()=>fs.existsSync(pidPath)&&JSON.parse(fs.readFileSync(pidPath,'utf8')),'native recipe process family');
+ assert.equal(await js(b,'window.fig.cancelRecipe("native-owned-job")'),false,'foreign renderer cannot cancel recipe');
+ assert.equal(await js(a,'window.fig.cancelRecipe("native-owned-job")'),true);
+ const recipeResult=await js(a,'window.__recipe');assert.equal(recipeResult.status,'cancelled');assert.notEqual(recipeResult.code,0);assert.equal(recipeResult.svgText,null);
+ await wait(()=>pids.every(pid=>{try{process.kill(pid,0);return process.platform==='linux'&&fs.readFileSync(`/proc/${pid}/stat`,'utf8').split(' ')[2]==='Z';}catch(error){return error.code==='ESRCH'||error.code==='ENOENT';}}),'cancelled recipe descendants');
+ const trust=dialogs.find(d=>d.title==="Run this project's plot recipe?");assert(trust?.detail.includes(JSON.stringify(scriptPath))&&trust.detail.includes(lib));
+ progress('annotation failed close then retry');
+ // Actual root flush receives a retained annotation draft whose native write fails.
+ const blockedPath=path.join(lib,'blocked-note.txt'),notePath=path.join(lib,'saved-note.txt');fs.mkdirSync(blockedPath);
+ await wait(()=>js(a,'!!window.__flux'),'renderer lifecycle');
+ await js(a,`import('/src/shell/modes/reader/annotationDrafts.ts').then(m=>{window.__nrDraft=m.annotationDraft('native-note','native-pane','',text=>window.fig.writeText(${JSON.stringify(blockedPath)},text));window.__nrDraft.text='scientific note retained';window.__nrDraft.dispose();return true;})`);
+ a.close();await wait(()=>dialogs.some(d=>d.title==='Work could not be saved'),'native blocked-close dialog');assert(!a.isDestroyed()&&!b.isDestroyed());
+ assert.equal(await js(a,'window.__nrDraft.text'),'scientific note retained');assert.equal(await js(a,'window.__nrDraft.saved'),'');
+ await js(a,`window.__nrDraft.text+=' and continued editing';window.__nrDraft.persist=async text=>{await new Promise(r=>setTimeout(r,150));await window.fig.writeText(${JSON.stringify(notePath)},text);};true`);
+ a.close();assert(!a.isDestroyed(),'delayed save keeps its window until bytes publish');await wait(()=>a.isDestroyed(),'successful retry close');assert(!b.isDestroyed(),'another window survives a canceled then successful close');
+ assert.equal(fs.readFileSync(notePath,'utf8'),'scientific note retained and continued editing');
+ const closeResult={blockedNativeWrite:true,cancelKeptBothWindows:true,delayedSaveBytes:fs.readFileSync(notePath,'utf8')};
+ fs.writeFileSync(path.join(out,'library-native.json'),JSON.stringify({saved,windowB:await js(b,'window.__changes'),recoverySource:recovered,nativeFamilies,leaseRevocationPreserved:true,focusedContextOwnersPreserved:true,externalAgentBlurPreserved:true,recipe:{status:recipeResult.status,pids,oldArtifactReturned:recipeResult.svgText},closeResult,corruptionPreserved:true,electron:process.versions.electron},null,2));
+ fs.writeSync(1,'NATIVE LIBRARY: PASS — actual two-window + Node concurrent tags, sender-bound lease, cross-window notification, exact corrupt bytes, recipe owner cancel/tree reap, blocked annotation close/retry exact bytes\n');
+ clearTimeout(timer);if(!a.isDestroyed())a.destroy();b.destroy();fs.rmSync(scratch,{recursive:true,force:true});app.exit(0);
+}).catch(error=>{clearTimeout(timer);fs.writeSync(2,String(error.stack||error)+'\n');app.exit(1);});

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { harness } from "./lib/harness.mjs";
+import { fileLinksSupported, fileLinkSkipNote } from "./lib/symlinks.mjs";
 const require = createRequire(import.meta.url);
 const media = require("../electron/videoMedia.cjs");
 const h = harness("verify-slide-video-media");
@@ -25,9 +26,12 @@ try {
   await fs.copyFile(fixture, path.join(root, "plots/_videos/clip.mp4"));
   assert.equal(await media.projectFile(root, "plots/_videos/clip.mp4"), await fs.realpath(path.join(root, "plots/_videos/clip.mp4")));
   for (const relative of ["../../outside.mp4", "/tmp/escape.mp4", "plots\\escape.mp4", "plots/\0evil"]) await assert.rejects(() => media.projectFile(root, relative));
-  await fs.symlink(fixture, path.join(root, "plots/_videos/escape.mp4"));
-  await assert.rejects(() => media.projectFile(root, "plots/_videos/escape.mp4"), /escapes/);
-  h.ok(true, "project-relative paths and symlinks cannot escape their source project");
+  // The symlink half needs a FILE link, which win32 refuses without Developer Mode.
+  if (fileLinksSupported()) {
+    await fs.symlink(fixture, path.join(root, "plots/_videos/escape.mp4"));
+    await assert.rejects(() => media.projectFile(root, "plots/_videos/escape.mp4"), /escapes/);
+    h.ok(true, "project-relative paths and symlinks cannot escape their source project");
+  } else h.ok(true, "project-relative paths cannot escape their source project" + " (" + fileLinkSkipNote("the symlink half") + ")");
   const invalid = path.join(root, "invalid.mov");
   for (const bytes of [Buffer.from("not a video"), Buffer.from([255, 255, 255, 255, 109, 111, 111, 118]), Buffer.from([0, 0, 0, 1, 109, 111, 111, 118])]) { await fs.writeFile(invalid, bytes); await assert.rejects(() => media.probeVideo(invalid)); }
   h.ok(true, "malformed and truncated movie boxes fail without unbounded allocations");

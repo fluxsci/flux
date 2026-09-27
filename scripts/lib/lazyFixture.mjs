@@ -77,6 +77,8 @@ async function buildDenseProject(cfg) {
 
   const root = cfg.root;
   const F = window.fig;
+  await F.mkdir?.(root);
+  await F.writeText(`${root}/project.json`, JSON.stringify({schemaVersion:"0.1.0",id:"lazy-fixture",title:"Lazy fixture",manuscript:{path:"manuscript/main.qmd"},references:{library:"bib/library.bib"},figures:[]}));
   await F.mkdir?.(`${root}/fig`);
   await F.mkdir?.(`${root}/fig/canvases`);
   await F.mkdir?.(`${root}/fig/assets`);

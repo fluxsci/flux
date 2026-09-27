@@ -1,3 +1,4 @@
+import { assertNoCanonicalConflict, readCanonicalText, parseCanonical, assertCanonicalText } from "../src/lib/references/canonical";
 // flux-core/fluxlib.ts — the FluxLib engine (Node, used by the CLI + MCP).
 //
 // FluxLib is the machine-global reference library (always <FluxConfig>/FluxLib; default ~/FluxConfig/FluxLib): the single
@@ -21,10 +22,12 @@ export type { AddResult };
 import { runQuery } from "../src/lib/references/query";
 import { enrichCoverage, projectEnrichForGrid } from "../src/lib/references/enrich";
 import { planAdds, appendedBib } from "../src/lib/references/addPlan";
-import { normalizeOrganize, setTags, setStatus, setCollections, mergeOrganize, type OrganizeData, type ReadingStatus } from "../src/lib/references/organize";
+import { planBibConflictMerge, archivedConflictName, LIBRARY_CONFLICT_ARCHIVE } from "../src/lib/references/bibConflict";
+import { conflictBaseFor } from "../src/lib/project/conflictRules";
+import { validateOrganize, addTag, removeTag, bulkAddTag, setTags, setStatus, setCollections, mergeOrganize, type OrganizeData, type ReadingStatus } from "../src/lib/references/organize";
 import { atomicWrite, quarantineCorrupt } from "./fsx";
-import { withLockAt, withLock, fluxlibLockDir, getLockClient } from "./locks";
-import { splitBibEntries, lightEntry, bibtexKey } from "../src/lib/references/bibtex";
+import { withLockAt, withLock, fluxlibLockDir, getLockClient, assertLockOwned, CONTENTION_RETRIES } from "./locks";
+import { splitBibEntries, lightEntry, lightBibEntries, bibtexKey } from "../src/lib/references/bibtex";
 import * as fluxPaths from "../electron/fluxPaths.cjs";
 
 const SCHEMA_VERSION = "0.1.0";
@@ -145,6 +148,7 @@ export async function ensureFluxLib(libPath?: string): Promise<string> {
   await fs.mkdir(path.join(lib, ".fluxlib"), { recursive: true });
   // The watched drop-inbox must exist for anyone to drop PDFs into it.
   await fs.mkdir(path.join(lib, "pdfs_to_assign"), { recursive: true });
+  await withLockAt(fluxlibLockDir(lib), "library", getLockClient(), async lease => {
   if (!(await exists(libBib(lib)))) {
     let seed = "";
     const legacy = path.join(userDataDir(), "references", "library.bib");
@@ -156,12 +160,15 @@ export async function ensureFluxLib(libPath?: string): Promise<string> {
         /* fall through to header */
       }
     }
+    await assertLockOwned(lease);
     await atomicWrite(
       libBib(lib),
       seed || "% FluxLib — your machine-global reference library (BibLaTeX). Canonical source of truth.\n",
+      true,
     );
   }
   if (!(await exists(libManifest(lib)))) {
+    await assertLockOwned(lease);
     await atomicWrite(
       libManifest(lib),
       JSON.stringify(
@@ -174,8 +181,10 @@ export async function ensureFluxLib(libPath?: string): Promise<string> {
         null,
         2,
       ) + "\n",
+      true,
     );
   }
+  }, { retries: CONTENTION_RETRIES });
   return lib;
 }
 
@@ -188,8 +197,7 @@ export async function loadLibrary(libPath?: string): Promise<RefEntry[]> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
   if (!(await exists(libBib(lib)))) return [];
   const text = await fs.readFile(libBib(lib), "utf8");
-  return splitBibEntries(text)
-    .map(lightEntry)
+  return lightBibEntries(text)
     .filter((e) => e.key);
 }
 
@@ -325,11 +333,12 @@ export async function mergeEnrichDelta(
     fluxlibLockDir(lib),
     "enrich",
     getLockClient(),
-    async () => {
+    async lease => {
       const fresh = await loadEnrich(lib);
+      await assertLockOwned(lease);
       await atomicWrite(libEnrichPath(lib), JSON.stringify({ ...fresh, ...delta }, null, 2) + "\n");
     },
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 
@@ -352,11 +361,9 @@ const libOrganizePath = (lib: string) => path.join(lib, ".fluxlib", "organize.js
 
 export async function loadOrganize(libPath?: string): Promise<OrganizeData> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
-  try {
-    return normalizeOrganize(JSON.parse(await fs.readFile(libOrganizePath(lib), "utf8")));
-  } catch {
-    return { version: 1, items: {} };
-  }
+  const p = libOrganizePath(lib);
+  const text = await readCanonicalText(p, () => fs.readFile(p, "utf8"));
+  return text === null ? { version: 1, items: {} } : parseCanonical(p, text, validateOrganize);
 }
 
 async function mutateOrganize(fn: (d: OrganizeData) => OrganizeData, libPath?: string): Promise<OrganizeData> {
@@ -366,15 +373,26 @@ async function mutateOrganize(fn: (d: OrganizeData) => OrganizeData, libPath?: s
     fluxlibLockDir(lib),
     "library",
     getLockClient(),
-    async () => {
-      const next = fn(await loadOrganize(lib));
+    async lease => {
+      const p = libOrganizePath(lib), read = () => readCanonicalText(p, () => fs.readFile(p, "utf8"));
+      const before = await read();
+      const next = fn(before === null ? {version: 1, items: {}} : parseCanonical(p, before, validateOrganize));
+      await assertNoCanonicalConflict(p, dir=>fs.readdir(dir));
+      await assertCanonicalText(p, before, read);
+      await assertLockOwned(lease);
       await atomicWrite(libOrganizePath(lib), JSON.stringify(next, null, 2) + "\n");
       return next;
     },
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 
+export const organizeAddTag = (key: string, tag: string, libPath?: string): Promise<OrganizeData> =>
+  mutateOrganize((d) => addTag(d, key, tag), libPath);
+export const organizeRemoveTag = (key: string, tag: string, libPath?: string): Promise<OrganizeData> =>
+  mutateOrganize((d) => removeTag(d, key, tag), libPath);
+export const organizeBulkAddTag = (keys: string[], tag: string, libPath?: string): Promise<OrganizeData> =>
+  mutateOrganize((d) => bulkAddTag(d, keys, tag), libPath);
 export const organizeSetTags = (key: string, tags: string[], libPath?: string): Promise<OrganizeData> =>
   mutateOrganize((d) => setTags(d, key, tags), libPath);
 export const organizeSetStatus = (key: string, status: ReadingStatus | undefined, libPath?: string): Promise<OrganizeData> =>
@@ -398,11 +416,13 @@ export interface FluxKeys {
 /** Read `<FluxLib>/keys.json` (`{}` if absent). Plaintext, machine-global. */
 export async function loadKeys(libPath?: string): Promise<FluxKeys> {
   const lib = libPath ? path.resolve(libPath) : await resolveFluxLibPath();
-  try {
-    return JSON.parse(await fs.readFile(libKeysPath(lib), "utf8")) as FluxKeys;
-  } catch {
-    return {};
-  }
+  const p = libKeysPath(lib);
+  const raw = await readCanonicalText(p, () => fs.readFile(p, "utf8"));
+  if (raw == null) return {};
+  return parseCanonical(p, raw, value => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected key object");
+    return value as FluxKeys;
+  });
 }
 
 /** Merge-write keys into `<FluxLib>/keys.json` (creates FluxLib if needed). */
@@ -412,12 +432,13 @@ export async function saveKeys(patch: FluxKeys, libPath?: string): Promise<FluxK
     fluxlibLockDir(lib),
     "keys",
     getLockClient(),
-    async () => {
+    async lease => {
       const next = { ...(await loadKeys(lib)), ...patch };
-      await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n");
+      await assertLockOwned(lease);
+      await atomicWrite(libKeysPath(lib), JSON.stringify(next, null, 2) + "\n", false, 0o600);
       return next;
     },
-    { retries: 8 },
+    { retries: CONTENTION_RETRIES },
   );
 }
 
@@ -462,21 +483,68 @@ export async function addToFluxLib(
     fluxlibLockDir(lib),
     "library",
     getLockClient(),
-    () => addToFluxLibLocked(lib, bibtex, source),
-    { retries: 8 },
+    lease => addToFluxLibLocked(lib, bibtex, source, () => assertLockOwned(lease)),
+    { retries: CONTENTION_RETRIES },
   );
+}
+
+export interface LibraryConflictMerge { copy: string; added: string[]; alreadyPresent: number; archivedTo: string }
+
+/**
+ * Fold every `library.sync-conflict-*.bib` beside library.bib into it (the Node twin of
+ * fluxlibBridge.mergeLibraryConflictCopies — same planner, same archive folder): union of
+ * entries, the copy's citekeys and dateadded kept, then the copy archived under
+ * .fluxlib/sync-conflicts/ (never deleted). Caller holds the "library" lock.
+ */
+async function mergeLibraryConflictCopiesLocked(lib: string, assertOwned: () => Promise<void>): Promise<LibraryConflictMerge[]> {
+  let names: string[];
+  try { names = await fs.readdir(lib); } catch { return []; }
+  const copies = names.filter((n) => conflictBaseFor(n) === "library.bib").sort();
+  const out: LibraryConflictMerge[] = [];
+  for (const copy of copies) {
+    const copyAbs = path.join(lib, copy);
+    const mine = await fs.readFile(libBib(lib), "utf8");
+    const theirs = await fs.readFile(copyAbs, "utf8");
+    const plan = planBibConflictMerge(mine, theirs);
+    if (!plan.nothingToMerge) {
+      await assertCanonicalText(libBib(lib), mine, () => readCanonicalText(libBib(lib), () => fs.readFile(libBib(lib), "utf8")));
+      await assertOwned();
+      await atomicWrite(libBib(lib), plan.text);
+    }
+    const dir = path.join(lib, LIBRARY_CONFLICT_ARCHIVE);
+    await fs.mkdir(dir, { recursive: true });
+    const archived = archivedConflictName(copy);
+    let dst = path.join(dir, archived);
+    for (let i = 2; await fs.access(dst).then(() => true, () => false); i++) dst = path.join(dir, archived.replace(/(\.[^.]+)?$/, `-${i}$1`));
+    await fs.rename(copyAbs, dst);
+    out.push({ copy, added: plan.added, alreadyPresent: plan.alreadyPresent, archivedTo: dst });
+  }
+  if (out.some((m) => m.added.length)) await buildIndex(lib);
+  return out;
+}
+
+/** Merge + archive any library.bib conflict copies, under the library lock. */
+export async function mergeLibraryConflictCopies(libPath?: string): Promise<LibraryConflictMerge[]> {
+  const lib = await ensureFluxLib(libPath);
+  return withLockAt(fluxlibLockDir(lib), "library", getLockClient(), lease => mergeLibraryConflictCopiesLocked(lib, () => assertLockOwned(lease)), { retries: CONTENTION_RETRIES });
 }
 
 async function addToFluxLibLocked(
   lib: string,
   bibtex: string,
   source: "doi" | "bibtex",
+  assertOwned: () => Promise<void>,
 ): Promise<AddResult> {
+  // A sync tool's conflict copy of library.bib is folded in first — a library write must
+  // never be refused because of a stray sibling file (2026-09-26).
+  await mergeLibraryConflictCopiesLocked(lib, assertOwned);
   const curText = await fs.readFile(libBib(lib), "utf8");
   // The dedupe/rekey decision (DOI, then title+year+author signature, incl. intra-batch)
   // lives in the shared pure planner so preview == outcome; this twin only does the write.
   const plan = planAdds(curText, bibtex, source);
   if (plan.appendText) {
+    await assertCanonicalText(libBib(lib), curText, () => readCanonicalText(libBib(lib), () => fs.readFile(libBib(lib), "utf8")));
+    await assertOwned();
     await atomicWrite(libBib(lib), appendedBib(curText, plan));
     await buildIndex(lib);
   }
@@ -496,15 +564,16 @@ export async function materializeIntoProject(
   if (!citekeys.length) return { added: [] };
   // W3: the project bib append is an RMW — locked at project scope ("references")
   // so it can't interleave with the app's own cite-materialization.
-  return withLock(root, "references", getLockClient(), () =>
-    materializeIntoProjectLocked(root, citekeys, opts),
+  return withLock(root, "references", getLockClient(), lease =>
+    materializeIntoProjectLocked(root, citekeys, opts, () => assertLockOwned(lease)),
   );
 }
 
 async function materializeIntoProjectLocked(
   root: string,
   citekeys: string[],
-  opts: { libPath?: string; manifest?: ProjectManifest | null } = {},
+  opts: { libPath?: string; manifest?: ProjectManifest | null },
+  assertOwned: () => Promise<void>,
 ): Promise<{ added: string[] }> {
   const lib = opts.libPath ? path.resolve(opts.libPath) : await resolveFluxLibPath();
   const libText = (await exists(libBib(lib))) ? await fs.readFile(libBib(lib), "utf8") : "";
@@ -533,6 +602,7 @@ async function materializeIntoProjectLocked(
   }
   if (toAdd.length) {
     const sep = projText && !projText.endsWith("\n") ? "\n" : "";
+    await assertOwned();
     await atomicWrite(pbib, projText + sep + toAdd.join("\n\n") + "\n");
   }
   return { added: addedKeys };

@@ -85,6 +85,8 @@ const COLOR_PROPS = new Set(["fill", "stroke", "color"]);
 const METRIC_PROPS = new Set([
   "text", "fontSize", "fontFamily", "fontWeight", "fontStyle", "width",
   "sizing", "lineHeight", "underline", "letterSpacing", "paragraphSpacing",
+  // Per-range formatting is a metric too: a bolded word re-wraps the line.
+  "runs",
 ]);
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -134,6 +136,7 @@ export function applyState(el: Element, state: Record<string, unknown> | undefin
   if (retype) completeRetyped(out);
   if (metrics && (out.type === "text")) {
     delete out.lines;
+    delete (out as { lineWidths?: number[] }).lineWidths;
     out.needsLayout = true;
   }
   // keep the path's render form in sync with patched authoritative nodes
@@ -179,7 +182,7 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
       continue;
     }
     if (!(k in b)) {
-      if (k in a && !retype) out[k] = null;
+      if (k in a && (!retype || BASE_PROPS.has(k))) out[k] = null;
     } else if (!eq(a[k], b[k]) || (retype && !BASE_PROPS.has(k))) {
       out[k] = structuredClone(b[k]);
     }
@@ -195,7 +198,7 @@ export function diffState(pre: Element, cur: Element): Record<string, unknown> |
  *  null (the driver crossfades). */
 export function numericTextTween(preText: string, endText: string): ((t: number) => string) | null {
   if (preText === endText) return null;
-  const NUM = /-?\d[\d,]*\.?\d*/;
+  const NUM = /-?\d[\d,]*(?:\.\d+)?(?:[eE][+-]?\d+)?/;
   const ma = NUM.exec(preText);
   const mb = NUM.exec(endText);
   if (!ma || !mb) return null;
@@ -412,7 +415,8 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
     }
   }
   if (metrics && out.type === "text") {
-    delete (out as unknown as { lines?: string[] }).lines;
+    delete (out as unknown as { lines?: string[]; lineWidths?: number[] }).lines;
+    delete (out as unknown as { lineWidths?: number[] }).lineWidths;
     (out as unknown as { needsLayout?: true }).needsLayout = true;
   }
   return out as unknown as Element;
@@ -542,4 +546,29 @@ export function transformEndState(pre: Element, track: { to?: { state?: Record<s
   const end = applyState(pre, track.to?.state);
   if (track.to?.assetId && (end.type === "plot" || end.type === "image")) end.assetId = track.to.assetId;
   return end;
+}
+
+/** Build, ahead of time, the node correspondences this slide's BECOME
+ *  transforms will need, so pressing play does not wait for them and neither
+ *  does the first frame after it. The work is a pure function of the deck
+ *  (`planOutlines` memoizes it), so doing it early is doing it once: the
+ *  player's own `planElementMorph` then finds every answer already there.
+ *
+ *  The animator calls this when it OPENS, which is the only moment with real
+ *  time in it — a person spends at least a few hundred milliseconds looking at
+ *  the timeline before they press play, while play → first frame is measured
+ *  in tens of milliseconds and budgeted (§6). Warming is never required for
+ *  correctness: skip it, interrupt it, call it twice, and every caller still
+ *  gets the same answer, only later. */
+export function warmSlideMorphs(slide: Slide): void {
+  for (let bi = 0; bi < slide.beats.length; bi++) {
+    for (const track of slide.beats[bi].tracks) {
+      if (track.disabled || track.keyframes || familyOf(track) !== "transform") continue;
+      const pre = transformPreState(slide, track.target, bi);
+      if (!pre) continue;
+      const end = transformEndState(pre, track);
+      if (!outlineMorphable(pre, end)) continue;
+      planElementMorph(pre, end)?.prepare?.();
+    }
+  }
 }

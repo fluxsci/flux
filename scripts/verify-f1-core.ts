@@ -3,6 +3,7 @@
 // add-reference, add-panel) — proving "the file is the API" from Node. Also runs
 // the actual CLI binary once for terminal authenticity.
 import * as fs from "node:fs/promises";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fsSync from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -125,7 +126,7 @@ try {
 }
 
 // terminal authenticity: run the real CLI once.
-const { stdout } = await pexec("npx", ["tsx", "flux-cli.ts", "list", TMP], { cwd: REPO, env: { ...process.env, FLUX_NO_MIGRATE: "1" } });
+const { stdout } = await pexec(...tsxRun("flux-cli.ts", [ "list", TMP]), { cwd: REPO, env: { ...process.env, FLUX_NO_MIGRATE: "1" } });
 results.cli = { listHasGrowth: stdout.includes("fig-growth"), title: JSON.parse(stdout).title };
 
 await fs.rm(TMP, { recursive: true, force: true });

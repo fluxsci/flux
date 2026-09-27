@@ -34,28 +34,43 @@ const SEPARATORS = /[\s -]+/g;
  *  space, on top of the case/diacritic folding above. Run this over BOTH the stored text and the
  *  query so the two sides can never disagree about spacing. */
 export function foldForMatch(s: string): FoldedText {
-  const folded = foldText(s);
-  let out = "";
-  const starts: number[] = [];
-  const shifts: number[] = [];
-  let last = 0;
-  let drift = 0; // originalOffset - foldedOffset
-  SEPARATORS.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SEPARATORS.exec(folded))) {
-    // A form feed is a page boundary — searching must keep it so a snippet can name its page.
-    const run = m[0];
-    const keep = run.includes("\f") ? "\f" : " ";
-    if (run === keep) continue;
-    out += folded.slice(last, m.index) + keep;
-    const removed = run.length - keep.length;
-    drift += removed;
-    starts.push(out.length);
-    shifts.push(drift);
-    last = m.index + run.length;
+  // Preserve the Unicode mapping while normalizing ordinary ASCII runs in one
+  // operation. Per-codepoint normalize/regex work dominated full-library scans.
+  const normalizedParts: string[] = [], normStarts: number[] = [], normShifts: number[] = [];
+  let length = 0, priorShift = 0;
+  const normPoint = (at: number, original: number) => {
+    const shift = original-at;
+    if (shift !== priorShift) { normStarts.push(at); normShifts.push(shift); priorShift=shift; }
+  };
+  for (const match of s.matchAll(/[\x00-\x7f]+|[^\x00-\x7f]/gu)) {
+    const part=match[0], at=match.index!;
+    if (part.charCodeAt(0)<128) {
+      normPoint(length,at); normalizedParts.push(part.toLowerCase()); length+=part.length;
+    } else {
+      const folded=foldText(part);
+      for(let j=0;j<folded.length;j++) normPoint(length+j,at+Math.min(j,part.length-1));
+      normalizedParts.push(folded); length+=folded.length;
+    }
   }
-  out += folded.slice(last);
-  return { text: out, starts: Uint32Array.from(starts), shifts: Int32Array.from(shifts) };
+  normPoint(length,s.length);
+  const normalized:FoldedText={text:normalizedParts.join(""),starts:Uint32Array.from(normStarts),shifts:Int32Array.from(normShifts)};
+  const parts:string[]=[],starts:number[]=[],shifts:number[]=[];
+  let outputLength=0, previous=0, mapping=0, cursor=0;
+  const point=(at:number,original:number)=>{const shift=original-at;if(shift!==previous){starts.push(at);shifts.push(shift);previous=shift;}};
+  const range=(from:number,to:number)=>{
+    if(to<=from)return;
+    point(outputLength,originalOffset(normalized,from));
+    while(mapping<normStarts.length && normStarts[mapping]<from)mapping++;
+    while(mapping<normStarts.length && normStarts[mapping]<to){const at=normStarts[mapping];point(outputLength+at-from,at+normShifts[mapping]);mapping++;}
+    parts.push(normalized.text.slice(from,to));outputLength+=to-from;
+  };
+  for(const match of normalized.text.matchAll(SEPARATORS)){
+    const from=match.index!,to=from+match[0].length;
+    range(cursor,from);point(outputLength,originalOffset(normalized,from));
+    parts.push(match[0].includes("\f")?"\f":" ");outputLength++;cursor=to;
+  }
+  range(cursor,normalized.text.length);point(outputLength,s.length);
+  return {text:parts.join(""),starts:Uint32Array.from(starts),shifts:Int32Array.from(shifts)};
 }
 
 /** Map an offset in a folded string back to the original text. */

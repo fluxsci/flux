@@ -8,6 +8,9 @@
   import FeedbackCapture from "./agent/FeedbackCapture.svelte";
   import { contextCommands } from "./command/globalCommands";
   import { requestPaperPalette, feedbackCaptureOpen, annotateCaptureOpen } from "./command/commandBus";
+  import { figureMeta, figureMetaDetached, openFigureMeta } from "../lib/figure/metadataState";
+  import { activeFigureId } from "../lib/store";
+  import { storeTenant } from "../lib/tenancy";
   import AnnotateCapture from "./agent/AnnotateCapture.svelte";
   import { initFeedbackStore } from "./agent/feedbackStore";
   import { shellModalOpen } from "../lib/settings";
@@ -21,6 +24,9 @@
   let globalPaletteOpen = $state(false);
   let globalCommandList = $state<Command[]>([]);
 
+  let Meta: typeof import("../lib/figure/FigureMeta.svelte").default | null = $state(null);
+  $effect(() => { if ($figureMeta && !Meta) void import("../lib/figure/FigureMeta.svelte").then(m => Meta = m.default); });
+
   initFeedbackStore();
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
@@ -31,6 +37,12 @@
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (e.defaultPrevented) return;
+      if (e.altKey && !mod && e.code === "KeyM" && ["paper", "figure"].includes(get(focusedMode))) {
+        e.preventDefault();
+        openFigureMeta(storeTenant() === "figure" ? get(activeFigureId) ?? undefined : undefined, "captions", e.shiftKey);
+        return;
+      }
       if (mod && !e.altKey && !e.shiftKey && e.code === "KeyK") {
         if (get(focusedMode) === "library") return;
         e.preventDefault();
@@ -59,8 +71,8 @@
     window.addEventListener("keydown", onKey);
     // While the note popover or the annotate overlay is up, the editor's
     // keyboard yields (lib/keyboard.ts reads shellModalOpen).
-    const sync = () => shellModalOpen.set(get(feedbackCaptureOpen) || get(annotateCaptureOpen));
-    const unsubs = [feedbackCaptureOpen.subscribe(sync), annotateCaptureOpen.subscribe(sync)];
+    const sync = () => shellModalOpen.set(get(feedbackCaptureOpen) || get(annotateCaptureOpen) || (!!get(figureMeta) && !get(figureMetaDetached)));
+    const unsubs = [feedbackCaptureOpen.subscribe(sync), annotateCaptureOpen.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
     return () => {
       window.removeEventListener("keydown", onKey);
       for (const u of unsubs) u();
@@ -83,6 +95,7 @@
   {/if}
   <FeedbackCapture />
   <AnnotateCapture />
+  {#if $figureMeta && Meta}<Meta />{/if}
 </div>
 
 <style>

@@ -34,6 +34,8 @@ export function createEnrichCache(deps: EnrichCacheDeps): EnrichCache {
   let cached: EnrichMap | null = null;
   let cacheKey = "";
   let inflight: Promise<EnrichMap> | null = null;
+  let inflightKey = "";
+  let generation = 0;
 
   async function get(): Promise<EnrichMap> {
     const p = await deps.path();
@@ -41,18 +43,19 @@ export function createEnrichCache(deps: EnrichCacheDeps): EnrichCache {
     const st = await deps.stat(p).catch(() => null);
     // No stat capability (older bridge / fixture) → no safe identity → stay fresh.
     if (st === null && cached === null) return deps.load(p);
-    const key = st ? `${st.mtimeMs}:${st.size}` : "absent";
+    const key = `${p}:${st ? `${st.mtimeMs}:${st.size}` : "absent"}`;
     if (cached && key === cacheKey) return cached;
-    if (inflight) return inflight; // concurrent callers share one parse
+    if (inflight && inflightKey === key) return inflight;
+    const epoch = ++generation;
+    inflightKey = key; // concurrent callers share one parse
     inflight = deps
       .load(p)
       .then((m) => {
-        cached = m;
-        cacheKey = key;
+        if (epoch === generation) { cached = m; cacheKey = key; }
         return m;
       })
       .finally(() => {
-        inflight = null;
+        if (epoch === generation) inflight = null;
       });
     return inflight;
   }
@@ -61,6 +64,7 @@ export function createEnrichCache(deps: EnrichCacheDeps): EnrichCache {
     get,
     getKey: async (key) => (await get())[key],
     invalidate() {
+      generation++; inflight = null; inflightKey = "";
       cached = null;
       cacheKey = "";
     },

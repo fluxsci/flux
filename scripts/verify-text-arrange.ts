@@ -10,8 +10,11 @@
 //     and "top" is byte-identical to pre-arrangement Flux;
 //   • line height + paragraph spacing compose into the per-line dy and into
 //     the hugged box height;
-//   • justification emits textLength + lengthAdjust="spacing" on exactly the
-//     lines that are not a paragraph's last, and never on a single glyph;
+//   • justification shares a line's slack between its WORD GAPS (a dx on the
+//     piece that starts each word), never between its letters, on exactly the
+//     lines that are not a paragraph's last and never on a line without a gap;
+//     a line whose natural width was never measured falls back to the old
+//     whole-line textLength stretch;
 //   • letter spacing is a WRAP METRIC (wrapping measures with it) and rides
 //     the `letter-spacing` attribute;
 //   • the style patch surface stores each property's DEFAULT as ABSENCE, so a
@@ -30,7 +33,7 @@ import {
   lineH,
 } from "../src/lib/text";
 import { textSvgLayout, elementToSvg } from "../src/lib/export";
-import { createTextElement } from "../src/lib/editing";
+import { createTextElement, scaleRemap } from "../src/lib/editing";
 import * as ops from "../src/lib/ops";
 import type { Project, TextElement } from "../src/lib/types";
 
@@ -161,21 +164,44 @@ console.log("\n3. interline and paragraph spacing");
 // --- 4. justification --------------------------------------------------------
 console.log("\n4. justification");
 {
+  // WORD-GAP justification (2026-09-22, owner report "it changes the spacing
+  // between letters"): the slack is shared between the line's word gaps, each
+  // of which becomes a dx on the piece that starts the word. Letters keep their
+  // own spacing, which is what justified text means.
+  const measured = text({ align: "justify", text: "aa bb cc dd", lines: ["aa bb", "cc dd"], width: 100, lineWidths: [40, 40] });
+  const M = blockLayout(measured);
+  const gaps = M.lines[0].segments?.filter((s) => s.dx != null) ?? [];
+  assert(gaps.length === 1 && gaps[0].dx === 60, "a non-final line shares its slack between its word gaps (one gap, 60px)");
+  assert(M.lines[0].justifyWidth === undefined, "…and does NOT also stretch the whole line");
+  assert(M.lines[0].segments?.map((s) => s.text).join("") === "aa bb", "the line's own text is unchanged by the split");
+  assert(M.lines[1].segments === undefined && M.lines[1].justifyWidth === undefined, "the paragraph's LAST line keeps its natural width");
+  assert(M.anchor === "start" && M.x === 10, "justified text anchors at the box's left edge");
+
+  const wide = blockLayout(text({ align: "justify", text: "aa bb", lines: ["aa bb"], width: 100, lineWidths: [120] }));
+  assert(wide.lines[0].segments === undefined, "a line already wider than its box is never pulled tighter");
+
+  const oneWord = blockLayout(text({ align: "justify", text: "aaaa\nbb", lines: ["aaaa", "bb"], width: 100, lineWidths: [40, 20] }));
+  assert(oneWord.lines[0].segments === undefined, "a line with no word gap keeps its natural width — one word never stretches");
+
+  // Without measured widths there is nothing to share out, so the legacy
+  // whole-line stretch still carries a file written before widths existed.
   const e = text({ align: "justify", text: "aa bb cc dd", lines: ["aa bb", "cc dd"], width: 100 });
   const L = blockLayout(e);
-  assert(L.lines[0].justifyWidth === 100, "a non-final line is stretched to the box width");
-  assert(L.lines[1].justifyWidth === undefined, "the paragraph's LAST line keeps its natural width");
-  assert(L.anchor === "start" && L.x === 10, "justified text anchors at the box's left edge");
+  assert(L.lines[0].justifyWidth === 100, "an unmeasured non-final line falls back to the whole-line stretch");
+  assert(L.lines[1].justifyWidth === undefined, "…and its paragraph's last line still keeps its natural width");
 
   const single = blockLayout(text({ align: "justify", text: "x\ny", lines: ["x", "y"] }));
   assert(single.lines.every((l) => l.justifyWidth === undefined), "a single-glyph line is never stretched");
 
-  const notJustified = blockLayout(text({ align: "left", text: "aa bb", lines: ["aa", "bb"] }));
-  assert(notJustified.lines.every((l) => l.justifyWidth === undefined), "only align=justify stretches anything");
+  const notJustified = blockLayout(text({ align: "left", text: "aa bb", lines: ["aa", "bb"], lineWidths: [20, 20] }));
+  assert(notJustified.lines.every((l) => l.justifyWidth === undefined && l.segments === undefined), "only align=justify stretches anything");
 
   // …and it reaches the SVG both engines serialize.
+  const wordSvg = elementToSvg(measured, () => undefined);
+  assert(wordSvg.includes('<tspan dx="60">bb</tspan>'), "the exported word gap is an ordinary tspan dx");
+  assert(!wordSvg.includes("textLength"), "…and a measured justified line needs no textLength at all");
   const svg = elementToSvg(e, () => undefined);
-  assert(svg.includes('textLength="100" lengthAdjust="spacing"'), "the exported tspan carries textLength + lengthAdjust");
+  assert(svg.includes('textLength="100" lengthAdjust="spacing"'), "the unmeasured fallback still carries textLength + lengthAdjust");
   assert(svg.split("textLength").length - 1 === 1, "…on exactly one of the two tspans");
   const plain = elementToSvg(text({ text: "hello" }), () => undefined);
   assert(!plain.includes("textLength") && !plain.includes("letter-spacing"), "an unarranged text serializes exactly as before");
@@ -291,6 +317,42 @@ console.log("\n9. justification authors a wrap width");
   const dragged = createTextElement({ x: 10, y: 20 }, style, { width: 180, height: 4 }) as TextElement;
   assert(dragged.sizing === "auto-h" && dragged.width === 180, "a drag makes an auto-h box at the dragged width");
   assert(dragged.height >= 12 * 1.4, "…never shorter than one line, however shallow the drag");
+}
+
+// --- 10. proportional scaling preserves the arranged block --------------------
+// K scales the complete artwork. Tracking and paragraph spacing are pixel
+// distances, unlike the dimensionless lineHeight: leaving either unscaled
+// changes the text's proportions and its vertical placement inside a fixed box.
+console.log("\n10. proportional scaling preserves text arrangement");
+{
+  const original = text({ text: "first paragraph\nsecond paragraph", valign: "middle", letterSpacing: -0.5, paragraphSpacing: 6, lineHeight: 1.4 });
+  const before = structuredClone(original);
+  const box = { x: original.x, y: original.y, w: original.width, h: original.height };
+  const scaled = structuredClone(original);
+  // Match the shared scale op's centre pivot, so preview and authored content
+  // can be compared exactly without any browser font or rounding assumptions.
+  scaleRemap(scaled, original, box, { x: box.x - box.w / 2, y: box.y - box.h / 2, w: box.w * 2, h: box.h * 2 });
+  const first = blockLayout(original), enlarged = blockLayout(scaled);
+  assert(scaled.letterSpacing === -1 && scaled.paragraphSpacing === 12, "K scales negative tracking and paragraph gaps with the font");
+  assert(scaled.lineHeight === original.lineHeight && scaled.sizing === "fixed", "dimensionless line height and authored sizing stay unchanged");
+  assert(enlarged.height === first.height * 2 && enlarged.offsetY === first.offsetY * 2, "the rendered block's height and vertical alignment scale uniformly");
+  assert(eq(enlarged.lines.map(l => l.dy), first.lines.map(l => l.dy * 2)), "every rendered baseline advance scales, including paragraph boundaries");
+  assert(eq(original, before), "the gesture's original checkpoint stays unchanged");
+
+  const p = proj([structuredClone(original)]);
+  ops.scaleElements(p, [original.id], 2);
+  assert(eq(p.figures[0].elements[0], scaled), "the shared GUI/headless scale operation matches the K preview exactly");
+  ops.scaleElements(p, [original.id], 0.5);
+  const restored = p.figures[0].elements[0] as TextElement;
+  // needsLayout is derived: headless edits deliberately ask the GUI to reflow.
+  const { needsLayout: _pending, lines: _cache, ...authored } = restored;
+  assert(eq(authored, original), "scaling and its inverse restore every authored arrangement and geometry property");
+  assert(eq(blockLayout(restored), first), "the inverse restores the complete rendered block layout");
+
+  const plain = text();
+  const plainScaled = structuredClone(plain);
+  scaleRemap(plainScaled, plain, box, { ...box, w: box.w * 2, h: box.h * 2 });
+  assert(!("letterSpacing" in plainScaled) && !("paragraphSpacing" in plainScaled), "scaling historical text does not introduce optional default properties");
 }
 
 console.log(fails === 0 ? "\nTEXT ARRANGE: ALL PASS" : `\nTEXT ARRANGE: ${fails} FAILURE(S)`);

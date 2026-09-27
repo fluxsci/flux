@@ -115,12 +115,12 @@
     } else if (key === "F4") { if (row.kind === "file") choose(row, true); }
     else choose(row);
   }
-  const description = (row: GalleryTreeRow) => row.error ? `${row.name}: ${row.error}` : row.hint || row.rel || "plots";
+  const description = (row: GalleryTreeRow) => row.error ? `${row.name}: ${row.error}` : row.hint || row.rel || row.name;
 </script>
 
 <aside class="gallery-tree" aria-label="Plot files">
   <div class="tree-heading">Files</div>
-  <div class="tree-viewport" bind:this={viewport} use:trackSize role="tree" aria-label="Files in plots" aria-activedescendant={activeDescendant} tabindex="0" on:keydown={onKey} on:scroll={() => scrollTop = viewport.scrollTop} data-total={rows.length} data-start={start}>
+  <div class="tree-viewport" bind:this={viewport} use:trackSize role="tree" aria-label={`Files in ${rows[0]?.name ?? "plots"}`} aria-activedescendant={activeDescendant} tabindex="0" on:keydown={onKey} on:scroll={() => scrollTop = viewport.scrollTop} data-total={rows.length} data-start={start}>
     <div class="tree-space" role="none" style:height={`${rows.length * ROW_HEIGHT}px`}>
       {#each shown as row, i (row.abs)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->

@@ -10,7 +10,7 @@
 import { fileBridge, joinPath } from "../project/types";
 import { resolveFluxLibPath, loadFluxLib } from "./fluxlibBridge";
 import { searchWorld } from "./enrichBridge";
-import { writePdfItem, readerHasPdf, readerSource } from "./itemsBridge";
+import { writePdfItem, readerHasPdf, readerSource, readerPdfBytes, fileSupplementBytes } from "./itemsBridge";
 import { bumpFluxLib, assignInboxRevision } from "./revision";
 import { isPdfBytes, bareDoi } from "./pdfFinder";
 import { assignInboxDir, supplementsDir, supplementFilePath, safeSupplementName } from "./items";
@@ -23,8 +23,9 @@ import { identify, reconcile, unresolvedSidecar, type IdResult, type PaperMeta, 
 // entire paper/scholar stack into the Home bundle (W15 startup gate). The one
 // call site below dynamic-imports it when a PDF actually needs adding.
 import { pushToast } from "../toast";
+import { failureAction, OFFLINE_BREAKER, ERROR_BREAKER } from "./assignOutcome";
 
-export type AssignAction = "attached" | "added-attached" | "discarded" | "unresolved" | "deferred";
+export type AssignAction = "attached" | "added-attached" | "discarded" | "unresolved" | "deferred" | "error";
 export interface AssignItemResult {
   file: string;
   action: AssignAction;
@@ -38,8 +39,6 @@ export interface AssignItemResult {
 
 /** Politeness gap between successive DOI resolutions. */
 const RESOLVE_GAP_MS = 200;
-/** This many consecutive transient (network) results aborts the scan — we're offline. */
-const OFFLINE_BREAKER = 3;
 
 /** Count the PDFs currently waiting in the inbox (for the Library button label). Ignores the
  *  _unresolved/ quarantine (its files are done, not pending). */
@@ -119,7 +118,9 @@ class AssignJob {
   discarded = $state(0);
   unresolved = $state(0);
   deferred = $state(0); // transient (network) — left in the inbox to retry
+  errors = $state(0); // non-transient failures — left in the inbox, reported by reason
   offline = $state(false); // the offline breaker tripped this run
+  halted = $state(""); // the error breaker tripped this run: the reason every file hit
   cancelled = $state(false);
   runSeq = $state(0); // bumps once per finished run (Library keys its refresh on this)
   lastResults = $state<AssignItemResult[]>([]);
@@ -139,7 +140,9 @@ class AssignJob {
     this.discarded = 0;
     this.unresolved = 0;
     this.deferred = 0;
+    this.errors = 0;
     this.offline = false;
+    this.halted = "";
     this.cancelled = false;
   }
 
@@ -155,7 +158,6 @@ class AssignJob {
       pushToast("info", "Assign scan deferred", { detail: `the inbox is being processed by ${got.heldBy ?? "another session"}` });
       return [];
     }
-    await fb.lockSet?.("assign", true, "fluxlib");
     this.running = true;
     this.#reset();
     const dir = assignInboxDir(lib);
@@ -175,6 +177,7 @@ class AssignJob {
       }
 
       let consecutiveTransient = 0;
+      let consecutiveErrors = 0;
       for (const name of names) {
         if (this.cancelled) break;
         const rec = await this.#process(fb, lib, dir, name, doiIndex);
@@ -183,20 +186,26 @@ class AssignJob {
         else if (rec.action === "added-attached") this.added++;
         else if (rec.action === "discarded") this.discarded++;
         else if (rec.action === "deferred") this.deferred++;
+        else if (rec.action === "error") this.errors++;
         else this.unresolved++;
         this.done++;
         consecutiveTransient = rec.action === "deferred" ? consecutiveTransient + 1 : 0;
+        consecutiveErrors = rec.action === "error" ? consecutiveErrors + 1 : 0;
         if (consecutiveTransient >= OFFLINE_BREAKER && this.done < this.total) {
           this.offline = true; // network is down — stop grinding; everything stays in the inbox
           break;
         }
+        if (consecutiveErrors >= ERROR_BREAKER && this.done < this.total) {
+          this.halted = rec.reason ?? "error"; // something systemic fails every file — say so once, stop
+          break;
+        }
       }
     } finally {
-      await fb.lockSet?.("assign", false, "fluxlib").catch(() => {});
+      if (got?.token) await fb.lockRelease?.("fluxlib", "assign", got.token).catch(() => {});
       this.lastResults = results;
       this.runSeq++;
       this.running = false;
-      if (results.some((r) => r.action !== "unresolved" && r.action !== "deferred")) bumpFluxLib(); // refresh Library/reader
+      if (results.some((r) => r.action !== "unresolved" && r.action !== "deferred" && r.action !== "error")) bumpFluxLib(); // refresh Library/reader
     }
     return results;
   }
@@ -243,27 +252,35 @@ class AssignJob {
       } else if (action.kind === "attach") {
         rec.action = "attached";
         rec.key = action.key;
-        await writePdfItem(action.key, bytes, { source: "assigned", url: name, isOa: false });
+        const filed = await writePdfItem(action.key, bytes, { source: "assigned", url: name, isOa: false });
+        if (!filed.ok) throw new Error(filed.reason || "PDF publication failed; incoming file preserved");
         await fb.remove?.(src);
       } else {
         const { addDoiToLibrary } = await import("../../shell/modes/paper/scholar/bibLoad");
         const added = await addDoiToLibrary(id.doi);
         if ("error" in added) {
-          rec.action = "deferred";
+          // Leave the file in place either way (identity was fine): a network blink defers
+          // quietly, anything else is an error the summary must name.
+          rec.action = failureAction(added.error);
           rec.reason = "couldn't create library entry: " + added.error;
-          return rec; // leave the file in place to retry (identity was fine)
+          return rec;
         }
         rec.action = "added-attached";
         rec.key = added.key;
         doiIndex.set(bareDoi(id.doi)!, added.key);
-        await writePdfItem(added.key, bytes, { source: "assigned", url: name, isOa: false });
+        const filed = await writePdfItem(added.key, bytes, { source: "assigned", url: name, isOa: false });
+        if (!filed.ok) throw new Error(filed.reason || "PDF publication failed; incoming file preserved");
         await fb.remove?.(src);
       }
     } catch (e) {
-      // Unexpected failure (fs hiccup, pdf.js crash): NEVER destructive — leave the file in
-      // place and report it; a definitive "can't identify" is the only road to _unresolved/.
-      rec.action = "deferred";
-      rec.reason = "error: " + String((e as Error)?.message || e);
+      // Unexpected failure (fs hiccup, pdf.js crash, a refused library write): NEVER
+      // destructive — leave the file in place and report it; a definitive "can't identify" is
+      // the only road to _unresolved/. Only a genuinely transient failure is a silent
+      // "deferred" — everything else is an "error" the summary names (2026-09-26: a sync
+      // conflict beside library.bib spent a day disguised as "network unavailable").
+      const msg = String((e as Error)?.message || e);
+      rec.action = failureAction(msg);
+      rec.reason = msg;
     }
     return rec;
   }
@@ -280,11 +297,13 @@ class AssignJob {
     bytes: Uint8Array,
   ): Promise<string | null> {
     try {
-      const stored = await readerSource(key);
-      if (stored?.sha256) {
+      const stored = await readerPdfBytes(key);
+      if (stored) {
+        const storedDigest = await crypto.subtle.digest("SHA-256",stored);
+        const storedHash = [...new Uint8Array(storedDigest)].map(b=>b.toString(16).padStart(2,"0")).join("");
         const digest = await crypto.subtle.digest("SHA-256", bytes as unknown as ArrayBuffer);
         const incoming = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-        if (incoming === stored.sha256) {
+        if (incoming === storedHash) {
           await fb.remove?.(src);
           return null;
         }
@@ -292,14 +311,10 @@ class AssignJob {
     } catch {
       /* hash unavailable → keep the bytes (safe default) */
     }
-    if (fb.mkdir) await fb.mkdir(supplementsDir(lib, key));
-    let dst = safeSupplementName(`duplicate-${name}`);
-    if (!/\.pdf$/i.test(dst)) dst += ".pdf";
-    const base = dst.replace(/\.pdf$/i, "");
-    for (let i = 2; await fb.exists(supplementFilePath(lib, key, dst)); i++) dst = `${base}-${i}.pdf`;
-    await fb.writeFile(supplementFilePath(lib, key, dst), bytes);
+    const storedName = await fileSupplementBytes(key, `duplicate-${name}`, bytes, {source:"assigned"});
+    if (!storedName) throw new Error("Supplement publication failed; incoming file preserved");
     await fb.remove?.(src);
-    return dst;
+    return storedName;
   }
 
   async #quarantine(
@@ -315,12 +330,12 @@ class AssignJob {
       if (fb.mkdir) await fb.mkdir(udir);
       let dst = joinPath(udir, name);
       for (let i = 2; await fb.exists(dst); i++) dst = joinPath(udir, name.replace(/\.pdf$/i, `-${i}.pdf`));
-      await fb.writeFile(dst, bytes);
-      await fb.remove?.(joinPath(dir, name));
+      if (!fb.moveFileVerified) throw new Error("Verified move requires the current desktop bridge; incoming PDF preserved");
+      const digest = await crypto.subtle.digest("SHA-256",bytes as unknown as ArrayBuffer);
+      const expected = [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,"0")).join("");
+      dst = await fb.moveFileVerified(joinPath(dir,name),dst,expected);
       await fb.writeText(`${dst}.txt`, unresolvedSidecar(name, note, id));
-    } catch {
-      /* best-effort quarantine */
-    }
+    } catch (error) { throw new Error("PDF quarantine did not complete; inspect retained source/destination before retry",{cause:error}); }
   }
 }
 

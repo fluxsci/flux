@@ -73,7 +73,11 @@
   // derived dblclick); the height is measured against the doc column, not the window,
   // so a split pane clamps against its own box.
   let docsEl = $state<HTMLElement | null>(null);
+  let cancelDrawerDrag: (() => void) | null = null;
+  $effect(() => () => cancelDrawerDrag?.());
   function startDrawerDrag() {
+    cancelDrawerDrag?.();
+    const previousUserSelect = document.body.style.userSelect;
     document.body.style.userSelect = "none";
     const move = (e: PointerEvent) => {
       if (!docsEl) return;
@@ -82,10 +86,14 @@
       readerLayout.update((s) => ({ ...s, terminalH: Math.round(h) }));
     };
     const up = () => {
-      document.body.style.userSelect = "";
+      document.body.style.userSelect = previousUserSelect;
+      cancelDrawerDrag = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
+    cancelDrawerDrag = up;
+    window.addEventListener("pointercancel", up);
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   }
@@ -132,6 +140,7 @@
       {#each liveKeys as key (key)}
         <div class="docslot" class:hidden={key !== activeKey} inert={key !== activeKey}>
           <ReaderDoc
+            {paneId}
             citekey={key}
             active={key === activeKey}
             focused={focused && key === activeKey}

@@ -23,8 +23,20 @@
 
 import { spawn, execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 
 const isWin = process.platform === "win32";
+
+/** Explicit CI opt-in is test-owned; never relax production launch policy. */
+export function testElectronArgs(command, file, args, env) {
+  const electronCli = /(?:^|[\\/])electron[\\/]cli\.js$/.test(file);
+  const electronBinary = /^(?:electron|electron\.exe)$/i.test(path.basename(command)) || (!!env.FLUX_ELECTRON && command === env.FLUX_ELECTRON);
+  if (!electronCli && !electronBinary) return args;
+  let result=args;
+  if(env.FLUX_ELECTRON_NO_SANDBOX === '1' && !result.includes('--no-sandbox')) result=[...result,'--no-sandbox'];
+  if(process.platform==='linux' && (env.FLUX_PRIVATE_DISPLAY==='1' || env.FLUX_XVFB) && !result.some(arg=>arg.startsWith('--ozone-platform='))) result=[...result,'--ozone-platform=x11'];
+  return result;
+}
 
 export class TestProcessScope {
   #entries = new Set();
@@ -46,9 +58,10 @@ export class TestProcessScope {
       env = process.env,
       nodeArgs = ["--import", "tsx"],
       label = file,
+      command = process.execPath,
     } = opts;
     if (this.#disposed) throw new Error("TestProcessScope already disposed");
-    const child = spawn(process.execPath, [...nodeArgs, file, ...args], {
+    const child = spawn(command, [...nodeArgs, file, ...testElectronArgs(command, file, args, env)], {
       cwd,
       env,
       // stdin stays a pipe: it closes when THIS process dies, and the fixture
@@ -65,7 +78,9 @@ export class TestProcessScope {
       deadlineHit: false,
       code: /** @type {number|null} */ (null),
       signal: /** @type {string|null} */ (null),
+      spawnError: null,
     };
+    child.once("error", (error) => { entry.spawnError = error.message; });
     child.stdout.on("data", (d) => (entry.stdout += d));
     child.stderr.on("data", (d) => (entry.stderr += d));
     entry.closed = new Promise((resolve) => {

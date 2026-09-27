@@ -16,6 +16,7 @@
   import { onMount } from "svelte";
   import "pdfjs-dist/web/pdf_viewer.css";
   import PdfWorkerPort from "../../../lib/pdf/pdfjsWorker?worker";
+  import { createOwnedPdfTask } from "../../../lib/pdf/taskOwner";
   import {
     getDocument,
     PDFWorker,
@@ -44,7 +45,7 @@
     type CitePreviewRequest,
   } from "../../../lib/pdf/citePreview";
   import type { PDFDocumentProxy } from "../../../lib/pdf/pdfjs";
-  import type { FindMatch, OutlineSection } from "../../../lib/pdf/findMatches";
+  import { createFindMatchCollector, type FindMatch, type OutlineSection } from "../../../lib/pdf/findMatches";
 
   let {
     buffer,
@@ -358,33 +359,9 @@
   /** Every match in document order, with the surrounding text for a result list.
    *  Read off the find controller's own scan (pageMatches + the page text it folded),
    *  so the list can never disagree with what the viewer highlights. */
+  const collectFindMatches = createFindMatchCollector();
   function collectMatches(): FindMatch[] {
-    const fc = findCtl as unknown as {
-      pageMatches?: number[][];
-      pageMatchesLength?: number[][];
-      _pageContents?: string[];
-    } | null;
-    if (!fc?.pageMatches || !fc._pageContents) return [];
-    const CTX = 44;
-    const out: FindMatch[] = [];
-    for (let p = 0; p < fc.pageMatches.length; p++) {
-      const offsets = fc.pageMatches[p] ?? [];
-      const lens = fc.pageMatchesLength?.[p] ?? [];
-      const text = fc._pageContents[p] ?? "";
-      for (let i = 0; i < offsets.length; i++) {
-        const start = offsets[i];
-        const len = lens[i] ?? 0;
-        out.push({
-          index: out.length,
-          page: p + 1,
-          matchInPage: i,
-          before: text.slice(Math.max(0, start - CTX), start).replace(/\s+/g, " "),
-          hit: text.slice(start, start + len),
-          after: text.slice(start + len, start + len + CTX).replace(/\s+/g, " "),
-        });
-      }
-    }
-    return out;
+    return collectFindMatches(findCtl as unknown as import("../../../lib/pdf/findMatches").PdfFindSnapshot | null, lastQuery);
   }
 
   /** Jump to one match by its position in collectMatches(). Public API only: park the
@@ -477,18 +454,24 @@
     return out.sort((a, b) => a.page - b.page);
   }
 
+  let refineTimer: ReturnType<typeof setTimeout> | undefined;
+  let refineEpoch = 0;
   // --- scroll-to (annotation jump): page first, then refine to the exact highlight.
   $effect(() => {
     const t = scrollTo;
+    const epoch = ++refineEpoch;
+    clearTimeout(refineTimer);
     if (!t || !viewer || status !== "ready") return;
     void t.nonce;
     if (t.page != null) viewer.currentPageNumber = Math.min(Math.max(1, t.page), numPages || 1);
-    if (t.id) refineScroll(t.id, 12); // retries: the target page may still be rasterizing
+    if (t.id) refineScroll(t.id, 12, epoch);
+    return () => { refineEpoch++; clearTimeout(refineTimer); }; // retries: the target page may still be rasterizing
   });
-  function refineScroll(id: string, tries: number) {
+  function refineScroll(id: string, tries: number, epoch: number) {
+    if (epoch !== refineEpoch) return;
     const el = container?.querySelector(`.annot-hl[data-id="${CSS.escape(id)}"]`);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    else if (tries > 0) setTimeout(() => refineScroll(id, tries - 1), 150);
+    else if (tries > 0) refineTimer = setTimeout(() => refineScroll(id, tries - 1, epoch), 150);
   }
 
   // --- zoom / fit / layout / paging — the imperative handle ReaderMode drives ----
@@ -854,6 +837,7 @@
     const findController = new PDFFindController({ eventBus: bus, linkService, updateMatchesCountOnProgress: true });
     findCtl = findController;
     const pdfViewer = new PDFViewer({
+      scriptingManager: undefined, // PDF.js 6 enables scripting only when a manager is supplied.
       container: host,
       viewer: viewerDiv,
       eventBus: bus,
@@ -893,21 +877,10 @@
 
     const base = new URL("pdfjs/", document.baseURI).href; // dev: http://…/pdfjs/  prod: file://…/dist/pdfjs/
     // .create (not `new`): the constructor's upstream .d.ts mis-types `port` as null.
-    const worker = PDFWorker.create({ port: new PdfWorkerPort() });
-    const task = getDocument({
-      data: new Uint8Array(buffer.slice(0)),
-      worker,
-      cMapUrl: base + "cmaps/",
-      cMapPacked: true,
-      standardFontDataUrl: base + "standard_fonts/",
-      wasmUrl: base + "wasm/",
-      iccUrl: base + "iccs/",
-      // Draw non-embedded fonts from the shipped standard fonts rather than the OS —
-      // keeps rendering deterministic across machines (missing font → Symbol → Greek).
-      useSystemFonts: false,
-    });
+    const owned = createOwnedPdfTask(new Uint8Array(buffer), base, { createPort: () => new PdfWorkerPort(), createWorker: port => PDFWorker.create({port}), getDocument });
+    const task = owned.task;
     // Big-PDF feedback: fold the loading task's progress into the "Loading…" message.
-    if ("onProgress" in task) {
+    if (task && "onProgress" in task) {
       task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => {
         if (cancelled || !total || !Number.isFinite(total)) return;
         const mb = total / 1048576;
@@ -917,7 +890,7 @@
 
     (async () => {
       try {
-        const pdf = await task.promise;
+        const pdf = await owned.promise;
         if (cancelled) return;
         pdfDoc = pdf;
         pdfViewer.setDocument(pdf);
@@ -947,12 +920,7 @@
       } catch {
         /* ignore */
       }
-      void task.destroy().catch(() => {});
-      try {
-        worker.destroy();
-      } catch {
-        /* ignore */
-      }
+      void owned.dispose();
       viewer = undefined;
       bus = undefined;
     };

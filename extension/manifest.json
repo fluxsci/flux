@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Add to FluxLib",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Save the paper you're reading — with its PDF and supplementary files — into your Flux library.",
   "icons": {
     "16": "icons/16.png",

@@ -28,8 +28,12 @@ export function editSession() {
       if (checkpoint && generation !== editGen.n) finish();
       checkpoint ??= beginGesture();
       active.add(cancel);
-      apply();
-      generation = editGen.n;
+      try { apply(); generation = editGen.n; }
+      catch (error) {
+        if (checkpoint) rollbackGesture(checkpoint);
+        checkpoint = null; active.delete(cancel);
+        throw error;
+      }
     },
     finish,
     cancel,

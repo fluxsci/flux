@@ -108,6 +108,22 @@ for (const id of SOURCES) {
 }
 const cycleOk = SOURCES.every((id) => cycle[id].source === id && cycle[id].ink > 150);
 
+// Freeze only the separate continuity oracle. The subsequent live drag retains
+// exactly its original measurement duration and thresholds. Natural sprite
+// aging must not masquerade as a resize reset.
+await page.evaluate(() => { window.__fluxMargin.bg.pause(); window.__fluxMargin.bg.seek(8); });
+const frozenGrip = await page.$eval('.dm-grip', e => { const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}; });
+await page.evaluate(() => { const c=document.querySelector('.dynmargin .bg canvas');window.__frozenArt={w:c.width,h:c.height,pixels:[...c.getContext('2d').getImageData(0,0,c.width,c.height).data]}; });
+await page.mouse.move(frozenGrip.x,frozenGrip.y);await page.mouse.down();
+let sameClockPixels = true;
+for(let i=1;i<=4;i++) {
+  await page.mouse.move(frozenGrip.x-i*20,frozenGrip.y);
+  await page.evaluate(() => new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  sameClockPixels &&= await page.evaluate(() => { const c=document.querySelector('.dynmargin .bg canvas'),a=window.__frozenArt,d=c.getContext('2d').getImageData(0,0,a.w,a.h).data;return d.every((v,i)=>v===a.pixels[i]); });
+}
+await page.mouse.move(frozenGrip.x,frozenGrip.y);await page.mouse.up();
+await page.evaluate(() => window.__fluxMargin.bg.resume());
+
 // --- seamless grip drag -------------------------------------------------------
 // Back to the default scene with settled art, then drag the margin wider and
 // assert (a) the canvas tracks the box on every sampled step, and (b) the art
@@ -221,13 +237,13 @@ const res = {
   animates,
   cycleOk,
   dragTracked,
-  dragSurvives: !dragBlank,
+  dragSurvives: sameClockPixels,
   restBudget: stats.restP95 < 17.5 && stats.restOver34 === 0,
   paneBudget: stats.panes2P95 < 17.5 && stats.panes4P95 < 17.5 && stats.panes2Over34 === 0 && stats.panes4Over34 === 0,
   dragBudget: stats.dragP95 < 20 && stats.dragOver34 <= 1,
   spawnBudget: stats.spawnP95 < 8 && stats.spawnMax < 24,
 };
-console.log(JSON.stringify({ bg: res, cycle, stats, inkBefore, inkAfter, errs }, null, 2));
+console.log(JSON.stringify({ bg: res, cycle, stats, inkBefore, inkAfter, agingInkRatio: inkAfter / inkBefore, sameClockPixels, errs }, null, 2));
 const ok = Object.values(res).every(Boolean) && errs.length === 0;
 if (!ok) {
   console.error("\nMARGIN BG VERIFY: FAIL");

@@ -7,7 +7,9 @@
   // and `scrub` for each live drag/wheel step (wrap in mutate(); this control
   // owns the history entry). Mirrors the Inspector's field markup/styling so it
   // drops in beside the existing fields.
-  import { createEventDispatcher } from "svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
+  import { activeFigureId, selection, partSelections, embeddedProjectRoot } from "./store";
+  import { storeTenant } from "./tenancy";
   import { evalExpr, fmtNum } from "./num";
   import { scrub } from "./scrub";
   import { editSession } from "./interact/editSession";
@@ -54,6 +56,8 @@
     } else if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      if (wheelTimer) clearTimeout(wheelTimer);
+      wheelTimer = null; wheel.reset(); session.cancel();
       inputEl.value = display;
       inputEl.blur();
     } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
@@ -70,6 +74,18 @@
   // further, a flick doubles, Shift ×10, Alt ×0.1 — the same as the property menu.
   const wheel = new WheelStepper();
   let wheelTimer: ReturnType<typeof setTimeout> | null = null;
+  onDestroy(() => {
+    if (wheelTimer) clearTimeout(wheelTimer);
+    wheelTimer = null;
+    wheel.reset();
+    session.finish();
+  });
+  $: targetKey=JSON.stringify([storeTenant(),$embeddedProjectRoot,$activeFigureId,[...$selection],$partSelections]);
+  let wheelOwner="";
+  $: if (wheelOwner!==targetKey) {
+    if (wheelTimer) clearTimeout(wheelTimer);
+    wheelTimer=null;wheel.reset();session.finish();wheelOwner=targetKey;
+  }
   function onWheel(e: WheelEvent) {
     if (disabled) return;
     e.preventDefault();
@@ -97,7 +113,7 @@
   {#if label}
     <span
       class="lb"
-      use:scrub={{ get: () => value, step, min, max, disabled,
+      use:scrub={{ get: () => value, step, min, max, disabled, owner: targetKey,
         onStart: () => { scrubBaseline = value; dispatch('scrubStart'); },
         onStep: (v) => history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
         onEnd: session.finish,

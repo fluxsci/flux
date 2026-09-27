@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { parseHTML } from "linkedom";
 import { validatePlot } from "../flux-core/validate";
@@ -21,7 +22,10 @@ const load = async (name: string) => ({ svg: await readFile(new URL(`${name}.svg
   manifest: JSON.parse(await readFile(new URL(`${name}.fluxplot.json`, dir), "utf8")) as FluxPlotManifest });
 for (const name of ["panels-a", "panels-b", "fields"]) {
   const { svg, manifest } = await load(name);
-  const result = await validatePlot(new URL(`${name}.svg`, dir).pathname);
+  // fileURLToPath, never `.pathname`: a Windows file URL's pathname is "/C:/…",
+  // which is not a path the fs can open, and validatePlot then reported the
+  // manifest sidecar beside it as missing.
+  const result = await validatePlot(fileURLToPath(new URL(`${name}.svg`, dir)));
   assert.equal(result.ok, true, result.errors.join("\n"));
   await validateIncomingPlot(svg, JSON.stringify(manifest));
   const ids = new Set([...svg.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
@@ -69,10 +73,10 @@ const stale = structuredClone(A.manifest); stale.series[0].points![0].y = 100;
 assert(plotContractErrors(A.svg, stale).some((e) => e.includes("disagree")));
 assert.equal(createHash("sha256").update(A.svg).digest("hex"), A.manifest.artifact!.svgSha256);
 
-const invocation = recipeInvocation({ args: ["plot.py"], params: { dose: 1e-7 } }, { __fluxplot__: { field: { cmap: "plasma" } } });
+const invocation = recipeInvocation({ command: "python3", args: ["plot.py"], params: { dose: 1e-7 } }, { __fluxplot__: { field: { cmap: "plasma" } } });
 assert.deepEqual(invocation.args, ["plot.py", "--dose", "1e-7"]);
 assert.equal((invocation.params.__fluxplot__ as any).field.cmap, "plasma");
-assert.throws(() => recipeInvocation({}, { dose: NaN }), /finite/);
+assert.throws(() => recipeInvocation({ command: "python3" }, { dose: NaN }), /finite/);
 assert.equal(completedRecipe({ inputs: ["new"], params: { generated: 2 } }, { old: 1 }, { dose: 3 }, "now").inputs[0], "new");
 // Execute an actual regeneration that replaces its own provenance sidecar.
 const scratch = await mkdtemp(join(tmpdir(), "fluxplot03-recipe-"));

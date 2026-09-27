@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { parseDelimited, parseDelimitedAsync, createDelimitedParser, tableOrder, DISSECT_TABLE_MAX_BYTES } from '../src/lib/dissect/csv';
+import { clearDissectCache, imageUrl, tableText, listDissections } from '../src/lib/dissect/loader';
+const { readTextBounded } = createRequire(import.meta.url)('../electron/boundedText.cjs');
+const root = await mkdtemp(path.join(tmpdir(), 'flux-csv-bounds-'));
+try {
+  const file=path.join(root,'utf8.csv'); await writeFile(file,'αβ');
+  assert.deepEqual(await readTextBounded(file,3),{text:'α',truncated:true,totalBytes:4});
+  assert.deepEqual(await readTextBounded(file,4),{text:'αβ',truncated:false,totalBytes:4});
+  await assert.rejects(readTextBounded(file,Infinity),/limit/);
+  const quoted=parseDelimited('\uFEFFa,b\r\n"one\nline","said ""hi"""\r\nshort\r\n\r\n');
+  assert.deepEqual(quoted.header,['a','b']);assert.deepEqual(quoted.rows,[['one\nline','said "hi"'],['short']]);
+  const hostile=parseDelimited('a,b,c,d\n'+('x'.repeat(10000))+',2,3,4\n',{maxColumns:2,maxCellChars:12,maxStoredChars:20});
+  assert.equal(hostile.cols,2);assert.equal(hostile.rows[0][0].length,12);assert.equal(hostile.diagnostics.columns,true);assert.ok(hostile.diagnostics.cells>0);
+  assert.deepEqual(parseDelimited('a,b\n1,2\n3,"partial',{inputTruncated:true}).rows,[['1','2']]);
+  const text='name,x,y\n'+Array.from({length:200000},(_,i)=>`sample${i},${i},${i/3}`).join('\n');
+  const scanner=createDelimitedParser(text); let maxChunkMs=0;
+  while(!scanner.done){const start=performance.now();scanner.step();maxChunkMs=Math.max(maxChunkMs,performance.now()-start);}
+  const exact=scanner.snapshot();assert.equal(exact.totalRows,200000);assert.equal(exact.rows.length,5000);assert.ok(maxChunkMs<100,`scanner chunk ${maxChunkMs}ms exceeds100ms`);
+  let ticks=0,prefixRows=0;const timer=setInterval(()=>ticks++,1);
+  const asynchronous=await parseDelimitedAsync(text,{onProgress:t=>{prefixRows=t.rows.length;assert.equal(t.complete,false);}});clearInterval(timer);
+  assert.ok(ticks>0&&prefixRows>0);assert.deepEqual(asynchronous,exact);
+  const controller=new AbortController();const cancelled=parseDelimitedAsync(text,{signal:controller.signal,onProgress:()=>controller.abort()});await assert.rejects(cancelled,/cancelled/);
+  const strings=parseDelimited('name\n'+Array.from({length:5000},(_,i)=>`subject${5000-i}`).join('\n'));
+  const start=performance.now(); const order=tableOrder(strings,0,1);const sortMs=performance.now()-start;
+  assert.equal(strings.rows[order[0]][0],'subject1');assert.equal(strings.rows[order.at(-1)!][0],'subject5000');assert.ok(sortMs<100,`5000 row sort ${sortMs}ms exceeds100ms`);
+  let oldResolve!:(v:ArrayBuffer)=>void,newResolve!:(v:ArrayBuffer)=>void,calls=0;
+  const windowValue={fig:{readFile:async()=>{calls++;return new Promise<ArrayBuffer>(r=>{if(calls===1)oldResolve=r;else newResolve=r;});}}};
+  Object.assign(globalThis,{window:windowValue});
+  clearDissectCache();const old=imageUrl('/fixture/image.png');clearDissectCache();const newer=imageUrl('/fixture/image.png');
+  oldResolve(new Uint8Array([1]).buffer);assert.equal(await old,null);assert.equal(imageUrl('/fixture/image.png'),newer,'old finally must not delete new inflight');
+  newResolve(new Uint8Array([2]).buffer);const accepted=await newer;assert.match(accepted!,/Ag==$/);assert.equal(await imageUrl('/fixture/image.png'),accepted);assert.equal(calls,2);
+  let finishTable!:(v:{text:string;truncated:boolean;totalBytes:number})=>void;
+  Object.assign(windowValue.fig,{readTextBounded:async(_p:string,limit:number)=>{assert.equal(limit,DISSECT_TABLE_MAX_BYTES);return new Promise(r=>finishTable=r);}});
+  const loading=tableText('/fixture/table.csv');clearDissectCache();finishTable({text:'a\nold',truncated:false,totalBytes:5});assert.equal(await loading,null);
+  let finishListing!:(v:{name:string;dir:boolean}[])=>void;
+  Object.assign(windowValue.fig,{exists:async()=>true,readdir:async()=>new Promise(r=>finishListing=r)});
+  const listing=listDissections('/fixture','plot');await Promise.resolve();clearDissectCache();finishListing([]);await assert.rejects(listing,/Dissection changed/);
+  console.log(JSON.stringify({passed:true,records:exact.totalRows,retained:exact.rows.length,maxChunkMs,sortMs,cooperativeTicks:ticks,checks:'UTF8 byte cap, tolerant CSV, memory/row bounds, cancellation, cache/list/table invalidation'}));
+} finally { await rm(root,{recursive:true,force:true}); }

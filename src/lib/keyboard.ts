@@ -1,3 +1,4 @@
+import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";
 import { editSession } from "./interact/editSession";
 import { selectionTargets } from "./interact/selectionTargets";
@@ -23,7 +24,6 @@ import {
   duplicateFigure,
   newId,
   lastDupOffset,
-  captionOpen,
   nodeEditId,
   expandGroups,
   enteredGroupId,
@@ -39,14 +39,15 @@ import {
   xrayRoot,
   importerOpen,
   importerDetached,
-  figNamer,
+  importerPinRequested,
   figureCatalog,
   embeddedProjectRoot,
   projectDir,
   type Tool,
 } from "./store";
 import { storeTenant } from "./tenancy";
-import type { Element, GroupDef } from "./types";
+import { toggleActiveRange } from "./textEditRange";
+import type { Element, GroupDef, Figure } from "./types";
 import { FLUX_CLIP_MARKER, decidePaste, pastedImageName } from "./clipboardPaste";
 import { archivePastedImage, importDroppedFiles } from "./io";
 import { ancestorsOf, cloneGroupsFor, groupDefs, membersDeep, unitKeyOf, unitOf } from "./groups";
@@ -61,7 +62,7 @@ import {
   balancedRows,
   type AlignKind,
 } from "./geometry";
-import { saveProject, saveProjectAs, openProject, importAssets } from "./io";
+import { saveProject, openProject, importAssets } from "./io";
 import { presetPicker } from "./presets";
 import { fluxFigMenuOpen, settingsOpen, helpOpen, shellModalOpen, inspectorHidden, leftRailHidden } from "./settings";
 import { dissectTarget, openDissectForSelection } from "./dissect/state";
@@ -78,16 +79,6 @@ let clipboardGroups: Record<string, GroupDef> = {};
 function activeFig() {
   const p = get(project);
   return p.figures.find((f) => f.id === get(activeFigureId)) ?? null;
-}
-
-// Alt+C: open the caption editor (needs an active figure with a selection —
-// i.e. the user is "in" a figure), or close it if already open.
-function toggleCaption() {
-  if (get(captionOpen)) {
-    captionOpen.set(false);
-    return;
-  }
-  if (activeFig() && get(selection).size > 0) captionOpen.set(true);
 }
 
 // Alt+L: toggle the selected text element(s) as figure panel labels (each marked
@@ -114,22 +105,22 @@ function editableIds(): Set<string> {
   return new Set(get(project).figures.flatMap(fig => selectionTargets(fig, ids, { editable: true, excluded }).map(e => e.id)));
 }
 
-function withSelected(fn: (els: Element[], figId: string) => void) {
+function withSelected(fn: (els: Element[], figId: string, figure: Figure) => void) {
   const sel = editableIds();
   const fig = activeFig();
   if (!fig || sel.size === 0) return;
   commit((p) => {
     const f = p.figures.find((ff) => ff.id === fig.id)!;
     const els = selectionTargets(f, sel, { editable: true });
-    fn(els, f.id);
+    fn(els, f.id, f);
   });
 }
 
 function doAlign(kind: AlignKind) {
-  withSelected((els) => alignElements(els, kind));
+  withSelected((els,_,figure) => alignElements(els, kind, {figure,scope:get(enteredGroupId)}));
 }
 function doDistribute(axis: "h" | "v", gap?: number) {
-  withSelected((els) => distributeElements(els, axis, gap));
+  withSelected((els,_,figure) => distributeElements(els, axis, gap, {figure,scope:get(enteredGroupId)}));
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +148,7 @@ function applyArrange(rows: number) {
         e.y = b.y;
       }
     }
-    arrangeGrid(els, cols);
+    arrangeGrid(els, cols, {}, {figure:fig,scope:get(enteredGroupId)});
   }));
   arrange.set({ ...st, rows, cols });
   lastArrangeRows.set(rows);
@@ -168,7 +159,7 @@ export function enterArrange() {
   const sel = editableIds();
   if (!fig || sel.size < 2) return;
   const els = fig.elements.filter((e) => sel.has(e.id));
-  const n = gridItemCount(els);
+  const n = gridItemCount(els,{figure:fig,scope:get(enteredGroupId)});
   if (n < 2) return;
   arrangeBase = new Map(els.map((e) => [e.id, { x: e.x, y: e.y }]));
   const rows = balancedRows(n);
@@ -224,11 +215,11 @@ export function arrangeToRows(rows: number) {
   const fig = activeFig();
   const sel = get(selection);
   if (!fig || sel.size < 2) return;
-  const n = gridItemCount(fig.elements.filter((e) => sel.has(e.id)));
+  const n = gridItemCount(fig.elements.filter((e) => sel.has(e.id)),{figure:fig,scope:get(enteredGroupId)});
   if (n < 2) return;
   const v = validRowCounts(n);
   const r = v.reduce((b, x) => (Math.abs(x - rows) < Math.abs(b - rows) ? x : b));
-  withSelected((els) => arrangeGrid(els, Math.ceil(n / r)));
+  withSelected((els,_,figure) => arrangeGrid(els, Math.ceil(n / r), {}, {figure,scope:get(enteredGroupId)}));
   lastArrangeRows.set(r);
 }
 
@@ -318,6 +309,9 @@ function toggleBIU(which: ops.TextToggle): boolean {
       }
     }
   }
+  // Letters selected in a text box (kept after the inline editor closed) take
+  // the toggle; the box does not (textEditRange.ts).
+  if (toggleActiveRange(which)) return true;
   const sel = editableIds();
   if (sel.size === 0) return false;
   const p = get(project);
@@ -444,7 +438,7 @@ function nudgeFrame(dx: number, dy: number) {
  *  Figures list (the model order the canvas files persist). Acts on the row
  *  pick (Shift/Ctrl+click in the sidebar) or, with none, on the active figure.
  *  Order only: nothing moves on the canvas and no number changes — renumbering
- *  stays the namer's job (Ctrl+R). Returns false when there is nothing to move
+ *  stays Figure-Meta’s job (Ctrl+R). Returns false when there is nothing to move
  *  (no figure, or the block is already against that end), so the chord falls
  *  through instead of silently eating the key. */
 function moveFigureInOrder(delta: number): boolean {
@@ -478,8 +472,8 @@ function deleteFrame(): boolean {
   return true;
 }
 
-function copySelected() {
-  const sel = get(selection);
+function copySelected(ids: ReadonlySet<string> = get(selection)) {
+  const sel = ids;
   const fig = activeFig();
   if (!fig) return;
   clipboard = fig.elements.filter((e) => sel.has(e.id)).map((e) => structuredClone(e));
@@ -493,10 +487,29 @@ function copySelected() {
   if (clipboard.length) void navigator.clipboard?.writeText(FLUX_CLIP_MARKER).catch(() => {});
 }
 
+/** Ctrl/Cmd+X: cut = copy + delete, one undo entry (the removal). What lands
+ *  on the clipboard is exactly what leaves the figure: the EDITABLE targets of
+ *  the selection (locked / hidden units stay behind, the same rule Delete
+ *  applies), so a cut never copies something it did not remove. */
+function cutSelected() {
+  const sel = editableIds();
+  const fig = activeFig();
+  if (!fig || sel.size === 0) return;
+  const targets = new Set(selectionTargets(fig, sel, { editable: true }).map((e) => e.id));
+  if (!targets.size) return;
+  copySelected(targets);
+  commit((p) => ops.deleteElements(p, [...targets]));
+  selection.set(new Set([...get(selection)].filter((id) => !targets.has(id))));
+}
+
 function paste() {
   if (!clipboard.length) return;
   const fig = activeFig();
   if (!fig) return;
+  const assetIds = new Set(get(project).assets.map(a => a.id));
+  if (clipboard.some(e => (e.type === "image" || e.type === "plot") && !assetIds.has(e.assetId))) {
+    pushToast("info", "Import the copied image or plot into this project before pasting."); return;
+  }
   const videos = clipboard.filter(e => e.type === "video");
   if (videos.length && storeTenant() !== "slide") {
     pushToast("info", "Video clips can only be pasted into slides."); return;
@@ -559,7 +572,7 @@ export function handleEditorPaste(e: ClipboardEvent, figId: string | null) {
   // The import writes a derived copy into fig/assets/; this keeps the user's own
   // copy under plots/, because a pasted image has no source file to re-sync from.
   void archivePastedImage(named, name);
-  void importDroppedFiles([named], figId);
+  void importDroppedFiles([named], figId).catch(error=>pushToast("error", "Could not paste image", { detail: String(error) }));
 }
 
 // ⌘G — one shared op (ops.group): named registry group, nesting, z-splice.
@@ -741,7 +754,7 @@ export function handleKey(e: KeyboardEvent) {
   if (owner?.closest('.animator, [data-command-scope="animation"]')) return;
   if (owner?.tagName === "SELECT") return;
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
-  // Figure Namer / Dissect viewer own all keys while open.
+  // Figure-Meta Name tab / Dissect viewer own all keys while open.
   if (
     get(fluxFigMenuOpen) ||
     get(settingsOpen) ||
@@ -749,7 +762,6 @@ export function handleKey(e: KeyboardEvent) {
     get(xrayOpen) ||
     (get(importerOpen) && !get(importerDetached)) ||
     get(cascadeState) ||
-    get(figNamer) ||
     (get(figureCatalog) || get(figureDeletion)) ||
     get(dissectTarget) ||
     get(shellModalOpen)
@@ -779,32 +791,20 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Caption editor: Alt+C toggles it open/closed; Esc closes it. While open the
-  // canvas is read-only, so every other shortcut is swallowed here. (We don't
-  // preventDefault on the swallowed keys, so typing in a caption textarea still
-  // works — the global shortcuts simply don't fire.)
-  if (e.altKey && !mod && e.code === "KeyC") {
-    e.preventDefault();
-    toggleCaption();
-    return;
-  }
-  if (get(captionOpen)) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      captionOpen.set(false);
-    }
-    return;
-  }
-
   const t = e.target as HTMLElement;
   const typing =
     t &&
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
   // Shortcuts that work even while typing: save/open, rail toggle.
-  if (mod && e.key.toLowerCase() === "s") {
+  // Ctrl+Shift+S is NOT save-as: that chord is the shell's Snapshot & annotate
+  // (Workspace.svelte, docs/reference/shortcuts.qmd), and until 2026-09-26 this
+  // branch also caught it — `key` ignores Shift — and raised the native save-as
+  // dialog under the overlay in a real build. Save-as stays reachable through
+  // the palette; the plain chord saves.
+  if (mod && !e.shiftKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
-    e.shiftKey ? saveProjectAs() : saveProject();
+    saveProject();
     return;
   }
   // Ctrl/Cmd+Shift+B: hide/show the right rail (Inspector; in slide mode the
@@ -843,7 +843,7 @@ export function handleKey(e: KeyboardEvent) {
   // Alt+G: open the Plot Gallery (search/browse the project's plots/ dir).
   if (e.altKey && !mod && e.code === "KeyG") {
     e.preventDefault();
-    if (get(embeddedProjectRoot) || get(projectDir)) importerOpen.set(true);
+    if (get(embeddedProjectRoot) || get(projectDir)) { importerPinRequested.set(e.shiftKey); importerOpen.set(true); }
     return;
   }
 
@@ -855,7 +855,7 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
-  // Ctrl/Cmd+R: the Figure Namer (family · number · nickname). Figure tenant
+  // Ctrl/Cmd+R: the Figure-Meta Name tab (family · number · nickname). Figure tenant
   // only — in slide mode the store's "figures" are slides; family identity is
   // meaningless there and would be folded into the deck. preventDefault always,
   // so a stray reload accelerator can never fire (dev menu binds reload to
@@ -864,14 +864,14 @@ export function handleKey(e: KeyboardEvent) {
     e.preventDefault();
     if (storeTenant() !== "figure") return;
     const fid = frameSelected() ?? get(activeFigureId);
-    if (fid) figNamer.set({ figId: fid });
+    if (fid) openFigureMeta(fid, "name");
     return;
   }
 
   // Alt+↑ / Alt+↓: move this figure up/down the sidebar's Figures list — the
   // editor's "move this block up a list" chord (VS Code / Obsidian). NOT
   // Shift+arrows, which is the 10px nudge. The figure keeps its place on the
-  // canvas and its number: this reorders the list, the namer renumbers.
+  // canvas and its number: this reorders the list, Figure-Meta renumbers.
   if (e.altKey && !mod && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
     if (moveFigureInOrder(e.key === "ArrowUp" ? -1 : 1)) {
       e.preventDefault();
@@ -991,6 +991,11 @@ export function handleKey(e: KeyboardEvent) {
       copySelected();
       // NOTE: no Ctrl+V branch — pasting rides the native "paste" event
       // (handleEditorPaste), which arbitrates elements vs OS-clipboard images.
+    } else if (k === "x" && !e.shiftKey && !e.altKey) {
+      // Cut, as everywhere else: the selection goes to the clipboard and
+      // leaves the figure. (Plain X is hide/show; the chord is distinct.)
+      e.preventDefault();
+      cutSelected();
     } else if (k === "a" && !e.shiftKey) {
       // !shiftKey: Ctrl+Shift+A is the slide animator's "add appearance"
       // chord (same hygiene as Ctrl+Shift+D above).

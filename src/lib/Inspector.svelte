@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openFigureMeta } from "./figure/metadataState";
   import { numericProperties, propertyValue, setNumericProperty, type NumericProperty } from "./interact/elementProperties";
   import { editSession } from "./interact/editSession";
   const textSession = editSession();
@@ -13,7 +14,7 @@
   import { buildMenuFields, fieldRange, type Field } from "./interact/propertyMenu";
   import { get } from "svelte/store";
   import { onMount, onDestroy, getContext } from "svelte";
-  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figNamer, figureCatalog } from "./store";
+  import { figureFramePreview, project, selection, partSelection, partSelections, activeFigureId, commit, mutate, figureRev, globalRev, lastArrangeRows, duplicateFigure, autoLetterPanels, embeddedProjectRoot, figureCatalog, enteredGroupId } from "./store";
   import { familyById, formatFamilyRef } from "./figfamily";
   import { pushToast, errMsg } from "./toast";
   import type { Element, Figure, Project, TextAlign, TextStyle, TextVAlign } from "./types";
@@ -23,6 +24,8 @@
   import { exportFigurePng, exportFigureSvg, exportFigurePdf, exportFigureJournal } from "./io";
   import { JOURNAL_PRESETS, DPI_CHOICES, planExport, describeSize, MM_PER_INCH } from "./figure/journalSizing";
   import { applyTextLayout, reflowTexts } from "./text";
+  import { textEditRange, activeTextRange, toggleActiveRange, publishTextRange, typingStyle, type RangeStyle } from "./textEditRange";
+  import { rangeIsOn, rangeColor, rangeScript } from "./textRuns";
   import {
     globalTextStyles,
     loadGlobalTextStyles,
@@ -31,7 +34,7 @@
     applyLibraryStyle,
     libraryOnly,
   } from "./textStyles";
-  import { plotManifests } from "./plot/store";
+  import { plotManifests, plotHasContentScaleTargets } from "./plot/store";
   import { buildPartIndex } from "./plot/parse";
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
@@ -43,6 +46,7 @@
   import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
   import ColorPicker from "./ColorPicker.svelte";
+  import ColorField from "./ColorField.svelte";
   import NumberField from "./NumberField.svelte";
   import { commitDeckLive } from "./slide/store";
   import { setVideoSettings } from "./slide/ops";
@@ -164,7 +168,7 @@
 
   // Arrange controls (mouse equivalents of the Alt+T grid mode). `arrN` is the
   // number of layout cells (a group counts once); the section hides below 2.
-  $: arrN = sel.length >= 2 ? gridItemCount(sel) : 0;
+  $: arrN = sel.length >= 2 ? gridItemCount(sel, {figure:modelFigure ?? undefined,scope:$enteredGroupId}) : 0;
   // Exact-gap distribute (Feature 7): the gutter applied by the Gap H/V buttons.
   let gapVal = 24;
   // Proportional scale (Feature 5): one-shot "scale by %" of the selection.
@@ -237,6 +241,29 @@
   const paintName = (hex: string, g?: GradientFill | null) => (g && gradientCss(g) ? gradientLabel(g) : swatchName(hex));
   $: strokeEl = sel.find((e) => e.type === "rect" || e.type === "ellipse" || e.type === "path" || e.type === "line");
   $: textEl = sel.find((e) => e.type === "text");
+  // Letters selected inside the one selected text box: B/I/U and the text colour
+  // act on them, not on the box (textEditRange.ts).
+  // The range store is an argument so Svelte re-runs this when it changes.
+  const rangeFor = (_range: unknown, p: typeof $project, sel: Set<string>) => activeTextRange(p, sel);
+  $: ranged = rangeFor($textEditRange, $project, $selection);
+  $: rangeOn = (which: "bold" | "italic" | "underline") =>
+    ranged ? rangeIsOn(ranged.element, ranged.range.from, ranged.range.to, which) : false;
+  // Plot DOMs load lazily; the manifest store updates when one does, so it is
+  // passed in to make the template re-ask.
+  const contentScalable = (assetId: string, _loaded: unknown) => plotHasContentScaleTargets(assetId);
+  $: rangeHex = ranged ? rangeColor(ranged.element, ranged.range.from, ranged.range.to) : null;
+  // While typing at a bare caret, the buttons show (and set) the TYPING style:
+  // what the next characters will look like (textEditRange.ts typingStyle).
+  $: typing = $typingStyle && single && $typingStyle.id === single.id ? $typingStyle : null;
+  $: flagPressed = (which: "bold" | "italic" | "underline", boxOn: boolean) =>
+    typing?.flags[which] !== undefined ? !!typing.flags[which] : ranged ? rangeOn(which) : boxOn;
+  // With no typing style and no live range the buttons read the BOX's own
+  // look, like flagPressed: a selected box whose whole text is one script run
+  // shows X² / X₂ pressed (and a click on it clears the run, as before).
+  $: scriptPressed = (which: "super" | "sub") =>
+    typing?.flags.script !== undefined ? typing.flags.script === which
+      : ranged ? rangeScript(ranged.element, ranged.range.from, ranged.range.to) === which
+      : single?.type === "text" ? rangeScript(single, 0, single.text.length) === which : false;
   const swatchName = (hex: string) => (hex === "none" ? "none" : (nameForHex(hex) ?? hex));
 
   // Panel-label (caption) state across the selected text elements.
@@ -321,11 +348,17 @@
   }
 
   // --- text styling (B/I/U, sizing mode, named styles) ---
-  function toggleSelText(which: ops.TextToggle) {
+  function toggleSelText(which: RangeStyle) {
+    if (toggleActiveRange(which)) return;
     const list = editableIds();
     if (!list.length) return;
     commit((p) => {
-      ops.toggleTextStyle(p, list, which);
+      // A box has no script of its own: superscripting a selected box means
+      // every character of it.
+      if (which === "super" || which === "sub") {
+        for (const f of p.figures) for (const e of f.elements)
+          if (list.includes(e.id) && e.type === "text") ops.toggleTextRunScript(p, e.id, 0, e.text.length, which);
+      } else ops.toggleTextStyle(p, list, which);
       reflowTexts(p, list);
     });
   }
@@ -566,6 +599,7 @@
         {#if single.type === "plot"}
           <!-- The K/Scale tool's persisted geometric factor: plain resize keeps
                text/strokes pt-true; content scale multiplies glyphs + strokes. -->
+          {#if contentScalable(single.assetId, $plotManifests)}
           <div class="row wh">
             <NumberField label="Content scale" value={single.contentScale ?? 1} min={0.01} step={0.05}
               title="Geometric scale of the plot's text/strokes (the K tool writes this; 1 = true point sizes)"
@@ -575,6 +609,16 @@
               <button class="true-size" title="Reset content scale to 1 (true point sizes)" on:click={resetContentScale}>1×</button>
             {/if}
           </div>
+          {:else}
+          <!-- Content scale multiplies text and strokes only; a picture with
+               neither (a PNG wrapped in SVG) would not change at any value. -->
+          <div class="row content-scale-na" data-content-scale-na>
+            <span class="note">No text or strokes to scale in this graphic. Resize its box to make it bigger.</span>
+            {#if (single.contentScale ?? 1) !== 1}
+              <button class="true-size" title="Clear the unused content scale ({single.contentScale}×)" on:click={resetContentScale}>Clear {single.contentScale}×</button>
+            {/if}
+          </div>
+          {/if}
         {/if}
       {/if}
       {#if dissectKey}
@@ -650,11 +694,19 @@
         {#if textEl && textEl.type === "text"}
           <div class="arow">
             <span class="al">Text</span>
+            {#if ranged}
+              <button class="swrow" class:open={colorPop === "text"} on:click={() => (colorPop = colorPop === "text" ? null : "text")} title="Colour of the selected letters — pick from the palette">
+                <span class="sw" style={rangeHex ? `background:${rangeHex}` : "background:linear-gradient(90deg,#888 50%,#ccc 50%)"}></span>
+                <span class="swname">{rangeHex ? nameForHex(rangeHex) ?? rangeHex : "Mixed"}</span>
+                <span class="swhex">{rangeHex ?? ""}</span>
+              </button>
+            {:else}
             <button class="swrow" class:open={colorPop === "text"} on:click={() => (colorPop = colorPop === "text" ? null : "text")} title="Text colour — pick from the palette">
               <span class="sw" style={paintCss(textEl.color, textEl.fillMap)}></span>
               <span class="swname">{paintName(textEl.color, textEl.fillMap)}</span>
               <span class="swhex">{textEl.color}</span>
             </button>
+            {/if}
           </div>
           {#if colorPop === "text"}<div class="pop"><ColorPicker target="fill" allowNone={false} autofocus={false} onDone={() => (colorPop = null)} onCancel={() => (colorPop = null)} /></div>{/if}
         {/if}
@@ -803,10 +855,20 @@
           on:commit={(e) => updateSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))}
           on:scrub={(e) => scrubSelected((el, p) => setNumericProperty(p, el, "paragraphSpacing", e.detail))} />
       </div>
+      {#if ranged}
+        <div class="row range-note" data-text-range>
+          <span class="note">Styling {ranged.range.to - ranged.range.from} selected character{ranged.range.to - ranged.range.from === 1 ? "" : "s"}</span>
+          <button class="mini" title="Apply styles to the whole text box instead" on:mousedown|preventDefault on:click={() => publishTextRange(null)}>Whole box</button>
+        </div>
+      {/if}
       <div class="row biu-row">
-        <button class="biu" aria-pressed={single.fontWeight >= 600} title="Bold (Ctrl+B)" on:click={() => toggleSelText("bold")}><b>B</b></button>
-        <button class="biu" aria-pressed={single.fontStyle === "italic"} title="Italic (Ctrl+I)" on:click={() => toggleSelText("italic")}><i>I</i></button>
-        <button class="biu" aria-pressed={!!single.underline} title="Underline (Ctrl+U)" on:click={() => toggleSelText("underline")}><u>U</u></button>
+        <!-- mousedown|preventDefault keeps the inline editor focused, so the
+             letters stay selected and the next button acts on them too. -->
+        <button class="biu" aria-pressed={flagPressed("bold", single.fontWeight >= 600)} title={ranged ? "Bold the selected letters (Ctrl+B)" : "Bold (Ctrl+B)"} on:mousedown|preventDefault on:click={() => toggleSelText("bold")}><b>B</b></button>
+        <button class="biu" aria-pressed={flagPressed("italic", single.fontStyle === "italic")} title={ranged ? "Italicise the selected letters (Ctrl+I)" : "Italic (Ctrl+I)"} on:mousedown|preventDefault on:click={() => toggleSelText("italic")}><i>I</i></button>
+        <button class="biu" aria-pressed={flagPressed("underline", !!single.underline)} title={ranged ? "Underline the selected letters (Ctrl+U)" : "Underline (Ctrl+U)"} on:mousedown|preventDefault on:click={() => toggleSelText("underline")}><u>U</u></button>
+        <button class="biu script" aria-pressed={scriptPressed("super")} title={ranged ? "Superscript the selected letters (Ctrl++ or Ctrl+.)" : "Superscript (Ctrl++ or Ctrl+. while typing)"} on:mousedown|preventDefault on:click={() => toggleSelText("super")}>X<sup>2</sup></button>
+        <button class="biu script" aria-pressed={scriptPressed("sub")} title={ranged ? "Subscript the selected letters (Ctrl+= or Ctrl+,)" : "Subscript (Ctrl+= or Ctrl+, while typing)"} on:mousedown|preventDefault on:click={() => toggleSelText("sub")}>X<sub>2</sub></button>
         <NumberField label="Line height" value={single.lineHeight ?? 1.2} min={0.5} step={0.05}
           title="Line height as a multiple of the font size"
           on:commit={(e) => updateSelected((el, p) => { if (el.type === "text") { el.lineHeight = e.detail; ops.detachOnManualEdit(p, el, ["lineHeight"]); } })}
@@ -836,7 +898,7 @@
         />
         Panel label <span class="hk">Alt+L</span>
       </label>
-      <p class="note">Marked text becomes a block in the caption editor (Alt+C).</p>
+      <p class="note">Marked text becomes a caption block in Figure-Meta (Alt+M).</p>
       </div>
     </section>
   {/if}
@@ -945,12 +1007,12 @@
       <p class="note mono">= {mmStr(fig.width)} × {mmStr(fig.height)} mm</p>
 
       <!-- Identity is family + number (figfamily.ts) — the name is derived, so
-           the row opens the Figure Namer instead of editing text. The nickname
+           the row opens the Figure-Meta Name tab instead of editing text. The nickname
            stays inline-editable (it's free text). -->
       <button
         class="identity"
         title="Rename (Ctrl+R)"
-        on:click={() => figNamer.set({ figId: fig.id })}>
+        on:click={() => openFigureMeta(fig.id, "name")}>
         <b>{fig.name}</b>
         <span class="id-ref">{formatFamilyRef(familyById(fig.family, $project.figureFamilies), fig.number ?? 0)}</span>
       </button>
@@ -967,11 +1029,14 @@
           }} />
       </label>
       <button class="full figure-details" on:click={() => figureCatalog.set({ figureId: fig.id })}>Reference, sources &amp; used in…</button>
-      <label class="full">Background
-        <input type="color" value={fig.background === "transparent" ? "#ffffff" : fig.background} on:change={(e) => updateFigure((f) => (f.background = e.currentTarget.value))} />
-      </label>
+      <!-- Never a native <input type="color"> here: its eyedropper segfaults Electron on
+           Linux/Wayland (ColorField routes the dropper through the desktop portal). -->
+      <div class="full fieldlbl">
+        <span>Background</span>
+        <ColorField value={fig.background === "transparent" ? "#ffffff" : fig.background} fallback="#ffffff" label="Figure background" onchange={(hex) => updateFigure((f) => (f.background = hex))} />
+      </div>
       <button class="fig-act" on:click={() => duplicateFigure(fig.id)}>Duplicate figure</button>
-      <button class="fig-act" on:click={() => autoLetterPanels(fig.id)}>Auto-letter panels (a, b, c)</button>
+      <button class="fig-act" on:click={() => { try { autoLetterPanels(fig.id); } catch (error) { pushToast("error", "Panels could not be lettered", { detail: String((error as Error).message) }); } }}>Auto-letter panels (a, b, c)</button>
       {#if $embeddedProjectRoot}
         <!-- Send to deck (slide-migration §3.9): copy this figure's content to a
              deck as a new slide (fresh ids, native size — the shared 96/in ruler). -->
@@ -1267,6 +1332,19 @@
     color: var(--c-tx-muted);
   }
   .note.mono { font-family: var(--font-mono); }
+  .content-scale-na { align-items: center; gap: 8px; }
+  .content-scale-na .note { margin: 0; }
+  .range-note { align-items: center; gap: 8px; }
+  .range-note .note { margin: 0; color: var(--c-accent); }
+  .range-note .mini {
+    font-size: 11px;
+    padding: 1px 7px;
+    border: 1px solid var(--c-line);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--c-tx-muted);
+  }
+  .range-note .mini:hover { color: var(--c-tx); }
   .video-properties .note { overflow-wrap: anywhere; }
   .part-id {
     display: flex;
@@ -1307,7 +1385,16 @@
     margin: 0;
     accent-color: var(--c-accent);
   }
-  input[type="color"] { padding: 1px 2px; }
+  .fieldlbl {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    margin-top: 6px;
+    font: 10.5px var(--font-ui);
+    color: var(--c-tx-muted);
+    letter-spacing: 0.02em;
+  }
   textarea {
     resize: vertical;
     height: auto;
@@ -1358,7 +1445,7 @@
     border-radius: var(--r-ui);
     padding: 0 5px;
   }
-  /* Figure identity row — opens the Figure Namer (Ctrl+R). */
+  /* Figure identity row — opens the Figure-Meta Name tab (Ctrl+R). */
   .identity {
     display: flex;
     align-items: center; /* sans name + mono ref sit on one visual centre line, not two baselines */
@@ -1395,7 +1482,10 @@
   /* B/I/U toggles */
   .biu-row {
     align-items: flex-end;
+    /* five style buttons plus the line-height field: wrap in a narrow panel */
+    flex-wrap: wrap;
   }
+  .biu.script sup, .biu.script sub { font-size: 0.62em; line-height: 0; }
   .biu {
     flex: 0 0 auto;
     min-width: 26px;

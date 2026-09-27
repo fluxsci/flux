@@ -1,9 +1,18 @@
+import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
+import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
+import { generationBridgeIO } from "./generationBridgeIO";
+import { stageFigureRegistration } from "./figureGeneration";
+import { storedAssetPath } from "./assetPath";
 // Adapter between the figure editor's in-memory model and the Flux project's
 // `fig/` subsystem (Flux_Project_Format.md §3.2). Each canvas (page) is a file
 // under `fig/canvases/<id>.json`; `fig/index.json` rolls them up (canvas list +
 // figure numbering + palette + assets). The user never hand-edits `fig/`.
 
 import { get } from "svelte/store";
+import { readFigureSnapshot } from "./figureSnapshot";
+import { withIpcLock, type IpcLease } from "../references/libLock";
+import { applySourceUpdates, writeSourceUpdates, type SourceUpdate } from "../plot/sourceSync";
+import { commitTextGeneration, recoverTextGeneration, bytesToBase64, type GenerationWrite } from "./textGeneration";
 import type {
   Project as FigProject,
   Canvas,
@@ -16,6 +25,7 @@ import {
   dirty as figDirty,
   loadProject as figLoad,
   editGen,
+  capturePersistenceGeneration,
 } from "../store";
 import {
   assetData,
@@ -63,6 +73,7 @@ import {
 const SUB = "fig";
 const DEFAULT_CANVAS_ID = "canvas-1";
 let loadedFigureRoot: string | null = null;
+let figureLoadRequest = 0;
 export function figureStoreRoot(): string | null { return loadedFigureRoot; }
 
 // W7 conflict guard: the raw fig/index.json text we last loaded or wrote — i.e.
@@ -74,12 +85,8 @@ async function readFigIndexText(
   fig: NonNullable<ReturnType<typeof fileBridge>>,
   root: string,
 ): Promise<string> {
-  try {
-    const p = joinPath(root, SUB, "index.json");
-    return (await fig.exists(p)) ? await fig.readText(p) : "";
-  } catch {
-    return "";
-  }
+  const p = joinPath(root, SUB, "index.json");
+  return (await fig.exists(p)) ? await fig.readText(p) : "";
 }
 
 /** WS-5.4: has any canvas file changed on disk since we loaded/wrote it? The
@@ -133,196 +140,80 @@ export async function loadFigInto(
 ): Promise<void> {
   const fig = fileBridge();
   if (!fig) return;
-  loadedFigureRoot = null;
-  await recoverFigureReferenceUpdate(root, fig);
-  // Source changes made while Flux was closed must be accepted before this
-  // editor adopts its disk baselines. A failed source keeps the last good copy.
-  if (!opts.reload) {
-    try { await (await import("./sourceBridge")).syncProjectSources(root); }
-    catch (e) { pushToast("error", "Some figure sources could not update", { detail: String((e as Error)?.message ?? e) }); }
+  const request = ++figureLoadRequest;
+  await withIpcLock("project", "project", projectLease => withIpcLock("project", "slides", slidesLease => withIpcLock("project", "manifest", manifestLease => recoverTextGeneration(generationBridgeIO(root, fig), async()=>{await projectLease.assertOwned?.();await slidesLease.assertOwned?.();await manifestLease.assertOwned?.()}), { root }), { root }), { root });
+  const ownerBefore = loadedFigureRoot;
+  await recoverFigureReferenceUpdate(root, referenceSyncBridgeIO(root, fig));
+  const generation = editGen.n;
+  const snapshot = await readFigureSnapshot(figureSnapshotBridgeIO(root, fig));
+  if (request !== figureLoadRequest) return;
+  if (snapshot.status === "future-version") {
+    if (!opts.reload) { figSubsystemLocked = true; figLoadFailure = snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n"); }
+    throw new Error(snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n"));
   }
-
-  figSubsystemLocked = false;
-  figLoadFailure = null;
-  canvasBaseline.clear();
-  captionBaseline.clear();
-  acceptedCaptions.clear();
-  let index: FigIndexFile | null = null;
-  let indexText = "";
-  try {
-    const p = joinPath(root, SUB, "index.json");
-    if (await fig.exists(p)) {
-      indexText = await fig.readText(p);
-      index = JSON.parse(indexText) as FigIndexFile;
-      // WS-5.2 forward-version guard: a NEWER fig format must not be migrated
-      // DOWN and rewritten — refuse the subsystem (saves locked) instead.
-      if (isNewerSchema(index.schemaVersion, FIG_INDEX_SCHEMA_VERSION)) {
-        pushToast("error", "Figure subsystem written by a newer Flux", {
-          detail: newerSchemaMessage("fig/index.json", index.schemaVersion, FIG_INDEX_SCHEMA_VERSION),
-        });
-        figSubsystemLocked = true;
-        return;
-      }
-      // WS-5.1 load gate: a structurally-invalid index is quarantined (bytes
-      // preserved as .corrupt-<ts>) and the load proceeds with defaults —
-      // never silently half-parsed.
-      const errs = validateFigIndexFile(index);
-      if (errs.length) {
-        figLoadFailure = "fig/index.json failed validation. Repair or restore the file before saving figures.";
-        const q = await quarantineCopy(fig, p, indexText);
-        pushToast("error", "fig/index.json failed validation — starting from defaults", {
-          detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
-        });
-        index = null;
-        indexText = "";
-      }
-    }
-  } catch {
-    figLoadFailure = "Could not read fig/index.json. Restore access to the file before saving figures.";
-    index = null;
-  }
-  figIndexBaseline = indexText; // W7: seed the conflict-guard baseline
-
-  // Canvas list comes from the index (canonical order via the shared core);
-  // fall back to a single default canvas.
-  const sorted = sortedCanvasMeta(index);
-  const canvasMeta = sorted.length ? sorted : [{ id: DEFAULT_CANVAS_ID, name: "Canvas 1", order: 1 }];
-
-  const canvases: Canvas[] = canvasMeta.map((c) => ({ id: c.id, name: c.name }));
-  const figures: Figure[] = [];
-  for (const cm of canvasMeta) {
-    try {
-      const p = joinPath(root, SUB, "canvases", `${cm.id}.json`);
-      if (await fig.exists(p)) {
-        const text = await fig.readText(p);
-        const cf = JSON.parse(text) as CanvasFile;
-        // WS-5.2: a single newer-format canvas refuses the WHOLE subsystem —
-        // loading around it would drop its figures from the next index write.
-        if (isNewerSchema(cf.schemaVersion, CANVAS_SCHEMA_VERSION)) {
-          pushToast("error", `Canvas "${cm.name}" written by a newer Flux — figure editing disabled`, {
-            detail: newerSchemaMessage(`fig/canvases/${cm.id}.json`, cf.schemaVersion, CANVAS_SCHEMA_VERSION),
-          });
-          figSubsystemLocked = true;
-          return;
-        }
-        // WS-5.1 load gate (parse → migrate → validate): migrate THIS canvas's
-        // figures, validate them, and on failure quarantine the FILE + skip it
-        // — sibling canvases still load (the malformed-canvas acceptance).
-        const probe = {
-          version: 2,
-          name: "",
-          canvases: [{ id: cm.id, name: cm.name }],
-          figures: (cf.figures ?? []).map((f) => ({ ...f, canvasId: cm.id })),
-          assets: index?.assets ?? [],
-          palette: [],
-        } as FigProject;
-        migrateProject(probe);
-        // Absolute source paths (older GUI imports, or this project opened at a
-        // different path than it was imported at) become project-relative, so
-        // the next save of this canvas leaves a portable file behind.
-        healPlotSources(probe, root);
-        const errs = validateModel(probe);
-        if (errs.length) {
-          figLoadFailure = `Canvas "${cm.name}" could not be loaded. Repair or restore fig/canvases/${cm.id}.json before saving figures.`;
-          const q = await quarantineCopy(fig, p, text);
-          pushToast("error", `Canvas "${cm.name}" failed validation — skipped`, {
-            detail: `${errs.slice(0, 5).join("\n")}${q ? `\nOriginal preserved at ${q}` : ""}`,
-          });
-          continue;
-        }
-        for (const f of probe.figures) figures.push(f);
-        canvasBaseline.set(cm.id, text); // WS-5.3: seed the skip-unchanged baseline
-      } else if (index?.figures.some(f => f.canvas === cm.id)) {
-        figLoadFailure = `Missing fig/canvases/${cm.id}.json. Restore it before saving figures.`;
-      }
-    } catch {
-      figLoadFailure = `Could not read fig/canvases/${cm.id}.json. Restore access to the file before saving figures.`;
-    }
-  }
-
-  // WS-5.6: the shared normalization — same tree, same in-memory model as
-  // flux-core (name/path/size fallbacks; dpi kept only when present).
-  //
-  // LAZY residency (2026-07-21, plan §5.2): `model.assets` + `assetData` bytes
-  // + sidecar manifests/recipes load eagerly (all cheap, and the metadata is
-  // the save-safety invariant — the index regenerates from model.assets, so it
-  // must stay 100% resident). The DOM PARSE is what's deferred: PlotElement
-  // requests it on mount (requestPlotDom), plots render the full-fidelity
-  // <image> fallback until it lands, and an LRU bounds the resident set —
-  // O(active figure) instead of O(project). Mirrors io.ts openProject exactly.
-  const assets: Asset[] = normalizeIndexAssets(index);
-  const data: Record<string, string> = {};
-  const primedManifests: Record<string, FluxPlotManifest> = {};
-  const primedRecipes: Record<string, unknown> = {};
-  clearPlots();
-  clearSnipMeta(); // project-load boundary — snip provenance re-derives from the bytes below
-  for (const a of assets) {
+  if (opts.reload && snapshot.status !== "complete") throw new ConflictError(snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n"));
+  const proj = snapshot.project;
+  proj.name = projectName || "Untitled";
+  if (!proj.canvases.length) proj.canvases.push({ id: DEFAULT_CANVAS_ID, name: "Canvas 1" });
+  if (snapshot.index?.colorGroups === undefined) proj.colorGroups = get(settings).flexokiDefault ? structuredClone(FLEXOKI) : [];
+  healPlotSources(proj, root);
+  const data: Record<string, string> = Object.create(null);
+  const primedManifests: Record<string, FluxPlotManifest> = Object.create(null);
+  const primedRecipes: Record<string, unknown> = Object.create(null);
+  const pngs: [string, Uint8Array][] = [];
+  for (const a of proj.assets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
     if (!a.path) continue;
     try {
-      const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
+      const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
+      const bytes = new Uint8Array(await fig.readFile(assetPath));
       data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
-      if (a.kind === "png") captureSnipMeta(a.id, bytes);
+      if (a.kind === "png") pngs.push([a.id, bytes]);
       if (a.kind === "svg") {
         const mpath = joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`);
-        if (await fig.exists(mpath)) {
-          primedManifests[a.id] = JSON.parse(await fig.readText(mpath)) as FluxPlotManifest;
-          const rpath = joinPath(root, SUB, "assets", `${a.id}.recipe.json`);
-          if (await fig.exists(rpath)) primedRecipes[a.id] = JSON.parse(await fig.readText(rpath));
-        }
-        // Vanilla svg (no sidecar): its DERIVED manifest appears on first
-        // parse, same retroactive-deriver rule as the old eager path.
+        if (await fig.exists(mpath)) primedManifests[a.id] = JSON.parse(await fig.readText(mpath));
+        const rpath = joinPath(root, SUB, "assets", `${a.id}.recipe.json`);
+        if (await fig.exists(rpath)) primedRecipes[a.id] = JSON.parse(await fig.readText(rpath));
       }
-    } catch {
-      /* missing asset bytes — skip */
+    } catch (error) { snapshot.diagnostics.push({ path: a.path, message: String(error) }); snapshot.status = "partial"; }
+  }
+  if (typeof document !== "undefined") for (const f of proj.figures) for (const e of f.elements) if (e.type === "text" && e.needsLayout) applyTextLayout(e);
+  if (opts.reload && snapshot.status !== "complete") throw new ConflictError(snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n"));
+  const adopt = figureSaveQueue.catch(() => {}).then(() => withIpcLock("project", "project", async lease => {
+    for (const [rel, baseline] of snapshot.baselines) {
+      const current = await fig.exists(joinPath(root,rel)) ? await fig.readText(joinPath(root,rel)) : null;
+      if (current !== baseline) throw new ConflictError(`Figures changed while reading ${rel}; reload again`);
     }
+    await lease.assertOwned?.();
+    if (request !== figureLoadRequest) return;
+    if (editGen.n !== generation || (opts.reload && loadedFigureRoot !== ownerBefore)) throw new ConflictError("Figures changed while a reload was being prepared; your edits are retained");
+    // Publication is one synchronous transition, after every awaited read.
+    clearPlots(); clearSnipMeta();
+    primePlotSidecars(primedManifests, primedRecipes); assetData.set(data);
+    for (const [id, bytes] of pngs) captureSnipMeta(id, bytes);
+    clearAllAssetsDirty();
+    figIndexBaseline = snapshot.baselines.get("fig/index.json") ?? "";
+    canvasBaseline.clear(); captionBaseline.clear();
+    for (const [rel, text] of snapshot.baselines) {
+      const match = /^fig\/canvases\/(.+)\.json$/.exec(rel);
+      if (match && text !== null) canvasBaseline.set(match[1], text);
+      else if (rel.startsWith("fig/captions/")) captionBaseline.set(rel, text);
+    }
+    acceptedCaptions = snapshot.captionBaselines;
+    figSubsystemLocked = false;
+    figLoadFailure = snapshot.status === "complete" ? null : snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n");
+    figLoad(proj, null, opts); loadedFigureRoot = root;
+    if (figLoadFailure) pushToast("error", "Some figures could not be loaded", { detail: figLoadFailure + " Existing files will not be overwritten." });
+  }, { root }));
+  figureSaveQueue = adopt;
+  await adopt;
+  // A returning Figure tenant can still have this root's older accepted
+  // baseline (for example after Slide → Figure conversion). Source catch-up
+  // must use the newly adopted complete snapshot, never that stale editor.
+  if (!opts.reload && snapshot.status === "complete" && request === figureLoadRequest) {
+    try { await (await import("./sourceBridge")).syncProjectSources(root, { isCurrent: () => request === figureLoadRequest && loadedFigureRoot === root }); }
+    catch (e) { if (request === figureLoadRequest) pushToast("error", "Some figure sources could not update", { detail: String((e as Error)?.message ?? e) }); }
   }
-  primePlotSidecars(primedManifests, primedRecipes);
-  assetData.set(data);
-  clearAllAssetsDirty(); // W8: freshly loaded — every asset is in sync with disk
-
-  // WS-12: heal headless-edited text now that fonts are measurable — flagged
-  // elements re-wrap here (applyTextLayout clears needsLayout), so a GUI open
-  // restores render parity and the next save persists honest wrap caches.
-  if (typeof document !== "undefined") {
-    for (const f of figures)
-      for (const e of f.elements) if (e.type === "text" && e.needsLayout) applyTextLayout(e);
-  }
-
-  const proj: FigProject = {
-    version: 2,
-    name: projectName || "Untitled",
-    canvases,
-    figures,
-    assets,
-    palette: index?.palette ?? [],
-    colorGroups:
-      (index?.colorGroups as ColorGroup[] | undefined) ??
-      (get(settings).flexokiDefault ? structuredClone(FLEXOKI) : []),
-    // undefined (never []) when the index predates styles → migrate seeds the
-    // defaults; an explicit empty list from disk stays empty (user cleared it).
-    ...(index?.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
-    ...(index?.families !== undefined ? { figureFamilies: index.families } : {}),
-  };
-  // Figure families (fig-subsystem-only — never runs on slide-projected
-  // Projects): seed family/number/nickname from index hints + legacy names,
-  // then heal numbers to contiguity. Cross-canvas, so it runs on the full
-  // collection here, not in the per-canvas probes above.
-  migrateFigureFamilies(proj, familyHintsFrom(index?.figures));
-  ensureFigureReferenceKeys(proj, index);
-  const captions = await reconcileCaptionFiles(proj, index, async (rel) => {
-    let text: string | null;
-    text = await fig.exists(joinPath(root, rel)) ? await fig.readText(joinPath(root, rel)) : null;
-    captionBaseline.set(rel, text);
-    return text;
-  });
-  if (captions.conflicts.length) pushToast("error", "Caption edits need reconciliation", { detail: captionConflictMessage(captions.conflicts) });
-  acceptedCaptions = captions.baselines;
-  if (figLoadFailure) pushToast("error", "Some figures could not be loaded", { detail: figLoadFailure + " Existing files will not be overwritten." });
-  // Normalizes (incl. migrate) + dirty=false. Initial load resets history and
-  // view; a reload preserves both (view kept, pre-state pushed as one undo).
-  figLoad(proj, null, opts);
-  loadedFigureRoot = root;
 }
 
 // WS-5.2: set when a load refused the subsystem (newer on-disk format) —
@@ -340,12 +231,14 @@ let acceptedCaptions = new Map<string, CaptionBaseline>();
 
 /** Persist the figure-editor stores into the project's `fig/` subsystem. */
 let figureSaveQueue: Promise<void> = Promise.resolve();
-export function saveFigFrom(root: string, opts: { force?: boolean } = {}): Promise<void> {
-  const next = figureSaveQueue.catch(() => {}).then(() => saveFigFromUnlocked(root, opts));
+export function saveFigFrom(root: string, opts: { force?: boolean; sourceUpdates?: readonly SourceUpdate[]; sourceOwnersUnchanged?: () => Promise<void> } = {}): Promise<void> {
+  const next = figureSaveQueue.catch(() => {}).then(() => withIpcLock("project", "project", lease => opts.sourceUpdates?.length ? withIpcLock("project", "slides", async slidesLease => {await opts.sourceOwnersUnchanged?.(); await saveFigFromUnlocked(root, opts, lease, slidesLease)}, {root}) : saveFigFromUnlocked(root, opts, lease), { root }));
   figureSaveQueue = next;
   return next;
 }
-async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {}): Promise<void> {
+async function saveFigFromUnlocked(root: string, opts: { force?: boolean; sourceUpdates?: readonly SourceUpdate[]; sourceOwnersUnchanged?: () => Promise<void> } = {}, lease?: IpcLease, slidesLease?: IpcLease): Promise<void> {
+  const assertOwned = async () => { await lease?.assertOwned?.(); await slidesLease?.assertOwned?.(); };
+  await assertOwned();
   // Tenancy guard (slide-migration §3.2.1): slide mode loads a deck's slides
   // into the SAME app-global store this save reads. If a kept-alive
   // FigureMode's autosave ever fired then, it would write the deck's projected
@@ -354,11 +247,12 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   assertStoreTenant("figure", "fig/ save");
   const fig = fileBridge();
   if (!fig) return;
+  if (loadedFigureRoot !== root) throw new Error("Figure save belongs to a different project");
   if (figSubsystemLocked) {
     throw new Error("figure subsystem is read-only: its on-disk format is newer than this Flux");
   }
   if (figLoadFailure) throw new Error(figLoadFailure);
-  await recoverFigureReferenceUpdate(root, fig);
+  await recoverFigureReferenceUpdate(root, referenceSyncBridgeIO(root, fig));
 
   // W7 conflict guard: if fig/index.json changed on disk since we loaded/saved
   // (an agent or CLI edited the figure subsystem), don't clobber it — throw so
@@ -372,43 +266,36 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
       throw new ConflictError("figure subsystem changed on disk");
     }
   }
+  // Explicit overwrite preserves BOTH branches first. Unknown IO failures still
+  // propagate; a readable future format is never downgraded by this choice.
   if (opts.force) {
-    // Overwrite-with-mine: the skip-unchanged baselines describe what WE last
-    // wrote — not what's on disk anymore. Without re-baselining, a canvas whose
-    // MODEL text still matches our baseline would be skipped and the external
-    // edit would silently WIN an explicit Overwrite. Clearing forces a full
-    // rewrite; re-reading the index makes index.json.bak preserve the external
-    // version being clobbered (the only copy of it).
-    canvasBaseline.clear();
-    figIndexBaseline = await readFigIndexText(fig, root);
+    const current = await readFigureSnapshot(figureSnapshotBridgeIO(root, fig));
+    if (current.status === "future-version") throw new ConflictError("Newer figure format cannot be overwritten; save a recovery copy instead");
+    if (current.missingIndexInventory === "unavailable") throw new ConflictError("Cannot overwrite figures while the missing-index inventory is unreadable: " + current.diagnostics.map(d => d.message).join("; "));
+    const paths = new Set(["fig/index.json", ...[...canvasBaseline.keys()].map(id => `fig/canvases/${id}.json`), ...captionBaseline.keys(), ...current.baselines.keys()]);
+    const theirs: Record<string, string | null> = Object.create(null);
+    for (const rel of paths) theirs[rel] = await fig.exists(joinPath(root,rel)) ? await fig.readText(joinPath(root,rel)) : null;
+    await lease?.assertOwned?.();
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await fig.mkdir(joinPath(root,".meta","figure-conflicts"));
+    await fig.writeText(joinPath(root,".meta","figure-conflicts",`${stamp}.json`), JSON.stringify({version:1, winner:"editor including captions", theirs, acceptedIndex:figIndexBaseline, mine:get(figProject)},null,2));
+    await fig.fsyncDir?.(joinPath(root,".meta","figure-conflicts"));
+    await fig.fsyncDir?.(joinPath(root,".meta"));
   }
 
+  capturePersistenceGeneration();
   const genAtStart = editGen.n; // W4: only clear dirty if no edit lands mid-save
   const p = structuredClone(get(figProject));
+  if (opts.sourceUpdates?.length) applySourceUpdates(p, opts.sourceUpdates);
   const originalCaptions = new Map(p.figures.map((f) => [f.id, composeCaption(f)]));
   const previous = figIndexBaseline ? JSON.parse(figIndexBaseline) as FigIndexFile : null;
-  const captions = await reconcileCaptionFiles(p, previous, async (rel) => {
+  const captions = opts.force ? { conflicts: [], imported: [] } : await reconcileCaptionFiles(p, previous, async (rel) => {
     return await fig.exists(joinPath(root, rel)) ? await fig.readText(joinPath(root, rel)) : null;
   }, acceptedCaptions);
   if (captions.conflicts.length) throw new ConflictError(captionConflictMessage(captions.conflicts));
-  if (captions.imported.length) {
-    for (const id of captions.imported) {
-      const live = get(figProject).figures.find((f) => f.id === id);
-      if (live && composeCaption(live) !== originalCaptions.get(id)) throw new ConflictError(`Caption ${id} changed while its Markdown edit was being imported`);
-    }
-    figProject.update((model) => {
-      for (const id of captions.imported) {
-        const live = model.figures.find((f) => f.id === id);
-        if (live) live.captions = structuredClone(p.figures.find((f) => f.id === id)!.captions);
-      }
-      return model;
-    });
-  }
   // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
   // load gate would then (rightly) reject.
   {
-    const fixed = sanitizeProjectGeometry(p);
-    if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
     const errors = validateModel(p);
     if (errors.length) throw new Error(`Figures could not be saved: ${errors.slice(0, 5).join("; ")}`);
   }
@@ -417,38 +304,44 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);
 
+  await fig.mkdir(joinPath(root, ".meta"));
   await fig.mkdir(joinPath(root, SUB));
   await fig.mkdir(joinPath(root, SUB, "canvases"));
   await fig.mkdir(joinPath(root, SUB, "assets"));
   await fig.mkdir(joinPath(root, SUB, "captions"));
 
+  const stagedAssets=new Map<string,GenerationWrite>();
   // Asset bytes → fig/assets/<id>.<kind> (+ a semantic plot's sidecars next to it).
   // W8: only (re)write NEW (path-less) or CHANGED (dirty) assets — an unchanged
   // asset is already on disk, so a debounced save no longer rewrites MBs of bytes.
   for (const a of p.assets) {
+    if (opts.sourceUpdates?.some(update => update.assetId === a.id)) continue;
     const url = data[a.id];
-    if (!url) continue;
     const isNew = !a.path;
+    if (!url) {
+      if (isNew || isAssetDirty(a.id)) throw new Error(`Cannot save changed asset ${a.id}: its bytes are unavailable`);
+      continue;
+    }
     if (isNew) a.path = `assets/${a.id}.${a.kind}`; // ensure a path for the index
     if (!isNew && !isAssetDirty(a.id)) continue; // unchanged → skip the byte write
-    await fig.writeFile(joinPath(root, SUB, a.path), dataUrlToBytes(url));
+    await lease?.assertOwned?.();
+    stagedAssets.set(storedAssetPath(`${SUB}/${a.path}`), {base64:bytesToBase64(dataUrlToBytes(url))});
     // NEVER persist a DERIVED manifest (same guard as io.ts writeProjectTo):
     // sidecar presence is the fluxplot/vanilla discriminator, and re-deriving
     // at every load keeps deriver improvements retroactive — a written derived
     // sidecar would freeze it and misclassify the vanilla svg as a fluxplot.
     const man = manifests[a.id];
     if (man && !isDerivedManifest(man)) {
-      await fig.writeText(joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`), JSON.stringify(man, null, 2));
+      stagedAssets.set(`${SUB}/assets/${a.id}.fluxplot.json`, JSON.stringify(man, null, 2));
       const rec = recipes[a.id];
       if (rec !== undefined)
-        await fig.writeText(joinPath(root, SUB, "assets", `${a.id}.recipe.json`), JSON.stringify(rec, null, 2));
-      else await fig.remove?.(joinPath(root, SUB, "assets", `${a.id}.recipe.json`));
+        stagedAssets.set(`${SUB}/assets/${a.id}.recipe.json`, JSON.stringify(rec, null, 2));
+      else stagedAssets.set(`${SUB}/assets/${a.id}.recipe.json`,null);
     }
     else {
-      await fig.remove?.(joinPath(root, SUB, "assets", `${a.id}.fluxplot.json`));
-      await fig.remove?.(joinPath(root, SUB, "assets", `${a.id}.recipe.json`));
+      stagedAssets.set(`${SUB}/assets/${a.id}.fluxplot.json`,null);
+      stagedAssets.set(`${SUB}/assets/${a.id}.recipe.json`,null);
     }
-    clearAssetDirty(a.id, assetGenerations.get(a.id));
   }
 
   // WS-5.6: the write set (canvases + captions + index) comes from the ONE
@@ -461,41 +354,54 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   } catch {
     prevIndex = null;
   }
-  const plan = planFigSave(p, prevIndex);
+  const plan = planFigSave(p, prevIndex, new Map([...canvasBaseline].map(([id,text])=>[`fig/canvases/${id}.json`,text])));
   const beforeFigures: Figure[] = [];
   for (const c of prevIndex?.canvases ?? []) {
     const text = canvasBaseline.get(c.id) ?? await fig.readText(joinPath(root, `fig/canvases/${c.id}.json`));
     beforeFigures.push(...(JSON.parse(text) as CanvasFile).figures);
   }
-  const referenceUpdate = await prepareFigureReferenceUpdate(root, beforeFigures, p.figures, fig, {
+  const referenceUpdate = await prepareFigureReferenceUpdate(root, beforeFigures, p.figures, referenceSyncBridgeIO(root, fig), {
     index: prevIndex, figureFiles: [...plan.canvases, plan.index],
   });
   const io: FigSaveIO = {
     read: async (rel) => {
-      try {
-        const abs = joinPath(root, rel);
-        return (await fig.exists(abs)) ? await fig.readText(abs) : null;
-      } catch {
-        return null;
-      }
+      const abs = joinPath(root, rel);
+      return (await fig.exists(abs)) ? await fig.readText(abs) : null;
     },
     write: (rel, text) => fig.writeText(joinPath(root, rel), text),
     ...(fig.fsyncDir ? { fsyncDir: (rel: string) => fig.fsyncDir!(joinPath(root, rel)) } : {}),
   };
-  const adopt = (rel: string, text: string) => {
-    const m = /^fig\/canvases\/(.+)\.json$/.exec(rel);
-    if (m) canvasBaseline.set(m[1], text); // WS-5.3/5.4 skip + divergence baseline
-  };
-  try { await executeFigSave(plan, io, {
-    skipCanvas: (id, text) => (canvasBaseline.get(id) === text ? true : undefined),
-    onWrite: adopt,
-    onSkip: adopt,
-  }); } catch (e) { releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
+  try {
+    const writes = stagedAssets;
+    if (opts.sourceUpdates?.length) await writeSourceUpdates(root, opts.sourceUpdates, {
+      writeText: async (abs,text) => { writes.set(abs.slice(root.replace(/\/$/, "").length + 1),text); },
+      remove: async abs => { writes.set(abs.slice(root.replace(/\/$/, "").length + 1),null); },
+    }, p);
+    await executeFigSave(plan, { read: io.read, write: async (rel,text) => { writes.set(rel,text); } });
+    await withIpcLock("project", "manifest", async manifestLease => {
+      await stageFigureRegistration(io, JSON.parse(plan.index.text), writes);
+      await commitTextGeneration(generationBridgeIO(root, fig), writes, async () => { await assertOwned(); await manifestLease.assertOwned?.(); });
+    }, { root });
+    await commitFigureReferenceUpdate(root, referenceUpdate, referenceSyncBridgeIO(root, fig));
+  } catch (e) { await releaseFigureReferenceUpdate(root, referenceUpdate); throw e; }
+  // Adopt only the committed generation, never partial per-file writes.
+  canvasBaseline.clear();
+  for (const canvas of plan.canvases) {
+    const id = /^fig\/canvases\/(.+)\.json$/.exec(canvas.path)?.[1];
+    if (id) canvasBaseline.set(id,canvas.text);
+  }
+  for (const a of p.assets) clearAssetDirty(a.id, assetGenerations.get(a.id));
   figIndexBaseline = plan.index.text; // W7: adopt what we just wrote as the new baseline
   captionBaseline.clear();
   for (const cap of plan.captions) captionBaseline.set(cap.path, cap.text);
   acceptedCaptions = new Map(p.figures.map(f => [f.id, { model: composeCaption(f).trim(), sidecar: composeCaption(f) + "\n" }]));
-  await commitFigureReferenceUpdate(root, referenceUpdate, fig);
+  if (loadedFigureRoot === root && captions.imported.length) figProject.update(model => {
+    for (const id of captions.imported) {
+      const live = model.figures.find(f => f.id === id);
+      if (live && composeCaption(live) === originalCaptions.get(id)) live.captions = structuredClone(p.figures.find(f => f.id === id)!.captions);
+    }
+    return model;
+  });
 
   // WS6: record the human's save in the provenance journal (Electron only; the
   // mem/demo bridge has no journalAppend, so this is a no-op there).
@@ -505,7 +411,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean } = {})
   // W4: an edit that landed during the async writes above keeps its dirty flag,
   // so the autosave controller's trailing save persists it (previously the
   // unconditional clear silently dropped it until the next unrelated edit).
-  if (editGen.n === genAtStart) figDirty.set(false);
+  if (!opts.sourceUpdates?.length && loadedFigureRoot === root && editGen.n === genAtStart) figDirty.set(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -560,7 +466,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
   };
   const fig = fileBridge();
   if (!fig) return empty;
-  await recoverFigureReferenceUpdate(root, fig);
+  await recoverFigureReferenceUpdate(root, referenceSyncBridgeIO(root, fig));
 
   let index: FigIndexFile | null = null;
   try {

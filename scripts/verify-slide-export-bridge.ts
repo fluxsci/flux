@@ -25,11 +25,11 @@ assert(threw, "exportDeck throws when the host cannot export");
 
 // 2. a host WITH exportDeck → delegates + returns the written path
 let seen: { root: string; deckId: string } | null = null;
-W.window.fig = { exportDeck: async (root: string, deckId: string) => { seen = { root, deckId }; return { ok: true, path: `${root}/exports/${deckId}.html` }; } };
+W.window.fig = { exportDeck: async (root: string, deckId: string) => { seen = { root, deckId }; return { ok: true, path: `${root}/exports/${deckId}.html`, warnings: ["Saved source snapshot"] }; } };
 assert(canExportDeck() === true, "canExportDeck() true when the bridge exposes exportDeck");
 const p = await exportDeck("/proj", "deckX");
 assert(seen!.root === "/proj" && seen!.deckId === "deckX", "exportDeck forwards root + deckId to the host");
-assert(p === "/proj/exports/deckX.html", "exportDeck returns the host's written path");
+assert(p.path === "/proj/exports/deckX.html" && p.warnings[0] === "Saved source snapshot", "exportDeck returns the host's written path and warnings");
 
 // 3. host failure → surfaced as a thrown error message
 W.window.fig = { exportDeck: async () => ({ ok: false, error: "esbuild boom" }) };

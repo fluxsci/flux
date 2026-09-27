@@ -1,4 +1,8 @@
-import type { Element, ElementBase, LineElement } from "./types";
+import type { Element, ElementBase, LineElement, Figure, Id } from "./types";
+
+import { effectiveHidden, effectiveLocked, unitKeyOf } from "./groups";
+
+export interface LayoutContext { figure?: Figure; scope?: Id | null; excluded?: ReadonlySet<Id> }
 
 export interface Rect {
   x: number;
@@ -322,7 +326,7 @@ export type AlignKind =
   | "centerH"
   | "centerV";
 
-export function alignElements(els: Element[], kind: AlignKind) {
+function alignBoxes(els: Element[], kind: AlignKind) {
   if (els.length < 1) return;
   const boxes = els.map(elementBBox);
   const minX = Math.min(...boxes.map((b) => b.x));
@@ -413,7 +417,7 @@ export function rotateAbout(els: Element[], pivot: { x: number; y: number }, del
 }
 
 // Distribute spacing evenly between elements along an axis.
-export function distributeElements(els: Element[], axis: "h" | "v", gap?: number) {
+function distributeBoxes(els: Element[], axis: "h" | "v", gap?: number) {
   // Exact-gap mode (Feature 7): anchor the first item along the axis and place
   // each subsequent one so every consecutive edge-to-edge gap equals `gap`.
   // Works with ≥2 items (unlike equal-distribution, which needs ≥3).
@@ -494,21 +498,30 @@ interface GridItem {
 
 // Cluster the selection into layout cells: one per group (union bbox), one per
 // ungrouped element. (The selection is already group-expanded upstream.)
-function buildGridItems(els: Element[]): GridItem[] {
-  const groups = new Map<string, Element[]>();
-  const items: GridItem[] = [];
+export function selectionUnits(els: Element[], context: LayoutContext = {}): GridItem[] {
+  const { figure, scope, excluded } = context;
+  const units = new Map<string, Element[]>();
   for (const e of els) {
-    if (e.groupId) {
-      const a = groups.get(e.groupId) ?? [];
-      a.push(e);
-      groups.set(e.groupId, a);
-    } else {
-      items.push({ members: [e], bbox: elementBBox(e) });
-    }
+    if (excluded?.has(e.id) || (figure ? effectiveHidden(figure,e) || effectiveLocked(figure,e) : e.hidden || e.locked)) continue;
+    const key = figure ? unitKeyOf(figure,e,scope) : e.groupId ? `g:${e.groupId}` : `e:${e.id}`;
+    const members = units.get(key);
+    if (members) members.push(e); else units.set(key,[e]);
   }
-  for (const [, members] of groups)
-    items.push({ members, bbox: unionRect(members.map(elementBBox))! });
-  return items;
+  return [...units.values()].map(members => ({members,bbox:selectionBBox(members)!}));
+}
+
+/** Layout an already-selected subset as rigid, rotation-aware units. */
+function layoutUnits(els: Element[], context: LayoutContext, apply: (boxes: Element[]) => void) {
+  const units = selectionUnits(els,context);
+  const boxes = units.map((u,i) => ({id:`layout-${i}`,type:"rect",x:u.bbox.x,y:u.bbox.y,width:u.bbox.w,height:u.bbox.h,rotation:0} as Element));
+  apply(boxes);
+  units.forEach((u,i) => {const dx=boxes[i].x-u.bbox.x,dy=boxes[i].y-u.bbox.y;for(const e of u.members){e.x+=dx;e.y+=dy;}});
+}
+export function alignElements(els: Element[], kind: AlignKind, context: LayoutContext = {}) {
+  layoutUnits(els,context,boxes=>alignBoxes(boxes,kind));
+}
+export function distributeElements(els: Element[], axis: "h" | "v", gap?: number, context: LayoutContext = {}) {
+  layoutUnits(els,context,boxes=>distributeBoxes(boxes,axis,gap));
 }
 
 function median(xs: number[]): number {
@@ -539,21 +552,22 @@ function defaultGap(w: number[], h: number[]): number {
 }
 
 // Number of layout cells for a selection (a group counts as one).
-export function gridItemCount(els: Element[]): number {
-  return buildGridItems(els).length;
+export function gridItemCount(els: Element[], context: LayoutContext = {}): number {
+  return selectionUnits(els,context).length;
 }
 
 export function arrangeGrid(
   els: Element[],
   cols: number,
   opts: ArrangeGridOptions = {},
+  context: LayoutContext = {},
 ): void {
   if (cols < 1) return;
-  const items = buildGridItems(els);
+  const items = selectionUnits(els,context);
   const n = items.length;
   if (n < 2) return;
 
-  const anchor = selectionBBox(els)!; // == union of item bboxes
+  const anchor = unionRect(items.map(i=>i.bbox))!;
   const ws = items.map((i) => i.bbox.w);
   const hs = items.map((i) => i.bbox.h);
   const gap = opts.gap ?? defaultGap(ws, hs);

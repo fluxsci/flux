@@ -5,6 +5,7 @@
 // is the guard, not the expectation). The cache clears on dissectionsRevision bumps (the
 // watcher's dissections subsystem), so an external rewrite re-reads fresh bytes.
 
+import { DISSECT_TABLE_MAX_BYTES } from "./csv";
 import { fileBridge, joinPath, basename } from "../project/types";
 import { classifyDissectionFile, dissectionRootRelFor } from "./rules";
 import type { DissectFileKind } from "../../../electron/dissectRules.js";
@@ -56,16 +57,21 @@ function filesOf(entries: { name: string; dir: boolean }[], dir: string): Dissec
 /** List a plot's dissections: loose files form the default group, one level of subfolders
  *  form named groups (deeper nesting is not walked — the convention is one level). */
 export async function listDissections(projectRoot: string, key: string): Promise<DissectListing> {
+  const epoch = cacheEpoch;
+  const assertCurrent = () => { if (epoch !== cacheEpoch) throw new DOMException("Dissection changed", "AbortError"); };
   const fb = fileBridge();
   const root = dissectionRootAbs(projectRoot, key);
   if (!fb?.readdir || !projectRoot || !key || !(await fb.exists(root)))
     return { root, groups: null, total: 0 };
+  assertCurrent();
   const top = await fb.readdir(root);
+  assertCurrent();
   const groups: DissectGroup[] = [];
   const loose = filesOf(top, root);
   if (loose.length) groups.push({ name: "", files: loose });
   for (const d of top.filter((e) => e.dir).sort((a, b) => collator.compare(a.name, b.name))) {
     const sub = await fb.readdir(joinPath(root, d.name));
+    assertCurrent();
     groups.push({ name: d.name, files: filesOf(sub, joinPath(root, d.name)) });
   }
   return { root, groups, total: groups.reduce((n, g) => n + g.files.length, 0) };
@@ -73,7 +79,7 @@ export async function listDissections(projectRoot: string, key: string): Promise
 
 /** Cheap count for the Inspector badge (memoized there by dissectionsRevision). */
 export async function countDissections(projectRoot: string, key: string): Promise<number> {
-  return (await listDissections(projectRoot, key)).total;
+  try { return (await listDissections(projectRoot, key)).total; } catch { return 0; }
 }
 
 /** Create the (empty) dissection root — the overlay's empty-state affordance. */
@@ -94,9 +100,12 @@ export async function createDissectionRoot(projectRoot: string, key: string): Pr
 const CACHE_CAP_BYTES = 150 * 1024 * 1024;
 const urlCache = new Map<string, { url: string; bytes: number }>(); // insertion order = LRU
 let cacheBytes = 0;
+let cacheEpoch = 0;
 const inflight = new Map<string, Promise<string | null>>();
 
 export function clearDissectCache(): void {
+  cacheEpoch++;
+  inflight.clear();
   urlCache.clear();
   cacheBytes = 0;
 }
@@ -128,11 +137,13 @@ export function imageUrl(abs: string): Promise<string | null> {
   }
   const started = inflight.get(abs);
   if (started) return started;
+  const epoch = cacheEpoch;
   const p = (async () => {
     try {
       const fb = fileBridge();
       if (!fb) return null;
       const buf = await fb.readFile(abs);
+      if (epoch !== cacheEpoch) return null;
       const bytes = new Uint8Array(buf);
       const url = bytesToDataUrl(bytes, mimeForName(abs));
       urlCache.set(abs, { url, bytes: url.length });
@@ -145,23 +156,23 @@ export function imageUrl(abs: string): Promise<string | null> {
       return url;
     } catch {
       return null;
-    } finally {
-      inflight.delete(abs);
     }
-  })();
+  })().finally(() => { if (inflight.get(abs) === p) inflight.delete(abs); });
   inflight.set(abs, p);
   return p;
 }
 
-/** A table file's text. null on read failure. */
-export async function tableText(abs: string): Promise<string | null> {
+export interface TableText { text: string; truncated: boolean; totalBytes: number }
+/** Never send an unbounded text payload across IPC. Older bridges fail closed
+ * with the normal unreadable-file state; they can still open the original. */
+export async function tableText(abs: string): Promise<TableText | null> {
+  const epoch = cacheEpoch;
   try {
     const fb = fileBridge();
-    if (!fb) return null;
-    return await fb.readText(abs);
-  } catch {
-    return null;
-  }
+    if (!fb?.readTextBounded) return null;
+    const value = await fb.readTextBounded(abs, DISSECT_TABLE_MAX_BYTES);
+    return epoch === cacheEpoch ? value : null;
+  } catch { return null; }
 }
 
 export { basename };

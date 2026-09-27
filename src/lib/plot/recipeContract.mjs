@@ -1,5 +1,6 @@
 /** Shared recipe parameter/argv and provenance rules for CLI and Electron. */
 export function recipeInvocation(recipe, overrides = {}) {
+  if (!recipe || typeof recipe.command !== "string" || !recipe.command || recipe.command.includes("\0") || (recipe.args !== undefined && (!Array.isArray(recipe.args) || recipe.args.some(x => typeof x !== "string" || x.includes("\0")))) || (recipe.cwd !== undefined && typeof recipe.cwd !== "string") || (recipe.output !== undefined && typeof recipe.output !== "string")) throw new Error("Invalid recipe invocation");
   const params = { ...(recipe.params ?? {}), ...overrides };
   // JSON cannot express NaN/Infinity; silently turning them into null changes
   // scientific parameters. Validate before spawning any generating script.

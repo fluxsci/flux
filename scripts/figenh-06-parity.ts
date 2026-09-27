@@ -4,6 +4,7 @@
 // (dispatchCommand, undoable), matching the GUI's ops. Hidden is omitted from
 // the rendered SVG/PNG.
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -11,6 +12,8 @@ import { get } from "svelte/store";
 import * as core from "../flux-core/index";
 import * as ops from "../src/lib/ops";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { Element, Project } from "../src/lib/types";
 
@@ -64,7 +67,7 @@ try {
 
   // ---- CLI binary smoke (set-style --show unhides r2; render reflects it) ----
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "set-style", "r2", "--show", "--root", root], {
+    execFileSync(...tsxRun("flux-cli.ts", [ "set-style", "r2", "--show", "--root", root]), {
       cwd: path.resolve("."),
       stdio: "pipe",
     });

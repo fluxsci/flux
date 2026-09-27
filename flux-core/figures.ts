@@ -1,3 +1,4 @@
+import { stageFigureWrites } from "./model";
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
 // element styles + the text system, groups/z-order/layout, and scaffold.
@@ -7,7 +8,7 @@ import * as fs from "node:fs/promises";
 import { figureSourceOwners } from "../src/lib/project/figureSourceOwners";
 import * as path from "node:path";
 import { membersDeep } from "../src/lib/groups";
-import { composeCaption, panelLetters, figurePanels, panelKey, splitCaption } from "../src/lib/captions";
+import { composeCaption, panelLetters, figurePanels, panelKey, splitCaption, POSTSCRIPT_CAPTION } from "../src/lib/captions";
 import { elementBBox, unionRect } from "../src/lib/geometry";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { buildPartIndex } from "../src/lib/plot/parse";
@@ -36,7 +37,7 @@ import {
   manifestHasLogAxis,
   absurdCoordWarning,
 } from "./coordscan";
-import type { Figure, Element, Project, PartOverride, VectorNode, TextStyle, SemanticPlotElement } from "../src/lib/types";
+import type { Figure, Element, Project, PartOverride, VectorNode, TextStyle, TextElement, SemanticPlotElement } from "../src/lib/types";
 import { slugify } from "../src/lib/project/types";
 import { readProjectDependencies } from "../src/lib/project/dependencies";
 import { toProjectRelativeSource, isUnderRoot } from "../src/lib/plot/source";
@@ -108,9 +109,12 @@ export async function setCaption(
     // before) let the GUI's next save recompose from an empty captions map and
     // silently wipe the agent's caption.
     if (opts.panel) {
-      // --panel a: write ONE panel's text (keyed by its label element's id).
+      // --panel a writes one label-backed block; __ps__ always targets closing
+      // prose. The ps shorthand must not steal an existing panel named ps.
       const key = opts.panel.toLowerCase();
-      const panel = figurePanels(fig).find((p) => panelKey(p.label) === key);
+      const closing = { id: POSTSCRIPT_CAPTION, label: 'ps' };
+      const panel = key === POSTSCRIPT_CAPTION ? closing :
+        figurePanels(fig).find((p) => panelKey(p.label) === key) ?? (key === 'ps' ? closing : undefined);
       if (!panel || panel.id === "__figure__")
         throw new Error(`figure "${figId}" has no panel "${opts.panel}" (panels: ${panelLetters(fig).join("") || "none"})`);
       fig.captions = { ...(fig.captions ?? {}), [panel.id]: trimmed };
@@ -120,7 +124,8 @@ export async function setCaption(
       // box per panel — a monolithic __figure__ blob mis-structures all of it).
       // No recognizable markers → the whole string is the figure-level lead.
       const split = splitCaption(fig, trimmed);
-      fig.captions = split ?? { ...(fig.captions ?? {}), __figure__: trimmed };
+      const { [POSTSCRIPT_CAPTION]: _oldClosing, ...remaining } = fig.captions ?? {};
+      fig.captions = split ?? { ...remaining, __figure__: trimmed };
     }
     // WS-5.6: the save that follows (mutateFigModel) composes + emits the
     // fig/captions/<id>.md file AND the index caption cache from Figure.captions
@@ -244,10 +249,14 @@ export async function syncFigureAssets(
     const plan = await planSourceUpdates(root, owners.project, io, { figureId: figId });
     if (!opts.dryRun && plan.updates.length) await owners.assertUnchanged();
     const geometry = opts.dryRun ? { resized: [], framed: [] } : applySourceUpdates(project, plan.updates);
-    if (!opts.dryRun) await writeSourceUpdates(root, plan.updates, {
-      writeText: atomicWrite,
-      remove: (p) => fs.unlink(p).catch((e) => { if (e.code !== "ENOENT") throw e; }),
-    }, project);
+    if (!opts.dryRun) {
+      const staged = new Map<string,string|null>();
+      await writeSourceUpdates(root, plan.updates, {
+        writeText: async(p,text)=>{staged.set(path.relative(root,p).split(path.sep).join('/'),text)},
+        remove:async p=>{staged.set(path.relative(root,p).split(path.sep).join('/'),null)},
+      }, project);
+      stageFigureWrites(project,staged);
+    }
     return {
       refreshed: plan.updates.map((u) => ({ assetId: u.assetId, from: u.from })),
       ...geometry,
@@ -392,7 +401,8 @@ export async function composeFigure(
     }
     const first = plotPaths[0];
     const baseName = opts.name || path.basename(first, path.extname(first)) || "figure";
-    const figId = opts.id ? safeId("figure", opts.id) : slugify(baseName);
+    let figId = opts.id ? safeId("figure", opts.id) : slugify(baseName);
+    if (!opts.id) { const base = figId; for (let n = 2; project.figures.some(f => f.id === figId); n++) figId = `${base}-${n}`; }
     const margin = opts.margin ?? 48;
     const fig = ops.createFigure(project, { canvasId, id: figId, name: opts.name ?? figId, width: 100, height: 100 });
 
@@ -720,6 +730,49 @@ export async function toggleTextStyle(
 ): Promise<void> {
   await mutateFigModel(root, "toggle_text_style", ({ project }) => {
     ops.toggleTextStyle(project, ids, which);
+  });
+}
+
+/** Per-RANGE text formatting (parity with the GUI's letter selection,
+ *  2026-09-25): the three helpers share one lookup that names the element and
+ *  checks the character offsets, so an agent gets a reason instead of a silent
+ *  no-op. `from`/`to` are 0-based offsets into `text`, `to` exclusive. */
+function textRangeTarget(project: Project, id: string, from: number, to: number): TextElement {
+  let el: Element | undefined;
+  for (const f of project.figures) {
+    el = f.elements.find((e) => e.id === id);
+    if (el) break;
+  }
+  if (!el) throw new Error(`element not found: ${id}`);
+  if (el.type !== "text") throw new Error(`not a text element: ${id} (${el.type})`);
+  const len = el.text.length;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to > len || from >= to)
+    throw new Error(`bad character range [${from}, ${to}) for ${id}: text has ${len} character${len === 1 ? "" : "s"}, need 0 <= from < to <= ${len}`);
+  return el;
+}
+
+/** toggle bold/italic/underline over one text element's character range [from, to). */
+export async function toggleTextRunStyle(root: string, id: string, from: number, to: number, which: ops.TextToggle): Promise<void> {
+  await mutateFigModel(root, "toggle_text_run_style", ({ project }) => {
+    textRangeTarget(project, id, from, to);
+    ops.toggleTextRunStyle(project, id, from, to, which);
+  });
+}
+
+/** toggle superscript/subscript over one text element's character range [from, to). */
+export async function toggleTextRunScript(root: string, id: string, from: number, to: number, which: "super" | "sub"): Promise<void> {
+  await mutateFigModel(root, "toggle_text_run_script", ({ project }) => {
+    textRangeTarget(project, id, from, to);
+    ops.toggleTextRunScript(project, id, from, to, which);
+  });
+}
+
+/** paint one text element's character range [from, to) with a colour, or hand
+ *  it back to the element's colour (`color === null`). */
+export async function setTextRunColor(root: string, id: string, from: number, to: number, color: string | null): Promise<void> {
+  await mutateFigModel(root, "set_text_run_color", ({ project }) => {
+    textRangeTarget(project, id, from, to);
+    ops.setTextRunColor(project, id, from, to, color);
   });
 }
 

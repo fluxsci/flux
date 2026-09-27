@@ -3,12 +3,15 @@
 // asserts the index-written-LAST invariant (the index never references a
 // canvas file that doesn't exist). Watchdog: exits when stdin closes.
 import { loadFigModel, saveFigModel } from "../../flux-core/index.ts";
+import { recoverProjectForAuthoring } from "../../flux-core/recovery.ts";
 
 process.stdin.resume();
 process.stdin.on("end", () => process.exit(0));
 process.stdin.on("close", () => process.exit(0));
 
 const root = process.argv[2];
+// Match the ordinary CLI/GUI authoring-entry boundary before accepting a snapshot.
+await recoverProjectForAuthoring(root);
 let n = 0;
 // one full save first, then announce readiness
 async function step() {

@@ -74,10 +74,13 @@ export function parseConflictPath(p) {
   };
 }
 
-/** Append-only NDJSON ledgers (journal, feedback) are the ONE conflict shape with a
- *  correct automatic answer: union the lines. Everything else needs a human choice. */
+/** Two conflict shapes have a correct automatic answer, and the answer is the same idea —
+ *  union the records: append-only NDJSON ledgers (journal, feedback: union the lines) and
+ *  .bib reference libraries (union the ENTRIES through the add planner — dedupe by DOI /
+ *  signature, keep the other side's citekeys; see src/lib/references/bibConflict.ts).
+ *  Everything else needs a human choice. */
 export function isMergeableConflict(p) {
-  return /\.ndjson$/i.test(conflictBaseFor(p) || norm(p));
+  return /\.(?:ndjson|bib)$/i.test(conflictBaseFor(p) || norm(p));
 }
 
 /** Union two NDJSON sides, preserving first-seen order: every line either side has, once.

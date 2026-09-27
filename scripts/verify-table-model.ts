@@ -7,6 +7,7 @@
 // (idempotent, escape-preserving) and the TSV/CSV converters.
 // Run: npx tsx scripts/verify-table-model.ts
 import { Text } from "@codemirror/state";
+import { protectedDocumentSpans } from "../src/lib/manuscript/documentContext";
 import {
   rowCells,
   rowCellSpans,
@@ -201,6 +202,39 @@ ok(escapePipes("a|b|c") === "a\\|b\\|c", "escapePipes");
 {
   const md = gridToTable([["h1", "h|2"], ["a", "b"]]);
   ok(md.includes("h\\|2"), "grid cells with pipes escape on emit", md);
+}
+
+// Frozen pre-optimization traversal: exact table models must survive the
+// linear iterator/span cursor, including boundaries skipped by a parsed table.
+function traversalOracle(source: Text, fmEndLine = 0) {
+  const spans = protectedDocumentSpans(source.toString(), { inline: false }), out = [];
+  for (let n = fmEndLine + 1; n <= source.lines;) {
+    const line = source.line(n);
+    if (spans.some(span => span.from <= line.from && line.from < span.to)) { n++; continue; }
+    const table = parseAt(source, n);
+    if (!table) { n++; continue; }
+    out.push(table); n = source.lineAt(table.to).number + 1;
+  }
+  return out;
+}
+{
+  const lines = ["---", "title: 'α | β'", "---", ""];
+  for (let i = 0; i < 120; i++) {
+    lines.push("Plain α text", "", "<!--", "| hidden | table |", "|---|---|", "-->", "",
+      "````text", "| hidden | fence |", "|---|---|", "```", "````", "",
+      "$$", "| hidden | math |", "|---|---|", "$$", "",
+      "| visible α | β |", "|:---|---:|", `| row${i} | 3.25 |`, "absorbed prose", "",
+      "| captioned | value |", "|---|---|", "| 1 | 2 |", "", `: Caption ${i} {#tbl-${i}}`, "");
+  }
+  lines.push("| final | table |", "|---|---|", "| tail | 0 |", "");
+  const source = Text.of(lines);
+  for (const start of [0, 3, source.lines]) {
+    const actual = scanTables(source, start), expected = traversalOracle(source, start);
+    ok(JSON.stringify(actual) === JSON.stringify(expected), `linear traversal exact parity across protected/caption/absorbed-row boundaries from line${start}`);
+    if (!start) ok(actual.length === 241, "all241 real tables retained;360 protected pseudo-tables excluded");
+  }
+  const changed = source.replace(source.length - 2, source.length - 2, Text.of(["Scientific δ"]));
+  ok(JSON.stringify(scanTables(changed)) === JSON.stringify(traversalOracle(changed)), "immutable edited Text tree preserves exact end-of-document offsets");
 }
 
 console.log(failures ? `\n${failures} FAILED` : "\nall green");

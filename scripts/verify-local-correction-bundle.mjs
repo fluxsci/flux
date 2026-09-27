@@ -3,9 +3,10 @@
 // and never enter Flux's startup JavaScript graph.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const assetsDir = new URL("../dist/assets/", import.meta.url);
-const assetsPath = assetsDir.pathname;
+const assetsPath = fileURLToPath(assetsDir); // not `.pathname`: that is "/C:/…" on Windows
 const files = readdirSync(assetsPath);
 const workerFiles = files.filter((name) => /^localCorrection\.worker-.*\.js$/.test(name));
 const harperWasm = files.filter((name) => /^harper_wasm.*\.wasm$/.test(name));

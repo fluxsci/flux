@@ -122,11 +122,11 @@ try {
 
   // --- 4. fig save keeps the tEXt chunk byte-verbatim (the load seam's source) ------
   const roundTrip = await page.evaluate(async (root) => {
-    const { saveFigFrom } = await import("/src/lib/project/figbridge.ts");
     const { readPngText } = await import("/src/lib/figure/pngDpi.ts");
     const { decodeSnipMeta } = await import("/src/lib/references/snips.ts");
     const F = window.__flux;
-    await saveFigFrom(root, F.get(F.fig.project));
+    // Use the bridge owning the mounted editor's accepted snapshot/lease.
+    await F.bridge.saveFigFrom(root);
     const f = F.figures()[0];
     const img = f.elements.find((e) => e.type === "image");
     const bytes = new Uint8Array(await window.fig.readFile(`${root}/fig/assets/${img.assetId}.png`));

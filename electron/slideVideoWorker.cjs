@@ -3,6 +3,7 @@
 // editor or its main process. One frame in flight provides encoder backpressure.
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { slideAudioGraph } = require("./slideAudioGraph.cjs");
 const { spawn } = require("node:child_process");
 
 async function deadline(promise, label, ms = 30000) {
@@ -72,16 +73,9 @@ async function renderVideo(job, { BrowserWindow, session }, signal, progress = (
     const audio = (info.audio ?? []).filter(segment => job.mediaHasAudio?.[segment.assetId] === true);
     if (audio.length) {
       const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", job.output];
-      const filters = [];
-      audio.forEach((segment, i) => {
-        const file = job.mediaFiles?.[segment.assetId];
-        if (!file || !Number.isFinite(segment.startMs) || !Number.isFinite(segment.endMs) || segment.startMs < 0 || segment.endMs <= segment.startMs) throw new Error("Invalid video audio segment");
-        if (segment.loop) args.push("-stream_loop", "-1");
-        args.push("-ss", String((segment.offsetMs ?? 0) / 1000), "-t", String((segment.endMs - segment.startMs) / 1000), "-i", file);
-        filters.push(`[${i + 1}:a]aresample=48000,atrim=duration=${(segment.endMs - segment.startMs) / 1000},asetpts=PTS-STARTPTS,adelay=${Math.round(segment.startMs * 48)}S:all=1[a${i}]`);
-      });
-      filters.push(`${audio.map((_segment, i) => `[a${i}]`).join("")}amix=inputs=${audio.length}:duration=longest:normalize=0,alimiter=limit=0.98:latency=1,apad=whole_dur=${info.durationMs / 1000},atrim=duration=${info.durationMs / 1000}[audio]`);
-      args.push("-filter_complex", filters.join(";"), "-map", "0:v:0", "-map", "[audio]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", String(info.durationMs / 1000), "-movflags", "+faststart", audioOutput);
+      const graph = slideAudioGraph(audio, job.mediaFiles, info.durationMs);
+      args.push(...graph.inputs);
+      args.push("-filter_complex", graph.filter, "-map", "0:v:0", "-map", "[audio]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", String(info.durationMs / 1000), "-movflags", "+faststart", audioOutput);
       stderr = "";
       encoder = spawn(job.encoder, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
       closed = new Promise((resolve, reject) => {

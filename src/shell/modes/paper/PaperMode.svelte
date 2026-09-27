@@ -127,14 +127,15 @@
   import * as terminalSession from "../../terminal/terminalSession";
   import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
   import PreviewPane from "./render/PreviewPane.svelte";
-  import { renderManuscript } from "./render/renderManuscript";
+  import { renderManuscript, captureManuscriptSnapshot } from "./render/renderManuscript";
   import { fileBridge } from "../../../lib/project/types";
   import { pushToast, errMsg } from "../../../lib/toast";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
   import { registerFlushable } from "../../lifecycle";
+  import { withIpcLock } from "../../../lib/references/libLock";
   import { holdDocumentExport, waitForDocumentExport } from "../../../lib/project/documentExportLease";
-  import { registerLiveFigureReferenceDocument } from "../../../lib/project/figureReferenceSync";
+  import { registerLiveFigureReferenceDocument, readLiveFigureReferenceDocuments } from "../../../lib/project/figureReferenceSync";
   import { popIn } from "../../../lib/motion/actions";
   import {
     commentField,
@@ -152,7 +153,7 @@
     newId,
     type CommentThread,
   } from "./comments/comments";
-  import { loadFigures, figureRefs, figureCanvases, resolveFigure, materializeRenders, exportCtxFigures } from "./scholar/figures";
+  import { loadFigures, figureRefs, figureCanvases, resolveFigure, materializeRenders } from "./scholar/figures";
   import { bibEntries, type BibEntry } from "./scholar/bib";
   import { loadBib, addDoiToBib, addUrlOrDoiToBib, addUrlOrDoiToLibrary } from "./scholar/bibLoad";
   import { materializeIntoProject, refreshFluxLib } from "../../../lib/references/fluxlibBridge";
@@ -192,7 +193,16 @@
   let blockedByTwin = $state(false);
 
   let ready = $state(false);
+  let sourcesReady = $state(false);
   let initialDoc = $state("");
+  // A document switch creates a new CM state/plugin lifetime, including history.
+  let sessionGeneration = $state(0);
+  let switchIntent = 0;
+  let disposed = false;
+  let switchQueue: Promise<void> = Promise.resolve();
+  function sessionCurrent(generation: number, path: string): boolean {
+    return !disposed && generation === sessionGeneration && path === activeDocPath;
+  }
   let saved = $state(true);
   let isDemo = $state(false);
   let latest = $state("");
@@ -315,6 +325,7 @@
     dragSide = side;
     window.addEventListener("pointermove", moveMargin);
     window.addEventListener("pointerup", endMargin);
+    window.addEventListener("pointercancel", endMargin);
   }
   function moveMargin(e: PointerEvent) {
     if (!dragSide || !colEl) return;
@@ -331,7 +342,11 @@
     dragSide = null;
     window.removeEventListener("pointermove", moveMargin);
     window.removeEventListener("pointerup", endMargin);
+    window.removeEventListener("pointercancel", endMargin);
   }
+
+  onDestroy(endMargin);
+  $effect(() => { if (!active) endMargin(); });
 
   // ---- outliner: active-heading tracking + collapse state ----------------
   const activeFrom = $derived.by(() => {
@@ -365,8 +380,10 @@
   async function saveTitleAuthors(newTitle: string, authorsCsv: string) {
     titleEditOpen = false;
     if (!view) return;
+    const editor = view, generation = sessionGeneration, path = activeDocPath;
     const yaml = await import("js-yaml");
-    const src = view.state.doc.toString();
+    if (!sessionCurrent(generation, path) || view !== editor) return;
+    const src = editor.state.doc.toString();
     let metaObj: Record<string, unknown> = {};
     // WS-4.1: single-source bounds; closeEnd = end of the closing --- line
     // (the replace below keeps the newline after it as the body separator,
@@ -407,22 +424,27 @@
     isDirty: () => !!pm && !!activeDocPath && !saved,
     save: async () => {
       if (!pm) return;
-      await waitForDocumentExport(`${pm.root}/${activeDocPath}`);
-      const snapshot = latest;
-      // W7 conflict guard: if the file changed on disk since we last loaded/saved
-      // (an agent/CLI wrote it) AND that change isn't what we're about to write,
-      // don't clobber it — surface the diverged banner and stay dirty (the shared
-      // controller treats ConflictError as no-retry/no-toast).
-      const onDisk = (await readManuscript(pm, activeDocPath)) ?? "";
-      if (onDisk !== diskBaseline && onDisk !== snapshot) {
-        diskDiverged = true;
-        throw new ConflictError("manuscript changed on disk");
-      }
-      await writeManuscript(pm, snapshot, activeDocPath);
-      diskBaseline = snapshot;
-      // Only mark clean if nothing was typed during the write — otherwise the
-      // controller's trailing save persists the newer text (W4).
-      if (latest === snapshot) saved = true;
+      const owner = { generation: sessionGeneration, path: activeDocPath, root: pm.root };
+      await waitForDocumentExport(`${owner.root}/${owner.path}`);
+      await withIpcLock("project", "manuscript", async lease => {
+        if (!sessionCurrent(owner.generation, owner.path) || get(projectModel)?.root !== owner.root) return;
+        // Capture after acquiring the shared writer lease: waiting may have
+        // admitted typing, a reference rewrite or a new document session.
+        const snapshot = latest;
+        const baseline = diskBaseline;
+        const onDisk = await readManuscript(pm, owner.path);
+        if (!sessionCurrent(owner.generation, owner.path) || get(projectModel)?.root !== owner.root) return;
+        if (onDisk !== baseline && onDisk !== snapshot) {
+          diskDiverged = true;
+          throw new ConflictError("manuscript changed on disk");
+        }
+        await lease.assertOwned?.();
+        await writeManuscript(pm, snapshot, owner.path);
+        if (!sessionCurrent(owner.generation, owner.path)) return;
+        diskBaseline = snapshot;
+        // Typing during the write remains dirty for the trailing save.
+        if (latest === snapshot) saved = true;
+      }, { root: owner.root });
     },
   });
   const autosaveStatus = autosave.status;
@@ -599,8 +621,10 @@
     if (!doi || doiStatus === "fetching") return;
     doiPromptError = "";
     doiStatus = "fetching";
+    const generation = sessionGeneration, path = activeDocPath;
     if (doiPromptMode === "cite") {
       const r = await addUrlOrDoiToBib(doi, pm?.root ?? null);
+      if (!sessionCurrent(generation, path)) return;
       if ("error" in r) {
         doiStatus = "";
         doiPromptError = r.error;
@@ -630,6 +654,9 @@
   let activeComment = $state<string | null>(null);
   let cRanges = $state<Map<string, { from: number; to: number }>>(new Map());
   let commentSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let commentsDirty = false;
+  let commentRevision = 0;
+  let pendingCommentWrite: Promise<void> = Promise.resolve();
   const commentAuthor = pm?.manifest.authors?.[0]?.name || "You";
   const commentCount = $derived(threads.filter((t) => !t.draft && !t.resolved).length);
 
@@ -639,19 +666,24 @@
 
   function scheduleCommentSave() {
     if (!pm) return;
+    commentsDirty = true; commentRevision++;
     clearTimeout(commentSaveTimer);
     commentSaveTimer = setTimeout(() => {
       commentSaveTimer = undefined;
-      void persistThreadsTo(activeDocPath);
+      void flushComments().catch(e => pushToast("error", "Couldn’t save comments", { detail: errMsg(e) }));
     }, 600);
   }
 
-  /** W5: flush a pending comment save now (registry/exit path). */
+  /** Failed or in-flight comment writes remain dirty and block disposal. */
   async function flushComments() {
-    if (!pm || commentSaveTimer === undefined) return;
-    clearTimeout(commentSaveTimer);
-    commentSaveTimer = undefined;
-    await persistThreadsTo(activeDocPath);
+    clearTimeout(commentSaveTimer); commentSaveTimer = undefined;
+    await pendingCommentWrite.catch(() => {});
+    if (!pm || !commentsDirty) return;
+    const generation = sessionGeneration, path = activeDocPath, revision = commentRevision;
+    const write = persistThreadsTo(path);
+    pendingCommentWrite = write;
+    await write;
+    if (sessionCurrent(generation, path) && revision === commentRevision) commentsDirty = false;
   }
 
   function startComment() {
@@ -751,7 +783,7 @@
   // Journal styles arrive in Phase B; today the house style is the only one.
   // It is EXPORT-ONLY by design — the writer never restyles for a journal.
   const HOUSE_STYLE_ID = "flux";
-  const EXPORT_STYLES: readonly ExportStyleOption[] = journalStyleOptions();
+  const EXPORT_STYLES: readonly ExportStyleOption[] = journalStyleOptions().map(s => ({ ...s, ...(s.id === "flux" ? {} : { formats: ["docx"] }) }));
   let exportPlan = $state<ExportPlan>({ format: "pdf", style: HOUSE_STYLE_ID, outPath: "" });
   // "n of m references matched" for the export dialog, computed when library docs are
   // picked (pickZoteroLibraryDocs). Cleared on dialog open: the bib may have changed.
@@ -767,37 +799,61 @@
     fb: NonNullable<ReturnType<typeof fileBridge>>,
     style: ResolvedJournalStyle,
     markCitationsForZotero = false,
+    documentPath = activeDocPath,
+    repository = slideRepo,
+    assertOwned?: () => Promise<void>,
+    root = pm?.root,
+    snapshot = captureManuscriptSnapshot(),
+    capturedLive?: ReadonlyMap<string, string>,
+    capturedBibliography?: { originalPath: string; replacement: string },
   ): Promise<() => Promise<void>> {
-    if (!pm) return async () => {};
+    if (!root) return async () => {};
     const { readQmdTree } = await import("../../../lib/exportQmd");
     const { readLiveFigureReferenceDocuments, flushLiveReferenceDocuments } = await import("../../../lib/project/figureReferenceSync");
-    const live = new Map(readLiveFigureReferenceDocuments(pm.root).map(d => [`${pm!.root}/${d.path}`, d.text]));
-    const tree = await readQmdTree(`${pm.root}/${activeDocPath}`, { readText: async p => live.get(p) ?? await fb.readText(p) });
-    await flushLiveReferenceDocuments(pm.root, tree.files);
-    const refs = get(figureRefs);
+    const live = capturedLive ?? new Map(readLiveFigureReferenceDocuments(root).map(d => [`${root}/${d.path}`, d.text]));
+    const tree = await readQmdTree(`${root}/${documentPath}`, { readText: async p => live.get(p) ?? await fb.readText(p) });
+    await flushLiveReferenceDocuments(root, tree.files);
+    const renders = await materializeRenders(root, tree.expanded, snapshot.figures);
+    if (renders.failed.length) throw new Error(`No render could be produced for: ${renders.failed.join(", ")}`);
+    const refs = snapshot.figures.refs;
     const release = holdDocumentExport(tree.files);
     try {
     const prep = await prepareExport(
       {
-        readText: (abs) => fb.readText(abs).catch(() => null),
-        writeText: (abs, text) => fb.writeText(abs, text),
+        readText: async (abs) => {
+          const disk = await fb.exists(abs) ? await fb.readText(abs) : null;
+          // CodeMirror exposes LF text even when an untouched file uses CRLF.
+          // Compare the editor representation, but journal the exact disk bytes.
+          if (live.has(abs) && disk?.replace(/\r\n?/g, "\n") !== live.get(abs)!.replace(/\r\n?/g, "\n")) throw new Error("An included document changed before export preparation; retry");
+          return disk;
+        },
+        writeText: async (abs, text) => { await assertOwned?.(); await fb.writeText(abs, text); },
       },
       {
-        entry: `${pm.root}/${activeDocPath}`,
+        entry: `${root}/${documentPath}`,
+        recovery: { root: root, id: crypto.randomUUID(), io: {
+          assertOwned,
+          readText: async p => await fb.exists(p) ? fb.readText(p) : null,
+          writeText: async (p, text) => { await assertOwned?.(); await fb.writeText(p, text); },
+          stat: fb.stat?.bind(fb), setTimes: fb.setTimes?.bind(fb), fsyncDir: fb.fsyncDir?.bind(fb),
+          validatePath: async p => { if (fb.projectAssetPath && await fb.exists(p)) await fb.projectAssetPath(root, p.slice(root.replace(/\/$/, "").length+1)); },
+          removeFile: async p => { if (!fb.remove) throw new Error("Export recovery requires file removal support"); await fb.remove(p); },
+        } },
         signal: exportAbort?.signal,
         ctx: {
           captions: new Map(refs.filter((r) => r.caption?.trim()).map((r) => [r.label, r.caption])),
           // THE editor's family numbering (figfamily.ts) — never embed-order.
           // Styled for the target venue; the editor's own refs stay house-form.
-          figures: exportCtxFigures(style),
+          figures: snapshot.figures.context(style),
           panels: style.figures.panels,
         },
         structure: { order: style.structure.order, aliases: NATURE_ROLE_ALIASES },
         markCitations: markCitationsForZotero,
+        capturedBibliography,
         transformSlides: async (text, file) => {
-          if (!slideRepo) return text;
+          if (!repository) return text;
           const { prepareSlideQuarto } = await import("../../../lib/slide/embedQuarto");
-          return prepareSlideQuarto(text, file, pm!.root, slideRepo, false, undefined, exportAbort?.signal);
+          return prepareSlideQuarto(text, file, root, repository, false, undefined, exportAbort?.signal);
         },
       },
     );
@@ -813,7 +869,7 @@
     if (!pm) return items;
     const { getCite } = await import("../../../lib/references/bibtex");
     const bibRel = pm.manifest?.references?.library ?? "references/library.bib";
-    const bibText = (await fb.readText(`${pm.root}/${bibRel}`).catch(() => null)) ?? "";
+    const bibText = await fb.readText(`${pm.root}/${bibRel}`);
     const Cite = await getCite();
     for (const rec of (new Cite(bibText).data as { id?: string }[]) ?? []) {
       if (rec?.id) items[String(rec.id)] = rec as never;
@@ -845,32 +901,36 @@
   async function applyZoteroFields(
     fb: NonNullable<ReturnType<typeof fileBridge>>,
     plan: ExportPlan,
-    outPath: string,
-  ): Promise<{ citations: number; bound: number; notesPlain: number } | null> {
-    if (!pm) return null;
+    input: Uint8Array,
+    documentPath = activeDocPath,
+    root = pm?.root,
+    bibText?: string,
+  ): Promise<{ bytes: Uint8Array; summary: { citations: number; bound: number; notesPlain: number } }> {
+    if (!root) throw new Error("The project was closed during export");
     const { injectZoteroFields, resolveCslIdentity } = await import(
       "../../../lib/references/zoteroFields"
     );
-    const items = await readCiteItems(fb);
+    const { getCite } = await import("../../../lib/references/bibtex");
+    const Cite = await getCite();
+    const items = bibText === undefined ? await readCiteItems(fb) : Object.fromEntries((/^\s*@/m.test(bibText) ? new Cite(bibText).data : []).map((item: { id?: string }) => [String(item.id), item]));
     const harvested = await harvestLibraryDocs(fb, plan.zoteroLibraryDocs ?? []);
 
     // The style Zotero will reformat to must be the one the render used — the shared
     // resolver (journal-style asset → front-matter csl → _quarto.yml) over the bridge.
     const style = resolveJournalStyle(plan.style, BUILTIN_JOURNAL_STYLES);
     const identity = await resolveCslIdentity((p) => fb.readText(p).catch(() => null), {
-      root: pm.root,
-      docPath: `${pm.root}/${activeDocPath}`,
+      root: root,
+      docPath: `${root}/${documentPath}`,
       styleCsl: style.csl,
     });
 
-    const { bytes, report } = injectZoteroFields(new Uint8Array(await fb.readFile(outPath)), {
+    const { bytes, report } = injectZoteroFields(input, {
       items,
       styleId: identity.styleId,
       locale: identity.locale,
       index: harvested,
     });
-    await fb.writeFile(outPath, bytes);
-    return { citations: report.citations, bound: report.bound, notesPlain: report.notesPlain };
+    return { bytes, summary: { citations: report.citations, bound: report.bound, notesPlain: report.notesPlain } };
   }
 
   /** Pick Word documents that already contain Zotero citations, to bind against.
@@ -924,6 +984,7 @@
 
   /** Why the current combination can't run (empty when it can). */
   function exportBlockedReason(plan: ExportPlan): string {
+    if (plan.style !== "flux" && plan.format !== "docx") return "Journal styles are available for Word export only.";
     if (plan.format === "docx" && !quartoAvail) {
       return "Word export needs Quarto — install it, then reopen this dialog.";
     }
@@ -939,6 +1000,8 @@
   }
 
   async function doExport(plan: ExportPlan) {
+    if (plan.style !== "flux" && plan.format !== "docx") { pushToast("error", "Journal styles are available for Word export only"); return; }
+    const job = { bibText: "", path: activeDocPath, text: latest, slides: slideRepo, generation: sessionGeneration, root: pm?.root, paginated: viewMode === "paginated", bibliographyPath: pm?.manifest.references.library, live: new Map(pm ? readLiveFigureReferenceDocuments(pm.root).map(d => [d.path.startsWith(pm.root + "/") ? d.path : `${pm.root}/${d.path}`, d.text]) : []), snapshot: captureManuscriptSnapshot() };
     if (exportBusy) return; // one export at a time (a second Quarto render would race)
     exportOpen = false;
     exportPlan = plan;
@@ -947,6 +1010,7 @@
       pushToast("error", "Export needs the desktop app");
       return;
     }
+    const temporaryOutput = `${plan.outPath}.pending-${crypto.randomUUID()}.${plan.format}`;
     exportBusy = true;
     exportLogTail = "";
     exportCancelled = false;
@@ -954,8 +1018,15 @@
     exportAbort = new AbortController();
     exportLogTail = "Preparing slides and document assets…";
     try {
+      await withIpcLock("project", "export", async lease => {
+      if (job.root) {
+        await autosave.flush();
+        if (!saved || !sessionCurrent(job.generation, job.path) || latest !== job.text) throw new Error("The document changed or could not be saved before export");
+        const diskBib = await fb.readText(`${job.root}/${job.bibliographyPath}`);
+        job.bibText = job.snapshot.bibSource?.root === job.root && job.bibliographyPath === "references/library.bib" ? job.snapshot.bibSource.text : diskBib;
+      }
       if (plan.format === "docx") {
-        if (!pm || !fb.quartoRender) {
+        if (!job.root || !fb.quartoRender) {
           exportBusy = false;
           return;
         }
@@ -972,15 +1043,17 @@
           }
           throw e;
         }
-        slideRepo?.invalidate();
-        const renders = await materializeRenders(pm.root, latest);
+        if (!saved || !sessionCurrent(job.generation, job.path) || latest !== job.text) throw new Error("The document changed or could not be saved before export");
+        job.slides?.invalidate();
         // Quarto reads DISK: the shared prep transforms in place (captions into
         // alts, refs literalized), renders, and restores — sources end byte-identical.
         const style = resolveJournalStyle(plan.style, BUILTIN_JOURNAL_STYLES);
-        const manuscriptDir = activeDocPath.includes("/")
-          ? activeDocPath.slice(0, activeDocPath.lastIndexOf("/"))
+        const manuscriptDir = job.path.includes("/")
+          ? job.path.slice(0, job.path.lastIndexOf("/"))
           : "";
-        const restoreDocs = await transformDocsForQuarto(fb, style, !!plan.zoteroFields);
+        const profileName = `flux-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+        const bibName = `${profileName}.bib`;
+        const restoreDocs = await transformDocsForQuarto(fb, style, !!plan.zoteroFields, job.path, job.slides, lease.assertOwned, job.root, job.snapshot, job.live, { originalPath: `${job.root}/${job.bibliographyPath}`, replacement: bibName });
         const token = `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
         exportToken = token;
         const stopLog = fb.onQuartoLog?.((info) => {
@@ -991,15 +1064,26 @@
         let r;
         try {
           exportAbort?.signal.throwIfAborted();
-          const useProfile = style.id !== "flux";
-          r = await fb.quartoRender(pm.root, "docx", activeDocPath, {
-            outPath: plan.outPath,
+          const useProfile = true;
+          if (useProfile) {
+            const { publishExportResource } = await import("../../../lib/project/exportRecovery");
+            const resourceIO: import("../../../lib/project/exportRecovery").ExportRecoveryIO = {
+              assertOwned: lease.assertOwned,
+              readText: async p => await fb.exists(p) ? fb.readText(p) : null,
+              writeText: async (p,text) => { await lease.assertOwned?.(); await fb.writeText(p,text); },
+              removeFile: async p => { if (!fb.remove) throw new Error("Export recovery needs removal support"); await fb.remove(p); },
+              fsyncDir: fb.fsyncDir?.bind(fb),
+            };
+            await publishExportResource(resourceIO, job.root, token, `${manuscriptDir ? manuscriptDir + "/" : ""}${bibName}`, job.bibText);
+            await publishExportResource(resourceIO, job.root, token, `${manuscriptDir ? manuscriptDir + "/" : ""}_quarto-${profileName}.yml`, (style.id === "flux" ? "# Captured export bibliography\n" : journalProfileYaml(style, { manuscriptDir })) + `bibliography: ${JSON.stringify(bibName)}\n`);
+          }
+          r = await fb.quartoRender(job.root, "docx", job.path, {
+            outPath: temporaryOutput,
             token,
             ...(useProfile
               ? {
-                  profile: EXPORT_PROFILE,
-                  profileYaml: journalProfileYaml(style, { manuscriptDir }),
-                  assets: journalAssetPlan(style),
+                  profile: profileName,
+                  assets: style.id === "flux" ? [] : journalAssetPlan(style),
                 }
               : {}),
           });
@@ -1019,76 +1103,21 @@
           });
           return;
         }
-        if (renders.failed.length) {
-          // Loud, not informational: a figure without a render does not appear in the
-          // document at all, and the export otherwise reports plain success.
-          pushToast("error", `${renders.failed.length} figure(s) will be MISSING from the export`, {
-            detail: `No render could be produced for: ${renders.failed.join(", ")}`,
-          });
-        }
-        // Word paints nothing for an SVG picture that carries no raster fallback, and
-        // pandoc can only produce one when rsvg-convert is on PATH — which it is not on
-        // a stock machine. Splice the fallback in ourselves, or every figure is
-        // invisible while the export still reports success. See docxSvgFallback.ts.
-        if (r.outPath) {
-          try {
-            const { addSvgRasterFallbacks, domRasterizeSvg } = await import(
-              "../../../lib/references/docxSvgFallback"
-            );
-            const { bytes, report: svgReport } = await addSvgRasterFallbacks(
-              new Uint8Array(await fb.readFile(r.outPath)),
-              domRasterizeSvg(),
-            );
-            if (svgReport.added) await fb.writeFile(r.outPath, bytes);
-            if (svgReport.failed.length)
-              pushToast("error", `${svgReport.failed.length} figure(s) may not display in Word`, {
-                detail: `Could not rasterize: ${svgReport.failed.join(", ")}`,
-              });
-          } catch (e) {
-            pushToast("error", "Figures may not display in Word", {
-              detail: (e as Error).message,
-            });
-          }
-        }
-        // Live Zotero fields: citeproc baked the citations into text, which strips the
-        // item identity Word needs. Rewrite them into the fields Zotero owns.
-        //
-        // A failure here is reported and never fatal — but the .docx on disk is NOT a
-        // valid fallback on its own. Rendering with `markCitations` bakes the `⟦ZC…⟧`
-        // sentinels into the file BEFORE injection runs, so abandoning injection leaves
-        // those markers visible in the reader's text and still reports a success. Strip
-        // them before falling back, so "exported without live Zotero citations" is what
-        // the user actually receives.
-        let zoteroNote = "";
-        if (plan.zoteroFields && r.outPath) {
-          try {
-            const summary = await applyZoteroFields(fb, plan, r.outPath);
-            zoteroNote = summary
-              ? ` — ${summary.citations} live citation${summary.citations === 1 ? "" : "s"}` +
-                (summary.bound ? `, ${summary.bound} linked to your library` : "") +
-                (summary.notesPlain
-                  ? `, ${summary.notesPlain} in footnotes stay${summary.notesPlain === 1 ? "s" : ""} plain text`
-                  : "")
-              : "";
-          } catch (e) {
-            let detail = (e as Error).message;
-            try {
-              const { stripZoteroMarkers } = await import(
-                "../../../lib/references/zoteroFields"
-              );
-              const { bytes, stripped } = stripZoteroMarkers(
-                new Uint8Array(await fb.readFile(r.outPath)),
-              );
-              if (stripped) await fb.writeFile(r.outPath, bytes);
-            } catch (e2) {
-              detail += ` — and the citation markers could not be removed: ${(e2 as Error).message}`;
-            }
-            pushToast("info", "Exported without live Zotero citations", { detail });
-          }
-        }
+        if (!r.outPath) throw new Error("Quarto did not produce an artifact");
+        const { postprocessDocx } = await import("../../../lib/references/docxArtifact");
+        const { domRasterizeSvg } = await import("../../../lib/references/docxSvgFallback");
+        const processed = await postprocessDocx(new Uint8Array(await fb.readFile(r.outPath)), {
+          rasterize: domRasterizeSvg(),
+          ...(plan.zoteroFields ? { inject: (bytes: Uint8Array) => applyZoteroFields(fb, plan, bytes, job.path, job.root, job.bibText) } : {}),
+        });
+        exportAbort?.signal.throwIfAborted();
+        await lease.assertOwned?.();
+        await fb.writeFile(plan.outPath, processed.bytes);
+        const zoteroNote = processed.zotero ? ` — ${processed.zotero.citations} live citations` : "";
+        for (const warning of processed.warnings) pushToast("info", warning);
         exportDone = true;
         setTimeout(() => (exportDone = false), 2600);
-        const out = r.outPath;
+        const out = plan.outPath;
         pushToast(
           "success",
           `Exported ${out ? out.replace(/^.*\//, "") : "manuscript.docx"}${zoteroNote}`,
@@ -1099,17 +1128,17 @@
 
       // In-app engines (PDF via printToPDF, HTML written straight out). The
       // dialog already collected the destination, so there is no second prompt.
-      slideRepo?.invalidate();
-      let exportText = latest;
-      if (pm) {
+      job.slides?.invalidate();
+      let exportText = job.text;
+      if (job.root) {
         const { readQmdTree } = await import("../../../lib/exportQmd");
-        const entry = `${pm.root}/${activeDocPath}`;
+        const entry = `${job.root}/${job.path}`;
         const { readLiveFigureReferenceDocuments } = await import("../../../lib/project/figureReferenceSync");
-        const live = new Map(readLiveFigureReferenceDocuments(pm.root).map(d => [d.path.startsWith(pm!.root + "/") ? d.path : `${pm!.root}/${d.path}`, d.text]));
-        live.set(entry, latest);
+        const live = new Map(job.live);
+        live.set(entry, job.text);
         exportText = (await readQmdTree(entry, { readText: async p => live.get(p) ?? await fb.readText(p) })).expanded;
       }
-      const { full } = await renderManuscript(exportText, { paginated: viewMode === "paginated", slides: slideRepo, documentKey: activeDocPath, print: plan.format === "pdf", strict: true, signal: exportAbort?.signal });
+      const { full } = await renderManuscript(exportText, { paginated: job.paginated, snapshot: job.snapshot, slides: job.slides, documentKey: job.path, print: plan.format === "pdf", strict: true, signal: exportAbort?.signal });
       exportAbort?.signal.throwIfAborted();
       exportCancellable = false;
       const out = plan.outPath;
@@ -1120,13 +1149,17 @@
           return;
         }
         // printPdf resolves false when the render/write didn't happen — don't claim success.
-        const okPdf = await fb.printPdf(full, out, {});
+        const okPdf = await fb.printPdf(full, temporaryOutput, {});
         if (!okPdf) {
           pushToast("error", "PDF export failed", { detail: "the PDF could not be written" });
           exportBusy = false;
           return;
         }
-      } else await fb.writeText(out, full);
+        const bytes = new Uint8Array(await fb.readFile(temporaryOutput));
+        if (new TextDecoder().decode(bytes.slice(0, 5)) !== "%PDF-") throw new Error("Invalid PDF output");
+        await lease.assertOwned?.();
+        await fb.writeFile(out, bytes);
+      } else { await lease.assertOwned?.(); await fb.writeText(out, full); }
       exportBusy = false;
       exportDone = true;
       setTimeout(() => (exportDone = false), 2600);
@@ -1135,10 +1168,13 @@
         `Exported ${out.replace(/^.*\//, "")}`,
         fb.revealPath ? { action: { label: "Reveal", run: () => void fb.revealPath!(out) } } : {},
       );
+      }, { root: job.root });
     } catch (e) {
       if (exportCancelled) pushToast("info", "Export cancelled");
       else { console.error("[flux] export failed", e); pushToast("error", "Export failed", { detail: errMsg(e) }); }
       exportBusy = false;
+    } finally {
+      await fb.remove?.(temporaryOutput).catch(() => {});
     }
   }
 
@@ -1217,7 +1253,9 @@
 
   async function handleDoi(doi: string, v: EditorView, from: number, to: number) {
     doiStatus = "fetching";
+    const generation = sessionGeneration, path = activeDocPath;
     const r = await addDoiToBib(doi, pm?.root ?? null);
+    if (!sessionCurrent(generation, path) || view !== v) return;
     if ("error" in r) {
       doiStatus = "error";
       setTimeout(() => (doiStatus = ""), 2600);
@@ -1366,6 +1404,7 @@
     void terminalSession.syncRoot(pm?.root ?? null);
     if (pm) {
       await refreshDocuments();
+      if (disposed) return;
       // Restore the last active document if it still exists, else the main one.
       const want = get(paperLayout).activeDocPath;
       let target =
@@ -1382,6 +1421,7 @@
       if (!blockedByTwin && target) {
         claimDoc(paneId, target);
         initialDoc = await readManuscript(pm, target);
+        if (disposed) return;
       }
     } else {
       initialDoc = SEED;
@@ -1403,10 +1443,20 @@
       subs.push(deckRevision.subscribe(invalidateSlides), slideEmbedRevision.subscribe(invalidateSlides), figRevision.subscribe(invalidateSlides));
     }
     ready = true;
-    await Promise.all([loadFigures(pm?.root ?? null), loadBib(pm?.root ?? null)]);
     const refresh = () => view?.dispatch({ effects: refreshChips.of(null) });
-    subs.push(figRevision.subscribe(() => void loadFigures(pm?.root ?? null)));
-    subs.push(bibRevision.subscribe(() => void loadBib(pm?.root ?? null)));
+    // Subscriptions emit immediately: these are the initial loads too. A
+    // separate initial load followed by subscription used to launch a second
+    // race that could replace figures/bibliography after the editor was ready.
+    let figuresLoading: Promise<void> = Promise.resolve(), bibLoading: Promise<void> = Promise.resolve();
+    subs.push(figRevision.subscribe(() => { figuresLoading = loadFigures(pm?.root ?? null); }));
+    subs.push(bibRevision.subscribe(() => { bibLoading = loadBib(pm?.root ?? null); }));
+    for (;;) {
+      const figures = figuresLoading, bibliography = bibLoading;
+      await Promise.all([figures, bibliography]);
+      if (disposed) return;
+      if (figures === figuresLoading && bibliography === bibLoading) break;
+    }
+    sourcesReady = true;
     // Keep the shared FluxLib store current for the reference search + @-autocomplete
     // (fires immediately, then on any FluxLib change — add here, Library mode, capture).
     subs.push(fluxLibRevision.subscribe(() => void refreshFluxLib()));
@@ -1647,7 +1697,9 @@
 
   async function loadComments(v: EditorView) {
     if (!pm) return;
-    const loaded = await readComments(pm, activeDocPath);
+    const generation = sessionGeneration, path = activeDocPath;
+    const loaded = await readComments(pm, path);
+    if (!sessionCurrent(generation, path) || view !== v) return;
     if (!loaded.length) return;
     const doc = v.state.doc.toString();
     const effects = [];
@@ -1754,67 +1806,47 @@
     return writeComments(pm, persist, docPath);
   }
 
-  async function loadDocument(path: string) {
-    slidePickerOpen = false; slideInsertTarget = null;
-    if (!pm || (path === activeDocPath && !blockedByTwin)) return;
-    // Dual-paper B4: a document open in the other pane is refused — focus the
-    // pane that has it (the same rule the whole-mode gate used to apply).
-    const claimer = paneEditingDoc(path, paneId);
-    if (claimer) {
-      focusPane(claimer);
-      pushToast("info", "That document is open in the other pane", { detail: "Focused it instead." });
-      return;
-    }
-    if (blockedByTwin || !view || !activeDocPath) {
-      // Un-blocking (or a pre-editor call): mount the editor fresh on `path`.
-      const text = (await readManuscript(pm, path)) || "";
-      threads = [];
-      activeComment = null;
-      cRanges = new Map();
+  function loadDocument(path: string): Promise<void> {
+    const intent = ++switchIntent;
+    const run = async () => {
+      if (!pm || disposed || intent !== switchIntent || (path === activeDocPath && !blockedByTwin)) return;
+      const claimer = paneEditingDoc(path, paneId);
+      if (claimer) { focusPane(claimer); pushToast("info", "That document is open in the other pane", { detail: "Focused it instead." }); return; }
+      // Read first, without publishing identity or an empty fallback on error.
+      const text = await readManuscript(pm, path);
+      if (disposed || intent !== switchIntent) return;
+      const outgoing = activeDocPath;
+      if (!blockedByTwin && outgoing) {
+        await autosave.flush();
+        if (!saved) throw new Error("Resolve the unsaved document conflict before switching documents");
+        await flushComments();
+        await persistThreadsTo(outgoing);
+        // Typing remains live during IO; do not discard a trailing edit.
+        await autosave.flush();
+        if (!saved) throw new Error("The outgoing document still has unsaved changes");
+      }
+      if (disposed || intent !== switchIntent) return;
+      const claimedNow = paneEditingDoc(path, paneId);
+      if (claimedNow) { focusPane(claimedNow); pushToast("info", "That document is open in the other pane"); return; }
+      clearTimeout(commentSaveTimer); commentSaveTimer = undefined;
+      clearTimeout(idleTimer); clearTimeout(hoverHideTimer);
+      slidePickerOpen = false; slideInsertTarget = null;
+      pickerOpen = false; figRefPickerOpen = false; doiPromptOpen = false;
+      hover = null; doiStatus = ""; activeCitation.reset();
+      threads = []; activeComment = null; cRanges = new Map(); commentsDirty = false;
+      unregHandlers?.(); unregHandlers = null;
+      untrackMath?.(); untrackMath = null;
+      view = undefined;
       activeDocPath = path;
       claimDoc(paneId, path);
-      if (focused) setPaperContextDoc(path);
-      if (focused) paperLayout.update((s) => ({ ...s, activeDocPath: path }));
-      initialDoc = text;
-      latest = text;
-      latestIdle = text;
-      diskBaseline = text;
-      saved = true;
-      blockedByTwin = false; // Editor mounts; onReady wires comments/handlers
-      return;
-    }
-    // Persist the current document (text + comments) before switching away.
-    clearTimeout(commentSaveTimer);
-    commentSaveTimer = undefined;
-    await autosave.flush();
-    if (!saved) {
-      pushToast("error", "Resolve the unsaved document conflict before switching documents");
-      return;
-    }
-    await persistThreadsTo(activeDocPath);
-
-    const text = (await readManuscript(pm, path)) || "";
-    threads = [];
-    activeComment = null;
-    cRanges = new Map();
-    activeDocPath = path;
-    claimDoc(paneId, path); // dual-paper: the claim follows the document
-    if (focused) setPaperContextDoc(path); // feedback stamp follows the active doc (focused pane owns it)
-    // Restart restores the FOCUSED pane's document (panes reset to one on open).
-    if (focused) paperLayout.update((s) => ({ ...s, activeDocPath: path }));
-    // Swap the editor content in place (preserve the extension set).
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: text },
-      effects: resetSlidePlayback.of(null),
-      selection: { anchor: 0 },
-    });
-    latest = text;
-    diskBaseline = text; // W7: the newly-loaded document is our baseline
-    saved = true; // the swap's own change event scheduled a save; isDirty=false makes it a no-op
-    refreshIdleNow(); // load is immediate, not debounced
-    syncRanges();
-    await loadComments(view);
-    view.focus();
+      if (focused) { setPaperContextDoc(path); paperLayout.update(s => ({ ...s, activeDocPath: path })); }
+      initialDoc = text; latest = text; latestIdle = text; diskBaseline = text;
+      saved = true; diskDiverged = false; blockedByTwin = false;
+      sessionGeneration++;
+    };
+    const result = switchQueue.then(run);
+    switchQueue = result.catch(e => { pushToast("error", "Couldn’t switch documents", { detail: errMsg(e) }); });
+    return switchQueue;
   }
 
   /** Slide a document row up or down the rail's Documents list — order ONLY:
@@ -2016,7 +2048,9 @@
   async function reloadCommentsFromDisk() {
     if (!pm || !view) return;
     if (threads.some((t) => t.draft)) return;
-    const loaded = await readComments(pm, activeDocPath);
+    const generation = sessionGeneration, path = activeDocPath, editor = view;
+    const loaded = await readComments(pm, path);
+    if (!sessionCurrent(generation, path) || view !== editor) return;
     const doc = view.state.doc.toString();
     const effects = [];
     for (const t of threads) effects.push(removeCommentMark.of(t.id));
@@ -2039,7 +2073,9 @@
       return;
     }
     if (!chg.path.endsWith(activeDocPath)) return; // only the active document
-    const text = (await readManuscript(pm, activeDocPath)) || "";
+    const generation = sessionGeneration, path = activeDocPath;
+    const text = await readManuscript(pm, path);
+    if (!sessionCurrent(generation, path)) return;
     if (text === latest) return; // nothing new (e.g. our own echoed write)
     if (!saved) {
       diskDiverged = true; // dirty → keep the user's unsaved work, offer a choice
@@ -2050,7 +2086,9 @@
   async function forceReloadFromDisk() {
     if (!pm) return;
     try {
-      applyDiskText((await readManuscript(pm, activeDocPath)) || "");
+      const generation = sessionGeneration, path = activeDocPath;
+      const text = await readManuscript(pm, path);
+      if (sessionCurrent(generation, path)) applyDiskText(text);
     } catch (e) {
       // Leave the banner up so the choice is still available.
       pushToast("error", "Couldn't reload from disk", { detail: errMsg(e) });
@@ -2060,12 +2098,19 @@
   // disk and adopt it as the new baseline so the guard stops firing.
   async function overwriteDisk() {
     if (!pm) return;
-    const snapshot = latest;
+    const owner = { generation: sessionGeneration, path: activeDocPath, root: pm.root };
     try {
-      await writeManuscript(pm, snapshot, activeDocPath);
-      diskBaseline = snapshot;
-      if (latest === snapshot) saved = true;
-      diskDiverged = false;
+      await waitForDocumentExport(`${owner.root}/${owner.path}`);
+      await withIpcLock("project", "manuscript", async lease => {
+        if (!sessionCurrent(owner.generation, owner.path) || get(projectModel)?.root !== owner.root) return;
+        const snapshot = latest;
+        await lease.assertOwned?.();
+        await writeManuscript(pm, snapshot, owner.path);
+        if (!sessionCurrent(owner.generation, owner.path)) return;
+        diskBaseline = snapshot;
+        if (latest === snapshot) saved = true;
+        diskDiverged = false;
+      }, { root: owner.root });
     } catch (e) {
       pushToast("error", "Couldn't overwrite the file on disk", { detail: errMsg(e) });
     }
@@ -2082,8 +2127,9 @@
   const flushId = paneId ? `paper-${paneId}` : "paper";
   // svelte-ignore state_referenced_locally
   const commentsFlushId = paneId ? `paper-comments-${paneId}` : "paper-comments";
+  // svelte-ignore state_referenced_locally
   const unregFlush = registerFlushable({
-    id: flushId,
+    id: flushId, paneId,
     isDirty: () => !!pm && !!activeDocPath && !saved,
     flush: () => autosave.flush(),
   });
@@ -2102,13 +2148,17 @@
       },
     });
   });
+  // svelte-ignore state_referenced_locally
   const unregComments = registerFlushable({
-    id: commentsFlushId,
-    isDirty: () => commentSaveTimer !== undefined,
+    id: commentsFlushId, paneId,
+    isDirty: () => commentsDirty,
     flush: () => flushComments(),
   });
 
   onDestroy(() => {
+    disposed = true; switchIntent++;
+    exportAbort?.abort();
+    if (exportToken) void fileBridge()?.quartoCancel?.(exportToken).catch(() => false);
     void flush();
     void flushComments();
     autosave.dispose();
@@ -2503,7 +2553,7 @@
   });
 </script>
 
-<section class="paper">
+<section class="paper" data-paper-sources-ready={sourcesReady}>
   <div class="work" bind:this={workEl} bind:clientWidth={workWidth}>
     {#if $paperLayout.outlinerOpen}
       <div
@@ -2556,7 +2606,9 @@
             {status}
             onEdit={() => (titleEditOpen = true)} />
         </div>
-        <Editor doc={initialDoc} extensions={buildExtensions()} {onReady} {onChange} />
+        {#key sessionGeneration}
+          <Editor doc={initialDoc} extensions={buildExtensions()} {onReady} {onChange} />
+        {/key}
         {#if viewMode !== "paginated" && !previewActive}
           <div
             class="mhandle left"

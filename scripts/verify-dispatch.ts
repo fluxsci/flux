@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tsxCli } from "./lib/tsxRun.mjs";
 
 const { harness } = await import("./lib/harness.mjs");
 const h = harness("verify-dispatch");
@@ -19,9 +20,21 @@ const ok = (c: unknown, m: string) => h.ok(!!c, m);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "verify-dispatch-"));
 const realHome = process.env.HOME;
+const realProfile = process.env.USERPROFILE;
+const realAppData = process.env.APPDATA;
+const realLocalAppData = process.env.LOCALAPPDATA;
 const realXdg = process.env.XDG_CONFIG_HOME;
 process.env.FLUX_NO_MIGRATE = "1";
+// USERPROFILE too: Windows resolves the home directory from it, not HOME, so
+// redirecting HOME alone left the roster reading the developer's REAL
+// ~/FluxConfig (2026-09-22).
 process.env.HOME = path.join(scratch, "home");
+process.env.USERPROFILE = process.env.HOME;
+// APPDATA/LOCALAPPDATA too: that is where the preferences that POINT at
+// FluxConfig live on Windows, so redirecting the home alone still read the
+// developer's real pointer and their real roster.
+process.env.APPDATA = path.join(scratch, "appdata");
+process.env.LOCALAPPDATA = path.join(scratch, "localappdata");
 process.env.XDG_CONFIG_HOME = path.join(scratch, "xdg");
 fs.mkdirSync(process.env.HOME, { recursive: true });
 
@@ -48,6 +61,8 @@ console.log("WORKER client=" + process.env.FLUX_CLIENT + " project=" + (process.
 console.log("AGENT model=" + (process.argv[3] ?? "?") + " effort=" + (process.argv[4] ?? "?"));
 console.log("BRIEF: " + prompt.slice(0, 60));
 if (prompt.includes("PLEASE FAIL")) process.exit(3);
+if (prompt.includes("PLEASE SIGNAL")) process.kill(process.pid, "SIGTERM");
+if (prompt.includes("FINAL BYTES")) process.stdout.write("FINAL-BYTES:" + "x".repeat(100000));
 console.log("REPORT: analysis complete, 2 plots written");
 `,
   );
@@ -137,6 +152,13 @@ console.log("PASS OK");
   }
   ok(/no agent family "nope"/.test(unknown) && /stubw/.test(unknown), "dispatch: unknown family lists available families");
 
+  const signaled = await core.dispatch(root, {role:'analysis', brief:'PLEASE SIGNAL', name:'signal', model:'m1', effort:'low'});
+  ok(signaled.exitCode !== 0, 'signal termination is not successful exit');
+  ok(fs.readFileSync(path.join(root,signaled.dir,'result.md'),'utf8').includes('signal'), 'signal outcome retained in saved result');
+  const final = await core.dispatch(root, {role:'analysis',brief:'FINAL BYTES',name:'final-bytes',model:'m1',effort:'low'});
+  const finalBytes = fs.readFileSync(path.join(root,final.dir,'log.txt'),'utf8');
+  ok(final.exitCode === 0 && finalBytes.includes('x'.repeat(100000)) && finalBytes.endsWith('REPORT: analysis complete, 2 plots written\n'), 'log finish awaited through immediate exit and final large report');
+
   // --- legacy fixed-command rosters still dispatch by role --------------------
   fs.writeFileSync(
     path.join(cfg, "agents.json"),
@@ -165,8 +187,11 @@ console.log("PASS OK");
   // --- attend loop: only NEW sends trigger ------------------------------------
   fs.rmSync(passMarker, { force: true });
   const cliEntry = path.join(repoRoot, "flux-cli.ts");
-  const tsxBin = path.join(repoRoot, "node_modules", ".bin", "tsx");
-  const attendChild = spawn(tsxBin, [cliEntry, "attend", root, "--interval", "200"], {
+  // This node + the installed tsx CLI: the .bin shim is an sh script on
+  // Windows and its .cmd twin cannot be spawned without a shell on current
+  // Node, so neither name starts a process there.
+  const tsxBin = process.execPath;
+  const attendChild = spawn(tsxBin, [tsxCli(), cliEntry, "attend", root, "--interval", "200"], {
     env: { ...process.env },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -207,6 +232,12 @@ console.log("PASS OK");
 } finally {
   if (realHome === undefined) delete process.env.HOME;
   else process.env.HOME = realHome;
+  if (realProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = realProfile;
+  if (realAppData === undefined) delete process.env.APPDATA;
+  else process.env.APPDATA = realAppData;
+  if (realLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+  else process.env.LOCALAPPDATA = realLocalAppData;
   if (realXdg === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = realXdg;
   fs.rmSync(scratch, { recursive: true, force: true });

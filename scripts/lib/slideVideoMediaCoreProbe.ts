@@ -40,6 +40,7 @@ console.log("PROBE headless shared preparation, geometry, locked persistence, co
 const unpacked = path.join(scratch, "resources/app.asar.unpacked"), encoderDir = path.join(scratch, "resources/video-encoder");
 await fs.mkdir(path.join(unpacked, "dist"), { recursive: true }); await fs.mkdir(path.join(unpacked, "electron"), { recursive: true }); await fs.mkdir(encoderDir, { recursive: true });
 await fs.copyFile(path.resolve("dist/flux-cli.mjs"), path.join(unpacked, "dist/flux-cli.mjs"));
+await fs.copyFile(path.resolve("dist/flux-cli-core.mjs"), path.join(unpacked, "dist/flux-cli-core.mjs")); // the launcher's bundle
 await fs.copyFile(path.resolve("electron/videoMedia.cjs"), path.join(unpacked, "electron/videoMedia.cjs"));
 const encoder = media.encoderPath(); await fs.copyFile(encoder, path.join(encoderDir, path.basename(encoder))); await fs.chmod(path.join(encoderDir, path.basename(encoder)), 0o755);
 const env = { ...process.env }; delete env.FLUX_VIDEO_APP_ROOT; delete env.FLUX_VIDEO_ENCODER;
@@ -87,6 +88,8 @@ let duplicateCopies = 0;
   mkdir: (directory: string) => fs.mkdir(directory, { recursive: true }),
   readText: (file: string) => fs.readFile(file, "utf8"),
   writeText: (file: string, text: string) => fs.writeFile(file, text),
+  remove: (file: string) => fs.rm(file, { recursive: true, force: true }),
+  fsyncDir: async (directory: string) => { const handle = await fs.open(directory, "r"); try { await handle.sync(); } finally { await handle.close(); } },
   readFile: async (file: string) => { assert.ok(!protectedPaths.has(file), "movie/poster must never pass through renderer bytes"); return fs.readFile(file); },
   writeFile: (file: string, bytes: Uint8Array) => fs.writeFile(file, bytes),
   copySlideVideoAssets: async (request: any) => { duplicateCopies++; await media.copyVideoAssets(request); },

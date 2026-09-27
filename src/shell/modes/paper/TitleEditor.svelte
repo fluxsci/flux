@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalFocus } from "../../../lib/ui/modalFocus";
   import { untrack } from "svelte";
   import { popIn } from "../../../lib/motion/actions";
 
@@ -29,9 +30,9 @@
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       onClose();
-    } else if (e.key === "Enter" && !e.shiftKey) {
+    } else if (e.key === "Enter" && !e.shiftKey && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       save();
     }
@@ -40,14 +41,14 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="scrim" onclick={onClose}></div>
-<div class="te" transition:popIn>
+<div class="te" use:modalFocus role="dialog" aria-modal="true" aria-label="Edit document title and authors" tabindex="-1" onkeydown={onKey} transition:popIn>
   <label>
     <span>Title</span>
-    <input bind:this={tEl} bind:value={t} onkeydown={onKey} spellcheck="false" />
+    <input bind:this={tEl} bind:value={t} spellcheck="false" />
   </label>
   <label>
     <span>Authors</span>
-    <input bind:value={a} onkeydown={onKey} placeholder="comma, separated" spellcheck="false" />
+    <input bind:value={a} placeholder="comma, separated" spellcheck="false" />
   </label>
   <div class="row">
     <button class="ghost" onclick={onClose}>Cancel</button>

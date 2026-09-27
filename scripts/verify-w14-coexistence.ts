@@ -3,14 +3,18 @@
 //  • AGT-12 (tested for real): compose-figure pre-flights every input, so a bad plot path
 //    partway through no longer leaves the earlier plots' asset files orphaned on disk — a
 //    botched compose writes nothing. A valid compose still works.
-//  • AGT-10 (presence): the live-bridge onDispatch flushes the figure subsystem before
-//    replying, so an agent's get_figure_image right after dispatch_command isn't stale. The
-//    flush path is Electron-only (loopback bridge); dispatchCommand itself is covered by
-//    verify-an-bridge, so here we assert the wiring is present.
+//  • AGT-10 (behavior): the live-bridge onDispatch flushes the figure subsystem before
+//    replying; inspect written bytes and inject failed persistence/missing owners.
 //  • SLD-13 (presence): the player's prevSlide now cancelActive()s (bumps gen), so a stale
 //    settle() can't fire beatEnd on the newly-shown slide. Covered end-to-end by the slide
 //    e2e regression's prev/next navigation; asserted present here.
 //   Run: npx tsx scripts/verify-w14-coexistence.ts
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+import { installBridge } from "../src/lib/bridge/install";
+import { registerFlushable } from "../src/shell/lifecycle";
+import { currentProject } from "../src/shell/shellStore";
+import { get } from "svelte/store";
+import * as figureStore from "../src/lib/store";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -60,9 +64,30 @@ try {
   assert((await listOrEmpty(assetsDir)).length >= 2, "valid compose wrote its asset files");
 
   // --- AGT-10 + SLD-13: presence of the wiring (Electron-only / DOM-timing paths) ----------
-  const dir = path.dirname(new URL(import.meta.url).pathname);
-  const install = await fs.readFile(path.join(dir, "..", "src", "lib", "bridge", "install.ts"), "utf8");
-  assert(/await flushById\("figure"\)/.test(install), "AGT-10: onDispatch flushes the figure subsystem before replying");
+  mountFigureCommandFixture(root);
+  let receive!: (request: {id:string;command:unknown})=>void;
+  const replies = new Map<string, {result:unknown;error?:string}>();
+  Object.assign(globalThis, {window:{fig:{bridge:{pushContext:()=>{},onDispatch:(cb:typeof receive)=>{receive=cb;},reply:(id:string,result:unknown,error?:string)=>{replies.set(id,{result,error});}}}}});
+  installBridge();
+  const request = async (id:string,command:unknown) => {
+    receive({id,command});
+    for(let i=0;i<100&&!replies.has(id);i++)await new Promise(r=>setTimeout(r,5));
+    assert(replies.has(id),`live request ${id} completes`);return replies.get(id)!;
+  };
+  const target=get(figureStore.activeFigureId)!;
+  const saved=await request('saved',{type:'set_caption',figureId:target,text:'durable caption'});
+  assert(!saved.error,'live dispatch succeeds only after its real snapshot writer');
+  assert(JSON.parse(await fs.readFile(path.join(root,'live-editor-snapshot.json'),'utf8')).figures.find((f:{id:string})=>f.id===target).captions.__figure__==='durable caption','saved bytes contain the actual dispatched caption');
+  const stop=registerFlushable({id:'figure',isDirty:()=>true,flush:async()=>{throw new Error('ENOSPC');}});
+  const failed=await request('failed',{type:'set_caption',figureId:target,text:'retained dirty caption'});
+  assert(!!failed.error?.includes('applied-but-unsaved'),'failed persistence is never success and prevents duplicate-mutation retries');
+  assert(get(figureStore.project).figures.find(f=>f.id===target)?.captions?.__figure__==='retained dirty caption'&&get(figureStore.dirty),'failed flush retains edited data and dirty state');
+  const beforeLive=JSON.stringify(get(figureStore.project));
+  const invalid=await request('invalid',{type:'set_style',patch:{fontSize:NaN}});
+  assert(!!invalid.error&&JSON.stringify(get(figureStore.project))===beforeLive,'invalid geometry leaves the live model untouched');
+  stop();currentProject.set(null);
+  const refused=await request('gone',{type:'add_text',text:'do not apply'});
+  assert(!!refused.error?.includes('not-applied')&&JSON.stringify(get(figureStore.project))===beforeLive,'missing owner refuses before mutation');
   const { parseHTML } = await import("linkedom");
   const { document } = parseHTML("<html><body></body></html>");
   Object.assign(globalThis, { document });

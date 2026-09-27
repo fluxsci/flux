@@ -11,15 +11,18 @@ export function svgIntrinsicSize(svg: string): { w: number; h: number } {
   const m = /<svg\b[^>]*>/i.exec(svg);
   const tag = m ? m[0] : svg.slice(0, 600);
   const PX_PER: Record<string, number> = { px: 1, pt: 96 / 72, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 };
+  // XML attributes accept either quote and the full finite numeric grammar.
+  const attrs = new Map<string,string>();
+  for (const m of tag.matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/gs)) attrs.set(m[1].toLowerCase(),m[3]);
   const dim = (name: string): number | null => {
-    const d = new RegExp(`\\b${name}="\\s*([\\d.]+)\\s*(px|pt|pc|mm|cm|in)?\\s*"`, "i").exec(tag);
-    return d ? +d[1] * PX_PER[(d[2] || "px").toLowerCase()] : null; // "100%" etc. → null
+    const d = /^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(px|pt|pc|mm|cm|in)?\s*$/i.exec(attrs.get(name) ?? "");
+    const value = d ? Number(d[1]) * PX_PER[(d[2] || "px").toLowerCase()] : NaN;
+    return Number.isFinite(value) && value > 0 ? value : null;
   };
-  const w = dim("width");
-  const h = dim("height");
+  const w = dim("width"), h = dim("height");
   if (w && h) return { w, h };
-  const vb = /viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(tag);
-  if (vb) return { w: +vb[1], h: +vb[2] };
+  const vb = (attrs.get("viewbox") ?? "").trim().split(/[\s,]+/).map(Number);
+  if (vb.length === 4 && vb.every(Number.isFinite) && vb[2] > 0 && vb[3] > 0) return { w: vb[2], h: vb[3] };
   return { w: 240, h: 180 };
 }
 

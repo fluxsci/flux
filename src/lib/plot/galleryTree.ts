@@ -124,7 +124,8 @@ export function createGalleryTree(readDirectory: (path: string) => Promise<Galle
       result.push({ ...entry, depth, ...(entry.kind === "dir" ? { expanded: expanded.has(entry.abs), status: state?.status, error: state?.error } : {}) });
       if (entry.kind === "dir" && expanded.has(entry.abs)) for (const child of state?.entries ?? []) walk(child, depth + 1);
     };
-    walk({ abs: root, rel: "", name: "plots", kind: "dir", semantic: false }, 0);
+    // The root row is named for its folder: a project's plots/, or the global library.
+    walk({ abs: root, rel: "", name: root.slice(root.lastIndexOf("/") + 1) || "plots", kind: "dir", semantic: false }, 0);
     return result;
   }
   return {

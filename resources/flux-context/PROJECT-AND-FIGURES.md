@@ -66,6 +66,18 @@ Both reserved folders stay reachable on purpose: in the importer the user types 
 them, Enter to go in, and searching then applies only inside that folder. Reserved means out
 of the way, not unavailable — so put anything exploratory or explanatory in them freely.
 
+**The global plot library — plots for every project:** `<FluxConfig>/plot_library/`
+(`plotLibraryPath` in `config` output) is the user's machine-wide `plots/`: logos,
+schematics, reference panels, colour keys — anything reused across projects. Same rules as a
+project's `plots/` (any subfolders; the reserved `_` names are hidden the same way); the Plot
+gallery's **Project | Global** switch browses it, and a Settings preference decides whether a
+search spans project, global, or both. Put a plot there ONLY when the user wants it reusable
+beyond this project — per-analysis output belongs in the project's `plots/`. Composing a
+library plot works headless too (`compose-figure <plotLibraryPath>/logos/lab.svg --id …`): like
+a GUI insert it is stored as an EXTERNAL source (absolute path, `external: true`) with the
+pixels copied into `fig/assets/`, so the project stays self-contained while regenerating the
+library file still hot-swaps it on this machine.
+
 ## The figure model
 
 Hierarchy: **Project → Canvases → Figures → Elements**.
@@ -121,16 +133,22 @@ import-plots → arrange → auto-label route works on a blank figure too).
 
 ## Captions
 
-Captions live on the figure MODEL (a lead sentence + one block per panel — what the app's
-Caption Editor shows); `fig/captions/<id>.md` is the composed read-out. Write them journal
+Captions live on the figure MODEL (a lead sentence + one block per panel + optional closing prose — what the app's
+Figure-Meta Captions tab shows (Alt+M in Figure or Paper)); `fig/captions/<id>.md` is the composed read-out. Write them journal
 style — bold letter + comma:
 
 ```bash
 {{FLUX_CLI}} set-caption growth "Growth of control vs treatment under nutrient stress over 24 h. **a**, Control. **b**, Treatment."
 #   the '**a**, …' convention is DISTRIBUTED into the per-panel blocks automatically
 {{FLUX_CLI}} set-caption growth "Control (revised)." --panel a   # rewrite ONE panel
+{{FLUX_CLI}} set-caption growth "All error bars show SEM." --panel __ps__ # closing prose, no label
 {{FLUX_CLI}} caption growth      # read the composed caption back
 ```
+
+The `__ps__` block stays last regardless of panel order. Its readable projection has no marker;
+whole-caption edits preserve an unchanged known suffix, while rewritten closing prose is imported
+into the ordinary blocks without duplicating the old text. `--panel ps` is also accepted when no
+actual panel is named ps.
 
 The manuscript reads captions from the model (embed lines carry NO caption text — see
 `MANUSCRIPT-AND-REVIEW.md`); use `@fig-growth-a` in the caption/prose to refer to panels.

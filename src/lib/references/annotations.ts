@@ -94,3 +94,17 @@ export function annotationMatches(a: Annotation, query: string): boolean {
   if (!q) return true;
   return [a.anchor.quote, a.note ?? "", (a.tags ?? []).join(" ")].join(" ").toLowerCase().includes(q);
 }
+
+/** Validate canonical storage without rebuilding/dropping unknown fields. */
+export function validateAnnotations(raw: unknown): AnnotationFile {
+  const f = raw as AnnotationFile;
+  if (!f || typeof f !== "object" || f.version !== 1 || !Array.isArray(f.annotations)) throw new Error("Expected version 1 annotations array");
+  const ids = new Set<string>();
+  for (const a of f.annotations) {
+    if (!a || typeof a.id !== "string" || !a.id || ids.has(a.id) || !Number.isInteger(a.page) || a.page < 1 ||
+        !a.anchor || [a.anchor.quote, a.anchor.prefix, a.anchor.suffix, a.color, a.createdAt].some(v => typeof v !== "string") ||
+        (a.note !== undefined && typeof a.note !== "string") || (a.tags !== undefined && (!Array.isArray(a.tags) || a.tags.some(v => typeof v !== "string")))) throw new Error("Invalid annotation record");
+    ids.add(a.id);
+  }
+  return f;
+}

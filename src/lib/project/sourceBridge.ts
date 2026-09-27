@@ -1,13 +1,20 @@
+import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
+import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
+import { generationBridgeIO } from "./generationBridgeIO";
+import { stageFigureRegistration } from "./figureGeneration";
+import type { TextGenerationIO } from "./textGeneration";
+import { commitTextGeneration, recoverTextGeneration } from "./textGeneration";
 // Browser adapter for the shared source planner. This service belongs to the
 // project, not whichever editor happens to own the global figure store.
 import { get, writable } from "svelte/store";
 import type { Project, Figure, SemanticPlotElement } from "../types";
-import { project, mutate, commit, embeddedProjectRoot, acceptFigureSourceSizes } from "../store";
+import { project, mutate, commit, embeddedProjectRoot, publishAcceptedFigureSources } from "../store";
 import { storeTenant } from "../tenancy";
 import { assetData, dataUrlToBytes } from "../assets";
 import { plotManifests, plotRecipes } from "../plot/store";
 import { reimportPlot } from "../io";
 import { fileBridge, joinPath, isNewerSchema, newerSchemaMessage, FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
+import { readFigureSnapshot, requireCompleteFigureSnapshot } from "./figureSnapshot";
 import { figureStoreRoot, saveFigFrom } from "./figbridge";
 import { planFigSave, executeFigSave, normalizeIndexAssets, sortedCanvasMeta, type FigIndexFile } from "./figfiles";
 import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../migrate";
@@ -32,37 +39,12 @@ const pending = new Set<string>();
 const liveFigure = (root: string) => storeTenant() === "figure" && figureStoreRoot() === root && get(embeddedProjectRoot) === root;
 const validSvg = (text: string) => !new DOMParser().parseFromString(text, "image/svg+xml").querySelector("parsererror");
 
-async function readModel(root: string): Promise<{ project: Project; index: FigIndexFile; baselines: Map<string, string> }> {
+async function readModel(root: string): Promise<{ project: Project; index: FigIndexFile; baselines: Map<string, string | null> }> {
   const fb = fileBridge()!;
-  await recoverFigureReferenceUpdate(root, fb);
-  const baselines = new Map<string, string>();
-  const read = async (rel: string) => { const text = await fb.readText(joinPath(root, rel)); baselines.set(rel, text); return text; };
-  const index = JSON.parse(await read("fig/index.json")) as FigIndexFile;
-  if (isNewerSchema(index.schemaVersion, FIG_INDEX_SCHEMA_VERSION)) throw new Error(newerSchemaMessage("fig/index.json", index.schemaVersion, FIG_INDEX_SCHEMA_VERSION));
-  const indexErrors = validateFigIndexFile(index);
-  if (indexErrors.length) throw new Error(`Figure sources cannot update an invalid index: ${indexErrors.slice(0, 3).join("; ")}`);
-  const canvases = sortedCanvasMeta(index);
-  const figures: Figure[] = [];
-  for (const c of canvases) {
-    const canvas = JSON.parse(await read(`fig/canvases/${c.id}.json`));
-    if (isNewerSchema(canvas.schemaVersion, CANVAS_SCHEMA_VERSION)) throw new Error(newerSchemaMessage(`fig/canvases/${c.id}.json`, canvas.schemaVersion, CANVAS_SCHEMA_VERSION));
-    figures.push(...canvas.figures.map((f: Figure) => ({ ...f, canvasId: c.id })));
-  }
-  const model: Project = {
-    version: 2, name: "", canvases: canvases.map(({ id, name }) => ({ id, name })), figures,
-    assets: normalizeIndexAssets(index), palette: index.palette ?? [], colorGroups: (index.colorGroups ?? []) as Project["colorGroups"],
-    textStyles: index.textStyles, figureFamilies: index.families,
-  };
-  migrateProject(model);
-  migrateFigureFamilies(model, familyHintsFrom(index.figures));
-  ensureFigureReferenceKeys(model, index);
-  const errors = validateModel(model);
-  if (errors.length) throw new Error(`Figure sources cannot update invalid compositions: ${errors.slice(0, 3).join("; ")}`);
-  const captions = await reconcileCaptionFiles(model, index, async (rel) => {
-    return await fb.exists(joinPath(root, rel)) ? await read(rel) : null;
-  });
-  if (captions.conflicts.length) throw new ConflictError(captionConflictMessage(captions.conflicts));
-  return { project: model, index, baselines };
+  await recoverFigureReferenceUpdate(root, referenceSyncBridgeIO(root, fb));
+  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotBridgeIO(root, fb)));
+  if (!snapshot.index) throw new Error("Missing fig/index.json");
+  return { project: snapshot.project, index: snapshot.index, baselines: snapshot.baselines };
 }
 function publish(statuses: SourceStatus[]) {
   sourceStatuses.set(Object.fromEntries(statuses.map((s) => [s.assetId, s])));
@@ -121,32 +103,41 @@ async function sync(root: string, opts: { isCurrent?: () => boolean }): Promise<
     await owners.assertUnchanged();
     if (opts.isCurrent && !opts.isCurrent() || wasLive !== liveFigure(root)) return { changed: [], statuses: plan.statuses, checked: plan.checked };
     if (wasLive) {
-      // Apply to the CURRENT model; the user may have moved/restyled content
-      // while source IO was pending. Only source-dependent sizing is touched.
-      mutate((p) => applySourceUpdates(p, plan.updates));
+      // Persist a private candidate first. Failed writes never become accepted
+      // source bytes/sizes, and typing remains live throughout preparation.
+      await saveFigFrom(root, { sourceUpdates: plan.updates, sourceOwnersUnchanged: owners.assertUnchanged });
+      if (!liveFigure(root) || (opts.isCurrent && !opts.isCurrent())) return { changed: [], statuses: plan.statuses, checked: plan.checked };
       const accepted = [];
       for (const u of plan.updates) {
-        if (!get(project).assets.some((a) => a.id === u.assetId)) continue;
-        if (reimportPlot(u.assetId, u.bundle.svgText,
-          u.bundle.manifestText ? JSON.parse(u.bundle.manifestText) as FluxPlotManifest : undefined,
-          u.bundle.recipeText ? JSON.parse(u.bundle.recipeText) : undefined, { markEdited: false })) accepted.push(u);
+        if (!get(project).assets.some(a => a.id === u.assetId)) continue;
+        if (!reimportPlot(u.assetId, u.bundle.svgText,
+          u.bundle.manifestText ? JSON.parse(u.bundle.manifestText) : undefined,
+          u.bundle.recipeText ? JSON.parse(u.bundle.recipeText) : undefined, { markEdited: false })) throw new Error(`Could not publish validated source ${u.assetId}`);
+        accepted.push(u);
       }
-      acceptFigureSourceSizes(accepted);
+      publishAcceptedFigureSources(accepted);
+      // Keep the trailing save: independent edits made during I/O must persist.
       await saveFigFrom(root);
     } else {
-      await withIpcLock("project", "project", async () => {
+      await withIpcLock("project", "project", async lease => withIpcLock("project", "slides", async slidesLease => withIpcLock("project", "manifest", async manifestLease => {
+      const io = generationBridgeIO(root, fb);
+      await recoverTextGeneration(io,async()=>{await lease.assertOwned?.();await slidesLease.assertOwned?.();await manifestLease.assertOwned?.()});
+      await owners.assertUnchanged();
       for (const [rel, baseline] of disk!.baselines) {
-        if (await fb.readText(joinPath(root, rel)) !== baseline) throw new ConflictError("Figures changed while sources were being read; reload sources again");
+        if (await io.read(rel) !== baseline) throw new ConflictError("Figures changed while sources were being read; reload sources again");
       }
       applySourceUpdates(model, plan.updates);
-      await writeSourceUpdates(root, plan.updates, fb, model);
-      const writes = planFigSave(model, disk!.index);
-      await executeFigSave(writes, {
-        read: async (rel) => { try { return await fb.readText(joinPath(root, rel)); } catch { return null; } },
-        write: (rel, text) => fb.writeText(joinPath(root, rel), text),
-        fsyncDir: fb.fsyncDir ? (rel) => fb.fsyncDir!(joinPath(root, rel)) : undefined,
-      });
-      });
+      const staged = new Map<string,string|null>();
+      await writeSourceUpdates(root, plan.updates, {
+        writeText: async(abs,text)=>{staged.set(abs.slice(root.replace(/\/$/, "").length+1),text)},
+        remove:async abs=>{staged.set(abs.slice(root.replace(/\/$/, "").length+1),null)},
+      }, model);
+      const writes = planFigSave(model, disk!.index, disk!.baselines);
+      const read = async(rel:string) => await fb.exists(joinPath(root,rel)) ? fb.readText(joinPath(root,rel)) : null;
+      await executeFigSave(writes,{read,write:async(rel,text)=>{staged.set(rel,text)}});
+      await stageFigureRegistration(io, JSON.parse(writes.index.text), staged);
+      await commitTextGeneration(io,staged,async()=>{await lease.assertOwned?.();await slidesLease.assertOwned?.();await manifestLease.assertOwned?.()});
+      }, { root }), { root }), { root });
     }
     for (const status of plan.statuses) if (status.status === "updating") status.status = "current";
     publish(plan.statuses);

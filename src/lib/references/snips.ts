@@ -90,8 +90,10 @@ export function normSnipRect(rect: SnipRect, pageBox: SnipRect): SnipRect {
 
 /** The raster plan both engines follow: pixel dims + the dpi to stamp (72×scale). */
 export function snipRasterPlan(rect: SnipRect, scale: number): { widthPx: number; heightPx: number; dpi: number } {
+  if (!Number.isFinite(scale) || scale <= 0 || rect.some(v => !Number.isFinite(v))) throw new Error("Invalid snip geometry");
   const w = Math.abs(rect[2] - rect[0]);
   const h = Math.abs(rect[3] - rect[1]);
+  if (Math.ceil(w * scale) > 16384 || Math.ceil(h * scale) > 16384 || Math.ceil(w * scale) * Math.ceil(h * scale) > 64_000_000) throw new Error("Snip is too large at the requested DPI; select a smaller region");
   return {
     widthPx: Math.max(1, Math.ceil(w * scale)),
     heightPx: Math.max(1, Math.ceil(h * scale)),

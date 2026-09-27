@@ -15,7 +15,7 @@
 // pair; sampling is O(nodes) per frame.
 // ---------------------------------------------------------------------------
 
-import type { Element, PathElement, VectorNode } from "../types";
+import type { Element, PathElement, VectorNode, GradientFill } from "../types";
 import { elementBBox } from "../geometry";
 import { lerpColor } from "../color/interp";
 import {
@@ -110,7 +110,10 @@ function parameterize(nodes: VectorNode[], closed: boolean): Param {
   return { segs, lens, total: lens.reduce((a, b) => a + b, 0) };
 }
 
-/** The point at normalized arc length s ∈ [0,1]. */
+/** The point at normalized arc length s in [0,1]. Computed every time: a
+ *  per-plan station memo used to sit here to offset a slow arcT; with arcT
+ *  allocation-free (below) the memo measured as noise on the cold path
+ *  (verify-v020-morph-startup, 2026-09-24/25) and was removed. */
 function pointAt(p: Param, s: number): { x: number; y: number } {
   if (!p.segs.length) return { x: 0, y: 0 };
   let d = Math.max(0, Math.min(1, s)) * p.total;
@@ -135,16 +138,50 @@ function mergeStations(stations: number[]): number[] {
   return out;
 }
 
+// Bernstein weights of the 16 polyline stations arcT samples, computed with the
+// exact expression order segPoint uses, so each product matches it bit for bit.
+const ARC_SAMPLES = 16;
+const ARC_C0 = new Float64Array(ARC_SAMPLES + 1), ARC_C1 = new Float64Array(ARC_SAMPLES + 1);
+const ARC_C2 = new Float64Array(ARC_SAMPLES + 1), ARC_C3 = new Float64Array(ARC_SAMPLES + 1);
+for (let i = 1; i <= ARC_SAMPLES; i++) {
+  const t = i / ARC_SAMPLES, u = 1 - t;
+  ARC_C0[i] = u * u * u; ARC_C1[i] = 3 * u * u * t; ARC_C2[i] = 3 * u * t * t; ARC_C3[i] = t * t * t;
+}
+
 /** Parameter t on a segment at arc length `dist` from its start (bisection
- *  for curves — a cubic's t is not proportional to arc length). */
-function arcT(seg: PathSeg, len: number, dist: number): number {
+ *  for curves — a cubic's t is not proportional to arc length).
+ *
+ *  Each step measures the left half of a de Casteljau split at t as a
+ *  16-station polyline — the same quantity as
+ *  `segLength(splitSeg(seg, t)[0], 16)`, with the same arithmetic, but with no
+ *  allocation and `Math.sqrt` in place of `Math.hypot`. This is the hot loop of
+ *  morph planning (86 of 89 ms of the first preview, 2026-09-22): the rewrite is
+ *  ~12x faster and returned bit-identical t on 16,000 random segments, because
+ *  the bisection only compares the length against `dist`. */
+export function arcT(seg: PathSeg, len: number, dist: number): number {
   if (seg.line || len < 1e-9) return len < 1e-9 ? 0 : Math.max(0, Math.min(1, dist / len));
   if (dist <= 0) return 0;
   if (dist >= len) return 1;
+  const { x0, y0, x1, y1, x2, y2, x3, y3 } = seg;
   let lo = 0, hi = 1, t = dist / len;
   for (let k = 0; k < 20; k++) {
     t = (lo + hi) / 2;
-    if (segLength(splitSeg(seg, t)[0], 16) < dist) lo = t;
+    // left half of the de Casteljau split at t (splitSeg's arithmetic)
+    const q0x = x0 + (x1 - x0) * t, q0y = y0 + (y1 - y0) * t;
+    const q1x = x1 + (x2 - x1) * t, q1y = y1 + (y2 - y1) * t;
+    const q2x = x2 + (x3 - x2) * t, q2y = y2 + (y3 - y2) * t;
+    const r0x = q0x + (q1x - q0x) * t, r0y = q0y + (q1y - q0y) * t;
+    const r1x = q1x + (q2x - q1x) * t, r1y = q1y + (q2y - q1y) * t;
+    const px = r0x + (r1x - r0x) * t, py = r0y + (r1y - r0y) * t;
+    let length = 0, prevX = x0, prevY = y0;
+    for (let i = 1; i <= ARC_SAMPLES; i++) {
+      const bx = ARC_C0[i] * x0 + ARC_C1[i] * q0x + ARC_C2[i] * r0x + ARC_C3[i] * px;
+      const by = ARC_C0[i] * y0 + ARC_C1[i] * q0y + ARC_C2[i] * r0y + ARC_C3[i] * py;
+      const dx = bx - prevX, dy = by - prevY;
+      length += Math.sqrt(dx * dx + dy * dy);
+      prevX = bx; prevY = by;
+    }
+    if (length < dist) lo = t;
     else hi = t;
   }
   return t;
@@ -319,7 +356,44 @@ function inflateChain(nodes: VectorNode[]): VectorNode[] {
 /** Build the correspondence between two outlines (in their own unit frames).
  *  Both chains come back with the same node count, aligned start and
  *  direction; every original node of either side is a node of both. */
+/** The correspondence is a pure function of the two outlines, their boxes and
+ *  the strategy, and it is the most expensive thing in this file by a wide
+ *  margin — a 200-node ring against an ellipse costs ~30ms, nearly all of it
+ *  inverting arc length. Two facts make caching it worth the key: a deck that
+ *  morphs a ROW of identical shapes asks the identical question once per shape,
+ *  and the animator warms a slide's morphs when it opens so that pressing play
+ *  finds them already built (`warmSlideMorphs`). Keyed on everything the result
+ *  depends on and nothing else; the entries are immutable and read-only to
+ *  every caller (`sampleElementMorph` builds fresh nodes), so they are shared,
+ *  not copied. Bounded, oldest-out — a long editing session must not grow it
+ *  without limit. */
+const CORRESPONDENCE_CACHE_MAX = 48;
+const correspondenceCache = new Map<string, { a: VectorNode[]; b: VectorNode[]; closed: boolean }>();
+
+function outlineKey(o: Outline, w: number, h: number): string {
+  let s = (o.closed ? "C" : "O") + w + ":" + h;
+  for (const n of o.nodes) {
+    s += "|" + n.x + "," + n.y + "," + (n.type ?? "");
+    if (n.hIn) s += ";" + n.hIn.dx + "," + n.hIn.dy;
+    if (n.hOut) s += ":" + n.hOut.dx + "," + n.hOut.dy;
+  }
+  return s;
+}
+
 export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy = "cut"): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
+  const key = strategy + " " + outlineKey(A, aw, ah) + " " + outlineKey(B, bw, bh);
+  const hit = correspondenceCache.get(key);
+  if (hit) return hit;
+  const built = correspond(A, aw, ah, B, bw, bh, strategy);
+  if (correspondenceCache.size >= CORRESPONDENCE_CACHE_MAX) {
+    const oldest = correspondenceCache.keys().next().value;
+    if (oldest !== undefined) correspondenceCache.delete(oldest);
+  }
+  correspondenceCache.set(key, built);
+  return built;
+}
+
+function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, bh: number, strategy: RingStrategy): { a: VectorNode[]; b: VectorNode[]; closed: boolean } {
   let ua: Outline = { nodes: unit(A.nodes, aw, ah), closed: A.closed };
   let ub: Outline = { nodes: unit(B.nodes, bw, bh), closed: B.closed };
   if (ua.closed !== ub.closed && strategy === "inflate") {
@@ -375,6 +449,16 @@ export function planOutlines(A: Outline, aw: number, ah: number, B: Outline, bw:
   return { a, b, closed };
 }
 
+/** Whether the correspondence `planOutlines` builds will be a ring, decided
+ *  from the two outlines alone so a caller can know it without paying for the
+ *  correspondence. It mirrors that function exactly: `inflate` closes the open
+ *  side, so the pair is a ring when EITHER side is one, and every other
+ *  strategy opens the closed side, so the pair is a ring only when BOTH are.
+ *  `verify-slide-outline` holds the two in step. */
+export function morphIsClosed(a: Outline, b: Outline, strategy: RingStrategy): boolean {
+  return strategy === "inflate" ? a.closed || b.closed : a.closed && b.closed;
+}
+
 // --- the element-level plan + sampler --------------------------------------
 
 export interface ElementMorphPlan extends OutlineMorphPlan {
@@ -390,6 +474,9 @@ export interface ElementMorphPlan extends OutlineMorphPlan {
    *  driver draws mapped into the current box and fades (out for `pre`, in for
    *  `end`) while the ring swells or deflates. */
   fixedHeads: FixedHead[];
+  /** Force the deferred node correspondence (see planElementMorph). Safe to
+   *  call more than once; reading a/b/closed does it implicitly. */
+  prepare?: () => void;
 }
 
 export interface FixedHead {
@@ -416,6 +503,8 @@ function strokeHeads(el: Element, outline: Outline, box: { w: number; h: number 
 }
 
 interface OutlineStyle {
+  fillMap?: GradientFill | null;
+  strokeMap?: GradientFill | null;
   fill: string;
   stroke: string;
   strokeWidth: number;
@@ -433,6 +522,8 @@ function styleOf(el: Element): OutlineStyle {
   const e = el as unknown as Record<string, unknown>;
   const open = el.type === "line" || (el.type === "path" && !el.closed);
   return {
+    fillMap: open ? undefined : e.fillMap as GradientFill | undefined,
+    strokeMap: e.strokeMap as GradientFill | undefined,
     fill: open ? "none" : String(e.fill ?? "none"),
     stroke: String(e.stroke ?? "none"),
     strokeWidth: Number(e.strokeWidth ?? 0) || 0,
@@ -460,14 +551,31 @@ export function planElementMorph(pre: Element, end: Element): ElementMorphPlan |
   // a stroke meets a FILLED ring by inflating (no wedge); a stroke-only ring
   // opens up and unrolls instead
   const ringStyle = A.closed === B.closed ? null : A.closed ? preStyle : endStyle;
-  const strategy: RingStrategy = ringStyle && !isNoneColor(ringStyle.fill) ? "inflate" : "cut";
-  const { a, b, closed } = planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy);
+  const strategy: RingStrategy = ringStyle && (!!ringStyle.fillMap?.stops?.length || !isNoneColor(ringStyle.fill)) ? "inflate" : "cut";
+  // `planOutlines` is the expensive half of this by a wide margin — three
+  // become transforms measured 40.7ms inside it against 0.1ms to build the
+  // outlines it works from — and nothing reads the corresponded chains until a
+  // frame is actually drawn. Everything the compiler needs up front (can this
+  // morph at all, is the result a ring, does it carry arrowheads) comes from
+  // the outlines and the strategy alone, so the correspondence is computed on
+  // first use and the player warms it once the preview is on screen.
+  // (2026-09-22: the first preview cost 113ms against a 100ms budget, and this
+  // was almost all of it.)
+  let corresponded: ReturnType<typeof planOutlines> | null = null;
+  const outlines = () => (corresponded ??= planOutlines(A, pb.w, pb.h, B, eb.w, eb.h, strategy));
+  const closed = morphIsClosed(A, B, strategy);
   const fixedHeads = strategy === "inflate" ? [...strokeHeads(pre, A, pb, "pre"), ...strokeHeads(end, B, eb, "end")] : [];
   return {
-    a, b, closed, pre, end, strategy, fixedHeads,
-    preBox: pb, endBox: eb, preStyle, endStyle,
+    get a() { return outlines().a; },
+    get b() { return outlines().b; },
+    closed,
     arrowStart: !closed && (preStyle.arrowStart || endStyle.arrowStart),
     arrowEnd: !closed && (preStyle.arrowEnd || endStyle.arrowEnd),
+    /** Force the correspondence now. The player calls this once the preview is
+     *  on screen, so the first morph frame never pays for it. */
+    prepare() { outlines(); },
+    pre, end, strategy, fixedHeads,
+    preBox: pb, endBox: eb, preStyle, endStyle,
   };
 }
 
@@ -519,6 +627,10 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number): PathEleme
     d: "",
     fill,
     stroke,
+    // Unlike gradients use a deterministic endpoint paint; solid-color
+    // interpolation remains continuous and authored endpoints remain exact.
+    fillMap: structuredClone((t < 0.5 ? preStyle : endStyle).fillMap ?? (preStyle.fillMap || endStyle.fillMap)),
+    strokeMap: structuredClone((t < 0.5 ? preStyle : endStyle).strokeMap ?? (preStyle.strokeMap || endStyle.strokeMap)),
     strokeWidth: lerp(preStyle.strokeWidth, endStyle.strokeWidth, t),
     closed: plan.closed,
     nodes,

@@ -17,24 +17,26 @@
 // autosave error path (sticky toast), never a wrong-folder write.
 // ---------------------------------------------------------------------------
 
+import { get, writable } from "svelte/store";
 export type StoreTenant = "figure" | "slide";
 
-// Module-level (not a Svelte store): read at save time, set in mode lifecycles.
-let tenant: StoreTenant = "figure";
+// Read at save time, set in mode lifecycles; context observers also subscribe.
+export const storeTenantState = writable<StoreTenant>("figure");
 
 export function storeTenant(): StoreTenant {
-  return tenant;
+  return get(storeTenantState);
 }
 
 /** Claim the shared figure store for a mode. Call BEFORE loading content into
  *  it (FigureMode / SlideMode onMount, after evicting the other mode). */
 export function setStoreTenant(t: StoreTenant): void {
-  tenant = t;
+  storeTenantState.set(t);
 }
 
 /** Throw unless `expected` currently owns the shared store. `action` names the
  *  refused write for the error surface. */
 export function assertStoreTenant(expected: StoreTenant, action: string): void {
+  const tenant = storeTenant();
   if (tenant !== expected) {
     throw new Error(
       `${action} refused: the editing store is owned by ${tenant} mode (expected ${expected}). ` +

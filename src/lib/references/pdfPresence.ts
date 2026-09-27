@@ -5,18 +5,24 @@
 // stays visible until the fresh one lands).
 
 import { writable } from "svelte/store";
+import { resolveFluxLibPath } from "./fluxlibBridge";
 import { listPdfKeys, hasPdfIn } from "./itemsBridge";
 
 export const pdfKeys = writable<Set<string>>(new Set());
 
-let lastLoad = 0;
-export function refreshPdfKeys(minIntervalMs = 15_000) {
-  const now = Date.now();
-  if (now - lastLoad < minIntervalMs) return;
-  lastLoad = now;
-  listPdfKeys()
-    .then((s) => pdfKeys.set(s))
-    .catch(() => {});
+let lastLoad = 0, generation = 0, rootRequest = 0;
+let currentRoot: string | null | undefined;
+export async function refreshPdfKeys(minIntervalMs = 15_000): Promise<void> {
+  const request = ++rootRequest;
+  const root = await resolveFluxLibPath();
+  if (request !== rootRequest) return;
+  if (root !== currentRoot) { currentRoot = root; lastLoad = 0; generation++; pdfKeys.set(new Set()); }
+  if (Date.now() - lastLoad < minIntervalMs) return;
+  const epoch = ++generation;
+  try {
+    const keys = await listPdfKeys(root);
+    if (epoch === generation && root === currentRoot) { pdfKeys.set(keys); lastLoad = Date.now(); }
+  } catch { /* Failed refresh remains retryable; keep the last known good set. */ }
 }
 
 export { hasPdfIn };

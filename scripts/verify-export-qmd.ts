@@ -200,6 +200,7 @@ try {
     const main = "# T\n\n{{< include sections/res.qmd >}}\n";
     await fs.writeFile(docPath, main);
     const r = await core.compile(proj, "html");
+    if (r.code !== 0) console.error(r.log);
     assert(r.code === 0, `quarto compile exits 0 (log tail: ${r.log.trimEnd().split("\n").slice(-3).join(" · ")})`);
     const html = await fs.readFile(docPath.replace(/\.qmd$/, ".html"), "utf8");
     // The scaffold's blank "Figure 1" counts in the family, so the composed

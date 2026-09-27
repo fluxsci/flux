@@ -1,3 +1,5 @@
+import { portablePayload } from "../payload";
+import { offlineHtmlPolicy } from "../../offlineHtmlPolicy";
 // ---------------------------------------------------------------------------
 // Flux Slide — the portable export (§7). Pure Node string-building (headless, no
 // browser): esbuild-bundle the export runtime → one IIFE, inline the deck + all
@@ -182,6 +184,7 @@ export async function exportSlideVideoHtml(payload: ExportPayload, input: Partia
 /** Build the self-contained HTML from a fully-gathered payload (deck + inlined
  *  plots/figures/assets). `warnThreshold` (bytes) flags video-heavy decks (§7.2). */
 export async function exportDeckHtml(payload: ExportPayload, opts: { warnThreshold?: number } = {}): Promise<ExportResult> {
+  payload = portablePayload(payload);
   const assets = await loadExportAssets();
   const runtime = assets.runtime;
   const gelasio = assets.gelasio;
@@ -191,10 +194,18 @@ export async function exportDeckHtml(payload: ExportPayload, opts: { warnThresho
   const json = JSON.stringify(payload).replace(/</g, "\\u003c");
   const title = (payload.deck.title || "Flux Slides").replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"));
 
+  const boot = `
+(function(){
+  var p = JSON.parse(document.getElementById("flux-payload").textContent);
+  FluxSlideRuntime.boot(document.getElementById("flux-stage"), p);
+})();
+`;
+  const policy = await offlineHtmlPolicy([runtime, boot]);
   const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${policy}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
 <style>
@@ -209,12 +220,7 @@ ${gelasio}
 <div id="flux-stage"></div>
 <script type="application/json" id="flux-payload">${json}</script>
 <script>${runtime}</script>
-<script>
-(function(){
-  var p = JSON.parse(document.getElementById("flux-payload").textContent);
-  FluxSlideRuntime.boot(document.getElementById("flux-stage"), p);
-})();
-</script>
+<script>${boot}</script>
 </body>
 </html>
 `;

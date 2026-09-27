@@ -325,12 +325,24 @@ export async function renderFigureImageUrl(id: string): Promise<string | undefin
   if (imageUrlCache.has(id)) return imageUrlCache.get(id);
   const rev = figuresRev;
   let svg = await renderFigureSvgInSlices(id, rev);
+  if (rev !== figuresRev) return undefined;
+  const url = svg ? await figureSvgImageUrl(svg) : undefined;
+  if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
+  imageUrlCache.set(id, url);
+  const stale = staleImageUrls.get(id);
+  if (stale && stale !== url) URL.revokeObjectURL(stale);
+  staleImageUrls.delete(id);
+  return url;
+}
+
+/** Standalone image renderer shared by Paper and live Figure-Meta previews.
+ * The caller owns the returned blob URL. */
+export async function figureSvgImageUrl(svg: string): Promise<string | undefined> {
   if (svg) {
     // An SVG image has no access to fonts loaded by its containing document.
     const fonts = await svgFontCss(svg);
     if (fonts) svg = svg.replace(">", `><style>${fonts}</style>`);
   }
-  if (rev !== figuresRev) return undefined;
   let url: string | undefined;
   if (svg) {
     url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
@@ -343,11 +355,6 @@ export async function renderFigureImageUrl(id: string): Promise<string | undefin
       url = undefined;
     }
   }
-  if (rev !== figuresRev) { if (url) URL.revokeObjectURL(url); return undefined; }
-  imageUrlCache.set(id, url);
-  const stale = staleImageUrls.get(id);
-  if (stale && stale !== url) URL.revokeObjectURL(stale);
-  staleImageUrls.delete(id);
   return url;
 }
 
@@ -536,13 +543,17 @@ export function figureById(id: string): Figure | undefined {
 export async function materializeRenders(
   root: string,
   docText: string,
+  snapshot?: ReturnType<typeof captureFigureExport>,
 ): Promise<{ wrote: number; failed: string[] }> {
   const fb = fileBridge();
   let wrote = 0;
   const failed: string[] = [];
   if (!root || !fb) return { wrote, failed };
-  await (await import("../../../../lib/project/sourceBridge")).syncProjectSources(root);
-  await loadFigures(root); // export uses the accepted source revision
+  if (snapshot?.root && snapshot.root !== root && snapshot.root !== "__seed") throw new Error("Figure snapshot belongs to a different project");
+  if (!snapshot) {
+    await (await import("../../../../lib/project/sourceBridge")).syncProjectSources(root);
+    await loadFigures(root); // ordinary materialization refreshes; export jobs supply their accepted snapshot
+  }
   const ids = new Set<string>();
   for (const line of docText.split("\n")) {
     const m = EMBED_RE.exec(line);
@@ -550,7 +561,7 @@ export async function materializeRenders(
     const fromPath = /fig\/renders\/([A-Za-z0-9_-]+)\.svg$/.exec(m[2]);
     if (fromPath) ids.add(fromPath[1]);
     else {
-      const r = resolveFigure(m[3]);
+      const r = snapshot ? snapshot.resolve(m[3]) : resolveFigure(m[3]);
       if (r && r.ref.id) ids.add(r.ref.id);
     }
   }
@@ -561,7 +572,7 @@ export async function materializeRenders(
     /* exists */
   }
   for (const id of ids) {
-    const svg = renderFigureSvgForDisk(id); // un-namespaced: byte-parity with flux-core
+    const svg = snapshot ? await snapshot.render(id, false) : renderFigureSvgForDisk(id); // un-namespaced: byte-parity with flux-core
     if (!svg) {
       failed.push(id);
       continue;
@@ -605,5 +616,38 @@ if (import.meta.env?.DEV) {
     refs: () => get(figureRefs),
     resolve: resolveFigure,
     reload: (root: string | null) => loadFigures(root),
+  };
+}
+
+/** Immutable export inputs; serialization yields between plot preparations. */
+export function captureFigureExport(source?: { figures: Record<string, Figure>; assetData: Record<string,string>; assetManifests: Record<string,FluxPlotManifest>; assets: Asset[] }) {
+  const refs = structuredClone(get(figureRefs)), figures = structuredClone(source?.figures ?? figuresById);
+  const data = { ...(source?.assetData ?? assetData) }, manifests = structuredClone(source?.assetManifests ?? assetManifests), assets = structuredClone(source?.assets ?? assetMeta), families = structuredClone(familyDefs);
+  const resolve = createFigureReferenceResolver(refs);
+  return {
+    refs, root: loadedRoot,
+    context(style?: ResolvedJournalStyle) {
+      const out = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
+      for (const r of refs) if (!out.has(r.label)) out.set(r.label, { family: styledFamilyDef(style, familyById(r.family, families)), number: r.number, panels: r.panels });
+      return out;
+    },
+    resolve(label: string): ReturnType<typeof resolveFigure> {
+      const hit = resolve(label); if (!hit) return null;
+      const panel = hit.panelSpec?.replace(/-/g, "–");
+      return { ref: hit.ref, display: panel ? formatFamilyRef(familyById(hit.ref.family, families), hit.ref.number, panel) : hit.ref.display, ...(panel ? { panel } : {}) };
+    },
+    async render(id: string, namespaced = true, isCurrent: () => boolean = () => true): Promise<string | undefined> {
+      const figure = figures[id]; if (!figure) return undefined;
+      const plots = new Map<Element, string | undefined>(); let began = performance.now();
+      for (const el of figure.elements) {
+        if (!isCurrent()) return undefined;
+        if (el.type !== "plot" || effectiveHidden(figure, el)) continue;
+        const url = data[el.assetId];
+        if (url?.startsWith("data:image/svg+xml")) plots.set(el, buildPlotMarkup(new TextDecoder().decode(dataUrlToBytes(url)), (namespaced ? { ...el, id: `${PAPER_SVG_NS}__${el.id}` } : el), el.overrides, manifests[el.assetId]) ?? undefined);
+        if (performance.now() - began >= 6) { await new Promise<void>(resolve => setTimeout(resolve, 0)); began = performance.now(); }
+      }
+      if (!isCurrent()) return undefined;
+      return figureToSvg(figure, aid => data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined);
+    },
   };
 }

@@ -1,3 +1,7 @@
+import { withIpcLock } from "../references/libLock";
+import { recoverExportSources } from "./exportRecovery";
+import { recoverTextGeneration } from "./textGeneration";
+import { generationBridgeIO } from "./generationBridgeIO";
 // Read + lightly validate a project from disk.
 
 import {
@@ -11,7 +15,8 @@ import { pushToast } from "../toast";
 import { validateProjectManifest } from "./validate";
 import { isNewerSchema, newerSchemaMessage } from "./types";
 
-export class NotAProjectError extends Error {}
+import { NotAProjectError } from "./loadErrors";
+export { NotAProjectError } from "./loadErrors";
 
 export async function loadProject(root: string): Promise<LoadedProject> {
   const fig = fileBridge();
@@ -22,6 +27,27 @@ export async function loadProject(root: string): Promise<LoadedProject> {
   // a failed load is superseded by the next beginOpen / cleared by watchRoot.
   await fig.beginOpen?.(root);
 
+  await withIpcLock("project", "export", async lease => {
+    await recoverExportSources({
+      assertOwned: lease.assertOwned,
+      readText: async p => await fig.exists(p) ? fig.readText(p) : null,
+      writeText: async(p,text) => { await lease.assertOwned?.(); await fig.writeText(p,text); },
+      stat: fig.stat?.bind(fig), setTimes: fig.setTimes?.bind(fig), fsyncDir: fig.fsyncDir?.bind(fig),
+      removeFile: async p => { if (!fig.remove) throw new Error("Export recovery requires remove support"); await fig.remove(p); },
+      validatePath: async p => { if (fig.projectAssetPath && await fig.exists(p)) await fig.projectAssetPath(root,p.slice(root.replace(/\/$/, "").length+1)); },
+    }, root);
+  }, { root });
+  // Startup must adopt the recovered manifest, regardless of which editor
+  // opens first. Recovering only inside Figure/Slide could return registrations
+  // from a generation that those editors subsequently roll back.
+  await withIpcLock("project", "project", projectLease =>
+    withIpcLock("project", "slides", slidesLease =>
+      withIpcLock("project", "manifest", manifestLease =>
+        recoverTextGeneration(generationBridgeIO(root, fig), async () => {
+          await projectLease.assertOwned?.();
+          await slidesLease.assertOwned?.();
+          await manifestLease.assertOwned?.();
+        }), { root }), { root }), { root });
   const manifestPath = joinPath(root, "project.json");
   if (!(await fig.exists(manifestPath))) {
     throw new NotAProjectError("No project.json — not a Flux project.");
@@ -61,7 +87,7 @@ export async function loadProject(root: string): Promise<LoadedProject> {
 }
 
 /**
- * Read a document's text for a loaded project (empty string if missing).
+ * Read a document's text. Only an absent default document is an empty workspace.
  * `relPath` defaults to the main manuscript; pass a sibling .qmd for F4 multi-doc.
  */
 export async function readManuscript(p: LoadedProject, relPath?: string): Promise<string> {
@@ -70,12 +96,11 @@ export async function readManuscript(p: LoadedProject, relPath?: string): Promis
   const rel = relPath ?? p.manifest.manuscript.path;
   if (!rel) return "";
   const path = joinPath(p.root, rel);
-  try {
-    if (await fig.exists(path)) return await fig.readText(path);
-  } catch {
-    /* ignore */
+  if (!(await fig.exists(path))) {
+    if (relPath !== undefined) throw new Error(`Document is missing: ${rel}`);
+    return "";
   }
-  return "";
+  return fig.readText(path);
 }
 
 export async function writeManuscript(

@@ -194,6 +194,21 @@ try {
   assert(flaky.get("/proj/manuscript/sections/methods.qmd") === SOURCES["manuscript/sections/methods.qmd"],
     "a failed write on one file still restores the others");
 
+  // A document-level bibliography wins over a Quarto profile. The owned
+  // capture therefore redirects the registered path inside this same journal.
+  for (const field of ["", "bibliography: ../references/library.bib\r\n", "bibliography: [../references/library.bib, extra.bib]\r\n", "bibliography: custom.bib\r\n"]) {
+    const original = "---\r\ntitle: Scientific α\r\n" + field + "---\r\n\r\nCitation [@key].\r\n";
+    let bytes = original;
+    const captured = await prepareExport({ readText: async () => bytes, writeText: async (_, text) => { bytes = text; } }, {
+      entry: "/project/paper/main.qmd", ctx, capturedBibliography: { originalPath: "/project/references/library.bib", replacement: "flux-owned.bib" },
+    });
+    const { parseFrontMatterYaml } = await import("../src/shell/modes/paper/frontmatter");
+    const meta = (await parseFrontMatterYaml(bytes)).meta;
+    const expected = field.includes("extra.bib") ? ["flux-owned.bib", "extra.bib"] : field.includes("custom.bib") ? "custom.bib" : "flux-owned.bib";
+    assert(JSON.stringify(meta.bibliography) === JSON.stringify(expected), "owned bibliography overrides registered document path, preserving additional/custom libraries");
+    await captured.restore(); assert(bytes === original, "bibliography redirect restores exact Unicode/CRLF authoring bytes");
+  }
+
   console.log("\nEXPORT-PREP VERIFY: PASS");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

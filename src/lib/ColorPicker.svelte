@@ -9,10 +9,10 @@
   // typed (the `.hex` field), with `⤢` opening the native picker + opacity.
   // Writes go through colors.applyColor, which retargets to drilled plot
   // parts (all of them) or the draw style itself; one edit session = one undo.
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta } from "./interact/wheelLaw";
-  import { project, selection, partSelection } from "./store";
+  import { project, selection, partSelection, partSelections } from "./store";
   import { applyColor, applyColormap, addRecentColor, setOpacity, currentColor, currentGradient, nameForHex } from "./colors";
   import { selectionTargets } from "./interact/selectionTargets";
   import { FLEXOKI } from "./flexoki";
@@ -20,6 +20,8 @@
   import { settings } from "./settings";
   import { availablePaletteCollections, paletteGroups, nextId } from "./color/collections";
   import ColormapPicker from "./ColormapPicker.svelte";
+  import { fileBridge } from "./project/types";
+  import { pickColor } from "./color/eyedropper";
 
   export let target: "fill" | "stroke" = "fill";
   /** Commit + close (the host returns to its hotkey mode). */
@@ -34,7 +36,7 @@
   const session = editSession();
   let alive = true;
   // An explicit pick finishes first; dismissal must discard an unchosen preview.
-  onDestroy(() => { alive = false; session.cancel(); });
+  onDestroy(() => { alive = false; dropperController?.abort(); session.cancel(); });
   const openingGradient = currentGradient(target);
   const validHex = (hex: string) => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex);
 
@@ -70,7 +72,13 @@
     // spectrum motion can add saturation without unexpectedly turning red.
     if (parsed) hsv = { ...parsed, h: parsed.s > 0 ? parsed.h : hsv.h };
   }
-  const hasDropper = typeof window !== "undefined" && "EyeDropper" in window;
+  const bridge = fileBridge();
+  const browserDropper = typeof window !== "undefined" ? (window as unknown as { EyeDropper?: new () => { open(options: { signal: AbortSignal }): Promise<{ sRGBHex: string }> } }).EyeDropper : undefined;
+  const hasDropper = !!browserDropper || !!bridge?.captureWindow;
+  let dropperBusy = false;
+  let dropperError = "";
+  let dropperScope = "screen";
+  let dropperController: AbortController | undefined;
   function svPoint(e: PointerEvent): Hsv {
     const r = svEl.getBoundingClientRect();
     const sx = Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width)));
@@ -110,12 +118,20 @@
     // the natural next motion: choosing its saturation and brightness.
     if (done) session.finish();
   }
-  async function dropper() {
+  async function dropper(event: MouseEvent) {
+    const trigger = event.currentTarget as HTMLButtonElement;
+    if (dropperBusy) return;
+    const owner = $project, selected = JSON.stringify([...$selection]), part = JSON.stringify($partSelections), paint = target;
+    dropperBusy = true;
+    dropperError = "";
+    const controller = dropperController = new AbortController();
     try {
-      const r = await new (window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper().open();
-      if (alive) commit(r.sRGBHex.toLowerCase());
-    } catch {
-      /* cancelled */
+      const hex = await pickColor({ bridge, signal: controller.signal, browserDropper, onWindowFallback: () => { dropperScope = "Flux window"; } });
+      if (hex && alive && !controller.signal.aborted && $project === owner && target === paint && JSON.stringify([...$selection]) === selected && JSON.stringify($partSelections) === part) commit(hex);
+    } catch (error) {
+      if (alive && !controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) dropperError = error instanceof Error ? error.message : "Unable to pick a color.";
+    } finally {
+      if (dropperController === controller) { dropperController = undefined; dropperBusy = false; await tick(); if (alive && trigger.isConnected) trigger.focus({ preventScroll: true }); }
     }
   }
   let cursor = { r: 0, c: 0 };
@@ -157,6 +173,11 @@
   // keys depend on which element holds focus is a picker that sometimes ignores
   // them. In the colormap view the child picker owns Shift+Tab.
   function onWinKey(e: KeyboardEvent) {
+    if (dropperBusy) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (e.key === "Escape") dropperController?.abort();
+      return;
+    }
     if (e.key !== "Tab") return;
     if (e.shiftKey && view === "colormap") return;
     e.preventDefault();
@@ -343,11 +364,12 @@
       <input class="hex" bind:this={hexEl} value={hexVal} spellcheck="false" aria-label="Hex colour" aria-invalid={hexVal !== "none" && !validHex(hexVal)}
         on:input={(e) => liveHex(e.currentTarget.value)} on:keydown={onHexKey} on:focus={(e) => e.currentTarget.select()} />
       {#if hasDropper}
-        <button class="drop" type="button" title="Pick a colour from the screen" aria-label="Eyedropper" on:click={dropper}>
+        <button class="drop" type="button" title={`Pick a colour from the ${dropperScope}`} aria-label="Eyedropper" disabled={dropperBusy} on:click={dropper}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10.5 1.5 14.5 5.5 12.5 7.5 13.5 8.5 12 10 11 9 5.5 14.5H1.5V10.5L7 5 6 4 7.5 2.5 8.5 3.5Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
         </button>
       {/if}
     </div>
+    {#if dropperError}<div class="drop-error" role="status">{dropperError}</div>{/if}
     <!-- The full spectrum: saturation → right, value ↑, hue below. -->
     <div class="spec" aria-label="Spectrum">
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -373,12 +395,19 @@
 </div>
 
 <style>
-  /* Two columns: the palette gets the room (every row on ONE line, the whole
-     grid visible — the menu grows instead of scrolling), the spectrum sits in a
-     fixed 204 px column on the right. */
-  .cs { display: grid; grid-template-columns: minmax(0, 1fr) 204px; gap: 6px 14px; align-items: start; font-family: inherit; }
-  .left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
+  .drop-error { font-size: 11px; color: var(--c-tx-2); }
+  /* Two columns when they fit: the palette gets the room (every row on ONE
+     line, the whole grid visible — the menu grows instead of scrolling), the
+     spectrum sits in a 204 px column on the right. A flex WRAP rather than a
+     fixed grid, because the picker also lives in the Inspector, whose width the
+     user sets: when the palette's own width plus the spectrum no longer fit,
+     the spectrum drops below the palette and takes the full width, instead of
+     the swatch rows running underneath it (owner report 2026-09-24). Slack on a
+     shared line goes to the palette side (flex-grow 1000 vs 1), so the wide
+     layout keeps its 204 px spectrum. Narrower still, swatch rows wrap. */
+  .cs { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: flex-start; font-family: inherit; }
+  .left { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1000 1 max-content; }
+  .tabs { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--c-line); padding-bottom: 4px; }
   .tab { height: 22px; padding: 0 9px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); color: var(--c-tx-2); font: 12px var(--font-serif); white-space: nowrap; }
   .tab:hover { color: var(--c-tx-hi); border-color: var(--c-line-strong); }
   .tab.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
@@ -389,13 +418,13 @@
   .grid:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 0; border-radius: var(--r-0); }
   .prow { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 6px; }
   .plabel { font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-tx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sws { display: flex; flex-wrap: nowrap; gap: 3px; }
+  .sws { display: flex; flex-wrap: wrap; gap: 3px; }
   .sw { width: 17px; height: 17px; border-radius: var(--r-ui); border: 1px solid color-mix(in oklab, var(--c-tx-hi) 12%, transparent); cursor: var(--cursor-cross-hover); box-sizing: border-box; position: relative; }
   .sw.none { background: var(--c-surface); }
   .sw.none::after { content: ""; position: absolute; inset: 3px; border-top: 1.5px solid var(--c-danger); transform: rotate(-45deg); transform-origin: center; }
   .sw.live { box-shadow: inset 0 0 0 1px var(--c-tx-hi); }
   .sw.cur { outline: 2px solid var(--c-accent); outline-offset: 1px; }
-  .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .side { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1 0 204px; max-width: 100%; }
   .bar { display: flex; align-items: center; gap: 6px; height: 22px; }
   .hexrow { display: flex; align-items: center; gap: 6px; }
   .dot { width: 14px; height: 14px; border-radius: var(--r-ui); border: 1px solid var(--c-line-strong); flex: none; }

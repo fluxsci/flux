@@ -198,7 +198,7 @@ try {
   await page.keyboard.press("f");
   await sleep(400);
   assert(await page.evaluate(() => !!document.querySelector(".fluxFigMenu")), "f-menu opened");
-  await page.keyboard.press("h");
+  await page.keyboard.press("e");
   await sleep(250);
   // Field input is focused + selected; typing applies LIVE per keystroke — the
   // dimBase capture must keep the 400:280 ratio through "1", "14", "140".

@@ -1,3 +1,4 @@
+import { isTransientNetworkError } from "./httpOutcome";
 // Web capture, receiving end. The bookmarklet (src/shell/modes/library/bookmarklet.ts)
 // downloads `flux-<slug>.pdf` or `flux-<slug>.fluxcap` into the browser's download folder;
 // this module pulls those files in and files them.
@@ -33,14 +34,9 @@ import { captureStatus, markCaptured } from "./captureStatus";
 /** Where main stages captured supplements until their paper has a citekey. */
 const STAGING = "_captured_supplements";
 
-/**
- * A DEFINITIVE failure (the server answered — `HTTP 403`, `HTTP 404`) will fail identically
- * forever, so retrying it is pure noise: the sidecar re-failed on every startup and every
- * window focus, toasting each time. A TRANSIENT one (offline, timeout) deserves another go.
- * Same rule the OA waterfall uses (`isTransientErr` in pdfFinderBridge) — an `HTTP <status>`
- * means the request completed and the answer was no.
- */
-const isDefinitive = (err?: string): boolean => /^HTTP \d/.test(String(err ?? ""));
+/** Only explicit HTTP404/410 absence can park a capture. Authentication, rate
+ * limiting, server and network failures remain available for another attempt. */
+const isDefinitive = (err?: string): boolean => !!err && !isTransientNetworkError(err);
 
 export interface CaptureResult {
   file: string;
@@ -175,10 +171,11 @@ async function pass(pullDownloads: boolean): Promise<CaptureResult[]> {
         markCaptured(); // proof of life for the setup panel
         if (pdfs.length) bumpAssignInbox(); // wakes the assign scan, which does the matching
 
-        for (const { name, json } of sidecars) {
+        for (const { id, name, json } of sidecars) {
           const cap = parseFluxCapture(json);
           if (!cap) {
             out.push({ file: name, action: "failed", detail: "unreadable capture file" });
+            if (id) await fb.captureRelease?.(id);
             continue; // left in place on purpose — a bad file shouldn't vanish
           }
           try {
@@ -188,14 +185,15 @@ async function pass(pullDownloads: boolean): Promise<CaptureResult[]> {
               out.push({ file: name, action: "failed", detail: r.error });
               // Definitive: set it aside with a note rather than re-failing on every launch.
               // Transient: leave it in place and try again next time.
-              if (isDefinitive(r.error)) await fb.capturePark?.(name, r.error ?? "could not be resolved");
+              if (isDefinitive(r.error)) await fb.capturePark?.(id ?? name, r.error ?? "could not be resolved");
               continue;
             }
             out.push({ file: name, action: "added", detail: r.title || r.key });
-            await fb.captureDiscard?.(name);
+            const disposed = await fb.captureDiscard?.(id ?? name);
+            if (disposed?.error) throw new Error(disposed.error);
           } catch (e) {
             out.push({ file: name, action: "failed", detail: e instanceof Error ? e.message : String(e) });
-          }
+          } finally { if (id) await fb.captureRelease?.(id); }
         }
       }
       if (queued === null) break;
@@ -209,7 +207,7 @@ async function pass(pullDownloads: boolean): Promise<CaptureResult[]> {
   return out;
 }
 
-const EMPTY_INTAKE = { pdfs: [] as string[], sidecars: [] as { name: string; json: string }[], supplements: [] as string[] };
+const EMPTY_INTAKE = { pdfs: [] as string[], sidecars: [] as { id?: string; name: string; json: string }[], supplements: [] as string[] };
 
 function report(rows: CaptureResult[]): void {
   if (!rows.length) return captureStatus.clear();

@@ -449,7 +449,7 @@ export async function identify(
     // only the year/author corroboration stands between it and a corrupted reference).
     const skipped = hits.filter((h) => !h.doi);
     for (const h of skipped) rejected.push(`search "${h.title.slice(0, 48)}": hit carries no DOI, skipped`);
-    const h = hits.find((x) => !!x.doi);
+    const h = hits.find((x) => !!normDoi(x.doi));
     if (h) {
       const sim = titleSimilarity(h.title, query);
       const yearOk = !!h.year && yrs.includes(h.year);

@@ -27,6 +27,7 @@ const RX_SOURCES = SUPPLEMENT_URL_PATTERNS.map((r) => r.source);
 const MIN_PDF_BYTES = 1024;
 /** A supplement can legitimately be a large movie; past this we skip rather than fill a disk. */
 const MAX_SUPPLEMENT_BYTES = 64 * 1024 * 1024;
+const MAX_CAPTURE_BYTES = 256 * 1024 * 1024;
 /** Deadline for any single network call. Generous, but finite — see the header note. */
 const NET_TIMEOUT_MS = 15000;
 /** Whole-capture deadline, so the badge always resolves even if something exotic wedges. */
@@ -47,10 +48,13 @@ const tip = (s) => {
     /* ditto */
   }
 };
-const clearBadgeSoon = () => setTimeout(() => badge(""), 6000);
+let badgeTimer;
+const clearBadgeSoon = () => { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badge(""), 6000); };
 
 /** Time-boxed fetch that always carries the user's session. Never hangs. */
-const netFetch = (url, opts = {}) => fetch(url, { credentials: "include", ...opts, signal: AbortSignal.timeout(NET_TIMEOUT_MS) });
+let runController = null;
+const netFetch = (url, opts = {}, owner = runController) => fetch(url, { credentials: "include", ...opts, signal: owner ? AbortSignal.any([owner.signal, AbortSignal.timeout(NET_TIMEOUT_MS)]) : AbortSignal.timeout(NET_TIMEOUT_MS) });
+const currentRun = owner => runController === owner && !owner.signal.aborted;
 
 // Filenames are NOT built here. They come from the shared rules module (articleCaptureName /
 // sidecarCaptureName / supplementCaptureName), which sanitizes the publisher's half and THEN
@@ -66,45 +70,76 @@ const netFetch = (url, opts = {}) => fetch(url, { credentials: "include", ...opt
 // nothing anywhere to explain it. The real outcome only shows up on downloads.onChanged, so
 // every capture download is tracked to completion and reports the browser's own error code
 // (SERVER_FORBIDDEN, NETWORK_FAILED, …).
-const tracked = new Map(); // downloadId -> { settle, fail, timer }
+const tracked = new Map(); // downloadId -> current operation-owned observation
+const ownedCapture = item => item.byExtensionId === api.runtime.id && isCaptureFile(String(item.filename || "").replace(/\\/g,"/").split("/").pop() || "");
+
+// Worker memory can disappear while browser downloads continue. Reconcile before
+// accepting another capture. Never cancel an unattributable browser download.
+const reconcileDownloads = async () => {
+  const pending = await api.downloads.search({ state: "in_progress" });
+  const ours = pending.filter(ownedCapture);
+  const uncertain = pending.filter(item => !item.byExtensionId && isCaptureFile(String(item.filename || "").replace(/\\/g,"/").split("/").pop() || ""));
+  const outcomes = await Promise.allSettled(ours.map(item => api.downloads.cancel(item.id)));
+  if(outcomes.some(r=>r.status==="rejected"))throw new Error("Prior capture could not be cancelled; retry");
+  if(ours.length || uncertain.length) {
+    badge("!", "#8a6d1f");
+    const stopped=outcomes.filter(r=>r.status === "fulfilled").length;
+    tip(`Add to FluxLib — prior capture interrupted; ${stopped} owned pending transfer${stopped===1?"":"s"} cancelled${uncertain.length?`; ${uncertain.length} unattributable pending transfer${uncertain.length===1?"":"s"} left unchanged`:""}. Completed files are retained.`);
+  }
+};
+let startupReady;
+const ready = () => startupReady ??= reconcileDownloads().catch(error => {
+  startupReady=undefined;badge("!", "#a02020");tip("Add to FluxLib — previous download state unavailable; retry before capturing");throw error;
+});
+// Attach rejection ownership immediately even if nobody clicks the action.
+void ready().catch(() => {});
 
 api.downloads.onChanged.addListener((d) => {
   const t = tracked.get(d.id);
   if (!t) return;
-  // Size cap enforced HERE rather than with a HEAD preflight: plenty of publishers reject HEAD,
-  // and an extra pre-request to an anti-bot-guarded endpoint is a known way to poison the very
-  // session the download depends on.
-  const total = d.totalBytes?.current;
-  if (total && total > MAX_SUPPLEMENT_BYTES) {
-    api.downloads.cancel(d.id).catch(() => {});
-    t.fail(new Error(`larger than ${Math.round(MAX_SUPPLEMENT_BYTES / 1e6)}MB`));
-    return;
-  }
   const state = d.state?.current;
-  if (state === "complete") t.settle();
-  else if (state === "interrupted") t.fail(new Error(d.error?.current || "interrupted"));
+  if (state === "interrupted") t.fail(new Error(d.error?.current || "interrupted"));
+  else void t.inspect(); // final state and byte counts are browser-owned, not event order
 });
 
-/** Download through the BROWSER (cookies, no CSP, and no blob URLs — which MV3 service workers
- *  cannot create anyway) and WAIT for it to actually land. */
-async function download(url, filename) {
-  // THE LAST LINE OF DEFENCE, and the one that was missing. Flux acts on isCaptureFile() and
-  // nothing else, so a name that fails it downloads perfectly and is then invisible forever —
-  // a green badge over a file the app will never look at. Checking here turns that silent
-  // class of bug into a visible failure, whatever produced the name.
+/** Await actual bytes/state, including completion before downloads.download resolves. */
+async function download(url, filename, owner = runController) {
   if (!isCaptureFile(filename)) throw new Error(`internal: "${filename}" is not a name Flux recognises`);
+  if (!owner || !currentRun(owner)) throw new Error("Capture cancelled");
   const id = await api.downloads.download({ url, filename: `${CAPTURE_SUBDIR}/${filename}`, conflictAction: "uniquify", saveAs: false });
   if (id === undefined) throw new Error(api.runtime?.lastError?.message || "download refused");
+  if(!currentRun(owner)){await api.downloads.cancel(id).catch(()=>{});throw new Error("Capture cancelled");}
   return new Promise((resolve, reject) => {
-    const done = (fn, arg) => {
-      clearTimeout(timer);
-      tracked.delete(id);
-      fn(arg);
+    let settled=false, inspecting=null;
+    const done = (fn,arg) => {
+      if(settled)return;settled=true;clearTimeout(timer);clearInterval(poll);
+      owner.signal.removeEventListener("abort",abort);tracked.delete(id);fn(arg);
     };
-    // A slow but healthy transfer must not be reported as a failure, so the deadline is
-    // generous and resolves optimistically: the file is on its way, Flux will see it land.
-    const timer = setTimeout(() => done(resolve, id), 60000);
-    tracked.set(id, { settle: () => done(resolve, id), fail: (e) => done(reject, e) });
+    const fail = error => done(reject,error);
+    const stop = message => {void api.downloads.cancel(id).catch(()=>{});fail(new Error(message));};
+    const abort = () => stop("Capture cancelled or timed out");
+    const inspect = () => {
+      if(settled)return Promise.resolve();if(inspecting)return inspecting;
+      inspecting=(async()=>{
+        const [item]=await api.downloads.search({id});if(settled)return;
+        if(!item)throw new Error("Download disappeared before completion");
+        const size=Math.max(0,Number(item.bytesReceived)||0,Number(item.totalBytes)||0,Number(item.fileSize)||0);
+        owner.captureSizes ??= new Map();owner.captureSizes.set(id,Math.max(size,owner.captureSizes.get(id)||0));
+        const total=[...owner.captureSizes.values()].reduce((a,b)=>a+b,0);
+        if(size>MAX_SUPPLEMENT_BYTES){stop(`larger than ${Math.round(MAX_SUPPLEMENT_BYTES/1e6)}MB`);return;}
+        if(total>MAX_CAPTURE_BYTES){stop("capture aggregate byte limit exceeded");owner.abort();if(runController===owner){badge("!","#a02020");tip("Add to FluxLib — capture incomplete: aggregate byte limit exceeded");clearBadgeSoon();}return;}
+        if(!currentRun(owner)){abort();return;}
+        if(item.state === "complete")done(resolve,id);
+        else if(item.state === "interrupted")fail(new Error(item.error || "interrupted"));
+      })().catch(error=>{stop(error.message||String(error));}).finally(()=>{inspecting=null;});
+      return inspecting;
+    };
+    // Query the final state at the deadline: a lost complete event is still a
+    // completed download; a pending browser transfer is never optimistic success.
+    const timer=setTimeout(()=>{void inspect().then(()=>{if(!settled)stop("Download is still pending at its deadline");});},60000);
+    const poll=setInterval(()=>void inspect(),250);
+    tracked.set(id,{fail,inspect});owner.signal.addEventListener("abort",abort,{once:true});
+    if(owner.signal.aborted)abort();else void inspect();
   });
 }
 
@@ -127,10 +162,10 @@ function pdfTabUrl(u) {
  * capture because our own probe stalled would be the wrong call. The caller downloads anyway on
  * "unknown" — Flux's identifier rejects a non-PDF later, which is the safer place to be strict.
  */
-async function looksLikePdf(url) {
+async function looksLikePdf(url, owner) {
   let r;
   try {
-    r = await netFetch(url);
+    r = await netFetch(url, {}, owner);
   } catch {
     return "unknown"; // timeout / network — inconclusive, not a verdict
   }
@@ -151,10 +186,10 @@ async function looksLikePdf(url) {
 }
 
 /** Metadata-only capture, identical in shape to the bookmarklet's `.fluxcap`. */
-async function saveSidecar(info, slug, reason) {
+async function saveSidecar(info, slug, reason, owner) {
   const payload = { v: 1, url: info.pageUrl, doi: info.doi, title: info.title, pdfUrl: info.pdfUrl, reason, capturedAt: new Date().toISOString() };
   const url = "data:application/json;base64," + btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 1))));
-  await download(url, sidecarCaptureName(slug));
+  await download(url, sidecarCaptureName(slug), owner);
 }
 
 /**
@@ -185,14 +220,15 @@ async function readPage(tab, notes) {
   return { doi: "", title: tab.title || "", isPdf: true, pdfUrl: asPdf, supplements: [], pageUrl: asPdf, slugHint: seg || "capture" };
 }
 
-async function capture(tab) {
+async function capture(tab, owner) {
   if (!tab?.id) return;
   badge("…", "#8a6d1f");
   tip("Add to FluxLib — working…");
   const notes = [];
-  let got = 0;
+  let got = 0, metadataSaved = false, mainMissing = false;
 
   const info = await readPage(tab, notes);
+  if (!currentRun(owner)) return;
   if (!info) {
     badge("!", "#a02020");
     tip(`Add to FluxLib — ${notes[0] || "this page can't be captured"}`);
@@ -204,21 +240,25 @@ async function capture(tab) {
 
   // 1. The article. A PDF tab needs no validation — the browser already rendered it.
   if (info.pdfUrl) {
-    const verdict = info.isPdf ? "yes" : await looksLikePdf(info.pdfUrl);
+    const verdict = info.isPdf ? "yes" : await looksLikePdf(info.pdfUrl, owner);
+    if (!currentRun(owner)) return;
     if (verdict === "no") {
-      await saveSidecar(info, slug, "pdf-fetch-blocked").catch((e) => notes.push(`sidecar: ${e?.message || e}`));
+      mainMissing = true;
+      await saveSidecar(info, slug, "pdf-fetch-blocked", owner).then(()=>{metadataSaved=true;}).catch((e) => notes.push(`sidecar: ${e?.message || e}`));
     } else {
       try {
-        await download(info.pdfUrl, articleCaptureName(slug));
+        await download(info.pdfUrl, articleCaptureName(slug), owner);
         got++;
         if (verdict === "unknown") notes.push("couldn't verify the PDF before downloading — Flux will check it");
       } catch (e) {
+        mainMissing = true;
         notes.push(`article: ${e?.message || e}`);
-        await saveSidecar(info, slug, "pdf-fetch-blocked").catch(() => {});
+        await saveSidecar(info, slug, "pdf-fetch-blocked", owner).then(()=>{metadataSaved=true;}).catch(error=>notes.push(`sidecar: ${error?.message || error}`));
       }
     }
   } else {
-    await saveSidecar(info, slug, "no-pdf-on-page").catch((e) => notes.push(`sidecar: ${e?.message || e}`));
+    mainMissing = true;
+    await saveSidecar(info, slug, "no-pdf-on-page", owner).then(()=>{metadataSaved=true;}).catch((e) => notes.push(`sidecar: ${e?.message || e}`));
   }
 
   // 2. Its supplementary files — the thing a bookmarklet could never do in one click. Named
@@ -226,6 +266,7 @@ async function capture(tab) {
   //    the article itself has been identified.
   let suppFailed = 0;
   for (const s of info.supplements) {
+    if (!currentRun(owner)) return;
     try {
       let name = "supplement";
       try {
@@ -234,7 +275,7 @@ async function capture(tab) {
       } catch {
         /* keep the default */
       }
-      await download(s.url, supplementCaptureName(slug, name));
+      await download(s.url, supplementCaptureName(slug, name), owner);
       got++;
     } catch (e) {
       suppFailed++;
@@ -242,9 +283,10 @@ async function capture(tab) {
     }
   }
 
-  const ok = got > 0 && !suppFailed;
-  badge(String(got || "!"), got ? (suppFailed ? "#8a6d1f" : "#1f6d3a") : "#a02020");
-  const summary = got ? `Captured ${got} file${got === 1 ? "" : "s"}` : "Nothing captured";
+  if (!currentRun(owner)) return;
+  const ok = got > 0 && !suppFailed && !mainMissing;
+  badge(String(got || (metadataSaved ? "M" : "!")), ok ? "#1f6d3a" : got || metadataSaved ? "#8a6d1f" : "#a02020");
+  const summary = got ? `Captured ${got} file${got === 1 ? "" : "s"}${mainMissing ? " (main PDF unavailable)" : ""}` : metadataSaved ? "Captured metadata only (PDF unavailable)" : "Nothing captured";
   const detail = suppFailed ? ` — ${suppFailed} supplement${suppFailed === 1 ? "" : "s"} failed` : "";
   tip(`Add to FluxLib — ${summary}${detail}${notes.length ? `\n${notes.slice(0, 6).join("\n")}` : ""}`);
   if (notes.length) console.warn("[Add to FluxLib]", { url: info.pageUrl, got, notes });
@@ -253,11 +295,13 @@ async function capture(tab) {
 }
 
 api.action.onClicked.addListener((tab) => {
-  // A whole-run deadline: whatever happens, the badge resolves rather than sitting on "…".
+  if (runController) return;
+  const owner = new AbortController();runController=owner;clearTimeout(badgeTimer);
   const guard = setTimeout(() => {
-    badge("!", "#a02020");
-    tip("Add to FluxLib — timed out; the publisher didn't respond");
-    clearBadgeSoon();
+    if(runController!==owner)return;owner.abort();runController=null;
+    badge("!", "#a02020");tip("Add to FluxLib — timed out; capture incomplete");clearBadgeSoon();
   }, RUN_TIMEOUT_MS);
-  void capture(tab).finally(() => clearTimeout(guard));
+  void ready().then(()=>{if(currentRun(owner))return capture(tab,owner);}).catch(error => {
+    if(currentRun(owner)){badge("!", "#a02020");tip(`Add to FluxLib — ${error.message || error}`);}
+  }).finally(() => {clearTimeout(guard);if(runController===owner)runController=null;});
 });

@@ -588,6 +588,11 @@ export function pathRender(e: {
   // Endpoints never round, so the head tangents are unaffected.
   const nodes = e.cornerRadius && e.cornerRadius > 0 ? roundCorners(sharp, false, e.cornerRadius) : sharp;
   const segs = segsFromNodes(nodes, false);
+  // Exact coincident endpoints must not erase the adjacent scientific tangent.
+  const nonzero = (s: PathSeg) => Math.hypot(s.x3-s.x0,s.y3-s.y0) > 0 || (!s.line && (Math.hypot(s.x1-s.x0,s.y1-s.y0)>0 || Math.hypot(s.x2-s.x0,s.y2-s.y0)>0));
+  while (segs.length && !nonzero(segs[0])) segs.shift();
+  while (segs.length && !nonzero(segs[segs.length-1])) segs.pop();
+  if (!segs.length) return {d:e.d,polys:[],vees:[]};
   let total = 0;
   for (const s of segs) total += segLength(s, 8);
   const headCount = (e.arrowStart ? 1 : 0) + (e.arrowEnd ? 1 : 0);

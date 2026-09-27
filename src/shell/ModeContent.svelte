@@ -36,6 +36,8 @@
   // Components this pane actually activated. The registry cache is not reactive:
   // a cold import can finish after the user switches away. Adopt it explicitly
   // on the next activation, while keeping previously mounted modes alive.
+  let loadErrors = $state<Partial<Record<ModeId, string>>>({});
+  let retry = $state(0);
   let components = $state<Partial<Record<ModeId, ReturnType<typeof cachedMode>>>>({});
 
   // Keep `mode` at the front-of-mind (end) of the MRU list, evicting clean modes
@@ -93,6 +95,7 @@
   // but must not mount a hidden Figure/Slide and claim their shared editor store.
   $effect(() => {
     const m = mode;
+    void retry;
     const cached = cachedMode(m);
     if (cached) {
       components[m] = cached;
@@ -101,10 +104,10 @@
     let alive = true;
     loadMode(m)
       .then((component) => {
-        if (alive) components[m] = component;
+        if (alive) { components[m] = component; delete loadErrors[m]; }
       })
       .catch((e) => {
-        if (alive) pushToast("error", `Couldn't open ${m} mode`, { detail: errMsg(e) });
+        if (alive) { loadErrors[m] = errMsg(e); pushToast("error", `Couldn't open ${m} mode`, { detail: errMsg(e) }); }
       });
     return () => {
       alive = false;
@@ -121,10 +124,17 @@
     <div class="mc" class:hidden={m !== mode} inert={m !== mode} in:fadeRise={{ duration: DUR.gentle, y: 10 }}>
       <Comp focused={focused && m === mode} active={m === mode} {paneId} />
     </div>
+  {:else if m === mode && loadErrors[m]}
+    <div class="mc mode-load-error" role="alert">
+      <p>Could not open {m}. Your other panes are preserved.</p>
+      <p><code>mode-load:{m}</code>: {loadErrors[m]}</p>
+      <button type="button" onclick={() => { delete loadErrors[m]; ++retry; }}>Retry</button>
+    </div>
   {/if}
 {/each}
 
 <style>
+  .mode-load-error { padding: 24px; }
   .mc {
     position: absolute;
     inset: 0;

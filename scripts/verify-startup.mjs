@@ -3,9 +3,12 @@
 // Serves the REAL production build (vite preview) and measures the JS the browser
 // pulls to render Home.
 //   Prereq: npm run build.  Run: node scripts/verify-startup.mjs
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import puppeteer from "puppeteer-core";
 import { CHROME } from "./lib/driver.mjs";
+import { recordBrowserRuntime } from './lib/runtimeEvidence.mjs';
 
 const PORT = 4319;
 const URL = `http://127.0.0.1:${PORT}/`;
@@ -48,6 +51,7 @@ try {
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   const page = await browser.newPage();
+  const browserErrors=[];page.on("pageerror",error=>browserErrors.push(String(error)));
   // Hold ONLY the browser's idle callbacks until the eager snapshot. Otherwise
   // requestIdleCallback can warm Paper dependencies between Home's first paint
   // and Puppeteer's observer, counting optional work as eager.
@@ -109,6 +113,43 @@ try {
   const afterIdle = [...js.keys()];
   const modeChunkFiles = afterIdle.filter((f) => MODE_RE.test(f));
 
+  // Separate cold navigation/opening from the warm path. Each context gets
+  // empty storage/cache; idle prefetch stays held until the requested mode is
+  // ready so a lucky warm does not masquerade as cold performance.
+  const cold = [];
+  for (let sample = 0; sample < 3; sample++) {
+    const context = await browser.createBrowserContext();
+    const probe = await context.newPage(); await probe.setCacheEnabled(false);
+    await probe.setViewport({ width: 1440, height: 900 });
+    probe.on('pageerror',error=>browserErrors.push(String(error)));
+    await probe.evaluateOnNewDocument(() => {
+      const queued=[]; const original=window.requestIdleCallback.bind(window);
+      window.requestIdleCallback=callback=>{queued.push(callback);return queued.length;};
+      window.cancelIdleCallback=()=>{};
+      window.__releaseProbeIdle=()=>{window.requestIdleCallback=original;queued.forEach(cb=>original(cb));};
+      window.__startupLongTasks=[];
+      new PerformanceObserver(list=>window.__startupLongTasks.push(...list.getEntries().map(e=>({start:e.startTime,ms:e.duration})))).observe({type:'longtask',buffered:true});
+    });
+    await probe.goto(URL,{waitUntil:'load'});await probe.waitForSelector('.home button.new');
+    const homeMs=await probe.evaluate(()=>performance.now());
+    await probe.evaluate(()=>{window.__paperStart=performance.now();document.querySelector('.home button.new').click();});
+    await probe.waitForSelector('.cm-content[contenteditable="true"]');
+    const paperMs=await probe.evaluate(()=>performance.now()-window.__paperStart);
+    await probe.focus('.cm-content[contenteditable="true"]');
+    await probe.evaluate(()=>{
+      const content=document.querySelector('.cm-content[contenteditable="true"]');
+      content.addEventListener('keydown',()=>{const start=performance.now();requestAnimationFrame(()=>{window.__firstTypeMs=performance.now()-start;});},{once:true});
+    });
+    await probe.keyboard.type('z');await probe.waitForFunction(()=>window.__firstTypeMs!==undefined);
+    const firstTypeMs=await probe.evaluate(()=>window.__firstTypeMs);
+    await probe.evaluate(()=>{window.__figureStart=performance.now();document.querySelector('button[aria-label="Figure"]').click();});
+    await probe.waitForSelector('.figure-mode .canvas-wrap');
+    const measurements=await probe.evaluate(()=>({figureMs:performance.now()-window.__figureStart,maxLongTaskMs:Math.max(0,...window.__startupLongTasks.map(t=>t.ms)),longTasks:window.__startupLongTasks}));
+    cold.push({homeMs,paperMs,firstTypeMs,...measurements});
+    if(sample===2) { await probe.waitForFunction(()=>[...document.querySelectorAll('.mc:not(.hidden)')].every(el=>getComputedStyle(el).opacity==='1')); const directory=process.env.FLUX_OUT??'test-results/out';mkdirSync(directory,{recursive:true});await probe.screenshot({path:path.join(directory,'startup-cold-figure.png')}); }
+    await context.close();
+  }
+
   const out = {
     shellEagerKB: +(shellBytes / 1024).toFixed(1),
     budgetKB: BUDGET / 1024,
@@ -117,14 +158,17 @@ try {
     modeChunksSeenAfterWarm: modeChunkFiles,
     totalJsFiles: js.size,
     cspStrictOk,
+    cold, browserErrors,
+    environment: await recordBrowserRuntime(page,{label:'production-startup'}),
   };
+  const evidenceDir=process.env.FLUX_OUT??"test-results/out";mkdirSync(evidenceDir,{recursive:true});writeFileSync(path.join(evidenceDir,"startup.json"),JSON.stringify(out,null,2)+"\n");
   console.log(JSON.stringify(out, null, 2));
 
   const pass =
     shellBytes < BUDGET && // eager shell under budget
     modeChunks.length === 0 && // no mode blocked Home
     workerChunks.length === 0 && // pdf worker never eager
-    cspStrictOk; // WS-9.1: strict CSP served
+    cspStrictOk && browserErrors.length === 0 && cold.every(sample=>sample.firstTypeMs<=100); // same instantaneous input budget
   console.log(pass ? "\nW15 STARTUP VERIFY: PASS" : "\nW15 STARTUP VERIFY: FAIL");
   await browser.close();
   preview.kill("SIGKILL");

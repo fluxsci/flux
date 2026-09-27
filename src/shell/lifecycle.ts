@@ -12,14 +12,24 @@
 
 import { fileBridge } from "../lib/project/types";
 import { pushToast } from "../lib/toast";
+import { writable } from "svelte/store";
 
 export interface Flushable {
+  paneId?: string;
   id: string; // "paper" | "paper-comments" | "figure" | "slide"
+  isReady?(): boolean;
   isDirty(): boolean;
   flush(): Promise<void>;
 }
 
 const registry = new Map<string, Flushable>();
+const registrationEpochs = new Map<string, number>();
+let registrationEpoch = 0;
+/** Availability changes need to publish context even when the model is unchanged. */
+export const flushOwnerRevision = writable(0);
+export function notifyFlushOwnerReady(id: string): void {
+  if (registry.has(id)) flushOwnerRevision.update(n => n + 1);
+}
 
 // Dev-only: let gates assert the registry's ids (dual-paper: each pane must
 // hold its own "paper-<paneId>" entry — a shared id EVICTS the other pane's
@@ -30,8 +40,14 @@ if (import.meta.env?.DEV && typeof window !== "undefined") {
 
 export function registerFlushable(f: Flushable): () => void {
   registry.set(f.id, f);
+  const epoch = ++registrationEpoch;
+  registrationEpochs.set(f.id, epoch);
+  notifyFlushOwnerReady(f.id);
   return () => {
-    if (registry.get(f.id) === f) registry.delete(f.id);
+    if (registry.get(f.id) === f && registrationEpochs.get(f.id) === epoch) {
+      registry.delete(f.id); registrationEpochs.delete(f.id);
+      flushOwnerRevision.update(n => n + 1);
+    }
   };
 }
 
@@ -44,7 +60,7 @@ export function isDirtyById(prefix: string): boolean {
     try {
       if (f.isDirty()) return true;
     } catch {
-      /* a broken isDirty never claims dirtiness */
+      return true; // unknown state cannot be safely evicted
     }
   }
   return false;
@@ -55,13 +71,27 @@ export function anyDirty(): boolean {
     try {
       if (f.isDirty()) return true;
     } catch {
-      /* a broken isDirty never blocks the answer */
+      return true; // unknown is unsafe
     }
   }
   return false;
 }
 
-async function flushEntries(entries: Flushable[]): Promise<{ ok: boolean; failed: string[] }> {
+export interface FlushResult { ok: boolean; failed: string[] }
+
+export function flushOwnerIdentity(id: string): object | undefined { return registry.get(id); }
+export function hasFlushOwner(id: string): boolean {
+  const owner = registry.get(id);
+  try { return !!owner && (owner.isReady?.() ?? true); } catch { return false; }
+}
+
+export function flushPaneChecked(paneId: string): Promise<FlushResult> {
+  return flushEntries(f => f.paneId === paneId || f.id === `paper-${paneId}` || f.id === `paper-comments-${paneId}`);
+}
+
+async function flushEntries(matches: (f: Flushable) => boolean): Promise<FlushResult> {
+  const entries = [...registry.values()].filter(matches);
+  const epochs = new Map(entries.map(f => [f.id, registrationEpochs.get(f.id)]));
   const failed: string[] = [];
   await Promise.all(
     entries.map(async (f) => {
@@ -75,16 +105,27 @@ async function flushEntries(entries: Flushable[]): Promise<{ ok: boolean; failed
       }
     }),
   );
+  for (const f of entries) {
+    try { if (f.isDirty() && !failed.includes(f.id)) failed.push(f.id); } catch { if (!failed.includes(f.id)) failed.push(f.id); }
+  }
+  // Mounting/replacing an editor while another save is pending cannot make
+  // that new buffer part of the completed flush. Abort the transition so the
+  // user can retry with the current owners; other panes remain interactive.
+  const current = [...registry.values()].filter(matches);
+  const changed = new Set<string>();
+  for (const f of entries) if (registry.get(f.id) !== f || registrationEpochs.get(f.id) !== epochs.get(f.id)) changed.add(f.id);
+  for (const f of current) if (!epochs.has(f.id)) changed.add(f.id);
+  for (const id of changed) if (!failed.includes(id)) failed.push(id);
   return { ok: failed.length === 0, failed };
 }
 
 export function flushAll(): Promise<{ ok: boolean; failed: string[] }> {
-  return flushEntries([...registry.values()]);
+  return flushEntries(() => true);
 }
 
 /** A handoff must check the result before discarding the outgoing editor. */
 export function flushByIdChecked(prefix: string): Promise<{ ok: boolean; failed: string[] }> {
-  return flushEntries([...registry.values()].filter(f => f.id === prefix || f.id.startsWith(prefix + "-")));
+  return flushEntries(f => f.id === prefix || f.id.startsWith(prefix + "-"));
 }
 
 /** W14 (AGT-10): flush a single subsystem now (matches its id + any sub-id, like
@@ -113,14 +154,12 @@ export function installLifecycle(): void {
   // W6: the main process intercepts close/quit, asks us to flush, and waits
   // for the ack (with a timeout so a wedged renderer can never brick quit).
   const fb = fileBridge();
-  fb?.onFlushRequest?.((token) => {
-    void flushAll()
-      .then((r) => {
-        if (!r.ok)
-          pushToast("error", "Some changes couldn't be saved on exit", {
-            detail: r.failed.join(", "),
-          });
-      })
-      .finally(() => fb.flushDone?.(token));
+  fb?.onFlushRequest?.((request) => {
+    void flushAll().then((r) => {
+      if (!r.ok) pushToast("error", "Some changes couldn't be saved on exit", { detail: r.failed.join(", ") });
+      fb.flushDone?.({ requestId: request.requestId, status: r.ok ? 'saved' : 'blocked', ...(r.ok ? {} : { reason: `Unsaved owners: ${r.failed.join(', ')}` }) });
+    }).catch((e) => {
+      fb.flushDone?.({ requestId: request.requestId, status: 'blocked', reason: String(e) });
+    });
   });
 }

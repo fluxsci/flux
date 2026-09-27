@@ -154,12 +154,19 @@ assert(eq(back, deck), "projectIntoDeck(deckToProject(d), d) === d — full fixt
   const big: Element[] = [
     { type: "rect", id: "r2", x: 0, y: 0, width: 680, height: 850, rotation: 0, fill: "#111111", stroke: "#000000", strokeWidth: 4, cornerRadius: 0 },
     { type: "text", id: "t2", x: 20, y: 20, width: 200, height: 40, rotation: 0, text: "cap", fontFamily: "Arial", fontSize: 28, fontWeight: 400, fontStyle: "normal", align: "left", color: "#000000", sizing: "auto" },
+    { type: "text", id: "t3", x: 20, y: 80, width: 300, height: 90, rotation: 0, text: "one\n\ntwo", fontFamily: "Arial", fontSize: 20, fontWeight: 400, fontStyle: "normal", align: "left", color: "#000000", sizing: "auto-h", letterSpacing: 2, paragraphSpacing: 10 },
   ];
   placeContentOnStage(big, { width: 640, height: 360 });
   const s = 360 / 850;
   assert(Math.abs(big[0].width - 680 * s) < 1e-6 && Math.abs(big[0].height - 360) < 1e-6, "oversized content fits to the frame (uniform)");
   assert(Math.abs((big[1] as { fontSize: number }).fontSize - 28 * s) < 1e-6, "…scaling typography with geometry (internal proportions kept)");
   assert(Math.abs((big[0] as { strokeWidth: number }).strokeWidth - 4 * s) < 1e-6, "…and strokes");
+  // Tracking and paragraph gaps are canvas px: they must shrink with the type
+  // (a 2px tracking against a half-size font reads twice as loose), while a text
+  // that never had them must not acquire them.
+  const t3 = big[2] as { letterSpacing?: number; paragraphSpacing?: number };
+  assert(Math.abs((t3.letterSpacing ?? NaN) - 2 * s) < 1e-6 && Math.abs((t3.paragraphSpacing ?? NaN) - 10 * s) < 1e-6, "…and px-valued tracking / paragraph spacing scale with the font");
+  assert(!("letterSpacing" in big[1]) && !("paragraphSpacing" in big[1]), "…while absent spacing stays absent");
 }
 
 // --- slide ops compose with the projection (duplicate retargets beats) ---------------

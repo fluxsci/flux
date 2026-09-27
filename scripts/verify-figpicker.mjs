@@ -7,7 +7,7 @@
 // scope dropdown: filters to one canvas, search composes within it, and the
 // picker still inserts.
 //   Run (dev server on :1420 must be up): node scripts/verify-figpicker.mjs
-import { launch, gotoApp, clickMode, sleep, realErrors, waitFor, waitForSelector, APP_URL } from "./lib/driver.mjs";
+import { launch, gotoApp, clickMode, sleep, realErrors, waitFor, waitForSelector, APP_URL, shot } from "./lib/driver.mjs";
 import { harness } from "./lib/harness.mjs";
 
 const h = harness("verify-figpicker");
@@ -16,6 +16,7 @@ try {
   await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 3000 });
   await clickMode(page, "Paper").catch(() => {});
   await waitFor(page, () => !!(window.__flux?.editors ?? [])[0], null, { timeout: 15000, label: "paper editor mounted" });
+  await page.waitForSelector('.paper[data-paper-sources-ready="true"]');
 
   // 46 wide panel-strip figures (the reported shape) across two canvases.
   await page.evaluate(() => {
@@ -31,7 +32,7 @@ try {
       refs.push({ id, label: `fig-${id}`, name: `Figure ${i}`, family: "figure", number: i,
         display: `Fig. ${i}`, captionLabel: `Figure ${i} | `, order: i,
         canvas: i <= 20 ? "c1" : "c2", caption: `strip caption ${i}`, panels: [] });
-      figs[id] = { id, name: `F${i}`, width: 1000, height: 240,
+      figs[id] = { id, name: `F${i}`, canvasId: i <= 20 ? "c1" : "c2", x: 0, y: 0, width: 1000, height: 240,
         elements: [{ type: "plot", id: `pl${i}`, assetId: `a${i}`, x: 0, y: 0, width: 1000, height: 240, rotation: 0, overrides: {} }] };
     }
     window.__fluxSeedFigures(refs, figs, data, [], {}, [],
@@ -75,6 +76,18 @@ try {
   h.ok(m.cellH >= 150, `cells keep full thumb+meta height, never slivers (got ${m.cellH}px)`);
   h.ok(m.metaH > 20 && m.metaText.includes("Fig. 1"), `figure name visible in the meta bar (got "${m.metaText}")`);
   h.ok(m.scrollH > m.clientH + 200, `grid overflows and scrolls (scroll ${m.scrollH} vs client ${m.clientH})`);
+  await waitFor(page, () => {
+    const img = document.querySelector('.picker .cell[data-i="0"] img');
+    return img?.complete && img.naturalWidth === 1000;
+  }, null, { timeout: 5000, label: "first figure thumbnail decoded" });
+  const pixel = await page.evaluate(() => {
+    const img = document.querySelector('.picker .cell[data-i="0"] img');
+    const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 240;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
+    return [...ctx.getImageData(140, 120, 1, 1).data];
+  });
+  h.eq(pixel, [15, 118, 110, 255], 'thumbnail paints the fixture ellipse, not a missing-preview placeholder');
+  await shot(page, 'figpicker-painted-grid');
 
   const reach = await page.evaluate(() => {
     const grid = document.querySelector(".picker .grid");
@@ -85,6 +98,11 @@ try {
     return !!lr && lr.bottom <= gr.bottom + 8 && lr.height >= 150;
   });
   h.ok(reach, "scrolling reaches the last cell at full size");
+  await waitFor(page, () => {
+    const img = document.querySelector('.picker .cell[data-i="45"] img');
+    return img?.complete && img.naturalWidth === 1000;
+  }, null, { timeout: 5000, label: "last figure thumbnail decoded after scrolling" });
+  h.ok(true, 'scrolling to the last figure loads its real thumbnail');
 
   await page.evaluate(() => { document.querySelector(".picker .grid").scrollTop = 0; });
   for (let i = 0; i < 15; i++) await page.keyboard.press("ArrowDown");

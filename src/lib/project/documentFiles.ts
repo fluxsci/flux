@@ -2,7 +2,7 @@
 // on one policy; project files remain the source of truth, including empty folders.
 import type { ProjectManifest } from './types';
 import { slugify } from './types';
-import { commentsMainPath, commentsSidecarRel, sortDocuments, type DocRow } from './docOrder';
+import { commentsMainPath, commentsSidecarRel, sortDocuments, documentRemovalBlocker, pruneDocumentFromManifest, type DocRow } from './docOrder';
 import { CONTEXT_DOC_RELS } from './contextTemplates';
 import { isConflictPath, isSyncTempPath } from './conflictRules';
 import { frontMatterField } from '../../shell/modes/paper/frontmatter';
@@ -16,6 +16,52 @@ export interface DocumentIO {
   mkdir(rel: string): Promise<void>;
   entries(rel: string): Promise<{ name: string; dir: boolean }[]>;
   remove(rel: string): Promise<void>;
+}
+/** Immutable pre-operation bytes survive process death and failed rollback.
+ * Kept outside document discovery; records are deliberate recovery artifacts. */
+export async function prepareDocumentRecovery(io: DocumentIO, action: string, before: Map<string, string | null>): Promise<string> {
+  const directory = '.meta/document-recovery';
+  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const rel = `${directory}/${id}.json`;
+  await io.mkdir(directory);
+  await io.create(rel, JSON.stringify({ version: 1, action, created: new Date().toISOString(),
+    instructions: 'These are the exact UTF-8 bytes before the document operation. Restore only after comparing current files; null means the path did not exist. Never overwrite later edits blindly.',
+    files: Object.fromEntries(before),
+  }, null, 2) + '\n');
+  return rel;
+}
+/** Shared fresh-manifest deletion. Backup all authoring bytes before the first
+ * removal and restore on any file/manifest failure. Native trash remains usable. */
+export async function deleteDocumentFile(m: ProjectManifest, io: DocumentIO, rel: string): Promise<{ removed: string[]; recovery: string }> {
+  const { docs } = await discoverDocuments(m, io);
+  const blocker = documentRemovalBlocker(docs, rel);
+  if (blocker) throw new Error(blocker.reason);
+  const before = new Map<string, string | null>();
+  for (const file of [rel, commentsSidecarRel(commentsMainPath(m), rel)]) if (await io.exists(file)) before.set(file, await io.read(file));
+  before.set('project.json', await io.read('project.json'));
+  const recovery = await prepareDocumentRecovery(io, `delete ${rel}`, before);
+  const next = structuredClone(m);
+  pruneDocumentFromManifest(next, rel);
+  if (next.documentRoot && next.manuscript.path === rel) next.manuscript.path = docs.find(d => d.path !== rel && !d.isContext)?.path ?? '';
+  next.modified = new Date().toISOString();
+  const removed: string[] = [];
+  try {
+    for (const [file, text] of before) {
+      if (file === 'project.json') continue;
+      if (await io.read(file) !== text) throw new Error(`${file} changed during deletion. Try again.`);
+      removed.push(file); await io.remove(file);
+    }
+    if (await io.read('project.json') !== before.get('project.json')) throw new Error('project.json changed during deletion. Try again.');
+    await io.write('project.json', JSON.stringify(next, null, 2) + '\n');
+  } catch (error) {
+    const failures: string[] = [];
+    for (const file of removed) {
+      try { if (!(await io.exists(file))) await io.create(file, before.get(file)!); } catch { failures.push(file); }
+    }
+    throw new Error(`Deletion failed${failures.length ? `; could not restore ${failures.join(', ')}` : '; document files restored'}. Recovery: ${recovery}. ${String(error)}`);
+  }
+  Object.assign(m, next);
+  return { removed, recovery };
 }
 export const parentDir = (rel: string) => rel.slice(0, Math.max(0, rel.lastIndexOf('/')));
 export const fileName = (rel: string) => rel.slice(rel.lastIndexOf('/') + 1);
@@ -97,6 +143,7 @@ export async function createDocumentFile(m: ProjectManifest, io: DocumentIO, nam
   const bibliography = m.references?.library ? `\nbibliography: ${JSON.stringify(relativeDocumentPath(rel, m.references.library))}` : '';
   await io.create(rel, `---\ntitle: ${JSON.stringify(name)}${bibliography}\n---\n\n`);
   const next = structuredClone(m);
+  next.modified = new Date().toISOString();
   next.supplementary = [...(next.supplementary ?? []), { path: rel }];
   if (next.documentRoot && !next.manuscript.path && !rel.startsWith('Context/')) next.manuscript.path = rel;
   try { await io.write('project.json', JSON.stringify(next, null, 2) + '\n'); }
@@ -212,6 +259,7 @@ export async function moveDocumentFile(m: ProjectManifest, io: DocumentIO, rel: 
   if (dest === rel) return { path: rel, changed: [] };
   if (!(await io.exists(folder))) throw new Error('Destination folder no longer exists.');
   const next = structuredClone(m);
+  next.modified = new Date().toISOString();
   if (next.manuscript.path === rel) next.manuscript.path = dest;
   next.supplementary = (next.supplementary ?? []).map(s => s.path === rel ? { ...s, path: dest } : s);
   if (!next.supplementary.some(s => s.path === dest) && next.manuscript.path !== dest) next.supplementary.push({ path: dest });
@@ -235,6 +283,7 @@ export async function moveDocumentFile(m: ProjectManifest, io: DocumentIO, rel: 
   }
   before.set('project.json', await io.read('project.json'));
   writes.set('project.json', JSON.stringify(next, null, 2) + '\n');
+  const recovery = await prepareDocumentRecovery(io, `move ${rel} to ${dest}`, before);
   const touched: string[] = [];
   try {
     for (const [p, text] of writes) {
@@ -255,7 +304,7 @@ export async function moveDocumentFile(m: ProjectManifest, io: DocumentIO, rel: 
     for (const p of touched.reverse()) {
       try { const text = before.get(p); if (text == null) await io.remove(p); else await io.write(p, text); } catch { failures.push(p); }
     }
-    if (failures.length) throw new Error(`Move failed; recovery could not restore ${failures.join(', ')}. ${String(error)}`);
+    if (failures.length) throw new Error(`Move failed; recovery could not restore ${failures.join(', ')}. Recovery: ${recovery}. ${String(error)}`);
     throw error;
   }
   Object.assign(m, next);

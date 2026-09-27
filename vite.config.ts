@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import fs from "node:fs";
 import path from "node:path";
@@ -63,13 +63,32 @@ export default defineConfig({
   // Relative paths so the built bundle loads under Electron's file:// protocol.
   base: "./",
 
+  // Pre-bundle what the start-up crawl cannot see. Vite discovers dependencies by crawling
+  // index.html's import graph; a package imported ONLY inside a Web Worker entry is invisible
+  // to that crawl and gets optimized the first time the worker asks for it — after which Vite
+  // broadcasts a FULL RELOAD to every client. Under the ui verify tier that reload lands on
+  // whatever gate is running (2026-09-26: the plot-gallery gate's opener reloaded, its
+  // `pagehide` closed the pinned popup, and the next click hit a closed target — the
+  // ui-gate red on `main`). Two such graphs: the spell-check worker (harper.js) and the pdf.js
+  // worker entry (`pdfjsWorker?worker`, whose only import is the pdf.js worker module — the
+  // CI dev-server log caught that one eight minutes into a green run, logged in the singular:
+  // "dependency optimized: …"). Listing them here makes the cold crawl complete, so the dev
+  // server never re-optimizes mid-run. verify-dev-prebundle.ts (pure) finds every worker entry
+  // (`new Worker(new URL(…))` targets and `?worker` imports) and pins their imports into this list.
+  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"] },
+
   clearScreen: false,
 
   // Bundle Web Workers as ES modules — the pdf.js worker (src/lib/pdf/pdfjsWorker.ts,
   // which pre-loads a Uint8Array base64/hex polyfill) is ESM and uses import.meta.
-  worker: { format: "es" },
+  // Worker sub-builds run their own bundler pass, which prints its own copy of
+  // the timing report, so the check is off here too (see build.rolldownOptions).
+  worker: { format: "es", rolldownOptions: { checks: { pluginTimings: false } } },
 
   server: {
+    // Worktrees may share a dependency directory via symlink. Permit only that
+    // real dependency tree so imported WASM/assets remain readable in dev.
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), fs.realpathSync("node_modules")] },
     port: 1420,
     strictPort: true,
     // Bind to IPv4 loopback explicitly. On macOS `localhost` resolves to IPv6
@@ -85,5 +104,19 @@ export default defineConfig({
     // SHL-20: hidden sourcemaps — emitted for crash triage / stack symbolication but NOT
     // referenced from the bundle, so DevTools doesn't surface source by default in a shipped app.
     sourcemap: "hidden",
+    rolldownOptions: {
+      // [PLUGIN_TIMINGS] reports which plugins a build spends its time in. Here
+      // that is only Vite's own: vite:worker bundling the four web workers
+      // (the pdf.js worker alone is 1.2 MB), vite:build-import-analysis and
+      // vite:css. The whole build takes ~8 s, and none of it is Flux plugin
+      // code, so there is nothing to act on and the report only buries real
+      // warnings. Measured 2026-09-24.
+      checks: { pluginTimings: false },
+    },
+    // The 500 kB default is a web-download heuristic; Flux loads its bundle
+    // from local disk in Electron and already lazy-loads each mode. The limit
+    // sits just above today's largest chunk (the pdf.js worker, 1,184 kB; the
+    // Paper editor, 1,019 kB) so a new accidental heavyweight import still warns.
+    chunkSizeWarningLimit: 1300,
   },
 });

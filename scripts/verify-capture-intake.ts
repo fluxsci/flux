@@ -71,8 +71,9 @@ ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
   ok(/capture:dir/.test(contract) && /capture:intake/.test(contract) && /capture:extensionInfo/.test(contract), "the new capture channels ARE declared");
   // main must classify with the SHARED rule, never its own regex (the drift that rotted the
   // supplement filter started exactly this way).
-  ok(/captureRules\.isCaptureFile/.test(main), "main.cjs classifies via the shared rule, not a private regex");
-  ok(!/\^flux-\.\+/.test(main), "main.cjs holds no duplicate capture-filename regex");
+  const watcher = fs.readFileSync("electron/globalLibraryWatcher.cjs", "utf8");
+  ok(/captureRules\.isCaptureFile/.test(watcher) && /createGlobalLibraryWatcher/.test(main), "registered native watcher classifies via the shared rule, not a private regex");
+  ok(!/\^flux-\.\+/.test(main + watcher), "native watcher holds no duplicate capture-filename regex");
 }
 
 // --- 5: intake is USER-INITIATED, never ambient -------------------------------------------
@@ -166,8 +167,8 @@ ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
   ok(newestXpi([`${H}-1.0.xpi`, `${H}-1.0.1.xpi`]) === `${H}-1.0.1.xpi`, "…and a longer version wins the tie");
   ok(newestXpi(["notes.txt", `${H}-0.1.1.xpi`]) === `${H}-0.1.1.xpi`, "non-xpi files are ignored");
   ok(newestXpi([]) === null && newestXpi(["notes.txt"]) === null, "nothing to offer → null");
-  const main = require("node:fs").readFileSync("electron/main.cjs", "utf8");
-  ok(/newestXpi\(fs\.readdirSync\(dir\)\)/.test(main), "…and main.cjs uses it rather than the first hit");
+  const capture = require("node:fs").readFileSync("electron/ipc/capture.cjs", "utf8");
+  ok(/newestXpi\(fs\.readdirSync\(dir\)\)/.test(capture), "…and the native capture family uses it rather than the first hit");
 }
 
 // --- 8: the Firefox route works on a Mac ----------------------------------------------------
@@ -179,11 +180,11 @@ ok(CAPTURE_EXT === ".fluxcap", "sidecar extension constant matches");
 // Chromium column, which never pretended it could drive chrome://extensions either.
 {
   const fs = require("node:fs") as typeof import("node:fs");
-  const main = fs.readFileSync("electron/main.cjs", "utf8");
+  const capture = fs.readFileSync("electron/ipc/capture.cjs", "utf8");
   // To the END of the handler, not a fixed byte window — a fixed one silently stopped covering
   // the code once the comments above it grew, which is a gate quietly checking less than it says.
-  const at = main.indexOf('ipcMain.handle("capture:installXpi"');
-  const h = main.slice(at, main.indexOf("\n});", at) + 4);
+  const at = capture.indexOf('ipc.handle("capture:installXpi"');
+  const h = capture.slice(at, capture.indexOf("\n});", at) + 4);
   ok(at > 0 && h.length > 0, "the installXpi handler was found");
   ok(/showItemInFolder\(xpi\)/.test(h), "an unopenable .xpi is REVEALED, not reported as a failure");
   ok(/revealed: true/.test(h), "…and the renderer is told which happened");

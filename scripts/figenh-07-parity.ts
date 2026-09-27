@@ -3,6 +3,7 @@
 // the CLI `distribute --gap`, and the live bridge distribute{gap} all reproduce the
 // GUI's exact-gap ops.distributePanels; the bridge edit is undoable.
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,6 +11,8 @@ import { get } from "svelte/store";
 import * as core from "../flux-core/index";
 import * as ops from "../src/lib/ops";
 import * as store from "../src/lib/store";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { dispatchCommand } from "../src/lib/bridge/commands";
 import type { Element, Project } from "../src/lib/types";
 
@@ -49,7 +52,7 @@ try {
 
   // CLI distribute --gap 40
   try {
-    execFileSync("npx", ["tsx", "flux-cli.ts", "distribute", figureId, "--gap", "40", "--root", root], { cwd: path.resolve("."), stdio: "pipe" });
+    execFileSync(...tsxRun("flux-cli.ts", [ "distribute", figureId, "--gap", "40", "--root", root]), { cwd: path.resolve("."), stdio: "pipe" });
     const { project } = await core.loadFigModel(root);
     const g = gapsOf(project.figures.find((ff) => ff.id === figureId)!.elements as { x: number; width: number }[]);
     assert(g.every((x) => near(x, 40)), `CLI distribute --gap 40 → gutters ${g.join(",")}`);

@@ -88,10 +88,10 @@ export function makeCitekey(
   const words = shortTitle(entry.title ?? "").slice(0, Math.max(0, 60 - a.length - yr.length));
   const base = `${a}${words}${yr}` || "ref";
   const lcTaken = new Set<string>();
-  for (const k of taken) lcTaken.add(k.toLowerCase());
+  for (const k of taken) lcTaken.add(k.normalize("NFC").toLowerCase());
   let key = base;
   let n = 0;
-  while (lcTaken.has(key.toLowerCase())) key = base + alphaSuffix(++n);
+  while (lcTaken.has(key.normalize("NFC").toLowerCase())) key = base + alphaSuffix(++n);
   return key;
 }
 

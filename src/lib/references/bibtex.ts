@@ -1,3 +1,4 @@
+import { scanBib, rawBibField, bibMacroMap, projectBibValue } from "./bibScanner";
 // Shared BibTeX/CSL helpers used by the renderer (scholar UI), flux-core
 // (CLI/MCP), and the FluxLib engine. Citation.js is dynamic-imported so it stays
 // off any editor hot path and out of the CLI's startup cost until first use.
@@ -62,85 +63,32 @@ export async function parseBib(text: string): Promise<RefEntry[]> {
  * quoted strings, which are rare); each result starts at its `@`.
  */
 export function splitBibEntries(text: string): string[] {
-  const out: string[] = [];
-  const n = text.length;
-  let i = 0;
-  while (i < n) {
-    const at = text.indexOf("@", i);
-    if (at < 0) break;
-    const open = text.indexOf("{", at);
-    if (open < 0) break;
-    let depth = 0;
-    let j = open;
-    for (; j < n; j++) {
-      const ch = text[j];
-      if (ch === "{") depth++;
-      else if (ch === "}") {
-        depth--;
-        if (depth === 0) {
-          j++;
-          break;
-        }
-      }
-    }
-    out.push(text.slice(at, j).trim());
-    i = j;
-  }
-  return out;
+  return scanBib(text).records.filter(r => r.kind === "entry").map(r => text.slice(r.start, r.end));
 }
-
-/** The citekey of a single raw BibTeX entry, or null. */
 export function bibtexKey(raw: string): string | null {
-  const m = raw.match(/@\w+\s*\{\s*([^,\s]+)/);
-  return m ? m[1] : null;
+  return scanBib(raw).records.find(r => r.kind === "entry")?.key || null;
 }
-
-/** The DOI of a single raw BibTeX entry, normalized to a bare lowercase DOI. */
+export function normalizeDoi(value: string): string {
+  return value.trim().replace(/^(?:doi:\s*|https?:\/\/(?:dx\.)?doi\.org\/)/i, "").trim().toLowerCase();
+}
 export function bibtexDoi(raw: string): string | undefined {
-  const m = raw.match(/\bdoi\s*=\s*[{"]?\s*([^,}"\s]+)/i);
-  return m
-    ? m[1].replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").toLowerCase()
-    : undefined;
+  const value = rawBibField(raw, "doi");
+  return value ? normalizeDoi(value) : undefined;
 }
-
-/** Replace the citekey of a single raw BibTeX entry with `newKey`. */
 export function rekeyBibtex(raw: string, newKey: string): string {
-  return raw.replace(/(@\w+\s*\{\s*)[^,\s]+/, `$1${newKey}`);
+  const entry = scanBib(raw).records.find(r => r.kind === "entry");
+  return entry ? raw.slice(0, entry.keyStart) + newKey + raw.slice(entry.keyEnd) : raw;
 }
-
-/**
- * Set the `dateadded` field of a single raw BibTeX entry to `iso` — replacing an
- * existing value (e.g. a Zotero BBT export's own stamp: FluxLib's semantics are
- * "when it landed HERE"), else inserting right after the citekey. A field-less
- * entry (`@misc{key}`, no trailing comma) is returned unchanged.
- */
 export function stampDateAdded(raw: string, iso: string): string {
-  const existing = /(\bdateadded\s*=\s*)(\{[^}]*\}|"[^"]*"|[^,\n}]+)/i;
-  if (existing.test(raw)) return raw.replace(existing, `$1{${iso}}`);
-  return raw.replace(/(@\w+\s*\{\s*[^,\s]+\s*,)/, `$1\n  dateadded = {${iso}},`);
+  const entry = scanBib(raw).records.find(r => r.kind === "entry");
+  if (!entry) return raw;
+  const field = entry.fields.find(f => f.name === "dateadded");
+  if (field) return raw.slice(0, field.valueStart) + `{${iso}}` + raw.slice(field.valueEnd);
+  const comma = raw.indexOf(",", entry.keyEnd);
+  return comma >= 0 && comma < entry.end ? raw.slice(0, comma + 1) + `\n  dateadded = {${iso}},` + raw.slice(comma + 1) : raw;
 }
-
-/** Read one `name = {…}` / `name = "…"` / bare field from a raw BibTeX entry. */
 function bibField(raw: string, name: string): string {
-  const m = raw.match(new RegExp("\\b" + name + "\\s*=\\s*", "i"));
-  if (!m || m.index == null) return "";
-  let i = m.index + m[0].length;
-  const open = raw[i];
-  if (open === "{") {
-    let depth = 1;
-    let j = i + 1;
-    for (; j < raw.length && depth > 0; j++) {
-      if (raw[j] === "{") depth++;
-      else if (raw[j] === "}") depth--;
-    }
-    return raw.slice(i + 1, j - 1).replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
-  }
-  if (open === '"') {
-    const end = raw.indexOf('"', i + 1);
-    return end < 0 ? "" : raw.slice(i + 1, end).replace(/\s+/g, " ").trim();
-  }
-  const bare = raw.slice(i).match(/^([^,\n}]+)/);
-  return bare ? bare[1].trim() : "";
+  return (rawBibField(raw, name) ?? "").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -149,8 +97,22 @@ function bibField(raw: string, name: string): string {
  * than parseBib() — notably author-particle handling — but adequate for citekey
  * generation, DOI dedup, and search. Both paths yield the same RefEntry shape.
  */
-export function lightEntry(raw: string): RefEntry {
-  const authorRaw = bibField(raw, "author");
+export function decodeBibDisplay(value: string): string {
+  const marks: Record<string, string> = {"'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308", "~": "\u0303", "=": "\u0304", ".": "\u0307", "u": "\u0306", "v": "\u030c", "H": "\u030b", "c": "\u0327"};
+  return value.replace(/\\([\'`^"~=.uvHc])\s*\{?([A-Za-z])\}?/g, (_, accent: string, letter: string) => (letter + marks[accent]).normalize("NFC"))
+    .replace(/\\(ss|ae|AE|oe|OE|o|O|l|L)(?:\{\}|\b)/g, (_, code: string) => ({ss:"ß", ae:"æ", AE:"Æ", oe:"œ", OE:"Œ", o:"ø", O:"Ø", l:"ł", L:"Ł"}[code] ?? code))
+    .replace(/\\([&%_$#{}])/g, "$1").replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+}
+export function lightBibEntries(text: string): RefEntry[] {
+  const macros = bibMacroMap(text);
+  return splitBibEntries(text).map(raw => lightEntry(raw, macros));
+}
+export function lightEntry(raw: string, macroMap?: Map<string, string> | number): RefEntry {
+  const macros = macroMap instanceof Map ? macroMap : new Map<string, string>();
+  const parsed = scanBib(raw).records.find(r => r.kind === "entry");
+  const fields = new Map(parsed?.fields.map(f => [f.name, projectBibValue(f, macros)]) ?? []);
+  const field = (name: string) => decodeBibDisplay(fields.get(name) ?? "");
+  const authorRaw = field("author");
   const tokens = authorRaw ? authorRaw.split(/\s+and\s+/i).filter((t) => t.trim()) : [];
   const authors = tokens
     .map((a) => (a.includes(",") ? a.split(",")[0] : a.trim().split(/\s+/).pop() || a).trim())
@@ -169,22 +131,22 @@ export function lightEntry(raw: string): RefEntry {
       return { family, given: words.join(" ") || undefined };
     })
     .filter((a) => a.family);
-  const year = bibField(raw, "year") || (bibField(raw, "date").match(/\d{4}/)?.[0] ?? "");
-  const doi = (bibField(raw, "doi") || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  const year = field("year") || (field("date").match(/\d{4}/)?.[0] ?? "");
+  const doi = normalizeDoi(field("doi"));
   return {
-    key: bibtexKey(raw) || "",
-    title: bibField(raw, "title"),
+    key: parsed?.key || "",
+    title: field("title"),
     authors,
     year,
-    container: bibField(raw, "journal") || bibField(raw, "booktitle") || undefined,
+    container: field("journal") || field("journaltitle") || field("booktitle") || undefined,
     doi: doi || undefined,
-    url: bibField(raw, "url") || undefined,
-    volume: bibField(raw, "volume") || undefined,
-    issue: bibField(raw, "number") || bibField(raw, "issue") || undefined,
-    pages: bibField(raw, "pages") || undefined,
-    publisher: bibField(raw, "publisher") || undefined,
+    url: field("url") || undefined,
+    volume: field("volume") || undefined,
+    issue: field("number") || field("issue") || undefined,
+    pages: field("pages") || undefined,
+    publisher: field("publisher") || undefined,
     authorsFull: authorsFull.length ? authorsFull : undefined,
-    dateAdded: bibField(raw, "dateadded") || undefined,
+    dateAdded: field("dateadded") || undefined,
     raw,
   };
 }

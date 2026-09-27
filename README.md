@@ -53,7 +53,7 @@ Flux also imports ordinary SVGs and raster images. See
 
 ### Run from source
 
-Install **Git** and **Node.js 22 (22.12 or newer)**. The repository's `.nvmrc`
+Install **Git** and **Node.js 22 (22.15 or newer)**. The repository's `.nvmrc`
 selects Node 22; if you use nvm, run `nvm install` and `nvm use` after cloning.
 On macOS, install Xcode Command Line Tools once with `xcode-select --install`.
 
@@ -89,7 +89,8 @@ companion tools, and troubleshooting. There is also an
 
 ### Build a standalone app
 
-From the source checkout, run the command for your platform. Output goes into `release/`.
+Install Quarto, then run the command for your platform from the source checkout.
+The build includes the existing user guide for offline access. Output goes into `release/`.
 
 ```sh
 # macOS: DMG and ZIP for Apple Silicon and Intel
@@ -102,6 +103,11 @@ npm run dist:linux
 For an unpacked app, use `npm run pack`. Windows installers are not currently
 provided. Check [GitHub Releases](https://github.com/fluxsci/flux/releases) for
 published builds as they become available.
+
+Maintainers: [qualification procedure](docs/RELEASE_QUALIFICATION.md) and
+[V0.2.0 implementation evidence](docs/V020_IMPLEMENTATION_PROGRESS.md) describe
+the required checks and remaining platform qualifications. Building a package
+does not publish or certify a release.
 
 ## Scripts and agents
 

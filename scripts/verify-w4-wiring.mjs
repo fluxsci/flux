@@ -5,7 +5,7 @@
 // 2. A failing bridge write surfaces: error dot on the title pill + sticky toast.
 // 3. Restoring the bridge + Retry recovers and persists.
 
-import { launch, gotoApp, clickNew, shot, realErrors, setDoc, sleep } from "./lib/driver.mjs";
+import { launch, gotoApp, clickNew, shot, realErrors, setDoc, sleep, APP_URL } from "./lib/driver.mjs";
 
 const fail = (m) => {
   console.error("✗ " + m);
@@ -14,7 +14,7 @@ const fail = (m) => {
 const ok = (m) => console.log("✓ " + m);
 
 const { browser, page } = await launch();
-await gotoApp(page, { url: process.env.FLUX_URL || "http://127.0.0.1:1420/?fixture=demo" });
+await gotoApp(page, { url: new URL('?fixture=demo', APP_URL).href });
 await clickNew(page);
 
 const docPath = await page.evaluate(() => {

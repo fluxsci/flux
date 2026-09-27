@@ -4,7 +4,7 @@
 // bundle past electron-builder's node_modules carve-out) and no network except the
 // injected fetch. Shared by the in-app paste box, Cmd-K, and flux:// web capture.
 
-const { publicHttpUrl, assertPublicResolved } = require("./netFetch.cjs");
+const { publicHttpUrl, assertPublicResolved, readBoundedBody } = require("./netFetch.cjs");
 
 /** Extract a clean DOI from a string (a bare DOI, a doi.org URL, a "doi:" prefix,
  *  or DOI-bearing text), or null. Trims trailing sentence punctuation. */
@@ -84,6 +84,7 @@ async function resolveToDoi(input, fetchImpl, opts = {}) {
           Accept: "text/html,application/xhtml+xml",
         },
         redirect: "manual",
+        signal: AbortSignal.timeout(30_000),
       });
       const loc = res.headers && res.headers.get ? res.headers.get("location") : null;
       if (res.status < 300 || res.status >= 400 || !loc) break;
@@ -93,7 +94,7 @@ async function resolveToDoi(input, fetchImpl, opts = {}) {
       current = next;
     }
     if (!res.ok) return { error: `HTTP ${res.status}` };
-    const html = await res.text();
+    const html = res.body ? (await readBoundedBody(res, 8 * 1024 * 1024)).toString("utf8") : await res.text();
     const doi = scrapeDoi(html, res.url || current);
     return doi ? { doi } : { error: "Couldn't find a DOI on that page." };
   } catch (err) {

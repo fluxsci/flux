@@ -113,7 +113,7 @@ export function normalizeIndexAssets(index: FigIndexFile | null): Asset[] {
     path: a.path ?? "",
     naturalWidth: a.naturalWidth ?? 0,
     naturalHeight: a.naturalHeight ?? 0,
-    ...(a.dpi != null ? { dpi: a.dpi } : {}),
+    dpi: a.dpi,
   }));
 }
 
@@ -182,7 +182,7 @@ function canvasesForSave(
  *  `prev` is the index the engine believes is on disk: labels are PRESERVED
  *  from it (they anchor @fig-… references in manuscripts); names, family
  *  identity, kind, captions and order are derived fresh from the model. */
-export function planFigSave(model: Project, prev: FigIndexFile | null): FigSavePlan {
+export function planFigSave(model: Project, prev: FigIndexFile | null, previousFiles?: ReadonlyMap<string, string | null>): FigSavePlan {
   if (model.assets.some(a => a.kind === "mp4") || model.figures.some(f => f.elements.some(e => e.type === "video")))
     throw new Error("Video clips belong to slide decks and cannot be saved as Figure content");
   // Keep the planner pure while stamping canonical keys into canvas files.
@@ -213,10 +213,12 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
   };
   const withIdentity = (f: Figure): Figure => ({ ...f, ...identity(f) });
 
+  const previousCanvas = (id: string) => { const text=previousFiles?.get(`fig/canvases/${id}.json`); return text ? JSON.parse(text) as CanvasFile : {}; };
   const canvasPlans: FigSavePlanEntry[] = canvases.map((c) => ({
     id: c.id,
     path: `fig/canvases/${c.id}.json`,
     text: json({
+      ...previousCanvas(c.id),
       schemaVersion: CANVAS_SCHEMA_VERSION,
       id: c.id,
       name: c.name,
@@ -234,12 +236,17 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
     return { id: f.id, path: `fig/captions/${f.id}.md`, text: cap ? cap + "\n" : "" };
   });
 
+  const oldCanvases=new Map(prev?.canvases.map(c=>[c.id,c]));
+  const oldFigures=new Map(prev?.figures.map(f=>[f.id,f]));
+  const oldAssets=new Map(prev?.assets?.map(a=>[a.id,a]));
   const index: FigIndexFile = {
+    ...prev,
     schemaVersion: FIG_INDEX_SCHEMA_VERSION,
-    canvases: canvases.map((c, i) => ({ id: c.id, name: c.name, order: i + 1 })),
+    canvases: canvases.map((c, i) => ({ ...oldCanvases.get(c.id), id: c.id, name: c.name, order: i + 1 })),
     figures: model.figures.map((f, i) => {
       const ident = identity(f);
       return {
+        ...oldFigures.get(f.id),
         id: f.id,
         name: ident.name,
         // Preserve existing labels across saves (F7 label stability — renaming
@@ -253,19 +260,20 @@ export function planFigSave(model: Project, prev: FigIndexFile | null): FigSaveP
         kind: kindForFamily(ident.family),
         family: ident.family,
         number: ident.number,
-        ...(ident.nickname ? { nickname: ident.nickname } : {}),
+        nickname: ident.nickname,
         canvas: f.canvasId,
         caption: captionById.get(f.id) ?? "",
       };
     }),
     assets: model.assets.filter((a): a is typeof a & { kind: "png" | "svg" } => a.kind !== "mp4").map((a) => ({
+      ...oldAssets.get(a.id),
       id: a.id,
       kind: a.kind,
       path: a.path,
       name: a.name,
       naturalWidth: a.naturalWidth,
       naturalHeight: a.naturalHeight,
-      ...(a.dpi != null ? { dpi: a.dpi } : {}),
+      dpi: a.dpi,
     })),
     palette: model.palette ?? [],
     colorGroups: model.colorGroups ?? [],

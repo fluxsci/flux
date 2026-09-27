@@ -82,10 +82,10 @@ try {
   h.eq(fallbackCount, 0, "no svg-data <image> fallbacks in the exported markup");
 
   const nowResident = await page.evaluate(
-    (ids) => ids.every((id) => window.__flux.plot.plotDom.has(id)),
+    (ids) => ids.every((id) => !window.__flux.plot.plotDom.has(id)),
     fx.assetsByFig[fx.figIds[1]],
   );
-  h.ok(nowResident, "ensureFigurePlots parsed the figure synchronously for the export");
+  h.ok(nowResident, "detached export preserves the editor cache: cold figure remains unmounted/unresident");
 
   // Evict it, export again — identical semantics.
   const evicted = await page.evaluate((ids) => {

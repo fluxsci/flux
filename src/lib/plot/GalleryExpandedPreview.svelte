@@ -7,9 +7,12 @@
   import { dissectionsRevision } from "../../shell/scholar/revisions";
   import { galleryDissectionKey, isGalleryVideo, openGalleryVideo, type GalleryPreviewFile } from "./galleryExpanded";
 
-  let { file, root, refreshKey = 0, initialAutoplay = false, onClose, onSimilar, onPrevious, onNext }: {
+  let { file, root, dissections = true, refreshKey = 0, initialAutoplay = false, onClose, onSimilar, onPrevious, onNext }: {
     file: GalleryPreviewFile;
     root: string;
+    /** Companion material lives in the PROJECT's plots/_dissections; a plot from
+     *  the global library has none, so its Dissections tab stays disabled. */
+    dissections?: boolean;
     refreshKey?: number;
     initialAutoplay?: boolean;
     onClose: () => void;
@@ -25,7 +28,7 @@
   let mediaUrl = $state(""), mediaError = $state("");
   let detail = $state<{ zoomBy: (factor: number) => void; resetZoom: () => void; toggleFit: () => void }>();
   const video = $derived(isGalleryVideo(file));
-  const key = $derived(galleryDissectionKey(file, root));
+  const key = $derived(dissections ? galleryDissectionKey(file, root) : "");
   const groups = $derived(listing?.groups ?? []);
   const group = $derived(groups[groupIndex]);
   const files = $derived(group?.files ?? []);

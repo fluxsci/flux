@@ -17,7 +17,7 @@ F="{{FLUX_CLI}}"
 # Locate the project (a folder with project.json) inside the analysis dir, or scaffold one:
 $F new ./paper --title "Synapse organization" --author "A. Author"   # if none exists (confirm first)
 cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
-$F config                        # machine paths — note userContextPath + fluxContextPath
+$F config                        # machine paths — note userContextPath + fluxContextPath (+ plotLibraryPath: the user's global plots)
 # read EVERYTHING in <userContextPath>/ (every .md + image) before working —
 # who the user is + their standing rules for all Flux output; then orient in
 # <fluxContextPath>/ (stock: README → PROJECT-GUIDE; principals: PRINCIPAL.md)

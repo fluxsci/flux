@@ -1,3 +1,5 @@
+import { protectedDocumentSpans } from "../../../../lib/manuscript/documentContext";
+import { onMathRendered } from "./mathRenderService";
 // Display math (2.1): `$$ … $$` blocks render as a KaTeX block widget placed
 // AFTER their source lines — the embeds/tables shape, the only one that keeps
 // editing glitch-free: the source lines stay present and navigable
@@ -66,7 +68,8 @@ function build(state: EditorState): DecorationSet {
   paperPerf.math++;
   const numbered: { label: string; number: number; pos: number }[] = [];
   const deco: Range<Decoration>[] = [];
-  let inFence = false;
+  const protectedSpans = protectedDocumentSpans(state.doc.toString(), { math: false, inline: false });
+  let spanIndex = 0;
   let eqN = 0;
   let sawPending = false;
   const tracker = new MathBlockTracker();
@@ -80,20 +83,15 @@ function build(state: EditorState): DecorationSet {
   for (let n = startLine; n <= state.doc.lines; n++) {
     const line = state.doc.line(n);
     const text = line.text;
-    // Fast bails: outside math, only fence markers and `$$`-bearing lines matter.
-    if (!tracker.inMath) {
-      if (/^\s*(```|~~~)/.test(text)) {
-        inFence = !inFence;
-        continue;
-      }
-      if (inFence || text.indexOf("$$") < 0) continue;
-    }
+    while (spanIndex < protectedSpans.length && protectedSpans[spanIndex].to <= line.from) spanIndex++;
+    if (protectedSpans[spanIndex]?.from <= line.from) continue;
+    if (!tracker.inMath && text.indexOf("$$") < 0) continue;
     const block = tracker.feed(n, text);
     if (!block) continue;
     let number: number | undefined;
     if (block.label) {
-      number = ++eqN;
-      numbered.push({ label: block.label, number, pos: state.doc.line(block.startLine).from });
+      number = numbered.find(p => p.label === block.label)?.number ?? ++eqN;
+      if (!numbered.some(p => p.label === block.label)) numbered.push({ label: block.label, number, pos: state.doc.line(block.startLine).from });
     }
     for (let i = block.startLine; i <= block.endLine; i++) {
       deco.push(Decoration.line({ class: "cm-flux-mathsrc" }).range(state.doc.line(i).from));
@@ -119,6 +117,7 @@ function build(state: EditorState): DecorationSet {
 // "KaTeX just loaded → rebuild the decorations that showed raw TeX." The paper
 // editor registers itself (trackMathView); the kick arms once per load.
 const liveViews = new Set<EditorView>();
+onMathRendered(() => { for (const view of liveViews) view.dispatch({ effects: refreshChips.of(null) }); });
 let kickArmed = false;
 export function kickKatex(): void {
   if (katexReady() || kickArmed) return;

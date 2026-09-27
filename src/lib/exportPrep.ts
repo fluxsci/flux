@@ -16,7 +16,8 @@
 // Twin-engine shared core (flux-core → src/lib); gated by
 // scripts/verify-export-prep.ts.
 
-import { readQmdTree, transformQmdForExport, type ExportQmdCtx } from "./exportQmd";
+import { planExportRecovery, publishExportRecovery, recoverExportSources, type ExportRecoveryIO } from "./project/exportRecovery";
+import { readQmdTree, resolveInclude, transformQmdForExport, type ExportQmdCtx } from "./exportQmd";
 import { reorderForExport, type RoleAliases } from "./manuscript/sections";
 import { markCitations } from "./references/zoteroFields";
 
@@ -33,6 +34,8 @@ export interface ExportPrepOpts {
   /** Absolute path of the entry document. */
   entry: string;
   signal?: AbortSignal;
+  /** Production callers own the export lease and provide durable atomic IO. */
+  recovery?: { root: string; id: string; io: ExportRecoveryIO };
   /** Figure captions + family identity for the transform. */
   ctx: ExportQmdCtx;
   /** Venue section order + the alias table that assigns roles. Applied to the
@@ -46,6 +49,9 @@ export interface ExportPrepOpts {
   /** Slide preparation shares its grammar/rendering with the document editor. */
   transformSlides?: (text: string, file: string) => Promise<string>;
   finishSlides?: (entryText: string) => Promise<string>;
+  /** Redirect only the registered project bibliography to owned captured bytes.
+   * Explicit additional/custom bibliography files retain their authored meaning. */
+  capturedBibliography?: { originalPath: string; replacement: string };
 }
 
 export interface ExportPrepResult {
@@ -72,9 +78,8 @@ export interface ExportPrepResult {
  * `@fig-` refs is left completely untouched, so an export cannot churn mtimes
  * (the §3 persistence invariant) or trip the divergence watcher.
  *
- * Callers MUST invoke `restore()` in a `finally`. Note that even an unrestored
- * transform leaves a valid, readable manuscript — the transform only bakes
- * captions and literalizes references.
+ * Callers MUST invoke `restore()` in a `finally`. Production callers additionally
+ * publish exact original/temporary bytes in a durable journal before any rewrite.
  */
 export async function prepareExport(
   io: ExportPrepIO,
@@ -82,9 +87,17 @@ export async function prepareExport(
 ): Promise<ExportPrepResult> {
   opts.signal?.throwIfAborted();
   const { files, texts, expanded } = await readQmdTree(opts.entry, io);
+  if (opts.recovery) {
+    for (const file of files) {
+      if (!texts.has(file)) throw new Error(`Export include is unreadable: ${file}`);
+      planExportRecovery(opts.recovery.root, opts.recovery.id, [[file, texts.get(file)!, texts.get(file)!]]);
+      await opts.recovery.io.validatePath?.(file);
+    }
+  }
   const originals = new Map<string, string>(), transformed = new Map<string, string>();
   const written = new Set<string>();
   async function restore() {
+    if (opts.recovery) { await recoverExportSources(opts.recovery.io, opts.recovery.root); written.clear(); return; }
     const failures: string[] = [];
     for (const f of [...written]) {
       try {
@@ -103,6 +116,18 @@ export async function prepareExport(
     const text = texts.get(f);
     if (text == null) continue;
     let next = transformQmdForExport(text, opts.ctx);
+    if (f === opts.entry && opts.capturedBibliography) {
+      const { frontMatterBounds } = await import("../shell/modes/paper/frontmatter");
+      const yaml = await import("js-yaml");
+      const b = frontMatterBounds(next);
+      const meta = b.has ? yaml.load(b.fmText) : {};
+      if (meta == null || typeof meta !== "object" || Array.isArray(meta)) throw new Error("Export front matter must be a mapping");
+      const fields = meta as Record<string, unknown>;
+      const captured = opts.capturedBibliography;
+      const redirect = (value: unknown) => typeof value === "string" && (io.resolveFrom ?? resolveInclude)(f, value) === captured.originalPath ? captured.replacement : value;
+      fields.bibliography = fields.bibliography === undefined ? captured.replacement : Array.isArray(fields.bibliography) ? fields.bibliography.map(redirect) : redirect(fields.bibliography);
+      next = "---\n" + yaml.dump(fields, { lineWidth: -1 }) + "---\n" + (b.has ? next.slice(b.bodyStart) : next);
+    }
     if (opts.transformSlides) next = await opts.transformSlides(next, f);
     if (opts.markCitations) next = markCitations(next);
     // Section order applies to the entry document only: an included fragment
@@ -123,6 +148,11 @@ export async function prepareExport(
       if (next !== original) { originals.set(opts.entry, original); transformed.set(opts.entry, next); }
     }
   }
+  // Seal the full recovery plan durably before the first authoring-file write.
+  if (opts.recovery && transformed.size) {
+    const { root, id, io: recoveryIO } = opts.recovery;
+    await publishExportRecovery(recoveryIO, root, planExportRecovery(root, id, [...transformed].map(([f, next]) => [f, originals.get(f)!, next] as const)));
+  }
   // All source and asset validation completes before the first document write.
   try {
     for (const [f, next] of transformed) {
@@ -131,6 +161,9 @@ export async function prepareExport(
       await io.writeText(f, next);
       written.add(f);
     }
-  } catch (error) { await restore(); throw error; }
+  } catch (error) {
+    try { await restore(); } catch (cleanup) { throw new AggregateError([error, cleanup], "Export preparation and source restoration failed"); }
+    throw error;
+  }
   return { files, expanded, changed: [...transformed.keys()], movedSections, restore };
 }

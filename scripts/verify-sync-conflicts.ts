@@ -79,6 +79,8 @@ console.log("mergeability — only append-only ledgers get an automatic answer:"
 assert(isMergeableConflict(".meta/journal.sync-conflict-20260810-143022-ABCDEFG.ndjson"), "journal ledger merges");
 assert(isMergeableConflict(".meta/feedback.sync-conflict-20260810-143022-ABCDEFG.ndjson"), "feedback ledger merges");
 assert(!isMergeableConflict(CONFLICT), "a manuscript does NOT auto-merge — the user chooses");
+assert(isMergeableConflict("library.sync-conflict-20260925-204624-GGKHM53.bib"), "a .bib library merges by entry (2026-09-26)");
+assert(isMergeableConflict("references/library.sync-conflict-20260925-204624-GGKHM53.bib"), "…a project's materialized .bib too");
 assert(
   !isMergeableConflict("fig/canvases/c1.sync-conflict-20260810-143022-ABCDEFG.json"),
   "a canvas does NOT auto-merge",

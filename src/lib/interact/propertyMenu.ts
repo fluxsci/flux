@@ -23,7 +23,7 @@ import { uniqueFieldKeys } from "./propertyFields";
 import { partKind, partNode, readPartStyle } from "../plot/partStyle";
 import * as ops from "../ops";
 import { applyTextLayout, reflowTexts } from "../text";
-import { applyTextStyleToPart, libraryOnly } from "../textStyles";
+import { applyTextStyleToParts, libraryOnly } from "../textStyles";
 import { presetPicker, presetableSelection } from "../presets";
 import { fluxFigMenuOpen } from "../settings";
 import { getSnipMeta } from "../snipMeta";
@@ -245,7 +245,7 @@ export function buildPartFields(
       get: () => "",
       apply: (v) => {
         const r = resolveStyle(get(project), lib, String(v));
-        if (r) for (const part of resolved) applyTextStyleToPart(part.el.id, part.partId, r.st);
+        if (r) mutate(p => applyTextStyleToParts(p, resolved.map(part => ({ elementId: part.el.id, partId: part.partId })), r.st));
       },
     });
   } else if (kind === "line") {
@@ -488,6 +488,13 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
     // yields to the Fill section's fill colour in mixed selections.
     const tcKey = shapeEl ? "n" : "c";
     const tEl = textEl as Element & { type: "text" };
+    const texts = els.filter((e) => e.type === "text");
+    F.push({ key: "h", label: "panel label", group: "Text", kind: "toggle",
+      count: texts.length,
+      mixed: texts.some((e) => !!e.panelLabel !== !!tEl.panelLabel),
+      get: () => texts.every((e) => e.panelLabel),
+      apply: () => { const value = !texts.every(e => e.panelLabel); upd((e) => { if (e.type === "text") e.panelLabel = value; }); },
+    });
     F.push({ key: "t", label: "text", group: "Text", kind: "text", get: () => tEl.text, apply: (v) => upd((e) => { if (e.type === "text") e.text = String(v); }) });
     // Font size in POINTS (stored px × 0.75) — same unit as journal specs.
     property("fontSize");

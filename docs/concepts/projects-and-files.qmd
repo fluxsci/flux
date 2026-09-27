@@ -27,11 +27,15 @@ Every file in a project is one of three kinds:
 
 # Saving: you don't
 
-There is no Save button. Flux autosaves continuously as you work, and the writes themselves are
-**crash-safe**: every file is written atomically (a torn, half-written file can't be left on
-disk, even if the machine dies mid-save), and multi-file saves happen in an order that can't be
-caught halfway — the figure index is only ever written after the files it points to exist.
-Nothing you did in the seconds before a crash is more at risk than the file system itself.
+Flux autosaves as you work. A file replacement writes and flushes a temporary file before
+renaming it. Figure and Deck publication also retain a recovery journal containing the prior
+bytes while assets, compositions, captions and project registration change. On reopening,
+an interrupted generation is restored when the files still match the recorded versions.
+Unexpected external edits stop recovery and retain the record for reconciliation.
+
+Edits still waiting for autosave have not reached disk. A failed save leaves the editor dirty;
+resolve its error before closing. These local transactions do not make a cloud-sync snapshot
+or an entire project backup atomic.
 
 What you do get is **deep undo**: **Ctrl+Z** in the editors walks back through your editing
 history, including edits an agent made live while you watched.
@@ -44,8 +48,11 @@ handles this without drama:
 
 - If you have **no unsaved edits** in the affected file, the app quietly live-reloads it. A
   regenerated plot hot-swaps into your figure in place, keeping the styling you did on top.
-- If you **were mid-edit**, Flux shows a banner instead: reload their version, or keep yours.
-  It never silently overwrites anyone's work — in either direction.
+- If you **were mid-edit**, Flux shows a banner. **Reload theirs** adopts the supported disk
+  version. Figure **Overwrite with mine** saves the current figures **and captions**, first
+  preserving both versions in `.meta/figure-conflicts/`. This also handles a deleted or corrupt
+  canvas/index using the last complete editor state. A newer format or unreadable file refuses
+  overwrite and keeps your edits dirty. Read the error before choosing another action.
 
 # Sharing a project with agents
 
@@ -72,11 +79,11 @@ zipping the folder, cloning it, or opening it on another machine just works.
 # Working across two machines
 
 Because a project is just a folder, any file-sync tool can carry it between a desktop and a
-laptop. Flux is built to tolerate that: every write is atomic, so a sync tool can never catch a
-half-written file; figure saves have a commit point, so even a mid-save snapshot is
-self-consistent; derived caches rebuild themselves; and an external change that lands under an
-open, unsaved editor raises an explicit **Reload / Keep / Overwrite** choice rather than
-silently clobbering your work. Plot source paths are stored relative to the project, so
+laptop. Individual files are atomically replaced, but a sync tool can observe a multi-file
+save between its steps. Let synchronization finish before opening the other copy; recovery
+records belong with the project. Local operation locks do not coordinate two independent
+machines. Derived caches rebuild themselves, and an external change under an unsaved editor
+raises an explicit conflict choice. Plot source paths are stored relative to the project, so
 regenerating and hot-swapping keep working on either machine.
 
 The one habit that keeps it boring: **work on one machine at a time**, and let saves settle for

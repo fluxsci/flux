@@ -31,7 +31,7 @@ const expected = "See @fig-study-b and @fig-study-b,c,a, with @fig-study-b1.\n";
 const save = async (project: Project) => executeFigSave(planFigSave(project, null), { read: (rel) => io.readText(`${root}/${rel}`).catch(() => null), write: (rel, text) => io.writeText(`${root}/${rel}`, text) });
 const reset = async () => {
   await io.remove(`${root}/.meta/figure-reference-update.json`);
-  await io.writeText(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", title: "Gate", manuscript: { path: "manuscript/main.qmd" }, supplementary: [], figures: [], slides: [] }));
+  await io.writeText(`${root}/project.json`, JSON.stringify({ schemaVersion: "0.1.0", id: "fixture-project", references: { library: "bib/library.bib" }, title: "Gate", manuscript: { path: "manuscript/main.qmd" }, supplementary: [], figures: [], slides: [] }));
   await io.writeText(`${root}/manuscript/main.qmd`, text);
   await save(initial);
 };
@@ -76,14 +76,14 @@ try {
   eq(await io.readText(`${root}/manuscript/main.qmd`), buffer, "live document flush is durable before completion");
   unregister();
 
-  await reset(); const interrupted = await prepare(); await save(changed); releaseFigureReferenceUpdate(root, interrupted);
+  await reset(); const interrupted = await prepare(); await save(changed); await releaseFigureReferenceUpdate(root, interrupted);
   eq(await recoverFigureReferenceUpdate(root, io), 1, "reopen recovers crash after figure commit before manuscript rewrite");
   eq(await io.readText(`${root}/manuscript/main.qmd`), expected, "recovery preserves reference meaning");
   eq(await recoverFigureReferenceUpdate(root, io), 0, "recovery is idempotent");
-  await reset(); const aborted = await prepare(); releaseFigureReferenceUpdate(root, aborted);
+  await reset(); const aborted = await prepare(); await releaseFigureReferenceUpdate(root, aborted);
   eq(await recoverFigureReferenceUpdate(root, io), 0, "crash before figure write discards uncommitted plan");
   eq(await io.readText(`${root}/manuscript/main.qmd`), text, "aborted figure edit leaves text unchanged");
-  await reset(); const conflicted = await prepare(); await save(changed); releaseFigureReferenceUpdate(root, conflicted);
+  await reset(); const conflicted = await prepare(); await save(changed); await releaseFigureReferenceUpdate(root, conflicted);
   await io.writeText(`${root}/manuscript/main.qmd`, "External edit survives @fig-study-a");
   await rejects(() => recoverFigureReferenceUpdate(root, io), /conflicts with newer file edits/, "recovery refuses to overwrite independent manuscript edits");
   eq(await io.readText(`${root}/manuscript/main.qmd`), "External edit survives @fig-study-a", "conflicting recovery retains newer document bytes");

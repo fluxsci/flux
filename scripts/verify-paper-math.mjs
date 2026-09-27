@@ -100,7 +100,7 @@ const exp = await page.evaluate(async (doc) => {
     num: full.includes('<span class="eq-num">(1)</span>'),
     eqRef: />Eq\. 1</.test(full),
     currency: full.includes("$5 and $10"),
-    cssGated: (full.match(/data:/g) || []).length >= 20 && (plain.match(/data:/g) || []).length === 0,
+    cssGated: (full.match(/url\(["']?data:font\//g) || []).length >= 20 && (plain.match(/url\(["']?data:font\//g) || []).length === 0,
   };
 }, DOC.replace(/^# Math\n\n/, ""));
 ok(exp.katex && exp.eqId && exp.num, "export renders KaTeX + eq-block id + (1)");

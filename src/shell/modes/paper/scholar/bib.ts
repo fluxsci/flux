@@ -11,6 +11,8 @@ import { inTextAuthorYear } from "../../../../lib/references/format";
 export type BibEntry = RefEntry;
 
 export const bibEntries = writable<BibEntry[]>([]);
+/** Exact accepted source for immutable Quarto jobs; never reconstructed from display entries. */
+export const bibSource = writable<{ root: string; text: string } | null>(null);
 
 // M12: surfaces a non-blocking notice when library.bib fails to parse (so a
 // corrupt file doesn't silently yield zero citations). null = no problem.

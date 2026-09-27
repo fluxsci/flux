@@ -1,3 +1,4 @@
+import { currentPdfIdentity } from "./items";
 // flux-core/fulltext.ts — extract a PDF's text (pdf.js legacy build, no worker) into a
 // flat string. Backs items/<key>/fulltext.txt: full-text search + the get_paper_text
 // MCP tool (agent reading context). Page texts are joined with form-feeds so downstream
@@ -34,16 +35,16 @@ export async function extractFulltext(bytes: Uint8Array): Promise<Fulltext> {
   // getDocument is a lazy async wrapper (see above) → it resolves to the pdf.js
   // loading task; await it before touching .promise/.destroy().
   const task = await getDocument({
-    data: bytes,
+    data: bytes.slice(),
     useWorkerFetch: false,
     isEvalSupported: false,
     useSystemFonts: false,
     // keep Node quiet + dependency-free (no canvas / standard-font network fetches)
     verbosity: 0,
   } as any);
-  const doc = await task.promise;
   const parts: string[] = [];
   try {
+    const doc = await task.promise;
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       const tc = await page.getTextContent();
@@ -63,9 +64,9 @@ export async function extractFulltext(bytes: Uint8Array): Promise<Fulltext> {
  *  detaches the buffer). Throws only on a hard pdf.js failure (scanned image PDFs still return
  *  their empty text). */
 export async function extractPdfSignals(bytes: Uint8Array): Promise<PdfSignals> {
-  const task = await getDocument({ data: bytes, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: false, verbosity: 0 } as any);
-  const doc = await task.promise;
+  const task = await getDocument({ data: bytes.slice(), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: false, verbosity: 0 } as any);
   try {
+    const doc = await task.promise;
     const n = doc.numPages;
     // Metadata (Info dict + XMP). Both optional; scan for a DOI + a title.
     let xmpDoi: string | undefined;
@@ -126,6 +127,7 @@ export async function getOrExtractFulltext(key: string, libPath?: string): Promi
   const cached = await readFulltext(key, libPath);
   if (cached && cached.trim()) return cached;
   if (!(await hasPdf(key, libPath))) return null;
+  const generation = await currentPdfIdentity(key, libPath);
   const bytes = await readPdf(key, libPath);
   if (!bytes) return null;
   try {
@@ -133,8 +135,7 @@ export async function getOrExtractFulltext(key: string, libPath?: string): Promi
     // and pdf.js detaches the buffer it's handed.
     const ft = await extractFulltext(new Uint8Array(bytes));
     if (ft.chars > 0) {
-      await writeFulltext(key, ft.text, libPath);
-      return ft.text;
+      if (await writeFulltext(key, ft.text, libPath, generation)) return ft.text;
     }
   } catch {
     /* unextractable (scanned/image PDF) */

@@ -36,9 +36,9 @@ const fig5 = await page.evaluate(() => {
   // restore() re-attaches the live value — if that were broken it'd come back empty).
   F.fig.commit((p) => {
     p.colorGroups = [
-      { name: "a", colors: [] },
-      { name: "b", colors: [] },
-      { name: "c", colors: [] },
+      { name: "a", swatches: [] },
+      { name: "b", swatches: [] },
+      { name: "c", swatches: [] },
     ];
   });
   const groupsBefore = (F.get(F.fig.project).colorGroups ?? []).length;

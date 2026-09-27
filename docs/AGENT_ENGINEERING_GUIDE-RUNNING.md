@@ -45,10 +45,10 @@ Flux is a desktop **scientific writing studio**: manuscript editor (Paper), figu
 vestigial). It is deliberately **agent-native**: an AI agent is a first-class user with the same
 capabilities as the GUI, through three surfaces:
 
-- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — both generated from **one
-  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`). They operate on
-  project files directly through `flux-core/*` (Node).
-- **Live bridge** (`electron/bridgeServer.cjs` + `src/lib/project/liveClient` path) — a loopback
+- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — most file verbs share **one
+  verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`); legacy wrappers and handwritten
+  CLI help still remain. They operate on project files directly through `flux-core/*` (Node).
+- **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
 - **The Context layer + principal runtime** (principal-agent scheme, 2026-07-19): all agent
@@ -92,6 +92,7 @@ The established shared cores — extend these, don't duplicate them:
 | Text folding / fulltext terms | `src/lib/references/textFold.ts` | `verify-fulltext-search.ts`, `verify-scale-fulltext.mjs` |
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
+| Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
@@ -143,13 +144,25 @@ Persistence invariants (all machine-checked — do not weaken):
   `comments.json` and its document-named `<base>.comments.json` sidecar, deduplicated by thread
   id. Promoting a secondary manuscript to main must never make its existing comments vanish.
 
-- **Every canonical write is atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
+- **Canonical replacement writes must be atomic** (`tmp + fsync + rename`; `flux-core/fsx.ts`,
   `atomicWriteMain` in `electron/ipc/files.cjs`). Directory entries are fsynced after rename
-  batches (`fsyncDir`).
-- **fig/ saves have a commit point**: canvas files first → dir fsync → captions →
-  `index.json` **last** (+ one-generation `index.json.bak`). The index never references a canvas
-  file that doesn't exist, even across SIGKILL (`verify-figsave-txn.ts`). The ordering lives once,
-  in `executeFigSave` (figfiles.ts) — never reorder it.
+  batches (`fsyncDir`). This is a per-file primitive, not proof of read-modify-write isolation
+  or whole-project crash atomicity; generation and operation-lease contracts supply the
+  separately tested multi-file and concurrency behavior below.
+- **Figure and Deck saves publish recoverable generations.** `executeFigSave` plans canvases,
+  captions and index (plus one-generation `.bak`) in reference-safe order. Ordinary GUI/Node
+  saves and source/conversion clients stage assets and fresh project registration with them.
+  `textGeneration.ts` flushes an exact old/new text-or-binary journal before replacement and
+  each parent directory after publication. Restart restores recorded originals; unknown external
+  edits retain the journal and refuse guessing. `verify-v020-crash-recovery.ts` checks eight
+  real SIGKILL barriers and both old/new complete outcomes. This is not a filesystem-wide
+  atomic snapshot or a cross-machine sync protocol.
+- **Recover within the owning project before adopting its manifest.** GUI and Node startup
+  recover export/generation journals before accepting project registration. Journal and all
+  entry paths are preflighted against that project's realpath boundary, including absent
+  targets through their existing parent. A symlink into another simultaneously approved
+  project is still refused; general native grants are not a generation's asset capability.
+  No sibling write begins until the complete recovery plan is confined and owned.
 - **A successful save that leaves dirty state needs a trailing save.** The boolean dirty
   store does not emit again for true → true. An edit during asynchronous persistence can
   therefore remain unsaved without another schedule notification. `createAutosave` schedules
@@ -168,7 +181,18 @@ Persistence invariants (all machine-checked — do not weaken):
   referenced canvas) blocks subsequent GUI saves, including force-save; headless load rejects
   it. Never overwrite a healthy sibling from an incomplete model. Byte-preservation tests
   must reopen compositions as well as compare assets (`verify-figfiles-parity.ts`).
-- **Source updates publish only after persistence.** `plot/sourceSync.ts` plans complete
+- **Recovery entry preserves saved reads.** CLI/MCP startup probes confined export/source
+  journals before taking restoration leases. With no journal, a read-only command (including
+  the GUI's saved video export) coexists with the editor's recent-activity lease. A pending
+  journal still requires the normal operation leases and is re-read and validated under
+  ownership before restoration. The probe does not authorize mutation or establish a
+  snapshot across unrelated concurrent writes; mutation handlers retain their own leases.
+- **Source updates must publish only after persistence.** `project/sourceBridge.ts` now prepares
+  privately, persists the generation, then publishes model/cache/accepted sizes. The shared
+  `project/textGeneration.ts` journal retains exact old/new text or base64 bytes and compares before recovery;
+  unexpected external edits retain the journal for deliberate repair. This is a recoverable
+  generation protocol, not a filesystem-wide atomic rename. See the V0.2 evidence ledger for
+  tested failure stages and remaining cross-owner qualification. `plot/sourceSync.ts` plans complete
   SVG/manifest/recipe bundles, validates changes, preserves last-good bytes on missing or
   malformed sources, and applies shared physical sizing. `project/sourceBridge.ts` owns
   catch-up/watch/retry independent of the active mode; `slide/sourceSync.ts` adapts deck-local
@@ -191,6 +215,9 @@ Persistence invariants (all machine-checked — do not weaken):
   surviving placements onto the accepted source revision without resurrecting removed imports
   or undoing independent source updates. Relevant SVG changes invalidate paused slide previews;
   replay compiles the new bytes, while unrelated asset changes leave the preview alone.
+  On initial/returning Figure mount, source catch-up follows complete snapshot adoption.
+  A same-root tenant restored from Slide may hold an older Figure baseline; never use it
+  to publish source updates before reading the newly converted or externally saved figures.
   `figureSourceOwners.ts` lets saved deck placements and animation targets keep a registered
   `fig/assets` source alive after its last Figure placement is deleted. Its synthetic owners
   exist only in the read-only planning view, never in persisted canvases. Respect frozen and
@@ -258,6 +285,20 @@ Persistence invariants (all machine-checked — do not weaken):
   (union the lines); everything else is the user's call. The scan runs on project open, not just
   from watcher events: conflicts arrive while Flux is CLOSED, which is exactly when the other
   machine was in use.
+- **The reference library's `library.bib` is the second shape with an automatic answer (2026-09-26):
+  union the ENTRIES.** A `library.sync-conflict-*.bib` beside FluxLib's `library.bib` merges
+  itself — `src/lib/references/bibConflict.ts` `planBibConflictMerge` (pure: same-citekey =
+  same record, then the add planner's DOI/signature dedupe, the copy's citekeys + `dateadded`
+  kept, canonical entries never modified or removed) — at app start, on Library open, and
+  before ANY library write in both engines (`fluxlibBridge.mergeLibraryConflictCopies`,
+  `flux-core/fluxlib.ts mergeLibraryConflictCopies`). The copy is ARCHIVED to
+  `.fluxlib/sync-conflicts/library.other-machine-<stamp>-<device>.bib` (renamed so the scan
+  stops reporting it), never deleted. A library write is never refused because of a stray
+  sibling file: from the 09-21 fortification to 09-26 `assertNoCanonicalConflict` blocked every
+  add while such a copy existed, and the only symptom was the assign inbox saying "network
+  unavailable" for a day. Other FluxLib files (`.fluxlib/organize.json`) still block on a copy
+  and reach the same Shell banner as project conflicts (the scan covers FluxLib's top level,
+  `maxDepth: 1`, project open or not). Gated by `verify-assign-outcome.ts`.
 - **Figure ORDER is `p.figures`' array order, per canvas, and it is the user's** (2026-08-19):
   the sidebar's Figures list renders that order, the user drags rows (or presses Alt+↑/↓) to
   change it, and `planFigSave` persists it — canvas files list figures in it and `index.json`
@@ -266,7 +307,7 @@ Persistence invariants (all machine-checked — do not weaken):
   shared array are permuted, so canvas B's order can never disturb canvas A's). Order and
   NUMBERING are deliberately orthogonal: reordering touches no geometry and no
   family/number, and `computeFamilyNumbers` sorts by claimed number, not by array position —
-  renumbering stays `assignFamilyNumber`'s insert-and-shift (the namer, Ctrl+R). The paper
+  renumbering stays `assignFamilyNumber`'s insert-and-shift (Figure-Meta Name tab, Ctrl+R). The paper
   side is unaffected either way: its pickers/completions sort by family rank + number.
   Gates: `verify-fig-order.ts` (pure) + `verify-fig-order-gui.mjs` (ui).
 - **Document ORDER is the user's too, and it is a manifest field** (2026-08-20): the Paper
@@ -324,25 +365,34 @@ Persistence invariants (all machine-checked — do not weaken):
   and large lists mount a window of rows. `verify-paper-sidebar-layout.mjs` checks actual
   geometry, long headings, resizing, hide/show, persistence and pointer cancellation.
 - **Byte-identical rewrites are skipped** everywhere (watcher churn, disk wear, mtime stability).
-- **Divergence detection**: the GUI keeps per-file baselines (index, every canvas, decks); an
-  external edit raises `ConflictError` → the reload/overwrite banner. Force-overwrite re-baselines
-  from disk. Never silently clobber (`verify-canvas-divergence.ts`).
+- **Divergence detection**: the GUI adopts model, baselines and caches together after root,
+  tenant/request and edit-generation checks. Supported Figure overwrite preserves both
+  branches under `.meta/figure-conflicts/` before replacing bytes; the editor caption wins
+  in both canvas and Markdown. Missing/corrupt current metadata uses the last complete
+  accepted snapshot. Future schemas and unknown IO errors refuse, remain dirty and show
+  the reason. Partial initial previews cannot save. Gates include actual button actions,
+  exact preserved bytes and reopen, not only the force flag.
 - **Forward-version guards**: files stamped with a newer breaking format (0.x → **minor** is the
   breaking slot) refuse to load and are never rewritten (`verify-fwdguard.ts`).
-- **Load gate**: parse → `migrateProject` → validate ("legacy-lenient, post-migration-strict");
-  invalid derived files are quarantined as `.corrupt-<ts>` copies, never half-loaded.
-- **Locks**: mutating headless verbs run `mutateFigModel` (load→mutate→save inside the `project`
-  lock) and journal afterwards. A held human lock defers agents with the standard
-  "deferred … is locked" message (CLI exit 75 via the error taxonomy). Lock claims and
-  restamps are **content-atomic** (tmp + hard-link / rename — `flux-core/locks.ts`, mirrored
-  by the GUI's `writeLockFile`): the old open("wx")-then-write claim let a contender read the
-  just-created file EMPTY, judge it corrupt, delete the holder's live lock, and walk into the
-  critical section beside it (a real lost update, found 2026-08-13 by verify-note's contention
-  gate; pinned in verify-w3-locks §6). Corollaries: never clear a lock you couldn't READ as
-  stale (a vanished file just retries; corrupt content clears only past the TTL by mtime), and
-  clear a stale lock by RENAME-to-trash so two contenders can't double-clear each other's
-  fresh claim. Notebook session-log entries have a dedicated locked appender: `flux note`
-  (`addNote`, manuscript lock — safe with N concurrent principals; verify-note).
+- **Load gate**: parse → `migrateProject` → validate ("legacy-lenient, post-migration-strict").
+  The common Figure reader distinguishes complete/partial/future/failed snapshots and retains
+  the raw collection until semantic uniqueness/ownership/finite-geometry checks pass. Only a
+  complete supported snapshot is mutable. Canonical corruption is preserved; disposable derived
+  caches may be quarantined/rebuilt by their owning cache contract.
+- **Locks belong to operations.** `electron/operationLease.cjs` supplies the filesystem protocol
+  to Node `flux-core/locks.ts` and sender-bound native `electron/guiLeases.cjs`. Independent
+  same-process tasks queue for the whole callback; every acquisition has an unpredictable
+  token. Renewal/release compare that token, and nesting requires an explicit parent handle.
+  Short contested transitions use unique per-contender registers; a live local process is
+  never expired just because its original timestamp passed a TTL. Native short children of a
+  human activity lease have separate serialized ownership and keep the parent alive until
+  completion. Validate the captured project root and assert ownership before publishing.
+  A human activity lease still defers headless writers. Resource ordering is export → project
+  (Figure) → slides → manuscript → reference/library → manifest; never reacquire an outer resource through
+  an implicit same-PID shortcut. This coordinates cooperating writers on one filesystem; it
+  does not provide cross-machine cloud-sync exclusion or filesystem CAS against arbitrary
+  external editors. `verify-operation-leases.ts` and `verify-w3-locks.ts` cover operation and
+  process contention; remaining adverse/native checks are recorded in the V0.2 ledger.
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
@@ -362,6 +412,11 @@ Persistence invariants (all machine-checked — do not weaken):
   Numeric pointer mechanics (`scrub.ts`) do not own project history. Gap/Scale% are local
   parameters. Resizing derives proportions from original dimensions and retains fractional
   precision; pixel snapping is an explicit geometry policy.
+  A standalone `mutate` now owns its transaction; use `mutateDisplay` only for deliberate
+  non-authoring refresh. Throwing outer callbacks restore model/history/redo/companion state;
+  nested operations compose into the outer edit. If persistence already captured a preview,
+  cancellation remains dirty and schedules the restored state for a trailing save. NumberField
+  timers settle their captured target on target switch/destroy rather than joining another edit.
 - **Figure selection and direct manipulation:** pass the selection Set explicitly into legacy
   reactive blocks; function-hidden store reads do not create Svelte dependencies. The shared
   `selectionTargets.ts` resolves visibility, ancestor locks and capability exclusions. A mixed
@@ -385,20 +440,53 @@ Persistence invariants (all machine-checked — do not weaken):
   `compileStaticContent` bindings inherit it), and the Canvas textarea overlay offsets itself
   by its `offsetY` — there is no second formula anywhere. Load-bearing details: **"top"
   renders byte-identically to pre-arrangement Flux** (baseline = `y + fontSize`, no
-  half-leading), so untouched projects do not move; **justification is `textLength` +
-  `lengthAdjust="spacing"` per tspan**, never a measured word-space, so it needs no font
-  metrics and works in resvg; **a paragraph's last line is never stretched**, which requires
+  half-leading), so untouched projects do not move; **justification shares a line's slack
+  between its WORD GAPS** (2026-09-22, owner report "it changes the spacing between letters"):
+  `lineWidths` — the natural advance of each visual line, measured by `applyTextLayout` beside
+  the `lines` cache and dropped with it — turns the box width into a per-gap offset, which
+  `blockLayout` attaches as `dx` on the segment that starts each word. Nothing measures at
+  render time, so both engines agree, and resvg honours `dx` exactly (verified: two 30px gaps
+  move the ink 60px). The OLD whole-line `textLength` + `lengthAdjust="spacing"` remains as the
+  fallback when a line has no measured width — a headless edit, or a file written before the
+  widths existed — and it is why the complaint was valid: that spreads the slack between every
+  pair of glyphs. A line with no word gap (one long word) is never stretched at all;
+  **a paragraph's last line is never stretched**, which requires
   knowing which visual lines close a paragraph — that is DERIVED (`paragraphEndFlags`) by
   matching the flat `lines` wrap cache's ink back onto the text's hard lines, never stored, and
   a cache that cannot belong to the text degrades to "every line ends a paragraph" (nothing
   justifies) rather than to a wrong stretch. **`letterSpacing` is a wrap METRIC**: it rides
   `ctx.letterSpacing` in `browserMeasure` and is in `TEXT_LAYOUT_KEYS` / tween `METRIC_PROPS`,
-  so a tracking change re-wraps. Each property stores its DEFAULT AS ABSENCE
+  so a tracking change re-wraps. Proportional K scaling multiplies pixel-valued
+  letter/paragraph spacing with font size in `editing.ts scaleRemap`; lineHeight
+  stays dimensionless and absent spacing defaults stay absent. Each property stores its DEFAULT AS ABSENCE
   (`valign: "top"`, `letterSpacing: 0`, `paragraphSpacing: 0` delete the field), which is what
   keeps old files byte-identical. `blockLayout` runs per text per render on scenes with
   hundreds of labels, so it is ONE pass with two fast paths (one visual line; one hard line)
   and no intermediate arrays — the first cut allocated two arrays and ran two regexes per line
   and cost +10% on the dense nudge (scale-figure 167 → 184 ms).
+- **A text element can format PART of its string** (2026-09-22): `runs?: TextRun[]` holds
+  `{from, to, bold?, italic?, underline?}` over `text`, and `textRuns.ts` is the ONE source for
+  all of it — normalization, toggling, remapping across an edit, and cutting a line into
+  segments. Each flag is TRI-STATE: absent inherits the element, so a word can be italic in an
+  upright box and upright in an italic one. Runs are clamped, sorted, non-overlapping and
+  merged, a flag that merely restates the element is PRUNED, and an empty list deletes the
+  field — absence is the default, which is what keeps every pre-2026-09-22 file byte-identical
+  (`pruneTextRuns` runs after every element-level font change and after a named style applies).
+  `blockLayout` attaches `segments` to a line only when a run touches it, mapping visual lines
+  back to text offsets through `visualLineSpans`; an unmappable wrap cache degrades to
+  UNFORMATTED lines rather than to wrong offsets, the same safe direction `paragraphEndFlags`
+  takes. `export.ts` nests one tspan per differing segment inside the line's tspan, carrying
+  ONLY what differs and never an `x` (that would restart the line), so justification still
+  rides the line tspan and an unformatted text serializes exactly as before; the slide player
+  rebuilds those children only when the segment key changes. **Measurement is run-aware**:
+  `elementMeasure` cuts at run boundaries and measures each piece in its own font, which is why
+  `wrapLine`/`wrapText` now thread a text OFFSET into the measure — a bold word is wider and
+  wrapping has to know. THE EDITING LIMIT: the inline editor is a `<textarea>`, which cannot
+  render mixed fonts, so runs are invisible while typing and appear on commit; Ctrl+B/I/U
+  formats the SELECTION, and a selection that is empty or covers everything means the element
+  (the editor opens with everything selected, so that case has to mean the element). Escape
+  discards the whole edit session, blur commits it. Agents cannot set runs yet — no verb
+  exposes them.
   **Justification needs a wrap width, and the product has to hand the user one** (owner
   report 2026-09-18, "justify does not work"): a hugging box (`sizing: "auto"`) has no wrap
   width — its width follows the text — so nothing ever wraps and Justify was a silent no-op
@@ -421,13 +509,43 @@ Persistence invariants (all machine-checked — do not weaken):
   pure operation offsets elements/guides oppositely to origin changes, preserving world position,
   physical size, hidden/out-of-bounds artwork, assets and references. CLI/MCP/live bridge expose
   `resize_figure_frame`; the live bridge refuses it in Slide mode (stage size belongs to the deck).
+- **Element resize contract:** handles describe world-axis bounds. Cardinal rotations map
+  the axes exactly; oblique boxes constrain the gesture to uniform scaling because arbitrary
+  world-axis stretch would require shear absent from the file format. Preview and commit use
+  the same pure transform, including rotated/flipped line endpoints. Arrange/align/distribute
+  use the same outermost editable selection units and visual bounds as Canvas. Part outlines
+  retain local bounds and project the current viewport; compositor warmth never delays new
+  settled-target hover. Panel auto-lettering refuses beyond the supported26 rather than
+  creating duplicate caption keys.
+- **Cross-figure drop (2026-09-25):** an element move released over ANOTHER figure's frame
+  re-parents the selection into that figure through `ops.moveElementsToFigure` — world
+  position kept (the frames' offset folds into local x/y), the moved run on top of the
+  destination's z-order, a group travelling only when every deep member moves (a partial
+  member arrives loose), panel captions following their labels, one gesture = one undo entry.
+  The target is the frame under the CURSOR (Figma), computed from the pointerdown world point
+  plus the client delta so the gesture never reads layout; the frame lights up via the same
+  `droptarget` class as an OS file drop. The commit is an unscoped `mutate` (two figures
+  change) and the destination becomes the active figure. Figure editor only — the slide
+  `frame` view shows one slide, so there is nothing to drop onto. Ctrl+X (`cutSelected`)
+  copies the EDITABLE targets and deletes them, so what lands on the clipboard is exactly what
+  left. Gates: `verify-ops.ts` (pure) + `verify-cross-figure-drag.mjs` (ui, real gestures).
 - **Figure export jobs:** resolve SVG/plot DOM/assets and dimensions before any dialog await.
+  Detached export prepares every required SVG independently of the capped editor DOM cache;
+  unavailable required assets fail by name. `plot/passiveSvg.ts` applies a namespace-aware
+  passive SVG policy with parsed CSS, local reference rewriting and inert host policies.
+  Original imported SVG bytes remain untouched. Shared XML escaping protects author strings;
+  project asset resolution also enforces lexical and realpath containment in both engines.
+  `verify-v020-svg-hosts.mjs` tests live Figure, detached gallery, standalone SVG, Paper iframe
+  and portable Paper/Slide with actual pixels and a local unauthorized-request recorder.
   Preserve Chromium’s established SVG canvas rasterizer; transfer an ImageBitmap to
   `figure/raster.worker.ts` for readback/TIFF/PNG encoding, with cancellation and bounded
   allocations. Do not silently reduce DPI. Alpha coverage is exact; bitmap premultiplication can
   differ by one 8-bit color rounding unit. Electron `printToPDF` custom sizes are **inches**,
   unlike `webContents.print` microns. Serialized hidden-window printing includes awaited cleanup
-  and atomic output writes. The native Figure gate verifies physical PDF MediaBox dimensions.
+  and atomic output writes. Static print uses a private session with JavaScript disabled,
+  120-second stage deadlines, and missing/blocked asset refusal before publication. Top-level
+  SVG is block layout to avoid an extra blank page. Native gates inspect exact text, page
+  count and physical PDF MediaBox dimensions, and retain previous output on failure.
 - **External-reload contract (2026-08-14):** an agent/CLI edit to `fig/` that live-reloads a
   clean editor (W10) — or the banner's "Reload theirs" — must land IN PLACE: the user's active
   canvas/figure/selection are preserved wherever their ids survive (first-canvas fallback only
@@ -514,6 +632,15 @@ Persistence invariants (all machine-checked — do not weaken):
   completed-word lane and a separate completed-sentence lane. Both lint through the dedicated
   module worker (`localCorrection.worker.ts`, Harper slim WASM), then revalidate exact source
   against the current document before applying each accepted batch in isolated history.
+  **TWO WORKER LANES (2026-09-22):** `localCorrectionService` runs a `live` linter and a lazy
+  `background` one, and `lint()` picks by mode — `repair` is live, `lintOnly` is background.
+  One `linter.lint()` is a single INDIVISIBLE WASM call (17 unknown scientific words measured
+  at 1.6s of pure WASM time), so the worker's queue priority cannot preempt a backlog window
+  that has already started; only a second thread keeps the live lanes responsive, which is
+  what `verify-v020-paper-workers`' sub-second budget pins. A `lintOnly` check that is itself
+  latency-bound passes `"live"` explicitly — the rescue-word validation does, because it sits
+  inside the 1.5s application window. Vocabulary and dialect messages broadcast to every live
+  lane; the published engine status is the live lane's.
   **THE WINDOW RULE (2026-08-09):** every window is a SLICE, but the linter reads each one as a
   whole document, so a window must carry enough language to be read correctly and must declare
   what it may change. The word lane submits the SENTENCE SO FAR with a `focus` — the final two
@@ -771,17 +898,45 @@ Persistence invariants (all machine-checked — do not weaken):
   via `readerTerminalPane`). Split panes: `paneId` threads Pane → ModeContent → mode;
   a reader pane shows `paneActiveTab[paneId] ?? readerTabs.active`, with every reader pane
   PINNED to its current paper before any re-target (one pane's change never retargets the
-  other). reader-context.json has a single writer (module-level owner token; only the
-  focused doc publishes, only the last writer clears). Same-paper-in-two-panes annotation
+  other). reader-context.json has one native sender/token owner across windows, with
+  serialized publication and a commit-time ownership check. OS blur retains the last
+  timestamped context for external agents (`foreground:false`); only its existing
+  owner may renew expiry without changing captured content. A newly focused Flux
+  reader supersedes the token, pane/source close clears it, sender destruction
+  retires it, and expiry handles process crashes. FluxConfig changes drain context
+  writes before moving roots. Source request epochs prevent stale PDF/annotation
+  loads from replacing the accepted reader. Same-paper-in-two-panes annotation
   sync rides `annotationsBridge.annotationsRev` (one bump per in-app write; writers
-  skip their own by count — the fs watcher suppresses self-write echoes, so
+  identify their own origin UUID and annotation epoch — the fs watcher suppresses self-write echoes, so
   fluxLibRevision never covered in-renderer cross-view sync). Gates: `group:reader-gate`
   (see the manifest for current membership) + the `src/shell/modes/reader/**` pathMap entry; tab semantics pinned in
   `verify-r7-tabs.mjs`. Gate-selector rule: probes must scope to
   `[data-doc-active="true"]` (hidden kept-alive docs are in the DOM) and to panes BY INDEX
   (every `.pane` sits alone in a `.slot` wrapper, so `:first/last-child` match both).
+- **Durability errors:** directory sync is required after canonical rename batches on Linux/macOS.
+  Only unsupported-filesystem sync errors are tolerated; missing directories and I/O failures
+  reach the writer. Windows directory sync is explicitly unavailable. Recovery writes and
+  cleanup require current operation ownership just like ordinary publication.
+- **Reference generation recovery:** normal GUI and Node item reads inspect pending PDF
+  identity records while holding the item lease. A matching committed hash completes derived
+  metadata, the prior hash discards the pending marker, and unknown/corrupt identities preserve
+  every byte and refuse recovery. Linked pointers recover without opening the external file.
+  Extraction receipts include size, mtime and change time; manual metadata and annotation bytes
+  are preserved. The process-owned fulltext worker retains a reusable index, with a bounded
+  queue, pane/request-qualified progress and cancellation, restart and deadline termination;
+  no whole-corpus search runs on main. Watcher candidates update independently of renderer
+  event coalescing. Warm queries and two-second idle passes inspect128 rotating candidates;
+  directory discovery also runs at30seconds to repair missed events. Complete startup/cache
+  rebuilds report progress, and exact text matching still decides hits. Derived schema3
+  indexes verify structural fields and a SHA256 integrity receipt; rejected/older indexes
+  rebuild from source text. Null-prototype token maps preserve words such as `constructor`.
+  FluxConfig relocation drains the worker before moving its root and blocks new queries
+  until that operation settles. These are local worker/cache guarantees, not instant
+  cross-machine filesystem synchronization.
 - Electron: `main.cjs` is a **composition root**; handler families live in
-  `electron/ipc/{contract,files,terminal,network,agent}.cjs`. Every IPC channel is declared in
+  `electron/ipc/{contract,files,terminal,network,agent,capture,readJobs,staticPrint}.cjs`.
+  `globalLibraryWatcher.cjs` owns the process-wide watcher; native diagnostics/recovery are
+  independently instantiated with explicit dependencies and terminal disposal. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
   under a **CSP with no `unsafe-eval`** — see §5.
 - **Multi-window (2026-08-11): one process, N windows, one project per window.** All
@@ -811,6 +966,26 @@ Persistence invariants (all machine-checked — do not weaken):
   when the gallery closes. Recreate list size observers in the destination window on pin
   and dock: an observer created in a hidden opener stops delivering resizes, leaving the
   pinned gallery's columns and virtual row count stale until the opener regains focus.
+- **Figure-Meta (2026-09-26)** replaces the Figure caption overlay and naming popup.
+  Workspace lazy-loads `figure/FigureMeta.svelte` for Alt+M in Figure/Paper; Ctrl+R and
+  sidebar double-click open Name. Shift+Alt+M/G opens metadata/gallery pinned.
+  Metadata changes use pure `figure/metadata.ts` operations and field-level expected values.
+  A resident Figure commits through its history/autosave owner; cold Paper reads a complete
+  independent snapshot and publishes a recoverable generation under project/manifest leases.
+  Never load that snapshot into a Slide tenant. Keep drafts on failure and drain newer input
+  arriving during async saves before closing or changing project. Retain orphan captions.
+  `captions.__ps__` holds optional unlabelled closing prose; shared `captions.ts` composes it
+  after every panel. It is a reserved active block, never an orphan during Markdown import.
+  A plain-text projection cannot encode a new boundary: retain an unchanged known suffix,
+  otherwise import the rewritten prose into ordinary blocks without reappending obsolete ps.
+  `FigureMetaPreview` fits artwork plus caption as one measured sheet; zoom changes only its
+  view transform. Reconnect both viewport/sheet observers after pin/dock. Caption folding is
+  view state; typing size uses the existing caption preference and autogrow action.
+  Live previews snapshot the current model into Paper’s sliced serializer and font/image
+  renderer; disk previews use Paper’s revision cache. Utility windows host the same mounted
+  view in exact-allowlisted inert HTML; reconnect
+  document-bound observers and focus after pin/dock. Gates: `verify-figure-metadata.*`,
+  `verify-caption-fit.mjs`, `verify-fig-namer.mjs`, `verify-m11-m14.mjs` and paper-gate.
 - **The 2026-09-15 editing surface (Figure + Slide): one style, one property model, one wheel.**
   Chrome follows the surface contract pinned by `verify-xray-theme.mjs` / `verify-fmenu-surface.mjs`:
   sans chrome (`--font-ui`), mono values and eyebrows, `--r-ui` 2px / `--r-panel` 3px radii,
@@ -818,7 +993,7 @@ Persistence invariants (all machine-checked — do not weaken):
   blur/gradients/glow, ≤90 ms opacity-only transitions, nothing animating at rest (reduced
   motion via CSS media queries, never a boot-time flag). Left-hand chords match on `e.code`
   (macOS Option+letter yields `e.key` "®"/"©"): Alt+R X-ray, Alt+G plot gallery, Alt+T arrange,
-  Alt+C caption; the align chords are `e.code` too. Settings is a tabbed dialog (General /
+  Alt+M Figure-Meta (Figure and Paper); the align chords are `e.code` too. Settings is a tabbed dialog (General /
   Figure / Paper / Corrections, every pane mounted and `hidden`-toggled, tab in
   `flux.ui.settingsTab`). Each pane owns its scroll position; `modalFocus` contains Tab and
   Shift+Tab, and closing restores the invoking control. The collection defaults share the
@@ -914,13 +1089,31 @@ Persistence invariants (all machine-checked — do not weaken):
     Chromium re-layerizes the whole page (`PaintArtifactCompositor::Update`, O(paint chunks))
     after EVERY inline-style transform write, will-change or not — 4–7 ms per frame over a
     dense scene, i.e. the entire budget of a "compositor-only" pan spent on the main thread.
-    While `sceneHot`, `.scene`'s transform is carried by ONE paused Web Animation whose
+    During translation (never live scaling), `.scene`'s transform is carried by ONE paused Web Animation whose
     keyframes are replaced per change (the compositor owns the value; one layerization per
-    gesture, `scripts/perf/layerize-lab.mjs` proves it standalone), and the inline style is
+    pan gesture, `scripts/perf/layerize-lab.mjs` proves it standalone), and the inline style is
     written alongside so probes and at-rest gates read the truth. `cool()` cancels the
     animation in the same frame the style holds the value — no flash, no permanent promotion,
     the P6 crisp-at-rest lifecycle unchanged. Reuse the drive for any per-frame transform on a
-    heavy subtree; never go back to `style.transform` per tick.
+    heavy translating subtree. **Live zoom must cancel the animation and remove
+    `will-change:transform` before painting.** Chromium retains the largest raster scale
+    while either is active; rapid 16×→5% zoom-out exhausted the entire window's tile pool
+    on NVIDIA/Wayland. Non-animated live scaling permits raster resolution to shrink.
+    Demote before every settle fold, including when no proxy was available. Do not mask
+    this with larger tile budgets or software rendering. `verify-canvas-zoom-raster.mjs`
+    pins this lifecycle, exact mapping, authored-data preservation and subsequent fast pan;
+    the native `input-probe.cjs --phases=zoomDeep --frames --assert-no-flicker --maximize`
+    covers the actual deep-zoom reproduction and records GPU/viewport/DPR evidence.
+  - **The zoom range is 5%–25600% and lives in ONE module** (`interact/zoomLimits.ts`,
+    2026-09-25; the ceiling was 16× until the owner asked for far more). The Ctrl-wheel
+    (Canvas) and the toolbar −/+ clamp through `clampZoom`; programmatic writes (fit,
+    centre-on-figure, gates) pick their zoom deliberately and are not clamped. The ceiling
+    is a float32 precision guard (device px stay under ~1e6 for figures up to 3,000 units),
+    NOT a raster budget: the settle fold bakes any zoom into `scale(renderZoom)` and tiles
+    are viewport-bound, so deeper zoom costs nothing extra. `verify-zoom-limits.ts` (pure)
+    pins the range and the sharing; `input-probe.cjs --phases=zoomDeep` derives its notch
+    count from the resting baked zoom because it used to lean on the old ceiling to land
+    at exactly 16×.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
     After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
     serialized in world units and rasterized once to PNG. Caps are 4096 px / 3 MP
@@ -940,9 +1133,10 @@ Persistence invariants (all machine-checked — do not weaken):
     frames and cannot establish atomic display presentation. Gates:
     `verify-zoom-proxy.mjs`, `verify-canvas-coverage.mjs`,
     `verify-render-optimizations.mjs`, `verify-slide-canvas-presentation-gui.mjs`.
-  - **No hover outline while a burst is live.** `hoverInfo` is null while `sceneHot`: content
-    sweeping under a still pointer flipped the outline every frame during pans and zooms —
-    flicker, not feedback. The hover-dot cursor (a constant on `.el`) is unaffected.
+  - **No hover outline during unsettled zoom.** Content sweeping under a still pointer
+    must not flash changing outlines. Suppress while `zoomUnsettled`, not throughout the
+    post-interaction `sceneHot` cooldown: a newly hovered settled target still responds
+    within100ms. The hover-dot cursor (a constant on `.el`) is unaffected.
   - **The property menu's `h` row is a plot's content scale** (`numericProperties.contentScale`,
     the K tool's persisted factor; step .05, min .05, soft max 4; reset to 1 deletes the
     field, as the Inspector does). `read()` is undefined for non-plots, so the row only
@@ -1009,7 +1203,7 @@ Persistence invariants (all machine-checked — do not weaken):
     capture, so the canvas never zooms); over the panel, hovering a row still arms it.
   - **The colour picker is two columns:** the palette (every row on one line, the whole grid
     visible — the menu grows, nothing scrolls) and a 204 px side with the current swatch, the
-    hex field, the eyedropper (`EyeDropper` when the runtime has it) and the always-visible
+    hex field, the eyedropper and the always-visible
     spectrum (`colorSpace.ts` HSV square + hue bar: drag previews through the session, release
     commits). Gates: `verify-color-space.ts` (pure); fmenu-surface / figenh-14 /
     figure-controls pin the `.hex` field and the `.sv`/`.hue` spectrum.
@@ -1018,6 +1212,15 @@ Persistence invariants (all machine-checked — do not weaken):
     open. Escape from a range cancels only the pending preview. Invalid hex drafts stay editable
     and never apply the last valid value; gray/black retain the user's chosen HSV hue. The
     collection bar spans both columns and map rows do not flex-shrink below their 22px height.
+    Linux Electron must never invoke Chromium's advertised `EyeDropper`: its native Aura
+    path segfaults under GNOME/Wayland even on an empty page. `color/eyedropper.ts` uses
+    sender-owned `color:pickScreen`/`color:cancelScreen` requests and the desktop Screenshot
+    portal through an optional isolated system Python/Gio helper. Missing portal/runtime
+    falls back to an explicitly labelled capture of the Flux window; refusal/cancellation
+    never triggers fallback. Browser/macOS/Windows retain `EyeDropper` with AbortSignal.
+    Destroy/navigation/target changes must cancel or discard late results; successful
+    picks use the existing one-edit/one-Undo session. The pure, browser and private-D-Bus
+    `verify-eyedropper*` gates pin exact pixels, ownership, cancellation and helper replies.
   - **Anchoring never lands on the thing:** when no side has full room, `anchorPanel` takes the
     side whose clamped placement overlaps the avoided box the LEAST (`overlapArea`), never
     the pointer (that put the menu on the selected path in Slide mode).
@@ -1063,6 +1266,20 @@ Persistence invariants (all machine-checked — do not weaken):
   Keyboard actions use the focused row's index; virtual scrolling may change the hover
   row beneath a stationary pointer. Large folders window grid
   rows and bound concurrent preview reads; thumbnails are images, never inline plot DOM.
+  **Two browse scopes (2026-09-22):** the Project | Global switch (Alt+1/Alt+2, `e.code`)
+  browses the project's plots/ or the global plot library `<FluxConfig>/plot_library` —
+  resolved ONLY by `fluxPaths.plotLibraryPathSync` (surfaced as `prefs:get`
+  `plotLibraryResolved` and `flux config` `plotLibraryPath`; never persisted, created by the
+  gallery on first Global view). Search reach is the `plotSearchScope` setting, turned into
+  scan sources + a folder filter by the pure `plot/galleryScope.ts` (`verify-gallery-scope.ts`);
+  the gallery owns the walks in a `sourceKey`-keyed cache, so a scope switch or a return from a
+  reserved collection reuses a finished walk instead of racing a single shared array. The
+  reserved-collection rule beats the setting. The browsed root is a plain variable assigned
+  with `cwd` and the scope, never a `$:` (flush-behind, §9). A library insert rides the
+  existing external-source path (absolute `svgPath`, `external: true`, pixels copied into
+  `fig/assets/`), identical in flux-core `compose-figure`. Videos and Dissections stay
+  project-only (the clip import and `gallery:videoUrl` are plots/-contained). Gate:
+  `verify-plot-library.mjs`.
   Gates: `group:plot-gallery`, `verify-plot-gallery-electron.cjs`, plus the Slide import gates.
   Native tests verify actual persisted edits/Undo.
 - **Dual paper panes (2026-08-11): Paper left `SINGLETON_MODES`.** Every per-editor singleton
@@ -1228,6 +1445,8 @@ that isn't in the manifest doesn't exist.** Tiers:
   Before a view-only before/after snapshot that includes dirty state, await autosave for
   preceding edits. Otherwise a legitimate true → false dirty transition can falsely blame
   the preview or navigation being tested; retain the full state-preservation assertion.
+  `verify-slide-authoring-gui` waits for the preceding deck autosave before its ruler-scrub
+  snapshot: CI caught that save clearing dirty between the two observations.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
 - **presence** — the source-shape/static scripts (main-process/build config that headless
@@ -1235,6 +1454,10 @@ that isn't in the manifest doesn't exist.** Tiers:
   gate over `electron/**/*.cjs`). They also live in pure; the tier exists for `--changed` mapping.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Linux Electron
   harnesses may need `--ozone-platform=x11` (§9); do not pass Linux display flags on macOS.
+  For an owned Xvfb display, set `FLUX_PRIVATE_DISPLAY=1` and `DISPLAY` (or the explicit
+  `FLUX_XVFB` path). The runner removes inherited Wayland selection and chooses X11 only
+  in that mode. Runtime artifacts distinguish actual browser viewport, screen, DPR, GPU,
+  CPU and module/build identity; software rendering does not certify physical hardware.
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
@@ -1257,6 +1480,11 @@ and `JSON.parse` throws; (3) npx announces itself with `npm notice run …` on S
 gate comparing a help golden or a CLI success line byte-for-byte will fail on. All three look
 like product bugs and none are. `spawn("npm", …)` for npm itself (audit, `run dev`) still needs
 `shell: true` on win32, and a win32 teardown needs `taskkill /T` — there are no process groups.
+CI (`.github/workflows/ci.yml`) runs type-check → build → pure tier → bundle tier on
+`ubuntu-latest` as the blocking `test` job, the ui tier as `ui-gate`, and since 2026-09-25 the
+headless path again on `windows-latest` as `test-windows` — both of the latter observing
+(`continue-on-error`, promotion rule in §10). A gate that is green on Linux and red on Windows
+is the reason the Windows job exists; read §9's Windows entries before touching the gate.
 
 Conventions: scripts print a `##VERIFY##` JSON sentinel (`scripts/lib/harness.mjs`); waits are
 condition-based (`scripts/lib/wait.mjs`), never bare sleeps (kept sleeps must be annotated with
@@ -1406,16 +1634,13 @@ days (probe geometry like `width` instead).
   (delegated agents leak them: `pgrep -f "tsx/dist/preflight"`).
 - This desktop's real Chrome/Electron reports `prefers-reduced-motion: reduce` (GTK-derived);
   headless Chrome doesn't. Never gate ambient/feature motion on that query.
-- **An ABSOLUTE wall-clock budget on a process start is not portable** (2026-09-18).
-  `verify-w13-cli`'s "flux help cold start < 150ms" sat exactly ON the line on a GitHub
-  runner (150/151ms, red every push) while the same healthy bundle read 159ms on a Windows
-  dev box — the budget encoded one machine's interpreter speed, not the contract, which is
-  "the bundle starts like plain node, no tsx chain and no heavyweight module-scope import".
-  Measure against a `node -e ""` control on the SAME machine, best-of-N, and budget the
-  DELTA (109ms honest, 250ms budget; a tsx start is 400ms+) — the ratio-to-control rule the
-  Figure gates already use, applied to process startup. Pair it with a structural companion
-  (bundle BYTES) — a heavy import shows up in bytes long before milliseconds, and bytes do
-  not depend on load.
+- **Process-start timing needs a same-machine control.** Remote CI investigation found
+  `flux help` near its 150ms ceiling on GitHub/Windows. `verify-w13-cli` now records a
+  bare-Node best-of-three control and overhead, alongside the 8MB bundle-size bound.
+  The integration retains the existing **first help invocation <150ms** acceptance gate;
+  a best-of-N or larger overhead allowance must not silently replace that threshold.
+  Keep machine/runtime evidence with failures before considering a separately reviewed
+  change to a responsiveness budget.
 
 **CI browsers and external tools:**
 
@@ -1430,13 +1655,11 @@ days (probe geometry like `width` instead).
   fails fast with the browser's UA and the fix when a codec-less build is used anyway.
   Corollary: "the browser gate times out on CI but passes locally" is worth a capability
   check before it is worth a timing theory.
-- **A gate that needs an EXTERNAL TOOL skips cleanly when it is absent** — the established
-  shape (`verify-export-qmd`, `verify-project-lint`, and since 2026-09-18
-  `verify-slide-embed-export`): probe the tool, print a visible `(skip) <tool> not on PATH —
-  <what is skipped>` and keep every assertion for the machines that do have it. CI's `test`
-  job is chartered headless/no-network and deliberately installs no quarto; reporting its
-  absence as a product failure is noise that trains everyone to ignore the gate. A skip must
-  be LOUD (its own line + a `skipped: true` sentinel), never silent.
+- **Missing external tools are blocked checks, not passes.** Declare Quarto, TeX, Chrome
+  and native runtime prerequisites in `verify-manifest.json`; the runner preflights the
+  actual tools before launching an isolated attempt. CI provisions Quarto for both the
+  bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
+  capable machines; never exit successfully merely because an export tool is unavailable.
 
 **Environment:**
 
@@ -1473,6 +1696,160 @@ days (probe geometry like `width` instead).
   A second Windows-only tell: restarting the dev server can leave a stale dep-optimizer cache,
   and Paper then mounts to a blank pane with `504 (Outdated Optimize Dep)` in the console —
   `rm -rf node_modules/.vite` and restart.
+- **Windows cannot always REPLACE a file it will happily unlink and recreate.** The lease
+  arbitration wrote a contender's bakery number over its choosing record at the same
+  pathname, and on Windows that rename-replace failed outright on ~3% of acquire+release
+  cycles when the destination had been hard-linked moments earlier. It was not transient:
+  2.5s of backoff never landed it, while `open` r+, `unlink` and `rename`-to-a-fresh-name on
+  those same two files all succeeded immediately. The fix was structural — two files with
+  unique, never-reused names, so the arbitration replaces nothing (`transition`). The damage
+  was not a failed save: `release()` threw, the lease file stayed, and `stale()` never
+  reclaims a record whose owning pid is alive, so the project was locked for the rest of the
+  session and every later save said "busy (held by human)". When an fs operation fails on
+  Windows, ask which operation, not how long to retry.
+- **A lock CLIENT label is written for the other side to read.** The GUI holds leases as
+  `human` so an agent can be told a person is editing; the renderer then printed that label
+  back to the person as "project is busy (held by human)". A holder label reaching a human
+  needs translating, never interpolating.
+- **A directory SCAN is not a snapshot, and a bakery built on one is not mutually exclusive.**
+  `registers()` lists the arbitration directory at one instant and then reads each entry over the
+  next few milliseconds — 9 ms for three entries here. A contender that finishes choosing in that
+  gap has its flag deleted and its numbered file created AFTER the listing, so it appears in
+  neither state the scanner can see and drops out of the result entirely; both sides then read an
+  empty bakery and both enter. Reproduced in two hot processes with no other load, four runs in
+  five (2026-09-22). A register that is NAMED but cannot be read is not absent — it is a contender
+  in an unknown state, which the bakery already reads as ticket 0 and everyone waits for. Take its
+  token from the filename so your own just-discarded flag stays recognisably yours.
+- **Windows refuses `FlushFileBuffers` on a read-only handle.** Open `r+`, not `r`, for any
+  `fh.sync()` of a FILE. It cost `fs:setTimes` (a project that would not open), `verifiedMove`
+  (every cross-device capture failed to publish — silently, because intake catches each per-file
+  error as "retry next pass") and `videoMedia.syncFile`. A directory fsync is a different case:
+  `fsyncDir` is a deliberate no-op on win32, so any gate barrier hooked to one has nothing to fire.
+- **Windows sharing violations are the caller's to wait out, in BOTH engines.** `shareRetry`
+  (`electron/fsRetry.cjs`) exists because a destination another process merely has open cannot be
+  replaced or unlinked there. `flux-core/fsx.ts` used it; its main-process twin `atomicWriteMain`
+  — the path EVERY renderer write takes — did not, so a GUI write that lost that race just failed.
+  When a helper says "one implementation for both module systems", check that both twins call it.
+- **A comparator that is not TOTAL makes results depend on arrival order.** `rankHits` compared
+  three fields and stopped; the fulltext scan path pushes from parallel workers, so a corpus where
+  every document ties came back shuffled differently every run and disagreed with the sequential
+  indexed path — the one thing those two must never do. Break the last tie on a stable key,
+  which also decides deterministically which ties survive a `limit`.
+- **A heartbeat must not preempt the pass it is meant to renew.** The reader-context publisher
+  bumps an epoch per tick, which cancels the claim/publish in flight; when one atomic write
+  outlasts the interval, every tick discards the previous tick's work and the view publishes
+  NOTHING. Skip a tick while a pass is running — only a real state change preempts.
+- **node-pty leaves a MessagePort and a Socket open on Windows after the child exits**, so a
+  process that owned a PTY never returns to the shell (`flux principal` with a transcript hung
+  forever; `--no-transcript`, which never opens one, was fine). A terminal-owning verb with
+  nothing left to flush should exit explicitly.
+- **A WASM call is an indivisible scheduling unit — queue priority cannot preempt one.**
+  The correction worker reorders its queue so a live repair jumps ahead of annotation-only
+  work, but a backlog window already inside `linter.lint()` holds the thread until it
+  returns: 17 unfamiliar scientific words cost 1.6s of pure WASM time, and the foreground
+  request behind it measured 3.7s against a 1s budget. Splitting the text was not available
+  either — the WINDOW RULE forbids cutting a window mid-sentence, and a 17-word run-on has
+  no boundary to cut. The fix was a second worker lane (2026-09-22). Before optimizing
+  inside a worker, measure which call actually blocks: the per-lint `suggestions()`
+  extraction that looked expensive totalled 0.1ms, and the single lint call was everything.
+- **A kill assertion must poll, not sample one instant.** `verify-process-runner` read
+  `/proc` once, immediately after the group SIGKILL that `runProcess` fires as it resolves,
+  and flaked on a loaded CI runner; a `/proc` read that LOST the race to a complete reap
+  returned "" and also scored as alive. Poll to a deadline instead — it still fails a
+  surviving descendant, it just stops putting a stopwatch on the scheduler.
+- **`npm run check` is not the type gate.** CI runs `npm run check && npm run check:headless`,
+  and the second one is `tsc` over `tsconfig.headless.json` — which type-checks the `.cjs`
+  main-process files under `noImplicitAny`. A new helper there passed svelte-check and turned
+  CI red on the very next push (2026-09-22). Run both before claiming a green type-check.
+- **A COMPUTED path handed to a stored-path validator must be converted first.**
+  `renderFigureSvg` resolved a plot's manifest candidate, then passed `path.relative(root, cand)`
+  to a reader that validates its argument as a stored asset path — and `storedAssetPath` rejects
+  backslashes on purpose, because a stored path never has one. On Windows the renderer therefore
+  rejected its own path and lost EVERY semantic manifest, silently dropping part overrides from
+  headless renders and exports. The rule is not "normalize at the boundary" but "a value crossing
+  INTO stored-path form is converted at that crossing".
+- **`textLength` + `lengthAdjust="spacing"` is not justification.** It shares a line's slack
+  between every pair of GLYPHS, so justified text came out with its letters pushed apart —
+  which is what the owner saw and reported (2026-09-22). Real justification widens the WORD
+  gaps and leaves letter spacing alone. Doing that needs one number the renderer cannot get
+  for itself, the line's natural width, so it is measured where the metrics already are
+  (`applyTextLayout`, beside the wrap cache) and the rest is arithmetic in a pure layout.
+  Before reaching for an SVG attribute that sounds right, check what it actually distributes.
+- **"It does not work" can mean "I cannot see it work."** Per-range italic was applied,
+  stored, exported and painted correctly, and was still reported as not working — because the
+  textarea editor showed plain text until the edit committed. When a feature's result is
+  invisible at the moment the user acts, that IS the bug. Reproduce what the user sees, not
+  what the model holds.
+- **A path that gets PERSISTED must be POSIX, whatever the platform.** `flux-core/slides.ts`
+  derived a plot's `svgPath` with `path.join`, so a deck authored on Windows stored
+  `fig\assets\x.svg` into deck.json — a path no other platform resolves, shipped inside a
+  portable project. `path.posix.join` for anything that lands in a file; Node takes forward
+  slashes on Windows for the filesystem half, so one form serves both. Gates comparing paths
+  need the same discipline: `verify-docs` and `verify-figure-sources` each compared a
+  `path.join` result against a stored forward-slash path and failed on Windows only.
+- **`npx` is not an executable on Windows.** Thirteen gates spawned `npx tsx …` unshelled and
+  died with ENOENT there — most of what made the pure tier look broken on Windows. They go
+  through `scripts/lib/tsxRun.mjs` now (this node + the installed tsx CLI), which is also one
+  less resolution step. A generated probe imported by ABSOLUTE path needs a file: URL too:
+  `C:\…` is an unsupported ESM url scheme, while the tsx ENTRY argument must stay a plain path.
+- **A gate that needs a browser should find one.** `driver.mjs` hard-coded
+  `/usr/bin/google-chrome`, so every ui gate on Windows failed at launch unless the developer
+  knew to set `FLUX_CHROME`. It now probes the standard install locations per platform, and
+  the variable still wins.
+- **Windows refuses `symlink()` without Developer Mode, but a DIRECTORY JUNCTION is free.**
+  Six confinement gates died at their first `fs.symlink` with EPERM and lost every later check.
+  A junction is indistinguishable from a directory symlink to everything they exercise —
+  `lstat().isSymbolicLink()` is true, `readlink()` returns the target, `realpath()` resolves
+  through it — which is what every escape check in flux-core is built on, so the contract is
+  verified verbatim. `scripts/lib/symlinks.mjs` plants directory links that way on win32 and
+  probes once for FILE symlinks, which have no privilege-free equivalent (a junction takes only
+  a directory): those few checks announce themselves as skipped instead of killing the script.
+- **A fault injector keyed on a path STRING fires on one engine and not the other.** The shared
+  cores join POSIX, the Node side uses `path.join`, so both legitimately name one file two ways —
+  identical off Windows. A gate that throws EACCES only for `path.join(root,'fig')`, steals a
+  lease only when `file === f.doc`, kills a child only on `to === <pdf>`, or keys an in-memory
+  disk on `path.join` output silently tests NOTHING there, and reports the product as missing a
+  rejection it was never asked to make. `scripts/lib/paths.mjs` exports `samePath`; six gates now
+  use it. Corollary for a fixture barrier: a `beforeRead` that never matches does not fail, it
+  HANGS (verify-v020-slide-persistence deadlocked on its own promise).
+- **`new URL(…).pathname` is not a path on Windows** — it is `/C:/…`, and `path.resolve` turns
+  that into `C:\C:\…`. `fileURLToPath`, always. This cost a real product bug: `RESOURCES_DIR`
+  in `flux-core/manuscript.ts` resolved that way, every shipped CSL and Word reference read threw
+  ENOENT, the copy loop swallows a missing shipped asset by design, and a journal-styled export
+  on Windows silently rendered with Quarto's defaults.
+- **Windows has neither POSIX file modes, signals, nor shebangs, and a gate that assumes one
+  tests nothing there.** NTFS reports every writable file 0o666, so an owner-only (0o600) check
+  and an exec-bit check are inexpressible — note them as skipped rather than asserting a synthetic
+  value, and remember the exec bit belongs to the HOST filesystem, not the target platform
+  (a cross-build from Windows cannot stage one). `process.kill(pid,"SIGTERM")` terminates a child
+  outright, reporting code 1 and no signal, so assert the property (never exit zero) rather than
+  the mechanism. And an extensionless `#!/usr/bin/env node` shim on PATH is never found:
+  `execResolve` resolves through PATHEXT and deliberately prefers a real `.exe` in ANY PATH dir
+  over an earlier batch shim, so a fault-injecting `quarto.cmd` only shadows the real one if the
+  fault bin IS the whole PATH.
+- **A gate should resolve its own toolchain, not join a path to it.** Seven gates built
+  `<repoRoot>/node_modules/tsx/dist/cli.mjs` by hand and died in any checkout whose dependencies
+  do not sit directly beside the script — a git worktree resolves `tsx/cli` fine through the
+  parent, but the literal join does not exist there. `scripts/lib/tsxRun.mjs` already existed for
+  this; use `tsxCli()`.
+- **A Windows tree kill is `taskkill /PID <pid> /T /F`.** `child.kill()` reaps only the direct
+  child, so a killed export left quarto and pandoc alive holding `paper/` as their cwd and the
+  next fixture failed to remove it with EBUSY.
+- **Windows: a just-closed Chromium keeps its Crashpad metrics file open.** The verify
+  runner deleted each attempt's scratch temp with a bare `rmSync` in a `finally`, so the
+  EBUSY threw out of the runner itself and killed the whole run at the FIRST browser gate —
+  the ui tier was simply unrunnable on Windows. `discardTemporaryRoot` retries and then
+  gives up loudly; scratch temp is disposable and must never cost a result.
+- **A session that validates in a SEPARATE worktree/install leaves this checkout's `node_modules`
+  stale.** After pulling such a merge, `npm run build` dies in esbuild with `Could not resolve
+  "css-tree/parser"` and its siblings (2026-09-22, at `266ddf5`): the dependency is in
+  `package.json` AND the lockfile, it was simply never installed here. The error names a source
+  import, so it reads as a code bug — check `node_modules/<pkg>` before touching the import, and
+  diff every declared dependency against `node_modules` rather than trusting the first unresolved
+  one (three packages were missing, not one). `npm install` is the fix, but on Windows it aborts
+  with `EBUSY` renaming `node_modules/electron/dist/…` while a Flux Electron process is running;
+  either close the app or, to leave a running app alone, extract the `npm pack` tarballs of just
+  the missing packages into `node_modules/` at their locked versions.
 - Check a delegated agent's actual working directory and branch before assigning edits.
   Agents sharing this checkout see one another's edits immediately: assign distinct file
   ownership and never reset their tree. A separately created worktree may start from a default
@@ -1584,7 +1961,7 @@ real exports Word refused):
 
 **World-space DOM (anything mounted inside the canvas):**
 
-- Overlays like the caption editor ride `transform: scale($viewport.zoom)`. **Never measure them
+- Canvas overlays ride `transform: scale($viewport.zoom)`. **Never measure them
   with `getBoundingClientRect`** — it is transform-scaled, so any value you write back is wrong
   at zoom ≠ 1. `scrollHeight`/`clientHeight`/`offsetTop`/`offsetHeight` are pre-transform layout
   px: measure and write in those and the result is zoom-invariant for free.
@@ -1837,17 +2214,181 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   Frame oracles built on `Page.startScreencast` also drop frames when the renderer is busy
   and can hand back an impossible geometry for one frame; anything they flag must be
   confirmed against the renderer log or the lab.
+- **Native click probes need settled coordinates and delivered input.** A dialog's DOM/path
+  can be ready while its finite opening transform still moves the buttons. Await those
+  animations before measuring coordinates, and wait for the resulting UI state after
+  `sendInputEvent`; do not replace real input with DOM clicks or fixed sleeps.
+- **`editGen.n` is not "the user edited".** It advances on every store change, including
+  `mutateDisplay` (the beat reconciler, resolved-asset publication), because undo coalescing
+  and gesture rollback need that. A guard meaning "don't clobber a user edit" compares
+  `editGen.edits`, which only dirtying changes advance. `loadDeckInto` compared `n`, so during
+  an agent's CLI burst a watcher source refresh landing mid-reload made the reload abandon a
+  valid file, and SlideMode reported the null as "missing or corrupt". A superseded load now
+  says so through `onSuperseded`; only a real read failure toasts
+  (`verify-slide-reload-supersede`).
+- **A panel control acting on "the selection" must know about the inline text editor.**
+  Clicking an Inspector button blurs the textarea, which commits the edit and drops the
+  character selection, so every panel style control used to format the whole box.
+  `textEditRange.ts` holds the selected letters, kept past that blur while the same element
+  stays selected and its text is unchanged. Inspector B/I/U, the colour picker
+  (`colors.applyColor`) and Ctrl+B/I/U consult it before falling back to whole elements.
+  B/I/U use `mousedown|preventDefault` so the editor stays open for a second button.
+- **`dist/flux-cli.mjs` is a launcher; the CLI bundle is `dist/flux-cli-core.mjs`.** V8 spent
+  ~80 ms compiling the ~6 MB bundle before `flux help` printed anything, which kept help over
+  its 150 ms cold-start budget on CI. `scripts/build-cli.mjs` now writes a small launcher that
+  prints help captured from the core bundle at build time (bare `flux` and `flux help` only)
+  and imports the core for everything else. Anything that copies the CLI into another layout
+  (probes, packaging, isolated-export checks) must copy BOTH files. `verify-w13-cli` checks the
+  launcher's help is byte-identical to the core's and keeps the 8 MB budget on the core. The
+  150 ms budget now measures only that fast path; every real verb still pays the core compile,
+  so the gate also times `flux help new` (launcher → core import, no project) under a 1 s
+  navigation-class budget and reports the number — the bundle's cost floor for every agent
+  call (2026-09-25; ~95 ms on the Linux workstation).
+- **Every renderer decides "hidden" with `effectiveHidden`, never `el.hidden`.** The Layers
+  eye on a GROUP hides its members without touching their own flags; `figureToSvg` (canvas,
+  poster, PDF, HTML) honours it, and the PowerPoint writer did not until 2026-09-25, so a
+  group hidden by its eye was absent from the PDF and present in the PPTX. A new consumer of
+  `evaluateSlide`/`Figure.elements` must filter with `effectiveHidden({elements, groups}, el)`
+  (groups.ts); `verify-slide-pptx` pins it for the deck exporter.
+
+- **CodeMirror's stock `historyKeymap` binds Ctrl+Shift+Z to redo on Linux and macOS only.**
+  Redo there is `Mod-y` with `mac: "Mod-Shift-z"` and a separate `linux: "Ctrl-Shift-z"` entry,
+  so on Windows the shifted chord matches nothing and does nothing — while Flux documents it as
+  redo "in every editor" and the Figure/Slide editor accepts it everywhere (`keyboard.ts`). The
+  redo step of `verify-paper-slide-embeds` passed on Linux CI and failed on a Windows checkout,
+  and it was the product (2026-09-25). Paper now assembles `paperHistoryKeymap`
+  (`src/shell/modes/paper/historyKeys.ts`) — the chord bound with NO platform qualifier ahead of
+  the stock list. `verify-paper-history-keys.ts` (pure) proves it through CodeMirror's own
+  builder and `runScopeHandlers` over a fake `{state, dispatch}` view with the bindings filtered
+  to what a Windows platform reads (`win ?? key`; `mac`/`linux` entries are invisible there) —
+  a DOM-free way to test any CM key binding on a platform this host is not. Any new CM keymap
+  with a `linux:`/`mac:` entry needs a Windows reading before it ships.
+- **A `continue-on-error` CI job hides its red inside a green run.** `test-windows` in
+  `ci.yml` (2026-09-25) repeats type-check → build → pure tier on `windows-latest` under the
+  same observation rule as `ui-gate`: non-blocking until five consecutive green main runs,
+  then the marked line is deleted. Until then its result is only in the job list and the
+  `pure-verify-summary-windows` artifact, never in the run's overall status — read the job,
+  not the check mark. A Windows red there is a harness portability defect (the shapes above:
+  `npx`, replace-vs-unlink, separators, signals, symlinks) or a Windows product bug; it is
+  never fixed by loosening the gate.
+
+- **GitHub's Windows runners hand out an 8.3 SHORT temp path** (`C:\Users\RUNNER~1\…`), and
+  anything that canonicalizes — `realpath`, the IPC asset resolver, every handler that answers
+  in the form the filesystem resolves to — returns the LONG name. A gate that takes `tmpdir()`
+  verbatim as its expected root fails every path equality on that host alone and nowhere else
+  (`verify-native-boundaries`, 2026-09-25). Take the scratch root through `realpath` once, at
+  creation; a developer's Windows laptop never shows this, which is why it reached CI first.
+- **An agent lock budget has to outlast the holder's BURST, not one cycle.** `withLock` polls
+  every 250 ms and the holder re-acquires in the gap before the waiter's next poll, so a
+  waiter only gets in when the holder pauses. On Linux a fig save cycle is ~100 ms and three
+  back-to-back creates finish inside the old 2 s budget; on Windows every lease step is a file
+  operation and the save fsyncs, the same burst ran past 2 s, and the waiter was told
+  "deferred" on a healthy project (`verify-w3-locks` on windows-latest, 2026-09-25; the lock
+  tier ran 5× slower there at equal CPU speed). `CONTENTION_RETRIES` (locks.ts, ≈10 s) is the
+  one budget every agent-vs-agent lease uses; a human-held lease still defers at once. A
+  child spawned by a gate gets the same treatment: `verify-figure-reference-safety`'s 3 s
+  deadline was a hang guard sized for Linux's tsx cold start and killed a healthy child there.
+- **The video encoder pin is one ffmpeg on every platform — keep it that way.** Until
+  2026-09-25 `build/video-encoder.json` pinned one ffmpeg-static release that repackaged three
+  builders at three versions (Linux 7.0.2, Windows 6.1.1, macOS 6.0) while the NOTICE named
+  6.1.1. `verify-v020-hdr-media`'s oracle (Hable + BT.2020→709 + BT.1886) is within 2/255 of
+  ffmpeg ≥ 7 and 8/255 off 6.x on the saturated green patch — reproduced on Linux with a 6.1.3
+  build, so the Windows red on that gate was the ffmpeg version, not Windows — and users on
+  different platforms got different HDR tone mapping. Now: ffmpeg **9.0.2** everywhere (BtbN's
+  dated GPL release for Linux x64/arm64 + Windows, Martin Riedl's per-build directories for both
+  Macs), each target an immutable archive (URL + size + SHA-256), the executable's path inside
+  it, and LICENSE/README each as an archive `member` or a pinned `url`. The fetcher reads zip
+  in-process (`readZip`, only the pinned members) and tar.xz through the host's `tar`; the
+  staged layout (`ffmpeg`, `LICENSE`, `README`, `NOTICE.md`, `manifest.json`) is unchanged, so
+  electron-builder and the packaged smoke need nothing. `verify-runtime-assets` pins the real
+  manifest: five targets, every `version` carrying the one `release`, no shared archive. When
+  the pin moves, move all five and re-run the HDR gate on at least one; the version is what the
+  oracle is calibrated against. Two traps met on the way: `raw.githubusercontent.com` and other
+  text hosts gzip small files, so the downloader asks for `identity` encoding (the byte-size
+  contract is about bytes on disk); and evermeet/gyan delete old versions, so only dated,
+  immutable release assets are pinnable.
+
+- **A dependency Vite's start-up crawl cannot see reloads every open page when it is first
+  used.** The crawl follows index.html's import graph; a package imported only from a Web
+  Worker entry (the spell-check worker's `harper.js`) is invisible to it, gets optimized on
+  first use, and Vite then broadcasts a FULL RELOAD to every client — logged as
+  `dependencies optimized: <pkgs>` (the start-up `Forced re-optimization` line is normal).
+  Under the ui tier that reload lands on whatever gate is running: 2026-09-26 it reloaded the
+  plot-gallery gate's opener, whose `pagehide` closed the pinned popup, and the next click hit
+  a closed target — a red that came and went with timing, on a gate three positions after the
+  first Paper gate. `optimizeDeps.include` in vite.config.ts names the worker-only imports;
+  `verify-dev-prebundle.ts` (pure) runs the real cold crawl into a scratch cache and pins every
+  bare import of every `src/**/*.worker.ts` into it; ci.yml keeps the dev server's log as an
+  artifact and fails the ui job on a post-start optimization line. Diagnose this class by
+  diffing a cold `vite optimize` against a warm `node_modules/.vite/deps/_metadata.json` —
+  the warm-only keys are exactly the late discoveries — but only for deps the warm session
+  ever loaded: the pdf.js worker module (`pdfjsWorker.ts`, imported via `?worker`) was missing
+  from both caches locally and showed up only in CI's captured dev-server log, eight minutes
+  into an otherwise green run, in the SINGULAR ("dependency optimized: …"). The gate therefore
+  derives worker entries from the source (`new Worker(new URL(…))` targets and `?worker`
+  imports), not from a naming convention or a cache.
+
+- **A Svelte 5 `$effect` tracks every `$state` read inside the helpers it calls — and an
+  async helper that later WRITES that state re-runs the effect.** `AnnotateCapture`'s effect
+  called `open()`, whose `reset()` read `frozen` to revoke the old object URL; when the window
+  capture arrived and set `frozen`, the effect re-ran, reset, captured again, forever — `ready`
+  never survived to a paint, so Ctrl+Shift+S did nothing in every real build (Electron, all
+  platforms) while the browser harness, whose demo bridge had no `captureWindow`, took the
+  synchronous branch and stayed green (2026-09-26). Read the store into a local and do the work
+  under `untrack`. The general rule: **a harness bridge must have every method the real bridge
+  has** — a missing optional method silently selects the branch nothing else tests. The demo
+  bridge now captures (an OffscreenCanvas PNG), and `verify-annotate-gui` walks the async path.
+  Two more from the same chase: the figure editor's Ctrl+S branch matched the shifted chord
+  too (`e.key` ignores Shift) and raised save-as under the overlay; and a probe that connects to
+  Electron over `--remote-debugging-port` must first prove the port is FREE — a stale instance
+  from an earlier run answered three probes in a row with the old bundle and a
+  `bind() failed` line in the new one's log, which made a working fix look broken.
+
+- **A `.catch` on a non-promise is a throw, and a throw inside a resolver is "network".**
+  `flux-core/assign.ts resolveDoiMeta` did `JSON.parse(await readBoundedBody(…)).catch(…)` for
+  five days (d80a690 → 2026-09-26): every SUCCESSFUL Crossref reply threw a TypeError, and
+  `identify()` classifies any resolver throw as transient, so the CLI/MCP twin deferred every
+  DOI as a network blink while the network was fine. The hardening gate injects `resolveDoi`,
+  so it never ran the real resolver — the producer-never-run trap again (§9 capture). Now
+  `verify-assign-outcome.ts` runs `resolveDoiMeta` over a fake `fetch`.
+- **"deferred (network)" must mean network.** Both assign engines used to fold EVERY exception
+  into "deferred", and three in a row tripped the offline breaker, so a refused library write
+  read as "network unavailable" and nobody looked at the library. `assignOutcome.ts` now
+  classifies failures (`failureAction`: transient → "deferred", anything else → "error" with the
+  reason in the summary; `ERROR_BREAKER` stops a scan on a systemic error and names it), and the
+  Library toast counts what was FILED, not what was scanned ("Assigned 3 PDFs · 3 deferred"
+  once meant nothing happened).
+- **Never render a native `<input type="color">` in the renderer.** Chromium's colour popup has
+  an eyedropper button that invokes EyeDropperView, which SEGFAULTS Electron on Linux/Wayland —
+  no JavaScript can catch it. The 09-21 fix moved the F-menu picker to the desktop-portal dropper
+  (`color/eyedropper.ts`); the figure/slide Background fields and the palette "+" kept the
+  native input and took the app down (owner report 09-26). Every colour field is
+  `src/lib/ColorField.svelte` (controlled swatch → spectrum popover + hex + portal dropper) or
+  `ColorPicker.svelte`; `verify-no-native-color-input.ts` (pure, structural) and
+  `verify-color-field.mjs` (ui) gate it.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
+
+- **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
+  notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`
+  (local, ignored). It targets bundled tools, explicit Mac first-launch approval, and an
+  early Sparkle/Flux-owned-signature update prototype. That route is not yet qualified;
+  do not claim seamless Mac updates from installer-build success or restore Apple
+  membership as a release prerequisite. Extend the accepted fortification release gates.
 
 - **Physical-display flicker remains a separate validation surface.** The
   original September 16 report attributed remaining flicker to Wayland/NVIDIA,
   but its sampling did not establish that cause. Independent review reproduced
   application-side blanking: a long pan froze culling, then zoom hid live art
   behind an offscreen image. Coverage guards and regressions now address it.
-  Clean headless/virtual-display results cannot certify the owner's physical
-  GNOME/fractional-scaling path or a MacBook. See
-  `docs/RESPONSIVENESS_AUDIT_2026-09-16.md` for measured scope and limits.
+  The September 21 follow-up reproduced tile exhaustion on actual NVIDIA/GNOME
+  Wayland: settled 16× live SVG zoom followed by rapid zoom-out retained oversized
+  animated tiles. Live zoom now releases the animation and will-change scale lock;
+  pan and bounded bitmap zoom retain their fast compositor paths. Actual Figure
+  and Slides runs and the owner's observation confirm improvement on this host.
+  This does not qualify other GPUs/platforms or every physical presentation frame.
+  See `docs/V020_IMPLEMENTATION_PROGRESS.md` for the new evidence and timing tails,
+  and `docs/RESPONSIVENESS_AUDIT_2026-09-16.md` for the earlier measured scope.
 - **Figure polish (2026-09-06):** implemented preservation, selection/history, shared properties,
   frame resizing, layout/focus, raster-worker and native PDF fixes. Review/evidence and remaining
   validation limits live in `docs/FIGURE_POLISH_REVIEW.md`. Preserve the existing gates.
@@ -1864,16 +2405,25 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `needsLayout` is the shipped interim.
 - **CI ui-gate flip**: `.github/workflows/ci.yml` has one marked `continue-on-error` line to
   delete after 5 consecutive green main runs. Do not flip early.
+- **CI test-windows flip**: the second marked `continue-on-error` line in `ci.yml`
+  (the `windows-latest` job, 2026-09-25) — same rule, 5 consecutive green main runs, then delete
+  it. Bundle tier on Windows (TeX + rsvg-convert on the runner) and a Windows entry in
+  `release.yml` are separate, unstarted steps.
 - **Electron `project` IPC family** (watch/locks/prefs/config) is the one family still in
   `main.cjs` — mechanical follow-up, pattern established.
 - **Presence→behavioral test conversions** for `verify-p4-*`/`verify-p5-library`: convert as
   those areas are touched (policy, not backlog).
-- Known un-gated perf cliffs (acceptable today): giant single-paragraph docs (~180ms/keystroke —
-  lezer re-parses the paragraph), dense-canvas *initial* mount (160 plots → one ~90ms task).
+- Recorded performance limits: a giant single paragraph of20,000 lines still costs about
+  190ms per synchronous keystroke (Lezer reparses the paragraph). This exceeds the100ms
+  direct-input policy and needs an explicit release decision; the V0.2 work does not replace
+  the parser or call this a pass. Realistically paragraph-separated20k documents use the
+  unchanged scale gate. Historical dense-canvas initial mount:160plots → one~90ms task.
 - The proxy-capture engine is owner-tuned and out of scope for refactors; its behavior contract is
   `verify-proxy-capture.cjs` + `verify-netget.cjs`.
-- **Slide deferrals (slide-migration, owner-scoped §8):** rich text boxes /
-  bullets and math are OUT — slide text is the figure `text` element; KaTeX
+- **Slide deferrals (slide-migration, owner-scoped §8):** bullets and math are OUT — slide
+  text is the figure `text` element. Per-range bold/italic/underline INSIDE that element is no
+  longer deferred (owner request, 2026-09-22 — see §4 and `textRuns.ts`); a separate rich-text
+  box type still is; KaTeX
   left the deck export bundle entirely. MP4/MOV video is implemented as a slide-only
   element (see the clip contract above). Live-linked
   embedded figures (the old `embedFigure`) were removed — design fresh if
@@ -1884,8 +2434,9 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   GONE from the GUI (everything is visible by default; the X-ray's `x` hide
   is the one static-hiding mechanism) — `setPartVisibility` remains as the
   headless/back-compat op + verb only; don't resurrect a GUI tri-state.
-  Cross-type transforms (rect→text) and per-part transform tracks are
-  deliberately out of v1 (part styling changes ride the plot transform's
+  Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
+  preserve them and test reset/default semantics (September 20 review PS-06). Per-part transform
+  tracks remain deferred (part styling changes ride the plot transform's
   `overrides` diff). Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
@@ -1901,18 +2452,17 @@ every `core.<name>` reference in verbs.ts against the real index surface.
 - `notes/` is **gitignored** (owner's working notes + plan ledgers live there, on-disk only).
   Committed docs belong in `docs/`.
 
-- **The 2026-09-15 "gates that fail on `main`" list is CLEARED (2026-09-18).** Both stale gates
-  were pinning contracts their subject had already superseded, and both were fixed at the
-  assertion, with the git evidence: `verify-paper-export.mjs` expected
-  `materializeRenders(root, m.manuscript.path)` when `4bb72d8` (2026-09-13) had made compile()
-  materialize the renders of the document it is COMPILING (`manuRel(m, opts.doc)`) so that
-  `compile --doc` works — the gate now asserts the resolution AND the call, which is strictly
-  stronger; `verify-context-gui.mjs` read the picker head row's whole `textContent` when
-  `b6a741b` (2026-09-06) had added the "+ New document" / "New folder" actions INTO that row,
-  making it `"Context +"` — it now reads the folder's own `.folder-label span`.
-  `verify-lib-actions.mjs` passes on CI. The lesson worth keeping: a red gate is a claim about
-  the CODE that has to be checked against git before it is believed about the code — a
-  behaviour that changed deliberately leaves the gate, not the product, wrong.
+- **V0.2 implementation evidence:** [V020_IMPLEMENTATION_PROGRESS.md](V020_IMPLEMENTATION_PROGRESS.md)
+  and its three owner ledgers supersede the September20 baseline defect list. That baseline
+  remains in local `notes/major_v02_review/BASELINES.md`; it is not a current failure list.
+  Reproductions now assert source ownership, exact saved/recovered bytes and output fidelity.
+  Consult the latest frozen-run closure for remaining failures, platform limits and conditional
+  P2 exclusions. No passing adjacent test establishes an untested adverse interleaving.
+- **Signed Firefox distribution:** the checked-in signed0.1.2 XPI includes the hardened
+  extension source (re-signed September25). `verify-extension-build.ts` compares source,
+  generated distribution and signed payload bytes and blocks release on mismatch. Future
+  source changes still require maintainer re-signing through the existing process;
+  unsigned/diagnostic packages do not certify that browser-store artifact.
 - **The demo fixture cannot hand a re-imported asset from Figure to Slide:** the tenancy handoff
   refuses to evict a figure whose autosave failed, and the in-memory bridge cannot persist
   `reimportPlot` assets, so a gate that needs both legs boots a fresh page for the slide leg
@@ -5844,3 +6394,678 @@ uninstrumented headless run; all its rendering/coverage/no-long-task assertions 
 The trace measured 9.3ms/tick with HitTest dominating the sampled task self-time.
 A CPU-profiler run read 2.7ms, so that instrumented pass is not acceptance evidence.
 The timing failure remains open; no threshold was loosened or performance gain claimed.
+
+### 2026-09-20 — Complete V0.2 fortification review and plan (Codex, main)
+**Work:** Continued the interrupted Claude review, independently adjudicated its findings,
+reviewed all application surfaces and headless/native boundaries, and wrote implementation-ready
+packages in `notes/major_v02_review/README.md`. Product code is unchanged; staged builds and
+isolated fault/native probes supplement the inherited same-commit browser baseline.
+**Learnings:**
+- Promoted corrections to registry coverage, live-client path, lock/atomicity claims, source
+  publication, cross-type transforms and current gate diagnoses into the body.
+- Test failure classification needs actual fixture/runtime evidence; retain first failures and
+  controlled reruns. Accepted plans and passing adjacent gates are not completed fixes.
+
+### 2026-09-20 23:40 CDT — V0.2 implementation checkpoint (Codex, codex/v020-fortification)
+**Work:** Isolated `/tmp/flux-v020-fortification`, protected running main/build/config/library,
+assigned shared contracts and four implementation streams. Operation-owned leases, common
+Figure snapshots, staged load/publication and recovery, atomic editing, direct-byte plot exports,
+passive SVG policy and import ownership now have initial regressions. Other owners implement
+Paper/Slide, References/native and Shell/verification concurrently.
+**Evidence:** `docs/V020_IMPLEMENTATION_PROGRESS.md` links owner ledgers and exact artifacts.
+Intermediate pure run208/248 passed with40 failures retained and assigned; not release acceptance.
+Focused Figure transaction, conversion fault, three-plot eviction, recovery rollback, byte parity,
+crash index ordering and history budget pass. Latest compatible lockfile audit0; full affected
+qualification still in progress. No release published; unavailable hardware/platform checks remain
+explicit limitations. Subsequent completion must update the ledger rather than infer from this entry.
+
+### 2026-09-21 07:52 UTC — V0.2 implementation freeze (Codex, codex/v020-fortification)
+**Work:** Implemented the authorized five-plan P0/P1 packages and eligible bounded P2 work in
+an isolated worktree. Shared Node/native token leases, complete Figure snapshots, recoverable
+binary/text generations, cold/live reference reconciliation, scientific SVG/Word/video fidelity,
+Paper sessions/export recovery, Reader/capture/fulltext ownership and native lifecycle boundaries
+now have adverse regressions. Registry/runner/runtime/release policy and offline packaged docs
+are integrated. Lighttable and the owner's running checkout/config/library remain outside the work.
+**Evidence:** Root and owner `docs/V020_*PROGRESS.md` ledgers retain first failures, fixture
+repairs, exact bytes, rendered artifacts and measured interactions. Final renderer0errors/0warnings,
+headless0errors, production build, isolated Quarto20pages/39files and dependency audit0 pass.
+Native Word8cases include five real kill barriers, retained captured revision and24trusted keys
+max50.9ms while Quarto waits; cached first morph median34.7ms versus112.6ms, identical paths.
+**Learnings:** Missing Figure index requires positive empty inventory. Recovery journals need
+full realpath preflight and ownership throughout their prepare/commit gap. Cold reference writes
+and Paper saves share the manuscript lease; recovery must run before entering that lease in
+headless folder/note commands. Export ownership compares CodeMirror-normalized line endings
+while recovery restores exact raw bytes/mtime. New first-match pathMap rules retain existing gates.
+**Limits:** Full frozen cohorts and fresh installed Linux artifacts are the next acceptance step,
+not inferred from focused green checks. The old signed Firefox XPI lacks hardened background
+source and remains a strict bundle blocker until maintainer re-signing. Physical display/macOS,
+signing/notarization, real Word and live authenticated browser/provider checks are unclaimed.
+Broad Library view extraction and speculative import memoization retain the plans' unmet
+prerequisites. No release/tag/publication or remote-CI promotion is performed.
+
+### 2026-09-21 08:38 UTC — Frozen cohorts and table traversal correction
+**Evidence:** Clean7c6d160 passed276pure and213combinedUI/Paper/Reader scripts with identical
+start/end source digests. Scale exposed a real PS09 scanner cost (cell p9512.4ms,6.2×control
+against6×). Profiling showed repeated protected-span searches and recursive Text line lookups.
+**Correction:** Walk immutable Text lines and ordered protected spans once, retaining the same
+parseAt grammar. Prior-traversal oracle preserves241real/360protected table cases and exact
+offsets; three focused p95 results6.7/7.6/6.9ms retain all thresholds/populations. Full affected
+pure/Paper and rebuilt native/scale checks are required after this narrow change. The extreme
+single-paragraph20k-line ceiling remains about190ms and is explicitly recorded, not called a pass.
+
+### 2026-09-21 09:21 UTC — Native saved-export recovery and truthful live probes
+
+The313-script pure/Paper run passed at8b6223d. Native acceptance then exposed unnecessary
+startup recovery leases blocking an ordinary saved video re-export after a human edit.
+Confined negative journal probes now avoid those leases; actual restoration still re-reads
+under ownership and rechecks that ownership after awaited path validation. The dedicated
+recovery-entry gate passes12 adverse/positive cases. Focused real native video passes all
+frame/audio/cancellation/source-free assertions; final rebuilt frozen cohorts follow.
+Test-only nested Electron launch adaptation and gallery readiness now preserve actual
+runtime assertions. Institutional Cellpress/proxy probes require explicit disposable
+network configuration and report blocked when absent; their live checks are not called
+passed. Cellpress helper8 and nested launch20 assertions run hermetically. The original
+native failures and unexplained6.8ms prose timing tail remain in the implementation ledger.
+
+### 2026-09-21 09:39 UTC — V0.2 implementation evidence handoff
+
+Production/test commit `5129e80` is frozen: 335/337 pure/native/Paper scripts passed, exactly
+two institutional probes blocked, no failures; 15/16 bundle/startup/scale passed, only the
+stale signed Firefox payload failed. All 11 scale scripts and the full Paper gate pass;
+startup is 588.8/800 KB. Renderer: 0 errors/0 warnings; headless/build pass; audit: 0 findings.
+Fresh diagnostic Linux AppImage/deb each pass 13 installed smokes with actual 1400×900
+native windows. Saved PDF/SVG/DOCX/media bytes and rendered artifacts were inspected.
+All 1,715 recorded original-file hashes match; original main, its guide edit and port 1420
+are preserved. Owned test server/display stopped. Exact runs, hashes, conditional P2
+triggers and remaining timing/platform/signing limits are in
+`docs/V020_IMPLEMENTATION_PROGRESS.md` and `test-results/v020/final-evidence.json`.
+The final commit after the tested revision records documentation only. No release was
+tagged, signed, uploaded or published; broader Library splitting/speculative cache work
+remain conditional as specified in the handoff.
+
+### 2026-09-21 18:00 UTC — Deep-zoom tile exhaustion and Wayland eyedropper crash
+
+Reproduced the owner's neural-populations zoom failure on actual NVIDIA/GNOME Wayland:
+33 tile warnings, three sampled blanks and five flashes. Live animated SVG zoom retained
+oversized raster tiles; demoting its transform animation and will-change during zoom/fold
+now gives zero warnings/blanks/flashes on Figure and Slides, while preserving fast pan and
+bounded bitmap proxy zoom. Added the adverse settled-16× → zoom-out native phase and browser
+regression (fails old code), retained JPEGs/transforms, and corrected the old crispness test's
+unsafe promotion requirement without changing sharpness/timing thresholds.
+
+Minimal native Chromium EyeDropper independently segfaulted under Wayland. Linux now uses
+the desktop color portal with sender-owned cancellation and an optional isolated Python/Gio
+helper; missing capability permits labelled window-only sampling. Permission refusal does
+not trigger fallback; stale results cannot recolor changed owners. Production native
+open/Escape/save/Undo, exact captured pixels and eight real private-D-Bus cases pass.
+
+Integrated display cohort21/21, then final picker cohort4/4 (including actual Wayland native
+integration), both unchanged source during their runs. Renderer0 errors/0 warnings,
+headless/build pass. Native saved SVG/PNG/PDF inspected; dense native nudge repeat49.5/92ms
+p95 at1600/5000 elements. Retain initial106.3ms nudge failure and corrected zoom's103/129ms
+long-task tails: no universal100ms worst-case claim. Detailed source identities, artifact
+paths, owner observation and remaining platform limits are in
+`docs/V020_IMPLEMENTATION_PROGRESS.md` and `test-results/zoom-repair/acceptance.json`.
+Original main/user data preserved, no Paper source/Lighttable changes, no merge or release.
+
+### 2026-09-21 — Packaging and distribution plan (Codex, main)
+**Work:** Wrote `notes/packaging_distribution_integration-plan.md` with a plain-language
+summary, bundled-toolchain design, unsigned Mac installation/update qualification, Linux
+distribution, CI/release evidence, implementation sequence, and maintenance/recovery rules.
+Read the active fortification release seams without modifying that worktree. Recorded the
+owner's no-paid-Apple constraint in §10; application code and release infrastructure unchanged.
+
+
+### 2026-09-21 18:54 UTC — Main integration with current upstream text and CI work
+
+Combined fortification/zoom/eyedropper through `acd1ff3`, upstream through `7d90525`,
+and the owner's existing guide/distribution-policy edits, preserving both histories.
+Resolved export/schema/verification overlaps without losing passive SVG, atomic edits,
+zoom demotion or text arrangement. Fixed proportional K scaling of the new pixel-valued
+tracking/paragraph metrics, with an oracle that failed before the correction. Retained
+the first-help150ms gate; missing external tools remain blocked rather than passed.
+
+Frozen `0c08288`: pure281/281; Paper64 + display21 + merged UI6 =91/91;
+context/Paper export2/2; Figure/Slides scale3/3. All cohorts keep unchanged source.
+Renderer0 errors/0 warnings; headless/build pass. Bundle/startup4/5: only the previously
+known signed Firefox background mismatch fails (maintainer re-signing required).
+Native Word bytes/XML and PNG fallback inspected: captured3.25/old reference/blue figure
+survive later live edits; all24 trusted input samples≤46ms; five kill/reopen barriers pass.
+Sharpness1.000, dense-wheel p9516.7ms. Ungated 5k-edit142.8ms/dense-plot137ms tails are
+recorded, not described as universal100ms compliance. Exact evidence and first failures
+are in `docs/V020_IMPLEMENTATION_PROGRESS.md`'s integration entry.
+
+Final screenshot review also repaired the inherited text-arrangement fixture: it now uses
+a normally scaffolded blank project, retaining reference protection and adding exact saved
+layout checks. Focused rerun1/1 passes at `0d08a60`; the saved screenshot is clean.
+
+Validation uses a separate integration worktree/install; existing Electron processes and
+the fortification checkout are untouched. Main receives the validated history and current
+build/dependencies. No push, release, signing or unavailable platform claim. The final
+integration documentation commit does not change tested product code.
+
+### 2026-09-22 — Stale `node_modules` after the integration merge (Claude Opus 5, `main`)
+**Work:** `npm run build` failed on this checkout with four esbuild "Could not resolve
+`css-tree/*`" errors. The cause was environmental, not a code defect: the integration session
+validated in a separate worktree with its own install, so `css-tree`, `mdn-data` and
+`@types/css-tree` were never installed in the main checkout. Installed those three at their
+lockfile versions (tarball extraction, because a full `npm install` hit `EBUSY` against the
+owner's running Electron); `npm run build` and `npm run check` (870 files, 0 errors) then pass.
+No product source changed — the committed imports and `package.json` were already correct.
+**Learnings:**
+- Promoted to §9 (Environment): a separate-worktree validation leaves this tree's
+  `node_modules` stale, an unresolved bare import is a missing install before it is a bad
+  import, and on Windows `npm install` cannot replace Electron while the app is running.
+- css-tree 3.2.1 does export `./parser`, `./generator`, `./walker` and `./utils`; the subpath
+  imports in `src/lib/plot/passiveSvg.ts` are valid and must not be rewritten to dodge a
+  resolve error.
+
+### 2026-09-22 — The two red CI gates, and the ui tier on Windows (Claude Opus 5, `main`)
+**Work:** `main` had been red since the fortification merge. The ui failure was real:
+`verify-v020-paper-workers` asserts a live repair completes within a second behind a backlog
+window, and it measured 3.7s locally (2.0s on CI) because one `linter.lint()` of 17 unfamiliar
+words is a single 1.6s WASM call that the worker's queue priority cannot preempt. Annotation-only
+work now runs on its own worker lane; the check measures 48.7ms. The pure failure
+(`verify-process-runner`) was a race in the gate, which sampled `/proc` once immediately after the
+group SIGKILL — it now polls to a deadline. Verifying any of this on Windows first needed three
+harness repairs: the runner died on the FIRST browser gate because `rmSync` threw EBUSY on a
+just-closed Chromium's Crashpad file; every ui gate then failed to launch because Chromium exits
+when `%USERPROFILE%` has no `AppData`; and `verify-docs` compared `modes\figure.qmd` against
+"`modes/figure.qmd`, calling all sixteen pages orphaned. paper-gate on Windows: 51 passed, 10 failed before the lock work; the lease failures are fixed below."
+**Learnings:**
+- Promoted to §4 (local corrections) and §9: a WASM call is an indivisible scheduling unit, so
+  lane separation — not queue priority — is what protects a live lane; a kill assertion polls
+  rather than sampling; and the two Windows harness traps above.
+- Measure before optimizing inside a worker: the per-lint `suggestions()` extraction that looked
+  expensive totalled 0.1ms across 17 unknown words, and the single lint call was all of it.
+- Windows-only harness defects hide behind a green Linux CI. Three had stacked up to the point
+  where the ui tier could not run on this machine at all, and none would ever appear in a CI log.
+- The residual paper-gate failures were NOT investigated here and are not attributed to this work:
+  a second agent session was editing `electron/operationLease.cjs`, `electron/ipc/files.cjs` and
+  `flux-core/recovery.ts` in this same checkout while the suite ran, and the failures cluster in
+  exactly that area (`EPERM: rename` on `.meta/locks/*.arbitration/*.json.tmp-*`).
+  `verify-correction-runtime` separately wants the deliberately unstaged 32 MB local model.
+  A suite run against a tree another session is editing proves less than its tally suggests —
+  check `git status` for foreign edits BEFORE reading a result.
+
+### 2026-09-22 — The Windows lease EPERM, root-caused (Claude Opus 5, `main`)
+**Work:** The owner hit three faces of one bug: a project that would not open (`EPERM` on
+`fs:setTimes`), a project that would not save (`EPERM: rename` under
+`.meta/locks/*.arbitration/`), and a "busy (held by human)" toast naming the reader as the
+obstacle. The middle one is the cause: the bakery's second write replaced the register it had
+just hard-linked, which Windows refuses ~3 times per 100 cycles, and the failed `release()`
+then orphaned a lease that `stale()` can never reclaim while its owner process lives.
+`transition` now writes a choosing flag and a number as two unique files and replaces nothing;
+`registers` folds a token's records by highest number. Measured 0 failures in 140 acquire
+cycles (was 3/100), and the lock, transaction, crash-recovery and reference gates pass.
+Sharing-violation retries remain for the lease record itself and every unlink. The `setTimes`
+fsync fix (open `r+`, not `r` — Windows refuses FlushFileBuffers on a read-only handle) and
+the first retry loop came from the owner's other session in this same checkout.
+**Learnings:**
+- Promoted to §9: Windows replace-vs-unlink, and a client label is written for the other side.
+- A failed release is worse than a failed acquire. An acquire that fails is retried; a release
+  that fails leaves a lease no liveness rule will ever collect.
+- Reproduce a platform fs failure through the real module before theorizing: raw
+  link/unlink/read/rename in a loop never failed, and 40 iterations of the actual
+  `acquire`/`release` pair failed three times.
+
+### 2026-09-22 — Italic for one word, not the whole box (Claude Opus 5, `main`)
+**Work:** The owner asked to format part of a text box rather than all of it. A text element
+now carries `runs`, and `textRuns.ts` owns the semantics; layout, the canvas painter, the SVG
+serializer (so flux-core's headless render and every slide host), wrapping metrics, the ops
+surface and the inline editor all read it. Gated by `verify-text-runs.ts` (45 checks) and
+`verify-text-runs-gui.mjs`, which drives the real T-tool editor. The editing surface is
+unchanged on purpose: seven gates address `textarea.text-edit` by selector, and swapping it
+for a contenteditable to preview mixed fonts would have rewritten all of them for a preview.
+**Learnings:**
+- Promoted to §2 (shared cores), §4 (the model, the degrade rule, the editing limit) and §10
+  (the slide deferral now covers only a separate rich-text box type).
+- The inline editor opens with the whole text SELECTED, so "there is a selection" cannot mean
+  "format a range" — `verify-text-biu`'s in-editor toggles failed until a full selection meant
+  the element again. Read what the existing gates assume before adding a mode to a surface.
+- Escape in the text editor ROLLS BACK the session (`editSession.cancel`); blur commits. A gate
+  that ends an edit with Escape is testing undo, which is how this one first read as a broken
+  renderer while the DOM was correct all along.
+
+### 2026-09-22 — The ui and pure tiers, made runnable on Windows (Claude Opus 5, `main`)
+**Work:** Verifying the day's product work on the owner's machine kept failing in the harness
+rather than the product, so the harness got fixed: Chromium is found per platform instead of
+at one Linux path, thirteen gates stopped spawning `npx`, the slide export parity probe stopped
+importing by bare Windows path, and `verify-docs`/`verify-figure-sources` stopped comparing
+backslashes against slashes. One of those chases turned up a real portability defect —
+`flux-core/slides.ts` persisted a `fig\assets\…` svgPath into deck.json on Windows, which no
+other platform resolves — now `path.posix.join`.
+**Learnings:**
+- Promoted to §9: persisted paths are POSIX, `npx` is not an executable on Windows, and a gate
+  should find its own browser.
+- A platform-specific harness defect is indistinguishable from a product regression until you
+  read the failure. Three separate red gates here were the harness, one was the product, and
+  the product one was only reachable after the other three were fixed.
+
+### 2026-09-22 (later) — What the Windows sweep turned up once the gates could run (Claude Opus 5, `main`)
+**Work:** With the harness fixed, the remaining red gates started saying useful things. Two were
+real: `renderFigureSvg` fed a `path.relative` result to a stored-path validator, so headless
+renders on Windows silently lost every semantic plot manifest; and the new fs-retry helper was
+untyped for `check:headless`, which is a separate tsc project CI runs and `npm run check` does
+not. One looked real and was not — `verify-doc-delete` keyed its snapshot with platform
+separators, so the two files it had just DELETED failed to match its own skip list and read as
+"deleting a document rewrote a sibling". It does not.
+**Learnings:**
+- Promoted to §9: run both type projects, and convert a computed path AT the crossing into
+  stored-path form.
+- A gate that compares paths is guilty until proven innocent on Windows. Of the failures that
+  looked like product bugs this session, the majority were the gate's own separators — but not
+  all of them, which is exactly why each one has to be read rather than dismissed.
+
+### 2026-09-22 — Global plot library: Project | Global gallery scopes + search-reach setting (Claude Opus 5.5, `main`)
+**Work:** Owner asked for a user-level plots folder usable from any project. Added
+`<FluxConfig>/plot_library` (one resolver in `fluxPaths.cjs`, reported by `prefs:get` and
+`flux config`), a Project | Global switch in the Plot gallery header (Alt+1/Alt+2, remembered),
+and Settings → Figure → Plot gallery "Search reaches" (selected scope [default] / current
+folder / project / global / everything; mixed results are labelled). New gates
+`verify-gallery-scope.ts` (pure) + `verify-plot-library.mjs` (ui, in `group:plot-gallery`),
+and `verify-plot-gallery-electron.cjs` now proves Global through the real preload/prefs/fs guard;
+`verify-shell-complete` now selects the two collection rows by label instead of assuming the
+Figure pane has exactly two selects. User docs (figure, shortcuts, collaboration, library,
+installation), in-app Help and the FluxContext docs (regenerated) updated.
+**Learnings:** promoted the scope architecture to §4's gallery bullet. A cache keyed by source
+retires the old "mid-flight scope guard" hazard structurally: a walk for a scope you left can
+only fill its own slot, never the array the current rows read.
+
+### 2026-09-22 (evening) — The last dozen Windows gates, and the four product bugs behind them (Claude Opus 5, `claude/eager-grothendieck-e05d23`)
+**Work:** Worked the remaining pure-tier failures on the owner's Windows machine: 251/282 → 280/283,
+with the only three non-passing now *blocked* on staged downloads they declare
+(`verify-correction-runtime` gained a `correction-runtime` prerequisite so it says so instead of
+failing inside a healthy product path). Most were the gate — separators, file URLs, privileges,
+signals — but four were real and user-facing, each found only because a gate stopped lying:
+`verifiedMove` fsynced through a read-only handle, so every cross-device capture failed to publish
+silently; `RESOURCES_DIR` came from a file URL's `.pathname`, so journal exports lost their CSL;
+the reader-context publisher's heartbeat cancelled the pass it was renewing; and the operation
+lease let two processes into its critical section at once (`verify-w3-locks`' "hot contention",
+which an earlier session and this handoff had both filed as a load flake — it is not). The lease
+fix was cherry-picked to `main` as `61a9c69` while this branch was still open, and `atomicWriteMain`'s
+retry landed there independently as `3ef5fd9`; this branch was rebased and both duplicates dropped.
+**Learnings:**
+- Promoted to §9 (nine entries): the junction substitute for Windows symlinks, `samePath` for any
+  path-keyed fault injector, `fileURLToPath` over `.pathname`, the absent POSIX modes/signals/
+  shebangs, `tsxCli()` over a hand-built path, `taskkill /T`, and on the product side the
+  scan-is-not-a-snapshot bakery hole, `r+` for fsync, `shareRetry` in both twins, total
+  comparators, heartbeat preemption and node-pty's lingering Windows handles.
+- **A gate that hangs, skips or crashes is worse than one that fails** — it reports nothing while
+  looking like it reported something. Three of this session's four product bugs sat behind a check
+  that could not run on this platform at all, and the fourth behind two fixed sleeps.
+- A "load-sensitive gate" is a hypothesis, not a diagnosis. `verify-w3-locks` was dismissed twice
+  as one; a 40-line standalone reproducer failed four runs in five with nothing else running.
+- Making a gate's waits condition-based can UNCOVER a product bug rather than hide one: polling
+  `readReaderContext` while the reader released it provoked the `atomicWriteMain` EPERM on nearly
+  every run, where a fixed 10 ms sleep had been quietly winning the race.
+- `verify-reader-ownership` misses its 2s component budget under `--jobs 4` on this laptop and
+  passes alone; it is a perf budget measured under contention, not a regression. Left as is.
+
+### 2026-09-22 (later) — Justify by word gaps, and per-range formatting you can see (Claude Opus 5, `main`)
+**Work:** Two reports against the day's text feature. Justification spread a line's slack
+between its letters, because that is what `lengthAdjust="spacing"` does; it now shares the
+slack between the line's word gaps as a `dx` on the piece that starts each word, computed from
+`lineWidths` — the natural advance of each visual line, measured beside the wrap cache and
+dropped with it. resvg honours `dx` exactly (measured: two 30px gaps move the ink 60px), so
+both engines agree without anyone measuring at render time, and the old whole-line stretch
+stays as the fallback for a line with no measured width. The second report, "italic on a
+single character does not work", was not a defect in the model, the export or the painted
+canvas — all three were correct, and a screenshot proved it. It was invisible while typing.
+The canvas now keeps painting the text under the editor when the runs are metric-neutral
+(italic/underline), with the textarea handing over its glyphs but keeping the caret and the
+selection; a bold run changes advances, so that case keeps the plain editor.
+**Learnings:**
+- Promoted to §4 (the justification model) and §9: what that SVG attribute really distributes,
+  and that an invisible result is a real bug however correct the data is.
+- A gate can pin the wrong thing confidently. `verify-text-arrange` asserted the exact
+  `textLength` attribute, so it passed all the way through a defect the owner could see at a
+  glance. It now asserts the outcome — the line lands on the box's right edge, and the slack
+  is in the gaps — which is what the guide's "choose the assertion the user would make" means.
+
+### 2026-09-22 (later still) — The animator's first preview, and the cost nobody was reading (Claude Opus 5, `main`)
+**Work:** `verify-v020-morph-startup` held the cold first preview over its 100 ms budget
+(140 ms on CI, 137 ms here). Profiling down the stack — preview to `createPlayer` to `build()`
+to `computeSlideAnims` to `createTransform` to `planElementMorph` — put 40.7 ms of a 45 ms plan
+inside `planOutlines`, the node correspondence for three become transforms, and a counter
+inside the arc-length inversion put 86 of 89 ms in `arcT`, which bisects twenty times and
+rebuilds a curve segment on every step. The fix is three small pieces rather than a faster
+`arcT`: the correspondence is built on first use, it is memoized on the inputs it actually
+depends on, and the animator warms the current slide's morphs when the DOCK OPENS. That last
+one is the whole idea — opening the animator is a moment with real time in it, because nobody
+presses play in the same frame, while play → first frame is tens of milliseconds and budgeted.
+Preview 137 → ~66 ms, first seek 111 → ~28 ms, both against 100.
+**Learnings:**
+- **A deferral is only as good as its last reader.** Moving the work behind getters changed
+  nothing at first, because putting the whole plan behind them swept up `closed`, which the
+  compiler reads while it builds the morph layers. It is answerable without the
+  correspondence — `inflate` closes the open side, so the pair is a ring when EITHER side is
+  one, and every other strategy opens the closed side, so it is a ring only when BOTH are — so
+  only the two chains stay lazy. The counter that proved the first attempt was inert sat inside
+  the lazy resolve: measure whether the work RAN, not how long the caller took.
+- **Deferring work does not remove it; it relocates it, and a budget was watching the old
+  place.** The first attempt turned a red preview budget into a red SEEK budget, because the
+  correspondence simply moved to the first drawn frame. Work only truly leaves a budgeted path
+  when there is somewhere genuinely idle to put it — here, the dock opening — and when
+  something (the memo) lets the early work count for the later one.
+- **Moving a cost moves what a gate measures.** This gate proves the point memo pays off by
+  running the app twice, once with the memo patched out. It compared the PREVIEW, which no
+  longer touches the memo at all, so it had quietly become two samples of the same noise and
+  still passed by 6 ms. Moving the comparison to the first seek was wrong too, for the same
+  reason one step later. It now times the whole cold path, dock open through first seek, where
+  both runs do identical work: 374 ms without the memo against 228 ms with it.
+- The structural half of the guard is in `verify-slide-outline`: `closed`/`arrowStart`/
+  `arrowEnd` must be data properties while `a`/`b` are getters, and the cheap `closed` must
+  equal what `planOutlines` computes for five representative pairs. A property-descriptor
+  assertion fails the moment someone makes one of them eager again, which no timing assertion
+  would catch.
+- `warmWhenIdle` takes NO idle deadline on purpose. A deadline makes the browser run the job
+  whether or not it has time, which would let warming compete with the canvas snapshot's own
+  idle callback. Warming work must be safe to skip entirely; on a page too busy to ever go
+  idle, not running is the right answer rather than a stolen frame.
+
+### 2026-09-24 — Agent deck edits reported as a corrupt deck; per-letter styling from the Inspector (Claude Opus 5.5, `main`)
+**Work:** Reproduced the owner's "Couldn't open that deck" toast in a sandboxed Electron on a copy of their project, with the deck open while the Flux CLI made the agent's kind of edit burst. Deck loads now ignore display-only store changes, report being overtaken separately from a bad file, and overtaken external reloads retry. Separately, the Inspector's B/I/U buttons and Text colour now format the selected letters instead of the whole box, and text runs gained a per-range `color`.
+**Learnings:**
+- Two traps promoted to §9: `editGen.n` versus `editGen.edits`, and panel controls that must know the inline text editor's selection.
+- A clean-copy reproduction can hide a timing bug: the deck opened fine until the probe drove the CLI against it while it was open. Drive the real concurrent writer, not just its resulting file.
+- Later the same day: fixed a 50 ms sleep race in `verify-fluxplot-recipe-ipc`, and brought `flux help` from ~175 ms to ~50 ms by splitting the CLI into a launcher plus core bundle (promoted to §9). `verify-extension-build` still fails until the owner re-signs the extension with their AMO credentials (`npm run sign:extension`); agents must not do that step.
+
+### 2026-09-24 — Typing style, superscript/subscript, Ctrl+S in decks, faster arcT (Claude Opus 5.5, `main`)
+**Work:** Owner-driven text and slide fixes, each with a gate. A bare-caret chord now styles only the characters typed next (the old "nothing selected = whole box" contract is superseded by owner decision). Runs gained `script` (super/sub). Ctrl+S in Slide mode saves the deck. The colour picker stacks in a narrow Inspector. arcT is allocation-free, which stabilised verify-v020-morph-startup. `npm run build` is warning-free.
+**Learnings:**
+- SVG `dy` is relative and persists, so a shifted segment must be followed by a restoring `dy`, and a line that ENDS shifted must hand the correction to the next line tspan's own `dy` (text.ts blockLayout does both). `baseline-shift` would avoid this but is not portable across SVG consumers.
+- An inline `color:` on the textarea outranked the `.ghost-text` class, so the "transparent" editor drew plain glyphs over the formatted ones. Assert computed styles, not class names.
+- Global chords (Ctrl+S) that reach a subsystem through a shared store must route by `storeTenant()`: the tenancy guard refusing them is correct, and the bug is in the caller.
+
+### 2026-09-25 — Figure/Slide zoom ceiling 16× → 256× (Claude Fable 5.1, `main`)
+**Work:** The owner hit the editor's zoom cap. The wheel (Canvas.svelte) and the toolbar
+buttons each carried their own literal 0.05/16 clamp; both now clamp through
+`interact/zoomLimits.ts` (5%–25600%), with `verify-zoom-limits.ts` (pure) pinning the range and
+the sharing. Drove the dev app: 40 notches fold at `scale(256)`, the readout says 25600%, a
+rect corner renders as a crisp 256 px stroke band, zoom-about-cursor stays exact, no console
+errors. Docs page and the §4 body bullet updated; `input-probe.cjs --phases=zoomDeep` no longer
+leans on the ceiling to reach 16×.
+**Learnings:**
+- A cap that exists only as a literal in two files is two caps. Anything user-tunable that two
+  input routes share belongs in one pure module with a gate that greps the routes for it.
+- Before raising a limit, find what actually depended on it: here no gate did, but the perf
+  probe's deep-zoom phase silently relied on the wheel clamp to land at exactly 16×. Grep the
+  probes and scripts for the literal, not just `src/`.
+
+### 2026-09-25 (later) — Follow-ups from the review of Lorenzo's 09-23/24 batch (Claude Fable 5.1, `main`)
+**Work:** Reviewed his 13 commits (deck PDF/PPTX export, per-letter styling + sup/sub, deck
+reload fix, CLI launcher); all kept, six adjustments landed: (1) the PowerPoint writer now honours
+a group's Layers eye via `effectiveHidden`, as the PDF/HTML path always did (`verify-slide-pptx`
++1); (2) the content-scale predicate cases moved from `verify-slide-pdf` into
+`verify-compensate` (the module's own gate) and the deck-export path map now includes
+`plot/store.ts` + `Inspector.svelte`; (3) the per-plan point memo in `outline.ts` is gone — with
+arcT allocation-free it measured as noise — and `verify-v020-morph-startup` runs the one real
+path (cold path 46 ms median, preview 14, seek 5; `verify-v020-morph-cache` proves the sampled
+geometry is bit-identical); (4) `verify-w13-cli` times a real verb's cold start through the
+launcher (`help new`, 1 s navigation budget, ~95 ms here) so the bundle compile is measured
+again; (5) `verify-colorpicker-narrow` uses `APP_URL`, condition waits and the harness; (6)
+per-range text formatting no longer detaches a linked named style, X²/X₂ read pressed for a
+wholly-scripted selected box, and three registry verbs — `toggle-text-run-style`,
+`toggle-text-run-script`, `set-text-run-color` (0-based offsets, `to` exclusive, `inherit`
+clears a colour) — give agents the GUI's letter-selection formatting headless with named errors
+for bad ranges (`verify-text-runs` 70 → 80, MCP golden +3 tools). The slide docs' troubleshooting
+row about the deck-reload fix was reworded from a changelog into the user register.
+**Learnings:**
+- Two lessons promoted to §9: every renderer decides hidden with `effectiveHidden`; and a
+  cold-start budget that measures a fast path only is not measuring the product — time the
+  path agents actually take.
+- A memo whose reason has gone is complexity with a gate that can only report noise. When a
+  later optimisation removes the cost a cache offset, delete the cache and let the output
+  oracle prove the deletion, rather than keep an unasserted ratio "for information".
+- Range formatting is a layer over the element's base look; a named-style detach belongs to
+  edits that change element properties, not to runs. The old contract came from treating a
+  bold range as "a manual font edit like any other" (3578ea1/5b47293); reversed here.
+- `scripts/fixtures/cli-help.golden.txt` is read by no gate and is stale; `HELP_GOLDEN` in
+  `verify-registry-parity` is an unused constant. Left alone under rule 6 — decide whether to
+  wire it back or delete it.
+- The shell's `grep` in Claude Code sessions is a wrapper that silently skips files it deems
+  binary; `outline.ts` and other sources with non-ASCII bytes return NOTHING. Use
+  `command grep -a` (or `git grep`) when a search over `src/` comes back empty.
+
+### 2026-09-25 — Drag between figures + Ctrl+X cut (Claude Fable 5.1, `main`)
+
+**Work:** Owner: moving a plot from figure 2 to figure 3 needed copy → paste → delete, and
+Ctrl+X did nothing. Added the drag-between-frames gesture (Canvas `moveDropTarget` +
+`ops.moveElementsToFigure`, lit target frame, one undo entry, groups/captions along, promoted
+to §4) and `cutSelected` on Ctrl+X (editable targets only — a locked unit neither leaves nor
+gets copied). Help panel, `docs/modes/figure.qmd` and `reference/shortcuts.qmd` updated.
+Gates: `verify-ops.ts` gained the op's cases; new `verify-cross-figure-drag.mjs` (ui, 31
+checks: mid-drag highlight, re-parent, captions, undo/redo, empty-canvas drop stays a plain
+move, cut/paste round trip, locked no-op, console clean); `ops.ts` got its own first-match
+pathMap rule.
+**Learnings:**
+
+- `ops.group` takes ELEMENT ids and resolves each to its unit — a group id in the list is
+  silently ignored (one unit → returns null). To nest an existing group, name one of its
+  members.
+- A gesture that needs "which frame is under the cursor" per move should derive the world
+  point from the pointerdown sample + client delta, not from `getBoundingClientRect` on every
+  pointermove; the move gesture never touched layout before and must not start now.
+
+### 2026-09-25 — CI on Windows, a transactional extension bump, and Paper's dead redo key (Claude Fable 5.1, `main`)
+**Work:** Acted on the 2026-09-22 Windows report (`notes/flux-windows-and-ci-2026-09-22.md`).
+The owner re-signed the capture extension (0.1.2, `4483f28`) — `background.js` had changed in
+`d80a690` with no re-sign, so `verify-extension-build` had been red since; the add-on id is
+owned by the owner's AMO account, which is why a collaborator's attempt got "Forbidden".
+Three follow-ups: (1) `ci.yml` gained `test-windows`, the headless path (type-check → build →
+pure tier, `--jobs 2`) on `windows-latest`, observing under the ui-gate promotion rule; the
+bundle tier stays Linux-only until TeX + rsvg-convert are provisioned there. (2)
+`sign-extension.mjs` now bumps through `scripts/lib/extensionVersion.mjs`'s `withVersionBump`:
+a failed or Ctrl+C'd upload restores `extension/manifest.json` byte-for-byte and rebuilds
+`dist/` to match, so a failed attempt no longer leaves the manifest claiming a version nothing
+signed (the report's §1 trap). Dry-run through a fake npm exec: bump → build → "upload" fails →
+restored to 0.1.2, dist rebuilt, tree clean, gate green. Pinned in `verify-extension.ts` §2d.
+(3) The report's "redo step fails on Windows, passes on CI" in `verify-paper-slide-embeds` was
+a product bug, not a gate one: CodeMirror's stock `historyKeymap` binds Ctrl+Shift+Z to redo
+via a `linux:` entry (and Cmd+Shift+Z via `mac:`), so Windows had only Ctrl+Y while the docs
+promise Ctrl+Shift+Z in every editor and the Figure editor honours it everywhere. Paper now
+spreads `paperHistoryKeymap` (`historyKeys.ts`): the chord bound unqualified, ahead of the stock
+list. `verify-paper-history-keys.ts` (pure, paper-gate) resolves the chord through CodeMirror's
+own builder + `runScopeHandlers` over a fake view with the bindings filtered to what a Windows
+platform reads, and pins that the stock list alone does NOT redo there — so a CodeMirror
+upgrade that fixes this upstream says so instead of leaving an orphan override. Checks: 0/0,
+`check:headless` clean, paper-gate 65/65 (the runner flagged a mid-run edit to the new pure gate; no ui gate reads it), pure tier 288/288 at `--jobs 4`.
+**Learnings:**
+- Promoted to §9: the CodeMirror platform-split keymap, and that a `continue-on-error` job's
+  red lives only in the job list; §10: the test-windows flip; §7: the CI job map.
+- **A key binding can be tested on a platform you are not on, without a DOM.** CodeMirror's
+  builder reads `b[platform] ?? b.key`, so filtering the bindings to that subset and dispatching
+  a keydown-shaped object through `runScopeHandlers` over `{state, dispatch}` reproduces the
+  other platform's resolution exactly; only `Mod`'s spelling follows the host, and the synthetic
+  event uses the same modifier. Cheaper and more honest than a source grep for the binding.
+- **Restore the bytes, not the object.** The bump helper keeps the original manifest TEXT and
+  writes it back on failure; re-serializing the parsed object would have been a silent
+  reformat of a committed file on every failed attempt.
+- **A non-owner's AMO "Forbidden" is not a credentials problem.** The add-on id is bound to the
+  first uploading account for good; the fix is that account signing or adding an owner, and
+  the script's failure text now says so instead of pointing at the key page.
+
+### 2026-09-25 (later) — The first Windows CI run: 284/288, and what the four reds were (Claude Fable 5.1, `main`)
+**Work:** `test-windows` ran end to end on its first try — install, Quarto, Chrome, the encoder
+fetch, both type checks and the build all passed on windows-latest; the pure tier came back
+284/288 in under 8 minutes. Each red was a different class. `verify-native-boundaries`: the
+runner's TEMP is an 8.3 short path, the handler answers in long form — gate takes its root
+through `realpath` now. `verify-figure-reference-safety`: a 3 s child deadline killed a healthy
+child mid tsx cold start — one 15 s hang guard for all three children. `verify-w3-locks`: not a
+mutual-exclusion hole (the 240-increment hot-contention check passed there) but the 2 s
+agent-vs-agent budget, which a three-create burst outran on Windows's slower lease I/O — the
+budget is `CONTENTION_RETRIES` (≈10 s) in locks.ts, used by every project and FluxLib lease,
+and the gate now holds a lease for 3 s to pin that a burst longer than the old budget no longer
+defers. `verify-v020-hdr-media`: ffmpeg 6.1.1 on Windows versus 7.0.2 on Linux — reproduced on
+Linux with a 6.1.3 build (patch 10 red channel 51 vs the oracle's 59, identical to the Windows
+number) — left red on purpose; the pin needs to become one version everywhere (§9). Timing:
+the Linux and Windows runners have equal CPU speed (median gate ratio 0.96) and the lock- and
+transaction-heavy gates alone run 5–6× slower on Windows. Checks 0/0, headless clean, pure
+288/288 at `--jobs 4`.
+**Learnings:**
+- Promoted to §9: the 8.3 temp path, the burst-not-cycle lock budget, and the three-version
+  encoder pin.
+- **Compare the two runners' per-gate timings before touching a budget.** The summary
+  artifacts carry ms per gate; one join showed CPU parity and a filesystem-bound 5× — which is
+  what turned "Windows is slow" into "lease I/O is slow", and a budget change into one with a
+  stated cause.
+- **A cross-platform product difference can be reproduced on the platform you have.** The HDR
+  question was "Windows or ffmpeg 6.1?"; a Linux 6.1 build answered it in one probe, without a
+  Windows machine.
+
+### 2026-09-26 — One ffmpeg on every platform (Claude Fable 5.1, `main`)
+**Work:** Owner chose to fix the encoder pin rather than carry the Windows HDR red. The 7.x line
+was a dead end — no stable 7.x build exists for Intel Macs any more — and 9.0.2 is the one
+version every builder still offers for all five targets from immutable URLs; a Linux 9.0.2
+probe put the HDR oracle at the same 2/255 as 7.0.2. `build/video-encoder.json` is a new shape
+(per-target archive + executable path + LICENSE/README pins), `fetch-video-encoder.mjs` reads
+zip (`readZip` gained `only`) and tar.xz (host `tar`, named members only), the downloader asks
+for identity encoding, and the NOTICE names both builders and GPL v3. Verified: the hermetic
+gate on a real stored-method zip fixture plus the real manifest's consistency (44 checks); the
+real Linux fetch; the macOS and Windows archives cross-fetched from Linux (Mach-O/PE headers
+checked by `verifyExecutable`); HDR, audio, video and media gates green on 9.0.2; pure tier
+288/288 at `--jobs 4`.
+**Learnings:**
+- **"Pinned" has to mean the same version, not the same download page.** A hash pin on a
+  repackager's release is a pin on whatever three builders that repackager chose; the gate that
+  noticed was the one with an independent numerical oracle.
+- **Check `content-encoding` before trusting `content-length`.** A size contract that reads the
+  header sees the compressed length for gzip-served text and rejects a correct file.
+
+### 2026-09-26 (later) — The ui-gate red: a dev-server reload under a popup (Claude Fable 5.1, `main`)
+**Work:** The owner saw 2/3 checks on every recent commit. Per-commit check-runs showed three
+different reds: the Windows job before its fixes, one run cancelled by the next push, and on
+the newest commit the ui tier at 122/123 — `verify-plot-gallery` with `Target closed` on the
+first click inside the pinned gallery popup, 6.8 s in, where the four runs before had passed.
+The popup document has no scripts; its opener closes it on `pagehide`. A cold
+`vite optimize` diffed against the warm dep cache named the late discoveries — `harper.js`
+and `harper.js/slimBinary`, imported only by the correction worker — and a cold-cache local
+run of the four gates around the failure logged `dependencies optimized: harper.js` seven
+seconds after start, during the first Paper gate. Fix: `optimizeDeps.include` in
+vite.config.ts; the cold crawl now equals the warm set (53 = 53) and the same cold-cache run
+shows no post-start optimization. New pure gate `verify-dev-prebundle.ts` (fails on the old
+config, 3/7); ci.yml's ui job now writes the dev server's output to
+`test-results/dev-server.log`, uploads it with the summary, and fails on a post-start
+optimization line. The first green run's captured log then showed a SECOND late discovery, the pdf.js worker module (singular wording, past the plural-only grep): now in the include list too, the gate derives worker entries from `new Worker(new URL(…))` targets and `?worker` imports rather than a filename convention, and it names exactly the imports no non-worker file shares. Checks 0/0, pure 289/289 at `--jobs 4`.
+**Learnings:**
+- Promoted to §9: worker-only dependencies and the mid-run reload, with the diff recipe.
+- **Read GitHub's per-commit check-runs, not the commit list's fraction.** "2/3" on five
+  commits was three different failures; the API names the job and the run for each.
+- **A flake with a mechanism is a bug.** The reload had a deterministic trigger and a
+  timing-dependent victim; finding the trigger (a cold crawl diff) took less time than any
+  retry policy would have cost, and the fix removes the whole class.
+
+### 2026-09-26 (evening) — Ctrl+Shift+S did nothing: an effect that re-ran on its own capture (Claude Fable 5.1, `main`)
+**Work:** The owner reported Snapshot & annotate dead on Linux. Not the key path (a CDP
+listener census showed the workspace handler registered and running, one `preventDefault`,
+no propagation stop), not the capture IPC (10 ms under native Wayland), not the build (dist
+was fresh). The overlay's `$effect` depended on `frozen` through `reset()`; every capture set
+`frozen`, re-ran the effect, and reset the overlay before it painted — an infinite capture
+loop with no error. Fixed with `untrack`; the demo bridge gained a real `captureWindow` so
+`verify-annotate-gui` reproduces the bug (fails before the fix, passes after) and now asserts
+the frozen shot, the chip and the written PNG. The figure editor's Ctrl+S branch no longer
+swallows the shifted chord into save-as. Verified in the rebuilt real app on this Wayland
+desktop: overlay in 195 ms with the frozen capture, Escape closes. Checks 0/0, pure 289/289;
+another session was editing this checkout (library conflicts work, 18 files) and its in-flight
+edits broke every Paper gate in the ui tier here, so the change set was validated on a clean
+worktree at HEAD instead: annotate + math gates green, paper-gate 63/65 — one blocked (no
+build in the worktree), and `verify-v020-morph-startup` red twice on a "clean console" count
+right after the worktree's cold start on the shared dep cache, then green four times in a row
+(no local server log to prove the re-optimization; the CI job keeps one). The push's browser run then went 122/123 on `verify-text-arrange-gui`, whose own comment records the race: a "t" typed while an Inspector control still holds focus never reaches the tool shortcut. It now releases the focus before pressing (`armText`); 3/3 green on a clean worktree.
+**Learnings:**
+- Promoted to §9: tracked reads in effect helpers, harness bridges mirroring the real one,
+  and the stale-instance probe trap.
+- **Enumerate the listeners before theorizing about the key path.** `DOMDebugger.getEventListeners`
+  over CDP answered "is the handler even there, and does anything stop the event?" in one call.
+- **A probe against a long-lived port must prove the port is free.** Three consecutive
+  Electron probes silently talked to a stale instance; the tell was `bind() failed` in the new
+  instance's log and an old bundle hash in the page.
+
+### 2026-09-26 (evening) — The assign inbox "network unavailable" that wasn't, and the Background eyedropper crash (Claude Fable 5.1, `main`)
+**Work:** Owner's 11 captured PDFs sat unfiled behind "3 deferred (network) — network unavailable"
+while every service answered in 100 ms. Two independent faults: the Node twin's DOI resolver threw on
+every good Crossref reply (`.catch` on a parsed object, since d80a690), and the GUI's entry creation
+was refused by `assertNoCanonicalConflict` because a Syncthing conflict copy sat beside
+`library.bib` — both exceptions were labelled "deferred", three in a row tripped the offline breaker.
+Fixed the resolver; failures now classify (`assignOutcome.ts`, "error" vs "deferred", an error
+breaker that names its reason, a toast that counts what was filed); `library.bib` conflict copies
+merge themselves by entry and are archived (§3), in both engines, so a library write is never refused
+by a sibling file. Owner's library: the copy carried 9 entries added on the other machine on 09-06
+(NMF papers) — merged (1839 → 1848; backup at `.fluxlib/library.bib.pre-conflict-merge-2026-09-26`),
+then all 11 PDFs filed (9 add+attach, 2 duplicates kept as supplements; 1857 entries). Second bug:
+the figure Background field (also slide Background and the palette "+") was still a native
+`<input type="color">` whose eyedropper segfaults Electron on Wayland — replaced by
+`ColorField.svelte` (portal dropper), structural + ui gates. Pure gates green
+(assign-outcome, assign-hardening, canonical-reads, sync-conflicts, pdfidentify, bib-scanner),
+`verify-color-field` 5/5 on a warm server, real-Electron assign probe with a conflict copy in a
+scratch library: 3/3 filed, copy merged + archived.
+**Learnings:**
+- Promoted to §3 (library.bib conflict copies merge themselves, archived not deleted) and §9 (three
+  traps: `.catch` on a non-promise inside a resolver; "deferred (network)" must mean network; never a
+  native colour input).
+- **Reproduce the GUI path in the real renderer before theorizing.** A 40-line Electron probe (the
+  `verify-library-native.cjs` recipe: scratch HOME, `VITE_DEV_SERVER_URL`, `executeJavaScript` importing
+  `assignJob.svelte.ts`) proved the GUI job itself was sound and pointed straight at the owner's
+  library — the conflict copy — instead of at any of the four plausible code suspects.
+- **A cold dev server fails ui gates that pass warm.** The first page load after `npm run dev` can
+  re-optimize a dep mid-gate (504 "Outdated Optimize Dep", full reload); judge a gate on the second
+  run against the same server. `pkill -f vite` also matches the shell that spawned it — kill by process
+  group (`setsid`, `kill -- -PGID`).
+- **In a synced copy of a library, same citekey = same record.** The add planner's DOI/signature dedupe
+  cannot see a title-only record (no DOI, no author); three came back re-minted as duplicates on the
+  first real merge. `planBibConflictMerge` filters same-key blocks first.
+
+### 2026-09-26 — Snapshot feedback: Figure-Meta and text fixes (Codex, codex/snapshot-feedback-20260926)
+**Work:** Replaced the canvas caption overlay and naming popup with Figure-Meta in Figure/Paper,
+including shared live previews, family/name editing, filters, split resizing and native pin/dock;
+added direct pin chords for metadata/gallery, preserved blank SVG text lines, and added the text
+F-menu Panel label toggle. Svelte/headless checks, build, 342 distinct regression scripts
+(pure + complete paper-gate + snapshot-feedback; native export recovery retried successfully
+after fixing virtual-display authorization), and native saved-byte/reload checks passed; the
+testing project's existing figure snapshot loads completely without migration errors. Updated
+the behavior guidance and help.
+**Learnings:**
+- Promoted the metadata ownership, lifecycle flush and inert-window rules into the body: a draft
+  committed after Figure's flush must itself wait for that owner's resulting save.
+- Empty SVG tspans do not advance the pen; carry their line advances and script reset to the next
+  glyph-bearing line in the shared layout, preserving authored newlines and measured block height.
+
+### 2026-09-26 23:00 UTC — Figure-Meta feedback refinements (Codex, codex/meta-refinements-20260926)
+**Work:** Added caption size controls, foldable blocks, whole-composition fit/zoom/pan, optional
+unlabelled closing prose and a refined metadata surface. Focused browser/core checks, production
+native save/reload, Svelte/headless checks and the staged build pass; full regression qualification
+is recorded with the integration follow-up.
+**Learnings:**
+- Promoted the reserved closing-caption and marker-free import rules into the metadata guidance:
+  unchanged suffixes can retain their block; rewritten prose must not reappend an obsolete ps.
+- Preview fitting measures the entire artwork/caption sheet, and both measurement observers must
+  reconnect to the destination document when the view is pinned or docked.
+
+### 2026-09-26 23:21 UTC — Figure-Meta refinement qualification (Codex, codex/meta-refinements-20260926)
+**Work:** The shared-core revision passed 293/293 pure checks; after the compact-layout and native
+probe corrections, fixed revision 17a8a8b passed 81/81 complete Paper/metadata checks, covering 344
+distinct regressions overall. Production Linux pin/dock/save/reload passes; all six new-control
+input-to-paint samples with 30 caption blocks were 16.3–29.4 ms. Svelte/headless checks and build
+pass. The native coordinate-readiness lesson was promoted into the known-traps section.
+
+### 2026-09-27 00:23 UTC — Push qualification: Slides scrub gate (Codex)
+**Work:** Pushed the six Figure-Meta commits; Linux and Windows CI each passed 293/293 pure
+checks, and Linux bundle checks passed. Browser CI passed 128/129, including all metadata
+checks; the existing ruler-scrub gate compared dirty state while a prior autosave was pending.
+A controlled local reproduction preserved the deck, edit destination and preview while dirty
+changed true → false. The gate now awaits that save before its baseline and retains every
+scrub invariant; the corrected complete authoring gate passes locally. No product code changed.
+**Learnings:** The view-only snapshot rule above now names the affected gate and its CI case.
+
+### 2026-09-27 00:23 CDT — Sync origin into the Mac checkout (Codex, main)
+
+**Work:** Merged 85 upstream commits through `e233ea1`, preserving local Mac fixes from
+`c13f154`; the only conflict was concurrent session-log entries, both retained. Refreshed
+locked dependencies and both native runtimes, rebuilt the app/CLI, and verified renderer
+0 errors/0 warnings, headless types, production startup and signed-extension parity.
+Paper regression suite: 64/68 passed; Vim toggle, native GUI export recovery, metadata
+and metadata-refinement checks failed. No gates or product code were changed to hide
+those failures. Evidence: `test-results/runs/2026-09-27T05-15-42-028Z-13129`.
+**Learnings:** Corrected the obsolete signed0.1.1 release blocker in the body after
+verifying the checked-in signed0.1.2 payload matches the current source.

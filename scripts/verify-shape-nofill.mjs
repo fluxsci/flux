@@ -108,14 +108,25 @@ try {
 
   // now the triangle can take a fill (the original ask): Fill target + None-swatch's inverse — any colour
   await setTarget("Fill");
+  // The palette's "add custom colour" is a ColorField now (a32f9cb) — never a native
+  // <input type="color">. Drive it as a model, the way this gate drove the old input: open the
+  // popover, set the hex with an input event, and send the field its Enter, which commits
+  // through the palette's pick → applyColor. (Real pointer clicks were unreliable here: the
+  // control sits below the fold inside the Inspector's own scroll pane.)
   await page.evaluate(() => {
     const sec = [...document.querySelectorAll("section")].find((s) => s.querySelector("h4")?.textContent === "Colors");
-    const add = sec.querySelector('.add input[type="color"]');
-    add.value = "#2ca02c";
-    add.dispatchEvent(new Event("change", { bubbles: true }));
+    sec.querySelector('button[aria-label="Add custom colour"]').click();
   });
+  await page.waitForSelector(".pop .hex", { timeout: 2000 });
+  await page.$eval(".pop .hex", (el) => {
+    el.value = "#2ca02c";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  await page.waitForFunction((id) => window.__flux.figures()[0].elements.find((e) => e.id === id)?.fill === "#2ca02c", { timeout: 3000 }, ids.path).catch(() => {});
+  await page.evaluate(() => document.querySelector('.pop button[aria-label="Done"]')?.click());
   pth = await el(ids.path);
-  ok(pth.fill === "#2ca02c", "closed triangle takes a fill");
+  ok(pth.fill === "#2ca02c", `closed triangle takes a fill (got ${pth.fill})`);
 
   // reopen: fill survives in the model, renderer suppresses it (open paths draw fill=none)
   await page.evaluate(() => { [...document.querySelectorAll("label.chk")].find((x) => /Closed path/.test(x.textContent)).querySelector("input").click(); });

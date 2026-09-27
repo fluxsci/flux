@@ -34,6 +34,21 @@ async function mode(label) {
 async function version(selector, source, value) {
   return waitFor(() => js(`!!document.querySelector(${JSON.stringify(`${selector} [data-probe-source="${source}"][data-source-version="${value}"]`)})`), `${selector}: ${source} v${value}`);
 }
+async function paperVersion(value) {
+  const expected = value === 1 ? [67, 133, 190] : value % 2 ? [135, 154, 57] : [139, 126, 200];
+  const sample = await waitFor(() => js(`(() => {
+    const img = document.querySelector('.flux-embed-art img'); if (!img) return false;
+    img.scrollIntoView({block:'center'});
+    if (!img.complete || !img.naturalWidth) return false;
+    const canvas = document.createElement('canvas'); canvas.width=img.naturalWidth; canvas.height=img.naturalHeight;
+    const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0);
+    const at=(x,y)=>Array.from(ctx.getImageData(Math.round(x*canvas.width/660),Math.round(y*canvas.height/200),1,1).data).slice(0,3);
+    const live=at(30,80), frozen=at(250,80), expected=${JSON.stringify(expected)};
+    if (!live.every((v,i)=>Math.abs(v-expected[i])<=1) || !frozen.every((v,i)=>Math.abs(v-[67,133,190][i])<=1)) return false;
+    return {live,frozen,width:canvas.width,height:canvas.height};
+  })()`), `Paper decoded image has shared v${value} paint and unchanged frozen paint`);
+  console.log('PROBE Paper pixels=' + JSON.stringify(sample));
+}
 async function diskVersion(rel, value) { return waitFor(() => read(rel).includes(`data-source-version="${value}"`), `${rel}: v${value}`); }
 async function main() {
   win = await waitFor(() => BrowserWindow.getAllWindows()[0], "native window");
@@ -82,9 +97,9 @@ async function main() {
     rewrite(path.join(root, "plots/shared.fluxplot.json"), JSON.stringify({ spec: "fluxplot", schemaVersion: "0.2.0", axes: [], series: [], probeVersion: 3 }));
     await waitFor(() => json("fig/assets/shared.fluxplot.json").probeVersion === 3, "manifest-only Figure persistence");
     check(true, "semantic sidecar-only change persists through the actual watcher");
-    await mode("Paper"); await version(".flux-embed-art", "shared", 2);
+    await mode("Paper"); await paperVersion(2);
     regenerate(path.join(root, "plots/shared.svg"), "shared", 3);
-    await version(".flux-embed-art", "shared", 3); await diskVersion("fig/assets/shared.svg", 3);
+    await paperVersion(3); await diskVersion("fig/assets/shared.svg", 3);
     check(true, "open Paper embed refreshes automatically after source regeneration");
     await mode("Slide"); await version(slide, "shared", 3); await version('[data-editor-element-id="slide-frozen"]', "frozen", 1);
     const before = json("slides/watcher-talk/deck.json");

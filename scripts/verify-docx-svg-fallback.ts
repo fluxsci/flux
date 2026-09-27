@@ -40,8 +40,8 @@ function docx(opts: { blip: string; extraRels?: string; media?: Record<string, U
         '<Default Extension="rels" ContentType="a"/><Default Extension="svg" ContentType="image/svg+xml"/>' +
         '<Override PartName="/word/document.xml" ContentType="d"/></Types>',
     ),
-    "_rels/.rels": strToU8('<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId1"/></Relationships>'),
-    "word/document.xml": strToU8(`<?xml version="1.0"?><w:document><w:body><w:p>${drawing}</w:p></w:body></w:document>`),
+    "_rels/.rels": strToU8('<?xml version="1.0"?><Relationships xmlns="x"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'),
+    "word/document.xml": strToU8(`<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body><w:p>${drawing}</w:p></w:body></w:document>`),
     "word/_rels/document.xml.rels": strToU8(
       '<?xml version="1.0"?><Relationships xmlns="x">' +
         '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/pic.svg"/>' +
@@ -154,13 +154,11 @@ const names = (b: Uint8Array) => Object.keys(unzipSync(b));
     h.ok(height === 180, `…preserving the viewBox aspect ratio (${height})`);
   }
 
-  const { readFileSync } = await import("node:fs");
-  const compile = readFileSync(new URL("../flux-core/manuscript.ts", import.meta.url), "utf8");
-  h.ok(
-    /addSvgRasterFallbacks/.test(compile) && /rasterizeSvgToPng/.test(compile),
-    "headless compile wires the same shared core, with its own rasterizer injected",
-  );
-  h.ok(/svgFallbacks/.test(compile), "…and reports what it did in the compile summary");
+  const { postprocessDocx } = await import("../src/lib/references/docxArtifact");
+  const processed = await postprocessDocx(docx({ blip: SVG_ONLY_BLIP }), { rasterize: async (svg, width) => new Uint8Array(await rasterizeSvgToPng(svg, width)) });
+  h.ok(processed.svgFallbacks.added === 1 && processed.svgFallbacks.failed.length === 0, "shared publication pipeline renders and reports the real PNG fallback");
+  const entries = unzipSync(processed.bytes);
+  h.ok(Object.entries(entries).some(([name, data]) => name.endsWith(".png") && data.length > 100 && data[0] === 0x89), "validated publication bytes retain the actual raster fallback part");
 }
 
 await h.done();

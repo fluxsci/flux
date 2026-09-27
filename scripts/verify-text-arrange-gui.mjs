@@ -22,6 +22,13 @@ const ok = (cond, msg) => (cond ? console.log("  ✓ " + msg) : (fails++, consol
 const { browser, page } = await launch({ width: 1500, height: 950 });
 try {
   await gotoApp(page, { url: "http://127.0.0.1:1420/?fixture=demo", settle: 3500 });
+  // The demo manuscript cites its panels. Replacing them with text would
+  // correctly refuse autosave; use a real blank project for this fixture.
+  await page.evaluate(async () => {
+    const { scaffoldProject } = await import('/src/lib/project/scaffold.ts');
+    const root = await scaffoldProject('/demo/text-arrange', { title: 'Text arrangement' });
+    await window.__flux.shell.openProjectAt(root);
+  });
   await clickMode(page, "Figure");
   await sleep(700);
 
@@ -72,7 +79,12 @@ try {
           dy: Number(s.getAttribute("dy")),
           len: s.getAttribute("textLength"),
           adjust: s.getAttribute("lengthAdjust"),
+          // Justification is word gaps now: a dx on the piece that starts each
+          // word, and the line ending exactly at the box's right edge.
+          gaps: [...s.querySelectorAll("tspan[dx]")].length,
+          right: +(s.getBBox().x + s.getBBox().width).toFixed(1),
         })),
+        box: (() => { const m = window.__flux.figures().flatMap((f) => f.elements).find((e) => e.id === id); return { left: m.x, right: m.x + m.width }; })(),
       };
     }, id);
   const select = async (id) => {
@@ -80,6 +92,16 @@ try {
     await sleep(250);
   };
   // The Inspector's selects are found by their aria-label or their <label> text.
+  // Arm the T tool by its shortcut the way a user does — but a "t" typed while an
+  // Inspector control still holds focus (a select just changed, a loaded runner
+  // is slow to blur) goes into that control and never reaches the tool, and the
+  // wait below then times out (CI 2026-09-22 and 2026-09-26). Release the focus
+  // to the document first, then press, then wait for the tool itself.
+  const armText = async () => {
+    await page.evaluate(() => { const el = document.activeElement; if (el && el !== document.body && typeof el.blur === "function") el.blur(); });
+    await page.keyboard.press("t");
+    await waitFor(page, () => window.__flux.get(window.__flux.fig.activeTool) === "text", null, { label: "T tool armed" });
+  };
   const setSelect = async (label, value) => {
     await page.evaluate(
       (label, value) => {
@@ -121,9 +143,11 @@ try {
   await setSelect("Align", "justify");
   ok((await model("ta-wrap")).align === "justify", "the Inspector's Align offers (and applies) Justify");
   const just = await painted("ta-wrap");
-  const stretched = just.spans.filter((s) => s.len !== null);
+  const stretched = just.spans.filter((s) => s.gaps > 0);
   ok(stretched.length === just.spans.length - 1, `every line but the last is stretched (${stretched.length}/${just.spans.length})`);
-  ok(stretched.every((s) => Number(s.len) === 240 && s.adjust === "spacing"), "…to the box width, by spacing");
+  ok(just.spans.every((s) => s.len === null), "…by widening word gaps, never by stretching the whole line's letters");
+  ok(just.spans.slice(0, -1).every((s) => Math.abs(s.right - just.box.right) <= 1), `…and each stretched line lands on the box's right edge (${just.spans.map((s) => s.right).join(", ")} vs ${just.box.right})`);
+  ok(stretched.every((s) => s.gaps >= 1), `…with the slack in the word gaps themselves (${stretched.map((s) => s.gaps).join(", ")} gaps)`);
   ok(just.spans[just.spans.length - 1].len === null, "the paragraph's last line keeps its natural width");
   ok(just.anchor === "start", "justified text still anchors at the left edge");
   // Real painted geometry, not just the attribute.
@@ -261,7 +285,7 @@ try {
   await sleep(250);
   const at = (x, y) => [host.left + host.panX + x * host.zoom, host.top + host.panY + y * host.zoom];
   const texts = () => page.evaluate(() => window.__flux.figures().flatMap((f) => f.elements).filter((e) => e.type === "text").map((e) => structuredClone(e)));
-  await page.keyboard.press("t");
+  await armText();
   await sleep(120);
   await page.mouse.move(...at(100, 100));
   await page.mouse.down();
@@ -281,11 +305,14 @@ try {
   await select(dragged.id);
   await setSelect("Align", "justify");
   const drawnPainted = await painted(dragged.id);
-  ok(drawnPainted.spans.slice(0, -1).every((s) => Number(s.len) === 220 && s.adjust === "spacing") && drawnPainted.spans.at(-1).len === null, "…and Justify fills the drawn width on every line but the last");
+  ok(drawnPainted.spans.slice(0, -1).every((s) => s.gaps > 0 && Math.abs(s.right - drawnPainted.box.right) <= 1) && drawnPainted.spans.at(-1).gaps === 0, "…and Justify fills the drawn width on every line but the last");
 
   // A CLICK is unchanged: a hugging label.
-  await page.keyboard.press("t");
-  await sleep(120);
+  // The Inspector select above still holds focus for a moment on a loaded
+  // runner, and a "t" typed into a focused control never reaches the tool
+  // shortcut — the click then selected instead of creating, and this read the
+  // DRAGGED box as the new label (CI, 2026-09-22). Wait for the tool itself.
+  await armText();
   await page.mouse.click(...at(100, 320));
   await waitFor(page, () => !!document.querySelector("textarea.text-edit"), null, { label: "editor opens after the click" });
   await page.keyboard.type("a hugging label that becomes a paragraph once justified and narrowed");
@@ -317,11 +344,18 @@ try {
   clicked = (await texts()).at(-1);
   const narrowed = await painted(clicked.id);
   ok(clicked.width === 200 && clicked.lines?.length >= 2, `narrowing the box wraps it (${clicked.lines?.length} lines at ${clicked.width})`);
-  ok(narrowed.spans.slice(0, -1).every((s) => Number(s.len) === 200) && narrowed.spans.at(-1).len === null, "…and the wrapped lines fill the new width, last line natural");
+  ok(narrowed.spans.slice(0, -1).every((s) => Math.abs(s.right - narrowed.box.right) <= 1) && narrowed.spans.at(-1).gaps === 0, "…and the wrapped lines fill the new width, last line natural");
   await page.evaluate(() => { window.__flux.fig.undo(); window.__flux.fig.undo(); });
   await sleep(300);
   clicked = (await texts()).at(-1);
   ok(clicked.sizing === "auto" && clicked.align === "left" && clicked.width === hugWidth, "two undos return the hugging label exactly");
+  const saved = await page.evaluate(async () => {
+    const result = await window.__flux.lifecycle.flushAll();
+    const canvas = JSON.parse(await window.fig.readText('/demo/text-arrange/fig/canvases/canvas-1.json'));
+    return { ok: result.ok, elements: canvas.figures[0].elements };
+  });
+  ok(saved.ok, 'the text arrangement fixture saves without a reference-safety refusal');
+  ok(JSON.stringify(saved.elements) === JSON.stringify(await texts()), 'saved canvas bytes retain the final text layout after undo');
   await shot(page, "text-arrange-03-ttool");
 
   const errs = realErrors(page);

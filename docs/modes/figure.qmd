@@ -16,7 +16,7 @@ survives.
 - **Tools** are single keys — **V** select, **K** scale, **H** hand (pan), **T** text,
   **R** rectangle, **O** ellipse, **L** line, **A** arrow, **P** pen.
 - The **sidebar** lists Canvases (pages — add, rename, delete), Figures on the active canvas
-  (family-aware number badges — "2", "S2", "ED3"; double-click opens the figure namer), and
+  (family-aware number badges — "2", "S2", "ED3"; double-click opens Figure-Meta’s Name tab), and
   **Layers** — the z-ordered element tree, with per-row show/hide, lock, drag-to-reorder, and
   collapsible groups. Drag its right edge to resize it; **Ctrl+B** hides it (bold still wins
   when a text element is selected).
@@ -27,12 +27,12 @@ survives.
   **Alt+↑** / **Alt+↓**. **Shift+click** picks a run of rows and **Ctrl+click**
   (**⌘+click** on macOS) adds or drops one, and the whole pick then moves as a block.
   This changes the *order of the list only*: nothing moves on the canvas, and no figure is
-  renumbered — reordering and renumbering are separate on purpose, so use the figure namer
+  renumbered — reordering and renumbering are separate on purpose, so use Figure-Meta’s Name tab
   below when you want the numbers to follow.
 - The **Inspector** puts the selection’s position, size and appearance first. Alignment and
   arrangement tools, the color palette and journal export options can be expanded as needed; drag its left edge to resize it, **Ctrl+Shift+B** hides it for a
   clean canvas.
-- **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–1600%).
+- **Ctrl+Z** undo, **Ctrl+Shift+Z** redo, zoom controls in the toolbar (5%–25600%).
   Undo and redo buttons show when a step is available. The toolbar distinguishes waiting
   changes, saving, and a failed save with **Retry**. If a save fails, switching between Figure
   and Slide keeps your edits in the original editor until they can be saved.
@@ -90,10 +90,25 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
   shows or collapses a directory tree; expand its branches to browse files without losing
   your picks. Flux remembers these display choices.
+- **Project** / **Global** at the top of the gallery (**Alt+1** / **Alt+2**) switches between
+  this project's `plots/` folder and your **global plot library**, the
+  `plot_library` folder inside your FluxConfig folder (by default
+  `~/FluxConfig/plot_library`). Put plots you reuse everywhere there, such as logos,
+  schematics, reference panels and colour keys. Organise it with any folders you like, as
+  you would a project's `plots/`; Flux creates the folder the first time you open **Global**
+  and **Open folder** takes you there. Picks from both scopes can go in together. The
+  project keeps its own copy of every plot you insert, and a global plot stays linked to its
+  file in the library, so regenerating it there updates it here on this machine. The global
+  library holds SVG and PNG plots; video clips live in a project's `plots/_videos/`.
+- **What a search covers** is set in **Settings → Figure → Plot gallery**: everything in
+  the scope you are browsing (the default), only the current folder and its subfolders, only
+  project plots, only global plots, or everything in both. When results come from outside
+  the scope you are browsing, each one is labelled **Project** or **Global**.
 - Click a plot, or press **Enter** or **Space** in an empty search box, to select it.
   Picks survive folder changes and searches. **Ctrl+Enter**, the **Insert** button, or
-  a double-click inserts the selection. Search reaches ordinary folders throughout `plots/`;
-  **plots** returns to the root and **Up** or **Backspace** goes to the parent folder.
+  a double-click inserts the selection. By default, search reaches ordinary folders
+  throughout the tree you are browsing. The root button (**plots** or **plot_library**)
+  returns to the top, and **Up** or **Backspace** goes to the parent folder.
 - **Ctrl-click** (Mac: **⌘-click**) a plot, or use **Preview** / **F4**, for a full-window
   view. Arrow keys browse adjacent plots; **Escape** returns to the gallery. Open
   **Dissections** or press **D** to inspect the plot's companion groups and panels.
@@ -101,7 +116,7 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   selecting them. Clear that filter to return to normal browsing.
 - **Pin open** moves the gallery into its own resizable window. Move it to another screen
   and keep arranging figures in the editor. The current folder and selection are preserved,
-  and you can still browse the entire `plots/` tree. Insertions leave the window open and
+  and you can still browse the entire `plots/` tree and the global library. Insertions leave the window open and
   use the figure named in its footer. Successful insertions clear the submitted picks,
   ready for the next batch. **Dock** returns the same gallery to the editor;
   **Alt+G** brings an already pinned gallery forward. **Refresh** reloads files and previews.
@@ -179,10 +194,15 @@ swatch, an object — it gains an accent dot, and it tightens while you press.
 Text fields keep the I-beam; handles keep their resize arrows and pan keeps the hand.
 
 Drag to move (with smart snapping and alignment guides), arrows to nudge, **Alt+drag** to
-duplicate, **Shift+drag** to constrain to an axis. **Ctrl+G** groups (**Ctrl+Shift+G**
-ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they move one step),
-**Shift+H** / **Shift+V** flip, **Delete** removes, **Escape** cancels whatever you're midway
-through. The Inspector's Align row lines selections up, distributes them, and sets exact gaps.
+duplicate, **Shift+drag** to constrain to an axis. To move something to a **different
+figure**, just drag it there: the figure under the pointer lights up, and releasing puts the
+selection into that figure where you dropped it (groups and panel captions come along; one
+Undo brings it back). **Ctrl+X** cuts, **Ctrl+C** copies and **Ctrl+V** pastes, so a cut in
+one figure and a paste in another is the keyboard way to do the same thing. **Ctrl+G** groups
+(**Ctrl+Shift+G** ungroups), **]** brings to front and **[** sends to back (with **Ctrl** they
+move one step), **Shift+H** / **Shift+V** flip, **Delete** removes, **Escape** cancels whatever
+you're midway through. The Inspector's Align row lines selections up, distributes them, and
+sets exact gaps.
 
 Press **F** with anything selected for the **property menu** — the fastest way to edit, built
 for one hand on the keyboard and one on the mouse. It opens **beside the selection**, never on
@@ -204,6 +224,10 @@ applies it, and a drag on the square previews until you let go. The hex field an
 follow the preview, and the opacity readout shows the selection's current value (or **mixed**).
 Releasing the hue or opacity slider applies that adjustment and keeps the picker open so
 you can continue tuning the colour.
+The eyedropper samples a colour from your screen. On Linux it uses your desktop's
+colour picker; **Escape** cancels without changing your artwork. If screen picking
+is unavailable, Flux offers a magnified view labelled **Pick from Flux window**,
+which samples only this window. A completed pick is one undoable change.
 **Escape** or clicking outside dismisses an unchosen preview; an incomplete hex stays editable
 until you finish it. The palette comes in
 **collections** — Flexoki (the default), ColorBrewer, Paul Tol's colour sets, and your
@@ -252,6 +276,14 @@ elements and ruler guides adjust their local coordinates to stay in place. Artwo
 the new frame remains in the project and reappears if you enlarge the boundary again.
 Dragging the title still moves the whole figure. Slides use a shared deck stage size.
 
+**Resizing a plot and its content scale.** Resizing a placed plot changes its axes and data
+area but keeps its text and line widths at their true point size, the way changing a
+figure's size in matplotlib does. The Inspector's **Content scale** (or the **K** scale tool)
+is the other dial: it makes the plot's text and lines bigger or smaller inside the same box.
+Pictures that have no text or lines, such as a PNG saved inside an SVG, have nothing for
+content scale to change, so the Inspector says so instead of showing the field. Resize the
+box to make them bigger.
+
 # Drawing
 
 The shape tools do what you expect; the **pen** (P) is placement-assisted: click to place
@@ -276,8 +308,10 @@ hugs, *Auto H* wraps at the box width and grows downward, *Fixed* keeps both dim
 everything below arranges the text **inside** that box.
 
 **Align** places the lines across the box: *Left*, *Center*, *Right*, or *Justify*. Justified
-text stretches every line out to both edges by opening up the spacing, and leaves the last
-line of each paragraph at its natural width, the way a printed column does. It needs a width
+text stretches every line out to both edges by widening the gaps **between words** — the
+letters keep their own spacing — and leaves the last line of each paragraph at its natural
+width, the way a printed column does. A line holding a single long word is left alone, since
+there is no gap to widen. It needs a width
 to fill, so choosing it on a hugging label turns the label's current width into the box's
 width (*Auto H*): nothing moves yet, but drag the box narrower — or keep typing — and the
 lines wrap and fill it.
@@ -294,6 +328,33 @@ you pressed Enter, never between the lines of one wrapped paragraph. **Tracking*
 spacing — the space added after every letter. Both are in **points**, like the font size, and a
 negative tracking pulls letters together. Tracking changes how much fits on a line, so a
 wrapping box re-wraps as you adjust it.
+
+**Italic for one word, not the whole box.** Double-click the text to edit it, select the part
+you want — a species name, a gene symbol, a single letter — and press **Ctrl+I**, **Ctrl+B** or
+**Ctrl+U**. Only that stretch changes; the box keeps its own font, so the rest of the label is
+untouched. With nothing selected, while you are typing, the same keys style only what you type
+next: press **Ctrl+I**, type the species name, press **Ctrl+I** again and carry on upright. Moving
+the cursor or clicking ends that. To style the whole box, click the box without editing it, or
+select all of its text first. The formatting sticks to the letters it was given: type in the middle of an italic word and the
+new letters are italic too, type against its edge and they are not, and deleting the word takes
+its formatting with it. The formatting shows on the canvas as you work. Bold makes letters
+wider, so after a bold word the text cursor can sit a few pixels off the letters. In the rare
+case where a bold word pushes text onto another line, the box shows plain text while you type,
+and the bold appears when you click away. (**Escape** throws the whole edit away, formatting
+included.)
+
+**Superscript and subscript.** Select the characters and press **Ctrl++** (superscript) or
+**Ctrl+=** (subscript), or use the Inspector's **X²** and **X₂** buttons. The characters are set
+smaller and raised or lowered, so *x²* and *H₂O* stay in one text box. **Ctrl+.** and **Ctrl+,**
+do the same, as in Google Docs. Pressing the same one again puts the characters back on the line,
+and with nothing selected it applies to what you type next, like the other styles.
+
+**Color and the Inspector work on the selected letters too.** While letters are selected, the
+Inspector's Text section says *Styling N selected characters*. Its **B**, **I** and **U** buttons
+then format just those letters, and you can press several in a row. The *Text* color swatch
+paints just those letters as well, so one symbol can be red inside a black label. Click
+**Whole box**, or click the canvas, to style the whole text again. A colormap gradient always
+covers the whole box, so it is not offered for a few selected letters.
 
 All of these sit in the Inspector's Text section and in the **F** menu, they apply to every
 selected text at once, and each adjustment is one undo step. A **named text style** (the
@@ -313,17 +374,29 @@ one gesture.
 
 # Panels and captions
 
-- Mark a text element as a **panel label** with **Alt+L**; **Auto-letter panels** (in the
+- Mark a text element as a **panel label** with **Alt+L** or the **Panel label** toggle
+  in its **F-menu**; **Auto-letter panels** (in the
   Inspector's Figure section) letters them a, b, c… in reading order.
 - Panel references follow the panel itself when you relabel or auto-letter panels. Flux updates
   saved manuscript references and open editor buffers automatically. If removing a referenced
   panel would make its reference point somewhere else, the save stops with a clear conflict
   until you restore the panel or repair that reference.
-- **Alt+C** opens the **caption editor** — a manuscript-style caption page beside the figure,
-  one block per panel. Captions live with the figure and flow into your
-  [manuscript](paper.qmd) and exports automatically. Each block grows to fit whatever you
-  type, so a caption is never hidden behind a scrollbar; when the blocks outgrow the page,
-  scroll the page itself. Set the typing size in **Settings → Figure → Caption editor**.
+- **Alt+M** opens **Figure-Meta** in Figure or Paper, starting with the active figure.
+  Browse every canvas, search and filter families, and edit the **Captions** or **Name** tab.
+  The figure and composed caption preview sit beside the fields; drag the divider to resize
+  them. The Name tab includes family, number, title and custom families. Existing captions
+  and permanent references are preserved. Captions flow into the [manuscript](paper.qmd)
+  and exports automatically. Each field grows to fit; the fields column scrolls. Set the
+  typing size with the **− / +** controls above the blocks (also in **Settings → Figure**).
+  Click a block's letter or heading to collapse or expand it.
+- The preview fits the entire figure **and caption** by default. **Ctrl-scroll** zooms around
+  the pointer; drag to pan, choose a percentage, or press **Fit** to see everything again.
+- **Add closing caption · ps** adds optional prose after the final panel caption. It appears
+  as ordinary text, with no “ps” label, and stays at the end when panels are added or reordered.
+  Remove it with its **×** button; metadata Undo can restore it.
+- **Shift+Alt+M** opens Figure-Meta already pinned in a separate window; **Pin open** and
+  **Dock** move the same view between windows. You can keep editing the workspace while
+  it is pinned. **Shift+Alt+G** likewise opens the Plot gallery already pinned.
 - **Alt+T** enters **arrange**: reflow a messy selection into a tidy row, column, or grid from
   the keyboard, live, as one undo step.
 - **Shift+R** shows rulers (drag from them for guides); **Shift+G** shows the background grid.

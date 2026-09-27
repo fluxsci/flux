@@ -267,9 +267,11 @@
     // worker was tried and measured WORSE — its continuous commits re-deepen the compositor
     // pipeline.) The loop is dt-driven, so setTimeout jitter never changes the motion's speed.
     let last = performance.now();
+    let loopActive = false, disposed = false;
     let inputQuietUntil = 0;
     let inputYieldCount = 0;
     const yieldToTyping = () => {
+      if (!loopActive || disposed || paused) return;
       // A canvas composite queued immediately after keydown can delay the
       // editor's next paint even though the input handler itself is cheap.
       // Yield five ambient frames after each key. The previous 50 ms window
@@ -287,6 +289,8 @@
     window.addEventListener("keydown", yieldToTyping, { capture: true });
     let warned = false;
     const tick = () => {
+      timer = 0;
+      if (!loopActive || disposed || paused) return;
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
@@ -312,11 +316,13 @@
       timer = setTimeout(tick, 16);
     };
     stopLoop = () => {
+      loopActive = false;
       clearTimeout(timer);
       timer = 0;
     };
     startLoop = () => {
-      if (timer) return;
+      if (timer || disposed || paused) return;
+      loopActive = true;
       last = performance.now(); // resume without a dt jump
       timer = setTimeout(tick, 16);
     };
@@ -350,6 +356,7 @@
     }
 
     return () => {
+      disposed = true; loopActive = false;
       clearTimeout(timer);
       window.removeEventListener("keydown", yieldToTyping, { capture: true });
       ro.disconnect();

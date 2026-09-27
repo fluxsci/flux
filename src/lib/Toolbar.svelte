@@ -2,6 +2,7 @@
   import { getContext } from "svelte";
   import {
     activeTool,
+    activeFigureId,
     viewport,
     undo,
     redo,
@@ -18,6 +19,8 @@
   export let saveError: string | null = null;
   export let retrySave: (() => void) | null = null;
   import { settingsOpen, settings } from "./settings";
+  import { openFigureMeta } from "./figure/metadataState";
+  import { clampZoom } from "./interact/zoomLimits";
 
   // Slide-migration: the same toolbar serves both editors; only the mode title
   // differs (subtly accented in Slide mode — the sanctioned differentiator).
@@ -53,6 +56,7 @@
     {/if}
     <button on:click={importAssets} title="Import PNG/SVG (Ctrl+Shift+K)">Import</button>
     <button on:click={() => importerOpen.set(true)} title={slideMode ? "Browse project plots and MP4/MOV clips (Alt+G)" : "Plot gallery (Alt+G)"}>{slideMode ? "Plots & videos" : "Gallery"}</button>
+    {#if !slideMode}<button title="Figure-Meta (Alt+M)" on:click={() => openFigureMeta($activeFigureId ?? undefined)}>Figure-Meta</button>{/if}
   </div>
 
   <div class="sep"></div>
@@ -89,9 +93,9 @@
     <span class="path">{$projectDir ?? "unsaved"}</span>
   {/if}
   <div class="group zoom">
-    <button title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(Math.max(0.05, $viewport.zoom / 1.25))}>−</button>
+    <button title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(clampZoom($viewport.zoom / 1.25))}>−</button>
     <span class="zoomval">{Math.round($viewport.zoom * 100)}%</span>
-    <button title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(Math.min(16, $viewport.zoom * 1.25))}>+</button>
+    <button title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(clampZoom($viewport.zoom * 1.25))}>+</button>
     <button on:click={() => setZoom(1)}>100%</button>
   </div>
   <button class="gear" title="Settings" on:click={() => settingsOpen.set(true)}>⚙</button>

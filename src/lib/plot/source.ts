@@ -31,11 +31,15 @@ import { isAbsolutePath } from "../project/types";
 
 /** Forward-slash normalize + collapse "./" segments + trim trailing slashes. */
 function norm(p: string | null | undefined): string {
-  return String(p || "")
-    .replace(/\\/g, "/")
-    .replace(/\/\.(?=\/)/g, "")
-    .replace(/^\.\//, "")
-    .replace(/\/+$/, "");
+  const text=String(p||"").replace(/\\/g,"/");
+  const prefix=text.startsWith("//") ? "//" : text.startsWith("/") ? "/" : "";
+  const parts:string[]=[];
+  for(const part of text.split("/")) {
+    if(!part||part==='.')continue;
+    if(part==='..'&&parts.length&&parts.at(-1)!=='..'&&!/^[a-z]:$/i.test(parts.at(-1)!))parts.pop();
+    else if(part!=='..'||!prefix)parts.push(part);
+  }
+  return prefix+parts.join("/");
 }
 
 function baseName(p: string): string {

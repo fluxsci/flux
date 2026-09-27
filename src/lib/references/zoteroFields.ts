@@ -1,3 +1,4 @@
+import { mapUnprotected } from "../manuscript/documentContext";
 // src/lib/references/zoteroFields.ts — live Zotero fields in an exported .docx.
 //
 // Pandoc/Quarto resolve `[@key]` through citeproc, which bakes the formatted citation
@@ -345,7 +346,6 @@ const IMAGE_SPAN = /!\[(?:[^[\]]|\[[^[\]]*\])*\]\([^)]*\)/.source;
 const PROTECTED = new RegExp(
   "(" +
     [
-      /^---\n[\s\S]*?\n---\n/.source, // YAML header
       /```[\s\S]*?```/.source, // fenced code
       /`[^`\n]*`/.source, // inline code
       IMAGE_SPAN,
@@ -355,6 +355,9 @@ const PROTECTED = new RegExp(
 );
 
 export function markCitations(text: string): string {
+  return mapUnprotected(text, markUnprotectedCitations);
+}
+function markUnprotectedCitations(text: string): string {
   // Never touch code (fenced or inline), the YAML header, or an image construct.
   const parts = text.split(PROTECTED);
   return parts

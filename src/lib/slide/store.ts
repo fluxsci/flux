@@ -33,6 +33,7 @@ import {
   activeCanvasId,
   loadProject,
   commit,
+  beginGesture, finishGesture, type GestureCheckpoint,
   mutate,
   mutateDisplay,
   editGen,
@@ -120,8 +121,10 @@ export function stripDeckToOverlay(deck: Deck): Deck {
  *  `external` marks the project-resolved ids. */
 export function loadDeckModel(deck: Deck, resolvedAssets: Asset[] = deck.assets, external: Set<string> = new Set()): void {
   checkoutBaselines.clear();
+  sealHistory(); coalesceState.gen = -1;
   endpointEdit.set(null);
   editDestination.set({ kind: "design" });
+  slideCanvasPresentation.set({ elementStates: {}, hiddenElementIds: [], partStates: {} });
   externalAssets = external;
   acceptedAssetMetadata.clear();
   for (const a of resolvedAssets) acceptedAssetMetadata.set(a.id, structuredClone(a));
@@ -132,6 +135,7 @@ export function loadDeckModel(deck: Deck, resolvedAssets: Asset[] = deck.assets,
   activeFigureId.set(deck.slides[0]?.id ?? null);
   activeBeat.set(0);
   selTrackIds.set([]);
+  refreshBeatDisplay(); // beat 0 may already be selected, so its store need not notify.
 }
 
 /** Refresh project-owned asset metadata without rewriting the deck document or
@@ -161,8 +165,9 @@ export function composedSlide(slideId: Id): Slide | null {
   const os = o.slides.find((s) => s.id === slideId);
   const fig = p.figures.find((f) => f.id === slideId);
   if (!os || !fig) return null;
-  const elements = checkoutBaselines.size
-    ? fig.elements.map((e) => (checkoutBaselines.has(e.id) ? structuredClone(checkoutBaselines.get(e.id)!) : e))
+  const baselines = checkoutBaselines.get(slideId);
+  const elements = baselines?.size
+    ? fig.elements.map((e) => (baselines.has(e.id) ? structuredClone(baselines.get(e.id)!) : e))
     : fig.elements;
   const s: Slide = {
     ...os,
@@ -183,6 +188,7 @@ export function composedSlide(slideId: Id): Slide | null {
 // of same-key commits into ONE undo step: the first commit of the run captures
 // the pre-state; followers mutate in place. The editGen guard makes reuse
 // safe — if ANY other edit/undo landed since, a fresh entry opens.
+let coalescingGesture: GestureCheckpoint | null = null;
 const coalesceState = { key: null as string | null, gen: -1 };
 
 /** Apply a pure deck op to the LIVE deck: composes the current Deck, runs
@@ -194,7 +200,11 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
   let out!: T;
   const key = opts?.coalesce ?? null;
   const continueRun = key !== null && key === coalesceState.key && editGen.n === coalesceState.gen;
-  const write = opts?.history === false || continueRun ? mutate : commit;
+  if (!continueRun && coalescingGesture) { finishGesture(coalescingGesture); coalescingGesture = null; }
+  if (key !== null && !continueRun) coalescingGesture = beginGesture();
+  // Accepted source facts must not create an undo checkpoint. `mutate` is an
+  // owned authoring transaction too (including when no gesture is active).
+  const write = opts?.history === false ? mutateDisplay : key !== null ? mutate : commit;
   suppressEditAdapter++;
   try { write((proj) => {
     const deck = projectIntoDeck(proj, o, { externalAssetIds: externalAssets, baselines: checkoutBaselines });
@@ -204,12 +214,13 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
     // substituted their base into `deck`; folding that base back would snap
     // the canvas out of the endpoint mid-checkout).
     const keepDisplay = (slideId: Id, els: Element[]): Element[] => {
-      if (!checkoutBaselines.size) return els;
+      const baselines = checkoutBaselines.get(slideId);
+      if (!baselines?.size) return els;
       const live = proj.figures.find((f) => f.id === slideId);
       if (!live) return els;
       return els.map((e) => {
-        if (!checkoutBaselines.has(e.id)) return e;
-        checkoutBaselines.set(e.id, structuredClone(e));
+        if (!baselines.has(e.id)) return e;
+        baselines.set(e.id, structuredClone(e));
         return live.elements.find((x) => x.id === e.id) ?? e;
       });
     };
@@ -256,6 +267,8 @@ export function commitDeckLive<T>(fn: (deck: Deck) => T, opts?: { coalesce?: str
 /** End the current coalesced run (text blur, pointer-up) so the next commit
  *  begins a fresh undo step. */
 export function sealHistory(): void {
+  if (coalescingGesture) finishGesture(coalescingGesture);
+  coalescingGesture = null;
   coalesceState.key = null;
 }
 
@@ -274,15 +287,17 @@ export function overlayHistoryCompanion(): HistoryCompanion {
       beat: get(activeBeat),
       destination: structuredClone(get(editDestination)),
       checkout: structuredClone(get(endpointEdit)),
-      baselines: [...checkoutBaselines.entries()].map(([id, el]) => [id, structuredClone(el)] as const),
+      baselines: structuredClone(checkoutBaselines),
+      coalesce: { ...coalesceState },
     }),
     restore: (s) => {
       const snap = s as
-        | { overlay: Deck | null; beat: number; destination?: SlideEditDestination; checkout?: EndpointEdit | null; baselines?: (readonly [Id, Element])[] }
+        | { overlay: Deck | null; beat: number; destination?: SlideEditDestination; checkout?: EndpointEdit | null; baselines?: Map<Id, Map<Id, Element>>; coalesce?: typeof coalesceState }
         | undefined;
       if (!snap) return;
       checkoutBaselines.clear();
-      for (const [id, el] of snap.baselines ?? []) checkoutBaselines.set(id, structuredClone(el));
+      for (const [id, els] of snap.baselines ?? []) checkoutBaselines.set(id, structuredClone(els));
+      Object.assign(coalesceState, snap.coalesce ?? { key: null, gen: -1 });
       let restored = snap.overlay;
       if (restored && acceptedAssetMetadata.size) {
         const canonical = projectIntoDeck(get(project), restored, { externalAssetIds: externalAssets, baselines: checkoutBaselines });
@@ -359,13 +374,19 @@ export interface EndpointEdit {
 /** The selected endpoint shortcut, separate from the explicit destination. */
 export const endpointEdit = writable<EndpointEdit | null>(null);
 
-// elementId → its BASE (document beat-0) element. Module-level and
+// slideId → elementId → its BASE (document beat-0) element. Cross-slide IDs
+// are intentionally legal; a checkout must never substitute a sibling slide. Module-level and
 // non-reactive by design (read by every fold).
-const checkoutBaselines = new Map<Id, Element>();
+const checkoutBaselines = new Map<Id, Map<Id, Element>>();
+function baselinesFor(slideId: Id): Map<Id, Element> {
+  let map = checkoutBaselines.get(slideId);
+  if (!map) { map = new Map(); checkoutBaselines.set(slideId, map); }
+  return map;
+}
 
 /** Read-only view for gates/debug. */
 export function checkoutBaselineIds(): ReadonlySet<Id> {
-  return new Set(checkoutBaselines.keys());
+  return new Set(checkoutBaselines.get(get(activeFigureId) ?? "")?.keys() ?? []);
 }
 
 
@@ -416,9 +437,10 @@ export function refreshBeatDisplay(): void {
   //    a no-op refresh must never burn editGen (it would break commit
   //    coalescing for unrelated typing runs).
   const writes = new Map<Id, Element>();
-  for (const [id, base] of [...checkoutBaselines]) {
+  const baselines = baselinesFor(sid);
+  for (const [id, base] of [...baselines]) {
     if (wanted.has(id)) continue;
-    checkoutBaselines.delete(id);
+    baselines.delete(id);
     if (fig.elements.some((e) => e.id === id)) writes.set(id, structuredClone(base));
   }
   for (const target of wanted) {
@@ -426,11 +448,11 @@ export function refreshBeatDisplay(): void {
     if (!cur) {
       // dangling (element deleted) — drop the display bookkeeping; the
       // baseline itself rides history via the companion snapshot.
-      checkoutBaselines.delete(target);
+      baselines.delete(target);
       continue;
     }
-    if (!checkoutBaselines.has(target)) checkoutBaselines.set(target, structuredClone(cur));
-    const disp = evaluated.get(target) ?? structuredClone(checkoutBaselines.get(target)!);
+    if (!baselines.has(target)) baselines.set(target, structuredClone(cur));
+    const disp = evaluated.get(target) ?? structuredClone(baselines.get(target)!);
     if (disp?.type === "text" && disp.needsLayout) applyTextLayout(disp);
     if (!disp) continue;
     const j = JSON.stringify(disp);
@@ -476,6 +498,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
       const fig = p.figures.find(f => f.id === sid);
       const slide = o?.slides.find(s => s.id === sid);
       if (!o || !fig || !slide) return;
+      const baselines = baselinesFor(slide.id);
       const bi = destination.kind === "after" ? slide.beats.findIndex(b => b.id === destination.beatId) : 0;
       let changed = false;
       // Structural metadata belongs to the original object, not a transform.
@@ -496,7 +519,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
           for (const key of Object.keys(current)) delete current[key];
           Object.assign(current, restored);
         }
-        const base = checkoutBaselines.get(el.id);
+        const base = baselines.get(el.id);
         if (!base) continue;
         for (const key of structural) {
           const rec = el as unknown as Record<string,unknown>, dest = base as unknown as Record<string,unknown>;
@@ -504,7 +527,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
         if (bi < 1 || unborn.has(el.id) || !diffState(previous, el)) continue;
-        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => checkoutBaselines.get(e.id) ?? e) }, o.stage, {plotManifest: id => get(plotManifests)[id]});
+        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {plotManifest: id => get(plotManifests)[id]});
         const pre = compiled.preState(el.id, bi) ?? base;
         const patch = diffState(pre, el) ?? {};
         setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });
@@ -513,8 +536,8 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
       const surviving = new Set(fig.elements.map(e => e.id));
       const removedBirths = slide.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom && t.id && previousElements.has(t.target) && !surviving.has(t.target)).map(t => t.id!));
       if (removedBirths.length) { removeTracks(o, sid!, removedBirths); changed = true; }
-      for (const id of checkoutBaselines.keys()) if (!surviving.has(id)) {
-        checkoutBaselines.delete(id);
+      for (const id of baselines.keys()) if (!surviving.has(id)) {
+        baselines.delete(id);
       }
       if (changed) deckOverlay.set({ ...o });
     },
@@ -578,16 +601,17 @@ export function exitEndpointEdit(): void {
 export function clearBeatDisplay(): void {
   endpointEdit.set(null);
   if (checkoutBaselines.size) {
-    const sid = get(activeFigureId);
     // mutateDisplay: restoring composed displays to their base is teardown, not a
     // user edit — it must not dirty the deck (a pending real edit's dirty still
     // stands; mutateDisplay only refrains from SETTING it).
     mutateDisplay((p) => {
-      const fig = p.figures.find((f) => f.id === sid);
-      if (!fig) return;
-      for (const [id, base] of checkoutBaselines) {
-        const i = fig.elements.findIndex((e) => e.id === id);
-        if (i >= 0) fig.elements[i] = structuredClone(base);
+      for (const [sid, baselines] of checkoutBaselines) {
+        const fig = p.figures.find((f) => f.id === sid);
+        if (!fig) continue;
+        for (const [id, base] of baselines) {
+          const i = fig.elements.findIndex((e) => e.id === id);
+          if (i >= 0) fig.elements[i] = structuredClone(base);
+        }
       }
     });
   }

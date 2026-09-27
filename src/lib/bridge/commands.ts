@@ -5,6 +5,8 @@
 // current selection / active figure by default (so "act on what I have selected"
 // is the natural call), or on explicit ids.
 
+import { hasFlushOwner, flushOwnerIdentity } from "../../shell/lifecycle";
+import { currentProject, view } from "../../shell/shellStore";
 import { get } from "svelte/store";
 import { storeTenant } from "../tenancy";
 import { validateFrameBounds } from "../interact/frameResize";
@@ -15,7 +17,7 @@ import { reflowTexts } from "../text";
 import { flipElements } from "../geometry";
 import type { AlignKind } from "../geometry";
 import type { PartOverride, TextStyle, VectorNode } from "../types";
-import type { CascadeSpec } from "../cascade";
+import { ELEMENT_CASCADE_PROPS, type CascadeSpec } from "../cascade";
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -73,7 +75,100 @@ export const ALLOWED_COMMANDS = [
   "list_text_styles",
 ] as const;
 
+/** A live request owns the currently resident editor; the file API remains the
+ * supported path when that editor is unavailable. Validate before history. */
+export function captureDispatchOwner(opts: { allowEdits?: boolean } = {}): () => void {
+  const root = get(currentProject)?.path;
+  const tenant = storeTenant();
+  const model = get(store.project);
+  const owner = flushOwnerIdentity(tenant);
+  const figureId = get(store.activeFigureId), canvasId = get(store.activeCanvasId);
+  const assert = () => {
+    if (!root || get(store.embeddedProjectRoot) !== root || get(view) !== 'workspace' || get(currentProject)?.path !== root || storeTenant() !== tenant || !hasFlushOwner(tenant) || flushOwnerIdentity(tenant) !== owner || (!opts.allowEdits && (get(store.project) !== model || get(store.activeFigureId) !== figureId || get(store.activeCanvasId) !== canvasId)))
+      throw new Error('not-applied: the requested live editor is unavailable or changed ownership; use the file verbs or retry against the current context');
+  };
+  assert(); return assert;
+}
+function validateCommand(c: Command): void {
+  if (!c || typeof c !== 'object' || !ALLOWED_COMMANDS.includes(c.type as typeof ALLOWED_COMMANDS[number])) throw new Error('Unknown live command');
+  const visit = (v: unknown, depth = 0): void => {
+    if (depth > 32) throw new Error('Live command nesting exceeds 32 levels');
+    if (typeof v === 'number' && !Number.isFinite(v)) throw new Error('Live command numbers must be finite');
+    if (v && typeof v === 'object') for (const child of Object.values(v)) visit(child, depth + 1);
+  };
+  visit(c);
+  if (c.ids !== undefined && (!Array.isArray(c.ids) || c.ids.some(id => typeof id !== 'string'))) throw new Error('ids must be an array of element IDs');
+  const p = get(store.project);
+  const all = new Set(p.figures.flatMap(f => f.elements.map(e => e.id)));
+  if (Array.isArray(c.ids)) for (const id of c.ids) if (!all.has(id as string)) throw new Error(`Unknown element ${String(id)}`);
+  if (typeof c.elementId === 'string' && !all.has(c.elementId)) throw new Error(`Unknown element ${c.elementId}`);
+  if (typeof c.figureId === 'string' && !p.figures.some(f => f.id === c.figureId)) throw new Error(`Unknown figure ${c.figureId}`);
+  if (c.patch !== undefined && (!c.patch || typeof c.patch !== 'object' || Array.isArray(c.patch))) throw new Error('patch must be an object');
+  const object = (v: unknown, label: string): Record<string, unknown> => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${label} must be an object`);
+    return v as Record<string, unknown>;
+  };
+  const scalar = (obj: Record<string, unknown>, key: string, type: 'string'|'number'|'boolean', required = false) => {
+    if (obj[key] === undefined && !required) return;
+    if (typeof obj[key] !== type) throw new Error(`${key} must be ${type}`);
+  };
+  const enumeration = (obj: Record<string, unknown>, key: string, values: readonly string[], required = false) => {
+    if (obj[key] === undefined && !required) return;
+    if (typeof obj[key] !== 'string' || !values.includes(obj[key] as string)) throw new Error(`${key} must be one of ${values.join(', ')}`);
+  };
+  const numeric = ['deg','degrees','rows','cols','gap','index','count','factor','pivotX','pivotY','width','height','fontSize','strokeWidth','rotation','dx','dy','dl','dc','dh','delta','number'];
+  for (const key of numeric) scalar(c,key,'number');
+  if (c.type !== 'set_guides') for (const key of ['x','y']) scalar(c,key,'number');
+  for (const key of ['name','text','markdown','figureId','elementId','partId','styleId','assetId','groupId','parentId','fromElementId','family','color','stroke','fill']) scalar(c,key,'string');
+  for (const key of ['closed','hidden','locked','global','reverse','firstFixed']) scalar(c,key,'boolean');
+  for (const key of ['width','height','fontSize','factor']) if (typeof c[key] === 'number' && c[key] <= 0) throw new Error(`${key} must be positive`);
+  for (const key of ['count','rows','cols']) if (c[key] !== undefined && (!Number.isInteger(c[key]) || Number(c[key]) < 1 || Number(c[key]) > 10000)) throw new Error(`${key} must be an integer from 1 to 10000`);
+  if (c.pivot !== undefined) { const value=object(c.pivot,'pivot');scalar(value,'x','number',true);scalar(value,'y','number',true); }
+  if (c.type === 'align') enumeration(c,'kind',['left','right','top','bottom','centerH','centerV'],true);
+  if (c.type === 'flip' || c.type === 'distribute') enumeration(c,'axis',['h','v']);
+  if (c.type === 'toggle_text_style') enumeration(c,'which',['bold','italic','underline']);
+  if (c.type === 'set_z') enumeration(c,'where',['front','back','forward','backward']);
+  if (c.type === 'select_matching') { enumeration(c,'by',['fill','stroke','font','type']);enumeration(c,'scope',['project','figure']); }
+  if (c.type === 'cascade') { enumeration(c,'property',ELEMENT_CASCADE_PROPS,true);enumeration(c,'order',['selection','layer','x','y']); }
+  if (c.type === 'set_guides') for (const key of ['x','y']) if (c[key] !== undefined && (!Array.isArray(c[key]) || (c[key] as unknown[]).some(v=>typeof v!=='number'))) throw new Error(`${key} guides must be a numeric array`);
+  if (c.type === 'import_plots' && c.paths !== undefined && (!Array.isArray(c.paths) || c.paths.some(v=>typeof v!=='string'||!v.trim()))) throw new Error('paths must be an array of nonempty paths');
+  if (c.type === 'add_path' || c.type === 'edit_path') {
+    if (c.nodes !== undefined) {
+      if (!Array.isArray(c.nodes) || c.nodes.length < 2) throw new Error('nodes must contain at least two vector nodes');
+      for (const node of c.nodes) { const n=object(node,'node');scalar(n,'x','number',true);scalar(n,'y','number',true);enumeration(n,'type',['corner','smooth'],true);
+        for (const key of ['hIn','hOut']) if (n[key] !== undefined) { const h=object(n[key],key);scalar(h,'dx','number',true);scalar(h,'dy','number',true); }
+      }
+    }
+  }
+  if (['set_crop','edit_path'].includes(c.type)) {
+    const target = c.id ?? ids(c)[0];
+    const element = p.figures.flatMap(f=>f.elements).find(e=>e.id===target);
+    if (!element || (c.type==='edit_path' ? element.type!=='path' : !['image','plot'].includes(element.type))) throw new Error(`${c.type}: element not found (or wrong type): ${String(target)}`);
+  }
+  if (c.type === 'set_crop' && c.crop !== undefined && c.crop !== null) {
+    const crop=object(c.crop,'crop');if(['x','y','width','height'].some(key=>typeof crop[key]!=='number'))throw new Error('set_crop: crop needs numeric {x,y,width,height}');
+    if (Number(crop.width)<=0 || Number(crop.height)<=0)throw new Error('crop dimensions must be positive');
+  }
+  if (['update_text_style','delete_text_style','apply_text_style'].includes(c.type) && !p.textStyles?.some(s=>s.id===c.styleId)) throw new Error(`unknown style ${String(c.styleId)}`);
+  if (c.fromElementId !== undefined && !p.figures.some(f=>f.elements.some(e=>e.id===c.fromElementId&&e.type==='text'))) throw new Error('fromElementId must identify a text element');
+  if (['add_plot','add_image'].includes(c.type) && !p.assets.some(a=>a.id===c.assetId&&a.kind===(c.type==='add_plot'?'svg':'png'))) throw new Error(`${c.type}: assetId must identify an existing ${c.type==='add_plot'?'SVG plot':'PNG image'}`);
+  if (c.type === 'create_figure' && c.id !== undefined && (typeof c.id!=='string'||!c.id||p.figures.some(f=>f.id===c.id))) throw new Error('create_figure: id must be new and nonempty');
+  for (const value of [c.patch,c.style]) if (value !== undefined) {
+    const patch=object(value,'style/patch');
+    for (const key of ['fontSize','lineHeight','width','height']) if (patch[key] != null && (typeof patch[key]!=='number'||Number(patch[key])<=0)) throw new Error(`${key} must be positive`);
+    for (const key of ['strokeWidth','cornerRadius','arrowSize']) if (patch[key] != null && (typeof patch[key]!=='number'||Number(patch[key])<0)) throw new Error(`${key} must be nonnegative`);
+    if (patch.opacity!=null && (typeof patch.opacity!=='number'||patch.opacity<0||patch.opacity>1))throw new Error('opacity must be between 0 and 1');
+    for (const key of ['fontFamily','name','color','fill','stroke','background']) if(patch[key]!==null)scalar(patch,key,'string');
+    for (const key of ['hidden','locked','underline','flipX','flipY','lockAspect','arrowStart','arrowEnd']) if(patch[key]!==null)scalar(patch,key,'boolean');
+    for (const [key,values] of Object.entries({fontStyle:['normal','italic'],align:['left','center','right'],sizing:['auto','auto-h','fixed'],cap:['butt','round','square'],arrowStyle:['filled','vee']}))if(patch[key]!==null)enumeration(patch,key,values);
+    if(patch.dash!==undefined&&(!Array.isArray(patch.dash)||patch.dash.some(n=>typeof n!=='number'||n<0)))throw new Error('dash must contain nonnegative numbers');
+  }
+  if (storeTenant() === 'slide' && ['create_figure','duplicate_figure','set_figure_family','set_caption','resize_figure_frame'].includes(c.type)) throw new Error(`not-applied: ${c.type} requires the Figure editor`);
+}
+
 export async function dispatchCommand(c: Command): Promise<unknown> {
+  const assertOwner = captureDispatchOwner();
+  validateCommand(c);
   switch (c.type) {
     case "select": {
       // {ids} and/or {groupId} sugar — a group id selects its members (deep).
@@ -220,6 +315,7 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (c.global === true) {
         const fb = (globalThis as { window?: { fig?: { readGlobalTextStyles?: () => Promise<unknown[]> } } }).window?.fig;
         const list = (await fb?.readGlobalTextStyles?.()) ?? [];
+        assertOwner();
         return { styles: Array.isArray(list) ? list : [], scope: "global" };
       }
       return { styles: get(store.project).textStyles ?? [], scope: "project" };
@@ -616,6 +712,7 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (typeof window === "undefined" || !window.fig)
         throw new Error("import_plots: no file bridge (GUI runtime import — requires the running app)");
       const io = await import("../io");
+      assertOwner();
       await io.importPlotsFromPaths(paths);
       // placeIncoming selects exactly the new elements — report those ids.
       return { requested: paths.length, ids: [...get(store.selection)] };

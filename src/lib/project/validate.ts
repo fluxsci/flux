@@ -48,7 +48,7 @@ function validateAgainst(key: "model" | "canvas" | "figIndex" | "deck" | "projec
 
 /** The assembled in-memory figure model (post-migration). */
 export function validateModel(p: unknown): string[] {
-  return validateAgainst("model", p);
+  return [...validateAgainst("model", p), ...validateFigureIdentities(p), ...nonFinite(p)];
 }
 export function validateCanvasFile(raw: unknown): string[] {
   return validateAgainst("canvas", raw);
@@ -61,6 +61,43 @@ export function validateDeckFile(raw: unknown): string[] {
 }
 export function validateProjectManifest(raw: unknown): string[] {
   return validateAgainst("project", raw);
+}
+
+/** Identity is checked on complete arrays BEFORE migration/indexing. Figure and
+ * element identities are project-wide; Slide has its own per-slide validator. */
+export function validateFigureIdentities(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object") return [];
+  const p = raw as Project, errors: string[] = [];
+  const scopes = new Map<string, Map<string, string>>();
+  const id = (scope: string, value: unknown, location: string) => {
+    if (typeof value !== "string" || !value || ["__proto__", "constructor", "prototype"].includes(value)) { errors.push(`${location}: unsupported ${scope} id ${String(value)}`); return; }
+    let seen = scopes.get(scope); if (!seen) scopes.set(scope, seen = new Map());
+    if (seen.has(value)) errors.push(`${seen.get(value)} and ${location}: duplicate ${scope} id ${value}`);
+    else seen.set(value, location);
+  };
+  if (Array.isArray(p.canvases)) p.canvases.forEach((c,i) => id("canvas", c?.id, `canvases[${i}]`));
+  if (Array.isArray(p.assets)) p.assets.forEach((a,i) => id("asset", a?.id, `assets[${i}]`));
+  if (!Array.isArray(p.figures)) return errors;
+  p.figures.forEach((f,i) => {
+    if (!f || typeof f !== "object") return;
+    id("figure", f.id, `figures[${i}]`);
+    if (f.referenceKey) id("reference key", f.referenceKey, `figures[${i}].referenceKey`);
+    if (Array.isArray(f.elements)) f.elements.forEach((e,j) => id("element", e?.id, `figures[${i}].elements[${j}]`));
+    if (f.groups && typeof f.groups === "object") for (const [key,g] of Object.entries(f.groups)) {
+      if (!g || key !== g.id || ["__proto__", "constructor", "prototype"].includes(key)) { errors.push(`figures[${i}].groups.${key}: key/id mismatch or unsupported id`); continue; }
+      const seen = new Set<string>(); let current: string | undefined = key;
+      while (current && Object.hasOwn(f.groups, current)) {
+        if (seen.has(current)) { errors.push(`figures[${i}].groups.${key}: cyclic parent chain at ${current}`); break; }
+        seen.add(current); current = f.groups[current]?.parentId;
+      }
+    }
+  });
+  return errors;
+}
+function nonFinite(value: unknown, prefix = "", result: string[] = []): string[] {
+  if (typeof value === "number" && !Number.isFinite(value)) result.push(`${prefix}: number must be finite`);
+  else if (value && typeof value === "object") for (const [key, child] of Object.entries(value)) nonFinite(child, `${prefix}/${key}`, result);
+  return result;
 }
 
 /** Clamp non-finite element/figure numerics (NaN/±Infinity) before a write —

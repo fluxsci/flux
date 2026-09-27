@@ -1,3 +1,4 @@
+import { elementPaints, gradientSvg } from "../../color/gradient";
 // ---------------------------------------------------------------------------
 // Flux Slide — the TRANSFORM runtime driver (animation rework §4.3). One
 // element tweens from its pre-state (t1) to pre ⊕ to.state (t2). Rides the
@@ -57,12 +58,17 @@ export interface TransformCtx extends SlideRenderCtx {
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
-function clearDash(scope: ParentNode): void {
-  const nodes = scope.querySelectorAll?.("path,line,polyline,polygon,rect,ellipse,circle") ?? [];
-  for (const n of Array.from(nodes) as (Element & { style?: CSSStyleDeclaration })[]) {
-    n.style?.removeProperty?.("stroke-dasharray");
-    n.style?.removeProperty?.("stroke-dashoffset");
-  }
+/** Run `job` once the browser is genuinely idle, or on the next macrotask
+ *  where there is no idle callback (headless). Deliberately NO idle deadline:
+ *  a deadline makes the browser run the job whether or not it has time, which
+ *  would let warming compete with the canvas snapshot's own idle callback on a
+ *  busy page. Warming work only — every caller must stay correct if it never
+ *  runs at all, and on a page too busy to ever go idle, that is the right
+ *  answer rather than a stolen frame. */
+function warmWhenIdle(job: () => void): void {
+  const g = globalThis as { requestIdleCallback?: (cb: () => void) => number; setTimeout?: typeof setTimeout };
+  if (typeof g.requestIdleCallback === "function") g.requestIdleCallback(job);
+  else if (typeof g.setTimeout === "function") g.setTimeout(job, 0);
 }
 
 export function createTransform(
@@ -165,7 +171,6 @@ export function createTransform(
     contentHost.appendChild(layerB);
   }
 
-  let clearedDash = false;
 
   // --- the outline-morph layers (Become between drawn kinds) ----------------
   // A = the ORIGINAL nodes, moved (never cloned) so earlier inner-node
@@ -238,8 +243,15 @@ export function createTransform(
     const bodyGeom = pathRender({ ...el, arrowStart: both.start, arrowEnd: both.end });
     const headGeom = !el.closed && (L.heads.start || L.heads.end) ? pathRender(el) : null;
     set(L.body, "d", bodyGeom.d);
-    set(L.body, "fill", el.fill);
-    set(L.body, "stroke", el.stroke);
+    const paint = elementPaints(el);
+    let defs = L.svg.querySelector("defs");
+    const markup = paint.defs.map(gradientSvg).join("");
+    if (markup) {
+      if (!defs) { defs = document.createElementNS(SVG_NS, "defs"); L.svg.prepend(defs); }
+      if (defs.innerHTML !== markup) defs.innerHTML = markup;
+    } else defs?.remove();
+    set(L.body, "fill", paint.fill);
+    set(L.body, "stroke", paint.stroke);
     set(L.body, "stroke-width", String(el.strokeWidth));
     set(L.body, "stroke-linecap", el.closed ? "butt" : (el.cap ?? "round"));
     const dash = dashAttr(el);
@@ -307,13 +319,6 @@ export function createTransform(
       return;
     }
 
-    if (t > 0 && plan.geometryDirty && !clearedDash) {
-      // the transform owns the geometry from here — stale dash windows sized
-      // to the OLD geometry would truncate it (the morph lesson). t=0 keeps
-      // them: drawOn's pre-beat hidden state depends on its dasharray.
-      clearDash(wrap);
-      clearedDash = true;
-    }
 
     if (isPlot) {
       const p = el as SemanticPlotElement;
@@ -358,6 +363,17 @@ export function createTransform(
   // Build in story order, before later tracks resolve their targets. A B-only
   // semantic part after A→B must bind B's nodes even on the first random seek.
   if (plan.mode === "crossfade") { ensureLayers(); layerB!.style.opacity = "0"; }
-  if (morphPlan) { showMorphLayer(0); return { seek, targetRoot: ensureMorphLayers().B }; }
+  if (morphPlan) {
+    showMorphLayer(0);
+    // The node correspondence is deferred (outline.planElementMorph) so opening
+    // the animator does not wait for it. Warm it while the browser is idle, so
+    // the first frame of the morph finds it already built; a seek that arrives
+    // first just builds it on the spot.
+    // …and skip it if this slide was torn down first: scrubbing a deck builds
+    // a transform per slide, and a warm for one already off the document is
+    // pure waste at exactly the moment the machine is busiest.
+    warmWhenIdle(() => { if (wrap.isConnected) morphPlan.prepare?.(); });
+    return { seek, targetRoot: ensureMorphLayers().B };
+  }
   return { seek, targetRoot: layerB ?? contentHost };
 }

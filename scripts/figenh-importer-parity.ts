@@ -14,10 +14,13 @@
 //      path is exercised by verify-importer-multi.mjs) + source tripwire that
 //      the case delegates to io.importPlotsFromPaths.
 import { execFileSync } from "node:child_process";
+import { tsxRun } from "./lib/tsxRun.mjs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as core from "../flux-core/index";
+import { mountFigureCommandFixture } from "./lib/liveEditorFixture";
+mountFigureCommandFixture();
 import { ALLOWED_COMMANDS, dispatchCommand } from "../src/lib/bridge/commands";
 import { gridLayout, emptyRegion } from "../src/lib/layout";
 import { elementBBox, unionRect } from "../src/lib/geometry";
@@ -138,8 +141,7 @@ try {
   try {
     await core.createFigure(root, { id: "figq", name: "Q", width: 680, height: 850 });
     const out = execFileSync(
-      "npx",
-      ["tsx", "flux-cli.ts", "import-plots", "figq", path.join(plots, "t2.svg"), path.join(plots, "t3.svg"), "--root", root],
+      ...tsxRun("flux-cli.ts", [ "import-plots", "figq", path.join(plots, "t2.svg"), path.join(plots, "t3.svg"), "--root", root]),
       { cwd: path.resolve("."), stdio: "pipe" },
     ).toString();
     const panels = JSON.parse(out) as { assetId: string; elementId: string }[];

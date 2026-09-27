@@ -104,17 +104,17 @@ export function projectIntoDeck(
     /** THE ENDPOINT-CHECKOUT FOLD GUARD (animation rework §4.4): while a
      *  transform endpoint is checked out, the figure store deliberately holds
      *  the element's COMPOSED display state (t2) so every editor tool works
-     *  on it. This map (elementId → the captured BASE element) substitutes
+     *  on it. This map (slideId → elementId → captured BASE element) substitutes
      *  the base back at fold time, so deck.json can NEVER contain a composed
      *  endpoint state — even if autosave fires mid-checkout. */
-    baselines?: ReadonlyMap<Id, Element>;
+    baselines?: ReadonlyMap<Id, ReadonlyMap<Id, Element>>;
   } = {},
 ): Deck {
   const external = opts.externalAssetIds;
   const defaultBg = slideDefaultBackground(prev);
-  const baselines = opts.baselines;
   const figById = new Map(
     project.figures.map((f) => {
+      const baselines = opts.baselines?.get(f.id);
       if (!baselines?.size || !f.elements.some((e) => baselines.has(e.id))) return [f.id, f] as const;
       const swapped = {
         ...f,
@@ -241,7 +241,15 @@ function scaleElementInPlace(e: Element, s: number): void {
   e.height *= s;
   if (e.type === "text") {
     e.fontSize *= s;
+    // Tracking and paragraph gaps are stored in canvas px, so they scale with
+    // the type exactly as editing.scaleRemap does (the K tool). Left at their
+    // figure values, a figure shrunk onto a slide came out over-tracked with
+    // paragraph gaps too tall for its font. Absent stays absent so historical
+    // text acquires no extra properties.
+    if (e.letterSpacing != null) e.letterSpacing *= s;
+    if (e.paragraphSpacing != null) e.paragraphSpacing *= s;
     delete e.lines; // wrap cache is metric-derived; GUI reflows, headless falls back
+    delete e.lineWidths;
   } else if (e.type === "line") {
     e.x1 *= s; e.y1 *= s; e.x2 *= s; e.y2 *= s;
     e.strokeWidth *= s;

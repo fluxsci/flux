@@ -1,3 +1,6 @@
+import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
+import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
+import { generationBridgeIO } from "./generationBridgeIO";
 // ---------------------------------------------------------------------------
 // Cross-conversion (slide-migration §3.9) — basic, deliberate, one shared
 // clone core (deckProject.cloneContentWithFreshIds):
@@ -23,31 +26,28 @@
 // ---------------------------------------------------------------------------
 
 import { get } from "svelte/store";
-import type { Figure, Project as FigProject, Asset } from "../types";
+import { readFigureSnapshot, requireCompleteFigureSnapshot, type FigureSnapshot } from "./figureSnapshot";
+import { withIpcLock } from "../references/libLock";
+import { validateModel, validateDeckFile } from "./validate";
+import type { Figure, Asset } from "../types";
 import type { Deck, Slide } from "../slide/types";
 import * as ops from "../ops";
 import * as slideOps from "../slide/ops";
-import { readDeck, writeDeckDirect, listProjectDecks } from "./slideBridge";
+import { readDeck, writeDeckDirect, listProjectDecks, resolveDeckAssets } from "./slideBridge";
 import { createDeck as createDeckModel } from "../slide/ops";
 import { cloneContentWithFreshIds } from "../slide/deckProject";
-import { fileBridge, joinPath } from "./types";
-import {
-  planFigSave,
-  executeFigSave,
-  sortedCanvasMeta,
-  normalizeIndexAssets,
-  type FigIndexFile,
-  type CanvasFile,
-  type FigSaveIO,
-} from "./figfiles";
-import { familyHintsFrom, migrateFigureFamilies, migrateProject } from "../migrate";
-import { project as figProject } from "../store";
-import { getAssetData } from "../assets";
-import { dataUrlToBytes } from "../assets";
-import { plotManifests } from "../plot/store";
+import { fileBridge, joinPath, type FileBridge } from "./types";
+import { planFigSave, executeFigSave, sortedCanvasMeta, type FigIndexFile } from "./figfiles";
+import { project as figProject, embeddedProjectRoot } from "../store";
+import { getAssetData, dataUrlToBytes } from "../assets";
+import { plotManifests, plotRecipes } from "../plot/store";
 import { isDerivedManifest } from "../plot/derive";
 import { newId } from "../ids";
 import { reconcileDeckExternalAssetSizes } from "../slide/sourceSync";
+import { storedAssetPath } from "./assetPath";
+import { commitTextGeneration, recoverTextGeneration, type TextGenerationIO, type GenerationWrite } from "./textGeneration";
+import { stageFigureRegistration } from "./figureGeneration";
+import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate } from "./figureReferenceSync";
 
 export { listProjectDecks };
 
@@ -58,158 +58,185 @@ export async function listFigCanvases(root: string): Promise<{ id: string; name:
   try {
     const p = joinPath(root, "fig", "index.json");
     if (!(await fig.exists(p))) return [];
-    const index = JSON.parse(await fig.readText(p)) as FigIndexFile;
-    return sortedCanvasMeta(index).map((c) => ({ id: c.id, name: c.name }));
-  } catch {
-    return [];
-  }
+    return sortedCanvasMeta(JSON.parse(await fig.readText(p)) as FigIndexFile).map(c => ({ id: c.id, name: c.name }));
+  } catch { return []; }
 }
 
-/** Figure mode → deck: append `figure`'s content to `deckId` (null = create a
- *  new deck) as a new slide. Reads/writes the deck ON DISK — slide mode is
- *  never resident while figure mode is (tenancy), so nothing races. */
-export async function sendFigureToDeck(
-  root: string,
-  figure: Pick<Figure, "name" | "elements" | "groups">,
-  deckId: string | null,
-): Promise<{ deckId: string; slideId: string; title: string }> {
-  let deck: Deck | null;
-  if (deckId) {
-    deck = await readDeck(root, deckId);
-    if (!deck) throw new Error(`deck not found or invalid: ${deckId}`);
-  } else {
-    deck = createDeckModel({ title: `${figure.name} deck`, withTitleSlide: false });
-  }
-  // Existing references catch up before inserting content authored at the
-  // current source size. Seed the new reference at that same known size.
-  const accepted = get(figProject).assets;
-  reconcileDeckExternalAssetSizes(deck, accepted);
-  const slide = slideOps.addSlide(deck, { name: figure.name, layout: "full-bleed" });
-  slideOps.addFigureContentToSlide(deck, slide.id, figure);
-  reconcileDeckExternalAssetSizes(deck, accepted);
-  await writeDeckDirect(root, deck);
-  return { deckId: deck.id, slideId: slide.id, title: deck.title };
+const generationIO = (fig: FileBridge, root: string): TextGenerationIO => generationBridgeIO(root, fig);
+const equalBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
+function captureOwner(root: string) {
+  const owner = get(embeddedProjectRoot);
+  if (owner !== null && owner !== root) throw new Error("Conversion does not own this project");
+  return () => { if (get(embeddedProjectRoot) !== owner) throw new Error("Project changed while conversion was prepared"); };
 }
-
-/** Slide mode → fig/: add a real paper figure holding a fresh-id clone of the
- *  slide's content (beats/overlay dropped) to `canvasId` (null = new canvas).
- *  Loads the FULL fig model, mutates through the shared ops, saves through
- *  the one persistence core (canvas files → captions → index LAST). */
-export async function sendSlideToCanvas(
-  root: string,
-  slide: Slide,
-  deck: Pick<Deck, "id" | "stage" | "background" | "theme" | "assets">,
-  canvasId: string | null,
-): Promise<{ figureId: string; name: string; canvasId: string }> {
-  const fig = fileBridge();
-  if (!fig) throw new Error("no file bridge");
-
-  if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
-
-  // 1. Load the full fig/ model (all canvases) locally — never via the live
-  // figure store (slide mode owns it right now).
-  let index: FigIndexFile | null = null;
-  try {
-    const p = joinPath(root, "fig", "index.json");
-    if (await fig.exists(p)) index = JSON.parse(await fig.readText(p)) as FigIndexFile;
-  } catch {
-    index = null;
-  }
-  const canvasMeta = sortedCanvasMeta(index);
-  const canvases = canvasMeta.map((c) => ({ id: c.id, name: c.name }));
-  const figures: Figure[] = [];
-  for (const cm of canvasMeta) {
-    try {
-      const p = joinPath(root, "fig", "canvases", `${cm.id}.json`);
-      if (await fig.exists(p)) {
-        const cf = JSON.parse(await fig.readText(p)) as CanvasFile;
-        for (const f of cf.figures ?? []) figures.push({ ...f, canvasId: cm.id });
-      }
-    } catch {
-      /* unreadable canvas — keep going; the save plan rewrites what we loaded */
+async function assertSnapshot(snapshot: FigureSnapshot, io: TextGenerationIO) {
+  for (const [rel, baseline] of snapshot.baselines) if (await io.read(rel) !== baseline) throw new Error(`Figures changed while conversion was prepared: ${rel}`);
+}
+/** Read every asset used by the complete figure model, not only the selected
+ * canvas. exists() cannot establish that the accepted scientific bytes can be read. */
+async function figureAssets(fig: FileBridge, root: string, snapshot: FigureSnapshot) {
+  const required = new Set(snapshot.project.figures.flatMap(f => f.elements.flatMap(e => "assetId" in e ? [e.assetId] : [])));
+  const bytes = new Map<string, Uint8Array>();
+  for (const id of required) {
+    const asset = snapshot.project.assets.find(a => a.id === id);
+    if (!asset?.path) throw new Error(`Missing conversion asset: ${id}`);
+    const rel = `fig/${storedAssetPath(asset.path)}`;
+    const abs = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+    bytes.set(id, new Uint8Array(await fig.readFile(abs)));
+    if (asset.kind === "svg") for (const suffix of ["fluxplot", "recipe"]) {
+      const sidecar = joinPath(root, "fig", "assets", `${id}.${suffix}.json`);
+      if (await fig.exists(sidecar)) JSON.parse(await fig.readText(sidecar));
     }
   }
-  const model: FigProject = {
-    version: 2,
-    name: "",
-    canvases,
-    figures,
-    assets: normalizeIndexAssets(index),
-    palette: index?.palette ?? [],
-    colorGroups: (index?.colorGroups as FigProject["colorGroups"]) ?? [],
-    ...(index?.textStyles !== undefined ? { textStyles: index.textStyles } : {}),
-    ...(index?.families !== undefined ? { figureFamilies: index.families } : {}),
-  };
-  migrateProject(model);
-  // Family identity before createFigure appends to it (fig-subsystem loader).
-  migrateFigureFamilies(model, familyHintsFrom(index?.figures));
-
-  // 2. Target canvas (create one when asked).
-  let cid = canvasId;
-  if (!cid || !model.canvases.some((c) => c.id === cid)) {
-    cid = newId("canvas");
-    model.canvases.push({ id: cid, name: `Canvas ${model.canvases.length + 1}` });
+  return bytes;
+}
+interface AssetWrite { path: string; bytes: Uint8Array }
+async function prepareAbsentWrite(fig: FileBridge, root: string, writes: AssetWrite[], rel: string, bytes: Uint8Array) {
+  const abs = joinPath(root, storedAssetPath(rel));
+  if (await fig.exists(abs)) {
+    if (!equalBytes(new Uint8Array(await fig.readFile(abs)), bytes)) throw new Error(`Conversion asset path contains different bytes: ${rel}`);
+  } else writes.push({ path: rel, bytes });
+}
+async function publishAssets(fig: FileBridge, root: string, writes: AssetWrite[], assertOwner: () => Promise<void>) {
+  for (const item of writes) {
+    await assertOwner();
+    const abs = joinPath(root, item.path);
+    // A nonparticipating writer may have arrived since preflight. Never
+    // overwrite those bytes, including an unindexed asset from an earlier save.
+    if (await fig.exists(abs)) {
+      if (!equalBytes(new Uint8Array(await fig.readFile(abs)), item.bytes)) throw new Error(`Conversion asset changed: ${item.path}`);
+      continue;
+    }
+    await fig.mkdir(abs.slice(0, abs.lastIndexOf("/")));
+    await assertOwner();
+    await fig.writeFile(abs, item.bytes);
+    await fig.fsyncDir?.(abs.slice(0, abs.lastIndexOf("/")));
   }
-
-  // 3. The shared clone core + a real Figure sized to the slide frame.
-  const { elements, groups } = cloneContentWithFreshIds(slide.elements, slide.groups);
-  const created = ops.createFigure(model, {
-    canvasId: cid,
-    name: slide.name ?? "Slide",
-    width: deck.stage.width,
-    height: deck.stage.height,
-    background: slide.background ?? deck.background ?? "#ffffff",
-  });
-  created.elements = elements;
-  if (Object.keys(groups).length) created.groups = groups;
-  if (slide.guides) created.guides = structuredClone(slide.guides);
-
-  // 4. Deck-owned asset bytes referenced by the clone must live in fig/ (a
-  // paper figure is self-contained there). Bytes come from the live renderer
-  // cache (assetData — slide mode has them loaded); manifests persist next to
-  // them exactly like the figure save does.
-  const have = new Set(model.assets.map((a) => a.id));
-  const referenced = new Set<string>();
-  for (const e of elements) if ("assetId" in e) referenced.add((e as { assetId: string }).assetId);
-  const liveAssets = get(figProject).assets;
-  const manifests = get(plotManifests);
-  await fig.mkdir(joinPath(root, "fig"));
-  await fig.mkdir(joinPath(root, "fig", "assets"));
-  for (const id of referenced) {
-    if (have.has(id)) continue; // already a fig/ asset — referenced in place
-    const meta = liveAssets.find((a) => a.id === id);
-    const url = getAssetData(id);
-    if (!meta || !url) continue; // unresolvable — the element shows a placeholder
-    const rel = `assets/${id}.${meta.kind}`;
-    await fig.writeFile(joinPath(root, "fig", rel), dataUrlToBytes(url));
+}
+function sourceAssets(elements: Figure["elements"]) {
+  const ids = new Set(elements.flatMap(e => "assetId" in e ? [e.assetId] : []));
+  const metadata = structuredClone(get(figProject).assets);
+  const manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
+  const source = new Map<string, { asset: Asset; bytes: Uint8Array; manifest?: string; recipe?: string }>();
+  for (const id of ids) {
+    const asset = metadata.find(a => a.id === id), url = getAssetData(id);
+    if (!asset || !url) throw new Error(`Missing conversion asset: ${id}`);
     const man = manifests[id];
-    if (man && !isDerivedManifest(man)) {
-      await fig.writeText(joinPath(root, "fig", "assets", `${id}.fluxplot.json`), JSON.stringify(man, null, 2));
-    }
-    const entry: Asset = { ...meta, path: rel };
-    model.assets.push(entry);
-    have.add(id);
+    source.set(id, { asset, bytes: dataUrlToBytes(url),
+      ...(man && !isDerivedManifest(man) ? { manifest: JSON.stringify(man, null, 2), ...(recipes[id] === undefined ? {} : { recipe: JSON.stringify(recipes[id], null, 2) }) } : {}),
+    });
   }
+  return source;
+}
 
-  // 5. Save through the ONE persistence core (ordering + atomicity intact).
-  const plan = planFigSave(model, index);
-  const io: FigSaveIO = {
-    read: async (rel) => {
-      try {
-        const abs = joinPath(root, rel);
-        return (await fig.exists(abs)) ? await fig.readText(abs) : null;
-      } catch {
-        return null;
+/** Figure → deck uses an immutable invocation snapshot. Saved figure assets
+ * remain by-id references; unsaved assets are copied into the destination deck. */
+export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups">, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
+  const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
+  const captured = structuredClone(figure), source = sourceAssets(captured.elements), localOwner = captureOwner(root);
+  const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset), palette: [] });
+  if (sourceErrors.length) throw new Error(sourceErrors.join("; "));
+  return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
+    const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
+    const io = generationIO(fig, root);
+    await withIpcLock("project", "manifest", async manifestLease => recoverTextGeneration(io,async()=>{await assertOwner();await manifestLease.assertOwned?.()}), { root });
+    const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotBridgeIO(root, fig)));
+    const savedBytes = await figureAssets(fig, root, snapshot);
+    const deck = deckId ? await readDeck(root, deckId) : createDeckModel({ title: `${captured.name} deck`, withTitleSlide: false });
+    if (!deck) throw new Error(`deck not found or invalid: ${deckId}`);
+    // Deferred resolution is read-only: conversion must never rebase or warm
+    // another resident editor's caches merely by inspecting its target.
+    const resolved = await resolveDeckAssets(root, deck, () => false, true);
+    const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(e => "assetId" in e ? [e.assetId] : []), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
+    for (const id of required) if (!resolved.data[id]) throw new Error(`Missing conversion target asset: ${id}`);
+    const writes: AssetWrite[] = [];
+    for (const [id, value] of source) {
+      if (resolved.data[id] && !equalBytes(dataUrlToBytes(resolved.data[id]), value.bytes)) throw new Error(`Conversion asset ${id} has different bytes in the destination deck`);
+      const disk = savedBytes.get(id);
+      if (resolved.data[id] || disk && equalBytes(disk, value.bytes)) continue;
+      if (deck.assets.some(a => a.id === id)) throw new Error(`Conversion destination asset ${id} is unreadable`);
+      const rel = `assets/${id}.${value.asset.kind}`;
+      deck.assets.push({ ...value.asset, path: rel });
+      await prepareAbsentWrite(fig, root, writes, `slides/${deck.id}/${rel}`, value.bytes);
+      for (const [suffix, text] of [["fluxplot", value.manifest], ["recipe", value.recipe]] as const) if (text !== undefined) await prepareAbsentWrite(fig, root, writes, `slides/${deck.id}/assets/${id}.${suffix}.json`, new TextEncoder().encode(text));
+    }
+    reconcileDeckExternalAssetSizes(deck, resolved.assets);
+    const added = slideOps.addSlide(deck, { name: captured.name, layout: "full-bleed" });
+    slideOps.addFigureContentToSlide(deck, added.id, captured);
+    reconcileDeckExternalAssetSizes(deck, [...snapshot.project.assets, ...[...source.values()].map(v => v.asset)]);
+    const errors = validateDeckFile(deck); if (errors.length) throw new Error(errors.join("; "));
+    await assertSnapshot(snapshot, io); await assertOwner();
+    await publishAssets(fig, root, writes, assertOwner);
+    await assertSnapshot(snapshot, io);
+    await writeDeckDirect(root, deck, { assertOwned: assertOwner, ...(deckId ? {} : { expectedText: null }) });
+    return { deckId: deck.id, slideId: added.id, title: deck.title };
+  }, { root }), { root });
+}
+
+/** Slide → Figure reads the complete destination and all dependencies before
+ * any write. Canonical Figure files and the fresh manifest share one journal. */
+export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<Deck, "id" | "stage" | "background" | "theme" | "assets">, canvasId: string | null): Promise<{ figureId: string; name: string; canvasId: string }> {
+  const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
+  if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
+  const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), localOwner = captureOwner(root);
+  return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
+    const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
+    const io = generationIO(fig, root);
+    await withIpcLock("project", "manifest", async manifestLease => recoverTextGeneration(io,async()=>{await assertOwner();await manifestLease.assertOwned?.()}), { root });
+    await recoverFigureReferenceUpdate(root, referenceSyncBridgeIO(root, fig));
+    const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotBridgeIO(root, fig)));
+    const savedBytes = await figureAssets(fig, root, snapshot), model = snapshot.project;
+    const beforeFigures = structuredClone(model.figures), writes: AssetWrite[] = [];
+    for (const [id, value] of source) {
+      const prior = model.assets.find(a => a.id === id);
+      if (prior) {
+        if (!prior.path) throw new Error(`Missing conversion asset: ${id}`);
+        const disk = savedBytes.get(id) ?? new Uint8Array(await fig.readFile(joinPath(root, "fig", storedAssetPath(prior.path))));
+        if (!equalBytes(disk, value.bytes)) throw new Error(`Conversion asset ${id} has different bytes in the Figure project`);
+        continue;
       }
-    },
-    write: (rel, text) => fig.writeText(joinPath(root, rel), text),
-    ...(fig.fsyncDir ? { fsyncDir: (rel: string) => fig.fsyncDir!(joinPath(root, rel)) } : {}),
-  };
-  await fig.mkdir(joinPath(root, "fig", "canvases"));
-  await fig.mkdir(joinPath(root, "fig", "captions"));
-  await executeFigSave(plan, io);
-
-  const host = (globalThis as { fig?: { journalAppend?: (e: unknown) => void } }).fig;
-  host?.journalAppend?.({ action: "send_slide_to_canvas", target: created.id, client: "human" });
-  return { figureId: created.id, name: created.name, canvasId: cid };
+      const rel = `assets/${id}.${value.asset.kind}`;
+      model.assets.push({ ...value.asset, path: rel });
+      await prepareAbsentWrite(fig, root, writes, `fig/${rel}`, value.bytes);
+      for (const [suffix, text] of [["fluxplot", value.manifest], ["recipe", value.recipe]] as const) if (text !== undefined) await prepareAbsentWrite(fig, root, writes, `fig/assets/${id}.${suffix}.json`, new TextEncoder().encode(text));
+    }
+    let cid = canvasId;
+    if (cid && !model.canvases.some(c => c.id === cid)) throw new Error(`Conversion destination canvas no longer exists: ${cid}`);
+    if (!cid) { cid = newId("canvas"); model.canvases.push({ id: cid, name: `Canvas ${model.canvases.length + 1}` }); }
+    const cloned = cloneContentWithFreshIds(sourceSlide.elements, sourceSlide.groups);
+    const created = ops.createFigure(model, { canvasId: cid, name: sourceSlide.name ?? "Slide", width: sourceDeck.stage.width, height: sourceDeck.stage.height, background: sourceSlide.background ?? sourceDeck.background ?? "#ffffff" });
+    created.elements = cloned.elements;
+    if (Object.keys(cloned.groups).length) created.groups = cloned.groups;
+    if (sourceSlide.guides) created.guides = structuredClone(sourceSlide.guides);
+    const errors = validateModel(model); if (errors.length) throw new Error(errors.join("; "));
+    const plan = planFigSave(model, snapshot.index, snapshot.baselines);
+    await assertSnapshot(snapshot, io); await assertOwner();
+    // Reference preflight happens before asset publication as well. Adding a
+    // Figure usually leaves existing stable labels untouched, but use the
+    // same coordinator as an ordinary Figure save when meaning does change.
+    const references = await prepareFigureReferenceUpdate(root, beforeFigures, model.figures, referenceSyncBridgeIO(root, fig), { index: snapshot.index, figureFiles: [...plan.canvases, plan.index] });
+    try {
+      await withIpcLock("project", "manifest", async manifestLease => {
+        const manifestBefore = await io.read("project.json");
+        if (manifestBefore === null) throw new Error("Conversion requires project.json");
+        const registration = new Map<string, GenerationWrite>();
+        await stageFigureRegistration(io, JSON.parse(plan.index.text) as FigIndexFile, registration);
+        await assertSnapshot(snapshot, io); await assertOwner(); await manifestLease.assertOwned?.();
+        // New immutable asset files may survive an interrupted save as safe
+        // unindexed orphans; no pre-existing asset is ever overwritten here.
+        await publishAssets(fig, root, writes, assertOwner);
+        await assertSnapshot(snapshot, io);
+        if (await io.read("project.json") !== manifestBefore) throw new Error("Manifest changed while conversion was prepared");
+        const canonical = new Map<string, GenerationWrite>();
+        await executeFigSave(plan, { read: io.read, write: async (rel, text) => { canonical.set(rel, text); } });
+        for (const [rel, text] of registration) canonical.set(rel, text);
+        for (const rel of [".meta", "fig", "fig/canvases", "fig/captions"]) await fig.mkdir(joinPath(root, rel));
+        await commitTextGeneration(io, canonical, async () => { await assertOwner(); await manifestLease.assertOwned?.(); });
+      }, { root });
+      await commitFigureReferenceUpdate(root, references, referenceSyncBridgeIO(root, fig));
+    } catch (error) { await releaseFigureReferenceUpdate(root, references); throw error; }
+    const host = globalThis as { fig?: { journalAppend?: (e: unknown) => void } };
+    host.fig?.journalAppend?.({ action: "send_slide_to_canvas", target: created.id, client: "human" });
+    return { figureId: created.id, name: created.name, canvasId: cid };
+  }, { root }), { root });
 }

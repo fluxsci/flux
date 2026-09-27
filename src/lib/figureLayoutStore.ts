@@ -1,3 +1,4 @@
+import { decodePreferences } from "./preferences";
 // Figure-module layout preferences — persisted to localStorage exactly like
 // slide's slideLayoutStore.ts / paper's view-mode/paperLayoutStore.ts. Holds
 // the two drag-adjustable rail widths in px. A single global store shared
@@ -20,7 +21,7 @@ export const FIGURE_LAYOUT_DEFAULTS: FigureLayout = { sidebarW: 200, inspectorW:
 function load(): FigureLayout {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...FIGURE_LAYOUT_DEFAULTS, ...(JSON.parse(raw) as Partial<FigureLayout>) };
+    if (raw) return decodePreferences(JSON.parse(raw), FIGURE_LAYOUT_DEFAULTS, { sidebarW: { min:140,max:420 }, inspectorW: {min:200,max:480} });
   } catch {
     /* ignore */
   }

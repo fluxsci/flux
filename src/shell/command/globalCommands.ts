@@ -2,6 +2,7 @@
 // entries to its own palette). Context-doc commands switch to Paper and open
 // the doc; machine-context commands open the file in the OS editor.
 
+import { openFigureMeta } from "../../lib/figure/metadataState";
 import { get } from "svelte/store";
 import type { Command } from "./commands";
 import { requestOpenDoc, feedbackCaptureOpen, annotateCaptureOpen } from "./commandBus";
@@ -48,7 +49,7 @@ async function openMachineContext(rel: string): Promise<void> {
 export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string) => void }): Command[] {
   const openDoc = opts.openDoc ?? openInPaper;
   const hasProject = !!get(currentProject)?.path;
-  const cmds: Command[] = [];
+  const cmds: Command[] = [{ id: "figure-metadata", title: "Figure-Meta: captions and names", hint: "Alt+M", keywords: "figure metadata caption name family", run: () => openFigureMeta() }];
   if (hasProject) {
     cmds.push(
       { id: "ctx-mission", title: "Open mission", hint: "Context", keywords: "goals project charter briefing", run: () => openDoc(CONTEXT_PATHS.mission) },

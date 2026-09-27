@@ -1,3 +1,7 @@
+import { pdfBytesIdentity } from "./items";
+import { publicFetch as fetch } from "../electron/publicFetch.cjs";
+import { transientHttpStatus } from "../src/lib/references/httpOutcome";
+import { readBoundedBody } from "../electron/netFetch.cjs";
 // flux-core/acquire.ts — the PDF-acquisition engine (Node side: CLI/MCP/agents).
 // Runs the OA resolver waterfall (src/lib/references/pdfFinder.ts) over a FluxLib
 // entry's identifiers (from enrich.json + the .bib), downloads the first magic-byte-
@@ -34,9 +38,9 @@ async function dl(url: string, onTransient?: () => void): Promise<{ bytes: Uint8
       headers: { "User-Agent": UA, Accept: "application/pdf,*/*" },
       signal: AbortSignal.timeout(120_000), // a hung publisher server must not stall the run
     });
-    if (!r.ok) return null;
+    if (!r.ok) { if (transientHttpStatus(r.status)) onTransient?.(); return null; }
     const out = {
-      bytes: new Uint8Array(await r.arrayBuffer()),
+      bytes: new Uint8Array(await readBoundedBody(r, 80 * 1024 * 1024)),
       finalUrl: r.url || url,
       contentType: r.headers.get("content-type") || "",
     };
@@ -54,7 +58,8 @@ async function getJson(url: string, onTransient?: () => void): Promise<any> {
       headers: { "User-Agent": UA, Accept: "application/json" },
       signal: AbortSignal.timeout(30_000),
     });
-    return r.ok ? await r.json() : null;
+    if (!r.ok) { if (transientHttpStatus(r.status)) onTransient?.(); return null; }
+    return JSON.parse((await readBoundedBody(r, 8 * 1024 * 1024)).toString("utf8"));
   } catch {
     onTransient?.();
     return null;
@@ -63,7 +68,8 @@ async function getJson(url: string, onTransient?: () => void): Promise<any> {
 async function getText(url: string, onTransient?: () => void): Promise<string | null> {
   try {
     const r = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(30_000) });
-    return r.ok ? await r.text() : null;
+    if (!r.ok) { if (transientHttpStatus(r.status)) onTransient?.(); return null; }
+    return (await readBoundedBody(r, 8 * 1024 * 1024)).toString("utf8");
   } catch {
     onTransient?.();
     return null;
@@ -117,9 +123,12 @@ export async function fetchPdfForKey(
   } = {},
 ): Promise<FetchOneResult> {
   if (!opts.refresh && (await hasPdf(key, opts.libPath))) return { key, status: "have" };
-  const { lib, enrich } =
-    opts.preloaded ??
-    (await Promise.all([loadLibrary(opts.libPath), loadEnrich(opts.libPath)]).then(([lib, enrich]) => ({ lib, enrich })));
+  let data = opts.preloaded;
+  if (!data) {
+    const [lib, enrich] = await Promise.all([loadLibrary(opts.libPath), loadEnrich(opts.libPath)]);
+    data = { lib, enrich };
+  }
+  const { lib, enrich } = data;
   const x = inputsFor(key, lib, enrich);
   if (!x.doi && !x.openAccessUrl && !x.pmcid) return { key, status: "no-id" };
   const email = (await getSecret("mailto")) || undefined;
@@ -137,15 +146,18 @@ export async function fetchPdfForKey(
       r.bytes,
       { source: r.source, url: r.url, finalUrl: r.finalUrl, isOa: r.source !== "crossref" ? true : x.isOa },
       opts.libPath,
+      {replaceExisting: opts.refresh},
     );
+    if (!w.ok && w.reason === "already-present") return {key, status: "have"};
     // The resolver handed back supplementary material, not the article. It's filed under
     // supplements/, but the paper is still missing — say so rather than claiming success.
     if (!w.ok) return { key, status: "no-oa", error: `resolved to supplementary material (${w.signal})` };
     // Extract full text (search + agent reading context). Non-fatal: a scanned/image
     // PDF just yields little text; the fetch still succeeds.
     try {
-      const ft = await extractFulltext(r.bytes);
-      if (ft.chars > 0) await writeFulltext(key, ft.text, opts.libPath);
+      const generation = pdfBytesIdentity(r.bytes);
+      const ft = await extractFulltext(new Uint8Array(r.bytes));
+      if (ft.chars > 0) await writeFulltext(key, ft.text, opts.libPath, generation);
     } catch {
       /* extraction failed — PDF is still stored */
     }
@@ -167,8 +179,9 @@ export async function ingestPdf(filePath: string, opts: { key: string; libPath?:
   if (!isPdfBytes(bytes)) throw new Error(`${filePath} is not a PDF (missing %PDF- header)`);
   await writePdf(opts.key, bytes, { source: "ingest", url: filePath, finalUrl: filePath }, opts.libPath);
   try {
-    const ft = await extractFulltext(bytes);
-    if (ft.chars > 0) await writeFulltext(opts.key, ft.text, opts.libPath);
+    const generation = pdfBytesIdentity(bytes);
+    const ft = await extractFulltext(new Uint8Array(bytes));
+    if (ft.chars > 0) await writeFulltext(opts.key, ft.text, opts.libPath, generation);
   } catch {
     /* unextractable — PDF still stored */
   }

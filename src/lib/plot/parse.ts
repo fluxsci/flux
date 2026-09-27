@@ -1,3 +1,4 @@
+import { rewriteLocalUrls, rewriteCssReferences, passivePaint, svgNamespace } from "./passiveSvg";
 // Parse + address a FluxPlot semantic SVG inside the app.
 //
 // The same plot may be placed many times on a canvas, so each placement's
@@ -20,7 +21,7 @@ export function parsePlotSvg(svgText: string): SVGSVGElement | null {
   const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
   if (doc.querySelector("parsererror")) return null;
   const root = doc.documentElement;
-  if (!root || root.tagName.toLowerCase() !== "svg") return null;
+  if (!root || root.tagName.toLowerCase() !== "svg" || svgNamespace(root)!=="http://www.w3.org/2000/svg") return null;
   return root as unknown as SVGSVGElement;
 }
 
@@ -41,29 +42,33 @@ export function prefixIds(root: Element, elementId: string): void {
     el.setAttribute("id", neu);
   }
   const URL_ATTRS = ["clip-path", "mask", "filter", "fill", "stroke", "marker-start", "marker-mid", "marker-end"];
-  const rewriteUrls = (s: string) => s.replace(/url\(#([^)]+)\)/g, (_m, id) => `url(#${map.get(id) ?? id})`);
+  const rewriteUrls = (s: string) => rewriteLocalUrls(s, map);
   for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
     for (const attr of URL_ATTRS) {
       const v = el.getAttribute(attr);
-      if (v && v.includes("url(#")) el.setAttribute(attr, rewriteUrls(v));
+      if (v) el.setAttribute(attr, rewriteUrls(v));
     }
     // FIG-11: an inline `style="fill:url(#…)"` binds a gradient/clip/mask too — the
     // attribute pass above misses it, so two placements of the same plot would resolve
     // the SAME (unprefixed) id and collide (wrong fill/clip on one of them).
     const style = el.getAttribute("style");
-    if (style && style.includes("url(#")) el.setAttribute("style", rewriteUrls(style));
+    if (style) el.setAttribute("style", rewriteCssReferences(`x{${style}}`, map).replace(/^x\{|\}$/g, ""));
     // plain href (SVG2) and namespaced xlink:href (matplotlib <use>)
-    const href = el.getAttribute("href");
-    if (href && href.startsWith("#")) el.setAttribute("href", "#" + (map.get(href.slice(1)) ?? href.slice(1)));
-    const xh = el.getAttributeNS(XLINK, "href");
-    if (xh && xh.startsWith("#")) el.setAttributeNS(XLINK, "xlink:href", "#" + (map.get(xh.slice(1)) ?? xh.slice(1)));
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.localName === "href" || attr.name.split(":").at(-1) === "href") {
+        const value = attr.value.trim();
+        if (value.startsWith("#")) el.setAttribute(attr.name, "#"+(map.get(value.slice(1)) ?? value.slice(1)));
+      }
+      if (["aria-labelledby", "aria-describedby"].includes(attr.name)) el.setAttribute(attr.name,attr.value.split(/\s+/).map(id=>map.get(id)??id).join(" "));
+    }
+
   }
   // FIG-11: <style> blocks reference gradients/clips by url(#…) as well (e.g. a CSS rule
   // `.area{fill:url(#grad)}`) — rewrite those so a second placement's CSS points at ITS
   // prefixed gradient, not the first placement's.
   for (const st of Array.from(root.querySelectorAll("style"))) {
     const css = st.textContent;
-    if (css && css.includes("url(#")) st.textContent = rewriteUrls(css);
+    if (css) st.textContent = rewriteCssReferences(css, map);
   }
   scopePlotStyles(root, elementId);
 }
@@ -257,7 +262,7 @@ export function scopeCss(css: string, scope: string): string {
     const sel = prelude.trim();
     if (!sel) out += prelude + "{" + body + "}";
     else if (sel.startsWith("@")) out += lead + sel + "{" + (NESTED_AT_RULE.test(sel) ? scopeCss(body, scope) : body) + "}";
-    else out += lead + splitSelectors(sel).map((s) => `${scope} ${s}`).join(", ") + "{" + body + "}";
+    else out += lead + splitSelectors(sel).map((s) => /:root\b/.test(s) ? s.replace(/:root\b/g, scope) : `${scope} ${s}`).join(", ") + "{" + body + "}";
     i = j;
   }
   return out;
@@ -389,14 +394,14 @@ export function applyOverrides(
 
       for (const d of drawablesUnder(el)) {
         const ds = (d as SVGElement).style;
-        if (ov.stroke != null) ds.stroke = String(ov.stroke);
+        if (ov.stroke != null) ds.stroke = passivePaint(String(ov.stroke));
         if (ov.strokeWidth != null) ds.strokeWidth = String(ov.strokeWidth);
         if (ov.fill != null) {
           // Don't fill shapes that explicitly opt out (line paths) unless the
           // override targets exactly this node (leaf-level intent is explicit).
           const own = declaredFill(d);
           const leafIntent = d === el;
-          if (leafIntent || own == null || own.toLowerCase() !== "none") ds.fill = String(ov.fill);
+          if (leafIntent || own == null || own.toLowerCase() !== "none") ds.fill = passivePaint(String(ov.fill));
         }
         const texty = TEXTY.has(d.tagName?.toLowerCase() ?? "");
         if (texty) {

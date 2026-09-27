@@ -21,7 +21,6 @@
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
   import CascadePopover from "../../../lib/CascadePopover.svelte";
-  import FigureNamer from "../../../lib/FigureNamer.svelte";
   import FigureDeletionDialog from "../../../lib/FigureDeletionDialog.svelte";
   import FigureCatalog from "../../../lib/FigureCatalog.svelte";
   import FluxFigMenu from "../../../lib/FluxFigMenu.svelte";
@@ -30,7 +29,7 @@
   import DissectOverlay from "../../../lib/dissect/DissectOverlay.svelte";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
-  import { activeFigureId, dirty as figDirty, embeddedProjectRoot, captionOpen } from "../../../lib/store";
+  import { activeFigureId, dirty as figDirty, embeddedProjectRoot } from "../../../lib/store";
   import { inspectorHidden, leftRailHidden } from "../../../lib/settings";
   import { figureLayout, FIGURE_LAYOUT_DEFAULTS } from "../../../lib/figureLayoutStore";
   import { projectModel } from "../../shellStore";
@@ -38,7 +37,7 @@
   import { pendingRevealFigureId, focusFigure } from "../../scholar/nav";
   import { bumpFigRevision, figRevision } from "../../scholar/revisions";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable } from "../../lifecycle";
+  import { registerFlushable, notifyFlushOwnerReady } from "../../lifecycle";
   import { pointerDrag } from "../../../lib/ui/pointerDrag";
   import { initializeEditor } from "../../editorHandoff";
   import { errMsg } from "../../../lib/toast";
@@ -60,6 +59,7 @@
   let unsubFigRev: (() => void) | undefined;
   // W7: fig/ changed on disk (agent/CLI) while the editor had unsaved edits.
   let figDiverged = $state(false);
+  let conflictError = $state<string | null>(null);
 
   // W4: shared autosave controller — save failures stay dirty, retry once
   // silently, then surface a sticky toast (they were fire-and-forget before).
@@ -89,8 +89,10 @@
     // reload: true — keep the user's canvas/figure/selection where their ids
     // survive, and land the external change as ONE undo entry (Ctrl+Z reverts
     // the agent's batch). Resets baseline + clears dirty as before.
-    await loadFigInto(pm.root, pm.manifest.title, { reload: true });
-    figDiverged = false;
+    try {
+      await loadFigInto(pm.root, pm.manifest.title, { reload: true });
+      figDiverged = false; conflictError = null;
+    } catch (error) { figDiverged = true; conflictError = errMsg(error); }
   }
   // W10 (AGT-3): an external (agent/CLI) write to fig/ live-reloads the open
   // editor. figRevision also fires on our OWN save, so gate on figDiskDiverged
@@ -105,9 +107,11 @@
   }
   async function overwriteFigures() {
     if (!pm) return;
-    await saveFigFrom(pm.root, { force: true }); // editor's version wins
-    figDiverged = false;
-    bumpFigRevision();
+    try {
+      await saveFigFrom(pm.root, { force: true }); // editor, including captions, wins
+      figDiverged = false; conflictError = null;
+      bumpFigRevision();
+    } catch (error) { conflictError = errMsg(error); }
   }
 
   // --- draggable rail edges → sidebar/inspector widths (the slide filmstrip
@@ -158,6 +162,7 @@
     }
     if (!alive) return;
     ready = true;
+    notifyFlushOwnerReady("figure");
     // If the user clicked a @fig ref in the manuscript, jump to that figure.
     const pend = get(pendingRevealFigureId);
     if (pend) focusFigure(pend);
@@ -182,6 +187,8 @@
   // W5: register with the shell's dirty registry so goHome/quit/reload flush us.
   const unregFlush = registerFlushable({
     id: "figure",
+    isReady: () => ready,
+    get paneId() { return paneId; },
     isDirty: () => ready && !!pm && get(figDirty),
     flush: () => autosave.flush(),
   });
@@ -224,12 +231,10 @@
     <main class="canvas-wrap">
       <Canvas paneActive={active} /><ArrangeHud /><CascadePopover />
       <!-- Only the focused pane owns/hosts the namer (split-workspace safe). -->
-      {#if focused}<FigureNamer /><FigureCatalog /><FigureDeletionDialog />{/if}
+      {#if focused}<FigureCatalog /><FigureDeletionDialog />{/if}
     </main>
-    <!-- The Inspector steps aside while the caption editor is open, giving the
-         caption page room (and keeping the figure read-only / distraction-free).
-         Ctrl+Shift+B (keyboard.ts) hides it entirely. -->
-    {#if !$captionOpen && !$inspectorHidden}
+    <!-- Ctrl+Shift+B toggles the Inspector. -->
+    {#if !$inspectorHidden}
       <div
         class="rail-gutter"
         role="separator"
@@ -239,7 +244,7 @@
         ondblclick={resetInspW}>
       </div>
       <Inspector />
-    {:else if !$captionOpen}
+    {:else}
       <button class="edgetab right" title="Show right rail (Ctrl+Shift+B)" onclick={() => inspectorHidden.set(false)}>‹</button>
     {/if}
   </div>
@@ -251,7 +256,7 @@
 
   {#if figDiverged}
     <div class="disk-toast">
-      <span>These figures changed on disk (an agent or another tool edited them).</span>
+      <span>These figures changed on disk. Overwrite saves your figures and captions and preserves the disk version in .meta/figure-conflicts/.{#if conflictError}<strong role="alert"> {conflictError}</strong>{/if}</span>
       <button onclick={reloadFigures}>Reload theirs</button>
       <button class="ghost" onclick={overwriteFigures}>Overwrite with mine</button>
     </div>

@@ -1,3 +1,4 @@
+import { withLock, getLockClient, assertLockOwned } from "./locks";
 // flux-core/snips.ts — headless paper snips: rasterize a region of a FluxLib
 // paper's PDF page to a PNG in <project>/plots/paper_snips/, with the same
 // provenance the GUI writes (pHYs true-size dpi + flux-snip tEXt chunk +
@@ -42,7 +43,7 @@ async function getDocument(opts: any): Promise<any> {
       ({ getDocument: _getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs"));
     } catch (e) {
       throw new ExternalToolError(
-        `PDF rasterization needs pdfjs-dist with a native canvas (@napi-rs/canvas) — run flux from a checkout/npx, not the packaged bundle (${(e as Error).message})`,
+        `PDF rasterization needs pdfjs-dist with a native canvas (@napi-rs/canvas) — run flux from a checkout/npx, not the packaged bundle (${(e as Error).message})`, 1,
       );
     }
   }
@@ -54,7 +55,7 @@ async function loadCanvas(): Promise<any> {
     return await import("@napi-rs/canvas");
   } catch (e) {
     throw new ExternalToolError(
-      `PDF rasterization needs @napi-rs/canvas — run flux from a checkout/npx, not the packaged bundle (${(e as Error).message})`,
+      `PDF rasterization needs @napi-rs/canvas — run flux from a checkout/npx, not the packaged bundle (${(e as Error).message})`, 1,
     );
   }
 }
@@ -91,7 +92,10 @@ export async function snipPaper(root: string, opts: SnipPaperOpts): Promise<Snip
   // --- source PDF bytes (main paper or a named supplement) -------------------------
   let bytes: Uint8Array;
   if (opts.supplement) {
-    const p = path.join(supplementsDir(lib, opts.key), opts.supplement);
+    if (path.basename(opts.supplement) !== opts.supplement || opts.supplement.includes("\\") || opts.supplement === "." || opts.supplement === "..") throw new Error("Supplement must name a file in the selected item");
+    const base = await fs.promises.realpath(supplementsDir(lib, opts.key));
+    const p = await fs.promises.realpath(path.join(base, opts.supplement));
+    if (path.dirname(p) !== base) throw new Error("Supplement resolves outside the selected item");
     if (!fs.existsSync(p)) throw new NotFoundError(`no supplement "${opts.supplement}" for @${opts.key}`);
     bytes = new Uint8Array(await fs.promises.readFile(p));
   } else {
@@ -158,9 +162,16 @@ export async function snipPaper(root: string, opts: SnipPaperOpts): Promise<Snip
   const dir = path.join(root, ...SNIP_DIR.split("/"));
   await fs.promises.mkdir(dir, { recursive: true });
   const base = (opts.name && sanitizeSnipName(opts.name)) || defaultSnipName(opts.key, opts.page);
-  const name = await dedupSnipName(base, async (n) => fs.existsSync(path.join(dir, `${n}.png`)));
-  await atomicWrite(path.join(dir, `${name}.png`), png);
-  await atomicWrite(path.join(dir, `${name}.snip.json`), sidecarText(meta));
+  const name = await withLock(root, "snips", getLockClient(), async lease => {
+    const reserved = await dedupSnipName(base, async n => fs.existsSync(path.join(dir, `${n}.png`)) || fs.existsSync(path.join(dir, `${n}.snip.json`)));
+    await assertLockOwned(lease);
+    // Sidecar reserves the name first; interrupted PNG publication retains its
+    // recoverable provenance, and subsequent captures never overwrite the pair.
+    await atomicWrite(path.join(dir, `${reserved}.snip.json`), sidecarText(meta), true);
+    await assertLockOwned(lease);
+    await atomicWrite(path.join(dir, `${reserved}.png`), png, true);
+    return reserved;
+  });
 
   return {
     path: `${SNIP_DIR}/${name}.png`,

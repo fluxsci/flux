@@ -33,7 +33,6 @@
     newId,
     findElement,
     lastDupOffset,
-    captionOpen,
     hoverId,
     nodeEditId,
     arrange,
@@ -46,6 +45,7 @@
   import { restorePlotClip } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
+  import { clampZoom } from "./interact/zoomLimits";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
@@ -54,7 +54,9 @@
   import { onMount, tick, onDestroy } from "svelte";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
-  import { applyTextLayout, blockLayout, letterSpacing as textTracking } from "./text";
+  import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
+  import { remapRuns, normalizeRuns, elementFlags, rangeIsOn, rangeScript } from "./textRuns";
+  import { publishTextRange, detachTextRange, registerLiveRangeToggle, typingStyle, type RangeStyle } from "./textEditRange";
   import {
     elementBBox,
     rotatedAABB,
@@ -78,15 +80,14 @@
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
   import { plotManifests, plotGen } from "./plot/store";
   import ElementView from "./Element.svelte";
-  import CaptionEditor from "./CaptionEditor.svelte";
 
   // ===========================================================================
   // Rendering architecture (performance-critical):
   //  - The "scene" holds all committed content. Panning is a CSS transform on
-  //    its wrapper (compositor-only, NO repaint). Zooming is compositor-only
-  //    too while the wheel burst lasts (a residual scale on the wrapper); the
-  //    content repaints ONCE per zoom gesture, when the settle fold bakes the
-  //    zoom into the scene SVG (renderZoom — see the P6 rationale block below).
+  //    its wrapper (compositor-only, NO repaint). A covered zoom uses a bounded
+  //    bitmap proxy. Uncached live zoom keeps the residual scale but MUST allow
+  //    Chromium to rerasterize, without an animation/will-change scale lock.
+  //    Settle bakes zoom into the SVG (renderZoom — see rationale below).
   //  - ALL live interaction (dragged-element previews, selection box + handles,
   //    marquee, guides, draw/pen previews) renders on a separate screen-space
   //    overlay. During a drag/resize the scene is frozen (originals hidden) and
@@ -135,8 +136,6 @@
     presentationHighlight = { x: x - host.left - 3, y: y - host.top - 3, w: Math.max(...boxes.map((b) => b.right)) - x + 6, h: Math.max(...boxes.map((b) => b.bottom)) - y + 6 };
   }
 
-  const MIN_ZOOM = 0.05;
-  const MAX_ZOOM = 16;
   const HS = 9; // on-screen handle size in px (constant)
   const RULER = 20; // ruler strip thickness in screen px (Feature 11)
 
@@ -156,6 +155,11 @@
         figId: string;
         sx: number;
         sy: number;
+        // World point under the pointer at pointerdown: the cross-figure drop
+        // target is the frame under the cursor, derived per move from this +
+        // the client delta so the gesture never asks layout for the host rect.
+        wx: number;
+        wy: number;
         origs: Map<string, Element>;
         ob: Rect;
         xs: number[];
@@ -619,9 +623,10 @@
   // content repaint. Contract:
   //  1. renderZoom is the scale BAKED into the scene SVG (<g scale(renderZoom)>).
   //     $viewport.zoom stays the live truth for overlay/rulers/hit-testing; the
-  //     scene wrapper carries a compositor-only residual scale(zoom/renderZoom)
-  //     mid-gesture, so a zoom burst costs ONE content repaint — the settle
-  //     fold (ZOOM_SETTLE_MS after the last zoom change) sets renderZoom = zoom
+  //     scene wrapper carries residual scale(zoom/renderZoom) mid-gesture.
+  //     A valid bitmap proxy freezes the live scene. Otherwise it must reraster
+  //     as needed, never retaining its largest zoom's tiles in an animation.
+  //     The settle fold (ZOOM_SETTLE_MS after the last change) sets renderZoom = zoom
   //     and the residual returns to exactly 1. The world→screen mapping is
   //     pan + zoom·w at ALL times (renderZoom cancels out), so gesture math,
   //     hit-testing, getBoundingClientRect and getScreenCTM captures stay exact
@@ -630,9 +635,9 @@
   //     figure label) divide by renderZoom, NOT $viewport.zoom — one live-zoom
   //     read inside the scene template silently reintroduces per-tick repaints.
   //     (They scale with the residual mid-burst and snap crisp on the fold.)
-  //  3. Culling keys off renderZoom and is frozen while the zoom is unsettled
-  //     (an uncovered margin for ≤ ZOOM_SETTLE_MS on zoom-out is accepted);
-  //     pan-quantized re-culling is unchanged.
+  //  3. Culling retains its buffer while covered, but mounts newly visible
+  //     content at the live zoom as soon as coverage is exhausted. No blank
+  //     margin is accepted while waiting for the settle timer.
   //  4. Any gesture pointerdown folds IMMEDIATELY (foldZoomNow, capture phase):
   //     a gesture must never run on a residual-scaled scene where a later
   //     settle fold would repaint under its feet (partmove holds a captured CTM
@@ -641,9 +646,10 @@
   //     until idle. Programmatic viewport.set is covered by the settle timer
   //     (verify scripts sleep ≥ 250ms > ZOOM_SETTLE_MS).
   //  5. will-change lifecycle: .scene has NO permanent will-change (neither in
-  //     CSS nor inline). style:will-change promotes it only while sceneHot —
+  //     CSS nor inline). style:will-change promotes it only while sceneHot AND
+  //     not zooming or proxied —
   //     an interaction is live (gesture / guideDrag / nodeDrag / unsettled
-  //     zoom / wheel pan) or ended less than SCENE_COOL_MS ago — and drops to
+  //     wheel pan) or ended less than SCENE_COOL_MS ago — and drops to
   //     null at idle. The idle demotion IS the blur fix: the layer re-rasters
   //     at full quality and its tile allocation is released. `contain: paint`
   //     is FORBIDDEN on .scene (it clips panned content — verified).
@@ -671,7 +677,11 @@
   function keepSceneHot() {
     if (!sceneHot) dropStaleSelection(); // once per burst, at the first tick
     sceneHot = true;
-    sceneDriveRef?.hot(); // the compositor owns the pan/zoom transform for the whole burst
+    // Only translation can retain its raster safely. Chromium deliberately
+    // keeps an animated layer's largest raster scale on zoom-out; a deep
+    // live SVG zoom then exhausts tiles for the entire window. The bounded
+    // bitmap proxy may animate scale; the live scene must be free to reraster.
+    if (!zoomUnsettled && !proxyActive) sceneDriveRef?.hot();
     if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
     sceneCoolTimer = setTimeout(maybeCoolScene, SCENE_COOL_MS);
   }
@@ -688,8 +698,9 @@
   // The scene wrapper's transform reaches the DOM through the compositor drive
   // (interact/compositorDrive.ts): a plain style write per wheel tick made
   // Chromium re-layerize the whole scene every frame (6.7 ms/frame over 15k
-  // plot nodes, 2026-09-16); while sceneHot a paused Web Animation carries the
-  // value instead and the frame costs nothing on the main thread. The inline
+  // plot nodes, 2026-09-16); while panning a paused Web Animation carries the
+  // value instead. Live scaling explicitly cools it so raster scale can shrink.
+  // The inline
   // style is still written every time (truth at rest, probes read it live).
   $: sceneTransform = `translate3d(${$viewport.panX}px, ${$viewport.panY}px, 0) scale(${$viewport.zoom / renderZoom})`;
   let sceneDriveRef: TransformDrive | null = null;
@@ -697,7 +708,7 @@
     const d = createTransformDrive(node);
     d.set(transform);
     sceneDriveRef = d;
-    if (sceneHot) d.hot();
+    if (sceneHot && !zoomUnsettled && !proxyActive) d.hot();
     return {
       update(t: string) {
         if (proxyActive) {
@@ -719,6 +730,7 @@
   function scheduleZoomFold() {
     if (!zoomUnsettled) beginZoomProxy(); // the burst starts: the raster takes over the gesture
     zoomUnsettled = true;
+    sceneDriveRef?.cool();
     keepSceneHot();
     if (zoomSettleTimer) clearTimeout(zoomSettleTimer);
     zoomSettleTimer = setTimeout(foldZoom, ZOOM_SETTLE_MS);
@@ -731,6 +743,7 @@
       return;
     }
     endZoomProxy();
+    coolLiveScene();
     zoomUnsettled = false;
     renderZoom = get(viewport).zoom; // THE one content repaint of the gesture
   }
@@ -745,6 +758,7 @@
     }
     if (zoomUnsettled || renderZoom !== get(viewport).zoom) {
       endZoomProxy();
+      coolLiveScene();
       zoomUnsettled = false;
       renderZoom = get(viewport).zoom;
     }
@@ -934,14 +948,15 @@
     if (!proxyActive) return;
     // Demote the scene BEFORE the fold's repaint: a non-animating layer waits
     // for its tiles, so the frame that brings the live scene back is complete.
-    sceneDriveRef?.cool();
-    sceneHot = false;
-    if (sceneCoolTimer) {
-      clearTimeout(sceneCoolTimer);
-      sceneCoolTimer = null;
-    }
+    coolLiveScene();
     proxyDriveRef?.cool();
     proxyActive = false;
+  }
+  function coolLiveScene() {
+    sceneDriveRef?.cool();
+    sceneHot = false;
+    if (sceneCoolTimer) clearTimeout(sceneCoolTimer);
+    sceneCoolTimer = null;
   }
   // The frozen scene catches up the moment the proxy retreats (same flush as the fold).
   let scenePending: string | null = null;
@@ -982,24 +997,6 @@
 
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
-    // The caption editor's page scrolls between blocks (captions themselves
-    // never scroll — CaptionEditor.svelte). This handler preventDefaults every
-    // wheel, so without this branch the column could not scroll at all. The
-    // delta is divided by zoom because the column is inside the world-space
-    // scale transform: apparent scroll speed then matches the mouse at any zoom.
-    // At either end it falls through to a canvas pan.
-    if ($captionOpen && !e.ctrlKey && !e.metaKey) {
-      const col = (e.target as HTMLElement | null)?.closest?.(".cap-scroll") as HTMLElement | null;
-      if (col) {
-        const max = col.scrollHeight - col.clientHeight;
-        const next = Math.min(max, Math.max(0, col.scrollTop + e.deltaY / $viewport.zoom));
-        if (next !== col.scrollTop) {
-          e.preventDefault();
-          col.scrollTop = next;
-          return;
-        }
-      }
-    }
     e.preventDefault();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
@@ -1007,7 +1004,7 @@
     const py = e.clientY - r.top;
     if (e.ctrlKey || e.metaKey) {
       const factor = Math.exp(-e.deltaY * 0.0015);
-      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, $viewport.zoom * factor));
+      const next = clampZoom($viewport.zoom * factor);
       const wx = (px - $viewport.panX) / $viewport.zoom;
       const wy = (py - $viewport.panY) / $viewport.zoom;
       viewport.set({ zoom: next, panX: px - wx * next, panY: py - wy * next });
@@ -1041,7 +1038,6 @@
       commitArrange(); // click applies the live arrangement and exits the mode
       return;
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     if (editPathId) {
       // pen sub-mode with a live draft: an off-canvas click cancels the draft
       // but stays in the mode; otherwise leave node-edit as before.
@@ -1062,7 +1058,6 @@
       commitArrange();
       return;
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     // Node-edit sub-modes intercept figure clicks: pen places/connects draft
     // points; delete de-escalates back to edit on a background click. Plain
     // edit mode exits as before (unless the pen TOOL is active — then it's
@@ -1126,6 +1121,8 @@
   // preview showed. A click inside the close radius of the first draft node
   // closes; in the sub-mode, endpoint-anchor clicks seed/join the edited path.
   function placePenPoint(e: PointerEvent, fig: Figure, lp: { x: number; y: number }) {
+    // The second pointerdown belongs to finish, not another authored node.
+    if (e.detail > 1 && penNodes.length >= 2) return;
     const sub = !!editPathId && editMode === "pen";
     const assist = penSnap(penNodes, lp, penOpts(e.shiftKey, e.altKey));
     if (assist.close && penFigId === fig.id) {
@@ -1660,38 +1657,135 @@
     const found = findElement($project, el.id);
     if (found) activeFigureId.set(found.figure.id);
     selectOnly(el.id);
+    publishTextRange(null);
+    typingStyle.set(null);
     editingId = el.id;
     requestAnimationFrame(() => {
       taEl?.focus();
       taEl?.select();
     });
   }
+  // The textarea's selection, published for every style control outside it
+  // (Inspector B/I/U and colour, Ctrl+B after the editor closed). Kept on blur:
+  // the control that took the focus is exactly the one that needs it.
+  function publishEditSelection() {
+    if (!editingId || !taEl || document.activeElement !== taEl) return;
+    publishTextRange({ id: editingId, from: taEl.selectionStart, to: taEl.selectionEnd, text: taEl.value, live: true });
+  }
+  function retireTextRange(e: PointerEvent) {
+    if (e.target !== taEl) publishTextRange(null);
+  }
+  const onDocSelection = () => publishEditSelection();
+  onMount(() => {
+    document.addEventListener("selectionchange", onDocSelection);
+    const unregister = registerLiveRangeToggle((which) => {
+      if (!editingId || !taEl || document.activeElement !== taEl) return false;
+      onTextEditToggle(which);
+      return true;
+    });
+    return () => {
+      document.removeEventListener("selectionchange", onDocSelection);
+      unregister();
+    };
+  });
   function onTextInput(e: Event) {
     if (!editingId) return;
     const val = (e.currentTarget as HTMLTextAreaElement).value;
     const id = editingId;
+    const pending = get(typingStyle);
+    const caret = taEl?.selectionEnd ?? val.length;
+    let typedTo = -1;
     textEdits.run(() => mutate((p) => {
       const f = findElement(p, id);
       if (f && f.element.type === "text") {
+        const old = f.element.text;
+        // The typing style applies to text INSERTED where it was armed, and to
+        // nothing else: a deletion, a paste elsewhere or an undo ends it.
+        const inserted = !!pending && pending.id === id && caret > pending.at &&
+          val.length - old.length === caret - pending.at &&
+          val.slice(0, pending.at) === old.slice(0, pending.at) && val.slice(caret) === old.slice(pending.at);
+        // Per-range formatting is stored as character offsets, so every edit has
+        // to carry it: text typed inside an italic word stays italic, and a
+        // deleted word takes its formatting with it (textRuns.remapRuns).
+        let runs = f.element.runs?.length ? remapRuns(f.element.runs, old, val) : [];
         f.element.text = val;
+        if (inserted && pending) {
+          runs = normalizeRuns([...runs, { from: pending.at, to: caret, ...pending.flags }], val.length, elementFlags(f.element));
+          typedTo = caret;
+        }
+        if (runs.length) f.element.runs = runs;
+        else delete f.element.runs;
         applyTextLayout(f.element);
       }
     }));
+    // Typing continues from the new caret; any other edit retires the style.
+    if (pending) typingStyle.set(typedTo >= 0 ? { ...pending, at: typedTo } : null);
+    publishEditSelection();
+  }
+  /** A caret the user MOVES (arrows, Home/End, Page keys) ends the typing
+   *  style; typing itself advances it in onTextInput, a click ends it too. */
+  function endTypingStyleOnNavigation(e: KeyboardEvent) {
+    if (!get(typingStyle)) return;
+    if (/^(Arrow|Home|End|Page)/.test(e.key)) typingStyle.set(null);
   }
   // Ctrl/Cmd+B/I/U inside the inline editor: toggle on the edited element via
   // mutate — the edit session already opened ONE beginGesture, so the whole
   // session (typing + toggles) stays a single undo entry.
-  function onTextEditToggle(which: "bold" | "italic" | "underline") {
+  function onTextEditToggle(which: RangeStyle) {
     if (!editingId) return;
     const id = editingId;
+    // With PART of the text selected the chord formats that range. With ALL of
+    // it selected (how the editor opens: startEdit selects everything) B/I/U
+    // mean the whole box: formatting every character IS formatting the element,
+    // and saying it that way keeps the element's own font honest. With NOTHING
+    // selected the chord sets the typing style, so only the characters typed
+    // next take it (owner request 2026-09-24; it used to restyle the whole box).
+    const value = taEl?.value ?? "";
+    const from = taEl?.selectionStart ?? 0;
+    const to = taEl?.selectionEnd ?? 0;
+    if (from === to) { armTypingStyle(id, from, which); return; }
+    const whole = from === 0 && to === value.length;
     textEdits.run(() => mutate((p) => {
-      ops.toggleTextStyle(p, [id], which);
+      if (which === "super" || which === "sub") ops.toggleTextRunScript(p, id, from, to, which);
+      else if (!whole) ops.toggleTextRunStyle(p, id, from, to, which);
+      else ops.toggleTextStyle(p, [id], which);
       const f = findElement(p, id);
-      if (f) applyTextLayout(f.element); // bold changes metrics → re-wrap
+      if (f) applyTextLayout(f.element); // bold and scripts change metrics: re-wrap
     }));
+    // A mutation re-renders the overlay; put the user's selection back so the
+    // next chord (bold THEN italic) acts on the same words.
+    requestAnimationFrame(() => taEl?.setSelectionRange(from, to));
+  }
+  /** Toggle `which` in the typing style armed at `at`. The reference look is
+   *  the character before the caret (at the very start, the one after it; in an
+   *  empty box, the box itself), so Ctrl+I right after an italic word turns
+   *  italic OFF for what comes next, as in a word processor. Toggling back to
+   *  that look drops the flag, and an empty style disarms. */
+  function armTypingStyle(id: string, at: number, which: RangeStyle) {
+    const f = findElement($project, id);
+    if (!f || f.element.type !== "text") return;
+    const el = f.element;
+    const ref: [number, number] | null = el.text.length === 0 ? null : at > 0 ? [at - 1, at] : [0, 1];
+    const current = get(typingStyle);
+    const flags = { ...(current && current.id === id && current.at === at ? current.flags : {}) };
+    if (which === "super" || which === "sub") {
+      const here = ref ? rangeScript(el, ref[0], ref[1]) ?? "normal" : "normal";
+      const next = (flags.script ?? here) === which ? "normal" : which;
+      if (next === here) delete flags.script;
+      else flags.script = next;
+    } else {
+      const here = ref ? rangeIsOn(el, ref[0], ref[1], which) : elementFlags(el)[which];
+      const next = !(flags[which] ?? here);
+      if (next === here) delete flags[which];
+      else flags[which] = next;
+    }
+    typingStyle.set(Object.keys(flags).length ? { id, at, flags } : null);
+    requestAnimationFrame(() => { taEl?.focus(); taEl?.setSelectionRange(at, at); });
   }
   function finishEdit() {
     if (!editingId) return;
+    detachTextRange();
+    typingStyle.set(null);
     const f = findElement($project, editingId);
     if (f && f.element.type === "text" && f.element.text.trim() === "") {
       const id = editingId;
@@ -1718,9 +1812,23 @@
     // vertical drop and its block height from the SAME text.ts layout the
     // renderer uses (vertical align, paragraph spacing, tracking and all).
     const L = blockLayout(f.element);
+    // A textarea cannot render mixed fonts, so per-range formatting is normally
+    // invisible until the edit commits — which reads as "italic on one character
+    // does not work" (owner report 2026-09-22). When the runs do not change the
+    // METRICS (italic/underline only), the painted text can stay visible and the
+    // textarea can hand it its glyphs: the caret and selection still come from
+    // the textarea, and they line up because the advances are the same. A bold
+    // run does change advances; it keeps the preview while the plain editor
+    // still breaks lines where the renderer does (text.ts plainWrapMatches), so
+    // the caret stays on the painted line, and falls back to the plain editor
+    // only when a bold word moves a wrap point. Before 2026-09-24 any bold run
+    // disabled the preview, so a box with one bold word showed NO formatting
+    // while editing (owner report: "for some text boxes it does not work").
+    const showsRuns = !!f.element.runs?.length && plainWrapMatches(f.element);
     return {
       el: f.element,
       L,
+      showsRuns,
       left: $viewport.panX + (f.figure.x + f.element.x) * $viewport.zoom,
       top: $viewport.panY + (f.figure.y + f.element.y + L.offsetY) * $viewport.zoom,
     };
@@ -1740,7 +1848,6 @@
       commitArrange();
       return;
     }
-    if ($captionOpen) return; // read-only while the caption editor is open
     // Pen/delete sub-modes: a click on ANY element routes like a figure click
     // (pen places a draft point "through" element bodies; delete de-escalates)
     // — never starts a move/selection.
@@ -1859,7 +1966,8 @@
     for (const el of sel) origs.set(el.id, structuredClone(el));
     const ob = selectionBBox(sel) ?? { x: 0, y: 0, w: 0, h: 0 };
     const { xs, ys } = boxSnapTargets(fig.elements.filter(el => !absentPresentationIds.has(el.id)), new Set(sel.map((el) => el.id)), { w: fig.width, h: fig.height }, fig.guides);
-    gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, origs, ob, xs, ys };
+    const w0 = clientToWorld(e.clientX, e.clientY);
+    gesture = { kind: "move", figId: fig.id, sx: e.clientX, sy: e.clientY, wx: w0.x, wy: w0.y, origs, ob, xs, ys };
     gestureFig = fig;
     gestureEls = sel;
     committed = false;
@@ -2012,7 +2120,6 @@
   // GPU transform on the live figure group; the model commits on pointer-up).
   function startFigMove(e: PointerEvent, fig: Figure) {
     e.stopPropagation();
-    if ($captionOpen) return;
     selectFrame(fig.id);
     enteredGroupId.set(null); // P7: frame selection is a full scope exit
     activeFigureId.set(fig.id);
@@ -2033,7 +2140,7 @@
   }
 
   function startFrameResize(e: PointerEvent, handle: Handle) {
-    if (frame || !af || $selectedFrameId !== af.id || $captionOpen || e.button !== 0) return;
+    if (frame || !af || $selectedFrameId !== af.id || e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     const ob = { x: af.x, y: af.y, w: af.width, h: af.height };
@@ -2100,7 +2207,7 @@
   // Drag from a ruler strip → begin creating a guide (axis "x" = vertical guide
   // from the LEFT ruler; "y" = horizontal guide from the TOP ruler).
   function onRulerDown(e: PointerEvent, axis: "x" | "y") {
-    if (!af || $captionOpen) return;
+    if (!af) return;
     e.preventDefault();
     e.stopPropagation();
     const w = clientToWorld(e.clientX, e.clientY);
@@ -2109,7 +2216,7 @@
     hostEl.setPointerCapture(e.pointerId);
   }
   function onGuideDown(e: PointerEvent, axis: "x" | "y", pos: number) {
-    if (!af || $captionOpen) return;
+    if (!af) return;
     e.stopPropagation();
     guideDrag = { axis, pos, creating: false, origPos: pos };
     hostEl.setPointerCapture(e.pointerId);
@@ -2145,9 +2252,18 @@
     } catch {}
   }
 
+  function remapResize(el: Element, original: Element, g: Extract<Gesture,{kind:"resize"}>, nb: Rect) {
+    const axes={w:g.handle!=="n"&&g.handle!=="s",h:g.handle!=="e"&&g.handle!=="w"};
+    if (g.scale) scaleRemap(el,original,g.ob,nb); else resizeRemap(el,original,g.ob,nb,axes);
+    if ($settings.snapPixel) {
+      el.x=Math.round(el.x);el.y=Math.round(el.y);
+      if ("width" in el) el.width=Math.round(el.width);
+      if ("height" in el) el.height=Math.round(el.height);
+    }
+  }
+
   function onHandleDown(e: PointerEvent, handle: Handle) {
     e.stopPropagation();
-    if ($captionOpen) return; // read-only while the caption editor is open
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
     const sel = selectedEls(fig);
@@ -2181,7 +2297,6 @@
   // the model stores anyway).
   function onLineEndDown(e: PointerEvent, which: 1 | 2) {
     e.stopPropagation();
-    if ($captionOpen) return;
     const fig = activeFigure();
     if (!fig || !selLine) return;
     const { p1, p2 } = lineWorldEndpoints(selLine);
@@ -2205,7 +2320,6 @@
   // compounds); Shift snaps the primary element's resulting angle to 15°.
   function onRotateDown(e: PointerEvent) {
     e.stopPropagation();
-    if ($captionOpen) return;
     const fig = activeFigure();
     if (!fig || !overlayBox) return;
     const sel = selectedEls(fig);
@@ -2284,7 +2398,6 @@
       !e.shiftKey &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
-      !$captionOpen &&
       !editPathId
     ) {
       partHover = partHoverBox(e);
@@ -2425,6 +2538,10 @@
       gDX = dx;
       gDY = dy;
       liveBox = { x: g.ob.x + dx, y: g.ob.y + dy, w: g.ob.w, h: g.ob.h };
+      // Another figure's frame under the cursor lights up: releasing there
+      // moves the selection INTO that figure (same class as the file-drop
+      // target). Only the figure editor shows several frames at once.
+      dropFigId = frame ? null : (moveDropTarget(g, e)?.id ?? null);
     } else if (g.kind === "resize") {
       const lp = localPoint(e.clientX, e.clientY, fig);
       if (g.crop) {
@@ -2444,7 +2561,7 @@
       }
       // The Scale tool always scales uniformly; a single locked-aspect element does
       // too (no Shift needed).
-      const forceAspect = g.scale || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
+      const forceAspect = g.scale || gestureEls.some(el => Math.abs(Math.sin((el.rotation ?? 0)*Math.PI/90)) > 1e-8) || (gestureEls.length === 1 && !!gestureEls[0].lockAspect);
       const nb = computeResizeBox(g.ob, g.handle, lp, e.shiftKey || forceAspect);
       startDragging();
       gNb = nb;
@@ -2543,7 +2660,32 @@
         mutateFigure(g.figId, p => ops.resizeFigureFrame(p, g.figId, box));
       }
     } else if (g.kind === "move") {
-      if (dragging && (gDX !== 0 || gDY !== 0)) {
+      const target = dragging && !frame ? moveDropTarget(g, e) : null;
+      if (target) {
+        // Released over ANOTHER figure's frame: the selection changes figure
+        // (Figma re-parents to the frame under the cursor) — one undo entry,
+        // world position kept, the frames' offset folded into local x/y by the
+        // shared op. Unscoped mutate: two figures change.
+        ensureCommitted();
+        const ids = [...g.origs.keys()];
+        const snapPx = $settings.snapPixel;
+        mutate((p) => {
+          const moved = new Set(ops.moveElementsToFigure(p, ids, target.id, { dx: gDX, dy: gDY }));
+          if (!snapPx || !moved.size) return;
+          const f = p.figures.find((ff) => ff.id === target.id);
+          for (const el of f?.elements ?? []) {
+            if (!moved.has(el.id)) continue;
+            el.x = Math.round(el.x);
+            el.y = Math.round(el.y);
+          }
+        });
+        // The selection now lives on the target: make it the active figure so
+        // the Layers panel, Alt+C and every "active figure" chord follow it,
+        // and drop an entered-group scope the move left behind.
+        activeFigureId.set(target.id);
+        const scope = $enteredGroupId;
+        if (scope && !target.groups?.[scope]) enteredGroupId.set(null);
+      } else if (dragging && (gDX !== 0 || gDY !== 0)) {
         ensureCommitted();
         mutateFigure(g.figId, (p) => {
           const f = p.figures.find((ff) => ff.id === g.figId);
@@ -2594,14 +2736,7 @@
         for (const el of f.elements) {
           const o = g.origs.get(el.id);
           if (o) {
-            if (g.scale) scaleRemap(el, o, g.ob, nb);
-            else resizeRemap(el, o, g.ob, nb, axes);
-            if ($settings.snapPixel) {
-              el.x = Math.round(el.x);
-              el.y = Math.round(el.y);
-              if ("width" in el) el.width = Math.round(el.width);
-              if ("height" in el) el.height = Math.round(el.height);
-            }
+            remapResize(el,o,g,nb);
           }
         }
       });
@@ -2696,6 +2831,7 @@
   function resetGestureTransients() {
     frameDraft = null;
     figureFramePreview.set(null);
+    dropFigId = null;
     checkpoint = null;
     duplicateSelection = null;
     committed = false;
@@ -2892,7 +3028,15 @@
   let lastDownEl: { id: string; t: number } | null = null;
 
   function onDblClick(e: MouseEvent) {
-    if ($captionOpen) return; // read-only while the caption editor is open
+    // Chromium pointerdown.detail is zero even for the second click. Remove
+    // only that exactly coincident, handle-free terminal click before finish;
+    // intentional short segments (and curved coincident nodes) survive.
+    if (penNodes.length >= 2) {
+      const last = penNodes.at(-1)!;
+      const previous = penNodes.at(-2)!;
+      const hasHandle = [last.hIn, last.hOut].some(h => h && (h.dx !== 0 || h.dy !== 0));
+      if (last.x === previous.x && last.y === previous.y && !hasHandle) penNodes = penNodes.slice(0, -1);
+    }
     if (editPathId) {
       // pen sub-mode: double-click finishes the draft (open / extend-merge)
       if (editMode === "pen" && penNodes.length >= 2) finishPenDraft(null);
@@ -2930,7 +3074,7 @@
   // handler (real mice, via lastDownEl) AND from the per-element on:dblclick
   // (synthetic dispatches in tests) — stopPropagation keeps the two disjoint.
   function onElementDblClick(e: MouseEvent, el: Element, fig: Figure): boolean {
-    if ($captionOpen || editPathId) return false;
+    if (editPathId) return false;
     if ($activeTool !== "select" && $activeTool !== "scale") return false;
     if (effLocked(el)) return false;
     const unit = unitOf(fig, el, $enteredGroupId);
@@ -2962,18 +3106,33 @@
     return false;
   }
 
-  // --- OS file drag-and-drop (from the file explorer) ---
+  // --- drop targets: OS files (from the file explorer) + the element drag ---
+  // The lit frame — shared by the file drop and the cross-figure element move
+  // (both mean "this frame will receive what you are holding").
   let dropFigId: string | null = null;
-  function figureAt(clientX: number, clientY: number): Figure | null {
-    const w = clientToWorld(clientX, clientY);
+  function figureAtWorld(wx: number, wy: number): Figure | null {
     return (
       canvasFigures.find(
-        (f) => w.x >= f.x && w.x <= f.x + f.width && w.y >= f.y && w.y <= f.y + f.height,
+        (f) => wx >= f.x && wx <= f.x + f.width && wy >= f.y && wy <= f.y + f.height,
       ) ?? null
     );
   }
+  function figureAt(clientX: number, clientY: number): Figure | null {
+    const w = clientToWorld(clientX, clientY);
+    return figureAtWorld(w.x, w.y);
+  }
+  /** The OTHER figure under the cursor during an element move — the frame the
+   *  selection would join on release — or null while over its own figure /
+   *  empty canvas. Pointer-based like Figma (not the dragged box's centre), so
+   *  the lit frame is always the one the cursor is in. No layout read: the
+   *  world point comes from the pointerdown sample plus the client delta. */
+  function moveDropTarget(g: Extract<Gesture, { kind: "move" }>, e: PointerEvent): Figure | null {
+    const z = $viewport.zoom;
+    const f = figureAtWorld(g.wx + (e.clientX - g.sx) / z, g.wy + (e.clientY - g.sy) / z);
+    return f && f.id !== g.figId ? f : null;
+  }
   function onDragOver(e: DragEvent) {
-    if (!e.dataTransfer || $captionOpen) return;
+    if (!e.dataTransfer) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
     dropFigId = figureAt(e.clientX, e.clientY)?.id ?? null;
@@ -2984,7 +3143,6 @@
   }
   function onDrop(e: DragEvent) {
     e.preventDefault();
-    if ($captionOpen) return;
     const fig = figureAt(e.clientX, e.clientY);
     dropFigId = null;
     const files = [...(e.dataTransfer?.files ?? [])];
@@ -3019,7 +3177,7 @@
   // for axis-aligned lines and only bbox-scales). Dragging one endpoint pivots
   // the line about the fixed other.
   $: selLine = (() => {
-    if (!af || selLocked || $captionOpen || $selection.size !== 1) return null;
+    if (!af || selLocked || $selection.size !== 1) return null;
     const el = af.elements.find((e) => $selection.has(e.id));
     return el && el.type === "line" ? el : null;
   })();
@@ -3043,12 +3201,11 @@
   $: hoverInfo = (() => {
     if (
       !$hoverId ||
-      sceneHot || // a pan/zoom burst: content sweeps under a still pointer — an outline that flaps per frame is flicker, not feedback
+      zoomUnsettled || // artwork moving under a stationary pointer is not a new hover target
       gesture ||
       dragging ||
       editingId ||
       editPathId ||
-      $captionOpen ||
       ($activeTool !== "select" && $activeTool !== "scale") ||
       $selection.has($hoverId)
     )
@@ -3313,7 +3470,7 @@
   // to the figure edges. Pure overlay; suppressed mid-gesture so Alt-drag-dup and
   // Alt-disable-snap keep working.
   $: measure = (() => {
-    if (!altDown || !af || gesture || dragging || editPathId || $captionOpen || $activeTool !== "select") return null;
+    if (!altDown || !af || gesture || dragging || editPathId || $activeTool !== "select") return null;
     const sel = af.elements.filter((e) => $selection.has(e.id) && !absentPresentationIds.has(e.id));
     if (!sel.length) return null;
     const S = selectionBBox(sel);
@@ -3449,24 +3606,36 @@
     return d;
   })();
 
-  // Highlight box for a selected plot PART (screen px). getBoundingClientRect
-  // already accounts for every ancestor transform (zoom / pan / figure /
-  // nested-viewBox), so we just subtract the host origin. Re-measures on
-  // pan/zoom ($viewport) and on edits ($project — an override can resize a part).
-  $: partBoxScreen = (() => {
-    const ps = $partSelection;
-    void $viewport;
-    void $project;
-    // Suppress during a drag: the measured node moves via a transient transform
-    // this block doesn't track, so the box would otherwise lag/stale (F5).
-    if (!ps || !hostEl || dragging || gesture) return null;
-    const node = document.getElementById(`${ps.elementId}__${ps.partId}`);
-    if (!node) return null;
-    const r = node.getBoundingClientRect();
-    const h = hostEl.getBoundingClientRect();
-    const O = 2; // small outset so tiny markers stay visible
-    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+  // Measure only when the selected part's content changes, after its DOM commit.
+  // Store world coordinates: viewport projection is synchronous, layout-free and
+  // cannot observe yesterday's compositor transform during a pan/zoom update.
+  let partWorldBox: Rect | null = null;
+  let partMeasureGeneration = 0;
+  $: partContentKey = (() => {
+    const ps=$partSelection;
+    if (!ps || dragging || gesture) return "";
+    const found=findElement($project,ps.elementId);
+    if (!found) return "";
+    return JSON.stringify([ps,found.figure.x,found.figure.y,found.element,"assetId" in found.element ? $plotGen[found.element.assetId] : 0]);
   })();
+  $: measurePart(partContentKey);
+  async function measurePart(key: string) {
+    const gen=++partMeasureGeneration;
+    if (!key) {partWorldBox=null;return;}
+    await tick();
+    if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
+    const ps=get(partSelection);
+    if (!ps) return;
+    const node=hostEl.querySelector(`[id="${CSS.escape(`${ps.elementId}__${ps.partId}`)}"]`);
+    if (!node) {partWorldBox=null;return;}
+    const r=node.getBoundingClientRect(),h=hostEl.getBoundingClientRect(),v=get(viewport);
+    partWorldBox={x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom};
+  }
+  $: partBoxScreen = partWorldBox ? {
+    x:$viewport.panX+partWorldBox.x*$viewport.zoom-2,
+    y:$viewport.panY+partWorldBox.y*$viewport.zoom-2,
+    w:partWorldBox.w*$viewport.zoom+4,h:partWorldBox.h*$viewport.zoom+4,
+  } : null;
 
   // The crosshair family (styles/cursors.css, owner request 2026-09-15): the
   // default over the canvas is the precise crosshair; something selectable
@@ -3528,13 +3697,16 @@
     if (!gestureFig) return "";
     const base = `translate(${$viewport.panX + gestureFig.x * $viewport.zoom} ${$viewport.panY + gestureFig.y * $viewport.zoom}) scale(${$viewport.zoom})`;
     if (gesture?.kind === "move") return `${base} translate(${gDX} ${gDY})`;
-    if (gesture?.kind === "resize" && gNb) {
-      const sX = gesture.ob.w ? gNb.w / gesture.ob.w : 1;
-      const sY = gesture.ob.h ? gNb.h / gesture.ob.h : 1;
-      return `${base} translate(${gNb.x} ${gNb.y}) scale(${sX} ${sY}) translate(${-gesture.ob.x} ${-gesture.ob.y})`;
-    }
+
     return base;
   })();
+
+  $: resizedEls = (() => {
+    if (gesture?.kind!=="resize" || gesture.crop || !gNb) return [] as Element[];
+    const g=gesture;
+    return gestureEls.map(original=>{const el={...original};remapResize(el,original,g,gNb!);return el;});
+  })();
+  $: if (dragging && gesture?.kind==="resize" && !gesture.crop && resizedEls.length) liveBox=selectionBBox(resizedEls);
 
   // Crop overlay (figure-v1 P5): a GHOST of the full content at 0.35 opacity +
   // a full-opacity copy clipped to the live window (= the cropped preview —
@@ -3645,6 +3817,7 @@
   on:wheel={onWheel}
   on:pointerdown|capture={foldZoomNow}
   on:pointerdown|capture={beginPress}
+  on:pointerdown|capture={retireTextRange}
   on:pointerdown={onCanvasDown}
   on:pointermove={onPointerMove}
   on:pointerup={onPointerUp}
@@ -3659,17 +3832,17 @@
   on:dragleave={onDragLeave}
   on:drop={onDrop}
 >
-  <!-- SCENE: panned via cheap CSS transform; zoom rides the compositor-only
-       residual scale(zoom/renderZoom) mid-gesture and folds into the SVG's
-       scale(renderZoom) on settle — ONE content repaint per zoom gesture.
-       will-change only while sceneHot: the idle demotion is the crisp-at-rest
+  <!-- SCENE: panned via the compositor drive. Live zoom uses a non-animated
+       residual scale(zoom/renderZoom), allowing the raster to shrink; a valid
+       bounded proxy freezes this scene. Settle folds scale into the SVG.
+       will-change only during non-zoom interactions: demotion is the crisp-at-rest
        fix (P6 rationale block in the script; the residual is the ONLY live-zoom
        read allowed inside the scene). -->
   <div class="scene-clip" style:clip-path={cameraClip}>
   <div
     class="scene"
     use:sceneDrive={sceneTransform}
-    style:will-change={sceneHot ? "transform" : null}
+    style:will-change={sceneHot && !zoomUnsettled && !proxyActive ? "transform" : null}
     style:opacity={proxyActive ? 0 : null}
   >
     <svg class="scene-svg" xmlns="http://www.w3.org/2000/svg" bind:this={sceneSvgEl}>
@@ -3727,12 +3900,12 @@
                   use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
                   style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
-                  class:editing-hidden={editingId === el.id}
+                  class:editing-hidden={editingId === el.id && !editingInfo?.showsRuns}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
                   use:sceneTransforms.register={el.id}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
                   on:pointerenter={() => {
-                    if (($activeTool === "select" || $activeTool === "scale") && !$captionOpen) hoverId.set(el.id);
+                    if ($activeTool === "select" || $activeTool === "scale") hoverId.set(el.id);
                   }}
                   on:pointerleave={() => {
                     if ($hoverId === el.id) hoverId.set(null);
@@ -3796,7 +3969,7 @@
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
-        {#each gestureEls as el (el.id)}
+        {#each resizedEls as el (el.id)}
           <ElementView element={el} />
         {/each}
       </g>
@@ -3909,7 +4082,7 @@
       <text class="measure-label" x={m.mx} y={m.my} text-anchor="middle" dominant-baseline="central">{m.label}</text>
     {/each}
 
-    {#if frameBoxScreen && !$captionOpen && ($activeTool === "select" || $activeTool === "scale")}
+    {#if frameBoxScreen && ($activeTool === "select" || $activeTool === "scale")}
       <rect class="sel-box" x={frameBoxScreen.x} y={frameBoxScreen.y} width={frameBoxScreen.w} height={frameBoxScreen.h} fill="none" />
       {#each HANDLES as handle}
         {@const hit = frameHandleRect(handle, frameBoxScreen)}
@@ -3943,7 +4116,7 @@
       />
     {:else if selScreen && !editingInfo && !editPathId}
       <rect class="sel-box" x={selScreen.x} y={selScreen.y} width={selScreen.w} height={selScreen.h} fill="none" />
-      {#if !$captionOpen && !selLocked}
+      {#if !selLocked}
         <!-- rotate handle: circle above the top-centre resize handle, on a stem -->
         <line
           class="rot-stem"
@@ -4183,10 +4356,6 @@
     {/if}
   </svg>
 
-  {#if $captionOpen}
-    <CaptionEditor />
-  {/if}
-
   {#if editPathId}
     <!-- node-edit sub-mode HUD: which mode is live + the hotkeys -->
     <div class="node-hud" role="status">
@@ -4210,6 +4379,7 @@
     <textarea
       bind:this={taEl}
       class="text-edit"
+      class:ghost-text={editingInfo.showsRuns}
       value={editingInfo.el.text}
       spellcheck="false"
       style={`left:${editingInfo.left}px; top:${editingInfo.top}px;
@@ -4220,7 +4390,7 @@
         ${editingInfo.el.underline ? "text-decoration:underline;" : ""}
         line-height:${editingInfo.el.lineHeight ?? 1.2};
         letter-spacing:${textTracking(editingInfo.el) * $viewport.zoom}px;
-        color:${editingInfo.el.color};
+        color:${editingInfo.showsRuns ? "transparent" : editingInfo.el.color};
         text-align:${editingInfo.el.align};
         white-space:${editingInfo.el.sizing === "auto" ? "pre" : "pre-wrap"};
         overflow-wrap:${editingInfo.el.sizing === "auto" ? "normal" : "break-word"};
@@ -4234,12 +4404,14 @@
         ) * $viewport.zoom + 2}px;`}
       on:input={onTextInput}
       on:blur={finishEdit}
-      on:pointerdown|stopPropagation
+      on:pointerdown|stopPropagation={() => typingStyle.set(null)}
       on:dblclick|stopPropagation
       on:keydown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
           e.stopPropagation();
+          publishTextRange(null);
+          typingStyle.set(null);
           textEdits.cancel();
           editingId = null;
           return;
@@ -4250,8 +4422,18 @@
             e.preventDefault();
             e.stopPropagation();
             onTextEditToggle(k === "b" ? "bold" : k === "i" ? "italic" : "underline");
+            return;
+          }
+          // Superscript: Ctrl+"+" (Ctrl+Shift+= on a US layout) or Ctrl+".".
+          // Subscript: Ctrl+"=" or Ctrl+",". Read from e.key so any layout works.
+          if (k === "+" || k === "." || k === "=" || k === ",") {
+            e.preventDefault();
+            e.stopPropagation();
+            onTextEditToggle(k === "+" || k === "." ? "super" : "sub");
+            return;
           }
         }
+        endTypingStyleOnNavigation(e);
       }}
     ></textarea>
   {/if}
@@ -4323,6 +4505,14 @@
   .editing-hidden {
     opacity: 0;
   }
+  /* The painted text is showing through: keep the caret and the selection
+     highlight, hand the glyphs to the canvas. */
+  /* The painted text shows through; the textarea keeps only caret + selection.
+     Its inline style sets color:transparent too: an inline color (the element's
+     own, for the plain editor) outranks this class, and it did, so the upright
+     glyphs were drawn over the formatted ones (owner report 2026-09-24). */
+  .text-edit.ghost-text { color: transparent; caret-color: var(--c-accent); }
+  .text-edit.ghost-text::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
   .text-edit {
     position: absolute;
     margin: 0;

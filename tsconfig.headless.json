@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["flux-core/**/*.ts", "flux-cli.ts", "flux-mcp.ts", "src/**/*.d.ts", "electron/**/*.d.cts"],
+  "exclude": ["src/lib/project/validators.gen.js"],
+  "references": []
+}

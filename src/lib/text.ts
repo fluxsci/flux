@@ -27,6 +27,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Element, Id, Project, TextElement } from "./types";
+import { resolvedRunStyle, segmentFormatted, segmentRange, scriptMetrics, runChangesMetrics, type TextSegment } from "./textRuns";
 
 // Default line height as a multiple of fontSize; overridable per element.
 export const LINE_HEIGHT = 1.2;
@@ -81,9 +82,38 @@ export function browserMeasure(font: string, spacing = 0): (s: string) => number
   };
 }
 
-/** The measure function for an element (font shorthand + its tracking). */
-export function elementMeasure(e: TextElement): (s: string) => number {
-  return browserMeasure(fontString(e), letterSpacing(e));
+/** A measure: the advance of a string that starts at `start` in the element's
+ *  text. The offset matters only when per-range formatting makes the metrics
+ *  vary along the line; every plain measure ignores it. */
+export type TextMeasure = (s: string, start?: number) => number;
+
+/** The measure function for an element (font shorthand + its tracking).
+ *  With `runs`, the string is cut at the run boundaries and each piece is
+ *  measured in its OWN font — a bold word is wider, and wrapping has to know
+ *  that or the box wraps at the wrong word. The per-font measures are cached
+ *  for the element, so a line costs one measure per segment, not per glyph. */
+export function elementMeasure(e: TextElement): TextMeasure {
+  const track = letterSpacing(e);
+  const base = browserMeasure(fontString(e), track);
+  if (!e.runs?.length) return base;
+  const cache = new Map<string, (s: string) => number>();
+  const forSegment = (segment: TextSegment) => {
+    const style = resolvedRunStyle(e, segment);
+    // A superscript / subscript is set smaller, so it advances less.
+    const size = scriptMetrics(segment.script, e.fontSize).size;
+    const font = `${style.fontStyle} ${style.fontWeight} ${size}px ${e.fontFamily}`;
+    let measure = cache.get(font);
+    if (!measure) cache.set(font, (measure = browserMeasure(font, track)));
+    return measure;
+  };
+  return (s, start) => {
+    // Only a string that really is `text.slice(start, …)` can be segmented;
+    // anything else (a caller's " " stand-in for an empty line) measures plain.
+    if (start == null || e.text.slice(start, start + s.length) !== s) return base(s);
+    let width = 0;
+    for (const segment of segmentRange(e.text, e.runs, start, start + s.length)) width += forSegment(segment)(segment.text);
+    return width;
+  };
 }
 
 // Can this environment actually measure text? `typeof document` alone is not
@@ -107,24 +137,31 @@ export function canMeasureText(): boolean {
 // absorbs float noise so content never spuriously wraps against itself.
 export const WRAP_TOLERANCE = 0.5;
 
-/** Wrap ONE hard line (no "\n") to maxW. Pure. */
-export function wrapLine(line: string, maxW: number, measure: (s: string) => number): string[] {
-  const fits = (s: string) => measure(s) <= maxW + WRAP_TOLERANCE;
-  if (!line || fits(line)) return [line];
+/** Wrap ONE hard line (no "\n") to maxW. Pure.
+ *  `offset` is where `line` starts inside the element's whole text, and it is
+ *  handed to `measure` as the second argument so a run-aware measure can tell
+ *  which characters are bold. Every string measured here is contiguous from the
+ *  offset reported with it; a plain measure ignores the argument entirely. */
+export function wrapLine(line: string, maxW: number, measure: TextMeasure, offset = 0): string[] {
+  const fits = (s: string, start: number) => measure(s, start) <= maxW + WRAP_TOLERANCE;
+  if (!line || fits(line, offset)) return [line];
   const out: string[] = [];
   let cur = "";
+  let curStart = offset; // absolute offset of cur's first character
+  let pos = offset; // absolute offset of the next unconsumed character
   // Char-break `word` onto lines starting with the current prefix (empty or
   // line-leading whitespace): binary-search the longest fitting prefix, always
   // taking ≥1 char per line so the loop provably advances.
-  const hardBreak = (word: string) => {
+  const hardBreak = (word: string, wordStart: number) => {
     let rest = word;
-    while (rest && !fits(cur + rest)) {
+    let restStart = wordStart;
+    while (rest && !fits(cur + rest, curStart)) {
       let lo = 1;
       let hi = rest.length - 1;
       let k = 1;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        if (fits(cur + rest.slice(0, mid))) {
+        if (fits(cur + rest.slice(0, mid), curStart)) {
           k = mid;
           lo = mid + 1;
         } else hi = mid - 1;
@@ -132,25 +169,30 @@ export function wrapLine(line: string, maxW: number, measure: (s: string) => num
       out.push(cur + rest.slice(0, k));
       cur = ""; // any leading indent applies to the first broken line only
       rest = rest.slice(k);
+      restStart += k;
+      curStart = restStart;
     }
     cur += rest;
   };
   for (const tok of line.match(/\s+|\S+/g) ?? []) {
+    const tokStart = pos;
+    pos += tok.length;
     if (/\s/.test(tok[0])) {
       cur += tok; // trailing whitespace NEVER forces a break (it hangs)
       continue;
     }
     if (cur.trim() === "") {
-      hardBreak(tok); // line-leading word — may itself be longer than the line
+      hardBreak(tok, tokStart); // line-leading word — may itself be longer than the line
       continue;
     }
-    if (fits(cur + tok)) {
+    if (fits(cur + tok, curStart)) {
       cur += tok;
       continue;
     }
     out.push(cur.replace(/\s+$/, "")); // wrap point: the break whitespace hangs
     cur = "";
-    hardBreak(tok);
+    curStart = tokStart;
+    hardBreak(tok, tokStart);
   }
   // A char-break that consumed the word exactly leaves cur = "" with its last
   // chunk already pushed — don't emit a phantom empty line after it.
@@ -159,9 +201,13 @@ export function wrapLine(line: string, maxW: number, measure: (s: string) => num
 }
 
 /** Wrap full text (hard lines split on "\n", blank lines preserved). Pure. */
-export function wrapText(text: string, maxW: number, measure: (s: string) => number): string[] {
+export function wrapText(text: string, maxW: number, measure: TextMeasure): string[] {
   const out: string[] = [];
-  for (const hard of text.split("\n")) out.push(...wrapLine(hard, maxW, measure));
+  let offset = 0;
+  for (const hard of text.split("\n")) {
+    out.push(...wrapLine(hard, maxW, measure, offset));
+    offset += hard.length + 1; // + the "\n" that split consumed
+  }
   return out;
 }
 
@@ -172,7 +218,11 @@ export function measureText(e: TextElement): { width: number; height: number } {
   const m = elementMeasure(e);
   const lines = (e.text || " ").split("\n");
   let w = 0;
-  for (const ln of lines) w = Math.max(w, m(ln || " "));
+  let offset = 0;
+  for (const ln of lines) {
+    w = Math.max(w, m(ln || " ", offset));
+    offset += ln.length + 1;
+  }
   return { width: Math.ceil(w) + 2, height: Math.ceil(blockHeight(e, lines.length, lines.length - 1)) };
 }
 
@@ -192,6 +242,7 @@ export function applyTextLayout(el: Element): void {
   if (el.type !== "text") return;
   if (!canMeasureText()) {
     delete el.lines;
+    delete el.lineWidths;
     // WS-12: a wrapping element just lost its cache with no way to rebuild it
     // here — flag it so headless renders warn and the next GUI open re-wraps.
     if (el.sizing === "auto-h" || el.sizing === "fixed") el.needsLayout = true;
@@ -199,17 +250,46 @@ export function applyTextLayout(el: Element): void {
   }
   if (el.sizing === "auto" || !el.sizing) {
     delete el.lines; // hug: the visual lines ARE the hard lines
+    delete el.lineWidths;
     delete el.needsLayout; // WS-12: measured — layout-honest again
     const m = measureText(el);
     el.width = m.width;
     el.height = m.height;
     return;
   }
-  const lines = wrapText(el.text, Math.max(1, el.width), elementMeasure(el));
+  const measure = elementMeasure(el);
+  const lines = wrapText(el.text, Math.max(1, el.width), measure);
   el.lines = lines;
+  // Measured here because here is where the metrics are. Justification shares
+  // a line's slack between its word gaps, and that needs the line's natural
+  // advance — computing it at render time would put a canvas measurement in
+  // the middle of a pure layout and leave the headless engine unable to agree.
+  const spans = visualLineSpans(el.text, lines);
+  el.lineWidths = spans ? lines.map((line, i) => measure(line, spans[i].from)) : lines.map((line) => measure(line));
   delete el.needsLayout; // WS-12: measured — layout-honest again
   if (el.sizing === "auto-h")
     el.height = Math.ceil(blockHeight(el, lines.length, paragraphBreaks(el, lines)));
+}
+
+/** Does a plain <textarea> break this text's lines where the renderer does?
+ *  The inline editor can only mirror one font; bold runs are wider, so they can
+ *  move a wrap point, and then the editor's caret would sit on a different line
+ *  than the painted glyphs. When the breaks agree, the editor can hand the
+ *  painted, formatted text its glyphs (the caret drifts a few pixels at most
+ *  after a bold word). A hugging box never wraps, so it always agrees. Memoized
+ *  on everything the wrap reads: typing re-asks it on every keystroke. */
+let plainWrapMemo: { key: string; value: boolean } | null = null;
+export function plainWrapMatches(el: TextElement): boolean {
+  if (el.sizing === "auto" || !el.sizing || !el.runs?.some(runChangesMetrics)) return true;
+  if (!canMeasureText()) return false;
+  const key = JSON.stringify([el.text, el.width, el.fontFamily, el.fontSize, el.fontWeight, el.fontStyle, el.letterSpacing, el.runs, el.lines]);
+  if (plainWrapMemo?.key === key) return plainWrapMemo.value;
+  const width = Math.max(1, el.width);
+  const withRuns = el.lines?.length ? el.lines : wrapText(el.text, width, elementMeasure(el));
+  const plain = wrapText(el.text, width, elementMeasure({ ...el, runs: undefined }));
+  const value = plain.length === withRuns.length && plain.every((line, i) => line === withRuns[i]);
+  plainWrapMemo = { key, value };
+  return value;
 }
 
 /** The lines a renderer draws: the wrap cache when present, else the text's
@@ -283,12 +363,38 @@ function paragraphBreaks(e: TextElement, lines: string[]): number {
   return n;
 }
 
+/** Where each visual line sits inside the element's `text`, or null when the
+ *  wrap cache cannot be mapped onto it. Wrapping only ever DROPS whitespace at
+ *  a break point, so walking the text and skipping whitespace until the line
+ *  matches recovers the spans exactly. The null is load-bearing: a stale cache
+ *  must render UNFORMATTED rather than formatted at wrong offsets. Pure. */
+function visualLineSpans(text: string, vis: readonly string[]): { from: number; to: number }[] | null {
+  const spans: { from: number; to: number }[] = [];
+  let at = 0;
+  for (const line of vis) {
+    while (at < text.length && !text.startsWith(line, at) && /\s/.test(text[at])) at++;
+    if (!text.startsWith(line, at)) return null;
+    spans.push({ from: at, to: at + line.length });
+    at += line.length;
+  }
+  return spans;
+}
+
 export interface LaidOutLine extends VisualLine {
+  /** Present only on a line that per-range formatting actually touches: the
+   *  line cut into single-look pieces, in order. Absent means "draw the whole
+   *  line in the element's own font", which is every line of every text
+   *  written before runs existed. */
+  segments?: TextSegment[];
   /** SVG tspan `dy` — 0 for the first line, else the line advance plus the
    *  paragraph gap when the PREVIOUS line closed a paragraph. */
   dy: number;
-  /** Set on justified lines only: the width the renderer stretches them to
-   *  (SVG textLength + lengthAdjust="spacing"; CSS text-align: justify). */
+  /** LEGACY justification, used only when the line's natural width is unknown
+   *  (a headless edit dropped the cache, or a file written before widths were
+   *  measured): the width the renderer stretches the whole line to, via SVG
+   *  textLength + lengthAdjust="spacing". That spreads the slack between EVERY
+   *  pair of glyphs, which is what typesetting does not do — prefer `segments`
+   *  carrying `dx`, which puts it in the word gaps alone. */
   justifyWidth?: number;
 }
 
@@ -305,6 +411,52 @@ export interface TextBlockLayout {
   offsetY: number;
 }
 
+/** Extra advance per WORD GAP for one justified line: the slack shared between
+ *  the gaps this line actually has. No gaps (a single long word) means nothing
+ *  to share and the line keeps its natural width — stretching one word's
+ *  letters is precisely what justification should not do. Pure. */
+function wordGapFor(line: string, slack: number): number {
+  if (!(slack > 0)) return 0;
+  let gaps = 0;
+  for (let i = 1; i < line.length; i++) if (/\s/.test(line[i - 1]) && !/\s/.test(line[i])) gaps++;
+  return gaps ? slack / gaps : 0;
+}
+
+/** One visual line cut into the pieces a renderer emits: at every run boundary
+ *  and, when the line is justified by word gaps, at every word start after the
+ *  first. A word-starting piece carries `dx` — the extra advance that goes in
+ *  front of it, which is the whole of justification expressed as ordinary tspan
+ *  offsets, so the canvas, the SVG export and the headless render agree without
+ *  any of them measuring anything. Pure. */
+function lineSegments(e: TextElement, from: number, to: number, wordGap: number): TextSegment[] | null {
+  const base = segmentRange(e.text, e.runs, from, to);
+  if (!(wordGap > 0)) return base.length ? base : null;
+  const out: TextSegment[] = [];
+  // The gap belongs to the piece that STARTS the word, so it is carried until
+  // there is a real piece to put it on — a word boundary that coincides with a
+  // run boundary must not leave an empty tspan behind just to hold an offset.
+  let pending = 0;
+  const emit = (segment: TextSegment, a: number, b: number) => {
+    if (b <= a) return;
+    const piece: TextSegment = { ...segment, text: e.text.slice(a, b), from: a, to: b };
+    if (pending) { piece.dx = pending; pending = 0; }
+    out.push(piece);
+  };
+  for (const segment of base) {
+    let start = segment.from;
+    for (let i = segment.from; i < segment.to; i++) {
+      // A word starts where a non-space follows a space. The line's own first
+      // character never takes a dx: nothing precedes it to push away from.
+      if (i === from || !/\s/.test(e.text[i - 1]) || /\s/.test(e.text[i])) continue;
+      emit(segment, start, i);
+      pending = wordGap;
+      start = i;
+    }
+    emit(segment, start, segment.to);
+  }
+  return out.length ? out : null;
+}
+
 /** The complete arrangement of a text element's lines inside its box. ONE
  *  source for the canvas painter, the SVG serializer (and through it the slide
  *  player and every headless render) and the inline editor overlay. Pure. */
@@ -318,8 +470,18 @@ export function blockLayout(e: TextElement): TextBlockLayout {
   const gap = paragraphGap(e);
   const justified = e.align === "justify";
   const justifyWidth = justified ? Math.max(1, e.width) : 0;
+  // Per-range formatting and word justification both need each visual line's
+  // offsets in the text; a scene of plain, unjustified labels pays for neither.
+  const widths = justified && e.lineWidths?.length === vis.length ? e.lineWidths : null;
+  const spans = e.runs?.length || widths ? visualLineSpans(e.text, vis) : null;
   const lines: LaidOutLine[] = new Array(vis.length);
   let breaks = 0;
+  // Superscript / subscript ride on SVG dy, which is relative and persists to
+  // the next glyph: a piece entering a script shifts, the next piece shifts
+  // back. A line that ENDS shifted hands the correction to the next line's own
+  // dy (a line tspan's x is absolute, its dy relative), so no line drifts.
+  let carry = 0;
+  let emptyAdvance = 0;
   for (let k = 0; k < vis.length; k++) {
     const paragraphEnd = ends[k];
     const line: LaidOutLine = {
@@ -329,7 +491,31 @@ export function blockLayout(e: TextElement): TextBlockLayout {
     };
     // A paragraph's last line keeps its natural width (the typographic rule),
     // and a single glyph has no gaps to distribute into.
-    if (justified && !paragraphEnd && inkOf(vis[k]).length > 1) line.justifyWidth = justifyWidth;
+    const stretch = justified && !paragraphEnd && inkOf(vis[k]).length > 1;
+    // The slack belongs to the WORD gaps. Splitting it per gap here — where the
+    // natural width is known — is what keeps the letters at their own spacing.
+    const wordGap = stretch && spans && widths ? wordGapFor(vis[k], justifyWidth - widths[k]) : 0;
+    if (spans) {
+      const segments = lineSegments(e, spans[k].from, spans[k].to, wordGap);
+      if (segments && (wordGap > 0 || segments.some(segmentFormatted))) {
+        let at = 0;
+        for (const seg of segments) {
+          const shift = scriptMetrics(seg.script, e.fontSize).shift;
+          if (shift !== at) { seg.dy = shift - at; at = shift; }
+        }
+        line.segments = segments;
+        if (carry) line.dy += carry;
+        carry = -at;
+      } else if (carry) { line.dy += carry; carry = 0; }
+    } else if (carry) { line.dy += carry; carry = 0; }
+    // SVG ignores positioning on a tspan with no glyphs. Carry blank lines'
+    // advances to the next painted line, including any script reset. The
+    // authored text and measured block height still retain every empty line.
+    line.dy += emptyAdvance;
+    emptyAdvance = line.text.length === 0 ? line.dy : 0;
+    // Without measured widths there is nothing to share out, so a line that
+    // must still fill its box falls back to stretching as a whole.
+    if (stretch && !wordGap) line.justifyWidth = justifyWidth;
     lines[k] = line;
     if (paragraphEnd && k < vis.length - 1) breaks++;
   }

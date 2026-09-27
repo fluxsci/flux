@@ -123,6 +123,7 @@ interface Spec {
   /** Time-easing sampler for a morph (honours the track's influence/easing). */
   morphEase?: (t: number) => number;
   trackId?: string;
+  preset?: string;
   baseStyle?: Record<string, string>;
 }
 
@@ -245,6 +246,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           prep: na.prep,
           camera: track.preset === "camera",
           trackId: track.id,
+          preset: track.preset,
         });
       });
     }
@@ -425,12 +427,17 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     for (const spec of keyframed) {
       const p = progressAt(spec, beat, time);
       if (superseded(spec)) continue;
-      spec.prep?.();
+      // Completed draw-on contributes no temporary dash/cap styling. The
+      // authored resting attributes remain correct after any later geometry change.
+      if (!(p >= 1 && spec.preset === "drawOn")) spec.prep?.();
       if (p < 0) {
         if (!applied.length && spec === keyframed[0] && spec.enter) applied.push({ ...spec, keyframes: [spec.keyframes[0]] });
         continue;
       }
-      const frame = plan.samplers.get(spec)!(p);
+      const sampled = plan.samplers.get(spec)!(p);
+      const frame = p >= 1 && spec.preset === "drawOn"
+        ? Object.fromEntries(Object.entries(sampled).filter(([property]) => !["strokeDashoffset", "strokeDasharray", "strokeLinecap"].includes(property)))
+        : sampled;
       applied.push({ ...spec, keyframes: [frame] });
       const flight = p > 0 && p < 1 ? flights.get(spec) : undefined;
       if (flight) { moving++; if (flight === "translate") pureMoves++; }

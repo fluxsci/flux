@@ -77,12 +77,13 @@
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
   import { touchActivityLock } from "../../../lib/bridge/activityLock";
   import { createAutosave, ConflictError } from "../../../lib/autosave";
-  import { registerFlushable } from "../../lifecycle";
+  import { registerFlushable, notifyFlushOwnerReady } from "../../lifecycle";
   import { pointerDrag } from "../../../lib/ui/pointerDrag";
   import { initializeEditor } from "../../editorHandoff";
   import { deckRevision, figRevision, bumpFigRevision } from "../../scholar/revisions";
   import { handleKey, handleEditorPaste } from "../../../lib/keyboard";
   import Toolbar from "../../../lib/Toolbar.svelte";
+  import ColorField from "../../../lib/ColorField.svelte";
   import Canvas from "../../../lib/Canvas.svelte";
   import Inspector from "../../../lib/Inspector.svelte";
   import ArrangeHud from "../../../lib/ArrangeHud.svelte";
@@ -94,6 +95,7 @@
   import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
   import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
+  import { warmSlideMorphs } from "../../../lib/slide/tween";
   import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -108,7 +110,9 @@
   import SlideThumb from "./SlideThumb.svelte";
   import SlideVideoDialog from "./SlideVideoDialog.svelte";
   import { editorStashedElements, editorStashedParts } from "../../../lib/editorPresentation";
-  import { fileBridge } from "../../../lib/project/types";
+  import { fileBridge, joinPath } from "../../../lib/project/types";
+  import { deckPdfDocument, type DeckPdfPages } from "../../../lib/slide/export/deckPdf";
+  import { deckPptxDocument, canvasRasterize } from "../../../lib/slide/export/deckPptx";
   import type { SlideVideoOptions } from "../../../lib/slide/video";
   import { slideVideoJob, startSlideVideo, cancelSlideVideo } from "../../../lib/slide/videoJob";
   import { slideLayout } from "./slideLayoutStore";
@@ -223,8 +227,12 @@
       if (await deckDiskDiverged(pm.root, activeDeckId)) deckDiverged = true;
       return;
     }
-    if (await deckDiskDiverged(pm.root, activeDeckId)) {
-      await openDeck(activeDeckId, { force: true, preserveView: true });
+    // An agent writes in bursts (one CLI verb every ~2s), so a reload can be
+    // overtaken mid-flight. A superseded reload is retried while the editor
+    // stays clean, so the burst's last version always lands.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!pm || !activeDeckId || get(figDirty) || !(await deckDiskDiverged(pm.root, activeDeckId))) return;
+      if (await openDeck(activeDeckId, { force: true, preserveView: true }) || !lastOpenSuperseded) return;
     }
   }
   async function reloadDeckTheirs() {
@@ -281,10 +289,14 @@
   // their zoom. Keep the current slide + beat where they still exist; the load
   // itself lands on slides[0], so restore through selectSlide (the sanctioned
   // switch — display reconciliation included).
+  // True when the last openDeck returned false because a newer load or a user
+  // edit overtook it — the file itself was fine.
+  let lastOpenSuperseded = false;
   async function openDeck(
     id: string,
     opts: { force?: boolean; preserveView?: boolean } = {},
   ): Promise<boolean> {
+    lastOpenSuperseded = false;
     if (!pm || !alive) return false;
     const epoch=++deckOpenEpoch;
     const isCurrent=()=>alive && epoch===deckOpenEpoch;
@@ -297,8 +309,10 @@
     try {
       await autosave.flush();
       if(!isCurrent())return false;
-      const loaded = await loadDeckInto(pm.root, id, {isCurrent});
+      let superseded = false;
+      const loaded = await loadDeckInto(pm.root, id, {isCurrent, onSuperseded: () => { superseded = true; }});
       if(!isCurrent())return false;
+      if (!loaded && superseded) { lastOpenSuperseded = true; return false; }
       if (!loaded) {
         pushToast("error", "Couldn't open that deck — its file may be missing or corrupt.");
         return false;
@@ -598,6 +612,23 @@
     }
   }
 
+  // Pressing play must put a frame on screen inside the responsiveness budget
+  // (§6), and the costly half of a BECOME transform is matching the two shapes'
+  // nodes up. Opening the dock is the moment with time in it — nobody presses
+  // play in the same frame — so warm this slide's morphs here, when the browser
+  // is next idle. Safe to skip and safe to repeat: the correspondence is a pure
+  // function of the deck and is memoized, so this only ever moves the work
+  // earlier, never duplicates it.
+  let warmedSlideId: string | null = null;
+  $effect(() => {
+    const slide = animatorOpen ? activeSlide : null;
+    if (!slide || warmedSlideId === slide.id) return;
+    warmedSlideId = slide.id;
+    const idle = (globalThis as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    const run = () => { try { warmSlideMorphs(slide); } catch { /* warming must never break the editor */ } };
+    if (idle) idle(run); else setTimeout(run, 0);
+  });
+
   const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{plotManifest:id=>$plotManifests[id]}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
@@ -714,6 +745,7 @@
       let beat=request.trackId?s.beats.find(b=>b.tracks.some(t=>t.id===request.trackId)):s.beats.find(b=>b.id===request.beatId);
       if(!beat || beat===s.beats[0])beat=slideOps.addBeat(d,s.id,{label:"Data change",advance:"click"})??undefined;
       if(!beat)return;
+      incoming.install?.();
       if(!d.assets.some(a=>a.id===incoming.asset.id)) d.assets.push(incoming.asset);
       const t=slideOps.setTransform(d,s.id,beat.id,request.targetId,{toAssetId:incoming.asset.id,svgPath:source?.svgPath,manifestPath:source?.manifestPath});
       addedId=t?.id;selectedBeat=s.beats.indexOf(beat);
@@ -818,18 +850,81 @@
   let exporting = $state(false);
   let exportMsg = $state<{ ok: boolean; text: string } | null>(null);
   let exportMsgTimer: ReturnType<typeof setTimeout> | undefined;
-  async function onExport() {
-    const id = activeDeckId;
-    if (!pm || !id || exporting) return;
+  // Export formats (2026-09-24): the interactive .html, plus PDF, one page per
+  // slide (every build applied) or one page per build step.
+  let exportMenuOpen = $state(false);
+  const canExportPdf = typeof fileBridge()?.printPdf === "function";
+  $effect(() => {
+    if (!exportMenuOpen) return;
+    const close = (e: PointerEvent) => { if (!(e.target as HTMLElement | null)?.closest?.(".export-wrap")) exportMenuOpen = false; };
+    document.addEventListener("pointerdown", close, true);
+    return () => document.removeEventListener("pointerdown", close, true);
+  });
+  /** Both formats export the SAVED deck: seal the history, refresh linked
+   *  sources, flush the autosave, and refuse while anything is unsaved. */
+  async function exportPreflight(root: string, id: string) {
     exitEndpointEdit(); // export the persisted deck, never a checkout view
+    sealHistory();
+    await refreshDeckSources(root);
+    await autosave.flush();
+    if ($figDirty || $saveErr) throw new Error("Save the deck successfully before exporting");
+    if (pm?.root !== root || activeDeckId !== id) throw new Error("The deck changed before export started");
+  }
+  async function onExport() {
+    const id = activeDeckId, root = pm?.root;
+    exportMenuOpen = false;
+    if (!pm || !root || !id || exporting) return;
     exporting = true;
     exportMsg = null;
     try {
-      await autosave.flush(); // export the latest, not a stale file
-      const path = await exportDeckBridge(pm.root, id);
-      flashExport(true, `Exported → ${path.split("/").slice(-2).join("/")}`);
+      await exportPreflight(root, id);
+      const result = await exportDeckBridge(root, id);
+      if (pm.root === root && activeDeckId === id) flashExport(true, `Exported → ${result.path.split("/").slice(-2).join("/")}${result.warnings.length ? ` — ${result.warnings.join("; ")}` : ""}`);
     } catch (e) {
       flashExport(false, e instanceof Error ? e.message : "Export failed");
+    } finally {
+      exporting = false;
+    }
+  }
+  async function onExportPdf(plan: DeckPdfPages) {
+    const id = activeDeckId, root = pm?.root, fb = fileBridge();
+    exportMenuOpen = false;
+    if (!pm || !root || !id || exporting || !fb?.printPdf) return;
+    exporting = true;
+    exportMsg = null;
+    try {
+      await exportPreflight(root, id);
+      const doc = await deckPdfDocument(root, id, fb, plan);
+      const dir = joinPath(root, "exports");
+      await fb.mkdir(dir);
+      const out = joinPath(dir, `${id}${plan === "steps" ? "-steps" : ""}.pdf`);
+      // Zero margins: each sheet is exactly one stage (the @page rule sets the size).
+      await fb.printPdf(doc.html, out, { margins: { top: 0, bottom: 0, left: 0, right: 0 } });
+      if (pm.root === root && activeDeckId === id)
+        flashExport(true, `Exported → exports/${out.split("/").pop()} (${doc.pages} page${doc.pages === 1 ? "" : "s"})${doc.warnings.length ? ` — ${doc.warnings.join("; ")}` : ""}`);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "PDF export failed");
+    } finally {
+      exporting = false;
+    }
+  }
+  async function onExportPptx() {
+    const id = activeDeckId, root = pm?.root, fb = fileBridge();
+    exportMenuOpen = false;
+    if (!pm || !root || !id || exporting || !fb) return;
+    exporting = true;
+    exportMsg = null;
+    try {
+      await exportPreflight(root, id);
+      const doc = await deckPptxDocument(root, id, fb, canvasRasterize);
+      const dir = joinPath(root, "exports");
+      await fb.mkdir(dir);
+      const out = joinPath(dir, `${id}.pptx`);
+      await fb.writeFile(out, doc.bytes);
+      if (pm.root === root && activeDeckId === id)
+        flashExport(true, `Exported → exports/${id}.pptx (${doc.slides} slide${doc.slides === 1 ? "" : "s"})${doc.warnings.length ? ` — ${doc.warnings.join("; ")}` : ""}`);
+    } catch (e) {
+      flashExport(false, e instanceof Error ? e.message : "PowerPoint export failed");
     } finally {
       exporting = false;
     }
@@ -1207,6 +1302,7 @@
     }
     if(!alive)return;
     ready = true;
+    notifyFlushOwnerReady("slide");
     canExport = canExportDeck();
     animatorOpen = animatorRemembered();
     unsubDirty = figDirty.subscribe((d) => {
@@ -1228,7 +1324,9 @@
     }).catch(e => { if (alive) loadError = errMsg(e); });
   });
 
+  // svelte-ignore state_referenced_locally
   const unregFlush = registerFlushable({
+    paneId, isReady: () => ready,
     id: "slide",
     isDirty: () => !!pm && ready && get(figDirty),
     flush: () => autosave.flush(),
@@ -1288,10 +1386,26 @@
         title="Toggle the animation dock (beats, tracks, preview)">Animate ⏱</button>
       <button class="btn" onclick={() => launchPresent(false)} disabled={!overlay?.slides.length}
         title="Present from the current slide · F5 from the start, ⇧F5 from here">Present ▶</button>
-      <button class="btn ghost" onclick={onExport} disabled={!overlay || !canExport || exporting}
-        title={canExport ? "Export a self-contained offline .html" : "Export is available in the desktop app"}>
-        {exporting ? "Exporting…" : "Export"}
-      </button>
+      <span class="export-wrap">
+        <button class="btn ghost export-btn" onclick={() => (exportMenuOpen = !exportMenuOpen)} disabled={!overlay || (!canExport && !canExportPdf && !fileBridge()) || exporting}
+          aria-haspopup="menu" aria-expanded={exportMenuOpen}
+          title={canExport || canExportPdf ? "Export the deck as an interactive .html, a PDF or a PowerPoint file" : "Export is available in the desktop app"}>
+          {exporting ? "Exporting…" : "Export ▾"}
+        </button>
+        {#if exportMenuOpen}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="export-menu" role="menu" tabindex="-1" onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); exportMenuOpen = false; } }}>
+            <button role="menuitem" class="export-item" data-export="html" disabled={!canExport} onclick={onExport}>
+              <b>HTML</b><span>Interactive, animations and video included</span></button>
+            <button role="menuitem" class="export-item" data-export="pdf" disabled={!canExportPdf} onclick={() => onExportPdf("final")}>
+              <b>PDF</b><span>One page per slide, every build step applied</span></button>
+            <button role="menuitem" class="export-item" data-export="pdf-steps" disabled={!canExportPdf} onclick={() => onExportPdf("steps")}>
+              <b>PDF, each step</b><span>One page per build step</span></button>
+            <button role="menuitem" class="export-item" data-export="pptx" disabled={!fileBridge()} onclick={onExportPptx}>
+              <b>PowerPoint</b><span>Editable .pptx: native text and shapes, plots as vector</span></button>
+          </div>
+        {/if}
+      </span>
       <button class="btn ghost video-export" onclick={openVideoExport} disabled={!activeSlide || !canExportVideo || $slideVideoJob?.running}
         aria-label="Export current slide as MP4" title={canExportVideo ? "Export the current slide and its animations as an MP4 video" : "Video export is available in the desktop app"}>Video…</button>
       {#if $saveErr}
@@ -1424,10 +1538,12 @@
           <label class="full">Name
             <input value={activeSlide.name ?? ""} onchange={(e) => onSlideName(e.currentTarget.value)} />
           </label>
-          <label class="full">Background
-            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(effectiveBg) ? effectiveBg : "#100f0f"}
-              onchange={(e) => onSlideBackground(e.currentTarget.value)} />
-          </label>
+          <!-- ColorField, never a native <input type="color">: its eyedropper segfaults
+               Electron on Linux/Wayland. -->
+          <div class="full fieldlbl">
+            <span>Background</span>
+            <ColorField value={effectiveBg} fallback="#100f0f" label="Slide background" onchange={(hex) => onSlideBackground(hex)} />
+          </div>
           <label class="full">Transition
             <select value={activeSlide.transition ?? overlay.defaults.transition} onchange={(e) => onSlideTransition(e.currentTarget.value)}>
               <option value="none">none</option><option value="fade">fade</option>
@@ -1594,6 +1710,21 @@
   .btn:hover:not(:disabled) { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .btn:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
   .btn.ghost { background: transparent; }
+  .export-wrap { position: relative; display: inline-flex; }
+  .export-menu {
+    position: absolute; top: calc(100% + 4px); right: 0; z-index: 40; min-width: 240px;
+    display: flex; flex-direction: column; padding: 4px; gap: 2px;
+    background: var(--c-surface); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
+  .export-item {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left;
+    padding: 5px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--r-ui);
+    color: var(--c-tx); font: 12px var(--font-ui); cursor: var(--cursor-cross-hover);
+  }
+  .export-item span { font-size: 11px; color: var(--c-tx-muted); }
+  .export-item:hover:not(:disabled) { border-color: var(--c-line-strong); background: var(--c-accent-tint); }
+  .export-item:disabled { opacity: 0.4; cursor: var(--cursor-cross); }
   .btn.active { border-color: var(--c-accent); background: var(--c-accent-tint); color: var(--c-tx-hi); }
   .dirty { color: var(--c-tx-faint); opacity: 0; transition: opacity 0.15s; font-size: 12px; }
   .dirty.on { opacity: 1; color: var(--c-accent); }
@@ -1703,7 +1834,7 @@
   }
   .panel input:focus, .panel select:focus, .panel textarea:focus { outline: none; border-color: var(--c-accent); }
   .panel textarea { resize: vertical; height: auto; padding: 4px 6px; line-height: 1.4; }
-  .panel input[type="color"] { padding: 1px 2px; }
+  .panel .fieldlbl { display: flex; flex-direction: column; gap: 2px; width: 100%; font: 10.5px var(--font-ui); color: var(--c-tx-muted); letter-spacing: 0.02em; }
   .convertrow { display: flex; padding: 0 10px; }
   .act {
     flex: 1; height: 24px; background: transparent; color: var(--c-tx-2); border: 1px solid var(--c-line-strong);

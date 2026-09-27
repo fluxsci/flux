@@ -6,7 +6,7 @@
 // 3. goHome() awaits the flush: type-then-goHome loses nothing.
 // 4. Mode round-trip re-registration doesn't duplicate or leak entries.
 
-import { launch, gotoApp, clickNew, clickMode, realErrors, setDoc, sleep } from "./lib/driver.mjs";
+import { launch, gotoApp, clickNew, clickMode, realErrors, setDoc, sleep, APP_URL } from "./lib/driver.mjs";
 
 const fail = (m) => {
   console.error("✗ " + m);
@@ -15,7 +15,7 @@ const fail = (m) => {
 const ok = (m) => console.log("✓ " + m);
 
 const { browser, page } = await launch();
-await gotoApp(page, { url: process.env.FLUX_URL || "http://127.0.0.1:1420/?fixture=demo" });
+await gotoApp(page, { url: new URL('?fixture=demo', APP_URL).href });
 await clickNew(page);
 
 const docPath = await page.evaluate(() => {

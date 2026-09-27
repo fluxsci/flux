@@ -13,7 +13,7 @@ async function main() {
     await fs.mkdir(env.HOME, { recursive: true }); await fs.mkdir(artifacts, { recursive: true });
     const fixture = scope.spawn(path.join(__dirname, "lib/slideVideoFixture.ts"), [root], { env });
     assert.equal((await scope.waitExit(fixture)).code, 0, fixture.stderr);
-    const native = scope.spawn(require.resolve("electron/cli.js"), [path.join(__dirname, "lib/slideVideoNativeEntry.cjs"), root, ...(process.platform === "linux" ? ["--ozone-platform=x11"] : [])], { env, cwd: repo, nodeArgs: [], deadlineMs: 240000 });
+    const native = scope.spawn(require.resolve("electron/cli.js"), [path.join(__dirname, "lib/slideVideoNativeEntry.cjs"), root, ...(process.platform === "linux" ? ["--ozone-platform=x11"] : []), ...(env.FLUX_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox"] : [])], { env, cwd: repo, nodeArgs: [], deadlineMs: 240000 });
     native.child.stdout.on("data", bytes => { for (const line of String(bytes).split("\n")) if (line.startsWith("PROBE ")) console.log(line); });
     const status = await scope.waitExit(native);
     await fs.writeFile(path.join(artifacts, "native.log"), native.stdout + native.stderr);
