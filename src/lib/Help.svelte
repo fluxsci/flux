@@ -21,6 +21,7 @@
           title: "Everywhere",
           items: [
             ["?", "Show / hide this reference"],
+            ["Alt+Q", "Inbox: annotations and margin comments"],
             ["⌃⇧M", "Annotate (note + picture for your agents)"],
             ["Alt+A / B / P · Alt+Z", "In Annotate: arrow / box / pen · undo mark"],
             ["Alt+↑ / ↓", "In Annotate: widen / narrow the hovered target"],

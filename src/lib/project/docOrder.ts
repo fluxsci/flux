@@ -166,6 +166,14 @@ export function commentsSidecarRel(mainPath: string, rel: string): string {
   return dir ? `${dir}/${name}` : name;
 }
 
+/** Read preference survives a legacy document being promoted to main. */
+export function commentsSidecarRels(m: { documentRoot?: string; manuscript: { path: string } }, rel = m.manuscript.path): string[] {
+  if (!rel) return [];
+  const primary = commentsSidecarRel(commentsMainPath(m), rel);
+  const named = commentsSidecarRel("", rel);
+  return !m.documentRoot && rel === m.manuscript.path && named !== primary ? [primary, named] : [primary];
+}
+
 /**
  * Forget `rel` in the manifest: its `supplementary` registration and its slot
  * in the user's `documentOrder`. Mutates `m` in place (the manifest objects

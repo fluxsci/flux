@@ -506,7 +506,7 @@ export function writeAllowed(o: ItemOverlay, session: SessionRef | null, ctx: Li
 
 /** An annotation's full thread: the note, the ledger replies, then the resolve note. */
 export function annotationThread(a: AnnotationItem): ThreadMessage[] {
-  const out: ThreadMessage[] = [{ kind: "human", author: "You", text: a.note.text, ts: a.note.ts }];
+  const out: ThreadMessage[] = [{ kind: a.note.author?.kind ?? "human", author: a.note.author?.name ?? "You", text: a.note.text, ts: a.note.ts }];
   out.push(...a.replies);
   if (a.resolved && a.resolveNote) out.push({ kind: "agent", author: a.resolvedBy ?? "agent", text: a.resolveNote, ts: a.resolvedAt ?? a.lastActivity, state: "resolved" });
   return out;

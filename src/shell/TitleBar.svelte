@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { inboxCount, requestInbox } from "./inbox/inboxState";
   import { onMount } from "svelte";
   import Logomark from "./Logomark.svelte";
   import Icon from "./Icon.svelte";
@@ -114,6 +115,7 @@
     <button class="ubtn ai-indicator" data-status={$aiColor} title={`AI status — ${$aiColor === 'green' ? 'ready' : $aiColor === 'red' ? 'broken' : 'needs attention'}`} aria-label="AI status" aria-expanded={$aiOpen} onclick={() => openAI()}>
       <span>AI</span><span class="ai-dot" aria-hidden="true"></span>
     </button>
+    {#if $view === "workspace" && $currentProject?.path}<button class="ubtn inbox-button" title="Inbox — Alt+Q" aria-label={`Inbox · ${$inboxCount} open`} onclick={() => requestInbox()}><Icon name="inbox" size={17} />{#if $inboxCount}<span class="inbox-badge">{$inboxCount}</span>{/if}</button>{/if}
     <button class="ubtn" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
       <Icon name="lighttable" size={17} />
     </button>
@@ -152,6 +154,8 @@
   .ai-dot { position: absolute; right: 1px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--flx-yellow-400, #d0a215); }
   .ai-indicator[data-status="green"] .ai-dot { background: var(--flx-green-400, #879a39); }
   .ai-indicator[data-status="red"] .ai-dot { background: var(--flx-red-400, #d14d41); }
+  .inbox-button { position:relative; }
+  .inbox-badge { font:9px var(--font-mono);min-width:12px;color:var(--c-accent); }
   .titlebar {
     height: var(--titlebar-h);
     flex: 0 0 auto;

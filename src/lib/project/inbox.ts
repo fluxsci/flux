@@ -24,6 +24,7 @@ import {
   type ThreadMessage,
 } from "./annotations";
 import { describeTarget, formatTarget, targetDeckId, targetFigureId, type TargetRef } from "./targets";
+import { createFigureReferenceResolver } from "../figureReferences";
 
 /** A margin-comment thread as flux-core / the GUI read it from a sidecar. */
 export interface InboxComment {
@@ -225,6 +226,28 @@ export interface FilterContext {
   figureAliases?: ReadonlyMap<string, readonly string[]>;
 }
 
+/** Resolve names once at the IO boundary; ambiguity is identical in both engines. */
+export function resolveInboxFilter(filter: InboxFilter, docs: readonly string[], figures: readonly { id: string; name: string; nickname?: string; referenceKey?: string }[] = []) {
+  const f = { ...filter };
+  if (f.doc) {
+    const candidates = docCandidates(docs, f.doc);
+    if (candidates.length > 1) throw new Error(`ambiguous document "${f.doc}": ${candidates.join(", ")}`);
+    if (candidates.length === 1) f.doc = candidates[0];
+  }
+  const figureAliases = new Map(figures.map(fig => [fig.id, [fig.name, fig.nickname ?? "", fig.referenceKey ?? ""]]));
+  if (f.figure) {
+    const resolve = createFigureReferenceResolver(figures.map(fig => ({ label: fig.referenceKey ?? fig.id, id: fig.id })));
+    const found = resolve(f.figure.replace(/^@/, ""));
+    if (found) f.figure = found.ref.id;
+    else {
+      const wanted = f.figure.toLowerCase();
+      const hits = figures.filter(fig => [fig.id, ...figureAliases.get(fig.id)!].some(n => n.toLowerCase() === wanted));
+      if (hits.length > 1) throw new Error(`ambiguous figure "${f.figure}": ${hits.map(fig => fig.id).join(", ")}`);
+    }
+  }
+  return { filter: f, context: { figureAliases } };
+}
+
 const norm = (s: string) => s.trim().toLowerCase();
 const stripExt = (s: string) => s.replace(/\.(qmd|md|markdown)$/i, "");
 const base = (p: string) => p.split("/").pop() ?? p;
@@ -293,7 +316,7 @@ export function sortForInbox(items: readonly InboxItem[]): InboxItem[] {
 const SURFACE_WORDS: Record<string, InboxSurface> = {
   paper: "paper", doc: "paper", docs: "paper", document: "paper", documents: "paper", manuscript: "paper",
   figure: "figure", figures: "figure", slide: "slide", slides: "slide", deck: "slide", present: "present",
-  reader: "reader", pdf: "reader", library: "library",
+  reader: "reader", pdf: "reader", library: "library", home: "home", unknown: "unknown",
 };
 const STATUS_WORDS: Record<string, ItemStatus[] | "all"> = {
   open: ["open"], queued: ["queued"], claimed: ["claimed"], working: ["claimed"], "needs-input": ["needs-input"],

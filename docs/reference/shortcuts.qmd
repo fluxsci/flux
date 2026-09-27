@@ -13,6 +13,7 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | Shortcut | Action |
 |---|---|
 | **Ctrl+K** | Command palette (in Paper: the full Paper palette; in Library it goes to the add box instead) |
+| **Alt+Q** | Open or close Inbox (also available as **Inbox** in the command palette) |
 | **Ctrl+Shift+M** | Annotate — a note, targets, and a frozen view for your agents |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
@@ -24,6 +25,21 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 manuscript panes show two *different* documents of the project (asking for one that's open
 in the other pane focuses that pane instead). Figure and Slide stay single-pane — they share
 the editing engine.
+
+# While Inbox is open
+
+| Shortcut | Action |
+|---|---|
+| **↑ / ↓** | Move between rows |
+| **Enter** on a row | Jump to its saved location |
+| **R** | Focus Reply |
+| **E** | Archive / unarchive the selected item |
+| **Enter** in Reply | Send a human reply |
+| **Shift+Enter** in Reply | Insert a newline |
+| **Esc** | Leave image zoom, then close Inbox |
+
+**Pin open** keeps Inbox in a separate window; **Dock** returns it to the main window.
+The Annotate chord also works from the pinned window.
 
 # While Annotate is open
 

@@ -1,5 +1,6 @@
 // Installed before Shell mounts children: this listener owns the chord even
 // when a modal uses capture listeners, or a lazy composer has not mounted yet.
+import { inboxOpen, inboxCloseRequest, isInboxChord, requestInbox } from "../inbox/inboxState";
 import { get, writable } from "svelte/store";
 import { currentProject, view } from "../shellStore";
 import { fileBridge } from "../../lib/project/types";
@@ -65,6 +66,14 @@ export function installAnnotateChord(): () => void {
     if (isAnnotateChord(e)) {
       e.preventDefault(); e.stopImmediatePropagation();
       if (!e.repeat) requestAnnotation();
+      return;
+    }
+    if (isInboxChord(e)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) {
+        if (get(annotationOpen)) closeAnnotation();
+        if (get(inboxOpen)) inboxCloseRequest.update(n => n + 1); else requestInbox();
+      }
       return;
     }
     // Retired chord: absorb browser Save As as well as old editor save branches.

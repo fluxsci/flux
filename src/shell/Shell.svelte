@@ -28,6 +28,7 @@
   import { captureStatus } from "../lib/references/captureStatus";
   import { captureIntakeOnStartup } from "../lib/references/captureIntake.svelte";
 
+  import { inboxOpen } from "./inbox/inboxState";
   import { installAnnotateChord, annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
   // Run during parent initialization, before any child mounts its listeners.
   onDestroy(installAnnotateChord());
@@ -35,6 +36,11 @@
   const loadAnnotation = () => import("./agent/AnnotationSurface.svelte").then(m => Annotation = m.default);
   $effect(() => { if ($annotationOpen && !Annotation) void loadAnnotation(); });
   $effect(() => { if ($view === "workspace") void import("./agent/annotationStore").then(m => m.initAnnotationStore()); });
+
+  let Inbox: typeof import("./inbox/InboxPanel.svelte").default | null = $state(null);
+  const loadInbox = () => import("./inbox/InboxPanel.svelte").then(m => Inbox = m.default);
+  $effect(() => { if ($inboxOpen && !Inbox) void loadInbox(); });
+  $effect(() => { if ($view === "workspace") void import("./inbox/inboxStore").then(m => m.initInboxStore()); });
 
   // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
   // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
@@ -77,7 +83,7 @@
     idle(() => warmModes(["paper"]));
     idle(() => void loadAnnotation());
     idle(() => void loadAI());
-    // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
+    idle(() => void loadInbox());    // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
     // auto-export once the app is idle. Dynamic import — the job (and, through it,
     // the bib/import stack) must never ride the eager Home bundle (W15).
     idle(() => {
@@ -156,6 +162,7 @@
   <!-- Keyboard reference: mounted at the Shell so "?" works on Home too, not
        just inside a project (its own listener ignores typing targets). -->
   <Help />
+  {#if Inbox && $inboxOpen}<Inbox />{/if}
   {#if Annotation}<Annotation />{/if}
   {#if $aiOpen && AI}<AI />{/if}
   {#if homePalette && $view === "home"}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => homePalette = false} />{/if}

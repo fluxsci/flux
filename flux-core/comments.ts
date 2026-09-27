@@ -2,7 +2,7 @@
 // index.ts; WS-6.2).
 
 import * as fs from "node:fs/promises";
-import { appendCommentMessage, type CommentMessage, type CommentThread, type CommentsFile } from "../src/lib/project/comments";
+import { appendCommentMessage, mergeCommentThreads, type CommentMessage, type CommentThread, type CommentsFile } from "../src/lib/project/comments";
 export type { CommentMessage, CommentThread, TextQuoteSelector, CommentsFile } from "../src/lib/project/comments";
 import type { SessionRef } from "../src/lib/project/annotations";
 import { CLIENT, stamp, journal } from "./journal";
@@ -10,7 +10,7 @@ import { withLock } from "./locks";
 import { loadManifest, safeJoin, exists, writeText } from "./model";
 import { listDocuments } from "./manuscript";
 import type { ProjectManifest } from "../src/lib/project/types";
-import { commentsSidecarRel, commentsMainPath } from "../src/lib/project/docOrder";
+import { commentsSidecarRel, commentsSidecarRels, commentsMainPath } from "../src/lib/project/docOrder";
 
 // --------------------------------------------------------------------------
 // Review comments (the human's margin comments). Threads live in a sibling
@@ -31,22 +31,6 @@ function commentsRel(m: ProjectManifest, docRel?: string): string {
   return commentsSidecarRel(commentsMainPath(m), docRel ?? m.manuscript.path);
 }
 
-/** Candidate sidecars for a document, in write-preference order. A document
- *  that becomes the main manuscript changes its historical canonical sidecar
- *  name from `<base>.comments.json` to `comments.json`. Keep reading the
- *  document-named sidecar as well so changing document roles can never hide
- *  existing review threads. */
-function commentsRels(m: ProjectManifest, docRel?: string): string[] {
-  const mp = docRel ?? m.manuscript.path;
-  if (!mp) return [];
-  const primary = commentsRel(m, mp);
-  if (m.documentRoot || mp !== m.manuscript.path) return [primary];
-  const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
-  const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
-  const named = dir ? `${dir}/${base}.comments.json` : `${base}.comments.json`;
-  return named === primary ? [primary] : [primary, named];
-}
-
 async function readCommentsFile(root: string, rel: string): Promise<CommentsFile | null> {
   const p = safeJoin(root, rel);
   if (!(await exists(p))) return null;
@@ -62,17 +46,12 @@ async function readCommentsFile(root: string, rel: string): Promise<CommentsFile
  *  Returns all threads; the caller filters resolved vs. open. Empty if none. */
 export async function listComments(root: string, docRel?: string): Promise<CommentThread[]> {
   const m = await loadManifest(root);
-  const out: CommentThread[] = [];
-  const seen = new Set<string>();
-  for (const rel of commentsRels(m, docRel)) {
+  const files: CommentsFile[] = [];
+  for (const rel of commentsSidecarRels(m, docRel)) {
     const file = await readCommentsFile(root, rel);
-    for (const thread of file?.threads ?? []) {
-      if (seen.has(thread.id)) continue;
-      seen.add(thread.id);
-      out.push(thread);
-    }
+    if (file) files.push(file);
   }
-  return out;
+  return mergeCommentThreads(files);
 }
 
 /** Project-wide review discovery. With no docRel, scan every canonical project
@@ -184,7 +163,7 @@ export async function resolveComment(
   return withLock(root, "manuscript", opts.client ?? CLIENT, async () => {
     const m = await loadManifest(root);
     const files: Array<{ rel: string; file: CommentsFile }> = [];
-    for (const rel of commentsRels(m, opts.docRel)) {
+    for (const rel of commentsSidecarRels(m, opts.docRel)) {
       const p = safeJoin(root, rel);
       if (!(await exists(p))) continue;
       let file: CommentsFile;
@@ -277,7 +256,7 @@ export async function replyToComment(root: string, id: string, body: string, opt
     const hits = threads.filter(t => t.id === id);
     if (hits.length !== 1) throw new Error(`expected one comment ${id}, found ${hits.length}`);
     const hit = hits[0], manifest = await loadManifest(root);
-    for (const rel of commentsRels(manifest, hit.doc)) {
+    for (const rel of commentsSidecarRels(manifest, hit.doc)) {
       const file = await readCommentsFile(root, rel);
       if (!file?.threads.some(t => t.id === id)) continue;
       const message: CommentMessage = { author: opts.author ?? CLIENT, body, createdAt: stamp(), kind: "agent", client: opts.client, session: opts.session };

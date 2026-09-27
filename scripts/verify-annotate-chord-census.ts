@@ -16,7 +16,7 @@ const local: Record<string, string> = {
   'src/lib/slide/export/runtime.ts:mount': 'Standalone exported deck; deliberately no app keymap.',
 };
 const retiredOwners = new Set(['src/shell/agent/annotateChord.ts', 'src/lib/plot/galleryWindow.ts']);
-const walkFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walkFiles(path.join(dir, e.name)) : /\.(ts|svelte)$/.test(e.name) ? [path.join(dir, e.name)] : []);
+const walkFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walkFiles(path.join(dir, e.name)) : /\.(ts|svelte|cjs|js)$/.test(e.name) ? [path.join(dir, e.name)] : []);
 const inventory: { file: string; line: number; name: string; body: string }[] = [];
 const errors: string[] = [];
 const used = new Set<string>();
@@ -68,6 +68,20 @@ for (const file of walkFiles('src').sort()) {
   if (/\bwindow\.onkeydown\s*=/.test(script)) errors.push(`${file}: direct window.onkeydown needs census support`);
   if (/(?:Mod|Ctrl|Cmd)-Shift-[sS]['"]/.test(script)) errors.push(`${file}: retired save key binding`);
 }
+// Alt+Q was unbound across app and native menus at F1. Reserve the physical
+// key in one predicate; future keymaps and native accelerators fail closed.
+const chordOwner = 'src/shell/inbox/inboxState.ts';
+for (const file of [...walkFiles('src'), ...walkFiles('electron')]) {
+  const source = readFileSync(file, 'utf8');
+  if (file !== chordOwner && /["']KeyQ["']|(?:Alt|Option)[+-](?:Shift[+-])?[qQ]["']/.test(source) &&
+      !['src/lib/Help.svelte', 'src/shell/TitleBar.svelte', 'src/shell/command/globalCommands.ts'].includes(file)) errors.push(`${file}: Inbox chord collision; use isInboxChord`);
+  if (/key(?:\.toLowerCase\(\))?\s*={2,3}\s*["'][qQ]["']/.test(source)) errors.push(`${file}: Q key handler needs an explicit Inbox census review`);
+}
+const chord = readFileSync(chordOwner, 'utf8');
+if (!/e\.altKey && !e\.ctrlKey && !e\.metaKey && !e\.shiftKey && e\.code === "KeyQ"/.test(chord)) errors.push('Inbox must remain Alt+Q on the physical left-hand key');
+const bootstrap = readFileSync('src/shell/agent/annotateChord.ts', 'utf8');
+if (!/if \(isInboxChord\(e\)\) \{[\s\S]*?e\.preventDefault\(\); e\.stopImmediatePropagation\(\)/.test(bootstrap)) errors.push('Inbox chord must be captured before editor key owners');
+if (!/isInboxChord\(e\)/.test(readFileSync('src/lib/plot/galleryWindow.ts', 'utf8'))) errors.push('Inert utilities must forward the Inbox chord');
 console.log('ANNOTATE CHORD CENSUS — window-level handlers');
 for (const item of inventory) {
   const id = `${item.file}:${item.name}`, exemption = exemptions[id];

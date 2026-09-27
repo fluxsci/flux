@@ -134,16 +134,33 @@ titlebar, using that session's name.
 Turn it off to refuse agent screenshots. The agent receives a clear disabled message.
 Viewing captures only that project's Flux window.
 
-## Queued: Edit, Withdraw, and status {#sec-note-popover}
+## Inbox: review, reply, and status {#sec-note-popover}
+Open **Inbox** from the titlebar (the badge counts open items), **Alt+Q**, or the **Inbox**
+command in the command palette. The composer's **Open inbox** link opens the same panel.
+It combines annotations with margin comments from every project document. **Pin open**
+keeps it in a separate window; **Dock** brings it back without losing a reply draft.
 
-Expand **Queued** to review annotations. **Edit** loads the original text, targets, and
-picture; **Add** replaces that annotation while preserving its history. **Withdraw** removes
-it from the active queue. The ledger is append-only at `.meta/feedback.ndjson`; pictures live
-in `.meta/feedback/`. A picture is saved before its note is published.
+The list groups items into **Needs input**, **Open**, **Claimed**, and a collapsed **Resolved**
+section. Type a filter such as `draft_1 #claude figure`; chips show the document, tag, and
+surface filters. You can also use `comments`, `annotations`, `figure:Density`, `deck:talk`,
+`status:resolved`, or free text. `archived` includes archived items; `all` includes withdrawn
+items. The same query works with `flux inbox`.
+
+Select an item to see its full text, picture, numbered anchors, and conversation. **R** focuses
+Reply; **Enter** sends, and **Shift+Enter** adds a newline. Agent replies show the agent's name.
+**Jump to** returns to the document range, figure selection, slide and beat, or Reader page.
+**↑/↓** move between rows; **Enter** on a row jumps; **E** archives. **Unarchive** restores an
+archived item, and **Reopen** returns resolved work to the inbox. **Copy agent prompt** copies
+an instruction you can give your agent.
+
+**Edit** loads an annotation's original text, targets, and picture; **Add** replaces it while
+preserving history. **Withdraw** removes your annotation from the active list. The ledger is
+append-only at `.meta/feedback.ndjson`; pictures live in `.meta/feedback/` and are saved before
+their notes are published. Replies to margin comments stay in their document's comment sidecar.
 
 Status chips update as agents work: **Queued → heron**, **Claimed by heron**, **heron needs
-your input**, and **Resolved by heron**. Toasts name the agent. A question's toast opens the
-annotation and its replies. You can reassign an item or release its claim from the queued list.
+your input**, and **Resolved by heron**. Toasts name the agent; a question's toast opens that
+item in Inbox. Assignment controls in Inbox will arrive with the routing phase.
 
 # Design properties
 

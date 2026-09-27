@@ -448,7 +448,8 @@
       "verify-panel-label-menu.mjs",
       "verify-figure-meta-refinements.mjs",
       "verify-annotation-surface-gui.mjs",
-      "verify-ai-monitor-gui.mjs"
+      "verify-ai-monitor-gui.mjs",
+      "verify-inbox-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -526,7 +527,8 @@
       "verify-scale-paper-slide-embeds.mjs",
       "verify-fulltext-corpus.ts",
       "verify-library-20k.mjs",
-      "verify-scale-annotate-hover.mjs"
+      "verify-scale-annotate-hover.mjs",
+      "verify-scale-inbox.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
@@ -857,6 +859,18 @@
       ]
     },
     {
+      "$why": "F1 Inbox owns the unified GUI, navigation and comment IO; shared-core changes retain headless parity coverage.",
+      "glob": "{src/shell/inbox/**,src/shell/navigation.ts,src/lib/project/commentBridge.ts,public/inbox.html,scripts/lib/inboxGuiFixture.mjs}",
+      "run": [
+        "verify-inbox.ts",
+        "verify-inbox-gui.mjs",
+        "verify-scale-inbox.mjs",
+        "verify-annotate-chord-census.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-annotate-utility-electron.cjs"
+      ]
+    },
+    {
       "glob": "{flux-core/{annotate,references}.ts,src/lib/references/annotations.ts}",
       "run": [
         "verify-reader-highlights.ts",
@@ -877,7 +891,9 @@
         "verify-log.ts",
         "tier:pure",
         "verify-live-view.ts",
-        "verify-live-view-electron.cjs"
+        "verify-live-view-electron.cjs",
+        "verify-inbox-gui.mjs",
+        "verify-scale-inbox.mjs"
       ]
     },
     {
@@ -7365,6 +7381,28 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-inbox-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-inbox.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
       "exclusive": true,
       "coverage": "behavior"
     }

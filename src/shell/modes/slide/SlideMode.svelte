@@ -163,7 +163,16 @@
       try {
       const loaded = activeDeckId === request.deckId || await openDeck(request.deckId);
       if (get(openSlideRequest)?.n !== request.n) return;
-      if (loaded && request.slideId && get(deckOverlay)?.slides.some(s => s.id === request.slideId)) selectSlide(request.slideId);
+      const slides = get(deckOverlay)?.slides ?? [];
+      const target = request.slideId ? slides.find(s => s.id === request.slideId) : slides[request.slideIndex ?? 0];
+      if (loaded && target) {
+        selectSlide(target.id);
+        if (request.trackId) {
+          const beat = target.beats.findIndex(b => b.tracks.some(t => t.id === request.trackId));
+          if (beat >= 0) { activeBeat.set(beat); selTrackIds.set([request.trackId]); animatorOpen = true; inspectorTab = "animation"; }
+        }
+        else if (request.beat !== undefined) activeBeat.set(Math.max(0, Math.min(target.beats.length - 1, request.beat)));
+      }
       openSlideRequest.set(null);
       } finally { consumingOpenRequest = false; }
     })();

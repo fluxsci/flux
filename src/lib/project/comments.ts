@@ -30,3 +30,17 @@ export function appendCommentMessage<T extends CommentsFile>(sidecar: T, id: str
   if (!msg.body.trim()) throw new Error("a comment reply needs text");
   return { ...sidecar, threads: sidecar.threads.map(t => t === thread ? { ...t, messages: [...t.messages, { ...msg }] } : t) };
 }
+
+/** Reopening changes only this thread; archive/claims remain ledger overlays. */
+export function reopenCommentThread<T extends CommentsFile>(sidecar: T, id: string): T {
+  if (!sidecar.threads.some(t => t.id === id)) throw new Error(`no comment matches "${id}"`);
+  return { ...sidecar, threads: sidecar.threads.map(t => t.id === id ? { ...t, resolved: false } : t) };
+}
+
+export function mergeCommentThreads(files: readonly CommentsFile[]): CommentThread[] {
+  const seen = new Set<string>();
+  return files.flatMap(file => file.threads.filter(t => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id); return true;
+  }));
+}

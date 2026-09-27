@@ -20,7 +20,7 @@ import { bumpBibRevision } from "./scholar/revisions";
 import { serializeTransition, transitionProjectIntent, isCurrentProjectIntent } from "./transitions";
 import { pushToast } from "../lib/toast";
 import { decodeRecents } from "./storageValidation";
-import { openDocRequest, openSlideRequest } from "./command/commandBus";
+import { openDocRequest, openSlideRequest, openFigureRequest, openLibraryRequest } from "./command/commandBus";
 import { resetPanes } from "./paneStore";
 
 export type ModeId = "figure" | "paper" | "slide" | "library" | "reader";
@@ -155,7 +155,7 @@ export function goHome(): Promise<boolean> {
     if (!isCurrentProjectIntent(intent) || !await checkedOutgoing() || !isCurrentProjectIntent(intent)) return false;
     stopProjectWatch();
     projectModel.set(null); currentProject.set(null);
-    openDocRequest.set(null); openSlideRequest.set(null);
+    openDocRequest.set(null); openSlideRequest.set(null); openFigureRequest.set(null); openLibraryRequest.set(null);
     projectError.set(null); view.set('home');
     return true;
   });

@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { harness } from "./lib/harness.mjs";
+import { inboxFixture } from "./lib/inboxGuiFixture.mjs";
 import { fixture, repo, cli, worker, cleanEnv, writePresence, TestProcessScope, installTestLauncher, rawMcp, dataOf } from "./lib/inboxFixture";
 import { listInbox, claimItem, releaseItem, replyItem, resolveItem, archiveItem, readAnnotationState, appendAnnotationEvent, readInbox } from "../flux-core/annotations";
 import { inspectTarget } from "../flux-core/inspect";
@@ -13,7 +14,10 @@ import { resolveFluxLibPath, addToFluxLib } from "../flux-core/fluxlib";
 import { writeFulltext } from "../flux-core/items";
 import { addAnnotation } from "../flux-core/annotate";
 import { rasterizeSvgToPng } from "../flux-core/render";
-import type { InboxFilter } from "../src/lib/project/inbox";
+import { listAllComments, changeComment, registerCommentOwner } from "../src/lib/project/commentBridge";
+import { commentsSidecarRels } from "../src/lib/project/docOrder";
+import { reopenCommentThread } from "../src/lib/project/comments";
+import { parseInboxQuery, buildInbox, type InboxFilter } from "../src/lib/project/inbox";
 const h = harness("verify-inbox"), temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "flux-inbox-")));
 const scope = new TestProcessScope();
 let mcp: Awaited<ReturnType<typeof rawMcp>> | undefined;
@@ -23,6 +27,15 @@ async function refuses(action: () => Promise<unknown>, pattern: RegExp, label: s
   h.ok(pattern.test(message), `${label}: ${message}`);
 }
 try {
+  h.eq(parseInboxQuery("all home"), { status: "all", surface: "home" }, "Home surface uses the same query grammar");
+  h.eq(parseInboxQuery("all surface:unknown"), { status: "all", surface: "unknown" }, "Unknown surface can be filtered explicitly");
+  const agentNote = { ...makeNote("An agent-authored note", null, "codex"), author: { kind: "agent" as const, name: "heron" } };
+  h.eq(buildInbox({ state: foldAnnotations([agentNote]), comments: [], liveness: { now: Date.now() } })[0].thread[0].kind, "agent", "Explicit note authorship protects own-annotation actions");
+  const gui = await inboxFixture(path.join(temp, "gui-fixture"));
+  const guiItems = (await readInbox(gui.root)).items;
+  h.eq([...new Set(guiItems.map(i => i.surface))].sort(), ["figure", "home", "library", "paper", "present", "reader", "slide", "unknown"], "GUI fixture constructs every surface through flux-core");
+  h.eq(guiItems.filter(i => i.kind === "comment").length, 3, "GUI fixture constructs comments from every document");
+  h.eq([...(await fs.readFile(path.join(gui.root, ".meta/feedback/inbox.png"))).subarray(0, 4)], [137, 80, 78, 71], "GUI fixture picture is a real rasterized PNG");
   const f = await fixture(path.join(temp, "project")), { root } = f;
   const env = cleanEnv({ CODEX_THREAD_ID: "inbox-agent" });
   const launcher = await installTestLauncher(repo, path.join(temp, "bin"));
@@ -158,6 +171,33 @@ try {
   }
 
   // All eleven target kinds, with current state from actual persisted files.
+  // The renderer adapter executes against the same on-disk fixture. No DOM or
+  // real user state is required to pin all-document discovery and cold writes.
+  (globalThis as any).window = { fig: {
+    readText: (p: string) => fs.readFile(p, "utf8"),
+    exists: async (p: string) => fs.stat(p).then(() => true, () => false),
+    readdir: async (p: string) => (await fs.readdir(p, { withFileTypes: true })).map(e => ({ name: e.name, dir: e.isDirectory() })),
+    writeText: (p: string, text: string) => fs.writeFile(p, text),
+  } };
+  h.eq((await listAllComments(root)).comments, await listProjectComments(root), "GUI discovery equals headless discovery for every document, including Context");
+  h.eq(commentsSidecarRels({ manuscript: { path: "paper/draft_1.qmd" } }), ["paper/comments.json", "paper/draft_1.comments.json"], "legacy promoted main keeps both sidecars in the shared preference order");
+  const beforeGui = JSON.parse(await fs.readFile(sidePath, "utf8"));
+  await changeComment(root, f.docs[0], f.comments[0].id, { kind: "reply", body: "Human Inbox reply" });
+  const afterGui = JSON.parse(await fs.readFile(sidePath, "utf8"));
+  const humanMessage = afterGui.threads.find(t => t.id === f.comments[0].id).messages.at(-1);
+  h.eq(afterGui, appendCommentMessage(beforeGui, f.comments[0].id, humanMessage), "GUI writes exactly the pure append result, preserving extension fields");
+  h.eq([humanMessage.kind, humanMessage.author], ["human", "You"], "Inbox comment replies are human messages");
+  const resolvedPath = path.join(root, "paper/draft_2.comments.json");
+  const beforeReopen = JSON.parse(await fs.readFile(resolvedPath, "utf8"));
+  await changeComment(root, f.docs[1], f.comments[1].id, { kind: "reopen" });
+  h.eq(JSON.parse(await fs.readFile(resolvedPath, "utf8")), reopenCommentThread(beforeReopen, f.comments[1].id), "GUI reopen executes the shared pure sidecar mutation");
+  let owned = "";
+  const dispose = registerCommentOwner(root, f.docs[0], async (id, intent) => { owned = id + ":" + intent.kind; });
+  const bytes = await fs.readFile(sidePath, "utf8");
+  await changeComment(root, f.docs[0], f.comments[0].id, { kind: "reply", body: "Live buffer" }); dispose();
+  h.eq(owned, f.comments[0].id + ":reply", "an open Paper buffer owns Inbox replies");
+  h.eq(await fs.readFile(sidePath, "utf8"), bytes, "live-owner routing performs no stale disk replacement");
+
   const libPath = await resolveFluxLibPath();
   await addToFluxLib('@article{fixture2026, title={Fixture result}, author={Tester, A}, year={2026}}', { libPath });
   await writeFulltext("fixture2026", "First page.\n\f\nSecond page: the measured result.", libPath);

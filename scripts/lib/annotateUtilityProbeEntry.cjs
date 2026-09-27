@@ -38,9 +38,30 @@ async function main(){
  // Explicit child ids are scoped to the opener; an unrelated window is refused.
  const stranger=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
  check(await js(win,`window.fig.captureWindow({target:'child',childId:${stranger.webContents.id}}).then(()=>false,()=>true)`),'capture refuses another window’s webContents');stranger.destroy();
+ // Inbox shares the inert utility lifecycle and forwards Annotate as well.
+ child.close();await wait(()=>js(win,"!document.querySelector('.detached .importer')"),'gallery closed');
+ win.focus();key(win,'q',['alt']);await wait(()=>js(win,"!!document.querySelector('[data-inbox-row]')"),'Inbox items');
+ await click(win,'.inbox-panel header button:first-of-type');
+ child=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==win),'Inbox utility');child.show();child.focus();
+ await wait(()=>js(child,"!!document.querySelector('.detached .inbox-panel')"),'Inbox mounted in child');
+ check(await js(child,'!window.fig'),'Inbox child is inert, without a second bridge');
+ await js(child,"(()=>{const t=document.querySelector('textarea');t.value='Retain native reply';t.dispatchEvent(new Event('input',{bubbles:true}))})()");
+ child.setSize(720,540);await wait(()=>js(child,"document.querySelector('.inbox-list').clientHeight<500"),'Inbox resized');
+ check(await js(child,"document.querySelector('.inbox-panel').getBoundingClientRect().width===innerWidth"),'pinned Inbox fits resized native window');
+ key(child,'m',[process.platform==='darwin'?'meta':'control','shift']);
+ await wait(()=>js(win,"document.activeElement===document.querySelector('.annotation-composer textarea')"),'Inbox forwarded Annotate');
+ check(await js(win,"document.querySelector('.annotation-composer .context').textContent.includes('inbox')"),'Annotate stamp names the Inbox utility');
+ win.focus();key(win,'Escape');await wait(()=>js(win,"!document.querySelector('[data-annotation-surface]')"),'Annotate dismissed');
+ child.focus();await click(child,'.inbox-panel header button:first-of-type');
+ await wait(()=>js(win,"!!document.querySelector('.inbox-panel textarea')"),'Inbox docked');
+ check(await js(win,"document.querySelector('.inbox-panel textarea').value==='Retain native reply'"),'native dock preserves the draft');
+ await click(win,'.inbox-panel header button:first-of-type');child=await wait(()=>BrowserWindow.getAllWindows().find(w=>w!==win),'repinned Inbox');
+ await wait(()=>js(child,"!!document.querySelector('.inbox-panel')"),'repinned mount');child.close();
+ await wait(()=>js(win,"!document.querySelector('.inbox-panel')"),'native Inbox close cleanup');
+ check(true,'native close disposes the utility and its mounted panel');
  check(errors.length===0,'clean renderer console');
  fs.writeFileSync(path.resolve(__dirname,'../../test-results/annotate-utility-native.json'),JSON.stringify(checks,null,2));
- child.destroy();win.destroy();
+ if(child&&!child.isDestroyed())child.destroy();win.destroy();
 }
 app.whenReady().then(()=>main().then(()=>{fs.writeSync(1,'PROBE result=PASS\n');process.exit(0)}).catch(e=>{fs.writeSync(1,'PROBE '+String(e.stack||e)+'\n');process.exit(1)}));
 setTimeout(()=>process.exit(2),90000);

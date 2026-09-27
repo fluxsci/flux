@@ -2,8 +2,9 @@
   import { onDestroy, tick, untrack } from "svelte";
   import { get } from "svelte/store";
   import { annotationOpen, annotationRequest, closeAnnotation, bufferAnnotationInput, focusAnnotationInput, type AnnotationRequest } from "./annotateChord";
-  import { initAnnotationStore, annotationInbox, sessions, annotationRoute, rememberRoute, projectGeneration, selectedQueueItem,
-    addAnnotation, withdrawAnnotation, assignAnnotation, releaseAnnotation, annotationImage } from "./annotationStore";
+  import { initAnnotationStore, sessions, annotationRoute, rememberRoute, projectGeneration, editAnnotationRequest,
+    addAnnotation, annotationImage } from "./annotationStore";
+  import { requestInbox } from "../inbox/inboxState";
   import { currentProject } from "../shellStore";
   import { settings } from "../../lib/settings";
   import { modalFocus } from "../../lib/ui/modalFocus";
@@ -31,7 +32,7 @@
   let host = $state<HTMLDivElement>();
   let svg = $state<SVGSVGElement>();
   let editing = $state<InboxItem | null>(null);
-  let queueOpen = $state(false), routeOpen = $state(false);
+  let routeOpen = $state(false);
   let hover = $state<TargetHit[]>([]), specificity = $state(0);
   let pointer = $state({ x: 0, y: 0 });
   let selected = $state<{ ref: TargetRef; history: TargetRef[]; n?: number }[]>([]);
@@ -42,7 +43,6 @@
   const route = $derived(parsed.route ?? $annotationRoute);
   const tags = $derived(parseTags(text));
   const background = $derived(typeof route === "object" && "background" in route);
-  const queued = $derived($annotationInbox.filter(i => i.status !== "withdrawn" && !i.archived));
   const hit = $derived(hover[specificity]);
   const hasMarks = $derived(marks.length > 0 || !!editing?.context?.snapshot?.marks.length);
   const attach = $derived($settings["annotate.attachView"] || hasMarks);
@@ -63,13 +63,23 @@
       else { generation++; ready = false; drawing = null; hover = []; routeOpen = false; }
     });
   });
-  $effect(() => { if ($selectedQueueItem) queueOpen = true; });
   onDestroy(() => { generation++; clearPicture(); });
 
   async function openSurface(req: AnnotationRequest, refresh = false) {
     const owner = ++generation;
     bufferAnnotationInput();
     ready = false; busy = false; error = "";
+    const editRequest = get(editAnnotationRequest);
+    if (editRequest) {
+      editAnnotationRequest.set(null);
+      win = editRequest.context?.snapshot?.window ?? req.size;
+      sourceDocument = req.document; viewIdentity = req.identity; staleView = false;
+      await edit(editRequest, owner);
+      if (owner !== generation) return;
+      ready = true;
+      await tick(); if (input) focusAnnotationInput(input);
+      return;
+    }
     // A cancelled marked draft retains its picture AND target context together.
     if (!refresh && stamp) staleView = req.document !== sourceDocument || req.identity.length !== viewIdentity.length || req.identity.some((v,i) => v !== viewIdentity[i]);
     if (refresh || !stamp || (!text.trim() && !marks.length && !editing)) {
@@ -190,9 +200,8 @@
     if (e.target === input && e.key === "Backspace" && !text && marks.length) { e.preventDefault(); undo(); }
   }
   function wheel(e: WheelEvent) { e.preventDefault(); specificity = Math.max(0, Math.min(hover.length - 1, specificity + (e.deltaY < 0 ? 1 : -1))); }
-  async function edit(item: InboxItem) {
+  async function edit(item: InboxItem, owner: number) {
     if (busy) return;
-    const owner = ++generation;
     busy = true;
     try {
       const url = await annotationImage(item);
@@ -207,11 +216,6 @@
       input?.focus();
     } catch (e) { error = String(e); }
     finally { if (owner === generation) busy = false; }
-  }
-  async function act(fn: () => Promise<void>) {
-    if (busy) return;
-    busy = true;
-    try { await fn(); } catch (e) { error = String(e); } finally { busy = false; }
   }
   async function add() {
     if (!canAdd || !stamp) return;
@@ -356,25 +360,7 @@
         <label><input type="checkbox" checked={attach} disabled={hasMarks} onchange={e => settings.update(s => ({ ...s, "annotate.attachView": e.currentTarget.checked }))} />Attach view</label>
         <span></span><button onclick={closeAnnotation}>Cancel <kbd>Esc</kbd></button><button class="primary" disabled={!canAdd} onclick={() => void add()}>{busy ? "Saving…" : "Add"} <kbd>Enter</kbd></button>
       </div>
-      <div class="queue">
-        <button class="queue-toggle" aria-expanded={queueOpen} onclick={() => queueOpen = !queueOpen}>{queueOpen ? "▾" : "▸"} Queued · {queued.filter(i => i.status !== "resolved").length}</button>
-        {#if queueOpen}<div class="queue-items" aria-label="Queued annotations">
-          {#each queued as item (item.id)}
-            <div class="queue-item" class:chosen={$selectedQueueItem === item.id} data-item-id={item.id}>
-              <span class="status-chip" data-status={item.status}>{item.chip}</span><p>{item.text}</p><small class="context">{item.where}</small>
-              {#if item.status !== "resolved"}<div class="queue-actions">
-                <button disabled={busy} onclick={() => void edit(item)}>Edit</button><button disabled={busy} onclick={() => void act(() => withdrawAnnotation(item.id))}>Withdraw</button>
-                <select aria-label="Assign annotation" disabled={busy} value={item.assignedTo?.id ?? ""} onchange={e => { const id = e.currentTarget.value; void act(() => assignAnnotation(item.id, $sessions.find(s => s.id === id) ?? null)); }}>
-                  <option value="">Unassigned</option>{#each $sessions as s}<option value={s.id}>{s.name}{s.live ? " · Pairing" : ""}{s.watching ? "" : " (not watching)"}</option>{/each}
-                </select>
-                {#if item.claimedBy}<button disabled={busy} onclick={() => void act(() => releaseAnnotation(item.id))}>Release claim</button>{/if}
-              </div>{/if}
-              {#if item.thread.length > 1}<button onclick={() => selectedQueueItem.set($selectedQueueItem === item.id ? null : item.id)}>Replies · {item.thread.length - 1}</button>{/if}
-              {#if $selectedQueueItem === item.id}{#each item.thread.slice(1) as reply}<p><b>{reply.author}</b> {reply.text}</p>{/each}{/if}
-            </div>
-          {:else}<p class="hint">No annotations yet. Point, type, and press Enter.</p>{/each}
-        </div>{/if}
-      </div>
+      <div class="inbox-link"><button onclick={() => { closeAnnotation(); requestInbox(); }}>Open inbox ↗</button></div>
       <small class="hint">Drag to point · Shift Enter for a new line · Tab changes To:</small>
     </div>
   </div>
@@ -402,7 +388,7 @@
   .context { color: var(--c-tx-muted); font: 10px/1.5 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   textarea { box-sizing: border-box; width: 100%; min-height: 84px; resize: vertical; padding: 8px; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: var(--c-bg); color: var(--c-tx); font: 14px/1.5 var(--font-ui); outline: none; }
   textarea:focus { border-color: var(--c-accent); }
-  button, select { font: 12px var(--font-ui); color: var(--c-tx); background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); padding: 4px 7px; cursor: var(--cursor-cross-hover); }
+  button { font: 12px var(--font-ui); color: var(--c-tx); background: transparent; border: 1px solid transparent; border-radius: var(--r-ui); padding: 4px 7px; cursor: var(--cursor-cross-hover); }
   button:hover:not(:disabled), button:focus-visible { border-color: var(--c-accent); outline: none; }
   button:disabled { opacity: .4; cursor: var(--cursor-cross); }
   button.chosen, .chosen { background: var(--c-accent-tint); box-shadow: inset 2px 0 var(--c-accent); }
@@ -419,18 +405,13 @@
   .target-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 6px; }
   .target-chip b { background: #ff2bd6; color: #fff; padding: 3px 5px; }
   .target-chip button { padding: 2px 4px; }
-  .tags span, .status-chip { color: var(--c-accent); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 3px 5px; border-radius: var(--r-ui); }
+  .tags span { color: var(--c-accent); background: var(--c-accent-tint); font: 10px var(--font-mono); padding: 3px 5px; border-radius: var(--r-ui); }
   .routing { flex-wrap: wrap; }
   .to-pill { border-color: var(--c-line-strong); }
   .routes { width: 100%; border: 1px solid var(--c-line); max-height: 160px; overflow: auto; }
   .routes button { width: 100%; text-align: left; display: flex; justify-content: space-between; }
   .routes small { color: var(--c-tx-muted); font-size: 10px; }
-  .queue { border-top: 1px solid var(--c-line); padding-top: 5px; }
-  .queue-toggle { padding-left: 0; font: 11px var(--font-mono); }
-  .queue-items { max-height: 26vh; overflow: auto; }
-  .queue-item { padding: 8px 4px; border-bottom: 1px solid var(--c-line); }
-  .queue-item p { font: 12px/1.5 var(--font-ui); margin: 5px 0; white-space: pre-wrap; }
-  .queue-actions { display: flex; flex-wrap: wrap; margin-top: 4px; }
-  .queue-actions button, .queue-actions select { font-size: 10px; }
+  .inbox-link { border-top: 1px solid var(--c-line); padding-top: 5px; }
+
   @media (max-width: 650px) { .annotation-tools { gap: 0; } .eyebrow { display: none; } .annotation-tools kbd { display: none; } }
 </style>

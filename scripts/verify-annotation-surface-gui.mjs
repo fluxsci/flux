@@ -8,7 +8,9 @@ const h=harness('verify-annotation-surface-gui'), {browser,page}=await launch({w
 const waitClosed=()=>waitFor(page,()=>!document.querySelector('[data-annotation-surface]'),null,{label:'saved annotation closed'}).catch(async e=>{const why=await page.evaluate(()=>{const s=document.querySelector('[data-annotation-surface]');const b=s?.querySelector('button.primary');return `${s?.querySelector('[role="alert"]')?.textContent??'(no error shown)'} · Add button "${b?.textContent?.trim()}"${b?.disabled?' (disabled)':''} · note "${s?.querySelector('textarea')?.value}"`;});throw new Error(`${e.message}; the composer says: ${why}`);});
 const clickText=(selector,text)=>page.evaluate(({selector,text})=>{const el=[...document.querySelectorAll(selector)].find(e=>e.textContent.trim()===text);if(!el)throw Error('Missing '+text);el.click();},{selector,text});
 const add=async text=>{await fillNote(page,text);await page.keyboard.press('Enter');await waitClosed();};
-const queue=async()=>{if(!await page.$('.queue-items'))await page.click('.queue-toggle');};
+const queue=async()=>{await page.click('.inbox-link button');await page.waitForSelector('.inbox-panel');};
+const closeInbox=async()=>{await page.click('.inbox-panel header [aria-label="Close Inbox"]');await waitFor(page,()=>!document.querySelector('.inbox-panel'),null,{label:'Inbox closed'});};
+const inboxAction=async(id,name)=>{await page.click(`[data-inbox-row][data-item-id="${id}"]`);await clickText('.detail .actions button',name);};
 const chip=()=>page.$eval('.target-chips',el=>el.textContent);
 const selectTool=code=>chord(page,code,{altKey:true});
 try {
@@ -76,14 +78,14 @@ try {
  await waitFor(page,()=>document.activeElement===document.querySelector('.annotation-composer textarea'),null,{label:'refreshed draft focused'});
  h.ok(await page.$eval(NOTE,e=>e.value)==='Retained view'&&!await page.$eval('.annotation-tools button',e=>e.disabled),'Refresh preserves the note and enables drawing on the current picture');await add('Retained view');
  // Edit and Withdraw keep the original stamp/snapshot in an append-only history.
- await openAnnotation(page);await queue();await page.click(`[data-item-id="${note.id}"] .queue-actions button`);
+ await openAnnotation(page);await queue();await inboxAction(note.id,'Edit');
  await waitFor(page,()=>document.querySelector('.heading strong')?.textContent==='Edit annotation',null,{label:'edit loaded'});
  await add('Edited whole view');lines=await ledger(page);
  const edited=lines.at(-1);
  h.ok(lines.at(-2).kind==='withdraw'&&lines.at(-2).target===note.id&&edited.context.snapshot.image===note.context.snapshot.image,'Edit withdraws the original and preserves its captured context');
- await openAnnotation(page);await queue();await clickText(`[data-item-id="${edited.id}"] button`,'Withdraw');
+ await inboxAction(edited.id,'Withdraw');
  await waitFor(page,id=>!document.querySelector(`[data-item-id="${id}"]`),edited.id,{label:'withdrawn row'});
- h.ok((await ledger(page)).at(-1).target===edited.id,'Withdraw appends history and removes the active row');await cancelAnnotation(page);
+ h.ok((await ledger(page)).at(-1).target===edited.id,'Withdraw appends history and removes the active row');await closeInbox();
  // Presence and routing, with external claim/resolve writes through the watcher.
  await page.evaluate(async()=>{const F=window.__flux,root=F.get(F.shell.currentProject).path;for(const [name,watching]of [['heron',true],['wren',false]])await window.fig.writeText(root+'/.meta/live/sessions/'+name+'.json',JSON.stringify({v:1,id:name,name,display:'codex · cli · '+name,product:'codex',surface:'cli',client:'codex',pid:1,host:'fixture',startedAt:new Date().toISOString(),heartbeatAt:new Date().toISOString(),watching,live:watching}));window.fig._emitFsChange({subsystem:'presence',path:root+'/.meta/live/sessions/heron.json'});});
  await openAnnotation(page);await page.click('.to-pill');
@@ -96,14 +98,14 @@ try {
  await fillNote(page,'@heron Please inspect #review');h.ok(await page.$eval('.to-pill',e=>e.textContent.includes('heron')),'Named mention updates To live');
  await page.keyboard.press('Enter');await waitClosed();lines=await ledger(page);note=lines.at(-2);
  h.ok(note.kind==='note'&&note.text==='Please inspect #review'&&note.route.session.name==='heron'&&lines.at(-1).kind==='assign'&&lines.at(-1).target===note.id,'Named routing strips mention and writes route + assign');
- await openAnnotation(page);await queue();
+ await openAnnotation(page);await queue();await page.type('.inbox-search','all');
  h.ok(await page.$eval(`[data-item-id="${note.id}"] .status-chip`,e=>e.textContent==='Queued → heron'),'Named queue chip names the recipient');
  const external=async kind=>page.evaluate(async({kind,id})=>{const root=window.__flux.get(window.__flux.shell.currentProject).path,p=root+'/.meta/feedback.ndjson';const event={kind,target:id,ts:new Date().toISOString(),client:'codex',session:{id:'heron',name:'heron',client:'codex'}};if(kind==='resolve')event.author={kind:'agent',name:'heron'};if(kind==='reply'){event.author={kind:'agent',name:'heron'};event.id='reply-heron';event.text='Which axis?';event.state='needs-input';}await window.fig.feedbackAppend(p,JSON.stringify(event)+'\n');window.fig._emitFsChange({subsystem:'feedback',path:p});},{kind,id:note.id});
  await external('claim');await waitFor(page,id=>document.querySelector(`[data-item-id="${id}"] .status-chip`)?.textContent==='Claimed by heron',note.id,{label:'external claim'});
  h.ok(await page.evaluate(()=>window.__flux.get(window.__flux.toast.toasts).some(t=>t.msg.includes('heron claimed'))),'Claim toast names heron');
  await external('reply');await waitFor(page,id=>document.querySelector(`[data-item-id="${id}"] .status-chip`)?.textContent.includes('heron needs your input'),note.id,{label:'needs input'});
  h.ok(true,'Needs-input chip updates live');await external('resolve');await waitFor(page,id=>document.querySelector(`[data-item-id="${id}"] .status-chip`)?.textContent==='Resolved by heron',note.id,{label:'external resolve'});
- h.ok(true,'Resolve chip updates from a second writer');await cancelAnnotation(page);
+ h.ok(true,'Resolve chip updates from a second writer');await closeInbox();
  // Figure-Meta, Dissect, Settings, Help, and the global palette.
  await chord(page,'KeyM',{altKey:true});await page.waitForSelector('.figure-meta');await openAnnotation(page);h.ok(!!await page.$('.figure-meta'),'Figure-Meta stays open beneath Annotate');await cancelAnnotation(page);await page.focus('.figure-meta');await page.keyboard.press('Escape');await waitFor(page,()=>!document.querySelector('.figure-meta'),null,{label:'Figure-Meta closed'});
  await page.evaluate(async()=>{const F=window.__flux,root=F.get(F.shell.currentProject).path;await window.fig.writeText(root+'/plots/_dissections/annotation/overview.svg','<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="blue"/></svg>');F.fig.selectOnly('annot-plot');});

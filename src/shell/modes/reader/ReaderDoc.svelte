@@ -261,8 +261,9 @@
   $effect(() => {
     const f = $readerFind;
     if (f.nonce === lastFindOpenNonce) return;
+    if (f.key !== citekey || !active) return;
     lastFindOpenNonce = f.nonce;
-    if (f.key !== citekey) return;
+    if (f.page !== undefined) scrollTo = { page: Math.max(1, f.page), nonce: ++nonce };
     if (!f.term) {
       clearFind();
       return;

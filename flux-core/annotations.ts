@@ -8,10 +8,9 @@ import {
   type AnnotationEvent, type ItemOverlay, type SessionRef,
 } from "../src/lib/project/annotations";
 import {
-  buildInbox, filterInbox, docCandidates, parseInboxQuery, type InboxFilter, type InboxItem, type FilterContext,
+  buildInbox, filterInbox, resolveInboxFilter, parseInboxQuery, type InboxFilter, type InboxItem,
 } from "../src/lib/project/inbox";
 import { liveSessions, parsePresence, PRESENCE_DIR_REL } from "../src/lib/project/presence";
-import { createFigureReferenceResolver } from "../src/lib/figureReferences";
 import { detectAgentIdentity, type AgentIdentity } from "./agentIdentity";
 import { listProjectComments, replyToComment, resolveProjectComment } from "./comments";
 import { listDocuments } from "./manuscript";
@@ -124,25 +123,11 @@ export async function prepareInboxFilter(root: string, snapshot: InboxSnapshot, 
   const filter = { ...parseInboxQuery(opts.query ?? "", { docs: snapshot.documents.map(d => d.path) }), ...opts.filter };
   const session = inboxSession(caller);
   if (opts.mine) filter.holder = session.id;
-  if (filter.doc) {
-    const candidates = docCandidates(snapshot.documents.map(d => d.path), filter.doc);
-    if (candidates.length > 1) throw new ValidationError(`ambiguous document "${filter.doc}": ${candidates.join(", ")}`);
-    if (candidates.length === 1) filter.doc = candidates[0];
-  }
-  const context: FilterContext = { sessionId: session.id };
-  if (filter.figure) {
-    const { project } = await loadFigModel(root);
-    context.figureAliases = new Map(project.figures.map(f => [f.id, [f.name, f.nickname ?? "", f.referenceKey ?? ""]]));
-    const resolve = createFigureReferenceResolver(project.figures.map(f => ({ label: f.referenceKey ?? f.id, id: f.id })));
-    const found = resolve(filter.figure.replace(/^@/, ""));
-    if (found) filter.figure = found.ref.id;
-    else {
-      const wanted = filter.figure.toLowerCase();
-      const hits = project.figures.filter(f => [f.id, ...(context.figureAliases!.get(f.id) ?? [])].some(n => n.toLowerCase() === wanted));
-      if (hits.length > 1) throw new ValidationError(`ambiguous figure "${filter.figure}": ${hits.map(f => f.id).join(", ")}`);
-    }
-  }
-  return { filter, context };
+  try {
+    const figures = filter.figure ? (await loadFigModel(root)).project.figures : [];
+    const resolved = resolveInboxFilter(filter, snapshot.documents.map(d => d.path), figures);
+    return { filter: resolved.filter, context: { ...resolved.context, sessionId: session.id } };
+  } catch (e) { throw new ValidationError((e as Error).message); }
 }
 export async function listInbox(root: string, opts: ListInboxOptions = {}, caller: InboxCaller = {}) {
   const snapshot = await readInbox(root);

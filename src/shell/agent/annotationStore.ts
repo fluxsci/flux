@@ -8,7 +8,8 @@ import { buildInbox, sortForInbox, type InboxItem } from "../../lib/project/inbo
 import { liveSessions, parsePresence, PRESENCE_DIR_REL, type PresenceSession } from "../../lib/project/presence";
 import { feedbackRevision, presenceRevision } from "../../lib/project/projectWatch";
 import { currentProject } from "../shellStore";
-import { annotationOpen, closeAnnotation, requestAnnotation, discardAnnotationBuffer } from "./annotateChord";
+import { annotationOpen, closeAnnotation, discardAnnotationBuffer } from "./annotateChord";
+import { requestInbox } from "../inbox/inboxState";
 import { pushToast } from "../../lib/toast";
 
 const presenceConsumers = writable(0);
@@ -21,7 +22,7 @@ export function retainPresence(): () => void {
 
 export const annotationState = writable<AnnotationState>(foldAnnotations([]));
 export const sessions = writable<PresenceSession[]>([]);
-export const selectedQueueItem = writable<string | null>(null);
+export const editAnnotationRequest = writable<InboxItem | null>(null);
 export const projectGeneration = writable(0);
 export const annotationRoute = writable<Route>("none");
 export const annotationInbox = derived([annotationState, sessions], ([state, presence]) => {
@@ -37,10 +38,6 @@ const routeKey = () => `flux.annotate.route:${root ?? ""}`;
 export function rememberRoute(route: Route): void {
   annotationRoute.set(route);
   if (root) try { localStorage.setItem(routeKey(), JSON.stringify(route)); } catch { /* preferences unavailable */ }
-}
-function openItem(id: string) {
-  selectedQueueItem.set(id);
-  if (!get(annotationOpen)) requestAnnotation();
 }
 export async function refreshAnnotations(toastNew = false): Promise<void> {
   const ownerRoot = root, owner = generation, id = ++refreshId;
@@ -62,7 +59,7 @@ export async function refreshAnnotations(toastNew = false): Promise<void> {
     const label = item.text.length > 60 ? item.text.slice(0, 57) + "…" : item.text;
     const agent = item.claimedBy?.name ?? item.lastHolder?.name ?? state.byId.get(item.id)?.resolvedBy ?? item.thread.at(-1)?.author ?? "Agent";
     if (item.status === "resolved") pushToast("success", `✓ ${agent} resolved: ${label}`);
-    else if (item.status === "needs-input") pushToast("info", `${agent} has a question: ${label}`, { action: { label: "Open annotation", run: () => openItem(item.id) } });
+    else if (item.status === "needs-input") pushToast("info", `${agent} has a question: ${label}`, { action: { label: "Open inbox", run: () => requestInbox(item.id) } });
     else if (item.status === "claimed" && !previous.get(item.id)?.startsWith(`claimed:${item.claimedBy?.id}:`)) pushToast("info", `${agent} claimed: ${label}`);
   }
   previous = next;
@@ -141,7 +138,7 @@ export async function addAnnotation(text: string, context: ContextStamp, route: 
   const events: AnnotationEvent[] = opts.replaces ? [makeWithdraw(opts.replaces, "human", "edited"), note] : [note];
   if (typeof route === "object" && "session" in route) events.push(makeAssign(note.id, route.session, "human"));
   await append(ownerRoot, events);
-  if (owner === generation) await refreshAnnotations();
+  if (owner === generation) { await refreshAnnotations(); feedbackRevision.update(n => n + 1); }
 }
 export async function withdrawAnnotation(id: string): Promise<void> {
   if (!root) return;

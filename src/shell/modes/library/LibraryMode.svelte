@@ -18,6 +18,7 @@
   let commandsOpen = $state(false);
   import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
+  import { openLibraryRequest } from "../../command/commandBus";
   import { libraryContext } from "../../../lib/bridge/contextStamp";
   import { registerTargetResolver, boundsOf } from "../../../lib/bridge/targetResolvers";
   import { describeTarget, type TargetRef } from "../../../lib/project/targets";
@@ -85,6 +86,13 @@
   let loading = $state(true);
   let loadError = $state(""); // non-empty when the FluxLib read failed (vs. genuinely empty)
   let query = $state("");
+  $effect(() => {
+    const request = $openLibraryRequest;
+    if (!request || !focused) return;
+    query = request.query ?? "";
+    selected = new Set(request.selectedKeys ?? []);
+    openLibraryRequest.set(null);
+  });
   let scope = $state<"library" | "world">("library");
   let worldMode = $state<"lexical" | "semantic">("lexical");
   let highlighted = $state(0);

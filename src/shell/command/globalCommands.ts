@@ -1,3 +1,4 @@
+import { requestInbox } from "../inbox/inboxState";
 import { requestAnnotation } from "../agent/annotateChord";
 import { openAI } from "../agent/aiMonitorState";
 // The GlobalPalette command list (non-paper modes; PaperMode appends the same
@@ -34,6 +35,7 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
   const cmds: Command[] = [{ id: "figure-metadata", title: "Figure-Meta: captions and names", hint: "Alt+M", keywords: "figure metadata caption name family", run: () => openFigureMeta() }];
   if (hasProject) {
     cmds.push(
+      { id: "inbox", title: "Inbox", hint: "Alt+Q", keywords: "annotations comments review replies", run: () => requestInbox() },
       { id: "ctx-project-context", title: "Open project context", hint: "Context", keywords: "background goals project context links briefing", run: () => openDoc(CONTEXT_PATHS.projectContext) },
       { id: "ctx-notebook", title: "Open notebook", hint: "Context", keywords: "agent memory log", run: () => openDoc(CONTEXT_PATHS.notebook) },
       { id: "ctx-rules", title: "Open project rules", hint: "Context", keywords: "conventions", run: () => openDoc(CONTEXT_PATHS.rules) },

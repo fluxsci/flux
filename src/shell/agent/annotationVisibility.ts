@@ -13,11 +13,19 @@ export function isAnnotateChord(e: KeyboardEvent): boolean {
   return (e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === "KeyM";
 }
 
-/** A shell-level panel that owns the keyboard while open (the AI panel, when docked).
- *  Its own state module drives this, so leaf handlers never import it. */
-export const shellPanelOpen = writable(false);
+/** Shell-level panels that own the keyboard while docked (the AI panel, the Inbox).
+ *  Each panel's own state module reports itself here, so leaf handlers never import it. */
+const dockedPanels = writable<ReadonlySet<string>>(new Set());
+export function setShellPanel(name: string, open: boolean): void {
+  dockedPanels.update((s) => {
+    if (s.has(name) === open) return s;
+    const next = new Set(s);
+    if (open) next.add(name); else next.delete(name);
+    return next;
+  });
+}
 
 /** Window-level handlers yield without swallowing the composer's own events. */
 export function yieldsToShellModal(_e: Event): boolean {
-  return get(annotationOpen) || get(shellPanelOpen);
+  return get(annotationOpen) || get(dockedPanels).size > 0;
 }

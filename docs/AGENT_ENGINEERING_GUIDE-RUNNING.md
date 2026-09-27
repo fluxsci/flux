@@ -1095,22 +1095,6 @@ Persistence invariants (all machine-checked — do not weaken):
     batches deduplicate exact element/part targets. Keyboard navigation reveals its active
     row. Regeneration pins the original project/plot before awaits; re-rooting cannot redirect
     the result, and stale ownership discards it.
-  - **Snapshot & annotate (Ctrl+Shift+S) = `shell/agent/AnnotateCapture.svelte` +
-    `project/feedbackCapture.ts` (pure).** The "point at it" half of Note to agent: the
-    overlay captures the window FIRST (`win:capture` → `webContents.capturePage` on the
-    sender, read scope, Electron only) and draws on the frozen picture, so the tool strip is
-    never in the crop; marks are arrows / boxes / pen strokes with number badges, each
-    anchored to the element under its tip (`anchorPathOf`: up to four named ancestors,
-    Svelte hashes and bare wrappers skipped, plus short text). Enter composes the crop
-    (`snapshotCrop`: mark bounds + 48 px, ≥ 240×160, clamped; whole window with no marks)
-    into a PNG held in `pendingSnapshot`, shown large in the popover; **Add to queue** writes
-    `.meta/feedback/<noteId>.png` and
-    appends the note whose stamp carries `snapshot` (image path, rect, window, marks) —
-    never the other order, so a cancelled note leaves no file. `describeStamp` prints
-    `snapshot ×N (1 → button.tool "Gallery", …)` for the popover header and `flux inbox`
-    alike. A browser build has no capture: marks + anchors still land, `image` is null.
-    Gates: `verify-feedback-snapshot.ts` (pure), `verify-annotate-gui.mjs` (ui),
-    `verify-ipc-contract.ts` (the channel).
   - **Taking a note back = the `withdraw` ledger event.** `foldAnnotations` retains a
     withdrawn item for audit; `flux inbox` hides it by default, `--status all` includes it,
     and `resolve` refuses it. The v2 ledger has no sent queue or send boundary. The
@@ -1140,6 +1124,23 @@ Persistence invariants (all machine-checked — do not weaken):
     marks force it on. A missing native capture keeps semantic targets and marks.
     A retained draft keeps its picture and context together; a changed view requires
     explicit refresh before drawing again, preserving text and clearing old marks.
+  - **Inbox (Alt+Q) = `shell/inbox/InboxPanel.svelte`.** Lazy and idle-prefetched,
+    opened by titlebar count, palette or the reserved physical left-hand chord. The
+    composer's old Queued list is replaced by Open inbox. List rows virtualize above
+    200 items; `verify-scale-inbox.mjs` pins 1,000-item filter/scroll and mounted-row
+    budgets. `verify-inbox-gui.mjs` compares the GUI with the CLI on one core fixture.
+    IO lives in `inboxStore.ts`; `buildInbox`/`filterInbox`/`resolveInboxFilter` and
+    `parseInboxQuery` remain pure shared policy. `commentBridge.listAllComments`
+    uses canonical document discovery and shared `commentsSidecarRels` (including
+    both historical main-document sidecars), just like headless. Replies to a live
+    Paper document go through its registered comment owner and flush; cold replies
+    hold the manuscript lease and use `appendCommentMessage`. Feedback, comment,
+    and presence changes refresh the view; TTL expiry also refreshes while open.
+    Pin/dock uses the inert allowlisted `inbox.html`, native element event listeners,
+    and a destination-window ResizeObserver. Pending writes participate in lifecycle
+    flush. Drafts survive close/pin/dock and clear on project change. Annotate forwards
+    from pinned Inbox like the gallery. `shell/navigation.ts` dispatches to existing
+    document/deck/Reader handshakes and Figure's selection + sidebar-centre primitive.
   - **One context/target vocabulary.** `bridge/contextStamp.ts` feeds annotations AND
     `getAppContext` (the Figure digest remains). Modes register in `bridge/targetResolvers.ts`;
     selection chips and hover use pure `TargetRef` / `describeTarget` / `widenTarget`.
@@ -7359,3 +7360,8 @@ gate, replacing it with its current successor; no threshold was relaxed.
 old doctor success conceal a fresh launcher failure. Check that the sender's bridge
 is listening and published. Open a newly authored skill even when publication needs
 repair. Linked worktree/packed refs let cached source-install status stay file-only.
+### 2026-09-27 08:19 UTC — Unified Inbox panel (Codex, aio/f1-inbox)
+**Work:** Added the lazy, idle-prefetched Inbox, Alt+Q/titlebar/palette entry, grouped virtual list, shared query chips, replies/actions, saved-target navigation and inert pin/dock window. Promoted the shared sidecar discovery and live Paper comment-owner rules into §4, removed the retired two-stage snapshot description, and updated the old queue documentation/gate to use Open inbox. Verification: check 0 errors/0 warnings (890 files), headless check and build pass; pure tier 307/307 (unchanged source during the cohort), including Inbox 165, chord census 46 and pathMap 92 checks; browser/scale/native/startup and paper-gate are reserved for the orchestrator.
+**Learnings:**
+- Inbox must route a live document reply through its Paper comment owner; cold sidecar writes alone can be lost to that owner's later autosave. Read both legacy main-document sidecars using the shared policy.
+- Document-range navigation must wait for the destination EditorView mount, and focus an existing owner in a split before consuming the request. Pinned lists recreate ResizeObserver in the destination window.

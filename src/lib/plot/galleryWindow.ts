@@ -1,3 +1,4 @@
+import { isInboxChord, requestInbox, inboxOpen, inboxCloseRequest } from "../../shell/inbox/inboxState";
 import { get } from "svelte/store";
 import { isAnnotateChord, requestAnnotation, annotationOpen } from "../../shell/agent/annotateChord";
 /** Move the mounted view, retaining its Svelte state and the opener's store/IO.
@@ -35,8 +36,13 @@ export function openUtilityWindow(node: HTMLElement, onClose: () => void, onDocu
   function annotationKey(e: KeyboardEvent) {
     if (isAnnotateChord(e)) {
       e.preventDefault(); e.stopImmediatePropagation();
-      if (!e.repeat) requestAnnotation({ utility: { name: options.frame === "flux-plot-gallery" ? "gallery" : options.frame === "flux-ai-status" ? "ai-status" : "figure-meta", window: popup } });
-    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyS") {
+      if (!e.repeat) requestAnnotation({ utility: { name: options.frame === "flux-plot-gallery" ? "gallery" : options.frame === "flux-ai-status" ? "ai-status" : options.frame === "flux-inbox" ? "inbox" : "figure-meta", window: popup } });
+    } else if (isInboxChord(e) && !get(annotationOpen)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) {
+        if (options.frame === "flux-inbox" && get(inboxOpen)) inboxCloseRequest.update(n => n + 1);
+        else { requestInbox(); window.focus(); }
+      }    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyS") {
       e.preventDefault(); e.stopImmediatePropagation();
     } else if (get(annotationOpen)) {
       e.preventDefault(); e.stopImmediatePropagation();

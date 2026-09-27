@@ -5,6 +5,8 @@
   import { paperHeading } from "../../../lib/bridge/contextStamp";
   import { registerPaperTargets, nearestHeading } from "./paperTargets";
   import { onMount, onDestroy } from "svelte";
+  import { registerCommentOwner } from "../../../lib/project/commentBridge";
+  import { commentsSidecarRels } from "../../../lib/project/docOrder";
   import { get } from "svelte/store";
   import { EditorView } from "@codemirror/view";
   import { projectModel } from "../../shellStore";
@@ -719,6 +721,15 @@
     if (activeComment === id) activeComment = null;
     syncRanges();
   }
+  $effect(() => {
+    const root = pm?.root, doc = activeDocPath;
+    if (!root || !doc || !ready) return;
+    return registerCommentOwner(root, doc, async (id, intent) => {
+      if (intent.kind === "reply") replyComment(id, intent.body);
+      else reopenComment(id);
+      await flushComments();
+    });
+  });
   function replyComment(id: string, body: string) {
     // The same pure append the headless inbox uses (twin rule); `kind` tells the inbox a human answered.
     threads = appendCommentMessage({ version: 1, threads }, id, { author: commentAuthor, body, createdAt: new Date().toISOString(), kind: "human" }).threads;
@@ -2033,18 +2044,6 @@
     refreshIdleNow(); // external reload is immediate, not debounced
     reanchorComments(); // PAP-4: re-attach comment marks to the new text (calls syncRanges)
   }
-  // The active document's comments sidecar (mirrors flux-core commentsRel /
-  // comments.ts commentsPath): main doc → comments.json, others → <base>.comments.json.
-  function commentsSidecarRel(): string {
-    const mainPath = pm ? commentsMainPath(pm.manifest) : "";
-    const mp = activeDocPath;
-    const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
-    const isMain = mp === mainPath;
-    const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
-    const name = isMain ? "comments.json" : `${base}.comments.json`;
-    return dir ? `${dir}/${name}` : name;
-  }
-
   // F1 live reload for review comments: an external resolve/edit to the active
   // doc's comments.json refreshes the margin in place. Non-destructive — skipped
   // while the human is composing a draft, so in-progress work is never clobbered.
@@ -2071,7 +2070,7 @@
     if (!chg || !pm || documentBusy) return;
     await refreshDocuments();
     if (!view || !activeDocPath) return;
-    if (chg.path.endsWith(commentsSidecarRel())) {
+    if (commentsSidecarRels(pm.manifest, activeDocPath).some(rel => chg.path.endsWith(rel))) {
       await reloadCommentsFromDisk(); // comments sidecar changed → refresh margin in place
       return;
     }
@@ -2503,11 +2502,24 @@
   });
   $effect(() => {
     const req = $openDocRequest;
-    if (req && req.n !== seenDocReq && ready && (view || blockedByTwin) && focused) {
+    if (!req || !ready || !focused) return;
+    const claimer = paneEditingDoc(req.path, paneId);
+    if (claimer) { focusPane(claimer); return; }
+    if (req.n !== seenDocReq) {
       seenDocReq = req.n;
-      openDocRequest.set(null);
       void loadDocument(req.path);
     }
+    // A newly loaded document creates its EditorView on the next mount.
+    if (!view || activeDocPath !== req.path || blockedByTwin) return;
+    if (req.from !== undefined) {
+      const text = view.state.doc.toString();
+      const resolved = req.quote ? resolveAnchor(text, { start: req.from, end: req.to ?? req.from, quote: req.quote, prefix: "", suffix: "" }) : null;
+      const from = resolved?.from ?? Math.max(0, Math.min(text.length, req.from));
+      const to = resolved?.to ?? Math.max(from, Math.min(text.length, req.to ?? from));
+      view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: "center" }) });
+      view.focus();
+    }
+    openDocRequest.set(null);
   });
 
   $effect(() => {

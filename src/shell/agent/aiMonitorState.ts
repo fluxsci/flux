@@ -1,12 +1,12 @@
 // Small eager store; the panel and its IO actions are loaded on demand.
 import { derived, get, writable } from 'svelte/store';
-import { shellPanelOpen } from './annotationVisibility';
+import { setShellPanel } from './annotationVisibility';
 import { fileBridge } from '../../lib/project/types';
 import { emptyMonitorStatus, monitorColor, type AgentId, type AgentMonitorStatus } from '../../lib/project/agentMonitor';
 export const aiOpen = writable(false);
 export const aiDetached = writable(false);
 // The docked panel owns the keyboard like a modal (a pinned window does not).
-derived([aiOpen, aiDetached], ([open, detached]) => open && !detached).subscribe(v => shellPanelOpen.set(v));
+derived([aiOpen, aiDetached], ([open, detached]) => open && !detached).subscribe(v => setShellPanel('ai', v));
 export const aiRequest = writable<{ connect?: AgentId; newSkill?: boolean } | null>(null);
 export const aiStatus = writable<AgentMonitorStatus>(emptyMonitorStatus());
 let dismissed = false;
