@@ -15,6 +15,8 @@ import { sessions } from "./sessionState";
 import { visibleSessions } from "../../lib/project/agentRouting";
 export { sessions } from "./sessionState";
 
+export { backgroundAvailable } from "../inbox/backgroundState";
+
 const presenceConsumers = writable(0);
 const presenceVisible = derived([annotationOpen, presenceConsumers], ([open, count]) => open || count > 0);
 export function retainPresence(): () => void {
@@ -98,6 +100,7 @@ function schedulePresence(): void {
 export function initAnnotationStore(): void {
   if (wired) return;
   wired = true;
+  void import("../inbox/backgroundStore").then(m => m.initBackgroundRuns());
   let initial = true;
   currentProject.subscribe(p => {
     const next = p?.path ?? null;
@@ -147,6 +150,10 @@ export async function addAnnotation(text: string, context: ContextStamp, route: 
   if (typeof route === "object" && "session" in route) events.push(makeAssign(note.id, route.session, "human"));
   await append(ownerRoot, events);
   if (owner === generation) { await refreshAnnotations(); feedbackRevision.update(n => n + 1); }
+  if (owner === generation && typeof route === "object" && "background" in route) {
+    try { await (await import("../inbox/backgroundStore")).startBackgroundRun(ownerRoot, note.id, route.background); }
+    catch (e) { pushToast("error", "Annotation saved; background agent could not start", { detail: (e as Error).message }); }
+  }
 }
 export async function withdrawAnnotation(id: string): Promise<void> {
   if (!root) return;

@@ -185,7 +185,7 @@ export const VERBS: VerbDef[] = [
     summary:
       "flux-connect: load a Flux project (a path to or inside it), `global`, or the project around cwd. Returns a brief to follow (what to read and look at, then a receipt) and binds the project. Only when the user asks for flux-connect.",
     params: { target: z.string().optional(), live: z.boolean().optional(), refresh: z.boolean().optional(),
-      depth: z.enum(["core", "full", "ask"]).optional(), budget: z.number().int().positive().optional(),
+      depth: z.enum(["core", "full", "ask", "task"]).optional(), budget: z.number().int().positive().optional(),
       noRender: z.boolean().optional(), json: z.boolean().optional() },
     notAPath: { target: "a project path, `global`, or omitted; resolved by connect itself (walk-up to project.json)" },
     cliOnlyFlags: {
@@ -206,7 +206,7 @@ export const VERBS: VerbDef[] = [
         target: a.target as string | undefined,
         // Over MCP a relative or omitted target resolves from the bound project (else the server's cwd, which Claude Code sets to the session's).
         cwd: ctx.mcp ? ctx.root || process.cwd() : process.cwd(),
-        depth: a.depth as "core" | "full" | "ask" | undefined,
+        depth: a.depth as "core" | "full" | "ask" | "task" | undefined,
         live: a.live as boolean | undefined,
         refresh: a.refresh as boolean | undefined,
         budget: a.budget as number | undefined,

@@ -30,6 +30,7 @@
 
   import { inboxOpen } from "./inbox/inboxState";
   import { installAnnotateChord, annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
+  import { backgroundPermissions } from "./inbox/backgroundState";
   import { askOpen, askRequest, closeAsk } from "./agent/askChord";
   // Run during parent initialization, before any child mounts its listeners.
   onDestroy(installAnnotateChord());
@@ -174,6 +175,8 @@
   {#if $aiOpen && AI}<AI />{/if}
   {#if homePalette && $view === "home"}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => homePalette = false} />{/if}
   {#if Ask && $askOpen && $askRequest}{#key $askRequest.generation}<Ask request={$askRequest} />{/key}{/if}
+
+  {#if $backgroundPermissions.length}{#await import("./inbox/BackgroundApproval.svelte") then module}<module.default />{/await}{/if}
 
   {#if capture}
     <div

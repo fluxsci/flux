@@ -38,12 +38,14 @@ function capTokens(text: string, max: number): string {
 export interface AskBlocks {
   askRules: string | null;
   askSummary: string | null;
+  taskRules?: string | null;
 }
 
-export function renderAskPack(facts: ConnectFacts, blocks: AskBlocks): string {
+export function renderAskPack(facts: ConnectFacts, blocks: AskBlocks, mode: "ask" | "task" = "ask"): string {
   const p = facts.project;
-  const L: string[] = [`# Flux · ask pack${p ? ` · project "${p.title}"` : ""}`, ""];
-  L.push(blocks.askRules ?? "You are answering a quick question inside the Flux app about what the user is looking at. Be read-only and concise, and cite what you looked at.", "");
+  const L: string[] = [`# Flux · ${mode} pack${p ? ` · project "${p.title}"` : ""}`, ""];
+  if (mode === "task" && !blocks.taskRules) throw new Error("CONNECT.md is missing its task-rules block");
+  L.push((mode === "task" ? blocks.taskRules : blocks.askRules) ?? "You are answering a quick question inside the Flux app about what the user is looking at. Be read-only and concise, and cite what you looked at.", "");
   if (blocks.askSummary) L.push("## Flux", "", blocks.askSummary, "");
   const lists: string[] = [];
   if (p) {

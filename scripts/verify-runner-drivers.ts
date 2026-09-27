@@ -34,7 +34,7 @@ try {
   h.ok(events.some(e => e.reason?.includes('Repair')) && !events.some(e => e.fatal), 'missing MCP warns; empty skills and apiKeySource:none are not bare evidence');
   parse({ type: 'system', subtype: 'init', bare: true });
   h.ok(events.some(e => e.fatal && e.message.includes('bare mode')), 'explicit bare mode fails with guidance');
-  const cc = claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt');
+  const cc = claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompt-tool --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt');
   h.ok(cc.available && !cc.promptFile && !claude.capabilities('old','').available, 'Claude caps require safe flags and support prompt-text fallback');
   h.ok(!codex.capabilities('old', '--json', '').available, 'Codex missing flags disable driver');
   const o = { caps: cc, packText: 'PACK', packPath: '/pack', mcpPath: '/mcp', runDir: '/run', launcher: '/flux', root: '/project', cwd: '/project', model: 'model', effort: 'high', resume: 'thread', images: ['/a.png','/b.png'] };
@@ -43,13 +43,25 @@ try {
   h.ok(a.includes('dontAsk') && a[a.indexOf('--permission-prompts')+1] === 'none' && a.includes('--strict-mcp-config') && a.includes('PACK'), 'Claude safe profile and fallback pack');
   const after = (flag: string) => a[a.indexOf(flag) + 1];
   h.eq([after('--tools'), after('--allowedTools'), after('--add-dir')], ['Read,Grep,Glob', 'mcp__flux', '/run'], 'Claude built-ins are Read/Grep/Glob only; the read-only Flux server and the image run dir are pre-approved');
-  h.ok(!claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --permission-mode --permission-prompts --disallowedTools --strict-mcp-config --mcp-config --resume --append-system-prompt').available, 'Claude without --tools/--allowedTools/--add-dir is unavailable, not unrestricted');
+  h.ok(!claude.capabilities('v1', '--input-format --output-format --verbose --include-partial-messages --permission-mode --permission-prompt-tool --permission-prompts --disallowedTools --strict-mcp-config --mcp-config --resume --append-system-prompt').available, 'Claude without --tools/--allowedTools/--add-dir is unavailable, not unrestricted');
   h.ok(JSON.parse(claude.turn('QUESTION',['/a.png'])).message.content.includes('/a.png'), 'Claude image fallback asks Read on exact PNG path');
   h.eq(c.slice(-2), ['--','-'], 'Codex images end before stdin sentinel');
   h.ok(c.includes('resume') && c[c.indexOf('resume')+1] === 'thread' && !c.includes('-C') && !c.includes('-s'), 'Codex resume respects its smaller argument grammar');
   h.ok(c.includes('mcp_servers={}') && c.some((x:string) => x.includes('FLUX_MCP_READONLY="1"')) && c.includes('approval_policy="never"') && c.includes('sandbox_mode="read-only"'), 'Codex replaces all MCP servers and keeps read-only approval profile');
   h.ok(codex.args({...o,resume:undefined}).includes('-s'), 'new Codex turn uses read-only sandbox flag');
   h.eq(codex.turn('next','PACK',true),'next','resume does not prepend pack twice');
+  const task = { ...o, mode: 'task', uvProject: true, mcpEnv: { FLUX_CLIENT:'fluxchat', FLUX_PROJECT:'/project', FLUX_RUNNER_TOKEN:'token', FLUX_BACKGROUND:'1' } };
+  const ta = claude.args(task), tc = codex.args({...task, resume:undefined});
+  h.eq(ta[ta.indexOf('--tools')+1], 'Read,Grep,Glob,Edit,Write,Bash', 'task has exactly the six approved Claude built-ins');
+  h.ok(ta.includes('acceptEdits') && !ta.includes('--permission-prompts') && ta.includes('mcp__flux__approve'), 'Claude tasks escalate through the permission-prompt tool');
+  h.eq(ta.slice(ta.indexOf('--add-dir')), ['--add-dir','/project','/run','--allowedTools','mcp__flux','Bash(/flux *)','Bash(uv run *)'], 'task directories and variadic allowlist are last, without a positional prompt');
+  h.ok(!claude.args({...task, uvProject:false}).includes('Bash(uv run *)'), 'uv allow rule requires both workspace files');
+  h.ok(!claude.capabilities('old', '--input-format --output-format --verbose --include-partial-messages --tools --permission-mode --permission-prompts --allowedTools --disallowedTools --add-dir --strict-mcp-config --mcp-config --resume --append-system-prompt').available, 'missing permission-prompt-tool disables older Claude');
+  h.ok(tc.includes('workspace-write') && tc.includes('approval_policy="never"'), 'Codex task uses workspace-write and never prompts');
+  h.ok(tc.indexOf('mcp_servers.flux.default_tools_approval_mode="approve"') > tc.findIndex((a:string)=>a.startsWith('mcp_servers.flux={')), 'Codex Flux write-tool approval override follows the replacement server config');
+  h.ok(!tc.some((a:string)=>a.includes('FLUX_MCP_READONLY="1"')) && tc.some((a:string)=>a.includes('FLUX_RUNNER_TOKEN="token"')), 'Codex tasks receive their own writable server and run token');
+  h.ok(!codex.args(task).includes('-s') && codex.args(task).includes('sandbox_mode="workspace-write"'), 'task resume preserves smaller grammar and workspace sandbox');
+
   const bin = await installFakeRunner(path.join(temp,'bin'));
   const root = path.join(temp,'project'); await fs.mkdir(root); await fs.writeFile(path.join(root,'project.json'),'{}');
   const log = path.join(temp,'invocations.jsonl'), pidFile = path.join(temp,'descendant.pid');

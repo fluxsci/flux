@@ -316,7 +316,8 @@
       "verify-mcp-readonly.ts",
       "verify-no-retired-agent-layer.ts",
       "verify-connect-e2e.ts",
-      "verify-agent-routing.ts"
+      "verify-agent-routing.ts",
+      "verify-background-run.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -455,7 +456,8 @@
       "verify-annotation-surface-gui.mjs",
       "verify-ai-monitor-gui.mjs",
       "verify-inbox-gui.mjs",
-      "verify-ask-gui.mjs"
+      "verify-ask-gui.mjs",
+      "verify-background-run-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -895,7 +897,8 @@
       "glob": "scripts/{lib/{runnerFixture.cjs,askElectronProbe.cjs},fixtures/runner/**}",
       "run": [
         "verify-runner-drivers.ts",
-        "verify-ask-electron.cjs"
+        "verify-ask-electron.cjs",
+        "verify-background-run.ts"
       ]
     },
     {
@@ -903,7 +906,8 @@
       "run": [
         "verify-runner-drivers.ts",
         "verify-ask-electron.cjs",
-        "verify-ipc-contract.ts"
+        "verify-ipc-contract.ts",
+        "verify-background-run.ts"
       ]
     },
     {
@@ -922,14 +926,16 @@
         "verify-annotate-utility-electron.cjs",
         "verify-ipc-contract.ts",
         "verify-present-core.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-background-run.ts"
       ]
     },
     {
       "glob": "src/lib/project/ask.ts",
       "run": [
         "verify-runner-drivers.ts",
-        "verify-ask-gui.mjs"
+        "verify-ask-gui.mjs",
+        "verify-background-run.ts"
       ]
     },
     {
@@ -1894,6 +1900,30 @@
         "verify-agent-setup.ts",
         "verify-connect-doctor.ts",
         "verify-skill-template.ts"
+      ]
+    },
+    {
+      "glob": "src/shell/inbox/{background*,Background*}",
+      "run": [
+        "verify-background-run.ts",
+        "verify-background-run-gui.mjs",
+        "verify-mcp-readonly.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/backgroundTask.ts",
+      "run": [
+        "verify-background-run.ts",
+        "verify-background-run-gui.mjs",
+        "verify-mcp-readonly.ts"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/runner/task-driver.mts",
+      "run": [
+        "verify-background-run.ts",
+        "verify-background-run-gui.mjs",
+        "verify-mcp-readonly.ts"
       ]
     },
     {
@@ -7611,6 +7641,26 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-background-run.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-background-run-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

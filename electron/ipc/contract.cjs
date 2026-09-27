@@ -148,6 +148,7 @@ const CHANNELS = [
   { channel: "runner:capabilities", kind: "invoke", scope: "read" },
   { channel: "runner:start", kind: "invoke", scope: "spawn" },
   { channel: "runner:send", kind: "invoke", scope: "spawn" },
+  { channel: "runner:respond", kind: "invoke", scope: "spawn" },
   { channel: "runner:cancel", kind: "invoke", scope: "spawn" },
   { channel: "runner:event", kind: "push", scope: "read" },
   // --- agent bridge ---------------------------------------------------------------

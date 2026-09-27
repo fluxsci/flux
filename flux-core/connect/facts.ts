@@ -3,7 +3,7 @@
 // into the pack. Keeping the two apart means every rendering rule is testable
 // on hand-made facts, with no filesystem.
 
-export type ConnectDepth = "core" | "full" | "ask";
+export type ConnectDepth = "core" | "full" | "ask" | "task";
 export type ConnectMode = "project" | "global";
 
 export interface StockDoc {

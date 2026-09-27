@@ -8,7 +8,7 @@
  *   appendJournalLine — provenance journal (project family owns it)
  *   noteWrite         — FILES-family self-write TTL (bridge.json writes)
  */
-function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
+function createAgentFamily({ rootForSender, appendJournalLine, noteWrite, approve }) {
 // ---------------------------------------------------------------------------
   // WS4: live agent context bridge. The renderer pushes its UI context up (cached
   // here) and answers dispatch requests; an external agent (the Flux MCP server)
@@ -57,6 +57,7 @@ function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
     entry.bridge = startBridge({
       root,
       getContext: () => entry.latestContext,
+      approve: async request => { assertOwner(); return approve ? approve(win.webContents.id, root, request) : { behavior: "deny", message: "No app approval handler" }; },
       prepareCapture: () => new Promise((resolve, reject) => {
         assertOwner();
         const id = ++dispatchSeq;

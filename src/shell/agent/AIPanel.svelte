@@ -151,7 +151,7 @@
         </article>
       {/each}
       <details class="other-agents"><summary tabindex="0">Other agents…</summary><p>Register a stdio MCP server named <code>flux</code>, with command <code>{$aiStatus.launcher || '<launcher>'}</code> and argument <code>mcp</code>. It starts with the core toolset; use <code>--toolset full</code> for every tool.</p><p>In your agent, run <code>flux connect {projectRoot ?? 'global'}</code>, then follow its brief. Use your own agent app or terminal.</p></details>
-      <details class="launch-settings" on:toggle={(e) => (launchOpen = e.currentTarget.open)}><summary tabindex="0">Agent that Flux launches (Ask)…</summary>{#if launchOpen}{#await import("./RunnerSettings.svelte") then module}<module.default heading={false} />{/await}{/if}</details>
+      <details class="launch-settings" on:toggle={(e) => (launchOpen = e.currentTarget.open)}><summary tabindex="0">Agent that Flux launches…</summary>{#if launchOpen}{#await import("./RunnerSettings.svelte") then module}<module.default heading={false} />{/await}{/if}</details>
     </section>
     <section aria-label="Bundle"><h2>Bundle</h2>
       <p class="muted">CLI {$aiStatus.version || 'version not checked'} · Owned by {$aiStatus.owner || 'no install detected'}</p>

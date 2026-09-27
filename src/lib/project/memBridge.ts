@@ -78,6 +78,10 @@ export function createMemBridge(): FileBridge & {
       runnerCalls.push({ method: "send", options });
       emitRunner(options.runId, { type: "status", state: "running" });
     },
+    async runnerRespond(options) {
+      runnerCalls.push({ method: "respond", options });
+      emitRunner(options.runId, { type: "permission.closed", permissionId: options.permissionId });
+    },
     async runnerCancel(options) {
       runnerCalls.push({ method: "cancel", options });
       emitRunner(options.runId, { type: "status", state: "cancelled" }); runs.delete(options.runId);

@@ -25,7 +25,7 @@ async function readBridge(root: string): Promise<BridgeInfo | null> {
   } catch { return null; }
 }
 async function request(b: BridgeInfo, route: string, body?: unknown, sessionId?: string): Promise<unknown> {
-  const response = await fetch(`${b.url}${route}`, { method: body === undefined ? 'GET' : 'POST', headers: { authorization: `Bearer ${b.token}`, 'content-type': 'application/json', 'x-flux-client': encodeURIComponent(getClient()), ...(sessionId ? {'x-flux-session': encodeURIComponent(sessionId)} : {}), ...(b.root ? {'x-flux-project':b.root} : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: 'error', signal: AbortSignal.timeout(route === '/dispatch' ? 30000 : route === '/capture' ? 15000 : 3000) });
+  const response = await fetch(`${b.url}${route}`, { method: body === undefined ? 'GET' : 'POST', headers: { authorization: `Bearer ${b.token}`, 'content-type': 'application/json', 'x-flux-client': encodeURIComponent(getClient()), ...(sessionId ? {'x-flux-session': encodeURIComponent(sessionId)} : {}), ...(b.root ? {'x-flux-project':b.root} : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), redirect: 'error', signal: AbortSignal.timeout(route === '/approve' ? 125000 : route === '/dispatch' ? 30000 : route === '/capture' ? 15000 : 3000) });
   const reader = response.body?.getReader();
   if (!reader) throw new Error(`bridge ${route}: empty response`);
   let size = 0; const chunks: Uint8Array[] = [];
@@ -65,4 +65,14 @@ export async function dispatchCommand(root: string, command: unknown): Promise<u
   const j = await request(b, '/dispatch', command) as { ok?: boolean; result?: unknown; error?: string };
   if (j.ok !== true) throw new Error(j.error || 'bridge dispatch refused');
   return j.result;
+}
+
+/** Permission-prompt-tool responses always fail closed, including bridge loss. */
+export async function approve(root: string, token: string, permission: { tool_name: string; input: Record<string, unknown>; tool_use_id?: string }): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
+  try {
+    const b = await readBridge(root); if (!b) throw new Error("Flux app is not reachable");
+    const result = await request(b, "/approve", { token, ...permission }) as { behavior?: string; message?: string };
+    if (result?.behavior === "allow") return { behavior: "allow", updatedInput: permission.input };
+    return { behavior: "deny", message: result?.message || "Permission denied" };
+  } catch (e) { return { behavior: "deny", message: (e as Error).message }; }
 }

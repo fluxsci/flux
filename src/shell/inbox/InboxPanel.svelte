@@ -14,6 +14,7 @@
   import { registerFlushable } from "../lifecycle";
   import { inboxImages } from "./images";
   import { figRevision } from "../scholar/revisions";
+  import BackgroundRun from "./BackgroundRun.svelte";
   import Logomark from "../Logomark.svelte";
   import RecipientList from "../agent/RecipientList.svelte";
   import { retainPresence, assignAnnotation, unassignAnnotation, releaseAnnotation } from "../agent/annotationStore";
@@ -243,6 +244,7 @@
       <section class="detail" aria-label="Inbox detail">
         {#if selected}
           <div class="detail-heading"><span class="status-chip" data-status={selected.status}>{selected.chip}</span><small>{selected.kind} · {selected.id}</small><p>{selected.where}</p></div>
+          <BackgroundRun item={selected} />
           <div class="detail-scroll">
             <div class="origin" class:agent={selected.thread[0]?.kind === "agent"}>{selected.thread[0]?.author ?? "You"} · {selected.thread[0]?.kind === "agent" ? "Agent" : "Human"}</div>
             <p class="full-text">{selected.text}</p>

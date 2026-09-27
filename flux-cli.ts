@@ -264,6 +264,15 @@ const num = (v: unknown): number | undefined =>
 async function main() {
   core.setClient(process.env.FLUX_CLIENT || "cli"); // WS6: journal/lock identity
   const [verb, ...rest] = process.argv.slice(2);
+  // Private runner transport: bounded JSON on stdin, never part of the agent verb registry.
+  if (verb === "runner-task") {
+    if (!process.env.FLUX_RUNNER_TOKEN) throw new Error("runner-task requires a hosted run");
+    let input = "";
+    for await (const chunk of process.stdin) { input += chunk; if (input.length > 1024 * 1024) throw new Error("Task request too large"); }
+    const { backgroundTask } = await import("./flux-core/backgroundTask");
+    console.log(JSON.stringify(await backgroundTask(JSON.parse(input))));
+    return;
+  }
   if (verb === "connect" && ["setup", "doctor", "remove"].includes(rest[0])) {
     const { runAgentSetupCli } = await import("./flux-core/agentSetup");
     await runAgentSetupCli(rest);

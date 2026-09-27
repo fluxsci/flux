@@ -4,6 +4,7 @@
   let { heading = true }: { heading?: boolean } = $props();
   let caps = $state<RunnerCapability[]>([]), loaded = $state(false), error = $state("");
   let driver = $state<RunnerDriver | "">(""), model = $state(""), effort = $state("");
+  let concurrency = $state(2);
   let saving: Promise<unknown> = Promise.resolve();
   const choices = $derived(caps.filter(c => c.detected));
   const selected = $derived(caps.find(c => c.driver === driver));
@@ -16,15 +17,16 @@
       const [found, prefs] = await Promise.all([fb.runnerCapabilities(), fb.prefsGet?.()]);
       if (gone) return;
       caps = found;
-      const p = prefs?.fluxchat as { driver?: RunnerDriver; model?: string; effort?: string } | undefined;
+      const p = prefs?.fluxchat as { driver?: RunnerDriver; model?: string; effort?: string; backgroundConcurrency?: number } | undefined;
       driver = p?.driver ?? found.find(c => c.available)?.driver ?? ""; model = p?.model ?? ""; effort = p?.effort ?? "";
+      concurrency = p?.backgroundConcurrency ?? 2;
       loaded = true;
     })().catch(e => { if (!gone) { error = e.message; loaded = true; } });
     return () => { gone = true; };
   });
   function save() {
     if (!loaded || !driver) return;
-    const fluxchat = { driver, model: model.trim(), effort };
+    const fluxchat = { driver, model: model.trim(), effort, backgroundConcurrency: concurrency };
     saving = saving.catch(() => {}).then(async () => {
       await fileBridge()?.prefsSet?.({ fluxchat }); error = "";
     }).catch(e => { error = `Could not save agent settings: ${e.message}`; });
@@ -43,6 +45,7 @@
   <label>Effort <select bind:value={effort} disabled={!selected?.available || !selected.effort} onchange={save}>
     <option value="">CLI default</option>{#each efforts as value}<option value={value}>{value}</option>{/each}
   </select></label>
+  <label>Background runs <select bind:value={concurrency} onchange={save}>{#each [1, 2, 3] as n}<option value={n}>{n} at a time</option>{/each}</select></label>
   {#each choices.filter(c => !c.available) as c}<p class="error">{c.reason}</p>{/each}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>

@@ -1,0 +1,50 @@
+import { launch, gotoApp, realErrors, waitFor, APP_URL } from './lib/driver.mjs';
+import { harness } from './lib/harness.mjs';
+import { seedAnnotationFigure, chord } from './lib/annotationFixture.mjs';
+const h = harness('verify-background-run-gui'), { browser, page } = await launch({width:1440,height:1000});
+async function emit(event) {
+  await page.evaluate(event => { const run=window.fig._runnerCalls.filter(c=>c.method==='start').at(-1);window.fig._emitRunnerEvent(run.options.runId,event); },event);
+}
+try {
+  await gotoApp(page,{url:APP_URL+'?fixture=demo'});await seedAnnotationFigure(page);
+  await page.evaluate(async()=>{const a=await import('/src/shell/agent/annotationStore.ts');await a.addAnnotation('Background test',{surface:'figure'},'none');});
+  await chord(page,'KeyQ',{altKey:true});await page.waitForSelector('[data-background-item]');
+  await page.click('.background-run .launch summary');
+  await waitFor(page,()=>[...document.querySelectorAll('.background-run .choices button')].some(b=>b.textContent==='Claude Code'&&!b.disabled),null,{label:'background capabilities'});
+  await page.$$eval('.background-run .choices button',bs=>bs.find(b=>b.textContent==='Claude Code').click());
+  await waitFor(page,()=>window.fig._runnerCalls.some(c=>c.method==='start'&&c.options.mode==='task'),null,{label:'task run'});
+  h.ok(await page.evaluate(()=>{const o=window.fig._runnerCalls.find(c=>c.method==='start').options;return !!o.itemId&&!!o.root;}),'Run button starts a task for this exact saved item');
+  await emit({type:'background',name:'wren',display:'bg · claude · wren'});
+  await emit({type:'status',state:'running'});
+  await emit({type:'tool',toolId:'t',title:'Bash',input:{command:'uv run plot.py --width 8'},status:'started'});
+  await waitFor(page,()=>document.querySelector('[aria-label="Background activity"]')?.textContent.includes('uv run plot.py'),null,{label:'actual tool activity'});
+  h.ok(await page.$eval('[aria-label="Background activity"]',e=>e.textContent.includes('bg · claude · wren')),'activity names the background agent');
+  await emit({type:'permission',permissionId:'p1',title:'Bash',detail:JSON.stringify({command:'git push origin main',description:'Publish changes'},null,2),options:[{id:'allow',label:'Allow once'},{id:'deny',label:'Deny'}]});
+  await page.waitForSelector('[aria-label="Background agent permission"]');
+  h.ok(await page.$eval('[data-permission-input]',e=>e.textContent.includes('git push origin main')),'approval modal shows actual command, not only its description');
+  await page.$$eval('.approval-panel button',bs=>bs.find(b=>b.textContent==='Allow once').click());
+  await waitFor(page,()=>!document.querySelector('.approval-panel'),null,{label:'allow once response'});
+  h.ok(await page.evaluate(()=>window.fig._runnerCalls.some(c=>c.method==='respond'&&c.options.optionId==='allow')),'Allow once returns runner response');
+  await emit({type:'permission',permissionId:'p2',title:'Write',detail:'{"file_path":"/outside/report.md","content":"actual contents"}',options:[{id:'allow',label:'Allow once'},{id:'deny',label:'Deny'}]});
+  await page.waitForSelector('.approval-panel');await page.$$eval('.approval-panel button',bs=>bs.find(b=>b.textContent==='Deny').click());
+  await waitFor(page,()=>!document.querySelector('.approval-panel'),null,{label:'deny response'});
+  h.ok(await page.evaluate(()=>window.fig._runnerCalls.some(c=>c.method==='respond'&&c.options.optionId==='deny')),'Deny returns runner response');
+  await emit({type:'session',sessionId:'resumable-session'});await emit({type:'status',state:'idle'});
+  await page.type('[aria-label="Reply to inbox item"]','Please clarify');await page.keyboard.press('Enter');
+  await waitFor(page,()=>window.fig._runnerCalls.some(c=>c.method==='send'),null,{label:'human follow-up resumes'});
+  h.ok(await page.evaluate(()=>window.fig._runnerCalls.find(c=>c.method==='send').options.text==='Please clarify'),'saved human reply resumes the same run');
+  await emit({type:'status',state:'running'});
+  await page.type('[aria-label="Reply to inbox item"]','One more point');await page.keyboard.press('Enter');
+  await waitFor(page,()=>document.querySelector('[aria-label="Item thread"]')?.textContent.includes('One more point'),null,{label:'busy reply saved'});
+  h.eq(await page.evaluate(()=>window.fig._runnerCalls.filter(c=>c.method==='send').length),1,'busy follow-up waits without interrupting the current turn');
+  await emit({type:'status',state:'idle'});
+  await waitFor(page,()=>window.fig._runnerCalls.filter(c=>c.method==='send').length===2,null,{label:'queued follow-up resumed'});
+  await emit({type:'status',state:'running'});
+  await page.$$eval('.background-run button',bs=>bs.find(b=>b.textContent==='Stop').click());
+  await waitFor(page,()=>window.fig._runnerCalls.some(c=>c.method==='cancel'),null,{label:'cancel task'});
+  h.ok(await page.$eval('[aria-label="Background activity"]',e=>e.textContent.includes('cancelled')),'Stop updates the activity strip');
+  await page.evaluate(async()=>{const a=await import('/src/shell/agent/annotationStore.ts');await a.addAnnotation('Routed task',{surface:'figure'},{background:'codex'});});
+  h.ok(await page.evaluate(()=>window.fig._runnerCalls.filter(c=>c.method==='start').at(-1).options.driver==='codex'),'saving a background-routed annotation starts its selected driver');
+  h.eq(realErrors(page),[],'console clean');
+} catch(e) {h.fail(e.stack||String(e));}
+await h.done(()=>browser.close());

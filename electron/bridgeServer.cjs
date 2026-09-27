@@ -27,10 +27,11 @@ const path = require("node:path");
  * @param {(cmd:any) => Promise<any>} o.dispatch   apply a command in the renderer
  * @param {(p:string)=>void} [o.noteWrite] mark a path as a self-write
  * @param {() => Promise<{allowed:boolean, stamp:any}>} [o.prepareCapture] fresh renderer consent/context
+ * @param {(request:any) => Promise<any>} [o.approve] runner-owned permission request
  * @param {() => Promise<any>} [o.capture] owning webContents.capturePage
  * @param {(event:{root:string, client:string, sessionId?:string, at:string}) => void | Promise<void>} [o.onCaptured]
  * @returns {{ stop: () => void, pushContext: (ctx:any) => void, isRunning: () => boolean }} */
-function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, capture, onCaptured }) {
+function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, capture, onCaptured, approve }) {
   const token = crypto.randomBytes(24).toString("hex");
   const sse = new Set();
 
@@ -62,7 +63,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
       req.on("close", () => sse.delete(res));
       return;
     }
-    if (req.method === "POST" && (url === "/dispatch" || url === "/capture")) {
+    if (req.method === "POST" && (url === "/dispatch" || url === "/capture" || url === "/approve")) {
       let body = "";
       req.on("data", (d) => {
         body += d;
@@ -74,6 +75,10 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
           cmd = JSON.parse(body || "{}");
         } catch {
           return json(res, 400, { ok: false, error: "invalid JSON" });
+        }
+        if (url === "/approve") {
+          try { return json(res, 200, approve ? await approve(cmd) : { behavior: "deny", message: "No app approval handler" }); }
+          catch { return json(res, 200, { behavior: "deny", message: "Flux window is unavailable" }); }
         }
         if (url === "/capture") {
           if (!cmd || typeof cmd !== "object" || Array.isArray(cmd) ||

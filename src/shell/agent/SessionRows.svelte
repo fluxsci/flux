@@ -5,6 +5,7 @@
   import { requestSessionInbox } from "../inbox/inboxState";
   import { sessionWork } from "../../lib/project/agentRouting";
   import type { PresenceSession } from "../../lib/project/presence";
+  import BackgroundStop from "../inbox/BackgroundStop.svelte";
 
   export let onshow = () => {};
   let busy = new Set<string>(), error = "", notice = "";
@@ -37,6 +38,7 @@
       <p class="connected">Connected since <time datetime={session.startedAt}>{new Date(session.startedAt).toLocaleString()}</time></p>
       <p class="claims">Current claim: {claims.map(i => i.text).join("; ") || "None"}</p>
       <div class="actions">
+        {#if session.background}<BackgroundStop sessionId={session.id} />{/if}
         {#if session.watching}<button disabled={busy.has(session.id)} on:click={() => act(session, "stop")}>Stop watching</button>{/if}
         <button disabled={busy.has(session.id)} on:click={() => act(session, "copy")}>Copy name</button>
         <button disabled={busy.has(session.id)} on:click={() => act(session, "show")}>Show its items</button>

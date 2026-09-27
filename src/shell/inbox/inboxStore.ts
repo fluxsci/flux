@@ -117,6 +117,7 @@ export async function changeInboxItem(item: InboxItem, action: "reply" | "archiv
     feedbackRevision.update(n => n + 1);
   }
   await refreshInbox();
+  if (action === "reply" && owner === root && epoch === generation) await (await import("./backgroundStore")).followUpBackground(owner, item.id, text);
 }
 
 if (import.meta.env.DEV && typeof window !== "undefined") {

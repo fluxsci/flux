@@ -11,17 +11,21 @@ import { withLock } from "./locks";
 import { confinedInboxPath, readAnnotationEvents, readAnnotationState, readOptional } from "./annotations";
 import { foldAnnotations } from "../src/lib/project/annotations";
 
-export async function createPresenceWriter(root: string, id: string, identity: AgentIdentity, clientVersion?: string, live = false) {
+export async function createPresenceWriter(root: string, id: string, identity: AgentIdentity, clientVersion?: string, live = false, background = false, preferredName?: string) {
   const file = await confinedInboxPath(root, presenceFileRel(id));
   let session: PresenceSession;
   await withLock(root, "presence", identity.client, async () => {
     const { presence } = await readAnnotationState(root);
     const taken = new Set([...presence.values()].filter(s => s.id !== id).map(s => s.name));
     const product = identity.product ?? "agent", surface = identity.surface ?? "MCP";
-    const names = presenceName({ id, product, surface }, taken);
+    const names = presenceName({ id, product, surface, background }, taken);
+    if (preferredName && /^[a-z]+(?:-\d+)?$/.test(preferredName) && !taken.has(preferredName)) {
+      names.display = names.display.slice(0, names.display.lastIndexOf(" · ") + 3) + preferredName;
+      names.name = preferredName;
+    }
     const now = new Date().toISOString();
     session = { v: 1, id, ...names, product, surface, client: identity.client, clientVersion,
-      pid: process.pid, host: os.hostname(), startedAt: now, heartbeatAt: now, watching: false, live };
+      pid: process.pid, host: os.hostname(), startedAt: now, heartbeatAt: now, watching: false, live, ...(background ? { background: true, cwd: process.cwd() } : {}) };
     await atomicWrite(file, JSON.stringify(session) + "\n");
   });
   let stopped = false, pending = 0, watchingUntil = 0, tail = Promise.resolve();

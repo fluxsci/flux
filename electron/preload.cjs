@@ -114,6 +114,7 @@ contextBridge.exposeInMainWorld("fig", {
   runnerCapabilities: () => ipcRenderer.invoke("runner:capabilities"),
   runnerStart: (options) => ipcRenderer.invoke("runner:start", options),
   runnerSend: (options) => ipcRenderer.invoke("runner:send", options),
+  runnerRespond: (options) => ipcRenderer.invoke("runner:respond", options),
   runnerCancel: (options) => ipcRenderer.invoke("runner:cancel", options),
   onRunnerEvent: (cb) => {
     const handler = (_e, event) => cb(event);

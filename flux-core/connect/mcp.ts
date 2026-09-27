@@ -31,7 +31,8 @@ export interface McpSessionHooks {
 }
 
 /** Tools that never carry the notice: they ARE the reading path. */
-const QUIET = new Set(["connect", "read_delta", "read_pack", "get_pack_image", "flux_verbs", "connect_doctor"]);
+// `approve` is Claude's permission-prompt protocol: its result must stay exactly one JSON object.
+const QUIET = new Set(["connect", "read_delta", "read_pack", "get_pack_image", "flux_verbs", "connect_doctor", "approve"]);
 /** Canvases re-rendered into a read_delta result when figures changed. */
 const DELTA_IMAGES = 3;
 

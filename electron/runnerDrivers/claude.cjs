@@ -1,6 +1,6 @@
 "use strict";
 
-const REQUIRED = ["--input-format", "--output-format", "--verbose", "--include-partial-messages", "--tools", "--permission-mode", "--permission-prompts", "--allowedTools", "--disallowedTools", "--add-dir", "--strict-mcp-config", "--mcp-config", "--resume"];
+const REQUIRED = ["--input-format", "--output-format", "--verbose", "--include-partial-messages", "--tools", "--permission-mode", "--permission-prompt-tool", "--permission-prompts", "--allowedTools", "--disallowedTools", "--add-dir", "--strict-mcp-config", "--mcp-config", "--resume"];
 function capabilities(version, help) {
   const missing = REQUIRED.filter(flag => !help.includes(flag));
   const promptFile = help.includes("--append-system-prompt-file");
@@ -11,17 +11,21 @@ function capabilities(version, help) {
 function args(o) {
   const a = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     o.caps.promptFile ? "--append-system-prompt-file" : "--append-system-prompt", o.caps.promptFile ? o.packPath : o.packText,
-    // Read-only by construction: the only built-ins are Read/Grep/Glob, and dontAsk denies
-    // anything not pre-approved. Flux's server runs read-only, so all of its tools are
-    // allowed (dontAsk otherwise denies every MCP call); the run directory holds the
-    // attached view PNGs, which live outside the project. Verified on Claude Code 2.1.283.
-    "--tools", "Read,Grep,Glob", "--permission-mode", "dontAsk", "--permission-prompts", "none",
-    "--strict-mcp-config", "--mcp-config", o.mcpPath, "--add-dir", o.runDir, "--allowedTools", "mcp__flux"];
+    "--tools", o.mode === "task" ? "Read,Grep,Glob,Edit,Write,Bash" : "Read,Grep,Glob",
+    "--permission-mode", o.mode === "task" ? "acceptEdits" : "dontAsk",
+    "--strict-mcp-config", "--mcp-config", o.mcpPath];
   if (o.model) a.push("--model", o.model);
   if (o.effort) a.push("--effort", o.effort);
   if (o.resume) a.push("--resume", o.resume);
-  // Variadic tool lists are LAST. There is never a positional user prompt.
-  a.push("--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit");
+  if (o.mode === "task") a.push("--permission-prompt-tool", "mcp__flux__approve");
+  else a.push("--permission-prompts", "none");
+  // Variadic lists are last; user turns always travel on stdin.
+  a.push("--add-dir", ...(o.mode === "task" ? [o.root] : []), o.runDir);
+  a.push("--allowedTools", "mcp__flux");
+  if (o.mode === "task") {
+    a.push(`Bash(${o.launcher} *)`);
+    if (o.uvProject) a.push("Bash(uv run *)");
+  } else a.push("--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit");
   return a;
 }
 function turn(text, images = []) {

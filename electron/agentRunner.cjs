@@ -8,6 +8,7 @@ const { randomUUID } = require("node:crypto");
 const { StringDecoder } = require("node:string_decoder");
 const { resolveSpawn } = require("./execResolve.cjs");
 const drivers = { claude: require("./runnerDrivers/claude.cjs"), codex: require("./runnerDrivers/codex.cjs") };
+const { taskCwd, backgroundConcurrency } = require("./runnerDrivers/taskPolicy.cjs");
 const SESSION = /^[a-zA-Z0-9_-]{1,128}$/;
 
 function killTree(child, force = false, platform = process.platform) {
@@ -20,7 +21,7 @@ function killTree(child, force = false, platform = process.platform) {
   } catch { /* already reaped */ }
 }
 function spawnOwned(command, args, opts) {
-  const { trackChild, ...spawnOptions } = opts;
+  const { trackChild, input, maxOutputBytes, ...spawnOptions } = opts;
   const rs = resolveSpawn(command, args, { env: opts.env });
   const child = spawn(rs.command, rs.args, { ...spawnOptions, windowsVerbatimArguments: rs.windowsVerbatimArguments,
     detached: process.platform !== "win32", windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
@@ -35,7 +36,7 @@ function collect(command, args, opts, signal, timeoutMs = 10000) {
     const timer = setTimeout(() => { error = new Error(`Timed out running ${path.basename(command)}`); killTree(child, true); }, timeoutMs);
     signal?.addEventListener("abort", stop, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
-    child.stdout.on("data", s => { stdout += s; if (stdout.length > 2 * 1024 * 1024) { error = new Error("CLI probe output exceeded its limit"); killTree(child, true); } });
+    child.stdout.on("data", s => { stdout += s; if (stdout.length > (opts.maxOutputBytes ?? 2 * 1024 * 1024)) { error = new Error("CLI probe output exceeded its limit"); killTree(child, true); } });
     child.stderr.on("data", s => { stderr = (stderr + s).slice(-16000); });
     child.on("error", e => { error = e; });
     child.on("close", code => {
@@ -43,7 +44,7 @@ function collect(command, args, opts, signal, timeoutMs = 10000) {
       if (error || code !== 0) reject(error ?? new Error(stderr.trim() || `${path.basename(command)} exited ${code}`));
       else resolve(stdout);
     });
-    child.stdin.on("error", () => {}); child.stdin.end();
+    child.stdin.on("error", () => {}); child.stdin.end(opts.input);
     if (signal?.aborted) stop();
   });
 }
@@ -56,8 +57,8 @@ async function pruneRuns(dir, now = Date.now()) {
     if (stat && stat.mtimeMs < now - 30 * 24 * 60 * 60 * 1000) await fs.rm(p, { recursive: e.isDirectory(), force: true });
   }));
 }
-function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({}), env = process.env, binaries = {}, idleMs = 600000, killGraceMs = 1000 }) {
-  const runs = new Map(), queue = [], caps = new Map(), children = new Set();
+function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({}), env = process.env, binaries = {}, idleMs = 600000, killGraceMs = 1000, approvalTimeoutMs = 120000 }) {
+  const runs = new Map(), queue = [], caps = new Map(), children = new Set(), cleanupChildren = new Set();
   const logDir = path.join(userDataDir, "runs");
   let loginPath, environment, cacheWrite = Promise.resolve(), closed = false;
   const ready = pruneRuns(logDir);
@@ -68,6 +69,10 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
     child.once("close", () => children.delete(child));
     if (closed) killTree(child, true);
   }
+  function trackCleanup(child) {
+    children.add(child); cleanupChildren.add(child);
+    child.once("close", () => { children.delete(child); cleanupChildren.delete(child); });
+  }
   async function runnerEnv() {
     if (!environment) environment = (async () => {
       let shellPath = "";
@@ -77,7 +82,9 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
         shellPath = await loginPath;
       }
       const base = env.Path || env.PATH || "";
-      return { ...env, PATH: [path.dirname(launcher), base, shellPath].filter(Boolean).join(path.delimiter), FLUX_CLIENT: "fluxchat" };
+      const clean = { ...env };
+      for (const key of Object.keys(clean)) if (key.startsWith("FLUX_RUNNER_") || key === "FLUX_BACKGROUND") delete clean[key];
+      return { ...clean, PATH: [path.dirname(launcher), base, shellPath].filter(Boolean).join(path.delimiter), FLUX_CLIENT: "fluxchat" };
     })();
     return environment;
   }
@@ -103,7 +110,7 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
       const file = path.join(userDataDir, "runner-caps.json");
       const disk = await fs.readFile(file, "utf8").then(JSON.parse).catch(() => ({}));
       // Cache is disposable, versioned, and stores no raw CLI output or identity.
-      let cap = disk.schema === 1 ? disk.entries?.[key] : null;
+      let cap = disk.schema === 2 ? disk.entries?.[key] : null;
       if (!cap || typeof cap.available !== "boolean") {
         const help = await collect(binary, name === "claude" ? ["--help"] : ["exec", "--help"], { env: runEnv, cwd: userDataDir, trackChild });
         const resume = name === "codex" ? await collect(binary, ["exec", "resume", "--help"], { env: runEnv, cwd: userDataDir, trackChild }) : "";
@@ -111,10 +118,10 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
         const entry = cap;
         cacheWrite = cacheWrite.catch(() => {}).then(async () => {
           const latest = await fs.readFile(file, "utf8").then(JSON.parse).catch(() => ({}));
-          const entries = latest.schema === 1 ? latest.entries ?? {} : {};
+          const entries = latest.schema === 2 ? latest.entries ?? {} : {};
           entries[key] = entry;
           const tmp = `${file}.${randomUUID()}.tmp`;
-          await fs.writeFile(tmp, JSON.stringify({ schema: 1, entries }), { mode: 0o600 });
+          await fs.writeFile(tmp, JSON.stringify({ schema: 2, entries }), { mode: 0o600 });
           await fs.rename(tmp, file);
         });
         await cacheWrite;
@@ -127,19 +134,26 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
   function capabilities() { return detecting ??= Promise.all(Object.keys(drivers).map(detect)).finally(() => { detecting = undefined; }); }
   function event(run, payload) {
     if (run.cancelled && !(payload.type === "status" && payload.state === "cancelled")) return;
+    if (run.mode === "task" && payload.type === "message") run.finalMessage = payload.text;
+    if (run.mode === "task" && payload.type === "message.delta") run.partialMessage = (run.partialMessage ?? "") + payload.text;
     if (payload.type === "session") {
       if (!SESSION.test(payload.sessionId)) return fail(run, new Error("CLI returned an invalid session id"));
       run.sessionId = payload.sessionId;
     }
     if (payload.type === "status") {
       run.state = payload.state;
-      if (["idle", "failed", "done"].includes(payload.state)) {
+      if (run.mode === "task" && ["idle", "failed", "done"].includes(payload.state) && !run.settling && !payload.settled) {
+        run.failed ||= payload.state === "failed";
+        run.settling = settleTask(run);
+        return;
+      }
+      if (["idle", "failed", "done"].includes(payload.state) && run.mode !== "task") {
         run.inFlight = false;
         if (run.driver === "claude" && payload.state === "idle") armIdle(run);
       }
     }
-    const { fatal, ...data } = payload;
-    emit(run.owner, { ...data, runId: run.id, seq: ++run.seq });
+    const { fatal, settled, ...data } = payload;
+    emit(run.owner, { ...data, runId: run.id, seq: ++run.seq, ...(run.mode === "task" ? { itemId: run.itemId, root: run.root, driver: run.driver, backgroundSessionId: run.id } : {}) });
     if (fatal) fail(run, new Error(payload.message));
   }
   function armIdle(run) {
@@ -149,7 +163,8 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
   }
   function fail(run, error) {
     if (run.cancelled || run.failed) return;
-    run.failed = true; run.inFlight = false; clearTimeout(run.idleTimer);
+    run.failed = true; run.inFlight = false;
+    for (const p of run.permissions.values()) p.deny("Run failed"); clearTimeout(run.idleTimer);
     event(run, { type: "error", message: error.message || String(error) });
     event(run, { type: "status", state: "failed" });
     run.abort.abort(); killTree(run.child, true);
@@ -167,18 +182,47 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
     run.log = createWriteStream(path.join(logDir, `${run.id}.jsonl`), { flags: "a", mode: 0o600 });
     run.log.on("error", e => fail(run, e));
     await fs.access(launcher).catch(() => { throw new Error("The flux command-line launcher is missing — run AI status → Repair"); });
-    const result = await collect(launcher, ["connect", run.root, "--depth", "ask", "--json"], { env: { ...runEnv, FLUX_PROJECT: run.root }, cwd: run.cwd, trackChild }, run.abort.signal, 60000);
-    const packPath = JSON.parse(result).askPackPath;
-    if (typeof packPath !== "string" || !path.isAbsolute(packPath)) throw new Error("Flux connect returned no Ask pack; repair the Flux AI Bundle");
+    const result = await collect(launcher, ["connect", run.root, "--depth", run.mode, "--json"], { env: { ...runEnv, FLUX_PROJECT: run.root }, cwd: run.cwd, trackChild }, run.abort.signal, 60000);
+    const packPath = JSON.parse(result)[run.mode === "task" ? "taskPackPath" : "askPackPath"];
+    if (typeof packPath !== "string" || !path.isAbsolute(packPath)) throw new Error("Flux connect returned no hosted-agent pack; repair the Flux AI Bundle");
     const stat = await fs.stat(packPath);
-    if (stat.size > 128 * 1024) throw new Error("Ask pack exceeds its size limit");
+    if (stat.size > 128 * 1024) throw new Error("Hosted-agent pack exceeds its size limit");
     const packText = await fs.readFile(packPath, "utf8");
     const mcpPath = path.join(dir, "mcp.json");
-    await fs.writeFile(mcpPath, JSON.stringify({ mcpServers: { flux: { command: launcher, args: ["mcp", run.root],
-      env: { FLUX_MCP_READONLY: "1", FLUX_CLIENT: "fluxchat", FLUX_PROJECT: run.root } } } }), { mode: 0o600 });
-    return { caps: cap, binary: cap.binary, packPath, packText, mcpPath, runDir: dir, launcher, root: run.root, cwd: run.cwd,
-      model: run.model, effort: run.effort, env: { ...runEnv, FLUX_PROJECT: run.root, FLUX_MCP_READONLY: "1" } };
+    const mcpEnv = { FLUX_MCP_READONLY: run.mode === "task" ? "0" : "1", FLUX_CLIENT: "fluxchat", FLUX_PROJECT: run.root,
+      ...(run.mode === "task" ? { FLUX_RUNNER_TOKEN: run.token, FLUX_BACKGROUND: "1", FLUX_RUNNER_ID: run.id,
+        FLUX_RUNNER_DRIVER: run.driver, FLUX_RUNNER_STATE: path.join(dir, "session.json") } : {}) };
+    await fs.writeFile(mcpPath, JSON.stringify({ mcpServers: { flux: { command: launcher, args: ["mcp", run.root], env: mcpEnv } } }), { mode: 0o600 });
+    const uvProject = await Promise.all(["pyproject.toml", "uv.lock"].map(n => fs.stat(path.join(run.cwd, n)).then(s => s.isFile()).catch(() => false))).then(a => a.every(Boolean));
+    return { mode: run.mode, caps: cap, binary: cap.binary, packPath, packText, mcpPath, mcpEnv, uvProject, runDir: dir, launcher, root: run.root, cwd: run.cwd,
+      model: run.model, effort: run.effort, env: { ...runEnv, ...mcpEnv } };
   }
+  async function taskCall(run, action, extra = {}) {
+    const request = { action, root: run.root, id: run.itemId, runId: run.id, driver: run.driver,
+      stateFile: path.join(run.dir, "session.json"), ...extra };
+    return JSON.parse(await collect(launcher, ["runner-task"], { env: run.prepared.env, cwd: run.cwd, trackChild: action === "cleanup" ? trackCleanup : trackChild,
+      input: JSON.stringify(request), maxOutputBytes: 24 * 1024 * 1024 }, action === "prepare" ? run.abort.signal : undefined, 60000));
+  }
+  async function settleTask(run) {
+    // Let the parser finish this synchronous event before publishing the durable reply.
+    await Promise.resolve();
+    try {
+      if (run.receipt && !run.cancelled) await taskCall(run, "finish", { receipt: run.receipt, text: run.finalMessage || run.partialMessage || "" });
+    } catch (e) { event(run, { type: "error", message: `Could not save the agent's reply: ${e.message}` }); }
+    finally {
+      run.receipt = null; run.inFlight = false;
+      if (run.child) { run.idling = true; killTree(run.child, true); }
+      else await cleanupPresence(run);
+      event(run, { type: "status", state: run.failed ? "failed" : "idle", settled: true });
+      pump();
+    }
+  }
+  async function cleanupPresence(run) {
+    if (run.mode === "task" && run.prepared) await taskCall(run, "cleanup", { stopped: !!run.cancelled }).catch(e => {
+      if (!run.cancelled) event(run, { type: "error", message: `Could not clear background presence: ${e.message}` });
+    });
+  }
+
   async function imagePaths(run, images) {
     if (!images?.length) return [];
     if (!Array.isArray(images) || images.length > 6) throw new Error("Ask accepts at most six PNG images");
@@ -201,9 +245,17 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
     if (run.cancelled) return;
     run.launching = true;
     try {
+      if (run.closing) await run.closing;
       run.prepared ??= await prepare(run);
       if (run.cancelled) return;
-      const turn = run.pending; run.pending = null;
+      let turn = run.pending; run.pending = null;
+      run.settling = null;
+      if (run.mode === "task") {
+        const task = await taskCall(run, "prepare");
+        run.receipt = task.receipt; run.finalMessage = ""; run.partialMessage = "";
+        event(run, { type: "background", name: task.session.name, display: task.session.display });
+        turn = { text: task.prompt + (turn?.text ? `\n\nUser follow-up:\n${turn.text}` : ""), images: task.image ? [{ png: Buffer.from(task.image, "base64") }] : [] };
+      }
       const images = await imagePaths(run, turn?.images);
       if (run.cancelled) return;
       const o = { ...run.prepared, resume: run.sessionId, images };
@@ -226,12 +278,14 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
       child.stderr.setEncoding("utf8"); child.stderr.on("data", s => { stderr = (stderr + s).slice(-16000); raw(run, "stderr", s); });
       child.stdin.on("error", e => { if (!run.cancelled && run.inFlight) fail(run, e); });
       child.on("error", e => fail(run, e));
-      child.on("close", code => {
+      child.on("close", async code => {
         buffer += decoder.end(); if (buffer.trim()) line(buffer);
         run.child = null; clearTimeout(run.idleTimer);
+        run.closing = cleanupPresence(run);
+        await run.closing; run.closing = null;
         if (run.cancelled) { killTree(child, true); finish(run); }
-        else if (run.idling) event(run, { type: "status", state: "idle", reason: "Session sleeping; the next question resumes it" });
-        else if (code !== 0 || (run.inFlight && !run.pending)) fail(run, new Error(stderr.trim() || `${run.driver} exited before completing the turn (${code})`));
+        else if (run.idling && run.mode === "ask") event(run, { type: "status", state: "idle", reason: "Session sleeping; the next message resumes it" });
+        else if (!run.settling && (code !== 0 || (run.inFlight && !run.pending))) fail(run, new Error(stderr.trim() || `${run.driver} exited before completing the turn (${code})`));
         pump();
       });
       if (turn) {
@@ -239,19 +293,25 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
         else child.stdin.end(drivers.codex.turn(turn.text, o.packText, !!o.resume));
       } else armIdle(run);
     } catch (e) { fail(run, e); }
-    finally { run.launching = false; if (run.cancelled && !run.child) finish(run); pump(); }
+    finally { run.launching = false; if (run.cancelled && !run.child) { await cleanupPresence(run); await finish(run); } pump(); }
   }
   function active() { return [...runs.values()].filter(r => r.child || r.launching).length; }
   function pump() {
     while (!closed && active() < 3 && queue.length) {
-      const run = queue.shift(); run.queued = false;
+      const limit = backgroundConcurrency(preferences().fluxchat?.backgroundConcurrency);
+      const tasks = [...runs.values()].filter(r => r.mode === "task" && (r.child || r.launching || r.inFlight && r.settling)).length;
+      const index = queue.findIndex(r => r.mode !== "task" || tasks < limit);
+      if (index < 0) break;
+      const [run] = queue.splice(index, 1); run.queued = false;
       if (!run.cancelled && !run.failed) run.launchPromise = launch(run);
     }
   }
   function enqueue(run) {
     if (run.queued || run.launching) return;
     run.queued = true; queue.push(run);
-    event(run, { type: "status", state: "starting", ...(active() >= 3 ? { reason: "Queued — three agent runs are active" } : {}) });
+    const tasks = [...runs.values()].filter(r => r.mode === "task" && (r.child || r.launching)).length;
+    const queued = active() >= 3 || run.mode === "task" && tasks >= backgroundConcurrency(preferences().fluxchat?.backgroundConcurrency);
+    event(run, { type: "status", state: "starting", ...(queued ? { reason: "Queued — waiting for an agent run slot" } : {}) });
     setImmediate(pump);
   }
   function owned(owner, id) {
@@ -261,25 +321,38 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
   }
   async function start(owner, options) {
     if (closed) throw new Error("Agent runner is closed");
-    if (options.mode !== "ask") throw new Error("Only read-only Ask runs are supported");
+    if (!["ask", "task"].includes(options.mode)) throw new Error("Unknown agent run mode");
     const prefs = preferences().fluxchat ?? {};
     const driver = options.driver || prefs.driver || "claude";
     if (!Object.hasOwn(drivers, driver)) throw new Error("Unknown agent driver");
     if (options.resume && !SESSION.test(options.resume)) throw new Error("Invalid resume session id");
     const root = await fs.realpath(options.root);
-    const cwd = options.cwd ? await fs.realpath(options.cwd) : root;
-    const rel = path.relative(root, cwd);
-    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error("Agent cwd must be in the open project");
-    if (!(await fs.stat(path.join(root, "project.json"))).isFile()) throw new Error("Ask requires a Flux project");
+    let cwd = root;
+    if (options.mode === "task") {
+      const parent = path.dirname(root);
+      const entries = await fs.readdir(parent, { withFileTypes: true }).catch(() => []);
+      cwd = taskCwd(root, parent, entries.map(e => ({ name: e.name, directory: !e.isFile() })));
+      if (typeof options.itemId !== "string" || !options.itemId || options.itemId.length > 256) throw new Error("Task requires an inbox item");
+      const existing = [...runs.values()].find(r => r.mode === "task" && r.root === root && r.itemId === options.itemId && !r.cancelled);
+      if (existing) throw new Error("This item already has a background session; reply to it or stop it first");
+    } else {
+      cwd = options.cwd ? await fs.realpath(options.cwd) : root;
+      const rel = path.relative(root, cwd);
+      if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error("Agent cwd must be in the open project");
+    }
+    if (!(await fs.stat(path.join(root, "project.json"))).isFile()) throw new Error("Agent runs require a Flux project");
     const firstMessage = options.firstMessage ?? "";
     if (typeof firstMessage !== "string" || firstMessage.length > 256000) throw new Error("Invalid Ask message");
     const model = prefs.model || "", effort = prefs.effort || "";
     if (typeof model !== "string" || model.length > 200 || /[\0\r\n]/.test(model)) throw new Error("Invalid model preference");
     const efforts = driver === "claude" ? ["", "low", "medium", "high", "max"] : ["", "minimal", "low", "medium", "high", "xhigh"];
     if (!efforts.includes(effort)) throw new Error("Invalid effort preference for this agent");
-    const run = { id: randomUUID(), owner, driver, root, cwd, model, effort, seq: 0,
-      sessionId: options.resume, state: "starting", pending: firstMessage ? { text: firstMessage, images: options.images } : null,
-      inFlight: !!firstMessage, abort: new AbortController() };
+    if (options.mode === "task" && [...runs.values()].some(r => r.mode === "task" && r.root === root && r.itemId === options.itemId && !r.cancelled)) throw new Error("This item already has a background session");
+    const run = { id: randomUUID(), owner, driver, root, cwd, model, effort, seq: 0, mode: options.mode,
+      itemId: options.itemId, token: options.mode === "task" ? randomUUID() : undefined, permissions: new Map(),
+      sessionId: options.resume, state: "starting", pending: firstMessage || options.mode === "task" ? { text: firstMessage, images: options.images } : null,
+      inFlight: !!firstMessage || options.mode === "task", abort: new AbortController() };
+    run.finished = new Promise(resolve => { run.finishResolve = resolve; });
     runs.set(run.id, run);
     // Defer pushes until the IPC start reply has delivered the run id.
     setImmediate(() => enqueue(run));
@@ -288,13 +361,14 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
   async function send(owner, { runId, text, images }) {
     const run = owned(owner, runId);
     if (typeof text !== "string" || !text.trim() || text.length > 256000) throw new Error("Invalid Ask message");
+    if (run.settling) await run.settling;
     if (run.inFlight || run.pending) throw new Error("Wait for the current answer or stop it first");
     if (run.launching) await run.launchPromise;
     if (run.cancelled) throw new Error("Agent run was cancelled");
     if (run.inFlight || run.pending) throw new Error("Wait for the current answer or stop it first");
     run.inFlight = true; clearTimeout(run.idleTimer);
     try {
-      if (run.driver === "claude" && run.child && !run.idling && !run.failed) {
+      if (run.mode === "ask" && run.driver === "claude" && run.child && !run.idling && !run.failed) {
         const paths = await imagePaths(run, images);
         if (run.cancelled) return;
         event(run, { type: "status", state: "running" });
@@ -309,31 +383,62 @@ function createAgentRunner({ userDataDir, launcher, emit, preferences = () => ({
       }
     } catch (e) { fail(run, e); throw e; }
   }
-  function finish(run) {
+  async function finish(run) {
     clearTimeout(run.killTimer); clearTimeout(run.idleTimer);
     run.log?.end(); runs.delete(run.id);
-    if (run.dir) void fs.rm(run.dir, { recursive: true, force: true }).catch(() => {});
+    if (run.dir) await fs.rm(run.dir, { recursive: true, force: true }).catch(() => {});
+    run.finishResolve();
   }
   function cancel(owner, { runId }) {
     const run = owned(owner, runId);
+    for (const p of run.permissions.values()) p.deny("Run stopped");
     run.cancelled = true; run.abort.abort(); clearTimeout(run.idleTimer);
     event(run, { type: "status", state: "cancelled" });
     if (run.child) {
       killTree(run.child);
       run.killTimer = setTimeout(() => killTree(run.child, true), killGraceMs); run.killTimer.unref?.();
-    } else if (!run.launching) finish(run);
+    } else if (!run.launching) void cleanupPresence(run).finally(() => finish(run));
     pump();
+    return run.finished;
+  }
+  function approve(owner, root, request) {
+    const deny = message => ({ behavior: "deny", message });
+    const run = [...runs.values()].find(r => r.owner === owner && r.root === root && r.mode === "task" && r.driver === "claude" &&
+      r.token === request?.token && !r.cancelled && !r.failed && r.inFlight && r.child);
+    if (!run || !request.token) return Promise.resolve(deny("Unknown or inactive background run"));
+    if (typeof request.tool_name !== "string" || !request.input || typeof request.input !== "object" || Array.isArray(request.input)) return Promise.resolve(deny("Invalid permission request"));
+    if (run.permissions.size) return Promise.resolve(deny("Another permission is already pending"));
+    return new Promise(resolve => {
+      const permissionId = randomUUID();
+      const finish = result => {
+        clearTimeout(timer); run.permissions.delete(permissionId);
+        event(run, { type: "permission.closed", permissionId }); resolve(result);
+      };
+      const timer = setTimeout(() => finish(deny("Permission request timed out")), approvalTimeoutMs);
+      run.permissions.set(permissionId, { deny: message => finish(deny(message)), allow: () => finish({ behavior: "allow", updatedInput: request.input }) });
+      event(run, { type: "permission", permissionId, title: request.tool_name, detail: JSON.stringify(request.input, null, 2),
+        options: [{ id: "allow", label: "Allow once" }, { id: "deny", label: "Deny" }] });
+    });
+  }
+  function respond(owner, { runId, permissionId, optionId }) {
+    const run = owned(owner, runId), permission = run.permissions.get(permissionId);
+    if (!permission) throw new Error("Permission request expired");
+    if (optionId === "allow") permission.allow();
+    else if (optionId === "deny") permission.deny("Denied by the user");
+    else throw new Error("Unknown permission option");
   }
   function cancelOwner(owner) { for (const r of [...runs.values()]) if (r.owner === owner && !r.cancelled) cancel(owner, { runId: r.id }); }
-  function dispose() {
+  async function dispose() {
     closed = true;
     for (const r of [...runs.values()]) if (!r.cancelled) cancel(r.owner, { runId: r.id });
     // will-quit cannot wait for a grace timer. Kill all owned subprocess groups,
     // including an in-progress capability/pack probe, before Electron exits.
-    return Promise.all([...children].map(child => new Promise(resolve => {
-      child.once("close", resolve); killTree(child, true);
+    while (children.size) await Promise.all([...children].map(child => new Promise(resolve => {
+      child.once("close", resolve);
+      if (!cleanupChildren.has(child)) killTree(child, true);
     })));
+    await Promise.all([...runs.values()].map(r => r.finished));
   }
-  return { start, send, cancel, capabilities, cancelOwner, dispose };
+  return { start, send, cancel, respond, approve, capabilities, cancelOwner, dispose };
 }
 module.exports = { createAgentRunner, killTree, pruneRuns };

@@ -11,10 +11,10 @@ const clients: Awaited<ReturnType<typeof rawMcp>>[]=[];
 try {
   const original=await fs.readFile(path.join(root,'project.json'),'utf8');
   for(const toolset of ['core','full']) {
-    const client=await rawMcp(launcher,root,[root,'--toolset',toolset],{...process.env,FLUX_MCP_READONLY:'1',FLUX_CLIENT:'fluxchat',FLUX_PROJECT:root});clients.push(client);await client.initialize();
+    const client=await rawMcp(launcher,root,[root,'--toolset',toolset],{...process.env,FLUX_MCP_READONLY:'1',FLUX_RUNNER_TOKEN:'must-not-enable-approve',FLUX_CLIENT:'fluxchat',FLUX_PROJECT:root});clients.push(client);await client.initialize();
     const tools=(await client.request('tools/list')).result.tools;
     h.ok(tools.length>10&&tools.every(t=>t.annotations?.readOnlyHint===true),`${toolset}: real server lists only annotated read-only tools`);
-    h.ok(tools.some(t=>t.name==='flux_verb')&&!tools.some(t=>['set_caption','dispatch_command','write_log','fetch_pdfs'].includes(t.name)),`${toolset}: writes absent; guarded meta dispatcher present`);
+    h.ok(tools.some(t=>t.name==='flux_verb')&&!tools.some(t=>['approve','set_caption','dispatch_command','write_log','fetch_pdfs'].includes(t.name)),`${toolset}: writes absent; guarded meta dispatcher present`);
     for(const verb of ['set_caption','write_log','dispatch_command','organize_paper','fetch_pdfs']) {
       const r=await client.call('flux_verb',{verb,args:{}});
       h.ok(r.isError&&r.content.some(c=>c.text?.includes('Read-only Flux session refuses')),`${toolset}: ${verb} refused BEFORE validation/handler`);

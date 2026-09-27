@@ -87,6 +87,40 @@ capabilities as the GUI, through three surfaces:
   Gates: verify-connect-render / -connect / -connect-delta / -connect-mcp (pure),
   verify-connect-hook (bundle).
 
+- **FluxChat background tasks:** `electron/agentRunner.cjs` uses the same installed-CLI
+  drivers as Ask, with task packs from `connect --depth task` (the shared `connect/ask.ts`
+  renderer substitutes CONNECT's `task-rules`). The private launcher command `runner-task`
+  takes bounded JSON on stdin and delegates packets, snapshots and fallback replies to
+  `flux-core/backgroundTask.ts`, `inboxPackets`, `getInboxImage` and `replyItem`.
+  Task cwd uses the parent only if it contains a file named `pyproject.toml`,
+  `environment.yml`/`.yaml`, `requirements.txt`, `DESCRIPTION`, `Project.toml`, or a
+  top-level `.ipynb`/`.Rproj`, and is not itself a Flux project. Pure policy is
+  `electron/runnerDrivers/taskPolicy.cjs`. The default background limit is two, within
+  the runner's total of three; `fluxchat.backgroundConcurrency` sets one to three.
+  Completed turns release their process slots and keep vendor IDs for resume.
+  Task MCP env is `FLUX_CLIENT=fluxchat`, `FLUX_PROJECT`, `FLUX_BACKGROUND=1`, a private
+  `FLUX_RUNNER_TOKEN`, stable `FLUX_RUNNER_ID`, `FLUX_RUNNER_DRIVER`, and
+  `FLUX_RUNNER_STATE` (a machine-local session descriptor in the run directory).
+  MCP publishes background presence on startup without requiring another connect;
+  the descriptor preserves the same name across subprocesses and fallback replies.
+  Stop appends the shared release-session event and removes presence after the process
+  tree exits. Task turns use writable Flux MCP tools; Ask remains read-only and never
+  registers `approve`, even if a token is accidentally inherited.
+  Claude's `approve` MCP tool exists only with a run token; authenticated `POST /approve`
+  checks token, project, owning window and active Claude task. `runner:respond` answers
+  the exact input once; cancellation, closed window, bad token and 120s timeout deny.
+  Codex's `TASK_MCP_APPROVAL_MODE="approve"` is the explicit per-server write-tool
+  override after replacing its MCP config; its shell still uses approval_policy=never.
+  The renderer exposes `backgroundAvailable` (also re-exported by annotationStore),
+  `backgroundDrivers`, `backgroundRuns` and `backgroundPermissions` from
+  `shell/inbox/backgroundState.ts`. `BackgroundRun`/`BackgroundStop` mount in Inbox
+  and Sessions; the approval modal is shell-lazy. Annotation saves start routed tasks,
+  and saved human replies resume or restart them, queuing replies during active turns.
+  F2 owns the annotation route UI: consume `backgroundAvailable` there and replace
+  its retired unconditional background-route save block when integrating F2/F5.
+  Gates: `verify-background-run`, `verify-runner-drivers`, `verify-mcp-readonly`,
+  `verify-ipc-contract` (pure), `verify-background-run-gui` (UI).
+
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
 **flux-core** (plain Node fs). Historically these drifted; most of the hardening work exists to
@@ -984,7 +1018,7 @@ Persistence invariants (all machine-checked — do not weaken):
   Q&A, while Escape cancels without a project write.
   `electron/agentRunner.cjs` owns at most three CLI processes, queues excess runs, kills
   process groups (Windows: taskkill /T), caches versioned capabilities and prunes machine
-  run logs after 30 days. It calls the installed Flux launcher for the ask-depth pack.
+  run logs after 30 days. It calls the installed Flux launcher for the ask/task-depth pack.
   Claude uses stream-json stdin, explicit strict MCP config, `--tools Read,Grep,Glob`
   (the only built-ins), `dontAsk` with `--allowedTools mcp__flux` and `--add-dir <run dir>`,
   and removed Bash/Edit/Write/NotebookEdit. Measured on 2.1.283: `dontAsk` alone DENIES
@@ -7448,3 +7482,8 @@ is closed. Rerouting must strip the original named mention rather than the new r
 Claims retain the existing presence-or-30-minute-activity liveness contract; expired
 assignments and claims keep their holder in the reassign prompt. F5 must enable
 `backgroundAvailable` and supply the background-run behavior.
+
+### 2026-09-27 10:31 UTC — Inbox background runs (Codex, aio-f5-background)
+**Work:** Extended R1 with task profiles, single-engine task packs and item packets, background presence, resumable threads, final-message replies, bounded concurrency and cancellation. Added runner-owned Claude approvals, lazy Inbox/Sessions controls and approval UI, plus pure and GUI gates. Changes remain uncommitted for the orchestrator; UI/native acceptance is assigned to that review.
+**Verification:** Hermetic pure tier 313/313, zero failed/blocked/flaky; driver profiles 66 checks, read-only MCP 19, IPC 149 channels. Svelte check 910 files, 0 errors/0 warnings; headless check and production build passed. UI/native/startup runs and real-CLI acceptance remain assigned to the orchestrator. F2 must merge its To route UI against the shared availability store; that worker's annotation surface was deliberately left untouched.
+**Learnings:** Stop must release a claim as well as kill the process; a fresh presence-free claim otherwise stays protected by recent activity. Cleanup must finish before resuming the same presence ID. Task and Ask packs need separate cache entries, and changing capability requirements invalidates the capability-cache schema. Concurrent human replies must not suppress an agent's final-message fallback.

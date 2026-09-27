@@ -23,8 +23,13 @@ function createRunnerFamily({ rootForSender, userDataDir, launcher, preferences,
       return result;
     });
     ipc.handle("runner:send", (e, options) => getRunner().send(e.sender.id, options));
+    ipc.handle("runner:respond", (e, options) => getRunner().respond(e.sender.id, options));
     ipc.handle("runner:cancel", (e, options) => getRunner().cancel(e.sender.id, options));
   }
-  return { registerHandlers, cancelOwner: owner => runner?.cancelOwner(owner), dispose: () => runner?.dispose() };
+  return { registerHandlers, approve: (owner, root, request) => {
+    const sender = owners.get(owner);
+    if (!sender || sender.isDestroyed() || rootForSender({ sender }) !== root) return Promise.resolve({ behavior: "deny", message: "Flux window is unavailable" });
+    return getRunner().approve(owner, root, request);
+  }, cancelOwner: owner => runner?.cancelOwner(owner), dispose: () => runner?.dispose() };
 }
 module.exports = { createRunnerFamily };

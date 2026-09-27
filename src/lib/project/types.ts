@@ -149,6 +149,8 @@ export interface RunnerCapability {
 }
 export interface RunnerImage { png: Uint8Array }
 export type RunnerPayload =
+  | { type: "background"; name: string; display: string }
+  | { type: "permission.closed"; permissionId: string }
   | { type: "session"; sessionId: string }
   | { type: "message.delta" | "message"; text: string; messageId?: string }
   | { type: "thought.delta"; text: string }
@@ -158,9 +160,9 @@ export type RunnerPayload =
   | { type: "usage"; costUsd?: number; inputTokens?: number; outputTokens?: number }
   | { type: "status"; state: "starting" | "running" | "idle" | "done" | "failed" | "cancelled"; reason?: string }
   | { type: "error"; message: string };
-export type RunnerEvent = RunnerPayload & { runId: string; seq: number };
+export type RunnerEvent = RunnerPayload & { runId: string; seq: number; itemId?: string; root?: string; driver?: RunnerDriver; backgroundSessionId?: string };
 export interface RunnerStart {
-  driver?: RunnerDriver; mode: "ask"; root: string; cwd?: string;
+  driver?: RunnerDriver; mode: "ask" | "task"; itemId?: string; root: string; cwd?: string;
   /** Empty prepares the session without submitting a question. */
   firstMessage: string; images?: RunnerImage[]; resume?: string;
 }
@@ -168,6 +170,7 @@ export interface FileBridge {
   runnerCapabilities?(): Promise<RunnerCapability[]>;
   runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
   runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;
+  runnerRespond?(options: { runId: string; permissionId: string; optionId: "allow" | "deny" }): Promise<void>;
   runnerCancel?(options: { runId: string }): Promise<void>;
   onRunnerEvent?(cb: (event: RunnerEvent) => void): () => void;
 

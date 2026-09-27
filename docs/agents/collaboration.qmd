@@ -84,6 +84,29 @@ exchange from Flux; the CLI's own session history remains. **Keep** saves the qu
 answers, captured view, and targets as a resolved annotation. **Copy resume command**
 copies a command you can paste into your own terminal to continue the vendor session.
 
+## Run an Inbox item in the background
+
+Open **Inbox** with **Alt+Q**, select an open item and choose **Run in background ▾ →
+Claude Code** or **Codex**. You can also route a new annotation to **New background
+agent** (`@new` for Claude Code, `@new-codex` for Codex). Available agents depend on the
+installed CLIs shown in AI status.
+
+The agent appears in **AI → Sessions** with a name such as **bg · claude · wren**. It
+claims the item and signs replies with that name. The item's activity strip shows
+its actual tool inputs, progress and reported usage. **Stop** in either place cancels
+it and releases its claim. Replies stay in the item's thread; your next reply resumes
+the session when possible. A reply sent while it is working waits for that turn to finish.
+
+Background runs may edit the project and its analysis workspace. Claude requests
+additional permission in a modal showing the exact tool input: choose **Allow once**
+or **Deny**. Closing the window or leaving the request unanswered denies it. Codex
+runs with workspace write access and refuses operations requiring additional approval.
+Neither agent is instructed to push, publish or delete.
+
+One session handles each item. **Agent that Flux launches** in Settings or AI status
+lets you choose between one and three simultaneous background runs; the default is
+two. Additional items wait for a slot. Usage counts against your installed CLI's plan.
+
 ## Connect an agent
 
 Run `flux connect setup --dry-run` to preview agent setup, then `flux connect setup`

@@ -270,6 +270,7 @@ const agentFamily = require("./ipc/agent.cjs").createAgentFamily({
   rootForSender: (e) => rootFor(e),
   appendJournalLine,
   noteWrite,
+  approve: (owner, root, request) => runnerFamily.approve(owner, root, request),
 });
 agentFamily.registerHandlers(ipcMain);
 require("./ipc/agentSetup.cjs").createAgentSetupFamily({ shell, rootForSender: rootFor, bridgeForSender: agentFamily.bridgeForSender }).registerHandlers(ipcMain);

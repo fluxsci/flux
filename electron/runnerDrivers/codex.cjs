@@ -1,5 +1,8 @@
 "use strict";
 
+// Explicitly pre-approve Flux MCP writes; exec itself still never prompts.
+const TASK_MCP_APPROVAL_MODE = "approve";
+
 function capabilities(version, help, resumeHelp = "") {
   const missing = ["--json", "--skip-git-repo-check", "--sandbox", "--cd", "--image", "--config"].filter(flag => !help.includes(flag));
   if (!/PROMPT/.test(resumeHelp) || !resumeHelp.includes("--json")) missing.push("exec resume --json [PROMPT]");
@@ -9,15 +12,19 @@ function capabilities(version, help, resumeHelp = "") {
 function mcpConfig(o) {
   // JSON strings are valid TOML basic strings; keys here are fixed, never user input.
   const q = JSON.stringify;
-  return `mcp_servers.flux={command=${q(o.launcher)},args=["mcp",${q(o.root)}],env={FLUX_MCP_READONLY="1",FLUX_CLIENT="fluxchat",FLUX_PROJECT=${q(o.root)}}}`;
+  const env = o.mcpEnv ?? { FLUX_MCP_READONLY: "1", FLUX_CLIENT: "fluxchat", FLUX_PROJECT: o.root };
+  return `mcp_servers.flux={command=${q(o.launcher)},args=["mcp",${q(o.root)}],env={${Object.entries(env).map(([k,v]) => `${k}=${q(v)}`).join(",")}}`;
 }
 function args(o) {
   // exec resume has a smaller flag grammar: sandbox/cwd belong to the global
   // config and spawn options there, not to resume's positional parser.
-  const a = ["-c", 'approval_policy="never"', "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}", "-c", mcpConfig(o), "exec"];
+  const sandbox = o.mode === "task" ? "workspace-write" : "read-only";
+  const a = ["-c", 'approval_policy="never"', "-c", `sandbox_mode=${JSON.stringify(sandbox)}`, "-c", "mcp_servers={}", "-c", mcpConfig(o)];
+  if (o.mode === "task") a.push("-c", `mcp_servers.flux.default_tools_approval_mode=${JSON.stringify(TASK_MCP_APPROVAL_MODE)}`);
+  a.push("exec");
   if (o.resume) a.push("resume", o.resume);
   a.push("--json", "--skip-git-repo-check");
-  if (!o.resume) a.push("-C", o.cwd, "-s", "read-only");
+  if (!o.resume) a.push("-C", o.cwd, "-s", sandbox);
   if (o.model) a.push("-m", o.model);
   if (o.effort) a.push("-c", `model_reasoning_effort=${JSON.stringify(o.effort)}`);
   for (const p of o.images ?? []) a.push("-i", p);
@@ -54,4 +61,4 @@ function parser(emit) {
     }
   };
 }
-module.exports = { capabilities, args, turn, parser, mcpConfig };
+module.exports = { capabilities, args, turn, parser, mcpConfig, TASK_MCP_APPROVAL_MODE };
