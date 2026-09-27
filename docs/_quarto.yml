@@ -41,6 +41,7 @@ website:
       - section: "Working with agents"
         contents:
           - agents/collaboration.qmd
+          - agents/connect.qmd
       - section: "Integrations"
         contents:
           - integrations/web-capture.qmd

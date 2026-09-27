@@ -43,6 +43,7 @@ const bridge = startBridge({
 try {
   for (let i = 0; i < 50 && !(await live.bridgeAvailable(root)); i++) await sleep(20);
   assert(await live.bridgeAvailable(root), "bridge reachable (health + token)");
+  assert(bridge.isRunning(), "monitor reports only a listening, published bridge");
 
   // GET /context reflects the live store.
   const ctx = (await live.getAppContext(root)) as {
@@ -126,6 +127,7 @@ try {
   console.log("\nALL LIVE-BRIDGE (WS4) TESTS PASSED");
 } finally {
   bridge.stop();
+  assert(!bridge.isRunning(), "monitor clears bridge status immediately on stop");
   assert(!(await live.bridgeAvailable(root)), "bridge unavailable after stop (bridge.json removed)");
   await fs.rm(root, { recursive: true, force: true });
 }

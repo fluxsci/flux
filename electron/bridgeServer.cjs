@@ -29,8 +29,7 @@ const path = require("node:path");
  * @param {() => Promise<{allowed:boolean, stamp:any}>} [o.prepareCapture] fresh renderer consent/context
  * @param {() => Promise<any>} [o.capture] owning webContents.capturePage
  * @param {(event:{root:string, client:string, sessionId?:string, at:string}) => void | Promise<void>} [o.onCaptured]
- * @returns {{ stop: () => void, pushContext: (ctx:any) => void }}
- */
+ * @returns {{ stop: () => void, pushContext: (ctx:any) => void, isRunning: () => boolean }} */
 function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, capture, onCaptured }) {
   const token = crypto.randomBytes(24).toString("hex");
   const sse = new Set();
@@ -116,6 +115,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
   });
 
   const file = path.join(root, ".meta", "live", "bridge.json");
+  let published = false;
   server.listen(0, "127.0.0.1", () => {
     const port = server.address().port;
     try {
@@ -134,6 +134,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
         ),
         { mode: 0o600 },
       );
+      published = true;
       try {
         fs.chmodSync(file, 0o600);
       } catch {
@@ -156,6 +157,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
   };
 
   const stop = () => {
+    published = false;
     for (const res of sse) {
       try {
         res.end();
@@ -176,7 +178,7 @@ function startBridge({ root, getContext, dispatch, noteWrite, prepareCapture, ca
     }
   };
 
-  return { stop, pushContext };
+  return { stop, pushContext, isRunning: () => published && server.listening };
 }
 
 module.exports = { startBridge };

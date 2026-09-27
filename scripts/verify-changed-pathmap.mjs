@@ -31,6 +31,8 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure"]],
+  ["electron/ipc/agentSetup.cjs", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure"]],
   ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
   // The text painter's arrangement source and its serializer route together.
   ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure", "verify-text-blank-lines.mjs"]],

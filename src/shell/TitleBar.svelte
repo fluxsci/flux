@@ -10,7 +10,7 @@
   import { fileBridge } from "../lib/project/types";
   import { pushToast } from "../lib/toast";
   import { lastAgentView } from "../lib/bridge/liveView";
-
+  import { aiColor, aiOpen, openAI } from "./agent/aiMonitorState";
   const fig = fileBridge();
   const win = fig?.win;
   // On macOS we defer to the native traffic-light controls (see main.cjs
@@ -111,6 +111,9 @@
   <!-- Utility strip: deliberately smaller + fainter than the mode strip (the
        "secondary chrome" register), and available on Home too. -->
   <div class="utils no-drag">
+    <button class="ubtn ai-indicator" data-status={$aiColor} title={`AI status — ${$aiColor === 'green' ? 'ready' : $aiColor === 'red' ? 'broken' : 'needs attention'}`} aria-label="AI status" aria-expanded={$aiOpen} onclick={() => openAI()}>
+      <span>AI</span><span class="ai-dot" aria-hidden="true"></span>
+    </button>
     <button class="ubtn" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
       <Icon name="lighttable" size={17} />
     </button>
@@ -145,6 +148,10 @@
 </header>
 
 <style>
+  .ai-indicator { position: relative; font: 11px var(--font-ui); }
+  .ai-dot { position: absolute; right: 1px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--flx-yellow-400, #d0a215); }
+  .ai-indicator[data-status="green"] .ai-dot { background: var(--flx-green-400, #879a39); }
+  .ai-indicator[data-status="red"] .ai-dot { background: var(--flx-red-400, #d14d41); }
   .titlebar {
     height: var(--titlebar-h);
     flex: 0 0 auto;

@@ -1,0 +1,101 @@
+---
+title: "Connect an AI agent"
+subtitle: "The Flux AI Bundle, its status, and your own skills"
+---
+
+Flux includes the tools, skills and context that let agents work with your project.
+Click **AI** in the title bar, or use **Ctrl+K** → **AI status**, to open the monitor.
+**Pin** moves the same panel into its own window; **Dock** brings it back.
+
+## Connect Claude Code or Codex
+
+Click **Connect** on the agent's card. Flux installs its skill, registers its MCP
+server and installs supported refresh hooks. A replacement shows the exact before
+and after text for your confirmation. Flux preserves unrelated settings and keeps
+backups. Restart open agent sessions afterward. In Codex, review and trust new
+hooks in **/hooks**.
+
+Copy the command on the card into your agent: `/flux-connect <project path>` for
+Claude Code, or `$flux-connect <project path>` for Codex. With no project open,
+the command uses `global` to introduce Flux and your user context.
+**Other agents…** gives manual MCP instructions.
+
+**Repair** checks and repairs the same integration. **Disconnect** removes only
+Flux-owned integration and restores prior registrations where safe; edited skills
+are kept. Your projects stay available. Connecting or repairing another app's
+configuration always starts with your click.
+
+## Read the status
+
+The titlebar dot is green when the bundle is ready for a connected agent, amber
+when it needs attention, and red when a connected integration or shared part is
+broken. Detected agents that are not connected need attention. Dismissing the
+one-time **Connect an AI agent** Home card remembers that choice; it never hides
+an actual error.
+
+The panel has four sections:
+
+- **Agents** shows installed versions and each agent's skill, registration,
+  responding MCP, published user skills and refresh hook.
+- **Bundle** shows the launcher and its owning install, the manual, user context,
+  rendering and your Skills.
+- **Sessions** shows the agents connected to this project, their watching and live
+  badges, queues, current claims and connection times. **Stop watching** releases
+  the session's claims and tells its wait loop to stop.
+- **This project** shows this window's live bridge, saved inbox counts and last
+  connection. Save edits to margin comments to include them in these counts.
+
+Expand a row for its paths, version, last check, error and available fix.
+**Run doctor** performs fresh execution checks, including the MCP handshake and a
+small figure render, with results as each check finishes. **Copy diagnostics** runs
+those checks and copies the doctor JSON. Vendor configuration values are kept out
+of status and diagnostics; they appear only in a replacement you are confirming.
+
+The panel paints its cached status immediately. Cheap probes refresh it on open,
+after setup and every ten minutes. Full doctor checks run only when requested.
+Execution checks say **Not checked** until a doctor result is available.
+
+## Your skills
+
+In **Bundle → Skills**, click **New skill…**, or use **Ctrl+K** → **New agent skill…**.
+Enter a short lowercase name with hyphens, such as `stats-conventions`. Flux creates
+a folder with a starter `SKILL.md` and opens it in your default editor, just like
+**Open global rules**. Describe when to use the procedure, its steps and checks.
+
+**Reveal in folder** opens the skills location. Skills are published to connected
+agents and kept in sync: invoke `/stats-conventions` in Claude Code or
+`$stats-conventions` in Codex. **Re-publish** checks publication now. Name collisions
+and edited vendor copies are reported and preserved.
+
+## What is the AI bundle?
+
+| Part | What it gives agents | Where it lives | How it gets there |
+|---|---|---|---|
+| Launcher + `flux` CLI | every verb from any shell | `<binDir>/flux` (+ `flux-connect`) → the app's bundled CLI | written by Flux on every start (§6.1) |
+| Flux MCP server | typed tools, images, live tools, inbox, watch | `"<launcher>" mcp` | registered with an agent by **Connect** (§9.1) |
+| `flux-connect` skill | the one command | `~/.claude/skills/flux-connect`, `~/.agents/skills/flux-connect` | **Connect** |
+| Your skills | `/stats-conventions` anywhere | `UserContext/Skills` → published to each connected agent | **Connect**, then kept in sync (§8.12a) |
+| Flux manual (FluxContext) | how to use Flux | `<FluxConfig>/Context/FluxContext` | synced by Flux on start |
+| Your context (UserContext) | who you are, your rules | `<FluxConfig>/Context/UserContext` | yours (seeded blank) |
+| Figure rendering | agents can *see* figures | inside the app bundle | shipped (§6.7) |
+| Auto-refresh hook | agents stay current | `~/.claude/settings.json` (managed entry) | **Connect** (Claude Code) (§8.8) |
+| Live bridge | selection, live edits, `get_view` | per open project (`.meta/live/`) | automatic while a project is open |
+| Project inbox | annotations + comments for agents | per project (`.meta/feedback.ndjson`, comment sidecars) | automatic |
+
+The section references in this product table identify the Flux AI overhaul plan.
+The bundle ships with Flux. **Connect** is the step that registers it with an agent.
+See [Working with agents](collaboration.qmd) for annotations, routing and context.
+
+## Troubleshooting
+
+If a row is red, expand it and run **Fix** when offered. **Run doctor** gives the
+latest execution evidence. **Use this Flux for agents** explicitly chooses this
+installation when the launcher belongs to another checkout or install.
+
+If a new skill does not appear, check its name and description in the frontmatter,
+use **Re-publish**, and restart your agent session. Flux leaves edited and unmanaged
+files alone; the row explains any collision or permission error.
+
+If no sessions appear, run the copied connection command in the agent. Presence
+appears after an explicit project connection and expires when its heartbeat stops.
+The monitor does not start an agent or enable watch mode by itself.

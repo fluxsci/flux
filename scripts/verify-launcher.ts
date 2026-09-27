@@ -30,6 +30,22 @@ try {
   await fs.writeFile(path.join(source, 'flux-cli.ts'), 'const typed: string = "tsx";\n' + code);
   // Dependency lookup is real; the tsx CLI must be installed, never downloaded.
   await fs.symlink(path.resolve('node_modules'), path.join(source, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  const fast = () => resolveOwnCliCommandsSync({ appRoot: source, execPath: '/not-executed/node', commands: false, appImage: '', packaged: false });
+  h.eq(fast().executable, '/not-executed/node', 'status resolution never probes a Node runtime');
+  h.eq(fast().build, 'unknown', 'source archive status needs no git process');
+  const gitDir = path.join(temp, 'worktree-git'), common = path.join(temp, 'common-git');
+  await fs.mkdir(gitDir); await fs.mkdir(path.join(common, 'refs', 'heads'), { recursive: true });
+  await fs.writeFile(path.join(source, '.git'), `gitdir: ${gitDir}\n`);
+  await fs.writeFile(path.join(gitDir, 'HEAD'), 'ref: refs/heads/topic\n');
+  await fs.writeFile(path.join(gitDir, 'commondir'), '../common-git\n');
+  await fs.writeFile(path.join(common, 'refs', 'heads', 'topic'), 'abcdef123456789\n');
+  h.eq(fast().build, 'abcdef1', 'file-only status resolves linked worktree loose refs');
+  await fs.rm(path.join(common, 'refs', 'heads', 'topic'));
+  await fs.writeFile(path.join(common, 'packed-refs'), '123abcd456789 refs/heads/topic\n');
+  h.eq(fast().build, '123abcd', 'file-only status resolves packed refs');
+  await fs.writeFile(path.join(gitDir, 'HEAD'), '789abcd012345\n');
+  h.eq(fast().build, '789abcd', 'file-only status resolves detached HEAD');
+  await fs.rm(path.join(source, '.git'));
   let runtime = resolveOwnCliCommandsSync({ appRoot: source, nodePath: process.execPath, binDir: bin, appImage: '', packaged: false });
   process.env.FLUX_NO_MIGRATE = '1'; await installLaunchers([], { runtime });
   h.ok(!await fs.stat(runtime.cli).catch(() => null), 'FLUX_NO_MIGRATE skips launchers entirely');

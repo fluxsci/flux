@@ -32,7 +32,8 @@ function read(file) {
 }
 function object(text, file) {
   if (text === null) return {};
-  const value = JSON.parse(text);
+  let value;
+  try { value = JSON.parse(text); } catch { throw new Error(`Invalid JSON in ${file}`); }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Expected an object in ${file}`);
   return value;
 }
@@ -198,7 +199,7 @@ async function vendorProbe(binary, args, config) {
       CLAUDE_CONFIG_DIR: path.join(temp, ".claude"), XDG_CONFIG_HOME: path.join(temp, ".config"), FLUX_NO_MIGRATE: "1" } });
   } finally { await fsp.rm(temp, { recursive: true, force: true }); }
 }
-async function findBinary(name) {
+async function findBinary(name, login = true) {
   const win = process.platform === "win32";
   if (win) {
     const r = resolveSpawn(name, []);
@@ -209,7 +210,7 @@ async function findBinary(name) {
     const file = path.resolve(dir, name);
     try { fs.accessSync(file, fs.constants.X_OK); if (fs.statSync(file).isFile()) return file; } catch { /* next PATH entry */ }
   }
-  if (name !== "claude" || !process.env.SHELL) return null;
+  if (!login || name !== "claude" || !process.env.SHELL) return null;
   const key = [os.homedir(), process.env.SHELL, process.env.PATH].join("\0");
   if (!loginProbes.has(key)) loginProbes.set(key, run(process.env.SHELL, ["-lc", "command -v claude"], { timeout: 3000 }).then(r => {
     const candidate = r.stdout.trim();
@@ -233,7 +234,7 @@ function readState() {
 }
 
 async function probeAgents(options = {}) {
-  const runtime = options.runtime || fluxPaths.resolveOwnCliCommandsSync();
+  const runtime = options.runtime || fluxPaths.resolveOwnCliCommandsSync({ commands: options.commands });
   const state = readState();
   const launcher = snapshot(runtime.cli), owner = launcher.error ? null : fluxPaths.launcherOwnerSync(runtime.cli);
   return Promise.all(["claude", "codex"].map(async id => {
@@ -241,10 +242,12 @@ async function probeAgents(options = {}) {
     const skillDir = path.join(os.homedir(), id === "claude" ? ".claude" : ".agents", "skills", "flux-connect");
     const config = snapshot(id === "claude" ? path.join(os.homedir(), ".claude.json") : path.join(home, "config.toml"));
     const hooks = snapshot(path.join(home, id === "claude" ? "settings.json" : "hooks.json"));
-    const binary = await findBinary(id);
+    const binary = await findBinary(id, options.commands !== false);
+    let version = null;
     const rendered = renderSkill(runtime, id, options.templateDir);
     let capabilities = { promptHook: id === "claude", hookEnabled: id === "claude", addJson: true }, mcpGet = null;
     if (binary && options.commands !== false) {
+      const info = vendorProbe(binary, ["--version"]);
       if (id === "claude") {
         const [help, get] = await Promise.all([vendorProbe(binary, ["mcp", "--help"]), vendorProbe(binary, ["mcp", "get", "flux"], config.error ? null : config.text)]);
         capabilities.addJson = help.code === 0 && /\badd-json\b/.test(help.stdout);
@@ -257,8 +260,10 @@ async function probeAgents(options = {}) {
         const configured = featureSection && /^\s*(?:hooks|codex_hooks)\s*=\s*(true|false)\s*(?:#.*)?$/m.exec(config.text.slice(featureSection.start, featureSection.end));
         capabilities.hookEnabled = configured ? configured[1] === "true" : match?.[1] === "true";
       }
+      const result = await info;
+      if (result.code === 0) version = result.stdout.trim().split("\n")[0].slice(0, 160);
     }
-    return { id, present: !!binary || !!exists(home) || id === "codex" && !!exists(path.join(os.homedir(), ".agents")), binary,
+    return { id, present: !!binary || !!exists(home) || id === "codex" && !!exists(path.join(os.homedir(), ".agents")), binary, version,
       home, skillDir, skill: skillStatus(skillDir, rendered), rendered, config, hooks, capabilities, mcpGet,
       runtime, launcher, owner, ownerAlive: !!owner && fs.existsSync(owner.target), date: new Date().toISOString().slice(0, 10), state: state.value.agents[id] || null, stateSnapshot: state.snap };
   }));
@@ -746,10 +751,14 @@ function newestSource(root) {
   }
   return newest;
 }
-async function doctor(options = {}) {
-  const checks = [], add = (id, status, message, fix, paths) => checks.push(check(id, status, message, fix, paths));
+async function inspectSetup(options = {}) {
+  const checks = [], add = (id, status, message, fix, paths) => {
+    const result = check(id, status, message, fix, paths);
+    checks.push(result);
+    options.onCheck?.(result);
+  };
   let runtime, agents;
-  try { runtime = options.runtime || fluxPaths.resolveOwnCliCommandsSync(); }
+  try { runtime = options.runtime || options.probe?.[0]?.runtime || fluxPaths.resolveOwnCliCommandsSync({ commands: !options.quick }); }
   catch (e) { add("launcher", "fail", e.message, repair); }
   if (runtime) {
     try {
@@ -757,30 +766,35 @@ async function doctor(options = {}) {
       if (!body) throw new Error("Launcher is missing");
       const owner = fluxPaths.launcherOwnerSync(runtime.cli);
       if (!owner) throw new Error("Launcher is not managed by Flux");
-      const spec = registration(runtime, "other");
-      const args = runtime.platform === "win32" ? [...runtime.args, "version"] : ["version"];
-      const result = await run(spec.command, args, { env: { ...process.env, ...spec.env, FLUX_NO_MIGRATE: "1" } });
-      if (result.code !== 0 || result.error) throw new Error(result.error || result.stderr || "Launcher could not execute version");
-      const info = JSON.parse(result.stdout);
-      if (String(info.commit).replace(/-dirty$/, "") !== runtime.build.replace(/-dirty$/, "")) throw new Error(`Launcher build ${info.commit} differs from ${runtime.build}`);
+      if (!fs.existsSync(owner.target)) throw new Error("Launcher points at a missing install");
       if (owner.target !== runtime.target) throw new Error(`Launcher belongs to ${owner.target}`);
-      add("launcher", "ok", `Launcher executes this build (${info.commit}).`, null, [runtime.cli]);
-      if (!runtime.electron) {
-        const version = await run(runtime.executable, ["--version"]);
-        if (version.code !== 0 || Number(/^v(\d+)/.exec(version.stdout)?.[1]) < 22 || !/^v\d+/.test(version.stdout)) throw new Error("Source launcher needs Node >=22");
-        add("launcher.node", "ok", `Pinned runtime ${version.stdout.trim()}.`, null, [runtime.executable]);
-        const bundle = path.join(runtime.target, "dist", "flux-cli.mjs");
-        if (exists(bundle)) {
-          const stale = newestSource(runtime.target) > fs.statSync(bundle).mtimeMs;
-          add("launcher.dist", stale ? "warn" : "ok", stale ? "Source files are newer than the CLI bundle." : "CLI bundle is current.", stale ? "Run npm run build:cli in this checkout." : null, [bundle]);
-        } else add("launcher.dist", "ok", "Source launcher uses tsx; no bundle is installed.");
+      if (options.quick) {
+        add("launcher", "ok", `Launcher belongs to this install (${runtime.build}); execution checked by Run doctor.`, null, [runtime.cli, owner.target]);
+      } else {
+        const spec = registration(runtime, "other");
+        const args = runtime.platform === "win32" ? [...runtime.args, "version"] : ["version"];
+        const result = await run(spec.command, args, { env: { ...process.env, ...spec.env, FLUX_NO_MIGRATE: "1" } });
+        if (result.code !== 0 || result.error) throw new Error(result.error || result.stderr || "Launcher could not execute version");
+        const info = JSON.parse(result.stdout);
+        if (String(info.commit).replace(/-dirty$/, "") !== runtime.build.replace(/-dirty$/, "")) throw new Error(`Launcher build ${info.commit} differs from ${runtime.build}`);
+        add("launcher", "ok", `Launcher executes this build (${info.commit}).`, null, [runtime.cli]);
+        if (!runtime.electron) {
+          const version = await run(runtime.executable, ["--version"]);
+          if (version.code !== 0 || Number(/^v(\d+)/.exec(version.stdout)?.[1]) < 22 || !/^v\d+/.test(version.stdout)) throw new Error("Source launcher needs Node >=22");
+          add("launcher.node", "ok", `Pinned runtime ${version.stdout.trim()}.`, null, [runtime.executable]);
+          const bundle = path.join(runtime.target, "dist", "flux-cli.mjs");
+          if (exists(bundle)) {
+            const stale = newestSource(runtime.target) > fs.statSync(bundle).mtimeMs;
+            add("launcher.dist", stale ? "warn" : "ok", stale ? "Source files are newer than the CLI bundle." : "CLI bundle is current.", stale ? "Run npm run build:cli in this checkout." : null, [bundle]);
+          } else add("launcher.dist", "ok", "Source launcher uses tsx; no bundle is installed.");
+        }
       }
     } catch (e) { add("launcher", "fail", e.message, repair, [runtime.cli]); }
-    await Promise.all([
+    if (!options.quick) await Promise.all([
       (async () => { try { const count = await probeMcp(runtime); add("mcp", "ok", `MCP initialized cleanly; ${count} full tools include connect.`); } catch (e) { add("mcp", "fail", e.message, "Repair the launcher and run flux mcp --toolset full to inspect stderr."); } })(),
       (async () => { try { const bytes = await probeRender(runtime); add("rendering", "ok", `Built-in SVG rendered to PNG (${bytes} bytes).`); } catch (e) { add("rendering", "fail", e.message, "Reinstall Flux's PNG renderer or repair this checkout's dependencies."); } })(),
     ]);
-    try { agents = options.probe || await probeAgents({ runtime }); }
+    try { agents = options.probe || await probeAgents({ runtime, commands: !options.quick }); }
     catch (e) { add("agents", "fail", e.message, "Fix agent-setup.json or the vendor config syntax, then run doctor again."); }
   }
   for (const agent of agents || []) {
@@ -845,5 +859,9 @@ async function doctor(options = {}) {
   return checks.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-module.exports = { probeAgents, planSetup, applySetup, planRemove, applyRemove, publishUserSkills, refreshInstalledSkills,
+// The monitor uses only file checks on refresh. Execution checks remain explicit.
+const probeChecks = (options = {}) => inspectSetup({ ...options, quick: true });
+const doctor = (options = {}) => inspectSetup({ ...options, quick: false });
+
+module.exports = { probeChecks, probeAgents, planSetup, applySetup, planRemove, applyRemove, publishUserSkills, refreshInstalledSkills,
   doctor, renderSkill, validateSkill, registration, hookEntry, splitCodex, HOOK_MARKER };

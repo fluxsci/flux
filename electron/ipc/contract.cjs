@@ -20,6 +20,13 @@
 //     missing/extra/undeclared channels.
 
 const CHANNELS = [
+  { channel: "agentsetup:status", kind: "invoke", scope: "read" },
+  { channel: "agentsetup:doctor", kind: "invoke", scope: "read" },
+  { channel: "agentsetup:apply", kind: "invoke", scope: "write" },
+  { channel: "agentsetup:remove", kind: "invoke", scope: "write" },
+  { channel: "agentsetup:skills", kind: "invoke", scope: "write" },
+  { channel: "agentsetup:changed", kind: "push", scope: "read" },
+  { channel: "agentsetup:progress", kind: "push", scope: "read" },
   // --- files (fs:*) ----------------------------------------------------------
   { channel: "readerContext:claim", kind: "invoke", scope: "write" },
   { channel: "readerContext:publish", kind: "invoke", scope: "write" },

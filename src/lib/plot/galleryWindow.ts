@@ -35,7 +35,7 @@ export function openUtilityWindow(node: HTMLElement, onClose: () => void, onDocu
   function annotationKey(e: KeyboardEvent) {
     if (isAnnotateChord(e)) {
       e.preventDefault(); e.stopImmediatePropagation();
-      if (!e.repeat) requestAnnotation({ utility: { name: options.frame === "flux-plot-gallery" ? "gallery" : "figure-meta", window: popup } });
+      if (!e.repeat) requestAnnotation({ utility: { name: options.frame === "flux-plot-gallery" ? "gallery" : options.frame === "flux-ai-status" ? "ai-status" : "figure-meta", window: popup } });
     } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyS") {
       e.preventDefault(); e.stopImmediatePropagation();
     } else if (get(annotationOpen)) {

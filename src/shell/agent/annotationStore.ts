@@ -2,7 +2,7 @@
 // note + optional withdrawal/assignment, always after its picture is durable.
 import { get, writable, derived } from "svelte/store";
 import { fileBridge, joinPath } from "../../lib/project/types";
-import { ANNOTATIONS_REL, ANNOTATION_IMAGES_REL, foldAnnotations, parseLedger, serializeEvent, makeNote, makeWithdraw, makeAssign, makeRelease,
+import { ANNOTATIONS_REL, ANNOTATION_IMAGES_REL, foldAnnotations, parseLedger, serializeEvent, makeNote, makeWithdraw, makeAssign, makeRelease, makeReleaseSession,
   type AnnotationState, type ContextStamp, type Route, type AnnotationEvent } from "../../lib/project/annotations";
 import { buildInbox, sortForInbox, type InboxItem } from "../../lib/project/inbox";
 import { liveSessions, parsePresence, PRESENCE_DIR_REL, type PresenceSession } from "../../lib/project/presence";
@@ -10,6 +10,14 @@ import { feedbackRevision, presenceRevision } from "../../lib/project/projectWat
 import { currentProject } from "../shellStore";
 import { annotationOpen, closeAnnotation, requestAnnotation, discardAnnotationBuffer } from "./annotateChord";
 import { pushToast } from "../../lib/toast";
+
+const presenceConsumers = writable(0);
+const presenceVisible = derived([annotationOpen, presenceConsumers], ([open, count]) => open || count > 0);
+export function retainPresence(): () => void {
+  initAnnotationStore();
+  presenceConsumers.update(n => n + 1);
+  return () => presenceConsumers.update(n => Math.max(0, n - 1));
+}
 
 export const annotationState = writable<AnnotationState>(foldAnnotations([]));
 export const sessions = writable<PresenceSession[]>([]);
@@ -61,7 +69,7 @@ export async function refreshAnnotations(toastNew = false): Promise<void> {
 }
 async function readPresence(): Promise<void> {
   presenceTimer = undefined;
-  if (!get(annotationOpen) || !root) return;
+  if (!get(presenceVisible) || !root) return;
   const ownerRoot = root, owner = generation, fb = fileBridge();
   if (!fb) return;
   lastPresenceRead = Date.now();
@@ -73,13 +81,13 @@ async function readPresence(): Promise<void> {
       try { const s = parsePresence(await fb.readText(joinPath(dir, e.name))); if (s) found.push(s); } catch { /* session exited */ }
     }));
   } catch { /* no connected sessions */ }
-  if (owner !== generation || !get(annotationOpen)) return;
+  if (owner !== generation || !get(presenceVisible)) return;
   sessions.set([...liveSessions(found, Date.now()).values()].sort((a, b) => Number(b.watching) - Number(a.watching) || a.name.localeCompare(b.name)));
   // Refresh expiration while visible even if a dead writer sends no more events.
   schedulePresence();
 }
 function schedulePresence(): void {
-  if (!get(annotationOpen) || presenceTimer) return;
+  if (!get(presenceVisible) || presenceTimer) return;
   presenceTimer = setTimeout(() => void readPresence(), Math.max(0, 5000 - (Date.now() - lastPresenceRead)));
 }
 export function initAnnotationStore(): void {
@@ -92,6 +100,9 @@ export function initAnnotationStore(): void {
     const first = initial; initial = false;
     root = next; generation++; projectGeneration.set(generation); refreshId++;
     if (!first) { closeAnnotation(); discardAnnotationBuffer(); }
+    lastPresenceRead = 0;
+    if (presenceTimer) { clearTimeout(presenceTimer); presenceTimer = undefined; }
+    schedulePresence();
     sessions.set([]); annotationState.set(foldAnnotations([])); previous.clear();
     annotationRoute.set("none");
     try {
@@ -103,7 +114,7 @@ export function initAnnotationStore(): void {
   let rev = get(feedbackRevision);
   feedbackRevision.subscribe(n => { if (n !== rev) { rev = n; void refreshAnnotations(true).catch(e => pushToast("error", "Could not refresh annotations", { detail: String(e) })); } });
   presenceRevision.subscribe(schedulePresence);
-  annotationOpen.subscribe(open => {
+  presenceVisible.subscribe(open => {
     if (open) schedulePresence();
     else if (presenceTimer) { clearTimeout(presenceTimer); presenceTimer = undefined; }
   });
@@ -153,4 +164,11 @@ export async function annotationImage(item: InboxItem): Promise<string | null> {
   const bytes = await fileBridge()?.readFile(joinPath(ownerRoot, item.image));
   if (!bytes || owner !== generation) return null;
   return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
+}
+
+export async function stopWatching(session: PresenceSession): Promise<void> {
+  const ownerRoot = root, owner = generation;
+  if (!ownerRoot) throw new Error("Open a project to stop watching");
+  await append(ownerRoot, [makeReleaseSession({ id: session.id, name: session.name, client: session.client }, "human")]);
+  if (owner === generation) await refreshAnnotations();
 }

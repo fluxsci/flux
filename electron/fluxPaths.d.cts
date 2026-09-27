@@ -77,7 +77,7 @@ export interface AgentRuntime {
 }
 export interface AgentInstallOptions {
   platform?: NodeJS.Platform; appRoot?: string; execPath?: string; resourcesPath?: string;
-  packaged?: boolean; appImage?: string; nodePath?: string; binDir?: string; build?: string;
+  packaged?: boolean; appImage?: string; nodePath?: string; binDir?: string; build?: string; commands?: boolean;
 }
 export function binDirSync(platform?: NodeJS.Platform): string;
 export function resolveOwnCliCommandsSync(options?: AgentInstallOptions): AgentRuntime;

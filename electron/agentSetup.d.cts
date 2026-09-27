@@ -7,7 +7,7 @@ export interface RenderedSkill { files: Record<string, string>; manifest: Manage
 export interface McpRegistration { type: 'stdio'; command: string; args: string[]; env: Record<string, string> }
 export interface HookEntry { hooks: Array<{ type: 'command'; command: string; statusMessage: string }> }
 export interface AgentStatus {
-  id: AgentId; present: boolean; binary: string | null; home: string; skillDir: string;
+  id: AgentId; present: boolean; binary: string | null; version?: string | null; home: string; skillDir: string;
   skill: { state: 'missing' | 'unmanaged' | 'edited' | 'current' | 'outdated'; files: Record<string, string | null>; marker: FileSnapshot; managed?: ManagedSkill; error?: string; treeHash?: string };
   rendered: RenderedSkill; config: FileSnapshot; hooks: FileSnapshot;
   capabilities: { promptHook: boolean; hookEnabled: boolean; addJson: boolean };
@@ -37,7 +37,9 @@ export function applySetup(plan: SetupPlan, options?: { yes?: boolean }): Promis
 export function applyRemove(plan: SetupPlan, options?: { yes?: boolean }): Promise<SetupReport>;
 export function publishUserSkills(options?: { agents?: AgentId[]; copy?: boolean }): Promise<SetupReport>;
 export function refreshInstalledSkills(options?: ProbeOptions & { copy?: boolean }): Promise<SetupReport>;
-export function doctor(options?: ProbeOptions & { probe?: AgentStatus[] }): Promise<DoctorCheck[]>;
+/** File-only status checks; never starts a child process. */
+export function probeChecks(options?: ProbeOptions & { probe?: AgentStatus[] }): Promise<DoctorCheck[]>;
+export function doctor(options?: ProbeOptions & { probe?: AgentStatus[]; onCheck?: (check: DoctorCheck) => void }): Promise<DoctorCheck[]>;
 export function renderSkill(runtime: AgentRuntime, agent: AgentId, templateDir?: string): RenderedSkill;
 export function validateSkill(text: string, name: string): { name: string; description?: string; error?: string };
 export function registration(runtime: AgentRuntime, agent: string): McpRegistration;

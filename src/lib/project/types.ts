@@ -391,6 +391,13 @@ export interface FileBridge {
   // fluxLibResolved/fluxConfigResolved/plotLibraryResolved).
   // Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;
+  agentSetupStatus?(options?: { refresh?: boolean }): Promise<import('./agentMonitor').AgentMonitorStatus>;
+  agentSetupDoctor?(): Promise<{ checks: import('./agentMonitor').DoctorCheck[] }>;
+  agentSetupApply?(request: import('./agentMonitor').MonitorMutation): Promise<import('./agentMonitor').MonitorMutationResult>;
+  agentSetupRemove?(request: import('./agentMonitor').MonitorMutation): Promise<import('./agentMonitor').MonitorMutationResult>;
+  agentSetupSkills?(request: { action: 'list' | 'new' | 'reveal' | 'publish'; name?: string }): Promise<import('./agentMonitor').MonitorSkills>;
+  onAgentSetupChanged?(fn: (status: import('./agentMonitor').AgentMonitorStatus) => void): () => void;
+  onAgentSetupProgress?(fn: (progress: { check: import('./agentMonitor').DoctorCheck; checkedAt: string }) => void): () => void;
   prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   // Move the whole FluxConfig folder to a new parent dir (always named exactly
   // "FluxConfig"; main-process rename/copy+verify). Optional: Electron only.

@@ -10,8 +10,7 @@ import type { ContextStamp } from "../../lib/project/annotations";
 import type { TargetRef } from "../../lib/project/targets";
 
 import { annotationOpen, isAnnotateChord } from "./annotationVisibility";
-export { annotationOpen, isAnnotateChord, yieldsToShellModal } from "./annotationVisibility";
-export interface AnnotationRequest {
+export { annotationOpen, isAnnotateChord, yieldsToShellModal } from "./annotationVisibility";export interface AnnotationRequest {
   stamp: ContextStamp;
   shot: Promise<{ png: Uint8Array; width: number; height: number } | null>;
   document: Document;

@@ -1002,6 +1002,24 @@ Persistence invariants (all machine-checked — do not weaken):
   when the gallery closes. Recreate list size observers in the destination window on pin
   and dock: an observer created in a hidden opener stops delivering resizes, leaving the
   pinned gallery's columns and virtual row count stale until the opener regains focus.
+- **AI status monitor (2026-09-27)** lives at the titlebar AI indicator and the
+  command palette's AI status / New agent skill entries. `agent/aiMonitorState.ts`
+  is the small eager cache; `AIPanel.svelte` loads lazily and moves its mounted
+  subtree through `openUtilityWindow` into exact-allowlisted `ai-status.html`.
+  Native DOM handlers retain pin/dock interaction and the owner closes its utility.
+  Project changes close the panel. The main `ipc/agentSetup.cjs` family alone holds
+  probe snapshots and replacement plans: the renderer receives a safe status view,
+  or exact before/after text only while confirming a sender-bound, expiring plan.
+  File-only `probeChecks` shares the setup inspector with doctor; startup/open/apply
+  and ten-minute refreshes never launch diagnostic processes. Doctor is explicit,
+  publishes each check, and Copy diagnostics copies its redacted JSON.
+  The Skills workflow creates exclusive template folders and uses the OS editor.
+  Sessions retain Annotate's presence reader while either surface is visible;
+  Stop watching appends `makeReleaseSession` through the shared annotation writer.
+  Inbox counts include saved document sidecars through the shared inbox fold.
+  Gates: `verify-ai-monitor.ts`, `verify-ai-monitor-gui.mjs`, IPC/docs, startup,
+  Annotate/utility and multi-window integration. `docs/agents/connect.qmd` contains
+  the exact bundle definition shown in the panel.
 - **Figure-Meta (2026-09-26)** replaces the Figure caption overlay and naming popup.
   Workspace lazy-loads `figure/FigureMeta.svelte` for Alt+M in Figure/Paper; Ctrl+R and
   sidebar double-click open Name. Shift+Alt+M/G opens metadata/gallery pinned.
@@ -1136,7 +1154,7 @@ Persistence invariants (all machine-checked — do not weaken):
     Edit appends `withdraw` + replacement note in one write, retaining the original
     picture/context. Withdraw never pretends the work was resolved. Status chips and
     toasts name the agent; needs-input opens its replies. Presence reads use FileBridge
-    and run only while Annotate is visible, at most once per 5s; the native watcher
+    and run only while Annotate or a retained AI panel is visible, at most once per 5s; the native watcher
     batches `.meta/live/sessions` notifications at ≥2s.
   - **Modal ownership and native windows.** All window key handlers yield through
     `yieldsToShellModal`/`isAnnotateChord` (source census, documented narrow exemptions).
@@ -7323,3 +7341,21 @@ Added the hermetic transport/renderer gate and a real Electron pixel/indicator p
 native and browser acceptance remains with the orchestrator. Promoted the capture
 ownership/consent contract and AI-panel activity-store integration into §1. Updated
 a stale pathMap reference from the retired Annotate gate to its W4b replacement.
+### 2026-09-27 08:15 UTC — AI status monitor (Codex, aio-w6a-monitor)
+**Work:** Added the titlebar indicator, lazy pin/dock panel, one-time Home card,
+shared setup IPC with exact-diff confirmation, doctor progress/diagnostics, skill
+creation/editor/reveal, presence sessions and Stop watching. Added the connect docs
+page and verbatim bundle table. Main keeps raw config and plans; cached status and
+errors are redacted. File-only refresh shares the doctor's inspector and never
+starts Node, git, vendor probes, MCP or rendering. The retained presence reader
+and shared inbox/annotation builders serve both surfaces.
+**Verification:** Full hermetic pure tier 308/308 (0 failed/blocked/flaky); monitor
+50 checks, launcher 33, setup 76, doctor 39, docs 168, IPC 140 channels. Svelte check
+0 errors/0 warnings; headless typecheck and production build pass. UI gate authored
+and syntax-checked; UI/startup/native and paper-gate runs belong to the orchestrator.
+Nothing committed. Corrected an existing pathMap reference to the retired Annotate
+gate, replacing it with its current successor; no threshold was relaxed.
+**Learnings:** Keep execution evidence only for the same install, and never let an
+old doctor success conceal a fresh launcher failure. Check that the sender's bridge
+is listening and published. Open a newly authored skill even when publication needs
+repair. Linked worktree/packed refs let cached source-install status stay file-only.

@@ -113,6 +113,21 @@ contextBridge.exposeInMainWorld("fig", {
   // Global preferences (<userData>/preferences.json — holds the FluxConfig
   // pointer; FluxLib/Guidelines paths come back resolved).
   prefsGet: () => ipcRenderer.invoke("prefs:get"),
+  agentSetupStatus: (options) => ipcRenderer.invoke("agentsetup:status", options),
+  agentSetupDoctor: () => ipcRenderer.invoke("agentsetup:doctor"),
+  agentSetupApply: (request) => ipcRenderer.invoke("agentsetup:apply", request),
+  agentSetupRemove: (request) => ipcRenderer.invoke("agentsetup:remove", request),
+  agentSetupSkills: (request) => ipcRenderer.invoke("agentsetup:skills", request),
+  onAgentSetupChanged: (fn) => {
+    const listener = (_e, status) => fn(status);
+    ipcRenderer.on("agentsetup:changed", listener);
+    return () => ipcRenderer.removeListener("agentsetup:changed", listener);
+  },
+  onAgentSetupProgress: (fn) => {
+    const listener = (_e, progress) => fn(progress);
+    ipcRenderer.on("agentsetup:progress", listener);
+    return () => ipcRenderer.removeListener("agentsetup:progress", listener);
+  },
   prefsSet: (patch) => ipcRenderer.invoke("prefs:set", patch),
   // Move the whole FluxConfig folder to a new parent dir (main-process rename;
   // returns {ok,path} or {error}). The folder is always named "FluxConfig".

@@ -134,7 +134,11 @@ function createAgentFamily({ rootForSender, appendJournalLine, noteWrite }) {
     });
   }
 
-  return { registerHandlers, setBridgeFor, stopBridgeForWindow, stopAllBridges };
+  function bridgeForSender(e) {
+    const entry = bridges.get(rootForSender(e));
+    return !!entry && entry.win.webContents.id === e.sender.id && entry.bridge.isRunning();
+  }
+  return { registerHandlers, setBridgeFor, stopBridgeForWindow, stopAllBridges, bridgeForSender };
 }
 
 module.exports = { createAgentFamily };

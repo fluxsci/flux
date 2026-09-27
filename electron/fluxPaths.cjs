@@ -488,7 +488,7 @@ function resolveOwnCliCommandsSync(options = {}) {
       args = [path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs")];
     }
   } else {
-    executable = options.nodePath || resolveAgentNodeSync();
+    executable = options.nodePath || (options.commands === false ? execPath : resolveAgentNodeSync());
     target = appRoot;
     const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
     if (fsSync.existsSync(distCli)) args = [distCli];
@@ -501,6 +501,24 @@ function resolveOwnCliCommandsSync(options = {}) {
     }
   }
   let build = options.build;
+  if (!build && options.commands === false) {
+    // Status reads must not launch Node or git. Source-only worktrees may keep
+    // refs in the common git dir; a missing ref is unknown until an explicit probe.
+    try {
+      let gitDir = path.join(appRoot, ".git");
+      if (fsSync.statSync(gitDir).isFile()) gitDir = path.resolve(appRoot, fsSync.readFileSync(gitDir, "utf8").trim().replace(/^gitdir: /, ""));
+      const head = fsSync.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+      if (!head.startsWith("ref: ")) build = head.slice(0, 7);
+      else {
+        const ref = head.slice(5);
+        let common = gitDir;
+        try { common = path.resolve(gitDir, fsSync.readFileSync(path.join(gitDir, "commondir"), "utf8").trim()); } catch { /* ordinary checkout */ }
+        try { build = fsSync.readFileSync(path.join(common, ref), "utf8").trim().slice(0, 7); }
+        catch { build = fsSync.readFileSync(path.join(common, "packed-refs"), "utf8").split("\n").find(line => line.endsWith(" " + ref))?.split(" ")[0].slice(0, 7); }
+      }
+    } catch { /* source archive, without git metadata */ }
+    build ||= "unknown";
+  }
   if (!build) {
     const bundle = packaged && resourcesPath ? path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs") : path.join(appRoot, "dist", "flux-cli.mjs");
     try { build = /^\/\/ flux-agent-build commit=(\S+)$/m.exec(fsSync.readFileSync(bundle, "utf8"))?.[1]; }

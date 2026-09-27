@@ -272,6 +272,7 @@ const agentFamily = require("./ipc/agent.cjs").createAgentFamily({
   noteWrite,
 });
 agentFamily.registerHandlers(ipcMain);
+require("./ipc/agentSetup.cjs").createAgentSetupFamily({ shell, rootForSender: rootFor, bridgeForSender: agentFamily.bridgeForSender }).registerHandlers(ipcMain);
 const { setBridgeFor, stopBridgeForWindow, stopAllBridges } = agentFamily;
 
 // ---------------------------------------------------------------------------
@@ -466,11 +467,12 @@ function createWindow(initialRoot) {
   });
   const galleryUrl = new URL("plot-gallery.html", appUrl).href;
   const metadataUrl = new URL("figure-meta.html", appUrl).href;
+  const aiUrl = new URL("ai-status.html", appUrl).href;
   const galleryWindows = new Set();
   const utilityOwnerId = win.webContents.id;
   utilityChildren.set(utilityOwnerId, galleryWindows);
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    if ((url === galleryUrl && frameName === "flux-plot-gallery") || (url === metadataUrl && frameName === "flux-figure-meta")) return {
+    if ((url === galleryUrl && frameName === "flux-plot-gallery") || (url === metadataUrl && frameName === "flux-figure-meta") || (url === aiUrl && frameName === "flux-ai-status")) return {
       action: "allow",
       overrideBrowserWindowOptions: {
         width: 1060, height: 780, minWidth: 480, minHeight: 420,
@@ -1809,4 +1811,3 @@ ipcMain.handle("docs:open", async () => {
   return openDocumentation({ packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     sourceRoot: path.join(__dirname, '..') }, index => shell.openPath(index));
 });
-

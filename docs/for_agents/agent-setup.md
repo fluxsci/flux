@@ -8,6 +8,10 @@ are in [Working with agents](../agents/collaboration.qmd).
    Show the plan's actions, checks and next steps. `applySetup(plan, {yes})` requires
    confirmation for replacing existing MCP registrations and rechecks file baselines.
    Generate plans in main; do not accept arbitrary renderer-supplied file actions.
+   The monitor calls `probeAgents({commands:false})` + `probeChecks({probe})` for
+   file-only refreshes; neither starts a child process. `doctor({onCheck})` emits
+   each completed check for explicit UI progress. Its default behavior and CLI/MCP
+   JSON stay unchanged.
 2. `planRemove({probe, agents?})` / `applyRemove(plan, {yes:true})` remove only owned
    integrations. They restore prior registrations, retain unrelated edits and keep the
    shared launcher installed. Edited stock skills are retained with a disconnected
@@ -68,3 +72,20 @@ model invocation was needed for this verification. Windows forms are tested as s
 and through the platform-aware fake executable fixture; native Windows, macOS and
 packaged-app acceptance still require their respective integration runners. Other
 vendors receive manual instructions; automatic registration is limited to Claude and Codex.
+
+The monitor IPC family (`electron/ipc/agentSetup.cjs`) keeps raw probe/plan snapshots
+in main. `agentsetup:status` returns a safe cache and the sender's project bridge;
+`agentsetup:changed` publishes fresh file checks. `agentsetup:doctor` runs only on
+request, with `agentsetup:progress` per completed row. Apply/remove accept an agent
+selection or a single-use, sender-bound confirmation token (five-minute lifetime),
+never renderer file actions. Replacement dialogs alone receive exact before/after
+text; statuses, operation errors and doctor JSON redact vendor config values.
+Setup and doctor cannot overlap within main. Existing operation leases still guard
+against CLI or other-process writes.
+
+`agentsetup:skills` lists, creates, reveals or republishes UserContext skills. New
+folders are exclusive, names are validated, and the OS default editor opens
+`SKILL.md`. The renderer reuses Annotate's retained presence reader and the shared
+`makeReleaseSession` builder. The UI stays lazy; the ten-minute refresh never runs
+doctor. Run `verify-ai-monitor` through the hermetic runner; the browser monitor,
+startup, Annotate utility and multi-window gates belong to integration.

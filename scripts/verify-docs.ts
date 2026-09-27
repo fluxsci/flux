@@ -175,4 +175,8 @@ for (const rel of pages) {
   ok(!/\.config\/Flux\b/.test(src), `${rel}: machine config dir never capitalized`);
 }
 
+const connectDoc = fs.readFileSync(path.join(docsDir, "agents/connect.qmd"), "utf8");
+const { AI_BUNDLE_TABLE } = await import("../src/shell/agent/aiBundleTable");
+ok(connectDoc.includes(AI_BUNDLE_TABLE), "AI monitor and connect docs share the verbatim bundle table");
+ok(["Agents", "Bundle", "Sessions", "This project", "New skill", "Stop watching", "Copy diagnostics"].every(s => connectDoc.includes(s)), "connect docs cover the monitor and skills workflow");
 await h.done();

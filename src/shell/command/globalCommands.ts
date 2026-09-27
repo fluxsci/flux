@@ -1,4 +1,5 @@
 import { requestAnnotation } from "../agent/annotateChord";
+import { openAI } from "../agent/aiMonitorState";
 // The GlobalPalette command list (non-paper modes; PaperMode appends the same
 // entries to its own palette). Context-doc commands switch to Paper and open
 // the doc; machine-context commands open the file in the OS editor.
@@ -39,6 +40,8 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
     );
   }
   cmds.push(
+    { id: "ai-status", title: "AI status", hint: "AI Bundle", keywords: "connect claude codex doctor agents", run: () => openAI() },
+    { id: "ai-new-skill", title: "New agent skill…", hint: "AI Bundle", keywords: "user context skills", run: () => openAI({ newSkill: true }) },
     { id: "ctx-global-rules", title: "Open global rules", hint: "Context", keywords: "user conventions machine", run: () => void openMachineContext("UserContext/RULES.md") },
     { id: "ctx-who", title: "Open who-am-I", hint: "Context", keywords: "profile background user", run: () => void openMachineContext("UserContext/WHO-AM-I.md") },
   );

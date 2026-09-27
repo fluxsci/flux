@@ -12,6 +12,13 @@
   import { fileBridge } from "../lib/project/types";
   import { pushToast, type ToastLevel } from "../lib/toast";
   import { settings } from "../lib/settings";
+  import { aiOpen, startAIMonitor } from "./agent/aiMonitorState";
+  import { contextCommands } from "./command/globalCommands";
+  import CommandPalette from "./command/CommandPalette.svelte";
+  let homePalette = $state(false);
+  let AI: typeof import("./agent/AIPanel.svelte").default | null = $state(null);
+  const loadAI = () => import("./agent/AIPanel.svelte").then(m => AI = m.default);
+  $effect(() => { if ($aiOpen && !AI) void loadAI(); });
   import { installLifecycle } from "./lifecycle";
   import { warmModes, ALL_MODES } from "./modeRegistry";
   // (bibLoad is dynamic-imported in onCapturePayload — a static edge from the
@@ -60,6 +67,7 @@
   });
 
   onMount(() => {
+    const stopAI = startAIMonitor();
     installLifecycle(); // W5: consolidated beforeunload + quit-flush answering
     // W15: warm paper (the default first mode) during Home IDLE — after first
     // paint, so the 920KB chunk never competes with Home interactivity (the
@@ -68,6 +76,7 @@
       typeof requestIdleCallback === "function" ? (fn) => requestIdleCallback(fn) : (fn) => void setTimeout(fn, 250);
     idle(() => warmModes(["paper"]));
     idle(() => void loadAnnotation());
+    idle(() => void loadAI());
     // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
     // auto-export once the app is idle. Dynamic import — the job (and, through it,
     // the bib/import stack) must never ride the eager Home bundle (W15).
@@ -105,6 +114,9 @@
     // so it works in every mode and on Home; macOS also has the File-menu item.
     const onNewWindowKey = (e: KeyboardEvent) => {
       if (yieldsToShellModal(e)) return;
+      if (get(view) === "home" && e.code === "KeyK" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault(); homePalette = !homePalette; return;
+      }
       if (e.code === "KeyN" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.altKey) {
         e.preventDefault();
         void fileBridge()?.newWindow?.();
@@ -112,6 +124,7 @@
     };
     window.addEventListener("keydown", onNewWindowKey);
     return () => {
+      stopAI();
       unsub?.();
       window.removeEventListener("keydown", onNewWindowKey);
     };
@@ -144,6 +157,8 @@
        just inside a project (its own listener ignores typing targets). -->
   <Help />
   {#if Annotation}<Annotation />{/if}
+  {#if $aiOpen && AI}<AI />{/if}
+  {#if homePalette && $view === "home"}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => homePalette = false} />{/if}
 
   {#if capture}
     <div

@@ -310,7 +310,8 @@
       "verify-connect-doctor.ts",
       "verify-skill-template.ts",
       "verify-command-rank.ts",
-      "verify-live-view.ts"
+      "verify-live-view.ts",
+      "verify-ai-monitor.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -446,7 +447,8 @@
       "verify-metadata-save-safety.mjs",
       "verify-panel-label-menu.mjs",
       "verify-figure-meta-refinements.mjs",
-      "verify-annotation-surface-gui.mjs"
+      "verify-annotation-surface-gui.mjs",
+      "verify-ai-monitor-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -835,6 +837,16 @@
         "verify-startup.mjs",
         "tier:pure",
         "verify-shell-complete.mjs"
+      ]
+    },
+    {
+      "glob": "{src/shell/agent/AI*.svelte,src/shell/agent/ai*.ts,src/shell/agent/monitorComments.ts,src/lib/project/agentMonitor.ts,electron/ipc/agentSetup.cjs,public/ai-status.html}",
+      "run": [
+        "verify-ai-monitor.ts",
+        "verify-ai-monitor-gui.mjs",
+        "verify-ipc-contract.ts",
+        "verify-startup.mjs",
+        "tier:pure"
       ]
     },
     {
@@ -7333,6 +7345,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-ai-monitor.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-ai-monitor-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

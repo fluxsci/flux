@@ -13,6 +13,7 @@
   } from "./shellStore";
   import { prefersReducedMotion } from "../lib/motion/motion";
   import { fileBridge } from "../lib/project/types";
+  import { aiStatus, aiDismissed, dismissAI, openAI } from "./agent/aiMonitorState";
 
   const animate = !prefersReducedMotion();
   // Multi-window: only the desktop app can spawn windows (Ctrl+Shift+N works
@@ -64,6 +65,20 @@
 
     <div class="spacer"></div>
 
+    {#if $aiStatus.checkedAt && !$aiDismissed && !$aiStatus.agents.some(a => a.connected)}
+      <section class="ai-home" aria-label="Connect an AI agent">
+        <strong>Connect an AI agent</strong>
+        <p>Give your agent Flux tools, skills, and context.</p>
+        <div>
+          {#each $aiStatus.agents.filter(a => a.present) as agent}
+            <button onclick={() => openAI({ connect: agent.id })}>Connect {agent.id === 'claude' ? 'Claude Code' : 'Codex'}</button>
+          {/each}
+          <button onclick={() => openAI()}>AI status</button>
+          <button onclick={dismissAI} aria-label="Dismiss Connect an AI agent">Dismiss</button>
+        </div>
+      </section>
+    {/if}
+
     {#if $recents.length}
       <div class="recents">
         <div class="recents-head">
@@ -99,6 +114,10 @@
 </div>
 
 <style>
+  .ai-home { align-self: stretch; border: 1px solid var(--c-line); border-radius: var(--r-panel); padding: 14px; margin-bottom: 20px; background: var(--c-bg-raised); font-size: var(--ts-sm); }
+  .ai-home p { color: var(--c-tx-muted); margin: 8px 0; }
+  .ai-home div { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ai-home button { border: 1px solid var(--c-line); background: transparent; color: var(--c-tx); padding: 4px 8px; border-radius: var(--r-ui); }
   .home {
     position: relative;
     height: 100%;

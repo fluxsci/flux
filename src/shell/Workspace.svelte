@@ -10,6 +10,7 @@
   import { activeFigureId } from "../lib/store";
   import { storeTenant } from "../lib/tenancy";
   import { shellModalOpen } from "../lib/settings";
+  import { aiOpen, aiDetached } from "./agent/aiMonitorState";
   import { focusedMode, setFocusedMode } from "./paneStore";
   import type { ModeId } from "./shellStore";
   import type { Command } from "./command/commands";
@@ -55,10 +56,10 @@
       }
     };
     window.addEventListener("keydown", onKey);
-    // While Annotate or Figure-Meta is up, the editor's
+    // While Annotate, AI status or Figure-Meta is up, the editor's
     // keyboard yields (lib/keyboard.ts reads shellModalOpen).
-    const sync = () => shellModalOpen.set(get(annotationOpen) || (!!get(figureMeta) && !get(figureMetaDetached)));
-    const unsubs = [annotationOpen.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
+    const sync = () => shellModalOpen.set(get(annotationOpen) || (get(aiOpen) && !get(aiDetached)) || (!!get(figureMeta) && !get(figureMetaDetached)));
+    const unsubs = [annotationOpen.subscribe(sync), aiOpen.subscribe(sync), aiDetached.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
     return () => {
       window.removeEventListener("keydown", onKey);
       for (const u of unsubs) u();
