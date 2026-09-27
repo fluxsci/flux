@@ -15,8 +15,7 @@ import { elementPaints, gradientSvg } from "../../color/gradient";
 //     anim styles (drawOn dash scaffolding) and WAAPI targets on inner
 //     geometry survive;
 //   • plots update in place (frame compensation + overrides) and delegate
-//     content to the data-space morph when `to.assetId` names a compatible
-//     plot — one green track, both halves;
+//     data/view changes to the shared projection writer — one track, both halves;
 //   • non-interpolable content (text rewrites, closed≠open paths,
 //     incompatible plots) CROSSFADES: two stacked content layers, opacity
 //     cross-lerped, while the box still lerps — the fallback moves, it never
@@ -39,7 +38,8 @@ import { elementBBox, dashAttr } from "../../geometry";
 import { pathRender } from "../../path";
 import { lerpElement, contentPlan, type ContentPlan } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
-import { createMorph, type MorphController } from "./morph";
+import { hasTweenableSeries, seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
+import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -49,8 +49,6 @@ export interface TransformCtx extends SlideRenderCtx {
   contentHost?: HTMLElement;
   /** assetId → manifest (plot frame updates + the content-morph half). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
-  /** Content-morph target for plots (track.to.assetId), when compatible. */
-  morphTo?: { A: FluxPlotManifest; B: FluxPlotManifest };
   /** Wrapper props an overlapping same-beat appearance owns (conflict rule —
    *  the transform drops them; the appearance wins for the overlap). */
   skipProps?: ReadonlySet<string>;
@@ -81,7 +79,12 @@ export function createTransform(
   // A video is stretched by its retained element. Re-serializing width/height
   // Changes would replace its decoder and restart playback every frame.
   if (pre.type === "video" && end.type === "video") plan.contentDirty = false;
-  if (pre.type === "plot" && end.type === "plot" && pre.assetId !== end.assetId && !ctx.morphTo) {
+  const isPlot = pre.type === "plot" && end.type === "plot";
+  const manifest = (id: string) => ctx.plotManifest ? ctx.plotManifest(id) : get(plotManifests)[id];
+  const manifestA = pre.type === "plot" ? manifest(pre.assetId) : undefined;
+  const manifestB = end.type === "plot" ? manifest(end.assetId) : undefined;
+  const assetChange = isPlot && pre.assetId !== end.assetId;
+  if (assetChange && !hasTweenableSeries(manifestA, manifestB)) {
     plan.mode = "crossfade";
     plan.contentDirty = true;
   }
@@ -119,19 +122,36 @@ export function createTransform(
   // the endpoints, so rest is always painted in place.
   const glide = !boxOpts.skipTransform && pureMove(pre, end);
 
-  // --- plot half: in-place frame/override updates + optional content morph --
-  const isPlot = pre.type === "plot" && end.type === "plot";
-  let innerMorph: MorphController | null = null;
-  const plotUpdate = isPlot && ctx.morphTo ? compileStaticContent(contentHost, pre, end, ctx, {
-    circles: new Set(ctx.morphTo.A.series.flatMap((s) => (s.points ?? []).map((p) => partDomId(pre.id, p.svgId)))),
-    lines: new Set(ctx.morphTo.A.series.flatMap((s) => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
-  }) : null;
-  if (isPlot && ctx.morphTo) {
-    // A compatible data match with different SVG topology needs a complete
-    // crossfade; a geometry-only tween would silently leave old labels/axes.
-    if (plotUpdate) innerMorph = createMorph(contentHost, pre.id, ctx.morphTo.A, ctx.morphTo.B, true);
-    else plan.mode = "crossfade";
-  }
+  // --- plot half: one projection writer for new data, a new view, or both --
+  const sourceRoot = pre.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(pre.assetId) : plotDom.get(pre.assetId)) : undefined;
+  const targetRoot = end.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(end.assetId) : plotDom.get(end.assetId)) : undefined;
+  const project = isPlot && !!manifestA && plan.mode !== "crossfade" &&
+    (assetChange || plan.contentDirty && (!!pre.view || !!end.view));
+  // The complete binding supplies pristine asset geometry and paint. It must
+  // not bake endpoint compensation or views: those belong to this frame's
+  // override → projection → compensation pipeline below.
+  const neutralPlot = (el: SemanticPlotElement, root: Element | undefined): SemanticPlotElement => {
+    const size = root ? svgIntrinsicPx(root) : { w: el.width, h: el.height };
+    return { ...el, width: size.w, height: size.h, crop: undefined, contentScale: 1, overrides: undefined, view: undefined };
+  };
+  const bSeries = new Map(manifestB?.series.map(s => [s.id, s]));
+  const dataSeries = manifestA?.series.filter(a => !assetChange || !!manifestB && seriesTweenable(a, bSeries.get(a.id), seriesAxes(manifestA, a), bSeries.has(a.id) ? seriesAxes(manifestB, bSeries.get(a.id)!) : undefined)) ?? [];
+  const plotUpdate = project ? compileStaticContent(contentHost,
+    neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
+      circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),
+      lines: new Set(dataSeries.flatMap(s => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
+    }) : null;
+  // Id-keyed binding (E4) owns partial SVG topology; until then a structural
+  // mismatch still uses the existing complete crossfade.
+  if (project && !plotUpdate) plan.mode = "crossfade";
+  if (project) plan.contentDirty = true;
+  const projectionOptions: PlotViewOptions | undefined = project ? {
+    t: 0, from: viewFits(manifestA!, (pre as SemanticPlotElement).view) ?? undefined,
+    to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
+    fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
+    sourceRoot, targetRoot, geometryInterpolated: true,
+    ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
+  } : undefined;
   const intrinsic = (() => {
     if (!isPlot) return null;
     const cached = (ctx.plotRoot ? ctx.plotRoot((pre as SemanticPlotElement).assetId) : plotDom.get((pre as SemanticPlotElement).assetId));
@@ -145,6 +165,7 @@ export function createTransform(
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
   const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
+  if (plotSvg && projectionOptions) preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
   let faded = false;
@@ -314,10 +335,7 @@ export function createTransform(
       return;
     }
 
-    if (!plan.contentDirty) {
-      if (innerMorph) { plotUpdate?.(el, t); innerMorph.seek(t); }
-      return;
-    }
+    if (!plan.contentDirty) return;
 
 
     if (isPlot) {
@@ -331,6 +349,8 @@ export function createTransform(
         // the (lerped) overrides, then compensate for THIS frame's box —
         // exactly a fresh mount, idempotent at any t.
         restorePtTrue(inst, ptTrueBindings);
+        restoreProjection(inst);
+        plotUpdate?.(el, t);
         if (naturalViewBox && intrinsic) {
           if (p.crop) {
             inst.setAttribute("viewBox", cropViewBoxValue(naturalViewBox, intrinsic, p.crop));
@@ -342,6 +362,10 @@ export function createTransform(
         }
         applyOverrides(inst, p.overrides, p.id, (ctx.plotManifest ? ctx.plotManifest(p.assetId) : get(plotManifests)[p.assetId]));
         ghostOpacity?.(p);
+        if (projectionOptions) {
+          projectionOptions.t = t;
+          applyPlotView(inst, manifestA, (end as SemanticPlotElement).view, p.id, projectionOptions);
+        } else applyPlotView(inst, manifestA, p.view, p.id);
         if (intrinsic) {
           compensatePtTrue(inst, {
             elW: p.width,
@@ -352,7 +376,6 @@ export function createTransform(
           }, ptTrueBindings);
         }
       }
-      if (innerMorph) { plotUpdate?.(el, t); innerMorph.seek(t); }
       return;
     }
 

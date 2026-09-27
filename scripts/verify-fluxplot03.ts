@@ -9,7 +9,8 @@ import { createHash } from "node:crypto";
 import { parseHTML } from "linkedom";
 import { validatePlot } from "../flux-core/validate";
 import { validateIncomingPlot, plotContractErrors } from "../src/lib/plot/contract";
-import { morphCompatible, createMorph, seriesAxes, morphSeriesPixels } from "../src/lib/slide/player/morph";
+import { hasTweenableSeries, seriesTweenable, seriesAxes, projectSeries, viewFits } from "../src/lib/plot/project";
+import { applyPlotView } from "../src/lib/plot/projectDom";
 import { buildPartIndex } from "../src/lib/plot/parse";
 import { resolveTargets } from "../src/lib/plot/tree";
 import { autoAnimatePlot } from "../src/lib/slide/autobuild";
@@ -37,21 +38,20 @@ for (const name of ["panels-a", "panels-b", "fields"]) {
 const A = await load("panels-a"), B = await load("panels-b");
 assert.equal(A.manifest.series[0].data!.y[0], 1e-6);
 assert.equal(A.manifest.series[0].data!.y[2], null);
-assert(morphCompatible(A.manifest, B.manifest));
+assert(hasTweenableSeries(A.manifest, B.manifest));
 const reordered = structuredClone(B.manifest); reordered.axes.reverse();
-assert(morphCompatible(A.manifest, reordered), "ownership follows panel IDs, not array position");
+assert(hasTweenableSeries(A.manifest, reordered), "ownership follows panel IDs, not array position");
 const { document } = parseHTML("<html><body></body></html>");
 const wrap = document.createElement("div");
 wrap.innerHTML = A.svg.replace(/\bid="([^"]+)"/g, 'id="plot__$1"');
-const controller = createMorph(wrap as unknown as ParentNode, "plot", A.manifest, reordered);
-controller.seek(.5);
+applyPlotView(wrap as unknown as Element, A.manifest, undefined, "plot", { t: .5, toManifest: reordered, series: a => reordered.series.find(b => b.id === a.id) ?? null });
 for (const series of A.manifest.series) {
   const path = wrap.querySelector(`[id="plot__${series.svg.line}"] path`)!.getAttribute("d")!;
   assert.equal((path.match(/M/g) ?? []).length, 2, "line gap remains a separate subpath");
   assert.equal((path.match(/[ML]/g) ?? []).length, 4, "subsampled markers do not remove line vertices");
   assert(!/NaN|Infinity/.test(path));
   const sb = B.manifest.series.find((s) => s.id === series.id)!;
-  const projected = morphSeriesPixels(series, sb, seriesAxes(A.manifest, series)!, seriesAxes(B.manifest, sb)!, .5);
+  const projected = projectSeries(series, sb, viewFits(A.manifest, undefined, series.panelId)!, viewFits(B.manifest, undefined, sb.panelId)!, .5);
   const last = projected.at(-1)!;
   assert(path.endsWith(`${last.x.toFixed(6)} ${last.y.toFixed(6)}`));
 }
@@ -62,10 +62,9 @@ for (const mutate of [
   (m: FluxPlotManifest) => { m.axes[0].x.anchors[1].data = m.axes[0].x.anchors[0].data; },
   (m: FluxPlotManifest) => { m.series[0].capabilities = { dataMorph: false }; },
   (m: FluxPlotManifest) => { m.series[0].rasterized = true; },
-  (m: FluxPlotManifest) => { m.series[0].data!.y[1] = null; },
-]) { const changed = structuredClone(B.manifest); mutate(changed); assert(!morphCompatible(A.manifest, changed)); }
+]) { const changed = structuredClone(B.manifest); mutate(changed); assert(!seriesTweenable(A.manifest.series[0], changed.series[0], seriesAxes(A.manifest, A.manifest.series[0]), seriesAxes(changed, changed.series[0])), "the affected series refuses unsupported geometry"); assert(hasTweenableSeries(A.manifest, changed), "an unaffected panel still offers a tweenable series"); }
 const field = await load("fields");
-assert(!morphCompatible(field.manifest, field.manifest), "field changes use complete transitions");
+assert(!hasTweenableSeries(field.manifest, field.manifest), "field changes use complete transitions");
 assert.equal(field.manifest.guides!.filter((g) => g.role === "colorbar").length, 2);
 assert(plotContractErrors(A.svg.replace('id="figure"', 'id="axis.x"') + '<g id="axis.x"/>', A.manifest).some((e) => e.includes("Duplicate")));
 await assert.rejects(validateIncomingPlot(A.svg + "\n", JSON.stringify(A.manifest)), /checksum/);

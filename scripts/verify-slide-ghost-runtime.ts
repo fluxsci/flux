@@ -74,4 +74,35 @@ cachePlot("B", '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"
 const refreshed = createPlayer(host, deck, options); refreshed.seek(0, 2, 0);
 check(host.querySelector('[id="pcopy__p0"]')?.getAttribute("cy") === "60", "newly accepted source bytes reach the ghost origin on recompilation without editing its fallback");
 refreshed.destroy();
+// A real line plot copy floats and zooms through the ordinary transform driver.
+const { readFile } = await import("node:fs/promises");
+const { addSlide, addPlotToSlide, addBeat, addGhostTransform, setTransform } = await import("../src/lib/slide/ops");
+const { projectSeries, viewFits } = await import("../src/lib/plot/project");
+const lineSvg = await readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.svg", import.meta.url), "utf8");
+const lineManifest = JSON.parse(await readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.fluxplot.json", import.meta.url), "utf8")) as FluxPlotManifest;
+cachePlot("sine", lineSvg, lineManifest);
+const zoomDeck = createDeck({ withTitleSlide: false }), zoomSlide = addSlide(zoomDeck, { layout: "blank" });
+const zoomSource = addPlotToSlide(zoomDeck, zoomSlide.id, { assetId: "sine", x: 20, y: 30, width: 480, height: 144 })!;
+const birth = addBeat(zoomDeck, zoomSlide.id)!;
+const view = { x: { domain: [2, 4] as [number, number] } };
+const ghost = addGhostTransform(zoomDeck, zoomSlide.id, birth.id, zoomSource, { count: 1, duration: 1000, easing: "linear", states: [{ x: 220, y: 130, view }] })!.elementIds[0];
+const next = addBeat(zoomDeck, zoomSlide.id)!;
+setTransform(zoomDeck, zoomSlide.id, next.id, ghost, { duration: 1000, easing: "linear", state: { view: { x: { domain: [1, 3] } } } });
+const zoomPlayer = createPlayer(host, zoomDeck, { theme: FLUX_DARK, reducedMotion: true, plotManifest: () => lineManifest });
+const expected = projectSeries(lineManifest.series[0], null, viewFits(lineManifest)!, viewFits(lineManifest, view)!, .5)[0];
+for (const time of [500, 1000, 0, 500]) {
+  zoomPlayer.seek(0, 1, time);
+  const line = host.querySelector(`[id="${ghost}__2hz.line"] path`)!;
+  const xy = line.getAttribute("d")!.match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)!.map(Number);
+  if (time === 500) {
+    check(near(xy[0], expected.x) && near(xy[1], expected.y), "floating ghost's midpoint data agrees with projectSeries");
+    check(node(ghost).style.transform.includes("translate(100px, 50px)"), "ghost floats in x and y while its data view zooms");
+    check((host.querySelector(`[id="${ghost}__axis.x.tick.1"]`) as SVGElement).style.opacity === "0", "ghost guide outside the data view remains faded");
+  }
+}
+zoomPlayer.seek(0, 2, 500);
+const chainedExpected = projectSeries(lineManifest.series[0], null, viewFits(lineManifest, view)!, viewFits(lineManifest, { x: { domain: [1, 3] } })!, .5)[0];
+const chainedX = Number(host.querySelector(`[id="${ghost}__2hz.line"] path`)!.getAttribute("d")!.match(/M([-\d.]+)/)![1]);
+check(near(chainedX, chainedExpected.x), "a later view Change starts from the ghost's zoomed endpoint");
+zoomPlayer.destroy();
 console.log(`GHOST RUNTIME: PASS (${checks} assertions)`);

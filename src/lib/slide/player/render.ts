@@ -20,6 +20,7 @@
 // decoder in a player. Appearance and geometry still belong to the same wrapper.
 // ---------------------------------------------------------------------------
 
+import { applyPlotView, preparePlotView } from "../../plot/projectDom";
 import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
@@ -396,8 +397,11 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   }
   // applyOverrides needs the live manifest; `get` from svelte/store is framework-neutral.
   const ghostOpacity = compileGhostPartOpacity(inst, el, ctx);
-  applyOverrides(inst, el.overrides, el.id, (ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId]));
+  const manifest = ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
+  preparePlotView(inst, manifest, el.view, el.id);
+  applyOverrides(inst, el.overrides, el.id, manifest);
   ghostOpacity?.(el);
+  applyPlotView(inst, manifest, el.view, el.id);
   compensatePtTrue(inst, {
     elW: el.width,
     elH: el.height,

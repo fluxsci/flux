@@ -7,8 +7,9 @@
 // content-affecting fields change; pure x/y moves update the outer <svg>
 // attributes in place (no re-clone per committed drag).
 
+import { applyPlotView, preparePlotView } from "./projectDom";
 import { get } from "svelte/store";
-import type { SemanticPlotElement, CropRect, PartOverride } from "../types";
+import type { SemanticPlotElement, CropRect, PartOverride, PlotView } from "../types";
 import { plotDom, plotManifests, sigCalls } from "./store";
 import { applyOverrides, prefixIds } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
@@ -24,6 +25,7 @@ function signature(e: SemanticPlotElement, gen: number): string {
     gen,
     JSON.stringify(e.overrides ?? {}),
     JSON.stringify(e.crop ?? null),
+    JSON.stringify(e.view ?? null),
     e.contentScale ?? 1,
   ].join("|");
 }
@@ -43,6 +45,7 @@ interface SigSnapshot {
   gen: number;
   overrides: Record<string, PartOverride> | undefined;
   crop: CropRect | undefined;
+  view: PlotView | undefined;
   contentScale: number;
 }
 const snap = (e: SemanticPlotElement, gen: number): SigSnapshot => ({
@@ -52,6 +55,7 @@ const snap = (e: SemanticPlotElement, gen: number): SigSnapshot => ({
   gen,
   overrides: e.overrides,
   crop: e.crop,
+  view: e.view,
   contentScale: e.contentScale ?? 1,
 });
 const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number): boolean =>
@@ -61,6 +65,7 @@ const sameSnap = (a: SigSnapshot, e: SemanticPlotElement, gen: number): boolean 
   a.gen === gen &&
   a.overrides === e.overrides &&
   a.crop === e.crop &&
+  a.view === e.view &&
   a.contentScale === (e.contentScale ?? 1);
 
 export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElement; gen?: number }) {
@@ -95,7 +100,10 @@ export function mountPlot(host: SVGGElement, params: { element: SemanticPlotElem
     } else {
       inst.style.overflow = "visible";
     }
-    applyOverrides(inst, element.overrides, element.id, get(plotManifests)[element.assetId]);
+    const manifest = get(plotManifests)[element.assetId];
+    preparePlotView(inst, manifest, element.view, element.id);
+    applyOverrides(inst, element.overrides, element.id, manifest);
+    applyPlotView(inst, manifest, element.view, element.id);
     compensatePtTrue(inst, {
       elW: element.width,
       elH: element.height,

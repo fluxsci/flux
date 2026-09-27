@@ -15,7 +15,7 @@
   import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration } from "../../../../lib/slide/compile";
-  import { morphCompatible } from "../../../../lib/slide/player/morph";
+  import { hasTweenableSeries } from "../../../../lib/plot/project";
   import { plotManifests } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
@@ -181,7 +181,7 @@
   const dataCompatible = $derived.by(() => {
     if (curTargetEl?.type !== "plot" || !curTrack?.to?.assetId) return null;
     const m = $plotManifests;
-    return morphCompatible(m[curTargetEl.assetId], m[curTrack.to.assetId]);
+    return hasTweenableSeries(m[curTargetEl.assetId], m[curTrack.to.assetId]);
   });
   function keepOwnContent() {
     withCurTrack((t) => clearTransformContent(t));

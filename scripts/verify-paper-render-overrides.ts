@@ -121,6 +121,43 @@ try {
   h.ok(!!cropped && /viewBox="0 0 100 60"/.test(cropped), "crop serializes as the crop viewBox window");
   h.ok(!!cropped && cropped.includes('overflow="hidden"'), "cropped plot clips its overflow");
 
+  h.section("data view parity on a real fluxplot line");
+  const linePath = path.join(root, "plots", "sine.svg");
+  const lineText = await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.svg", import.meta.url), "utf8");
+  const lineManifestText = await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.fluxplot.json", import.meta.url), "utf8");
+  await fs.writeFile(linePath, lineText);
+  await fs.writeFile(path.join(root, "plots", "sine.fluxplot.json"), lineManifestText);
+  const lineComp = await core.composeFigure(root, [linePath], { id: "viewfig", captionStub: false });
+  const lineIndex = JSON.parse(await fs.readFile(path.join(root, "fig", "index.json"), "utf8"));
+  const lineCanvasPath = path.join(root, "fig", "canvases", `${lineIndex.figures.find((f: { id: string }) => f.id === lineComp.figureId).canvas}.json`);
+  const lineCanvas = JSON.parse(await fs.readFile(lineCanvasPath, "utf8"));
+  const lineFig = lineCanvas.figures.find((f: Figure) => f.id === lineComp.figureId) as Figure;
+  const lineEl = lineFig.elements.find(e => e.type === "plot")! as import("../src/lib/types").SemanticPlotElement;
+  const lineManifest = JSON.parse(lineManifestText);
+  const { cachePlot } = await import("../src/lib/plot/store");
+  const { plotToSvgMarkup } = await import("../src/lib/plot/export");
+  const { buildPlotMarkup } = await import("../src/lib/plot/inlineMarkup");
+  const { projectWith, viewFits } = await import("../src/lib/plot/project");
+  const { setAssetData } = await import("../src/lib/assets");
+  setAssetData(lineEl.assetId, `data:image/svg+xml;base64,${Buffer.from(lineText).toString("base64")}`);
+  Object.assign(globalThis, { XMLSerializer: class { serializeToString(node: Node) { return String(node); } } });
+  cachePlot(lineEl.assetId, lineText, lineManifest);
+  for (const view of [undefined, { x: { domain: [2, 4] as [number, number] } }]) {
+    if (view) lineEl.view = view; else delete lineEl.view;
+    await fs.writeFile(lineCanvasPath, JSON.stringify(lineCanvas, null, 2));
+    __seedFigures([ref(lineFig.id)], { [lineFig.id]: lineFig }, { [lineEl.assetId]: `data:image/svg+xml;base64,${Buffer.from(lineText).toString("base64")}` }, [], { [lineEl.assetId]: lineManifest }, []);
+    const headless = await core.renderFigureSvg(root, lineFig.id);
+    h.ok(renderFigureSvgForDisk(lineFig.id) === headless, `paper/core byte parity with view=${!!view}`);
+    const liveExport = plotToSvgMarkup(lineEl), inline = buildPlotMarkup(lineText, lineEl, lineEl.overrides, lineManifest);
+    h.ok(liveExport === inline, `figure export/inline byte parity with view=${!!view}`);
+    if (view) {
+      const parsed = new DOMParser().parseFromString(headless, "image/svg+xml");
+      const d = parsed.querySelector(`[id="${lineEl.id}__2hz.line"] path`)!.getAttribute("d")!;
+      const x = Number(d.match(/M([-\d.]+)/)![1]);
+      h.ok(Math.abs(x - projectWith(viewFits(lineManifest, view)!.x, lineManifest.series[0].data.x[0])) < 1e-5, "disk render bakes the projected vertex");
+    }
+  }
+
   h.section("hardening — one broken figure never kills a surface");
   const bad = {
     id: "badfig", name: "Bad", width: 200, height: 120,

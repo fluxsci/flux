@@ -6,7 +6,7 @@ import type { Slide, StageSize, Track, Camera } from "./types";
 import { lerpElement, transformEndState, transformPreState } from "./tween";
 import { resolveEasingFn } from "./easing";
 import { countUpText } from "./player/countup";
-import { morphCompatible } from "./player/morph";
+import { hasTweenableSeries, seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
 import { staggerRanks, staggerSpan } from "./stagger";
 import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
@@ -59,6 +59,9 @@ export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample"> {
   const issues: AnimationIssue[] = [];
+  for (const el of slide.elements) if (el.type === "plot") {
+    for (const reason of plotViewIssues(opts.plotManifest?.(el.assetId), el.view)) issues.push({ target: el.id, reason });
+  }
   const cues = slide.beats.map((beat, bi) => {
     const tracks: CompiledTrack[] = [];
     for (const track of beat.tracks) {
@@ -75,8 +78,21 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const pre = transformPreState(slide, track.target, bi);
         if (pre?.type === "plot") {
           const a = opts.plotManifest(pre.assetId), b = opts.plotManifest(track.to.assetId);
-          if (a && b && !morphCompatible(a, b)) issues.push({ trackId: track.id, target: track.target, reason: "Plot structures differ; this transform crossfades the complete source and destination." });
+          if (a && b) {
+            if (!hasTweenableSeries(a, b)) issues.push({ trackId: track.id, target: track.target, reason: "Plot structures differ; no shared tweenable series. This transform crossfades the complete source and destination." });
+            else for (const id of new Set([...a.series.map(s => s.id), ...b.series.map(s => s.id)])) {
+              const sa = a.series.find(s => s.id === id), sb = b.series.find(s => s.id === id);
+              if (!sa || !seriesTweenable(sa, sb, seriesAxes(a, sa), sb ? seriesAxes(b, sb) : undefined))
+                issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no tweenable counterpart and crossfades.` });
+            }
+          }
         }
+      }
+      if (track.preset === "transform") {
+        const pre = transformPreState(slide, track.target, bi);
+        const end = pre ? transformEndState(pre, track) : undefined;
+        if (end?.type === "plot") for (const reason of plotViewIssues(opts.plotManifest?.(end.assetId), end.view))
+          issues.push({ trackId: track.id, target: track.target, reason });
       }
       const parts = semanticTargets(track, slide, opts, bi);
       if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target, reason: "No matching plot parts. Retarget this effect." });

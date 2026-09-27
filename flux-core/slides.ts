@@ -37,7 +37,8 @@ import { planSourceUpdates, writeSourceUpdates, hasCompleteSvgStructure } from "
 import { svgIntrinsicSize } from "../src/lib/plot/svgGeometry";
 import { deckSourceProject, applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "../src/lib/slide/sourceSync";
 import { plotSourceCandidates } from "../src/lib/plot/source";
-import { animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
+import { animateElement, animatePart } from "../src/lib/slide/autobuild";
+import { hasTweenableSeries } from "../src/lib/plot/project";
 import { slideAssetIds } from "../src/lib/slide/deckProject";
 import { gatherPayload } from "../src/lib/slide/payload";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
@@ -782,8 +783,7 @@ export async function become(
     if (!opts.force) {
       const A = await readPlotManifest(root, found.el);
       const B = await readPlotManifest(root, { assetId });
-      const [cand] = listMorphCandidates(A, [{ assetId, manifest: B }]);
-      if (!cand?.compatible) throw new Error(`become ${found.el.assetId} → ${assetId}: structurally incompatible (no shared tweenable series) — playback would crossfade. Pass force to author anyway.`);
+      if (!hasTweenableSeries(A, B)) throw new Error(`become ${found.el.assetId} → ${assetId}: structurally incompatible (no shared tweenable series) — playback would crossfade. Pass force to author anyway.`);
     }
     const paths = await resolveAssetSource(root, assetId);
     const t = slideOps.setTransform(deck, slideId, beatId, sourceId, {

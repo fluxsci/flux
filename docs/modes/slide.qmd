@@ -189,9 +189,9 @@ Change replaces that Change's endpoint; a ghost copy can Become something at its
 **Plots become other plots** in two ways. Click another plot placed on the slide and the source
 turns into it, axes and all. Or, with a plot source, choose **From gallery…** in the bar (or
 **Data from gallery…** in the Animation inspector) and pick a plot from the project: the frame
-stays where it is and only the plot's content becomes the picked plot's. Structurally compatible
-plots — the same series with the same number of points, same axis scales — tween their data
-through smoothly interpolated axes; other pairs crossfade while the frame still moves. The source
+stays where it is and only the plot's content becomes the picked plot's. Shared line or point
+series with supported, matching axis scales can tween their data through smoothly interpolated
+axes. Pairs whose SVG structures cannot be matched still crossfade while the frame moves. The source
 path is retained so linked data can update, and **Keep own data** drops the data target again.
 There is no separate "data morph": it is a Become.
 
@@ -213,6 +213,23 @@ separate window for repeated insertion onto the active slide.
 
 **Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
 After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
+
+### Data-space transforms
+
+A plot's **data view** records its x/y limits and linear or log scales. A Change of this view
+zooms, pans or rescales the data inside the plot; the plot's position and size can change at
+the same time. A ghost can therefore float away while zooming into a smaller data range.
+A saved view also applies in Figure mode, Paper embeds and exports.
+
+Lines and points move through the new axis mapping. Existing ticks, gridlines and tick labels
+move with their data values and fade near the edges. A log view requires positive limits and
+positive data; an unsupported series keeps its original geometry and the animation reports why.
+Bars, boxes, violins and filled areas keep their original geometry in this version. Zooming out
+does not generate extra ticks; regenerate the plot to obtain a newly laid-out set of guides.
+
+The model and playback support data views now; the Axis view controls are a separate upcoming
+addition. Asset Becomes and Changes of a data view use the same projection, so one Change may
+combine new data, axis limits and movement.
 
 ## Cascading tracks
 
@@ -350,7 +367,7 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | Symptom | Cause → fix |
 |---|---|
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
-| A plot Become crossfades instead of morphing its data | The plots have incompatible structures → use matching series ids, point counts and axis scales for continuous data morphing |
+| A plot Become crossfades instead of morphing its data | Continuous data motion requires shared series ids, supported data and matching axis scales. Different SVG structures still crossfade until partial part binding is available. |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
 | "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | An older Flux mistook a reload overtaken by the agent’s next edit for a bad file → update Flux; the deck on disk is intact, so reopening it shows the agent’s version |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

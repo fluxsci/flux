@@ -161,6 +161,7 @@ The established shared cores — extend these, don't duplicate them:
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
+| Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
@@ -352,7 +353,7 @@ Persistence invariants (all machine-checked — do not weaken):
   validates incoming SVG/manifest pairs and checks their original-byte checksum before legacy
   coordinate repair. Existing stored projects retain their legacy reader; never bulk-regenerate
   user outputs. New series carry `panelId`, exact nullable data, a component inventory and explicit
-  `capabilities.dataMorph`; `slide/player/morph.ts` resolves the owning axes and preserves line
+  `capabilities.dataMorph`; `plot/project.ts` resolves the owning axes and preserves line
   gaps. Unsupported transforms/projections/raster parts use complete transitions. Match these
   changes with `~/fluxplot`'s versioned generator and shared fixtures in `scripts/fixtures/fluxplot03`.
   X-Ray color controls regenerate source fields and their keys, preserving authored overrides.
@@ -924,6 +925,14 @@ Persistence invariants (all machine-checked — do not weaken):
   the same `preset:"transform"` track: `to.state` is the property half and, for plot/image,
   `to.assetId` the content half — the old `morph` preset and "Data morph" are gone, a data
   morph IS a Become whose target shares the source's box (`migrateDeck` folds legacy records).
+  Plot data-space math lives in `plot/project.ts`; `projectDom.applyPlotView` is the ONE
+  writer for both `view` Changes and asset Becomes (including simultaneous view changes).
+  The five preparation hosts are mount, fillPlot, figure export, inlineMarkup and the
+  transform driver. Bind guide data before overrides or from a pristine source root;
+  restore pt-true, then projection, before the next frame. The driver binds neutral asset
+  geometry (no endpoint view/compensation), then applies this frame's overrides, projection
+  and compensation. Per-panel fits and vertex buffers are prepared once. The old
+  `player/morph.ts` is a temporary re-export shim, including `axisFit` for existing consumers.
   `becomeTransform` (ops.ts; CLI/MCP `become`) diffs the source's step pre-state against the
   target (`diffState` is retype-aware: type + every non-base prop), writes the track, consumes
   the target and gc's groups as ONE op (one Undo restores both); it refuses the Design step,
@@ -2419,7 +2428,7 @@ outside this PNG packaging change.
   multiply stroke styles) — any code path that re-runs them per frame COMPOUNDS (glyphs shrink
   a notch per beat nav, explode to a gray wall during playback). The contract: capture pristine
   per-field records first (WeakMap in compensate.ts), and every seek runs
-  `restorePtTrue → viewBox/crop → applyOverrides → compensatePtTrue` — exactly a fresh mount,
+  `restorePtTrue → restoreProjection → viewBox/crop → applyOverrides → applyPlotView → compensatePtTrue` — exactly a fresh mount,
   idempotent at any t (transform.ts).
 - **Never animate the wrapper's layout box** (left/top/width/height): the svg child's painted
   origin pixel-snaps to whole STAGE px — sub-pixel writes paint nothing, then jump a full px at
@@ -2859,6 +2868,13 @@ outside this PNG packaging change.
   `overrides` diff). Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
+- **Plot data views (Animation v2 E1–E3):** `view` renders in all five plot hosts and
+  tweens through the transform driver. Filled marks remain unchanged; no new ticks are
+  generated. Non-positive log data refuses that series with a compiler issue. Axis view
+  UI/verbs and regenerated ticks are later packets. Per-series eligibility now accepts a
+  shared tweenable subset, but structural SVG mismatches still crossfade until E4 replaces
+  the structural `compileStaticContent` binding. Do not confuse eligibility with complete
+  partial-transition support.
 - **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
   `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
   reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
@@ -7693,3 +7709,23 @@ slide gates pass. User and transform docs now describe pairing and the warm/samp
   stage placement belongs in the shared sampler. Promoted this contract into §4.
 - A bounded batch memo retains warmed large plans beyond the 256-entry individual-pair cache;
   snapshot inputs on a miss so later producer edits cannot mutate a retained plan.
+
+### 2026-09-27 23:15 UTC — Animation v2 plot projection and data views (Codex, av2/E1)
+**Work:** Extracted the data-space kernel into `plot/project.ts` and the one bound attribute
+writer into `plot/projectDom.ts`. All five hosts render `view`; the transform driver combines
+asset data, view, frame changes and ghost flights through the same writer. Added copy-on-write
+`setPlotView`, view interpolation, per-series eligibility/diagnostics, core exports and user docs.
+The old morph module is a compatibility re-export; no separate morph driver remains.
+**Verification:** Final hermetic pure tier 317/317; plot-view 54 checks, ghost runtime 36,
+paper-render-overrides 21 and exported Become browser 24. All three requested UI gates
+(transform, beat-display, slide-editor) passed on isolated port 1424. Svelte check: 921 files,
+0 errors/0 warnings; headless check and production build passed. No `import-is-undefined`;
+build reports the unrelated `zoteroFields` ineffective-dynamic-import warning. New gate
+negative proofs: old HEAD canvas mount fails 2/54, disabled domain substitution fails 4/54,
+disabled projection restoration fails 7/54; restored implementation passes 54/54.
+**Learnings:** Bind neutral asset geometry so endpoint compensation/view are never baked
+twice; recover guides from pristine source roots for chained transitions. Apply ghost part
+opacity before projection edge fading. Keep unchanged-view movement on the box-only path.
+E4 still owns id-keyed residual fades/topology changes; Axis view UI/verbs remain later
+packets. Native, bundle and startup qualification belong to the orchestrator. Changes are
+uncommitted; no user config, main checkout or external ledger was modified.

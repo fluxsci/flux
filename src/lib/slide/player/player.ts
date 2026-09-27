@@ -16,7 +16,7 @@ import { targetPartIds, hasPartBinding, trackKey } from "../targets";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS } from "../presetCatalog";
-import { morphCompatible, type MorphController } from "./morph";
+import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
 import { transformEndState, transformPreState } from "../tween";
@@ -161,18 +161,11 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const preEl = transformPreState(slide, track.target, bi);
         if (!wrap || !preEl) continue; // dangling target — tolerated no-op
         const endEl = transformEndState(preEl, track);
-        let morphTo: { A: import("../../plot/types").FluxPlotManifest; B: import("../../plot/types").FluxPlotManifest } | undefined;
-        const el = slide.elements.find((e) => e.id === track.target);
-        if (el && el.type === "plot" && track.to?.assetId) {
-          const A = opts.plotManifest?.(preEl.type === "plot" ? preEl.assetId : el.assetId);
-          const B = opts.plotManifest?.(track.to.assetId);
-          if (A && B && morphCompatible(A, B)) morphTo = { A, B };
-        }
         const driver = createTransform(wrap, preEl, endEl, {
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
           videoPlayback: opts.videoPlayback,
-          plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, morphTo, contentHost: contentRoots.get(track.target),
+          plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);

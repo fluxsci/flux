@@ -321,7 +321,8 @@
       "verify-preset-catalog.ts",
       "verify-correspondence.ts",
       "verify-target-geometry.ts",
-      "verify-target-geometry-browser.ts"
+      "verify-target-geometry-browser.ts",
+      "verify-plot-view.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -908,6 +909,20 @@
         "tier:pure",
         "group:inline-slides",
         "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/projectDom.ts",
+      "run": [
+        "verify-plot-view.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/project.ts",
+      "run": [
+        "verify-plot-view.ts",
+        "tier:pure"
       ]
     },
     {
@@ -7769,6 +7784,15 @@
       "coverage": "behavior"
     },
     "verify-target-geometry-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

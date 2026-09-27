@@ -14,6 +14,8 @@
 // DOM dependency: uses the global DOMParser via preparePlot — native in the
 // renderer; headless callers register linkedom first (flux-core ensureDom()).
 
+import { applyPlotView, preparePlotView } from "./projectDom";
+import type { PlotView } from "../types";
 import { preparePlot, prefixIds, applyOverrides } from "./parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "./compensate";
 import type { FluxPlotManifest } from "./types";
@@ -26,6 +28,7 @@ export interface PlacedPlotFrame {
   height: number;
   crop?: { x: number; y: number; width: number; height: number };
   contentScale?: number;
+  view?: PlotView;
 }
 
 // XMLSerializer in the renderer; linkedom's toString headless (linkedom
@@ -102,12 +105,14 @@ export function buildPlotMarkup(
     );
     rootEl.setAttribute("overflow", "hidden");
   }
+  preparePlotView(rootEl, prepared.manifest, el.view, el.id);
   applyOverrides(
     rootEl as unknown as globalThis.Element,
     overrides as Parameters<typeof applyOverrides>[1],
     el.id,
     prepared.manifest,
   );
+  applyPlotView(rootEl, prepared.manifest, el.view, el.id);
   compensatePtTrue(rootEl as unknown as globalThis.Element, {
     elW: el.width,
     elH: el.height,

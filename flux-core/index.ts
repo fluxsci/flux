@@ -146,3 +146,9 @@ export {
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";
+
+// Shared plot projection and figure-model view mutation.
+export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";
+export type { Fit, Fits, MorphPoint } from "../src/lib/plot/project";
+export { applyPlotView } from "../src/lib/plot/projectDom";
+export { setPlotView } from "../src/lib/ops";

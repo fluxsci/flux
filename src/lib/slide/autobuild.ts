@@ -25,7 +25,7 @@ import { familyOf } from "./family";
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
-import { morphCompatible } from "./player/morph";
+import { hasTweenableSeries } from "../plot/project";
 import type { Beat, Track, PresetName, Deck } from "./types";
 import type { Element } from "../types";
 import type { Id } from "../types";
@@ -307,7 +307,7 @@ export function listMorphCandidates(
   manifestA: FluxPlotManifest | undefined,
   candidates: { assetId: Id; manifest: FluxPlotManifest | undefined }[],
 ): { assetId: Id; compatible: boolean }[] {
-  return candidates.map((c) => ({ assetId: c.assetId, compatible: morphCompatible(manifestA, c.manifest) }));
+  return candidates.map((c) => ({ assetId: c.assetId, compatible: hasTweenableSeries(manifestA, c.manifest) }));
 }
 
 /** The phase-order rank of a beat: the resting beat sorts first, auto phase beats

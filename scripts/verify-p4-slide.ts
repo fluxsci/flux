@@ -2,7 +2,7 @@
 // Phase 4 — Slide bug sweep. The behavioral fixes are tested against the pure ops/player; the
 // DOM/WAAPI/component-bound ones are asserted present + covered by svelte-check.
 //
-//  SLD-8  (tested): morphCompatible gates topology — a morph pairs series by id and tweens points
+//  SLD-8  (tested): hasTweenableSeries gates topology — a morph pairs series by id and tweens points
 //         in data space, so it's only meaningful when structure matches. Compatible iff a series
 //         id is shared AND both sides are tweenable (points or a line). Disjoint ids, or a target
 //         with neither points nor a line (a bar chart), are incompatible. The player now SKIPS an
@@ -28,7 +28,7 @@ const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
 
-const { morphCompatible } = await import("../src/lib/slide/player/morph");
+const { hasTweenableSeries } = await import("../src/lib/plot/project");
 const { baseCameraTransform, createPlayer } = await import("../src/lib/slide/player/player");
 const { createDeck } = await import("../src/lib/slide/ops");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
@@ -39,7 +39,7 @@ function assert(c: unknown, m: string) {
   console.log("  ok:", m);
 }
 
-// --- SLD-8: morphCompatible -----------------------------------------------------------------
+// --- SLD-8: hasTweenableSeries -----------------------------------------------------------------
 const S = (id: string, points: boolean, line: boolean): FluxPlotSeries => ({
   id,
   svg: line ? { line: `${id}.line` } : {},
@@ -53,12 +53,12 @@ const M = (series: FluxPlotSeries[]): FluxPlotManifest => ({
   }], series,
 });
 console.log("SLD-8 — morph topology compatibility:");
-assert(morphCompatible(M([S("a", true, true)]), M([S("a", true, true)])), "shared series with points → compatible");
-assert(!morphCompatible(M([S("a", true, true)]), M([S("b", true, true)])), "disjoint series ids → incompatible");
-assert(!morphCompatible(M([S("a", true, true)]), M([S("a", false, false)])), "shared id but target has no points/line (bar-like) → incompatible");
-assert(!morphCompatible(M([]), M([S("a", true, true)])), "empty source series → incompatible");
-assert(!morphCompatible({ ...M([S("a", true, true)]), axes: [] }, M([S("a", true, true)])), "missing axes → incompatible");
-assert(!morphCompatible(undefined, M([S("a", true, true)])), "missing manifest → incompatible");
+assert(hasTweenableSeries(M([S("a", true, true)]), M([S("a", true, true)])), "shared series with points → compatible");
+assert(!hasTweenableSeries(M([S("a", true, true)]), M([S("b", true, true)])), "disjoint series ids → incompatible");
+assert(!hasTweenableSeries(M([S("a", true, true)]), M([S("a", false, false)])), "shared id but target has no points/line (bar-like) → incompatible");
+assert(!hasTweenableSeries(M([]), M([S("a", true, true)])), "empty source series → incompatible");
+assert(!hasTweenableSeries({ ...M([S("a", true, true)]), axes: [] }, M([S("a", true, true)])), "missing axes → incompatible");
+assert(!hasTweenableSeries(undefined, M([S("a", true, true)])), "missing manifest → incompatible");
 
 // --- SLD-11: base camera transform ----------------------------------------------------------
 console.log("SLD-11 — base camera transform:");

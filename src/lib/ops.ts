@@ -32,8 +32,10 @@ import type {
   PathElement,
   VectorNode,
   PartOverride,
+  PlotView,
   GradientFill,
 } from "./types";
+import type { FluxPlotManifest } from "./plot/types";
 import { resizeFrame } from "./interact/frameResize";
 import { newId } from "./ids";
 import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
@@ -1669,6 +1671,28 @@ export function mergePartOverride(
   if (Object.keys(cur).length === 0) delete el.overrides[partId];
   else el.overrides[partId] = cur as PartOverride;
   if (Object.keys(el.overrides).length === 0) delete el.overrides;
+}
+
+/** Merge a data view per axis. Callers holding a manifest pass its axes so
+ * generator defaults normalize to absence. Empty axes reset; null resets all.
+ * The new view object preserves the canvas mount's copy-on-write fast path. */
+export function setPlotView(p: Project, elementId: Id, patch: Partial<PlotView> | null, defaults?: FluxPlotManifest["axes"][number]): void {
+  for (const f of p.figures) for (const el of f.elements) {
+    if (el.id !== elementId || el.type !== "plot") continue;
+    if (patch === null) { delete el.view; continue; }
+    const view: PlotView = structuredClone(el.view ?? {});
+    for (const key of ["x", "y"] as const) {
+      if (!(key in patch)) continue;
+      const value = patch[key];
+      if (!value || !Object.keys(value).length) { delete view[key]; continue; }
+      const axis = { ...view[key], ...value };
+      if (axis.domain === undefined || defaults && axis.domain[0] === defaults[key].domain[0] && axis.domain[1] === defaults[key].domain[1]) delete axis.domain;
+      else axis.domain = [...axis.domain];
+      if (axis.scale === undefined || axis.scale === defaults?.[key].scale) delete axis.scale;
+      if (axis.domain || axis.scale) view[key] = axis; else delete view[key];
+    }
+    if (view.x || view.y) el.view = view; else delete el.view;
+  }
 }
 
 /** Write a per-part override onto a semantic plot, keyed by stable semantic id

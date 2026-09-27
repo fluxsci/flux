@@ -121,6 +121,39 @@ try {
   await page.waitForFunction("!window.fluxDeck.state().playing && window.fluxDeck.state().time===1000", { timeout: 5000 });
   const frames = await page.evaluate("window.__frames") as { t: number; bad: boolean; vis: number }[];
   check(frames.length > 20 && frames.every((f) => !f.bad && f.vis === 1), `real playback: ${frames.length} frames, all finite, exactly one layer visible each frame`);
+  const { setTransform, addGhostTransform } = await import("../src/lib/slide/ops");
+  const { projectSeries, viewFits } = await import("../src/lib/plot/project");
+  const svg = await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.svg", import.meta.url), "utf8");
+  const manifest = JSON.parse(await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.fluxplot.json", import.meta.url), "utf8"));
+  const viewDeck = createDeck({ withTitleSlide: false }), viewSlide = addSlide(viewDeck, { layout: "blank" });
+  addElement(viewDeck, viewSlide.id, { id: "line", type: "plot", assetId: "sine", x: 20, y: 30, width: 480, height: 144, rotation: 0 });
+  const zoomBeat = addBeat(viewDeck, viewSlide.id)!;
+  const view = { x: { domain: [2, 4] as [number, number] } };
+  setTransform(viewDeck, viewSlide.id, zoomBeat.id, "line", { state: { view }, duration: 1000, easing: "linear" });
+  const ghostBeat = addBeat(viewDeck, viewSlide.id)!;
+  const ghostView = { x: { domain: [2.5, 3.5] as [number, number] } };
+  const ghost = addGhostTransform(viewDeck, viewSlide.id, ghostBeat.id, "line", { count: 1, duration: 1000, easing: "linear", states: [{ x: 220, y: 130, view: ghostView }] })!.elementIds[0];
+  const viewFile = path.join(tmp, "view.html");
+  await fs.writeFile(viewFile, (await exportDeckHtml({ deck: viewDeck, plots: { sine: { svg, manifest } } })).html);
+  await page.goto(pathToFileURL(viewFile).href); await page.waitForFunction("!!window.fluxDeck?.seek");
+  const expected = projectSeries(manifest.series[0], null, viewFits(manifest)!, viewFits(manifest, view)!, .5)[0];
+  for (const time of [500, 1000, 0, 500]) {
+    await page.evaluate(`window.fluxDeck.seek(0,1,${time})`);
+    if (time !== 500) continue;
+    const point = await page.evaluate(() => {
+      const p = document.querySelector('[id="line__2hz.line"] path') as SVGPathElement;
+      const v = p.getPointAtLength(0); return { x: v.x, y: v.y };
+    });
+    check(Math.abs(point.x - expected.x) < .5 && Math.abs(point.y - expected.y) < .5, "exported view Change midpoint is within 0.5px of projectSeries, including reverse seek");
+  }
+  await page.evaluate("window.fluxDeck.seek(0,2,500)");
+  const ghostExpected = projectSeries(manifest.series[0], null, viewFits(manifest, view)!, viewFits(manifest, ghostView)!, .5)[0];
+  const ghostFrame = await page.evaluate((id: string) => {
+    const w = document.querySelector(`[data-el-id="${id}"]`) as HTMLElement;
+    const p = w.querySelector('[id$="__2hz.line"] path') as SVGPathElement;
+    return { x: p.getPointAtLength(0).x, transform: w.style.transform };
+  }, ghost);
+  check(Math.abs(ghostFrame.x - ghostExpected.x) < .5 && ghostFrame.transform.includes("translate(100px, 50px)"), "exported ghost floats and zooms from the source's prior view");
   check(errors.length === 0, `offline Become runtime has a clean console: ${errors.join("; ")}`);
 } finally { await browser?.close(); await fs.rm(tmp, { recursive: true, force: true }); }
 console.log(`BECOME BROWSER: PASS (${checks} assertions)`);

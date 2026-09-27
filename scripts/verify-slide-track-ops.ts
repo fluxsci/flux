@@ -130,6 +130,8 @@ const cands = listMorphCandidates(A, [
 assert(cands.find((x) => x.assetId === "b")!.compatible, "shared tweenable series → compatible");
 assert(!cands.find((x) => x.assetId === "c")!.compatible, "disjoint series ids → incompatible");
 assert(!cands.find((x) => x.assetId === "none")!.compatible, "missing manifest → incompatible");
+const partial = listMorphCandidates(A, [{ assetId: "partial", manifest: mkManifest([{ id: "control", n: 7 }, { id: "extra", n: 2 }]) }]);
+assert(partial[0].compatible, "additional series and points preserve a shared tweenable candidate (partial binding owns the residue)");
 // the data-only Become (once "set-morph"): the ONE transform track carries the content half
 assert(ops.setTransform(deck, sid, b2.id, plotId, { toAssetId: "demo/other", duration: 900 }), "setTransform authors the data-only Become on the beat");
 const morphT = b2.tracks.find((t) => t.preset === "transform" && t.target === plotId)!;

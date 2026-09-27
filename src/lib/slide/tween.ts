@@ -16,7 +16,7 @@
 // paths, incompatible plots) is reported by contentPlan().
 // ---------------------------------------------------------------------------
 
-import type { Element, PartOverride, VectorNode } from "../types";
+import type { Element, PartOverride, PlotView, VectorNode } from "../types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
@@ -313,7 +313,7 @@ export interface ContentPlan {
 const BOX_ONLY = new Set(["x", "y", "rotation", "opacity", "flipX", "flipY"]);
 const GEOM_PROPS = new Set([
   "width", "height", "d", "nodes", "closed", "x1", "y1", "x2", "y2",
-  "cornerRadius", "crop", "contentScale",
+  "cornerRadius", "crop", "contentScale", "view",
 ]);
 
 /** Decide how the driver animates the content between two states of one
@@ -390,6 +390,9 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
         if (step(va, vb, t) === undefined) delete out[k];
         else out[k] = structuredClone(step(va, vb, t));
       }
+    } else if (k === "view") {
+      const view = lerpView(va as PlotView | undefined, vb as PlotView | undefined, t);
+      if (view) out[k] = view; else delete out[k];
     } else if (k === "overrides") {
       out[k] = lerpOverrides(va as Record<string, PartOverride> | undefined, vb as Record<string, PartOverride> | undefined, t);
       if (!Object.keys(out[k] as object).length) delete out[k];
@@ -445,6 +448,24 @@ function lerpAcrossKinds(pre: Element, end: Element, t: number): Element {
     out.y1 = sy > 0 ? 0 : h; out.y2 = sy > 0 ? h : 0;
   }
   return out as unknown as Element;
+}
+
+/** Sparse views have no implicit numeric domain: absent ends step in the
+ * model, while the renderer resolves the manifest defaults and blends fits. */
+export function lerpView(a: PlotView | undefined, b: PlotView | undefined, t: number): PlotView | undefined {
+  if (t <= 0) return a ? structuredClone(a) : undefined;
+  if (t >= 1) return b ? structuredClone(b) : undefined;
+  const out: PlotView = {};
+  for (const key of ["x", "y"] as const) {
+    const pa = a?.[key], pb = b?.[key];
+    const domain = pa?.domain && pb?.domain ? pa.domain.map((v, i) =>
+      pa.scale === "log" && pb.scale === "log" && v > 0 && pb.domain![i] > 0
+        ? Math.exp(lerp(Math.log(v), Math.log(pb.domain![i]), t)) : lerp(v, pb.domain![i], t)) as [number, number]
+      : step(pa?.domain, pb?.domain, t);
+    const scale = step(pa?.scale, pb?.scale, t);
+    if (domain || scale) out[key] = { ...(domain ? { domain: [...domain] } : {}), ...(scale ? { scale } : {}) };
+  }
+  return out.x || out.y ? out : undefined;
 }
 
 function lerpOverrides(

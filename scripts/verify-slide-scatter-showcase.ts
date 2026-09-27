@@ -81,4 +81,21 @@ assert(!style(fitLine(), "strokeDashoffset") && !style(fitLine(), "strokeDasharr
 applyStatic(specs, 0);
 assert(style(aPoint(), "opacity") === "0", "scrub back to Start re-hides the points (deterministic)");
 
+// The same real scatter can change its data view after its ordinary build.
+const { createPlayer } = await import("../src/lib/slide/player/player");
+const { viewFits, projectSeries } = await import("../src/lib/plot/project");
+const view = { x: { domain: [4, 6] as [number, number] } };
+const zoomBeat = slideOps.addBeat(deck, sid, { label: "Axis view" })!;
+slideOps.setTransform(deck, sid, zoomBeat.id, elId, { state: { view }, duration: 1000, easing: "linear" });
+const zoomPlayer = createPlayer(host, deck, { ...opts, reducedMotion: true });
+zoomPlayer.seek(deck.slides.indexOf(slide), slide.beats.length - 1, 500);
+const series = manifest.series.find((s: { points?: unknown[] }) => s.points?.length)!;
+const pt = series.points[0];
+const marker = host.querySelector(`[id="${elId}__${pt.svgId}"]`)! as SVGElement;
+const expected = projectSeries(series, null, viewFits(manifest)!, viewFits(manifest, view)!, .5).find(p => p.index === pt.index)!;
+const original = projectSeries(series, null, viewFits(manifest)!, viewFits(manifest)!, 0).find(p => p.index === pt.index)!;
+const movedX = marker.tagName.toLowerCase() === "circle" ? Number(marker.getAttribute("cx")) : original.x + parseFloat(marker.style.getPropertyValue("translate"));
+assert(Math.abs(movedX - expected.x) < .00501, "real scatter view midpoint uses the shared projection kernel after its build");
+zoomPlayer.destroy();
+
 console.log("\nSCATTER SHOWCASE (anim 3.2) ACCEPTANCE PASSED — the north-star scenario works end to end.");
