@@ -24,7 +24,7 @@
   let Meta: typeof import("../lib/figure/FigureMeta.svelte").default | null = $state(null);
   $effect(() => { if ($figureMeta && !Meta) void import("../lib/figure/FigureMeta.svelte").then(m => Meta = m.default); });
 
-  import { annotationOpen, yieldsToShellModal } from "./agent/annotationVisibility";
+  import { annotationOpen, askOpen, yieldsToShellModal } from "./agent/annotationVisibility";
 
   // The shell owns Ctrl+K: Paper focused → route to PaperMode's richer palette
   // (its own Mod+K chord was retired to keep this single-fire); Library focused →
@@ -58,8 +58,8 @@
     window.addEventListener("keydown", onKey);
     // While Annotate, AI status or Figure-Meta is up, the editor's
     // keyboard yields (lib/keyboard.ts reads shellModalOpen).
-    const sync = () => shellModalOpen.set(get(annotationOpen) || (get(aiOpen) && !get(aiDetached)) || (!!get(figureMeta) && !get(figureMetaDetached)));
-    const unsubs = [annotationOpen.subscribe(sync), aiOpen.subscribe(sync), aiDetached.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
+    const sync = () => shellModalOpen.set(get(annotationOpen) || get(askOpen) || (get(aiOpen) && !get(aiDetached)) || (!!get(figureMeta) && !get(figureMetaDetached)));
+    const unsubs = [annotationOpen.subscribe(sync), askOpen.subscribe(sync), aiOpen.subscribe(sync), aiDetached.subscribe(sync), figureMeta.subscribe(sync), figureMetaDetached.subscribe(sync)];
     return () => {
       window.removeEventListener("keydown", onKey);
       for (const u of unsubs) u();

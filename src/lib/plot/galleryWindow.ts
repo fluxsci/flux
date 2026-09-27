@@ -1,4 +1,5 @@
 import { isInboxChord, requestInbox, inboxOpen, inboxCloseRequest } from "../../shell/inbox/inboxState";
+import { isAskChord, requestAsk, askOpen } from "../../shell/agent/askChord";
 import { get } from "svelte/store";
 import { isAnnotateChord, requestAnnotation, annotationOpen } from "../../shell/agent/annotateChord";
 /** Move the mounted view, retaining its Svelte state and the opener's store/IO.
@@ -33,23 +34,28 @@ export function openUtilityWindow(node: HTMLElement, onClose: () => void, onDocu
   }
   const styles = new MutationObserver(syncStyles);
   const theme = new MutationObserver(syncStyles);
+  const utility = { name: options.frame === "flux-plot-gallery" ? "gallery" : options.frame === "flux-ai-status" ? "ai-status" : options.frame === "flux-inbox" ? "inbox" : "figure-meta", window: popup };
   function annotationKey(e: KeyboardEvent) {
-    if (isAnnotateChord(e)) {
+    if (isAskChord(e)) {
       e.preventDefault(); e.stopImmediatePropagation();
-      if (!e.repeat) requestAnnotation({ utility: { name: options.frame === "flux-plot-gallery" ? "gallery" : options.frame === "flux-ai-status" ? "ai-status" : options.frame === "flux-inbox" ? "inbox" : "figure-meta", window: popup } });
+      if (!e.repeat) requestAsk({ utility });
+    } else if (isAnnotateChord(e)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) requestAnnotation({ utility });
     } else if (isInboxChord(e) && !get(annotationOpen)) {
       e.preventDefault(); e.stopImmediatePropagation();
       if (!e.repeat) {
         if (options.frame === "flux-inbox" && get(inboxOpen)) inboxCloseRequest.update(n => n + 1);
         else { requestInbox(); window.focus(); }
-      }    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyS") {
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === "KeyS") {
       e.preventDefault(); e.stopImmediatePropagation();
-    } else if (get(annotationOpen)) {
+    } else if (get(annotationOpen) || get(askOpen)) {
       e.preventDefault(); e.stopImmediatePropagation();
       window.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, code: e.code, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, bubbles: true, cancelable: true }));
     }
   }
-  const annotationPointer = (e: Event) => { if (get(annotationOpen)) { e.preventDefault(); e.stopImmediatePropagation(); } };
+  const annotationPointer = (e: Event) => { if (get(annotationOpen) || get(askOpen)) { e.preventDefault(); e.stopImmediatePropagation(); } };
   function mount() {
     if (disposed || popup.closed) return;
     syncStyles();

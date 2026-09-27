@@ -311,7 +311,9 @@
       "verify-skill-template.ts",
       "verify-command-rank.ts",
       "verify-live-view.ts",
-      "verify-ai-monitor.ts"
+      "verify-ai-monitor.ts",
+      "verify-runner-drivers.ts",
+      "verify-mcp-readonly.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -449,7 +451,8 @@
       "verify-figure-meta-refinements.mjs",
       "verify-annotation-surface-gui.mjs",
       "verify-ai-monitor-gui.mjs",
-      "verify-inbox-gui.mjs"
+      "verify-inbox-gui.mjs",
+      "verify-ask-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -566,7 +569,8 @@
       "verify-eyedropper-electron.cjs",
       "verify-figure-metadata-electron.cjs",
       "verify-annotate-utility-electron.cjs",
-      "verify-live-view-electron.cjs"
+      "verify-live-view-electron.cjs",
+      "verify-ask-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -852,6 +856,62 @@
       ]
     },
     {
+      "glob": "scripts/{lib/{runnerFixture.cjs,askElectronProbe.cjs},fixtures/runner/**}",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-electron.cjs"
+      ]
+    },
+    {
+      "glob": "electron/{agentRunner.cjs,runnerDrivers/**,ipc/runner.cjs}",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-electron.cjs",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/shell/agent/{askChord.ts,AskSurface.svelte,RunnerSettings.svelte}",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-gui.mjs",
+        "verify-annotate-chord-census.ts",
+        "verify-startup.mjs",
+        "verify-annotation-core.ts",
+        "verify-feedback-snapshot.ts",
+        "verify-context-stamp.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-context-gui.mjs",
+        "verify-scale-annotate-hover.mjs",
+        "verify-annotate-utility-electron.cjs",
+        "verify-ipc-contract.ts",
+        "verify-present-core.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/project/ask.ts",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-gui.mjs"
+      ]
+    },
+    {
+      "glob": "flux-core/{mcpServer.ts,registry.ts}",
+      "run": [
+        "verify-mcp-readonly.ts",
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-registry-parity.ts",
+        "verify-inbox.ts",
+        "verify-inbox-wait.ts",
+        "verify-presence.ts",
+        "verify-annotation-core.ts",
+        "verify-log.ts",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "flux-core/connect/hook*.ts",
       "run": [
         "verify-connect-hook.mjs",
@@ -927,7 +987,8 @@
         "verify-present-core.ts",
         "tier:pure",
         "verify-live-view.ts",
-        "verify-live-view-electron.cjs"
+        "verify-live-view-electron.cjs",
+        "verify-ask-gui.mjs"
       ]
     },
     {
@@ -7403,6 +7464,46 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-runner-drivers.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-mcp-readonly.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-ask-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-ask-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": true,
       "coverage": "behavior"
     }

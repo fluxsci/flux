@@ -110,6 +110,16 @@ contextBridge.exposeInMainWorld("fig", {
   // App / user paths.
   paths: () => ipcRenderer.invoke("app:paths"),
 
+  // Installed-CLI runner; run ownership stays in the main process.
+  runnerCapabilities: () => ipcRenderer.invoke("runner:capabilities"),
+  runnerStart: (options) => ipcRenderer.invoke("runner:start", options),
+  runnerSend: (options) => ipcRenderer.invoke("runner:send", options),
+  runnerCancel: (options) => ipcRenderer.invoke("runner:cancel", options),
+  onRunnerEvent: (cb) => {
+    const handler = (_e, event) => cb(event);
+    ipcRenderer.on("runner:event", handler);
+    return () => ipcRenderer.removeListener("runner:event", handler);
+  },
   // Global preferences (<userData>/preferences.json — holds the FluxConfig
   // pointer; FluxLib/Guidelines paths come back resolved).
   prefsGet: () => ipcRenderer.invoke("prefs:get"),

@@ -55,6 +55,7 @@
     onCreate,
     onSelect,
     onAnnotate,
+    onAsk,
     onAnnotationClick,
     onAnnotationHover,
     onCitePreview,
@@ -81,6 +82,7 @@
      *  selection is then kept alive so the user can retry. */
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
     onSelect?: (text: string, page?: number) => void;
+    onAsk?: (text: string, page: number) => void;
     onAnnotate?: (text: string, page: number) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
@@ -962,6 +964,7 @@
         <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
       {/each}{/if}
       {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAnnotate?.(menu.anchor.quote, menu.page); }}>✦</button>{/if}
+      {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAsk?.(menu.anchor.quote, menu.page); }}>Ask</button>{/if}
     </div>
   {/if}
 </div>

@@ -65,6 +65,25 @@ to your agents.
 - In Reader, select PDF text or open a saved highlight and click **✦ Annotate this passage**
   to prefill a passage target.
 
+## Ask about what you see
+
+Press **Ctrl+Shift+J**, choose **Ask about this…** in **Ctrl+K**, or use **Ask** beside
+Reader's passage action. The Figure properties menu also offers **✦ Ask**. Ask captures
+your current selection and window; type immediately, then press **Enter** to send.
+**Shift+Enter** adds a newline. It works in every project surface, including Present and
+pinned utility windows.
+
+Choose your installed agent, model, and effort in **Settings → General → Agent that
+Flux launches**. Flux runs your own Claude Code or Codex CLI with your existing login;
+usage counts against your plan. Install and sign in using that CLI first. Flux does not
+handle vendor logins.
+
+Answers appear in a popover with expandable tool activity showing the actual inputs.
+Ask is read-only. **Stop** cancels the run. **Escape** or **Close Ask** discards the
+exchange from Flux; the CLI's own session history remains. **Keep** saves the question,
+answers, captured view, and targets as a resolved annotation. **Copy resume command**
+copies a command you can paste into your own terminal to continue the vendor session.
+
 ## Connect an agent
 
 Run `flux connect setup --dry-run` to preview agent setup, then `flux connect setup`
@@ -174,6 +193,9 @@ item in Inbox. Assignment controls in Inbox will arrive with the routing phase.
   adding it to `Context/RULES.md` for future sessions.
 
 # Troubleshooting
+
+- Ask reports a missing or outdated CLI → install/update it, sign in from your terminal,
+  then reopen Settings. Missing Flux tools → open **AI status** and use **Repair**.
 
 - `flux: command not found` → `~/.local/bin` missing or off PATH (the shim installs
   there on first run); the full path always works — see [Installing Flux](../installation.qmd).

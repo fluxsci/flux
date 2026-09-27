@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { requestAsk } from "../shell/agent/askChord";
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // The property menu — `f` (2026-09-15 surface redesign). The main way
@@ -482,6 +483,7 @@
           <span class="vsep" aria-hidden="true"></span>
           <span class="ttl">{head.name}</span>
           {#if head.ctx}<span class="ctx">{head.ctx}</span>{/if}
+          <button on:click={() => requestAsk()} aria-label="Ask about this">✦ Ask</button>
           <button class="xbtn" on:click={close} aria-label="Close properties">×</button>
         </header>
         <div class="search-row" class:active={mode === "search"}>

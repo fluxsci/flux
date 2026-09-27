@@ -144,7 +144,12 @@ const CHANNELS = [
   { channel: "correction:modelUnload", kind: "invoke", scope: "spawn" },
   { channel: "correction:modelWarm", kind: "invoke", scope: "spawn" },
   { channel: "correction:modelProgress", kind: "push", scope: "read" },
-  // --- capture (flux:// deep links) ---------------------------------------------
+  // --- FluxChat runner -------------------------------------------------------
+  { channel: "runner:capabilities", kind: "invoke", scope: "read" },
+  { channel: "runner:start", kind: "invoke", scope: "spawn" },
+  { channel: "runner:send", kind: "invoke", scope: "spawn" },
+  { channel: "runner:cancel", kind: "invoke", scope: "spawn" },
+  { channel: "runner:event", kind: "push", scope: "read" },
   // --- agent bridge ---------------------------------------------------------------
   { channel: "bridge:dispatch", kind: "push", scope: "read" },
   { channel: "bridge:dispatch:reply", kind: "send", scope: "read" },

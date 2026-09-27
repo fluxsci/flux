@@ -1,4 +1,5 @@
 import { requestInbox } from "../inbox/inboxState";
+import { requestAsk } from "../agent/askChord";
 import { requestAnnotation } from "../agent/annotateChord";
 import { openAI } from "../agent/aiMonitorState";
 // The GlobalPalette command list (non-paper modes; PaperMode appends the same
@@ -49,6 +50,7 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
   );
   if (get(currentProject)) {
     cmds.push(
+      { id: "agent-ask", title: "Ask about this…", hint: "Ctrl+Shift+J", keywords: "question AI explain selection", run: () => requestAsk() },
       { id: "agent-annotate", title: "Annotate…", hint: "Agent", keywords: "feedback screenshot arrow point mark draw", run: () => requestAnnotation() },
     );
   }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { annotationOpen, yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
+  import { captureOpen, yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { slideContext } from "../../../lib/bridge/contextStamp";
   $effect(() => {
@@ -719,7 +719,7 @@
     p.pause();p.seek(previewSlideIndex,beat,time);previewTime=p.state().time;previewPlaying=false;
   }
   function pausePreview(){player?.pause();previewPlaying=false;}
-  $effect(() => { if ($annotationOpen) pausePreview(); });
+  $effect(() => { if ($captureOpen) pausePreview(); });
   function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration && !state.mediaPaused){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing || player.state().mediaPlaying;}
   function stopPreview() {
     previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;

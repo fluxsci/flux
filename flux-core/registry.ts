@@ -321,6 +321,8 @@ export const projectParam = z.string().optional().describe("Project root (defaul
 export type RootResolver = (args: Record<string, unknown>) => string | Promise<string>;
 export type McpToolset = "core" | "full";
 export interface McpVerbOptions {
+  /** Hosted Ask restricts dedicated tools and generic dispatch alike. */
+  readOnly?: boolean;
   toolset?: McpToolset;
   bindRoot?: (root: string | null, args: Record<string, unknown>) => void | SessionRef | Promise<void | SessionRef>;
   sessionContext?: (root: string) => Pick<VerbCtx, "session" | "signal" | "watching">;
@@ -335,6 +337,7 @@ export interface McpVerbOptions {
 }
 
 export interface ExtraTool {
+  readOnly?: boolean;
   description: string;
   /** Including the injected `project` param for project-scope tools. */
   inputSchema: z.ZodRawShape;
@@ -384,13 +387,14 @@ function relativePathInput(v: VerbDef, args: Record<string, unknown>): boolean {
 /** Dedicated tools and flux_verb share validation, root/path policy, handler and render. */
 export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, getRoot: RootResolver, options: McpVerbOptions = {}): Promise<McpRender> {
   try {
+    if (options.readOnly && !v.readOnly) throw new ValidationError(`Read-only Flux session refuses ${v.name}`);
     const validated = z.object(mcpParams(v)).safeParse(supplied ?? {});
     if (!validated.success) throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${v.name}: ${getParseErrorMessage(validated.error)}`);
     const parsed = validated.data;
     const projectScope = (v.scope ?? "project") === "project";
     const root = projectScope || relativePathInput(v, parsed)
       ? await getRoot(parsed) : options.defaultRoot?.() ?? "";
-    if (projectScope) { await requireProject(root); await recoverProjectForAuthoring(root); }
+    if (projectScope) { await requireProject(root); if (!options.readOnly) await recoverProjectForAuthoring(root); }
     const args = resolvePathParams(v, parsed, root);
     const r = await v.handler({ root, identity: options.identity?.(), cwd: null, transport: "mcp", ...options.sessionContext?.(root), ...(options.session ? { mcp: options.session } : {}) }, args);    if (v.bindsRoot) {
       const next = (r as { root?: string | null }).root;
@@ -412,10 +416,12 @@ export function registerMcpVerbs(
   options: McpVerbOptions = {},
 ): void {
   for (const v of VERBS) {
+    if (options.readOnly && !v.readOnly) continue;
     if ((options.toolset ?? "core") === "core" && !v.core) continue;
     server.registerTool(v.name, { description: v.summary, inputSchema: mcpParams(v), ...(v.readOnly ? { annotations: READ_ONLY } : {}) }, a => runMcpVerb(v, a, getRoot, options));
   }
   server.registerTool("flux_verb", {
+    ...(options.readOnly ? { annotations: READ_ONLY } : {}),
     description: "Run any Flux verb or tool by name with its validated arguments, including ones this toolset does not list. flux_verbs finds names and schemas.",
     inputSchema: { verb: z.string(), args: z.record(z.unknown()).optional() },
   }, async a => {
@@ -425,6 +431,7 @@ export function registerMcpVerbs(
     if (v) return runMcpVerb(v, supplied, getRoot, options);
     const t = options.extraTools?.get(name);
     if (!t) return errorToMcp(new ValidationError(`Unknown Flux verb: ${name}. flux_verbs lists them.`));
+    if (options.readOnly && !t.readOnly) return errorToMcp(new ValidationError(`Read-only Flux session refuses ${name}`));
     const parsed = z.object(t.inputSchema).safeParse(supplied);
     if (!parsed.success) return errorToMcp(new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${name}: ${getParseErrorMessage(parsed.error)}`));
     return t.run(parsed.data);
@@ -435,8 +442,8 @@ export function registerMcpVerbs(
     inputSchema: { query: z.string().optional() },
   }, async a => {
     const entries = [
-      ...VERBS.map(v => ({ name: v.name, cli: v.cli as string | undefined, summary: v.summary, scope: v.scope as string, shape: () => mcpParams(v) })),
-      ...[...(options.extraTools ?? new Map<string, ExtraTool>())].filter(([n]) => !VERBS.some(v => v.name === n))
+      ...VERBS.filter(v => !options.readOnly || v.readOnly).map(v => ({ name: v.name, cli: v.cli as string | undefined, summary: v.summary, scope: v.scope as string, shape: () => mcpParams(v) })),
+      ...[...(options.extraTools ?? new Map<string, ExtraTool>())].filter(([n, t]) => (!options.readOnly || t.readOnly) && !VERBS.some(v => v.name === n))
         .map(([name, t]) => ({ name, cli: undefined, summary: t.description, scope: t.scope as string, shape: () => t.inputSchema })),
     ].sort((x, y) => x.name.localeCompare(y.name));
     const query = String(a.query ?? "").trim().toLowerCase();

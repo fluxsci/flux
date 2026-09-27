@@ -1,6 +1,6 @@
 <script lang="ts">
   import { presentContext } from "../../../lib/bridge/contextStamp";
-  import { annotationOpen } from "../../agent/annotationVisibility";
+  import { captureOpen } from "../../agent/annotationVisibility";
 
   import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
@@ -63,7 +63,7 @@
   const nextIdx = $derived(panel.nextIdx);
   $effect(() => { presentContext.set({ deckId: deck.id, slideIndex: st.slide, beat: st.beat, slideId: deck.slides[st.slide]?.id }); });
   // A capture freezes the current player frame and its media until the user resumes.
-  $effect(() => { if ($annotationOpen) { player?.pause(); player?.setMediaPaused(true); } });
+  $effect(() => { if ($captureOpen) { player?.pause(); player?.setMediaPaused(true); } });
 
 
   function playerOpts(): PlayerOpts {
@@ -135,7 +135,7 @@
   }
 
   // Blank/away pauses videos so audio doesn't play to a black screen (B15).
-  $effect(() => { player?.setMediaPaused(!!blank || $annotationOpen); });
+  $effect(() => { player?.setMediaPaused(!!blank || $captureOpen); });
 
   // Render the next-slide preview whenever the panel opens or the position moves
   // (the panel — hence nextMount — only exists while showNotes is true).
@@ -175,7 +175,7 @@
     else root?.requestFullscreen?.().catch(() => {});
   }
   function onClick(e: MouseEvent) {
-    if (!player || get(annotationOpen)) return;
+    if (!player || get(captureOpen)) return;
     bumpIdle();
     // ignore clicks on interactive video controls / the presenter panel (B4).
     const t = e.target as HTMLElement;

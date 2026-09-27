@@ -142,7 +142,35 @@ export interface LiveBridge {
 }
 
 // --- the file bridge (window.fig, from the Electron preload) -----------------
+export type RunnerDriver = "claude" | "codex";
+export interface RunnerCapability {
+  driver: RunnerDriver; detected: boolean; available: boolean; version?: string; reason?: string;
+  model?: boolean; effort?: boolean;
+}
+export interface RunnerImage { png: Uint8Array }
+export type RunnerPayload =
+  | { type: "session"; sessionId: string }
+  | { type: "message.delta" | "message"; text: string; messageId?: string }
+  | { type: "thought.delta"; text: string }
+  | { type: "tool"; toolId: string; title: string; input: unknown; status: "started" | "done" | "failed"; output?: unknown }
+  | { type: "file.change"; path: string; kind: string }
+  | { type: "permission"; permissionId: string; title: string; detail: string; options: { id: string; label: string }[] }
+  | { type: "usage"; costUsd?: number; inputTokens?: number; outputTokens?: number }
+  | { type: "status"; state: "starting" | "running" | "idle" | "done" | "failed" | "cancelled"; reason?: string }
+  | { type: "error"; message: string };
+export type RunnerEvent = RunnerPayload & { runId: string; seq: number };
+export interface RunnerStart {
+  driver?: RunnerDriver; mode: "ask"; root: string; cwd?: string;
+  /** Empty prepares the session without submitting a question. */
+  firstMessage: string; images?: RunnerImage[]; resume?: string;
+}
 export interface FileBridge {
+  runnerCapabilities?(): Promise<RunnerCapability[]>;
+  runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
+  runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;
+  runnerCancel?(options: { runId: string }): Promise<void>;
+  onRunnerEvent?(cb: (event: RunnerEvent) => void): () => void;
+
   prepareSlideVideo?(request: { root: string; deckId: string; path: string; jobId: string }): Promise<{ asset: import("../types").Asset; posterAsset: import("../types").Asset; url: string; poster: string }>;
   videoPreview?(path: string): Promise<{ poster: string; width: number; height: number; durationMs: number; hasAudio: boolean }>;
   videoMediaUrl?(request: { root: string; path: string }): Promise<string>;

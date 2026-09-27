@@ -21,6 +21,7 @@
     onRecolor,
     onCopy,
     onAnnotate,
+    onAsk,
     onDelete,
     onClose,
   }: {
@@ -34,6 +35,7 @@
     onRecolor?: (color: string) => void;
     /** Returns the clipboard promise — "Copied ✓" shows only when it resolves. */
     onCopy?: () => void | Promise<void>;
+    onAsk?: () => void;
     onAnnotate?: () => void;
     onDelete?: () => void;
     onClose?: () => void;
@@ -142,6 +144,7 @@
     </div>
     <span class="ppage">p{annotation.page}</span>
     {#if onAnnotate}<button class="pico annotate" title="Annotate this passage" aria-label="Annotate this passage" onclick={onAnnotate}>✦</button>{/if}
+    {#if onAsk}<button class="pico" title="Ask about this passage" aria-label="Ask about this passage" onclick={onAsk}>Ask</button>{/if}
     <button class="pico" title="Close" aria-label="Close" onclick={requestClose}>✕</button>
   </div>
 

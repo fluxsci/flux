@@ -10,8 +10,11 @@ import { buildContextStamp } from "../../lib/bridge/contextStamp";
 import type { ContextStamp } from "../../lib/project/annotations";
 import type { TargetRef } from "../../lib/project/targets";
 
-import { annotationOpen, isAnnotateChord } from "./annotationVisibility";
-export { annotationOpen, isAnnotateChord, yieldsToShellModal } from "./annotationVisibility";export interface AnnotationRequest {
+import { annotationOpen, askOpen, isAnnotateChord } from "./annotationVisibility";
+import { isAskChord, requestAsk, closeAsk } from "./askChord";
+export { annotationOpen, isAnnotateChord, yieldsToShellModal } from "./annotationVisibility";
+
+export interface AnnotationRequest {
   stamp: ContextStamp;
   shot: Promise<{ png: Uint8Array; width: number; height: number } | null>;
   document: Document;
@@ -41,15 +44,20 @@ export function requestAnnotation(opts: { targets?: TargetRef[]; utility?: { nam
   originalWindow = win;
   const focused = win.document.activeElement as HTMLElement | null;
   originalFocus = typeof focused?.focus === "function" ? focused : null;
+  if (get(askOpen)) closeAsk();
+  annotationRequest.set(captureAnnotationView(opts));
+  annotationOpen.set(true);
+}
+export function captureAnnotationView(opts: { targets?: TargetRef[]; utility?: { name: string; window: Window } } = {}): AnnotationRequest {
+  const win = opts.utility?.window ?? window;
   prepareTargetResolvers();
   const stamp = buildContextStamp({ targets: opts.targets, document: win.document,
     window: opts.utility ? { kind: "utility", name: opts.utility.name } : { kind: "main" } });
   // Start capture BEFORE any overlay paints. The promise has a rejection handler
   // immediately, including while the lazy module is still loading.
   const shot = fileBridge()?.captureWindow?.({ target: opts.utility ? "child" : "sender" }).catch(() => null) ?? Promise.resolve(null);
-  annotationRequest.set({ stamp, shot, document: win.document, identity: targetViewIdentity(win.document),
-    size: { w: win.innerWidth, h: win.innerHeight, dpr: win.devicePixelRatio || 1 }, generation: ++generation });
-  annotationOpen.set(true);
+  return { stamp, shot, document: win.document, identity: targetViewIdentity(win.document),
+    size: { w: win.innerWidth, h: win.innerHeight, dpr: win.devicePixelRatio || 1 }, generation: ++generation };
 }
 export function bufferAnnotationInput(): void { inputReady = false; }
 export function focusAnnotationInput(input: HTMLTextAreaElement): { text: string; submit: boolean } {
@@ -63,6 +71,12 @@ export function focusAnnotationInput(input: HTMLTextAreaElement): { text: string
 export function discardAnnotationBuffer(): void { cancelledBuffer = ""; buffer = ""; submitBuffered = false; }
 export function installAnnotateChord(): () => void {
   function key(e: KeyboardEvent) {
+    if (isAskChord(e)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!e.repeat) requestAsk();
+      return;
+    }
+    if (get(askOpen) && e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeAsk(); return; }
     if (isAnnotateChord(e)) {
       e.preventDefault(); e.stopImmediatePropagation();
       if (!e.repeat) requestAnnotation();
@@ -72,6 +86,7 @@ export function installAnnotateChord(): () => void {
       e.preventDefault(); e.stopImmediatePropagation();
       if (!e.repeat) {
         if (get(annotationOpen)) closeAnnotation();
+        if (get(askOpen)) closeAsk();
         if (get(inboxOpen)) inboxCloseRequest.update(n => n + 1); else requestInbox();
       }
       return;

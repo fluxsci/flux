@@ -11,7 +11,7 @@
 // never ships in a production build.
 
 import { scaffoldProject } from "./scaffold";
-import { joinPath, type FileBridge } from "./types";
+import { joinPath, type FileBridge, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -31,10 +31,20 @@ function baseOf(p: string): string {
 
 /** A minimal in-memory file system implementing the FileBridge contract. */
 export function createMemBridge(): FileBridge & {
+  _runnerCalls: { method: string; options: unknown }[];
+  _emitRunnerEvent: (runId: string, event: RunnerPayload) => void;
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
 } {
+  const runnerCalls: { method: string; options: unknown }[] = [];
+  const runnerEvents = new Set<(event: RunnerEvent) => void>();
+  const runs = new Map<string, { seq: number; options: RunnerStart }>();
+  const emitRunner = (runId: string, event: RunnerPayload) => {
+    const run = runs.get(runId); if (!run) return;
+    const normalized = { ...event, runId, seq: ++run.seq };
+    for (const cb of runnerEvents) cb(normalized);
+  };
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
@@ -50,6 +60,29 @@ export function createMemBridge(): FileBridge & {
   const ensureParent = (p: string) => addDir(parentOf(p));
 
   return {
+    _runnerCalls: runnerCalls,
+    _emitRunnerEvent: emitRunner,
+    async runnerCapabilities() { return [
+      { driver: "claude", detected: true, available: true, version: "fixture", model: true, effort: true },
+      { driver: "codex", detected: true, available: true, version: "fixture", model: true, effort: true },
+    ]; },
+    async runnerStart(options) {
+      const runId = crypto.randomUUID(), driver = options.driver ?? "claude";
+      runnerCalls.push({ method: "start", options: { ...options, runId } });
+      runs.set(runId, { seq: 0, options });
+      queueMicrotask(() => emitRunner(runId, { type: "session", sessionId: "fixture-session" }));
+      return { runId, driver };
+    },
+    async runnerSend(options) {
+      if (!runs.has(options.runId)) throw new Error("Unknown fixture run");
+      runnerCalls.push({ method: "send", options });
+      emitRunner(options.runId, { type: "status", state: "running" });
+    },
+    async runnerCancel(options) {
+      runnerCalls.push({ method: "cancel", options });
+      emitRunner(options.runId, { type: "status", state: "cancelled" }); runs.delete(options.runId);
+    },
+    onRunnerEvent(cb) { runnerEvents.add(cb); return () => runnerEvents.delete(cb); },
     _files: files,
     _dirs: dirs,
     // Dev-only: lets the headless harness simulate an external (agent) fs change.

@@ -3,6 +3,7 @@
 
   import { readerContext } from "../../../lib/bridge/contextStamp";
   import { registerReaderTargets } from "../../../lib/bridge/readerTargets";
+  import { requestAsk } from "../../agent/askChord";
   import { requestAnnotation } from "../../agent/annotateChord";
 
   // FluxReader document — everything scoped to ONE open paper. Loads the paper named by
@@ -770,6 +771,9 @@
     const stamp = readingStamp(); readerContext.set(stamp);
     return () => { if (get(readerContext) === stamp) readerContext.set(null); };
   });
+  function askPassage(quote: string, page: number, highlightId?: string) {
+    requestAsk({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
+  }
   function annotatePassage(quote: string, page: number, highlightId?: string) {
     requestAnnotation({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
   }
@@ -1141,7 +1145,7 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key bufferGen}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotate={annotatePassage} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotate={annotatePassage} onAsk={askPassage} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
         </div>
@@ -1211,6 +1215,7 @@
             onRecolor={(c) => void handleUpdate(ann.id, { color: c }).catch(() => {})}
             onCopy={() => copyQuote(ann)}
             onAnnotate={() => annotatePassage(ann.anchor.quote, ann.page, ann.id)}
+            onAsk={() => askPassage(ann.anchor.quote, ann.page, ann.id)}
             onDelete={() => void handleDelete(ann.id)}
             onClose={() => (popover = null)} />
         {/if}

@@ -10,6 +10,7 @@ const exemptions: Record<string, string> = {
   'src/shell/modes/figure/FigureMode.svelte:handleKey': 'Delegates to lib/keyboard.ts:handleKey, whose guard is checked below.',
 };
 const local: Record<string, string> = {
+  'src/shell/agent/askChord.ts:input': 'Ask bootstrap textarea owns Enter before its lazy surface is loaded.',
   'src/lib/plot/GalleryExpandedPreview.svelte:node': 'Local preview root, beneath the modal.',
   'src/lib/ui/modalFocus.ts:node': 'Local focus trap on its own modal.',
   'src/lib/slide/embedPlayer.ts:host': 'Local Paper slide embed.',
@@ -82,7 +83,7 @@ if (!/e\.altKey && !e\.ctrlKey && !e\.metaKey && !e\.shiftKey && e\.code === "Ke
 const bootstrap = readFileSync('src/shell/agent/annotateChord.ts', 'utf8');
 if (!/if \(isInboxChord\(e\)\) \{[\s\S]*?e\.preventDefault\(\); e\.stopImmediatePropagation\(\)/.test(bootstrap)) errors.push('Inbox chord must be captured before editor key owners');
 if (!/isInboxChord\(e\)/.test(readFileSync('src/lib/plot/galleryWindow.ts', 'utf8'))) errors.push('Inert utilities must forward the Inbox chord');
-console.log('ANNOTATE CHORD CENSUS — window-level handlers');
+console.log('ANNOTATE / ASK CHORD CENSUS — window-level handlers');
 for (const item of inventory) {
   const id = `${item.file}:${item.name}`, exemption = exemptions[id];
   console.log(`${item.file}:${item.line} ${item.name}${exemption ? ` [exempt: ${exemption}]` : ''}`);
@@ -93,6 +94,18 @@ const keyboard = readFileSync('src/lib/keyboard.ts', 'utf8');
 if (!/function handleKey\([^)]*\)\s*\{\s*if \(yieldsToShellModal\(e\)/.test(keyboard)) errors.push('FigureMode delegated handleKey must guard first');
 for (const id of [...Object.keys(exemptions), ...Object.keys(local)]) if (!used.has(id)) errors.push(`Stale census exemption: ${id}`);
 if (inventory.length < 30 || saveBranches !== 5) errors.push(`Census extraction drift: ${inventory.length} handlers, ${saveBranches} modified-S branches`);
+const ask = readFileSync('src/shell/agent/askChord.ts', 'utf8');
+if (!/e\.code === "KeyJ"/.test(ask) || !/e\.shiftKey && !e\.altKey/.test(ask)) errors.push('Ask must use the censused Mod+Shift+J chord');
+if (!keyboard.includes('k === "l" && e.shiftKey')) errors.push('Ask must preserve the Figure lock chord Mod+Shift+L');
+for (const file of walkFiles('src')) {
+  if (file.endsWith('askChord.ts') || file.endsWith('globalCommands.ts')) continue;
+  const source = readFileSync(file, 'utf8');
+  if (/(?:Mod|Ctrl|Cmd)[+-]Shift[+-](?:Key)?J\b|(?:code|key|k)\s*===?\s*["'](?:KeyJ|j)["']/.test(source)) errors.push(`${file}: review new Ask chord collision`);
+}
+for (const file of ['src/shell/agent/annotateChord.ts', 'src/lib/plot/galleryWindow.ts']) {
+  const source = readFileSync(file, 'utf8');
+  if (!source.includes('isAskChord(e)') || !source.includes('get(askOpen)')) errors.push(`${file}: Ask must own chords and yield in every window`);
+}
 for (const e of errors) console.error('FAIL:', e);
 console.log(`##VERIFY## ${JSON.stringify({ script: 'verify-annotate-chord-census', ok: !errors.length, checks: inventory.length + saveBranches + 1, failed: errors.length })}`);
 process.exitCode = errors.length ? 1 : 0;

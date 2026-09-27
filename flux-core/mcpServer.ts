@@ -22,6 +22,7 @@ let sessionReader: () => PresenceSession | null = () => null;
 export function currentSession(): PresenceSession | null { return sessionReader(); }
 
 export async function startMcpServer(options: { root?: string; toolset?: McpToolset } = {}) {
+  const readOnly = process.env.FLUX_MCP_READONLY === "1";
   const toolset = options.toolset ?? process.env.FLUX_MCP_TOOLSET ?? "core";
   if (toolset !== "core" && toolset !== "full") throw new Error("MCP toolset must be core or full");
   const binding = await createMcpBinding(options.root);
@@ -65,7 +66,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   (server as unknown as { registerTool: typeof registerRaw }).registerTool = (name, meta, fn) =>
     registerRaw(name, meta, (args, extra) => connectSession.wrap(name, () => fn(args, extra)));
   const extraTools = new Map<string, ExtraTool>();
-  registerMcpVerbs(server, getRoot, { toolset, bindRoot, defaultRoot: () => binding.bound, identity: () => identity, extraTools, session: connectSession.hooks,
+  registerMcpVerbs(server, getRoot, { toolset, readOnly, bindRoot, defaultRoot: () => binding.bound, identity: () => identity, extraTools, session: connectSession.hooks,
     sessionContext: root => {
       const writer = presence?.root === root ? presence : undefined;
       return { session: writer?.currentSession() ?? { id: identity.sessionId ?? serverId, name: identity.product ?? identity.client, client: identity.client },
@@ -79,12 +80,14 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     const inputSchema = meta.scope === "project" ? { ...meta.inputSchema, project: projectParam } : meta.inputSchema;
     const run = async (args: Record<string, unknown>): Promise<McpRender> => {
       try {
-        if (meta.scope === "project") await recoverProjectForAuthoring(await getRoot(args));
+        if (readOnly && !meta.annotations?.readOnlyHint) throw new Error(`Read-only Flux session refuses ${name}`);
+        if (meta.scope === "project" && !readOnly) await recoverProjectForAuthoring(await getRoot(args));
         return await fn(args as z.infer<z.ZodObject<S>> & { project?: string });
       } catch (e) { return errorToMcp(e); }
     };
     // Every hand-written tool stays reachable through flux_verb, listed or not.
-    extraTools.set(name, { description: meta.description, inputSchema: inputSchema as z.ZodRawShape, scope: meta.scope, run });
+    extraTools.set(name, { readOnly: meta.annotations?.readOnlyHint === true, description: meta.description, inputSchema: inputSchema as z.ZodRawShape, scope: meta.scope, run });
+    if (readOnly && !meta.annotations?.readOnlyHint) return;
     if (toolset === "core" && !meta.core) return;
     server.registerTool(name, { description: meta.listDescription ?? meta.description, inputSchema: inputSchema as z.ZodRawShape, annotations: meta.annotations }, run);
   }

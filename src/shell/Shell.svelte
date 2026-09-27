@@ -6,7 +6,7 @@
   import Workspace from "./Workspace.svelte";
   import Toasts from "./Toasts.svelte";
   import Help from "../lib/Help.svelte";
-  import { view, openProjectAt } from "./shellStore";
+  import { view, openProjectAt, currentProject } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
   import { get } from "svelte/store";
   import { fileBridge } from "../lib/project/types";
@@ -30,8 +30,12 @@
 
   import { inboxOpen } from "./inbox/inboxState";
   import { installAnnotateChord, annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
+  import { askOpen, askRequest, closeAsk } from "./agent/askChord";
   // Run during parent initialization, before any child mounts its listeners.
   onDestroy(installAnnotateChord());
+  let Ask: typeof import("./agent/AskSurface.svelte").default | null = $state(null);
+  const loadAsk = () => import("./agent/AskSurface.svelte").then(m => Ask = m.default);
+  $effect(() => { if ($askOpen && !Ask) void loadAsk(); });
   let Annotation: typeof import("./agent/AnnotationSurface.svelte").default | null = $state(null);
   const loadAnnotation = () => import("./agent/AnnotationSurface.svelte").then(m => Annotation = m.default);
   $effect(() => { if ($annotationOpen && !Annotation) void loadAnnotation(); });
@@ -41,6 +45,7 @@
   const loadInbox = () => import("./inbox/InboxPanel.svelte").then(m => Inbox = m.default);
   $effect(() => { if ($inboxOpen && !Inbox) void loadInbox(); });
   $effect(() => { if ($view === "workspace") void import("./inbox/inboxStore").then(m => m.initInboxStore()); });
+  $effect(() => { if ($askRequest && $askRequest.root !== $currentProject?.path) closeAsk(); });
 
   // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
   // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
@@ -83,7 +88,9 @@
     idle(() => warmModes(["paper"]));
     idle(() => void loadAnnotation());
     idle(() => void loadAI());
-    idle(() => void loadInbox());    // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
+    idle(() => void loadInbox());
+    idle(() => void loadAsk());
+    // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
     // auto-export once the app is idle. Dynamic import — the job (and, through it,
     // the bib/import stack) must never ride the eager Home bundle (W15).
     idle(() => {
@@ -166,6 +173,7 @@
   {#if Annotation}<Annotation />{/if}
   {#if $aiOpen && AI}<AI />{/if}
   {#if homePalette && $view === "home"}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => homePalette = false} />{/if}
+  {#if Ask && $askOpen && $askRequest}{#key $askRequest.generation}<Ask request={$askRequest} />{/key}{/if}
 
   {#if capture}
     <div

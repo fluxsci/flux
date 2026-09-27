@@ -382,6 +382,7 @@
               <input type="checkbox" checked={$settings.allowAgentView} onchange={(e) => settings.update((v) => ({ ...v, allowAgentView: e.currentTarget.checked }))} />
               Allow agents to view the Flux window
             </label>
+            {#await import("../shell/agent/RunnerSettings.svelte") then module}<module.default />{/await}
 
             <h3>Updates</h3>
             <label class="chk">

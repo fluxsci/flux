@@ -274,6 +274,13 @@ const agentFamily = require("./ipc/agent.cjs").createAgentFamily({
 agentFamily.registerHandlers(ipcMain);
 require("./ipc/agentSetup.cjs").createAgentSetupFamily({ shell, rootForSender: rootFor, bridgeForSender: agentFamily.bridgeForSender }).registerHandlers(ipcMain);
 const { setBridgeFor, stopBridgeForWindow, stopAllBridges } = agentFamily;
+const runnerFamily = require("./ipc/runner.cjs").createRunnerFamily({
+  rootForSender: e => rootFor(e), userDataDir: () => app.getPath("userData"),
+  launcher: () => path.join(fluxPaths.binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"),
+  preferences: readPrefs,
+});
+runnerFamily.registerHandlers(ipcMain);
+app.on("will-quit", () => runnerFamily.dispose());
 
 // ---------------------------------------------------------------------------
 // WS6: provenance journal + advisory locks. The renderer (human) and the bridge
@@ -1185,6 +1192,7 @@ const rebuildGlobalWatcher = () => globalLibraryWatcher.rebuild();
 app.on("will-quit", () => { void globalLibraryWatcher.dispose(); });
 
 ipcMain.handle("watch:setRoot", async (e, root) => {
+  if (rootFor(e) !== root) runnerFamily.cancelOwner(e.sender.id);
   const s = sessionFor(e);
   if (!s) return false;
   const senderId = e.sender.id;

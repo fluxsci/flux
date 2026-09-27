@@ -1,12 +1,18 @@
-import { get, writable } from "svelte/store";
+import { derived, get, writable } from "svelte/store";
 
-// The two things every modal and keyboard handler needs from Annotate, kept in
+// The things every modal and keyboard handler needs from Annotate and Ask, kept in
 // a dependency-free module: importing annotateChord.ts would pull the context
 // builder, the target resolvers and the Reader's PDF modules into every leaf
 // component (and into bundles that have no business loading them).
 
 /** Freezes editor input and defers external model reloads until Annotate closes. */
 export const annotationOpen = writable(false);
+
+/** Ask also owns shell input while its captured context is on screen. */
+export const askOpen = writable(false);
+
+/** Capture ownership also pauses playback and defers external editor changes. */
+export const captureOpen = derived([annotationOpen, askOpen], ([annotation, ask]) => annotation || ask);
 
 /** Ctrl/⌘+Shift+M: the Annotate chord, on every surface. */
 export function isAnnotateChord(e: KeyboardEvent): boolean {
@@ -27,5 +33,5 @@ export function setShellPanel(name: string, open: boolean): void {
 
 /** Window-level handlers yield without swallowing the composer's own events. */
 export function yieldsToShellModal(_e: Event): boolean {
-  return get(annotationOpen) || get(dockedPanels).size > 0;
+  return get(captureOpen) || get(dockedPanels).size > 0;
 }

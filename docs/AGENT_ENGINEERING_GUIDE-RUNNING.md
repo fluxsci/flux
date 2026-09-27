@@ -975,6 +975,29 @@ Persistence invariants (all machine-checked — do not weaken):
   independently instantiated with explicit dependencies and lifecycle disposal. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
   under a **CSP with no `unsafe-eval`** — see §5.
+- **FluxChat Ask (Ctrl/Cmd+Shift+J)** uses the same captured stamp/window as Annotate.
+  `askChord.ts` creates and focuses a tiny input synchronously; `AskSurface.svelte` and
+  runner settings load lazily. The input moves into the loaded popover without losing
+  typed text. `captureOpen` owns modal input, playback pause and external reload deferral
+  for both surfaces. `project/ask.ts` projects questions through the inbox packet and
+  builds kept exchanges with the shared annotation builders; Keep appends one resolved
+  Q&A, while Escape cancels without a project write.
+  `electron/agentRunner.cjs` owns at most three CLI processes, queues excess runs, kills
+  process groups (Windows: taskkill /T), caches versioned capabilities and prunes machine
+  run logs after 30 days. It calls the installed Flux launcher for the ask-depth pack.
+  Claude uses stream-json stdin, explicit strict MCP config, `--tools Read,Grep,Glob`
+  (the only built-ins), `dontAsk` with `--allowedTools mcp__flux` and `--add-dir <run dir>`,
+  and removed Bash/Edit/Write/NotebookEdit. Measured on 2.1.283: `dontAsk` alone DENIES
+  every MCP call and any Read outside the project (the attached view PNGs live in the run
+  dir), so without the allow rule and the added dir Ask answers blind; the default
+  built-in set also carries side-effecting tools (EnterWorktree, CronCreate, RemoteTrigger,
+  Workflow, WebFetch). Codex uses read-only exec, never
+  approvals and a replacement MCP set. `FLUX_MCP_READONLY=1` filters both dedicated
+  tools and generic `flux_verb` dispatch. Empty Claude skills and apiKeySource:none are
+  NOT evidence of bare mode: authenticated recordings carry both. Explicit bare mode
+  fails with guidance. Copy resume command is the handoff to the user's own terminal.
+  Gates: `verify-runner-drivers`, `verify-mcp-readonly`, IPC/chord census (pure),
+  `verify-ask-gui` (UI), `verify-ask-electron` (native), and startup after shell changes.
 - **Multi-window (2026-08-11): one process, N windows, one project per window.** All
   per-window lifecycle state lives in main's `sessions` registry (webContents id → {win, root,
   watcher}); handlers resolve the sender's root via `rootFor(e)` — never a global. The watcher
@@ -7365,3 +7388,13 @@ repair. Linked worktree/packed refs let cached source-install status stay file-o
 **Learnings:**
 - Inbox must route a live document reply through its Paper comment owner; cold sidecar writes alone can be lost to that owner's later autosave. Read both legacy main-document sidecars using the shared policy.
 - Document-range navigation must wait for the destination EditorView mount, and focus an existing owner in a split before consuming the request. Pinned lists recreate ResizeObserver in the destination window.
+### 2026-09-27 08:30 UTC — Hosted runner and read-only Ask (Codex, aio-r1-runner)
+**Work:** Added installed-CLI drivers, sender-owned IPC, capability caching, process queue/cancellation,
+and machine-local run logs. Added the shared Ask packet/Keep builders, lazy answer surface with
+synchronous input focus, Reader/palette/F-menu entry points and reusable launch settings. Pure tier
+passed 309/309 (runner 55 checks, read-only MCP 19); Svelte is 0 errors/0 warnings, headless and both
+production/CLI builds pass. Browser/native/startup acceptance and real-CLI first-token timings
+remain assigned to the orchestrator.
+**Learnings:** The Ask section above documents actual Claude permission/bare-mode evidence and
+Codex's smaller resume flag grammar. The retired Reader callback ban now pins the new Ask route
+while continuing to prohibit terminal prefills.

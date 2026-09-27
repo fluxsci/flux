@@ -11,7 +11,7 @@
 // The Electron main process already skips the app's own writes, so this only
 // fires for genuine external (agent / analysis-script) edits.
 
-import { annotationOpen } from "../../shell/agent/annotationVisibility";
+import { captureOpen } from "../../shell/agent/annotationVisibility";
 import { get, writable } from "svelte/store";
 import { bumpSlideEmbeds, bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
 import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
@@ -85,10 +85,10 @@ export function startProjectWatch(root: string | null): void {
     else if (info.subsystem === "zotero-bib") bumpZoteroBib(); // the BBT auto-export was rewritten
   };
   const offFs = fig.onFsChanged(info => {
-    if (get(annotationOpen) && info.subsystem !== "feedback" && info.subsystem !== "presence") deferred.set(info.subsystem + ":" + info.path, info);
+    if (get(captureOpen) && info.subsystem !== "feedback" && info.subsystem !== "presence") deferred.set(info.subsystem + ":" + info.path, info);
     else handle(info);
   });
-  const offAnnotation = annotationOpen.subscribe(open => {
+  const offAnnotation = captureOpen.subscribe(open => {
     if (open) return;
     const pending = [...deferred.values()]; deferred.clear();
     for (const info of pending) handle(info);

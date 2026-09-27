@@ -169,3 +169,23 @@ export async function stopWatching(session: PresenceSession): Promise<void> {
   await append(ownerRoot, [makeReleaseSession({ id: session.id, name: session.name, client: session.client }, "human")]);
   if (owner === generation) await refreshAnnotations();
 }
+
+/** Keep publishes the picture before the complete, resolved Q&A in one append. */
+export async function keepAsk(ownerRoot: string, messages: import("../../lib/project/ask").AskMessage[], context: ContextStamp, agent: string, png?: Uint8Array): Promise<void> {
+  if (get(currentProject)?.path !== ownerRoot) throw new Error("Project changed while keeping Ask");
+  const { keptAskEvents } = await import("../../lib/project/ask");
+  const events = keptAskEvents(messages, structuredClone(context), agent);
+  const note = events[0];
+  if (note.kind !== "note") throw new Error("Ask exchange has no question");
+  if (png && note.context?.snapshot) {
+    const fb = fileBridge();
+    if (!fb) throw new Error("Project is no longer available");
+    const rel = `${ANNOTATION_IMAGES_REL}/${note.id}.png`;
+    await fb.mkdir(joinPath(ownerRoot, ANNOTATION_IMAGES_REL));
+    await fb.writeFile(joinPath(ownerRoot, rel), png);
+    note.context.snapshot.image = rel;
+  }
+  if (get(currentProject)?.path !== ownerRoot) throw new Error("Project changed while keeping Ask");
+  await append(ownerRoot, events);
+  if (root === ownerRoot) await refreshAnnotations();
+}

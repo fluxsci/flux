@@ -4,7 +4,7 @@
 // No-ops unless running under Electron with the bridge preload (so dev/web are
 // unaffected).
 
-import { annotationOpen } from "../../shell/agent/annotationVisibility";
+import { captureOpen } from "../../shell/agent/annotationVisibility";
 import { get, type Readable } from "svelte/store";
 import {
   project,
@@ -90,7 +90,7 @@ export function installBridge(): void {
       let applied = false;
       try {
         assertOwner();
-        if (get(annotationOpen)) throw new Error("not-applied: Annotate is open; retry after the user closes it");
+        if (get(captureOpen)) throw new Error("not-applied: Annotate or Ask is open; retry after the user closes it");
         const assertPersistenceOwner = captureDispatchOwner({ allowEdits: true });
         const result = await dispatchCommand(command as Command);
         applied = true;
