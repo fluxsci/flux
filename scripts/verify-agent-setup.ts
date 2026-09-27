@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { harness } from './lib/harness.mjs';
 import { agentFixture, tree } from './lib/agentSetupFixture';
 import * as setup from '../electron/agentSetup.cjs';
-import { ensureFluxConfig, resolveOwnCliCommandsSync } from '../electron/fluxPaths.cjs';
+import { ensureFluxConfig, resolveOwnCliCommandsSync, launcherBodies, launcherOwnerSync } from '../electron/fluxPaths.cjs';
 import { TestProcessScope } from './lib/testProcess.mjs';
 import { tsxCli } from './lib/tsxRun.mjs';
 const h = harness('verify-agent-setup'), scope = new TestProcessScope();
@@ -85,6 +85,23 @@ try {
   const keptHooks=JSON.parse(await fixture.read('.claude/settings.json'));
   h.eq(keptHooks.hooks.UserPromptSubmit,[originalHook],'remove preserves user hook added after setup');
   h.eq(keptHooks.theme,'new user setting','remove preserves unrelated settings added after setup');
+
+  // A launcher owned by a checkout that still exists but whose built CLI is gone is dead
+  // (every `flux` fails): setup repairs it without --use-this-install. A live other owner
+  // still requires the explicit choice.
+  await fresh();
+  const cli = fixture.runtime.cli, deadRoot = path.join(path.dirname(fixture.home), 'kept-checkout');
+  const deadScript = path.join(deadRoot, 'dist', 'flux-cli.mjs');
+  await fs.mkdir(deadRoot, { recursive: true }); await fs.mkdir(path.dirname(cli), { recursive: true });
+  const otherBody = launcherBodies({ ...fixture.runtime, target: deadRoot, build: 'dead123', electron: false, executable: process.execPath, args: [deadScript] }).main;
+  await fs.writeFile(cli, otherBody, { mode: 0o755 });
+  const deadPlan = setup.planSetup({ probe: await probe() });
+  h.ok(!deadPlan.checks.some(c => c.id === 'launcher.owner'), 'setup treats a launcher whose built CLI is gone as dead (checkout kept)');
+  await setup.applySetup(deadPlan, { yes: true });
+  h.eq(launcherOwnerSync(cli)?.target, fixture.runtime.target, 'setup repairs the dead launcher to this install');
+  await fs.mkdir(path.dirname(deadScript), { recursive: true }); await fs.writeFile(deadScript, '');
+  await fs.writeFile(cli, otherBody, { mode: 0o755 });
+  h.ok(setup.planSetup({ probe: await probe() }).checks.some(c => c.id === 'launcher.owner'), 'a live other owner still requires --use-this-install');
 
   await fresh(); process.env.FAKE_NO_ADD_JSON = '1';
   await install({ agents: ['claude'] });

@@ -83,6 +83,7 @@ export function binDirSync(platform?: NodeJS.Platform): string;
 export function resolveOwnCliCommandsSync(options?: AgentInstallOptions): AgentRuntime;
 export function launcherBodies(runtime: AgentRuntime): { main: string; connect: string; shim: string };
 export function launcherOwnerSync(file?: string): { target: string; build: string } | null;
+export function launcherOwnerAliveSync(file?: string, platform?: NodeJS.Platform): boolean;
 export function launchersUpToDateSync(): boolean;
 export function installLaunchers(events?: Array<{ action: string; detail: string }>, options?: {
   runtime?: AgentRuntime; useThisInstall?: boolean; createConvenience?: boolean;

@@ -265,7 +265,7 @@ async function probeAgents(options = {}) {
     }
     return { id, present: !!binary || !!exists(home) || id === "codex" && !!exists(path.join(os.homedir(), ".agents")), binary, version,
       home, skillDir, skill: skillStatus(skillDir, rendered), rendered, config, hooks, capabilities, mcpGet,
-      runtime, launcher, owner, ownerAlive: !!owner && fs.existsSync(owner.target), date: new Date().toISOString().slice(0, 10), state: state.value.agents[id] || null, stateSnapshot: state.snap };
+      runtime, launcher, owner, ownerAlive: !!owner && fluxPaths.launcherOwnerAliveSync(runtime.cli, runtime.platform), date: new Date().toISOString().slice(0, 10), state: state.value.agents[id] || null, stateSnapshot: state.snap };
   }));
 }
 
@@ -766,7 +766,7 @@ async function inspectSetup(options = {}) {
       if (!body) throw new Error("Launcher is missing");
       const owner = fluxPaths.launcherOwnerSync(runtime.cli);
       if (!owner) throw new Error("Launcher is not managed by Flux");
-      if (!fs.existsSync(owner.target)) throw new Error("Launcher points at a missing install");
+      if (!fluxPaths.launcherOwnerAliveSync(runtime.cli, runtime.platform)) throw new Error(`Launcher points at a missing install (${owner.target}); run flux connect setup from a working install to repair it`);
       if (owner.target !== runtime.target) throw new Error(`Launcher belongs to ${owner.target}`);
       if (options.quick) {
         add("launcher", "ok", `Launcher belongs to this install (${runtime.build}); execution checked by Run doctor.`, null, [runtime.cli, owner.target]);

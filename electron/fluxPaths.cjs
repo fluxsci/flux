@@ -564,13 +564,17 @@ function launcherRunsSync(body, platform) {
   const paths = tokens.filter(t => (platform === "win32" ? path.win32 : path.posix).isAbsolute(t));
   return paths.every(p => fsSync.existsSync(p)); // nothing readable: can't tell, so it stays live
 }
+/** Is the recorded owner of a managed launcher still a working install? */
+function launcherOwnerAliveSync(file = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"), platform = process.platform) {
+  const body = readShim(file), owner = launcherOwnerSync(file);
+  return !!body && !!owner && fsSync.existsSync(owner.target) && launcherRunsSync(body, platform);
+}
 function mayOwnLauncher(runtime, useThisInstall) {
   const body = readShim(runtime.cli);
   if (body === null) return true;
   if (!body.includes(SHIM_MARKER)) return false;
   const owner = launcherOwnerSync(runtime.cli);
-  return !!useThisInstall || !owner || owner.target === runtime.target || !fsSync.existsSync(owner.target) ||
-    !launcherRunsSync(body, runtime.platform);
+  return !!useThisInstall || !owner || owner.target === runtime.target || !launcherOwnerAliveSync(runtime.cli, runtime.platform);
 }
 
 let ownRuntime;
@@ -959,6 +963,7 @@ module.exports = {
   installLaunchers,
   launcherBodies,
   launcherOwnerSync,
+  launcherOwnerAliveSync,
   launchersUpToDateSync,
   stampedCliDanglingSync,
   GUIDELINES_README,
