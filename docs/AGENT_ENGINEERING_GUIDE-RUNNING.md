@@ -1442,6 +1442,8 @@ that isn't in the manifest doesn't exist.** Tiers:
   Before a view-only before/after snapshot that includes dirty state, await autosave for
   preceding edits. Otherwise a legitimate true → false dirty transition can falsely blame
   the preview or navigation being tested; retain the full state-preservation assertion.
+  `verify-slide-authoring-gui` waits for the preceding deck autosave before its ruler-scrub
+  snapshot: CI caught that save clearing dirty between the two observations.
 - **scale** — the perf budgets (figure/paper/library/reader/fulltext). These are the standing
   60fps/scale contracts from the polish mandate.
 - **presence** — the source-shape/static scripts (main-process/build config that headless
@@ -7021,3 +7023,12 @@ probe corrections, fixed revision 17a8a8b passed 81/81 complete Paper/metadata c
 distinct regressions overall. Production Linux pin/dock/save/reload passes; all six new-control
 input-to-paint samples with 30 caption blocks were 16.3–29.4 ms. Svelte/headless checks and build
 pass. The native coordinate-readiness lesson was promoted into the known-traps section.
+
+### 2026-09-27 00:23 UTC — Push qualification: Slides scrub gate (Codex)
+**Work:** Pushed the six Figure-Meta commits; Linux and Windows CI each passed 293/293 pure
+checks, and Linux bundle checks passed. Browser CI passed 128/129, including all metadata
+checks; the existing ruler-scrub gate compared dirty state while a prior autosave was pending.
+A controlled local reproduction preserved the deck, edit destination and preview while dirty
+changed true → false. The gate now awaits that save before its baseline and retains every
+scrub invariant; the corrected complete authoring gate passes locally. No product code changed.
+**Learnings:** The view-only snapshot rule above now names the affected gate and its CI case.
