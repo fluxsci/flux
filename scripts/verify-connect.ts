@@ -251,8 +251,26 @@ try {
   h.ok(fb.includes("## §I · Documents (in full)") && fb.includes("METHODS-BODY-SENTENCE") && fb.includes("BIG-DOC-BODY"), "full includes every document");
   h.ok(fb.includes("PLAN-B-DEPTH-TWO"), "full follows links beyond one level");
   h.ok(fb.includes("## §J · ") && fb.includes("Sleep reshapes synapses. **a**, Overview."), "full includes full captions");
-  h.eq(full.images.length, 2 + 5, "full renders both canvases and every figure");
-  h.ok(full.brief.includes("Expected: 10 section codes (A, B, C, D, E, F, G, H, I, J) and 7 image codes."), "full's receipt expects its sections and images");
+  h.eq(full.images.length, 2 + 5 + 2, "full renders both canvases, every non-empty figure and a contact sheet per deck (the scaffold's and \"Lab talk\")");
+  const sheet = full.images.find((i) => i.label.startsWith('deck "Lab talk" (talk): slides 1–3'));
+  h.ok(!!sheet && (await fs.readFile(sheet.path)).subarray(0, 8).equals(PNG), "the deck contact sheet is a real PNG, labelled with its slide range");
+  h.ok(full.brief.includes("Expected: 10 section codes (A, B, C, D, E, F, G, H, I, J) and 9 image codes."), "full's receipt expects its sections and images");
+
+  h.section("the ask pack (FluxChat)");
+  {
+    await fs.writeFile(path.join(cfg.fluxContextPath, "CONNECT.md"), "# Connected\n\n<!-- ask-rules -->\nASK-RULES-TEXT: be read-only.\n<!-- /ask-rules -->\n");
+    await fs.writeFile(path.join(cfg.fluxContextPath, "FLUX.md"), "# Flux primer\n\n<!-- ask-summary -->\nASK-SUMMARY-TEXT.\n<!-- /ask-summary -->\n");
+    const a = await conn.connect({ target: root, identity, depth: "ask" });
+    const pack = await read(a.askPackPath!);
+    h.ok(pack === a.brief && pack.length / 3.6 <= 4000, `the ask pack is written and within 4k tokens (~${Math.round(pack.length / 3.6)})`);
+    h.ok(pack.includes("ASK-RULES-TEXT") && pack.includes("ASK-SUMMARY-TEXT"), "it carries CONNECT's ask rules and FLUX's ask summary blocks");
+    h.ok(pack.includes("ProjectContext: We ask how sleep reshapes synapses.") && /`paper\/methods\.qmd` "Methods"/.test(pack) && pack.includes('talk "Lab talk" (3 slides)') && pack.includes("Always label axes with units.") && pack.includes("Use SI units."), "the digest: ProjectContext's lead, one line per document/figure/deck, and both rule files");
+    h.ok(!pack.includes("METHODS-BODY-SENTENCE") && !pack.includes("PLAN-A-BODY"), "no document bodies or linked files");
+    const again = await conn.connect({ target: root, identity, depth: "ask" });
+    h.eq(again.askPackPath, a.askPackPath, "unchanged sources reuse the cached ask pack");
+    await fs.appendFile(path.join(root, "Context", "RULES.md"), "- ASK-FRESH-RULE\n");
+    h.ok((await read((await conn.connect({ target: root, identity, depth: "ask" })).askPackPath!)).includes("ASK-FRESH-RULE"), "an edited rule refreshes it");
+  }
 
   h.section("global mode");
   const gl = await conn.connect({ target: "global", identity });
@@ -283,7 +301,7 @@ try {
   h.section("retention");
   for (let i = 0; i < 3; i++) await conn.connect({ target: root, identity, noRender: true });
   const packsDir = path.dirname(path.dirname(r.bundlePath!));
-  h.eq((await fs.readdir(packsDir)).length, 5, "the newest 5 packs per project are kept");
+  h.eq((await fs.readdir(packsDir, { withFileTypes: true })).filter((e) => e.isDirectory()).length, 5, "the newest 5 packs per project are kept (the ask pack's files sit beside them)");
 
   h.section("stdout-only mode");
   {

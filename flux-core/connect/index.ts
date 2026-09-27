@@ -18,17 +18,23 @@ import { renderPackImages } from "./images";
 import { checkReceipt, type ReceiptCheck } from "./codes";
 import {
   allocatePack,
+  allocateRootDir,
+  fallbackBase,
   findPack,
   latestPack,
   newPackId,
+  primaryBase,
   prunePacks,
   readCursor,
+  rootDirName,
   writeCursor,
   writePackFile,
   type PackManifest,
   type PackState,
 } from "./cache";
-import { computeDelta, renderDeltaDetails, takeSnapshot, changedPaths, type Delta, type DeltaCursor, type StatSnapshot } from "./refresh";
+import { computeDelta, renderDeltaDetails, takeSnapshot, changedPaths, sameSnapshot, type Delta, type DeltaCursor, type StatSnapshot } from "./refresh";
+import { extractBlock, renderAskPack } from "./ask";
+import { buildInfo } from "../buildInfo";
 import type { ConnectDepth, ConnectFacts } from "./facts";
 
 export const PART_MAX_CHARS = 20_000;
@@ -78,6 +84,8 @@ export interface ConnectResult {
   problems: string[];
   /** Render-cache use for this pack's images. */
   renderCache: { hits: number; misses: number };
+  /** --depth ask: the compact FluxChat pack (plan §11.4). */
+  askPackPath?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,10 +229,56 @@ export function deltaInputs(root: string, cursor: DeltaCursor, changed: readonly
   return { root, cursor, changed, figures: () => figureDigests(root), docs: () => currentDocShas(root), items: () => currentItems(root, sessionId) };
 }
 
+/** --depth ask: the ≤4k-token FluxChat pack, reused while nothing it was built from changed. */
+async function connectAsk(opts: ConnectOptions, target: ResolvedTarget): Promise<ConnectResult> {
+  const root = target.mode === "project" ? target.root : null;
+  const title = root ? ((await loadManifest(root)).title || path.basename(root)) : "global";
+  const build = `${buildInfo().version} ${buildInfo().commit}`;
+  const empty = { hits: 0, misses: 0 };
+  for (const base of [primaryBase(), fallbackBase()]) {
+    const dir = path.join(base, rootDirName(target.mode, root, title));
+    const index = path.join(dir, "ask.json");
+    try {
+      const prior = JSON.parse(await fs.readFile(index, "utf8")) as { build: string; snapshot: StatSnapshot; pack: string };
+      if (prior.build === build && sameSnapshot(await takeSnapshot(prior.snapshot.paths), prior.snapshot)) {
+        const text = await fs.readFile(prior.pack, "utf8");
+        return askResult(root, title, text, prior.pack, empty);
+      }
+    } catch {
+      /* no usable cache here */
+    }
+  }
+  const { facts, watch } = await collectFacts({
+    root, depth: "core", packId: newPackId(), createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    identity: opts.identity, sessionName: null, live: false,
+  });
+  const flux = path.join(facts.machine.fluxContextDir, "FLUX.md");
+  const conn = path.join(facts.machine.fluxContextDir, "CONNECT.md");
+  const blocks = {
+    askRules: extractBlock(await fs.readFile(conn, "utf8").catch(() => ""), "ask-rules"),
+    askSummary: extractBlock(await fs.readFile(flux, "utf8").catch(() => ""), "ask-summary"),
+  };
+  const text = renderAskPack(facts, blocks);
+  const snapshot = await takeSnapshot([...watch, flux, conn, path.join(facts.user.dir, "RULES.md")]);
+  const dir = await allocateRootDir(target.mode, root, title);
+  if (!dir) return askResult(root, title, text, null, empty);
+  const pack = await writePackFile(dir, "ask.md", text);
+  await writePackFile(dir, "ask.json", JSON.stringify({ build, snapshot, pack }) + "\n");
+  return askResult(root, title, text, pack, empty);
+}
+
+function askResult(root: string | null, title: string, text: string, pack: string | null, renderCache: { hits: number; misses: number }): ConnectResult {
+  return {
+    packId: "ask", mode: root ? "project" : "global", root, title, brief: text, briefPath: null, bundlePath: null, manifestPath: null,
+    images: [], stdoutOnly: !pack, firstPart: null, sections: [], cursor: null, refresh: null, problems: [], renderCache, askPackPath: pack,
+  };
+}
+
 export async function connect(opts: ConnectOptions): Promise<ConnectResult> {
   const cwd = opts.cwd ?? process.cwd();
   const depth = opts.depth ?? "core";
   const target = await resolveConnectTarget(opts.target, cwd);
+  if (depth === "ask") return connectAsk(opts, target);
   const root = target.mode === "project" ? target.root : null;
   const now = opts.now ?? new Date();
   const packId = opts.packId ?? newPackId(now.getTime());

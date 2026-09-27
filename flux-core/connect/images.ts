@@ -12,6 +12,15 @@ import type { ConnectFacts } from "./facts";
 import { createHash } from "node:crypto";
 import { renderCanvasSvg, renderFigureSvg, rasterizeSvgToPng } from "../render";
 import { buildInfo } from "../buildInfo";
+import { ensureDom } from "../render";
+import { gatherSlidePayload } from "../../src/lib/slide/payload";
+import { renderSlidePosterSvg } from "../../src/lib/slide/embedRender";
+import type { Deck } from "../../src/lib/slide/types";
+
+/** Slides per contact sheet (4 columns); larger decks get several sheets. */
+export const SHEET_SLIDES = 24;
+const SHEET_COLS = 4;
+const SHEET_CELL = 480;
 
 export const CANVAS_MAX_EDGE = 2000;
 export const FIGURE_MAX_EDGE = 1600;
@@ -205,10 +214,60 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
     for (const f of p.figures.filter((x) => !x.empty))
       await one(`${f.id} "${f.displayName}"`, `figure-${safe(f.id)}.png`, () => renderFigureSvg(root, f.id), FIGURE_MAX_EDGE, renderKey(root, "figure", f.id, f.canvasId, FIGURE_MAX_EDGE, assets));
   }
+  if (plan.deckSheets) {
+    for (const d of p.decks) {
+      if (!d.slides.length || !d.path) continue;
+      const deckFile = path.join(root, d.path);
+      const deckText = await fs.readFile(deckFile, "utf8").catch(() => null);
+      if (deckText === null) continue;
+      const sheets = Math.ceil(d.slides.length / SHEET_SLIDES);
+      for (let s = 0; s < sheets; s++) {
+        const first = s * SHEET_SLIDES, last = Math.min(d.slides.length, first + SHEET_SLIDES);
+        const label = `deck "${d.title}" (${d.id}): slides ${first + 1}–${last}${sheets > 1 ? ` of ${d.slides.length}` : ""}`;
+        const b = buildInfo();
+        const key = Promise.resolve(sha256([RENDER_CACHE_VERSION, b.version, b.commit, "deck", d.id, s, sha256(deckText), assets].join("\0")));
+        await one(label, `deck-${safe(d.id)}-${s + 1}.png`, () => deckSheetSvg(root, JSON.parse(deckText) as Deck, first, last), CANVAS_MAX_EDGE, key);
+      }
+    }
+  }
   if (misses) await trimCache(cacheDir);
   for (const [msg, labels] of failures)
     problems.push(`could not render ${labels.length === 1 ? labels[0] : `${labels.length} images (${labels.slice(0, 3).join(", ")}${labels.length > 3 ? ", …" : ""})`}: ${msg}`);
   return { images: out, problems, cache: { hits, misses } };
+}
+
+/**
+ * A contact sheet: each slide's step-0 poster (the slide-embed renderer) is
+ * rasterized on its own — inlining many posters in one SVG would collide
+ * their ids — then laid out in a 4-column grid with "n. name" labels. Read-only:
+ * the payload IO has no write methods.
+ */
+export async function deckSheetSvg(root: string, deck: Deck, first: number, last: number): Promise<string> {
+  await ensureDom();
+  const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
+  const stage = deck.stage ?? { width: 1920, height: 1080 };
+  const cellH = Math.round((SHEET_CELL * stage.height) / stage.width);
+  const labelH = 34, gap = 16;
+  const cols = Math.min(SHEET_COLS, last - first);
+  const rows = Math.ceil((last - first) / cols);
+  const W = gap + cols * (SHEET_CELL + gap), H = gap + rows * (cellH + labelH + gap);
+  const parts: string[] = [];
+  for (let i = first; i < last; i++) {
+    const slide = deck.slides[i];
+    const k = i - first, x = gap + (k % cols) * (SHEET_CELL + gap), y = gap + Math.floor(k / cols) * (cellH + labelH + gap);
+    const name = (slide.name || `Slide ${i + 1}`).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]!);
+    let cell = `<rect x="${x}" y="${y}" width="${SHEET_CELL}" height="${cellH}" fill="#e6e4d9"/>`;
+    try {
+      const { payload } = await gatherSlidePayload(root, deck, slide.id, io);
+      const png = await rasterizeSvgToPng(renderSlidePosterSvg(payload, 0), SHEET_CELL);
+      cell = `<image href="data:image/png;base64,${png.toString("base64")}" x="${x}" y="${y}" width="${SHEET_CELL}" height="${cellH}"/>`;
+    } catch {
+      cell += `<text x="${x + SHEET_CELL / 2}" y="${y + cellH / 2}" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" fill="#6f6e69" text-anchor="middle">(could not render)</text>`;
+    }
+    parts.push(cell, `<rect x="${x}" y="${y}" width="${SHEET_CELL}" height="${cellH}" fill="none" stroke="#b7b5ac" stroke-width="1"/>`,
+      `<text x="${x}" y="${y + cellH + 23}" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" fill="#100f0f">${i + 1}. ${name}</text>`);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#fffcf0"/>${parts.join("")}</svg>`;
 }
 
 function safe(id: string): string {

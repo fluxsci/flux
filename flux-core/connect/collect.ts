@@ -547,6 +547,7 @@ async function deckFacts(root: string, src: Sources): Promise<DeckFact[]> {
     out.push({
       id: d.id,
       title: d.title,
+      path: d.path,
       slides: (deck?.slides ?? []).map((s, i) => ({ id: s.id, name: s.name || `Slide ${i + 1}`, beats: Math.max(1, s.beats?.length ?? 0), ...(s.notes?.trim() ? { notes: s.notes } : {}) })),
     });
   }

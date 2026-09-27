@@ -187,4 +187,18 @@ const mb = renderBrief({ facts: many, plan: manyPlan, paths, bundle: renderBundl
 h.ok(mb.length <= BRIEF_MAX_CHARS, `a crowded brief compacts under the limit (${mb.length})`);
 h.ok(mb.includes("more"), "…and says how many items it folded away");
 
+h.section("the ask pack");
+{
+  const { extractBlock, firstParagraph, renderAskPack, ASK_MAX_TOKENS } = await import("../flux-core/connect/ask");
+  h.eq(extractBlock("a <!-- ask-rules -->\n  Be brief.\n<!-- /ask-rules --> b", "ask-rules"), "Be brief.", "a delimited block is extracted and trimmed");
+  h.eq(extractBlock("<!-- ask-rules --> no end", "ask-rules"), null, "an unterminated block is absent, not guessed");
+  h.eq(firstParagraph("---\ntitle: x\n---\n\n<!-- note -->\n## Background\n\n*(fill in)*\n\nWe study sleep.\nAcross nights.\n\nMore."), "We study sleep. Across nights.", "the first prose paragraph skips front matter, comments, headings and placeholders");
+  h.ok(firstParagraph(Array(200).fill("word").join(" ")).endsWith("…") && firstParagraph(Array(200).fill("word").join(" ")).split(" ").length === 121, "…capped at 120 words");
+  const big = facts();
+  big.project!.docs = Array.from({ length: 400 }, (_, i) => ({ path: `paper/d${i}.qmd`, title: `Document number ${i} with a long title`.repeat(3), words: 1000, lines: 10, hasComments: false, outline: [], sha: "s" }));
+  const pack = renderAskPack(big, { askRules: "RULES", askSummary: "SUMMARY" });
+  h.ok(pack.length / 3.6 <= ASK_MAX_TOKENS && pack.startsWith('# Flux · ask pack · project "') && pack.includes("RULES") && pack.includes("SUMMARY"), `a huge project still fits the ask budget (~${Math.round(pack.length / 3.6)} tokens), rules and summary kept`);
+  h.ok(!renderAskPack(big, { askRules: null, askSummary: null }).includes("## Flux\n"), "missing blocks fall back to a one-line rule, no empty section");
+}
+
 await h.done();

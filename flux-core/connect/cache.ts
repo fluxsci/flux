@@ -111,6 +111,16 @@ export async function allocatePack(mode: ConnectMode, root: string | null, title
   return { dir: null, base: null, fallback: true };
 }
 
+/** The writable folder holding one root's packs (for files beside them, like the ask pack). */
+export async function allocateRootDir(mode: ConnectMode, root: string | null, title: string): Promise<string | null> {
+  const name = rootDirName(mode, root, title);
+  for (const base of [primaryBase(), fallbackBase()]) {
+    const dir = path.join(base, name);
+    if (await writable(dir)) return dir;
+  }
+  return null;
+}
+
 /** Write a file atomically inside a pack dir. */
 export async function writePackFile(dir: string, rel: string, data: string | Uint8Array): Promise<string> {
   const abs = path.join(dir, rel);

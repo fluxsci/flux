@@ -79,6 +79,8 @@ export interface FigureFact {
 export interface DeckFact {
   id: string;
   title: string;
+  /** Project-relative deck file (slides/<id>/deck.json). */
+  path?: string;
   slides: { id: string; name: string; beats: number; notes?: string }[];
 }
 
