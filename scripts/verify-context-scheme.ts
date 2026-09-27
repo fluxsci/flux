@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { tokensOf } from "../flux-core/connect/facts";
 
 const { harness } = await import("./lib/harness.mjs");
 const h = harness("verify-context-scheme");
@@ -33,33 +34,58 @@ const docs = (docsMod.FLUX_CONTEXT_FILES ? docsMod : docsMod.default) as {
 {
   const files = docs.FLUX_CONTEXT_FILES as Record<string, string>;
   const expect = [
-    "README.md",
-    "FLUX-CLI.md",
-    "PROJECT-GUIDE.md",
-    // the skill-content migration (2026-07-19): the working references are stock too
-    "WORKFLOW.md",
-    "CLI-REFERENCE.md",
-    "PLOTS-AND-STYLE.md",
-    "PROJECT-AND-FIGURES.md",
-    "MANUSCRIPT-AND-REVIEW.md",
-    "SLIDES.md",
-    "TEMPLATES.md",
-    "LIGHTTABLE.md",
-    "PYTHON-CONVENTIONS.md",
+    "README.md", "FLUX.md", "CONNECT.md", "WORKFLOW.md", "CLI-REFERENCE.md",
+    "PROJECT-AND-FIGURES.md", "PLOTS-AND-STYLE.md", "PYTHON-CONVENTIONS.md",
+    "MANUSCRIPT.md", "REVIEW.md", "LIBRARY.md", "SLIDES.md", "LIGHTTABLE.md",
   ];
-  ok(expect.every((n) => n in files) && Object.keys(files).length === expect.length, `stock set complete (${expect.length} docs)`);
-  ok(/add-figure/.test(files["CLI-REFERENCE.md"]) && !/add-math/.test(files["CLI-REFERENCE.md"]), "CLI-REFERENCE reflects the post-migration slide surface (no retired verbs)");
-  ok(/inbox/.test(files["WORKFLOW.md"]) && /\bresolve\b/.test(files["WORKFLOW.md"]), "WORKFLOW's review loop covers the unified inbox");
-  ok(files["TEMPLATES.md"].includes('command = "{{FLUX_CLI}}"') && files["TEMPLATES.md"].includes('args = ["mcp",') && !Object.values(files).some(body => body.includes("{{FLUX_MCP_PATH}}")), "manual MCP snippets use the canonical launcher; retired MCP path placeholder is absent");
-  ok(/aligned by filename|SAME item filenames/.test(files["LIGHTTABLE.md"]) && /\{\{LIGHTTABLE_DIR\}\}/.test(files["LIGHTTABLE.md"]), "LIGHTTABLE carries the alignment convention + dir placeholder");
-  ok(/uv init/.test(files["PYTHON-CONVENTIONS.md"]) && /uv add --editable ~\/fluxplot/.test(files["PYTHON-CONVENTIONS.md"]) && /uv init --lib/.test(files["PYTHON-CONVENTIONS.md"]), "PYTHON-CONVENTIONS carries the uv doctrine (project + fluxplot dep + library form)");
-  ok(/\{\{FLUX_REPO\}\}\/docs\/installation\.qmd/.test(files["PYTHON-CONVENTIONS.md"]), "PYTHON-CONVENTIONS points troubleshooting at the installation doc");
-  const machineSpecific = Object.entries(files).filter(([, body]) => /driessen2|\/home\/[a-z]/.test(body));
+  h.eq(Object.keys(files).sort(), [...expect].sort(), "stock set is exactly the 13-document connect manual (D5)");
+  const doc = (name: string) => files[name] ?? "";
+  for (const name of expect) {
+    ok(doc(name).split("\n")[0].includes("(stock — shipped with Flux, do not edit)"), `${name}: stock ownership header`);
+    ok(doc("README.md").includes(`[${name}](${name})`), `README indexes ${name}`);
+  }
+  ok(/## .*Glossary/i.test(doc("FLUX.md")) && /## .*The tool map/i.test(doc("FLUX.md")), "FLUX.md has glossary and tool map headings");
+  for (const pin of ["receipt", "watch", "Log", "only when asked"])
+    ok(doc("CONNECT.md").includes(pin), `CONNECT.md carries ${pin}`);
+
+  // Use the connect engine's token estimate, so prompt excerpts and the reading
+  // plan share one budget. Require exactly one complete pair, never a first-match
+  // success that silently ignores a duplicated or unclosed extraction block.
+  for (const [name, marker, limit] of [
+    ["FLUX.md", "ask-summary", 600],
+    ["CONNECT.md", "ask-rules", 400],
+    ["CONNECT.md", "task-rules", 400],
+  ] as const) {
+    const source = doc(name), start = `<!-- ${marker} -->`, end = `<!-- /${marker} -->`;
+    const pieces = source.split(start), ends = source.split(end);
+    const body = pieces.length === 2 && ends.length === 2 && pieces[1].includes(end)
+      ? pieces[1].split(end)[0].trim() : "";
+    ok(!!body, `${name}: exactly one nonempty, correctly ordered ${marker} block`);
+    ok(tokensOf(body) <= limit, `${name}: ${marker} <= ${limit} tokens (${tokensOf(body)})`);
+  }
+  ok(/read-only/.test(doc("CONNECT.md")) && /Never push, publish or delete/.test(doc("CONNECT.md")), "compact Ask/task contracts retain their safety boundaries");
+  const watch = doc("REVIEW.md").split("## Watch-mode protocol")[1]?.split("\n## ")[0] ?? "";
+  for (const [step, pin] of [[1, "scope"], [2, "list_inbox"], [3, "wait_for_inbox"], [4, "claim_item"], [5, "stopped: true"]] as const) {
+    const block = watch.split(`\n${step}. `)[1]?.split(/\n\d+\. /)[0] ?? "";
+    ok(block.includes(pin), `REVIEW watch step ${step}: ${pin}`);
+  }
+  ok(watch.includes("needsInput:true") && watch.includes("revoked") && watch.includes("empty timeout"), "watch protocol covers questions, revocation and empty waits");
+  ok(doc("REVIEW.md").includes('flux_verb {verb:"get_inbox_image"'), "REVIEW reaches snapshots omitted from the core toolset");
+  ok(/add-figure/.test(doc("CLI-REFERENCE.md")) && !/add-math/.test(doc("CLI-REFERENCE.md")), "CLI-REFERENCE reflects the current slide surface (no retired verbs)");
+  ok(["inbox", "claim", "reply", "resolve"].every(v => doc("WORKFLOW.md").includes(`"$F" ${v}`)), "WORKFLOW covers the complete inbox review loop");
+  ok(doc("CLI-REFERENCE.md").includes('"{{FLUX_CLI}}" connect setup') && doc("CLI-REFERENCE.md").includes("{{FLUX_MCP}}"), "setup and MCP invocation use the canonical launcher placeholders");
+  ok(!Object.values(files).some(body => body.includes("{{FLUX_MCP_PATH}}")), "retired MCP path placeholder is absent");
+  ok(/aligned by filename|SAME item filenames/.test(doc("LIGHTTABLE.md")) && /\{\{LIGHTTABLE_DIR\}\}/.test(doc("LIGHTTABLE.md")), "LIGHTTABLE carries the alignment convention + dir placeholder");
+  ok(/uv init/.test(doc("PYTHON-CONVENTIONS.md")) && /uv add --editable ~\/fluxplot/.test(doc("PYTHON-CONVENTIONS.md")) && /uv init --lib/.test(doc("PYTHON-CONVENTIONS.md")), "PYTHON-CONVENTIONS carries the uv doctrine (project + fluxplot dep + library form)");
+  ok(/\{\{FLUX_REPO\}\}\/docs\/installation\.qmd/.test(doc("PYTHON-CONVENTIONS.md")), "PYTHON-CONVENTIONS points troubleshooting at the installation doc");
+  const machineSpecific = Object.entries(files).filter(([, body]) => /driessen2|\/home\/[^\s/`]+/.test(body));
   ok(machineSpecific.length === 0, `stock docs carry no machine-specific paths (${machineSpecific.map(([n]) => n).join(", ") || "clean"})`);
-  ok(files["FLUX-CLI.md"].includes('"{{FLUX_CLI}}"') && files["FLUX-CLI.md"].includes("{{FLUX_MCP}}"), "FLUX-CLI.md quotes its launcher placeholder and keeps MCP delegation");
-  ok(!/(^|[^"'])\$F\s/m.test(files["WORKFLOW.md"]), "WORKFLOW quotes the launcher variable in every shell command");
-  ok(/UserContext/.test(files["README.md"]) && /ownership/i.test(files["README.md"]), "README.md maps the two Context folders + ownership");
-  ok(/compose-figure/.test(files["PROJECT-GUIDE.md"]) && /Live bridge/.test(files["PROJECT-GUIDE.md"]), "PROJECT-GUIDE.md carries the verb surface (the retired AGENTS.md content)");
+  ok(doc("FLUX.md").includes('"{{FLUX_CLI}}"') && doc("FLUX.md").includes("{{FLUX_MCP}}"), "FLUX.md quotes its launcher placeholder and keeps MCP delegation");
+  ok(!/(^|[^"'])\$F\s/m.test(doc("WORKFLOW.md")), "WORKFLOW quotes the launcher variable in every shell command");
+  ok(/UserContext/.test(doc("README.md")) && /ownership/i.test(doc("README.md")), "README.md maps the Context folders + ownership");
+  ok(/compose-figure/.test(doc("PROJECT-AND-FIGURES.md")) && /get_app_context/.test(doc("REVIEW.md")), "merged references preserve figure and live-bridge guidance");
+  const retired = /(?:FLUX-CLI|PROJECT-GUIDE|TEMPLATES|MANUSCRIPT-AND-REVIEW)\.md/;
+  ok(!Object.values(files).some(body => retired.test(body)), "stock references name no deleted or renamed manual");
   ok(typeof docs.FLUX_CONTEXT_HASH === "string" && docs.FLUX_CONTEXT_HASH.length === 16, "content hash present");
 }
 

@@ -1,10 +1,10 @@
-# The project on disk, and building figures
+# The project on disk, and building figures (stock — shipped with Flux, do not edit)
 
 ## The canonical tree
 
 ```
 <project>/                       # the Flux project (lives INSIDE the analysis dir)
-├── project.json                 # the manifest / map — read this first (DERIVED rollup, rebuildable)
+├── project.json                 # manifest / map; only the figures rollup is derived
 ├── AGENTS.md                    # passive pointer to flux-connect
 ├── CLAUDE.md                    # @AGENTS.md import
 ├── Context/                     # the agent layer (see README.md here)
@@ -13,7 +13,7 @@
 │   └── RULES.md                 #   your standing project rules
 ├── paper/                  # USER-OWNED prose — source of truth
 │   ├── notes.qmd                 #   a starter document; no required main filename
-│   └── notes.comments.json      #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)
+│   └── notes.comments.json      #   the user's review comments (sidecar; see REVIEW.md)
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
 │   ├── growth.{svg,fluxplot.json,recipe.json}
 │   ├── _dissections/growth/     #   growth's companion material (see below) — NOT composable plots
@@ -21,26 +21,52 @@
 ├── fig/                         # APP-MANAGED — NEVER hand-edit
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real figure composition (figures → elements)
-│   ├── captions/<id>.md         #   each figure's caption (the single source)
+│   ├── captions/<id>.md         #   readable projection of model caption blocks
 │   ├── assets/                  #   Flux's imported copies of your plot SVGs
 │   └── renders/                 #   auto static renders (derived)
 ├── references/library.bib       # USER-OWNED bibliography (BibTeX, [@citekey])
 ├── slides/<deckId>/deck.json    # Flux Slide decks (see SLIDES.md)
+├── styles/                      # reusable figure styles
+├── assets/                      # project media
 ├── exports/                     # final compiled outputs (derived, git-ignored)
 └── .meta/                       # tool state: journal.ndjson, feedback.ndjson, locks/, schema/, live/
 ```
 
+## Document discovery
+
+Paper discovers `.qmd` and Context documents recursively under `paper/`, legacy
+`manuscript/`, and `Context/`. No `main.qmd` is required and existing manuscript
+folders are never automatically renamed. Generated Quarto support/cache trees and
+unused legacy `sections/` scaffolds are skipped; discovery does not delete them.
+Ordinary folders remain visible. New folders carry a hidden `.flux-folder` marker
+so empty or generated-looking names still represent the user's intent.
+
+New manifests use `documentRoot`; `manuscript.path` is the default export pointer,
+empty when no documents remain. Use `docs`, `new-doc`, `new-doc-folder` and `move-doc`
+for structure. Moves preserve comment sidecars and adjust relative links; collisions
+are refused. `delete-doc` removes the document and sidecar, leaving its figures and
+references intact. Legacy mains and the three standard Context files are protected.
+See CLI-REFERENCE.md for syntax and MANUSCRIPT.md for authoring.
+
 ## Ownership — what you edit vs. what you never touch
 
 - **Edit directly:** `paper/**.qmd` (legacy `manuscript/` also works), `references/library.bib`, and **`plots/`** (via
-  fluxplot). These are the source of truth.
+  fluxplot). These are the source of truth. Prefer supported write verbs for locks
+  and provenance; keep unrelated text intact.
+- **Context belongs to the user:** ProjectContext is the must-read hub and Rules
+  holds standing preferences. Propose changes; append to the Log only when asked
+  (CONNECT.md). Project-root AGENTS.md suggests flux-connect and CLAUDE.md imports
+  it; neither connects unasked.
+- **Never hand-edit `.meta/`** — tools own its schema, provenance journal, annotation
+  ledger, locks and live bridge. `deferred: … is locked` means wait and retry.
 - **Never hand-edit `fig/`** — it's app-managed. Build figures through the verbs
   (`compose-figure`, `restyle`, …), which write `fig/` correctly and keep the index coherent.
 - **Derived / rebuildable** (don't treat as authority): `project.json.figures[]` (rebuilt by
   `reindex` from `fig/index.json`), `fig/renders/`, `exports/`. If `project.json` looks stale
   after direct edits, run `reindex`.
 
-**The `plots/` ↔ `fig/` seam:** you own `plots/` (any names/subfolders you like); Flux only
+**The `plots/` ↔ `fig/` seam:** you own `plots/` (any names/subfolders you like); never
+reorganize existing outputs just to compose them. Flux only
 *reads* it and copies what you compose into `fig/assets/`. Regenerating a plot in `plots/`
 hot-swaps its panel live when the app is open; headless, run `sync-figure` to refresh the
 copies in place — either way your per-part restyles survive (they're keyed by stable id).
@@ -85,9 +111,22 @@ Hierarchy: **Project → Canvases → Figures → Elements**.
 - An **element** is a panel inside a figure — usually an imported plot (a *semantic plot*
   element that points back to `plots/` and carries per-part overrides), plus panel-label text.
 
-Cross-reference handles: **`@fig-<label>`** for the figure, **`@fig-<label>-a`** for panel *a*.
-The `<label>` comes from `fig/index.json` (e.g. `fig-growth`); "Figure 3" is derived from order,
-never stored — so reordering never breaks a reference.
+## Conventions and identity
+
+Use the figure's stable `referenceKey` from the model/index for cross-references
+(for example `@fig-growth`, panel `@fig-growth-a`). `family` and `number` give the
+publication designation, while `nickname` is its human title. Canvas array order is
+independent: reordering figures does not renumber them or change reference keys.
+Use stable IDs/slugs in filenames and tools, never infer an ID from "Figure 3".
+
+Panel letters are semantic panel-label text elements; `auto-label` follows reading
+order. Use `@tbl-id` for a Markdown table with `: Caption {#tbl-id}` beneath it.
+Keep plain-text changes small; let verbs own JSON serialization. CLI-REFERENCE.md
+is the canonical verb list.
+
+Use `create-figure` and the element/arrangement verbs for a custom composition;
+`compose-figure` is the usual import → grid → label → caption starting point.
+Read SLIDES.md before reusing a figure in a talk, and LIBRARY.md for source-paper snips.
 
 ## Building a figure — compose, look, restyle
 
@@ -150,4 +189,7 @@ into the ordinary blocks without duplicating the old text. `--panel ps` is also 
 actual panel is named ps.
 
 The manuscript reads captions from the model (embed lines carry NO caption text — see
-`MANUSCRIPT-AND-REVIEW.md`); use `@fig-growth-a` in the caption/prose to refer to panels.
+`MANUSCRIPT.md`); use `@fig-growth-a` in the caption/prose to refer to panels.
+
+Validate with `validate` after changing structure, and `validate-plot` before import.
+Re-read captions and inspect both the figure and whole-canvas render before reporting completion.

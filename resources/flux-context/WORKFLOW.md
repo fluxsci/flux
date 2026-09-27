@@ -1,9 +1,9 @@
-# The end-to-end playbook (stock — shipped with Flux)
+# The end-to-end playbook (stock — shipped with Flux, do not edit)
 
 The concrete session recipe: analysis results → blessed figures → write-up → review.
-`README.md` (sibling) is the mental model — workshop vs. showroom, the two Context
-folders; this is the "what to actually do." Commands assume you've `cd`'d into the Flux
-project and run `export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent` (see `CLI-REFERENCE.md`).
+Read the relevant manual before each stage. These commands assume the project is
+cwd (or selected with `--root` / `FLUX_PROJECT`); CLI input paths still use cwd.
+MCP uses the connected binding and accepts a per-call `project` override.
 `F=` below is shorthand:
 
 ```bash
@@ -12,32 +12,34 @@ F="{{FLUX_CLI}}"
 
 ## 0. Orient
 
+You are connected: the bundle has the user's context, ProjectContext and its links,
+Rules, recent Log, the project map and open-item overview. Work from that reading;
+read the indexed task-specific references and the user's figure reference images
+when needed. If not connected, suggest flux-connect; do not connect unasked.
+
 ```bash
-# Locate the project (a folder with project.json) inside the analysis dir, or scaffold one:
-"$F" new ./paper --title "Synapse organization" --author "A. Author"   # if none exists (confirm first)
-cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
-"$F" config                        # machine paths — note userContextPath + fluxContextPath (+ plotLibraryPath: the user's global plots)
-# read EVERYTHING in <userContextPath>/ (every .md + image) before working —
-# who the user is + their standing rules for all Flux output; then orient in
-# <fluxContextPath>/ (stock: README → PROJECT-GUIDE)
-"$F" list                          # current figures + references
-cat project.json                       # the map
-cat Context/ProjectContext.qmd   # background and links to must-read material
-cat Context/RULES.md             # standing project rules
-"$F" read-log --since-checkpoint   # recent Log; --titles indexes all entries
-tail -5 .meta/journal.ndjson     # what changed since last session
-"$F" inbox --json                      # annotations + every document's margin comments
+cd /path/to/project                 # has project.json
+"$F" list                           # figures + references when you need a current map
+"$F" connect --refresh              # catch up within this connected session
 ```
 
-When the user asks you to record work, use `"$F" log --agent "<your model>" --title "…" "…"`.
-The agent/surface/host byline is automatic. Use `--checkpoint` only for a requested summary;
-older entries stay intact.
+A CLI connect does not set the root for future shell commands. Keep cwd in the
+project or pass `--root`. MCP remains bound. Read change details with `read_delta`
+when the automatic "↻ Since you last looked" notice names relevant edits.
+
+For a requested new project, use `"$F" new ./paper --title "Study title"` from the
+analysis workspace, then work in its project folder. Keep analysis/scratch outside
+its presentation output. Read PYTHON-CONVENTIONS.md before setting up Python.
+
+When the user asks you to record work, use
+`"$F" log --agent "<your model>" --title "…" "…"`. The byline is automatic.
+Use `--checkpoint` only for a requested summary; older entries stay intact.
 
 ## 1. Make plots (in the analysis env → into `plots/`)
 
 - Write/extend a plotting script in the **analysis dir** (the workshop). Use `fluxplot` + the
   house style, name every series, and save into the project's `plots/` with a recipe
-  (`fx.save(fig, "plots/<name>.svg", script=__file__, params=…, inputs=…)`). Full detail +
+  (`fp.save(fig, "plots/<name>.svg", recipe=dict(script=__file__, params=…, inputs=…))`). Full detail +
   example: `PLOTS-AND-STYLE.md`.
 - Run it through the project's **uv** environment (`uv run …` — every analysis project
   gets a uv project with fluxplot as a dependency; the standing rules are
@@ -52,8 +54,8 @@ Only promote results worth keeping — the workshop holds the exploration, the p
 blessed figures. But keep the *evidence behind* each blessed plot close: drop per-subject/
 per-condition panels, alternative analyses, and `_stats/` CSVs into
 `plots/_dissections/<plot>/` (subfolders = named groups; the user views them with **D** on the
-plot — see `PROJECT-AND-FIGURES.md`). Dissections never appear in the importer or exports, so
-this costs nothing in clutter.
+plot — see `PROJECT-AND-FIGURES.md`). Dissections stay outside ordinary gallery
+searches and figure exports; use `_` to browse reserved folders explicitly.
 
 ## 2. Compose figures + LOOK + restyle
 
@@ -74,19 +76,19 @@ Details + the canvas/figure/panel model: `PROJECT-AND-FIGURES.md`.
 ```bash
 "$F" set-caption fig1 "Synapse density by cortical layer. **a**, … **b**, …"
 #   ↑ the '**a**, …' convention is DISTRIBUTED into per-panel caption blocks
-#     (what the app's Caption Editor shows); --panel b rewrites one panel only.
+#     (what Figure-Meta's Captions tab shows); --panel b rewrites one panel only.
 "$F" set-manuscript --file section.qmd     # or edit paper/notes.qmd directly
 #   embed figures with EMPTY alts: ![](../fig/renders/fig1.svg){#fig-fig1}
 "$F" ref fig1                              # adds 'See @fig-fig1.'  (or write @fig-fig1 / @fig-fig1-a yourself)
-"$F" cite-doi 10.1038/s41586-024-...       # grow references/library.bib (echoes author/title/year — CHECK it)
+"$F" cite-doi <doi>                        # grow references/library.bib (echoes author/title/year — CHECK it)
 "$F" compile --to html                     # optional: render via Quarto (needs quarto) — prints the
                                          # output path + figures/citations resolution (fix any
                                          # unresolved @keys it names)
-"$F" validate                              # lint: EMPTY figures (they shift numbering), figures not
+"$F" validate                              # lint: empty figures, figures not
                                          # embedded in any doc, overlapping canvas frames
 ```
 
-Authoring + cross-refs: `MANUSCRIPT-AND-REVIEW.md`.
+Authoring + cross-refs: `MANUSCRIPT.md`.
 
 ## 4. Show the user
 
@@ -94,24 +96,23 @@ Render the figures to PNGs and present them (inline if you have MCP `get_figure_
 short written summary of what each shows and how it was made. End by telling the user they can
 mark up the documents in the Flux app and you'll address the comments.
 
-## 5. Review loop (the user says "address my feedback")
+## 5. Review loop (only when the user asks)
 
 ```bash
-"$F" inbox --json                    # annotations + comments, with exact targets
-"$F" comments                    # all docs: each thread has doc + id + anchor.quote
-"$F" comments --doc paper/notes.qmd   # optional: target one document only
-# for each item: make the change (regenerate / restyle / edit the .qmd), then close it:
-"$F" claim <id>                         # claimed:false means another agent holds it
-"$F" resolve <id|text> --note "Done: <what you changed>."
-"$F" resolve-comment <id> --note "Done: <what you changed>."   # project-wide unique id
-# unsure about an item? ask in the user's margin instead of guessing:
-"$F" add-comment --quote "the exact doc text" --body "your question"
+"$F" inbox --json                    # all annotations + document comments
+"$F" inbox --doc paper/notes.qmd --json  # only when the request narrows to this doc
+"$F" claim <id> --note "Checking the labels."
+# If claimed:false, skip it. Otherwise inspect its targets/picture, do the work, LOOK.
+"$F" resolve <id> --note "Updated the labels and checked the figure."
+# A decision is missing: ask in this item's thread, leave it unresolved, continue others.
+"$F" reply <id> "Which scale should I use?" --needs-input
 ```
 
-Full procedure + the on-disk formats: `MANUSCRIPT-AND-REVIEW.md`. With the app open, your
-prose edits, resolves, and new threads all refresh live in the user's margin. When feedback
-expresses a STANDING preference (not a one-off), propose adding it to `Context/RULES.md`
-(see `PROJECT-GUIDE.md`).
+Use `list_inbox {packets:true}` over MCP to include target state and images.
+Read REVIEW.md for filters, routing, claims and the watch-mode protocol. Watching
+requires a separate request; connecting or listing does not start a watch loop.
+The app refreshes changed prose and thread status. For a standing preference,
+propose an addition to `Context/RULES.md`; keep one-off requests in their threads.
 
 ## 6. Iterate / regenerate (no stale clutter)
 
@@ -137,15 +138,14 @@ output regenerates and overrides leak into siblings.
 Analysis script (with `fluxplot.style` + `fp.save`) writes `plots/density.svg` (+ manifest + recipe) → you
 `validate-plot` it → `compose-figure` it into **fig1** with siblings → `render-figure` to a PNG
 and **look** → `restyle` the series to Flexoki colors → `set-caption` and cite `@fig-fig1` in
-the active `.qmd` → show the user the PNG → they comment in the app → you `comments`, fix the `.qmd`,
-`resolve-comment` each → done, with full provenance in `.meta/journal.ndjson`.
+the active `.qmd` → show the user the PNG → they comment in the app → you `inbox`, `claim`, fix and inspect the result,
+then `resolve` each → done, with full provenance in `.meta/journal.ndjson`.
 
 ## CLI vs MCP — quick guidance
 
-- **CLI** (this doc) always works; every verb resolves the root as `--root` → `$FLUX_PROJECT` →
+- **CLI** project verbs resolve the root as `--root` → `$FLUX_PROJECT` →
   cwd (a leading positional root like `.` is still accepted — `CLI-REFERENCE.md`).
-- **MCP** is nicer for **looking** (`get_figure_image` → inline PNG) and for **live** edits on
-  the user's selection. Wire it per-project with `.codex/config.toml` for Codex or `.mcp.json`
-  for Claude Code (`MANUSCRIPT-AND-REVIEW.md`).
-- Either way, **the files are the contract** — when in doubt, read/write the files directly and
-  run `reindex` / `validate`.
+- **MCP** is useful for inline figure images and live selection. Use the binding;
+  `flux_verbs` and `flux_verb` reach tools outside core. Setup lives in CLI-REFERENCE.md.
+- Both surfaces use the same registered mutations. Use verbs for managed files,
+  respect locks, and verify with `reindex` / `validate` where appropriate.

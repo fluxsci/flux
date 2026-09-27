@@ -75,12 +75,6 @@ capabilities as the GUI, through three surfaces:
   Code prompt hook (`connect --hook-delta`, launcher fast path `connect/hookFast.ts`).
   Gates: verify-connect-render / -connect / -connect-delta / -connect-mcp (pure),
   verify-connect-hook (bundle).
-  and `<project>/Context/` (MISSION/NOTEBOOK/RULES as first-class Paper documents).
-  Agents use the CLI/MCP tools alongside the app. The feedback ledger
-  (`.meta/feedback.ndjson`, append-only, shared core `src/lib/project/annotations.ts`)
-  carries context-stamped review notes (Ctrl+Shift+M capture); agents read and resolve
-  them through the same shared core. Gates: verify-context-scheme / -feedback (pure),
-  verify-context-gui / -annotation-surface-gui (ui).
 
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
@@ -1617,8 +1611,8 @@ Unmarked files are user-owned. AppImages resolve their CLI inside the current mo
 macOS translocation refuses installation. Every test must use scratch HOME/XDG and
 `FLUX_NO_MIGRATE`; launcher tests clear that guard only inside their scratch fixture.
 `flux mcp [root] --toolset core|full` is the canonical stdio entry. Cwd discovery supplies
-only a tool default, without hydration or presence. Explicit `connect` binds a project;
-its Phase 3 handler returns a bind-only message until the full brief engine lands.
+only a tool default, without hydration or presence. Explicit `connect` hydrates and
+binds a project, returning the brief's reading plan and receipt template (see §1).
 Global connect preserves a prior binding. Handshake identity feeds the journal unless
 FLUX_CLIENT overrides it. MCP instructions say to connect only when asked.
 
@@ -1636,6 +1630,19 @@ JSON files, never a second discoverable SKILL.md tree. See
 requirements and native acceptance boundaries. Gates: `verify-agent-setup.ts`,
 `verify-connect-doctor.ts`, `verify-skill-template.ts` (hermetic pure tier).
 
+
+**Update the stock manual:** `resources/flux-context/` is the 13-document agent manual.
+FLUX.md and CONNECT.md are always-read entry points; README routes to the ten task
+references. MANUSCRIPT.md is authoring-only; REVIEW.md owns inbox/watch/live guidance.
+CONNECT's `ask-rules` / `task-rules` blocks and FLUX's `ask-summary` are prompt inputs,
+not decoration: preserve their unique delimiters and the 400/400/600 token budgets.
+`verify-context-scheme` uses connect's shared token estimate and pins the stock set,
+headers, entry points and watch protocol. `verify-registry-parity` checks CLI and MCP
+names across all stock docs, including the CLI tables. After any edit, run
+`node scripts/gen-flux-context.mjs` then `npm run build:cli`; the bundled CLI must
+carry the same manual hash. Generic FluxContext pruning removes retired stock docs
+without a hand-maintained filename list. Keep merge accounting in the review record
+when deleting a manual; the 2026-09 rewrite's record is kept with the overhaul notes (outside the repository).
 
 **Add an IPC channel:** declare it in `electron/ipc/contract.cjs` (kind: invoke/send/push +
 scope), register through the wrapped `ipcMain` in the right family module, expose in
@@ -7280,3 +7287,21 @@ are in `docs/for_agents/agent-setup.md`; UI/native acceptance remains with the o
   regular-file archive for directory backups and removals.
 - Codex now has an explicit invocation policy and prompt-submit hooks. Capability-probe
   the installed CLI, and preserve its separate hook-trust decision.
+
+### 2026-09-27 08:10 UTC — Stock manual rewrite (Codex, aio-w5a-manual)
+**Work:** Shipped the 13-document D5 manual: FLUX/CONNECT entry points, separate
+authoring/review/library references, updated command/path guidance, and complete
+merge accounting in the overhaul notes. CONNECT preserves the supplied
+contract with current saved-image guidance and conditional background-agent routing.
+Pinned prompt-block budgets and watch steps, extended registry scans to every manual,
+and regenerated the stock module/CLI. Corrected one pre-existing manifest reference
+to W4b's deleted annotation gate by selecting its registered replacement.
+**Verification:** Full pure tier 307/307; context scheme 109 checks; stock name scans
+105 CLI verbs and 116 MCP tools; config/pruning 72 checks. CLI build, headless typecheck
+and Svelte check (884 files, 0 errors/0 warnings) pass. Five intentional contract/name
+faults fail the new checks and were restored. No UI/electron/bundle tier was run;
+integration acceptance remains with the orchestrator. Nothing committed.
+**Learnings:** The connect token estimator also bounds prompt excerpts. A renamed
+manual must update config sync assertions as well as content pins; generic pruning
+already handles the retired stock files. `get_view` remains a parallel F3 dependency;
+the current manual uses live target context plus saved figure/canvas images.

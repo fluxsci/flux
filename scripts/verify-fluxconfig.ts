@@ -179,7 +179,7 @@ if (process.platform !== "win32") {
     const canonical = path.join(fp.binDirSync(), "flux");
     assert(fs.existsSync(canonical) && fs.readFileSync(canonical, "utf8").includes("# flux-agent-shim target="), "canonical launcher records its owning installation");
     assert(fs.existsSync(path.join(fp.binDirSync(), "flux-connect")), "canonical flux-connect alias is installed");
-    assert(fs.readFileSync(path.join(fc1, "TEMPLATES.md"), "utf8").includes(`command = "${canonical}"`), "manual MCP command points at the canonical launcher");
+    assert(fs.readFileSync(path.join(fc1, "CLI-REFERENCE.md"), "utf8").includes(`"${canonical}" connect setup`), "manual setup command points at the canonical launcher");
     assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && fs.readFileSync(shim, "utf8").includes(fp.binDirSync()), "shim carries the managed marker + canonical launcher");
     fs.writeFileSync(shim, "#!/bin/sh\necho my own flux\n", { mode: 0o755 }); // user replaces it → opt-out
     // (asserted after the no-op re-run below: the user's file must survive)

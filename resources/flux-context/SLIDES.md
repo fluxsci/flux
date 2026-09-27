@@ -1,4 +1,4 @@
-# Flux Slide — build & animate a scientific talk (the 4th pillar)
+# Flux Slide — build and animate a scientific talk (stock — shipped with Flux, do not edit)
 
 Flux Slide is a **figure-first talk creator and animator** — "PowerPoint meets 3blue1brown."
 A slide (deck `0.5.0`) reuses the figure editor and its elements

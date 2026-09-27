@@ -1482,7 +1482,9 @@
     {
       "glob": "resources/flux-context/**",
       "run": [
-        "verify-context-scheme.ts"
+        "verify-context-scheme.ts",
+        "verify-registry-parity.ts",
+        "verify-fluxconfig.ts"
       ]
     },
     {

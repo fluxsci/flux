@@ -260,32 +260,36 @@ try {
     }
     ok(`all ${VERBS.length} registry verbs present on both surfaces (help + tools/list)`);
 
-    // Stock CLI reference (the FluxContext cheat-sheet — was skills/flux/references/
-    // cli.md before the Context migration): every verb it names must exist on the
-    // CLI surface (registry now, or a legacy switch case still to migrate). Scans
-    // BOTH `flux <verb>` prose mentions AND the cheat-sheet tables' first column —
-    // the table blindspot once let a deleted verb (add-math) linger for a release.
-    const doc = await fs.readFile(
-      path.join(REPO, "resources", "flux-context", "CLI-REFERENCE.md"),
-      "utf8",
-    );
-    const named = new Set<string>();
-    for (const m of doc.matchAll(/(?:^|[`\s])flux\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+    // Scan every shipped manual, including canonical CLI/MCP table columns and
+    // quoted launcher examples. A filename example such as cell_007 is not a tool;
+    // lowercase snake-case code spans with alphabetic segments are tool names.
+    const docsDir = path.join(REPO, "resources", "flux-context");
+    const docs = await Promise.all((await fs.readdir(docsDir)).filter(n => n.endsWith(".md"))
+      .map(async name => ({ name, body: await fs.readFile(path.join(docsDir, name), "utf8") })));
+    const named = new Set<string>(), namedTools = new Set<string>();
+    for (const { body } of docs) {
+      for (const m of body.matchAll(/(?:^|[`\s])flux\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+      for (const m of body.matchAll(/"(?:\{\{FLUX_CLI\}\}|\$F)"\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+      for (const m of body.matchAll(/`([a-z][a-z0-9]*_[a-z][a-z0-9_]*)(?=[\s`{])/g)) namedTools.add(m[1]);
+      for (const m of body.matchAll(/verb:\s*"([a-z][a-z0-9_]*)"/g)) namedTools.add(m[1]);
+    }
+    const doc = docs.find(d => d.name === "CLI-REFERENCE.md")!.body;
     for (const line of doc.split("\n")) {
       if (!line.startsWith("|") || /^\|[\s-|]*$/.test(line) || line.includes("Verb (CLI)")) continue;
-      const firstCell = line.split("|")[1] ?? "";
-      for (const span of firstCell.matchAll(/`([^`]+)`/g)) {
+      const cells = line.split(/(?<!\\)\|/);
+      for (const span of (cells[1] ?? "").matchAll(/`([^`]+)`/g)) {
         const tok = span[1].trim().split(/\s+/)[0];
-        // Verbs only: lowercase, no placeholders/flags/paths — "—" cells and
-        // arg-only spans (e.g. `--order a,b,c`) don't match.
         if (/^[a-z][a-z0-9-]*$/.test(tok)) named.add(tok);
       }
+      for (const span of (cells[2] ?? "").matchAll(/`([a-z][a-z0-9_]*)(?=[\s`{])/g)) namedTools.add(span[1]);
     }
     const cliSurface = new Set([...registeredCliVerbs()]);
     const legacy = await fs.readFile(path.join(REPO, "flux-cli.ts"), "utf8");
     for (const m of legacy.matchAll(/case "([a-z0-9-]+)":/g)) cliSurface.add(m[1]);
-    const ghosts = [...named].filter((v) => !cliSurface.has(v) && !["help", "version"].includes(v));
-    assert(!ghosts.length, `every skill-doc verb exists on the CLI surface${ghosts.length ? ` — GHOSTS: ${ghosts.join(", ")}` : ` (${named.size} checked)`}`);
+    const ghosts = [...named].filter(v => !cliSurface.has(v) && !["help", "version"].includes(v));
+    assert(!ghosts.length, `every stock-doc verb exists on the CLI surface${ghosts.length ? ` — GHOSTS: ${ghosts.join(", ")}` : ` (${named.size} checked across ${docs.length} docs)`}`);
+    const ghostTools = [...namedTools].filter(v => !toolSet.has(v));
+    assert(!ghostTools.length, `every stock-doc tool exists on the full MCP surface${ghostTools.length ? ` — GHOSTS: ${ghostTools.join(", ")}` : ` (${namedTools.size} checked)`}`);
   }
 
   // ---- (e) core-import integrity ------------------------------------------------------

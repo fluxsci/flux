@@ -1,51 +1,77 @@
-# Running Flux from the command line (and MCP) — stock, shipped with Flux
+# Running Flux from the command line and MCP (stock — shipped with Flux, do not edit)
 
-## How to run the CLI
+## Invocation and root resolution
 
-The `flux` CLI is usually **not on `PATH`**. This machine's resolved invocation (baked in
-when Flux synced this doc) is:
+Use this machine's stable launcher; shell commands below use `flux` as shorthand:
 
 ```bash
 "{{FLUX_CLI}}" <verb> [args] [--flags]
 ```
 
-It **operates on any project directory** — where you run it from doesn't pin the project
-(see root resolution below), though `cd`-ing into the project is the ergonomic default.
+`flux version` reports the version, commit and entry point. If help and a documented
+flag disagree, identify the installation with `config` / `connect_doctor`; a source
+checkout may need `npm run build:cli`. Do not silently switch installations.
 
-**Drift check:** `flux version` prints `{version, commit, entry}` — if a documented
-verb/flag is missing, the bundle may lag the repo; note the mismatch so the owner can
-rebuild (`npm run build:cli` in the Flux repo).
+Project CLI verbs resolve `--root` → `FLUX_PROJECT` → cwd. Working from the project
+is convenient, but not required. A leading positional root remains supported where
+unambiguous (`list /path/to/project`, `render-figure . growth`). Machine/file verbs
+such as `config`, `validate-plot` and `rerun-plot` do not require a project.
 
-**The one rule that avoids all foot-guns: `cd` into the Flux project and run from there.**
-Then set your identity and pin the project for the session:
+**Path rule:** CLI filesystem inputs resolve from shell cwd, even with `--root`.
+MCP inputs resolve from the project default. Absolute paths work on both surfaces.
+Document/folder identifiers remain project-relative model identifiers. A shell glob
+expands before Flux sees it; `compose-figure plots/*.svg` requires the intended cwd.
+MCP binding and per-call `project` details are below.
 
-```bash
-cd /data/my_analysis/paper               # the Flux project (has project.json)
-export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
+Identity is detected from the agent environment/MCP handshake. `FLUX_CLIENT` is an
+optional journal/lock identity override, not a required session role. A CLI connect
+does not set cwd or environment for subsequent commands.
+
+## Connect, read the pack, return the receipt
+
+```sh
+"{{FLUX_CLI}}" connect [<project>|global] [--live] [--refresh] [--depth core|full] [--no-render] [--json]
 ```
 
-`FLUX_CLIENT=agent` stamps your writes in the provenance journal and as the lock owner.
-Working from the project dir also matters because **plot/asset paths are resolved against the
-current directory**, not against `--root` — so `compose-figure plots/*.svg` only globs
-correctly when the project is your cwd.
+Invoke only when asked for flux-connect. An omitted target finds the project around
+cwd; a path may name the project or a directory inside it. Global mode reads machine
+context and lists known projects, preserving an existing MCP project binding.
 
-## Root resolution (unified)
+The brief is the reading plan (at most 10,000 characters). Read FLUX.md, CONNECT.md,
+then the bundle and named images. Core depth includes ProjectContext and immediate
+links, Rules, recent Log and its title index, a project map, open items/activity and
+canvas overviews. Full depth adds all documents, individual figures and deck sheets.
+`--no-render` omits images; say so in the receipt. `--json` returns structured pack
+metadata; it is not a substitute for reading the brief/bundle.
 
-**Every verb** resolves the project root the same way: `--root` → `$FLUX_PROJECT` → cwd.
-With the session export above, `render-figure growth --png` just works.
+Check every section-end marker and the final sentinel. If a tool truncated the
+middle or end, read smaller parts until complete. Use `read_pack {packId,section:"brief"}`,
+`read_pack {packId,section:"A"}` (the brief lists section IDs), or sequential
+`read_pack {packId,part:1}` calls. Parts are at most 20,000 characters; advance `part`
+until the bundle is complete. View images with `get_pack_image {packId,index:0}`
+(0-based), or open the printed PNG paths. A stdout-only fallback prints the exact
+`connect --part … --pack … --sources …` command to use; keep its source digest.
 
-- A **leading positional root** is still accepted for back-compat (`render-figure . growth`,
-  `list /path/to/proj`): the first positional counts as the root only when it plainly IS one
-  (`.`, `..`, a path with `/`, or a directory holding `project.json`) — otherwise it's the
-  verb's first real argument.
-- A wrong root fails fast with a diagnosis: `…/dir is not a Flux project (no project.json) —
-  did you mean <nearest real root>?` (never a misleading "figure not found").
-- **File-path verbs** take a file, no root: `validate-plot <plot.svg>`, `rerun-plot <recipe.json>`.
+Return the brief's receipt shape using only what you read and saw. Proof codes are
+at bundle section ends and image corners, not in the brief. Never invent them.
+`flux connect --check-receipt <packId> "<proof line>"` checks coverage; MCP uses
+`connect_doctor {checkReceipt:{packId,proof:"<proof line>"}}`. Report missing sections,
+trimmed material, unavailable renders and template ProjectContext honestly, then wait.
+
+A "↻ Since you last looked" line on MCP results, and the Claude Code prompt hook,
+reports external changes during a connected session. `read_delta {}` reads details
+and advances the cursor; it can include new canvas images. `connect --refresh`
+(or MCP `connect {refresh:true}`) produces a refreshed pack and change summary.
+Read relevant changes before acting. Refresh does not authorize new work or watching.
 
 ## Verb cheat-sheet
 
 | Verb (CLI) | MCP tool | What it does |
 |---|---|---|
+| `connect [<project>\|global] [--live] [--refresh] [--depth core\|full] [--no-render] [--json]` | `connect` | read context and images, then return the brief's receipt; explicit invocation only |
+| `connect setup` · `connect doctor` · `connect remove` | `connect_doctor` (doctor only) | agent registration/health; setup and remove are CLI-only, see below |
+| — | `read_pack` · `get_pack_image` · `read_delta` | bounded pack text, indexed pack images, and changes since the session's cursor |
+| `mcp [root] [--toolset core\|full]` | `flux_verbs` · `flux_verb` | stdio server; discover schemas / invoke tools outside the compact default list |
 | `new <dir> [--title T] [--author A]` | — | scaffold a new project |
 | `list` · `reindex` | `list_project` · `reindex` | overview / rebuild `project.json.figures[]` |
 | `compose-figure <plots…> [--rows N\|--cols N] [--id slug] [--gap N]` | `compose_figure` | **flagship:** N plots → one labeled, gridded, captioned figure |
@@ -73,9 +99,9 @@ With the session export above, `render-figure growth --png` just works.
 | `insert-slide-embed <deck> <slide> [--doc r] [--width 75%] [--caption "…"] [--anchor "unique text"]` | `insert_slide_embed` | insert a linked slide block, generate its step-0 SVG, and return IDs + Markdown. Anchor must occur exactly once; omitted anchor appends. HTML plays manually; PDF/Word show step 0 |
 | `add-reference . <bibtex\|--file f>` · `cite-doi <doi>` | `add_reference` · `cite_doi` | grow `references/library.bib` |
 | `zotero-sync [--bib f] [--data-dir d] [--attach copy\|link] [--defer-fulltext] [--force] [--save]` | `zotero_sync` | pull new references + PDFs from the connected Zotero Better-BibTeX auto-export into FluxLib (one-way, idempotent; an UNCHANGED export is skipped from a stat alone — `--force` re-scans and also picks up attach backfill; `--defer-fulltext` links pointers without reading the PDFs — text backfills lazily; `--save` persists overrides as the machine settings) |
-| `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | project-wide list/unique resolve by default; `--doc` targets one document (see MANUSCRIPT-AND-REVIEW.md) |
+| `comments [--doc r] [--all]` · `resolve-comment <id\|quote> [--doc r] [--note "…"]` | `list_comments` · `resolve_comment` | project-wide list/unique resolve by default; `--doc` targets one document (see REVIEW.md) |
 | `add-comment --quote "…" --body "…" [--doc r] [--at n]` | `add_comment` | open a NEW thread — ask the human a question in their margin |
-| `inbox [query] [--kind annotation\|comment] [--surface s] [--doc d] [--figure f] [--deck d] [--tag a,b] [--status s, …\|all] [--archived] [--since ISO] [--text t] [--holder name] [--claimed me\|others\|none\|any] [--mine] [--json]` | `list_inbox` | Unified annotations and comments; `packets:true` adds current target state and up to six inline images. |
+| `inbox [query] [--kind annotation\|comment] [--surface s] [--doc d] [--figure f] [--deck d] [--tag a,b] [--status s, …\|all] [--archived] [--since ISO] [--text t] [--holder name] [--claimed me\|others\|none\|any] [--mine] [--packets] [--json]` | `list_inbox` | Unified annotations and comments; `packets:true` adds current target state and up to six inline images. |
 | `wait-inbox [query] [filters] [--timeout seconds] [--cursor c] [--mode queue\|annotations\|filter]` | `wait_for_inbox` | Opt-in wait for routed items; returns `{items,cursor,stopped,revoked}`. |
 | `claim <id> [--note text] [--force]` | `claim_item` | First live claimant wins. Force only on explicit instruction. |
 | `release <id>` | `release_item` | Release your claim. |
@@ -83,7 +109,7 @@ With the session export above, `render-figure growth --png` just works.
 | `resolve <id\|unique quote> [--note text]` | `resolve_item` | Resolve after completing the work. |
 | `archive <id>` · `unarchive <id>` | `archive_item` · `unarchive_item` | Hide or restore items when asked. |
 | `inspect <TargetRef-json\|kind:ids>` | `get_target` | Saved target state without rendering. Example: `part:fig-2/el-9#control`. |
-| — | `get_inbox_image` | Fetch an annotation snapshot by id; PNG, long edge ≤1600 px. |
+| — | `get_inbox_image` | Fetch a snapshot by id; PNG, long edge ≤1600 px. In core mode use `flux_verb {verb:"get_inbox_image",args:{id:"…"}}`. |
 | `context-init` | `ensure_context` | ensure the project's `Context/` layer exists |
 | `log <text…> [--title "…"] [--file f] [--agent a] [--surface s] [--checkpoint]` | `write_log` | append a dated entry to the **Log** (`Context/NOTEBOOK.md`) only when asked; automatic agent · surface · host:cwd byline, manuscript lock, newest last |
 | `read-log [--tail n] [--since-checkpoint] [--titles] [--json]` | `read_log` | read entries as Markdown (`--json` for parsed objects); checkpoints include the summary and later entries, titles omit bodies, history is never deleted |
@@ -92,8 +118,14 @@ With the session export above, `render-figure growth --png` just works.
 | `rerun-plot <recipe.json> [--key v…] [--only [name]]` | `rerun_plot` | **regenerate** a plot from its recipe; `--only` reruns just this recipe's plot from a figure-level script (sibling files untouched) |
 | `list-dissections [plot]` | `list_dissections` | a plot's companion material in `plots/_dissections/<plot>/` (groups + files); no arg = every plot that has a dissection folder. Writing needs no verb — drop files in the folder |
 | `version` · `config` | `config_paths` | this build's version/commit (bundle vs source) / machine paths + build info |
+| `search <query…>` · `search-text <query…>` | `search_references` · `search_fulltext` | library metadata / stored PDF text; LIBRARY.md covers query fields and research tools |
+| `lib-add <doi\|bibtex…> [--file f] [--attach-files]` | `add_to_library` | add exactly one DOI, BibTeX text or file input to FluxLib; file imports support BibTeX/RIS and attachments |
+| `assign-pdfs [--dry-run]` | `assign_pdfs` | identify PDFs in FluxLib's pdfs_to_assign inbox from their contents; uncertain matches remain unresolved |
+| `snip-paper <key> --page N [--rect x1,y1,x2,y2]` · `cite <key>` | `snip_paper` · `get_citation` | PDF-region PNG with provenance / short formatted citation |
+| — | `get_reading_context` · `get_paper_text` | the Reader's captured selection/page/Highlights / a stored paper's text; use `flux_verb` in core mode |
+| — | `search_world` · `semantic_search` · `similar_papers` · `citing_works` | discovery beyond FluxLib; OpenAlex and optional Semantic Scholar sources, see schemas |
 | `fetch-pdfs [--key K]` · `ingest-pdf <file> --key K` | `fetch_pdfs` · `ingest_pdf` | download OA PDFs / file a hand-downloaded PDF into `items/<citekey>/` |
-| `highlights [search q] [--key K]` · `add-highlight --key K --quote "…"` | `list_highlights`/`search_highlights` · `add_highlight` | read / add FluxReader highlights & notes |
+| `highlights [search q] [--key K] [--md]` · `add-highlight --key K --page N --quote "…"` | `list_highlights`/`search_highlights` · `add_highlight` | read / add FluxReader highlights & notes |
 | — | `get_app_context` · `dispatch_command` · `act_on_selection` | the **live bridge** (app open only) |
 
 ### Slides (Flux Slide — see `SLIDES.md`)
@@ -122,7 +154,7 @@ Start with an optional default project (connect can change it):
 {{FLUX_MCP}} /path/to/project
 ```
 
-Configure it with the templates in `TEMPLATES.md`. Prefer MCP when you want to **see** a figure
+Register supported agents with `connect setup` (below). Prefer MCP when you want to **see** a figure
 (`get_figure_image` returns the PNG inline) or act on the user's live selection.
 
 ## Provenance & locks
@@ -132,7 +164,7 @@ Configure it with the templates in `TEMPLATES.md`. Prefer MCP when you want to *
 - Writes take advisory locks (`project` for figures, `manuscript` for prose/comments/notebook
   log entries). If you
   get `deferred: "<name>" is locked …`, the user is mid-edit in the app — **wait a moment and
-  retry**; the lock auto-expires after 30 s if the holder is gone. Never force.
+  retry**. The operation owns renewal/release; do not remove a lock or force a write.
 
 ## MCP connection and paths
 

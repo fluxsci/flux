@@ -1,8 +1,8 @@
-# Plots: fluxplot + the Flux house style
+# Plots: fluxplot + the Flux house style (stock — shipped with Flux, do not edit)
 
 ## What fluxplot is
 
-`fluxplot` is an external **Python library** (`pip install fluxplot`) you use in your analysis
+`fluxplot` is an external **Python library** you use in your analysis
 environment. It's "matplotlib, but every meaningful thing has a name": you plot in ordinary
 matplotlib via thin helpers, and `fp.save()` emits a **semantic SVG** whose every part (a
 series' line, its 4th point, the x-axis title) has a **stable id** — which is what lets Flux

@@ -46,7 +46,7 @@ ok(schemas.length >= 7, `.meta/schema/ ships the contract (${schemas.length} fil
 
 // --- AGENTS.md is the Context stub; the verb guide lives in FluxContext ------------------
 // (Per-project baked guides went stale on
-// every release — PROJECT-GUIDE.md in the machine FluxContext re-syncs with the
+// every release — PROJECT-AND-FIGURES.md in the machine FluxContext re-syncs with the
 // app. The stock docs themselves are pinned by verify-context-scheme.ts.)
 const agents = read("AGENTS.md");
 ok(agents.includes("# This is a Flux project") && agents.includes("flux-connect"), "AGENTS.md points to flux-connect");
