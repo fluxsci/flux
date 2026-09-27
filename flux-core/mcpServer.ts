@@ -74,7 +74,8 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   }));
 
   /** `listDescription`: a shorter text for tools/list (every session pays for it); flux_verbs keeps the full one. */
-  function registerTool<S extends z.ZodRawShape>(name: string, meta: { description: string; listDescription?: string; inputSchema: S; scope: "project" | "machine"; core?: boolean; annotations?: { readOnlyHint?: boolean; openWorldHint?: boolean } }, fn: (args: z.infer<z.ZodObject<S>> & { project?: string }) => Promise<McpRender>) {    const inputSchema = meta.scope === "project" ? { ...meta.inputSchema, project: projectParam } : meta.inputSchema;
+  function registerTool<S extends z.ZodRawShape>(name: string, meta: { description: string; listDescription?: string; inputSchema: S; scope: "project" | "machine"; core?: boolean; annotations?: { readOnlyHint?: boolean; openWorldHint?: boolean } }, fn: (args: z.infer<z.ZodObject<S>> & { project?: string }) => Promise<McpRender>) {
+    const inputSchema = meta.scope === "project" ? { ...meta.inputSchema, project: projectParam } : meta.inputSchema;
     const run = async (args: Record<string, unknown>): Promise<McpRender> => {
       try {
         if (meta.scope === "project") await recoverProjectForAuthoring(await getRoot(args));
@@ -84,11 +85,13 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     // Every hand-written tool stays reachable through flux_verb, listed or not.
     extraTools.set(name, { description: meta.description, inputSchema: inputSchema as z.ZodRawShape, scope: meta.scope, run });
     if (toolset === "core" && !meta.core) return;
-    server.registerTool(name, { description: meta.listDescription ?? meta.description, inputSchema: inputSchema as z.ZodRawShape, annotations: meta.annotations }, run);  }
+    server.registerTool(name, { description: meta.listDescription ?? meta.description, inputSchema: inputSchema as z.ZodRawShape, annotations: meta.annotations }, run);
+  }
 
   const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
   registerTool("get_inbox_image", {
+    annotations: { readOnlyHint: true },
     scope: "project",
     description: "Get an annotation snapshot as an inline PNG (long edge at most 1600 px). Use for images beyond a packet response's six-image limit.",
     inputSchema: { id: z.string() },
@@ -115,6 +118,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "get_figure_image",
     {
+      annotations: { readOnlyHint: true },
       scope: "project",
       core: true,
       description:
@@ -142,6 +146,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "get_canvas_image",
     {
+      annotations: { readOnlyHint: true },
       scope: "project",
       core: true,
       description:
@@ -172,6 +177,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "search_world",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "Search ALL of OpenAlex (~250M works) by free text — discovery BEYOND your library. sort: 'relevance' (default), 'citations', or 'date'. Returns brief records (openalexId, doi, title, authors, year, container, citedByCount, abstract). Add one to FluxLib with add_to_library {doi}.",
@@ -188,6 +194,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "semantic_search",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "SEMANTIC (meaning-based) search across ALL of OpenAlex via search.semantic — finds conceptually related work even when the wording differs. Returns up to 50 brief records ranked by similarity (relevanceScore). sort: 'relevance' (default) or 'citations' (re-ranks the 50 by citation count). Add a hit with add_to_library {doi}.",
@@ -200,6 +207,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "similar_papers",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "Papers similar to a FluxLib entry. source 'openalex' (default) = OpenAlex semantic 'more like this' (seeded from title+abstract; hydrate first); 'semanticscholar' = SPECTER2 recommendations; 'both' = run each and return { openalex, semanticscholar } for comparison. `ref` = a citekey (or DOI for S2). sort 'relevance' (default) or 'citations' (OpenAlex only).",
@@ -225,6 +233,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "citing_works",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "Works that CITE a given paper. source 'openalex' (default) = breadth: the full paginated citer list (sort 'citations'|'date'). source 'semanticscholar' = citing papers WITH citation contexts (the sentence citing the seed), intents, and influential-citation flags — the 'how/why cited' view. `ref` = citekey (hydrated) / OpenAlex id (W…) / DOI.",
@@ -244,6 +253,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "render_figure",
     {
+      annotations: { readOnlyHint: true },
       scope: "project",
       description:
         "Render a figure to SVG text (per-part plot overrides baked in) — the vector source. For a raster preview an agent can SEE, use get_figure_image (PNG) instead.",
@@ -341,6 +351,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "get_paper_text",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "Return the extracted full text of a FluxLib paper's stored PDF (items/<citekey>/fulltext.txt; extracted on demand if absent). Use this to READ a paper you've fetched. Pages are separated by a form-feed (\\f). `key` is the citekey; `maxChars` truncates.",
@@ -357,6 +368,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "list_highlights",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "List the highlights/notes a human has made on a paper (items/<citekey>/annotations.json) — each with its anchored quote, page, color, and note. `key` is the citekey. Set `markdown:true` for a formatted digest (title header + page-grouped blockquotes) ready to paste into notes or a manuscript.",
@@ -405,6 +417,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "search_highlights",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "Search a human's highlights/notes across the WHOLE FluxLib (or one paper via `key`) — matches the highlighted quote + note text. Returns each hit with its citekey, page, color, quote, and note. Use for 'what have I flagged about X?'.",
@@ -420,6 +433,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "get_reading_context",
     {
+      annotations: { readOnlyHint: true },
       scope: "machine",
       description:
         "What the human is reading in FluxReader RIGHT NOW — the open paper (citekey, title, authors, DOI), current page, their current text selection (if any), and their highlights. Start here when the human opens you from the reader ('what does this mean?', 'summarize this'): the `selection` is what they're pointing at. Then use get_paper_text {key} for the full text and search_highlights for their notes.",
@@ -438,6 +452,7 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
   registerTool(
     "get_app_context",
     {
+      annotations: { readOnlyHint: true },
       scope: "project",
       core: true,
       description:

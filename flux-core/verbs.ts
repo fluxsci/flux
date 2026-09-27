@@ -183,7 +183,7 @@ export const VERBS: VerbDef[] = [
   {
     name: "connect", cli: "connect", cliRoot: "flags", scope: "machine", core: true, bindsRoot: true,
     summary:
-      "flux-connect: hydrate this session with a Flux project (a path to it or inside it), or `global`, or the project around the working directory. Returns a brief to follow: what to read and look at, then a receipt. Binds the project for later tools. Connect only when the user asks for flux-connect.",
+      "flux-connect: load a Flux project (a path to or inside it), `global`, or the project around cwd. Returns a brief to follow (what to read and look at, then a receipt) and binds the project. Only when the user asks for flux-connect.",
     params: { target: z.string().optional(), live: z.boolean().optional(), refresh: z.boolean().optional(),
       depth: z.enum(["core", "full", "ask"]).optional(), budget: z.number().int().positive().optional(),
       noRender: z.boolean().optional(), json: z.boolean().optional() },
@@ -242,7 +242,7 @@ export const VERBS: VerbDef[] = [
   },
   // --- batch 0: trivial project verbs ------------------------------------------
   {
-    name: "list_project",
+    name: "list_project", readOnly: true,
     scope: "project",
     core: true,
     cli: "list",
@@ -269,7 +269,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "config_paths",
+    name: "config_paths", readOnly: true,
     scope: "machine",
     cli: "config",
     aliases: ["config-paths"],
@@ -290,7 +290,7 @@ export const VERBS: VerbDef[] = [
     core: true,
     cli: "set-caption",
     summary:
-      "Write a figure's caption. Whole-string form distributes the 'Lead. **a**, … **b**, …' convention into the per-panel caption blocks (Figure-Meta); pass panel:'a' to write one panel, or panel:'__ps__' for unlabelled closing prose (panel:'ps' also works unless a panel is named ps).",
+      "Write a figure's caption. A whole string in the 'Lead. **a**, … **b**, …' convention is split into per-panel blocks; panel:'a' writes one panel, panel:'__ps__' the closing prose.",
     params: { id: z.string(), markdown: z.string(), panel: z.string().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "id", required: true },
@@ -317,7 +317,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "get_caption",
+    name: "get_caption", readOnly: true,
     scope: "project",
     cli: "caption",
     summary:
@@ -781,7 +781,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_groups",
+    name: "list_groups", readOnly: true,
     scope: "project",
     cli: "list-groups",
     cliRoot: "flags",
@@ -927,7 +927,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_text_styles",
+    name: "list_text_styles", readOnly: true,
     scope: "project",
     cli: "text-styles",
     cliRoot: "flags",
@@ -1585,7 +1585,7 @@ export const VERBS: VerbDef[] = [
 
   // --- batch C: manuscript / library / comments / references --------------------
   {
-    name: "get_manuscript",
+    name: "get_manuscript", readOnly: true,
     scope: "project",
     core: true,
     cli: "manuscript",
@@ -1620,7 +1620,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_documents",
+    name: "list_documents", readOnly: true,
     scope: "project",
     core: true,
     cli: "docs",
@@ -1722,7 +1722,7 @@ export const VERBS: VerbDef[] = [
     cli: "cite-doi",
     cliRoot: "flags",
     summary:
-      "Fetch a DOI's BibTeX (content negotiation), add it to FluxLib (deterministic citekey, deduped by DOI), and cite it in this project (materialized into references/library.bib). Returns the citekey(s) to use as @key.",
+      "Fetch a DOI's BibTeX, add it to FluxLib (deduped by DOI) and cite it in this project (references/library.bib). Returns the citekey to use as @key.",
     params: { doi: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "doi", required: true }],
     handler: (ctx, a) => core.citeDoi(ctx.root, s(a.doi)),
@@ -1761,7 +1761,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "search_references",
+    name: "search_references", readOnly: true,
     scope: "machine",
     core: true,
     cli: "search",
@@ -2022,7 +2022,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_comments",
+    name: "list_comments", readOnly: true,
     scope: "project",
     cli: "comments",
     cliRoot: "flags",
@@ -2151,7 +2151,7 @@ export const VERBS: VerbDef[] = [
     pathParams: {"file": "path"},
     cli: "log",    cliRoot: "flags",
     summary:
-      "Append a dated entry to the project Log (Context/NOTEBOOK.md). Only when the user asks for one. The byline (agent · surface · host:cwd) is added automatically. Runs under the manuscript lock.",
+      "Append a dated entry to the project Log (Context/NOTEBOOK.md), only when the user asks. The byline (agent · surface · host) is added for you.",
     params: {
       text: z.string().optional(),
       file: z.string().optional(),
@@ -2193,12 +2193,12 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "read_log",
+    name: "read_log", readOnly: true,
     scope: "project",
     core: true,
     cli: "read-log",
     cliRoot: "flags",
-    summary: "Read the project Log as dated entries, optionally the latest entries, from the latest checkpoint, or titles only. Does not change the notebook.",
+    summary: "Read the project Log: the latest entries, from the latest checkpoint, or titles only.",
     params: {
       tail: z.number().int().nonnegative().optional(),
       sinceCheckpoint: z.boolean().optional(),
@@ -2378,7 +2378,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "validate_project",
+    name: "validate_project", readOnly: true,
     scope: "project",
     core: true,
     notAPath: {"file": "Project schema file identifier; confined and stored relative to the project"},
@@ -2408,7 +2408,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "validate_plot",
+    name: "validate_plot", readOnly: true,
     scope: "file",
     pathParams: {"svgPath": "path"},
     cli: "validate-plot",
@@ -2431,7 +2431,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_dissections",
+    name: "list_dissections", readOnly: true,
     scope: "project",
     cli: "list-dissections",
     // flags-root: the positional is a PLOT (often slash-bearing, e.g. sub/charlie.svg) and
@@ -2493,7 +2493,7 @@ export const VERBS: VerbDef[] = [
 
   // --- batch E: Flux Slide (deck authoring/animation) ---------------------------
   {
-    name: "list_decks",
+    name: "list_decks", readOnly: true,
     scope: "project",
     cli: "decks",
     cliRoot: "flags",
@@ -3308,7 +3308,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "validate_deck",
+    name: "validate_deck", readOnly: true,
     scope: "project",
     cli: "validate-deck",
     cliRoot: "flags",
@@ -3443,7 +3443,7 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "get_citation",
+    name: "get_citation", readOnly: true,
     scope: "machine",
     cli: "cite",
     cliRoot: "flags",
@@ -3545,7 +3545,7 @@ export const VERBS: VerbDef[] = [
     render:{human:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return {err:`✓ set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`};},mcp:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return text(`set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`);}},
   },
   {
-    name:'search_fulltext',
+    name:'search_fulltext', readOnly: true,
     scope: "machine",cli:'search-text',cliRoot:'flags',summary:'Search extracted library PDF text with AND terms or quoted phrases.',
     params:{query:z.string().trim().min(1),limit:z.number().int().positive().optional(),keys:z.array(z.string()).optional(),json:z.boolean().optional()},
     cliArgs:[{kind:'rest',at:0,into:'query',as:'joined',required:true},{kind:'flag',at:'limit',into:'limit',as:'number'},{kind:'flag',at:'keys',into:'keys',as:'csv'},{kind:'flag',at:'json',into:'json',as:'boolean'}],

@@ -110,6 +110,9 @@ export interface VerbDef {
   pathParams?: Record<string, "path" | "paths">;
   /** Path-like names that are model identifiers or non-path values, with reasons. */
   notAPath?: Record<string, string>;
+  /** Reads only (never changes project or machine state): MCP marks it readOnlyHint, so agents that gate
+   *  tool approval on annotations (Codex) run it without asking. */
+  readOnly?: boolean;
   /** CLI-only flags: the parser accepts them and flux-cli.ts handles them before
    *  registry dispatch (so they never become MCP parameters). */
   cliOnlyFlags?: Record<string, { value: boolean; help: string }>;
@@ -312,6 +315,8 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   return true;
 }
 
+const READ_ONLY = { readOnlyHint: true } as const;
+
 export const projectParam = z.string().optional().describe("Project root; default: the connected project");
 export type RootResolver = (args: Record<string, unknown>) => string | Promise<string>;
 export type McpToolset = "core" | "full";
@@ -402,13 +407,13 @@ export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, 
 }
 
 export function registerMcpVerbs(
-  server: { registerTool: (name: string, meta: { description: string; inputSchema: z.ZodRawShape }, fn: (a: Record<string, unknown>) => Promise<McpRender>) => unknown },
+  server: { registerTool: (name: string, meta: { description: string; inputSchema: z.ZodRawShape; annotations?: { readOnlyHint?: boolean } }, fn: (a: Record<string, unknown>) => Promise<McpRender>) => unknown },
   getRoot: RootResolver,
   options: McpVerbOptions = {},
 ): void {
   for (const v of VERBS) {
     if ((options.toolset ?? "core") === "core" && !v.core) continue;
-    server.registerTool(v.name, { description: v.summary, inputSchema: mcpParams(v) }, a => runMcpVerb(v, a, getRoot, options));
+    server.registerTool(v.name, { description: v.summary, inputSchema: mcpParams(v), ...(v.readOnly ? { annotations: READ_ONLY } : {}) }, a => runMcpVerb(v, a, getRoot, options));
   }
   server.registerTool("flux_verb", {
     description: "Run any Flux verb or tool by name with its validated arguments, including ones this toolset does not list. flux_verbs finds names and schemas.",
@@ -425,6 +430,7 @@ export function registerMcpVerbs(
     return t.run(parsed.data);
   });
   server.registerTool("flux_verbs", {
+    annotations: READ_ONLY,
     description: "Find Flux verbs and tools. Without a query: a one-line index of every name. With a query (words matched against names and summaries): the matches with their input schemas, for flux_verb.",
     inputSchema: { query: z.string().optional() },
   }, async a => {

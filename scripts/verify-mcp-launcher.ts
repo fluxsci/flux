@@ -16,6 +16,8 @@ try {
   const coreList = (await core.request('tools/list')).result;
   h.ok(Buffer.byteLength(JSON.stringify(coreList)) <= 20000, `core tools/list <=20KB (${Buffer.byteLength(JSON.stringify(coreList))} bytes)`);
   const names = coreList.tools.map(t => t.name);
+  const hint = (n: string) => coreList.tools.find(t => t.name === n)?.annotations?.readOnlyHint;
+  h.ok(["list_inbox", "get_figure_image", "read_pack", "get_manuscript", "flux_verbs"].every(n => hint(n) === true) && ["set_manuscript", "claim_item", "flux_verb", "write_log"].every(n => hint(n) !== true), "read tools carry readOnlyHint (Codex runs them without an approval prompt); writes do not");
   h.ok(names.includes('connect') && (names.includes('write_log') || names.includes('note')), 'connect and log-writing tool are present');
   const prompts = (await core.request('prompts/list')).result.prompts;
   h.ok(prompts.some(p => p.name === 'connect'), 'connect prompt is discoverable');

@@ -46,7 +46,7 @@ export interface ConnectSession {
 
 export interface ConnectTool {
   name: string;
-  meta: { description: string; inputSchema: z.ZodRawShape; scope: "machine"; core: true };
+  meta: { description: string; inputSchema: z.ZodRawShape; scope: "machine"; core: true; annotations: { readOnlyHint: true } };
   fn: (args: Record<string, unknown>) => Promise<McpRender>;
 }
 
@@ -111,6 +111,7 @@ export function createConnectSession(opts: {
           meta: {
             scope: "machine",
             core: true,
+            annotations: { readOnlyHint: true },
             description:
               "Read a flux-connect pack without file permissions: section 'brief', one bundle section ('A'…'K'), or the bundle in sequential ≤20k-character parts (part 1, 2, …). Refuses a pack that is not on this machine.",
             inputSchema: { packId: z.string(), section: z.string().optional(), part: z.number().int().positive().optional() },
@@ -125,6 +126,7 @@ export function createConnectSession(opts: {
           meta: {
             scope: "machine",
             core: true,
+            annotations: { readOnlyHint: true },
             description: "Look at image `index` (from 0) of a flux-connect pack, as an image. Each carries a proof code in its bottom-right corner for your receipt.",
             inputSchema: { packId: z.string(), index: z.number().int().nonnegative() },
           },
@@ -138,6 +140,7 @@ export function createConnectSession(opts: {
           meta: {
             scope: "machine",
             core: true,
+            annotations: { readOnlyHint: true },
             description:
               "What changed in the connected project since you last looked: edited Context files and documents (with the changed lines), new Log entries in full, figure changes (with fresh canvas images), and new or closed inbox items. Advances your cursor.",
             inputSchema: {},

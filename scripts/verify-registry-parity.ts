@@ -37,6 +37,9 @@ const { VERBS, registeredCliVerbs } = await import("../flux-core/registry");
 const core = await import("../flux-core/index");
 for (const v of VERBS) {
   assert(Object.hasOwn(v, "scope") && ["project", "machine", "file"].includes(v.scope), `${v.name}: explicit scope`);
+  // Read-shaped names are readOnly (MCP readOnlyHint: Codex runs them without an approval prompt); write-shaped never are.
+  if (/^(list|get|search|read|validate)_/.test(v.name)) assert(v.readOnly === true, `${v.name}: a read verb is marked readOnly`);
+  if (/^(set|add|create|delete|remove|resolve|claim|reply|release|archive|unarchive|write|compose|restyle|sync|rerun|import|cite|ensure|move|reorder|rename|group|ungroup|duplicate)_/.test(v.name)) assert(!v.readOnly, `${v.name}: a write verb is not readOnly`);
   const visit = (shape, prefix = "") => {
     for (const [key, schema] of Object.entries(shape)) {
       const name = prefix + key;
@@ -93,6 +96,7 @@ try {
   const toolDefs = (await client.listTools()).tools;
   const tools = toolDefs.map((t) => t.name).sort();
   for (const v of VERBS) assert(!!toolDefs.find(t => t.name === v.name)?.inputSchema.properties?.project === (v.scope === "project"), `${v.name}: project parameter follows declared scope`);
+  for (const v of VERBS) assert((toolDefs.find(t => t.name === v.name) as { annotations?: { readOnlyHint?: boolean } } | undefined)?.annotations?.readOnlyHint === (v.readOnly ? true : undefined), `${v.name}: readOnlyHint follows readOnly`);
   if (REGEN) {
     await fs.writeFile(TOOLS_GOLDEN, JSON.stringify(tools, null, 2) + "\n");
     ok(`REGENERATED ${path.basename(TOOLS_GOLDEN)} (${tools.length} tools)`);

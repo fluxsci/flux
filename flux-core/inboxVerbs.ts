@@ -29,7 +29,7 @@ const filterNotPaths = { "filter.doc": "Project document selector (path or basen
 interface InboxResponse { items: InboxItem[]; mcp?: McpRender }
 export const INBOX_VERBS: VerbDef[] = [
   {
-    name: "list_inbox", cli: "inbox", scope: "project", core: true, cliRoot: "flags", notAPath: filterNotPaths,
+    name: "list_inbox", readOnly: true, cli: "inbox", scope: "project", core: true, cliRoot: "flags", notAPath: filterNotPaths,
     summary: "List annotations and margin comments across every document. Filter by kind, surface, doc, figure, deck, tag, status, archive, time, text or holder; mine means assigned to or claimed by your session. packets includes current targets and up to six inline snapshots.",
     params: { ...filterParams, json: z.boolean().optional(), packets: z.boolean().optional() },
     cliArgs: [...filterArgs, { kind: "flag", at: "json", into: "json", as: "boolean" }, { kind: "flag", at: "packets", into: "packets", as: "boolean" }],
@@ -46,7 +46,7 @@ export const INBOX_VERBS: VerbDef[] = [
     },
   },
   {
-    name: "wait_for_inbox", cli: "wait-inbox", scope: "project", core: true, cliRoot: "flags", notAPath: filterNotPaths,
+    name: "wait_for_inbox", readOnly: true, cli: "wait-inbox", scope: "project", core: true, cliRoot: "flags", notAPath: filterNotPaths,
     summary: "Wait for new or changed routed inbox items, or your assigned queue. Opt-in only. Returns packets, cursor, stopped and revoked notices; pass cursor back on the CLI. Timeout returns an empty list. Inbox-only items never wake a watcher.",
     params: { ...filterParams, timeoutMs: z.number().nonnegative().optional(), timeout: z.number().nonnegative().optional(), cursor: z.string().optional(), mode: z.enum(["queue", "annotations", "filter"]).optional() },
     cliArgs: [...filterArgs, { kind: "flag", at: "timeout", into: "timeout", as: "number" }, { kind: "flag", at: "cursor", into: "cursor" }, { kind: "flag", at: "mode", into: "mode" }],
@@ -91,9 +91,9 @@ export const INBOX_VERBS: VerbDef[] = [
     handler: (ctx, a) => archiveItem(ctx.root, a.id as string, archived, ctx),
   } satisfies VerbDef)),
   {
-    name: "get_target", cli: "inspect", scope: "project", core: true, cliRoot: "flags",
+    name: "get_target", readOnly: true, cli: "inspect", scope: "project", core: true, cliRoot: "flags",
     notAPath: { target: "Structured TargetRef or kind-prefixed model shorthand, including project document ranges" },
-    summary: "Inspect a saved target without rendering: figure, element, plot part, caption, document range, slide, beat, track, Reader passage or library item. Pass TargetRef JSON or shorthand such as part:fig-2/el-9#control or doc:paper/notes.qmd@120-180.",
+    summary: "Current state of a target (figure, element, plot part, caption, document range, slide, beat, track, passage, reference), without rendering. TargetRef JSON or shorthand, e.g. part:fig-2/el-9#control, doc:paper/notes.qmd@120-180.",
     params: { target: z.union([z.string(), z.record(z.unknown())]) },
     cliArgs: [{ kind: "pos", at: 0, into: "target", required: true }],
     handler: (ctx, a) => inspectTarget(ctx.root, a.target as string | TargetRef),
