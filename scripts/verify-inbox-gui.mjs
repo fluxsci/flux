@@ -34,7 +34,9 @@ try {
   await page.click('.inbox-button'); await page.waitForSelector('[data-inbox-row]');
   h.ok(await page.evaluate(() => performance.now() - window.__inboxOpenStart <= 1000), 'titlebar opens a populated Inbox within 1 s');
   const cli = async query => {
-    const child = scope.spawn(tsxCli(), [path.join(repo, 'flux-cli.ts'), 'inbox', query, '--root', f.root, '--json'], { nodeArgs: [], deadlineMs: 30000 });
+    // FLUX_NO_MIGRATE: this CLI only reads the scratch project. Run outside the hermetic runner it
+    // would otherwise install the user's real launcher from this checkout and sync their FluxConfig.
+    const child = scope.spawn(tsxCli(), [path.join(repo, 'flux-cli.ts'), 'inbox', query, '--root', f.root, '--json'], { nodeArgs: [], deadlineMs: 30000, env: { ...process.env, FLUX_NO_MIGRATE: '1' } });
     const result = await child.closed;
     if (result.code !== 0) throw new Error(child.stderr);
     return JSON.parse(child.stdout).items;

@@ -1902,6 +1902,11 @@ Run it through the hermetic runner; never validate a migration on real projects.
 - A stale `dist/` can answer MCP gates with old code. Judge source MCP gates with no
   `dist/` present; explicitly rebuild when qualifying the bundled path. Do not infer
   which implementation answered from the working directory.
+- Run gates through `scripts/run-verifies.mjs`, never directly. Any Flux CLI or app start
+  without `FLUX_NO_MIGRATE=1` installs the user's `flux` launcher from THAT checkout and syncs
+  FluxConfig; a direct gate run from a worktree once left the real launcher owned by a
+  worktree whose `dist/` was later deleted (every `flux` failed). A launcher whose executed
+  files are gone now counts as dead and is repaired by the next live install.
 - Generated CJS with long string literals can defeat named-export detection. Dynamic
   imports need the `.default` interop guard (`fluxContextDocs.gen.cjs` is one example).
 - External commands use `resolveSpawn` and its `windowsVerbatimArguments` result:

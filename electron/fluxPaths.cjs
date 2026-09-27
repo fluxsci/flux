@@ -554,12 +554,23 @@ function launcherOwnerSync(file = path.join(binDirSync(), process.platform === "
   const match = body && /^.*# flux-agent-shim target=(.*) build=(.*)$/m.exec(body.replaceAll("\r", ""));
   return match ? { target: match[1], build: match[2] } : null;
 }
+/** Does a managed launcher still have everything it executes (Node/Electron, script)?
+ *  An owner whose checkout survives but whose built CLI is gone (dist/ cleaned, a
+ *  worktree pruned of its build) is as dead as a deleted one: every `flux` fails. */
+function launcherRunsSync(body, platform) {
+  const tokens = [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => platform === "win32"
+    ? m[1].replaceAll("%%", "%")
+    : m[1].replace(/\\(.)/g, "$1"));
+  const paths = tokens.filter(t => (platform === "win32" ? path.win32 : path.posix).isAbsolute(t));
+  return paths.every(p => fsSync.existsSync(p)); // nothing readable: can't tell, so it stays live
+}
 function mayOwnLauncher(runtime, useThisInstall) {
   const body = readShim(runtime.cli);
   if (body === null) return true;
   if (!body.includes(SHIM_MARKER)) return false;
   const owner = launcherOwnerSync(runtime.cli);
-  return !!useThisInstall || !owner || owner.target === runtime.target || !fsSync.existsSync(owner.target);
+  return !!useThisInstall || !owner || owner.target === runtime.target || !fsSync.existsSync(owner.target) ||
+    !launcherRunsSync(body, runtime.platform);
 }
 
 let ownRuntime;

@@ -85,6 +85,20 @@ try {
   await fs.rm(packaged.target, { recursive: true });
   await installLaunchers([], { runtime });
   h.eq(launcherOwnerSync(runtime.cli)?.target, source, 'missing old target permits repair');
+  // The owner's checkout survives but its built CLI is gone (a cleaned dist/ or worktree):
+  // every `flux` fails, so a live install repairs the launcher without --use-this-install.
+  const other = path.join(temp, 'other-checkout');
+  await fs.mkdir(path.join(other, 'dist'), { recursive: true }); await fs.writeFile(path.join(other, 'dist', 'flux-cli.mjs'), code);
+  const otherRuntime = resolveOwnCliCommandsSync({ appRoot: other, nodePath: process.execPath, binDir: bin, appImage: '', packaged: false });
+  await installLaunchers([], { runtime: otherRuntime });
+  h.eq(launcherOwnerSync(runtime.cli)?.target, source, 'a live owner keeps the launcher');
+  await fs.rm(path.join(source, 'dist', 'flux-cli.mjs'));
+  await installLaunchers([], { runtime: otherRuntime });
+  h.eq(launcherOwnerSync(runtime.cli)?.target, other, 'an owner whose built CLI is gone (checkout kept) permits repair');
+  h.eq(JSON.parse(await run(runtime.cli)).verb, 'version', 'the repaired launcher runs');
+  await fs.writeFile(path.join(source, 'dist', 'flux-cli.mjs'), code);
+  await installLaunchers([], { runtime, useThisInstall: true });
+  h.eq(launcherOwnerSync(runtime.cli)?.target, source, 'explicit selection restores the original owner');
   await fs.writeFile(shim, 'user-owned');
   await installLaunchers([], { runtime });
   h.eq(await fs.readFile(shim, 'utf8'), 'user-owned', 'never clobbers an unmarked convenience shim');
