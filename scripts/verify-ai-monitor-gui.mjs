@@ -1,6 +1,9 @@
 // W6a: monitor behavior over a memBridge; native utility/preload acceptance is separate.
 import { launch, gotoApp, APP_URL, realErrors, waitFor, shot } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
+// Real pointer clicks at the element's centre: a node moved into a utility window fails
+// Puppeteer's element-handle clickability check (the Figure-Meta pin gate does the same).
+async function pointerClick(p, selector) { const b = await p.$eval(selector, e => { e.scrollIntoView({ block: 'nearest' }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }); await p.mouse.click(b.x, b.y); }
 const h = harness('verify-ai-monitor-gui');
 const { browser, page } = await launch({ width: 1400, height: 1050 });
 const clickText = (scope, text) => page.evaluate(({ scope, text }) => {
@@ -98,7 +101,8 @@ try {
   // The mounted subtree, including native event listeners, survives pin/dock.
   const popupReady = new Promise(resolve => page.once('popup', resolve));
   await page.click('.ai-panel .pin'); const popup = await popupReady; await popup.waitForSelector('.ai-panel');
-  await popup.click('.ai-panel .pin'); await page.bringToFront(); await page.waitForSelector('.ai-panel');
+  await popup.setViewport({ width: 1060, height: 780 }); // headless popups have no viewport until set (as the Figure-Meta pin gate does)
+  await pointerClick(popup, '.ai-panel .pin'); await page.bringToFront(); await page.waitForSelector('.ai-panel');
   h.ok(await page.$eval('.skills', e => e.textContent.includes('stats-conventions')), 'pin/dock retains state and controls work in the inert window');
   await page.click('[aria-label="Close AI status"]');
   const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
