@@ -295,7 +295,10 @@
       "verify-oneoff-migration.ts",
       "verify-annotation-core.ts",
       "verify-connect-render.ts",
-      "verify-projects-registry.ts"
+      "verify-projects-registry.ts",
+      "verify-launcher.ts",
+      "verify-mcp-launcher.ts",
+      "verify-mcp-binding.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -1394,7 +1397,8 @@
       "glob": "src/lib/exportQmd.ts",
       "run": [
         "verify-export-qmd.ts",
-        "verify-embed-normalize.ts"
+        "verify-embed-normalize.ts",
+        "verify-export-prep.ts"
       ]
     },
     {
@@ -1560,6 +1564,53 @@
       "run": [
         "verify-source-watch.ts",
         "tier:presence"
+      ]
+    },
+    {
+      "glob": "electron/fluxPaths.{cjs,d.cts}",
+      "run": [
+        "verify-launcher.ts",
+        "verify-fluxconfig.ts",
+        "verify-mcp-launcher.ts",
+        "tier:pure",
+        "tier:presence"
+      ]
+    },
+    {
+      "glob": "flux-core/{mcpServer,mcpBinding,registry,verbs,errors,liveClient}.ts",
+      "run": [
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-registry-parity.ts",
+        "verify-f1-mcp.ts",
+        "verify-recovery-entry.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/mcpFixture.ts",
+      "run": [
+        "verify-launcher.ts",
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts"
+      ]
+    },
+    {
+      "glob": "flux-{cli,mcp}.ts",
+      "run": [
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-registry-parity.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/build-cli.mjs",
+      "run": [
+        "verify-launcher.ts",
+        "verify-mcp-launcher.ts",
+        "verify-w13-cli.mjs",
+        "tier:pure"
       ]
     },
     {
@@ -6978,6 +7029,33 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-launcher.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-mcp-launcher.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-mcp-binding.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": false,
       "coverage": "behavior"
     }

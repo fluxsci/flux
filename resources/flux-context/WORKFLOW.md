@@ -14,19 +14,19 @@ F="{{FLUX_CLI}}"
 
 ```bash
 # Locate the project (a folder with project.json) inside the analysis dir, or scaffold one:
-$F new ./paper --title "Synapse organization" --author "A. Author"   # if none exists (confirm first)
+"$F" new ./paper --title "Synapse organization" --author "A. Author"   # if none exists (confirm first)
 cd ./paper && export FLUX_PROJECT="$PWD" FLUX_CLIENT=agent
-$F config                        # machine paths — note userContextPath + fluxContextPath (+ plotLibraryPath: the user's global plots)
+"$F" config                        # machine paths — note userContextPath + fluxContextPath (+ plotLibraryPath: the user's global plots)
 # read EVERYTHING in <userContextPath>/ (every .md + image) before working —
 # who the user is + their standing rules for all Flux output; then orient in
 # <fluxContextPath>/ (stock: README → PROJECT-GUIDE)
-$F list                          # current figures + references
+"$F" list                          # current figures + references
 cat project.json                       # the map
 cat Context/ProjectContext.qmd   # background and links to must-read material
 cat Context/RULES.md             # standing project rules
 $F read-log --since-checkpoint   # recent Log; --titles indexes all entries
 tail -5 .meta/journal.ndjson     # what changed since last session
-$F feedback && $F comments       # open notes + project-wide document threads (each names its doc)
+"$F" feedback && "$F" comments       # open notes + project-wide document threads (each names its doc)
 ```
 
 When the user asks you to record work, use `$F log --agent "<your model>" --title "…" "…"`.
@@ -44,7 +44,7 @@ older entries stay intact.
   `PYTHON-CONVENTIONS.md`, machine specifics in `UserContext/`). Then validate each plot:
 
 ```bash
-$F validate-plot plots/<name>.svg     # manifest valid + every part addressable + geometry sane
+"$F" validate-plot plots/<name>.svg     # manifest valid + every part addressable + geometry sane
                                       # (rejects e.g. log-axis bars anchored at 0 — fix the script)
 ```
 
@@ -58,13 +58,13 @@ this costs nothing in clutter.
 ## 2. Compose figures + LOOK + restyle
 
 ```bash
-$F compose-figure plots/*.svg --id fig1 --rows 2     # import → grid → letter a,b… → caption stub
+"$F" compose-figure plots/*.svg --id fig1 --rows 2     # import → grid → letter a,b… → caption stub
                                                      # (new figures auto-stack below the previous one)
-$F render-figure fig1 --png --out /tmp/fig1.png      # render…
+"$F" render-figure fig1 --png --out /tmp/fig1.png      # render…
 # → open/Read /tmp/fig1.png and actually look at it; or via MCP: get_figure_image {id:"fig1"}
-$F restyle fig1 control.line --stroke '#205EA6'      # fix parts (survives regeneration)
-$F render-figure fig1 --png --out /tmp/fig1.png      # re-look. Repeat until right.
-$F render-canvas --png --out /tmp/canvas.png         # the WHOLE canvas — check figure layout too
+"$F" restyle fig1 control.line --stroke '#205EA6'      # fix parts (survives regeneration)
+"$F" render-figure fig1 --png --out /tmp/fig1.png      # re-look. Repeat until right.
+"$F" render-canvas --png --out /tmp/canvas.png         # the WHOLE canvas — check figure layout too
 ```
 
 Details + the canvas/figure/panel model: `PROJECT-AND-FIGURES.md`.
@@ -72,17 +72,17 @@ Details + the canvas/figure/panel model: `PROJECT-AND-FIGURES.md`.
 ## 3. Write it up
 
 ```bash
-$F set-caption fig1 "Synapse density by cortical layer. **a**, … **b**, …"
+"$F" set-caption fig1 "Synapse density by cortical layer. **a**, … **b**, …"
 #   ↑ the '**a**, …' convention is DISTRIBUTED into per-panel caption blocks
 #     (what the app's Caption Editor shows); --panel b rewrites one panel only.
-$F set-manuscript --file section.qmd     # or edit paper/notes.qmd directly
+"$F" set-manuscript --file section.qmd     # or edit paper/notes.qmd directly
 #   embed figures with EMPTY alts: ![](../fig/renders/fig1.svg){#fig-fig1}
-$F ref fig1                              # adds 'See @fig-fig1.'  (or write @fig-fig1 / @fig-fig1-a yourself)
-$F cite-doi 10.1038/s41586-024-...       # grow references/library.bib (echoes author/title/year — CHECK it)
-$F compile --to html                     # optional: render via Quarto (needs quarto) — prints the
+"$F" ref fig1                              # adds 'See @fig-fig1.'  (or write @fig-fig1 / @fig-fig1-a yourself)
+"$F" cite-doi 10.1038/s41586-024-...       # grow references/library.bib (echoes author/title/year — CHECK it)
+"$F" compile --to html                     # optional: render via Quarto (needs quarto) — prints the
                                          # output path + figures/citations resolution (fix any
                                          # unresolved @keys it names)
-$F validate                              # lint: EMPTY figures (they shift numbering), figures not
+"$F" validate                              # lint: EMPTY figures (they shift numbering), figures not
                                          # embedded in any doc, overlapping canvas frames
 ```
 
@@ -97,14 +97,14 @@ mark up the documents in the Flux app and you'll address the comments.
 ## 5. Review loop (the user says "address my feedback")
 
 ```bash
-$F feedback                    # context-stamped notes: each carries WHAT the user was looking at
-$F comments                    # all docs: each thread has doc + id + anchor.quote
-$F comments --doc paper/notes.qmd   # optional: target one document only
+"$F" feedback                    # context-stamped notes: each carries WHAT the user was looking at
+"$F" comments                    # all docs: each thread has doc + id + anchor.quote
+"$F" comments --doc paper/notes.qmd   # optional: target one document only
 # for each item: make the change (regenerate / restyle / edit the .qmd), then close it:
-$F resolve-feedback <id|text> --note "Done: <what you changed>."
-$F resolve-comment <id> --note "Done: <what you changed>."   # project-wide unique id
+"$F" resolve-feedback <id|text> --note "Done: <what you changed>."
+"$F" resolve-comment <id> --note "Done: <what you changed>."   # project-wide unique id
 # unsure about an item? ask in the user's margin instead of guessing:
-$F add-comment --quote "the exact doc text" --body "your question"
+"$F" add-comment --quote "the exact doc text" --body "your question"
 ```
 
 Full procedure + the on-disk formats: `MANUSCRIPT-AND-REVIEW.md`. With the app open, your
@@ -117,9 +117,9 @@ expresses a STANDING preference (not a one-off), propose adding it to `Context/R
 To change a figure, **regenerate** rather than re-saving a new SVG:
 
 ```bash
-$F rerun-plot plots/<name>.recipe.json --param value   # re-runs the script with overridden params
+"$F" rerun-plot plots/<name>.recipe.json --param value   # re-runs the script with overridden params
 # or just re-run the plotting script; the open app hot-swaps the panel live.
-$F sync-figure fig1        # HEADLESS: refresh fig1's fig/assets copies from plots/ in place
+"$F" sync-figure fig1        # HEADLESS: refresh fig1's fig/assets copies from plots/ in place
                            # (captions, positions and restyles all survive — never
                            # delete-figure + re-compose to pick up a regenerated plot)
 ```

@@ -45,7 +45,7 @@ Flux is a desktop **scientific writing studio**: manuscript editor (Paper), figu
 vestigial). It is deliberately **agent-native**: an AI agent is a first-class user with the same
 capabilities as the GUI, through three surfaces:
 
-- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — most file verbs share **one
+- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-core/mcpServer.ts`; `flux-mcp.ts` is the compatibility entry) — most file verbs share **one
   verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`); legacy wrappers and handwritten
   CLI help still remain. They operate on project files directly through `flux-core/*` (Node).
 - **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
@@ -1505,13 +1505,31 @@ you're not rebuilding something deliberately deferred or rejected; (f) if it cha
 user-visible behavior, update the affected `docs/` user-docs page in the same session
 (see the user-docs recipe below).
 
-**Add a CLI/MCP verb:** one `VerbDef` in `flux-core/verbs.ts` (name, cli, one summary, one zod
-shape, `cliArgs` mapping, handler calling `flux-core/*`, per-surface renders). Both surfaces are
+**Add a CLI/MCP verb:** one `VerbDef` in `flux-core/verbs.ts` (name, cli, explicit `scope`, one summary, one zod
+shape, `cliArgs` mapping, handler calling `flux-core/*`, per-surface renders). Declare filesystem inputs in
+`pathParams` (including dotted nested fields), and explain non-path lookalikes in `notAPath`.
+MCP resolves those inputs against its project default; CLI resolves them against cwd.
+Project tools receive an optional `project` override and require project.json before recovery.
+`core: true` exposes a verb in the compact default toolset; full tools and schema-validated
+`flux_verb` dispatch use the same registry. `flux_verbs` supplies the discoverable schemas. Both surfaces are
 generated. Then `REGEN_GOLDEN=1` the parity gate (tools/help goldens change — quote the diff),
 and run `verify-registry-parity` + `verify-f1-mcp` + `verify-w11-verbs`. Errors: throw the typed
 taxonomy (`flux-core/errors.ts`) — Locked→CLI exit 75, ExternalToolError carries exitCode+log,
 everything is `isError` on MCP. A handful of verbs are deliberately legacy (inexpressible
 CLI/MCP asymmetries — listed in the batch D/E commit bodies); don't force them into the table.
+
+**Agent launchers and MCP:** `electron/fluxPaths.cjs` owns the stable launcher in
+`binDirSync()` (`~/.local/share/flux/bin` on POSIX, LOCALAPPDATA/flux/bin on Windows).
+It pins the runtime and install owner; another live checkout never steals ownership.
+`installLaunchers` accepts explicit `useThisInstall` / `createConvenience` options for setup.
+Unmarked files are user-owned. AppImages resolve their CLI inside the current mount;
+macOS translocation refuses installation. Every test must use scratch HOME/XDG and
+`FLUX_NO_MIGRATE`; launcher tests clear that guard only inside their scratch fixture.
+`flux mcp [root] --toolset core|full` is the canonical stdio entry. Cwd discovery supplies
+only a tool default, without hydration or presence. Explicit `connect` binds a project;
+its Phase 3 handler returns a bind-only message until the full brief engine lands.
+Global connect preserves a prior binding. Handshake identity feeds the journal unless
+FLUX_CLIENT overrides it. MCP instructions say to connect only when asked.
 
 **Add an IPC channel:** declare it in `electron/ipc/contract.cjs` (kind: invoke/send/push +
 scope), register through the wrapped `ipcMain` in the right family module, expose in
@@ -7081,3 +7099,9 @@ verification and the UI/native gates reserved for integration are recorded in th
 **Learnings:**
 - Promoted the EOF Log rule, byline caller contract and no in-app Context migration rule into
   the body. Registry runtime-export checks treat `core.*` as values; use type imports for types.
+
+### 2026-09-27 — CLI/MCP foundation (Codex, `aio-w3a-mcp`)
+**Work:** Added stable owned launchers, the shared MCP server entry, explicit verb scopes and path policy, project binding, handshake identity, passive instructions/prompt, and core/full toolsets with validated meta dispatch. Added hermetic launcher, raw-protocol and binding gates; updated stock-doc placeholders and the guide's verb recipe. Full connect hydration remains the next phase's responsibility.
+**Learnings:**
+- A schema failure must use the SDK's own error formatter for meta-tool and dedicated-tool result parity.
+- A default project discovered at server startup is not a connected session; global connect preserves an existing project binding.

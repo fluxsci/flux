@@ -59,3 +59,19 @@ cannot drift. That's why these docs don't restate it:
   conventions, slides, and the review loop — the `FluxContext/` folder is the same doctrine
   your agents read).
 - In the source repo: `resources/flux-context/CLI-REFERENCE.md`.
+
+## Connecting an MCP client
+
+Flux installs a stable launcher at `~/.local/share/flux/bin/flux` on Linux and
+macOS, or `%LOCALAPPDATA%\flux\bin\flux.cmd` on Windows. Point an MCP client at
+that executable with `args = ["mcp"]`; add a project path after `mcp` for a fixed
+default. The optional `~/.local/bin/flux` and `flux-connect` shims delegate there.
+
+`flux mcp` starts with the compact `core` toolset. Use `flux_verbs` to discover
+commands and `flux_verb` to run them, or `flux mcp --toolset full` for every dedicated
+tool. Ask the agent for `flux-connect /path/to/project` to bind it. Finding a
+project from cwd only supplies a default for tools; it does not load context.
+Project tools can also take a `project` argument for one call.
+
+Relative filesystem inputs use the shell cwd on the CLI and the project root over
+MCP. Absolute paths are honoured. Document identifiers remain project-relative.

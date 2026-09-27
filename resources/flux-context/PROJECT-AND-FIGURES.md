@@ -96,17 +96,17 @@ caption stub. Run from the project dir.
 
 ```bash
 # multi-panel: imports each, arranges 2 rows, letters a,b,c…, captions
-{{FLUX_CLI}} compose-figure plots/*.svg --id fig3 --rows 2
+"{{FLUX_CLI}}" compose-figure plots/*.svg --id fig3 --rows 2
 # single plot is fine too (no panel letters until there are ≥2 panels)
-{{FLUX_CLI}} compose-figure plots/growth.svg --id growth
+"{{FLUX_CLI}}" compose-figure plots/growth.svg --id growth
 ```
 
 **2. Look** — render to a PNG and actually view it (this is non-negotiable; don't ship blind):
 
 ```bash
-{{FLUX_CLI}} render-figure growth --png --out /tmp/growth.png
+"{{FLUX_CLI}}" render-figure growth --png --out /tmp/growth.png
 # then open/Read /tmp/growth.png
-{{FLUX_CLI}} render-canvas --png --out /tmp/canvas.png
+"{{FLUX_CLI}}" render-canvas --png --out /tmp/canvas.png
 # the whole canvas at once — check the figures' LAYOUT too (new figures
 # auto-stack below the previous one; set-figure-layout moves them)
 ```
@@ -117,8 +117,8 @@ inline — preferred for looking.)
 **3. Restyle a part** by its stable id — the override **survives regeneration**:
 
 ```bash
-{{FLUX_CLI}} restyle growth control.line --stroke '#205EA6'
-{{FLUX_CLI}} restyle growth treatment.line --stroke '#BC5215'
+"{{FLUX_CLI}}" restyle growth control.line --stroke '#205EA6'
+"{{FLUX_CLI}}" restyle growth treatment.line --stroke '#BC5215'
 ```
 
 (Use the Flexoki hexes from `fluxplot.style` — `fx.FLEXOKI["blue"]` — for consistency. `restyle`
@@ -137,11 +137,11 @@ Figure-Meta Captions tab shows (Alt+M in Figure or Paper)); `fig/captions/<id>.m
 style — bold letter + comma:
 
 ```bash
-{{FLUX_CLI}} set-caption growth "Growth of control vs treatment under nutrient stress over 24 h. **a**, Control. **b**, Treatment."
+"{{FLUX_CLI}}" set-caption growth "Growth of control vs treatment under nutrient stress over 24 h. **a**, Control. **b**, Treatment."
 #   the '**a**, …' convention is DISTRIBUTED into the per-panel blocks automatically
-{{FLUX_CLI}} set-caption growth "Control (revised)." --panel a   # rewrite ONE panel
-{{FLUX_CLI}} set-caption growth "All error bars show SEM." --panel __ps__ # closing prose, no label
-{{FLUX_CLI}} caption growth      # read the composed caption back
+"{{FLUX_CLI}}" set-caption growth "Control (revised)." --panel a   # rewrite ONE panel
+"{{FLUX_CLI}}" set-caption growth "All error bars show SEM." --panel __ps__ # closing prose, no label
+"{{FLUX_CLI}}" caption growth      # read the composed caption back
 ```
 
 The `__ps__` block stays last regardless of panel order. Its readable projection has no marker;

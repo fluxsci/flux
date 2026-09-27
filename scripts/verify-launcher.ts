@@ -1,0 +1,90 @@
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { harness } from './lib/harness.mjs';
+import { TestProcessScope } from './lib/testProcess.mjs';
+import { resolveSpawn } from '../electron/execResolve.cjs';
+import { binDirSync, installLaunchers, launcherBodies, launcherOwnerSync, resolveOwnCliCommandsSync } from '../electron/fluxPaths.cjs';
+const h = harness('verify-launcher'), scope = new TestProcessScope();
+const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'launcher-'));
+const original = { ...process.env };
+process.env.HOME = process.env.USERPROFILE = path.join(temp, 'home');
+process.env.XDG_CONFIG_HOME = process.env.APPDATA = path.join(temp, 'config');
+process.env.LOCALAPPDATA = path.join(temp, 'local');
+const bin = binDirSync();
+const suffix = process.platform === 'win32' ? '.cmd' : '';
+async function run(file: string, args = ['version']) {
+  const r = resolveSpawn(file, args);
+  const e = scope.spawn(r.args[0], r.args.slice(1), { command: r.command, windowsVerbatimArguments: r.windowsVerbatimArguments, nodeArgs: [], env: { ...process.env, FLUX_NO_MIGRATE: '1' } });
+  await e.closed;
+  h.eq(e.code, 0, `${path.basename(file)} executes successfully: ${e.stderr}`);
+  return e.stdout.trim();
+}
+const code = `if(process.argv[2] !== 'version' && process.argv[2] !== 'connect') throw Error('argv lost'); console.log(JSON.stringify({verb:process.argv[2],args:process.argv.slice(3),electron:process.env.ELECTRON_RUN_AS_NODE||null}));`;
+try {
+  h.ok(!/\s/.test(binDirSync('darwin')) && binDirSync('darwin').includes(`${path.sep}flux${path.sep}bin`), 'POSIX bin avoids Application Support and uses lowercase flux');
+  h.eq(binDirSync('win32'), path.join(process.env.LOCALAPPDATA!, 'flux', 'bin'), 'Windows bin uses LOCALAPPDATA');
+  await fs.mkdir(process.env.HOME!, { recursive: true });
+  const source = path.join(temp, 'source with spaces');
+  await fs.mkdir(source); await fs.writeFile(path.join(source, 'package.json'), '{}');
+  await fs.writeFile(path.join(source, 'flux-cli.ts'), 'const typed: string = "tsx";\n' + code);
+  // Dependency lookup is real; the tsx CLI must be installed, never downloaded.
+  await fs.symlink(path.resolve('node_modules'), path.join(source, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  let runtime = resolveOwnCliCommandsSync({ appRoot: source, nodePath: process.execPath, binDir: bin, appImage: '', packaged: false });
+  process.env.FLUX_NO_MIGRATE = '1'; await installLaunchers([], { runtime });
+  h.ok(!await fs.stat(runtime.cli).catch(() => null), 'FLUX_NO_MIGRATE skips launchers entirely');
+  delete process.env.FLUX_NO_MIGRATE;
+  await installLaunchers([], { runtime });
+  h.eq(JSON.parse(await run(runtime.cli)).verb, 'version', 'unbuilt source executes version through absolute Node + tsx');
+  h.eq(JSON.parse(await run(path.join(bin, 'flux-connect' + suffix), ['a path'])).args, ['a path'], 'flux-connect delegates connect and preserves argv');
+  h.ok(!await fs.stat(path.join(process.env.HOME!, '.local', 'bin')).catch(() => null), 'does not invent the convenience directory');
+  await fs.mkdir(path.join(source, 'dist')); await fs.writeFile(path.join(source, 'dist', 'flux-cli.mjs'), code);
+  runtime = resolveOwnCliCommandsSync({ appRoot: source, nodePath: process.execPath, binDir: bin, appImage: '', packaged: false });
+  await installLaunchers([], { runtime, createConvenience: true });
+  h.eq(JSON.parse(await run(runtime.cli)).verb, 'version', 'built source executes version');
+  const shim = path.join(process.env.HOME!, '.local', 'bin', 'flux' + suffix);
+  h.eq(JSON.parse(await run(shim)).verb, 'version', 'convenience shim delegates to canonical launcher');
+  const good = await fs.readFile(runtime.cli, 'utf8');
+  await fs.writeFile(runtime.cli, good + (process.platform === 'win32' ? 'rem stale\r\n' : '# stale\n'));
+  await installLaunchers([], { runtime });
+  h.eq(await fs.readFile(runtime.cli, 'utf8'), good, 'whole-body staleness repaired even when command substring matches');
+  const stable = (await fs.stat(runtime.cli)).mtimeMs;
+  await installLaunchers([], { runtime });
+  h.eq((await fs.stat(runtime.cli)).mtimeMs, stable, 'unchanged launcher is byte/mtime stable');
+  const resources = path.join(temp, 'resources');
+  await fs.mkdir(path.join(resources, 'app.asar.unpacked', 'dist'), { recursive: true });
+  await fs.mkdir(path.join(resources, 'app.asar'));
+  await fs.writeFile(path.join(resources, 'app.asar.unpacked', 'dist', 'flux-cli.mjs'), '// flux-agent-build commit=fixture123\n' + code);
+  const packaged = resolveOwnCliCommandsSync({ appRoot: path.join(resources, 'app.asar'), execPath: process.execPath, binDir: bin, appImage: '' });
+  h.ok(packaged.electron, 'app.asar detects packaged mode without process.resourcesPath');
+  h.eq(packaged.build, 'fixture123', 'packaged owner marker uses the bundled commit without git');
+  const unpacked = resolveOwnCliCommandsSync({ appRoot: path.join(resources, 'app.asar.unpacked'), execPath: process.execPath, binDir: bin, appImage: '' });
+  h.eq(unpacked.target, packaged.target, 'Electron and ELECTRON_RUN_AS_NODE identify the same packaged install owner');
+  h.eq(launcherBodies(unpacked).main, launcherBodies(packaged).main, 'packaged native and CLI contexts produce identical launcher bodies');
+  await installLaunchers([], { runtime: packaged });
+  h.eq(await fs.readFile(runtime.cli, 'utf8'), good, 'coexisting install cannot steal live owner');
+  await installLaunchers([], { runtime: packaged, useThisInstall: true });
+  h.eq(JSON.parse(await run(packaged.cli)).electron, '1', 'packaged shim executes version with ELECTRON_RUN_AS_NODE set before exec');
+  h.eq(launcherOwnerSync(packaged.cli)?.target, packaged.target, 'explicit selection changes owner');
+  await fs.rm(packaged.target, { recursive: true });
+  await installLaunchers([], { runtime });
+  h.eq(launcherOwnerSync(runtime.cli)?.target, source, 'missing old target permits repair');
+  await fs.writeFile(shim, 'user-owned');
+  await installLaunchers([], { runtime });
+  h.eq(await fs.readFile(shim, 'utf8'), 'user-owned', 'never clobbers an unmarked convenience shim');
+  await fs.writeFile(runtime.cli, 'user-owned canonical');
+  await installLaunchers([], { runtime, useThisInstall: true });
+  h.eq(await fs.readFile(runtime.cli, 'utf8'), 'user-owned canonical', 'canonical unmarked opt-out survives explicit selection');
+  const windows = launcherBodies({ ...packaged, platform: 'win32' }).main;
+  h.ok(windows.includes('set ELECTRON_RUN_AS_NODE=1\r\n') && !windows.includes('cmd /') && windows.endsWith(' %*\r\n'), 'Windows body uses plain set + executable, without nested cmd');
+  const appImage = resolveOwnCliCommandsSync({ appRoot: '/tmp/.mount_transient/resources/app.asar', appImage: path.join(temp, 'flux.AppImage'), packaged: true, binDir: bin });
+  h.ok(appImage.executable.endsWith('flux.AppImage') && !launcherBodies(appImage).main.includes('.mount_transient'), 'AppImage target and body contain no transient mount');
+  try { resolveOwnCliCommandsSync({ platform: 'darwin', appRoot: '/private/AppTranslocation/abc/Flux.app' }); h.fail('translocation accepted'); }
+  catch (e) { h.ok(String(e).includes('/Applications'), 'translocated install refused with relocation guidance'); }
+} finally {
+  await scope.dispose();
+  for (const key of Object.keys(process.env)) if (!(key in original)) delete process.env[key];
+  Object.assign(process.env, original);
+  await fs.rm(temp, { recursive: true, force: true });
+}
+await h.done();

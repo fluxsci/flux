@@ -204,3 +204,13 @@ node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
 | `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
 | Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |
 | Flux "won't start" — no window, no error | A windowless earlier instance is holding the single-instance lock (the launch now says so in the terminal) → `pgrep -af electron` to find it, then `kill <pid>` (plain SIGTERM — it saves unsaved work on the way out; keep `kill -9` as the last resort) |
+
+## Agent launcher
+
+On first run Flux creates `flux` and `flux-connect` in `~/.local/share/flux/bin`
+(Linux/macOS), or `%LOCALAPPDATA%\flux\bin` (Windows). If `~/.local/bin` already
+exists, Flux also adds convenience shims there without replacing your own files.
+The launcher stays with its owning installation across starts from other checkouts.
+An AppImage launcher uses the persistent AppImage file. On macOS, move Flux to
+`/Applications` before setting up agents so the launcher avoids a temporary
+App Translocation path. See [the CLI guide](reference/cli.qmd) for MCP setup.

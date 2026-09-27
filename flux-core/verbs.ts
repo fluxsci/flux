@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import type { VerbDef, CliArgSpec } from "./registry";
+import { connectProject } from "./mcpBinding";
 import { ValidationError } from "./errors";
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
@@ -154,9 +155,24 @@ export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column"
 export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-paper", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
 
 export const VERBS: VerbDef[] = [
+  {
+    name: "connect", cli: "connect", cliRoot: "flags", scope: "machine", core: true, bindsRoot: true,
+    summary: "Bind this session to a Flux project, or global. Connect only when the user asks for flux-connect.",
+    params: { target: z.string().optional(), live: z.boolean().optional(), refresh: z.boolean().optional(),
+      depth: z.enum(["core", "full", "ask"]).optional(), budget: z.number().int().positive().optional(),
+      noRender: z.boolean().optional(), part: z.number().int().positive().optional() },
+    cliArgs: [{ kind: "pos", at: 0, into: "target" },
+      { kind: "flag", at: "live", into: "live", as: "boolean" }, { kind: "flag", at: "refresh", into: "refresh", as: "boolean" },
+      { kind: "flag", at: "depth", into: "depth" }, { kind: "flag", at: "budget", into: "budget", as: "number" },
+      { kind: "flag", at: "no-render", into: "noRender", as: "boolean" }, { kind: "flag", at: "part", into: "part", as: "number" }],
+    handler: (ctx, a) => connectProject(ctx.root, a.target as string | undefined),
+    render: { human: r => ({ out: (r as { brief: string }).brief }), mcp: r => text((r as { brief: string }).brief) },
+  },
   // --- batch 0: trivial project verbs ------------------------------------------
   {
     name: "list_project",
+    scope: "project",
+    core: true,
     cli: "list",
     summary: "List the project's documents, figures (with panel letters), and references.",
     params: {},
@@ -169,6 +185,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reindex",
+    scope: "project",
     cli: "reindex",
     summary: "Rebuild project.json.figures[] from fig/index.json.",
     params: {},
@@ -181,6 +198,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "config_paths",
+    scope: "machine",
     cli: "config",
     aliases: ["config-paths"],
     summary:
@@ -196,6 +214,8 @@ export const VERBS: VerbDef[] = [
   // --- batch A: the one-line figure/style/text verbs ---------------------------
   {
     name: "set_caption",
+    scope: "project",
+    core: true,
     cli: "set-caption",
     summary:
       "Write a figure's caption. Whole-string form distributes the 'Lead. **a**, … **b**, …' convention into the per-panel caption blocks (Figure-Meta); pass panel:'a' to write one panel, or panel:'__ps__' for unlabelled closing prose (panel:'ps' also works unless a panel is named ps).",
@@ -226,6 +246,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "get_caption",
+    scope: "project",
     cli: "caption",
     summary:
       "Read a figure's composed caption (fig/captions/<id>.md — figure caption + per-panel captions). Use before set_caption to see the current text.",
@@ -239,6 +260,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_style",
+    scope: "project",
     cli: "set-style",
     cliRoot: "flags",
     summary:
@@ -312,6 +334,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "restyle_part",
+    scope: "project",
+    core: true,
     cli: "restyle",
     cliRoot: "flags",
     summary:
@@ -361,6 +385,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_crop",
+    scope: "project",
     cli: "set-crop",
     cliRoot: "flags",
     summary:
@@ -393,6 +418,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "rotate_elements",
+    scope: "project",
     cli: "rotate",
     cliRoot: "flags",
     summary:
@@ -413,6 +439,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "align_figure",
+    scope: "project",
     cli: "align",
     cliRoot: "flags",
     summary:
@@ -437,6 +464,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "bring_inside",
+    scope: "project",
     cli: "bring-inside",
     cliRoot: "flags",
     summary:
@@ -454,6 +482,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "cascade",
+    scope: "project",
     cli: "cascade",
     cliRoot: "flags",
     summary:
@@ -492,6 +521,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "distribute",
+    scope: "project",
     cli: "distribute",
     cliRoot: "flags",
     summary:
@@ -513,6 +543,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "arrange_figure",
+    scope: "project",
     cli: "arrange",
     cliRoot: "flags",
     summary: "Grid-arrange a figure's existing panels (give rows OR cols; gap optional).",
@@ -541,6 +572,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "scale_elements",
+    scope: "project",
     cli: "scale",
     cliRoot: "flags",
     summary:
@@ -561,6 +593,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_element",
+    scope: "project",
     cli: "reorder",
     cliRoot: "flags",
     summary: "Move an element to an absolute z-index within its figure (0 = bottom, higher = closer to front).",
@@ -578,6 +611,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_z",
+    scope: "project",
     cli: "set-z",
     aliases: ["z-order"],
     cliRoot: "flags",
@@ -599,6 +633,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "group_elements",
+    scope: "project",
     cli: "group",
     cliRoot: "flags",
     summary:
@@ -621,6 +656,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ungroup_elements",
+    scope: "project",
     cli: "ungroup",
     cliRoot: "flags",
     summary:
@@ -635,6 +671,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "rename_group",
+    scope: "project",
     cli: "rename-group",
     cliRoot: "flags",
     summary: "Rename a figure group (the Layers panel name).",
@@ -651,6 +688,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_group_state",
+    scope: "project",
     cli: "set-group-state",
     cliRoot: "flags",
     summary:
@@ -672,6 +710,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "list_groups",
+    scope: "project",
     cli: "list-groups",
     cliRoot: "flags",
     summary:
@@ -685,6 +724,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_elements",
+    scope: "project",
     cli: "delete-element",
     aliases: ["delete-elements"],
     cliRoot: "flags",
@@ -699,6 +739,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_figure",
+    scope: "project",
     cli: "delete-figure",
     cliRoot: "flags",
     summary: "Delete a whole figure (keeps at least one figure in the project). Returns the id the GUI would select next.",
@@ -718,6 +759,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_figure",
+    scope: "project",
     cli: "duplicate-figure",
     cliRoot: "flags",
     summary: "Duplicate a whole figure (fresh element/group ids). Returns the new figure id.",
@@ -734,6 +776,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_elements",
+    scope: "project",
     cli: "duplicate",
     cliRoot: "flags",
     summary:
@@ -759,6 +802,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_fig_text",
+    scope: "project",
     cli: "add-fig-text",
     cliRoot: "flags",
     summary:
@@ -812,6 +856,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "list_text_styles",
+    scope: "project",
     cli: "text-styles",
     cliRoot: "flags",
     summary:
@@ -825,6 +870,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_text_style",
+    scope: "project",
     cli: "create-text-style",
     cliRoot: "flags",
     summary:
@@ -851,6 +897,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "update_text_style",
+    scope: "project",
     cli: "update-text-style",
     cliRoot: "flags",
     summary: "Patch a named text style (name renames) — LIVE: re-applies to every linked text element.",
@@ -872,6 +919,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_text_style",
+    scope: "project",
     cli: "delete-text-style",
     cliRoot: "flags",
     summary: "Delete a named text style. Linked text elements keep their current look and drop the link.",
@@ -885,6 +933,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "apply_text_style",
+    scope: "project",
     cli: "apply-text-style",
     cliRoot: "flags",
     summary: "Apply a named text style to text elements (sets the style's defined props + links styleId).",
@@ -901,6 +950,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "toggle_text_style",
+    scope: "project",
     cli: "toggle-text-style",
     cliRoot: "flags",
     summary:
@@ -921,6 +971,7 @@ export const VERBS: VerbDef[] = [
   // `text`, `to` exclusive; an out-of-range pair or a non-text id is an error.
   {
     name: "toggle_text_run_style",
+    scope: "project",
     cli: "toggle-text-run-style",
     cliRoot: "flags",
     summary:
@@ -940,6 +991,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "toggle_text_run_script",
+    scope: "project",
     cli: "toggle-text-run-script",
     cliRoot: "flags",
     summary:
@@ -959,6 +1011,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_text_run_color",
+    scope: "project",
     cli: "set-text-run-color",
     cliRoot: "flags",
     summary:
@@ -978,6 +1031,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_guides",
+    scope: "project",
     cli: "set-guides",
     cliRoot: "flags",
     summary:
@@ -999,6 +1053,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "resize_figure_frame",
+    scope: "project",
     cli: "resize-figure-frame",
     cliRoot: "flags",
     summary: "Resize a figure boundary while keeping artwork at its world position. Out-of-bounds content, guides, assets and references are preserved; artwork is never scaled. Coordinates and dimensions are canvas pixels.",
@@ -1015,6 +1070,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_figure_layout",
+    scope: "project",
     cli: "set-figure-layout",
     cliRoot: "flags",
     summary:
@@ -1046,6 +1102,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "auto_label",
+    scope: "project",
     cli: "auto-label",
     cliRoot: "flags",
     summary:
@@ -1072,6 +1129,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_path",
+    scope: "project",
     cli: "add-path",
     cliRoot: "flags",
     summary:
@@ -1107,6 +1165,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "edit_path",
+    scope: "project",
     cli: "edit-path",
     cliRoot: "flags",
     summary:
@@ -1132,6 +1191,9 @@ export const VERBS: VerbDef[] = [
   // --- batch B: figure composition / import / sync ------------------------------
   {
     name: "compose_figure",
+    scope: "project",
+    core: true,
+    pathParams: {"plotPaths": "paths"},
     cli: "compose-figure",
     cliRoot: "flags",
     summary:
@@ -1191,6 +1253,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_figure",
+    scope: "project",
     cli: "create-figure",
     cliRoot: "flags",
     summary:
@@ -1229,6 +1292,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_figure_family",
+    scope: "project",
     cli: "set-figure-family",
     cliRoot: "flags",
     summary:
@@ -1271,6 +1335,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "define_figure_family",
+    scope: "project",
     cli: "define-figure-family",
     cliRoot: "flags",
     summary:
@@ -1307,6 +1372,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "remove_figure_family",
+    scope: "project",
     cli: "remove-figure-family",
     cliRoot: "flags",
     summary:
@@ -1324,6 +1390,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "import_plots",
+    scope: "project",
+    pathParams: {"plotPaths": "paths"},
     cli: "import-plots",
     cliRoot: "flags",
     summary:
@@ -1358,6 +1426,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_panel",
+    scope: "project",
+    pathParams: {"svgPath": "path"},
     cli: "add-panel",
     summary: "Import an SVG file as an image panel on a figure.",
     params: {
@@ -1396,6 +1466,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "sync_figure",
+    scope: "project",
+    core: true,
     cli: "sync-figure",
     cliRoot: "flags",
     summary:
@@ -1442,6 +1514,8 @@ export const VERBS: VerbDef[] = [
   // --- batch C: manuscript / library / comments / references --------------------
   {
     name: "get_manuscript",
+    scope: "project",
+    core: true,
     cli: "manuscript",
     cliRoot: "flags",
     summary: "Read a manuscript document's text (.qmd). Omit doc for the main manuscript.",
@@ -1456,6 +1530,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_manuscript",
+    scope: "project",
+    core: true,
     cli: "set-manuscript",
     cliRoot: "flags",
     summary: "Overwrite a manuscript document's full text (.qmd). Omit doc for the main manuscript.",
@@ -1473,6 +1549,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "list_documents",
+    scope: "project",
+    core: true,
     cli: "docs",
     cliRoot: "flags",
     summary: "List the project's documents, including nested paper, legacy manuscript, and Context folders.",
@@ -1485,6 +1563,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_document",
+    scope: "project",
     cli: "new-doc",
     cliRoot: "flags",
     summary: "Create a new blank document (registered in the manifest).",
@@ -1497,7 +1576,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "create_document_folder", cli: "new-doc-folder", cliRoot: "flags",
+    name: "create_document_folder",
+    scope: "project", cli: "new-doc-folder", cliRoot: "flags",
     summary: "Create a folder within Documents or Context.",
     params: { parent: z.string(), name: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "parent", required: true }, { kind: "rest", at: 1, into: "name", as: "joined" }],
@@ -1505,7 +1585,9 @@ export const VERBS: VerbDef[] = [
     render: { human: r => ({ out: JSON.stringify(r) }) },
   },
   {
-    name: "move_document", cli: "move-doc", cliRoot: "flags",
+    name: "move_document",
+    scope: "project",
+    notAPath: {"path": "Project document identifier; stored relative to the project", "folder": "Project folder identifier"}, cli: "move-doc", cliRoot: "flags",
     summary: "Move a document to a folder, preserving comments and updating relative document links. Existing destinations are refused.",
     params: { path: z.string(), folder: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "path", required: true }, { kind: "pos", at: 1, into: "folder", required: true }],
@@ -1514,6 +1596,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_document",
+    scope: "project",
+    notAPath: {"path": "Project document identifier; stored relative to the project"},
     cli: "delete-doc",
     cliRoot: "flags",
     summary:
@@ -1528,6 +1612,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "insert_figure_ref",
+    scope: "project",
     cli: "ref",
     cliRoot: "flags",
     summary: "Append a figure cross-reference (@fig-<label>) to a document.",
@@ -1543,7 +1628,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "insert_slide_embed", cli: "insert-slide-embed", cliRoot: "flags",
+    name: "insert_slide_embed",
+    scope: "project", cli: "insert-slide-embed", cliRoot: "flags",
     summary: "Insert an inline slide in a document. Deck and slide IDs are stable references; playback starts at step 0. Optional anchor must occur exactly once; otherwise append. Materializes the static SVG poster.",
     params: { deckId: z.string(), slideId: z.string(), doc: z.string().optional(), width: z.string().optional(), caption: z.string().optional(), anchor: z.string().optional() },
     cliArgs: [
@@ -1559,6 +1645,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "cite_doi",
+    scope: "project",
+    core: true,
     cli: "cite-doi",
     cliRoot: "flags",
     summary:
@@ -1584,6 +1672,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_reference",
+    scope: "project",
     cli: "add-reference",
     aliases: ["cite"],
     summary:
@@ -1601,6 +1690,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "search_references",
+    scope: "machine",
+    core: true,
     cli: "search",
     cliRoot: "flags",
     summary:
@@ -1621,6 +1712,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reconcile",
+    scope: "project",
     cli: "reconcile",
     cliRoot: "flags",
     summary:
@@ -1648,6 +1740,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "normalize_embeds",
+    scope: "project",
     cli: "normalize-embeds",
     cliRoot: "flags",
     summary:
@@ -1670,6 +1763,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "hydrate_library",
+    scope: "machine",
     cli: "hydrate",
     cliRoot: "flags",
     summary:
@@ -1700,6 +1794,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "zotero_sync",
+    scope: "machine",
+    pathParams: {"bib": "path", "dataDir": "path"},
     cli: "zotero-sync",
     cliRoot: "flags",
     summary:
@@ -1754,6 +1850,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "grobid",
+    scope: "machine",
     cli: "grobid",
     cliRoot: "flags",
     summary:
@@ -1824,6 +1921,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "author_works",
+    scope: "machine",
     cli: "by-author",
     cliRoot: "flags",
     summary:
@@ -1838,6 +1936,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "related_works",
+    scope: "machine",
     cli: "related",
     cliRoot: "flags",
     summary:
@@ -1852,6 +1951,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "list_comments",
+    scope: "project",
     cli: "comments",
     cliRoot: "flags",
     summary:
@@ -1886,6 +1986,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "resolve_comment",
+    scope: "project",
     cli: "resolve-comment",
     cliRoot: "flags",
     summary:
@@ -1914,6 +2015,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_comment",
+    scope: "project",
     cli: "add-comment",
     cliRoot: "flags",
     summary:
@@ -1950,6 +2052,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "list_feedback",
+    scope: "project",
     cli: "feedback",
     cliRoot: "flags",
     summary:
@@ -1964,6 +2067,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "resolve_feedback",
+    scope: "project",
     cli: "resolve-feedback",
     cliRoot: "flags",
     summary:
@@ -1987,6 +2091,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ensure_context",
+    scope: "project",
     cli: "context-init",
     summary:
       "Ensure missing Context/ documents (ProjectContext.qmd, NOTEBOOK.md, RULES.md) and agent pointers exist. Requires project.json; existing documents are preserved.",
@@ -2008,8 +2113,10 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "write_log",
-    cli: "log",
-    cliRoot: "flags",
+    scope: "project",
+    core: true,
+    pathParams: {"file": "path"},
+    cli: "log",    cliRoot: "flags",
     summary:
       "Append a dated entry to the project Log (Context/NOTEBOOK.md). Only when the user asks for one. The byline (agent · surface · host:cwd) is added automatically. Runs under the manuscript lock.",
     params: {
@@ -2055,6 +2162,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "read_log",
+    scope: "project",
+    core: true,
     cli: "read-log",
     cliRoot: "flags",
     summary: "Read the project Log as dated entries, optionally the latest entries, from the latest checkpoint, or titles only. Does not change the notebook.",
@@ -2089,6 +2198,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_annotation",
+    scope: "machine",
     cli: "add-annotation",
     cliRoot: "flags",
     summary:
@@ -2134,6 +2244,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ingest_pdf",
+    scope: "machine",
+    pathParams: {"filePath": "path"},
     cli: "ingest-pdf",
     cliRoot: "flags",
     summary:
@@ -2157,6 +2269,7 @@ export const VERBS: VerbDef[] = [
   // MCP tails 2000 chars), so the renders own the mapping.
   {
     name: "compile",
+    scope: "project",
     cli: "compile",
     cliRoot: "flags",
     summary:
@@ -2234,6 +2347,9 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "validate_project",
+    scope: "project",
+    core: true,
+    notAPath: {"file": "Project schema file identifier; confined and stored relative to the project"},
     cli: "validate",
     cliRoot: "flags",
     summary:
@@ -2261,6 +2377,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "validate_plot",
+    scope: "file",
+    pathParams: {"svgPath": "path"},
     cli: "validate-plot",
     cliRoot: "flags",
     summary:
@@ -2282,6 +2400,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "list_dissections",
+    scope: "project",
     cli: "list-dissections",
     // flags-root: the positional is a PLOT (often slash-bearing, e.g. sub/charlie.svg) and
     // must never be eaten by the old root-positional heuristic.
@@ -2297,6 +2416,9 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "rerun_plot",
+    scope: "file",
+    core: true,
+    pathParams: {"recipePath": "path"},
     cli: "rerun-plot",
     cliRoot: "flags",
     summary:
@@ -2340,6 +2462,7 @@ export const VERBS: VerbDef[] = [
   // --- batch E: Flux Slide (deck authoring/animation) ---------------------------
   {
     name: "list_decks",
+    scope: "project",
     cli: "decks",
     cliRoot: "flags",
     summary: "List the project's slide decks (id, title, slide count) from project.json.",
@@ -2352,6 +2475,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_deck",
+    scope: "project",
     cli: "new-deck",
     cliRoot: "flags",
     summary: "Create a new slide deck (slides/<id>/deck.json, registered in the manifest). Returns the deck id.",
@@ -2376,6 +2500,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_slide",
+    scope: "project",
     cli: "add-slide",
     cliRoot: "flags",
     summary:
@@ -2398,6 +2523,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_slide",
+    scope: "project",
     cli: "delete-slide",
     cliRoot: "flags",
     summary: "Delete a slide from a deck. Refuse referenced slides unless --force is given. Returns the id the GUI would select next.",
@@ -2421,6 +2547,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_slide",
+    scope: "project",
     cli: "duplicate-slide",
     cliRoot: "flags",
     summary: "Deep-copy a slide (fresh element/beat/track ids). Returns the new slide id.",
@@ -2440,6 +2567,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_slides",
+    scope: "project",
     cli: "reorder-slides",
     cliRoot: "flags",
     summary: "Set the deck's slide order to exactly `order` (a permutation of the current slide ids).",
@@ -2457,6 +2585,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_deck_theme",
+    scope: "project",
     cli: "set-theme",
     cliRoot: "flags",
     summary: "Switch a deck's theme (flux-dark | flux-light | flux-paper | flux-midnight | flux-slate | flux-sepia | flux-contrast).",
@@ -2474,6 +2603,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_slide_text",
+    scope: "project",
     cli: "add-text",
     cliRoot: "flags",
     summary:
@@ -2533,7 +2663,9 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "add_slide_video", cli: "add-video", cliRoot: "flags",
+    name: "add_slide_video",
+    scope: "project",
+    pathParams: {"sourcePath": "path"}, cli: "add-video", cliRoot: "flags",
     summary: "Import an MP4 or MOV from plots/_videos into a slide. Preserves the source and prepares a portable MP4 plus poster. Starts paused; add a separate videoStart command to begin playback. Returns elementId and assetId.",
     params: { deckId: z.string(), slideId: z.string(), sourcePath: z.string(),
       x: z.number().optional(), y: z.number().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(),
@@ -2548,7 +2680,8 @@ export const VERBS: VerbDef[] = [
     render: { human: r => ({ out: (r as { elementId: string }).elementId }), mcp: r => text(JSON.stringify(r)) },
   },
   {
-    name: "set_video_track", cli: "set-video-track", cliRoot: "flags",
+    name: "set_video_track",
+    scope: "project", cli: "set-video-track", cliRoot: "flags",
     summary: "Start, pause, or stop a video clip on a slide step independently of its appearance. Start restarts from the beginning; pause holds the current frame; stop resets to the poster. start is the command offset in milliseconds within the step.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), target: z.string(), action: z.enum(["start", "pause", "stop"]), start: z.number().nonnegative().optional() },
     cliArgs: [
@@ -2560,7 +2693,8 @@ export const VERBS: VerbDef[] = [
     render: { human: () => ({ err: "✓ video command saved" }), mcp: () => text("video command saved") },
   },
   {
-    name: "set_video_settings", cli: "set-video-settings", cliRoot: "flags",
+    name: "set_video_settings",
+    scope: "project", cli: "set-video-settings", cliRoot: "flags",
     summary: "Set a slide clip's muted and loop options. These are clip properties, independent of appearance and playback commands.",
     params: { deckId: z.string(), slideId: z.string(), target: z.string(), muted: z.boolean().optional(), loop: z.boolean().optional() },
     cliArgs: [
@@ -2573,6 +2707,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_slide_figure",
+    scope: "project",
     cli: "add-figure",
     cliRoot: "flags",
     summary:
@@ -2612,6 +2747,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_beat",
+    scope: "project",
     cli: "add-beat",
     cliRoot: "flags",
     summary:
@@ -2633,6 +2769,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_beat",
+    scope: "project",
     cli: "set-beat",
     cliRoot: "flags",
     summary:
@@ -2662,6 +2799,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_beats",
+    scope: "project",
     cli: "reorder-beats",
     cliRoot: "flags",
     summary: "Set a slide's beat order to `order` (beat ids). Beat 0 — the resting state — is pinned and never moves.",
@@ -2680,6 +2818,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "move_track",
+    scope: "project",
     cli: "move-track",
     cliRoot: "flags",
     summary: "Move an animation track (by id) into another beat on the same slide; timing travels untouched. `at` picks the lane index.",
@@ -2700,6 +2839,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_track",
+    scope: "project",
     cli: "duplicate-track",
     cliRoot: "flags",
     summary: "Deep-copy a track in place (fresh id, inserted after the original). Returns the new track id.",
@@ -2720,6 +2860,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_tracks",
+    scope: "project",
     cli: "reorder-tracks",
     cliRoot: "flags",
     summary: "Set one beat's track (lane) order to `order` (track ids). Order is presentational — tracks in a beat play concurrently.",
@@ -2739,6 +2880,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track_enabled",
+    scope: "project",
     cli: "set-track-enabled",
     cliRoot: "flags",
     summary:
@@ -2759,6 +2901,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_transform",
+    scope: "project",
     cli: "set-transform",
     cliRoot: "flags",
     summary:
@@ -2806,6 +2949,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ghost_transform",
+    scope: "project",
     cli: "ghost-transform",
     cliRoot: "flags",
     summary: "Create independent ghost copies of an object at a build step. Copies start from the source's state before that step and transform to their own sparse endpoint patches. count defaults to 3 (1–32); original is stay, disappear, or transform. states supplies one endpoint patch per copy; originalState edits the original when original=transform. Returns elementIds and trackIds for later editing; copies persist for later steps and remain absent before their birth.",
@@ -2843,6 +2987,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "group_tracks",
+    scope: "project",
     cli: "group-tracks",
     cliRoot: "flags",
     summary:
@@ -2867,6 +3012,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ungroup_tracks",
+    scope: "project",
     cli: "ungroup-tracks",
     cliRoot: "flags",
     summary: "Dissolve the TrackGroups the given tracks belong to (members become loose lanes).",
@@ -2886,6 +3032,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "cascade_tracks",
+    scope: "project",
     cli: "cascade-tracks",
     cliRoot: "flags",
     summary:
@@ -2921,6 +3068,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "apply_anim_template",
+    scope: "project",
     cli: "apply-anim-template",
     cliRoot: "flags",
     summary:
@@ -2967,6 +3115,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_part_visibility",
+    scope: "project",
     cli: "set-part-visibility",
     cliRoot: "flags",
     summary:
@@ -2988,6 +3137,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_part_style",
+    scope: "project",
     cli: "set-part-style",
     cliRoot: "flags",
     summary:
@@ -3013,6 +3163,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "animate_part",
+    scope: "project",
     cli: "animate-part",
     cliRoot: "flags",
     summary:
@@ -3034,6 +3185,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "animate_element",
+    scope: "project",
     cli: "animate-element",
     cliRoot: "flags",
     summary:
@@ -3077,6 +3229,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "become",
+    scope: "project",
     cli: "become",
     cliRoot: "flags",
     summary:
@@ -3124,6 +3277,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "validate_deck",
+    scope: "project",
     cli: "validate-deck",
     cliRoot: "flags",
     summary: "Validate a deck (or all decks) against the bundled deck JSON Schema. Run after editing deck.json by hand.",
@@ -3146,6 +3300,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "export_slide_video",
+    scope: "project",
+    pathParams: {"out": "path"},
     cli: "export-slide-video",
     cliRoot: "flags",
     summary: "Export one slide, its animations and video clips to a smooth MP4, including unmuted clip audio. Timing values are milliseconds; simultaneous and automatic steps retain authored timing. Requires the desktop Electron runtime and bundled video encoder.",
@@ -3172,6 +3328,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "export_deck",
+    scope: "project",
+    pathParams: {"out": "path"},
     cli: "export-deck",
     cliRoot: "flags",
     summary: "Export a deck to a single self-contained offline .html (animations + media inlined). Writes to exports/ by default.",
@@ -3204,6 +3362,7 @@ export const VERBS: VerbDef[] = [
   // --- paper snips (reader-parity capture + citations) ------------------------------
   {
     name: "snip_paper",
+    scope: "project",
     cli: "snip-paper",
     cliRoot: "flags",
     summary:
@@ -3253,6 +3412,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "get_citation",
+    scope: "machine",
     cli: "cite",
     cliRoot: "flags",
     summary:
@@ -3272,7 +3432,10 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: 'add_to_library', cli: 'lib-add', cliRoot: 'flags',
+    name: 'add_to_library',
+    scope: "machine",
+    pathParams: {"file": "path", "zoteroDir": "path"},
+    notAPath: {"forceBibtex": "Input-format boolean", "attachFiles": "Attachment-mode boolean"}, cli: 'lib-add', cliRoot: 'flags',
     summary: 'Add a DOI or BibTeX to FluxLib without citing it. --file imports BibTeX/RIS, optionally attaching referenced files. Exactly one input is required.',
     params: { doi:z.string().optional(), bibtex:z.string().optional(), input:z.string().optional(), file:z.string().optional(), forceBibtex:z.boolean().optional(), attachFiles:z.boolean().optional(), zoteroDir:z.string().optional() },
     cliArgs: [
@@ -3310,7 +3473,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: 'set_slide', cli: 'set-slide', cliRoot: 'flags',
+    name: 'set_slide',
+    scope: "project", cli: 'set-slide', cliRoot: 'flags',
     summary: 'Patch only supplied slide fields: name, layout, background, transition, notes, and camera.',
     params: { deckId:z.string().min(1), slideId:z.string().min(1), name:z.string().optional(), layout:z.enum(SLIDE_LAYOUTS).optional(), background:z.string().optional(), transition:z.string().optional(), notes:z.string().optional(), camera:z.object({x:z.number(),y:z.number(),zoom:z.number().positive()}).optional(), cameraX:z.number().optional(),cameraY:z.number().optional(),cameraZoom:z.number().positive().optional() },
     cliArgs: [{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},
@@ -3327,7 +3491,9 @@ export const VERBS: VerbDef[] = [
     render:{human:(_r,a)=>({err:`✓ set slide ${a.slideId}`}),mcp:(_r,a)=>text(`set slide ${a.slideId}`)},
   },
   {
-    name:'set_animation',cli:'set-animation',cliRoot:'flags',
+    name:'set_animation',
+    scope: "project",
+    pathParams: {"to.svgPath": "path", "to.manifestPath": "path"},cli:'set-animation',cliRoot:'flags',
     summary:'Add or replace an animation track on a beat. --track JSON accepts the full track; --append preserves existing effects.',
     params:{ deckId:z.string().min(1),slideId:z.string().min(1),beatId:z.string().min(1),track:z.record(z.unknown()).optional(),target:z.string().optional(),append:z.boolean().optional(),preset:z.enum(SLIDE_PRESETS).optional(),part:z.string().optional(),start:z.number().optional(),duration:z.number().optional(),easing:z.string().optional(),params:z.record(z.unknown()).optional(),influence:z.object({in:z.number(),out:z.number()}).optional(),stagger:z.object({perMs:z.number(),by:z.enum(['index','x','y']).optional(),from:z.enum(['start','end','center','edges']).optional()}).optional(),groupId:z.string().optional(),to:z.object({assetId:z.string().optional(),x:z.number().optional(),y:z.number().optional(),zoom:z.number().optional(),state:z.record(z.unknown()).optional(),svgPath:z.string().optional(),manifestPath:z.string().optional()}).optional() },
     cliArgs:[{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},{kind:'pos',at:2,into:'beatId',required:true},{kind:'pos',at:3,into:'target'},
@@ -3347,7 +3513,8 @@ export const VERBS: VerbDef[] = [
     render:{human:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return {err:`✓ set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`};},mcp:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return text(`set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`);}},
   },
   {
-    name:'search_fulltext',cli:'search-text',cliRoot:'flags',summary:'Search extracted library PDF text with AND terms or quoted phrases.',
+    name:'search_fulltext',
+    scope: "machine",cli:'search-text',cliRoot:'flags',summary:'Search extracted library PDF text with AND terms or quoted phrases.',
     params:{query:z.string().trim().min(1),limit:z.number().int().positive().optional(),keys:z.array(z.string()).optional(),json:z.boolean().optional()},
     cliArgs:[{kind:'rest',at:0,into:'query',as:'joined',required:true},{kind:'flag',at:'limit',into:'limit',as:'number'},{kind:'flag',at:'keys',into:'keys',as:'csv'},{kind:'flag',at:'json',into:'json',as:'boolean'}],
     handler:(_ctx,a)=>core.searchFulltext(s(a.query),{limit:a.limit as number|undefined,keys:a.keys as string[]|undefined}),

@@ -115,7 +115,7 @@ plots/growth.recipe.json    ← recipe (how it was made — re-runnable; used to
 ## Validate every plot
 
 ```bash
-{{FLUX_CLI}} validate-plot plots/growth.svg
+"{{FLUX_CLI}}" validate-plot plots/growth.svg
 ```
 
 This checks the manifest is schema-valid **and** that every id it references exists in the SVG
@@ -137,14 +137,14 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
 - **Headless / app closed:** composed figures render from a COPY of the plot (`fig/assets/`) —
   after regenerating, refresh it in place:
   ```bash
-  {{FLUX_CLI}} sync-figure fig3      # or omit the id for all figures
+  "{{FLUX_CLI}}" sync-figure fig3      # or omit the id for all figures
   ```
   Captions, positions and restyles all survive. Never `delete-figure` + re-compose just to pick
   up a regenerated plot (that destroys them); `render-figure` warns when panels are stale.
 - Parameterized: because the script reads tunables via `fp.params({...})` (which honors a
   `FLUX_PARAMS` override), you can regenerate with different settings without editing code:
   ```bash
-  {{FLUX_CLI}} rerun-plot plots/growth.recipe.json --test mann-whitney
+  "{{FLUX_CLI}}" rerun-plot plots/growth.recipe.json --test mann-whitney
   ```
   The recipe `fp.save` wrote records the interpreter + script + params (as relative paths), so
   this re-executes the script with the override and re-emits the plot in place. (This is automatic

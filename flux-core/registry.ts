@@ -13,6 +13,11 @@ import { recoverProjectForAuthoring } from "./recovery";
 // GUI store, and its switch IS the allow-list.
 
 import { z } from "zod";
+import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
+import { getParseErrorMessage } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { requireProject } from "./model";
+import type { AgentIdentity } from "./agentIdentity";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { classifyError, ExternalToolError, LockedError, ValidationError } from "./errors";
@@ -80,11 +85,20 @@ export interface CliArgSpec {
 
 export interface VerbCtx {
   root: string;
+  identity?: AgentIdentity;
 }
 
 export interface VerbDef {
   /** Canonical (MCP) name, e.g. "set_caption". */
   name: string;
+  /** Explicit on every verb; absent legacy declarations still default to project. */
+  scope: "project" | "machine" | "file";
+  core?: boolean;
+  bindsRoot?: boolean;
+  /** Filesystem inputs, including dotted paths within structured parameters. */
+  pathParams?: Record<string, "path" | "paths">;
+  /** Path-like names that are model identifiers or non-path values, with reasons. */
+  notAPath?: Record<string, string>;
   /** CLI verb, e.g. "set-caption". */
   cli: string;
   aliases?: string[];
@@ -233,7 +247,7 @@ async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<strin
     const msg = parsed.error.issues.map((i) => `${i.path.join(".") || "(args)"}: ${i.message}`).join("; ");
     throw new ValidationError(`${v.cli}: ${msg}`);
   }
-  return parsed.data;
+  return resolvePathParams(v, parsed.data, process.cwd());
 }
 
 export interface CliIo {
@@ -266,7 +280,10 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   try {
     const args = await argsFromCli(v, { pos: newStyle ? inv.pos : inv.posRooted, flags: inv.flags });
     const root = newStyle ? inv.rootFlags : inv.rootPositional;
-    await recoverProjectForAuthoring(root);
+    if ((v.scope ?? "project") === "project") {
+      await requireProject(root);
+      await recoverProjectForAuthoring(root);
+    }
     const r = await v.handler({ root }, args);
     const h = (v.render?.human ?? defaultHuman)(r, args);
     if (h.outRaw !== undefined) (io.raw ?? io.log)(h.outRaw);
@@ -281,23 +298,89 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   return true;
 }
 
-/** Register every verb on the MCP server (same shape registerTool expects). */
+export const projectParam = z.string().optional().describe("Flux project root; defaults to the connected project");
+export type RootResolver = (args: Record<string, unknown>) => string | Promise<string>;
+export type McpToolset = "core" | "full";
+export interface McpVerbOptions {
+  toolset?: McpToolset;
+  bindRoot?: (root: string | null) => void;
+  defaultRoot?: () => string | null;
+  identity?: () => AgentIdentity;
+}
+
+export function mcpParams(v: VerbDef): z.ZodRawShape {
+  return (v.scope ?? "project") === "project" ? { ...v.params, project: projectParam } : v.params;
+}
+
+/** Path resolution happens once at the surface boundary, before any handler. */
+export function resolvePathParams(v: VerbDef, args: Record<string, unknown>, base: string): Record<string, unknown> {
+  const out = { ...args };
+  for (const [key, kind] of Object.entries(v.pathParams ?? {})) {
+    const parts = key.split(".");
+    let obj = out;
+    for (const part of parts.slice(0, -1)) {
+      if (!obj[part] || typeof obj[part] !== "object") { obj = {}; break; }
+      obj[part] = { ...obj[part] as Record<string, unknown> };
+      obj = obj[part] as Record<string, unknown>;
+    }
+    const leaf = parts[parts.length - 1], value = obj[leaf];
+    if (value === undefined) continue;
+    obj[leaf] = kind === "paths" ? (value as string[]).map(p => path.resolve(base, p)) : path.resolve(base, value as string);
+  }
+  return out;
+}
+
+function relativePathInput(v: VerbDef, args: Record<string, unknown>): boolean {
+  return Object.entries(v.pathParams ?? {}).some(([key, kind]) => {
+    const value = key.split(".").reduce<unknown>((o, k) => o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined, args);
+    return (kind === "paths" ? value as string[] | undefined : value === undefined ? [] : [value as string])?.some(p => !path.isAbsolute(p));
+  });
+}
+
+/** Dedicated tools and flux_verb share validation, root/path policy, handler and render. */
+export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, getRoot: RootResolver, options: McpVerbOptions = {}): Promise<McpRender> {
+  try {
+    const validated = z.object(mcpParams(v)).safeParse(supplied ?? {});
+    if (!validated.success) throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${v.name}: ${getParseErrorMessage(validated.error)}`);
+    const parsed = validated.data;
+    const projectScope = (v.scope ?? "project") === "project";
+    const root = projectScope || relativePathInput(v, parsed)
+      ? await getRoot(parsed) : options.defaultRoot?.() ?? "";
+    if (projectScope) { await requireProject(root); await recoverProjectForAuthoring(root); }
+    const args = resolvePathParams(v, parsed, root);
+    const r = await v.handler({ root, identity: options.identity?.() }, args);
+    if (v.bindsRoot) {
+      const next = (r as { root?: string | null }).root;
+      if (next !== undefined && next !== null && typeof next !== "string") throw new ValidationError("connect returned an invalid root");
+      if (next !== undefined) options.bindRoot?.(next);
+    }
+    return (v.render?.mcp ?? defaultMcp)(r, args);
+  } catch (e) { return errorToMcp(e); }
+}
+
 export function registerMcpVerbs(
-  server: { registerTool: (name: string, meta: { description: string; inputSchema: z.ZodRawShape }, fn: (a: Record<string, unknown>) => Promise<McpRender>) => void },
-  root: string,
+  server: { registerTool: (name: string, meta: { description: string; inputSchema: z.ZodRawShape }, fn: (a: Record<string, unknown>) => Promise<McpRender>) => unknown },
+  getRoot: RootResolver,
+  options: McpVerbOptions = {},
 ): void {
   for (const v of VERBS) {
-    server.registerTool(v.name, { description: v.summary, inputSchema: v.params }, async (a) => {
-      try {
-        const args = z.object(v.params).parse(a ?? {});
-        await recoverProjectForAuthoring(root);
-        const r = await v.handler({ root }, args);
-        return (v.render?.mcp ?? defaultMcp)(r, args);
-      } catch (e) {
-        return errorToMcp(e);
-      }
-    });
+    if ((options.toolset ?? "core") === "core" && !v.core) continue;
+    server.registerTool(v.name, { description: v.summary, inputSchema: mcpParams(v) }, a => runMcpVerb(v, a, getRoot, options));
   }
+  server.registerTool("flux_verb", {
+    description: "Run any Flux registry verb by name with its validated arguments. Use flux_verbs to discover names and schemas.",
+    inputSchema: { verb: z.string(), args: z.record(z.unknown()).optional() },
+  }, async a => {
+    const v = VERBS.find(v => v.name === a.verb);
+    return v ? runMcpVerb(v, (a.args ?? {}) as Record<string, unknown>, getRoot, options) : errorToMcp(new ValidationError(`Unknown Flux verb: ${a.verb}`));
+  });
+  server.registerTool("flux_verbs", {
+    description: "Find Flux registry verbs with summaries and input schemas. Omit query to list all; query matches names, CLI names and summaries.",
+    inputSchema: { query: z.string().optional() },
+  }, async a => text(JSON.stringify(VERBS.filter(v => !a.query || `${v.name} ${v.cli} ${v.summary}`.toLowerCase().includes(String(a.query).toLowerCase())).map(v => ({
+    name: v.name, cli: v.cli, summary: v.summary, scope: v.scope,
+    inputSchema: toJsonSchemaCompat(z.object(mcpParams(v)), { target: "jsonSchema7", strictUnions: true, pipeStrategy: "input" }),
+  })))));
 }
 
 /** Declaration-driven flag grammar. Values beginning '-' are valid values;

@@ -35,6 +35,19 @@ const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
 
 const { VERBS, registeredCliVerbs } = await import("../flux-core/registry");
 const core = await import("../flux-core/index");
+for (const v of VERBS) {
+  assert(Object.hasOwn(v, "scope") && ["project", "machine", "file"].includes(v.scope), `${v.name}: explicit scope`);
+  const visit = (shape, prefix = "") => {
+    for (const [key, schema] of Object.entries(shape)) {
+      const name = prefix + key;
+      if (/path|file|dir|svg|recipe/i.test(key)) assert(!!v.pathParams?.[name] || !!v.notAPath?.[name], `${v.name}.${name}: declared path policy`);
+      let inner = schema;
+      while (inner?._def?.innerType) inner = inner._def.innerType;
+      if (inner?._def?.typeName === "ZodObject") visit(inner.shape, name + ".");
+    }
+  };
+  visit(v.params);
+}
 
 const TMP = path.join(REPO, "scratch-regparity");
 await fs.rm(TMP, { recursive: true, force: true });
@@ -54,7 +67,7 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ out
     // CLI's success line. None of those are product behavior.
     const c = spawn(process.execPath, ["--import", "tsx", "flux-cli.ts", ...args], {
       cwd: REPO,
-      env: { ...process.env, FLUX_NO_MIGRATE: "1", ...env },
+      env: { ...process.env, FLUX_MCP_TOOLSET: "full", FLUX_NO_MIGRATE: "1", ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";
@@ -70,14 +83,16 @@ const transport = new StdioClientTransport({
   command: process.execPath,
   args: ["--import", "tsx", "flux-mcp.ts", TMP],
   cwd: REPO,
-  env: { ...(process.env as Record<string, string>), FLUX_NO_MIGRATE: "1" },
+  env: { ...(process.env as Record<string, string>), FLUX_MCP_TOOLSET: "full", FLUX_NO_MIGRATE: "1" },
 });
 const client = new Client({ name: "regparity", version: "1.0.0" });
 await client.connect(transport);
 
 try {
   // ---- (a) tools/list golden -----------------------------------------------------
-  const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+  const toolDefs = (await client.listTools()).tools;
+  const tools = toolDefs.map((t) => t.name).sort();
+  for (const v of VERBS) assert(!!toolDefs.find(t => t.name === v.name)?.inputSchema.properties?.project === (v.scope === "project"), `${v.name}: project parameter follows declared scope`);
   if (REGEN) {
     await fs.writeFile(TOOLS_GOLDEN, JSON.stringify(tools, null, 2) + "\n");
     ok(`REGENERATED ${path.basename(TOOLS_GOLDEN)} (${tools.length} tools)`);

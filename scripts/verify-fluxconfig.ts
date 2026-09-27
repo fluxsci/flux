@@ -176,7 +176,11 @@ if (process.platform !== "win32") {
     assert(!fs.existsSync(path.join(cfg, "agents.json")), "agents.json is not seeded");
     const shim = path.join(f1.home, ".local", "bin", "flux");
     assert(fs.existsSync(shim) && (fs.statSync(shim).mode & 0o111) !== 0, "flux PATH shim installed executable in ~/.local/bin");
-    assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && /exec .*flux-cli/.test(fs.readFileSync(shim, "utf8")), "shim carries the managed marker + real CLI");
+    const canonical = path.join(fp.binDirSync(), "flux");
+    assert(fs.existsSync(canonical) && fs.readFileSync(canonical, "utf8").includes("# flux-agent-shim target="), "canonical launcher records its owning installation");
+    assert(fs.existsSync(path.join(fp.binDirSync(), "flux-connect")), "canonical flux-connect alias is installed");
+    assert(fs.readFileSync(path.join(fc1, "TEMPLATES.md"), "utf8").includes(`command = "${canonical}"`), "manual MCP command points at the canonical launcher");
+    assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && fs.readFileSync(shim, "utf8").includes(fp.binDirSync()), "shim carries the managed marker + canonical launcher");
     fs.writeFileSync(shim, "#!/bin/sh\necho my own flux\n", { mode: 0o755 }); // user replaces it → opt-out
     // (asserted after the no-op re-run below: the user's file must survive)
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");

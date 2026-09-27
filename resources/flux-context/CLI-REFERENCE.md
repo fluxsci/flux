@@ -6,7 +6,7 @@ The `flux` CLI is usually **not on `PATH`**. This machine's resolved invocation 
 when Flux synced this doc) is:
 
 ```bash
-{{FLUX_CLI}} <verb> [args] [--flags]
+"{{FLUX_CLI}}" <verb> [args] [--flags]
 ```
 
 It **operates on any project directory** — where you run it from doesn't pin the project
@@ -108,7 +108,7 @@ With the session export above, `render-figure growth --png` just works.
 
 ## MCP server (richer: typed verbs + inline figure PNGs)
 
-Start per-project (the root is fixed at launch):
+Start with an optional default project (connect can change it):
 
 ```bash
 {{FLUX_MCP}} /path/to/project
@@ -125,3 +125,23 @@ Configure it with the templates in `TEMPLATES.md`. Prefer MCP when you want to *
   log entries). If you
   get `deferred: "<name>" is locked …`, the user is mid-edit in the app — **wait a moment and
   retry**; the lock auto-expires after 30 s if the holder is gone. Never force.
+
+## MCP connection and paths
+
+`flux mcp [root] [--toolset core|full]` starts the stdio server. It can start without a
+project. A root argument, `FLUX_PROJECT`, or the nearest project within eight cwd
+levels supplies a default root; this alone does not connect or load context.
+Call `connect {target:"/path/to/project"}` only when the user asks for flux-connect.
+Use `target:"global"` for global context; it preserves any existing project binding. A project tool accepts an optional
+`project` override; relative overrides resolve against the bound project and do not
+change it. With no binding, pass an absolute project path.
+
+CLI filesystem inputs resolve relative to the shell cwd. MCP filesystem inputs resolve
+relative to the project root. Absolute paths are honoured. Machine/file tools work
+unbound with absolute paths; relative paths require a project default. Document and
+folder identifiers remain project-relative model identifiers on both surfaces.
+
+The default `core` toolset is compact. `flux_verbs {query}` discovers every registry
+verb and its schema; `flux_verb {verb, args}` runs it with the same validation and
+result as its dedicated tool. Select `--toolset full` or `FLUX_MCP_TOOLSET=full` to
+expose all dedicated tools. The MCP `connect` prompt provides a skill-free entry.

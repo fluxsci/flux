@@ -13,6 +13,12 @@ export class FluxError extends Error {
   }
 }
 
+export class NotConnectedError extends FluxError {
+  constructor(message = "No Flux project connected. Call connect({target:'<project path>'}) first, or pass project.") {
+    super(message, "not-connected");
+  }
+}
+
 /** A named thing (figure, canvas, document, reference…) doesn't exist. */
 export class NotFoundError extends FluxError {
   constructor(message: string) {

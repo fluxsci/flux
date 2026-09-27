@@ -245,6 +245,8 @@ function configInfoSync(prefs = readPrefsRawSync()) {
     fluxContextPath: fluxContextPathSync(prefs),
     plotLibraryPath: plotLibraryPathSync(prefs),
     userDataDir: userDataDir(),
+    binDir: binDirSync(),
+    launcher: path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"),
   };
 }
 
@@ -415,37 +417,167 @@ async function ensureUserContext(cfg, events) {
   }
 }
 
-/** Resolve how THIS install runs the flux CLI/MCP (baked into the stock docs).
- *  `mcpPath` is the bare server script path for JSON config templates
- *  ({{FLUX_MCP_PATH}}); `cli`/`mcp` are full runnable command strings. */
-function resolveOwnCliCommandsSync() {
-  const appRoot = path.resolve(__dirname, "..");
-  if (process.resourcesPath && __dirname.includes("app.asar")) {
-    const base = path.join(process.resourcesPath, "app.asar.unpacked", "dist");
-    const cli = path.join(base, "flux-cli.mjs");
-    if (fsSync.existsSync(cli)) {
-      const mcpPath = path.join(base, "flux-mcp.mjs");
-      // One runnable string per platform: POSIX inline-env, or a cmd /s /c
-      // wrapper on Windows (cmd strips the outer quotes; `set X=1&&` with no
-      // space keeps the env value clean).
-      const wrap = (p) =>
-        process.platform === "win32"
-          ? `cmd /d /s /c "set ELECTRON_RUN_AS_NODE=1&& "${process.execPath}" "${p}""`
-          : `ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${p}"`;
-      return { cli: wrap(cli), mcp: wrap(mcpPath), mcpPath };
+/** Stable executable location, separate from movable user config. */
+function binDirSync(platform = process.platform) {
+  const base = platform === "win32"
+    ? process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")
+    : path.join(os.homedir(), ".local", "share");
+  return path.join(base, "flux", "bin");
+}
+
+const SHIM_MARKER = "# flux-cli shim (managed by Flux — replace with your own file to opt out)"; // flux-cap-ok
+const OWNER_MARKER = "# flux-agent-shim target=";
+const { spawnSync } = require("node:child_process");
+const { resolveSpawn } = require("./execResolve.cjs");
+
+function shellQuote(value) { return '"' + String(value).replace(/[\\"$`]/g, "\\$&") + '"'; }
+function batchQuote(value) {
+  if (/[\r\n"]/.test(value)) throw new Error("Unsupported character in launcher path");
+  return '"' + value.replaceAll("%", "%%") + '"';
+}
+
+/** Pin a usable Node at install time; never ask npx to find a runtime. */
+function resolveAgentNodeSync() {
+  const win = process.platform === "win32", name = win ? "node.exe" : "node";
+  const candidates = (process.env.Path || process.env.PATH || "").split(path.delimiter).filter(Boolean).map(dir => path.resolve(dir, name));
+  candidates.push(path.join(os.homedir(), ".local", "node22", "bin", name));
+  if (process.env.NVM_BIN) candidates.push(path.join(process.env.NVM_BIN, name));
+  const nvm = process.env.NVM_DIR || path.join(os.homedir(), ".nvm");
+  candidates.push(path.join(nvm, "current", "bin", name));
+  try {
+    const versions = fsSync.readdirSync(path.join(nvm, "versions", "node")).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    const selected = fsSync.existsSync(path.join(nvm, "alias", "default")) ? fsSync.readFileSync(path.join(nvm, "alias", "default"), "utf8").trim().replace(/^v/, "") : "";
+    const preferred = versions.filter(v => selected && (v.slice(1) === selected || v.startsWith("v" + selected + ".")));
+    for (const v of [...preferred, ...versions]) candidates.push(path.join(nvm, "versions", "node", v, "bin", name));
+  } catch { /* nvm is optional */ }
+  candidates.push(process.execPath);
+  for (const candidate of new Set(candidates)) {
+    if (!fsSync.existsSync(candidate)) continue;
+    const r = resolveSpawn(candidate, ["--version"]);
+    const result = spawnSync(r.command, r.args, { encoding: "utf8", timeout: 3000, windowsVerbatimArguments: r.windowsVerbatimArguments, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+    const version = /^v(\d+)\.(\d+)\./.exec(String(result.stdout).trim());
+    if (result.status === 0 && version && (+version[1] > 22 || +version[1] === 22 && +version[2] >= 15)) return fsSync.realpathSync(candidate);
+  }
+  throw new Error("Flux agents require Node >=22.15. Install it, then repair the launcher.");
+}
+
+/** Injectable install facts let the pure gate execute all three runtime layouts. */
+function resolveOwnCliCommandsSync(options = {}) {
+  const platform = options.platform || process.platform;
+  const appRoot = path.resolve(options.appRoot || path.join(__dirname, ".."));
+  const execPath = options.execPath || process.execPath;
+  const asar = /^(.*)[\\/]app\.asar(?:\.unpacked)?(?:[\\/]|$)/.exec(appRoot);
+  const resourcesPath = options.resourcesPath || process.resourcesPath || (asar && asar[1]);
+  const packaged = options.packaged === undefined ? !!asar : options.packaged;
+  const appImage = options.appImage === undefined ? process.env.APPIMAGE : options.appImage;
+  if (platform === "darwin" && /[\\/]AppTranslocation[\\/]/.test(appRoot + "/" + execPath)) {
+    throw new Error("Move Flux to /Applications first; a translocated app cannot own the agent launcher.");
+  }
+  let executable, args, target, electron = false;
+  if (packaged) {
+    electron = true;
+    target = appImage || path.join(resourcesPath || path.dirname(appRoot), "app.asar");
+    executable = appImage || execPath;
+    if (appImage) {
+      // The FUSE mount changes at every invocation. Resolve the script inside
+      // the running AppImage, never bake today's mount into a persistent shim.
+      const load = "import(require('node:url').pathToFileURL(require('node:path').join(require('node:path').dirname(process.execPath),'resources/app.asar.unpacked/dist/flux-cli.mjs')).href)";
+      args = ["-e", load, "--", "flux"];
+    } else {
+      if (!resourcesPath) throw new Error("Cannot locate packaged Flux resources");
+      args = [path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs")];
+    }
+  } else {
+    executable = options.nodePath || resolveAgentNodeSync();
+    target = appRoot;
+    const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
+    if (fsSync.existsSync(distCli)) args = [distCli];
+    else {
+      const source = path.join(appRoot, "flux-cli.ts");
+      if (!fsSync.existsSync(source)) throw new Error(`Cannot locate Flux CLI in ${appRoot}`);
+      const { createRequire } = require("node:module");
+      const tsx = createRequire(path.join(appRoot, "package.json")).resolve("tsx/cli");
+      args = [tsx, source];
     }
   }
-  const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
-  if (fsSync.existsSync(distCli)) {
-    const mcpPath = path.join(appRoot, "dist", "flux-mcp.mjs");
-    return { cli: `node "${distCli}"`, mcp: `node "${mcpPath}"`, mcpPath };
+  let build = options.build;
+  if (!build) {
+    const bundle = packaged && resourcesPath ? path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs") : path.join(appRoot, "dist", "flux-cli.mjs");
+    try { build = /^\/\/ flux-agent-build commit=(\S+)$/m.exec(fsSync.readFileSync(bundle, "utf8"))?.[1]; }
+    catch { /* source-only checkout */ }
   }
-  const srcCli = path.join(appRoot, "flux-cli.ts");
-  if (fsSync.existsSync(srcCli)) {
-    const mcpPath = path.join(appRoot, "flux-mcp.ts");
-    return { cli: `npx tsx "${srcCli}"`, mcp: `npx tsx "${mcpPath}"`, mcpPath };
+  if (!build) {
+    const git = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: appRoot, encoding: "utf8", timeout: 2000 });
+    build = git.status === 0 ? git.stdout.trim() : "unknown";
   }
-  return { cli: "flux", mcp: "flux-mcp", mcpPath: "flux-mcp" }; // last resort: assume on PATH
+  const launcher = path.join(options.binDir || binDirSync(platform), platform === "win32" ? "flux.cmd" : "flux");
+  return { cli: launcher, mcp: `${(platform === "win32" ? batchQuote : shellQuote)(launcher)} mcp`, executable, args, target, build, electron, platform };
+}
+
+function launcherBodies(runtime) {
+  const win = runtime.platform === "win32", q = win ? batchQuote : shellQuote;
+  const marker = `${OWNER_MARKER}${runtime.target} build=${runtime.build}`;
+  const command = [runtime.executable, ...runtime.args].map(q).join(" ");
+  const main = win
+    ? `@echo off\r\nsetlocal DisableDelayedExpansion\r\nrem ${SHIM_MARKER}\r\nrem ${marker}\r\n${runtime.electron ? "set ELECTRON_RUN_AS_NODE=1\r\n" : ""}${command} %*\r\n`
+    : `#!/bin/sh\n${SHIM_MARKER}\n${marker}\n${runtime.electron ? "ELECTRON_RUN_AS_NODE=1 " : ""}exec ${command} "$@"\n`;
+  const delegate = extra => win
+    ? `@echo off\r\nsetlocal DisableDelayedExpansion\r\nrem ${SHIM_MARKER}\r\ncall ${q(runtime.cli)}${extra} %*\r\n`
+    : `#!/bin/sh\n${SHIM_MARKER}\nexec ${q(runtime.cli)}${extra} "$@"\n`;
+  return { main, connect: delegate(" connect"), shim: delegate("") };
+}
+
+function readShim(file) {
+  try { return fsSync.readFileSync(file, "utf8"); }
+  catch (e) { if (e.code === "ENOENT") return null; throw e; }
+}
+function launcherOwnerSync(file = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux")) {
+  const body = readShim(file);
+  const match = body && /^.*# flux-agent-shim target=(.*) build=(.*)$/m.exec(body.replaceAll("\r", ""));
+  return match ? { target: match[1], build: match[2] } : null;
+}
+function mayOwnLauncher(runtime, useThisInstall) {
+  const body = readShim(runtime.cli);
+  if (body === null) return true;
+  if (!body.includes(SHIM_MARKER)) return false;
+  const owner = launcherOwnerSync(runtime.cli);
+  return !!useThisInstall || !owner || owner.target === runtime.target || !fsSync.existsSync(owner.target);
+}
+
+let ownRuntime;
+function currentRuntime() { return ownRuntime ||= resolveOwnCliCommandsSync(); }
+function launcherFiles(runtime, createConvenience) {
+  const bodies = launcherBodies(runtime), win = runtime.platform === "win32", suffix = win ? ".cmd" : "";
+  const entries = [[runtime.cli, bodies.main], [path.join(path.dirname(runtime.cli), "flux-connect" + suffix), bodies.connect]];
+  const local = path.join(os.homedir(), ".local", "bin");
+  if (createConvenience || fsSync.existsSync(local)) entries.push([path.join(local, "flux" + suffix), bodies.shim], [path.join(local, "flux-connect" + suffix), bodies.connect]);
+  return entries;
+}
+function launchersUpToDateSync() {
+  const runtime = { ...currentRuntime(), cli: path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux") };
+  const own = mayOwnLauncher(runtime, false);
+  return launcherFiles(runtime, false).every(([file, body], index) => {
+    const cur = readShim(file);
+    if (cur !== null && !cur.includes(SHIM_MARKER)) return true;
+    if (index === 0 && !own) return true;
+    return cur === body;
+  });
+}
+async function installLaunchers(events = [], options = {}) {
+  if (process.env.FLUX_NO_MIGRATE === "1") return { skipped: true };
+  const runtime = options.runtime || { ...currentRuntime(), cli: path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux") };
+  const own = mayOwnLauncher(runtime, options.useThisInstall);
+  for (const [index, [file, body]] of launcherFiles(runtime, options.createConvenience).entries()) {
+    const cur = readShim(file);
+    if (cur !== null && !cur.includes(SHIM_MARKER) || index === 0 && !own) continue;
+    if (cur === body) continue;
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    const tmp = file + ".tmp-" + process.pid;
+    await fsp.writeFile(tmp, body, { mode: 0o755 });
+    await fsp.rename(tmp, file);
+    events.push({ action: "install-agent-launcher", detail: file });
+  }
+  return { launcher: runtime.cli, owner: launcherOwnerSync(runtime.cli) };
 }
 
 /** The Lighttable sidecar dir ({{LIGHTTABLE_DIR}}): resolved when this install is
@@ -481,62 +613,9 @@ function quotedPathsIn(cmd) {
  *  path that no longer EXISTS is unambiguous — no install can be using it — so
  *  re-syncing on that condition alone cannot churn. */
 function stampedCliDanglingSync(stampedCli) {
-  const paths = quotedPathsIn(stampedCli);
+  const paths = path.isAbsolute(stampedCli || "") ? [stampedCli] : quotedPathsIn(stampedCli);
   if (!paths.length) return false; // last-resort bare "flux" — nothing to verify
   return paths.some((p) => !fsSync.existsSync(p));
-}
-
-// ---------------------------------------------------------------------------
-// The `flux` PATH shim: ~/.local/bin/flux → this install's CLI, so commands
-// work by name. Managed-marker policy: we only create or
-// rewrite a file that WE wrote (marker line) — a user's own `flux` binary is
-// never touched, and replacing the shim with an unmarked file opts out.
-// ---------------------------------------------------------------------------
-
-const SHIM_MARKER = "# flux-cli shim (managed by Flux — replace with your own file to opt out)"; // flux-cap-ok
-
-function cliShimPathSync() {
-  // Same policy on every platform: only manage a shim if the user maintains a
-  // ~/.local/bin (on Windows that means they PATH'd it themselves; there is no
-  // conventional auto-on-PATH user bin dir to invent). Batch twin on win32.
-  const name = process.platform === "win32" ? "flux.cmd" : "flux";
-  return path.join(os.homedir(), ".local", "bin", name);
-}
-
-function cliShimUpToDateSync() {
-  const binDir = path.dirname(cliShimPathSync());
-  if (!fsSync.existsSync(binDir)) return true; // no ~/.local/bin — nothing to manage
-  try {
-    const cur = fsSync.readFileSync(cliShimPathSync(), "utf8");
-    if (!cur.includes(SHIM_MARKER)) return true; // user's own file — leave alone
-    return cur.includes(resolveOwnCliCommandsSync().cli);
-  } catch {
-    return false; // absent → install on the next full run
-  }
-}
-
-async function installCliShim(events) {
-  const shim = cliShimPathSync();
-  const binDir = path.dirname(shim);
-  if (!fsSync.existsSync(binDir)) return; // don't invent ~/.local/bin
-  const { cli } = resolveOwnCliCommandsSync();
-  if (cli === "flux") return; // last-resort resolution — nothing real to point at
-  let cur = null;
-  try {
-    cur = fsSync.readFileSync(shim, "utf8");
-  } catch {
-    /* absent */
-  }
-  if (cur !== null && !cur.includes(SHIM_MARKER)) return; // user-owned — never clobber
-  // The cmd body ends with `${cli} %*` so cliShimUpToDateSync's includes(cli)
-  // staleness probe works for both shim flavors. CRLF is the batch convention.
-  const body =
-    process.platform === "win32"
-      ? `@echo off\r\nrem ${SHIM_MARKER}\r\n${cli} %*\r\n`
-      : `#!/bin/sh\n${SHIM_MARKER}\nexec ${cli} "$@"\n`;
-  if (cur === body) return;
-  await fsp.writeFile(shim, body, { mode: 0o755 });
-  events.push({ action: "install-cli-shim", detail: shim });
 }
 
 function fluxContextStampPath(cfg) {
@@ -559,7 +638,7 @@ function fluxContextUpToDateSync(cfg) {
   if (fsSync.readdirSync(dir, { withFileTypes: true }).some(e =>
     !e.isDirectory() && e.name.endsWith(".md") && !Object.hasOwn(FLUX_CONTEXT_FILES, e.name))) return false;
   if (fsSync.existsSync(path.join(cfg, "Guidelines"))) return false;
-  if (!cliShimUpToDateSync()) return false;
+  if (!launchersUpToDateSync()) return false;
   const uc = path.join(cfg, "Context", "UserContext");
   return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md")) &&
     fsSync.existsSync(path.join(uc, "Skills", "README.md"));
@@ -587,12 +666,14 @@ async function syncFluxContext(cfg, events) {
     (n) => !upToDate || !fsSync.existsSync(path.join(dir, n)),
   );
   await fsp.mkdir(dir, { recursive: true });
-  const cmds = resolveOwnCliCommandsSync();
+  const cli = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux");
+  // Forward slashes keep the same Windows path valid inside JSON/TOML strings.
+  const docCli = cli.replaceAll("\\", "/");
+  const cmds = { cli: docCli, mcp: `${shellQuote(docCli)} mcp` };
   for (const name of names) {
     const out = FLUX_CONTEXT_FILES[name]
       .replaceAll("{{FLUX_CLI}}", cmds.cli)
       .replaceAll("{{FLUX_MCP}}", cmds.mcp)
-      .replaceAll("{{FLUX_MCP_PATH}}", cmds.mcpPath)
       .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync())
       .replaceAll("{{FLUX_REPO}}", resolveRepoDirSync());
     const p = path.join(dir, name);
@@ -661,7 +742,7 @@ async function ensureFluxConfig() {
       await migrateFluxLib(cfg, events);
       await ensureUserContext(cfg, events);
       await syncFluxContext(cfg, events);
-      await installCliShim(events);
+      await installLaunchers(events);
       await appendMarker(cfg, events);
       return { ...configInfoSync(), events };
     });
@@ -818,6 +899,11 @@ module.exports = {
   moveFluxConfig,
   configInfoSync,
   resolveOwnCliCommandsSync,
+  binDirSync,
+  installLaunchers,
+  launcherBodies,
+  launcherOwnerSync,
+  launchersUpToDateSync,
   stampedCliDanglingSync,
   GUIDELINES_README,
   USER_RULES_SEED,

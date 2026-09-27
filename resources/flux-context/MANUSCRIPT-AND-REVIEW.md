@@ -8,10 +8,10 @@ They are plain Quarto markdown with YAML front-matter (title, `bibliography: ../
 **The `.qmd` is the source of truth** — edit it directly, or via the verbs:
 
 ```bash
-{{FLUX_CLI}} manuscript                 # read the default document (--doc for others)
-{{FLUX_CLI}} set-manuscript --file draft.md   # overwrite (holds the manuscript lock + journals)
-{{FLUX_CLI}} docs                       # list documents
-{{FLUX_CLI}} new-doc "Supplement"       # add one
+"{{FLUX_CLI}}" manuscript                 # read the default document (--doc for others)
+"{{FLUX_CLI}}" set-manuscript --file draft.md   # overwrite (holds the manuscript lock + journals)
+"{{FLUX_CLI}}" docs                       # list documents
+"{{FLUX_CLI}}" new-doc "Supplement"       # add one
 ```
 
 When the app is open, an external `.qmd` write **live-reloads** if the user's editor is clean;
@@ -60,12 +60,12 @@ comment applies. **Procedure when the user says "address my comments":**
 
 ```bash
 # 1. list open threads across EVERY project document (JSON: doc, id, quote, messages)
-{{FLUX_CLI}} comments            # add --all for resolved; --doc rel targets one document
+"{{FLUX_CLI}}" comments            # add --all for resolved; --doc rel targets one document
 # 2. for each thread: locate anchor.quote in the .qmd, make the requested change
-{{FLUX_CLI}} manuscript          # read, edit, then:
-{{FLUX_CLI}} set-manuscript --file revised.qmd
+"{{FLUX_CLI}}" manuscript          # read, edit, then:
+"{{FLUX_CLI}}" set-manuscript --file revised.qmd
 # 3. mark it resolved (by id or a unique substring of the quote), optionally reply
-{{FLUX_CLI}} resolve-comment c… --note "Added the Smith 2020 citation."  # unique project-wide id
+"{{FLUX_CLI}}" resolve-comment c… --note "Added the Smith 2020 citation."  # unique project-wide id
 ```
 
 Bare `comments` and `resolve-comment` are project-wide so secondary and Context-document
@@ -135,14 +135,14 @@ If `.meta/live/bridge.json` is absent, the app is closed → use the file verbs 
 
 ## Wiring MCP into a standalone agent (per analysis project)
 
-The server's project root is fixed at launch, so configure it per analysis
-project (ready-to-copy versions of these: `TEMPLATES.md`). For **Codex**,
+The server accepts an optional default project and can bind later through `connect`.
+These examples set a default per analysis project (ready-to-copy versions of these: `TEMPLATES.md`). For **Codex**,
 `<analysis-dir>/.codex/config.toml` with the final argument set to the Flux project path:
 
 ```toml
 [mcp_servers.flux]
-command = "node"
-args = ["{{FLUX_MCP_PATH}}", "/data/my_analysis/paper"]
+command = "{{FLUX_CLI}}"
+args = ["mcp", "/data/my_analysis/paper"]
 
 [mcp_servers.flux.env]
 FLUX_CLIENT = "codex"
@@ -152,8 +152,8 @@ For **Claude Code**, use `<analysis-dir>/.mcp.json`:
 
 ```json
 { "mcpServers": { "flux": {
-  "command": "node",
-  "args": ["{{FLUX_MCP_PATH}}", "/data/my_analysis/paper"],
+  "command": "{{FLUX_CLI}}",
+  "args": ["mcp", "/data/my_analysis/paper"],
   "env": { "FLUX_CLIENT": "claude" }
 } } }
 ```

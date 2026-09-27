@@ -18,7 +18,7 @@ async function readBridge(root: string): Promise<BridgeInfo | null> {
     const file = path.join(root, '.meta/live/bridge.json');
     if ((await fs.stat(file)).size > 16384) return null;
     const bridge = decodeBridge(JSON.parse(await fs.readFile(file, 'utf8')));
-    if (bridge?.root && path.resolve(bridge.root) !== path.resolve(root)) return null;
+    if (bridge?.root && await fs.realpath(bridge.root) !== await fs.realpath(root)) return null;
     return bridge;
   } catch { return null; }
 }

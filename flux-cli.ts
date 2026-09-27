@@ -11,6 +11,8 @@ import { runCliVerb, parseCliFlags, registryHelp, registeredCliVerbs, errorToCli
 
 const HELP = `flux — drive a Flux project from the terminal
 
+  mcp [root] [--toolset core|full]  Start the stdio MCP server (core by default).
+
 usage: flux <verb> [root] [args] [--flags]
        Every verb resolves the project root as --root → $FLUX_PROJECT → cwd.
        Verbs marked [root] ALSO accept a leading positional root (".", a path,
@@ -293,6 +295,13 @@ async function main() {
   }
 
   switch (verb) {
+    case "mcp": {
+      const { startMcpServer } = await import("./flux-core/mcpServer");
+      const toolset = flags.toolset;
+      if (toolset !== undefined && toolset !== "core" && toolset !== "full") throw new Error("MCP toolset must be core or full");
+      await startMcpServer({ root: _[0] ?? (flags.root as string | undefined), toolset });
+      break;
+    }
     case "new": {
       const dir = path.resolve(_[0] ?? ".");
       await core.scaffold(dir, { title: flags.title as string, author: flags.author as string });

@@ -34,7 +34,7 @@ function mcpHandshake(cmd: string, cmdArgs: string[], label: string): Promise<vo
       cwd: fakeProject,
       stdio: ["pipe", "pipe", "pipe"],
       // never run the FluxConfig migration against the real HOME from a test
-      env: { ...process.env, FLUX_NO_MIGRATE: "1" },
+      env: { ...process.env, FLUX_MCP_TOOLSET: "full", FLUX_NO_MIGRATE: "1" },
     });
     const timeout = setTimeout(() => {
       assert(false, `[${label}] MCP server answered within 25s (timed out)`);

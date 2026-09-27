@@ -15,16 +15,15 @@ lives inside) so agents launched there can find Flux and its MCP server.
 
 ## Presenting results through Flux
 - **Machine context:** read everything under `<FluxConfig>/Context/UserContext/`
-  (run `{{FLUX_CLI}} config` for the path) and orient via
+  (run `"{{FLUX_CLI}}" config` for the path) and orient via
   `Context/FluxContext/README.md`.
 - **Flux project:** `./paper/` (scaffold with
-  `{{FLUX_CLI}} new ./paper --title "<title>"` if absent). Its `Context/` holds the
-  ProjectContext, Log, and rules — read them before working.
-- **Plotting environment:** <env with fluxplot — see UserContext for machine defaults>.
+  `"{{FLUX_CLI}}" new ./paper --title "<title>"` if absent). Its `Context/` holds the
+  ProjectContext, Log, and rules — read them before working.- **Plotting environment:** <env with fluxplot — see UserContext for machine defaults>.
 
 Keep analysis/scratch here; promote only current, reproducible plots into
-`paper/plots/` (with recipes). Address review feedback via `{{FLUX_CLI}} feedback`
-and `{{FLUX_CLI}} comments`, resolving each item.
+`paper/plots/` (with recipes). Address review feedback via `"{{FLUX_CLI}}" feedback`
+and `"{{FLUX_CLI}}" comments`, resolving each item.
 ```
 
 For **Claude Code**, put the same content in `<analysis-dir>/CLAUDE.md`.
@@ -33,8 +32,8 @@ For **Claude Code**, put the same content in `<analysis-dir>/CLAUDE.md`.
 
 ```toml
 [mcp_servers.flux]
-command = "node"
-args = ["{{FLUX_MCP_PATH}}", "<ABSOLUTE PATH TO THE FLUX PROJECT>"]
+command = "{{FLUX_CLI}}"
+args = ["mcp", "<ABSOLUTE PATH TO THE FLUX PROJECT>"]
 
 [mcp_servers.flux.env]
 FLUX_CLIENT = "codex"
@@ -44,12 +43,12 @@ FLUX_CLIENT = "codex"
 
 ```json
 { "mcpServers": { "flux": {
-  "command": "node",
-  "args": ["{{FLUX_MCP_PATH}}", "<ABSOLUTE PATH TO THE FLUX PROJECT>"],
+  "command": "{{FLUX_CLI}}",
+  "args": ["mcp", "<ABSOLUTE PATH TO THE FLUX PROJECT>"],
   "env": { "FLUX_CLIENT": "claude" }
 } } }
 ```
 
-Point the last arg at *this* analysis dir's Flux project folder (the MCP server's root is
-fixed at launch). MCP adds typed verbs, inline figure PNGs (`get_figure_image` — the look
+Point the last arg at *this* analysis dir's Flux project folder for a default, or omit
+it and call `connect` when the user asks for flux-connect. MCP adds typed verbs, inline figure PNGs (`get_figure_image` — the look
 step), and the live bridge; the CLI is always a complete fallback.
