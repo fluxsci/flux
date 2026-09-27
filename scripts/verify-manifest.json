@@ -915,14 +915,40 @@
       "glob": "src/lib/plot/projectDom.ts",
       "run": [
         "verify-plot-view.ts",
-        "tier:pure"
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
       "glob": "src/lib/plot/project.ts",
       "run": [
         "verify-plot-view.ts",
-        "tier:pure"
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
