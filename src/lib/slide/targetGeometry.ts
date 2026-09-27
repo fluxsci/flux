@@ -7,7 +7,7 @@ import type { TargetRef } from "./types";
 import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
 import { elementOutline, elementPaint, type Outline } from "./outline";
 import { elementBBox, type Rect } from "../geometry";
-import { pathToSubpaths } from "../path";
+import { pathToSubpaths, nodesExtent } from "../path";
 import { resolveTargetLeaves, leavesOf } from "./targets";
 import { buildPartIndex, drawablesUnder } from "../plot/parse";
 import { resolveTargets } from "../plot/tree";
@@ -30,19 +30,6 @@ function boxNodes(b: Rect): VectorNode[] {
     .map(([x, y]) => ({ x, y, type: "corner" }));
 }
 
-/** Conservative control-polygon extent (includes handles), not curve extrema
- *  or stroke overhang. This is the unit frame the correspondence planner uses. */
-function bounds(nodes: VectorNode[]): Rect {
-  let x = Infinity, y = Infinity, right = -Infinity, bottom = -Infinity;
-  const point = (px: number, py: number) => { x = Math.min(x, px); y = Math.min(y, py); right = Math.max(right, px); bottom = Math.max(bottom, py); };
-  for (const n of nodes) {
-    point(n.x, n.y);
-    if (n.hIn) point(n.x + n.hIn.dx, n.y + n.hIn.dy);
-    if (n.hOut) point(n.x + n.hOut.dx, n.y + n.hOut.dy);
-  }
-  return { x, y, w: right - x, h: bottom - y };
-}
-
 /** CSS rotate() scaleX/Y() applies flips FIRST, about the unrotated box centre.
  *  Drawn elementOutline already owns flips; SVG geometry needs them here. */
 function placement(el: SceneElement, flips: boolean): SvgMatrix {
@@ -54,7 +41,11 @@ function placement(el: SceneElement, flips: boolean): SvgMatrix {
 
 function stage(outline: Outline, matrix: SvgMatrix, owner: OutlineOwner, paint: OutlinePaint): StageOutline {
   const nodes = applyToNodes(outline.nodes, matrix);
-  return { nodes, closed: outline.closed, bbox: bounds(nodes), owner, paint };
+  // bbox = the TRUE curve extent (never the control hull, never stroke overhang): the box
+  // refitPath gives a path element, the frame planElementMorph plans a Become in, and the box
+  // correspondence.ts derives for merged chains and tiled pieces. One definition, or a 1↔1
+  // Become planned through the bridge stops reproducing today's.
+  return { nodes, closed: outline.closed, bbox: nodesExtent(nodes, outline.closed), owner, paint };
 }
 
 export function elementStageOutlines(el: SceneElement): StageOutline[] {

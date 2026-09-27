@@ -41,8 +41,8 @@ try {
         // also pins the dash factor.
         const strokeIds = new Set(["peaches.box", "axis.x.spine", "reference-line.mean-y"]);
         for (let c = 0; c < cases.length; c++) {
-          // Curved rings use control-polygon bounds; projecting their local AABB
-          // after rotation is a different (larger) conservative bound. Rotated
+          // A rotated curved ring's bbox is its true rotated extent, while the
+          // oracle projects getBBox()'s LOCAL box corners (a larger bound). Rotated
           // placement is pinned with the box and chains, whose bounds are exact.
           if (asset === 1 && cases[c].rotation) continue;
           const el = { id: "p", type: "plot", assetId: String(asset), ...cases[c] };

@@ -988,8 +988,11 @@ Persistence invariants (all machine-checked — do not weaken):
   Flips precede rotation about the box centre, matching the renderer's CSS list.
   Roots/manifests must be immutable: regeneration replaces their identity and releases
   weak geometry caches. Pass the owning slide's registry as `GeometryCtx.groups` for
-  nested group refs (`SlideFrame` does not carry it). Bounds include control handles,
-  not curve extrema or stroke overhang. Part `paint.strokeWidth`/`dash` are STAGE px:
+  nested group refs (`SlideFrame` does not carry it). `bbox` is the TRUE curve extent
+  (`nodesExtent`), never the control hull or stroke overhang: it is the box `refitPath`
+  gives a path element, the frame `planElementMorph` plans in, and the box
+  `correspondence.ts` derives for merged chains/pieces, so a 1↔1 pair planned through the
+  bridge reproduces today's Become exactly. Part `paint.strokeWidth`/`dash` are STAGE px:
   declared × `fs` × sqrt(sx·sy) (the outer viewBox→box scale), i.e. declared × contentScale
   × px-per-user-unit at any box size (4/3 for a matplotlib pt viewBox), pinned against the
   live computed stroke × screen-CTM scale. Text is a box-only crossfade target: explicit

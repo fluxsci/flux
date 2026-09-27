@@ -4,7 +4,9 @@ import { DOMParser, parseHTML } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import { preparePlot } from "../src/lib/plot/parse";
 import { targetOutlines, partStageOutlines, elementStageOutlines } from "../src/lib/slide/targetGeometry";
-import { pathToNodes, pathToSubpaths } from "../src/lib/path";
+import { pathToNodes, pathToSubpaths, refitPath, nodesExtent } from "../src/lib/path";
+import { planElementMorph } from "../src/lib/slide/outline";
+import { planCorrespondence } from "../src/lib/slide/correspondence";
 import { parseTransform, compose, applyToPoint, applyToNodes, transformToAncestor } from "../src/lib/plot/svgMatrix";
 import { readPaint } from "../src/lib/plot/paint";
 import { ptTrueFactors } from "../src/lib/plot/compensate";
@@ -149,6 +151,21 @@ h.ok(elementStageOutlines(line)[0].paint.arrowEnd, "drawn arrow carries its head
 const groupCtx = { ...ctx, groups: { parent: { name: "parent" }, child: { name: "child", parentId: "parent" } } };
 h.eq(targetOutlines({ element: "r", group: "parent" }, frame([rect, line]), groupCtx).map((o) => o.owner.elementId), ["r","l"], "nested group is union of its members through the shared resolver");
 h.ok(targetOutlines({ element: "p" }, frame([plot({ assetId: "missing" })]), ctx)[0].paint.raster, "unavailable plot root is a raster box");
+// One box definition for the StageOutline currency: the TRUE curve extent (nodesExtent), which is
+// the box refitPath gives a path element, the frame planElementMorph plans a Become in, and the box
+// correspondence.ts gives its merged chains and tiled pieces. A curve whose handles overshoot it
+// (this one's control hull reaches 25 px above the curve) must not change the planner's unit frame.
+const curve = refitPath({ type: "path", id: "curve", x: 50, y: 60, width: 1, height: 1, rotation: 0, closed: false, d: "",
+  nodes: [{ x: 0, y: 100, type: "corner", hOut: { dx: 0, dy: -100 } }, { x: 100, y: 100, type: "corner", hIn: { dx: 0, dy: -100 } }],
+  fill: "none", stroke: "#000000", strokeWidth: 2 } as SceneElement & { type: "path" });
+const curveOutline = elementStageOutlines(curve)[0];
+h.eq(curveOutline.bbox, { x: curve.x, y: curve.y, w: curve.width, h: curve.height }, "a drawn curve's stage bbox is its element box (true curve extent, not the control hull)");
+h.eq(simplePart("multi").concat(ring, b[0], rotated, curveOutline).filter((o) => JSON.stringify(o.bbox) !== JSON.stringify(nodesExtent(o.nodes, o.closed))).length, 0, "every stage bbox equals nodesExtent of its nodes (the box correspondence.ts derives)");
+const oval: SceneElement = { type: "ellipse", id: "oval", x: 300, y: 80, width: 120, height: 60, rotation: 0, fill: "none", stroke: "#000000", strokeWidth: 2 };
+const legacy = planElementMorph(curve, oval)!, viaBridge = planCorrespondence(elementStageOutlines(curve), elementStageOutlines(oval)).pairs[0].plan!;
+const firstDiff = viaBridge.a.findIndex((n, i) => JSON.stringify(n) !== JSON.stringify(legacy.a[i]));
+h.ok(JSON.stringify([viaBridge.a, viaBridge.b, viaBridge.closed]) === JSON.stringify([legacy.a, legacy.b, legacy.closed]),
+  `1↔1 curve → ellipse through targetGeometry + planCorrespondence reproduces today's planElementMorph exactly${firstDiff < 0 ? "" : ` (first differing source node ${firstDiff}: y ${viaBridge.a[firstDiff].y} vs ${legacy.a[firstDiff].y})`}`);
 const deck = createDeck({ withTitleSlide: false }), slide = addSlide(deck, { layout: "blank" });
 addElement(deck, slide.id, rect);
 const beat = addBeat(deck, slide.id)!;
