@@ -2480,7 +2480,7 @@
   ]);
 
   // Shell-routed requests (commandBus): the shell owns Ctrl+K and forwards it
-  // here while Paper is focused; palette "Open mission/notebook/rules" from any
+  // here while Paper is focused; palette "Open project context/notebook/rules" from any
   // mode lands as an openDocRequest.
   // Dual-paper: only the FOCUSED pane acts on shell-routed requests — both
   // panes would otherwise toggle their palettes / load the doc. The counters

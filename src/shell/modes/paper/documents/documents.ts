@@ -17,7 +17,7 @@ export interface DocEntry {
   path: string; // relative to the project root, e.g. "manuscript/main.qmd"
   title: string;
   isMain: boolean;
-  /** Lives under Context/ (mission/notebook/rules …) — grouped separately in the picker. */
+  /** Lives under Context/ (project context/notebook/rules …) — grouped separately in the picker. */
   isContext?: boolean;
 }
 

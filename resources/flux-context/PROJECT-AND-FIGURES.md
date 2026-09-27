@@ -5,11 +5,12 @@
 ```
 <project>/                       # the Flux project (lives INSIDE the analysis dir)
 ├── project.json                 # the manifest / map — read this first (DERIVED rollup, rebuildable)
-├── AGENTS.md                    # stub → routes agents to the two Context folders
+├── AGENTS.md                    # passive pointer to flux-connect
+├── CLAUDE.md                    # @AGENTS.md import
 ├── Context/                     # the agent layer (see README.md here)
-│   ├── Project/MISSION.qmd      #   goals/charter (co-owned with the user)
-│   ├── NOTEBOOK.md              #   the project log (agent-owned)
-│   └── RULES.md                 #   project rules (promoted from feedback)
+│   ├── ProjectContext.qmd       #   background, goals and must-read links
+│   ├── NOTEBOOK.md              #   append-only Log, written on request
+│   └── RULES.md                 #   your standing project rules
 ├── paper/                  # USER-OWNED prose — source of truth
 │   ├── notes.qmd                 #   a starter document; no required main filename
 │   └── notes.comments.json      #   the user's review comments (sidecar; see MANUSCRIPT-AND-REVIEW.md)

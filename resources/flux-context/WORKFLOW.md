@@ -22,11 +22,16 @@ $F config                        # machine paths — note userContextPath + flux
 # <fluxContextPath>/ (stock: README → PROJECT-GUIDE)
 $F list                          # current figures + references
 cat project.json                       # the map
-cat Context/Project/MISSION.qmd        # the project's goals (the charter)
-cat Context/NOTEBOOK.md Context/RULES.md   # running memory + project rules
+cat Context/ProjectContext.qmd   # background and links to must-read material
+cat Context/RULES.md             # standing project rules
+$F read-log --since-checkpoint   # recent Log; --titles indexes all entries
 tail -5 .meta/journal.ndjson     # what changed since last session
 $F feedback && $F comments       # open notes + project-wide document threads (each names its doc)
 ```
+
+When the user asks you to record work, use `$F log --agent "<your model>" --title "…" "…"`.
+The agent/surface/host byline is automatic. Use `--checkpoint` only for a requested summary;
+older entries stay intact.
 
 ## 1. Make plots (in the analysis env → into `plots/`)
 

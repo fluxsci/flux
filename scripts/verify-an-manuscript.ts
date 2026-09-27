@@ -22,11 +22,11 @@ try {
   assert((await core.getManuscript(root)).includes("Fresh prose."), "setManuscript round-trips");
 
   // documents: main + the scaffolded Context docs (agent-agent scheme:
-  // mission/notebook/rules are first-class documents, grouped last)
+  // project context/notebook/rules are first-class documents, grouped last)
   let docs = await core.listDocuments(root);
   assert(!docs[0].isMain && docs[0].path === "paper/notes.qmd" && docs[0].title === "My Paper", "listDocuments sees ordinary starter notes with their title");
   assert(docs.length === 4 && docs.filter((d) => d.isContext).length === 3, `listDocuments sees main + 3 Context docs (${docs.length})`);
-  assert(docs[1].path === "Context/Project/MISSION.qmd", "context group ordered mission-first");
+  assert(docs[1].path === "Context/ProjectContext.qmd", "context group ordered ProjectContext-first");
   const created = await core.createDocument(root, "Supplementary Methods");
   assert(created.path === "paper/supplementary-methods.qmd", `createDocument path (${created.path})`);
   const manifest = JSON.parse(await fs.readFile(path.join(root, "project.json"), "utf8"));

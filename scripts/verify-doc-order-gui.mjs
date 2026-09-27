@@ -77,7 +77,7 @@ const rowBox = async (i) =>
 const start = await rows();
 h.eq(start.docs, [MAIN, ALPHA, SUPP, ZETA], `the default order is main first, then by title (${start.docs.join(" · ")})`);
 const ctx0 = start.ctx;
-h.ok(ctx0.length > 0, `the Context group is listed too (${ctx0.length} rows)`);
+h.eq(ctx0, ["Context/ProjectContext.qmd", "Context/NOTEBOOK.md", "Context/RULES.md"], "Context defaults to project context, notebook, rules");
 h.eq(await activeDoc(), MAIN, "the main manuscript is the open document");
 h.eq(await savedOrder(), null, "nothing is recorded until the user arranges the list");
 

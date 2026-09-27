@@ -20,9 +20,9 @@ try {
   assert(schemas.length >= 6 && schemas.includes("canvas.schema.json"), `6 schemas shipped (${schemas.length})`);
   // Principal-agent scheme (2026-07-19): the verb guide moved to the machine
   // FluxContext (PROJECT-GUIDE.md, re-synced with the app); the scaffolded
-  // AGENTS.md is a stub routing agents to the two Context folders.
+  // AGENTS.md is a passive pointer to flux-connect.
   const agents = await fs.readFile(path.join(root, "AGENTS.md"), "utf8");
-  assert(agents.includes("Context folders") && agents.includes("PRINCIPAL.md") && !agents.includes("compose-figure"),
+  assert(agents.includes("flux-connect") && agents.includes("do not connect unasked") && !agents.includes("compose-figure"),
     "AGENTS.md is the Context stub (verb guide lives in FluxContext/PROJECT-GUIDE.md)");
 
   // a freshly scaffolded project validates clean

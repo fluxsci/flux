@@ -32,28 +32,30 @@ const key = (code, opts = {}) =>
     // and "New folder" actions, so its textContent is "Context +".
     const heads = [...document.querySelectorAll(".docpicker .dp-head .folder-label span")].map((h) => h.textContent?.trim());
     const items = [...document.querySelectorAll(".docpicker .dp-item")].map((b) => b.getAttribute("title"));
-    return { heads, items };
+    const labels = [...document.querySelectorAll(".docpicker .dp-title")].map(b => b.textContent);
+    return { heads, items, labels };
   });
   ok(picker.heads.includes("Context"), "picker shows the Context group");
-  ok(picker.items.includes("Context/Project/MISSION.qmd"), "mission listed");
+  ok(picker.items.includes("Context/ProjectContext.qmd"), "project context listed");
+  ok(picker.labels.some(s => s.startsWith("Project context — ")), "picker uses the ProjectContext title");
   ok(picker.items.includes("Context/NOTEBOOK.md") && picker.items.includes("Context/RULES.md"), "notebook + rules listed (.md docs)");
 }
 
-// --- 2. open the mission from the picker ------------------------------------
+// --- 2. open the project context from the picker ------------------------------------
 {
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll(".docpicker .dp-item")].find(
-      (b) => b.getAttribute("title") === "Context/Project/MISSION.qmd",
+      (b) => b.getAttribute("title") === "Context/ProjectContext.qmd",
     );
     btn?.click();
   });
   await waitFor(
     page,
-    () => (window.__fluxView?.state.doc.toString() ?? "").includes("## Question"),
+    () => (window.__fluxView?.state.doc.toString() ?? "").includes("## Background"),
     null,
-    { timeout: 8000, label: "mission doc loaded in the editor" },
+    { timeout: 8000, label: "project context doc loaded in the editor" },
   );
-  ok(true, "mission opens in the paper editor");
+  ok(true, "project context opens in the paper editor");
 }
 
 // --- 3. shell Ctrl+K routes to the PAPER palette; command switches docs -----
@@ -120,7 +122,7 @@ const key = (code, opts = {}) =>
   const titles = await page.evaluate(() =>
     [...document.querySelectorAll(".global-palette .cp li .ct")].map((n) => n.textContent?.trim()),
   );
-  ok(titles.includes("Open mission") && titles.includes("Note to agent"), "global palette carries the context/agent commands");
+  ok(titles.includes("Open project context") && titles.includes("Note to agent"), "global palette carries the context/agent commands");
   await page.keyboard.press("Escape");
 }
 

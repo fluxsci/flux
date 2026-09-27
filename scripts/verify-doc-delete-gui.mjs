@@ -40,6 +40,10 @@ const rows = () =>
     const uls = [...document.querySelectorAll(".docpicker ul")];
     return { docs: list(uls[0]), ctx: list(uls[1]) };
   });
+h.eq((await rows()).ctx.filter(r => r.path).map(r => r.path),
+  ["Context/ProjectContext.qmd", "Context/NOTEBOOK.md", "Context/RULES.md"],
+  "all three standard Context documents are present");
+
 const activeDoc = () =>
   page.evaluate(() => document.querySelector(".docpicker .dp-item.active")?.getAttribute("title") ?? null);
 const dialogOpen = () => page.evaluate(() => !!document.querySelector("#doc-delete-dialog"));

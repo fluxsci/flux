@@ -177,9 +177,10 @@ usage: flux <verb> [root] [args] [--flags]
   add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)
   feedback [--root R] [--all]          list the user's context-stamped feedback notes
   resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
-  context-init [--root R]              ensure the project's Context/ layer (heal old projects)
-  note <text…> [--title "…"] [--file f] [--author a] [--root R]   append a stamped entry to the notebook's
-                                       Session log under the manuscript lock (concurrent-writer safe)
+  context-init [--root R]              ensure missing Context documents and agent pointers
+  log <text…> [--title "…"] [--file f] [--agent a] [--surface s] [--checkpoint] [--root R]
+                                       append to the project Log when asked (automatic byline, manuscript lock)
+  read-log [--tail n] [--since-checkpoint] [--titles] [--root R]   read parsed Log entries
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe

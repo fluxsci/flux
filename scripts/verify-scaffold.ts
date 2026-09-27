@@ -33,7 +33,7 @@ ok(m.capabilities?.figures === "0.1", "capabilities populated (CLI wrote {})");
 ok(m.authors?.[0]?.name === "A. Author", "author threaded");
 
 // --- tree completeness ------------------------------------------------------------------
-for (const rel of ["README.md", ".gitignore", "AGENTS.md", "references/library.bib", ".meta/journal.ndjson", "paper/notes.qmd"])
+for (const rel of ["README.md", ".gitignore", "AGENTS.md", "CLAUDE.md", "references/library.bib", ".meta/journal.ndjson", "paper/notes.qmd"])
   ok(has(rel), `${rel} written`);
 const figIndex = JSON.parse(read("fig/index.json"));
 ok(figIndex.figures?.length === 1 && figIndex.figures[0].name === "Figure 1", "fig index seeds Figure 1 (CLI wrote an empty index)");
@@ -49,14 +49,18 @@ ok(schemas.length >= 7, `.meta/schema/ ships the contract (${schemas.length} fil
 // every release — PROJECT-GUIDE.md in the machine FluxContext re-syncs with the
 // app. The stock docs themselves are pinned by verify-context-scheme.ts.)
 const agents = read("AGENTS.md");
-ok(/Context folders/.test(agents) && /flux config/.test(agents), "AGENTS.md is the Context stub pointer");
-ok(/PRINCIPAL\.md/.test(agents) && /WORKERS\.md/.test(agents), "stub routes principal vs worker roles");
+ok(agents.includes("# This is a Flux project") && agents.includes("flux-connect"), "AGENTS.md points to flux-connect");
+ok(agents.includes("do not connect unasked"), "stub connects only on request");
+ok(read("CLAUDE.md") === "@AGENTS.md\n", "CLAUDE.md imports the shared pointer");
 ok(!/compose-figure/.test(agents), "the verb guide no longer bakes into projects (lives in FluxContext)");
 
 // --- the project Context layer ------------------------------------------------------------
-ok(has("Context/Project/MISSION.qmd"), "Context mission doc scaffolded");
-ok(has("Context/NOTEBOOK.md") && read("Context/NOTEBOOK.md").includes("Session log"), "Context notebook scaffolded (body + session log)");
+ok(has("Context/ProjectContext.qmd"), "ProjectContext document scaffolded");
+ok(has("Context/NOTEBOOK.md") && read("Context/NOTEBOOK.md").includes("## Log"), "Context notebook scaffolded (Log only)");
 ok(has("Context/RULES.md"), "Context project rules scaffolded");
+
+ok(JSON.stringify(fs.readdirSync(path.join(root, "Context")).sort()) === JSON.stringify(["NOTEBOOK.md", "ProjectContext.qmd", "RULES.md"]), "Context tree has only the standard documents");
+ok(read(".gitignore").includes(".meta/archive/") && read(".gitignore").includes(".meta/feedback/"), "archives and annotation images are ignored");
 
 // --- validate: the scaffolded tree passes its own shipped schemas ------------------------
 const v = await core.validate(root);
@@ -66,7 +70,7 @@ ok(v.ok, `flux validate passes on a fresh scaffold (${v.checked} files checked)`
 const tree = buildScaffoldTree({ title: "Consolidation Test", author: "A. Author" }, createDeck({ title: "Consolidation Test" }));
 const wroteSet = new Set(tree.files.map(([rel]) => rel.replace(/slides\/[^/]+\//, "slides/<deck>/")));
 const diskSet = new Set(
-  ["project.json", "AGENTS.md", "README.md", ".gitignore", "paper/notes.qmd", "paper/_quarto.yml", "references/library.bib", "fig/index.json", "fig/canvases/canvas-1.json", deckRel.replace(/slides\/[^/]+\//, "slides/<deck>/"), ".meta/journal.ndjson", "Context/Project/MISSION.qmd", "Context/NOTEBOOK.md", "Context/RULES.md", ...schemas.map((s) => `.meta/schema/${s}`)],
+  ["project.json", "AGENTS.md", "CLAUDE.md", "README.md", ".gitignore", "paper/notes.qmd", "paper/_quarto.yml", "references/library.bib", "fig/index.json", "fig/canvases/canvas-1.json", deckRel.replace(/slides\/[^/]+\//, "slides/<deck>/"), ".meta/journal.ndjson", "Context/ProjectContext.qmd", "Context/NOTEBOOK.md", "Context/RULES.md", ...schemas.map((s) => `.meta/schema/${s}`)],
 );
 ok([...wroteSet].every((f) => diskSet.has(f)) && wroteSet.size === diskSet.size, `one tree, both engines (${wroteSet.size} files)`);
 

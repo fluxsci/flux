@@ -76,7 +76,6 @@ export async function readProjectDependencies(root: string, io: DependencyIO, li
     try { entries = await io.readdir(`${root}/${rel}`); } catch { return; }
     for (const e of entries) {
       if (e.name.startsWith(".")) continue;
-      if (rel === "Context" && (e.name === "Transcripts" || e.name === "Dispatches")) continue;
       const path = `${rel}/${e.name}`;
       if (e.dir) await walk(path, depth + 1);
       else if (/\.(qmd|md)$/i.test(e.name) && !rel.startsWith("slides/")) docs.add(path);

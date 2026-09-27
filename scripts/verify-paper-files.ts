@@ -65,13 +65,12 @@ try {
   h.ok((await io.read(created.path)).includes('../../../references/library.bib'),'nested creation uses the correct relative bibliography');
   await io.write('manuscript/legacy/deep/old.md','# Old notes\n');
   await io.write('Context/Reading/analysis.md','# Analysis\n');
-  await io.write('Context/Transcripts/ignore.md','not a document');
   await io.write('paper/.hidden.qmd','not a document');
   await io.write('paper/.hidden-folder/notes.md','not a document');
   const listing = await listDocuments(root);
   h.ok(listing.some(d=>d.path==='manuscript/legacy/deep/old.md'),'legacy manuscript tree remains discoverable alongside paper');
   h.ok(listing.some(d=>d.path==='Context/Reading/analysis.md'),'custom Context descendants are discoverable');
-  h.ok(!listing.some(d=>/ignore|\.hidden/.test(d.path)),'archives and dot files/folders stay out');
+  h.ok(!listing.some(d=>/\.hidden/.test(d.path)),'dot files/folders stay out');
   m = JSON.parse(await io.read('project.json'));
   const scan = await discoverDocuments(m,io);
   h.ok(scan.folders.includes('paper/Empty'),'empty folders survive scans');
@@ -142,13 +141,18 @@ try {
   try { await moveDocumentFile(m,{...io,create:async(r,t)=>{ if(r==='paper/Rollback/methods.qmd') { await io.write(r,'concurrent creator'); raced=true; } await io.create(r,t); }},result.path,'paper/Rollback'); } catch {}
   h.ok(raced && await io.read('paper/Rollback/methods.qmd')==='concurrent creator' && await io.read(result.path)===before,'destination created during the move is never overwritten or deleted by rollback');
 
-  for(const bad of ['../escape','paper/../escape','Context/Transcripts','paper/hidden/../../escape']) {
+  for(const bad of ['../escape','paper/../escape','paper/hidden/../../escape']) {
     let failed=false;try{await createFolder(root,bad,'new');}catch{failed=true;}h.ok(failed,`unsafe or reserved destination refused: ${bad}`);
   }
   await deleteDocument(root,'Context/Reading/analysis.md');
   h.ok(!await io.exists('Context/Reading/analysis.md'),'custom Context documents are deletable');
-  let protectedStock=false;try{await deleteDocument(root,'Context/NOTEBOOK.md');}catch{protectedStock=true;}
-  h.ok(protectedStock,'standard Context files remain protected');
+  for (const rel of ['Context/ProjectContext.qmd', 'Context/NOTEBOOK.md', 'Context/RULES.md']) {
+    const original = await io.read(rel);
+    let protectedStock=false;try{await deleteDocument(root,rel);}catch{protectedStock=true;}
+    h.ok(protectedStock && await io.read(rel)===original,`${rel} refuses deletion without changes`);
+    let protectedMove=false;try{await moveDocument(root,rel,'paper');}catch{protectedMove=true;}
+    h.ok(protectedMove && await io.read(rel)===original,`${rel} refuses moves without changes`);
+  }
   await deleteDocument(root,'paper/notes.qmd');
   h.ok(!await io.exists('paper/notes.qmd'),'starter notes are deletable');
   for (const d of await listDocuments(root)) if (!d.isContext) await deleteDocument(root,d.path);

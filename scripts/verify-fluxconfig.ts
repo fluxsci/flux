@@ -160,6 +160,12 @@ if (process.platform !== "win32") {
     );
     const seededWho = fs.readFileSync(path.join(uc1, "WHO-AM-I.md"), "utf8");
     assert(seededWho.includes("not filled out yet"), "UserContext WHO-AM-I.md seeded blank");
+    assert(seededWho.includes("every flux-connected agent reads it") && seededRules.includes("every flux-connected agent"), "seed wording describes connected agents");
+    const skillsReadme = path.join(uc1, "Skills", "README.md");
+    const skillsSeed = fs.readFileSync(skillsReadme, "utf8");
+    assert(skillsSeed.includes("Skills/<name>/SKILL.md") && skillsSeed.includes("name: stats-conventions") && skillsSeed.includes("description:"), "Skills README seeds the Agent Skills format");
+    assert(skillsSeed.includes("/stats-conventions") && skillsSeed.includes("$stats-conventions"), "Skills README explains publication to agents");
+    fs.writeFileSync(skillsReadme, "My edited skill instructions\n");
     assert(!fs.existsSync(path.join(cfg, "Guidelines")), "no legacy Guidelines dir on a fresh machine");
     const fc1 = path.join(cfg, "Context", "FluxContext");
     assert(fs.readFileSync(path.join(fc1, "README.md"), "utf8").includes("UserContext"), "FluxContext stock docs synced");
@@ -185,6 +191,26 @@ if (process.platform !== "win32") {
     assert(again.fluxLibPath === info.fluxLibPath, "re-run resolves identically");
     assert(snapshot(path.join(scratch, "t1")) === before, "re-run is a no-op (snapshot unchanged)");
     assert(fs.readFileSync(shim, "utf8").includes("my own flux"), "a user-owned (unmarked) flux shim is never clobbered");
+
+    assert(fs.readFileSync(skillsReadme, "utf8") === "My edited skill instructions\n", "Skills README is seeded once, never overwritten");
+
+    // -- generic stock pruning works even when the content hash is unchanged
+    fs.writeFileSync(path.join(fc1, "OLD.md"), "stale stock\n");
+    fs.writeFileSync(path.join(fc1, "keep.txt"), "not markdown\n");
+    fs.mkdirSync(path.join(fc1, "nested"));
+    fs.writeFileSync(path.join(fc1, "nested", "keep.md"), "nested\n");
+    fs.writeFileSync(path.join(uc1, "OLD.md"), "user-owned\n");
+    const pruned = await fp.ensureFluxConfig();
+    assert(!fs.existsSync(path.join(fc1, "OLD.md")), "generic prune removes a direct stray Markdown file");
+    assert(fs.existsSync(path.join(fc1, "keep.txt")) && fs.existsSync(path.join(fc1, "nested", "keep.md")), "prune leaves non-Markdown files and nested content alone");
+    assert(fs.readFileSync(path.join(uc1, "OLD.md"), "utf8") === "user-owned\n", "prune never touches UserContext");
+    assert(pruned.events.some((e: {action: string; detail: string}) => e.action === "prune-fluxcontext" && e.detail === "OLD.md"), "prune event records the removed names");
+    fs.unlinkSync(path.join(fc1, "WORKFLOW.md"));
+    await fp.ensureFluxConfig();
+    assert(fs.existsSync(path.join(fc1, "WORKFLOW.md")), "missing stock document heals with a current hash");
+    const afterPrune = snapshot(path.join(scratch, "t1"));
+    await fp.ensureFluxConfig();
+    assert(snapshot(path.join(scratch, "t1")) === afterPrune, "prune and heal settle to a no-op");
 
     // -- resolver honors post-migration + pre-migration states
     assert(fp.resolveFluxLibPathSync({ fluxConfigPath: cfg }) === path.join(cfg, "FluxLib"), "resolver: derived wins when it exists");

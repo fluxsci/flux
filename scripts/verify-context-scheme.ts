@@ -66,10 +66,64 @@ const docs = (docsMod.FLUX_CONTEXT_FILES ? docsMod : docsMod.default) as {
 const tpl = await import("../src/lib/project/contextTemplates");
 {
   const entries = tpl.contextScaffoldEntries("My Study");
-  const mission = entries.files.find(([r]) => r === "Context/Project/MISSION.qmd")?.[1] ?? "";
-  ok(/^---\ntitle: "Mission — My Study"/.test(mission), "mission template carries front-matter title (paper-doc discovery)");
+  const projectContext = entries.files.find(([r]) => r === "Context/ProjectContext.qmd")?.[1] ?? "";
+  ok(/^---\ntitle: "Project context — My Study"/.test(projectContext), "project context template carries front-matter title (paper-doc discovery)");
+  h.eq(entries.dirs, ["Context"], "Context has no scaffolded subfolders");
+  h.eq(entries.files.map(([rel]) => rel), [...tpl.CONTEXT_DOC_RELS], "the three stock documents are in display order");
+  ok(projectContext.includes("file AND every file it links") && projectContext.includes("## Background"), "ProjectContext is the must-read hub");
+  const instruction = '*(Append-only, newest last: `### YYYY-MM-DD HH:MM — title`, For each entry, note which agent you are and where you are working from (cli/vsCode/desktop app/etc.). Use as much detail as is appropriate for the entry you are making, which could be anything from a very concise sentence or two to a highly-detailed multi-paragraph or multi-page entry)*';
+  ok(tpl.notebookTemplate().includes(instruction), "notebook instruction is the owner's verbatim text");
+  h.eq(tpl.notebookTemplate().match(/^## .+$/gm), ["## Log"], "new notebook has only the Log section");
+  h.eq(tpl.claudeStubTemplate(), "@AGENTS.md\n", "CLAUDE.md is exactly the AGENTS.md import");
+  ok(tpl.agentsStubTemplate().includes("do not connect unasked") && !/`flux[ `]/.test(tpl.agentsStubTemplate()), "agent pointer is passive and never invokes bare flux");
   ok(tpl.isRetiredAgentsGuide("# X — agent guide\n\nblah The file *is* the API blah"), "retired-guide detector: positive");
   ok(!tpl.isRetiredAgentsGuide("# my own notes\nThe file *is* the API"), "retired-guide detector: user-authored spared");
+}
+
+// --- heal parity: both engines add missing files and preserve authored bytes ---
+{
+  const core = await import("../flux-core/context");
+  const { ensureProjectContext: guiHeal } = await import("../src/lib/project/contextHeal");
+  const { buildScaffoldTree } = await import("../src/lib/project/scaffoldTree");
+  const { createDeck } = await import("../src/lib/slide/ops");
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "context-heal-"));
+  const manifest = buildScaffoldTree({title: "Heal Test"}, createDeck({title: "Talk"})).manifest;
+  const priorWindow = (globalThis as any).window;
+  (globalThis as any).window = { fig: {
+    exists: async (p: string) => fs.existsSync(p),
+    mkdir: async (p: string) => { fs.mkdirSync(p, {recursive: true}); },
+    readText: async (p: string) => fs.readFileSync(p, "utf8"),
+    writeText: async (p: string, text: string, opts?: {createOnly?: boolean}) => { fs.writeFileSync(p, text, {flag: opts?.createOnly ? "wx" : "w"}); },
+  } };
+  try {
+    for (const [name, heal] of [
+      ["Node", (root: string) => core.ensureProjectContext(root)],
+      ["GUI", (root: string) => guiHeal({root, manifest})],
+    ] as const) {
+      const root = path.join(scratch, name);
+      fs.mkdirSync(root);
+      h.eq(await heal(root), {created: [], skipped: "not-a-project"}, `${name}: requires project.json`);
+      h.eq(fs.readdirSync(root), [], `${name}: non-project stays empty`);
+      fs.writeFileSync(path.join(root, "project.json"), JSON.stringify(manifest));
+      const healed = await heal(root);
+      const stock = [...tpl.contextScaffoldEntries(manifest.title).files, ["AGENTS.md", tpl.agentsStubTemplate()], ["CLAUDE.md", tpl.claudeStubTemplate()]];
+      for (const [rel, body] of stock) h.eq(fs.readFileSync(path.join(root, rel), "utf8"), body, `${name}: ${rel} matches shared template`);
+      ok(healed.created.includes("CLAUDE.md") && !healed.skipped, `${name}: reports created pointers`);
+      h.eq((await heal(root)).created, [], `${name}: second heal is a no-op`);
+      for (const [rel] of stock) fs.writeFileSync(path.join(root, rel), `User's ${rel}\n`);
+      fs.unlinkSync(path.join(root, tpl.CONTEXT_PATHS.projectContext));
+      h.eq((await heal(root)).created, [tpl.CONTEXT_PATHS.projectContext], `${name}: heals a single missing document`);
+      for (const [rel] of stock.filter(([rel]) => rel !== tpl.CONTEXT_PATHS.projectContext))
+        h.eq(fs.readFileSync(path.join(root, rel), "utf8"), `User's ${rel}\n`, `${name}: preserves edited ${rel}`);
+      fs.writeFileSync(path.join(root, "AGENTS.md"), "# Test — agent guide\nThe file *is* the API\n");
+      await heal(root);
+      h.eq(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), tpl.agentsStubTemplate(), `${name}: replaces the retired generated verb guide`);
+      h.eq(fs.readdirSync(path.join(root, "Context")).sort(), ["NOTEBOOK.md", "ProjectContext.qmd", "RULES.md"], `${name}: only the three standard documents are created`);
+    }
+  } finally {
+    if (priorWindow === undefined) delete (globalThis as any).window; else (globalThis as any).window = priorWindow;
+    fs.rmSync(scratch, {recursive: true, force: true});
+  }
 }
 
 // --- 5. FluxContext re-sync when the checkout MOVED ------------------------

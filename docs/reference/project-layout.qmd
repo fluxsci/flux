@@ -26,12 +26,15 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 │   └── renders/                 #   derived static renders
 ├── slides/<deckId>/deck.json    # APP-MANAGED — one deck per folder (+ its assets/)
 ├── references/library.bib       # YOURS — the project's cited subset (BibTeX)
+├── AGENTS.md                    # passive pointer to flux-connect
+├── CLAUDE.md                    # imports AGENTS.md
 ├── Context/                     # the agent layer
-│   ├── Project/MISSION.qmd      #   the charter (co-owned: you have final say)
-│   ├── NOTEBOOK.md              #   the project notebook
-│   └── RULES.md                 #   project rules (recurring feedback lands here)
+│   ├── ProjectContext.qmd       #   background, goals, data and must-read links
+│   ├── NOTEBOOK.md              #   append-only Log, written when requested
+│   └── RULES.md                 #   your standing project rules
 ├── styles/  assets/  exports/   # figure styles · media · compiled output (derived)
 └── .meta/                       # tool state: journal, feedback ledger, locks, schemas
+    └── archive/                 # historical material moved by the one-shot migration
 ```
 
 # Ownership at a glance
@@ -39,7 +42,7 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 | Kind | Paths | Rule |
 |---|---|---|
 | **Yours — edit freely** | `paper/**.qmd` (legacy: `manuscript/`), `plots/`, `references/library.bib` | Source of truth. Edit in Flux, another editor, or a script — all equivalent. |
-| **Co-owned with agents** | `Context/` | Mission and rules are shared; `NOTEBOOK.md` is the agent's memory — read and comment rather than rewrite. |
+| **Co-owned with agents** | `Context/` | ProjectContext links the background agents need; rules are yours; the Log gets new entries only when requested. |
 | **App-managed** | `fig/`, `slides/` | Readable JSON, but change it through the app or [`flux` commands](cli.qmd) so indexes and captions stay coherent. |
 | **Derived** | `fig/renders/`, `exports/`, caches | Rebuildable output. Safe to ignore in backups and version control. |
 

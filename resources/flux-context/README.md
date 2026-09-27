@@ -1,7 +1,8 @@
 # The Flux context system (stock — shipped with Flux, do not edit)
 
 This folder (`FluxContext/`) is **stock documentation shipped with Flux**. It is overwritten
-on every Flux update. User-editable context lives in the sibling folder `UserContext/`.
+on every Flux update; Markdown files absent from the stock set are removed. Put your own
+context in the sibling folder `UserContext/`.
 
 ## The two Context folders
 
@@ -13,18 +14,20 @@ All agent memory, context, and instructions live in exactly two places:
     WHO-AM-I.md                  #   the user: background, expertise, interests, taste
     RULES.md                     #   global rules applying to ALL projects (+ any sibling
                                  #   files/images the user adds — read everything here)
+    Skills/<name>/SKILL.md        #   your procedures, published to connected agents
   FluxContext/                   # HOW to work in Flux (stock, app-owned — this folder)
 
 <project>/Context/               # project level (inside every Flux project)
-  RULES.md                       # rules for THIS project (human + agent co-owned)
-  NOTEBOOK.md                    # the agent's memory of the project (agent-owned)
-  Project/
-    MISSION.qmd                  # goals, scope, scientific context (co-owned charter)
+  RULES.md                       # your standing rules for THIS project
+  NOTEBOOK.md                    # append-only Log; entries only when requested
+  ProjectContext.qmd             # background, goals and links every connected agent reads
 ```
 
 ## Who reads what
 
-Agents read UserContext, then this folder's README, then the project's Context/.
+Every flux-connected agent reads UserContext, ProjectContext and its linked files, project
+rules, and the recent Log. Project-root `AGENTS.md` suggests connecting only when asked;
+`CLAUDE.md` imports that pointer with `@AGENTS.md`.
 
 ## File ownership (who writes what)
 
@@ -33,9 +36,9 @@ Agents read UserContext, then this folder's README, then the project's Context/.
 | `UserContext/WHO-AM-I.md` | the user | read only |
 | `UserContext/RULES.md` (+siblings) | the user | agent may PROPOSE edits |
 | `FluxContext/**` | Flux itself | nobody edits (overwritten on update) |
-| `<project>/Context/RULES.md` | co-owned | agent promotes standing preferences here |
-| `<project>/Context/NOTEBOOK.md` | the agent | the user reads + leaves comments |
-| `<project>/Context/Project/MISSION.qmd` | co-owned | user has final say |
+| `<project>/Context/RULES.md` | the user | agent may propose standing preferences |
+| `<project>/Context/NOTEBOOK.md` | the user and requested agents | append entries; read and leave comments |
+| `<project>/Context/ProjectContext.qmd` | co-owned | user has final say |
 
 ## The other stock files here
 

@@ -7,7 +7,7 @@
 //
 // What must hold, and why:
 //   • with no `documentOrder`, the order is EXACTLY the historical default
-//     (main first, then title; the Context group last, mission→notebook→rules)
+//     (main first, then title; the Context group last, project context→notebook→rules)
 //     — an existing project must not shuffle the day this ships
 //   • a recorded order wins, and it is order ONLY: no file is renamed or moved
 //   • it self-heals a scan: a path that no longer exists is ignored, and a
@@ -55,14 +55,14 @@ h.section("no recorded order = the historical default");
   const rows = [
     row("Context/RULES.md", "Rules", { isContext: true }),
     row("manuscript/main.qmd", "My Paper", { isMain: true }),
-    row("Context/Project/MISSION.qmd", "Mission", { isContext: true }),
+    row("Context/ProjectContext.qmd", "Project context", { isContext: true }),
     row("Context/NOTEBOOK.md", "Notebook", { isContext: true }),
     row("manuscript/alpha.qmd", "Alpha"),
   ];
   h.eq(
     paths(sortDocuments(rows)),
-    [M, A, "Context/Project/MISSION.qmd", "Context/NOTEBOOK.md", "Context/RULES.md"],
-    "the Context group is last, in mission → notebook → rules order",
+    [M, A, "Context/ProjectContext.qmd", "Context/NOTEBOOK.md", "Context/RULES.md"],
+    "the Context group is last, in project context → notebook → rules order",
   );
 }
 
@@ -133,22 +133,22 @@ h.section("Documents and Context never bleed together");
   const rows = [
     row("manuscript/main.qmd", "My Paper", { isMain: true }),
     row("manuscript/alpha.qmd", "Alpha"),
-    row("Context/Project/MISSION.qmd", "Mission", { isContext: true }),
+    row("Context/ProjectContext.qmd", "Project context", { isContext: true }),
     row("Context/NOTEBOOK.md", "Notebook", { isContext: true }),
   ];
   h.eq(
     reorderDocuments(rows, undefined, [A], 1),
-    [M, A, "Context/Project/MISSION.qmd", "Context/NOTEBOOK.md"],
+    [M, A, "Context/ProjectContext.qmd", "Context/NOTEBOOK.md"],
     "a document move leaves the Context group untouched, still last",
   );
   h.eq(
     reorderDocuments(rows, undefined, ["Context/NOTEBOOK.md"], 0),
-    [M, A, "Context/NOTEBOOK.md", "Context/Project/MISSION.qmd"],
+    [M, A, "Context/NOTEBOOK.md", "Context/ProjectContext.qmd"],
     "a Context row reorders inside its own group, below the documents",
   );
   h.eq(
     reorderDocuments(rows, undefined, [A, "Context/NOTEBOOK.md"], 0),
-    [A, M, "Context/Project/MISSION.qmd", "Context/NOTEBOOK.md"],
+    [A, M, "Context/ProjectContext.qmd", "Context/NOTEBOOK.md"],
     "a foreign-group path in the pick is ignored, not dragged across",
   );
   const ctxFirst = reorderDocuments(rows, undefined, ["Context/NOTEBOOK.md"], 0);

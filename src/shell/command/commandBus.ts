@@ -13,7 +13,7 @@ export function requestPaperPalette(): void {
   paperPaletteRequest.update((n) => n + 1);
 }
 
-/** "Open this project-relative document in Paper mode" (mission/notebook/rules…). */
+/** "Open this project-relative document in Paper mode" (project context/notebook/rules…). */
 export const openDocRequest = writable<{ path: string; n: number } | null>(null);
 let dn = 0;
 export function requestOpenDoc(path: string): void {

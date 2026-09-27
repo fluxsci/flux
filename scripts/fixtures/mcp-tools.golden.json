@@ -82,8 +82,8 @@
   "move_document",
   "move_track",
   "normalize_embeds",
-  "note",
   "organize_paper",
+  "read_log",
   "reconcile",
   "reindex",
   "related_works",
@@ -138,5 +138,6 @@
   "validate_deck",
   "validate_plot",
   "validate_project",
+  "write_log",
   "zotero_sync"
 ]

@@ -54,7 +54,7 @@ capabilities as the GUI, through three surfaces:
 - **Context layer + review channels**: agent context lives in two folders —
   `<FluxConfig>/Context/{UserContext,FluxContext}` (user identity/rules + stock docs
   synced from `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`)
-  and `<project>/Context/` (MISSION/NOTEBOOK/RULES as first-class Paper documents).
+  and `<project>/Context/` (ProjectContext/NOTEBOOK/RULES as first-class Paper documents).
   Agents use the CLI/MCP tools alongside the app. The feedback ledger
   (`.meta/feedback.ndjson`, append-only, shared core `src/lib/project/feedback.ts`)
   carries context-stamped review notes (Ctrl+Shift+M capture); agents read and resolve
@@ -100,6 +100,7 @@ The established shared cores — extend these, don't duplicate them:
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
+| Context templates, Log insertion and parsing | `src/lib/project/contextTemplates.ts` | `verify-context-scheme.ts` (GUI/Node heal parity), `verify-log.ts` (locked writes, parsing and concurrent writers) |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
@@ -108,11 +109,13 @@ The established shared cores — extend these, don't duplicate them:
 ## 3. Data model and persistence invariants
 
 A project is a folder: `project.json` (manifest), `paper/**.qmd` (text is truth; legacy `manuscript/` remains supported),
-`Context/` (the agent layer: `Project/MISSION.qmd` + `NOTEBOOK.md` + `RULES.md` are
+`Context/` (the agent layer: `ProjectContext.qmd` + `NOTEBOOK.md` + `RULES.md` are
 first-class paper documents — discovered by the Context scan in both listDocuments
 twins, comments sidecars derive beside them, watcher subsystem "context" rides the
 manuscript reload chain;
-pre-Context projects heal on open via contextHeal.ts / `flux context-init`),
+missing standard files heal on open via contextHeal.ts / `flux context-init`, only when
+`project.json` exists; project-root `AGENTS.md` is a passive flux-connect pointer and
+`CLAUDE.md` imports it with `@AGENTS.md`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
 `slides/<deckId>/deck.json` (0.5.0: shared figure editor elements plus slide-only video
 and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
@@ -139,6 +142,18 @@ without waiting on history IO. Renderer localStorage recents remain independent.
 Gate: `verify-projects-registry.ts` (scratch HOME/XDG, concurrent writers and IO faults).
 
 Persistence invariants (all machine-checked — do not weaken):
+
+- **ProjectContext is the must-read hub; the notebook is an append-only Log.**
+  `flux log` / `write_log` appends only when asked, always at EOF, under the manuscript
+  lock, with an agent · surface · host:cwd byline. `parseLog` is pure and shared with
+  `read-log` / `read_log`; it accepts dated H2/H3 entries, with optional time/byline,
+  and ignores fenced/commented examples. Checkpoints change the reading range, never
+  delete history. Complete reference recovery before taking the manuscript lease.
+  `writeLog` accepts a caller `identity` and `cwd` (MCP supplies null when unknown).
+  Missing Context documents and agent pointers heal additively; existing documents
+  and user-written stubs stay untouched. Renaming old layouts belongs to the one-shot
+  migration script, never the app. Stock FluxContext Markdown files absent from the
+  bundled set are pruned generically; UserContext and its Skills README are seeded once.
 
 - **Review discovery is project-wide by default**: headless `comments` / `list_comments`
   scans every canonical document (including Context documents) and attaches the owning
@@ -293,7 +308,7 @@ Persistence invariants (all machine-checked — do not weaken):
   a recursive SCAN (registered paths + paper/** + manuscript/** + Context/**), not a stored list, so the order
   is a ranking, not the source of truth: `sortDocuments` ranks what the array names and falls
   back to the historical default (main first, then title; Context group last,
-  mission→notebook→rules) for everything else, a path that no longer exists is ignored, and a
+  project context→notebook→rules) for everything else, a path that no longer exists is ignored, and a
   newly discovered document sorts last within its group. `reorderDocuments` is the one
   primitive (the documents' `reorderFigures`) and returns the COMPLETE new order, so an
   arrangement can never be reshuffled later by a retitle. Both `listDocuments` twins call the
@@ -323,8 +338,8 @@ Persistence invariants (all machine-checked — do not weaken):
   `verify-doc-delete.ts` (pure, also executes the CLI) + `verify-doc-delete-gui.mjs` (ui, in
   paper-gate).
 - **Paper file moves have a shared IO-independent core** (`documentFiles.ts`). Discovery
-  scans both paper/manuscript roots recursively, including empty folders, plus Context
-  without its Transcripts/Dispatches archives; dot files stay excluded. Generated
+  scans both paper/manuscript roots recursively, including empty folders, plus Context;
+  all ordinary Context folders are discoverable and dot files stay excluded. Generated
   Quarto output/cache trees are pruned before recursion (suffixes need a matching source or
   generated-content signature); unused root `sections/` scaffolds stay hidden. New folders
   carry `.flux-folder` to preserve explicit intent even for empty or generated-looking names;
@@ -7056,3 +7071,13 @@ open recording; its gate passes 41 checks, the full pure tier passes 291/291, Sv
 orchestrator; no packaged or macOS qualification is claimed.
 **Learnings:** Promoted the macOS optional-prebuilt prerequisite and Node ancestor-resolution
 trap into §9, corrected the retired packaging limitation, and documented registry ownership in §3.
+
+### 2026-09-27 06:26 UTC — ProjectContext and the Log (Codex, aio-w2a-context)
+**Work:** Replaced the mission template and its consumers with ProjectContext, added passive
+AGENTS/CLAUDE pointers and project-only additive healing, and implemented locked `log` writes
+plus shared parsing and `read-log`. Removed archive discovery exceptions, added generic stock
+manual pruning and the user Skills seed, and updated the affected docs and gates. Local
+verification and the UI/native gates reserved for integration are recorded in the worker report.
+**Learnings:**
+- Promoted the EOF Log rule, byline caller contract and no in-app Context migration rule into
+  the body. Registry runtime-export checks treat `core.*` as values; use type imports for types.

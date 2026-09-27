@@ -43,6 +43,13 @@ text stays honest.
   New projects allow every ordinary document to be deleted, including the starter notes.
   An older project's designated main manuscript and the standard Context files remain protected.
 
+The **Context** folder contains `ProjectContext.qmd` (background, goals, and links agents
+should read), `NOTEBOOK.md` (the append-only **Log**, newest last), and `RULES.md` (your
+standing project rules). Open and comment on these just like other documents. Log entries
+are written when you ask, with an automatic agent and location byline; checkpoints keep
+older history intact. The project-root `AGENTS.md` suggests flux-connect when needed and
+`CLAUDE.md` imports it. Neither connects an agent automatically.
+
 New projects store documents in **`paper/`**, starting with `notes.qmd`. There is no required
 `main.qmd` filename. You can add research notes, protocols, reports, and drafts in the same
 project. Existing **`manuscript/`** folders continue to work without renaming or conversion;

@@ -106,10 +106,12 @@ The ledger is event-sourced and append-only — never rewrite it; use the verbs.
 
 ## Context docs are documents too
 
-`Context/Project/MISSION.qmd`, `Context/NOTEBOOK.md`, and `Context/RULES.md` open in Flux
+`Context/ProjectContext.qmd`, `Context/NOTEBOOK.md`, and `Context/RULES.md` open in Flux
 Paper like any document, and comments work ON them — the user may leave threads on the
-mission or on your notebook (treat those as corrections to your understanding/memory and
-address them first).
+ProjectContext or notebook. ProjectContext links what connected agents must read; the
+notebook contains the append-only Log. Write entries only when asked, via `flux log`
+(`write_log`), and catch up via `flux read-log` (`read_log`). The byline is automatic;
+`--checkpoint` records a requested summary without replacing earlier entries.
 
 ## Live edits (optional, figure-only, app must be open)
 

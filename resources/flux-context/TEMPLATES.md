@@ -19,7 +19,7 @@ lives inside) so agents launched there can find Flux and its MCP server.
   `Context/FluxContext/README.md`.
 - **Flux project:** `./paper/` (scaffold with
   `{{FLUX_CLI}} new ./paper --title "<title>"` if absent). Its `Context/` holds the
-  mission, notebook, and rules — read them before working.
+  ProjectContext, Log, and rules — read them before working.
 - **Plotting environment:** <env with fluxplot — see UserContext for machine defaults>.
 
 Keep analysis/scratch here; promote only current, reproducible plots into

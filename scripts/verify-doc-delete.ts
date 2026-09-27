@@ -44,6 +44,8 @@ const rows = (): DocRow[] => [
   row(S, "Supplementary Material"),
   row(A, "Alpha"),
   row(NB, "Notebook", { isContext: true }),
+  row("Context/ProjectContext.qmd", "Project context", { isContext: true }),
+  row("Context/RULES.md", "Rules", { isContext: true }),
 ];
 
 // --- the policy --------------------------------------------------------------
@@ -52,7 +54,8 @@ h.section("what may be deleted");
   h.eq(documentRemovalBlocker(rows(), S), null, "a supplementary document may be deleted");
   h.eq(documentRemovalBlocker(rows(), A), null, "…and so may a scanned section document");
   h.eq(documentRemovalBlocker(rows(), M)?.code, "main", "the main manuscript is refused");
-  h.eq(documentRemovalBlocker(rows(), NB)?.code, "context", "a Context document is refused");
+  for (const rel of ["Context/ProjectContext.qmd", NB, "Context/RULES.md"])
+    h.eq(documentRemovalBlocker(rows(), rel)?.code, "context", `${rel} is protected`);
   h.eq(documentRemovalBlocker(rows(), "manuscript/ghost.qmd")?.code, "unknown", "an unlisted path is refused");
   h.ok(
     !!documentRemovalBlocker(rows(), M)?.reason && !!documentRemovalBlocker(rows(), NB)?.reason,

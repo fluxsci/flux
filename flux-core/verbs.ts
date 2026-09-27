@@ -1988,57 +1988,90 @@ export const VERBS: VerbDef[] = [
     name: "ensure_context",
     cli: "context-init",
     summary:
-      "Ensure this project has its Context/ layer (Project/MISSION.qmd, NOTEBOOK.md, RULES.md) — heals projects created before the Context layer. Additive and existence-guarded; safe to run any time.",
+      "Ensure missing Context/ documents (ProjectContext.qmd, NOTEBOOK.md, RULES.md) and agent pointers exist. Requires project.json; existing documents are preserved.",
     params: {},
     cliArgs: [],
     handler: (ctx) => core.ensureProjectContext(ctx.root),
     render: {
       human: (r) => {
-        const c = r as { created: string[] };
+        const c = r as import("./context").ContextHealResult;
+        if (c.skipped) return { err: "Context initialization skipped: not a Flux project (no project.json)" };
         return { err: c.created.length ? `✓ created: ${c.created.join(", ")}` : "✓ Context layer already complete" };
       },
       mcp: (r) => {
-        const c = r as { created: string[] };
+        const c = r as import("./context").ContextHealResult;
+        if (c.skipped) return text("Context initialization skipped: not a Flux project (no project.json)");
         return text(c.created.length ? `created: ${c.created.join(", ")}` : "Context layer already complete");
       },
     },
   },
   {
-    name: "note",
-    cli: "note",
+    name: "write_log",
+    cli: "log",
     cliRoot: "flags",
     summary:
-      "Append a datetime-stamped entry to the project notebook's Session log (Context/NOTEBOOK.md). The read→insert→write runs under the manuscript lock, so entries from concurrent agents serialize (never clobber) and a human mid-edit defers it — ALWAYS write session-log entries through this verb, never by hand-editing the file. Notebook BODY edits stay direct and surgical.",
+      "Append a dated entry to the project Log (Context/NOTEBOOK.md). Only when the user asks for one. The byline (agent · surface · host:cwd) is added automatically. Runs under the manuscript lock.",
     params: {
       text: z.string().optional(),
       file: z.string().optional(),
       title: z.string().optional(),
-      author: z.string().optional(),
+      agent: z.string().optional(),
+      surface: z.string().optional(),
+      checkpoint: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "rest", at: 0, into: "text", as: "joined" },
       { kind: "flag", at: "text", into: "text" },
       { kind: "flag", at: "file", into: "file", as: "path" },
       { kind: "flag", at: "title", into: "title" },
-      { kind: "flag", at: "author", into: "author" },
+      { kind: "flag", at: "agent", into: "agent" },
+      { kind: "flag", at: "surface", into: "surface" },
+      { kind: "flag", at: "checkpoint", into: "checkpoint", as: "boolean" },
     ],
-    handler: (ctx, a) =>
-      core.addNote(ctx.root, {
+    handler: (ctx, a) => {
+      const caller = ctx as typeof ctx & import("./context").LogCaller;
+      return core.writeLog(ctx.root, {
         text: a.text as string | undefined,
         file: a.file as string | undefined,
         title: a.title as string | undefined,
-        author: a.author as string | undefined,
-      }),
+        agent: a.agent as string | undefined,
+        surface: a.surface as string | undefined,
+        checkpoint: a.checkpoint as boolean | undefined,
+        identity: caller.identity,
+        cwd: caller.cwd,
+      });
+    },
     render: {
       human: (r) => {
-        const c = r as { rel: string; heading: string; createdSection: boolean };
-        return { err: `✓ noted → ${c.rel} (${c.heading})${c.createdSection ? " — Session log section created" : ""}` };
+        const c = r as import("./context").LogResult;
+        return { err: `✓ logged → ${c.rel} (${c.heading})${c.createdSection ? " — Log section created" : ""}` };
       },
       mcp: (r) => {
-        const c = r as { rel: string; heading: string };
-        return text(`noted → ${c.rel} (${c.heading})`);
+        const c = r as import("./context").LogResult;
+        return text(`logged → ${c.rel} (${c.heading})`);
       },
     },
+  },
+  {
+    name: "read_log",
+    cli: "read-log",
+    cliRoot: "flags",
+    summary: "Read the project Log as dated entries, optionally the latest entries, from the latest checkpoint, or titles only. Does not change the notebook.",
+    params: {
+      tail: z.number().int().nonnegative().optional(),
+      sinceCheckpoint: z.boolean().optional(),
+      titles: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "tail", into: "tail", as: "number" },
+      { kind: "flag", at: "since-checkpoint", into: "sinceCheckpoint", as: "boolean" },
+      { kind: "flag", at: "titles", into: "titles", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.readLog(ctx.root, {
+      tail: a.tail as number | undefined,
+      sinceCheckpoint: a.sinceCheckpoint as boolean | undefined,
+      titles: a.titles as boolean | undefined,
+    }),
   },
   {
     name: "add_annotation",

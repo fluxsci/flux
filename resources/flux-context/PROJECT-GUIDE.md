@@ -8,7 +8,7 @@ open you can also read its live UI state and act on the human's current selectio
 
 ## Read first
 1. `project.json` — the map (title, authors, documents, figures rollup, references).
-2. `Context/` — the project's agent layer: `Project/MISSION.qmd` (goals),
+2. `Context/` — the project's agent layer: `ProjectContext.qmd` (background, goals and links to must-read files),
    `NOTEBOOK.md` (the project log), `RULES.md` (project rules). See the sibling `README.md` here.
 3. `flux list` — figures + references at a glance.
 
@@ -23,8 +23,9 @@ open you can also read its live UI state and act on the human's current selectio
   New manifests use `documentRoot`
   and keep `manuscript.path` as an ordinary default export pointer, empty when no documents
   remain. New-project comments are document-named; legacy main comments retain comments.json.
-- `Context/` — the agent context layer (see above). `NOTEBOOK.md` is agent-owned;
-  `MISSION.qmd` and `RULES.md` are co-owned with the user.
+- `Context/` — ProjectContext is the must-read hub; link material agents need there.
+  `RULES.md` holds standing project rules. `NOTEBOOK.md` holds the append-only Log.
+  `AGENTS.md` suggests flux-connect; `CLAUDE.md` imports it. Neither connects unasked.
 - `plots/` — **user-owned**. Analysis software drops plot SVGs here (+ optional
   `*.fluxplot.json` manifest and `*.recipe.json`) in any structure. A plot with a
   manifest imports as a **semantic** panel whose parts are addressable + restylable
@@ -50,9 +51,10 @@ open you can also read its live UI state and act on the human's current selectio
   holds the `project` lock, so a file write **defers with a warning instead of
   clobbering** — retry in a moment. `.meta/live/bridge.json` — the live bridge (below).
 
-Log entries go through `flux note`, which appends to `Context/NOTEBOOK.md` under the
-manuscript lock so concurrent writers cannot overwrite each other. Edit the notebook body
-in place, keeping unrelated content intact.
+Write Log entries **only when asked**, through `flux log --agent "<your model>"`. It appends
+at EOF under the manuscript lock and adds the agent, surface and host/cwd byline.
+`flux read-log` reads parsed entries; `--tail n`, `--titles` and `--since-checkpoint` narrow
+the reading. On request, `flux log --checkpoint` appends a summary without deleting history.
 
 When the user states a standing preference, propose adding it to `Context/RULES.md`.
 Keep one-off requests in their review threads.

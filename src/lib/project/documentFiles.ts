@@ -84,8 +84,7 @@ export function validDocumentFolder(m: ProjectManifest, rel: string): void {
   const root = documentRoot(m);
   if (rel === "" && root === "") return;
   if (!rel || rel.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.') || /[\\\x00-\x1f:*?"<>|]/.test(p)) ||
-      !([root, 'paper', 'manuscript', 'Context'].some(r => rel === r || (!!r && rel.startsWith(r + '/')))) ||
-      /^Context\/(Transcripts|Dispatches)(\/|$)/.test(rel)) throw new Error('Choose a folder within Documents or Context.');
+      !([root, 'paper', 'manuscript', 'Context'].some(r => rel === r || (!!r && rel.startsWith(r + '/'))))) throw new Error('Choose a folder within Documents or Context.');
 }
 
 export async function discoverDocuments(m: ProjectManifest, io: DocumentIO): Promise<{ docs: DocRow[]; folders: string[] }> {
@@ -105,7 +104,6 @@ export async function discoverDocuments(m: ProjectManifest, io: DocumentIO): Pro
     for (const e of entries) {
       if (e.name.startsWith('.')) continue;
       const rel = dir ? `${dir}/${e.name}` : e.name;
-      if (/^Context\/(Transcripts|Dispatches)(\/|$)/.test(rel)) continue;
       if (e.dir) {
         if ((dir || e.name === 'sections') && !await generatedFolder(io, rel, e.name, sourceStems)) await scan(rel);
       }

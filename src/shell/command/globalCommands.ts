@@ -32,7 +32,7 @@ export function contextCommands(opts: { inPaper: boolean; openDoc?: (rel: string
   const cmds: Command[] = [{ id: "figure-metadata", title: "Figure-Meta: captions and names", hint: "Alt+M", keywords: "figure metadata caption name family", run: () => openFigureMeta() }];
   if (hasProject) {
     cmds.push(
-      { id: "ctx-mission", title: "Open mission", hint: "Context", keywords: "goals project charter briefing", run: () => openDoc(CONTEXT_PATHS.mission) },
+      { id: "ctx-project-context", title: "Open project context", hint: "Context", keywords: "background goals project context links briefing", run: () => openDoc(CONTEXT_PATHS.projectContext) },
       { id: "ctx-notebook", title: "Open notebook", hint: "Context", keywords: "agent memory log", run: () => openDoc(CONTEXT_PATHS.notebook) },
       { id: "ctx-rules", title: "Open project rules", hint: "Context", keywords: "conventions", run: () => openDoc(CONTEXT_PATHS.rules) },
     );

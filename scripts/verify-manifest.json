@@ -48,7 +48,7 @@
       "figenh-crop-parity.ts",
       "verify-fluxconfig.ts",
       "verify-feedback.ts",
-      "verify-note.ts",
+      "verify-log.ts",
       "verify-context-scheme.ts",
       "verify-docs.ts",
       "verify-line-arrow.ts",
@@ -1440,7 +1440,14 @@
         "verify-feedback.ts",
         "verify-context-scheme.ts",
         "verify-scaffold.ts",
-        "verify-note.ts"
+        "verify-log.ts",
+        "verify-context-gui.mjs",
+        "verify-doc-order.ts",
+        "verify-doc-delete.ts",
+        "verify-paper-files.ts",
+        "verify-doc-order-gui.mjs",
+        "verify-doc-delete-gui.mjs",
+        "verify-paper-files-gui.mjs"
       ]
     },
     {
@@ -1448,14 +1455,14 @@
       "run": [
         "verify-feedback.ts",
         "verify-registry-parity.ts",
-        "verify-note.ts"
+        "verify-log.ts"
       ]
     },
     {
       "glob": "flux-core/locks.ts",
       "run": [
         "verify-w3-locks.ts",
-        "verify-note.ts",
+        "verify-log.ts",
         "verify-an-journal-locks.ts"
       ]
     },
@@ -3866,7 +3873,7 @@
       "exclusive": true,
       "coverage": "behavior"
     },
-    "verify-note.ts": {
+    "verify-log.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

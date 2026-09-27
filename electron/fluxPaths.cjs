@@ -401,6 +401,13 @@ async function ensureUserContext(cfg, events) {
     await fsp.writeFile(rules, USER_RULES_SEED);
     events.push({ action: "seed-user-rules", detail: rules });
   }
+  const skills = path.join(uc, "Skills");
+  const skillsReadme = path.join(skills, "README.md");
+  if (!fsSync.existsSync(skillsReadme)) {
+    await fsp.mkdir(skills, { recursive: true });
+    await fsp.writeFile(skillsReadme, USER_SKILLS_README);
+    events.push({ action: "seed-user-skills", detail: skillsReadme });
+  }
   const who = path.join(uc, "WHO-AM-I.md");
   if (!fsSync.existsSync(who)) {
     await fsp.writeFile(who, WHO_AM_I_SEED);
@@ -547,10 +554,15 @@ function fluxContextUpToDateSync(cfg) {
   } catch {
     return false;
   }
+  const dir = path.join(cfg, "Context", "FluxContext");
+  if (Object.keys(FLUX_CONTEXT_FILES).some(name => !fsSync.existsSync(path.join(dir, name)))) return false;
+  if (fsSync.readdirSync(dir, { withFileTypes: true }).some(e =>
+    !e.isDirectory() && e.name.endsWith(".md") && !Object.hasOwn(FLUX_CONTEXT_FILES, e.name))) return false;
   if (fsSync.existsSync(path.join(cfg, "Guidelines"))) return false;
   if (!cliShimUpToDateSync()) return false;
   const uc = path.join(cfg, "Context", "UserContext");
-  return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md"));
+  return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md")) &&
+    fsSync.existsSync(path.join(uc, "Skills", "README.md"));
 }
 
 async function syncFluxContext(cfg, events) {
@@ -574,7 +586,6 @@ async function syncFluxContext(cfg, events) {
   const names = Object.keys(FLUX_CONTEXT_FILES).filter(
     (n) => !upToDate || !fsSync.existsSync(path.join(dir, n)),
   );
-  if (upToDate && names.length === 0) return;
   await fsp.mkdir(dir, { recursive: true });
   const cmds = resolveOwnCliCommandsSync();
   for (const name of names) {
@@ -592,6 +603,15 @@ async function syncFluxContext(cfg, events) {
     }
     await fsp.writeFile(p, out);
   }
+  const removed = [];
+  for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+    if (!e.isDirectory() && e.name.endsWith(".md") && !Object.hasOwn(FLUX_CONTEXT_FILES, e.name)) {
+      await fsp.rm(path.join(dir, e.name));
+      removed.push(e.name);
+    }
+  }
+  if (removed.length) events.push({ action: "prune-fluxcontext", detail: removed.sort().join(", ") });
+  if (upToDate && names.length === 0) return;
   await fsp.writeFile(
     fluxContextStampPath(cfg),
     JSON.stringify({ hash: FLUX_CONTEXT_HASH, cli: cmds.cli, synced: new Date().toISOString() }, null, 2) + "\n",
@@ -622,7 +642,7 @@ async function ensureFluxConfig() {
   // their actual library. run-verifies.mjs sets this for every child; the
   // fluxconfig gate test clears it inside its scratch-HOME simulations.
   if (process.env.FLUX_NO_MIGRATE === "1") return configInfoSync();
-  // Fast path (statSync-only) — the every-later-run case.
+  // Fast path — inspect the small stock directory and required seeds.
   const pre = readPrefsRawSync();
   if (
     fsSync.existsSync(markerPath(resolveFluxConfigPathSync(pre))) &&
@@ -731,7 +751,7 @@ async function moveFluxConfig(parentDir) {
 
 const WHO_AM_I_SEED = `# Who am I
 
-<!-- Fill this out — every Flux agent reads it at session start. The more your
+<!-- Fill this out — every flux-connected agent reads it. The more your
      agents know about you, the less you have to repeat yourself. Suggested
      content: your background and CV highlights, publications, research
      interests, technical strengths and weaknesses, what you are currently
@@ -740,6 +760,26 @@ const WHO_AM_I_SEED = `# Who am I
      in UserContext/. -->
 
 *(not filled out yet)*
+`;
+
+const USER_SKILLS_README = `# Your agent skills
+
+Put each skill in its own folder: Skills/<name>/SKILL.md. Use the Agent Skills
+format, with a name matching the folder and a description of when to use it:
+
+\`\`\`markdown
+---
+name: stats-conventions
+description: How to report statistics for my projects.
+---
+
+Write your procedure here.
+\`\`\`
+
+Skills here are published to your connected agents: /stats-conventions in
+Claude Code, $stats-conventions in Codex. Edit the source here to keep them
+current. Skills are listed on connection and read when needed. This folder
+is yours; Flux seeds this README once and never rewrites it.
 `;
 
 const GUIDELINES_README = `# Flux Guidelines
@@ -752,8 +792,8 @@ folder is yours; Flux seeds it once and never rewrites it.
 
 const USER_RULES_SEED = `# Rules
 
-<!-- Your standing rules for ALL Flux work on this machine — every Flux agent
-     reads this at session start and follows it. Add whatever conventions you
+<!-- Your standing rules for ALL Flux work on this machine — every flux-connected agent
+     reads it and follows it. Add whatever conventions you
      want enforced everywhere (figure style, writing habits, workflow rules);
      rules for one project live in that project's Context/RULES.md instead.
      Flux seeds this file blank once and never rewrites it. -->
