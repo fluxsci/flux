@@ -33,6 +33,9 @@ try {
   await page.evaluate(() => window.__inboxOpenStart = performance.now());
   await page.click('.inbox-button'); await page.waitForSelector('[data-inbox-row]');
   h.ok(await page.evaluate(() => performance.now() - window.__inboxOpenStart <= 1000), 'titlebar opens a populated Inbox within 1 s');
+  // The dim layer outside the panel is a button: hovering it must not turn the whole app opaque gray.
+  await page.mouse.move(8, 700);
+  h.ok(await page.$eval('.inbox-wrap > .backdrop', e => e.matches(':hover') && getComputedStyle(e).backgroundColor === 'rgba(0, 0, 0, 0.3)'), 'hovering outside the Inbox keeps the backdrop translucent');
   const cli = async query => {
     // FLUX_NO_MIGRATE: this CLI only reads the scratch project. Run outside the hermetic runner it
     // would otherwise install the user's real launcher from this checkout and sync their FluxConfig.

@@ -271,13 +271,14 @@
 
 <style>
   .inbox-wrap { position:fixed;inset:0;z-index:1900;display:grid;place-items:center;color:var(--c-tx);font:12px var(--font-ui); }
+  /* The dim layer is a button (a click closes the Inbox); the generic button hover must not repaint it opaque. */
   .backdrop { position:absolute;inset:0;border:0;background:rgba(0,0,0,.3); }
   .inbox-panel { position:relative;display:flex;flex-direction:column;width:min(1100px,96vw);height:min(780px,92vh);background:var(--c-bg);border:1px solid var(--c-line-strong);border-radius:var(--r-panel);box-shadow:var(--elev-2);overflow:hidden; }
   .detached .inbox-panel { width:100%;height:100%;border:0;border-radius:0;box-shadow:none; }
   header { display:flex;align-items:center;gap:12px;min-height:42px;padding:0 12px;border-bottom:1px solid var(--c-line);background:var(--c-bg-raised); }
   header strong { font:600 17px var(--font-serif); } kbd,small,.filter-help,footer { color:var(--c-tx-muted);font:10px var(--font-mono); } .spacer { flex:1; }
   button { background:transparent;border:1px solid transparent;border-radius:var(--r-ui);color:inherit;padding:5px 8px;cursor:var(--cursor-cross-hover);font:inherit; }
-  button:hover { background:var(--c-ui-hover); } button:disabled { opacity:.45; } button:focus-visible,input:focus-visible,textarea:focus-visible { outline:1px solid var(--c-accent);outline-offset:-1px; }
+  button:not(.backdrop):hover { background:var(--c-ui-hover); } button:disabled { opacity:.45; } button:focus-visible,input:focus-visible,textarea:focus-visible { outline:1px solid var(--c-accent);outline-offset:-1px; }
   .inbox-body { display:flex;flex:1;min-height:0; } aside { display:flex;flex-direction:column;flex:0 0 44%;min-width:230px;border-right:1px solid var(--c-line); }
   .filters { padding:10px;display:grid;gap:7px;border-bottom:1px solid var(--c-line); } input,textarea { box-sizing:border-box;width:100%;background:var(--c-bg-raised);border:1px solid var(--c-line-strong);border-radius:var(--r-ui);padding:8px;color:var(--c-tx);font:12px/1.5 var(--font-ui); } .filter-help { line-height:1.6; }
   .chips { display:flex;flex-wrap:wrap;gap:4px;align-items:center; } .chips span { background:var(--c-bg-raised);border:1px solid var(--c-line);padding:3px 5px;border-radius:var(--r-ui);font:10px var(--font-mono); }
