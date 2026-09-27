@@ -7606,3 +7606,19 @@ assignments and claims keep their holder in the reassign prompt. F5 must enable
 **Work:** Extended R1 with task profiles, single-engine task packs and item packets, background presence, resumable threads, final-message replies, bounded concurrency and cancellation. Added runner-owned Claude approvals, lazy Inbox/Sessions controls and approval UI, plus pure and GUI gates. Changes remain uncommitted for the orchestrator; UI/native acceptance is assigned to that review.
 **Verification:** Hermetic pure tier 313/313, zero failed/blocked/flaky; driver profiles 66 checks, read-only MCP 19, IPC 149 channels. Svelte check 910 files, 0 errors/0 warnings; headless check and production build passed. UI/native/startup runs and real-CLI acceptance remain assigned to the orchestrator. F2 must merge its To route UI against the shared availability store; that worker's annotation surface was deliberately left untouched.
 **Learnings:** Stop must release a claim as well as kill the process; a fresh presence-free claim otherwise stays protected by recent activity. Cleanup must finish before resuming the same presence ID. Task and Ask packs need separate cache entries, and changing capability requirements invalidates the capability-cache schema. Concurrent human replies must not suppress an agent's final-message fallback.
+
+### 2026-09-27 10:54 UTC — flux-connect overhaul (Claude Opus 5.5, ai-overhaul)
+**Work:** Implemented notes/FLUX_AI_OVERHAUL/MASTER_OVERHAUL_PLAN.md end to end as orchestrator of
+Codex workers: the principal/worker system, the in-app terminal and Syncthing code are gone; any
+agent connects on request through the launcher, `flux mcp` and the connect pack; one Annotate
+surface, the unified inbox with claims, routes and watch mode, presence-named sessions, the AI
+status monitor, and FluxChat F1–F5 (Inbox panel, routing/sessions UI, live view, Ask, background
+runs with app approvals). Owner-machine setup and the one-shot migration's `--apply` are left to
+the owner.
+**Learnings:** promoted to the body — §1 flux-connect layer and FluxChat bullets; §3 ledger v2,
+presence and Context layout; §4 Annotation surface contract; §7 gates and tiers; §8 recipes (stock
+manual, connect pack, agent vendors); §9 traps (hosted-CLI permissions: dontAsk denies MCP and
+out-of-tree Reads, Codex approval mode; tsx child of the test launcher; Electron's Wayland hang and
+private-display mode; `$effect` early returns; stale `dist/`; tool-output truncation; variadic
+flags; child-process exit handlers). Entries from 2026-07-19 to 2026-09-26 describe the retired
+principal/worker workflow. They are history, not current guidance.
