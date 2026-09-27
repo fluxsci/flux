@@ -1535,11 +1535,11 @@
     },
     {
       "$why": "2026-09-15 Snapshot & annotate — the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay → popover → ledger); the IPC contract pins the win:capture channel.",
-      "glob": "{src/shell/agent/**,src/lib/project/annotations.ts,src/lib/project/feedbackCapture.ts}",
+      "glob": "{src/shell/agent/**,src/lib/project/annotations.ts,src/lib/project/annotationCapture.ts}",
       "run": [
         "verify-feedback-snapshot.ts",
         "verify-inbox.ts",
-        "verify-annotate-gui.mjs",
+        "verify-annotation-surface-gui.mjs",
         "verify-context-gui.mjs",
         "verify-ipc-contract.ts",
         "tier:pure"
