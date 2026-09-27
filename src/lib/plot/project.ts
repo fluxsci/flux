@@ -113,7 +113,8 @@ export function seriesTweenable(a: FluxPlotSeries, b: FluxPlotSeries | null | un
 }
 /** Shared eligibility rule for the compiler, authoring UI and CLI. */
 export function hasTweenableSeries(a?: FluxPlotManifest, b?: FluxPlotManifest): boolean {
-  if (!a || !b) return false;
+  // Custom/legacy manifests may carry no series (the retired morphCompatible said false).
+  if (!Array.isArray(a?.series) || !Array.isArray(b?.series)) return false;
   return a.series.some(s => {
     const other = b.series.find(v => v.id === s.id);
     return seriesTweenable(s, other, seriesAxes(a, s), other ? seriesAxes(b, other) : undefined);

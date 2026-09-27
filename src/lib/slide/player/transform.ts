@@ -134,8 +134,9 @@ export function createTransform(
     const size = root ? svgIntrinsicPx(root) : { w: el.width, h: el.height };
     return { ...el, width: size.w, height: size.h, crop: undefined, contentScale: 1, overrides: undefined, view: undefined };
   };
-  const bSeries = new Map(manifestB?.series.map(s => [s.id, s]));
-  const dataSeries = manifestA?.series.filter(a => !assetChange || !!manifestB && seriesTweenable(a, bSeries.get(a.id), seriesAxes(manifestA, a), bSeries.has(a.id) ? seriesAxes(manifestB, bSeries.get(a.id)!) : undefined)) ?? [];
+  // A custom/legacy manifest may carry no series: nothing to project, never a throw.
+  const bSeries = new Map(manifestB?.series?.map(s => [s.id, s]));
+  const dataSeries = manifestA?.series?.filter(a => !assetChange || !!manifestB && seriesTweenable(a, bSeries.get(a.id), seriesAxes(manifestA, a), bSeries.has(a.id) ? seriesAxes(manifestB, bSeries.get(a.id)!) : undefined)) ?? [];
   const plotUpdate = project ? compileStaticContent(contentHost,
     neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
       circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),

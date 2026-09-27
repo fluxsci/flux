@@ -5,7 +5,7 @@ import { DOMParser, parseHTML } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import type { PlotView, SemanticPlotElement, Project } from "../src/lib/types";
-import { viewFits, projectWith, dataOfPixel, blendFit, seriesVertices, projectSeries, guideData, seriesAxes, seriesTweenable, plotViewIssues } from "../src/lib/plot/project";
+import { viewFits, projectWith, dataOfPixel, blendFit, seriesVertices, projectSeries, guideData, seriesAxes, seriesTweenable, plotViewIssues, hasTweenableSeries } from "../src/lib/plot/project";
 import { applyPlotView, restoreProjection, preparePlotView } from "../src/lib/plot/projectDom";
 import { preparePlot, prefixIds } from "../src/lib/plot/parse";
 import { setPlotView } from "../src/lib/ops";
@@ -197,4 +197,20 @@ fixedLine.setAttribute = (name, value) => { lineWrites++; setAttribute(name, val
 mover.seek(0, 1, 500);
 h.ok(lineWrites === 0, "moving an unchanged view never rewrites plot geometry");
 mover.destroy();
+h.section("manifests without series keep the base behaviour");
+// A custom/legacy manifest may carry no series or axes (verify-v020-slide-paint's
+// compound-hole plot). The retired morphCompatible answered false for it; the
+// transform driver never read its series. Neither may throw now.
+const bare = { specVersion: "1.0.0", plotType: "custom", size: { width: 200, height: 200 }, parts: [] } as unknown as FluxPlotManifest;
+const noThrow = (fn: () => unknown) => { try { return { value: fn() }; } catch (e) { return { error: String(e) }; } };
+const eligibility = noThrow(() => [hasTweenableSeries(bare, sine.manifest), hasTweenableSeries(sine.manifest, bare), listMorphCandidates(bare, [{ assetId: "sine", manifest: sine.manifest }])[0].compatible]);
+h.ok(!("error" in eligibility) && (eligibility.value as boolean[]).every(v => v === false), `a series-less manifest is never tweenable and never throws (${JSON.stringify(eligibility)})`);
+const holeSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><path id="ring-shape" fill="#f00" d="M0 0H200V200H0Z"/></svg>';
+cachePlot("bare-art", holeSvg, bare);
+const bareDeck = createDeck({ withTitleSlide: false }), bareSlide = addSlide(bareDeck, { layout: "blank" });
+addElement(bareDeck, bareSlide.id, { id: "bare", type: "plot", assetId: "bare-art", x: 100, y: 100, width: 200, height: 200, rotation: 0 });
+const bareBeat = addBeat(bareDeck, bareSlide.id)!;
+setTransform(bareDeck, bareSlide.id, bareBeat.id, "bare", { state: { x: 300, width: 300, height: 300 }, duration: 1000, easing: "linear" });
+const bareRun = noThrow(() => { const p = createPlayer(host, bareDeck, { theme: FLUX_DARK, reducedMotion: true, plotManifest: () => bare }); p.seek(0, 1, 500); p.destroy(); });
+h.ok(!("error" in bareRun), `a frame Change of a series-less plot plays through the real player (${JSON.stringify(bareRun)})`);
 await h.done();
