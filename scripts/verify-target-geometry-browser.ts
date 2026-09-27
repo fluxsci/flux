@@ -35,7 +35,11 @@ try {
         { x: 10, y: 20, width: 200, height: 120, rotation: 0, overrides: { "peaches.box": { dx: 9, dy: -4.5 } } },
       ];
       for (let asset = 0; asset < prepared.length; asset++) {
-        const ids = asset === 0 ? ["peaches.box", "axis.x.spine", "peaches.whisker", "axis.x.tick.0"] : ["samples.point.0"];
+        const ids = asset === 0 ? ["peaches.box", "axis.x.spine", "peaches.whisker", "axis.x.tick.0"] : ["samples.point.0", "reference-line.mean-y"];
+        // Stroke truth: the drawable's computed width (pt-true compensation already written)
+        // × the linear scale of its screen CTM, back in stage px. The dashed reference line
+        // also pins the dash factor.
+        const strokeIds = new Set(["peaches.box", "axis.x.spine", "reference-line.mean-y"]);
         for (let c = 0; c < cases.length; c++) {
           // Curved rings use control-polygon bounds; projecting their local AABB
           // after rotation is a different (larger) conservative bound. Rotated
@@ -54,7 +58,16 @@ try {
             const xs = corners.map(p=>p.x), ys = corners.map(p=>p.y);
             const live = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs)-Math.min(...xs), h: Math.max(...ys)-Math.min(...ys) };
             const outline = targetOutlines({ element: el.id, parts: [id] }, frame, ctx);
-            results.push({ label: asset+":"+c+":"+id, live, predicted: outline[0]?.bbox, count: outline.length });
+            let stroke;
+            if (strokeIds.has(id)) {
+              const GEO = "path,line,polyline,polygon,rect,circle,ellipse";
+              const drawable = node.matches(GEO) ? node : node.querySelector(GEO);
+              const cs = getComputedStyle(drawable), dm = drawable.getScreenCTM();
+              const k = Math.sqrt(Math.abs(dm.a * dm.d - dm.b * dm.c)) / (origin.width / 800);
+              const dash = cs.strokeDasharray && cs.strokeDasharray !== "none" ? cs.strokeDasharray.split(/[\\s,]+/).map(parseFloat).filter(Number.isFinite).map(v => v * k) : null;
+              stroke = { live: parseFloat(cs.strokeWidth) * k, predicted: outline[0]?.paint.strokeWidth, liveDash: dash, predictedDash: outline[0]?.paint.dash ?? null };
+            }
+            results.push({ label: asset+":"+c+":"+id, live, predicted: outline[0]?.bbox, count: outline.length, stroke });
           }
         }
       }
@@ -69,12 +82,24 @@ try {
   launched.page.on("pageerror", (e: Error) => errors.push(String(e)));
   launched.page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await launched.page.goto(pathToFileURL(path.join(tmp, "index.html")).href);
-  const results = await launched.page.evaluate((f) => (globalThis as any).probe(f), fixtures) as { label: string; count: number; live: Record<string,number>; predicted?: Record<string,number> }[];
-  h.eq(results.length, 29, "all four plot roles and the scatter point measured across sizes/crop/overrides");
+  type Stroke = { live: number; predicted?: number; liveDash: number[] | null; predictedDash: number[] | null };
+  const results = await launched.page.evaluate((f) => (globalThis as any).probe(f), fixtures) as { label: string; count: number; live: Record<string,number>; predicted?: Record<string,number>; stroke?: Stroke }[];
+  h.eq(results.length, 34, "all four plot roles, the scatter point and a dashed line measured across sizes/crop/overrides");
   for (const r of results) {
     const error = r.predicted ? Math.max(...Object.keys(r.live).map(k => Math.abs(r.live[k]-r.predicted![k]))) : Infinity;
     h.ok(r.count === 1 && error < .5, `${r.label}: getBBox × screen CTM agrees within 0.5 stage px (max ${error.toFixed(6)})`);
   }
+  const strokes = results.filter((r) => r.stroke);
+  h.eq(strokes.length, 17, "stroke truth measured for the box and spine (6 placements each) and the dashed line (5)");
+  for (const { label, stroke: s } of strokes) {
+    const err = s!.predicted == null ? Infinity : Math.abs(s!.live - s!.predicted);
+    h.ok(err < .05, `${label}: paint.strokeWidth ${s!.predicted?.toFixed(4)} vs live ${s!.live.toFixed(4)} stage px (within 0.05)`);
+    if (s!.liveDash) {
+      const dashErr = s!.predictedDash?.length === s!.liveDash.length ? Math.max(...s!.liveDash.map((v, i) => Math.abs(v - s!.predictedDash![i]))) : Infinity;
+      h.ok(dashErr < .05, `${label}: paint.dash ${s!.predictedDash?.map((v) => v.toFixed(3)).join(",")} vs live ${s!.liveDash.map((v) => v.toFixed(3)).join(",")} stage px (within 0.05)`);
+    }
+  }
+  h.eq(strokes.filter((r) => r.stroke!.liveDash).length, 5, "the dashed reference line is measured with its live dash in all 5 placements");
   h.eq(errors, [], "real renderSlide has no browser errors or CSP violations");
 } finally {
   await browser?.close();

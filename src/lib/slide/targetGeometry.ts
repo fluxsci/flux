@@ -157,6 +157,10 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
   const mapping: SvgMatrix = [sx, 0, 0, sy, plot.x - vb.x * sx, plot.y - vb.y * sy];
   const toStage = compose(placement(plot, true), mapping);
   const { fx, fy, fs } = ptTrueFactors({ elW: plot.width, elH: plot.height, crop: plot.crop, contentScale: plot.contentScale, intrinsic });
+  // A stroke renders at declared × fs (compensatePtTrue's style write, or the glyph/text
+  // transform) × the outer viewBox→box scale; rotation and flips are rigid. In stage px that is
+  // declared × contentScale × (CSS px per user unit), whatever the box size (the pt-true contract).
+  const strokeScale = fs * Math.sqrt(sx * sy);
   const overrides = new Map<Element, PartOverride>();
   const paints = new Map<Element, PartOverride>();
   for (const [id, ov] of Object.entries(plot.overrides ?? {})) {
@@ -229,8 +233,8 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
       if (!basePaint) { basePaint = readPaint(node); geo.paints.set(node, basePaint); }
       const paint = paints.has(node) ? readPaint(node, paints.get(node)) : { ...basePaint };
       paint.opacity = state.opacity * (plot.opacity ?? 1);
-      paint.strokeWidth *= fs;
-      if (paint.dash) paint.dash = paint.dash.map((n) => n * fs);
+      paint.strokeWidth *= strokeScale;
+      if (paint.dash) paint.dash = paint.dash.map((n) => n * strokeScale);
       const tag = node.tagName.toLowerCase();
       if (tag === "text" || tag === "tspan") paint.text = true;
       if (tag === "image") paint.raster = true;

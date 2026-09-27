@@ -70,7 +70,33 @@ const cropped = one("peaches.box", plot({ crop: { x: 60, y: 36, width: 120, heig
 h.ok(near(cropped.nodes[0].x, 16.68693777777778) && near(cropped.nodes[0].y, 70.73252888888889), "centre-quarter crop subtracts vb.x and vb.y before mapping");
 const shifted = one("peaches.box", plot({ overrides: { "peaches.box": { dx: 9, dy: -4.5, fill: "#ff0000", stroke: "#abcdef", strokeWidth: 4, opacity: .3 } } }))[0];
 h.ok(near(shifted.nodes[0].x - b[0].nodes[0].x, 10) && near(shifted.nodes[0].y - b[0].nodes[0].y, -5), "dx/dy are user units before stage mapping");
-h.ok(shifted.paint.fill === "#ff0000" && shifted.paint.stroke === "#abcdef" && near(shifted.paint.strokeWidth, 4.8) && shifted.paint.opacity === .3, "paint overrides and fs compensation");
+// Stage stroke widths (the pt-true contract, in STAGE px): a stroke renders at its declared width
+// × fs (compensatePtTrue's style write) × the outer viewBox→box scale sqrt(sx·sy), so on stage it
+// is the declared width × contentScale in CSS px WHATEVER the box size. Both fixtures are 180pt
+// over a 180-unit viewBox: one user unit is 4/3 CSS px.
+const unitPx = (root: Element) => {
+  const w = root.getAttribute("width") ?? "", vbW = Number((root.getAttribute("viewBox") ?? "").split(/[\s,]+/)[2]);
+  return w.endsWith("pt") ? parseFloat(w) * 4 / 3 / vbW : NaN;
+};
+const boxUnitPx = unitPx(box.root!);
+h.ok(near(boxUnitPx, 4 / 3), "box fixture: 180pt over a 180-unit viewBox (4/3 px per unit)");
+const declaredOf = (node: Element) => parseFloat(/stroke-width:\s*([\d.]+)/.exec(node.getAttribute("style") ?? "")?.[1] ?? node.getAttribute("stroke-width") ?? "1"); // SVG initial value 1
+const boxDeclared = declaredOf(box.root!.querySelector('[id="peaches.box"] path')!);
+h.eq(boxDeclared, 1, "peaches.box declares no stroke-width (SVG initial 1)");
+const twice = plot({ width: 480, height: 288 });
+const sw2x = one("peaches.box", twice)[0].paint.strokeWidth, sw2xCs2 = one("peaches.box", { ...twice, contentScale: 2 })[0].paint.strokeWidth;
+h.ok(near(sw2x, boxDeclared * boxUnitPx, 1e-9), `box at 2× intrinsic: stage strokeWidth ${sw2x.toFixed(6)} = declared × 4/3 px`);
+h.ok(near(sw2xCs2, 2 * boxDeclared * boxUnitPx, 1e-9), `box at 2× intrinsic, contentScale 2: stage strokeWidth ${sw2xCs2.toFixed(6)} = 2 × declared × 4/3 px`);
+h.ok(near(b[0].paint.strokeWidth, boxDeclared * boxUnitPx, 1e-9), "box at 200×120 has the same stage strokeWidth (size-invariant)");
+const refPath = scatter.root!.querySelector('[id="reference-line.mean-y"] path')!;
+const refDash = (/stroke-dasharray:\s*([^;]+)/.exec(refPath.getAttribute("style") ?? "")?.[1] ?? "").split(/[\s,]+/).map(Number);
+h.eq(refDash, [7.4, 3.2], "scatter reference line declares a 7.4,3.2 dash");
+for (const [label, el] of [["true size", plot({ assetId: "scatter", width: 240, height: 144 })], ["2× intrinsic", plot({ assetId: "scatter", width: 480, height: 288 })]] as const) {
+  const ref = one("reference-line.mean-y", el)[0];
+  h.ok(near(ref.paint.strokeWidth, declaredOf(refPath) * unitPx(scatter.root!), 1e-9) && refDash.every((d, i) => near(ref.paint.dash![i], d * unitPx(scatter.root!), 1e-9)),
+    `reference line at ${label}: stage strokeWidth and dash = declared × 4/3 px (${ref.paint.strokeWidth.toFixed(4)}; ${ref.paint.dash?.map((d) => d.toFixed(4)).join(",")})`);
+}
+h.ok(shifted.paint.fill === "#ff0000" && shifted.paint.stroke === "#abcdef" && near(shifted.paint.strokeWidth, 4 * boxUnitPx, 1e-9) && shifted.paint.opacity === .3, "paint overrides; an override strokeWidth is a declared width (4 × 4/3 stage px)");
 h.eq(one("peaches.box", plot({ overrides: { "peaches.box": { hidden: true } } })), [], "hidden leaf has no outline");
 h.ok(one("axis.x.ticklabel.0")[0].paint.text, "text is a box-only crossfade target");
 const datum = scatter.manifest!.series[0].points![0], markerEl = plot({ assetId: "scatter", x: 0, y: 0, width: 240, height: 144 });
