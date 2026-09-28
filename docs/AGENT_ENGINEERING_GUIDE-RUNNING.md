@@ -162,6 +162,9 @@ The established shared cores — extend these, don't duplicate them:
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar and catalog) | `src/lib/slide/curves.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots) |
+
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; shell easing-token census) |
+| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -1747,7 +1750,11 @@ that isn't in the manifest doesn't exist.** Tiers:
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
-- `--changed` maps `git diff` paths through the manifest's `pathMap`;
+- `--changed` maps `git diff` paths through the manifest's `pathMap` and **unions** those
+  scripts with explicit `--tier` selections; `--tier pure` or `--tier ui` does not filter the
+  changed set. A constrained worker must intersect the mapped names with its permitted tiers
+  and invoke those registered gates explicitly. Always set the worker's `FLUX_URL`, even for
+  a changed run nominally requesting pure, since its mapped set may require a server;
   `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
   registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
   check defeats the verification contract.
@@ -2462,6 +2469,12 @@ outside this PNG packaging change.
   `transform` and passes the schema's `ghostFrom → preset` rule). It is the one style field that
   propagates by write: `linkTrackStyle` writes a same-family style's preset once (another family
   is refused) and `setAnimStyle(…, {track: {preset}})` rewrites every linked track's preset.
+  The Animator resolves drag-preview copies through `resolveBeat`, so followers move before
+  commit; a plain drag uses `setTrack` with `anchor: null` and the resolved absolute start.
+  Inherited-field resets delete the local key; resetting a preset copies the style's preset
+  instead, preserving the family-defining own field. Style edits send sparse patches: resending
+  an unchanged preset would overwrite those local preset overrides. Static hosts pass the same style context,
+  and thumbnail invalidation includes only the styles that slide references.
   Snapshot saves carry `slideAnimStyles`; cloned
   tracks remap timing anchors beside ghost IDs. `trackDuration` remains exported by compile
   but lives in `timing.ts` to avoid a compile/resolver import cycle.
@@ -7897,3 +7910,26 @@ a wrong-station fault fails their new geometry checks. No sampling reduction, li
 change, budget change or frame-path edit was needed. Changes remain uncommitted.
 **Learnings:** The dominant work was repeated source arc inversion during alignment,
 not parameterization or node allocation. Promoted the measured contract to §4.
+
+### 2026-09-28 01:42 UTC — Animation v2 style and timing UI (Codex, `av2/F2`)
+**Work:** Resolved all Animator timing readers and drag previews; added family-scoped style
+link/save/edit/detach, field overrides/resets, Animate like via bar menu/X-ray 6, timing anchor
+magnet gestures and offset controls, and linked library application. Static thumbnails,
+presenter previews and video estimates now receive deck styles. Easing choices derive from
+M1's shared tokens. Updated slide documentation with captured UI states.
+**Learnings:** Preset reset must copy rather than delete the own field; off overrides use
+F1's sentinels while reset removes them. The real F1 probe is reused inside the authoring gate;
+separate old-file controls detect missing inspector/pick/library and static/video context.
+The 40-linked-lane field-to-paint check stays within 100 ms and verifies next-frame propagation.
+X-ray tests wait for its real keyboard focus, not merely its DOM mount. M1 dependency files
+were supplied by the orchestrator; D1 still generalizes the two small pick states, and M4 owns
+the easing field replacement. Final verification: 322/322 pure, 17/17 UI gates mapped from
+this packet's paths, 72/72 slide sweep, 64 Animator checks, 49 authoring checks, 307 catalog
+checks, and both scale fixtures. 40 linked lanes: 26.3 ms input-to-paint p95; normal/dense
+Animator edits: 16.8/17.0 ms p95; idle rAF = 0. Check/headless: 0 errors/0 warnings. Build
+passed without undefined imports (existing Zotero dynamic-import warning remains).
+The requested `--changed --tier` commands widened across tiers and were interrupted; they
+are not qualification evidence. Their detached children required temporary parent-signal
+stop guards, subsequently restored byte-for-byte; both verification servers were stopped.
+Promoted the selector union trap above. No commits, native gate execution, real project or
+user config changes.

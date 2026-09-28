@@ -1,16 +1,18 @@
 <script lang="ts">
   import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
-  import { onDestroy, tick } from "svelte";
-  import { activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
+  import { getContext, onDestroy, tick } from "svelte";
+  import { deckOverlay, activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
   import { selection, partSelection } from "../../../../lib/store";
   import { trackDuration } from "../../../../lib/slide/compile";
+  import { resolveBeat } from "../../../../lib/slide/resolve";
+  import { pushToast } from "../../../../lib/toast";
   import { staggerSpan } from "../../../../lib/slide/stagger";
   import { familyOf } from "../../../../lib/slide/family";
-  import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks } from "../../../../lib/slide/ops";
+  import { slideById, addBeat, deleteBeat, duplicateBeat, reorderBeats, reorderTracks, moveTrackToBeat, duplicateTrack, setBeat, setTrackGroup, groupTracks, ungroupTracks, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
   import type { Slide, Track, Beat, TrackGroup } from "../../../../lib/slide/types";
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
-  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, trackEndMs, snapMs, isDanglingTrack, trackKindLabel, minorTicks } from "./shared";
+  import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, isDanglingTrack, trackKindLabel, minorTicks } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
   import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -20,6 +22,8 @@
     slide: Slide; plotTags: Map<string,string>; manifestFor: (target:string)=>FluxPlotManifest|undefined;
     onFocusDock: ()=>void; onPreviewFrom?: (beat:number)=>void; onSeek?: (beat:number, time:number)=>void; time?:number; playing?:boolean;
   } = $props();
+  const animateLike = getContext<() => void>("flux-animate-like");
+  const deck = $derived($deckOverlay ?? {});
   const ROW = 30;
   let timelineWidth = $state(700);
   let trackArea = $state<HTMLDivElement | null>(null);
@@ -34,7 +38,7 @@
   let renameId = $state<string|null>(null);
   let beatDragId = $state<string|null>(null);
   const beat = $derived(slide.beats[$activeBeat] ?? slide.beats[0]);
-  const duration = $derived(Math.max(1000, beatEndMs(beat?.tracks ?? [], slide, manifestFor)));
+  const duration = $derived(Math.max(1000, beatEndMs(beat?.tracks ?? [], slide, manifestFor, deck)));
   const scale = $derived($timelinePxPerMs ?? Math.max(.015, Math.min(.6, (timelineWidth - 240) / duration)));
   const tickStep = $derived(scale > .3 ? 250 : scale > .12 ? 500 : scale > .05 ? 1000 : 2000);
   const ticks = $derived(Array.from({length:Math.floor(duration/tickStep)+1},(_,i)=>i*tickStep));
@@ -46,7 +50,8 @@
   type Row = {group:TrackGroup; tracks:Track[]} | {track:Track};
   const rows = $derived.by(():Row[] => {
     if (!beat) return [];
-    const wanted = selectedOnly && $selection.size ? beat.tracks.filter(t=>$selection.has(t.target)) : beat.tracks;
+    const tracks = displayed.tracks;
+    const wanted = selectedOnly && $selection.size ? tracks.filter(t=>$selection.has(t.target)) : tracks;
     const out:Row[] = [], seen = new Set<string>();
     for(const t of wanted) {
       const g = beat.groups?.find(g=>g.id===t.groupId);
@@ -60,7 +65,7 @@
     }
     return out;
   });
-  const label = (t:Track)=>chipLabel(t,slide,plotTags);
+  const label = (t:Track)=>chipLabel(t,slide,plotTags,deck);
   const width = (t:Track)=>Math.max(6,trackDuration(t)*scale);
   const tail = (t:Track)=>staggerSpan(t,trackFanout(t,slide,manifestFor(t.target)))*scale;
   function chooseBeat(index:number) {
@@ -102,6 +107,7 @@
     e.preventDefault(); if(!t.id)return;
     if(!$selTrackIds.includes(t.id))chooseTrack(t);
     menu={x:e.clientX,y:e.clientY,items:[
+      {label:"Animate like…",action:animateLike},
       {label:"Duplicate effects",action:duplicateSelectedTracks},{label:"Enable / disable",action:toggleSelectedDisabled},
       {label:"Group effects",action:groupSelection},{label:"Ungroup effects",action:ungroupSelection},
       ...($selTrackIds.length>1?[{label:"Cascade timing…",action:openTrackCascade}]:[]),
@@ -115,16 +121,35 @@
       {label:"Insert before",action:()=>insert(i)},{label:"Insert after",action:()=>insert(i+1)},
       {label:"Delete step",danger:true,action:()=>remove(b)}]};
   }
-  type Drag={x:number;y:number;dx:number;kind:"start"|"duration";orig:{id:string;start:number;duration:number}[];primary:string;over:number|null;row:number|null;copy:boolean;moving:boolean;magnets:number[]};
+  type Magnet={ms:number;trackId:string;edge:"start"|"end"};
+  type Drag={x:number;y:number;dx:number;kind:"start"|"duration";orig:{id:string;start:number;duration:number}[];primary:string;over:number|null;row:number|null;copy:boolean;moving:boolean;magnets:Magnet[];link:boolean;anchor:Track["anchor"]|null;scale:number};
   let drag=$state<Drag|null>(null);
-  function down(e:PointerEvent,t:Track,kind:"start"|"duration") {
+  const resolved = $derived(resolveBeat(beat, deck, manifestFor));
+  // Resolve the edited COPY as a beat: followers preview through the same DFS as playback.
+  const displayed = $derived.by(() => {
+    const d = drag;
+    if (!d || d.moving) return resolved;
+    const tracks = beat.tracks.map(t => {
+      const o = d.orig.find(o => o.id === t.id); if (!o) return t;
+      const copy = { ...t, [d.kind]: Math.max(d.kind === "start" ? 0 : 1, o[d.kind] + d.dx) };
+      if (d.kind === "start") {
+        if (d.link && d.anchor) copy.anchor = d.anchor; else delete copy.anchor;
+      }
+      return copy;
+    });
+    return resolveBeat({ ...beat, tracks }, deck, manifestFor);
+  });
+  function down(e:PointerEvent,t:Track,kind:"start"|"duration",leftEdge=false) {
     if(e.button!==0||!t.id||kind==="duration"&&familyOf(t)==="media")return;
     e.preventDefault();e.stopPropagation();
-    if(e.shiftKey||e.metaKey||e.ctrlKey){chooseTrack(t,true);return;}
+    const link=leftEdge&&(e.metaKey||e.ctrlKey);
+    if(!link&&(e.shiftKey||e.metaKey||e.ctrlKey)){chooseTrack(t,true);return;}
     if(!$selTrackIds.includes(t.id))chooseTrack(t); else onFocusDock();
-    const selected=beat.tracks.filter(t=>t.id&&$selTrackIds.includes(t.id)&&(kind!=="duration"||familyOf(t)!=="media"));
-    drag={x:e.clientX,y:e.clientY,dx:0,kind,primary:t.id,orig:selected.map(t=>({id:t.id!,start:t.start??0,duration:trackDuration(t)})),over:null,row:null,copy:e.altKey,moving:false,
-      magnets:beat.tracks.filter(t=>!t.id||!$selTrackIds.includes(t.id)).flatMap(t=>[t.start??0,(t.start??0)+trackDuration(t)])};
+    const selected=resolved.tracks.filter(t=>t.id&&$selTrackIds.includes(t.id)&&(kind!=="duration"||familyOf(t)!=="media"));
+    drag={x:e.clientX,y:e.clientY,dx:0,kind,primary:t.id,orig:selected.map(t=>({id:t.id!,start:t.start??0,duration:trackDuration(t)})),over:null,row:null,copy:e.altKey,moving:false,link,anchor:null,scale,
+      magnets:resolved.tracks.filter(t=>t.id&&!$selTrackIds.includes(t.id)).flatMap(t=>[
+        {ms:t.start??0,trackId:t.id!,edge:"start" as const},
+        {ms:(t.start??0)+trackDuration(t)+staggerSpan(t,trackFanout(t,slide,manifestFor(t.target))),trackId:t.id!,edge:"end" as const}])};
     window.addEventListener("pointermove",move);window.addEventListener("pointerup",up);window.addEventListener("pointercancel",cancel);
   }
   function move(e:PointerEvent) {
@@ -132,13 +157,17 @@
     if(Math.abs(dx)<3&&Math.abs(dy)<3&&!d.moving)return;
     const target=document.elementFromPoint(e.clientX,e.clientY)?.closest<HTMLElement>("[data-step-index]");
     const over=target?Number(target.dataset.stepIndex):null;
-    d.over=over&&over!==$activeBeat?over:null;d.copy=e.altKey;
-    d.moving=d.kind==="start"&&(d.over!=null||Math.abs(dy)>ROW*.7);
+    d.over=!d.link&&over&&over!==$activeBeat?over:null;d.copy=e.altKey;
+    d.moving=!d.link&&d.kind==="start"&&(d.over!=null||Math.abs(dy)>ROW*.7);
     const rowNode=document.elementFromPoint(e.clientX,e.clientY)?.closest<HTMLElement>("[data-row-index]");
     d.row=rowNode?Number(rowNode.dataset.rowIndex):null;
     const o=d.orig.find(o=>o.id===d.primary)!;
     const value=d.kind==="start"?o.start:o.duration;
-    d.dx=snapMs(value+dx/scale,d.kind==="start"?d.magnets:d.magnets.map(m=>m-o.start),scale,!e.altKey)-value;
+    d.dx=snapMs(value+dx/d.scale,d.magnets.map(m=>d.kind==="start"?m.ms:m.ms-o.start),d.scale,!e.altKey)-value;
+    const hovered=document.elementFromPoint(e.clientX,e.clientY)?.closest<HTMLElement>("[data-track-id]")?.dataset.trackId;
+    const matches=d.magnets.filter(m=>Math.abs(m.ms-(o.start+d.dx))<.5);
+    const magnet=matches.find(m=>m.trackId===hovered)??matches[0];
+    d.anchor=d.link&&!e.altKey&&magnet?{trackId:magnet.trackId,edge:magnet.edge,offsetMs:0}:null;
     drag={...d};
   }
   function cancel() { drag=null;window.removeEventListener("pointermove",move);window.removeEventListener("pointerup",up);window.removeEventListener("pointercancel",cancel); }
@@ -162,13 +191,28 @@
         if(moved.length && targetBeat.id!==beat.id)for(const g of groupCopies){const ids=g.ids.map(id=>moved[d.orig.findIndex(o=>o.id===id)]).filter(Boolean);if(ids.length){const groupId=groupTracks(deck,slide.id,targetBeat.id,ids,g.group.label);if(groupId&&g.group.collapsed)setTrackGroup(deck,slide.id,targetBeat.id,groupId,{collapsed:true});}}
       });
       if(d.over!=null)activeBeat.set(d.over);if(moved.length)selTrackIds.set(moved);
-    } else if(d.dx) {
-      commitDeckLive(deck=>{const s=slideById(deck,slide.id);for(const t of s?.beats.flatMap(b=>b.tracks)??[]){const o=d.orig.find(o=>o.id===t.id);if(o)t[d.kind]=Math.max(d.kind==="start"?0:1,o[d.kind]+d.dx);}});
+    } else if(d.dx || d.anchor) {
+      const detached:string[]=[], refused:string[]=[];
+      commitDeckLive(deck=>{
+        for(const o of d.orig) {
+          const t=beat.tracks.find(t=>t.id===o.id);
+          if(d.link && d.anchor) {
+            const result=setTrackAnchor(deck,slide.id,o.id,d.anchor);
+            if(!result.ok)refused.push(result.reason!);
+          } else {
+            const result=setTrack(deck,slide.id,o.id,{...(d.kind==="start"?{anchor:null}:{}),[d.kind]:Math.max(d.kind==="start"?0:1,o[d.kind]+d.dx)},manifestFor);
+            if(!result.ok)refused.push(result.reason!);
+            else if(d.kind==="start"&&t?.anchor)detached.push(label(beat.tracks.find(x=>x.id===t.anchor!.trackId)??t));
+          }
+        }
+      });
+      if(detached.length)pushToast("info",`Detached from ‹${[...new Set(detached)].join(", ")}›`);
+      if(refused.length)pushToast("error",[...new Set(refused)].join("; "));
     }
     sealHistory();
   }
-  function drawStart(t:Track){const o=drag?.orig.find(o=>o.id===t.id);return Math.max(0,(o&&drag?.kind==="start"&&!drag.moving?o.start+drag.dx:t.start??0))*scale;}
-  function drawWidth(t:Track){const o=drag?.orig.find(o=>o.id===t.id);return o&&drag?.kind==="duration"?Math.max(6,(o.duration+drag.dx)*scale):width(t);}
+  const drawStart=(t:Track)=>(t.start??0)*scale;
+  const drawWidth=width;
   // Alignment guides. While a bar/edge drags, the moving edge (its start for a
   // retime, its end for a resize) is a full-height line; when the snapped value
   // — the same snapMs result the drag already applies — lands on a magnet
@@ -178,16 +222,16 @@
     const d = drag; if (!d || d.moving) return null;
     const o = d.orig.find(o => o.id === d.primary); if (!o) return null;
     const edge = d.kind === "start" ? Math.max(0, o.start + d.dx) : o.start + Math.max(1, o.duration + d.dx);
-    const magnet = d.magnets.find(m => Math.abs(m - edge) <= .5);
+    const magnet = d.magnets.find(m => Math.abs(m.ms - edge) <= .5)?.ms;
     const grid = Math.round(edge / 50) * 50;
     const snap = magnet ?? (Math.abs(grid - edge) <= .5 ? grid : null);
-    return { edge, snap };
+    return { edge, snap, linked: !!d.anchor };
   });
   const selGuide = $derived.by(() => {
     if (drag || $selTrackIds.length !== 1) return null;
-    const t = beat?.tracks.find(t => t.id === $selTrackIds[0]); if (!t) return null;
+    const t = displayed.tracks.find(t => t.id === $selTrackIds[0]); if (!t) return null;
     const start = t.start ?? 0;
-    return { start, end: start + trackDuration(t) };
+    return { start, end: start + trackDuration(t), linked: !!t.anchor };
   });
   // Selection is local while sweeping: publishing it on every move would
   // change the Selected objects filter and the Inspector under the pointer.
@@ -325,7 +369,7 @@
         <option value="click">On click</option><option value="with-prev">With previous</option><option value="auto">After previous</option>
       </select>
       {#if beat.advance==="auto"}<label class="delay-label">Wait <input type="number" aria-label="Automatic delay in milliseconds" min="0" step="100" value={beat.autoDelayMs??600} onchange={e=>commitDeckLive(d=>setBeat(d,slide.id,beat.id,{autoDelayMs:Math.max(0,+e.currentTarget.value)}))}/> ms</label>{/if}
-      <span class="duration">{fmt(beatEndMs(beat.tracks,slide,manifestFor))}</span>
+      <span class="duration">{fmt(beatEndMs(beat.tracks,slide,manifestFor,deck))}</span>
       <button onclick={()=>onPreviewFrom?.($activeBeat)} title="Replay this step">▶ Step</button>
       <button onclick={e=>stepMenu(e,beat,$activeBeat)} aria-label="Step actions">•••</button>
     {:else}<span class="start-note">The initial presentation frame. Select Design to arrange all objects.</span>{/if}
@@ -354,18 +398,21 @@
         {#if "group"in row}
           <div class="lane-row group" class:selected={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} data-row-index={ri} data-group-id={row.group.id}>
             <div class="target-label"><button class="chevron" aria-label={row.group.collapsed?"Expand group":"Collapse group"} onclick={()=>commitDeckLive(d=>setTrackGroup(d,slide.id,beat.id,row.group.id,{collapsed:!row.group.collapsed}))}>{row.group.collapsed?"▸":"▾"}</button>{#if renameGroupId===row.group.id}<input class="group-title" aria-label="Group name" value={row.group.label} onblur={e=>{if(e.currentTarget.value.trim())commitDeckLive(d=>setTrackGroup(d,slide.id,beat.id,row.group.id,{label:e.currentTarget.value.trim()}));renameGroupId=null;}} onkeydown={e=>{e.stopPropagation();if(e.key==="Enter")e.currentTarget.blur();if(e.key==="Escape")renameGroupId=null;}}/>{:else}<button class="group-name" title="Select group · double-click to rename" onclick={()=>chooseGroup(row.tracks)} ondblclick={()=>renameGroupId=row.group.id}>{row.group.label} <small>{row.tracks.length}</small></button>{/if}</div>
-            <div class="time-cell"><!-- svelte-ignore a11y_no_static_element_interactions --><span class="group-span" class:sel={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} title="Drag to retime or move this group" onpointerdown={e=>{chooseGroup(row.tracks);down(e,row.tracks[0],"start");}} style={`left:${Math.min(...row.tracks.map(t=>t.start??0))*scale}px;width:${Math.max(8,(Math.max(...row.tracks.map(t=>trackEndMs(t,slide,manifestFor(t.target))))-Math.min(...row.tracks.map(t=>t.start??0)))*scale)}px`}></span></div>
+            <div class="time-cell"><!-- svelte-ignore a11y_no_static_element_interactions --><span class="group-span" class:sel={row.tracks.every(t=>!!t.id&&highlightedIds.has(t.id))} title="Drag to retime or move this group" onpointerdown={e=>{chooseGroup(row.tracks);down(e,row.tracks[0],"start");}} style={`left:${Math.min(...row.tracks.map(t=>t.start??0))*scale}px;width:${Math.max(8,(Math.max(...row.tracks.map(t=>(t.start??0)+trackDuration(t)+staggerSpan(t,trackFanout(t,slide,manifestFor(t.target)))))-Math.min(...row.tracks.map(t=>t.start??0)))*scale)}px`}></span></div>
           </div>
         {:else}{@const t=row.track}{@const tx=familyOf(t)==="transform"}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="lane-row" class:selected={!!t.id&&highlightedIds.has(t.id)} class:disabled={t.disabled} class:missing={isDanglingTrack(t,slide)} data-row-index={ri} data-track-id={t.id} data-beat={$activeBeat} style={`--pc:${PRESET_COLOR[t.preset??"fade"]??"#4385be"}`} onpointerenter={()=>hoverTrackId.set(t.id??null)} onpointerleave={()=>hoverTrackId.set(null)} oncontextmenu={e=>trackMenu(e,t)}>
-            <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t)}`}>
-              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{trackKindLabel(t)}{t.disabled?" · disabled":""}</small>
+            <button class="target-label track-label" onclick={e=>chooseTrack(t,e.shiftKey||e.metaKey||e.ctrlKey)} title={`${label(t)} · ${trackKindLabel(t,deck)}`}>
+              <span class="target-name">{#if isDanglingTrack(t,slide)}⚠ {/if}{label(t)}</span><small>{trackKindLabel(t,deck)}{t.disabled?" · disabled":""}</small>
             </button>
             <div class="time-cell">
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="trk" class:tx class:sel={!!t.id&&highlightedIds.has(t.id)} style={`left:${drawStart(t)}px;width:${drawWidth(t)}px`} title={`${fmt(t.start??0)} → ${fmt((t.start??0)+trackDuration(t))} · drag to retime; vertical drag reorders; drag onto a step to move (Alt copies)`} onpointerdown={e=>down(e,t,"start")}>
                 {#if tail(t)>0}<span class="tail" style={`width:${tail(t)}px`}></span>{/if}
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <span class="start-edge" title="Ctrl/⌘-drag to follow another effect’s start or end" onpointerdown={e=>down(e,t,"start",true)}></span>
+                {#if t.anchor}<span class="anchor-glyph" title={`Follows ${label(beat.tracks.find(x=>x.id===t.anchor!.trackId)??t)} ${t.anchor.edge}`}>⛓</span>{/if}
                 <span class="bar-time">{familyOf(t)==="media" ? "◆" : fmt(trackDuration(t))}</span>
                 {#if familyOf(t)!=="media"}<!-- svelte-ignore a11y_no_static_element_interactions --><span class="edge" onpointerdown={e=>down(e,t,"duration")}></span>{/if}
               </div>
@@ -380,9 +427,9 @@
         <div class="guide-layer" aria-hidden="true">
           {#if dragGuide}
             <span class="guide" style={`left:${dragGuide.edge*scale}px`}></span>
-            {#if dragGuide.snap != null}<span class="guide snap" style={`left:${dragGuide.snap*scale}px`}></span>{/if}
+            {#if dragGuide.snap != null}<span class="guide snap" class:linked={dragGuide.linked} style={`left:${dragGuide.snap*scale}px`}></span>{/if}
           {:else if selGuide}
-            <span class="guide sel" style={`left:${selGuide.start*scale}px`}></span>
+            <span class="guide sel" class:linked={selGuide.linked} style={`left:${selGuide.start*scale}px`}></span>
             <span class="guide sel" style={`left:${selGuide.end*scale}px`}></span>
           {/if}
         </div>
@@ -477,7 +524,8 @@
   .gl, .guide { position: absolute; top: 0; bottom: 0; width: 1px; }
   .gl.major { background: color-mix(in oklab, var(--c-line-strong) 70%, transparent); }
   .gl.minor { background: var(--c-line); }
-  .guide { background: var(--c-accent); }
+  .guide { border-left: 1px dashed var(--c-accent); }
+  .guide.linked { border-left-style: solid; background: var(--c-accent); }
   .guide.sel { background: color-mix(in oklab, var(--c-accent) 45%, transparent); }
   .lane-row { height: var(--row); border-bottom: 1px solid var(--c-line); }
   .lane-row.selected { background: var(--c-accent-tint); }
@@ -510,6 +558,8 @@
   .trk.tx { background: color-mix(in oklab, var(--pc) 12%, var(--c-bg)); }
   .bar-time { display: block; overflow: hidden; white-space: nowrap; padding: 0 5px; font: 10px/16px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx); }
   .edge { position: absolute; right: -4px; width: 9px; top: -3px; bottom: -3px; cursor: ew-resize; }
+  .start-edge { position: absolute; left: -4px; width: 9px; top: -3px; bottom: -3px; cursor: ew-resize; z-index: 1; }
+  .anchor-glyph { float: left; margin-left: 5px; font: 11px/16px var(--font-ui); }
   .tail { position: absolute; left: 100%; top: 6px; height: 5px; pointer-events: none; background: repeating-linear-gradient(-45deg, var(--pc) 0 2px, transparent 2px 5px); }
   .playhead { position: absolute; top: 25px; bottom: 0; left: 220px; width: 1px; background: var(--c-accent); pointer-events: none; }
   .timeline-marquee { position: absolute; pointer-events: none; z-index: 2; box-sizing: border-box; border: 1px solid var(--c-accent); background: color-mix(in oklab, var(--c-accent) 14%, transparent); }

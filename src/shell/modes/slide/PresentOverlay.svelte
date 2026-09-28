@@ -74,6 +74,7 @@
       assetSize: (id) => assetDisplaySize(get(project), id),
       plotManifest: (id) => get(plotManifests)[id],
       deckBackground: deck.background,
+      animStyles: deck.animStyles,
       reducedMotion,
     };
   }

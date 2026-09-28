@@ -102,7 +102,7 @@ removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts,
 **Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
 them. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
 
-## Linked animation styles and timing
+## Animation styles
 
 Deck animation styles share an effect's preset, parameters, duration, easing, stagger and
 start. A linked effect inherits absent fields; changing a field on that effect overrides the
@@ -111,6 +111,44 @@ a style of its own kind (appearance, transform or video command); linking gives 
 preset, and changing the style's preset changes it on every linked effect. Detaching a style,
 or deleting it, keeps each effect's current settings. Saved slide presets carry the styles
 they use, and insertion reuses an existing style with the same name and family.
+
+Select an effect and open **Style ▾** in the Animation inspector. Choose a deck style of the
+same family, or **Save as new style…** and enter a name. Selecting several effects links them
+all; a selection spanning different families explains why linking is unavailable.
+
+![The style picker lists compatible deck styles and the save, edit, and detach actions.](../images/animation-style-picker.png)
+
+A local edit shows **override** beside **↺ use style**. Reset removes that field's override
+so it follows the style again. Setting stagger or custom influence to zero explicitly turns
+it off for this effect, even when the style has it enabled. **Edit style…** opens the shared
+fields under an **Editing style ‹name› · N tracks** banner; **Back to effect** returns to local
+edits. **Detach** keeps the current settings as independent values.
+
+![A linked effect with a duration override and its use-style reset.](../images/animation-style-override.png)
+
+Right-click a timing bar and choose **Animate like…**, then pick an object on the canvas.
+Its effect in this step supplies the style. If it has no style, Flux creates **Like ‹object
+label›** and links both effects. A multi-selection links in bulk; incompatible families are
+reported. In the X-ray, **6** arms the same pick for the selected objects or parts. **Esc** cancels.
+
+The animation **Library** keeps its usual copy action on the preset name. **as a linked style**
+creates a deck style from that saved preset and links the applied effects. Slide presets include
+the deck styles they use and restore their links when inserted.
+
+## Follow timing
+
+Hold **Ctrl/Cmd** and drag a bar's **left edge** onto another bar's start or end. The magnet
+guide turns solid; releasing creates a timing anchor with zero offset. A link glyph marks the
+follower. Retiming the source moves its followers live, including the source's stagger tail.
+You can also choose **⛓ Follow timing…** in the inspector and select a lane's start or end.
+
+![The linked follower and the inspector's after-lane-end row.](../images/animation-follow-timing.png)
+
+An anchored start row reads **after ‹lane› end + 0 ms** and displays the resolved start.
+Its primary input edits the **offset**. Choose **⛓ Detach** to retain the resolved start as
+absolute milliseconds. A plain bar drag also detaches and names the former lane in a toast;
+one Undo restores the whole gesture. Missing targets, cross-step references and cycles show
+the compiler's issue text with the stored start as fallback.
 
 The CLI and MCP support this through `anim-style`, `animate-like` and `set-track`:
 

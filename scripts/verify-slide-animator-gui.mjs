@@ -455,6 +455,9 @@ try {
   });
   ok(healed.back && !healed.missChip, "undoing the deletion heals the track (marker gone) — the tolerate-don't-prune payoff");
 
+  const { verifyLinkedStyles } = await import("./lib/animatorStyleChecks.mjs");
+  await verifyLinkedStyles(page, ok);
+
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

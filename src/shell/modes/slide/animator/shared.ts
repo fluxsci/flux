@@ -6,6 +6,7 @@ import type { FluxPlotManifest } from "../../../../lib/plot/types";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
+import { EASING_TOKENS } from "../../../../lib/slide/curves";
 import { PRESET_CATALOG, presetDef, EDITABLE_PRESETS, KNOWN_PRESETS } from "../../../../lib/slide/presetCatalog";
 
 export const PRESET_COLOR: Record<string, string> = Object.fromEntries(
@@ -13,7 +14,7 @@ export const PRESET_COLOR: Record<string, string> = Object.fromEntries(
 );
 
 export const EDIT_PRESETS: PresetName[] = [...EDITABLE_PRESETS];
-export const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
+export const EASINGS: readonly string[] = EASING_TOKENS;
 export function presetLabel(preset: string): string {
   return KNOWN_PRESETS.has(preset) ? presetDef(preset).label : preset;
 }

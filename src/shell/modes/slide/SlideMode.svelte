@@ -50,6 +50,7 @@
     selectedFrameId,
     partSelection,
     partSelections,
+    xrayOpen,
     viewport,
     project,
     commit,
@@ -131,6 +132,7 @@
   // Shared components (Inspector/Toolbar) read this to hide figure-only
   // affordances / accent the mode title. Context, so figure mode is untouched.
   setContext("flux-editor-mode", "slide");
+  setContext("flux-animate-like", startLike);
 
   // `active` (W16): false when this pane is kept-alive but hidden — pause the
   // build preview so its animation loop doesn't run off-screen.
@@ -154,6 +156,8 @@
   let ghostDialog = $state<{sourceId: string; beatIndex: number; original: "stay" | "disappear" | "transform"} | null>(null);
   // Transform ▸ Become: a PICK mode — the next single object selected (drawn,
   // clicked, or placed from the gallery) is what the source becomes.
+  // D1 generalises these small pick states into pickState.
+  let likePick = $state<{ slideId: string; trackIds: string[]; beatIndex: number } | null>(null);
   let becomePick = $state<{ sourceId: string; beatIndex: number } | null>(null);
   let openingRequest = $state(0);
   let consumingOpenRequest = $state(false);
@@ -648,7 +652,7 @@
     if (idle) idle(run); else setTimeout(run, 0);
   });
 
-  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{plotManifest:id=>$plotManifests[id]}).issues : []);
+  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,plotManifest:id=>$plotManifests[id]}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));
@@ -853,7 +857,7 @@
     const deck = currentDeck(), slide = deck?.slides.find(s => s.id === $activeFigureId);
     if (!deck || !slide) return;
     videoDialog = { deck, slideId: slide.id, root: pm.root,
-      durations: compileSlide(slide, deck.stage, { plotManifest: id => get(plotManifests)[id] }).cues.map(c => c.duration) };
+      durations: compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => get(plotManifests)[id] }).cues.map(c => c.duration) };
   }
   function exportVideo(options: SlideVideoOptions) {
     const picked = videoDialog; videoDialog = null;
@@ -1010,7 +1014,7 @@
     animateTargets(req.targets, req.kind);
   }
   function animationAction(action:"appear"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop") {
-    stopPreview();
+    stopPreview(); likePick = null;
     if(action!=="become")cancelBecome();
     if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
     else if(action==="ghost")openGhostDialog();
@@ -1018,10 +1022,48 @@
     else if(action==="become")startBecome();
     else addAppearance(action==="disappear",action==="emphasize");
   }
+  function startLike(fromXray = false) {
+    const s = activeSlide, beatIndex = $activeBeat, beat = s?.beats[beatIndex];
+    if (!s || !beat) return;
+    const parts = get(partSelections), selected = get(selection), ids = get(selTrackIds);
+    const tracks = !fromXray && ids.length ? beat.tracks.filter(t => t.id && ids.includes(t.id)) : beat.tracks.filter(t =>
+      parts.length ? parts.some(p => p.elementId === t.target && (t.part === p.partId || t.parts?.includes(p.partId))) : selected.has(t.target));
+    if (!tracks.length) { pushToast("info", "Select effects in this step to animate like another object."); return; }
+    stopPreview(); cancelBecome();
+    likePick = { slideId: s.id, beatIndex, trackIds: tracks.flatMap(t => t.id ? [t.id] : []) };
+    selection.set(new Set()); partSelection.set(null);
+    inspectorTab = "animation";
+  }
+  function performLike(pick: NonNullable<typeof likePick>, target: string) {
+    const s = activeSlide, beat = s?.beats[pick.beatIndex]; if (!s || !beat) return;
+    const source = beat.tracks.find(t => t.target === target && t.styleId) ?? beat.tracks.find(t => t.target === target);
+    if (!source?.id) { pushToast("info", "That object has no effect in this step."); selection.set(new Set()); return; }
+    likePick = null;
+    const result = commitDeckLive(d => slideOps.animateLike(d, s.id, source.id!, pick.trackIds));
+    if (result?.refused.length) pushToast("error", [...new Set(result.refused.map(r => r.reason))].join("; "));
+    selTrackIds.set(pick.trackIds);
+    selection.set(new Set(beat.tracks.filter(t => t.id && pick.trackIds.includes(t.id)).map(t => t.target)));
+  }
+  $effect(() => {
+    const pick = likePick, ids = [...$selection], tool = $activeTool, sid = $activeFigureId, bi = $activeBeat;
+    if (!pick) return;
+    if (sid !== pick.slideId || bi !== pick.beatIndex) { likePick = null; return; }
+    if (tool === "select" && ids.length === 1) untrack(() => performLike(pick, ids[0]));
+  });
+  function likeKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e) || !focused || presentOpen) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("input,textarea,select,[contenteditable=true]")) return;
+    if (e.key === "Escape" && likePick) { e.preventDefault(); e.stopImmediatePropagation(); likePick = null; }
+    else if (e.key === "6" && !e.ctrlKey && !e.metaKey && !e.altKey && get(xrayOpen) && target.closest(".xray")) {
+      e.preventDefault(); e.stopImmediatePropagation(); startLike(true); xrayOpen.set(false);
+    }
+  }
   /** Transform ▸ Become: arm the pick. The step is the active one (a first
    *  step is created when the slide has none), checked out After it so the
    *  target is drawn in context; the next single selection performs it. */
   function startBecome() {
+    likePick = null;
     const ids = selectionTargets(), s = activeSlide, sid = $activeFigureId;
     if (!s || !sid || ids.length !== 1) return;
     const sourceId = ids[0], el = s.elements.find(e => e.id === sourceId);
@@ -1046,7 +1088,7 @@
     if (!s) return;
     becomePick = null;
     try {
-      const compiled = compileSlide(s, stage, { plotManifest: id => get(plotManifests)[id] });
+      const compiled = compileSlide(s, stage, { animStyles: overlay?.animStyles, plotManifest: id => get(plotManifests)[id] });
       const result = commitDeckLive(d => {
         const sl = slideOps.slideById(d, s.id);
         const beat = sl?.beats[pick.beatIndex];
@@ -1116,7 +1158,7 @@
     const request = ghostDialog, s = activeSlide;
     if (!request || !s) return;
     try {
-      const sourceSnapshot = compileSlide(s, stage, {plotManifest: id => get(plotManifests)[id]}).copySourceState(request.sourceId, request.beatIndex);
+      const sourceSnapshot = compileSlide(s, stage, {animStyles: overlay?.animStyles, plotManifest: id => get(plotManifests)[id]}).copySourceState(request.sourceId, request.beatIndex);
       if (!sourceSnapshot) throw new Error("The source is unavailable before this step.");
       const result = commitDeckLive(d => {
         const sl = slideOps.slideById(d, s.id)!;
@@ -1273,7 +1315,8 @@
   $effect(() => {
     if (!focused || !ready) return;
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", likeKey, true);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keydown", likeKey, true); };
   });
 
   // Paste onto the active slide — the shared figure/slide arbitration
@@ -1373,7 +1416,7 @@
 <svelte:window onpaste={onPaste} />
 
 {#if videoDialog}
-  <SlideVideoDialog slide={videoDialog.deck.slides.find(s => s.id === videoDialog!.slideId)!} stage={videoDialog.deck.stage} durations={videoDialog.durations} onExport={exportVideo} onClose={() => videoDialog = null} />
+  <SlideVideoDialog slide={videoDialog.deck.slides.find(s => s.id === videoDialog!.slideId)!} stage={videoDialog.deck.stage} durations={videoDialog.durations} timing={{ animStyles: videoDialog.deck.animStyles, manifestFor: target => { const el = videoDialog!.deck.slides.find(s => s.id === videoDialog!.slideId)?.elements.find(e => e.id === target); return el && "assetId" in el ? $plotManifests[el.assetId] : undefined; } }} onExport={exportVideo} onClose={() => videoDialog = null} />
 {/if}
 
 {#if $slideVideoJob}
@@ -1491,7 +1534,9 @@
           <button class:chosen={$editDestination.kind === "design"} onclick={()=>{stopPreview();setEditDestination({kind:"design"});}} title="Edit original object properties, before animation">Design</button>
           <button class:chosen={$editDestination.kind === "after" && $editDestination.beatId===activeSlide?.beats[$activeBeat]?.id} disabled={$activeBeat===0} onclick={()=>{stopPreview();editAfterBeat();}} title="Create or update changes only at the selected step">Edit after step {$activeBeat || "…"}</button>
         </div>
-        {#if becomePick && activeSlide}
+        {#if likePick}
+          <span class="become-bar" role="status" aria-label="Animate like pick"><strong>Animate like…</strong><span class="become-msg">Pick an object’s effect in this step for {likePick.trackIds.length} selected effects.</span><button class="become-btn" onclick={() => likePick = null}>Cancel</button></span>
+        {:else if becomePick && activeSlide}
           <span class="become-bar" role="status" aria-label="Become pick">
             <strong>Become</strong>
             <span class="become-msg">{objectLabel(activeSlide, becomePick.sourceId)} turns into the next object you select — draw one, click one{becomeSourceIsPlot ? ", or pick a plot" : ""}.</span>

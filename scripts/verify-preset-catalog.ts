@@ -11,7 +11,7 @@ import { familyOf } from "../src/lib/slide/family";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { autoAnimatePlot, suggestTrack } from "../src/lib/slide/autobuild";
 import { isVideoCommand } from "../src/lib/slide/mediaTimeline";
-import { PRESET_COLOR, EDIT_PRESETS, presetLabel } from "../src/shell/modes/slide/animator/shared";
+import { PRESET_COLOR, EDIT_PRESETS, EASINGS, presetLabel } from "../src/shell/modes/slide/animator/shared";
 import * as core from "../flux-core/index";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
@@ -160,4 +160,12 @@ h.ok(["flux-core/verbs.ts", "src/lib/slide/presetCatalog.ts", "src/lib/slide/ops
   `the census covers src/lib/slide/**, src/shell/modes/slide/** and flux-core/{slides,verbs}.ts (${scanned.length} files)`);
 const offenders = scanned.filter(f => f !== catalogFile).flatMap(f => phaseLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`));
 h.eq(offenders, [], "no literal enter/exit preset list outside presetCatalog.ts");
+h.section("the shell derives easing choices from the shared curve tokens");
+const easingLists = (source: string) => [...source.matchAll(/\[[^\[\]]*\]/g)].filter(m =>
+  [...m[0].matchAll(/["'`]([A-Za-z]+)["'`]/g)].filter(q => EASINGS.includes(q[1])).length >= 3).map(m => m[0]);
+h.eq(easingLists('const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];').length, 1, "the census catches a literal easing list");
+scanned.length = 0;
+walk(path.join(repo, "src/shell"));
+h.eq(scanned.flatMap(f => easingLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`)), [],
+  "no literal easing choices anywhere in src/shell/**");
 await h.done();

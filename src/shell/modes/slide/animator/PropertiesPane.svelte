@@ -11,7 +11,7 @@
   // keyboard cockpit). Presentation follows the editor-surface spec: hairline-
   // separated blocks, square controls, the preset colour only as a thin rail
   // on the header name (2026-09-15 surface redesign).
-  import { selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive } from "../../../../lib/slide/store";
+  import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive } from "../../../../lib/slide/store";
   import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration } from "../../../../lib/slide/compile";
@@ -19,12 +19,13 @@
   import { plotManifests } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent } from "../../../../lib/slide/ops";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
+  import { resolveBeat, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -49,14 +50,103 @@
     } else pushToast("error", "Couldn't save the preset.");
   }
 
-  const selTracks = $derived.by(() => {
+  const rawSelTracks = $derived.by(() => {
     const all = slide.beats.flatMap((b) => b.tracks);
     return $selTrackIds.map((id) => all.find((t) => t.id === id)).filter((t): t is Track => !!t);
   });
-  const curTrack = $derived(selTracks.length ? selTracks[selTracks.length - 1] : null);
+  const deck: StyleContext = $derived($deckOverlay ?? {});
+  const manifestFor = (target: string) => {
+    const el = slide.elements.find(e => e.id === target);
+    return el && "assetId" in el ? $plotManifests[el.assetId] : undefined;
+  };
+  const resolvedBeats = $derived(slide.beats.map(b => resolveBeat(b, deck, manifestFor)));
+  const selTracks = $derived(rawSelTracks.map(t => resolvedBeats.flatMap(b => b.tracks).find(r => r.id === t.id)!));
+  const rawTrack = $derived(rawSelTracks.at(-1) ?? null);
+  const curBeatIndex = $derived(rawTrack ? slide.beats.findIndex(b => b.tracks.some(t => t.id === rawTrack.id)) : -1);
+  let styleOpen = $state(false), savingStyle = $state(false), styleName = $state("");
+  let editingStyleId = $state<string | null>(null);
+  const editingStyle = $derived(deck.animStyles?.find(s => s.id === editingStyleId));
+  const linkedStyle = $derived(rawTrack?.styleId ? deck.animStyles?.find(s => s.id === rawTrack.styleId) : undefined);
+  const sameFamily = $derived(rawSelTracks.length > 0 && rawSelTracks.every(t => familyOf(t) === familyOf(rawSelTracks[0])));
+  const sameStyle = $derived(!!linkedStyle && rawSelTracks.every(t => t.styleId === linkedStyle.id));
+  const styleReason = $derived(!sameFamily ? "Select effects of one family to link a style." : familyOf(rawSelTracks[0] ?? {}) === "camera" ? "Camera effects do not share animation styles." : "");
+  const familyStyles = $derived((deck.animStyles ?? []).filter(s => sameFamily && s.family === familyOf(rawSelTracks[0])));
+  const linkedCount = $derived(editingStyle ? ($deckOverlay?.slides ?? []).reduce((n,s) => n+s.beats.reduce((n,b) => n+b.tracks.filter(t => t.styleId === editingStyle.id).length,0),0) : 0);
+  const curTrack = $derived(editingStyle && rawTrack ? { ...rawTrack, ...Object.fromEntries(INHERITED_STYLE_FIELDS.map(k => [k, editingStyle.track[k]])), ...editingStyle.track, anchor: undefined } as Track : selTracks.at(-1) ?? null);
+  const selectionContext = { key: "" };
+  $effect(() => {
+    const key = `${slide.id}:${$selTrackIds.join(",")}`;
+    if (key === selectionContext.key) return;
+    selectionContext.key = key; editingStyleId = null; styleOpen = false; savingStyle = false; anchorOpen = false;
+  });
+
+  function linkStyle(id: string | null) {
+    commitDeckLive(d => { for (const t of rawSelTracks) if (t.id) {
+      const r = linkTrackStyle(d, slide.id, t.id, id); if (!r.ok) pushToast("error", r.reason!);
+    } });
+    styleOpen = false; editingStyleId = null;
+  }
+  function saveStyle() {
+    if (!rawTrack?.id || !styleName.trim() || styleReason) return;
+    commitDeckLive(d => {
+      const style = styleFromTrack(d, slide.id, rawTrack.id!, styleName.trim());
+      if (style) for (const t of rawSelTracks) if (t.id && t.id !== rawTrack.id) linkTrackStyle(d, slide.id, t.id, style.id);
+    });
+    savingStyle = false; styleName = ""; styleOpen = false;
+  }
+  // The same field controls edit either local overrides or the style itself.
+  function editFields(fn: (t: Track, resolved: Track) => void) {
+    if (editingStyle) {
+      const id = editingStyle.id;
+      commitDeckLive(d => {
+        const style = d.animStyles?.find(s => s.id === id); if (!style) return;
+        const t: Track = { target: rawTrack?.target ?? "", ...structuredClone(style.track) };
+        fn(t, t);
+        // Send only changed fields: resending preset would erase local preset overrides.
+        const keys = [...INHERITED_STYLE_FIELDS, "preset"] as const;
+        const patch = Object.fromEntries(keys.filter(k => JSON.stringify(t[k]) !== JSON.stringify(style.track[k])).map(k => [k, t[k]]));
+        setAnimStyle(d, id, { track: patch });
+      });
+    } else withSelectedTracks(fn);
+  }
+  type StyleField = typeof INHERITED_STYLE_FIELDS[number] | "preset";
+  function overridden(key: StyleField) {
+    return !editingStyle && rawSelTracks.some(t => t.styleId && (key === "preset"
+      ? t.preset !== deck.animStyles?.find(s => s.id === t.styleId)?.track.preset : t[key] != null));
+  }
+  function resetStyleField(key: StyleField) {
+    withSelectedTracks(t => {
+      if (!t.styleId) return;
+      // Preset defines the family and always stays on the track (F1's write-through rule).
+      if (key === "preset") { const style = deck.animStyles?.find(s => s.id === t.styleId); if (style) t.preset = style.track.preset; }
+      else delete t[key];
+    });
+  }
+  let anchorOpen = $state(false);
+  const anchored = $derived(!editingStyle && rawSelTracks.some(t => t.anchor));
+  const sameAnchor = $derived(!!rawTrack?.anchor && rawSelTracks.every(t => t.anchor?.trackId === rawTrack.anchor!.trackId && t.anchor?.edge === rawTrack.anchor!.edge));
+  const anchorTrack = $derived(rawTrack?.anchor ? slide.beats[curBeatIndex]?.tracks.find(t => t.id === rawTrack.anchor!.trackId) : undefined);
+  const anchorIssues = $derived(resolvedBeats.flatMap(b => b.issues).filter(i => rawSelTracks.some(t => t.id === i.trackId)));
+  const anchorChoices = $derived(slide.beats[curBeatIndex]?.tracks.filter(t => t.id && !rawSelTracks.some(s => s.id === t.id)) ?? []);
+  function anchorName(t: Track) { return chipLabel(t, slide, plotTags, deck); }
+  function anchorTo(trackId: string, edge: "start" | "end") {
+    if (!trackId) return;
+    commitDeckLive(d => { for (const t of rawSelTracks) if (t.id) {
+      const r = setTrackAnchor(d, slide.id, t.id, { trackId, edge, offsetMs: 0 });
+      if (!r.ok) pushToast("error", r.reason!);
+    } });
+    anchorOpen = false;
+  }
+  function detachAnchor() {
+    commitDeckLive(d => { for (const t of rawSelTracks) if (t.id && t.anchor) setTrack(d, slide.id, t.id, { anchor: null }, manifestFor); });
+    anchorOpen = false;
+  }
+  function offset(value: string) {
+    const n = Number(value); if (!value.trim() || !Number.isFinite(n)) return;
+    commitDeckLive(d => { for (const t of rawSelTracks) if (t.id && t.anchor) setTrackAnchor(d, slide.id, t.id, { ...t.anchor, offsetMs: n }); });
+  }
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
   const curWay = $derived(curTrack && curFamily === "transform" ? transformWay(curTrack) : null);
-  const curBeatIndex = $derived(curTrack ? slide.beats.findIndex((b) => b.tracks.some((t) => t.id === curTrack.id)) : -1);
   /** What the object becomes at this step, for the Destination row. */
   const destinationLabel = $derived.by(() => {
     if (!curTrack || curFamily !== "transform") return "";
@@ -80,7 +170,7 @@
     return null;
   });
   function mixed<T>(get: (t: Track) => T): boolean {
-    const vs = selTracks.map(get);
+    const vs = editingStyle && curTrack ? [get(curTrack)] : selTracks.map(get);
     return vs.length > 1 && vs.some((v) => v !== vs[0]);
   }
   const anyDisabled = $derived(selTracks.some((t) => t.disabled));
@@ -93,27 +183,32 @@
   const patchTrack = (p: Partial<Track>) => {
     if (anyGhost && ["target", "ghostFrom", "preset", "part", "selector"].some(key => key in p)) return;
     if (anyMedia && !allMedia && ["preset", "part", "selector", "target"].some(key => key in p)) return;
-    withSelectedTracks((t) => Object.assign(t, p));
+    editFields((t) => {
+      Object.assign(t, p);
+      if ("influence" in p && p.influence === undefined && t.styleId) t.influence = { in: 0, out: 0 };
+    });
   };
   function timing(field: "start" | "duration", value: string) {
     const n = Number(value);
-    if (value.trim() && Number.isFinite(n)) patchTrack({ [field]: Math.max(field === "start" ? 0 : 1, n) });
+    if (!value.trim() || !Number.isFinite(n)) return;
+    if (editingStyle) { patchTrack({ [field]: Math.max(field === "start" ? 0 : 1, n) }); return; }
+    commitDeckLive(d => { for (const t of rawSelTracks) if (t.id) setTrack(d, slide.id, t.id, { [field]: Math.max(field === "start" ? 0 : 1, n) }, manifestFor); });
   }
   function patchStagger(p: Partial<Stagger>) {
-    withSelectedTracks((t) => {
-      if (p.perMs === 0) { delete t.stagger; return; }
-      t.stagger = { perMs: t.stagger?.perMs ?? 40, ...t.stagger, ...p } as Stagger;
+    editFields((t, resolved) => {
+      if (p.perMs === 0) { if (t.styleId) t.stagger = { perMs: 0 }; else t.stagger = undefined; return; }
+      t.stagger = { perMs: resolved.stagger?.perMs ?? 40, ...resolved.stagger, ...p } as Stagger;
     });
   }
   function setInfluence(p: Partial<Influence>) {
-    withSelectedTracks((t) => {
-      const next = { in: 0, out: 0, ...t.influence, ...p } as Influence;
-      if (next.in <= 0 && next.out <= 0) delete t.influence;
+    editFields((t, resolved) => {
+      const next = { in: 0, out: 0, ...resolved.influence, ...p } as Influence;
+      if (next.in <= 0 && next.out <= 0) t.influence = t.styleId ? { in: 0, out: 0 } : undefined;
       else t.influence = { in: Math.max(0, Math.min(100, next.in)), out: Math.max(0, Math.min(100, next.out)) };
     });
   }
   function applyInfluencePreset(p: { in: number; out: number }) {
-    withSelectedTracks((t) => { if (p.in <= 0 && p.out <= 0) delete t.influence; else t.influence = { in: p.in, out: p.out }; });
+    editFields((t) => { t.influence = p.in <= 0 && p.out <= 0 && !t.styleId ? undefined : { in: p.in, out: p.out }; });
   }
   const inflActive = (p: { in: number; out: number }) =>
     !!curTrack && (curTrack.influence ? curTrack.influence.in === p.in && curTrack.influence.out === p.out : p.in === 0 && p.out === 0);
@@ -195,13 +290,12 @@
    *  default decks keep the legacy byte-identical compile path. */
   function setTrim(key: "anchor" | "direction" | "mode" | "from" | "to", value: unknown) {
     const DEF: Record<string, unknown> = { anchor: 0, direction: "forward", mode: "single", from: 0, to: 1 };
-    withSelectedTracks((t) => {
-      const p = { ...(t.params ?? {}) } as Record<string, unknown>;
+    editFields((t, resolved) => {
+      const p = { ...(resolved.params ?? {}) } as Record<string, unknown>;
       const isDefault = value === DEF[key] || value === "" || value == null || (key === "anchor" && (value === "start" || value === 0));
       if (isDefault) delete p[key];
       else p[key] = value;
-      if (Object.keys(p).length) t.params = p;
-      else delete t.params;
+      t.params = Object.keys(p).length || t.styleId ? p : undefined;
     });
   }
   // the anchor pad: named positions laid out spatially (rect/ellipse corners +
@@ -218,6 +312,10 @@
   });
 </script>
 
+{#snippet overrideRow(key: StyleField)}
+  {#if overridden(key)}<div class="override-row" data-override={key}><span class="mx">override</span><button aria-label={`Use style ${key}`} onclick={() => resetStyleField(key)}>↺ use style</button></div>{/if}
+{/snippet}
+
 <div class="props" class:tx={curFamily === "transform"} data-command-scope="animation">
   <div class="ttl">Effect</div>
   {#if !curTrack}
@@ -230,15 +328,31 @@
       <span class="nm">
         {#if selTracks.length > 1}{selTracks.length} tracks{:else}{groupLabel ? `${groupLabel} › ` : ""}{chipLabel(curTrack, slide, plotTags)}{/if}
       </span>
-      {#if curFamily === "transform"}
-        <span class="chip">transform · {WAY_LABEL[curWay ?? "change"]}</span>
-      {:else if selTracks.length === 1}
-        <span class="chip">{presetLabel(curTrack.preset ?? "fade")}</span>
-      {/if}
+      <button class="style-picker" aria-label="Animation style" aria-expanded={styleOpen} disabled={!!styleReason || !!editingStyle}
+        title={styleReason || "Link settings to a deck animation style"} onclick={() => styleOpen = !styleOpen}>Style{sameStyle ? ` · ${linkedStyle!.name}` : rawSelTracks.some(t => t.styleId) ? " · mixed" : ""} ▾</button>
       {#if anyMixed}<span class="mx" title="Selected tracks differ on some fields — editing a field sets it on ALL of them">mixed</span>{/if}
     </div>
 
-    {#if targetMissing}<div class="target-warning">This target is missing. Choose an object or plot part below to reconnect the effect.</div>{/if}
+    {#if styleReason}<div class="note style-reason">{styleReason}</div>{/if}
+    {#if styleOpen}
+      <div class="style-menu" aria-label="Animation styles">
+        {#each familyStyles as style (style.id)}<button class="style-option" data-style-id={style.id} onclick={() => linkStyle(style.id)}>{style.name}</button>{/each}
+        <button onclick={() => { savingStyle = true; styleOpen = false; }}>Save as new style…</button>
+        <button disabled={!sameStyle} onclick={() => { editingStyleId = linkedStyle!.id; styleOpen = false; }}>Edit style…</button>
+        <button disabled={!rawSelTracks.some(t => t.styleId)} onclick={() => linkStyle(null)}>Detach</button>
+      </div>
+    {/if}
+    {#if savingStyle}
+      <form class="style-save psave" onsubmit={e => { e.preventDefault(); saveStyle(); }}>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input autofocus aria-label="New animation style name" placeholder="Style name…" bind:value={styleName} onkeydown={e => { if (e.key === "Escape") savingStyle = false; e.stopPropagation(); }}/>
+        <button disabled={!styleName.trim()}>Save</button><button type="button" onclick={() => savingStyle = false}>Cancel</button>
+      </form>
+    {/if}
+    {#if editingStyle}
+      <div class="editing-style" role="status">Editing style ‹{editingStyle.name}› · {linkedCount} tracks <button onclick={() => editingStyleId = null}>Back to effect</button></div>
+    {/if}
+    {#if targetMissing && !editingStyle}<div class="target-warning">This target is missing. Choose an object or plot part below to reconnect the effect.</div>{/if}
     {#if curTrack.ghostFrom}
       <div class="note">Starts from <b>{objectLabel(slide, curTrack.ghostFrom)}</b> before this step. Edit this copy’s destination with <b>After</b>.</div>
     {/if}
@@ -246,7 +360,7 @@
       <div class="note ghost-mixed-note">This selection includes ghost births. Timing and easing apply to all selected effects. Select one effect to edit its destination.</div>
     {/if}
     {#if anyMedia && !allMedia}<div class="note">This selection includes video controls. Start offsets apply to all selected effects; select a video control to edit its action.</div>{/if}
-    {#if curTrack.target !== "@camera" && !anyGhost && (!anyMedia || allMedia)}
+    {#if !editingStyle && curTrack.target !== "@camera" && !anyGhost && (!anyMedia || allMedia)}
       <label class="f">Object
         <select aria-label="Animation target" value={curTrack.target} onchange={e => retarget(e.currentTarget.value)}>
           {#if !curTargetEl}<option value={curTrack.target}>Missing object</option>{/if}
@@ -264,7 +378,7 @@
       {/if}
     {/if}
 
-    {#if curFamily === "transform" && selTracks.length === 1}
+    {#if !editingStyle && curFamily === "transform" && selTracks.length === 1}
       <!-- the endpoint segment: t1 shows the before, t2 checks out the after -->
       <div class="seg" role="group" aria-label="Transform endpoint">
         <button class="sg" class:on={epActive === "t1"} title="Show/edit t₁ — the state the object transforms FROM"
@@ -319,16 +433,36 @@
       </label>
     {/if}
 
-    <label class="f">start<kbd class="kc" title="shortcut: t">t</kbd>
-      <span class="unit"><input data-fld="t" type="number" min="0" step="50" placeholder="Mixed" value={mixed(t => t.start ?? 0) ? "" : curTrack.start ?? 0} onchange={(e) => timing("start", e.currentTarget.value)} /><small>ms</small></span>
-    </label>
+    {@render overrideRow("preset")}
+    <div class="start-row">
+      {#if anchored}
+        <div class="anchor-description">{#if sameAnchor}after {anchorTrack ? anchorName(anchorTrack) : "missing effect"} {rawTrack!.anchor!.edge} {mixed(t => t.anchor?.offsetMs ?? 0) ? "+ mixed offset" : `${(rawTrack!.anchor!.offsetMs ?? 0) < 0 ? "−" : "+"} ${Math.abs(rawTrack!.anchor!.offsetMs ?? 0)} ms`}{:else}Mixed timing anchors{/if}</div>
+        {#if !sameAnchor}<div class="note">Offsets apply to the anchored effects in this selection.</div>{/if}
+        <label class="f">offset<kbd class="kc" title="shortcut: t">t</kbd>
+          <span class="unit"><input data-fld="t" aria-label="Timing anchor offset" type="number" step="50" placeholder="Mixed" value={mixed(t => t.anchor?.offsetMs ?? 0) ? "" : rawSelTracks.find(t => t.anchor)?.anchor?.offsetMs ?? 0} onchange={e => offset(e.currentTarget.value)}/><small>ms</small></span>
+        </label>
+        <div class="f"><small>Start {mixed(t => t.start ?? 0) ? "mixed" : `${curTrack.start ?? 0} ms`}</small><button class="anchor-toggle" aria-label="Detach timing anchor" onclick={detachAnchor}>⛓ Detach</button></div>
+      {:else}
+        <label class="f">start<kbd class="kc" title="shortcut: t">t</kbd>
+          <span class="unit"><input data-fld="t" type="number" min="0" step="50" placeholder="Mixed" value={mixed(t => t.start ?? 0) ? "" : curTrack.start ?? 0} onchange={(e) => timing("start", e.currentTarget.value)} /><small>ms</small></span>
+        </label>
+        {#if !editingStyle}<button class="anchor-toggle" aria-label="Follow timing" aria-expanded={anchorOpen} onclick={() => anchorOpen = !anchorOpen}>⛓ Follow timing…</button>{/if}
+      {/if}
+      {@render overrideRow("start")}
+      {#if anchorOpen && !editingStyle}<div class="anchor-choices">
+        {#each anchorChoices as t (t.id)}<div>{anchorName(t)} <button onclick={() => anchorTo(t.id!, "start")}>start</button><button onclick={() => anchorTo(t.id!, "end")}>end</button></div>{/each}
+        {#if !anchorChoices.length}<div class="note">Add another effect in this step to follow its timing.</div>{/if}
+      </div>{/if}
+      {#if !editingStyle}{#each anchorIssues as issue}<div class="target-warning anchor-issue">{issue.reason}</div>{/each}{/if}
+    </div>
     {#if !anyMedia}<label class="f">duration<kbd class="kc" title="shortcut: d">d</kbd>
       <span class="unit"><input data-fld="d" type="number" min="1" step="50" placeholder="Mixed" value={mixed(t => trackDuration(t)) ? "" : trackDuration(curTrack)} onchange={(e) => timing("duration", e.currentTarget.value)} /><small>ms</small></span>
-    </label>{/if}
+    </label>{@render overrideRow("duration")}{/if}
     {#if curFamily === "appearance" && !anyGhost && !anyMedia}
       <label class="f">stagger<kbd class="kc" title="shortcut: g">g</kbd>
         <span class="unit"><input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></span>
       </label>
+      {@render overrideRow("stagger")}
       {#if curTrack.stagger?.perMs}
         <label class="f">by
           <select value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
@@ -345,7 +479,7 @@
     {#if isWipe}
       <label class="f">direction
         <select value={(curTrack.params?.direction as string) ?? "ltr"} title="Which way the reveal/wipe travels"
-          onchange={(e) => { const v = e.currentTarget.value; withSelectedTracks((t) => { const p = { ...(t.params ?? {}) }; if (v === "ltr") delete p.direction; else p.direction = v; if (Object.keys(p).length) t.params = p; else delete t.params; }); }}>
+          onchange={(e) => { const v = e.currentTarget.value; editFields((t, resolved) => { const p = { ...(resolved.params ?? {}) }; if (v === "ltr") delete p.direction; else p.direction = v; t.params = Object.keys(p).length || t.styleId ? p : undefined; }); }}>
           <option value="ltr">left → right</option>
           <option value="rtl">right → left</option>
           <option value="ttb">top → bottom</option>
@@ -408,11 +542,13 @@
         </div>
       </div>
     {/if}
+    {#if isTrim || isWipe}{@render overrideRow("params")}{/if}
     {#if !anyMedia}<label class="f">easing<kbd class="kc" title="shortcut: e">e</kbd>
       <select data-fld="e" value={curTrack.easing ?? (curFamily === "transform" ? "smooth" : "standard")} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"], influence: undefined })}>
         {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
       </select>
     </label>
+    {@render overrideRow("easing")}
     <details class="advanced"><summary>Custom easing {curTrack.influence ? "· active" : ""}</summary>
     <div class="f infl" title="Velocity profile. When active, this replaces the named easing above.">
       <span class="fl">influence</span>
@@ -426,7 +562,7 @@
         {/each}
       </span>
     </div>
-    </details>{/if}
+    </details>{@render overrideRow("influence")}{/if}
 
     {#if selTracks.length === 1 && !anyMedia}
       {#if savingPreset}
@@ -445,7 +581,7 @@
       {/if}
     {/if}
 
-    <div class="acts">
+    {#if !editingStyle}<div class="acts">
       <button class="mini" title="Duplicate the selected track(s) — ⌘D" onclick={duplicateSelectedTracks}>⧉</button>
       <button class="mini" class:warn={anyDisabled} title={anyDisabled ? "Enable (x)" : "Disable — kept but not played (x)"} onclick={toggleSelectedDisabled}>{anyDisabled ? "◌" : "⏻"}</button>
       {#if selTracks.length >= 2}
@@ -453,7 +589,7 @@
       {/if}
       <span class="sp"></span>
       <button class="del" onclick={deleteSelectedTracks}>Delete</button>
-    </div>
+    </div>{/if}
   {/if}
 </div>
 
@@ -476,11 +612,27 @@
 
   .hd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 20px; }
   .hd .nm { font-weight: 600; color: var(--c-tx-hi); box-shadow: inset 2px 0 0 var(--pc); padding-left: 7px; }
-  .hd .chip, .mx {
+  .mx {
     font: 600 9.5px var(--font-mono); text-transform: uppercase; letter-spacing: .05em; line-height: 16px;
     border: 1px solid; border-radius: var(--r-ui); padding: 0 4px;
   }
-  .hd .chip { color: var(--pc); border-color: color-mix(in oklab, var(--pc) 55%, transparent); }
+  .style-picker, .style-menu button, .override-row button, .anchor-toggle, .anchor-choices button, .editing-style button {
+    font: 11px var(--font-ui); color: var(--c-tx-2); background: transparent; border: 1px solid var(--c-line-strong);
+    border-radius: var(--r-ui); padding: 3px 6px; cursor: var(--cursor-cross-hover);
+  }
+  .style-picker { color: var(--pc); }
+  .style-picker:disabled, .style-menu button:disabled { opacity: .5; cursor: var(--cursor-cross); }
+  .style-menu { display: flex; flex-direction: column; border: 1px solid var(--c-line-strong); background: var(--c-surface); padding: 3px; }
+  .style-menu button { text-align: left; border: 0; min-height: 24px; }
+  .style-menu button:hover:not(:disabled) { background: var(--c-accent-tint); }
+  .editing-style { padding: 6px; border-left: 2px solid var(--c-accent); background: var(--c-accent-tint); line-height: 1.6; }
+  .editing-style button { display: block; margin-top: 4px; }
+  .override-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: -4px; }
+  .override-row button { border: 0; color: var(--c-accent); }
+  .anchor-description { font-size: 11px; color: var(--c-tx-2); overflow-wrap: anywhere; }
+  .anchor-choices { display: grid; gap: 4px; padding: 4px 0; }
+  .anchor-choices button { margin-left: 3px; }
+  .start-row { display: grid; gap: 4px; }
   .mx { color: var(--c-tx-muted); border-color: var(--c-line-strong); }
 
   /* fields: label left, control right, 24px rows, mono values */
@@ -496,6 +648,7 @@
   .props select:focus, .props input:focus { border-color: var(--c-accent); outline: none; }
   .f select { max-width: 175px; min-width: 90px; }
   .f input { width: 56px; }
+  .f input[data-fld="t"], .f input[data-fld="d"], .f input[data-fld="g"] { width: 68px; }
   .infl { flex-wrap: wrap; }
   .infl input { width: 46px; }
 

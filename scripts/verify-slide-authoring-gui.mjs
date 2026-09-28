@@ -30,6 +30,9 @@ try{
   check(state.beats[1].tracks.every((t,i,a)=>!i||t.anchor?.trackId===a[i-1].id&&t.anchor.edge==='end'),'successive effects follow the previous effect through stored anchors');
   const cues=await page.evaluate(async()=>{const {compileSlide}=await import('/src/lib/slide/compile.ts');const f=window.__flux,d=f.slide.currentDeck(),s=d.slides.find(s=>s.id===f.get(f.fig.activeFigureId));return compileSlide(s,d.stage,d).cues[1].tracks.map(t=>({start:t.start,end:t.end}));});
   check(cues.every((t,i,a)=>!i||t.start>=a[i-1].end),'same-target effects sequence without overlap at their resolved playback times');
+  const lanes=await page.$$eval('.lane-row[data-track-id] .trk',els=>els.map(e=>({left:parseFloat(e.style.left),width:parseFloat(e.style.width)})));
+  const pxPerMs=lanes[0].width/(cues[0].end-cues[0].start);
+  check(lanes.every((lane,i)=>Math.abs(lane.left-cues[i].start*pxPerMs)<.5),'the real Animator lanes use the compiler’s resolved starts (0 / 300 / 800 ms)');
   const geometries=await page.$$eval('.lane-row[data-track-id] .target-label',els=>els.map(el=>({x:el.getBoundingClientRect().x,width:el.getBoundingClientRect().width,text:el.textContent})));
   check(geometries.every(g=>g.width>=200&&g.x===geometries[0].x),'fixed object labels stay readable independently of duration');
   // One earlier transformation, followed by a separate step with no transform.
@@ -103,6 +106,10 @@ try{
   check(copies.groups?.[0]?.label===source.groups[0].label&&copies.tracks.every(t=>t.groupId===copies.groups[0].id),'group copy preserves its name and membership in the destination');
   await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await paint();
   check((await read()).beats[3].tracks.length===0,'one Undo reverses the complete group-copy gesture');
+  const {verifyTimingAnchors}=await import('./lib/animatorStyleChecks.mjs');
+  await verifyTimingAnchors(page,check);
+  const {verifyResolvedReaders}=await import('./lib/animatorReaderChecks.mjs');
+  await verifyResolvedReaders(page,check);
   check(realErrors(page).length===0,'console remains clean: '+realErrors(page).join('; '));
   await page.screenshot({path:'test-results/slide-authoring-overhaul.png',fullPage:true});
   console.log(`##VERIFY## ${JSON.stringify({name:'slide-authoring-gui',passed,failed:0})}`);
