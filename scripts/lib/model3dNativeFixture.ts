@@ -24,7 +24,9 @@ const project: Project = {
     x: 0, y: 0, width: 600, height: 450, background: '#ffffff', elements: [], guides: { x: [], y: [] } }],
 };
 await executeFigSave(planFigSave(project, null), { read: async rel => fs.readFile(path.join(root, rel), 'utf8').catch(() => null), write });
-const source = path.join(repo, 'scripts/fixtures/model3d/native/neuron');
-await fs.copyFile(source + '.glb', path.join(root, 'plots/neuron.glb'));
-await fs.copyFile(source + '.fluxplot.json', path.join(root, 'plots/neuron.fluxplot.json'));
+for (const name of ['neuron', 'cortex-states']) {
+  const source = path.join(repo, 'scripts/fixtures/model3d/native', name);
+  await fs.copyFile(source + '.glb', path.join(root, 'plots', name + '.glb'));
+  await fs.copyFile(source + '.fluxplot.json', path.join(root, 'plots', name + '.fluxplot.json'));
+}
 await write('manuscript/main.qmd', '---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\nFigure @fig-native-model.\n');

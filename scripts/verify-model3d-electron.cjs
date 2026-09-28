@@ -72,7 +72,7 @@ async function main() {
   if (process.platform === 'linux') env.DISPLAY = process.env.DISPLAY || ':0';
   try {
     await fs.mkdir(env.HOME, { recursive: true }); await fs.mkdir(artifacts, { recursive: true });
-    for (const scenario of ['hardware', 'reopen', 'software', 'disabled', 'disabled-cached']) {
+    for (const scenario of ['hardware', 'reopen', 'software', 'shape', 'disabled', 'disabled-cached']) {
       const root = path.join(scratch, scenario === 'reopen' ? 'hardware' : scenario);
       if (scenario === 'disabled-cached') await fs.cp(path.join(scratch, 'hardware'), root, { recursive: true });
       else if (scenario !== 'reopen') {

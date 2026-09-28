@@ -11,7 +11,7 @@ const checks = [], errors = [], dialogs = [], metrics = {};
 let win, contextProbe;
 dialog.showOpenDialog = async (_win, opts) => {
   dialogs.push({ kind: 'open', filters: opts.filters });
-  return { canceled: false, filePaths: [path.join(root, 'plots/neuron.glb')] };
+  return { canceled: false, filePaths: [path.join(root, scenario === 'shape' ? 'plots/cortex-states.glb' : 'plots/neuron.glb')] };
 };
 dialog.showSaveDialog = async (_win, opts) => {
   const filePath = path.join(root, 'exports', `${dialogs.filter(dialog => dialog.kind === 'save').length + 1}-${path.basename(opts.defaultPath)}`);
@@ -113,7 +113,7 @@ async function importModel() {
   await clickText('.figure-mode .toolbar button', 'Import');
   await wait(() => js(`!!document.querySelector(${JSON.stringify(modelSelector)})`), 'native GLB placement');
   const state = await wait(modelState, 'import saved through real project persistence');
-  check(state.width === 336 && state.height === 288, 'import preserves authored 3.5 by 3 inch physical size');
+  check(state.width === (scenario==='shape'?288:336) && state.height === 288, 'import preserves authored physical dimensions');
   check(dialogs.some(dialog => dialog.kind === 'open' && dialog.filters?.some(filter => filter.extensions?.includes('glb'))), 'toolbar uses actual GLB file-picker bridge and native grant');
   return state;
 }
@@ -261,6 +261,37 @@ async function nativeModifierHandoff() {
   await rendered();
   check(true, 'single native modifier chord both exits and undoes orbit');
 }
+async function nativeShapeHistory() {
+  await rendered();
+  await click(modelSelector);
+  const selector='input[type="range"][aria-label="inflated shape weight"]';
+  await wait(()=>js(`!!document.querySelector(${JSON.stringify(selector)})`),'native Shape controls');
+  const baseline=(await modelState()).modelStates??{}, before=await captureMesh('shape-before');
+  await point(selector);
+  const rect=await js(`(()=>{const b=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return{x:Math.round(b.x+8),end:Math.round(b.x+b.width*.68),y:Math.round(b.y+b.height/2)}})()`);
+  await focus();
+  win.webContents.sendInputEvent({type:'mouseMove',x:rect.x,y:rect.y});
+  win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,x:rect.x,y:rect.y});
+  for(let i=1;i<=8;i++){
+    win.webContents.sendInputEvent({type:'mouseMove',button:'left',modifiers:['leftButtonDown'],x:Math.round(rect.x+(rect.end-rect.x)*i/8),y:rect.y});
+    await paint();
+  }
+  win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:rect.end,y:rect.y});
+  const value=await wait(()=>js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return n&&Number(n.value)>.5&&Number(n.value)})()`),'actual native range drag changes shape');
+  await wait(async()=>Math.abs(((await modelState()).modelStates?.inflated??0)-value)<1e-8,'shape drag persisted');
+  await rendered(); const after=await captureMesh('shape-after');
+  check(pixelDifference(before,after)>.005,'native Shape drag visibly changes the actual cortex mesh');
+  check(await js(`document.activeElement===document.querySelector(${JSON.stringify(selector)})`),'Shape range retains focus after native drag');
+  await key('Z',[process.platform==='darwin'?'meta':'control']);
+  await wait(async()=>JSON.stringify((await modelState()).modelStates??{})===JSON.stringify(baseline),'focused range one Undo restores all baseline shape weights');
+  check(await js(`document.activeElement===document.querySelector(${JSON.stringify(selector)})&&Number(document.activeElement.value)===${baseline.inflated??0}`),'native Ctrl/Cmd+Z reaches Flux history while Shape range keeps focus');
+  await key('Z',[process.platform==='darwin'?'meta':'control','shift']);
+  await wait(async()=>Math.abs(((await modelState()).modelStates?.inflated??0)-value)<1e-8,'focused range Redo restores drag');
+  check(await js(`document.activeElement===document.querySelector(${JSON.stringify(selector)})&&Number(document.activeElement.value)===${value}`),'native focused Shape Redo restores the same value');
+  await rendered();
+  metrics.shape={baseline,changedValue:value,changedPixelRatio:pixelDifference(before,after),saved:await modelState()};
+  await screenshot('shape-native');
+}
 async function selectValue(selector, value) {
   const index = await js(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return [...n.options].findIndex(option=>option.value===${JSON.stringify(String(value))})})()`);
   if (index < 0) throw Error(`Missing option ${value}`);
@@ -309,10 +340,13 @@ async function main() {
       check(await js("document.querySelectorAll('.figure-mode [data-model3d-furniture] text').length>0"), 'vector furniture remains visible without WebGL');
     } else {
       await rendered();
-      await measuredOrbit();
-      await contextRecovery();
-      await nativeModifierHandoff();
-      if (scenario === 'hardware') await exports();
+      if(scenario==='shape') await nativeShapeHistory();
+      else {
+        await measuredOrbit();
+        await contextRecovery();
+        await nativeModifierHandoff();
+        if (scenario === 'hardware') await exports();
+      }
     }
   }
   await wait(() => js("document.querySelectorAll('.toasts .toast').length===0"), 'transient notifications retire before final scene screenshot');
@@ -320,7 +354,7 @@ async function main() {
   metrics.evidence = await js('window.__nativeModelEvidence');
   const renderers = metrics.evidence.workers.flatMap(worker => worker.messages).filter(message => message.type === 'available').map(message => message.renderer);
   metrics.renderers = renderers;
-  if (scenario === 'hardware') check(renderers.length > 0 && renderers.every(renderer => !/swiftshader|llvmpipe|software/i.test(renderer)), 'normal production path positively uses the hardware worker renderer');
+  if (scenario === 'hardware'||scenario==='shape') check(renderers.length > 0 && renderers.every(renderer => !/swiftshader|llvmpipe|software/i.test(renderer)), 'normal production path positively uses the hardware worker renderer');
   if (scenario === 'software') check(renderers.some(renderer => /swiftshader/i.test(renderer)), 'SOFTGPU path positively uses the SwiftShader worker renderer');
   if (scenario === 'disabled') check(!metrics.evidence.workers.some(worker => worker.url.includes('model3d.worker')), 'disabled renderer creates no model worker');
   check(errors.length === 0, `production console has no errors: ${errors.join('; ')}`);
