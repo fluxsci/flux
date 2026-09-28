@@ -483,7 +483,8 @@
       "verify-model3d-xray-gui.mjs",
       "verify-model3d-source-gui.mjs",
       "verify-model3d-verbs-gui.mjs",
-      "verify-model3d-import-progress-gui.mjs"
+      "verify-model3d-import-progress-gui.mjs",
+      "verify-model3d-snapshot-quiet.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -896,7 +897,8 @@
       "verify-model3d-demo.ts",
       "verify-model3d-cache-watch.cjs",
       "verify-model3d-import-progress.ts",
-      "verify-model3d-import-progress-gui.mjs"
+      "verify-model3d-import-progress-gui.mjs",
+      "verify-model3d-snapshot-quiet.mjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -1041,6 +1043,12 @@
     "model3d-import-progress": [
       "verify-model3d-import-progress.ts",
       "verify-model3d-import-progress-gui.mjs"
+    ],
+    "model3d-snapshot-quiet": [
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-zoom-proxy.mjs",
+      "verify-model3d-gui.mjs",
+      "verify-changed-pathmap.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1803,7 +1811,8 @@
         "verify-canvas-coverage.mjs",
         "verify-canvas-zoom-raster.mjs",
         "verify-text-arrange-gui.mjs",
-        "verify-cross-figure-drag.mjs"
+        "verify-cross-figure-drag.mjs",
+        "verify-model3d-snapshot-quiet.mjs"
       ]
     },
     {
@@ -8358,6 +8367,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-snapshot-quiet.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

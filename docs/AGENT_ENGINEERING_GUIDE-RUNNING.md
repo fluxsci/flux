@@ -1433,6 +1433,9 @@ Persistence invariants (all machine-checked — do not weaken):
     throughout the gesture; edits or escaping its bounds restore the live scene
     immediately. Above the density cap, during capture, or without a current image,
     use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
+    Ordinary canvas pointer activity also restarts the snapshot quiet interval: hover
+    is interaction, even without a gesture. Defer pending work only; keep an existing
+    valid bitmap and do not promote the live scene for hover.
     Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
     scale (the latter caused endless idle captures at high DPI). At settle, demote
     the live layer before its repaint and restore sharp content. Screencasts sample
@@ -8160,3 +8163,28 @@ held-transport GUI gate for the actual picker button, gallery insertion callback
 File-drop bridge. Existing broad changed-path mapping is retained. Author and independent registered groups each passed 11 pure plus 11 GUI checks;
 existing import5/5, changed-pathmap and both type checks passed. Final UI receipts and
 inspected screenshots are in `test-results/model3d/import-progress/`.
+
+### 2026-09-28 — Keep optional zoom snapshots out of sustained hover
+
+Native S8 traces attributed both model and matched-image input gaps to Canvas
+zoom snapshots: the 1.5-second timer considered plain pointer hover idle, then
+SVG parsing/raster readback occupied the editing thread. Canvas pointer activity
+now restarts only pending snapshot scheduling. The existing 1500 ms quiet time,
+idle callback, valid bitmap, scene content key and compositor policy are unchanged.
+Generation checks discard an in-flight decoded SVG before rasterization when input
+resumes. No animation-frame loop, heartbeat or timing-budget adjustment was added.
+
+Registered `model3d-snapshot-quiet` exercises real trusted hover across the old
+deadline, observes actual SVG Blob creation/raster draws, holds a decode continuation
+to prove stale work is rejected, then confirms eventual decoded 3D proxy pixels and
+real Ctrl-wheel use after quiet. Existing dense zoom-proxy and model scene gates
+remain in the focused group. Native S8 requalification is separate; the functional
+regression alone does not claim the ±10% scale budget.
+
+The held-decode test observes the browser's real idle registration before supplying
+one test-only screenshot/frame opportunity: headless Chromium may defer a no-timeout
+idle callback until another frame. Initial sustained-hover and eventual-quiet checks
+are unforced. Diagnostic traces confirmed correct scheduling, rather than a lost
+content key; the diagnostic instrumentation is absent from production. Author group
+4/4 passed (18-18-08), with svelte-check 0/0 and headless types passing.
+Independent group4/4 also passed (18-19-30), sourceChanged=false; actual quiet and active-proxy screenshots were reviewed. Native S8 closure remains separate.
