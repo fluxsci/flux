@@ -19,7 +19,7 @@ export function parseScene3d(input:unknown): Scene3dManifest|Scene3dIssue {
     if(typeof p.field==='string'&&(!index[p.field]||typeof index[p.field].field!=='object'))return {issue:`Unknown field ${p.field}`};
     if(p.entries?.some(id=>!ids.has(id)))return {issue:`Unknown legend entry in ${p.id}`};
     if(typeof p.field==='object'){
-      const f=p.field;if(f.range[0]>=f.range[1])return {issue:`Field ${p.id} has an empty or reversed range`};
+      const f=p.field;if(f.range[0]>f.range[1])return {issue:`Field ${p.id} has a reversed range`};
       if(f.cmap.stops[0][0]!==0||f.cmap.stops.at(-1)![0]!==1||f.cmap.stops.some((s,i)=>i>0&&s[0]<=f.cmap.stops[i-1][0]))return {issue:`Field ${p.id} has unordered colormap stops`};
     }
   }
@@ -47,13 +47,13 @@ export function scene3dStateIssues(manifest:Scene3dManifest,info:Model3dInfo):st
 
 /** Shared semantic cascade. Ancestor opacity multiplies; hiding an ancestor hides its subtree.
  * A local hidden:false restores a source-hidden part but cannot unhide its hidden parent. */
-export function resolveScene3dPartStyle(manifest:Scene3dManifest|null|undefined,overrides:Record<string,PartOverride>|undefined,id:string):PartOverride {
+export function resolveScene3dPartStyle(manifest:Scene3dManifest|null|undefined,overrides:Record<string,PartOverride>|undefined,id:string,opts:{sourceColors?:boolean}={}):PartOverride {
  const index=manifest?buildScene3dPartIndex(manifest):{},lineage:Scene3dPart[]=[],seen=new Set<string>();let p=index[id];
  while(p&&!seen.has(p.id)){seen.add(p.id);lineage.unshift(p);p=p.parent?index[p.parent]:undefined!;}
  if(!lineage.length)return {...overrides?.[id]};
- let result:PartOverride={},opacity=1,hidden=false;
- for(const part of lineage){const o=overrides?.[part.id]??{};result={...result,...(part.color?{fill:part.color}:{}),...o};opacity*=o.opacity??part.opacity??1;hidden ||= o.hidden??part.hidden??false;}
- if(opacity!==1)result.opacity=opacity;else delete result.opacity;
- if(hidden)result.hidden=true;else delete result.hidden;
+ let result:PartOverride={},opacity=1,hidden=false,sourceColor:string|undefined;
+ for(const part of lineage){const o=overrides?.[part.id]??{};sourceColor=part.color??sourceColor;result={...result,...o};opacity*=o.opacity??part.opacity??1;hidden ||= o.hidden??part.hidden??false;}
+ if(result.fill==null&&opts.sourceColors!==false&&sourceColor)result.fill=sourceColor;
+ result.opacity=opacity;result.hidden=hidden;
  return result;
 }

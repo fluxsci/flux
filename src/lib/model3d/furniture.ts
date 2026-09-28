@@ -21,7 +21,7 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
  const override=(id:string):PartOverride=>resolveScene3dPartStyle(manifest,el.overrides,id);
  const add=(layer:FurnitureNode[],id:string,tag:FurnitureNode['tag'],key:string,attrs:Record<string,string|number>,text?:string,children?:FurnitureNode[])=>{
   const o=override(id);if(o.hidden)return;
-  const a={...attrs};if(o.fill!=null)a.fill=o.fill;if(o.stroke!=null)a.stroke=o.stroke;if(o.strokeWidth!=null)a['stroke-width']=o.strokeWidth;if(o.opacity!=null)a.opacity=o.opacity;
+  const a={...attrs};if(o.fill!=null)a.fill=o.fill;if(o.stroke!=null)a.stroke=o.stroke;if(o.strokeWidth!=null)a['stroke-width']=o.strokeWidth;if(o.opacity!=null&&o.opacity!==1)a.opacity=o.opacity;
   if(tag==='text'){a['font-family']=o.fontFamily??style.font??'Inter';a['font-size']=o.fontSize??a['font-size']??fs;a['font-weight']=o.fontWeight??400;if(o.fontStyle)a['font-style']=o.fontStyle;if(o.textDecoration)a['text-decoration']=o.textDecoration;}
   if(o.dx||o.dy)a.transform=`translate(${num(o.dx??0)} ${num(o.dy??0)})`;
   layer.push({tag,key,partId:id,attrs:a,...(text!=null?{text}:{}),...(children?{children}:{})});
@@ -31,7 +31,11 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
  const world=(p:Vec3)=>transformPoint(toWorld,p);
  const screen=(p:Vec3)=>project(world(p),pose,layout.viewport);
  if(manifest.axes?.kind==='box'){
-  const labels=['x','y','z'] as const,axes=labels.map(k=>manifest.axes?.[k]),limits=axes.map((a,i)=>a?.lim??[manifest.bounds?.min[i]??-1,manifest.bounds?.max[i]??1]);
+  // Bounds are world coordinates; axis limits are data coordinates. A proper
+  // rotation's inverse is its transpose (exact for all signed-axis writers).
+  const dataBounds={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};
+  for(let mask=0;mask<8;mask++){const p=[0,1,2].map(i=>manifest.bounds?((mask>>i)&1?manifest.bounds.max[i]:manifest.bounds.min[i]):((mask>>i)&1?1:-1));for(let i=0;i<3;i++){const v=toWorld[i*4]*p[0]+toWorld[i*4+1]*p[1]+toWorld[i*4+2]*p[2];dataBounds.min[i]=Math.min(dataBounds.min[i],v);dataBounds.max[i]=Math.max(dataBounds.max[i],v);}}
+  const labels=['x','y','z'] as const,axes=labels.map(k=>manifest.axes?.[k]),limits=axes.map((a,i)=>a?.lim??[dataBounds.min[i],dataBounds.max[i]]);
   const center=limits.map(v=>(v[0]+v[1])/2) as Vec3;
   const dirs=labels.map((_,axis)=>{const v=[0,0,0] as Vec3;v[axis]=1;const end=world(v),origin=world([0,0,0]);return end.map((n,i)=>n-origin[i]) as Vec3;});
   const back=dirs.map(d=>d.reduce((sum,n,i)=>sum+n*pose.direction[i],0)>=0?0:1);
@@ -45,13 +49,14 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
    for(let k=0;k<4;k++){const a=[...center] as Vec3,b=[...center] as Vec3;a[axis]=limits[axis][0];b[axis]=limits[axis][1];for(let j=0;j<2;j++)a[other[j]]=b[other[j]]=limits[other[j]][(k>>j)&1];const m=screen(a.map((v,i)=>(v+b[i])/2) as Vec3);candidates.push({a,b,y:m.y,depth:m.depth});}
    candidates.sort((a,b)=>Math.abs(b.y-a.y)>1e-6?b.y-a.y:a.depth-b.depth);const edge=candidates[0],a=screen(edge.a),b=screen(edge.b),mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},origin=screen(center);
    let ox=mid.x-origin.x,oy=mid.y-origin.y;const length=Math.hypot(ox,oy);if(length<1e-6){ox=0;oy=1;}else{ox/=length;oy/=length;}
+   if(Math.hypot(b.x-a.x,b.y-a.y)<1)continue;
    line(under,`axes.${label}.axis`,`axis-${label}`,a,b);
    const ticks=axes[axis]?.ticks??niceTicks(limits[axis][0],limits[axis][1]);
    ticks.forEach((value,ti)=>{if(value<limits[axis][0]||value>limits[axis][1])return;const p=[...edge.a] as Vec3;p[axis]=value;const at=screen(p);
-    line(under,`axes.${label}.ticks`,`tick-${label}-${ti}`,at,{x:at.x+ox*4,y:at.y+oy*4});text(under,`axes.${label}.ticks`,`tick-label-${label}-${ti}`,at.x+ox*(fs*.9+4),at.y+oy*(fs*.9+4)+fs*.3,axes[axis]?.tickLabels?.[ti]??tickLabel(value));
+    line(under,`axes.${label}.ticks`,`tick-${label}-${ti}`,at,{x:at.x+ox*4,y:at.y+oy*4});text(under,`axes.${label}.ticks`,`tick-label-${label}-${ti}`,at.x+ox*(fs*.9+4),at.y+oy*(fs*.9+4)+fs*.3,axes[axis]?.tickLabels?.[ti]??tickLabel(value),{'text-anchor':ox<-.5?'end':ox>.5?'start':'middle'});
     if(manifest.axes?.grid!==false)for(const plane of other){const across=other.find(i=>i!==plane)!,p1=[...center] as Vec3,p2=[...center] as Vec3;p1[axis]=p2[axis]=value;p1[plane]=p2[plane]=limits[plane][back[plane]];p1[across]=limits[across][0];p2[across]=limits[across][1];line(under,`axes.${label}.grid`,`grid-${label}-${ti}-${plane}`,screen(p1),screen(p2),{stroke:muted,'stroke-opacity':.3});}
    });
-   text(under,`axes.${label}.label`,`axis-label-${label}`,mid.x+ox*(fs*2.6),mid.y+oy*(fs*2.6)+fs*.3,parts[`axes.${label}.label`]?.text??axes[axis]?.label??label);
+   text(under,`axes.${label}.label`,`axis-label-${label}`,mid.x+ox*(fs*4.2),mid.y+oy*(fs*4.2)+fs*.3,parts[`axes.${label}.label`]?.text??axes[axis]?.label??label,{'text-anchor':ox<-.5?'end':ox>.5?'start':'middle'});
   }
  }else if(manifest.axes?.kind==='triad'){
   const origin={x:layout.viewport.x+30,y:layout.viewport.y+layout.viewport.height-30},labels=['x','y','z'];
@@ -62,7 +67,7 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
  for(const slot of layout.colorbars){const part=parts[slot.partId],fieldId=typeof part?.field==='string'?part.field:'',field=fields[fieldId];if(!field)continue;const o=el.fields?.[fieldId],range=o?.range??field.range,stops=resolvedColormap(field,o),id=`${el.id}__${part.id}__gradient`;
   over.push({tag:'defs',key:id,attrs:{},children:[{tag:'linearGradient',key:id+'-gradient',attrs:{id,x1:'0%',x2:'0%',y1:'100%',y2:'0%'},children:stops.map(([v,color],i)=>({tag:'stop',key:`stop-${i}`,attrs:{offset:`${v*100}%`,'stop-color':color}}))}]});
   add(over,part.id,'rect','colorbar',{x:slot.x,y:slot.y,width:slot.width,height:slot.height,fill:`url(#${id})`,stroke:muted,'stroke-width':lw});
-  const ticks=o?.range?niceTicks(range[0],range[1]):field.ticks??niceTicks(range[0],range[1]);ticks.forEach((value,i)=>{if(value<range[0]||value>range[1])return;const y=slot.y+slot.height*(1-(value-range[0])/(range[1]-range[0]));line(over,part.id,`cbar-tick-${i}`,{x:slot.x+slot.width,y},{x:slot.x+slot.width+3,y});text(over,part.id,`cbar-label-${i}`,slot.x+slot.width+6,y+fs*.3,tickLabel(value),{'text-anchor':'start'});});
+  const ticks=o?.range?niceTicks(range[0],range[1]):field.ticks??niceTicks(range[0],range[1]);ticks.forEach((value,i)=>{if(value<range[0]||value>range[1])return;const y=slot.y+slot.height*(range[1]===range[0]?.5:1-(value-range[0])/(range[1]-range[0]));line(over,part.id,`cbar-tick-${i}`,{x:slot.x+slot.width,y},{x:slot.x+slot.width+3,y});text(over,part.id,`cbar-label-${i}`,slot.x+slot.width+6,y+fs*.3,tickLabel(value),{'text-anchor':'start'});});
   if(field.label)text(over,part.id,'cbar-title',slot.x,slot.y-fs,field.label,{'text-anchor':'start'});
  }
  for(const slot of layout.legends){const part=parts[slot.partId];(part?.entries??[]).forEach((id,i)=>{const entry=parts[id];if(!entry)return;const y=slot.y+i*layout.lineHeight,o=override(id);add(over,part.id,'rect',`legend-swatch-${i}`,{x:slot.x,y:y-fs*.7,width:fs,height:fs,fill:o.fill??entry.color??el.fill,opacity:o.hidden?0:o.opacity??entry.opacity??1});text(over,part.id,`legend-label-${i}`,slot.x+fs*1.5,y+fs*.2,entry.label??id,{'text-anchor':'start'});});}

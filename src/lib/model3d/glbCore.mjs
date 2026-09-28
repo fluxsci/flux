@@ -102,7 +102,7 @@ function inspectParsed(json,bin,byteLength){
  }
  let inspectedValues=0;const spend=n=>{inspectedValues+=n;if(inspectedValues>GLB_LIMITS.maxInspectedValues)fail('limit',`Geometry inspection exceeds ${GLB_LIMITS.maxInspectedValues} scalar values (including instances and states). ${hint}`);};
  let triangles=0,vertices=0,primitives=0,hasNormals=true,hasColors=false,hasValues=false;const usedMeshes=new Set(),parts=[],partNames=[],bounds={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};
- const seen=new Set();let roots;
+ const seen=new Set(),namedNodes=new Map(),duplicateNames=new Set();let roots;
  if(scenes.length){const scene=json.scene??0;if(!integer(scene)||!scenes[scene])fail('scene','Default scene is missing.');roots=array(scenes[scene].nodes,'scene nodes');}
  else {const children=new Set(nodes.flatMap(n=>array(n.children,'node children')));roots=nodes.map((_,i)=>i).filter(i=>!children.has(i));}
  const stack=roots.map(i=>({i,m:ID,depth:0})).reverse();
@@ -121,11 +121,14 @@ function inspectParsed(json,bin,byteLength){
    hasNormals&&=p.attributes.NORMAL!=null;hasColors||=p.attributes.COLOR_0!=null;hasValues||=p.attributes._VALUE!=null;
    const local=accessorBounds(pos),boxes=[local];
    if(!invalidStates.has(node.mesh))for(const target of p.targets??[]){if(target.POSITION==null)continue;const delta=read(target.POSITION);if(delta.width!==3||delta.count!==n)fail('states','Shape-state POSITION differs from base vertex shape.');accessorBounds(delta);const state={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};for(let vi=0;vi<n;vi++)for(let c=0;c<3;c++){const value=pos.get(vi,c)+delta.get(vi,c);if(!Number.isFinite(value))fail('states','Shape-state position overflowed.');state.min[c]=Math.min(state.min[c],value);state.max[c]=Math.max(state.max[c],value);}boxes.push(state);if(target.NORMAL!=null){const normal=read(target.NORMAL);if(normal.width!==3||normal.count!==n)fail('states','Shape-state NORMAL differs from base vertex shape.');accessorBounds(normal);}}
-   for(const b of boxes)for(let mask=0;mask<8;mask++){const point=transformPoint(world,[0,1,2].map(c=>(mask>>c)&1?b.max[c]:b.min[c]));point.forEach((v,c)=>{bounds.min[c]=Math.min(bounds.min[c],v);bounds.max[c]=Math.max(bounds.max[c],v);});}
-   const name=typeof node.name==='string'?node.name:'';partNames.push(name||`node-${i}`);parts.push({node:name,mode,vertices:n,indicesHash:topologyHash(index,count)});
+   for(const b of boxes)for(let mask=0;mask<8;mask++){const point=transformPoint(world,[0,1,2].map(c=>(mask>>c)&1?b.max[c]:b.min[c]));if(point.some(v=>!Number.isFinite(v)))fail('transform','Transformed geometry bounds overflowed.');point.forEach((v,c)=>{bounds.min[c]=Math.min(bounds.min[c],v);bounds.max[c]=Math.max(bounds.max[c],v);});}
+   const name=typeof node.name==='string'?node.name:'';if(name){if(namedNodes.has(name)&&namedNodes.get(name)!==i)duplicateNames.add(name);namedNodes.set(name,i);}partNames.push(name||`node-${i}`);parts.push({node:name,mode,vertices:n,indicesHash:topologyHash(index,count)});
   }
  }
  if(!primitives)fail('empty','The default GLB scene contains no geometry.');
+ // Node names are only stable match keys when unique across nodes. Ambiguous names
+ // fall back to primitive order; multiple primitives of one node retain its name.
+ for(const part of parts)if(duplicateNames.has(part.node))part.node='';
  if(byteLength>GLB_LIMITS.warnBytes)warnings.push(`${byteLength} bytes exceeds the ${GLB_LIMITS.warnBytes}-byte warning threshold. ${hint}`);
  if(triangles>GLB_LIMITS.warnTriangles)warnings.push(`${triangles} triangles exceeds the ${GLB_LIMITS.warnTriangles}-triangle warning threshold. ${hint}`);
  return {info:{triangles,vertices,primitives,meshes:usedMeshes.size,bounds,hasNormals,hasColors,hasValues,

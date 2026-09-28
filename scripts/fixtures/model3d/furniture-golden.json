@@ -6,8 +6,8 @@
       "width": 280,
       "height": 232
     },
-    "sha256": "a1d90cce316ae5e239df81006066fa784b31ae23e91d58c9cfe4ad571e1b3b6c",
-    "underNodes": 15,
+    "sha256": "c6f58701c90228784501dd178384d567bffca21d5d7df1641ead3c28285640ca",
+    "underNodes": 11,
     "overNodes": 0
   },
   "box-axes.fluxplot.json:right": {
@@ -17,8 +17,8 @@
       "width": 280,
       "height": 232
     },
-    "sha256": "d318482777c51e3e024108756796fac72cdd8fd3973ee1effde2c19a156a98b9",
-    "underNodes": 15,
+    "sha256": "85a2d497af5209914c822753f560e74ab3439796b6f4593b98a0d90f28686942",
+    "underNodes": 11,
     "overNodes": 0
   },
   "box-axes.fluxplot.json:top": {
@@ -28,8 +28,8 @@
       "width": 280,
       "height": 232
     },
-    "sha256": "d8f5215c4f5a5be488ce8e8f8f389eeb30d6b88d0727be6fbe34b7f66754a65e",
-    "underNodes": 15,
+    "sha256": "413bf0127e13437dec2681ef6f8c0d13abc3dca98d862724b3e1c8167cf4766f",
+    "underNodes": 11,
     "overNodes": 0
   },
   "categorical-missing.fluxplot.json:front": {

@@ -24,4 +24,7 @@ const reordered=inspectGlb(writeGlb({parts:[{...part,indices:[...cubeIndices].re
 const sparse=writeGlb({parts:[part],modify(j){j.accessors[0].sparse={count:1,indices:{bufferView:1,byteOffset:0,componentType:5123},values:{bufferView:0,byteOffset:12}};}});h.ok(Number.isFinite(inspectGlb(sparse).bounds.max[0]),'valid sparse POSITION loads');
 const opposing=writeGlb({parts:[{name:'opposing',positions:[-2,0,0,2,0,0,0,1,0],indices:[0,1,2],states:{flip:[4,0,0,-4,0,0,0,0,0]}}]});h.eq(inspectGlb(opposing).bounds,{min:[-2,0,0],max:[2,1,0]},'shape bounds use correlated vertex sums, not independent extrema');
 const repeated=writeGlb({parts:[{positions:Array(3000).fill(0),mode:0}],modify(j){j.meshes[0].primitives[0].targets=Array.from({length:100000},()=>({POSITION:0}));}});rejects(repeated,'reused points and morph accessors bounded by aggregate work limit');
+rejects(writeGlb({parts:[{positions:[1e30,0,0,1e30,1,0,1e30,0,1],indices:[0,1,2],matrix:[1e300,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]}]}),'transformed coordinates overflow');
+const duplicated=inspectGlb(writeGlb({parts:[part,part]}));h.eq(duplicated.topology.parts.map(p=>p.node),['',''],'duplicate node names use unambiguous order topology');
+const multiprimitive=inspectGlb(writeGlb({parts:[part],modify(j){j.meshes[0].primitives.push({...j.meshes[0].primitives[0]});}}));h.eq(multiprimitive.topology.parts.map(p=>p.node),['cube','cube'],'multiple primitives in one node preserve stable node name');
 await h.done();
