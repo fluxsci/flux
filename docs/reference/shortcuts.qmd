@@ -167,6 +167,11 @@ a file (again: fit ↔ 1:1) · **[** / **]** column count · **1–9** switch gr
 **Ctrl+wheel** zoom at the cursor · **Space+drag** pan · **0** reset zoom · **←** / **→**
 previous/next file · **Escape** ladders out (detail → grid → closed).
 
+While orbiting a [3D model](../modes/figure.qmd#3d-models) (double-click the mesh, or
+**Orbit** in the Inspector): **drag** orbit · **Shift+drag** pan · **Alt+drag** roll ·
+**wheel** zoom · **arrows** turn 5° (**Shift**: 15°) · **1–6** axis views · **0** home ·
+**P** orthographic / perspective · **Enter** finish · **Escape** cancel.
+
 # Slide
 
 Everything in the Figure table works on the stage. Additionally:
