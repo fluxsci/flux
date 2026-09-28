@@ -69,7 +69,12 @@ export async function inspectTarget(root: string, input: string | TargetRef): Pr
       }
       for (const beat of beats) {
         const track = beat.tracks.find(t => t.id === target.trackId);
-        if (track) return { ...result, slide: summary, beat: { index: beat.index, label: beat.label }, track, timing: { start: track.start ?? 0, duration: trackDuration(track), end: compiled.cues[beat.index].tracks.find(t => t.track.id === track.id)?.end ?? null, anchored: !!track.anchor } };
+        if (!track) continue;
+        // The published shape stays {start, duration, end}; an anchored track adds `anchored`.
+        // A track the compiler skips (disabled, dangling target) still has a numeric end.
+        const start = track.start ?? 0, duration = trackDuration(track);
+        const end = compiled.cues[beat.index].tracks.find(t => t.track.id === track.id)?.end ?? start + duration;
+        return { ...result, slide: summary, beat: { index: beat.index, label: beat.label }, track, timing: { start, duration, end, ...(track.anchor ? { anchored: true } : {}) } };
       }
       throw new ValidationError(`track not found: ${target.trackId}`);
     }

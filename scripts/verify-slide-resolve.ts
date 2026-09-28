@@ -209,6 +209,8 @@ try {
   const anchor = run("set-track", "cli", "s", "b", "--anchor", "a:end:10");
   h.eq(anchor.status, 0, `real set-track anchor: ${anchor.stderr}`);
   h.ok(anchor.stdout.includes("start 610 ms (anchored)"), "headless render shows resolved start and anchored marker");
+  h.eq((await core.inspectTarget(root, "track:cli/s/b")).timing, { start: 610, duration: 600, end: 1210, anchored: true }, "inspect reports the resolved timing of an anchored, linked track");
+  h.eq((await core.inspectTarget(root, "track:cli/s/a")).timing, { start: 0, duration: 600, end: 600 }, "inspect keeps the plain {start, duration, end} shape for an unanchored track");
   const loaded = await core.loadDeck(root, "cli"), tracks = loaded.slides[0].beats[1].tracks;
   h.ok(tracks.every(t => t.styleId === styleId && !Object.hasOwn(t, "duration")), "CLI persists links instead of copied fields");
   h.ok(tracks.every(t => t.preset === "fade"), "CLI-linked tracks persist the style's preset on the track (b: fadeOut -> fade, written once)");
