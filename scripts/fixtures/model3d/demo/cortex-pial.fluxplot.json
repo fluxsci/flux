@@ -18,7 +18,7 @@
     "generator": "fluxplot 0.1.0"
   },
   "glb": "cortex-pial.glb",
-  "glbSha256": "f89e7f089e77dfcbc119db459012c3b29271cf96ebff3f0165681cf486a19a03",
+  "glbSha256": "8f6ccfdf5d9caf9cff20f1aaf42d1d1b00f3dfcd61bc958647c121d355a549c3",
   "layout": {},
   "lighting": "studio",
   "order": [
@@ -36,7 +36,7 @@
       "series": "cortex"
     },
     {
-      "color": "#205ea6",
+      "color": "#bc5215",
       "id": "cortex.right",
       "kind": "mesh",
       "label": "right",
