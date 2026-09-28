@@ -92,7 +92,7 @@ function inspectParsed(json,bin,byteLength){
  for(const ext of array(json.extensionsRequired,'extensionsRequired'))if(!['KHR_mesh_quantization','KHR_lights_punctual'].includes(ext))fail('extension',`Required extension ${ext} is unsupported.`);
  const read=makeReader(json,bin),nodes=array(json.nodes,'nodes'),meshes=array(json.meshes,'meshes'),scenes=array(json.scenes,'scenes'),materials=array(json.materials,'materials');
  if(json.images?.length||json.textures?.length||materials.some(m=>JSON.stringify(m).includes('Texture')))warnings.push('textures are ignored');
- if(json.animations?.length)warnings.push('animations are ignored');if(json.cameras?.length||extensions.includes('KHR_lights_punctual'))warnings.push('cameras and lights are ignored');if(json.skins?.length)warnings.push('skins render in the bind pose');
+ if(json.animations?.length)warnings.push('animations are ignored');if(json.cameras?.length||extensions.includes('KHR_lights_punctual'))warnings.push('cameras and lights are ignored');if(json.skins?.length||json.nodes?.some(n=>n?.skin!=null))warnings.push('skinning is ignored; stored mesh geometry is shown');
  const stateNames=new Map(),stateSet=new Set(),invalidStates=new Set();
  for(let mi=0;mi<meshes.length;mi++){
   const m=meshes[mi],ps=array(m.primitives,'primitives');if(!ps.length)fail('mesh','Mesh has no primitives.');
@@ -110,13 +110,13 @@ function inspectParsed(json,bin,byteLength){
   for(const child of [...array(node.children,'node children')].reverse())stack.push({i:child,m:world,depth:depth+1});
   if(node.mesh==null)continue;const mesh=meshes[node.mesh];if(!integer(node.mesh)||!mesh)fail('mesh','Node refers to a missing mesh.');usedMeshes.add(node.mesh);for(const name of stateNames.get(node.mesh)??[])stateSet.add(name);
   for(let pi=0;pi<mesh.primitives.length;pi++){
-   const p=mesh.primitives[pi],mode=p.mode??4;if(!integer(mode)||mode>6)fail('mode','Invalid primitive mode.');
+   const p=mesh.primitives[pi],mode=p.mode??4;if(!integer(mode)||mode>6)fail('mode','Invalid primitive mode.');if(mode<4)fail('mode','3D points and lines are not supported; export triangle meshes.');
    const pos=read(p.attributes?.POSITION);if(pos.width!==3)fail('position','POSITION must be VEC3.');
    const n=pos.count;spend(n*3*(2+(p.targets?.length??0)*2));const index=p.indices==null?null:read(p.indices);if(index&&(index.width!==1||![5121,5123,5125].includes(index.componentType)||index.normalized))fail('indices','Invalid primitive index accessor.');
    const count=index?.count??n;spend(count);if(mode===4&&count%3)fail('indices','TRIANGLES index count must be divisible by three.');
    for(let k=0;index&&k<count;k++)if(index.get(k)>=n)fail('indices','Primitive index is outside POSITION.');
    triangles+=mode===4?count/3:mode===5||mode===6?Math.max(0,count-2):0;if(triangles>GLB_LIMITS.maxTriangles)fail('limit',`${triangles} triangles exceeds ${GLB_LIMITS.maxTriangles}. ${hint}`);
-   vertices+=n;primitives++;if(mode<4&&!warnings.includes('points and lines render 1 px wide'))warnings.push('points and lines render 1 px wide');
+   vertices+=n;primitives++;
    for(const [key,value] of Object.entries(p.attributes??{})){const a=read(value);spend(a.count*a.width);if(a.count!==n)fail('attributes',`${key} vertex count differs from POSITION.`);if(key==='NORMAL'&&a.width!==3)fail('attributes','NORMAL must be VEC3.');if(key==='_VALUE'&&(a.width!==1||a.componentType!==5126))fail('attributes','_VALUE must be float32 SCALAR.');if(key==='_VALID'&&(a.width!==1||a.componentType!==5121))fail('attributes','_VALID must be uint8 SCALAR.');if(key!=='_VALUE')accessorBounds(a);else for(let vi=0;vi<a.count;vi++)if(!Number.isFinite(a.get(vi))&&!warnings.includes('legacy non-finite _VALUE treated as missing'))warnings.push('legacy non-finite _VALUE treated as missing');if(key==='_VALID')for(let vi=0;vi<a.count;vi++)if(a.get(vi)!==0&&a.get(vi)!==1)fail('attributes','_VALID must contain only 0 or 1.');}
    hasNormals&&=p.attributes.NORMAL!=null;hasColors||=p.attributes.COLOR_0!=null;hasValues||=p.attributes._VALUE!=null;
    const local=accessorBounds(pos),boxes=[local];
@@ -139,8 +139,8 @@ function inspectGlbUnsafe(input){const bytes=asBytes(input),{json,bin}=parseGlb(
 function encodeGlb(json,bin){const j=new TextEncoder().encode(canonical(json)),jl=Math.ceil(j.length/4)*4,bl=Math.ceil(bin.length/4)*4;const bytes=new Uint8Array(12+8+jl+8+bl),dv=new DataView(bytes.buffer);dv.setUint32(0,0x46546c67,true);dv.setUint32(4,2,true);dv.setUint32(8,bytes.length,true);dv.setUint32(12,jl,true);dv.setUint32(16,0x4e4f534a,true);bytes.fill(32,20,20+jl);bytes.set(j,20);dv.setUint32(20+jl,bl,true);dv.setUint32(24+jl,0x004e4942,true);bytes.set(bin,28+jl);return bytes;}
 function prepareGlbUnsafe(input,_opts={}){
  const source=asBytes(input),{json,bin}=parseGlb(source),{info,invalidStates}=inspectParsed(json,bin,source.length);
- delete json.images;delete json.textures;delete json.samplers;delete json.animations;delete json.cameras;
- for(const node of json.nodes??[])delete node.camera;
+ delete json.images;delete json.textures;delete json.samplers;delete json.animations;delete json.cameras;delete json.skins;
+ for(const node of json.nodes??[]){delete node.camera;delete node.skin;}
  for(const mi of invalidStates){const m=json.meshes[mi];for(const p of m.primitives)delete p.targets;delete m.weights;if(m.extras)delete m.extras.targetNames;}
  for(const m of json.materials??[]){const p=m.pbrMetallicRoughness;if(p){delete p.baseColorTexture;delete p.metallicRoughnessTexture;}delete m.normalTexture;delete m.occlusionTexture;delete m.emissiveTexture;}
  const stack=[json];while(stack.length){const v=stack.pop();if(!v||typeof v!=='object')continue;if(v.extensions){delete v.extensions;}

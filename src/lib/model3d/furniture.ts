@@ -12,6 +12,7 @@ export interface FurnitureSvg {under:string;over:string;underNodes:FurnitureNode
 const ID=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]!));
 const num=(n:number)=>String(Number(n.toFixed(6))||0);
+const sourceFont=(font:string)=>font.includes(',')||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace)$/i.test(font)?font:`${font}, sans-serif`;
 export function serializeFurniture(nodes:readonly FurnitureNode[]):string{return nodes.map(n=>`<${n.tag}${Object.entries(n.attrs).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>` ${k}="${esc(typeof v==='number'?num(v):v)}"`).join('')}>${n.text!=null?esc(n.text):''}${n.children?serializeFurniture(n.children):''}</${n.tag}>`).join('');}
 export const furniturePartDomId=(elementId:string,partId:string)=>`${elementId}__${partId}`;
 /** Attribute-node descriptions support all live hosts; the serializer is shared by static engines. */
@@ -22,7 +23,7 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
  const add=(layer:FurnitureNode[],id:string,tag:FurnitureNode['tag'],key:string,attrs:Record<string,string|number>,text?:string,children?:FurnitureNode[])=>{
   const o=override(id);if(o.hidden)return;
   const a={...attrs};if(o.fill!=null)a.fill=o.fill;if(o.stroke!=null)a.stroke=o.stroke;if(o.strokeWidth!=null)a['stroke-width']=o.strokeWidth;if(o.opacity!=null&&o.opacity!==1)a.opacity=o.opacity;
-  if(tag==='text'){a['font-family']=o.fontFamily??style.font??'Inter';a['font-size']=o.fontSize??a['font-size']??fs;a['font-weight']=o.fontWeight??400;if(o.fontStyle)a['font-style']=o.fontStyle;if(o.textDecoration)a['text-decoration']=o.textDecoration;}
+  if(tag==='text'){a['font-family']=o.fontFamily??sourceFont(style.font??'Inter');a['font-size']=o.fontSize??a['font-size']??fs;a['font-weight']=o.fontWeight??400;if(o.fontStyle)a['font-style']=o.fontStyle;if(o.textDecoration)a['text-decoration']=o.textDecoration;}
   if(o.dx||o.dy)a.transform=`translate(${num(o.dx??0)} ${num(o.dy??0)})`;
   layer.push({tag,key,partId:id,attrs:a,...(text!=null?{text}:{}),...(children?{children}:{})});
  };
@@ -68,7 +69,7 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
   over.push({tag:'defs',key:id,attrs:{},children:[{tag:'linearGradient',key:id+'-gradient',attrs:{id,x1:'0%',x2:'0%',y1:'100%',y2:'0%'},children:stops.map(([v,color],i)=>({tag:'stop',key:`stop-${i}`,attrs:{offset:`${v*100}%`,'stop-color':color}}))}]});
   add(over,part.id,'rect','colorbar',{x:slot.x,y:slot.y,width:slot.width,height:slot.height,fill:`url(#${id})`,stroke:muted,'stroke-width':lw});
   const ticks=o?.range?niceTicks(range[0],range[1]):field.ticks??niceTicks(range[0],range[1]);ticks.forEach((value,i)=>{if(value<range[0]||value>range[1])return;const y=slot.y+slot.height*(range[1]===range[0]?.5:1-(value-range[0])/(range[1]-range[0]));line(over,part.id,`cbar-tick-${i}`,{x:slot.x+slot.width,y},{x:slot.x+slot.width+3,y});text(over,part.id,`cbar-label-${i}`,slot.x+slot.width+6,y+fs*.3,tickLabel(value),{'text-anchor':'start'});});
-  if(field.label)text(over,part.id,'cbar-title',slot.x,slot.y-fs,field.label,{'text-anchor':'start'});
+  if(field.label)text(over,part.id,'cbar-title',slot.x,slot.y-fs*.35,field.label,{'text-anchor':'start'});
  }
  for(const slot of layout.legends){const part=parts[slot.partId];(part?.entries??[]).forEach((id,i)=>{const entry=parts[id];if(!entry)return;const y=slot.y+i*layout.lineHeight,o=override(id);add(over,part.id,'rect',`legend-swatch-${i}`,{x:slot.x,y:y-fs*.7,width:fs,height:fs,fill:o.fill??entry.color??el.fill,opacity:o.hidden?0:o.opacity??entry.opacity??1});text(over,part.id,`legend-label-${i}`,slot.x+fs*1.5,y+fs*.2,entry.label??id,{'text-anchor':'start'});});}
  if(layout.title){const slot=layout.title,part=parts[slot.partId];text(over,slot.partId,'title',slot.x+slot.width/2,slot.y+slot.height*.7,part?.text??part?.label??'',{'font-size':(style.titleSizePt??8)*4/3});}
