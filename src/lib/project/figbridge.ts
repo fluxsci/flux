@@ -229,6 +229,9 @@ export async function loadFigInto(
   }, { root }));
   figureSaveQueue = adopt;
   await adopt;
+  if (request === figureLoadRequest && loadedFigureRoot === root) {
+    void import('../model3d/posterStore').then(api => api.scheduleModelPosterPrune(root, () => request === figureLoadRequest && loadedFigureRoot === root)).catch(() => {});
+  }
   // A returning Figure tenant can still have this root's older accepted
   // baseline (for example after Slide → Figure conversion). Source catch-up
   // must use the newly adopted complete snapshot, never that stale editor.

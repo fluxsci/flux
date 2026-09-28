@@ -465,7 +465,8 @@
       "verify-ai-monitor-gui.mjs",
       "verify-inbox-gui.mjs",
       "verify-ask-gui.mjs",
-      "verify-background-run-gui.mjs"
+      "verify-background-run-gui.mjs",
+      "verify-model3d-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -847,7 +848,8 @@
       "verify-model3d-poster-worker.cjs",
       "verify-model3d-render-browser.ts",
       "verify-model3d-persistence.ts",
-      "verify-model3d-import.ts"
+      "verify-model3d-import.ts",
+      "verify-model3d-gui.mjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -867,6 +869,10 @@
       "verify-loadgate.ts",
       "verify-changed-pathmap.mjs",
       "verify-electron-no-undef.ts"
+    ],
+    "model3d-gui": [
+      "verify-model3d-gui.mjs",
+      "verify-lazy-load-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -876,6 +882,14 @@
       "run": [
         "group:model3d",
         "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "$why": "The Figure model host, root-owned posters and gallery metadata are behavioral UI boundaries; keep pure model coverage alongside the real scene gate.",
+      "glob": "{src/lib/Model3dElement.svelte,src/lib/model3d/{posterStore,galleryPreview,import}.ts,src/lib/plot/Model3d*.svelte}",
+      "run": [
+        "group:model3d",
+        "group:model3d-gui"
       ]
     },
     {
@@ -1482,7 +1496,8 @@
         "verify-scale-figure.mjs",
         "verify-crisp.mjs",
         "verify-vanilla-inline.mjs",
-        "verify-text-arrange-gui.mjs"
+        "verify-text-arrange-gui.mjs",
+        "group:model3d-gui"
       ]
     },
     {
@@ -1555,7 +1570,8 @@
       "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte,src/lib/plot/gallery*,src/lib/plot/Gallery*.svelte,public/plot-gallery.html,src/lib/ui/nativeEvents.ts}",
       "run": [
         "group:plot-gallery",
-        "tier:pure"
+        "tier:pure",
+        "group:model3d-gui"
       ]
     },
     {
@@ -7806,6 +7822,17 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

@@ -8,6 +8,7 @@ export interface GalleryTreeFile {
   semantic: boolean;
   snip?: boolean;
   video?: boolean;
+  model3d?: boolean;
 }
 export interface GalleryTreeEntry extends GalleryTreeFile {
   kind: "dir" | "file";
@@ -37,19 +38,20 @@ export function galleryRelativePath(root: string, path: string): string | null {
 /** Directory metadata only: sidecars mark their image, never add extra reads.
  * Reserved collections are explicit tree entries; search scoping stays with
  * the gallery host and does not cause this tree to recurse into them. */
-export function galleryDirectoryEntries(root: string, dir: string, entries: readonly GalleryDirectoryEntry[], allowVideos: boolean): GalleryTreeEntry[] {
+export function galleryDirectoryEntries(root: string, dir: string, entries: readonly GalleryDirectoryEntry[], allowVideos: boolean, allowModels = false): GalleryTreeEntry[] {
   const names = new Set(entries.filter(e => !e.dir).map(e => e.name));
   const seen = new Set<string>();
   return entries.filter(e => {
     if (!childName(e.name) || seen.has(e.name)) return false;
     seen.add(e.name);
-    return e.dir || /\.(svg|png)$/i.test(e.name) || allowVideos && /\.(mp4|mov)$/i.test(e.name);
+    return e.dir || /\.(svg|png)$/i.test(e.name) || allowModels && /\.glb$/i.test(e.name) || allowVideos && /\.(mp4|mov)$/i.test(e.name);
   }).map(e => {
     const abs = `${normalizeGalleryPath(dir)}/${e.name}`;
     return {
       abs, rel: galleryRelativePath(root, abs) ?? e.name, name: e.name,
       kind: e.dir ? "dir" as const : "file" as const,
-      semantic: !e.dir && /\.svg$/i.test(e.name) && names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
+      semantic: !e.dir && /\.(svg|glb)$/i.test(e.name) && names.has(e.name.replace(/\.(svg|glb)$/i, ".fluxplot.json")),
+      ...(!e.dir && /\.glb$/i.test(e.name) ? { model3d: true } : {}),
       ...(!e.dir && /\.png$/i.test(e.name) && names.has(e.name.replace(/\.png$/i, ".snip.json")) ? { snip: true } : {}),
       ...(!e.dir && /\.(mp4|mov)$/i.test(e.name) ? { video: true } : {}),
       ...(e.dir && hints.has(e.name) ? { hint: hints.get(e.name) } : {}),
@@ -60,7 +62,7 @@ export function galleryDirectoryEntries(root: string, dir: string, entries: read
 /** Lazy, view-local directory cache. Reads are bounded and old root/refresh
  * completions cannot publish into the current tree. There is no idle work. */
 export function createGalleryTree(readDirectory: (path: string) => Promise<GalleryDirectoryEntry[]>, onChange: () => void) {
-  let root = "", allowVideos = false, generation = 0, revealSequence = 0, disposed = false, active = 0;
+  let root = "", allowVideos = false, allowModels = false, generation = 0, revealSequence = 0, disposed = false, active = 0;
   let directories = new Map<string, Directory>(), expanded = new Set<string>();
   const pending = new Map<string, Promise<void>>();
   const queue: { path: string; generation: number; resolve: () => void }[] = [];
@@ -82,7 +84,7 @@ export function createGalleryTree(readDirectory: (path: string) => Promise<Galle
         try {
           const entries = await readDirectory(job.path);
           if (disposed || job.generation !== generation) return;
-          directories.set(job.path, { entries: galleryDirectoryEntries(root, job.path, entries, allowVideos), status: "ready" });
+          directories.set(job.path, { entries: galleryDirectoryEntries(root, job.path, entries, allowVideos, allowModels), status: "ready" });
         } catch (error) {
           if (disposed || job.generation !== generation) return;
           directories.set(job.path, { entries: [], status: "error", error: error instanceof Error ? error.message : String(error) });
@@ -109,8 +111,8 @@ export function createGalleryTree(readDirectory: (path: string) => Promise<Galle
     const promise = new Promise<void>(resolve => queue.push({ path, generation, resolve }));
     pending.set(key, promise); onChange(); pump(); return promise;
   }
-  function reset(nextRoot: string, videos: boolean, keepExpanded = false) {
-    generation++; root = normalizeGalleryPath(nextRoot); allowVideos = videos;
+  function reset(nextRoot: string, videos: boolean, keepExpanded = false, models = false) {
+    generation++; root = normalizeGalleryPath(nextRoot); allowVideos = videos; allowModels = models;
     directories = new Map(); expanded = keepExpanded ? expanded : new Set();
     if (root) expanded.add(root);
     onChange();
@@ -131,7 +133,7 @@ export function createGalleryTree(readDirectory: (path: string) => Promise<Galle
   return {
     reset,
     rows,
-    refresh() { return reset(root, allowVideos, true); },
+    refresh() { return reset(root, allowVideos, true, allowModels); },
     retry(path: string) { expanded.add(path); return load(path, true); },
     async expand(path: string) { expanded.add(path); onChange(); await load(path); },
     collapse(path: string) { expanded.delete(path); onChange(); },

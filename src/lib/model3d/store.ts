@@ -4,6 +4,9 @@ import { markAssetDirty } from '../assets';
 import { parseScene3d } from './scene3d';
 import type { Scene3dManifest } from './types';
 import type { Scene3dSidecars } from './persistence';
+export const scene3dGeneration=writable(0);
+/** Decoded mesh changes invalidate the Figure zoom-proxy snapshot. */
+export const model3dPosterRevision=writable(0);
 export const scene3dManifests=writable<Record<string,Scene3dManifest>>({});
 export const scene3dIssues=writable<Record<string,string[]>>({});
 export const scene3dRecipes=writable<Record<string,unknown>>({});
@@ -20,4 +23,4 @@ export function cacheScene3dSidecars(assetId:string,sidecars:Scene3dSidecars) {
   scene3dIssues.update(current=>({...current,[assetId]:sidecars.issues??[]}));
   markAssetDirty(assetId);
 }
-export function clearScene3dSidecars() { scene3dManifests.set({}); scene3dRecipes.set({}); scene3dIssues.set({}); }
+export function clearScene3dSidecars() { scene3dGeneration.update(n=>n+1); scene3dManifests.set({}); scene3dRecipes.set({}); scene3dIssues.set({}); }

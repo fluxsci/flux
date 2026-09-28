@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Model3dIcon from "./Model3dIcon.svelte";
   import { onDestroy, tick } from "svelte";
   import { fileBridge } from "../project/types";
   import { createGalleryTree, normalizeGalleryPath, type GalleryTreeFile, type GalleryTreeRow } from "./galleryTree";
@@ -8,6 +9,8 @@
   export let currentDirectory = "";
   export let selectedPath = "";
   export let allowVideos = false;
+  export let allowModels = false;
+  export let modelsOnly = false;
   export let refreshKey = 0;
   export let onNavigate: (path: string) => void = () => {};
   export let onSelectFile: (file: GalleryTreeFile) => void = () => {};
@@ -21,16 +24,16 @@
     return bridge.readdir(path);
   }, () => revision++);
   onDestroy(() => tree.dispose());
-  const inputs = { root: "", videos: false, refresh: 0, initialized: false };
+  const inputs = { root: "", videos: false, models: false, refresh: 0, initialized: false };
   $: {
     const nextRoot = normalizeGalleryPath(root);
-    if (!inputs.initialized || inputs.root !== nextRoot || inputs.videos !== allowVideos) {
-      inputs.initialized = true; inputs.root = nextRoot; inputs.videos = allowVideos; inputs.refresh = refreshKey;
-      void tree.reset(nextRoot, allowVideos);
+    if (!inputs.initialized || inputs.root !== nextRoot || inputs.videos !== allowVideos || inputs.models !== allowModels) {
+      inputs.initialized = true; inputs.root = nextRoot; inputs.videos = allowVideos; inputs.models = allowModels; inputs.refresh = refreshKey;
+      void tree.reset(nextRoot, allowVideos, false, allowModels);
     } else if (inputs.refresh !== refreshKey) { inputs.refresh = refreshKey; void tree.refresh(); }
   }
   function snapshot(_revision: number) { return tree.rows(); }
-  $: rows = snapshot(revision);
+  $: rows = snapshot(revision).filter(row => !modelsOnly || row.kind === "dir" || row.model3d);
 
   const ROW_HEIGHT = 24, OVERSCAN = 5;
   let viewport: HTMLDivElement;
@@ -128,7 +131,7 @@
           {#if row.kind === "dir"}
             <button class="tree-disclosure" tabindex="-1" aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.name}`} on:click|stopPropagation={() => toggle(row)}>{row.expanded ? "▾" : "▸"}</button>
           {:else}<span class="tree-disclosure" aria-hidden="true"></span>{/if}
-          <span class="tree-icon" aria-hidden="true">{row.kind === "dir" ? "▰" : row.video ? "▷" : "▧"}</span>
+          <span class="tree-icon" aria-hidden="true">{#if row.model3d}<Model3dIcon />{:else}{row.kind === "dir" ? "▰" : row.video ? "▷" : "▧"}{/if}</span>
           <span class="tree-name">{row.name}</span>
           {#if row.status === "loading"}<span class="tree-status" aria-label="Loading">…</span>{/if}
           {#if row.status === "error"}<button class="tree-retry" tabindex="-1" aria-label={`Retry ${row.name}`} on:click|stopPropagation={() => void tree.retry(row.abs)}>↻</button>{/if}

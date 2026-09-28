@@ -1,9 +1,9 @@
 import { collectModel3dSourceBindings } from './model3d/sourceBinding';
-import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
+import { scene3dManifests, scene3dRecipes, scene3dGeneration, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
 import { prepareModelCopy, publishModelCopy } from './model3d/copy';
 import { storedAssetPath } from './project/assetPath';
-import type { Scene3dManifest } from './model3d/types';
+import type { Model3dElement, Scene3dManifest } from './model3d/types';
 import { storeTenant } from "./tenancy";
 import { preparePlot } from "./plot/parse";
 import { buildPlotMarkup } from "./plot/inlineMarkup";
@@ -118,12 +118,14 @@ function kindOf(name: string): "png" | "svg" {
 // px (96/inch) — placement must never rescale them (see placeIncoming).
 export interface Incoming {
   asset: Asset;
-  el: ImageElement | SemanticPlotElement | VideoElement;
+  el: ImageElement | SemanticPlotElement | VideoElement | Model3dElement;
   /** Already-prepared dependent assets, e.g. a video's PNG poster. */
   extraAssets?: Asset[];
   /** Prepared bytes remain private until the destination is checked. */
   install?: () => void;
   canInstall?: () => boolean;
+  /** Uncommitted native imports own a receipt until placement succeeds. */
+  discard?: () => Promise<void>;
 }
 
 // Sidecars discovered next to an imported `X.svg`: a FluxPlot manifest
@@ -277,16 +279,39 @@ async function buildIncoming(
 
 export async function importAssets() {
   const canPlace = importDestination();
+  const owner = get(project), figure = get(activeFigureId), tenant = storeTenant();
+  const sameInsertion = () => get(project) === owner && get(activeFigureId) === figure && storeTenant() === tenant;
   try {
-    const paths = await window.fig.openFiles([{ name: "Images", extensions: ["png", "svg"] }]);
-    if (paths?.length) await importPlotsFromPaths(paths, canPlace);
-  } catch (e) { pushToast("error", "Import failed", { detail: errMsg(e) }); }
+    let paths = await window.fig.openFiles([{ name: storeTenant() === "figure" ? "Images and 3D models" : "Images", extensions: storeTenant() === "figure" ? ["png", "svg", "glb"] : ["png", "svg"] }]);
+    if (paths?.length) {
+      if (!canPlace()) throw new Error("The insertion destination changed");
+      if (paths.some(path => /\.glb$/i.test(path))) {
+        const model = await import('./model3d/import');
+        if (!canPlace()) throw new Error('The insertion destination changed');
+        const rootless = !model.model3dImportRoot();
+        await model.ensureModel3dImportRoot();
+        if (!sameInsertion()) throw new Error('The insertion destination changed');
+        if (rootless) {
+          // Root adoption clears earlier dialog grants. Reacquire a genuine picker
+          // approval rather than carrying source access between project owners.
+          const mixed = paths.some(path => !/\.glb$/i.test(path));
+          pushToast('info', mixed ? 'Project saved. Choose the files to import.' : 'Project saved. Choose the 3D model to import.');
+          const savedDestination = importDestination();
+          paths = await window.fig.openFiles([{ name: mixed ? 'Images and 3D models' : '3D models', extensions: mixed ? ['png', 'svg', 'glb'] : ['glb'] }]);
+          if (!savedDestination()) throw new Error('The insertion destination changed');
+          if (!paths?.length) return;
+        }
+      }
+      await importPlotsFromPaths(paths, importDestination());
+    }
+  } catch (e) { if (!(e instanceof Error && e.name === "AbortError")) pushToast("error", "Import failed", { detail: errMsg(e) }); }
 }
 
 /** Read through the exact shared image/plot import pipeline, including sibling
  * manifests/recipes and physical size. The caller owns placement/undo. */
 export async function readIncomingPlot(absPath: string): Promise<Incoming> {
-  if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image or SVG plot. Video clips can be inserted from the Slide gallery.");
+  if (/\.glb$/i.test(absPath)) return (await import('./model3d/import')).readIncomingModel3d(absPath);
+  if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image, SVG plot or GLB model. Video clips can be inserted from the Slide gallery.");
   const sameDestination = importDestination();
   const bytes = new Uint8Array(await window.fig.readFile(absPath));
   const incoming = await buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
@@ -304,11 +329,18 @@ export async function readIncomingPlot(absPath: string): Promise<Incoming> {
 export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true,
   read: (path: string) => Promise<Incoming> = readIncomingPlot) {
   if (!window.fig || !absPaths.length) return 0;
+  if (absPaths.some(path => /\.glb$/i.test(path))) {
+    const originalDestination = importDestination(), model = await import('./model3d/import');
+    if (!originalDestination() || !canPlace()) throw new Error('The insertion destination changed');
+    await model.ensureModel3dImportRoot();
+  }
   const targetId = get(activeFigureId);
   const sameDestination = importDestination();
   const allowed = () => sameDestination() && canPlace();
   const incoming: Incoming[] = [];
   const failed: string[] = [];
+  let placed = false;
+  try {
   for (const absPath of absPaths) {
     try {
       if (!allowed()) throw new Error("The insertion destination changed.");
@@ -319,7 +351,7 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
     }
   }
   if (!allowed()) throw new Error("The insertion destination changed. Select a figure and insert again.");
-  placeIncoming(incoming, targetId ?? undefined);
+  placeIncoming(incoming, targetId ?? undefined); placed = true;
   if (failed.length) {
     pushToast(
       "error",
@@ -328,6 +360,11 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
     );
   }
   return incoming.length;
+  } finally {
+    if (!placed) for (const item of incoming) if (item.discard) {
+      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled 3D import could not be cleaned up', { detail: errMsg(error) }); }
+    }
+  }
 }
 
 // Import a single plot/asset by absolute path (the Plot gallery, Alt+G) — the
@@ -384,6 +421,15 @@ export async function archivePastedImage(file: File, name: string): Promise<void
 // base name → it imports as a semantic plot. (Drops are sandboxed Files with no
 // filesystem path, so we can only pair what was dropped together.)
 export async function importDroppedFiles(files: File[], figId: string) {
+  if (files.some(file => /\.glb$/i.test(file.name))) {
+    const originalDestination = importDestination();
+    try {
+      const model = await import('./model3d/import');
+      if (!originalDestination()) throw new Error('The insertion destination changed');
+      await model.ensureModel3dImportRoot();
+    }
+    catch (error) { if (error instanceof Error && error.name === 'AbortError') return; throw error; }
+  }
   const sameDestination = importDestination();
   const failures: string[] = [];
   const all = [...files];
@@ -397,16 +443,22 @@ export async function importDroppedFiles(files: File[], figId: string) {
     else if (n.endsWith(".snip.json")) snips.set(f.name.slice(0, -".snip.json".length), f);
   }
   const accepted = all.filter(
-    (f) => /\.(png|svg)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
+    (f) => /\.(png|svg|glb)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
   );
   if (!accepted.length) {
     // A dropped JPEG/PDF/TIFF/… previously did NOTHING — say why (no silent failures).
-    pushToast("info", "Only PNG/SVG can be imported here");
+    pushToast("info", storeTenant() === "figure" ? "Only PNG/SVG/GLB can be imported here" : "Only PNG/SVG can be imported here");
     return;
   }
   const incoming: Incoming[] = [];
+  let placed = false;
+  try {
   for (const file of accepted) {
     try {
+    if (/\.glb$/i.test(file.name)) {
+      incoming.push(await (await import('./model3d/import')).readDroppedModel3d(file, figId));
+      continue;
+    }
     const bytes = new Uint8Array(await file.arrayBuffer());
     let sib: Siblings = {};
     if (/\.svg$/i.test(file.name || "")) {
@@ -430,8 +482,13 @@ export async function importDroppedFiles(files: File[], figId: string) {
     } catch (error) { failures.push(`${file.name}: ${errMsg(error)}`); }
   }
   if (!sameDestination()) { pushToast("error", "Import cancelled: the destination changed"); return; }
-  placeIncoming(incoming, figId);
-  if (failures.length) pushToast("error", "Some images could not be imported", { detail: failures.join("\n") });
+  placeIncoming(incoming, figId); placed = true;
+  if (failures.length) pushToast("error", "Some files could not be imported", { detail: failures.join("\n") });
+  } finally {
+    if (!placed) for (const item of incoming) if (item.discard) {
+      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled 3D import could not be cleaned up', { detail: errMsg(error) }); }
+    }
+  }
 }
 
 // Position incoming placements (one centered; many auto-arranged into a grid),
@@ -551,6 +608,18 @@ export async function saveProject() {
   }
 }
 
+let standaloneRootRegistration: { root: string; ready: Promise<void> } | undefined;
+function registerStandaloneRoot(root: string) {
+  // Legacy standalone projects do not run the unified fig/ source watcher.
+  // They still need the native window's root ownership for GLB reads/imports.
+  const ready = Promise.resolve(window.fig.watchRoot?.(root)).then(() => {});
+  standaloneRootRegistration = { root, ready };
+  return ready;
+}
+export async function awaitStandaloneProjectRoot(root: string) {
+  if (standaloneRootRegistration?.root === root) await standaloneRootRegistration.ready;
+}
+
 export async function saveProjectAs() {
   try {
     const root = get(embeddedProjectRoot);
@@ -568,6 +637,10 @@ export async function saveProjectAs() {
     const saved=await writeProjectTo(path);
     if(get(project)!==p||get(projectDir)!==sourceRoot||standaloneSaveRequest!==saved.request||(path!==sourceRoot&&editGen.n!==saved.generation)) throw new Error("Project changed during Save As; the original project remains open with your edits");
     projectDir.set(path);
+    if (path !== sourceRoot) {
+      await registerStandaloneRoot(path);
+      if (get(project) !== p || get(projectDir) !== path || get(embeddedProjectRoot)) throw new Error('Project changed while the saved root was registered');
+    }
   } catch (e) {
     pushToast("error", "Save failed", { detail: errMsg(e) });
   }
@@ -665,6 +738,7 @@ export async function openProject() {
   // disabled — the shell owns project open/close.
   if (get(embeddedProjectRoot)) return;
   try {
+    const previousRoot = get(projectDir);
     const dir = await window.fig.openDirectory("Open Flux project");
     if (!dir) return;
 
@@ -733,6 +807,13 @@ export async function openProject() {
     if(Object.keys(modelIssues).length) pushToast("info","Some 3D metadata could not be loaded",{detail:Object.values(modelIssues).flat().join("\n")});
     assetData.set(fresh);
     loadProject(p, dir);
+    if (dir !== previousRoot) {
+      const loadedOwner = get(project);
+      await registerStandaloneRoot(dir);
+      if (get(project) !== loadedOwner || get(projectDir) !== dir || get(embeddedProjectRoot)) throw new Error('Project changed while the opened root was registered');
+    }
+    const posterGeneration = get(scene3dGeneration);
+    void import('./model3d/posterStore').then(api => api.scheduleModelPosterPrune(dir, () => get(projectDir) === dir && get(scene3dGeneration) === posterGeneration)).catch(() => {});
   } catch (e) {
     pushToast("error", "Couldn't open project", { detail: errMsg(e) });
   }

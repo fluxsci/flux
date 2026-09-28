@@ -535,8 +535,21 @@ Persistence invariants (all machine-checked — do not weaken):
   Mesh pixels and pure vector furniture share orbit math; the notebook IIFE is built from
   those same modules, with one canonical renderer version in `poster.ts`. Independently
   embedded viewer bundles share a document context and scope model IDs by source. Destroying
-  an output releases its host even inside notebook shadow roots. The live P2/P3 app wiring
-  is separate from the P0 renderer seams; see the active 3D ledger for phase status.
+  an output releases its host even inside notebook shadow roots. Figure placements and
+  Project/Global gallery previews share one lazy, root-and-load-generation-owned service.
+  The scene contains decoded data-URL mesh posters plus explicit vector furniture, so zoom
+  proxy snapshots include the mesh; poster publication increments the scene revision.
+  Mounted placements retain assets, culled placements release them, and shared poster jobs
+  cancel when their last subscriber leaves. A matching physical cache remains usable with
+  WebGL disabled; an unmatched failed view uses a selectable named placeholder. List chips
+  validate bounded scene3d JSON without reading GLB; worker previews apply original-byte
+  checks and can downgrade rejected metadata. Figure import receipts are consumed on
+  synchronous placement; late/canceled destinations discard only their uncommitted receipt.
+  Standalone open/Save As registers a changed native root and GLB imports await registration;
+  same-root saves do not reset grants. Rootless Toolbar GLB import reopens the picker after
+  Save because native root adoption clears earlier approvals. Preserve project/figure/tenant
+  ownership across lazy module loads, registration and picker awaits.
+  Orbit, exports, Paper and Slide activation are later phases; see the active 3D ledger.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
@@ -7763,3 +7776,16 @@ font size, preserving authored physical type at every box scale. Regenerated the
 with spacing and physical-size assertions. Furniture gate passed, check 0/0.
 **Learning:** Exact SVG goldens do not establish visual quality. Inspect the actual
 expanded preview as well as small contact sheets before accepting furniture.
+
+### 2026-09-28 07:44 UTC — Flux 3D Figure scene and gallery (Codex, model3d-scene)
+**Work:** Connected Figure import/drop, shared lazy rendering, physical disk posters and
+editor buckets, selectable fallbacks, vector furniture, proxy invalidation and cache GC.
+Project/Global galleries now have bounded 3D thumbnails, validated chips/filter and static
+expanded previews. Figure editing/history/clipboard use existing shared operations.
+**Verification:** Registered GUI gate exercises actual pointer manipulation, mesh pixels
+inside the zoom proxy, cull/warm reuse, Project/Global/list/expanded preview, invalid metadata,
+GPU-disabled/missing-source fallbacks and late import receipt cleanup. Separate lifecycle
+review covers subscriber cancellation and same-root reload disposal. Final gate receipts,
+source-review signoffs and screenshot paths are recorded in `notes/model3d-scene/PROGRESS.md`.
+**Learning:** A successful physical poster must remain the fallback when an editor-resolution
+render fails. Clear an older mismatched view only on final failure; keep it during preparation.

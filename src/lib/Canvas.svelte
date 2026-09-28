@@ -82,6 +82,7 @@
   import { pushToast, errMsg } from "./toast";
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
   import { plotManifests, plotGen } from "./plot/store";
+  import { model3dPosterRevision } from "./model3d/store";
   import ElementView from "./Element.svelte";
 
   // ===========================================================================
@@ -797,6 +798,7 @@
     editingId,
     (void visibleByFig, mountedGen), // bumped by visibleEls when the mounted set changes
     JSON.stringify($plotGen),
+    $model3dPosterRevision,
     frame ? 1 : 0,
   ].join("|");
   // Wanted: none yet, the scene changed, the rest zoom drifted more than 2× from
@@ -3893,7 +3895,7 @@
                   y={fig.height / 2}
                   font-size={12 / renderZoom}
                 >
-                  <tspan x={fig.width / 2} dy={-5 / renderZoom}>Drop PNG/SVG plots here</tspan>
+                  <tspan x={fig.width / 2} dy={-5 / renderZoom}>{frame ? "Drop PNG/SVG plots here" : "Drop PNG/SVG plots or GLB models here"}</tspan>
                   <tspan x={fig.width / 2} dy={18 / renderZoom}>Ctrl+Shift+K import · Alt+G plot gallery</tspan>
                 </text>
               {/if}

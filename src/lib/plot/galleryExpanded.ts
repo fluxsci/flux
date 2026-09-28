@@ -1,10 +1,11 @@
 import { fileBridge, type FileBridge } from "../project/types";
 import { plotKeyFor } from "../dissect/rules";
 
-export interface GalleryPreviewFile { abs: string; name: string; rel?: string; video?: boolean }
+export interface GalleryPreviewFile { abs: string; name: string; rel?: string; video?: boolean; model3d?: boolean }
 export function galleryDissectionKey(file: GalleryPreviewFile, root: string): string {
   return plotKeyFor(file.abs, root);
 }
+export function isGalleryModel3d(file: GalleryPreviewFile): boolean { return !!file.model3d || /\.glb$/i.test(file.name); }
 export function isGalleryVideo(file: GalleryPreviewFile): boolean { return !!file.video || /\.(mp4|mov)$/i.test(file.name); }
 
 /** Videos stay in the native range streamer; previewing never imports, copies,

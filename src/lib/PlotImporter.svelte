@@ -8,6 +8,8 @@
 </script>
 
 <script lang="ts">
+  import Model3dChip from "./plot/Model3dChip.svelte";
+  import Model3dIcon from "./plot/Model3dIcon.svelte";
   import { yieldsToShellModal } from "../shell/agent/annotationVisibility";
   // Plot gallery (Alt+G): a windowed contact sheet over the project's plots/ dir —
   // or, via the Project | Global switch (Alt+1 / Alt+2), over the user's global plot
@@ -69,6 +71,8 @@
   /** Slide-owned imports preserve the gallery's pinned/batch interaction. */
   export let importItems: ((picks: PlotPick[], canPlace: () => boolean) => Promise<number>) | undefined = undefined;
   export let allowVideos = false;
+  export let allowModels = false;
+  let modelsOnly = false;
   export let importStatus = "";
   export let cancelImport: (() => void) | undefined = undefined;
   export let title = "Plot gallery";
@@ -86,6 +90,7 @@
     /** A paper snip: a PNG with an `X.snip.json` provenance sidecar. */
     snip?: boolean;
     video?: boolean;
+    model3d?: boolean;
     scope: GalleryScope;
   }
   interface Row {
@@ -96,6 +101,7 @@
     semantic?: boolean;
     snip?: boolean;
     video?: boolean;
+    model3d?: boolean;
     /** A reserved-folder row, surfaced by typing "_" (carries its own abs — it is
      *  always a child of plots/, never of the folder currently being browsed). */
     hint?: string;
@@ -349,7 +355,7 @@
     // INSIDE one, though, everything is listed: getting in is the deliberate act.
     const inReserved = !!reservedRootOf(dir);
     entries = es
-      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME : /\.(svg|png)$/i.test(e.name) || videos && /\.(mp4|mov)$/i.test(e.name)))
+      .filter((e) => (e.dir ? inReserved || !isReservedPlotDirName(e.name) || videos && e.name === VIDEO_DIRNAME : /\.(svg|png)$/i.test(e.name) || allowModels && /\.glb$/i.test(e.name) || videos && /\.(mp4|mov)$/i.test(e.name)))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     loading = false;
   }
@@ -388,6 +394,8 @@
         }
         else if (/\.svg$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: names.has(e.name.replace(/\.svg$/i, ".fluxplot.json")) });
+        else if (allowModels && /\.glb$/i.test(e.name))
+          out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: names.has(e.name.replace(/\.glb$/i, ".fluxplot.json")), model3d: true });
         else if (/\.png$/i.test(e.name))
           out.push({ abs, rel: r, name: e.name, scope: src.scope, semantic: false, snip: names.has(e.name.replace(/\.png$/i, ".snip.json")) });
         else if (videos && /\.(mp4|mov)$/i.test(e.name))
@@ -428,7 +436,7 @@
           if (f.name.includes(q))
             out.push({ kind: "dir", name: f.name, abs: joinPath(plotsRoot, f.name), hint: f.hint });
       const matches = planCaches.flatMap((c) => c?.recs ?? [])
-        .filter(p => inPlanFolder(plan, p.abs) && `${p.rel} ${p.name}`.toLowerCase().includes(q))
+        .filter(p => (!modelsOnly || p.model3d) && inPlanFolder(plan, p.abs) && `${p.rel} ${p.name}`.toLowerCase().includes(q))
         .map(p => ({ p, score: similarTo ? galleryNameSimilarity(similarTo, p.name) : 0 }))
         .filter(({ score }) => !similarTo || score > 0)
         .sort((a, b) => b.score - a.score || rank(a.p, q) - rank(b.p, q)
@@ -439,14 +447,14 @@
         const label = p.scope === "global" ? "Global" : "Project";
         return dir ? `${label} · ${dir}` : label;
       };
-      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video, scope: p.scope, where: whereOf(p) })));
+      out.push(...matches.map(({ p }): Row => ({ kind: "file", name: p.name, abs: p.abs, rel: p.rel, semantic: p.semantic, snip: p.snip, video: p.video, model3d: p.model3d, scope: p.scope, where: whereOf(p) })));
       return out;
     }
     const out: Row[] = [];
     if (cwd && cwd !== plotsRoot) out.push({ kind: "up", name: ".." });
     for (const e of entries) {
       if (e.dir) out.push({ kind: "dir", name: e.name });
-      else
+      else if (!modelsOnly || /\.glb$/i.test(e.name))
         out.push({
           kind: "file",
           name: e.name,
@@ -455,7 +463,8 @@
           scope: browseScope,
           // entries drops sidecar files, so these checks read the raw listing's
           // sidecar names (a browse row was NEVER semantic before).
-          semantic: manifestNames.has(e.name.replace(/\.svg$/i, ".fluxplot.json")),
+          semantic: /\.(svg|glb)$/i.test(e.name) && manifestNames.has(e.name.replace(/\.(svg|glb)$/i, ".fluxplot.json")),
+          model3d: /\.glb$/i.test(e.name),
           snip: /\.png$/i.test(e.name) && snipNames.has(e.name.replace(/\.png$/i, ".snip.json")),
           video: /\.(mp4|mov)$/i.test(e.name),
         });
@@ -664,7 +673,7 @@
 
   function previewRow(row: Row | undefined) {
     if (row?.kind !== "file" || !row.abs) return;
-    expanded = { abs: row.abs, rel: relFor(row), name: row.name, semantic: !!row.semantic, video: row.video, snip: row.snip, scope: row.scope ?? browseScope };
+    expanded = { abs: row.abs, rel: relFor(row), name: row.name, semantic: !!row.semantic, video: row.video, model3d: row.model3d, snip: row.snip, scope: row.scope ?? browseScope };
   }
   $: previewFiles = rows.filter((r): r is Row & { abs: string } => r.kind === "file" && !!r.abs);
   $: previewIndex = expanded ? previewFiles.findIndex(r => r.abs === expanded?.abs) : -1;
@@ -748,6 +757,7 @@
         <svg class="mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
         <input bind:this={inputEl} bind:value={search} class="search-in" aria-label="Search plots" placeholder={searchHint} spellcheck="false" on:input={() => { index = 0; status = ""; }} />
         {#if search}<button class="clear-search" on:click={() => { search = ""; index = 0; focusInput(); }} aria-label="Clear search">×</button>{/if}
+        {#if allowModels}<button class="models-filter" class:chosen={modelsOnly} aria-label="Show only 3D models" aria-pressed={modelsOnly} on:click={() => { modelsOnly = !modelsOnly; index = 0; resetScroll(); }}><Model3dIcon /> 3D</button>{/if}
       </div>
       <div class="viewbar">
         <button class="tree-toggle" class:chosen={sidebar} aria-label="Toggle folder sidebar" aria-expanded={sidebar} on:click={() => { sidebar = !sidebar; rememberView(); }}>Folders</button>
@@ -764,12 +774,12 @@
       </div>
       {#if similarTo}<div class="similar-filter"><span>Names similar to <strong>{similarTo}</strong>{#if !scanned} · Scanning…{/if}</span><button aria-label="Clear similar names" on:click={() => { similarTo = ""; index = 0; focusInput(); }}>× Clear</button></div>{/if}
       <div class="gallery-body">
-      {#if sidebar}<aside class="folder-sidebar"><GalleryTree bind:this={tree} root={plotsRoot} currentDirectory={cwd} selectedPath={rows[index]?.abs || ""} allowVideos={browseVideos} refreshKey={treeRevision} onNavigate={navigateTree} onSelectFile={selectTreeFile} onPreviewFile={previewTreeFile} onInsertFile={insertTreeFile} /></aside>{/if}
+      {#if sidebar}<aside class="folder-sidebar"><GalleryTree bind:this={tree} root={plotsRoot} currentDirectory={cwd} selectedPath={rows[index]?.abs || ""} allowVideos={browseVideos} {allowModels} {modelsOnly} refreshKey={treeRevision} onNavigate={navigateTree} onSelectFile={selectTreeFile} onPreviewFile={previewTreeFile} onInsertFile={insertTreeFile} /></aside>{/if}
       <div class="list" class:gallery={viewMode === "gallery"} class:without-labels={!labels} bind:this={listEl} use:trackListSize on:scroll={() => scrollTop = listEl.scrollTop}>
         {#if !root}<div class="empty">Open a Flux project to browse its plots.</div>
         {:else if !fileBridge()?.readdir}<div class="empty">Folder browsing isn't available in this build.</div>
-        {:else if !rows.length && !loading && !q && !similarTo && browseScope === "global" && cwd === plotsRoot}<div class="empty" data-global-empty><strong>Your global plot library is empty</strong><span>Save SVG plots or PNG images into <code>{plotsRoot}</code> — in any folders you like — and every project can insert them from here.</span>{#if fileBridge()?.openPath}<button class="previewbtn open-library" on:click={() => void fileBridge()?.openPath?.(plotsRoot)}>Open folder</button>{/if}</div>
-        {:else if !rows.length && !loading}<div class="empty"><strong>{q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{q || similarTo ? "Try another name or return to browsing." : browseVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
+        {:else if !rows.length && !loading && !q && !similarTo && !modelsOnly && browseScope === "global" && cwd === plotsRoot}<div class="empty" data-global-empty><strong>Your global plot library is empty</strong><span>Save SVG plots, PNG images{allowModels ? " or GLB models" : ""} into <code>{plotsRoot}</code> — in any folders you like — and every project can insert them from here.</span>{#if fileBridge()?.openPath}<button class="previewbtn open-library" on:click={() => void fileBridge()?.openPath?.(plotsRoot)}>Open folder</button>{/if}</div>
+        {:else if !rows.length && !loading}<div class="empty"><strong>{modelsOnly ? "No matching 3D models" : q || similarTo ? "No matching files" : "A little space for your next result"}</strong><span>{modelsOnly ? "Choose another folder or turn off the 3D filter." : q || similarTo ? "Try another name or return to browsing." : browseVideos ? "Save SVG plots, PNG images, or MP4/MOV clips here. Videos can live in plots/_videos/." : allowModels ? "Save SVG plots, PNG images or GLB models into this folder to see them here." : "Save SVG plots or PNG images into this folder to see them here."}</span></div>
         {:else}
           <div style={`height:${Math.floor(start / columns) * stride}px`} aria-hidden="true"></div>
           <div class="items" style={`--columns:${columns}; --cell-height:${cellHeight}px; --gap:${gap}px`}>
@@ -780,13 +790,15 @@
                 {#if viewMode === "gallery"}
                   <span class="tile-preview">
                     {#if r.kind === "file" && r.abs}<GalleryPreview path={r.abs} {previews} />
+                    {#if r.model3d}<Model3dChip path={r.abs!} {previews} tile />{/if}
                     {:else}<svg class="folder-icon" viewBox="0 0 48 40" aria-hidden="true"><path d="M4 10V6h15l5 5h20v23H4Z"/>{#if r.kind === "up"}<path d="m18 23 6-6 6 6m-6-6v13"/>{/if}</svg><span class="folder-caption">{r.kind === "up" ? "Parent folder" : "Folder"}</span>{/if}
                   </span>
                 {/if}
                 <span class="row-meta">
-                  <span class="ic">{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶" : r.semantic ? "◆" : "◇"}</span>
-                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}</span>
-                  {#if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
+                  <span class="ic">{#if r.model3d && !selected}<Model3dIcon />{:else}{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶"  : r.semantic ? "◆" : "◇"}{/if}</span>
+                  <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}</span>
+                  {#if r.model3d}<Model3dChip path={r.abs!} {previews} />
+                  {:else if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
                   {#if r.snip}<span class="badge">snip</span>{/if}
                   {#if r.video}<span class="badge">video</span>{/if}
                 </span>
@@ -821,6 +833,9 @@
 {/if}
 
 <style>
+  .models-filter { flex-shrink:0; height:24px; padding:0 8px; border:1px solid var(--c-line); border-radius:var(--r-ui); background:transparent; color:var(--c-tx-muted); font:11px var(--font-ui); }
+  .models-filter.chosen { color:var(--c-accent); background:var(--c-accent-tint); border-color:var(--c-accent); }
+
   /* One calm technical surface (2026-09-15 surface redesign, SURFACE_SPEC):
      hairline-divided strips, flat fills, square rows/tiles, quiet tints. */
   .ibackdrop { position:fixed; inset:0; background:rgba(0,0,0,.2); z-index:320; }

@@ -31,11 +31,14 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["src/lib/Model3dElement.svelte", ["group:model3d", "group:model3d-gui"]],
+  ["src/lib/model3d/posterStore.ts", ["group:model3d", "group:model3d-gui"]],
+  ["src/lib/plot/Model3dChip.svelte", ["group:model3d", "group:model3d-gui"]],
   // F2 adds routing coverage without dropping the titlebar's live-view gates.
   ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
   ["electron/ipc/agentSetup.cjs", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
   ["src/shell/inbox/InboxPanel.svelte", ["verify-inbox.ts", "verify-inbox-gui.mjs", "verify-scale-inbox.mjs", "verify-annotate-chord-census.ts", "verify-annotation-surface-gui.mjs", "verify-annotate-utility-electron.cjs", "verify-no-retired-agent-layer.ts", "verify-agent-routing.ts", "verify-ai-monitor-gui.mjs"]],
-  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
+  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs", "group:model3d-gui"]],
   ["src/shell/TitleBar.svelte", ["verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs", "verify-ai-monitor-gui.mjs", "verify-startup.mjs", "verify-annotate-chord-census.ts", "verify-live-view.ts", "verify-live-view-electron.cjs", "verify-an-bridge.ts", "verify-ipc-contract.ts", "tier:pure", "verify-shell-complete.mjs"]],
   ["src/lib/project/agentRouting.ts", ["verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs", "verify-ai-monitor-gui.mjs", "verify-startup.mjs", "verify-annotate-chord-census.ts", "verify-live-view.ts", "verify-live-view-electron.cjs", "verify-an-bridge.ts", "verify-ipc-contract.ts", "tier:pure", "verify-shell-complete.mjs"]],
   // The text painter's arrangement source and its serializer route together.
@@ -43,10 +46,10 @@ const actualCases = [
   ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],
   ["scripts/perf/frame-oracle.cjs", ["verify-frame-oracle.ts"]],
   ["scripts/verify-manifest.json", ["verify-changed-pathmap.mjs", "tier:pure"]],
-  ["src/lib/PlotImporter.svelte", ["group:plot-gallery", "tier:pure"]],
-  ["src/lib/plot/GalleryExpandedPreview.svelte", ["group:plot-gallery", "tier:pure"]],
-  ["src/lib/plot/GalleryTree.svelte", ["group:plot-gallery", "tier:pure"]],
-  ["src/lib/plot/galleryNames.ts", ["group:plot-gallery", "tier:pure"]],
+  ["src/lib/PlotImporter.svelte", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
+  ["src/lib/plot/GalleryExpandedPreview.svelte", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
+  ["src/lib/plot/GalleryTree.svelte", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
+  ["src/lib/plot/galleryNames.ts", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
   ["src/lib/dissect/DissectGrid.svelte", ["verify-dissections.ts", "verify-dissect-gui.mjs", "verify-gallery-workflow.mjs", "tier:pure"]],
   ["src/lib/store.ts", ["group:slide-stash", "tier:pure"]],
   // 2026-09-25: ops.ts has its own first-match rule (the headless ops gate + the real cross-figure drag).

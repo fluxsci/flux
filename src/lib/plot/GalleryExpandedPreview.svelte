@@ -5,7 +5,7 @@
   import DissectDetail from "../dissect/DissectDetail.svelte";
   import { listDissections, clearDissectCache, type DissectListing, type DissectFile } from "../dissect/loader";
   import { dissectionsRevision } from "../../shell/scholar/revisions";
-  import { galleryDissectionKey, isGalleryVideo, openGalleryVideo, type GalleryPreviewFile } from "./galleryExpanded";
+  import { galleryDissectionKey, isGalleryVideo, isGalleryModel3d, openGalleryVideo, type GalleryPreviewFile } from "./galleryExpanded";
 
   let { file, root, dissections = true, refreshKey = 0, initialAutoplay = false, onClose, onSimilar, onPrevious, onNext }: {
     file: GalleryPreviewFile;
@@ -28,13 +28,15 @@
   let mediaUrl = $state(""), mediaError = $state("");
   let detail = $state<{ zoomBy: (factor: number) => void; resetZoom: () => void; toggleFit: () => void }>();
   const video = $derived(isGalleryVideo(file));
-  const key = $derived(dissections ? galleryDissectionKey(file, root) : "");
+  const model3d = $derived(isGalleryModel3d(file));
+  let modelUrl = $state(""), modelError = $state("");
+  const key = $derived(dissections && !model3d ? galleryDissectionKey(file, root) : "");
   const groups = $derived(listing?.groups ?? []);
   const group = $derived(groups[groupIndex]);
   const files = $derived(group?.files ?? []);
   const detailFile = $derived(detailIndex === null ? null : files[detailIndex]);
   const sourceFile = $derived<DissectFile>({ abs: file.abs, name: file.name, kind: "image" });
-  const showingImage = $derived(tab === "preview" ? !video : detailFile?.kind === "image");
+  const showingImage = $derived(tab === "preview" ? !video && !model3d : detailFile?.kind === "image");
 
   $effect(() => {
     file.abs; root; refreshKey;
@@ -65,6 +67,15 @@
     }).catch(error => { if (!cancelled) mediaError = error instanceof Error ? error.message : "Could not open this recording."; });
     void revision;
     return () => { cancelled = true; media?.release(); };
+  });
+
+  $effect(() => {
+    const path = file.abs; refreshKey;
+    modelUrl = ""; modelError = "";
+    if (!model3d || tab !== "preview") return;
+    const abort = new AbortController();
+    void import('../model3d/galleryPreview').then(api => api.model3dGalleryPreview(path, 1200, abort.signal)).then(value => { if (!abort.signal.aborted) modelUrl = value.url; }).catch(error => { if (!abort.signal.aborted) modelError = String(error?.message ?? error); });
+    return () => abort.abort();
   });
 
   function videoLifetime(node: HTMLVideoElement) {
@@ -126,7 +137,7 @@
 
 <div class="expanded-preview" role="dialog" aria-modal="true" aria-label="Expanded plot preview" tabindex="-1" bind:this={host} use:modal>
   <header>
-    <div class="identity"><span class="eyebrow">{video ? "Recording preview" : "Plot preview"}</span><h2 title={file.rel || file.abs}>{file.name}</h2></div>
+    <div class="identity"><span class="eyebrow">{video ? "Recording preview" : model3d ? "3D preview" : "Plot preview"}</span><h2 title={file.rel || file.abs}>{file.name}</h2></div>
     <div class="header-actions">
       {#if onSimilar}<button aria-label="Find similar names" use:nativeClick={() => onSimilar?.(file)} title="Find related files by name">Similar names</button>{/if}
       <button class="close" aria-label="Close preview" title="Close preview (Esc)" use:nativeClick={onClose}>×</button>
@@ -141,7 +152,11 @@
   </nav>
   {#if tab === "preview"}
     <main class="media">
-      {#if video}
+      {#if model3d}
+        {#if modelError}<div class="empty"><strong>3D preview unavailable</strong><p>{modelError}</p></div>
+        {:else if modelUrl}<img class="model-preview" data-gallery-preview-media src={modelUrl} alt={file.name} />
+        {:else}<div class="empty">◈ 3D · {file.name}</div>{/if}
+      {:else if video}
         {#if mediaError}<div class="empty"><strong>Preview unavailable</strong><p>{mediaError}</p></div>
         {:else if mediaUrl}
           <!-- svelte-ignore a11y_media_has_caption (the user's source video has no caption track) -->
@@ -191,6 +206,7 @@
   .grow { flex:1; }
   .media,.dissections { flex:1; min-width:0; min-height:0; position:relative; display:flex; flex-direction:column; overflow:hidden; }
   .media { background:color-mix(in oklab,var(--c-bg) 94%,black); }
+  .model-preview { width:100%; height:100%; min-height:0; object-fit:contain; padding:20px; background:var(--flx-paper); }
   video { width:100%; height:100%; min-height:0; object-fit:contain; background:#000; }
   .image-detail,.dissection-detail { flex:1; min-height:0; position:relative; }
   .empty { display:flex; flex:1; min-height:0; align-items:center; justify-content:center; flex-direction:column; gap:6px; padding:24px; color:var(--c-tx-muted); text-align:center; }

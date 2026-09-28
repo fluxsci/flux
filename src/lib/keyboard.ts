@@ -508,8 +508,11 @@ function paste() {
   const fig = activeFig();
   if (!fig) return;
   const assetIds = new Set(get(project).assets.map(a => a.id));
-  if (clipboard.some(e => (e.type === "image" || e.type === "plot") && !assetIds.has(e.assetId))) {
-    pushToast("info", "Import the copied image or plot into this project before pasting."); return;
+  if (clipboard.some(e => (e.type === "image" || e.type === "plot" || e.type === "model3d") && !assetIds.has(e.assetId))) {
+    pushToast("info", "Import the copied image, plot or 3D model into this project before pasting."); return;
+  }
+  if (clipboard.some(e => e.type === "model3d") && storeTenant() !== "figure") {
+    pushToast("info", "3D models can currently be pasted into figures."); return;
   }
   const videos = clipboard.filter(e => e.type === "video");
   if (videos.length && storeTenant() !== "slide") {

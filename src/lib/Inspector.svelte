@@ -102,7 +102,7 @@
   // dims (crop px are assetDisplaySize units, i.e. already physical): "true
   // size" means the visible window renders 1:1, not the full content.
   const mmStr = (px: number) => ((px / 96) * MM_PER_INCH).toFixed(1);
-  $: physSize = single && "assetId" in single ? ops.assetDisplaySize($project, single.assetId) : null;
+  $: physSize = single && single.type !== "model3d" && "assetId" in single ? ops.assetDisplaySize($project, single.assetId) : null;
 
   // Dissect: the selected asset's companion-folder count (plots/_dissections/<key>).
   // Async + memoized by (key, dissectionsRevision) — the Inspector never blocks on IO;
