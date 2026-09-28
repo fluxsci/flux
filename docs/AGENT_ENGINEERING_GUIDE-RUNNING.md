@@ -1923,6 +1923,10 @@ that isn't in the manifest doesn't exist.** Tiers:
   children stopped: confirm the final summary before starting another cohort.
   An exact-path entry must retain the regression groups of the broader entry it supersedes:
   pathMap uses the first matching entry, not the union of all matching entries.
+  Merging two branches' manifests: resolve `verify-manifest.json` structurally (three-way,
+  keyed by script name and `glob`) and keep each side's new pathMap rules anchored to their
+  shared neighbours; appending one side's rules after the other's lets a broad rule shadow a
+  specific one (`verify-changed-pathmap` catches it).
   `group:paper-gate` is the paper editor's regression suite. `group:model3d` is the 3D suite;
   `group:model3d-pure` and `group:model3d-ui` are its pure and dev-server slices, and the
   native S8 cohort (`verify-model3d-s8.cjs`) and eight-model scale gate need a quiet display. Use
@@ -8479,3 +8483,14 @@ acceptance report to its how-to-run part. Removed detail is preserved in the 3D 
 - The §2 row and trap T30 cited `verify-paper-render-overrides.ts`, which has no 3D content;
   the real Paper/Node parity check is `verify-model3d-headless.ts`. Check a cited gate's body,
   not just its name or group membership.
+
+### 2026-09-28 — Animation v2 and 3D Stage 1 integrated on main (Claude Opus 5.5, `model3d`)
+**Work:** Merged main (animation v2) into `model3d` and fast-forwarded main. The 10 conflicts
+were additive: NumberField/scrub keep both zoom factor stepping and live preview. Generated files
+were regenerated. X1's one-part-id rule moved model3d furniture/static ids onto `partDomId`,
+with byte-identical output. fluxplot main fast-forwarded to `scene3d`, then merged the
+signature-fluxplots work that had been left uncommitted. The viewer was re-synced.
+Pure 347/347, ui 142/142, bundle 5/5 and startup pass; the electron tier was not run here.
+**Learnings:** pathMap order under a structural merge (promoted to §7 next to first-match);
+MCP gates answer from `dist/`, so rebuild after a merge before judging them (`verify-inbox`
+failed on the pre-merge bundle).
