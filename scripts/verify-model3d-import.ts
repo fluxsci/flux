@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { harness } from './lib/harness.mjs';
-import { writeGlb, prepareGlb } from '../src/lib/model3d/glbCore.mjs';
+import { writeGlb, prepareGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { createMemBridge } from '../src/lib/project/memBridge';
 import { prepareModel3dImport, makeImportedModel3dElement, parseModel3dImportMetadata } from '../src/lib/model3d/importData';
 import type { Scene3dManifest } from '../src/lib/model3d/types';
@@ -97,6 +97,7 @@ try {
   h.ok(!(await fs.readdir(path.join(project, 'fig/assets'))).length, 'native cancel removes all and only import-owned files');
 
   const sparse = path.join(project, 'plots/too-large.glb');
+  h.eq(native.MAX_BYTES, GLB_LIMITS.maxBytes, 'the CommonJS import boundary uses the shared GLB byte limit');
   await fs.writeFile(sparse, ''); await fs.truncate(sparse, native.MAX_BYTES + 1);
   await assert.rejects(() => native.prepareModel3d({ root: project, target: request.target, sourcePath: sparse }), /exceeds 200 MiB/);
   h.ok(!(await fs.readdir(path.join(project, 'fig/assets'))).length, 'oversized source is refused before publication or whole-file allocation');

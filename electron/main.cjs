@@ -1413,7 +1413,7 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = requir
     noteWrite(outAbs);
     if (output.kind === "glb") {
       const stat = await fs.promises.stat(outAbs);
-      if (!stat.isFile() || stat.size > 200 * 1024 * 1024) throw new Error("Recipe GLB must be a regular file below 200 MiB");
+      if (!stat.isFile() || stat.size > require("./model3dImport.cjs").MAX_BYTES) throw new Error("Recipe GLB must be a regular file below 200 MiB");
       glbPath = outAbs;
     } else {
       if ((await fs.promises.stat(outAbs)).size > 64 * 1024 * 1024) throw new Error("Recipe SVG exceeds 64 MiB");

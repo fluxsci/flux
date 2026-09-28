@@ -138,7 +138,7 @@ function inspectParsed(json,bin,byteLength){
 }
 function inspectGlbUnsafe(input){const bytes=asBytes(input),{json,bin}=parseGlb(bytes);return inspectParsed(json,bin,bytes.length).info;}
 function encodeGlb(json,bin){const j=new TextEncoder().encode(canonical(json)),jl=Math.ceil(j.length/4)*4,bl=Math.ceil(bin.length/4)*4;const bytes=new Uint8Array(12+8+jl+8+bl),dv=new DataView(bytes.buffer);dv.setUint32(0,0x46546c67,true);dv.setUint32(4,2,true);dv.setUint32(8,bytes.length,true);dv.setUint32(12,jl,true);dv.setUint32(16,0x4e4f534a,true);bytes.fill(32,20,20+jl);bytes.set(j,20);dv.setUint32(20+jl,bl,true);dv.setUint32(24+jl,0x004e4942,true);bytes.set(bin,28+jl);return bytes;}
-function prepareGlbUnsafe(input,_opts={}){
+function prepareGlbUnsafe(input){
  const source=asBytes(input),{json,bin}=parseGlb(source),{info,invalidStates}=inspectParsed(json,bin,source.length);
  delete json.images;delete json.textures;delete json.samplers;delete json.animations;delete json.cameras;delete json.skins;
  for(const node of json.nodes??[]){delete node.camera;delete node.skin;}
@@ -165,4 +165,4 @@ export function writeGlb(spec){
 
 function safeGlb(fn){try{return fn();}catch(error){if(error instanceof GlbError)throw error;throw new GlbError('structure','Malformed GLB structure: '+(error instanceof Error?error.message:String(error)));}}
 export const inspectGlb=input=>safeGlb(()=>inspectGlbUnsafe(input));
-export const prepareGlb=(input,opts)=>safeGlb(()=>prepareGlbUnsafe(input,opts));
+export const prepareGlb=input=>safeGlb(()=>prepareGlbUnsafe(input));

@@ -6,7 +6,7 @@ export function hex14(hash:number):string;
 export function canonical(value:unknown):string;
 export function parseGlb(bytes:Uint8Array|ArrayBuffer):{json:any;bin:Uint8Array};
 export function inspectGlb(bytes:Uint8Array|ArrayBuffer):Model3dInfo;
-export function prepareGlb(bytes:Uint8Array|ArrayBuffer,opts?:Record<string,unknown>):{bytes:Uint8Array;info:Model3dInfo};
+export function prepareGlb(bytes:Uint8Array|ArrayBuffer):{bytes:Uint8Array;info:Model3dInfo};
 export function transformPoint(matrix:readonly number[],point:readonly number[]):Vec3;
 export interface GlbFixturePart { name?:string; positions:ArrayLike<number>|number[][]; indices?:ArrayLike<number>|number[][];
  normals?:ArrayLike<number>|number[][]; colors?:ArrayLike<number>|number[][]; values?:ArrayLike<number>; valid?:ArrayLike<number>;

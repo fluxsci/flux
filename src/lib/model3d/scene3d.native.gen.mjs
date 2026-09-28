@@ -2152,7 +2152,6 @@ function parseScene3d(input) {
   if (data.order?.some((id) => !ids.has(id))) return { issue: "Unknown part in scene3d order" };
   return data;
 }
-var scene3dPartIndex = buildScene3dPartIndex;
 function scene3dFields(manifest) {
   const fields = /* @__PURE__ */ Object.create(null);
   for (const p of manifest?.parts ?? []) if (typeof p.field === "object") fields[p.id] = p.field;
@@ -2186,7 +2185,6 @@ export {
   scene3dAxesId,
   scene3dFieldId,
   scene3dFields,
-  scene3dPartIndex,
   scene3dPartLineage,
   scene3dPartTargets,
   scene3dSeriesId,

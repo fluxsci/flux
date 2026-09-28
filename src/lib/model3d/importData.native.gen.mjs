@@ -378,7 +378,7 @@ function encodeGlb(json, bin) {
   bytes.set(bin, 28 + jl);
   return bytes;
 }
-function prepareGlbUnsafe(input, _opts = {}) {
+function prepareGlbUnsafe(input) {
   const source = asBytes(input), { json, bin } = parseGlb(source), { info, invalidStates } = inspectParsed(json, bin, source.length);
   delete json.images;
   delete json.textures;
@@ -431,7 +431,7 @@ function safeGlb(fn) {
     throw new GlbError("structure", "Malformed GLB structure: " + (error instanceof Error ? error.message : String(error)));
   }
 }
-var prepareGlb = (input, opts) => safeGlb(() => prepareGlbUnsafe(input, opts));
+var prepareGlb = (input) => safeGlb(() => prepareGlbUnsafe(input));
 
 // src/lib/model3d/scene3dValidator.gen.mjs
 var validateScene3d = validate10;
