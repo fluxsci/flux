@@ -251,6 +251,17 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
 }
 
 let plotResidueId = 0;
+// plot/derive.ts stampIds gives id-less structure DFS-position ids (`n<k>`) so
+// the X-ray can address it. They are positional, not semantic: a regenerated
+// asset with one tick fewer renumbers every later node, so binding by them
+// pairs strangers (the shared series line would crossfade against a tick label).
+// Stamped nodes are anonymous here and bind structurally inside their nearest
+// semantic ancestor.
+const STAMPED_ID = /^n\d+$/;
+const semanticPartId = (node: Element, elId: string): string | null => {
+  const id = partIdFromDom(node.getAttribute("id") ?? "", elId);
+  return id === null || STAMPED_ID.test(id) ? null : id;
+};
 
 /** Match plot content by semantic identity; topology changes fade locally.
  * All clones and bindings are built here. Playback only writes attributes. */
@@ -261,7 +272,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const index = (root: Element | null) => {
     const map = new Map<string, Element>();
     if (root) for (const node of [root, ...Array.from(root.querySelectorAll("[id]"))]) {
-      const id = partIdFromDom(node.getAttribute("id") ?? "", pre.id);
+      const id = semanticPartId(node, pre.id);
       if (id !== null) map.set(id, node);
     }
     return map;
@@ -304,7 +315,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     w.append(outgoing, incoming); fade(outgoing, false); fade(incoming, true);
     return update;
   }
-  const idOf = (node: Element) => partIdFromDom(node.getAttribute("id") ?? "", pre.id);
+  const idOf = (node: Element) => semanticPartId(node, pre.id);
   const anonymous = (node: Element) => Array.from(node.children).filter(child => idOf(child) === null && !child.hasAttribute("data-projection-residue") && !child.hasAttribute("data-plot-residue"));
   const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
   const same = (x: Element, y: Element, line = false): boolean => {

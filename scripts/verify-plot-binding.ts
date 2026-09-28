@@ -33,6 +33,13 @@ for (const t of [0, .2, .8, 1, .2, 0]) {
     h.ok(!!node, `outgoing tick ${i} retained`);
     h.ok(Math.abs(opacity(node) - Math.max(0, 1-t/.4)) < 1e-6, `outgoing tick ${i} fades at ${t}`);
   }
+  // Stamped DFS ids (plot/derive.ts `n<k>`) are positional: panels-b has two
+  // fewer y ticks, so every later stamp shifts. The shared line and spines bind
+  // structurally inside their semantic group, never crossfade as strangers.
+  const lineGroup = host.querySelector('[id="p__panel.small.control.line"]');
+  h.eq(lineGroup?.querySelectorAll('path').length, 1, `shared series line keeps one path at ${t}`);
+  h.eq(opacity(lineGroup?.querySelector('path') ?? null), 1, `shared series line stays opaque at ${t}`);
+  h.eq(opacity(host.querySelector('[id="p__panel.small.axis.y.spine"] path')), 1, `shared spine stays opaque at ${t}`);
   const series = A.manifest.series[0], other = B.manifest.series[0];
   const points = projectSeries(series, other, viewFits(A.manifest, undefined, series.panelId)!, viewFits(B.manifest, undefined, other.panelId)!, t);
   h.ok(original!.getAttribute('d')!.includes(`${points[0].x.toFixed(6)} ${points[0].y.toFixed(6)}`), `shared series follows projection at ${t}`);
