@@ -25,6 +25,7 @@ import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, 
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
 import { defaultEasingFor, isExitPreset } from "./presetCatalog";
+import { EASING_TOKENS } from "./curves";
 import { compileSlide, trackDuration } from "./compile";
 import { diffState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
@@ -737,10 +738,13 @@ function patchTimingCurve(track: Pick<Track, "curve" | "influence" | "easing">, 
   } else if (easing != null) track.easing = easing;
 }
 
-export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve | EasingToken | null): TrackEditResult {
+/** The pane and cascade share this op for specs, tokens, legacy influence and
+ * reset. An explicit influence object can retain the disk's zero sentinel;
+ * user-facing zero/reset actions pass null to restore inheritance/defaults. */
+export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve | EasingToken | { influence: Influence } | null): TrackEditResult {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
-  patchTimingCurve(found.track, { curve });
+  patchTimingCurve(found.track, curve && typeof curve === "object" && "influence" in curve ? curve : { curve });
   return { ok: true };
 }
 
@@ -886,7 +890,8 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
  *  columns). `at` places it at a lane index (default: append). Timing (start/
  *  duration/stagger) travels untouched; a beat-local group membership is
  *  dropped on a CROSS-beat move (groups live per beat). An anchor detaches
- *  to its resolved start before leaving the source beat. */
+ *  to its resolved start before leaving the source beat, as do any followers
+ *  anchored to the moved track that remain in the source beat. */
 export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number, manifestFor: ManifestFor = () => undefined): boolean {
   const s = slideById(deck, slideId);
   if (!s) return false;
@@ -898,9 +903,12 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
     const candidate = b.tracks[i];
     if (to === s.beats[0]) return false;
     if (["transform", "media"].includes(familyOf(candidate)) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate))) return false;
-    if (b !== to && candidate.anchor) {
-      candidate.start = resolveStart(candidate, b, deck, manifestFor).start;
-      delete candidate.anchor;
+    if (b !== to) {
+      // Resolve every affected anchor against the intact source beat before
+      // changing any of them. Followers left behind must keep their arrival.
+      const detach = b.tracks.filter(t => t.anchor && (t === candidate || t.anchor.trackId === trackId))
+        .map(track => ({ track, start: resolveStart(track, b, deck, manifestFor).start }));
+      for (const { track, start } of detach) { track.start = start; delete track.anchor; }
     }
     const [t] = b.tracks.splice(i, 1);
     if (b.id !== to.id && t.groupId) delete t.groupId;
@@ -1059,8 +1067,10 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     if (!previous) track.groupId = groupId;
     out.originalTrackId = track.id;
   } else if (original === "disappear") {
+    // Ghost disappearance authors smooth to match the births. This is an
+    // authored value, not the ordinary appearance preset's default.
     const track = exits[0] ?? { id: newId("track"), target: sourceId, preset: "fadeOut" as const,
-      duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("fadeOut"), start: opts.start ?? 0, groupId };
+      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
     if (!exits.length) { patchTimingCurve(track, opts); beat.tracks.push(track); }
     out.originalTrackId = track.id;
   }
@@ -1434,7 +1444,7 @@ export function cascadeTracks(
         const inf: Influence = { in: b0.influence?.in ?? 0, out: b0.influence?.out ?? 0 };
         inf[side] = clampTrackValue(spec.property, cascadeValue(inf[side], spec, step));
         // Both zero ⇒ no velocity profile at all (PropertiesPane parity).
-        patchTimingCurve(t, { influence: !inf.in && !inf.out && !t.styleId ? null : inf });
+        setTrackCurve(deck, slideId, t.id!, !inf.in && !inf.out ? null : { influence: inf });
         break;
       }
       case "curve.bounce": {
@@ -1555,9 +1565,10 @@ export function ensureTrackIds(deck: Deck): Deck {
   return deck;
 }
 
-/** 0.2/0.3/0.4/0.5 → 0.6: a pure stamp — older decks contain none of the
+/** 0.2/0.3/0.4/0.5 → 0.6: a version stamp — older decks contain none of the
  *  0.5 video or 0.6 animation-v2 additions, and every 0.6 field is additive.
- *  Existing element/timeline behavior is preserved without identity rewrites.
+ *  Legacy morph names normalize below. Unknown legacy easing strings are
+ *  dropped so the player's fallback survives the stricter disk enum.
  *  Anything else (0.1.x, garbage) passes through untouched and fails
  *  validation downstream exactly as before. Mutates + returns. */
 export function migrateDeck(deck: Deck): Deck {
@@ -1568,12 +1579,18 @@ export function migrateDeck(deck: Deck): Deck {
   // half only). Normalize the name; keep the authored timing (its old default
   // duration was 1200 ms) so playback is byte-for-byte the same motion.
   for (const s of deck?.slides ?? []) for (const b of s.beats ?? []) for (const t of b.tracks ?? []) {
+    // Legacy hand-written strings used the player's fallback. Keep the disk
+    // enum strict without quarantining those otherwise valid decks.
+    if (typeof t.easing === "string" && !EASING_TOKENS.includes(t.easing)) delete t.easing;
     if ((t.preset as string) === "morph") {
       t.preset = "transform";
       if (t.duration == null) t.duration = 1200;
       t.to = t.to ?? {};
       if (!t.to.state) t.to.state = {};
     }
+  }
+  for (const style of deck?.animStyles ?? []) {
+    if (typeof style.track?.easing === "string" && !EASING_TOKENS.includes(style.track.easing)) delete style.track.easing;
   }
   return deck;
 }

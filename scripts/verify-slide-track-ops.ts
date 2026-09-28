@@ -361,6 +361,64 @@ m3.section("creation paths and semantic anchor tails");
   ops.moveTrackToBeat(d, s.id, follower.id!, dest.id, undefined, () => manifest);
   m3.eq([follower.start, follower.anchor], [220, undefined], "cross-beat move includes the resolved semantic stagger tail");
 }
+m3.section("M3 integration D4/D5: reset parity and followers left behind");
+{
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "detach-followers" });
+  const b = ops.addBeat(d, s.id, { id: "source-beat" })!, dest = ops.addBeat(d, s.id, { id: "dest-beat" })!;
+  const manifest = { parts: { id: "root", role: "figure", children: [{ id: "points", role: "points", children: [0, 1, 2].map(i => ({ id: `p${i}`, role: "point" })) }] } } as FluxPlotManifest;
+  const leader: Track = { id: "leader", target: "plot", part: "points", preset: "fade", start: 50, duration: 100, stagger: { perMs: 30 } };
+  const follower: Track = { id: "follower", target: "b", preset: "fade", duration: 80, start: 7, anchor: { trackId: "leader", edge: "end", offsetMs: 10 } };
+  const chained: Track = { id: "chained", target: "c", preset: "fade", anchor: { trackId: "follower", edge: "end", offsetMs: 5 } };
+  const startFollower: Track = { id: "start-follower", target: "d", preset: "fade", anchor: { trackId: "leader", edge: "start", offsetMs: 15 } };
+  b.tracks = [leader, follower, chained, startFollower];
+  const mf = () => manifest;
+  const before = JSON.stringify(d);
+  m3.ok(!ops.moveTrackToBeat(d, s.id, leader.id!, s.beats[0].id, undefined, mf) && JSON.stringify(d) === before, "D5: refused move preserves follower anchors and bytes");
+  ops.moveTrackToBeat(d, s.id, leader.id!, b.id, 0, mf);
+  m3.ok(!!follower.anchor && !!startFollower.anchor, "D5: same-beat reorder retains follower anchors");
+  ops.moveTrackToBeat(d, s.id, leader.id!, dest.id, undefined, mf);
+  m3.eq([follower.start, follower.anchor, startFollower.start, startFollower.anchor], [220, undefined, 65, undefined], "D5: moving a leader detaches end/start followers at resolved times including stagger tails");
+  m3.eq(chained.anchor, { trackId: "follower", edge: "end", offsetMs: 5 }, "D5: downstream anchors remain attached to their still-local leader");
+  const { resolveStart } = await import("../src/lib/slide/resolve");
+  m3.eq(resolveStart(chained, b, d, mf).start, 305, "D5: downstream start remains unchanged after leader moves away");
+  for (const linked of [false, true]) {
+    const t = follower;
+    if (linked) {
+      const st = ops.addAnimStyle(d, { name: "Spring", family: "appearance", track: { preset: "fade", curve: { kind: "spring", bounce: .35 } } });
+      t.styleId = st.id;
+    }
+    t.easing = "enter"; t.influence = { in: 10, out: 0 };
+    const expected = structuredClone(d);
+    ops.setTrackCurve(expected, s.id, t.id!, null);
+    ops.cascadeTracks(d, s.id, [t.id!], { property: "influence.in", delta: -10 });
+    m3.ok(JSON.stringify(d) === JSON.stringify(expected), `D4: zero influence cascade equals setTrackCurve(null), linked=${linked}`);
+  }
+}
+m3.section("M3 integration D1: migrated easing through the exported player");
+{
+  const { parseHTML } = await import("linkedom");
+  const { document } = parseHTML("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = document;
+  const { createPlayer } = await import("../src/lib/slide/player/player");
+  const { FLUX_DARK } = await import("../src/lib/slide/theme");
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "legacy-ease" });
+  const b = ops.addBeat(d, s.id, { id: "fade-beat" })!;
+  s.elements = [{ type: "rect", id: "box", x: 0, y: 0, width: 80, height: 60, rotation: 0, fill: "#ffffff", stroke: "none", strokeWidth: 0 }];
+  b.tracks = [{ id: "fade", target: "box", preset: "fade", duration: 1000, easing: "ease-in-out" as any }];
+  ops.migrateDeck(d);
+  m3.ok(!Object.hasOwn(b.tracks[0], "easing"), "D1: player input drops the unknown token");
+  const reference = structuredClone(d); reference.slides[0].beats[1].tracks[0].easing = "standard";
+  const hosts = [d, reference].map(() => document.createElement("div") as unknown as HTMLElement);
+  const players = [d, reference].map((deck, i) => createPlayer(hosts[i], deck, { theme: FLUX_DARK }));
+  const frames: string[][] = [[], []];
+  for (const t of [0, 100, 250, 500, 750, 1000, 400]) players.forEach((p, i) => {
+    p.seek(0, 1, t);
+    frames[i].push((hosts[i].querySelector('[data-el-id="box"] .sl-effects') as HTMLElement).style.opacity);
+  });
+  m3.eq(frames[0], frames[1], "D1: migrated deck plays standard through createPlayer, including reverse seek");
+  m3.ok(Number(frames[0][2]) > 0 && Number(frames[0][2]) < 1, "D1: comparison includes a real intermediate player frame");
+  players.forEach(p => p.destroy());
+}
 await m3.done();
 
 console.log("\nSLIDE TRACK-OPS (WS2 + 0.3.0 families/groups) TESTS PASSED");

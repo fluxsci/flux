@@ -68,6 +68,12 @@
     const r = trigger.getBoundingClientRect(), w = 374, h = panel?.offsetHeight ?? 600;
     pos = { left: Math.max(8, Math.min(innerWidth - w - 8, r.left - w - 8)), top: Math.max(8, Math.min(innerHeight - h - 8, r.top)) };
   }
+  function watchSize(node: HTMLElement) {
+    // The graph controls and inline error can grow after the initial placement.
+    const observer = new ResizeObserver(place);
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
   async function show() {
     if (open || suppressFocus) return;
     sealHistory(); openingKey = contextKey; error = ""; pasteText = ""; keepArrival = true;
@@ -194,7 +200,7 @@
   </button>
 </div>
 {#if open}
-  <div class="curve-popover" bind:this={panel} style={`left:${pos.left}px;top:${pos.top}px`} role="dialog" aria-label="Easing curve editor" aria-modal="false" tabindex="-1" onkeydown={key} onpaste={onPaste}>
+  <div class="curve-popover" bind:this={panel} use:watchSize style={`left:${pos.left}px;top:${pos.top}px`} role="dialog" aria-label="Easing curve editor" aria-modal="false" tabindex="-1" onkeydown={key} onpaste={onPaste}>
     <header><strong>Easing</strong><span>{name}</span><button aria-label="Commit easing" onclick={() => close(false)}>Done</button></header>
     <div class="curve-groups">
       {#each groups as g}

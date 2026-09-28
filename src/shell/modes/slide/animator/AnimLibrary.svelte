@@ -68,7 +68,7 @@
       for (const id of ids) {
         if (p.family === "transform") {
           const t = setTransform(d, sid, beatId, id, {
-            start: p.track.start, duration: p.track.duration, easing: p.track.easing, influence: p.track.influence,
+            start: p.track.start, duration: p.track.duration, curve: p.track.curve, easing: p.track.easing, influence: p.track.influence,
           });
           if (t?.id) { newIds.push(t.id); if (style) linkTrackStyle(d, sid, t.id, style.id); }
           continue;

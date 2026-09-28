@@ -11,6 +11,15 @@ import type { Deck, Track } from "../../../../lib/slide/types";
 import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
 import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
+import { plotManifests } from "../../../../lib/plot/store";
+
+function manifestForDeck(deck: Deck, sid: string) {
+  const slide = slideById(deck, sid), manifests = get(plotManifests);
+  return (target: string) => {
+    const el = slide?.elements.find(e => e.id === target);
+    return el && "assetId" in el ? manifests[el.assetId] : undefined;
+  };
+}
 
 function ctx(): { sid: string; ids: string[] } | null {
   const sid = get(activeFigureId); // slide id === projected figure id
@@ -125,7 +134,8 @@ export function moveSelectedToAdjacentBeat(dir: 1 | -1): void {
   if (to < 1 || to >= s.beats.length) return;
   const toId = s.beats[to].id;
   commitDeckLive((d) => {
-    for (const id of c.ids) moveTrackToBeat(d, c.sid, id, toId);
+    const manifestFor = manifestForDeck(d, c.sid);
+    for (const id of c.ids) moveTrackToBeat(d, c.sid, id, toId, undefined, manifestFor);
   });
   activeBeat.set(to);
 }
@@ -136,8 +146,9 @@ export function moveSelectedToBeat(beatId: string, at?: number): void {
   if (!c) return;
   commitDeckLive((d) => {
     let lane = at;
+    const manifestFor = manifestForDeck(d, c.sid);
     for (const id of c.ids) {
-      moveTrackToBeat(d, c.sid, id, beatId, lane);
+      moveTrackToBeat(d, c.sid, id, beatId, lane, manifestFor);
       if (lane != null) lane++;
     }
   });

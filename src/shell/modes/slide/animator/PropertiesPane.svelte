@@ -32,7 +32,7 @@
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
-  import { resolveBeat, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
+  import { resolveBeat, resolveTrack, INHERITED_STYLE_FIELDS, type StyleContext } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
 
   let { slide, plotTags, onChooseMorph, onBecome }: {
@@ -227,7 +227,6 @@
     if (anyMedia && !allMedia && ["preset", "part", "selector", "target"].some(key => key in p)) return;
     editFields((t) => {
       Object.assign(t, p);
-      if ("influence" in p && p.influence === undefined && t.styleId) t.influence = { in: 0, out: 0 };
     });
   };
   function timing(field: "start" | "duration", value: string) {
@@ -252,10 +251,16 @@
       commitDeckLive(d => setAnimStyle(d, id, { track: { ...stylePatch, ...(keepArrival ? { duration } : {}) } }));
     } else withSelectedTracks((t, resolved, d, sid) => {
       if (!t.id || familyOf(t) === "media") return;
-      const duration = durationFor(resolved);
-      if ("influence" in patch) setTrack(d, sid, t.id, patch);
-      else setTrackCurve(d, sid, t.id, patch.curve);
-      if (keepArrival) setTrack(d, sid, t.id, { duration });
+      const duration = trackDuration(resolved), arrival = resolveCurve(resolved, familyOf(resolved)).arrival;
+      setTrackCurve(d, sid, t.id, typeof value === "object" && "influence" in value
+        ? !value.influence.in && !value.influence.out ? null : value
+        : value);
+      if (keepArrival) {
+        // A reset can restore a linked spring or the family default. Measure
+        // the op's resolved result, not the discarded zero-influence patch.
+        const updated = resolveTrack(t, d);
+        setTrack(d, sid, t.id, { duration: Math.max(150, Math.min(4000, duration * arrival / resolveCurve(updated, familyOf(updated)).arrival)) });
+      }
     });
   }
   function resetCurve() {
@@ -805,6 +810,9 @@
   .f select { max-width: 175px; min-width: 90px; }
   .f input { width: 56px; }
   .f input[data-fld="t"], .f input[data-fld="d"], .f input[data-fld="g"] { width: 68px; }
+  /* Keep-arrival produces fractional millisecond values; leave room for four
+     digits, fractional places and Chromium's number spinner. */
+  .f input[data-fld="d"] { width: 96px; }
 
   /* buttons: square, hairline, flat; toggled = accent tint + accent border */
   .pick-morph, .dirb, .mini, .psave button, .saveas, .del, .dclear, .dx, .sg, .sg2, .pb {

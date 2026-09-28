@@ -260,7 +260,7 @@ try {
   await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed" });
 
   // M4: spring bounce is ranked only over applicable tracks.
-  const { seedCurves } = await import('./lib/animatorCurveChecks.mjs');
+  const { seedCurves, curveShot } = await import('./lib/animatorCurveChecks.mjs');
   const springIds = await seedCurves(page);
   await page.evaluate(ids => {
     const f = window.__flux, sid = f.get(f.fig.activeFigureId);
@@ -274,12 +274,14 @@ try {
     await page.select('.cascade-pop select.prop', 'curve.bounce');
     await page.click('.cascade-pop .chk.ff input');
     await setNum('.cascade-pop input.delta', .1);
+    await curveShot(page, '12-bounce-cascade');
     await page.keyboard.press('Enter'); await waitForFrame(page);
     const values = await page.evaluate(ids => {
       const f = window.__flux, s = f.slide.currentDeck().slides.find(s => s.id === f.get(f.fig.activeFigureId));
       return ids.map(id => s.beats[1].tracks.find(t => t.id === id).curve.bounce);
     }, springIds);
     assert(values.every((v, i) => Math.abs(v - (.2 + i * .1)) < 1e-8), `M4: three spring tracks cascade bounce .2/.3/.4 (${values})`);
+    await curveShot(page, '13-cascade-result', '.beatrail');
   } else await page.keyboard.press('Escape');
 
   const errs = realErrors(page);

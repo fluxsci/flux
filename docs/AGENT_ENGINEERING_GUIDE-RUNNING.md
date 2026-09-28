@@ -195,7 +195,7 @@ FAMILIES — appearances, media commands, and transforms (`to.state` = a sparse 
 left-to-right across beats; `Beat.groups` = collapsible animator lanes);
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
 plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4/0.5` decks migrate via a
-pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old players
+version stamp at the normalizeDeck chokepoint (which also normalizes legacy morphs and drops unknown easing strings before validation); `0.4` adds ghost births so old players
 refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
 `references/library.bib` (the project's *cited subset*),
@@ -2564,8 +2564,9 @@ outside this PNG packaging change.
   (`curve`, `influence`, `easing`) inherit as ONE group: any own value blocks the style's
   entire group. Setting one clears the others; `setTrackCurve(..., null)` clears all
   three to inherit/default. "None though the style has one" is a
-  sentinel the Animator already writes: `stagger: {perMs: 0}`, `influence: {in: 0, out: 0}`,
-  `params: {}`. Resolution is idempotent. **`preset` never resolves from a style:** it defines
+  sentinel the Animator already writes: `stagger: {perMs: 0}` and `params: {}`. The disk also accepts
+  `influence: {in: 0, out: 0}`, but CurveField/cascade zeroing uses
+  `setTrackCurve(..., null)` to restore inheritance/defaults. Resolution is idempotent. **`preset` never resolves from a style:** it defines
   the family, and `familyOf(track)` (family law, `tracksMatch`, ghost births, media checks) reads
   the raw track, so a linked track always keeps its own `preset` (a ghost birth keeps
   `transform` and passes the schema's `ghostFrom → preset` rule). It is the one style field that
@@ -2580,7 +2581,8 @@ outside this PNG packaging change.
   Snapshot saves carry `slideAnimStyles` and curve specs; cloned
   beats/slides remap timing anchors beside ghost IDs. Moving/copying a track across
   beats detaches its anchor to the source beat's resolved start (pass `manifestFor`
-  for semantic stagger tails); a same-beat edit keeps it. Media styles refuse stagger. `trackDuration` remains exported by compile
+  for semantic stagger tails); moving a leader also detaches its direct followers
+  at their resolved starts before removing it. A same-beat edit keeps anchors. Media styles refuse stagger. `trackDuration` remains exported by compile
   but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
   reproduced chained plot morphs restarting from the base asset, text crossfades retaining
@@ -8206,3 +8208,21 @@ Updated the ghost-selection gate's retired easing-select assertion to require th
 one Undo and cancellation's prior redo state. Idle animation probes wait for autosave's dirty
 indicator transition before their 500 ms census; otherwise a finite save transition is mistaken
 for resting motion. Both contracts are now covered by the Animator gate.
+
+
+### 2026-09-28 06:47 UTC — M4 integration seams and red-first QA (Codex, `av2/M4`)
+**Work:** Applied the orchestrator's M3 decisions alongside M4: unknown easing migration,
+pre-M3 ghost disappearance bytes, curve-preserving Library apply, pane/cascade reset parity,
+manifest-aware GUI moves/copies, and follower detachment. Added real-pane pins (including
+keep-arrival after a linked reset), a generated pre-M3 ghost fixture, and a duration-width pin.
+All changes remain uncommitted for orchestrator review; QA evidence lives in the worktree
+and `/tmp/flux-m4-qa`, with Electron verification and git mutations reserved for the orchestrator.
+**Learnings:**
+- Keep-arrival must measure the resolved curve after the authoring op: clearing a local
+  override can restore a linked spring, so the input patch is not the resulting curve.
+- The ghost original's disappearance uses an authored `smooth`, independent of the
+  ordinary fadeOut default. Its full normalized deck bytes are pinned to pre-M3 `fa47852`.
+- Read popup bounds before screenshotting, and use `captureBeyondViewport: false`.
+  Capturing outside the viewport can fire resize placement and mask clipping after
+  dynamic controls/errors grow. M4 has this packet-owned placement bug; the QA gate
+  now exposes it and the proposed ResizeObserver fix is pending orchestrator approval.

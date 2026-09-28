@@ -123,6 +123,22 @@ assert(validateDeckFile(good).length === 0, "a createDeck() deck validates again
 }
 
 // --- malformed decks are rejected -----------------------------------------------
+// M3 integration decision D1: legacy hand-written easing strings use the
+// player's default after migration; the on-disk enum remains strict.
+{
+  const d = structuredClone(good), s = d.slides[0], b = slideOps.addBeat(d, s.id)!;
+  b.tracks = [{ id: "unknown-ease", target: s.elements[0].id, preset: "fade", easing: "ease-in-out" as any }];
+  d.animStyles = [{ id: "unknown-style", name: "Legacy", family: "appearance", track: { preset: "fade", easing: "ease-in-out" as any } }];
+  assert(validateDeckFile(d).length > 0, "D1: unknown easing is still rejected by the disk enum before migration");
+  slideOps.migrateDeck(d);
+  assert(!Object.hasOwn(b.tracks[0], "easing") && !Object.hasOwn(d.animStyles[0].track, "easing"), "D1: migration drops unknown easing tokens on tracks and styles");
+  assert(validateDeckFile(d).length === 0, "D1: a hand-written ease-in-out deck migrates and validates instead of being quarantined");
+  const bytes = JSON.stringify(d);
+  slideOps.migrateDeck(d);
+  assert(JSON.stringify(d) === bytes, "D1: easing migration is idempotent");
+}
+
+// --- malformed decks are rejected -----------------------------------------------
 {
   const noStage = structuredClone(good) as unknown as Record<string, unknown>;
   delete noStage.stage;

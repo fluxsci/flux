@@ -455,8 +455,9 @@ try {
   });
   ok(healed.back && !healed.missChip, "undoing the deletion heals the track (marker gone) — the tolerate-don't-prune payoff");
 
-  const { verifyCurveField } = await import("./lib/animatorCurveChecks.mjs");
+  const { verifyCurveField, verifyM3PaneSeams } = await import("./lib/animatorCurveChecks.mjs");
   await verifyCurveField(page, ok);
+  await verifyM3PaneSeams(page, ok);
 
   const { verifyLinkedStyles } = await import("./lib/animatorStyleChecks.mjs");
   await verifyLinkedStyles(page, ok);
