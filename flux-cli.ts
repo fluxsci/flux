@@ -372,18 +372,20 @@ async function dispatch(
         );
       // WS-12: headless-edited text renders unwrapped — warn loudly, render anyway.
       for (const w of await core.textLayoutProbe(root(), { figureId: figId })) console.error(`⚠ ${w}`);
+      const modelWarnings: string[] = [];
       if (flags.png) {
-        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2);
+        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2, { model3dPolicy: 'project', warnings: modelWarnings });
         const out = String(flags.out ?? `${figId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const svg = await core.renderFigureSvg(root(), figId);
+        const svg = await core.renderFigureSvg(root(), figId, { model3dPolicy: 'project', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
       }
+      for (const warning of modelWarnings) console.error(`⚠ ${warning}`);
       break;
     }
     case "view": {
@@ -407,13 +409,14 @@ async function dispatch(
       // frames) that per-figure renders can never show.
       const cid = _[0] || undefined;
       for (const w of await core.textLayoutProbe(R(), { canvasId: cid })) console.error(`⚠ ${w}`); // WS-12
+      const modelWarnings: string[] = [];
       if (flags.png) {
-        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1);
+        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1, { model3dPolicy: 'project', warnings: modelWarnings });
         const out = String(flags.out ?? `${canvasId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid);
+        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid, { model3dPolicy: 'project', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
@@ -422,6 +425,7 @@ async function dispatch(
           console.error(`✓ rendered canvas ${canvasId}`);
         }
       }
+      for (const warning of modelWarnings) console.error(`⚠ ${warning}`);
       break;
     }
     case "render-figures": {

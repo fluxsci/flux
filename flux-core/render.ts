@@ -1,3 +1,6 @@
+import { resolveModelPosters, type ModelPosterPolicy, type ResolvedModelPosters } from './model3dPosterCache';
+import type { PosterSurface } from '../src/lib/model3d/poster';
+import type { FigIndexFile } from '../src/lib/project/figfiles';
 import { elementAssetRefs } from "../src/lib/model3d/refs";
 import { mimeFor } from "../src/lib/assets";
 // flux-core/render.ts — headless figure/canvas rendering (split out of
@@ -13,7 +16,7 @@ import { figureToSvg } from "../src/lib/export";
 import { buildPlotMarkup } from "../src/lib/plot/inlineMarkup";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { isUnderRoot, plotSourceCandidates } from "../src/lib/plot/source";
-import type { Figure, Project } from "../src/lib/types";
+import type { Asset, Figure, Project } from "../src/lib/types";
 import { normalizeIndexAssets } from "../src/lib/project/figfiles";
 import { migrateProject } from "../src/lib/migrate";
 import * as ops from "../src/lib/ops";
@@ -97,15 +100,28 @@ export async function textLayoutProbe(
   return textLayoutWarnings(figs);
 }
 
+export interface Model3dRenderOptions {
+  model3dPolicy?: ModelPosterPolicy;
+  posterSurface?: PosterSurface;
+  warnings?: string[];
+  signal?: AbortSignal;
+}
+interface LoadedRender { index: FigIndexFile; byId: Record<string, Figure>; assets: Asset[]; models?: ResolvedModelPosters }
+async function loadRender(root: string): Promise<LoadedRender> {
+  await requireProject(root);
+  const index = await readFigIndex(root);
+  if (!index) throw new Error('no fig/index.json (run `flux reindex` or open the project once)');
+  const { byId } = await readCanvasFiles(root, index);
+  const assets: Asset[] = normalizeIndexAssets(index).map(asset => ({ ...asset, name: asset.name ?? asset.id, path: asset.path ?? '', naturalWidth: asset.naturalWidth ?? 0, naturalHeight: asset.naturalHeight ?? 0 }));
+  return { index, byId, assets };
+}
 export async function renderFigureSvg(
   root: string,
   id: string,
-  opts?: { groupId?: string; onlyElement?: string },
+  opts: Model3dRenderOptions & { groupId?: string; onlyElement?: string } = {},
+  loaded?: LoadedRender,
 ): Promise<string> {
-  await requireProject(root);
-  const index = await readFigIndex(root);
-  if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
-  const { byId } = await readCanvasFiles(root, index);
+  const snapshot = loaded ?? await loadRender(root), { index, byId } = snapshot;
   let fig = byId[id];
   if (!fig) throw new Error(`figure not found: ${id}`);
   if (opts?.onlyElement) {
@@ -128,16 +144,7 @@ export async function renderFigureSvg(
     name: "",
     canvases: [],
     figures: [fig],
-    assets: normalizeIndexAssets(index).map((a) => ({
-      id: a.id,
-      name: a.name ?? a.id,
-      kind: a.kind,
-      path: a.path ?? "",
-      naturalWidth: a.naturalWidth ?? 0,
-      naturalHeight: a.naturalHeight ?? 0,
-      ...(a.dpi != null ? { dpi: a.dpi } : {}),
-      ...(a.kind === "glb" ? { sha256: a.sha256, bytes: a.bytes, model: a.model } : {}),
-    })),
+    assets: snapshot.assets,
     palette: [],
   };
   migrateProject(renderProject);
@@ -145,11 +152,11 @@ export async function renderFigureSvg(
   const assetCache: Record<string, string> = {};
   const assetPath: Record<string, string> = {};
   const required = figureImageAssetIds(fig);
-  // Models stay native. P3 supplies prepared posters to the exporter.
-  for (const id of fig.elements.flatMap(e => elementAssetRefs(e).models)) {
-    const asset = renderProject.assets.find(a => a.id === id);
-    if (!asset?.path || !await exists(await projectAssetPath(root, `fig/${asset.path}`))) throw new Error(`Missing GLB asset ${id}`);
-  }
+  const models = snapshot.models ?? await resolveModelPosters(root, [fig], snapshot.assets, {
+    policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal,
+  });
+  if (!snapshot.models) opts.warnings?.push(...models.warnings);
+  Object.assign(assetCache, models.urls);
   for (const a of normalizeIndexAssets(index)) {
     if (!required.has(a.id)) continue;
     if (!a.path) throw new Error(`Missing asset path: ${a.id}`);
@@ -215,7 +222,7 @@ export async function renderFigureSvg(
     // Crop rendering for <image>-backed elements: same intrinsic-size source
     // as the GUI (assetDisplaySize over the index's asset dims + dpi).
     (aid) => ops.assetDisplaySize(renderProject, aid) ?? undefined,
-    opts,
+    { ...opts, model3d: models.context },
   );
 }
 
@@ -305,7 +312,7 @@ async function findUnrenderablePanels(root: string, figId: string): Promise<stri
     const assets = new Map((index.assets ?? []).map((a) => [a.id, a] as const));
     for (const el of fig.elements.filter((e) => e.type === "plot")) {
       try {
-        await rasterizePng(await renderFigureSvg(root, figId, { onlyElement: el.id }), 1);
+        await rasterizePng(await renderFigureSvg(root, figId, { onlyElement: el.id, model3dPolicy: 'collect' }), 1);
       } catch {
         const aid = (el as { assetId?: string }).assetId;
         const asset = aid ? assets.get(aid) : undefined;
@@ -337,8 +344,8 @@ async function findUnrenderablePanels(root: string, figId: string): Promise<stri
 /** render-figure → a rasterized PNG (resvg in a child process; no browser).
  *  `scale` is a zoom factor over the figure's world units (default 2 ≈ 144dpi).
  *  On failure the error names the offending panel(s) when a bisect finds them. */
-export async function renderFigurePng(root: string, id: string, scale = 2): Promise<Buffer> {
-  const svg = await renderFigureSvg(root, id);
+export async function renderFigurePng(root: string, id: string, scale = 2, opts: Model3dRenderOptions = {}): Promise<Buffer> {
+  const svg = await renderFigureSvg(root, id, { ...opts, posterSurface: opts.posterSurface ?? { kind: 'raster', dpi: 96 * scale } });
   try {
     return await rasterizePng(svg, scale);
   } catch (e) {
@@ -358,19 +365,18 @@ const escXml = (s: string) =>
  *  at its canvas x/y, with a muted name·id label above each frame. This is the
  *  canvas-level "look" verb — `render-figure` shows one frame in isolation, so
  *  a headless agent could never see figures stacked on top of each other. */
-export async function renderCanvasSvg(root: string, canvasId?: string): Promise<{ svg: string; canvasId: string }> {
-  await requireProject(root);
-  const index = await readFigIndex(root);
-  if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
+export async function renderCanvasSvg(root: string, canvasId?: string, opts: Model3dRenderOptions = {}): Promise<{ svg: string; canvasId: string }> {
+  const snapshot = await loadRender(root), { index, byId } = snapshot;
   const cid = canvasId ?? index.canvases?.[0]?.id;
   if (!cid || (canvasId && !(index.canvases ?? []).some((c) => c.id === canvasId)))
     throw new Error(`canvas not found: ${canvasId ?? "(none in index)"}`);
-  const { byId } = await readCanvasFiles(root, index);
   const figs = (index.figures ?? [])
     .filter((f) => f.canvas === cid && byId[f.id])
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((f) => byId[f.id]);
   if (!figs.length) throw new Error(`canvas ${cid} has no figures`);
+  snapshot.models = await resolveModelPosters(root, figs, snapshot.assets, { policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal });
+  opts.warnings?.push(...snapshot.models.warnings);
 
   const LABEL_H = 26;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -385,7 +391,7 @@ export async function renderCanvasSvg(root: string, canvasId?: string): Promise<
 
   const parts: string[] = [];
   for (const f of figs) {
-    const svg = await renderFigureSvg(root, f.id);
+    const svg = await renderFigureSvg(root, f.id, opts, snapshot);
     // Nest the figure's own render at its canvas position (nested <svg x y>).
     parts.push(
       `<text x="${f.x}" y="${f.y - 8}" font-family="sans-serif" font-size="16" fill="#8a8279">` +
@@ -406,8 +412,8 @@ export async function renderCanvasSvg(root: string, canvasId?: string): Promise<
  *  tall, and 2× would produce a needlessly huge raster for a look-step. On
  *  failure, each figure is rendered alone so the error names WHICH figure
  *  (and via the panel bisect, which panel/coordinate) broke the canvas. */
-export async function renderCanvasPng(root: string, canvasId?: string, scale = 1): Promise<{ png: Buffer; canvasId: string }> {
-  const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId);
+export async function renderCanvasPng(root: string, canvasId?: string, scale = 1, opts: Model3dRenderOptions = {}): Promise<{ png: Buffer; canvasId: string }> {
+  const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId, { ...opts, posterSurface: opts.posterSurface ?? { kind: 'raster', dpi: 96 * scale } });
   try {
     return { png: await rasterizePng(svg, scale), canvasId: cid };
   } catch (e) {
@@ -416,7 +422,7 @@ export async function renderCanvasPng(root: string, canvasId?: string, scale = 1
     try {
       const index = await readFigIndex(root);
       for (const f of (index?.figures ?? []).filter((f) => f.canvas === cid)) {
-        await renderFigurePng(root, f.id, 1).catch((fe) => {
+        await renderFigurePng(root, f.id, 1, { ...opts, model3dPolicy: 'collect' }).catch((fe) => {
           detail.push(fe instanceof Error ? fe.message : String(fe));
         });
       }
@@ -466,9 +472,12 @@ export async function materializeRenders(
   // WS-12: name any figure whose text a headless edit left unwrapped — the
   // materialized SVGs are exactly what the compiled manuscript will show.
   warnings.push(...(await textLayoutProbe(root, { figureIds: [...ids] })));
+  const snapshot = await loadRender(root);
+  snapshot.models = await resolveModelPosters(root, [...ids].map(id => snapshot.byId[id]).filter(Boolean), snapshot.assets, { policy: 'project', surface: 'figure', allFigures: Object.values(snapshot.byId) });
+  warnings.push(...snapshot.models.warnings);
   for (const id of ids) {
     try {
-      const svg = await renderFigureSvg(root, id);
+      const svg = await renderFigureSvg(root, id, { model3dPolicy: 'project', posterSurface: 'figure' }, snapshot);
       await atomicWrite(safeJoin(root, `fig/renders/${id}.svg`), svg);
       wrote++;
     } catch {

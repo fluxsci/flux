@@ -166,8 +166,9 @@ export function createConnectSession(opts: {
                 const canvases = [...new Set((index?.figures ?? []).filter((f) => ids.includes(f.id)).map((f) => f.canvas))].slice(0, DELTA_IMAGES);
                 for (const c of canvases) {
                   try {
-                    const { png } = await renderCanvasPng(s.cursor.root, c, 1);
-                    content.push({ type: "image", data: png.toString("base64"), mimeType: "image/png" }, { type: "text", text: `Canvas ${c} now.` });
+                    const warnings: string[] = [];
+                    const { png } = await renderCanvasPng(s.cursor.root, c, 1, { model3dPolicy: 'collect', warnings });
+                    content.push({ type: "image", data: png.toString("base64"), mimeType: "image/png" }, { type: "text", text: `Canvas ${c} now.${warnings.length ? '\n' + warnings.join('\n') : ''}` });
                   } catch {
                     /* rendering unavailable: the text names the changed figures */
                   }

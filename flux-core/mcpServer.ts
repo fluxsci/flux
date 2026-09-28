@@ -143,8 +143,8 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     },
     async ({ id, scale, project }) => {
       const ROOT = await getRoot({ project });
-      const png = await core.renderFigurePng(ROOT, id, scale ?? 2);
       const warns = await core.textLayoutProbe(ROOT, { figureId: id }); // WS-12
+      const png = await core.renderFigurePng(ROOT, id, scale ?? 2, { model3dPolicy: 'image', warnings: warns });
       return {
         content: [
           { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
@@ -277,8 +277,8 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     },
     async ({ id, project }) => {
       const ROOT = await getRoot({ project });
-      const svg = await core.renderFigureSvg(ROOT, id);
       const warns = await core.textLayoutProbe(ROOT, { figureId: id }); // WS-12
+      const svg = await core.renderFigureSvg(ROOT, id, { model3dPolicy: 'image', posterSurface: 'svg', warnings: warns });
       return {
         content: [
           { type: "text" as const, text: svg },

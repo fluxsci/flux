@@ -13,7 +13,7 @@ try {
     const F = window.__flux, root = F.get(F.fig.embeddedProjectRoot), fb = window.fig;
     const api = await import('/src/lib/model3d/posterStore.ts'), statics = await import('/src/lib/model3d/static.ts'), poster = await import('/src/lib/model3d/poster.ts'), stores = await import('/src/lib/model3d/store.ts');
     await fb.writeFile(`${root}/plots/export.glb`, Uint8Array.from(atob(fixture.bytes), c => c.charCodeAt(0))); await fb.writeText(`${root}/plots/export.fluxplot.json`, fixture.manifest);
-    F.fig.commit(p => { p.figures.push({ id: 'export3d', name: '3D export', canvasId: p.canvases[0].id, x: 0, y: 0, width: 400, height: 350, background: '#ffffff', elements: [] }); });
+    F.fig.commit(p => { for (const prior of p.figures) prior.y += 600; p.figures.push({ id: 'export3d', name: '3D export', canvasId: p.canvases[0].id, x: 0, y: 0, width: 400, height: 350, background: '#ffffff', elements: [] }); });
     F.fig.activeFigureId.set('export3d'); await F.io.importPlotsFromPaths([`${root}/plots/export.glb`]);
     const fig = structuredClone(F.figures().find(f => f.id === 'export3d')), element = fig.elements[0], asset = F.get(F.fig.project).assets.find(a => a.id === element.assetId), manifest = F.get(stores.scene3dManifests)[asset.id], source = api.captureAppModelPosterSource();
     const dims = async url => { const image = new Image(); image.src = url; await image.decode(); return [image.naturalWidth, image.naturalHeight]; };
@@ -52,6 +52,24 @@ try {
     rows.push({ name: 'disabled export uses stored poster and names element', pass: !!fallback && warnings.some(w => w.includes('Named fallback model') && w.includes('stored poster')) });
     let missing = ''; try { await api.modelPosterUrl({ ...base, element: { ...element, orbitAzimuth: element.orbitAzimuth + 97 }, surface: 'svg' }); } catch (error) { missing = String(error); }
     rows.push({ name: 'disabled model with no poster refuses export', pass: /WebGL/.test(missing) }); fb.model3dAvailability = availability;
+    await F.lifecycle.flushById('figure');
+    const paperApi = await import('/src/shell/modes/paper/scholar/figures.ts'); await paperApi.loadFigures(root);
+    const immediate = paperApi.renderFigureSvg(fig.id);
+    rows.push({ name: 'Paper cold saved source immediately shows furniture placeholder', pass: immediate.includes('data-model3d-placeholder') && immediate.includes('Height') });
+    for (let i = 0; i < 100 && paperApi.renderFigureSvg(fig.id).includes('data-model3d-placeholder'); i++) await new Promise(resolve => setTimeout(resolve, 10));
+    const paperSvg = paperApi.renderFigureSvg(fig.id);
+    rows.push({ name: 'Paper publication refreshes placeholder to PNG', pass: paperSvg.includes('data:image/png;') && !paperSvg.includes('data-model3d-placeholder') && paperSvg.includes('pap__') });
+    const paperSnapshot = paperApi.captureFigureExport(), paperBefore = await paperSnapshot.render(fig.id, false);
+    F.fig.commit(p => { p.figures.find(f => f.id === fig.id).elements[0].orbitAzimuth += 11; });
+    rows.push({ name: 'Paper and captured exports read saved figure state', pass: paperApi.figureById(fig.id).elements[0].orbitAzimuth === element.orbitAzimuth && await paperSnapshot.render(fig.id, false) === paperBefore });
+    const written = await paperApi.materializeRenders(root, `![3D](fig/renders/${fig.id}.svg){#fig-export3d}`, paperSnapshot);
+    rows.push({ name: 'Paper materializes awaited mesh and vector furniture', pass: written.wrote === 1 && !written.failed.length && await fb.readText(`${root}/fig/renders/${fig.id}.svg`) === paperBefore });
+    const imageBefore = await paperApi.renderFigureImageUrl(fig.id);
+    await F.lifecycle.flushById('figure'); await paperApi.loadFigures(root);
+    rows.push({ name: 'Paper reload retains previous decoded image immediately', pass: paperApi.cachedFigureImageUrl(fig.id) === imageBefore });
+    for (let i = 0; i < 100; i++) { await paperApi.renderFigureImageUrl(fig.id); if (!paperApi.renderFigureSvg(fig.id).includes('data-model3d-placeholder')) break; await new Promise(resolve => setTimeout(resolve, 10)); }
+    const imageAfter = await paperApi.renderFigureImageUrl(fig.id);
+    rows.push({ name: 'Paper refreshed decoded image replaces previous source', pass: !!imageAfter && imageAfter !== imageBefore });
     const registry = await import('/src/lib/model3d/sourceRegistry.ts'), exporter = await import('/src/lib/model3d/exportPosters.ts');
     const named = { ...element, name: 'Custom missing placement' }, missingAsset = { ...asset, path: 'assets/absent.glb' };
     let missingName = ''; try { await exporter.ensureModelPosters([{ ...fig, elements: [named] }], [missingAsset], { [asset.id]: manifest }, 'svg', source); } catch (error) { missingName = String(error); }

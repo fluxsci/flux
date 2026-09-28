@@ -327,7 +327,8 @@
       "verify-model3d-persistence.ts",
       "verify-model3d-import.ts",
       "verify-model3d-semantics.ts",
-      "verify-model3d-view-ops.ts"
+      "verify-model3d-view-ops.ts",
+      "verify-model3d-headless.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -859,7 +860,8 @@
       "verify-model3d-export.mjs",
       "verify-model3d-orbit-gui.mjs",
       "verify-model3d-view-ops.ts",
-      "verify-model3d-xray-gui.mjs"
+      "verify-model3d-xray-gui.mjs",
+      "verify-model3d-headless.ts"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -899,7 +901,8 @@
       "verify-model3d-export.mjs",
       "verify-model3d-gui.mjs",
       "verify-figure-export.ts",
-      "verify-figure-export-gui.mjs"
+      "verify-figure-export-gui.mjs",
+      "verify-model3d-headless.ts"
     ],
     "model3d-orbit": [
       "verify-model3d-orbit-gui.mjs",
@@ -909,6 +912,19 @@
       "verify-model3d-xray-gui.mjs",
       "verify-xray-multi-gui.mjs",
       "figenh-14-partui.mjs"
+    ],
+    "model3d-export-headless": [
+      "verify-model3d-headless.ts",
+      "verify-paper-render-overrides.ts",
+      "verify-sync-render.ts",
+      "verify-render-manifest-confinement.ts",
+      "verify-figure-export.ts",
+      "verify-connect-delta.ts",
+      "verify-connect-doctor.ts",
+      "verify-connect-e2e.ts",
+      "verify-connect.ts",
+      "verify-connect-mcp.ts",
+      "verify-connect-render.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -7922,6 +7938,15 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-headless.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

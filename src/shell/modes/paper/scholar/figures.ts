@@ -3,6 +3,9 @@
 // Reads fig/ from disk via readFigSource — never touches the figure-editor store
 // (Flux_Paper_Plan.md B-data layer).
 
+import { cachedModelPosterUrl, modelPosterUrl, subscribeModelPosters, type ModelPosterSource } from '../../../../lib/model3d/posterStore';
+import { model3dSvgContext } from '../../../../lib/model3d/static';
+import type { Scene3dManifest } from '../../../../lib/model3d/types';
 import { get, writable } from "svelte/store";
 import { createFigureReferenceResolver } from "../../../../lib/figureReferences";
 import type { Asset, Element, Figure, FigureFamilyDef, Project } from "../../../../lib/types";
@@ -62,6 +65,41 @@ let assetManifests: Record<string, FluxPlotManifest> = {};
 let assetMeta: Asset[] = []; // dims + dpi for crop rendering (assetDisplaySize)
 // Custom family definitions from the project (built-ins live in figfamily.ts).
 let familyDefs: FigureFamilyDef[] = [];
+let modelManifests: Record<string, Scene3dManifest> = {};
+let modelSource: ModelPosterSource | undefined;
+let seededModelPosters: Record<string, string> = {};
+const posterJobs = new Map<string, AbortController>();
+let posterRefreshQueued = false, exportSourceCounter = 0;
+function cancelPosterJobs() { for (const job of posterJobs.values()) job.abort(); posterJobs.clear(); }
+subscribeModelPosters(publication => {
+  if (!modelSource || publication.scope !== modelSource.scope || posterRefreshQueued) return;
+  posterRefreshQueued = true;
+  queueMicrotask(() => { posterRefreshQueued = false; renderCache.clear(); revokeImageUrls(); });
+});
+function preparePaperPosters(figure: Figure) {
+  if (!modelSource || posterJobs.has(figure.id)) return;
+  const source = modelSource, controller = new AbortController(), context = model3dSvgContext(assetMeta, modelManifests);
+  const requests = figure.elements.filter(element => element.type === 'model3d' && !effectiveHidden(figure, element));
+  if (!requests.length) return;
+  posterJobs.set(figure.id, controller);
+  void (async () => {
+    for (const element of requests) {
+      if (element.type !== 'model3d' || controller.signal.aborted) continue;
+      const asset = context.assetOf(element); if (!asset) continue;
+      try { await modelPosterUrl({ element: structuredClone(element), asset: structuredClone(asset), manifest: context.manifestOf(element) }, { source, signal: controller.signal }); }
+      catch (error) { if (!controller.signal.aborted && error instanceof Error && error.name !== 'AbortError') console.warn(`paper: 3D preview ${element.name || element.id}: ${error.message}`); }
+    }
+  })().finally(() => { if (posterJobs.get(figure.id) === controller) posterJobs.delete(figure.id); });
+}
+function paperModelContext(figure: Figure, namespace?: string) {
+  const context = model3dSvgContext(assetMeta, modelManifests, 'figure', namespace);
+  const urls: Record<string, string> = { ...seededModelPosters };
+  if (modelSource) for (const element of figure.elements) if (element.type === 'model3d') {
+    const asset = context.assetOf(element), ref = context.posterIdOf(element);
+    if (asset && ref) { const hit = cachedModelPosterUrl({ element, asset, manifest: context.manifestOf(element) }, { source: modelSource }); if (hit) urls[ref] = hit; }
+  }
+  return { context, urls };
+}
 // Renders cache per figure per fig-revision (loadFigures clears). Failures
 // cache as undefined so one broken figure costs one warning, not one per
 // keystroke of picker/embed rebuilds.
@@ -112,12 +150,15 @@ export function figureDims(id: string): { w: number; h: number } | undefined {
 export async function loadFigures(root: string | null): Promise<void> {
   if (!root) return; // demo / no project — leave whatever was seeded
   const generation = ++loadGeneration;
+  cancelPosterJobs();
   const src = await readFigSource(root);
   if (generation !== loadGeneration) return;
   figuresById = src.figures;
   assetData = src.assetData;
   assetManifests = src.assetManifests;
   assetMeta = src.assets;
+  modelManifests = src.model3dManifests ?? {}; seededModelPosters = {};
+  modelSource = Object.freeze({ root, prefix: 'fig', bridge: fileBridge() ?? null, scope: `paper:${root}:${generation}`, isCurrent: () => generation === loadGeneration && loadedRoot === root });
   familyDefs = src.families;
   renderCache.clear();
   revokeImageUrls(loadedRoot !== root);
@@ -263,13 +304,16 @@ function renderFigureInternal(id: string, ns?: string, preparedPlots?: Map<Eleme
   const fig = figuresById[id];
   if (!fig) return undefined;
   try {
+    preparePaperPosters(fig);
+    const models = paperModelContext(fig, ns);
     return figureToSvg(
       fig,
-      (aid) => assetData[aid],
+      (aid) => models.urls[aid] ?? assetData[aid],
       (el) => preparedPlots ? preparedPlots.get(el) : plotMarkupFor(el, ns),
       // Crop rendering for <image>-backed elements: intrinsic content size in
       // assetDisplaySize units — the crop window's own coordinate space.
       (aid) => assetDisplaySize({ assets: assetMeta } as Project, aid) ?? undefined,
+      { model3d: models.context },
     );
   } catch (e) {
     // One broken figure must never take down a whole surface: the FigurePicker
@@ -544,11 +588,11 @@ export async function materializeRenders(
   root: string,
   docText: string,
   snapshot?: ReturnType<typeof captureFigureExport>,
-): Promise<{ wrote: number; failed: string[] }> {
+): Promise<{ wrote: number; failed: string[]; warnings: string[] }> {
   const fb = fileBridge();
   let wrote = 0;
-  const failed: string[] = [];
-  if (!root || !fb) return { wrote, failed };
+  const failed: string[] = [], warnings: string[] = [];
+  if (!root || !fb) return { wrote, failed, warnings };
   if (snapshot?.root && snapshot.root !== root && snapshot.root !== "__seed") throw new Error("Figure snapshot belongs to a different project");
   if (!snapshot) {
     await (await import("../../../../lib/project/sourceBridge")).syncProjectSources(root);
@@ -565,14 +609,17 @@ export async function materializeRenders(
       if (r && r.ref.id) ids.add(r.ref.id);
     }
   }
-  if (!ids.size) return { wrote, failed };
+  if (!ids.size) return { wrote, failed, warnings };
   try {
     await fb.mkdir(`${root}/fig/renders`);
   } catch {
     /* exists */
   }
+  const captured = snapshot ?? captureFigureExport();
   for (const id of ids) {
-    const svg = snapshot ? await snapshot.render(id, false) : renderFigureSvgForDisk(id); // un-namespaced: byte-parity with flux-core
+    let svg: string | undefined;
+    try { svg = await captured.render(id, false); } catch (error) { warnings.push(String(error)); }
+    // Un-namespaced: byte parity with flux-core.
     if (!svg) {
       failed.push(id);
       continue;
@@ -584,7 +631,8 @@ export async function materializeRenders(
       failed.push(id);
     }
   }
-  return { wrote, failed };
+  warnings.push(...captured.warnings);
+  return { wrote, failed, warnings: [...new Set(warnings)] };
 }
 
 // Dev-only seed so the headless harness can exercise chips/hover without a
@@ -597,7 +645,10 @@ export function __seedFigures(
   manifests: Record<string, FluxPlotManifest> = {},
   assets: Asset[] = [],
   canvases: { id: string; name: string }[] = [],
+  models: Record<string, Scene3dManifest> = {},
+  posters: Record<string, string> = {},
 ): void {
+  cancelPosterJobs(); modelSource = undefined; modelManifests = models; seededModelPosters = posters;
   figuresById = figs;
   assetData = data;
   assetManifests = manifests;
@@ -620,12 +671,15 @@ if (import.meta.env?.DEV) {
 }
 
 /** Immutable export inputs; serialization yields between plot preparations. */
-export function captureFigureExport(source?: { figures: Record<string, Figure>; assetData: Record<string,string>; assetManifests: Record<string,FluxPlotManifest>; assets: Asset[] }) {
+export function captureFigureExport(source?: { figures: Record<string, Figure>; assetData: Record<string,string>; assetManifests: Record<string,FluxPlotManifest>; assets: Asset[]; model3dManifests?: Record<string,Scene3dManifest> }) {
   const refs = structuredClone(get(figureRefs)), figures = structuredClone(source?.figures ?? figuresById);
   const data = { ...(source?.assetData ?? assetData) }, manifests = structuredClone(source?.assetManifests ?? assetManifests), assets = structuredClone(source?.assets ?? assetMeta), families = structuredClone(familyDefs);
   const resolve = createFigureReferenceResolver(refs);
+  const warnings: string[] = [];
+  const models = structuredClone(source?.model3dManifests ?? modelManifests), initialPosters = { ...seededModelPosters }, root = loadedRoot;
+  const capturedSource: ModelPosterSource | undefined = root && root !== '__seed' ? Object.freeze({ root, prefix: 'fig', bridge: fileBridge() ?? null, scope: `paper-export:${root}:${++exportSourceCounter}`, isCurrent: () => root === loadedRoot }) : undefined;
   return {
-    refs, root: loadedRoot,
+    refs, root, warnings,
     context(style?: ResolvedJournalStyle) {
       const out = new Map<string, { family: FigureFamilyDef; number: number; panels: string[] }>();
       for (const r of refs) if (!out.has(r.label)) out.set(r.label, { family: styledFamilyDef(style, familyById(r.family, families)), number: r.number, panels: r.panels });
@@ -647,7 +701,15 @@ export function captureFigureExport(source?: { figures: Record<string, Figure>; 
         if (performance.now() - began >= 6) { await new Promise<void>(resolve => setTimeout(resolve, 0)); began = performance.now(); }
       }
       if (!isCurrent()) return undefined;
-      return figureToSvg(figure, aid => data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined);
+      let context = model3dSvgContext(assets, models, 'figure', namespaced ? PAPER_SVG_NS : undefined), posters = initialPosters;
+      if (capturedSource && figure.elements.some(element => element.type === 'model3d')) {
+        const { ensureModelPosters } = await import('../../../../lib/model3d/exportPosters');
+        const prepared = await ensureModelPosters([figure], assets, models, 'figure', { ...capturedSource, isCurrent: () => capturedSource.isCurrent() && isCurrent() }, { namespace: namespaced ? PAPER_SVG_NS : undefined });
+        context = prepared.context; posters = prepared.urls;
+        warnings.push(...prepared.warnings);
+      }
+      if (!isCurrent()) return undefined;
+      return figureToSvg(figure, aid => posters[aid] ?? data[aid], el => plots.get(el), aid => assetDisplaySize({ assets } as Project, aid) ?? undefined, { model3d: context });
     },
   };
 }
