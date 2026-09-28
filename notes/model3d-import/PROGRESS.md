@@ -11,3 +11,5 @@ Independent reviewer: contract_python. Real File transport15/15 passed; adversar
 Validation commands: npm run check (0 errors/0 warnings); npm run check:headless; node scripts/run-verifies.mjs --group model3d-import. All run under /tmp/flux-model3d-env with scratch HOME/XDG and FLUX_NO_MIGRATE=1. Exact final runs appended at commit.
 
 Final reviewed checkpoint: focused group5/5, 38 import checks, sourceChanged=false at `2026-09-28T07-35-06-567Z-16`; independent group5/5 at `07-35-20-049Z-2`. Final Svelte0errors/0warnings and headless pass. Native reviewer approved9 adversarial cases and17 actual Electron File/SOFTGPU cases. Late rejected adoption consumes cleanup authority and retains possibly placed files; rare unreferenced remnants are preferable to deleting unsaved referenced data.
+
+Post-integration unification: importData now calls the reviewed sourceBinding helper used by reopened metadata, and canonical native bundle regenerated. No native ownership or transport changes. Combined import/persistence13-gate cohort passed; final independent check follows.

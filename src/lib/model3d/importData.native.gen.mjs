@@ -2618,6 +2618,14 @@ function toProjectRelativeSource(root, stored) {
   return s.startsWith(r + "/") ? s.slice(r.length + 1) : s;
 }
 
+// src/lib/model3d/sourceBinding.ts
+function scene3dSourceBindingIssue(manifest, binding) {
+  if (binding?.kind === "conflict") return "Conflicting original GLB source receipts for this asset";
+  if (binding?.kind === "known" && manifest.glbSha256 && manifest.glbSha256 !== binding.sha256)
+    return "The scene3d manifest describes different GLB bytes";
+  return void 0;
+}
+
 // src/lib/model3d/importData.ts
 var MAX_METADATA_BYTES = 4 * 1024 * 1024;
 var encoder = new TextEncoder();
@@ -2637,11 +2645,13 @@ async function parseModel3dImportMetadata(input) {
       result.manifestHash = await sha256ModelBytes(encoder.encode(text));
       const parsed = parseScene3d(text);
       if ("issue" in parsed) result.warnings.push(`${parsed.issue}; importing the mesh without scene metadata`);
-      else if (parsed.glbSha256 && parsed.glbSha256 !== input.sourceSha256) {
-        result.warnings.push("The scene3d manifest describes different GLB bytes; importing the mesh without scene metadata");
-      } else {
-        result.manifest = parsed;
-        result.warnings.push(...scene3dStateIssues(parsed, input.info));
+      else {
+        const issue = scene3dSourceBindingIssue(parsed, { kind: "known", sha256: input.sourceSha256 });
+        if (issue) result.warnings.push(`${issue}; importing the mesh without scene metadata`);
+        else {
+          result.manifest = parsed;
+          result.warnings.push(...scene3dStateIssues(parsed, input.info));
+        }
       }
     }
   }

@@ -4,6 +4,7 @@ import { prepareGlb } from './glbCore.mjs';
 import { parseScene3d, scene3dStateIssues } from './scene3d';
 import { makeModel3dElement, type Model3dMakeOptions } from './make';
 import { isUnderRoot, toProjectRelativeSource } from '../plot/source';
+import { scene3dSourceBindingIssue } from './sourceBinding';
 import type { Model3dAsset, Model3dInfo, Scene3dManifest } from './types';
 
 export type Model3dImportTarget = { kind: 'figure' };
@@ -67,11 +68,13 @@ export async function parseModel3dImportMetadata(input: {
       result.manifestHash = await sha256ModelBytes(encoder.encode(text));
       const parsed = parseScene3d(text);
       if ('issue' in parsed) result.warnings.push(`${parsed.issue}; importing the mesh without scene metadata`);
-      else if (parsed.glbSha256 && parsed.glbSha256 !== input.sourceSha256) {
-        result.warnings.push('The scene3d manifest describes different GLB bytes; importing the mesh without scene metadata');
-      } else {
-        result.manifest = parsed;
-        result.warnings.push(...scene3dStateIssues(parsed, input.info));
+      else {
+        const issue = scene3dSourceBindingIssue(parsed, { kind: 'known', sha256: input.sourceSha256 });
+        if (issue) result.warnings.push(`${issue}; importing the mesh without scene metadata`);
+        else {
+          result.manifest = parsed;
+          result.warnings.push(...scene3dStateIssues(parsed, input.info));
+        }
       }
     }
   }
