@@ -13,6 +13,9 @@
 // video playback commands; a visible clip rests on its poster until started.
 // ---------------------------------------------------------------------------
 
+import type { Curve, EASING_TOKENS } from "./curves";
+export type { Curve } from "./curves";
+
 import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../types";
 
 // The 0.x minor slot is breaking. 0.6 (animation v2) adds part-set transform
@@ -45,7 +48,7 @@ export type TransitionKind = "none" | "fade" | "slide" | "push";
 
 /** Named easings — map onto `src/lib/motion/tokens.ts` EASE + smoothEasing().
  *  "smooth" is manim's 5th-order smoothstep, reserved for signature motion. */
-export type EasingToken = "smooth" | "standard" | "enter" | "exit" | "linear";
+export type EasingToken = (typeof EASING_TOKENS)[number];
 
 /** After Effects-style velocity profile: outgoing/incoming influence, 0–100%. */
 export interface Influence {
@@ -350,6 +353,8 @@ export interface Track {
   /** After Effects-style velocity profile, 0–100% each. Overrides `easing`
    *  when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
   influence?: Influence;
+  /** Timing spec, overriding influence/easing. Schema/validators land in M3. */
+  curve?: Curve;
   stagger?: Stagger;
   /** transform/camera/move destination. */
   to?: TrackTarget;

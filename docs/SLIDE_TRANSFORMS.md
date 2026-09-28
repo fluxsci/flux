@@ -78,6 +78,26 @@ plot-to-plot Become does not, so no fourth way exists. Concretely, this branch:
      one deck mutation, one undo entry.
   Refused: a missing/same-as-source target, a video target or source, an unborn ghost target.
 
+### Curves (Animation v2 M1)
+
+`slide/curves.ts` is the pure timing core shared with flux-core. A track may carry
+`curve: {kind:"bezier", p:[x1,y1,x2,y2]}`, `{kind:"spring", bounce, velocity?}`, or
+`{kind:"steps", n, jump?}`. Resolution is `curve` → active `influence` → `easing` →
+`presetCatalog.defaultEasing`; the five legacy tokens and influence CSS/samples retain
+exactly their old values. Catalog names are input sugar: store the spec, never its label.
+Springs fit the bar's settle time (energy tolerance 0.005), with exact endpoints and a
+reported first 90% arrival. Bounce clamps to [−0.5, 0.8]; bezier handles clamp x to [0, 1]
+and y to [−1, 2]; steps clamp to 1–60. Jump-start keeps the authored t=0 endpoint, then
+jumps immediately after it (CSS jump-start itself starts at 1/n).
+
+Resolve once at spec construction and retain `ResolvedCurve`: `fn` permits overshoot,
+`clamped` bounds it, and `css` represents the clamped curve. New springs/overshooting
+beziers use 1,000 sample intervals and vertical-error Douglas–Peucker simplification
+at 0.002. The M2 player/compiler integration must pass `fn` only to box and camera
+channels, `clamped` to opacity/colour/trim/data/view/morph channels, and **raw progress**
+to every discrete visibility/reveal/endpoint decision. M1 adds the type only; schema,
+validators and authoring writes belong to M3. The curve UI and user docs belong to M4.
+
 ## 4. Rendering: morphing between kinds
 
 `lerpElement(pre, end, t)` for two different kinds (or a path whose closedness changes) returns a

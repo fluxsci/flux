@@ -323,7 +323,8 @@
       "verify-target-geometry.ts",
       "verify-target-geometry-browser.ts",
       "verify-plot-view.ts",
-      "verify-slide-resolve.ts"
+      "verify-slide-resolve.ts",
+      "verify-slide-curves.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -842,6 +843,19 @@
       "glob": "src/lib/slide/resolve.ts",
       "run": [
         "verify-slide-resolve.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/curves.ts",
+      "run": [
+        "verify-slide-curves.ts",
+        "verify-slide-easing.ts",
+        "verify-preset-catalog.ts",
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "tier:pure",
@@ -7840,6 +7854,15 @@
       "coverage": "behavior"
     },
     "verify-slide-resolve.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-curves.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

@@ -4,7 +4,8 @@
 import { harness } from "./lib/harness.mjs";
 import type { PresetName, Slide, Track } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import { PRESET_CATALOG, presetDef, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS } from "../src/lib/slide/presetCatalog";
+import { PRESET_CATALOG, presetDef, defaultEasingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS } from "../src/lib/slide/presetCatalog";
+import { EASING_TOKENS } from "../src/lib/slide/curves";
 import { PRESETS, ENTER_PRESETS, EXIT_PRESETS, PRESET_WRAPPER_PROPS } from "../src/lib/slide/player/presets";
 import { familyOf } from "../src/lib/slide/family";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
@@ -59,6 +60,8 @@ const stage = { width: 1280, height: 720 };
 for (const name of names) {
   const [label, colour, wrapperProps, duration, editable, family, phase, autoBuildDuration] = EXPECTED[name] as Snapshot;
   const def = presetDef(name);
+  h.ok(EASING_TOKENS.includes(def.defaultEasing), `${name}: default easing is a known token`);
+  h.eq(defaultEasingFor(name), name === "transform" ? "smooth" : family === "media" ? "linear" : "standard", `${name}: default easing matches the family contract`);
   h.eq([def.name, def.label, def.colour, def.wrapperProps, def.defaultDurationMs, def.editable, def.family, def.phase, def.autoBuildDurationMs],
     [name, label, colour, wrapperProps, duration, editable, family, phase, autoBuildDuration], `${name}: exact base facts`);
   h.ok(def === PRESET_CATALOG[name], `${name}: lookup returns the catalog definition`);
@@ -116,7 +119,7 @@ h.eq([trackDuration(unknown), familyOf(unknown)], [320, "appearance"], "unknown 
 const rejected = compileSlide({ id: "unknown", elements: [], beats: [{ id: "b", tracks: [unknown] }] }, stage, {});
 h.eq(rejected.cues[0].tracks.length, 0, "the compiler rejects unknown effects before playback");
 h.eq(rejected.issues[0]?.reason, "Unknown effect: unknown-effect", "unknown effect diagnostics are unchanged");
-h.ok(core.PRESET_CATALOG === PRESET_CATALOG && core.presetDef === presetDef && core.isEnterPreset === isEnterPreset && core.isExitPreset === isExitPreset && core.EDITABLE_PRESETS === EDITABLE_PRESETS && core.KNOWN_PRESETS === KNOWN_PRESETS,
+h.ok(core.PRESET_CATALOG === PRESET_CATALOG && core.presetDef === presetDef && core.defaultEasingFor === defaultEasingFor && core.isEnterPreset === isEnterPreset && core.isExitPreset === isExitPreset && core.EDITABLE_PRESETS === EDITABLE_PRESETS && core.KNOWN_PRESETS === KNOWN_PRESETS,
   "flux-core exports the same catalog and helpers, not a second implementation");
 
 h.section("no hand-kept enter/exit lists outside the catalog");

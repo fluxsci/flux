@@ -158,8 +158,9 @@ The established shared cores — extend these, don't duplicate them:
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
-| Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates |
+| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar and catalog) | `src/lib/slide/curves.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -866,7 +867,14 @@ Persistence invariants (all machine-checked — do not weaken):
   family law and Animator lists derive from it. `defaultDurationMs` is the omitted-track
   timing default; `autoBuildDurationMs` preserves the separate plot-build recommendation
   (for example, fade is 320 ms in playback and 300 ms in autobuild). Role/element
-  recommendation policy stays in `autobuild.ts`. Legacy move/scale/rotate remain
+  recommendation policy stays in `autobuild.ts`. `defaultEasing` preserves smooth
+  transforms, standard appearances/countUp/camera and unused linear media timing.
+  `slide/curves.ts` owns the cached timing resolver, grammar and catalog; compatibility
+  wrappers retain legacy CSS and sampled values. New CSS `linear()` approximation
+  measures vertical error at fixed time (perpendicular distance underestimates steep
+  springs). Endpoint guards need a continuity probe to catch a missing spring residual.
+  The type-only `Track.curve` seam awaits M3 validation and M2 channel plumbing.
+  Legacy move/scale/rotate remain
   appearance-family compatibility effects, excluded from the editable preset list.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
   the shared constructor and `ops.ts` the independent zero-duration media commands.
@@ -7760,3 +7768,14 @@ covers the headless verb enum. Updated the body with the resolution boundary and
   schema change: no explicit null (the Animator's sentinels override a style) and `preset` always
   stays on the track (it propagates by write). The Svelte readers (lanes, inspector, library,
   thumbnails, present, video dialog) are packet F2's.
+
+### 2026-09-28 00:09 UTC — Animation v2 curves core (Codex, `av2/M1`)
+**Work:** Added the shared spring/bezier/steps resolver, grammar, catalog, readout and preset
+default easing. The compatibility wrappers retain pre-M1 CSS and 1,001-point byte snapshots;
+the new 330-check public-path gate passes and detects the absent base module, removed residual
+spread and 400-sample CSS faults. All 52 pure slide gates, 349 preset checks, both type checks
+and the production build pass; model validation and player channel plumbing remain M3/M2.
+**Learnings:**
+- Promoted vertical-error CSS simplification and endpoint-continuity checks into §4.
+- Heap measurements isolate warmed call sites; the unchanged Bézier solver's numeric boxing
+  is the baseline, while the new spring/step samplers add no per-frame heap growth.

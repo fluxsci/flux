@@ -98,7 +98,8 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 export { exportSlideVideo } from "./slideVideo";
 // animation v2 target vocabulary (pure; the family law's identity)
 export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef } from "../src/lib/slide/targets";
-export { PRESET_CATALOG, presetDef, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
+export { PRESET_CATALOG, presetDef, defaultEasingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
+export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
 export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
 export { targetOutlines, elementStageOutlines, partStageOutlines, type GeometryCtx } from "../src/lib/slide/targetGeometry";
 export {
