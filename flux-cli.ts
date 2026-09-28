@@ -383,12 +383,12 @@ async function dispatch(
       for (const w of await core.textLayoutProbe(root(), { figureId: figId })) console.error(`⚠ ${w}`);
       const modelWarnings: string[] = [];
       if (flags.png) {
-        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2, { model3dPolicy: 'project', warnings: modelWarnings });
+        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2, { model3dPolicy: 'image', warnings: modelWarnings });
         const out = String(flags.out ?? `${figId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const svg = await core.renderFigureSvg(root(), figId, { model3dPolicy: 'project', posterSurface: 'svg', warnings: modelWarnings });
+        const svg = await core.renderFigureSvg(root(), figId, { model3dPolicy: 'image', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
@@ -420,12 +420,12 @@ async function dispatch(
       for (const w of await core.textLayoutProbe(R(), { canvasId: cid })) console.error(`⚠ ${w}`); // WS-12
       const modelWarnings: string[] = [];
       if (flags.png) {
-        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1, { model3dPolicy: 'project', warnings: modelWarnings });
+        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1, { model3dPolicy: 'image', warnings: modelWarnings });
         const out = String(flags.out ?? `${canvasId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid, { model3dPolicy: 'project', posterSurface: 'svg', warnings: modelWarnings });
+        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid, { model3dPolicy: 'image', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
