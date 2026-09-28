@@ -42,3 +42,22 @@ The combined production smoke run on 2026-09-28 passed all42checks with
 screenshots, saved-state preservation and actual Word media; the Word mesh bytes
 match the displayed Paper mesh. This closes these functional scenarios only;
 the separate native scale and S8 performance gates retain their own results.
+
+The current trusted notebook refresh on 2026-09-28 also passed in actual VS Code
+1.138.0, QMD Notebook 0.1.0 and Jupyter 2025.9.1/renderers 1.3.0 using viewer
+`c740ce4ed095b0645c668e19a3d94c68bc93e838622f048604a3ad2be7c27fb9`
+(767716 bytes). Controls, the selected Copy view literal applied through the live
+kernel and saved manifest, static PNG output, and rerun/clear ownership were checked.
+This does not claim OS clipboard transport or change the documented untrusted-output
+limitation. See `test-results/model3d/notebook/current-native/REVIEW.md` and its saved
+notebooks, screenshots, hashes and corrected isolated harness.
+
+The first complete eight-model native scale cohort failed the unchanged raw frame-gap
+p95 limit: 16.702 ms against 16.7 ms. The separately recorded empty-Figure clock
+control measured 16.702 ms for input-driven rAF and 16.8 ms for continuous rAF; this is
+diagnostic evidence, not a scale pass or permission to round the failure away. The
+S8 comparison has not completed: its first capture stopped on two host rAF callbacks
+while model renders and worker rAF stayed unchanged; the later diagnostic attributes
+those calls to Paper CodeMirror `requestMeasure`. Follow the latest individual
+receipts under `test-results/model3d/scale/{native,s8,s8-idle-diagnostic,clock-control}`.
+Functional acceptance above does not close these performance gates.

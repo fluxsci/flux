@@ -591,6 +591,10 @@ Persistence invariants (all machine-checked — do not weaken):
   Document printing bypasses this correction. `group:figure-pdf-size` pins vector positions,
   raster pixels, fractional physical dimensions and packaged dependency closure.
   Slide activation remains deferred until the animation-v2 rebase; see the active 3D ledger.
+  Current native/notebook qualification is summarized in [Native 3D acceptance](model3d/NATIVE_ACCEPTANCE.md)
+  and its dated receipts. Earlier session entries record the status at their own checkpoints;
+  an old "native unrun" note is not the current status. Keep functional, notebook and
+  performance results separate, and never round a raw failed frame budget into a pass.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
@@ -8064,3 +8068,13 @@ renders stayed8→8; readiness is under investigation. No budget has been loosen
 `scripts/create-model3d-demo.ts` creates only an empty scratch destination, with private HOME/XDG and migration disabled. It imports six recorded public scene3d example triplets through P5/canonical Figure APIs; named neuron meshes, cortex states, a continuous field, corresponding morph pair and Frame2.5 sequence persist in three Figures. The source example/hash/provenance receipts travel with the project. `--fluxplot-root` runs that committed isolated checkout through offline uv without synchronizing it; `--posters` is optional native derived rendering. No deck is persisted until Stage2. `scripts/MODEL3D_DEMO.md` gives creation, isolated Electron launch and explicit Python rerun instructions; example recipes are honestly documented as non-rerunnable. Registered `verify-model3d-demo.ts` pins canonical reopen, original/prepared hashes, parts/states/fields/topology and refusal to overwrite a populated or non-scratch destination.
 
 Demo review correction: destination preflight alone was insufficient across Python/core awaits. Both exported generators now build in owned scratch staging directories, capture parent/destination identity, and publish the completed tree atomically after final emptiness checks; Linux uses the opened parent fd to prevent alias redirection at rename. DEMO-ENV.json is staged too. Late target/parent substitution, concurrent contents and failed-build cleanup are registered regressions. The 22-check demo gate and companion scene contract gate passed16:36UTC; actual public Python generation plus six production headless posters passed with zero warnings. Canonical static exports under test-results/model3d/demo were visually inspected (3/2/1 mesh images across the three Figures); they are not a replacement for native UI qualification.
+
+### 2026-09-28 17:00 UTC — Current native notebook evidence and status audit
+
+Current `c740ce4e` viewer passed actual trusted QMD and Jupyter kernel/frontend
+acceptance in a fresh isolated VS Code profile. Both native controls, exact selected-view
+save, static PNGs and viewer ownership 3→3→0 passed; an independent reviewer inspected
+the saved notebook bundle bytes and screenshots. Clipboard byte transport and untrusted
+mixed-output fallback were not claimed. Native3D acceptance now points to that evidence
+and distinguishes completed functional smoke from the unchanged 16.702ms scale failure
+and unfinished S8 comparison. Historical blocked/unrun entries remain checkpoint records.
