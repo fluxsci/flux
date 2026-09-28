@@ -40,5 +40,5 @@ for (const [i, fixture] of (await model3dScaleFixtures()).entries()) {
   receipts.push({ id: prepared.data.asset.id, triangles: prepared.data.asset.model.triangles, bytes: prepared.bytes.length, sourceSha256: prepared.data.sourceSha256, preparedSha256: prepared.data.asset.sha256 });
 }
 await executeFigSave(planFigSave(project, null), { read: async rel => fs.readFile(path.join(root, rel), 'utf8').catch(() => null), write });
-await write('manuscript/main.qmd', '---\ntitle: Native 3D scale qualification\n---\n\n# Disposable performance fixture\n\nFigure @fig-scale-models.\n');
+await write(tree.manifest.manuscript.path, '---\ntitle: Native 3D scale qualification\n---\n\n# Disposable performance fixture\n\nFigure @fig-scale-models.\n');
 await write('scale-fixture-receipt.json', JSON.stringify({ count: receipts.length, fixtures: receipts }, null, 2));

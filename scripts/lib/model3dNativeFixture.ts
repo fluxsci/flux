@@ -29,7 +29,7 @@ for (const name of ['neuron', 'cortex-states']) {
   await fs.copyFile(source + '.glb', path.join(root, 'plots', name + '.glb'));
   await fs.copyFile(source + '.fluxplot.json', path.join(root, 'plots', name + '.fluxplot.json'));
 }
-await write('manuscript/main.qmd', '---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\nFigure @fig-native-model.\n');
+await write(tree.manifest.manuscript.path, '---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\nFigure @fig-native-model.\n');
 
 if (scenario === 'field') for (const ext of ['.glb','.fluxplot.json']) await fs.copyFile(path.join(repo,'scripts/fixtures/model3d/fluxplot/continuous'+ext),path.join(root,'plots/continuous'+ext));
-if (scenario === 'paper') await write('manuscript/main.qmd','---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\n![](../fig/renders/native-model.svg){#fig-native-model}\n\nThe neuron above retains its Figure view.\n');
+if (scenario === 'paper') await write(tree.manifest.manuscript.path,'---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\n![](../fig/renders/native-model.svg){#fig-native-model}\n\nThe neuron above retains its Figure view.\n');

@@ -28,6 +28,14 @@ async function main() {
   assert.throws(()=>qualifiedNativeBounds([primary],primary,.5,1040),RangeError);
   assert.throws(()=>qualifiedNativeBounds([primary],{...primary,workArea:{x:0,y:0,width:20.5,height:923}},1440,1040),error=>error.code==='NATIVE_DISPLAY_UNAVAILABLE');
   h.ok(true,'missing display, subpixel requested dimensions and zero rounded size cannot produce test bounds');
+  const { nativeModelWindowPolicy } = require('./lib/model3dNativePolicy.cjs');
+  const absent={bounds:{x:0,y:0,width:0,height:0},workArea:{x:0,y:0,width:0,height:0}};
+  for(const scenario of ['semantics','field','paper','source']) {
+    h.eq(nativeModelWindowPolicy(scenario,[absent],absent).qualification,'functional-offscreen',`${scenario}: unavailable display is explicitly functional-only`);
+    h.eq(nativeModelWindowPolicy(scenario,[primary],primary).qualification,'native-display',`${scenario}: usable display keeps native qualification`);
+  }
+  for(const scenario of ['hardware','software','shape','reopen','disabled','disabled-cached','scale','s8','unknown']) assert.throws(()=>nativeModelWindowPolicy(scenario,[absent],absent),error=>error.code==='NATIVE_DISPLAY_UNAVAILABLE');
+  h.ok(true,'timing, scale and all non-allowlisted scenarios cannot use functional offscreen fallback');
   await h.done();
 }
 void main();

@@ -9,7 +9,7 @@ module.exports=async function nativeSmoke(c){
  const edit=async(selector,value)=>{await click(selector);await key('A',[modifier]);await inputText(String(value));await key('Enter');};
  const open=async()=>{await click(modelSelector);await key('R',['alt']);await wait(()=>js("!!document.querySelector('.xray .row')"),'native X-ray rows');};
  const row=part=>`.xray [data-rid="part:${metrics.imported.id}__${part}"]`;
- const reveal=async part=>{await edit('.xray .search-in',part.split('.').at(-1));await wait(()=>js(`!!document.querySelector(${JSON.stringify(row(part))})`),'filtered native semantic row');await click(row(part)+' .rlabel');};
+ const reveal=async part=>{await edit('.xray .search-in',part==='scalebar'?'1 µm':part.split('.').at(-1));await wait(()=>js(`!!document.querySelector(${JSON.stringify(row(part))})`),'filtered native semantic row');await click(row(part)+' .rlabel');};
  const properties=async part=>{await reveal(part);await click('.xray .showprops');await wait(()=>js("!!document.querySelector('.fluxFigMenu')"),'native part properties');};
  const closeProperties=()=>click('[aria-label="Close properties"]');
  if(scenario==='semantics'||scenario==='source'){
@@ -52,11 +52,12 @@ module.exports=async function nativeSmoke(c){
   await screenshot('value-field');await click('[aria-label="Close X-ray"]');await changePoster(old);const after=await captureMesh('field-after');
   check(pixelDifference(before,after)>.005,'native range/colormap remap visibly changes surface pixels');metrics.field={saved:await modelState(),changedPixelRatio:pixelDifference(before,after)};
  }else if(scenario==='paper'){
-  const manuscript=path.join(root,'manuscript/main.qmd'),sourceBefore=await fs.readFile(manuscript);
+  const manifest=JSON.parse(await fs.readFile(path.join(root,'project.json'),'utf8'));
+  const manuscript=path.join(root,manifest.manuscript.path),sourceBefore=await fs.readFile(manuscript);
   const old=await poster();await click(modelSelector);await click('.model3d-properties button[title="Top view"]');await wait(async()=>(await modelState()).orbitElevation===90,'saved native top view');await changePoster(old);
   const figurePoster=await poster();metrics.paper={saved:await modelState()};
   await click('button[aria-label=Paper]');await wait(()=>js("!!document.querySelector('.paper[data-paper-sources-ready=\"true\"] .flux-embed-art img')"),'native Paper figure embed');
-  const svg=await wait(()=>js("(async()=>{const img=document.querySelector('.flux-embed-art img');if(!img?.complete||!img.naturalWidth)return null;const text=await(await fetch(img.src)).text();return text.includes('data-model3d-poster')&&text.includes('data:image/png;')&&!text.includes('data-model3d-placeholder')?text:null})()"),'decoded native Paper 3D embed');
+  const svg=await wait(()=>js("(async()=>{const img=document.querySelector('.flux-embed-art img');if(!img?.complete||!img.naturalWidth)return null;const text=window.__nativeModelEvidence.svgSources?.get(img.src);return text?.includes('data-model3d-poster')&&text.includes('data:image/png;')&&!text.includes('data-model3d-placeholder')?text:null})()"),'decoded native Paper 3D embed');
   await fs.writeFile(path.join(artifacts,'paper-figure.svg'),svg);check(svg.includes('Neuron-like mesh')&&svg.includes('<text'),'native Paper embed includes vector labels and a mesh poster');
   const mesh=svg.match(/<image\b[^>]*data-model3d-poster[^>]*>/)?.[0],paperPoster=mesh?.match(/\bhref="([^"]+)"/)?.[1];
   if(!paperPoster)throw Error('Paper embed missing PNG mesh');

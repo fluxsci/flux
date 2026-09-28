@@ -2,7 +2,8 @@
 // Production renderer only. Native OS dialog interaction is outside this
 // unattended gate; their deterministic answers still exercise real IPC grants.
 const { app, BrowserWindow, dialog, screen } = require('electron');
-const { assertUsableDisplay, qualifiedNativeBounds } = require('./nativeWindowQualification.cjs');
+const { assertUsableDisplay } = require('./nativeWindowQualification.cjs');
+const { nativeModelWindowPolicy } = require('./model3dNativePolicy.cjs');
 const fs = require('node:fs/promises'), path = require('node:path');
 const scratch = process.env.MODEL3D_NATIVE_SCRATCH, root = process.env.MODEL3D_NATIVE_ROOT;
 const artifacts = process.env.MODEL3D_NATIVE_ARTIFACTS, scenario = process.env.MODEL3D_NATIVE_SCENARIO;
@@ -80,6 +81,11 @@ async function modelState() {
 async function instrument() {
   await js(`(()=>{
     const evidence=window.__nativeModelEvidence={inputs:[],frames:[],workers:[],visibility:[],pending:0};
+    if(${JSON.stringify(scenario)}==='paper') {
+      const svgSources=new Map(),create=URL.createObjectURL.bind(URL);
+      Object.defineProperty(evidence,'svgSources',{value:svgSources});
+      URL.createObjectURL=blob=>{const url=create(blob);if(blob.type==='image/svg+xml')void blob.text().then(text=>svgSources.set(url,text));return url;};
+    }
     const visibility=()=>({time:performance.now(),state:document.visibilityState,focused:document.hasFocus()});
     for(const type of ['visibilitychange','focus','blur'])window.addEventListener(type,()=>evidence.visibility.push({...visibility(),event:type}),true);
     for(const type of ['pointerdown','pointermove','pointerup','wheel','keydown'])document.addEventListener(type,event=>{
@@ -98,7 +104,8 @@ async function boot() {
   win = await wait(() => BrowserWindow.getAllWindows()[0], 'production window');
   const displays = screen.getAllDisplays(), primary = screen.getPrimaryDisplay();
   metrics.displayQualification = { displays, primary };
-  win.setBounds(qualifiedNativeBounds(displays, primary, 1440, 1040));
+  Object.assign(metrics.displayQualification, nativeModelWindowPolicy(scenario, displays, primary));
+  win.setBounds(metrics.displayQualification.bounds);
   win.setAlwaysOnTop(true); win.show(); await focus();
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
   await wait(() => js("!!document.querySelector('button[aria-label=Figure]')&&!!document.querySelector('.cm-editor')"), 'scratch Paper ready');
@@ -108,7 +115,7 @@ async function boot() {
     gpuFeatures: app.getGPUFeatureStatus(), gpuInfo: await app.getGPUInfo('complete'),
     viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,visibility:document.visibilityState,focused:document.hasFocus()})'),
     bounds: win.getBounds(), contentBounds: win.getContentBounds(), displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea,scaleFactor:d.scaleFactor})), scenario };
-  assertUsableDisplay(metrics.boot.displays);
+  if (metrics.displayQualification.qualification === 'native-display') assertUsableDisplay(metrics.boot.displays);
   await instrument();
   if (scenario === 'hardware' || scenario === 'software') {
     contextProbe = require('./model3dNativeContextProbe.cjs')(win.webContents);
@@ -384,7 +391,7 @@ async function finish(error) {
     await screenshot('failure').catch(() => {}); console.error(await js('document.body.textContent.slice(-16000)').catch(() => ''));
   } }
   await fs.mkdir(artifacts, { recursive: true });
-  await fs.writeFile(path.join(artifacts, 'receipt.json'), JSON.stringify({ scenario, status: error?.code === 'NATIVE_DISPLAY_UNAVAILABLE' ? 'capability-blocked' : error ? 'failed' : 'passed', checks, metrics, dialogs, errors, ok: !error }, null, 2));
+  await fs.writeFile(path.join(artifacts, 'receipt.json'), JSON.stringify({ scenario, qualification: metrics.displayQualification?.qualification, status: error?.code === 'NATIVE_DISPLAY_UNAVAILABLE' ? 'capability-blocked' : error ? 'failed' : 'passed', checks, metrics, dialogs, errors, ok: !error }, null, 2));
   console.log('PROBE result=' + (error ? 'FAIL' : 'PASS'));
   app.exit(error ? 1 : 0);
 }

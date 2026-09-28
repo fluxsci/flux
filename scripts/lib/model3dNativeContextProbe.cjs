@@ -6,7 +6,7 @@ module.exports = function nativeContextProbe(contents) {
   const debuggerApi = contents.debugger;
   const send = (method, params, session) => debuggerApi.sendCommand(method, params, session);
   const instrument = `(()=>{
-    if(typeof OffscreenCanvas==='undefined')return;
+    if(typeof OffscreenCanvas==='undefined'||globalThis.__fluxNativeGLProbe)return;
     const probe=globalThis.__fluxNativeGLProbe={contexts:[],lost:0,restored:0};
     const original=OffscreenCanvas.prototype.getContext;
     OffscreenCanvas.prototype.getContext=function(kind,...args){

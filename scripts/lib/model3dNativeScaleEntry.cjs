@@ -80,6 +80,11 @@ async function boot() {
   await click('button[aria-label=Figure]');
   await wait(() => js(`!!document.querySelector('.figrow[data-fig-id="${figureId}"] .item')`), 'scale Figure loaded');
   await click(`.figrow[data-fig-id="${figureId}"] .item`);
+  if (!captureBaseline) {
+    await click('.figure-mode .zoom button:last-child');
+    await wait(()=>js("document.querySelector('.figure-mode .zoomval')?.textContent==='100%'"),'native toolbar100% fixture zoom');
+    check(await js(`(()=>{const rows=[...document.querySelectorAll('.figure-mode [data-editor-element-id^="scale-element-"]')];return rows.length===${expectedModels}&&rows.every(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.height>0&&r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})})()`),'all eight model boxes are visible at100% fixture zoom');
+  }
   await wait(() => js(`document.querySelectorAll('.figure-mode [data-model3d-poster]').length===${expectedModels}`), 'all expected decoded model posters', 90000);
   await paint();
 }

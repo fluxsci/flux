@@ -8028,4 +8028,33 @@ The registered `model3d-native-scale` and `model3d-s8` groups extend the browser
 
 S8 uses the public neural-populations example at Git commit`0f5546baa27617c22eeb112b4ca46407516508e1` (369files), obtained into scratch through pinned Git-tree/blob verification. Never substitute the owner's local example path. It preserves all original artwork and adds four model boxes; the image baseline replaces exactly those boxes with production captures including furniture. The prescribed `scripts/perf/input-probe.cjs --qualify --model3d-s8=model|image` measures unchanged hover/panSmall/zoom/typing sequences. Its existing continuous measurement rAF loop and CDP instrumentation are explicitly distinct from the native Orbit gate. ABBA pooled raw frame-gap p95 (Figure) and key→double-rAF p95 (Paper) must not regress by more than10%, with no absolute tolerance floor. Four decoded boxes, trusted delivery/targets, actual hardware worker/context and matched baseline are required alongside timing. The entire expanded first figure, including all original artwork, must remain on-screen through the unchanged300px pan travel; visibility is asserted in every measured frame.
 
-Use scratch HOME/XDG, FLUX_NO_MIGRATE=1, FLUX_PRIVATE_DISPLAY=1, DISPLAY=:0 and x11 with a current production build. `MODEL3D_S8_PUBLIC_CACHE` may name an already verified `/tmp` public cache; otherwise the gate downloads pinned public blobs. Qualified windows are contained in the real primary work area and retain product background throttling. Pure policy/path-registration checks pass; native scale and S8 execution remain pending a stable usable display and a reserved input window. Evidence belongs under`test-results/model3d/scale/{native,s8,s8-preflight}`.
+Use scratch HOME/XDG, FLUX_NO_MIGRATE=1, FLUX_PRIVATE_DISPLAY=1, DISPLAY=:0 and x11 with a current production build. `MODEL3D_S8_PUBLIC_CACHE` must be inside the process scratch temp directory (the runner sets a per-attempt TMPDIR); an unrelated `/tmp` cache is deliberately refused. Omit it for a fresh pinned public download. Qualified windows are contained in the real primary work area and retain product background throttling. Pure policy/path-registration checks pass; native scale and S8 execution remain pending a stable usable display and a reserved input window. Evidence belongs under`test-results/model3d/scale/{native,s8,s8-preflight}`.
+
+
+### 2026-09-28 16:32 UTC — Native functional checks versus display timing qualification
+
+The new semantics/field/Paper/source smoke scenarios contain no timing assertions.
+An explicit test-only four-scenario policy permits these to run at a disconnected
+0×0 display with fixed window bounds, real production Electron/preload/x11/GPU and
+trusted Electron-delivered input. Receipts label this functional-offscreen and retain
+the actual display snapshot and limitations. This does not qualify OS pointer
+placement, visible desktop interaction or responsiveness. All Orbit, scale/S8 and
+non-allowlisted scenarios keep the nonzero display guards; a pure policy test pins
+that boundary. Earlier capability-blocked attempts are retained, not relabeled.
+
+### 2026-09-28 16:53 UTC — Native functional acceptance and remaining scale failure
+
+The production semantic/field/Paper/Word/source smoke passed42checks with a usable
+native display in all four scenarios; two independent reviewers checked actual
+screenshots, Word media and saved-state preservation. Corrected harness readiness
+used the canonical scaffold manuscript path and observed the original SVG Blob
+instead of fetching its URL through production CSP. Worker context instrumentation
+is idempotent on debugger reattachment. The eight-model scale setup uses the normal
+100% toolbar control so all eight boxes are visible and pointer travel fits.
+
+The scale run remains a strict failure: raw frame-gap p95=16.702ms against16.7ms;
+render/transfer p95=.300/.100ms and input-publication p95=13.2ms. One context, all
+2Mtri/48,152,020sourcebytes and zero idle work passed. A separate empty-canvas clock
+control is needed before attributing the small frame overrun. S8 stopped before
+comparison because two host RAF callbacks occurred in the idle window while model
+renders stayed8→8; readiness is under investigation. No budget has been loosened.
