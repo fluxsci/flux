@@ -7,7 +7,8 @@
 
 import { z } from "zod";
 import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
-import type { PresetName } from "../src/lib/slide/types";
+import type { PairPolicy, PresetName } from "../src/lib/slide/types";
+import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
 import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
@@ -3342,7 +3343,7 @@ export const VERBS: VerbDef[] = [
       part: z.array(z.string().min(1)).min(1).optional(),
       sourcePart: z.array(z.string().min(1)).min(1).optional(),
       mode: z.enum(["consume", "handoff"]).optional(),
-      pair: z.enum(["auto", "spatial", "order", "data", "tile"]).optional(),
+      pair: z.enum(PAIR_POLICY_IDS).optional(),
       reveal: z.enum(["flip", "draw"]).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
@@ -3373,7 +3374,7 @@ export const VERBS: VerbDef[] = [
         ...(a.part != null ? { parts: a.part as string[] } : {}),
         ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
         ...(a.mode != null ? { mode: a.mode as "consume" | "handoff" } : {}),
-        ...(a.pair != null ? { pair: a.pair as "auto" | "spatial" | "order" | "data" | "tile" } : {}),
+        ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
         ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
@@ -3402,7 +3403,7 @@ export const VERBS: VerbDef[] = [
       from: z.string(),
       part: z.array(z.string().min(1)).min(1).optional(),
       sourcePart: z.array(z.string().min(1)).min(1).optional(),
-      pair: z.enum(["auto", "spatial", "order", "data", "tile"]).optional(),
+      pair: z.enum(PAIR_POLICY_IDS).optional(),
       reveal: z.enum(["flip", "draw"]).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
@@ -3425,7 +3426,7 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => core.appearFrom(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.dest), s(a.from), {
       ...(a.part != null ? { parts: a.part as string[] } : {}),
       ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
-      ...(a.pair != null ? { pair: a.pair as "auto" | "spatial" | "order" | "data" | "tile" } : {}),
+      ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
       ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
       ...(a.start != null ? { start: a.start as number } : {}),
       ...(a.duration != null ? { duration: a.duration as number } : {}),

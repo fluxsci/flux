@@ -236,7 +236,8 @@ export interface TargetRef {
 
 /** How the planner pairs source and destination outlines of a Become
  *  (slide/correspondence.ts). "auto" chooses from the data the manifests carry. */
-export type PairPolicy = "auto" | "spatial" | "order" | "data" | "tile";
+/* The ids of slide/targets.ts PAIR_POLICIES (the one list; menu labels live there). */
+export type PairPolicy = (typeof import("./targets").PAIR_POLICIES)[number]["id"];
 
 /** Where a Become goes (0.6). `consume` is the original semantics (the
  *  destination element is deleted and its state becomes the source's `to.state`;

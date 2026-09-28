@@ -13,6 +13,7 @@ import { autoAnimatePlot, suggestTrack } from "../src/lib/slide/autobuild";
 import { isVideoCommand } from "../src/lib/slide/mediaTimeline";
 import { PRESET_COLOR, EDIT_PRESETS, EASINGS, presetLabel } from "../src/shell/modes/slide/animator/shared";
 import * as core from "../flux-core/index";
+import { PAIR_POLICIES, PAIR_POLICY_IDS } from "../src/lib/slide/targets";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
 
@@ -168,4 +169,29 @@ scanned.length = 0;
 walk(path.join(repo, "src/shell"));
 h.eq(scanned.flatMap(f => easingLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`)), [],
   "no literal easing choices anywhere in src/shell/**");
+h.section("one pair-policy list: slide/targets.ts PAIR_POLICIES");
+// Three hand-kept copies of the Become pairing choices existed at D2 (C1's two
+// verb enums and the inspector's Pair ▾); D1's pick bar made a fourth. Every
+// consumer derives from PAIR_POLICIES. A literal list is any bracket literal,
+// `|` union or <select> block quoting three or more of the non-auto ids.
+const pairIds = new Set<string>(PAIR_POLICIES.map(p => p.id).filter(id => id !== "auto"));
+function pairLists(source: string): string[] {
+  const hits = (text: string) => new Set([...text.matchAll(/["'`]([A-Za-z]+)["'`]/g)].map(q => q[1]).filter(n => pairIds.has(n))).size;
+  const shapes = [/\[[^\[\]]*\]/g, /(?:["'`][A-Za-z]+["'`]\s*\|\s*)+["'`][A-Za-z]+["'`]/g, /<select[\s\S]*?<\/select>/g];
+  return shapes.flatMap(re => [...source.matchAll(re)].filter(m => hits(m[0]) >= 3).map(m => m[0].replace(/\s+/g, " ").slice(0, 90)));
+}
+h.eq(PAIR_POLICY_IDS, ["auto", "spatial", "order", "data", "tile"], "PAIR_POLICIES keeps the published id order (verb enums and goldens unchanged)");
+h.ok(core.PAIR_POLICIES === PAIR_POLICIES, "flux-core exports the same pair-policy list");
+h.eq(pairLists('pair: z.enum(["auto", "spatial", "order", "data", "tile"])').length, 1, "the census catches a literal enum list");
+h.eq(pairLists('a.pair as "auto" | "spatial" | "order" | "data" | "tile"').length, 1, "the census catches a literal union");
+h.eq(pairLists('<select><option value="auto">auto</option><option value="spatial">by position</option><option value="order">o</option><option value="tile">t</option></select>').length, 1, "the census catches a literal option list");
+h.eq(pairLists('phase: "enter" | "exit" | "spatial" | "camera"; if (policy === "tile" || p === "order") x = ["data"]').length, 0, "single policy names and the preset phase union are not lists");
+const targetsFile = path.join(repo, "src/lib/slide/targets.ts");
+scanned.length = 0;
+walk(path.join(repo, "src/lib/slide"));
+walk(path.join(repo, "src/shell"));
+walk(path.join(repo, "src/lib/xray"));
+scanned.push(path.join(repo, "src/lib/Xray.svelte"), path.join(repo, "flux-core/slides.ts"), path.join(repo, "flux-core/verbs.ts"));
+h.eq(scanned.filter(f => f !== targetsFile).flatMap(f => pairLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`)), [],
+  "no literal pair-policy list outside slide/targets.ts (src/lib/slide/**, src/shell/**, X-ray, flux-core/{slides,verbs}.ts)");
 await h.done();

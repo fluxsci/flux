@@ -39,7 +39,7 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { hasPartBinding, resolveTargetLeaves, sameRef, trackRef } from "../../../lib/slide/targets";
+  import { hasPartBinding, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
   import { autoAnimateExcept } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { partBreadcrumb } from "../../../lib/plot/partStyle";
@@ -1632,7 +1632,7 @@
             <span class="become-msg"><strong>{refLabel(becomePick.source)}</strong> {becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part · Shift adds · Alt+R X-ray"}</span>
             <span class="pick-count">{becomePick.picks.reduce((n, ref) => n + (ref.parts?.length || 1), 0)} picked</span>
             <label class="pair-label">Pair <select aria-label="Become pairing" value={becomePick.pair} onchange={e => { if (becomePick) pickState = {...becomePick, pair: e.currentTarget.value as PairPolicy}; }}>
-              <option value="auto">auto</option><option value="spatial">by position</option><option value="order">by order</option><option value="data">by data</option><option value="tile">tile</option>
+              {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
             </select></label>
             {#if becomeSourceIsPlot}<button class="become-btn" onclick={() => chooseMorph(becomePick!.source.element)} title="Keep the frame; the plot's data becomes another project plot's">From gallery…</button>{/if}
             <button class="become-btn" disabled={!becomePick.picks.length} onclick={() => becomePick && confirmPick(becomePick)} title="Enter">{becomePick.kind === "appearFrom" ? "Appear from" : "Become"}</button>

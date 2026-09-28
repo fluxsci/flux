@@ -22,7 +22,7 @@
   import type { Slide, Track, PresetName, Stagger, Influence, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
   import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation } from "../../../../lib/slide/ops";
-  import { trackRef, targetPartIds, sameRef, isWholeElementRef } from "../../../../lib/slide/targets";
+  import { trackRef, targetPartIds, sameRef, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
   import { targetOutlines } from "../../../../lib/slide/targetGeometry";
   import { autoAnimateExcept } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
@@ -529,7 +529,7 @@
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
-              <option value="auto">auto</option><option value="spatial">by position</option><option value="order">by order</option><option value="data">by data</option><option value="tile">tile</option>
+              {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
             </select>
           </label>
           <div class="f">Reveal

@@ -19,6 +19,21 @@ import { resolveTargets } from "../plot/tree";
 import { membersDeep } from "../groups";
 import type { Slide, TargetRef, Track, TrackSelector } from "./types";
 
+/** How a Become pairs source and destination outlines, in menu order, with the
+ *  label every surface shows — the ONE list (the verbs' zod enums, the Animation
+ *  inspector's Pair ▾ and the pick bar's Pair select derive from it; the
+ *  verify-preset-catalog census refuses a literal copy). `PairPolicy`
+ *  (types.ts) is derived from these ids. */
+export const PAIR_POLICIES = [
+  { id: "auto", label: "auto" },
+  { id: "spatial", label: "by position" },
+  { id: "order", label: "by order" },
+  { id: "data", label: "by data" },
+  { id: "tile", label: "tile" },
+] as const;
+/** The ids alone, as the non-empty tuple `z.enum` takes. */
+export const PAIR_POLICY_IDS = PAIR_POLICIES.map(p => p.id) as [(typeof PAIR_POLICIES)[number]["id"], ...(typeof PAIR_POLICIES)[number]["id"][]];
+
 /** The ref a track's OWN target denotes. Whole-element tracks (and the virtual
  *  `@camera`/`@stage`) come back as `{ element }` alone. */
 export function trackRef(track: Pick<Track, "target" | "part" | "parts" | "selector">): TargetRef {
