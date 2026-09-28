@@ -1,4 +1,4 @@
-import { findColormap, colormapStops } from '../color/collections';
+import { findColormap, colormapStops } from '../color/colormaps';
 import type { Scene3dField, ModelFieldOverride } from './types';
 export const srgbToLinear=(x:number)=>x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4);
 export function rgba(color:string):[number,number,number,number]{

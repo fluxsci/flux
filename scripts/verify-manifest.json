@@ -932,6 +932,10 @@
       "verify-native-families.cjs",
       "verify-electron-hardening.ts",
       "verify-slide-pdf.ts"
+    ],
+    "model3d-offline-colors": [
+      "verify-color-collections.ts",
+      "verify-slide-headless-e2e.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1548,7 +1552,8 @@
         "verify-fluxplot03-gui.mjs",
         "figenh-14-partui.mjs",
         "verify-figure-controls-gui.mjs",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "group:model3d-offline-colors"
       ]
     },
     {
