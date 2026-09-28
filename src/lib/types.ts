@@ -149,7 +149,7 @@ export interface Figure {
 export interface Asset {
   id: Id;
   name: string;
-  kind: "png" | "svg" | "mp4";
+  kind: "png" | "svg" | "mp4" | "glb";
   // Relative path inside the project dir, e.g. "assets/plot1.svg".
   path: string;
   // Intrinsic dimensions in px (used to seed placement size / aspect ratio).
@@ -161,6 +161,10 @@ export interface Asset {
   // import. Physical size in canvas px = natural × 96/dpi. Absent for SVG (already
   // physical) and for rasters that declare nothing (screenshots: 1 px = 1 canvas px).
   dpi?: number;
+  /** Prepared GLB metadata; binary content is never stored in assetData. */
+  sha256?: string;
+  bytes?: number;
+  model?: import("./model3d/types").Model3dInfo;
   /** Prepared slide video metadata; original source remains untouched. */
   durationMs?: number;
   hasAudio?: boolean;
@@ -456,7 +460,9 @@ export type FigureElement =
   | EllipseElement
   | LineElement
   | PathElement
-  | SemanticPlotElement;
+  | SemanticPlotElement
+  | import("./model3d/types").Model3dElement;
+export type { Model3dElement } from "./model3d/types";
 
 /** Shared editor scene; canonical Figure files accept FigureElement only. */
 export type Element = FigureElement | import("./slide/mediaTypes").VideoElement;

@@ -1,15 +1,18 @@
+import { elementSourceAssetIds } from "../model3d/refs";
 import { storedAssetPath } from "./assetPath";
 // IO-injected complete snapshot reader. No store/cache/baseline is published while
 // reading. Preview callers may inspect partial data; mutation requires complete.
 import type { Project, Figure } from '../types';
 import { sortedCanvasMeta, normalizeIndexAssets, type FigIndexFile, type CanvasFile } from './figfiles';
-import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, isNewerSchema } from './types';
+import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, isNewerSchema, newerSchemaMessage } from './types';
 import { familyHintsFrom, migrateFigureFamilies, migrateProject } from '../migrate';
 import { ensureFigureReferenceKeys } from './figureIdentity';
 import { validateFigIndexFile, validateModel, validateFigureIdentities } from './validate';
 import { reconcileCaptionFiles, type CaptionBaseline } from './captionReconcile';
 export interface FigureSnapshotIO {
   readText(rel: string): Promise<string | null>;
+  /** Metadata-only existence check; never loads binary model contents. */
+  assetExists?(rel: string): Promise<boolean>;
   /** Missing directories return null; permission/IO failures must propagate.
    * Required only when the index is absent, to prove this is a fresh subsystem. */
   listDirectory?(rel: string): Promise<{ name: string; dir: boolean }[] | null>;
@@ -34,7 +37,7 @@ export async function readFigureSnapshot(io: FigureSnapshotIO): Promise<FigureSn
     const text = await read('fig/index.json');
     if (text !== null) {
       index = JSON.parse(text);
-      if (index && isNewerSchema(index.schemaVersion, FIG_INDEX_SCHEMA_VERSION)) problem('fig/index.json', `This project requires a newer Flux (figure format ${index.schemaVersion}); update Flux before editing`, 'future-version');
+      if (index && isNewerSchema(index.schemaVersion, FIG_INDEX_SCHEMA_VERSION)) problem('fig/index.json', newerSchemaMessage("Figure index", index.schemaVersion, FIG_INDEX_SCHEMA_VERSION), 'future-version');
       const errors = validateFigIndexFile(index);
       if (errors.length) { problem('fig/index.json', errors.join('; '), 'failed'); return result; }
     }
@@ -97,7 +100,7 @@ export async function readFigureSnapshot(io: FigureSnapshotIO): Promise<FigureSn
         continue;
       }
       const cf = JSON.parse(text) as CanvasFile;
-      if (isNewerSchema(cf.schemaVersion, CANVAS_SCHEMA_VERSION)) { problem(rel, `This canvas requires a newer Flux (format ${cf.schemaVersion}); update Flux before editing`, 'future-version'); continue; }
+      if (isNewerSchema(cf.schemaVersion, CANVAS_SCHEMA_VERSION)) { problem(rel, newerSchemaMessage("Canvas", cf.schemaVersion, CANVAS_SCHEMA_VERSION), 'future-version'); continue; }
       if (cf.id != null && cf.id !== cm.id) { problem(rel, `Canvas id ${cf.id} disagrees with index id ${cm.id}`); continue; }
       if (Array.isArray(cf.figures) && cf.figures.some(f=>f.canvasId != null && f.canvasId !== cm.id)) { problem(rel, `Figure owning canvas disagrees with ${cm.id}`); continue; }
       if (!Array.isArray(cf.figures)) { problem(rel, 'figures must be an array'); continue; }
@@ -122,7 +125,11 @@ export async function readFigureSnapshot(io: FigureSnapshotIO): Promise<FigureSn
   }
   const assets = new Set(project.assets.map(a => a.id));
   for (const figure of project.figures) for (const element of figure.elements) {
-    if ('assetId' in element && !assets.has(element.assetId)) problem(`fig/canvases/${figure.canvasId}.json`, `Figure ${figure.id}, element ${element.id}: missing asset ${element.assetId}`);
+    for (const id of elementSourceAssetIds(element)) if (!assets.has(id)) problem(`fig/canvases/${figure.canvasId}.json`, `Figure ${figure.id}, element ${element.id}: missing asset ${id}`);
+  }
+  if (io.assetExists) for (const asset of project.assets) if (asset.kind === "glb" && asset.path) {
+    try { if (!await io.assetExists(`fig/${storedAssetPath(asset.path)}`)) problem(asset.path, `Missing GLB asset ${asset.id}`); }
+    catch (error) { problem(asset.path, String(error)); }
   }
   try {
     const captions = await reconcileCaptionFiles(project, index, read);

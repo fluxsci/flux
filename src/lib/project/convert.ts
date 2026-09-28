@@ -1,3 +1,5 @@
+import { elementSourceAssetIds } from "../model3d/refs";
+import { assertModel3dDeckConversionAvailable } from "../model3d/copy";
 import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
 import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
 import { generationBridgeIO } from "./generationBridgeIO";
@@ -75,11 +77,17 @@ async function assertSnapshot(snapshot: FigureSnapshot, io: TextGenerationIO) {
 /** Read every asset used by the complete figure model, not only the selected
  * canvas. exists() cannot establish that the accepted scientific bytes can be read. */
 async function figureAssets(fig: FileBridge, root: string, snapshot: FigureSnapshot) {
-  const required = new Set(snapshot.project.figures.flatMap(f => f.elements.flatMap(e => "assetId" in e ? [e.assetId] : [])));
+  const required = new Set(snapshot.project.figures.flatMap(f => f.elements.flatMap(elementSourceAssetIds)));
   const bytes = new Map<string, Uint8Array>();
   for (const id of required) {
     const asset = snapshot.project.assets.find(a => a.id === id);
     if (!asset?.path) throw new Error(`Missing conversion asset: ${id}`);
+    if (asset.kind === "glb") {
+      // GLB conversion activates with the versioned deck schema at P4. Figure
+      // siblings remain metadata-only during ordinary 2D conversion today.
+      if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing GLB asset ${id}`);
+      continue;
+    }
     const rel = `fig/${storedAssetPath(asset.path)}`;
     const abs = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
     bytes.set(id, new Uint8Array(await fig.readFile(abs)));
@@ -114,7 +122,7 @@ async function publishAssets(fig: FileBridge, root: string, writes: AssetWrite[]
   }
 }
 function sourceAssets(elements: Figure["elements"]) {
-  const ids = new Set(elements.flatMap(e => "assetId" in e ? [e.assetId] : []));
+  const ids = new Set(elements.flatMap(elementSourceAssetIds));
   const metadata = structuredClone(get(figProject).assets);
   const manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
   const source = new Map<string, { asset: Asset; bytes: Uint8Array; manifest?: string; recipe?: string }>();
@@ -132,6 +140,7 @@ function sourceAssets(elements: Figure["elements"]) {
 /** Figure → deck uses an immutable invocation snapshot. Saved figure assets
  * remain by-id references; unsaved assets are copied into the destination deck. */
 export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups">, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
+  assertModel3dDeckConversionAvailable(figure.elements);
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
   const captured = structuredClone(figure), source = sourceAssets(captured.elements), localOwner = captureOwner(root);
   const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset), palette: [] });
@@ -147,7 +156,7 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
     // Deferred resolution is read-only: conversion must never rebase or warm
     // another resident editor's caches merely by inspecting its target.
     const resolved = await resolveDeckAssets(root, deck, () => false, true);
-    const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(e => "assetId" in e ? [e.assetId] : []), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
+    const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(elementSourceAssetIds), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
     for (const id of required) if (!resolved.data[id]) throw new Error(`Missing conversion target asset: ${id}`);
     const writes: AssetWrite[] = [];
     for (const [id, value] of source) {
@@ -176,6 +185,7 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
 /** Slide → Figure reads the complete destination and all dependencies before
  * any write. Canonical Figure files and the fresh manifest share one journal. */
 export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<Deck, "id" | "stage" | "background" | "theme" | "assets">, canvasId: string | null): Promise<{ figureId: string; name: string; canvasId: string }> {
+  assertModel3dDeckConversionAvailable(slide.elements);
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
   if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
   const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), localOwner = captureOwner(root);

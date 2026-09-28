@@ -323,7 +323,8 @@
       "verify-model3d-scene3d.ts",
       "verify-model3d-furniture.ts",
       "verify-model3d-morph.ts",
-      "verify-model3d-render-browser.ts"
+      "verify-model3d-render-browser.ts",
+      "verify-model3d-persistence.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -843,7 +844,20 @@
       "verify-model3d-furniture.ts",
       "verify-model3d-morph.ts",
       "verify-model3d-poster-worker.cjs",
-      "verify-model3d-render-browser.ts"
+      "verify-model3d-render-browser.ts",
+      "verify-model3d-persistence.ts"
+    ],
+    "model3d-persistence": [
+      "verify-model3d-persistence.ts",
+      "verify-loadgate.ts",
+      "verify-figfiles-parity.ts",
+      "verify-fwdguard.ts",
+      "verify-ipc-contract.ts",
+      "verify-deck-schema.ts",
+      "verify-v020-conversion.ts",
+      "verify-orphan-slide-sources.ts",
+      "verify-generation-confinement.ts",
+      "verify-render-manifest-confinement.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1318,7 +1332,8 @@
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "group:inline-slides",
-        "group:slide-stash"
+        "group:slide-stash",
+        "group:model3d-persistence"
       ]
     },
     {
@@ -7764,6 +7779,15 @@
       "isolation": "scratch",
       "timeoutMs": 300000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-persistence.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

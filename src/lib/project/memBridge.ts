@@ -13,6 +13,7 @@
 import { scaffoldProject } from "./scaffold";
 import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
 
+const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -165,6 +166,12 @@ export function createMemBridge(): FileBridge & {
       const ab = new ArrayBuffer(b.byteLength);
       new Uint8Array(ab).set(b);
       return ab;
+    },
+    async copyFileVerified(source, destination, expected) {
+      const bytes=files.get(norm(source)); if(!bytes) throw new Error(`ENOENT: ${source}`);
+      const hash=await sha256(bytes); if(expected!==undefined&&hash!==expected) throw new Error("Copy source hash changed");
+      const previous=files.get(norm(destination)); if(previous&&await sha256(previous)!==hash) throw new Error("Copy destination contains different bytes");
+      ensureParent(destination); files.set(norm(destination),new Uint8Array(bytes)); return hash;
     },
     async writeFile(p, data) {
       ensureParent(p);

@@ -43,6 +43,7 @@ const CHANNELS = [
   { channel: "fs:writeText", kind: "invoke", scope: "write" },
   { channel: "fs:writeFile", kind: "invoke", scope: "write" },
   { channel: "fs:mkdir", kind: "invoke", scope: "write" },
+  { channel: "fs:copyFileVerified", kind: "invoke", scope: "write" },
   { channel: "fs:moveFileVerified", kind: "invoke", scope: "write" },
   { channel: "fs:remove", kind: "invoke", scope: "write" },
   { channel: "fs:trash", kind: "invoke", scope: "write" },

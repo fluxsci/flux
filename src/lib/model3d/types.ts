@@ -25,7 +25,8 @@ export interface Model3dElement extends ElementBase {
   overrides?: Record<string, PartOverride>; fields?: Record<string, ModelFieldOverride>;
   modelStates?: Record<string, number>;
   manifestRef?: SemanticPlotElement['manifestRef'];
-  source?: { glbPath: string; manifestPath?: string; recipePath?: string; external?: boolean; frozen?: boolean };
+  /** source.sha256 is the original file receipt; Asset.sha256 hashes prepared bytes. */
+  source?: { glbPath: string; sha256?: string; manifestPath?: string; recipePath?: string; external?: boolean; frozen?: boolean };
 }
 export interface Scene3dField {
   cmap: { name: string; stops: Array<[number, string]> }; range: [number, number];

@@ -1,3 +1,5 @@
+import { elementAssetRefs } from "../src/lib/model3d/refs";
+import { mimeFor } from "../src/lib/assets";
 // flux-core/render.ts — headless figure/canvas rendering (split out of
 // index.ts; WS-6.2): standalone SVG via the GUI's figureToSvg (semantic-plot
 // overrides baked in), PNG via resvg in a child process, whole-canvas looks,
@@ -27,8 +29,10 @@ async function readPlotManifest(root: string, rel: string): Promise<FluxPlotMani
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
 }
 
-function mimeFor(kind: string): string {
-  return kind === "svg" ? "image/svg+xml" : "image/png";
+
+/** Bytes needed by image rendering. Model and media payloads never enter this set. */
+export function figureImageAssetIds(fig: Pick<Figure, "elements">): Set<string> {
+  return new Set(fig.elements.flatMap(element => { const refs = elementAssetRefs(element); return [...refs.images, ...refs.posterRefs]; }));
 }
 
 // Headless DOM (linkedom) so the shared plot pipeline (plot/inlineMarkup.ts →
@@ -132,6 +136,7 @@ export async function renderFigureSvg(
       naturalWidth: a.naturalWidth ?? 0,
       naturalHeight: a.naturalHeight ?? 0,
       ...(a.dpi != null ? { dpi: a.dpi } : {}),
+      ...(a.kind === "glb" ? { sha256: a.sha256, bytes: a.bytes, model: a.model } : {}),
     })),
     palette: [],
   };
@@ -139,7 +144,12 @@ export async function renderFigureSvg(
 
   const assetCache: Record<string, string> = {};
   const assetPath: Record<string, string> = {};
-  const required = new Set(fig.elements.flatMap(e => 'assetId' in e ? [e.assetId] : []));
+  const required = figureImageAssetIds(fig);
+  // Models stay native. P3 supplies prepared posters to the exporter.
+  for (const id of fig.elements.flatMap(e => elementAssetRefs(e).models)) {
+    const asset = renderProject.assets.find(a => a.id === id);
+    if (!asset?.path || !await exists(await projectAssetPath(root, `fig/${asset.path}`))) throw new Error(`Missing GLB asset ${id}`);
+  }
   for (const a of normalizeIndexAssets(index)) {
     if (!required.has(a.id)) continue;
     if (!a.path) throw new Error(`Missing asset path: ${a.id}`);

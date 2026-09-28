@@ -110,7 +110,7 @@
   // has no plots/ tenancy).
   let dissectCount: number | null = null;
   const dissectMemo = { key: "", rev: -1, gen: 0 };
-  $: dissectKey = !slideMode && single && "assetId" in single ? dissectKeyForElement(single) : "";
+  $: dissectKey = !slideMode && single && single.type !== "model3d" && "assetId" in single ? dissectKeyForElement(single) : "";
   $: {
     const rev = $dissectionsRevision;
     if (!dissectKey) {

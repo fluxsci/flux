@@ -59,8 +59,8 @@ export function dataUrlToBytes(dataUrl: string): Uint8Array {
   return bytes;
 }
 
-export function mimeFor(kind: "png" | "svg"): string {
-  return kind === "png" ? "image/png" : "image/svg+xml";
+export function mimeFor(kind: import("./types").Asset["kind"]): string {
+  return { png: "image/png", svg: "image/svg+xml", mp4: "video/mp4", glb: "model/gltf-binary" }[kind];
 }
 
 // Determine the intrinsic pixel size of an image from its data URL.

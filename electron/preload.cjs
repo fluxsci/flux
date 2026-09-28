@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("fig", {
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),
   save: (defaultPath, filters) => ipcRenderer.invoke("dlg:save", { defaultPath, filters }),
+  copyFileVerified: (source,destination,sha256) => ipcRenderer.invoke("fs:copyFileVerified",source,destination,sha256),
   moveFileVerified: (source,destination,sha256) => ipcRenderer.invoke("fs:moveFileVerified",source,destination,sha256),
   readFile: (p) => ipcRenderer.invoke("fs:readFile", p),
   readerContextClaim: (payload) => ipcRenderer.invoke("readerContext:claim", payload),

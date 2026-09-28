@@ -194,6 +194,17 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       if (!underDir(target, canonicalRoot)) throw new Error("Project asset escapes its project root");
       return target;
     });
+    ipc.handle("fs:copyFileVerified", async (e, source, destination, sha256) => {
+      const projectIdentity=JSON.stringify(projectRootFor?.(e.sender.id));
+      const authorize=()=>{
+        if(JSON.stringify(projectRootFor?.(e.sender.id))!==projectIdentity) throw new Error("Project changed during native copy");
+        fsReadGuard(source,e.sender.id); fsGuard(destination,e.sender.id);
+      };
+      authorize();
+      const result=await require("../verifiedCopy.cjs").createVerifiedCopy()(source,destination,sha256,authorize);
+      noteWrite(destination,e.sender.id);
+      return result;
+    });
     ipc.handle("fs:moveFileVerified", async (e, source, destination, sha256) => {
       fsGuard(source,e.sender.id); fsGuard(destination,e.sender.id);
       if (sha256 !== undefined && !/^[a-f0-9]{64}$/.test(sha256)) throw new Error("Invalid expected source hash");

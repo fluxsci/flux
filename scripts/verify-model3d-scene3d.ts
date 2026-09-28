@@ -5,7 +5,8 @@ import {harness} from './lib/harness.mjs';
 import {parseScene3d,buildScene3dPartIndex,isScene3d,resolveScene3dPartStyle} from '../src/lib/model3d/scene3d';
 import {inspectGlb,parseGlb} from '../src/lib/model3d/glbCore.mjs';
 const h=harness('verify-model3d-scene3d');
-execFileSync(process.execPath,['scripts/gen-model3d-validator.mjs','--check'],{stdio:'pipe'});h.ok(true,'generated validator is fresh');
+execFileSync(process.execPath,['--import','tsx','scripts/gen-validators.mjs','--check'],{stdio:'pipe'});h.ok(true,'generated validators are fresh');
+h.eq(await readFile(new URL('../src/lib/model3d/scene3d.schema.json',import.meta.url),'utf8'),await readFile(new URL('./fixtures/model3d/fluxplot/scene3d.schema.json',import.meta.url),'utf8'),'product schema equals frozen cross-language contract');
 // Frozen contract oracle and fixtures emitted through the public Python API are independent inputs.
 for (const fixtureSet of ['fluxplot', 'fluxplot-library']) {
 const dir=new URL(`./fixtures/model3d/${fixtureSet}/`,import.meta.url);

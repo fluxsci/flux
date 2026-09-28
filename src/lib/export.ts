@@ -132,6 +132,8 @@ export function elementToSvg(
   assetSize?: AssetSizeFn,
 ): string {
   switch (e.type) {
+    case "model3d":
+      throw new Error("3D export requires a prepared model poster");
     case "video":
       return elementToSvg({ ...e, type: "image", assetId: e.posterAssetId }, assetUrl, plotMarkup, assetSize);
     case "plot": {

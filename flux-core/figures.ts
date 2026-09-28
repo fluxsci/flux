@@ -1,3 +1,4 @@
+import { elementSourceAssetIds } from "../src/lib/model3d/refs";
 import { stageFigureWrites } from "./model";
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
@@ -913,8 +914,7 @@ export async function deleteFigure(root: string, figId: string): Promise<{ nextA
     const used = new Set<string>();
     for (const f of project.figures)
       for (const e of f.elements) {
-        const aid = (e as { assetId?: string }).assetId;
-        if (aid) used.add(aid);
+        for (const id of elementSourceAssetIds(e)) used.add(id);
       }
     const deps = await readProjectDependencies(root, {
       readText: (p) => fs.readFile(p, "utf8"),

@@ -1,3 +1,5 @@
+import scene3dSchema from "../model3d/scene3d.schema.json";
+
 // Versioned JSON Schemas (draft-07) for the Flux project file types. These are
 // the machine contract an agent validates its writes against (AI_agent_considerations
 // §4). One source: `validate` checks against them, and `scaffold` writes them into
@@ -30,7 +32,7 @@ const POINT = { type: "object", required: ["x", "y"], properties: { x: { type: "
 const CROP = { type: "object", required: ["x", "y", "width", "height"], properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } };
 const GRADIENT = { type: ["object", "null"], required: ["map", "axis", "stops"], properties: { map: { type: "string" }, axis: { enum: ["x", "y"] }, stops: { type: "array", items: { type: "string" } }, discrete: { type: "boolean" } } };
 const COLOR_GROUPS = { type: "array", items: { type: "object", required: ["name", "swatches"], properties: { name: { type: "string" }, swatches: { type: "array", items: { type: "object", required: ["name", "hex"], properties: { name: { type: "string" }, hex: { type: "string" } } } } } } };
-const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }])) } };
+const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: { ...Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }])), fill: { type: "string" }, hidden: { type: "boolean" } } } };
 const GEO_REQ = ["id", "type", "x", "y", "width", "height", "rotation"];
 const GEO_PROPS = {
   id: { type: "string" },
@@ -128,6 +130,36 @@ const ELEMENT_DEF = {
     }),
   ],
 };
+// P1/D9: figure format 0.2 accepts 3D; deck 0.5 keeps its previous scene until P4.
+const DECK_ELEMENT_BRANCHES = [...ELEMENT_DEF.oneOf];
+ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orbitElevation", "orbitZoom", "orbitProjection", "orbitFov", "fill"], {
+  assetId: { type: "string" }, fill: { type: "string" },
+  orbitAzimuth: { type: "number" }, orbitElevation: { type: "number", minimum: -90, maximum: 90 },
+  orbitZoom: { type: "number", exclusiveMinimum: 0 }, orbitRoll: { type: "number" },
+  orbitPanX: { type: "number" }, orbitPanY: { type: "number" },
+  orbitProjection: { enum: ["orthographic", "perspective"] }, orbitFov: { type: "number", exclusiveMinimum: 0, exclusiveMaximum: 180 },
+  modelColors: { enum: ["uniform", "source"] }, modelLighting: { enum: ["studio", "unlit"] },
+  overrides: OVERRIDES, modelStates: { type: "object", additionalProperties: { type: "number", minimum: 0, maximum: 1 } },
+  fields: { type: "object", additionalProperties: { type: "object", properties: { cmap: { type: "string" }, range: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } } } } },
+  source: { type: "object", required: ["glbPath"], properties: { glbPath: { type: "string" }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, manifestPath: { type: "string" }, recipePath: { type: "string" }, external: { type: "boolean" }, frozen: { type: "boolean" } } },
+  manifestRef: { type: "object", required: ["specVersion"], properties: { specVersion: { type: "string" }, hash: { type: "string" } } },
+}));
+const VEC3 = { type: "array", minItems: 3, maxItems: 3, items: { type: "number" } };
+const STRINGS = { type: "array", items: { type: "string" } };
+const MODEL_INFO = {
+  type: "object", required: ["triangles", "vertices", "primitives", "meshes", "bounds", "hasNormals", "hasColors", "hasValues", "materialColors", "partNames", "warnings", "extensions", "topology", "states"],
+  properties: {
+    ...Object.fromEntries(["triangles", "vertices", "primitives", "meshes"].map(k => [k, { type: "integer", minimum: 0 }])),
+    bounds: { type: "object", required: ["min", "max"], properties: { min: VEC3, max: VEC3 } },
+    hasNormals: { type: "boolean" }, hasColors: { type: "boolean" }, hasValues: { type: "boolean" },
+    materialColors: STRINGS, partNames: STRINGS, warnings: STRINGS, extensions: STRINGS, states: STRINGS,
+    topology: { type: "object", required: ["key", "parts"], properties: { key: { type: "string" }, parts: { type: "array", items: { type: "object", required: ["node", "mode", "vertices", "indicesHash"], properties: { node: { type: "string" }, mode: { type: "integer", minimum: 4, maximum: 6 }, vertices: { type: "integer", minimum: 0 }, indicesHash: { type: "string" } } } } } },
+  },
+};
+const GLB_ASSET_REQUIREMENTS = {
+  if: { properties: { kind: { const: "glb" } }, required: ["kind"] },
+  then: { required: ["sha256", "bytes", "model", "path"], properties: { sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, bytes: { type: "integer", minimum: 1 }, model: MODEL_INFO, path: { type: "string", pattern: "\\S" } } },
+};
 // A figure-family definition (figfamily.ts) — custom families persisted in
 // fig/index.json `families` (rolled up to project.json `figureFamilies`).
 const FAMILY_DEF = {
@@ -166,6 +198,7 @@ const FIGURE_DEF = {
 };
 
 export const SCHEMAS: Record<string, Record<string, unknown>> = {
+  scene3d: scene3dSchema,
   project: {
     $schema: draft,
     $id: "flux/project.schema.json",
@@ -274,9 +307,10 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: {
           type: "object",
           required: ["id", "kind"],
+          ...GLB_ASSET_REQUIREMENTS,
           properties: {
             id: { type: "string" },
-            kind: { type: "string", enum: ["png", "svg"] },
+            kind: { type: "string", enum: ["png", "svg", "glb"] },
             path: { type: "string" },
             name: { type: "string" },
             naturalWidth: { type: "number" },
@@ -325,7 +359,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: { type: "object", required: ["id", "name"], properties: { id: { type: "string" }, name: { type: "string" } } },
       },
       figures: { type: "array", items: { $ref: "#/definitions/figure" } },
-      assets: { type: "array", items: { type: "object", required: ["id", "kind"] } },
+      assets: { type: "array", items: { type: "object", required: ["id", "kind"], ...GLB_ASSET_REQUIREMENTS } },
       palette: { type: "array" },
       colorGroups: COLOR_GROUPS,
       textStyles: TEXT_STYLES,
@@ -520,7 +554,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
     },
     definitions: {
-      element: { oneOf: [...ELEMENT_DEF.oneOf, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
+      element: { oneOf: [...DECK_ELEMENT_BRANCHES, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
         assetId: { type: "string", pattern: "[\\s\\S]" }, posterAssetId: { type: "string", pattern: "[\\s\\S]" },
         durationMs: { type: "number", exclusiveMinimum: 0 }, muted: { type: "boolean" }, loop: { type: "boolean" },
       })] },
@@ -553,12 +587,12 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
 };
 
 /** Map a project-relative file path to its schema key (or null if unknown). */
-export function schemaForFile(rel: string): keyof typeof SCHEMAS | null {
+export function schemaForFile(rel: string, data?: unknown): keyof typeof SCHEMAS | null {
   const f = rel.replace(/\\/g, "/");
   if (f.endsWith("project.json")) return "project";
   if (f.endsWith("fig/index.json")) return "figIndex";
   if (/fig\/canvases\/[^/]+\.json$/.test(f)) return "canvas";
-  if (f.endsWith(".fluxplot.json")) return "manifest";
+  if (f.endsWith(".fluxplot.json")) return data && typeof data === "object" && (data as {spec?:unknown}).spec === "fluxplot/scene3d" ? "scene3d" : "manifest";
   if (f.endsWith(".recipe.json")) return "recipe";
   if (/slides\/[^/]+\/deck\.json$/.test(f)) return "deck";
   if (f.endsWith(".comments.json") || f.endsWith("comments.json")) return "comments";
@@ -571,6 +605,7 @@ export const SCHEMA_FILENAMES: Record<keyof typeof SCHEMAS, string> = {
   figIndex: "fig-index.schema.json",
   canvas: "canvas.schema.json",
   manifest: "fluxplot-manifest.schema.json",
+  scene3d: "scene3d.schema.json",
   recipe: "recipe.schema.json",
   deck: "deck.schema.json",
   comments: "comments.schema.json",

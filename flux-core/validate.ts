@@ -1,3 +1,4 @@
+import { parseScene3d } from "../src/lib/model3d/scene3d";
 // flux-core/validate.ts — WS2 JSON-schema validation + project lint + the
 // FluxPlot output contract check (split out of index.ts; WS-6.2).
 
@@ -55,15 +56,17 @@ export async function validate(root: string, file?: string): Promise<ValidateRes
   let checked = 0;
   const check = (key: keyof typeof SCHEMAS, rel: string, data: unknown) => {
     checked++;
+    if (key === "scene3d") { const parsed = parseScene3d(data); if ("issue" in parsed) errors.push(`${rel}: ${parsed.issue}`); return; }
     const v = ajv.compile(SCHEMAS[key]);
     if (!v(data)) for (const e of v.errors ?? []) errors.push(`${rel}: ${e.instancePath || "(root)"} ${e.message ?? "invalid"}`);
   };
   const readRel = async (rel: string) => JSON.parse(await fs.readFile(safeJoin(root, rel), "utf8"));
 
   if (file) {
-    const key = schemaForFile(file);
+    const data = await readRel(file);
+    const key = schemaForFile(file, data);
     if (!key) throw new Error(`no schema known for ${file}`);
-    check(key, file, await readRel(file));
+    check(key, file, data);
     return { ok: errors.length === 0, checked, errors };
   }
 

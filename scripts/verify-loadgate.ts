@@ -27,7 +27,7 @@ const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
 // ---- drift gate: the schema's discriminant branches === FigureElement["type"] ------
 // The literal is pinned to the union at COMPILE time (satisfies + exhaustive
 // check under svelte-check/tsc); the runtime half pins the schema against it.
-const ALL_TYPES = ["image", "text", "rect", "ellipse", "line", "path", "plot"] as const satisfies readonly FigureElement["type"][];
+const ALL_TYPES = ["image", "text", "rect", "ellipse", "line", "path", "plot", "model3d"] as const satisfies readonly FigureElement["type"][];
 type _Missing = Exclude<FigureElement["type"], (typeof ALL_TYPES)[number]>;
 const _exhaustive: _Missing extends never ? true : never = true;
 void _exhaustive;
@@ -117,7 +117,8 @@ assert(coreValidateModel === validateModel, "flux-core re-exports the SAME valid
 // 'unsafe-eval'. A schemas.ts edit without regeneration would silently ship
 // validators that disagree with the schema; this is the buildInfo-style drift gate.)
 {
-  const { generate, OUT } = await import("./gen-validators.mjs");
+  const { generate, OUT, generateFiles } = await import("./gen-validators.mjs");
+  await generateFiles(true);
   const disk = await (await import("node:fs/promises")).readFile(OUT, "utf8").catch(() => "");
   assert(
     disk === generate(),

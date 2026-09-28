@@ -373,6 +373,23 @@ Persistence invariants (all machine-checked — do not weaken):
   v1 accepts triangle meshes; point/line primitives fail with an actionable explanation.
   Preparation strips skin bindings and warns that stored mesh geometry is shown: retaining
   default joint transforms would invalidate the shared bounds. Bake skeletal poses first.
+- **3D persistence remains metadata-only.** GLB bytes never enter `assetData`, image data URLs,
+  or text-generation journals. `figfiles.ts` writes canvas/index format 0.2 only for 3D content;
+  no-3D save bytes remain pinned to the pre-P1 receipt. `elementAssetRefs` separates images,
+  models, video media, sidecars and derived posters; collection must retain video and its poster.
+  `model3d/persistence.ts` localizes optional metadata failures to warnings without deleting raw
+  sidecars. Native copies preflight all sidecars strictly before publishing any asset; use the
+  authorized project root plus `sourcePrefix` (`fig`, `slides/<id>`), never an unauthorized
+  nested root. `verifiedCopy.cjs` keeps the original, publishes exclusively, verifies hashes,
+  retries Windows sharing races and rechecks ownership on every publication attempt.
+  Standalone saves capture owner/root/data before waiting in a serialized publication queue;
+  otherwise a delayed old native write can overwrite a newer successful save. Failed batches
+  do not poison the queue. Save As preserves stored GLB paths and refuses root adoption after
+  later edits; same-root saves leave later edits dirty. Editing never waits for the queue.
+  `source.sha256` records original source bytes; `Asset.sha256` always describes prepared bytes.
+  The canonical `scripts/gen-validators.mjs` owns project/scene3d validators and the standalone
+  native semantic bundle. Do not hand-edit its outputs. Deck 3D schema/conversion activation
+  and content-track source ownership remain deferred to P4 after animation-v2 integration.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -7685,3 +7702,17 @@ and `test-results/model3d/`. No product Figure/Slide wiring is implied by this s
 suppresses a mixed HTML/PNG output rather than selecting its PNG alternative; explicit
 static output is required there. Shared hosts must survive independently embedded bundle
 copies and shadow-root removal. Fixed sequence controls to reflect authored weights/Home.
+
+### 2026-09-28 07:06 UTC — Flux 3D figure persistence (Codex, model3d-persistence)
+**Work:** Added conditional figure format0.2, validated GLB metadata, separate scene3d caches,
+all permitted figure/reference collectors, canonical schema/native validator generation, and
+verified native copy preparation. Deck0.5 explicitly refuses model3d until P4 (D9). The original
+source receipt is distinct from prepared bytes (D11). Real UI and native IPC reviewers found
+and pinned Save As ownership, whole-batch sidecar preflight and later-edit dirty-state edges.
+**Verification:** Full pure323/323 passed at 07:08 UTC before the final overlap-save queue fix.
+The final focused P1 group10/10 (95 persistence checks), durability/crash/transaction/path-map
+gates and Svelte/headless checks passed. Both independent reviewers approved; final receipts
+and exact commands are recorded in
+`notes/model3d-persistence/PROGRESS.md` and the orchestrator's Flux3D ledger before integration.
+**Learnings:** Promoted metadata-only persistence, optional/strict sidecar policy, original-byte
+receipts, source-prefix authorization, and ownership-aware Windows retries into the body.

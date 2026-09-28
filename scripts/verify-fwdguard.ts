@@ -37,7 +37,7 @@ try {
   // ---- fig index bumped minor → loadFigModel refuses, bytes unchanged --------
   const idxPath = path.join(root, "fig", "index.json");
   const idx = JSON.parse(await fs.readFile(idxPath, "utf8"));
-  idx.schemaVersion = "0.2.0";
+  idx.schemaVersion = "0.3.0";
   const idxBytes = JSON.stringify(idx, null, 2) + "\n";
   await fs.writeFile(idxPath, idxBytes);
   let threw = "";

@@ -134,6 +134,7 @@ function figureSnapshotIO(root: string): FigureSnapshotIO {
   const io = exportRecoveryIO(root);
   return {
     readText: rel => io.readText(safeJoin(root, rel)),
+    assetExists: async rel => { const absolute = safeJoin(root, rel); await io.validatePath!(absolute); return exists(absolute); },
     listDirectory: async rel => {
       const absolute = safeJoin(root, rel);
       await io.validatePath!(absolute);

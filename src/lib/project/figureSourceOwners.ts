@@ -1,3 +1,5 @@
+import { elementSourceAssetIds } from "../model3d/refs";
+import type { Model3dElement } from "../model3d/types";
 // A fig/assets bundle can outlive its originating Figure because a saved deck
 // still uses it. Those deck links become source owners only when no Figure
 // placement remains. The returned figures are a read-only planning view: never
@@ -14,8 +16,8 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
   deckAssetIds: Set<string>;
   assertUnchanged(): Promise<void>;
 }> {
-  const placed = new Set(project.figures.flatMap((f) => f.elements.flatMap((e) => "assetId" in e ? [e.assetId] : [])));
-  const orphanIds = new Set(project.assets.filter((a) => a.kind === "svg" && a.path && !placed.has(a.id)).map((a) => a.id));
+  const placed = new Set(project.figures.flatMap((f) => f.elements.flatMap((e) => elementSourceAssetIds(e))));
+  const orphanIds = new Set(project.assets.filter((a) => (a.kind === "svg" || a.kind === "glb") && a.path && !placed.has(a.id)).map((a) => a.id));
   const deckAssetIds = new Set<string>();
   const baselines = new Map<string, string>();
   const result = (figures: Figure[]) => ({
@@ -56,12 +58,14 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
     if (!Array.isArray(deck.slides)) throw new Error(`Cannot inspect dependent deck ${rel}: slides are invalid`);
     const local = new Set((deck.assets ?? []).map((a) => a.id));
     for (const slide of deck.slides) {
-      const elements: SemanticPlotElement[] = [];
-      const add = (element: SemanticPlotElement) => {
-        if (!orphanIds.has(element.assetId) || local.has(element.assetId) || !element.source?.svgPath) return;
+      const elements: (SemanticPlotElement | Model3dElement)[] = [];
+      const add = (element: SemanticPlotElement | Model3dElement) => {
+        if (!orphanIds.has(element.assetId) || local.has(element.assetId) || !(element.type === "model3d" ? element.source?.glbPath : element.source?.svgPath)) return;
         elements.push(element); deckAssetIds.add(element.assetId);
       };
-      for (const element of slide.elements ?? []) if (element.type === "plot") add(element);
+      for (const element of slide.elements ?? []) if (element.type === "plot" || element.type === "model3d") add(element);
+      // P4/D9: reconstruct GLB morph destinations here after adopting the
+      // merged animation TargetRef/content-track schema; P1 handles placements.
       for (const beat of slide.beats ?? []) for (const track of beat.tracks ?? []) {
         const to = track.to;
         if (!to?.assetId || typeof to.svgPath !== "string") continue;

@@ -1,3 +1,7 @@
+import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
+import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
+import { prepareModelCopy, publishModelCopy } from './model3d/copy';
+import type { Scene3dManifest } from './model3d/types';
 import { storeTenant } from "./tenancy";
 import { preparePlot } from "./plot/parse";
 import { buildPlotMarkup } from "./plot/inlineMarkup";
@@ -15,6 +19,8 @@ import {
   project,
   projectDir,
   dirty,
+  editGen,
+  capturePersistenceGeneration,
   activeFigureId,
   selection,
   newId,
@@ -551,56 +557,97 @@ export async function saveProjectAs() {
     // FigureMode's diverged-on-disk banner (W7), and other failures get the
     // controller's retry + sticky toast rather than an unhandled rejection.
     if (root) return await flushById(storeTenant() === "slide" ? "slide" : "figure");
-    const p = get(project);
+    const p = get(project), sourceRoot = get(projectDir);
     const path = await window.fig.save(`${p.name || "Untitled"}.flux`, [
       { name: "Flux project", extensions: ["flux"] },
     ]);
     if (!path) return;
-    await writeProjectTo(path);
+    if (get(project) !== p || get(projectDir) !== sourceRoot) throw new Error("Project changed while Save As was prepared");
+    const saved=await writeProjectTo(path);
+    if(get(project)!==p||get(projectDir)!==sourceRoot||standaloneSaveRequest!==saved.request||(path!==sourceRoot&&editGen.n!==saved.generation)) throw new Error("Project changed during Save As; the original project remains open with your edits");
     projectDir.set(path);
   } catch (e) {
     pushToast("error", "Save failed", { detail: errMsg(e) });
   }
 }
 
-async function writeProjectTo(dir: string) {
-  if (!(await window.fig.exists(dir))) await window.fig.mkdir(dir);
-  await window.fig.mkdir(joinPath(dir, "assets"));
-
-  const p = structuredClone(get(project));
-  // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
-  // load gate would then (rightly) reject.
-  {
-    const fixed = sanitizeProjectGeometry(p);
-    if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
-  }
-  const data = get(assetData);
-  const manifests = get(plotManifests);
-  const recipes = get(plotRecipes);
-
-  for (const asset of p.assets) {
-    const url = data[asset.id];
-    if (!url) continue;
-    const rel = `assets/${asset.id}.${asset.kind}`;
-    asset.path = rel;
-    await window.fig.writeFile(joinPath(dir, rel), dataUrlToBytes(url));
-    // Cache a semantic plot's sidecars alongside its bytes so the project stays
-    // self-contained (the authoritative copy lives in the user's plots/ dir).
-    // NEVER persist a DERIVED manifest: sidecar presence is the fluxplot/vanilla
-    // discriminator, and re-deriving at every load keeps deriver improvements
-    // retroactive (a written derived sidecar would freeze it and misclassify
-    // the vanilla svg as a fluxplot on the next load).
-    const man = manifests[asset.id];
-    if (man && !isDerivedManifest(man)) {
-      await window.fig.writeText(joinPath(dir, `assets/${asset.id}.fluxplot.json`), JSON.stringify(man, null, 2));
-      const rec = recipes[asset.id];
-      if (rec !== undefined)
-        await window.fig.writeText(joinPath(dir, `assets/${asset.id}.recipe.json`), JSON.stringify(rec, null, 2));
+let standaloneSaveRequest=0;
+let standaloneSaveQueue: Promise<void> = Promise.resolve();
+function writeProjectTo(dir: string) {
+  const request=++standaloneSaveRequest;
+  capturePersistenceGeneration();
+  const generation=editGen.n;
+  const owner=get(project), sourceRoot=get(projectDir), p=structuredClone(owner);
+  const models=structuredClone(get(scene3dManifests)), modelRecipes=structuredClone(get(scene3dRecipes));
+  const data={...get(assetData)}, manifests=structuredClone(get(plotManifests)), recipes=structuredClone(get(plotRecipes));
+  // Capture the requested snapshot before waiting. A project switch must never
+  // let a queued old destination receive the newly opened project. Serialize
+  // publication so an already-issued older native write settles before a newer
+  // save; request checks after writeText cannot prevent an old-byte overwrite.
+  const run=async()=>{
+    const assertOwner=()=>{ if(get(project)!==owner||get(projectDir)!==sourceRoot) throw new Error("Project changed while saving"); };
+    assertOwner();
+    // Preflight every model and sidecar before publishing any asset in Save As.
+    const modelCopies=new Map<string,Awaited<ReturnType<typeof prepareModelCopy>>>();
+    for(const asset of p.assets) if(asset.kind==='glb') {
+      if(!sourceRoot) throw new Error(`Cannot save GLB ${asset.id}: source project is unavailable`);
+      modelCopies.set(asset.id,await prepareModelCopy(window.fig,sourceRoot,asset,dir,asset.path));
+      assertOwner();
     }
-  }
+    if (!(await window.fig.exists(dir))) { assertOwner(); await window.fig.mkdir(dir); }
+    assertOwner(); await window.fig.mkdir(joinPath(dir, "assets"));
+    // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
+    // load gate would then (rightly) reject.
+    {
+      const fixed = sanitizeProjectGeometry(p);
+      if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
+    }
 
-  await window.fig.writeText(joinPath(dir, "project.json"), JSON.stringify(p, null, 2));
-  dirty.set(false);
+    for (const asset of p.assets) {
+      if (asset.kind === "glb") {
+        const copy=modelCopies.get(asset.id)!;
+        await publishModelCopy(window.fig,copy,assertOwner); asset.path=copy.asset.path;
+        for(const [path,text] of scene3dSidecarWrites(joinPath(dir,"assets"),asset.id,{...copy.sidecars,manifest:models[asset.id],recipe:modelRecipes[asset.id]})) {
+          assertOwner();
+          if(text!==null) await window.fig.writeText(path,text); else await window.fig.remove?.(path);
+        }
+        continue;
+      }
+      const url = data[asset.id];
+      if (!url) continue;
+      const rel = `assets/${asset.id}.${asset.kind}`;
+      asset.path = rel;
+      assertOwner();
+      await window.fig.writeFile(joinPath(dir, rel), dataUrlToBytes(url));
+      // Cache a semantic plot's sidecars alongside its bytes so the project stays
+      // self-contained (the authoritative copy lives in the user's plots/ dir).
+      // NEVER persist a DERIVED manifest: sidecar presence is the fluxplot/vanilla
+      // discriminator, and re-deriving at every load keeps deriver improvements
+      // retroactive (a written derived sidecar would freeze it and misclassify
+      // the vanilla svg as a fluxplot on the next load).
+      const man = manifests[asset.id];
+      if (man && !isDerivedManifest(man)) {
+        assertOwner();
+        await window.fig.writeText(joinPath(dir, `assets/${asset.id}.fluxplot.json`), JSON.stringify(man, null, 2));
+        const rec = recipes[asset.id];
+        if (rec !== undefined) {
+          assertOwner();
+          await window.fig.writeText(joinPath(dir, `assets/${asset.id}.recipe.json`), JSON.stringify(rec, null, 2));
+        }
+      }
+    }
+
+    const assertSaveAsFresh=()=>{if(dir!==sourceRoot&&editGen.n!==generation) throw new Error("Project changed during Save As; the original project remains open with your edits");};
+    assertOwner(); assertSaveAsFresh();
+    await window.fig.writeText(joinPath(dir, "project.json"), JSON.stringify(p, null, 2));
+    assertOwner(); assertSaveAsFresh();
+    if(editGen.n===generation&&standaloneSaveRequest===request) dirty.set(false);
+    return {request,generation};
+  };
+  const task=standaloneSaveQueue.then(run);
+  // A failed batch must not poison later save requests. Editing stays live.
+  standaloneSaveQueue=task.then(()=>{},()=>{});
+  return task;
 }
 
 export async function openProject() {
@@ -645,9 +692,18 @@ export async function openProject() {
     const fresh: Record<string, string> = {};
     const primedManifests: Record<string, FluxPlotManifest> = {};
     const primedRecipes: Record<string, unknown> = {};
+    const primedModels: Record<string, Scene3dManifest> = {}, primedModelRecipes: Record<string, unknown> = {}, modelIssues: Record<string,string[]> = {};
     for (const asset of p.assets) {
       if (!asset.path) continue;
       if (asset.kind === "mp4") throw new Error("Video assets are only supported in slide decks.");
+      if (asset.kind === "glb") {
+        if(!await window.fig.exists(joinPath(dir,asset.path))) throw new Error(`Missing GLB asset ${asset.id}`);
+        const sidecars=await readScene3dSidecars(window.fig,joinPath(dir,"assets"),asset.id);
+        if(sidecars.issues?.length) modelIssues[asset.id]=sidecars.issues;
+        if(sidecars.manifest) primedModels[asset.id]=sidecars.manifest;
+        if(sidecars.recipe!==undefined) primedModelRecipes[asset.id]=sidecars.recipe;
+        continue;
+      }
       const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
       fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
       if (asset.kind === "png") captureSnipMeta(asset.id, bytes);
@@ -661,6 +717,9 @@ export async function openProject() {
       }
     }
     primePlotSidecars(primedManifests, primedRecipes);
+    clearScene3dSidecars();
+    primeScene3dSidecars(primedModels,primedModelRecipes,modelIssues);
+    if(Object.keys(modelIssues).length) pushToast("info","Some 3D metadata could not be loaded",{detail:Object.values(modelIssues).flat().join("\n")});
     assetData.set(fresh);
     loadProject(p, dir);
   } catch (e) {

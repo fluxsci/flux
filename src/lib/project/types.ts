@@ -8,8 +8,10 @@ export const PROJECT_SCHEMA_VERSION = "0.1.0";
 // + THE forward-version comparator every load path shares. While formats are
 // 0.x, the MINOR is the breaking slot (load.ts documents this); PATCH bumps
 // load fine.
-export const FIG_INDEX_SCHEMA_VERSION = "0.1.0";
-export const CANVAS_SCHEMA_VERSION = "0.1.0";
+export const FIG_INDEX_SCHEMA_VERSION = "0.2.0";
+export const CANVAS_SCHEMA_VERSION = "0.2.0";
+/** Non-3D documents retain their original format and serialized bytes. */
+export const LEGACY_FIG_SCHEMA_VERSION = "0.1.0";
 export const PROJECT_MODEL_VERSION = 2; // standalone Project.version (migrate.ts stamps it)
 
 /** True when fileV names a NEWER breaking format than appV (0.x: minor is the
@@ -207,6 +209,8 @@ export interface FileBridge {
   readdir?(p: string, strict?: boolean): Promise<{ name: string; dir: boolean }[]>;
   // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
   // older bridges may lack it; callers use `fb.remove?.(p)`.
+  /** Native verified copy; preserves source and refuses different destination bytes. */
+  copyFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
   moveFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
   remove?(p: string): Promise<void>;
   // Move a file to the OS trash (a deleted manuscript stays recoverable). Where no
