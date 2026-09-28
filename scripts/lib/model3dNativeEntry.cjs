@@ -2,7 +2,7 @@
 // Production renderer only. Native OS dialog interaction is outside this
 // unattended gate; their deterministic answers still exercise real IPC grants.
 const { app, BrowserWindow, dialog, screen } = require('electron');
-const { assertUsableDisplay } = require('./nativeWindowQualification.cjs');
+const { assertUsableDisplay, qualifiedNativeBounds } = require('./nativeWindowQualification.cjs');
 const fs = require('node:fs/promises'), path = require('node:path');
 const scratch = process.env.MODEL3D_NATIVE_SCRATCH, root = process.env.MODEL3D_NATIVE_ROOT;
 const artifacts = process.env.MODEL3D_NATIVE_ARTIFACTS, scenario = process.env.MODEL3D_NATIVE_SCENARIO;
@@ -96,7 +96,10 @@ async function instrument() {
 }
 async function boot() {
   win = await wait(() => BrowserWindow.getAllWindows()[0], 'production window');
-  win.setSize(1440, 1040); win.setAlwaysOnTop(true); win.show(); await focus();
+  const displays = screen.getAllDisplays(), primary = screen.getPrimaryDisplay();
+  metrics.displayQualification = { displays, primary };
+  win.setBounds(qualifiedNativeBounds(displays, primary, 1440, 1040));
+  win.setAlwaysOnTop(true); win.show(); await focus();
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
   await wait(() => js("!!document.querySelector('button[aria-label=Figure]')&&!!document.querySelector('.cm-editor')"), 'scratch Paper ready');
   check(app.getPath('userData').startsWith(scratch + path.sep), 'native preferences are contained in scratch');
