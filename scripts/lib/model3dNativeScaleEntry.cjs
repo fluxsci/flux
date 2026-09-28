@@ -46,8 +46,26 @@ const model = '.figure-mode [data-editor-element-id="scale-element-0"]';
 const live = '[data-model3d-orbit="scale-element-0"] canvas[data-model3d-live]';
 async function instrument() {
   await js(`(()=>{
-    const evidence=window.__nativeScale={inputs:[],frames:[],workers:[],visibility:[],hostRaf:{requests:0,callbacks:0}};
-    const hostRaf=window.requestAnimationFrame;window.requestAnimationFrame=callback=>{evidence.hostRaf.requests++;return hostRaf.call(window,stamp=>{evidence.hostRaf.callbacks++;callback(stamp)})};
+    const evidence=window.__nativeScale={inputs:[],frames:[],workers:[],visibility:[],hostRaf:{requests:0,callbacks:0,cancels:0,pending:{},events:[],trace:true}};
+    const rafEvidence=evidence.hostRaf,hostRaf=window.requestAnimationFrame,hostCancel=window.cancelAnimationFrame;
+    const record=event=>{rafEvidence.events.push(event);if(rafEvidence.events.length>2048)rafEvidence.events.shift()};
+    window.requestAnimationFrame=callback=>{
+      rafEvidence.requests++;
+      const traced=rafEvidence.trace,requestedAt=traced?performance.now():undefined;
+      const stack=traced?new Error('host RAF request').stack:undefined;
+      const id=hostRaf.call(window,stamp=>{
+        rafEvidence.callbacks++;
+        if(traced){delete rafEvidence.pending[id];if(rafEvidence.trace)record({kind:'callback',id,stamp,time:performance.now(),requestedAt,stack})}
+        callback(stamp);
+      });
+      if(traced){rafEvidence.pending[id]={requestedAt,stack};record({kind:'request',id,time:requestedAt,stack})}
+      return id;
+    };
+    window.cancelAnimationFrame=id=>{
+      rafEvidence.cancels++;
+      if(rafEvidence.trace)record({kind:'cancel',id,time:performance.now(),stack:new Error('host RAF cancel').stack});
+      delete rafEvidence.pending[id];return hostCancel.call(window,id);
+    };
     const state=()=>({time:performance.now(),visible:document.visibilityState,focused:document.hasFocus()});
     for(const type of ['visibilitychange','focus','blur'])window.addEventListener(type,()=>evidence.visibility.push({event:type,...state()}),true);
     document.addEventListener('pointermove',event=>{if(event.isTrusted)evidence.inputs.push({stamp:event.timeStamp,x:event.clientX,y:event.clientY,buttons:event.buttons,...state()})},true);
@@ -83,7 +101,17 @@ async function boot() {
   if (!captureBaseline) {
     await click('.figure-mode .zoom button:last-child');
     await wait(()=>js("document.querySelector('.figure-mode .zoomval')?.textContent==='100%'"),'native toolbar100% fixture zoom');
-    check(await js(`(()=>{const rows=[...document.querySelectorAll('.figure-mode [data-editor-element-id^="scale-element-"]')];return rows.length===${expectedModels}&&rows.every(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.height>0&&r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})})()`),'all eight model boxes are visible at100% fixture zoom');
+    metrics.canvasVisibility=await js(`(()=>{
+      const host=document.querySelector('.figure-mode .canvas-host'),h=host?.getBoundingClientRect();
+      if(!host||!h)return null;
+      const clip={x:Math.max(0,h.x+host.clientLeft),y:Math.max(0,h.y+host.clientTop),right:Math.min(innerWidth,h.x+host.clientLeft+host.clientWidth),bottom:Math.min(innerHeight,h.y+host.clientTop+host.clientHeight)};
+      const boxes=[...document.querySelectorAll('.figure-mode [data-editor-element-id^="scale-element-"]')].map(n=>{
+        const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+        return{id:n.dataset.editorElementId,x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(x,y))};
+      });return{clip,boxes};
+    })()`);
+    const visible=metrics.canvasVisibility;
+    check(visible&&visible.clip.right>visible.clip.x&&visible.clip.bottom>visible.clip.y&&visible.boxes.length===expectedModels&&visible.boxes.every(r=>r.width>0&&r.height>0&&r.x>=visible.clip.x&&r.y>=visible.clip.y&&r.right<=visible.clip.right&&r.bottom<=visible.clip.bottom&&r.hit),'all eight model boxes are visible and hittable inside the canvas at100% fixture zoom');
   }
   await wait(() => js(`document.querySelectorAll('.figure-mode [data-model3d-poster]').length===${expectedModels}`), 'all expected decoded model posters', 90000);
   await paint();
@@ -103,12 +131,12 @@ async function structureAndIdle() {
   check((await probe.state(session)).contexts === 1, 'actual worker owns one captured WebGL2 context');
   await win.webContents.debugger.sendCommand('Runtime.evaluate', { expression: "globalThis.__nativeScaleRaf=0;globalThis.__nativeScaleOriginalRaf=globalThis.requestAnimationFrame;if(globalThis.requestAnimationFrame)globalThis.requestAnimationFrame=function(cb){globalThis.__nativeScaleRaf++;return globalThis.__nativeScaleOriginalRaf.call(this,cb)}" }, session);
   const before = await js('window.__nativeScale.workers.flatMap(w=>w.messages).filter(m=>m.type===\'rendered\').length');
-  const hostBefore=await js('structuredClone(window.__nativeScale.hostRaf)');
+  const hostBefore=await js('({...structuredClone(window.__nativeScale.hostRaf),observedAt:performance.now()})');
   // Bounded observation interval is the measured idle window, not a readiness delay.
   await sleep(500);
   const after = await js('window.__nativeScale.workers.flatMap(w=>w.messages).filter(m=>m.type===\'rendered\').length');
   const result = await win.webContents.debugger.sendCommand('Runtime.evaluate', { expression: 'globalThis.__nativeScaleRaf', returnByValue: true }, session);
-  const hostAfter=await js('structuredClone(window.__nativeScale.hostRaf)');
+  const hostAfter=await js('({...structuredClone(window.__nativeScale.hostRaf),observedAt:performance.now()})');
   metrics.idle = { durationMs: 500, before, after, workerRafRequests: result.result.value, hostBefore, hostAfter };
   check(hostBefore.requests===hostAfter.requests&&hostBefore.callbacks===hostAfter.callbacks,'zero host animation requests and callbacks at rest');
   check(before === after && result.result.value === 0, 'zero worker renders and animation callbacks at rest');
@@ -142,6 +170,8 @@ async function captureImageBaseline() {
   check(images.length === 4, 'exact public example has four visible model placements and four matched raster replacements');
 }
 async function orbit() {
+  // Diagnostic call stacks and event records stop before any Orbit timing.
+  await js('window.__nativeScale.hostRaf.trace=false');
   const previous = await js('window.__nativeScale.frames.length'); await click(model, 2);
   await wait(() => js(`!!document.querySelector(${JSON.stringify(live)})&&window.__nativeScale.frames.length>${previous}`), 'live Orbit publication');
   const center = await point(live);
