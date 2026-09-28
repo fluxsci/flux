@@ -3,7 +3,7 @@
   import { yieldsToShellModal, isAnnotateChord } from '../../shell/agent/annotationVisibility';
   import { project } from '../store';
   import { scene3dManifests, scene3dGeneration } from './store';
-  import { setModelStates } from './semanticOps';
+  import { modelDefaultStates, setModelStates } from './semanticOps';
   import { setModelView } from './viewOps';
   import { runModelOrbit, modelOrbit, modelPreviews, modelOrbitIssues, applyModelOrbit, finishModelOrbit, markModelPreviewPainted, retireModelPreview } from './orbitSession';
   import type { FurnitureLayout } from './furnitureLayout';
@@ -140,7 +140,7 @@
     if (event.key === ' ') { space = true; beginPan(); finishModelOrbit(); event.preventDefault(); event.stopPropagation(); return; }
     const axes: AxisView[] = ['front','back','right','left','top','bottom'];
     if (/^[1-6]$/.test(event.key)) applyModelOrbit(axisView(axes[Number(event.key)-1], element.orbitAzimuth), event.timeStamp);
-    else if (event.key === '0') runModelOrbit(p => { const view = homeView(asset, manifest); setModelView(p, [element.id], view); setModelStates(p, [element.id], view.modelStates ?? null); }, event.timeStamp);
+    else if (event.key === '0') runModelOrbit(p => { const view = homeView(asset, manifest); setModelView(p, [element.id], view); setModelStates(p, [element.id], modelDefaultStates(manifest, asset?.model?.states ?? [])); }, event.timeStamp);
     else if (event.key.toLowerCase() === 'p') applyModelOrbit({ orbitProjection: element.orbitProjection === 'orthographic' ? 'perspective' : 'orthographic' }, event.timeStamp);
     else if (event.key === 'Escape') finishModelOrbit(true);
     else if (event.key === 'Enter') finishModelOrbit();

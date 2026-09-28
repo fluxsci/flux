@@ -141,6 +141,8 @@ The established shared cores — extend these, don't duplicate them:
 | Pointer-gesture math (resize/snap/handles) | `src/lib/interact/` | `verify-interact-core.ts` |
 | Load-gate validation (parse → migrate → validate) | `src/lib/project/validate.ts` (+ generated `validators.gen.js`) | `verify-loadgate.ts` |
 | 3D geometry, orbit, topology, poster keys and vector furniture | `src/lib/model3d/` pure cores (`glbCore.mjs` also serves Electron main) | `verify-model3d-{glb,core,scene3d,furniture,morph}.ts` |
+| 3D camera, fields, shape weights and effective semantic parts | `model3d/viewOps.ts`, `semanticOps.ts`, `parts.ts` | `verify-model3d-{view-ops,semantics}.ts`, `verify-model3d-{orbit,xray}-gui.mjs` |
+| Static 3D Figure/Paper composition | `model3d/static.ts` with explicit poster inputs; browser/Node IO adapters | `verify-model3d-{export,headless}`, `verify-paper-render-overrides.ts` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
@@ -373,6 +375,11 @@ Persistence invariants (all machine-checked — do not weaken):
   v1 accepts triangle meshes; point/line primitives fail with an actionable explanation.
   Preparation strips skin bindings and warns that stored mesh geometry is shown: retaining
   default joint transforms would invalidate the shared bounds. Bake skeletal poses first.
+  Shape weights are finite and stored unclamped; only UI controls use the 0–1 range.
+  Sequence Frame is derived from GLB target order, never persisted separately. Unknown
+  source target names warn and are excluded from import/Home defaults; explicit edits
+  validate all names before mutating. Effective series/field/axis containers use reserved
+  IDs and never rewrite the source sidecar.
 - **3D persistence remains metadata-only.** GLB bytes never enter `assetData`, image data URLs,
   or text-generation journals. `figfiles.ts` writes canvas/index format 0.2 only for 3D content;
   no-3D save bytes remain pinned to the pre-P1 receipt. `elementAssetRefs` separates images,
@@ -549,7 +556,30 @@ Persistence invariants (all machine-checked — do not weaken):
   same-root saves do not reset grants. Rootless Toolbar GLB import reopens the picker after
   Save because native root adoption clears earlier approvals. Preserve project/figure/tenant
   ownership across lazy module loads, registration and picker awaits.
-  Orbit, exports, Paper and Slide activation are later phases; see the active 3D ledger.
+  **Orbit and control previews** use one ordinary edit session and an overlay with mesh
+  bitmap transfer plus keyed vector-furniture attribute updates. Escape restores the visit
+  baseline; Enter, handoff or leaving the model finishes. An intervening discrete edit ends
+  orbit instead of opening another checkpoint. Keep the scene visible until the first live
+  frame, then retain the final overlay until a decoded matching poster publishes. Suspend
+  static poster work and zoom proxies during active previews. Context interruption retains
+  the last frame; recovery requests the latest state. No resting frame loop is permitted.
+  `flux-model3d-frame` records host publication, not physical scanout; native input gates
+  separately observe paint frames and qualify window visibility and the actual GPU.
+  **Paper and export ownership** is explicit: immutable `ModelPosterSource` inputs share
+  one document service, with owner-counted retains including gallery previews. Never borrow
+  the active Figure store for a saved Paper figure. Cancel stale preview reloads and keep
+  the previous decoded image until its replacement is ready. Node poster policies are
+  `project` (materialization), `image` (machine cache only) and `collect` (cold, no worker or
+  cache writes). Validate actual GLB size/confinement at read time and cached PNG dimensions
+  and contents. Named fallback warnings must survive Connect image-cache hits.
+  **Pure colormap lookup** imports `color/colormaps.ts`; picker provenance metadata stays
+  in `color/collections.ts`. Their generated files come from one generator. This preserves
+  offline static rendering without pulling collection website URLs into the runtime.
+  **Figure PDF size** is normalized by lazy native `figurePdf.cjs` after Chromium printing:
+  exact MediaBox/CropBox and a top-edge-preserving translation, never content scaling.
+  Document printing bypasses this correction. `group:figure-pdf-size` pins vector positions,
+  raster pixels, fractional physical dimensions and packaged dependency closure.
+  Slide activation remains deferred until the animation-v2 rebase; see the active 3D ledger.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { yieldsToShellModal, isAnnotateChord } from '../../shell/agent/annotationVisibility';
   import NumberField from '../NumberField.svelte';
   import { resolvedColormap } from './colormap';
   import ColormapPicker from '../ColormapPicker.svelte';
-  import { project, commit, mutate, activeFigureId, embeddedProjectRoot } from '../store';
+  import { project, commit, mutate, undo, redo, activeFigureId, embeddedProjectRoot } from '../store';
   import { scene3dManifests } from './store';
   import { scene3dFields, buildScene3dPartIndex, scene3dPartLineage } from './scene3d';
   import { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates, modelStateWeight, type ModelFieldPatch } from './semanticOps';
@@ -45,6 +46,17 @@
   function weight(name: string, value: number, live = false) {
     apply(p => setModelStates(p, [element.id], { ...element.modelStates, [name]: value }), live);
   }
+  function sliderKeydown(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if (e.key === 'Escape') {
+      sliderSession.cancel(); e.preventDefault(); e.stopPropagation();
+    } else if ((e.ctrlKey || e.metaKey) && !e.altKey && ['z', 'y'].includes(e.key.toLowerCase())) {
+      // Range inputs have no text undo stack. Settle the drag before routing
+      // history, while keeping focus so keyboard adjustment remains available.
+      sliderSession.finish(); e.preventDefault(); e.stopPropagation();
+      e.key.toLowerCase() === 'y' || e.shiftKey ? redo() : undo();
+    }
+  }
   function setFrame(value: number, live = false) { apply(p => setModelFrame(p, [element.id], names, value), live); }
   function filledAncestors(id: string): string[] {
     const index = manifest ? buildScene3dPartIndex(manifest) : Object.create(null);
@@ -83,7 +95,7 @@
     {#each names as name (name)}
       <div class="shape-weight" data-model-state={name}>
         <NumberField label={manifest?.states?.find(s => s.name === name)?.label ?? name} value={modelStateWeight(element.modelStates, name)} min={0} max={1} step={0.05} disabled={!editable} on:commit={e => weight(name, e.detail)} on:scrub={e => weight(name, e.detail, true)}/>
-        <input type="range" aria-label={`${name} shape weight`} min="0" max="1" step="0.01" value={modelStateWeight(element.modelStates, name)} disabled={!editable} on:input={e => sliderSession.run(() => weight(name, +(e.currentTarget.value), true))} on:change={sliderSession.finish} on:blur={sliderSession.finish} on:keydown={e => { if (e.key === 'Escape') { sliderSession.cancel(); e.preventDefault(); e.stopPropagation(); } }}/>
+        <input type="range" aria-label={`${name} shape weight`} min="0" max="1" step="0.01" value={modelStateWeight(element.modelStates, name)} disabled={!editable} on:input={e => sliderSession.run(() => weight(name, +(e.currentTarget.value), true))} on:change={sliderSession.finish} on:blur={sliderSession.finish} on:keydown={sliderKeydown}/>
       </div>
     {/each}
     </details>

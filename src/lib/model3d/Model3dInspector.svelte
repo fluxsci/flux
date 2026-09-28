@@ -5,10 +5,11 @@
   import { selectionTargets } from '../interact/selectionTargets';
   import NumberField from '../NumberField.svelte';
   import ColorField from '../ColorField.svelte';
+  import Model3dSemantics from './Model3dSemantics.svelte';
   import { scene3dManifests, scene3dGeneration } from './store';
   import { modelOrbit, modelOrbitBlocked, modelOrbitIssues, beginModelOrbit } from './orbitSession';
   import { setModelView, type ModelViewNumber, type ModelViewPatch } from './viewOps';
-  import { setModelStates } from './semanticOps';
+  import { modelDefaultStates, setModelStates } from './semanticOps';
   import { axisView, homeView, type AxisView } from './orbit';
   import type { Model3dElement, Model3dAsset } from './types';
 
@@ -46,7 +47,7 @@
   function home() {
     if (readOnly) return;
     const view = homeView(asset, manifest), selected = ids();
-    commit(p => { setModelView(p, selected, view); setModelStates(p, selected, view.modelStates ?? null); });
+    commit(p => { setModelView(p, selected, view); setModelStates(p, selected, modelDefaultStates(manifest, asset?.model?.states ?? [])); });
   }
 </script>
 <section class="model3d-properties" aria-label="3D model properties">
@@ -62,10 +63,12 @@
       <option value="orthographic">Orthographic</option><option value="perspective">Perspective</option>
     </select></label>
     {#if element.orbitProjection === 'perspective'}<NumberField label="FOV°" value={element.orbitFov} step={5} min={5} max={120} on:commit={event => update({ orbitFov: event.detail })} on:scrub={event => update({ orbitFov: event.detail }, true)} />{/if}
+    {#if element.orbitProjection === 'perspective' && manifest?.parts?.some(part => part.role === 'scalebar')}<p class="info">Scale bars are shown in orthographic view.</p>{/if}
     <div class="axes">{#each axes as [axis, label]}<button title={`${label} view`} onclick={() => update(axisView(axis, element.orbitAzimuth))}>{label}</button>{/each}<button onclick={home}>Home</button></div>
     <label class="choice">Colours<select value={element.modelColors ?? 'uniform'} onchange={event => update({ modelColors: event.currentTarget.value as Model3dElement['modelColors'] })}><option value="uniform">Uniform</option><option value="source">Source</option></select></label>
     <fieldset disabled={element.modelColors === 'source'} title={element.modelColors === 'source' ? 'Choose Uniform to edit this colour' : ''}><ColorField label="Model colour" value={element.fill} fallback="#808080" onchange={fill => update({ fill })} /></fieldset>
     <label class="choice">Lighting<select value={element.modelLighting ?? 'studio'} onchange={event => update({ modelLighting: event.currentTarget.value as Model3dElement['modelLighting'] })}><option value="studio">Studio</option><option value="unlit">Unlit</option></select></label>
+    <Model3dSemantics {element} />
   </fieldset>
 </section>
 <style>
