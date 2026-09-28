@@ -8198,3 +8198,25 @@ observes trusted ordinary hover and a quiet interval. Before correction it caugh
 reactive scheduling now share the same preview exclusion; no callback heartbeat is
 needed while a preview remains active.
 Author focused4/4 and independent expanded17/17 passed (18-25-26 / 18-26-42), with unchanged timer, idle, SVG and render counts during51 trusted Orbit hover moves. Type checks remain0/0 and headless clean.
+
+### 2026-09-28 — Establish cache-watch control readiness before file publication
+
+The final aggregate exposed an intermittent control-observer race in
+verify-model3d-cache-watch.cjs: readiness of the existing project roots does not
+establish readiness of a subsequently created nested directory. Chokidar emits
+addDir and registers getWatched entries before its initial directory scan and
+underlying watch attachment finish. Back-to-back native mkdir and atomic first-file
+publication could therefore miss the control's add event. The production derived
+cache filter is unchanged.
+
+The registered gate still requires the unpruned root control to observe the actual
+first native, unmarked directory event. It then establishes an independently ready
+control over that newly created empty cache subtree before the first native poster
+write. This control must observe the self-marked add and external cache add/remove;
+the pruned production watcher must retain zero cache events/descriptors, while all
+canonical Figure and source changes still arrive. Every readiness/observation guard
+remains five seconds; no fixed settling sleep, private Chokidar field or missing
+control exemption is used. Failure receipts now retain phase, both control event
+streams and public watcher state before cleanup. The original aggregate failure is
+preserved as a failed checkpoint; focused requalification is separate.
+Author and independent registered cache-watch groups both passed6/6 (18-43-47 / 18-44-44), sourceChanged=false, including22 real watcher assertions and existing source/plot/dissection/native-policy checks. This gate-only correction does not replace the pending final aggregate receipt.
