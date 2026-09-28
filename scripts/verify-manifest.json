@@ -551,7 +551,8 @@
       "verify-fulltext-corpus.ts",
       "verify-library-20k.mjs",
       "verify-scale-annotate-hover.mjs",
-      "verify-scale-inbox.mjs"
+      "verify-scale-inbox.mjs",
+      "verify-scale-model3d.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
@@ -864,7 +865,8 @@
       "verify-model3d-view-ops.ts",
       "verify-model3d-xray-gui.mjs",
       "verify-model3d-headless.ts",
-      "verify-model3d-electron.cjs"
+      "verify-model3d-electron.cjs",
+      "verify-scale-model3d.mjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -941,10 +943,19 @@
     ],
     "model3d-native": [
       "verify-model3d-electron.cjs"
+    ],
+    "model3d-scale": [
+      "verify-scale-model3d.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "scripts/lib/model3dScaleFixture.mjs",
+      "run": [
+        "group:model3d-scale"
+      ]
+    },
     {
       "glob": "scripts/lib/model3dNative*",
       "run": [
@@ -7999,6 +8010,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 360000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-model3d.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
       "exclusive": true,
       "coverage": "behavior"
     }
