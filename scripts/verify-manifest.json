@@ -591,7 +591,8 @@
       "verify-annotate-utility-electron.cjs",
       "verify-live-view-electron.cjs",
       "verify-ask-electron.cjs",
-      "verify-model3d-poster-worker.cjs"
+      "verify-model3d-poster-worker.cjs",
+      "verify-figure-pdf-size.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -925,10 +926,22 @@
       "verify-connect.ts",
       "verify-connect-mcp.ts",
       "verify-connect-render.ts"
+    ],
+    "figure-pdf-size": [
+      "verify-figure-pdf-size.cjs",
+      "verify-native-families.cjs",
+      "verify-electron-hardening.ts",
+      "verify-slide-pdf.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "{electron/figurePdf.cjs,electron/ipc/staticPrint.cjs}",
+      "run": [
+        "group:figure-pdf-size"
+      ]
+    },
     {
       "glob": "electron/model3d*.cjs",
       "run": [
@@ -7947,6 +7960,17 @@
       "isolation": "scratch",
       "timeoutMs": 120000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-pdf-size.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

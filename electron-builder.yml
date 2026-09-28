@@ -11,8 +11,9 @@ directories:
 
 # Allowlist. Shared recipe and generated native model import runtimes are shipped;
 # other src/, fluxplot/, brand/, notes/, *.md are excluded by omission.
-# The main process uses Electron + Node builtins. The renderer is fully bundled
-# into dist/ by Vite; only explicitly listed CLI dependencies ship separately.
+# Native figure PDFs use a lazy PDF writer to correct Chromium paper rounding.
+# The renderer is fully bundled into dist/ by Vite; runtime dependencies below
+# ship separately with their licenses.
 files:
   - electron/**/*
   - resources/agent-skills/**/*
@@ -24,6 +25,13 @@ files:
   - "!**/node_modules/**/*"
   # PNG rendering stays in a child process; ship its wrapper + platform prebuilt.
   - node_modules/@resvg/**/*
+  - node_modules/pdf-lib/cjs/**/*
+  - node_modules/pdf-lib/package.json
+  - node_modules/pdf-lib/LICENSE.md
+  - node_modules/pdf-lib/node_modules/**/*
+  - node_modules/@pdf-lib/**/*
+  - node_modules/pako/**/*
+  - node_modules/tslib/**/*
 
 # Web capture: the browser extension ships WITH the app — the Library's setup panel opens the
 # signed .xpi (Firefox) or reveals the unpacked folder (Chromium), so both must be on disk.

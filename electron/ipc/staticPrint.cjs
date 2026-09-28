@@ -81,7 +81,7 @@ function dispose() {
     /* already gone */
   }
 }
-async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag, projectRoot) {
+async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag, projectRoot, figureSize) {
   return runPrintExclusive(async () => {
     if(disposed)throw new Error("Static print worker disposed");
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `flux-${tmpTag}-`));
@@ -98,8 +98,9 @@ async function printHtmlToPdf(html, outPath, pdfOpts, tmpTag, projectRoot) {
       const abandon=()=>{try{win.destroy();}catch{}if(printWin===win)printWin=null;};
       await bounded(()=>win.loadFile(tmp),"while loading assets",abandon);
       if(failedAssets.size)throw new Error("Static PDF export could not load an image, font, or stylesheet. Embed remote assets and check that local project assets still exist before retrying.");
-      const data = await bounded(()=>win.webContents.printToPDF(pdfOpts),"while printing",abandon);
+      let data = await bounded(()=>win.webContents.printToPDF(pdfOpts),"while printing",abandon);
       if(failedAssets.size)throw new Error("Static PDF export could not load an image, font, or stylesheet; the previous output was preserved.");
+      if(figureSize)data=await bounded(()=>require("../figurePdf.cjs").exactFigurePdf(data,figureSize.width,figureSize.height),"while setting the figure page size",abandon);
       if(disposed)throw new Error("Static print worker disposed");
       await atomicWriteMain(outPath, data);
     } finally {
@@ -134,7 +135,7 @@ ipc.handle("export:pdf", async (e, { svg, outPath, w, h }) => {
       margins: { top: 0, bottom: 0, left: 0, right: 0 },
       pageSize: { width: w / 96, height: h / 96 },
     },
-    "fig", rootFor(e),
+    "fig", rootFor(e), {width:w*72/96,height:h*72/96},
   );
 });
 
