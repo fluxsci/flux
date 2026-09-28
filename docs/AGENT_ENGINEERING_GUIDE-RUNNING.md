@@ -8170,3 +8170,16 @@ reports the pending F2 `animator/shared.ts` literal on this base; that file rema
 **Learnings:** The canonical schema/generator live in `src/lib/project`, with flux-core re-export
 shims. Cross-beat anchor detachment needs the source beat's manifests for semantic stagger tails;
 the pure ops accept `manifestFor` and headless move supplies it. Promoted both contracts to the body.
+
+### 2026-09-28 04:45 UTC — M3 integration QA (Claude, av2/M3)
+**Work:** Rebased M3 over C2P, F2 and D2. F2 and M3 each brought an easing-token census to
+`verify-preset-catalog.ts`; they are now one (M3's scope `src/**` + `flux-core/**`, F2's
+any-three-distinct-tokens threshold, plus `EASINGS === EASING_TOKENS` identity). Added a
+REAL-CLI pin: a cross-beat `move-track` of an anchored follower keeps the leader's plot
+stagger tail (flux-core supplies `manifestFor`). Checked by hand through the CLI:
+`set-track --curve "spring(0.35)"` persists the spec, clears easing/influence and validates;
+`--curve garbage` prints the grammar; `animate-like --beat`; media styles refuse stagger.
+**Learnings:** Until M2 lands, the player ignores `curve` (it reads `easing`/`influence`),
+so a curve-only track plays the family default. The Animator's easing `<select>` and
+influence fields assign fields directly and leave an own `curve` in place; route them through
+`setTrackCurve` when CurveField replaces them (M4), before curves become audible.
