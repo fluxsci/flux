@@ -6,8 +6,9 @@ import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { userDataDir } from './fluxlib';
 import { confinedRecoveryPath } from './recovery';
-import { projectAssetPath, safeJoin, exists } from './model';
-import { renderModelPosterBatch, type PosterBatchOptions, type PosterRequest } from './model3dPosters';
+import { projectAssetPath, safeJoin, exists, readFigIndex, readCanvasFiles } from './model';
+import { normalizeIndexAssets } from '../src/lib/project/figfiles';
+import { planPosterBatches, renderModelPosterBatch, type PosterBatchOptions, type PosterRequest } from './model3dPosters';
 import { collectModel3dSourceBindings } from '../src/lib/model3d/sourceBinding';
 import { readScene3dSidecars } from '../src/lib/model3d/persistence';
 import { collectModelPosters, model3dSvgContext, staticModelRequest, type StaticModelPosterRequest } from '../src/lib/model3d/static';
@@ -66,6 +67,18 @@ async function cached(file: string, size: { w: number; h: number }, root?: strin
   try { const bytes = await boundedModelFile(file, 300 * 1024 * 1024, root); return validModelPosterPng(bytes, size) ? bytes : undefined; } catch { return undefined; }
 }
 const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`;
+/** Metadata-only scene sidecar read, bound to every placement's original receipt. */
+async function readModelManifest(root: string, asset: Asset, bindings: ReturnType<typeof collectModel3dSourceBindings>, signal?: AbortSignal): Promise<{ manifest?: Scene3dManifest; issues: string[] }> {
+  try {
+    const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
+      return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, signal)).toString('utf8');
+    } }, 'fig/assets', asset.id, { binding: bindings.get(asset.id) });
+    return { manifest: metadata.manifest, issues: metadata.issues ?? [] };
+  } catch (error) {
+    signal?.throwIfAborted();
+    return { issues: [`3D model "${asset.name || asset.id}": scene metadata could not be read; showing the stored mesh. ${error instanceof Error ? error.message : String(error)}`] };
+  }
+}
 const label = (request: StaticModelPosterRequest) => request.element.name || request.asset.name || request.element.id;
 const abort = (signal?: AbortSignal) => signal?.throwIfAborted();
 
@@ -89,16 +102,9 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') missingFiles.set(asset.id, rel);
       else warnings.push(`3D model "${asset.name || asset.id}": ${error instanceof Error ? error.message : String(error)}`);
     }
-    try {
-      const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
-        return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, options.signal)).toString('utf8');
-      } }, 'fig/assets', asset.id, { binding: bindings.get(asset.id) });
-      if (metadata.manifest) manifests[asset.id] = metadata.manifest;
-      warnings.push(...metadata.issues ?? []);
-    } catch (error) {
-      abort(options.signal);
-      warnings.push(`3D model "${asset.name || asset.id}": scene metadata could not be read; showing the stored mesh. ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const metadata = await readModelManifest(root, asset, bindings, options.signal);
+    if (metadata.manifest) manifests[asset.id] = metadata.manifest;
+    warnings.push(...metadata.issues);
   }
   const context = model3dSvgContext(assets, manifests, surface);
   // One bad placement (missing metadata, unusable box) becomes a placeholder and
@@ -116,28 +122,36 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
   }
   for (const request of requests) {
     abort(options.signal);
-    const bytes = (projectCache ? await cached(path.join(projectDir, `${request.key}.png`), request, root) : undefined) ?? await cached(path.join(machineDir, `${request.key}.png`), request);
+    let bytes = projectCache ? await cached(path.join(projectDir, `${request.key}.png`), request, root) : undefined;
+    if (!bytes) {
+      const machineFile = path.join(machineDir, `${request.key}.png`);
+      bytes = await cached(machineFile, request);
+      // Least-recently-used bookkeeping for the machine cache prune. Cold
+      // collection (Connect) never writes any poster cache, not even times.
+      if (bytes && options.policy !== 'collect') { const now = new Date(); await fs.utimes(machineFile, now, now).catch(() => {}); }
+    }
     if (bytes) urls[request.ref] = url(bytes); else missing.push(request);
   }
   const renderable = missing.filter(request => paths.has(request.asset.id));
   if (options.policy !== 'collect' && renderable.length && (projectCache || options.policy !== 'project')) {
     const outDir = options.policy === 'project' ? projectDir : machineDir;
-    const chunks: StaticModelPosterRequest[][] = [], actualSizes = new Map<string, number>(); let chunk: StaticModelPosterRequest[] = [], models = new Set<string>(), totalBytes = 0;
+    const actualSizes = new Map<string, number>(), sized: StaticModelPosterRequest[] = [];
     for (const request of renderable) {
-      let size = actualSizes.get(request.asset.id);
       try {
         if (!Number.isFinite(request.asset.bytes) || request.asset.bytes <= 0 || request.asset.bytes > GLB_LIMITS.maxBytes) throw new Error('model byte limit prevents poster rendering');
-        if (size === undefined) {
+        if (!actualSizes.has(request.asset.id)) {
           const file = await projectAssetPath(root, `fig/${request.asset.path}`), stat = await fs.stat(file);
           if (!stat.isFile() || stat.size <= 0 || stat.size > GLB_LIMITS.maxBytes) throw new Error('model byte limit prevents poster rendering');
-          size = stat.size; actualSizes.set(request.asset.id, size);
+          actualSizes.set(request.asset.id, stat.size);
         }
-      } catch (error) { warnings.push(`3D model "${label(request)}": ${error instanceof Error ? error.message : String(error)}`); continue; }
-      const extra = models.has(request.asset.id) ? 0 : size;
-      if (chunk.length && (chunk.length === 64 || totalBytes + extra > 1024 * 1024 * 1024)) { chunks.push(chunk); chunk = []; models = new Set(); totalBytes = 0; }
-      chunk.push(request); if (!models.has(request.asset.id)) { models.add(request.asset.id); totalBytes += size; }
+        sized.push(request);
+      } catch (error) { warnings.push(`3D model "${label(request)}": ${error instanceof Error ? error.message : String(error)}`); }
     }
-    if (chunk.length) chunks.push(chunk);
+    // Actual stat sizes plan sequential worker jobs under the per-page cap.
+    const plan = planPosterBatches(sized, request => [request.asset.id], id => actualSizes.get(id) ?? Infinity);
+    for (const request of plan.oversized) warnings.push(`3D model "${label(request)}": model byte limit prevents poster rendering`);
+    const chunks = plan.batches;
+    let publishedToMachine = false;
     for (const batch of chunks) {
       abort(options.signal);
       const byId = new Map(batch.map(request => [request.asset.id, request.asset]));
@@ -155,11 +169,15 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
           const bytes = await cached(path.join(outDir, `${request.key}.png`), request, options.policy === 'project' ? root : undefined);
           if (bytes) urls[request.ref] = url(bytes);
         }
+        if (options.policy === 'image') publishedToMachine = true;
       } catch (error) {
         abort(options.signal);
         for (const request of batch) warnings.push(`3D model "${label(request)}": ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
       }
     }
+    // The machine cache only grows through explicit image requests, so it is
+    // bounded right there (throttled, best effort, never this request's keys).
+    if (publishedToMachine) await pruneMachineModelPostersThrottled(new Set(allRequests.map(request => request.key)));
   }
   const figureOf = new Map(figures.flatMap(figure => figure.elements.map(element => [element.id, figure] as const)));
   for (const request of allRequests) {
@@ -179,16 +197,77 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
   return { context, urls, warnings: [...new Set(warnings)], requests: allRequests, manifests };
 }
 export type ResolvedModelPosters = Awaited<ReturnType<typeof resolveModelPosters>>;
-/** Cold cache signature: new/deleted/corrected posters invalidate Connect pictures. No mkdir/mtime write. */
+/** Machine cache bounds: the project-cache age rule plus a size cap. */
+export const MACHINE_POSTER_CACHE_LIMITS = Object.freeze({ maxBytes: 1024 * 1024 * 1024, olderThanDays: 14 });
+export interface CachedPosterEntry { name: string; size: number; mtimeMs: number }
+/** Pure prune plan for the shared machine cache. Entries older than the age
+ * rule go first (a cross-project cache has no live set; `protect` holds the
+ * keys the current caller uses), then least recently used (mtime is touched on
+ * every non-Connect hit) until the cache fits the size cap. */
+export function planMachinePosterPrune(entries: readonly CachedPosterEntry[], protect: ReadonlySet<string>, now = Date.now(), limits: { maxBytes: number; olderThanDays: number } = MACHINE_POSTER_CACHE_LIMITS): string[] {
+  const valid = entries.filter(entry => /^m3d-[\da-f]{14}\.png$/.test(entry.name) && Number.isFinite(entry.size) && Number.isFinite(entry.mtimeMs));
+  const cutoff = now - limits.olderThanDays * 86400_000, removed = new Set<string>();
+  for (const entry of valid) if (entry.mtimeMs < cutoff && !protect.has(entry.name.slice(0, -4))) removed.add(entry.name);
+  let total = valid.filter(entry => !removed.has(entry.name)).reduce((sum, entry) => sum + entry.size, 0);
+  for (const entry of [...valid].sort((a, b) => a.mtimeMs - b.mtimeMs || a.name.localeCompare(b.name))) {
+    if (total <= limits.maxBytes) break;
+    if (removed.has(entry.name) || protect.has(entry.name.slice(0, -4))) continue;
+    removed.add(entry.name); total -= entry.size;
+  }
+  return valid.map(entry => entry.name).filter(name => removed.has(name));
+}
+/** Apply planMachinePosterPrune to `<userData>/model3d-posters`. Only regular
+ * m3d-*.png files are candidates; returns the removed names. */
+export async function pruneMachineModelPosters(options: { protect?: ReadonlySet<string>; now?: number; limits?: { maxBytes: number; olderThanDays: number } } = {}): Promise<string[]> {
+  const dir = machineModelPosterDir(), entries: CachedPosterEntry[] = [];
+  for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
+    if (!/^m3d-[\da-f]{14}\.png$/.test(name)) continue;
+    const stat = await fs.lstat(path.join(dir, name)).catch(() => undefined);
+    if (stat?.isFile()) entries.push({ name, size: stat.size, mtimeMs: stat.mtimeMs });
+  }
+  const removed: string[] = [];
+  for (const name of planMachinePosterPrune(entries, options.protect ?? new Set(), options.now, options.limits)) {
+    try { await fs.rm(path.join(dir, name)); removed.push(name); } catch { /* another process pruned it */ }
+  }
+  return removed;
+}
+let lastMachinePrune = 0;
+async function pruneMachineModelPostersThrottled(protect: ReadonlySet<string>) {
+  if (Date.now() - lastMachinePrune < 10 * 60_000) return;
+  lastMachinePrune = Date.now();
+  await pruneMachineModelPosters({ protect }).catch(() => {});
+}
+
+/** The figure-surface poster keys this project's saved placements use now. */
+export async function liveModelPosterKeys(root: string): Promise<string[]> {
+  const index = await readFigIndex(root);
+  if (!index) return [];
+  const figures = Object.values((await readCanvasFiles(root, index)).byId);
+  const assets = normalizeIndexAssets(index);
+  const used = new Set(figures.flatMap(figure => figure.elements.filter(element => element.type === 'model3d').map(element => element.assetId)));
+  if (!used.size) return [];
+  const bindings = collectModel3dSourceBindings(figures.flatMap(figure => figure.elements)), manifests: Record<string, Scene3dManifest> = {};
+  for (const asset of assets) if (used.has(asset.id) && asset.kind === 'glb') {
+    const metadata = await readModelManifest(root, asset, bindings);
+    if (metadata.manifest) manifests[asset.id] = metadata.manifest;
+  }
+  const context = model3dSvgContext(assets, manifests, 'figure');
+  return [...new Set(collectModelPosters(figures, context, 'figure', { onIssue: () => {} }).map(request => request.key))].sort();
+}
+/** Cold cache signature: new/deleted/republished posters of THIS project's live
+ * keys invalidate Connect pictures. Scoped to those keys (the machine cache is
+ * shared by every project); size + inode identify a publication, so the LRU
+ * touch on a cache hit does not invalidate. No mkdir or time write. */
 export async function modelPosterAvailabilitySignature(root: string): Promise<string> {
+  let keys: string[];
+  try { keys = await liveModelPosterKeys(root); }
+  catch (error) { return createHash('sha256').update(`unavailable:${error instanceof Error ? error.message : String(error)}`).digest('hex'); }
   const parts: string[] = [];
   const projectDir = safeJoin(root, 'fig/renders/model3d');
-  await confinedRecoveryPath(root, projectDir);
-  for (const directory of [projectDir, machineModelPosterDir()]) {
-    for (const name of (await fs.readdir(directory).catch(() => [])).filter(name => /^m3d-[a-f0-9]{14}\.png$/.test(name)).sort()) {
-      const stat = await fs.stat(path.join(directory, name)).catch(() => undefined);
-      if (stat) parts.push(`${directory}/${name}:${stat.size}:${stat.mtimeMs}`);
-    }
+  const projectCache = await confinedRecoveryPath(root, projectDir).then(() => true, () => false);
+  for (const key of keys) for (const [label, directory] of [['project', projectCache ? projectDir : ''], ['machine', machineModelPosterDir()]] as const) {
+    const stat = directory ? await fs.stat(path.join(directory, `${key}.png`)).catch(() => undefined) : undefined;
+    parts.push(`${label}:${key}:${stat ? `${stat.size}:${stat.ino || stat.mtimeMs}` : '-'}`);
   }
   return createHash('sha256').update(parts.join('\n')).digest('hex');
 }

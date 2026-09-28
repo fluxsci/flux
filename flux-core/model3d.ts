@@ -7,7 +7,7 @@ import { confinedRecoveryPath } from './recovery';
 import { loadFigModel, mutateFigModel, safeJoin, stageFigureWrites, exists } from './model';
 import { journal } from './journal';
 import { FluxError, NotFoundError, ValidationError } from './errors';
-import { resolveModelPosters, validModelPosterPng } from './model3dPosterCache';
+import { resolveModelPosters, validModelPosterPng, pruneMachineModelPosters } from './model3dPosterCache';
 import { inspectGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { prepareModel3dImport, parseModel3dImportMetadata, makeImportedModel3dElement } from '../src/lib/model3d/importData';
 import { readScene3dSidecars } from '../src/lib/model3d/persistence';
@@ -172,7 +172,7 @@ export async function renderModelPosters(root: string, options: { figureId?: str
       }
       posters.push({ elementId: request.element.id, key: request.key, path: ready ? file : null, ready, width: request.w, height: request.h });
     }
-    const removed: string[] = [];
+    const removed: string[] = [], machineRemoved: string[] = [];
     if (options.prune) {
       // Rendering may outlive a save in another window/process. Protect the
       // current saved references, including views added during that render.
@@ -186,8 +186,11 @@ export async function renderModelPosters(root: string, options: { figureId?: str
         if (!stat.isFile() || !isModelPosterPrunable(name, stat.mtimeMs, live)) continue;
         options.signal?.throwIfAborted(); await fs.rm(file); removed.push(name);
       }
+      // The shared machine cache (filled by read-only image requests) is bounded
+      // by the same age rule plus a size cap; this project's live keys survive.
+      machineRemoved.push(...await pruneMachineModelPosters({ protect: live }));
     }
-    return { posters, warnings: rendered.warnings, removed };
+    return { posters, warnings: rendered.warnings, removed, ...(options.prune ? { machineRemoved } : {}) };
   })();
   options.signal?.throwIfAborted();
   await journal(root, { action: 'render_model_posters', posters: result.posters.length, pruned: result.removed.length });

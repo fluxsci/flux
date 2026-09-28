@@ -7,9 +7,36 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { atomicWrite, fsyncDir } from "./fsx";
 import { publishModelFile } from "./model3dFile";
+import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
 import type { RenderSpec } from "../src/lib/model3d/types";
 
 const KEY = /^m3d-[a-f0-9]{14}$/;
+/** One worker page embeds every model of its batch as base64 inside one script
+ * string. V8 caps a string near 512 MiB (2^29 - 24 chars), so the raw model
+ * bytes of a batch stay at or below 256 MiB (about 342 MiB of base64) and the
+ * planner splits larger work into sequential worker jobs. */
+export const POSTER_BATCH_LIMITS = Object.freeze({ maxRequests: 64, maxModelBytes: 256 * 1024 * 1024 });
+export interface PosterBatchPlan<T> { batches: T[][]; oversized: T[] }
+/** Pure greedy planner: request order is preserved, each distinct model counts
+ * once per batch, and a request whose own models exceed the byte cap is
+ * returned in `oversized` instead of producing an unrenderable page. */
+export function planPosterBatches<T>(requests: readonly T[], modelsOf: (request: T) => readonly string[], sizeOf: (modelId: string) => number,
+  limits: { maxRequests: number; maxModelBytes: number } = POSTER_BATCH_LIMITS): PosterBatchPlan<T> {
+  const batches: T[][] = [], oversized: T[] = [];
+  let batch: T[] = [], models = new Set<string>(), bytes = 0;
+  for (const request of requests) {
+    const own = [...new Set(modelsOf(request))], ownBytes = own.reduce((sum, id) => sum + sizeOf(id), 0);
+    if (!Number.isFinite(ownBytes) || ownBytes > limits.maxModelBytes) { oversized.push(request); continue; }
+    const extra = own.filter(id => !models.has(id)).reduce((sum, id) => sum + sizeOf(id), 0);
+    if (batch.length && (batch.length >= limits.maxRequests || bytes + extra > limits.maxModelBytes)) {
+      batches.push(batch); batch = []; models = new Set(); bytes = 0;
+    }
+    batch.push(request);
+    for (const id of own) if (!models.has(id)) { models.add(id); bytes += sizeOf(id); }
+  }
+  if (batch.length) batches.push(batch);
+  return { batches, oversized };
+}
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 export interface PosterRequest { key: string; spec: RenderSpec }
 export interface PosterProgress { phase: "preparing" | "rendering"; done: number; total: number }
@@ -97,7 +124,7 @@ export async function renderModelPosterBatch(requests: readonly PosterRequest[],
 async function runModelPosterBatch(requests: readonly PosterRequest[], options: PosterBatchOptions): Promise<PosterBatchResult> {
   const t0 = performance.now();
   if (!requests.length) return { renderer: "", readyMs: 0, spawnMs: 0, totalMs: 0, results: [] };
-  if (requests.length > 64) throw new Error("A 3D poster batch may contain at most 64 requests");
+  if (requests.length > POSTER_BATCH_LIMITS.maxRequests) throw new Error(`A 3D poster batch may contain at most ${POSTER_BATCH_LIMITS.maxRequests} requests`);
   const keys = new Set<string>(), assetIds = new Set<string>();
   for (const { key, spec } of requests) {
     if (!KEY.test(key) || keys.has(key)) throw new Error("Invalid or duplicate 3D poster key");
@@ -124,7 +151,9 @@ async function runModelPosterBatch(requests: readonly PosterRequest[], options: 
     for (const id of assetIds) {
       cancelled();
       const bytes = await abortable(Promise.resolve().then(() => { cancelled(); return options.modelBytes(id, options.signal); }), options.signal);
-      if (!bytes.length || bytes.length > 200 * 1024 * 1024 || (totalBytes += bytes.length) > 1024 * 1024 * 1024)
+      // Callers plan batches with planPosterBatches; this is the backstop that
+      // keeps one page's base64 payload below the V8 string limit.
+      if (!bytes.length || bytes.length > GLB_LIMITS.maxBytes || (totalBytes += bytes.length) > POSTER_BATCH_LIMITS.maxModelBytes)
         throw new Error("3D poster batch exceeds the model byte limit");
       models[id] = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
     }

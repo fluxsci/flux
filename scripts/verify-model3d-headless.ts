@@ -62,6 +62,23 @@ try {
   h.ok(svg.includes('rotate(17') && svg.includes('scale(-1 1)') && (svg.match(/opacity="0.6"/g) ?? []).length === 1, 'static model opacity/rotation/flip apply once');
   const signatureBefore = await cache.modelPosterAvailabilitySignature(root); await fs.mkdir(path.join(root, 'fig/renders/model3d'), { recursive: true }); await fs.writeFile(path.join(root, posterPath(request.key)), posterBytes);
   h.ok(signatureBefore !== await cache.modelPosterAvailabilitySignature(root), 'Connect cache signature changes on poster publication');
+  // M3: the signature covers only this project's live keys, and the LRU touch
+  // on a machine-cache hit is not a publication.
+  const signed = await cache.modelPosterAvailabilitySignature(root), machine = cache.machineModelPosterDir();
+  await fs.mkdir(machine, { recursive: true }); await fs.writeFile(path.join(machine, 'm3d-00000000000abc.png'), posterBytes);
+  h.eq(await cache.modelPosterAvailabilitySignature(root), signed, 'another project\'s machine-cache poster does not change this project\'s signature');
+  const liveMachine = path.join(machine, `${request.key}.png`), touched = new Date(Date.now() - 3600_000); await fs.utimes(liveMachine, touched, touched);
+  const touchedSignature = await cache.modelPosterAvailabilitySignature(root);
+  await cache.resolveModelPosters(root, [figure], [asset], { policy: 'collect' });
+  h.ok(Math.abs((await fs.stat(liveMachine)).mtimeMs - touched.getTime()) < 2, 'cold collection never touches the machine cache');
+  await fs.rm(path.join(root, posterPath(request.key)));
+  await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch });
+  h.ok((await fs.stat(liveMachine)).mtimeMs > touched.getTime(), 'an image-request hit marks its machine poster recently used');
+  await fs.writeFile(path.join(root, posterPath(request.key)), posterBytes);
+  h.ok(await cache.modelPosterAvailabilitySignature(root) !== touchedSignature, 'republishing a live project poster changes the signature');
+  const afterRepublish = await cache.modelPosterAvailabilitySignature(root); const now = new Date(); await fs.utimes(liveMachine, now, now);
+  h.eq(await cache.modelPosterAvailabilitySignature(root), afterRepublish, 'an LRU touch alone does not invalidate Connect pictures');
+  await fs.rm(path.join(machine, 'm3d-00000000000abc.png'));
   const stored = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'collect' });
   const source = await import('../src/shell/modes/paper/scholar/figures');
   source.__seedFigures([], { [figure.id]: figure }, {}, [], {}, [asset], [], { [asset.id]: manifest }, stored.urls);
@@ -100,6 +117,33 @@ try {
 
   // H1: a missing GLB degrades to "placeholder (or cached poster) + warning";
   // it never breaks headless rendering, compile or repair of the figure.
+  h.section('poster batch planning (M2) and machine cache pruning (M3)');
+  const { planPosterBatches, POSTER_BATCH_LIMITS } = await import('../flux-core/model3dPosters');
+  const { constants: bufferConstants } = await import('node:buffer');
+  const MiB = 1024 * 1024, sizes: Record<string, number> = { a: 100 * MiB, b: 100 * MiB, c: 100 * MiB, big: 200 * MiB };
+  const reqs = (models: (string | string[])[]) => models.map((m, i) => ({ i, models: Array.isArray(m) ? m : [m] }));
+  const plan = (models: (string | string[])[]) => planPosterBatches(reqs(models), r => r.models, id => sizes[id]);
+  h.eq(plan(['a', 'b', 'c', 'a']).batches.map(b => b.map(r => r.i)), [[0, 1], [2, 3]], 'distinct model bytes above 256 MiB start a new worker job; a shared model counts once');
+  h.eq(plan(Array(66).fill('a')).batches.map(b => b.length), [64, 2], 'the 64-request page limit still applies');
+  h.eq([plan([['big', 'big']]).batches.length, plan([['a', 'big']]).oversized.map(r => r.i)], [1, [0]], 'a request whose own models exceed the page cap is refused, never sent');
+  h.ok(Math.ceil(POSTER_BATCH_LIMITS.maxModelBytes / 3) * 4 + 16 * MiB < bufferConstants.MAX_STRING_LENGTH, `a full batch stays below the V8 string limit (${bufferConstants.MAX_STRING_LENGTH} chars) with page headroom`);
+  const sparse: Model3dAsset[] = [];
+  for (const id of ['heavy-a', 'heavy-b', 'heavy-c']) { const file = path.join(root, 'fig/assets', `${id}.glb`); await fs.writeFile(file, ''); await fs.truncate(file, 150 * MiB); sparse.push({ ...asset, id, path: `assets/${id}.glb`, bytes: 150 * MiB, sha256: createHash('sha256').update(id).digest('hex') }); }
+  const heavy = { ...figure, elements: sparse.map((a, i) => ({ ...element, id: `heavy-${i}`, assetId: a.id })) }, jobs: string[][] = [];
+  await cache.resolveModelPosters(root, [heavy], sparse, { policy: 'image', renderBatch: async requests => { jobs.push([...new Set(requests.map(r => r.spec.assetId))]); throw Error('planned only'); } });
+  h.eq(jobs, [['heavy-a'], ['heavy-b'], ['heavy-c']], 'actual stat sizes split 3 x 150 MiB models into three worker jobs');
+  for (const a of sparse) await fs.rm(path.join(root, 'fig', a.path));
+  const day = 86400_000, t = Date.now(), key = (name: string) => `m3d-${name.padStart(14, '0')}`, entry = (name: string, size: number, ageDays: number) => ({ name: `${key(name)}.png`, size, mtimeMs: t - ageDays * day });
+  h.eq(cache.planMachinePosterPrune([entry('a1', 10, 15), entry('a2', 10, 15), entry('a3', 10, 1)], new Set([key('a2')]), t), [`${key('a1')}.png`], 'machine cache age rule: older than 14 days goes, protected keys stay');
+  const big = 400 * MiB;
+  h.eq(cache.planMachinePosterPrune([entry('b1', big, 3), entry('b2', big, 2), entry('b3', big, 1)], new Set([key('b1')]), t), [`${key('b2')}.png`], 'machine cache size cap evicts least recently used first, skipping protected keys');
+  h.eq(cache.planMachinePosterPrune([entry('c1', 10, 1), { name: 'notes.txt', size: 5 * 1024 * MiB, mtimeMs: 0 }], new Set(), t), [], 'only m3d-*.png files count toward or fall to the prune');
+  const oldMachine = path.join(machine, 'm3d-000000000000ff.png'), keepName = path.join(machine, 'keep.png');
+  await fs.writeFile(oldMachine, posterBytes); await fs.writeFile(keepName, 'x'); const old = new Date(t - 20 * day); await fs.utimes(oldMachine, old, old); await fs.utimes(keepName, old, old);
+  h.eq(await cache.pruneMachineModelPosters({ protect: new Set([request.key]) }), ['m3d-000000000000ff.png'], 'pruneMachineModelPosters applies the plan to <userData>/model3d-posters');
+  h.ok(await fs.access(keepName).then(() => true) && await fs.access(liveMachine).then(() => true), 'unrelated files and protected live posters survive the prune');
+  await fs.rm(keepName);
+
   h.section('missing GLB file');
   const { readFigureSnapshot } = await import('../src/lib/project/figureSnapshot');
   const snapshotIO = { readText: async (rel: string) => fs.readFile(path.join(root, rel), 'utf8').catch(() => null), assetExists: async (rel: string) => fs.access(path.join(root, rel)).then(() => true, () => false), listDirectory: async () => null };

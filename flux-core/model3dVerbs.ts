@@ -63,7 +63,7 @@ export const MODEL3D_VERBS: VerbDef[] = [
   },
   {
     name: 'render_model_posters', cli: 'render-model-posters', cliRoot: 'flags', scope: 'project',
-    summary: 'Render saved Figure model views into the project poster cache using a batched native worker. Optional figure filter; prune removes only unreferenced posters older than 14 days. Ordinary Connect reads never render or write these caches.',
+    summary: 'Render saved Figure model views into the project poster cache using a batched native worker. Optional figure filter; prune removes only unreferenced posters older than 14 days and bounds the machine cache (14 days, 1 GiB). Ordinary Connect reads never render or write these caches.',
     params: { figureId: z.string().optional(), prune: z.boolean().optional() },
     cliArgs: [{ kind: 'flag', at: 'figure', into: 'figureId' }, { kind: 'flag', at: 'prune', into: 'prune', as: 'boolean' }],
     handler: (ctx, a) => renderModelPosters(ctx.root, { figureId: a.figureId as string | undefined, prune: a.prune as boolean | undefined, signal: ctx.signal }),
