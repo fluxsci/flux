@@ -1,8 +1,9 @@
 /** Pure semantic mutations shared by Figure controls, CLI and live commands. */
 import type { Id, Project } from '../types';
-import type { Model3dElement, ModelFieldOverride, Scene3dManifest } from './types';
+import type { Model3dElement, ModelFieldOverride } from './types';
 import { findColormap } from '../color/collections';
 import { statesAtFrame } from './orbit';
+export { modelDefaultStates } from './stateDefaults';
 
 export interface ModelFieldPatch { cmap?: string | null; range?: [number, number] | null }
 function models(project: Project, ids: readonly Id[]): Model3dElement[] {
@@ -52,16 +53,6 @@ export function setModelStates(project: Project, ids: readonly Id[], states: Rec
   }
 }
 
-/** Source metadata may describe targets absent from this GLB. Reset/Home ignore
- * those warned-about names; explicit authored edits remain strictly validated. */
-export function modelDefaultStates(manifest: Scene3dManifest | undefined, names: readonly string[]): Record<string, number> {
-  const out: Record<string, number> = Object.create(null);
-  for (const name of names) {
-    const value = manifest?.view?.states && Object.hasOwn(manifest.view.states, name) ? manifest.view.states[name] : 0;
-    if (Number.isFinite(value) && value !== 0) out[name] = value;
-  }
-  return out;
-}
 export function modelStateWeight(states: Record<string, number> | undefined, name: string): number {
   return states && Object.hasOwn(states, name) ? states[name] : 0;
 }

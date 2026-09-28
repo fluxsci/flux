@@ -2569,10 +2569,21 @@ function newId(prefix = "el") {
   return `${prefix}_${Date.now().toString(36)}${RUN}_${idCounter}`;
 }
 
+// src/lib/model3d/stateDefaults.ts
+function modelDefaultStates(manifest, names) {
+  const out = /* @__PURE__ */ Object.create(null);
+  for (const name of names) {
+    const value = manifest?.view?.states && Object.hasOwn(manifest.view.states, name) ? manifest.view.states[name] : 0;
+    if (Number.isFinite(value) && value !== 0) out[name] = value;
+  }
+  return out;
+}
+
 // src/lib/model3d/orbit.ts
 var rad = Math.PI / 180;
-function homeView(_asset, manifest) {
+function homeView(asset, manifest) {
   const v = manifest?.view;
+  const states = modelDefaultStates(manifest ?? void 0, asset?.model.states ?? Object.keys(v?.states ?? {}));
   return {
     orbitAzimuth: v?.azimuth ?? 30,
     orbitElevation: v?.elevation ?? 20,
@@ -2582,7 +2593,7 @@ function homeView(_asset, manifest) {
     orbitPanY: v?.panY ?? 0,
     orbitProjection: v?.projection ?? "orthographic",
     orbitFov: v?.fov ?? 30,
-    ...v?.states ? { modelStates: { ...v.states } } : {}
+    ...Object.keys(states).length ? { modelStates: states } : {}
   };
 }
 

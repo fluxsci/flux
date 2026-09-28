@@ -98,6 +98,12 @@ h.ok(rows.some(r=>r.partId==='axon'&&r.hiddenCount===1),'common child hidden cou
 const xr=buildXrayTree(project,{kind:'element',figId:'figure',elementId:'a'},{},models)!;
 h.ok(xr.children.some(r=>r.partId==='@series:neuron'&&r.hidden),'unified X-ray consumes model source');
 h.eq(modelDefaultStates(source,info.states),{first:.5},'Home/Reset ignores metadata names missing from geometry');
+const constructed=makeModel3dElement(asset,{id:'from-source',manifest:{...source,view:{states:{first:-.2,second:1.2,ghost:.8}}}});
+h.eq(constructed.modelStates,{first:-.2,second:1.2},'constructor uses geometry-owned defaults and preserves finite extrapolation');
+const importedProject={assets:[asset],figures:[{id:'imported',elements:[constructed]}]} as unknown as Project;
+setModelStates(importedProject,[constructed.id],{...constructed.modelStates,first:.4});
+h.eq(constructed.modelStates,{first:.4,second:1.2},'ordinary known-state edit remains valid immediately after import');
+
 h.eq(modelDefaultStates({...source,view:{states:{first:-.2,second:1.2,missing:3}}},['first','second']),{first:-.2,second:1.2},'Home/Reset preserve accepted finite extrapolated source defaults exactly');
 h.eq(modelDefaultStates({...source,view:{states:{constructor:.5}}},['constructor','__proto__']),{constructor:.5},'source state defaults never inherit object properties');
 h.eq(modelFrame(undefined,['constructor','__proto__']),0,'absent prototype-named states read base');

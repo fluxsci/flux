@@ -32,6 +32,8 @@ h.ok(stripped.data.sourceSha256 !== stripped.data.asset.sha256 && !!stripped.dat
 const element = makeImportedModel3dElement({ ...prepared.data, source: { glbPath: '/project/plots/neuron.glb', manifestPath: '/project/plots/neuron.fluxplot.json' } }, { root: '/project', id: 'neuron-view' });
 h.eq([element.width, element.height, element.name, element.orbitAzimuth, element.orbitElevation, element.orbitProjection, element.orbitFov], [384,288,'Neuron',76,24,'perspective',35], 'manifest physical size, view and name become element defaults');
 h.eq([element.fill, element.modelColors, element.source?.glbPath, element.source?.sha256], ['#D14D41','source','plots/neuron.glb',sha(bytes)], 'source colors and portable original-byte provenance survive');
+const unknownDefault=makeImportedModel3dElement({...prepared.data,manifest:{...manifest,view:{...manifest.view,states:{ghost:1}}}});
+h.ok(!unknownDefault.modelStates,'public imported element never persists metadata-only shape names');
 const plain = makeImportedModel3dElement({ ...prepared.data, manifest: undefined }, { figureWidth: 400 });
 h.eq([plain.width, plain.height], [200,150], 'plain mesh defaults to half figure width and a 4:3 box');
 for (const text of ['not json', JSON.stringify({ ...manifest, schemaVersion: '9.0.0' }), JSON.stringify({ ...manifest, glbSha256: '0'.repeat(64) }), JSON.stringify({ spec: 'fluxplot', schemaVersion: '0.3.0' })]) {
