@@ -580,7 +580,8 @@
       "verify-figure-metadata-electron.cjs",
       "verify-annotate-utility-electron.cjs",
       "verify-live-view-electron.cjs",
-      "verify-ask-electron.cjs"
+      "verify-ask-electron.cjs",
+      "verify-model3d-poster-worker.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -839,11 +840,19 @@
       "verify-model3d-core.ts",
       "verify-model3d-scene3d.ts",
       "verify-model3d-furniture.ts",
-      "verify-model3d-morph.ts"
+      "verify-model3d-morph.ts",
+      "verify-model3d-poster-worker.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "electron/model3d*.cjs",
+      "run": [
+        "group:model3d",
+        "verify-ipc-contract.ts"
+      ]
+    },
     {
       "glob": "src/lib/model3d/**",
       "run": [
@@ -7731,6 +7740,17 @@
       "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
+    },
+    "verify-model3d-poster-worker.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "file:dist/flux-model3d-runtime.js",
+        "display"
+      ],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": true,
+      "timeoutMs": 180000
     }
   }
 }

@@ -52,6 +52,8 @@ asarUnpack:
   - dist/flux-fulltext-worker.mjs
   - dist/slide-export-assets.json
   - electron/slideVideoWorker.cjs
+  - electron/model3dPosterWorker.cjs
+  - dist/flux-model3d-runtime.js
   - electron/videoMedia.cjs
   - electron/entry.cjs
   # External agents launch the MCP server as a Node child too, so it needs
