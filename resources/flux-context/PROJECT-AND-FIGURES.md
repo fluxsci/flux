@@ -133,24 +133,29 @@ named states; a sequence also has a derived Frame control.
 ```
 
 `restyle-part` is an alias of `restyle`; both address 2D plot and 3D mesh/furniture
-parts. Mesh fill overrides are visible in Source colors mode. Uniform colors
-uses the whole element's fill. Field edits activate Source colors and preserve
-explicit part fills, which can intentionally conceal a value map on that part.
-`--reset` on `set-model-field` removes that field's remapping only.
+parts. Mesh part fills show only with source colours (`--colors source`; the
+Inspector calls it **From file**); `--colors uniform` uses the whole element's fill.
+Field edits switch to source colours and keep explicit part fills, which can
+intentionally hide a value map on that part. `--reset` on `set-model-field` removes
+that field's remapping only.
 
 Use `--state inflated=.5 --state bent=.2` to patch named weights (`0` removes a
-weight), or `--frame 2.5` for a sequence. Stored finite weights can extrapolate
-outside 0–1; the UI sliders cover 0–1. The frame encloses the base and each shape
-at weight 1; combined or extrapolated shapes may extend beyond it. Frame itself
-is not persisted. Home restores accepted source defaults. Use `model-info a.glb
---morph-with b.glb` to check correspondence before authoring a morph.
+weight), or `--frame 2.5` for a sequence; the two forms are exclusive. `--state` is
+the only repeatable flag; duplicate names, unknown shapes and non-finite weights are
+errors. Stored finite weights can extrapolate outside 0–1; the UI sliders cover 0–1.
+The camera framing covers the base and each shape at weight 1, so combined or
+extrapolated shapes may extend beyond it. A sequence's Frame value is derived from
+the weights and never stored. Home restores the accepted source defaults. Use
+`model-info a.glb --morph-with b.glb` to check correspondence before authoring a morph.
 
 An invalid/newer/mismatched optional manifest degrades to a named plain mesh
 with a warning; its original bytes remain stored. Geometry refusal is explicit.
 An unavailable renderer retains the imported model and reports an unavailable
 poster. Import/view/field/restyle commands attempt a matching poster after saving;
-`--no-poster` leaves it for a later explicit render. Cached posters are derived; `render-model-posters --prune` removes only
-unreferenced entries older than 14 days, considering every saved figure. Connect
+a poster failure is only a warning on a successful edit, and `--no-poster` leaves the
+poster for a later explicit render. Cached posters are derived;
+`render-model-posters --prune` removes only unreferenced entries older than 14 days,
+considering every saved figure. Connect
 uses cached posters or labeled placeholders without reading GLB bytes or
 creating model posters. Explicit image requests/export can render them. Exports
 embed mesh pixels at the requested resolution and keep furniture as SVG text
