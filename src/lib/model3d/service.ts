@@ -10,7 +10,8 @@ export interface RenderOptions {
   /** Pointer release/capture always requests the full authored pixel size. */
   fullResolution?: boolean;
 }
-export interface RetainAsset { id: string; bytes?: ArrayBuffer }
+/** `bounds`: the stored asset.model.bounds, which govern framing (see renderCore.load). */
+export interface RetainAsset { id: string; bytes?: ArrayBuffer; bounds?: import('./types').ModelBounds }
 export interface Availability { ok: boolean; renderer?: string; reason?: string }
 type Format = 'bitmap' | 'png';
 type Output = ImageBitmap | Blob;
@@ -95,7 +96,8 @@ export function createModel3dService(options: ServiceOptions) {
       const bytes = typeof asset === 'string' || !asset.bytes ? await sourceBytes(id) : asset.bytes;
       // Keep the provider's buffer usable by other consumers. Worker owns this copy.
       const transferred = bytes.slice(0); entry.bytes = bytes.byteLength;
-      const result = await rpc('load', { assetId: id, bytes: transferred }, [transferred]);
+      const bounds = typeof asset === 'string' ? undefined : asset.bounds;
+      const result = await rpc('load', { assetId: id, bytes: transferred, ...(bounds ? { bounds } : {}) }, [transferred]);
       evict(); return result.model;
     })().catch((error) => { if (residents.get(id) === entry) residents.delete(id); throw error; });
     residents.set(id, entry); return entry.promise;

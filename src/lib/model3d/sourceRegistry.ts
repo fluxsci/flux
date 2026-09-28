@@ -87,7 +87,8 @@ export function retainSourceModel(asset: Model3dAsset, source: ModelPosterSource
   const ready = sourceModel3dService(source).then(async service => {
     checkModelSource(source); if (released) throw abort();
     retained = service;
-    await service.retain(id); checkModelSource(source);
+    // Stored metadata frames the render exactly like the furniture projection.
+    await service.retain({ id, bounds: entry.asset.model.bounds }); checkModelSource(source);
     if (released) throw abort();
     return { service, assetId: id, owner: source };
   });

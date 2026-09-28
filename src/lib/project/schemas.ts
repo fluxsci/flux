@@ -155,7 +155,7 @@ const MODEL_INFO = {
   type: "object", required: ["triangles", "vertices", "primitives", "meshes", "bounds", "hasNormals", "hasColors", "hasValues", "materialColors", "partNames", "warnings", "extensions", "topology", "states"],
   properties: {
     ...Object.fromEntries(["triangles", "vertices", "primitives", "meshes"].map(k => [k, { type: "integer", minimum: 0 }])),
-    bounds: { type: "object", required: ["min", "max"], properties: { min: VEC3, max: VEC3 } },
+    bounds: { type: "object", required: ["min", "max"], properties: { min: VEC3, max: VEC3, radius: { type: "number", minimum: 0 } } },
     hasNormals: { type: "boolean" }, hasColors: { type: "boolean" }, hasValues: { type: "boolean" },
     materialColors: STRINGS, partNames: STRINGS, warnings: STRINGS, extensions: STRINGS, states: STRINGS,
     topology: { type: "object", required: ["key", "parts"], properties: { key: { type: "string" }, parts: { type: "array", items: { type: "object", required: ["node", "mode", "vertices", "indicesHash"], properties: { node: { type: "string" }, mode: { type: "integer", minimum: 4, maximum: 6 }, vertices: { type: "integer", minimum: 0 }, indicesHash: { type: "string" } } } } } },

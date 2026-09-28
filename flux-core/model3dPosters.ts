@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { atomicWrite, fsyncDir } from "./fsx";
 import { publishModelFile } from "./model3dFile";
 import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
-import type { RenderSpec } from "../src/lib/model3d/types";
+import type { ModelBounds, RenderSpec } from "../src/lib/model3d/types";
 
 const KEY = /^m3d-[a-f0-9]{14}$/;
 /** One worker page embeds every model of its batch as base64 inside one script
@@ -52,6 +52,8 @@ export interface PosterBatchOptions {
   /** Project-cache publication must retain this root confinement across awaits. */
   publicationRoot?: string;
   modelBytes: (assetId: string, signal?: AbortSignal) => Promise<Uint8Array> | Uint8Array;
+  /** Stored asset.model.bounds per asset id; they govern framing (renderCore.load). */
+  modelBounds?: (assetId: string) => ModelBounds | undefined;
   signal?: AbortSignal;
   onProgress?: (progress: PosterProgress) => void;
   deadlineMs?: number;
@@ -62,18 +64,18 @@ export interface PosterBatchOptions {
 const scriptJson = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
 
 /** A self-contained page with an exact script CSP and no model/resource fetching. */
-export function modelPosterHtml(runtime: string, requests: readonly PosterRequest[], models: Record<string, string>): string {
+export function modelPosterHtml(runtime: string, requests: readonly PosterRequest[], models: Record<string, string>, bounds: Record<string, ModelBounds> = {}): string {
   if (/<\/script/i.test(runtime)) throw new Error("Unsafe model runtime script terminator");
   const boot = `"use strict";
 window.fluxModel3dPosterReady = (async () => {
-  const start = performance.now(), payload = ${scriptJson({ requests, models })};
+  const start = performance.now(), payload = ${scriptJson({ requests, models, bounds })};
   const canvas = document.createElement("canvas");
   document.body.appendChild(canvas);
   const core = FluxModel3dRuntime.createRenderCore(canvas);
   for (const [id, encoded] of Object.entries(payload.models)) {
     const raw = atob(encoded), bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    await core.load(id, bytes.buffer);
+    await core.load(id, bytes.buffer, payload.bounds[id]);
   }
   const gl = canvas.getContext("webgl2");
   if (!gl) throw new Error("WebGL2 is unavailable for 3D posters");
@@ -159,7 +161,9 @@ async function runModelPosterBatch(requests: readonly PosterRequest[], options: 
     }
     cancelled();
     const html = path.join(scratch, "poster.html"), jobFile = path.join(scratch, "job.json");
-    await fs.writeFile(html, modelPosterHtml(runtime, requests, models));
+    const bounds: Record<string, ModelBounds> = Object.create(null);
+    for (const id of assetIds) { const stored = options.modelBounds?.(id); if (stored) bounds[id] = stored; }
+    await fs.writeFile(html, modelPosterHtml(runtime, requests, models, bounds));
     await fs.writeFile(jobFile, JSON.stringify({ version: 1, html, requests: requests.map(({ key, spec }) => ({ key, w: spec.w, h: spec.h })) }));
     const env: NodeJS.ProcessEnv = { ...process.env, FLUX_MODEL3D_POSTER_WORKER: "1", FLUX_MODEL3D_POSTER_JOB: jobFile, FLUX_NO_MIGRATE: "1" };
     delete env.ELECTRON_RUN_AS_NODE; delete env.VITE_DEV_SERVER_URL; delete env.FLUX_SLIDE_VIDEO_WORKER;

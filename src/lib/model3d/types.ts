@@ -2,7 +2,9 @@
 import type { Asset, ElementBase, PartOverride, SemanticPlotElement } from '../types';
 
 export type Vec3 = [number, number, number];
-export interface ModelBounds { min: Vec3; max: Vec3 }
+/** `radius` (asset metadata only; never in scene3d manifests) is the tight orbit
+ * framing radius from glbCore; bounds without it frame by the half-diagonal. */
+export interface ModelBounds { min: Vec3; max: Vec3; radius?: number }
 export interface ModelTopologyPart { node: string; mode: number; vertices: number; indicesHash: string }
 export interface Model3dInfo {
   triangles: number; vertices: number; primitives: number; meshes: number;

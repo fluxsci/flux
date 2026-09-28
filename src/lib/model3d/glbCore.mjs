@@ -87,6 +87,23 @@ function accessorBounds(a,allowMissing=false){const min=Array(a.width).fill(Infi
 function topologyHash(index,count){let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<count;i++){const v=index?index.get(i):i;for(let shift=0;shift<32;shift+=8){const b=(v>>>shift)&255;h1=Math.imul(h1^b,2654435761);h2=Math.imul(h2^b,1597334677);}}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return hex14(4294967296*(2097151&h2)+(h1>>>0));}
 function extensionNames(json){const names=new Set([...(json.extensionsUsed??[]),...(json.extensionsRequired??[])]);const stack=[json];let seen=0;while(stack.length){const v=stack.pop();if(!object(v)&&!Array.isArray(v))continue;if(++seen>500000)fail('structure','GLB JSON is too complex.');if(object(v.extensions))for(const name of Object.keys(v.extensions))names.add(name);for(const [k,x]of Object.entries(v))if(k!=='extras'&&x&&typeof x==='object')stack.push(x);}return [...names].sort();}
 const linearHex=rgb=>'#'+rgb.slice(0,3).map(x=>Math.round(255*(x<=.0031308?12.92*x:1.055*Math.pow(x,1/2.4)-.055))).map(x=>Math.max(0,Math.min(255,x)).toString(16).padStart(2,'0')).join('');
+/** Tight orbit framing radius: the largest distance from the AABB centre
+ * c = (min+max)/2 (the conservative world AABB above, a union over the base
+ * shape and every valid shape state at weight 1) to any vertex position in
+ * WORLD space (node transforms applied), over the base positions and each
+ * base+delta state position. Consumers use max(radius, 1e-9). */
+function framingRadius(bounds,sources){
+ const cx=(bounds.min[0]+bounds.max[0])/2,cy=(bounds.min[1]+bounds.max[1])/2,cz=(bounds.min[2]+bounds.max[2])/2;let r2=0;
+ for(const {world:m,pos,deltas} of sources)for(let vi=0;vi<pos.count;vi++){
+  const bx=pos.get(vi,0),by=pos.get(vi,1),bz=pos.get(vi,2);
+  for(let k=-1;k<deltas.length;k++){
+   const x=k<0?bx:bx+deltas[k].get(vi,0),y=k<0?by:by+deltas[k].get(vi,1),z=k<0?bz:bz+deltas[k].get(vi,2);
+   const dx=m[0]*x+m[4]*y+m[8]*z+m[12]-cx,dy=m[1]*x+m[5]*y+m[9]*z+m[13]-cy,dz=m[2]*x+m[6]*y+m[10]*z+m[14]-cz,q=dx*dx+dy*dy+dz*dz;
+   if(q>r2)r2=q;
+  }
+ }
+ return Math.sqrt(r2);
+}
 function inspectParsed(json,bin,byteLength){
  const warnings=[],extensions=extensionNames(json);
  for(const ext of extensions)if(ext==='KHR_draco_mesh_compression'||ext==='EXT_meshopt_compression'||ext==='KHR_meshopt_compression')fail('compression',`${ext} is unsupported. Re-export without compression, e.g. gltfpack -i in.glb -o out.glb without -c/-cc.`);
@@ -103,7 +120,7 @@ function inspectParsed(json,bin,byteLength){
  }
  let inspectedValues=0;const spend=n=>{inspectedValues+=n;if(inspectedValues>GLB_LIMITS.maxInspectedValues)fail('limit',`Geometry inspection exceeds ${GLB_LIMITS.maxInspectedValues} scalar values (including instances and states). ${hint}`);};
  let triangles=0,vertices=0,primitives=0,hasNormals=true,hasColors=false,hasValues=false;const usedMeshes=new Set(),parts=[],partNames=[],bounds={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};
- const seen=new Set(),namedNodes=new Map(),duplicateNames=new Set();let roots;
+ const seen=new Set(),namedNodes=new Map(),duplicateNames=new Set(),radiusSources=[];let roots;
  if(scenes.length){const scene=json.scene??0;if(!integer(scene)||!scenes[scene])fail('scene','Default scene is missing.');roots=array(scenes[scene].nodes,'scene nodes');}
  else {const children=new Set(nodes.flatMap(n=>array(n.children,'node children')));roots=nodes.map((_,i)=>i).filter(i=>!children.has(i));}
  const stack=roots.map(i=>({i,m:ID,depth:0})).reverse();
@@ -120,13 +137,15 @@ function inspectParsed(json,bin,byteLength){
    vertices+=n;primitives++;
    for(const [key,value] of Object.entries(p.attributes??{})){const a=read(value);spend(a.count*a.width);if(a.count!==n)fail('attributes',`${key} vertex count differs from POSITION.`);if(key==='NORMAL'&&a.width!==3)fail('attributes','NORMAL must be VEC3.');if(key==='_VALUE'&&(a.width!==1||a.componentType!==5126))fail('attributes','_VALUE must be float32 SCALAR.');if(key==='_VALID'&&(a.width!==1||a.componentType!==5121))fail('attributes','_VALID must be uint8 SCALAR.');if(key!=='_VALUE')accessorBounds(a);else for(let vi=0;vi<a.count;vi++)if(!Number.isFinite(a.get(vi))&&!warnings.includes('legacy non-finite _VALUE treated as missing'))warnings.push('legacy non-finite _VALUE treated as missing');if(key==='_VALID')for(let vi=0;vi<a.count;vi++)if(a.get(vi)!==0&&a.get(vi)!==1)fail('attributes','_VALID must contain only 0 or 1.');}
    hasNormals&&=p.attributes.NORMAL!=null;hasColors||=p.attributes.COLOR_0!=null;hasValues||=p.attributes._VALUE!=null;
-   const local=accessorBounds(pos),boxes=[local];
-   if(!invalidStates.has(node.mesh))for(const target of p.targets??[]){if(target.POSITION==null)continue;const delta=read(target.POSITION);if(delta.width!==3||delta.count!==n)fail('states','Shape-state POSITION differs from base vertex shape.');accessorBounds(delta);const state={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};for(let vi=0;vi<n;vi++)for(let c=0;c<3;c++){const value=pos.get(vi,c)+delta.get(vi,c);if(!Number.isFinite(value))fail('states','Shape-state position overflowed.');state.min[c]=Math.min(state.min[c],value);state.max[c]=Math.max(state.max[c],value);}boxes.push(state);if(target.NORMAL!=null){const normal=read(target.NORMAL);if(normal.width!==3||normal.count!==n)fail('states','Shape-state NORMAL differs from base vertex shape.');accessorBounds(normal);}}
+   const local=accessorBounds(pos),boxes=[local],deltas=[];
+   if(!invalidStates.has(node.mesh))for(const target of p.targets??[]){if(target.POSITION==null)continue;const delta=read(target.POSITION);deltas.push(delta);if(delta.width!==3||delta.count!==n)fail('states','Shape-state POSITION differs from base vertex shape.');accessorBounds(delta);const state={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};for(let vi=0;vi<n;vi++)for(let c=0;c<3;c++){const value=pos.get(vi,c)+delta.get(vi,c);if(!Number.isFinite(value))fail('states','Shape-state position overflowed.');state.min[c]=Math.min(state.min[c],value);state.max[c]=Math.max(state.max[c],value);}boxes.push(state);if(target.NORMAL!=null){const normal=read(target.NORMAL);if(normal.width!==3||normal.count!==n)fail('states','Shape-state NORMAL differs from base vertex shape.');accessorBounds(normal);}}
+   radiusSources.push({world,pos,deltas});
    for(const b of boxes)for(let mask=0;mask<8;mask++){const point=transformPoint(world,[0,1,2].map(c=>(mask>>c)&1?b.max[c]:b.min[c]));if(point.some(v=>!Number.isFinite(v)))fail('transform','Transformed geometry bounds overflowed.');point.forEach((v,c)=>{bounds.min[c]=Math.min(bounds.min[c],v);bounds.max[c]=Math.max(bounds.max[c],v);});}
    const name=typeof node.name==='string'?node.name:'';if(name){if(namedNodes.has(name)&&namedNodes.get(name)!==i)duplicateNames.add(name);namedNodes.set(name,i);}partNames.push(name||`node-${i}`);parts.push({node:name,mode,vertices:n,indicesHash:topologyHash(index,count)});
   }
  }
  if(!primitives)fail('empty','The default GLB scene contains no geometry.');
+ bounds.radius=framingRadius(bounds,radiusSources);
  // Node names are only stable match keys when unique across nodes. Ambiguous names
  // fall back to primitive order; multiple primitives of one node retain its name.
  for(const part of parts)if(duplicateNames.has(part.node))part.node='';

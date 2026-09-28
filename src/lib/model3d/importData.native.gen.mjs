@@ -215,6 +215,19 @@ function extensionNames(json) {
   return [...names].sort();
 }
 var linearHex = (rgb) => "#" + rgb.slice(0, 3).map((x) => Math.round(255 * (x <= 31308e-7 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055))).map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("");
+function framingRadius(bounds, sources) {
+  const cx = (bounds.min[0] + bounds.max[0]) / 2, cy = (bounds.min[1] + bounds.max[1]) / 2, cz = (bounds.min[2] + bounds.max[2]) / 2;
+  let r2 = 0;
+  for (const { world: m, pos, deltas } of sources) for (let vi = 0; vi < pos.count; vi++) {
+    const bx = pos.get(vi, 0), by = pos.get(vi, 1), bz = pos.get(vi, 2);
+    for (let k = -1; k < deltas.length; k++) {
+      const x = k < 0 ? bx : bx + deltas[k].get(vi, 0), y = k < 0 ? by : by + deltas[k].get(vi, 1), z = k < 0 ? bz : bz + deltas[k].get(vi, 2);
+      const dx = m[0] * x + m[4] * y + m[8] * z + m[12] - cx, dy = m[1] * x + m[5] * y + m[9] * z + m[13] - cy, dz = m[2] * x + m[6] * y + m[10] * z + m[14] - cz, q = dx * dx + dy * dy + dz * dz;
+      if (q > r2) r2 = q;
+    }
+  }
+  return Math.sqrt(r2);
+}
 function inspectParsed(json, bin, byteLength) {
   const warnings = [], extensions = extensionNames(json);
   for (const ext of extensions) if (ext === "KHR_draco_mesh_compression" || ext === "EXT_meshopt_compression" || ext === "KHR_meshopt_compression") fail("compression", `${ext} is unsupported. Re-export without compression, e.g. gltfpack -i in.glb -o out.glb without -c/-cc.`);
@@ -248,7 +261,7 @@ function inspectParsed(json, bin, byteLength) {
   };
   let triangles = 0, vertices = 0, primitives = 0, hasNormals = true, hasColors = false, hasValues = false;
   const usedMeshes = /* @__PURE__ */ new Set(), parts = [], partNames = [], bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
-  const seen = /* @__PURE__ */ new Set(), namedNodes = /* @__PURE__ */ new Map(), duplicateNames = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set(), namedNodes = /* @__PURE__ */ new Map(), duplicateNames = /* @__PURE__ */ new Set(), radiusSources = [];
   let roots;
   if (scenes.length) {
     const scene = json.scene ?? 0;
@@ -305,10 +318,11 @@ function inspectParsed(json, bin, byteLength) {
       hasNormals &&= p.attributes.NORMAL != null;
       hasColors ||= p.attributes.COLOR_0 != null;
       hasValues ||= p.attributes._VALUE != null;
-      const local = accessorBounds(pos), boxes = [local];
+      const local = accessorBounds(pos), boxes = [local], deltas = [];
       if (!invalidStates.has(node.mesh)) for (const target of p.targets ?? []) {
         if (target.POSITION == null) continue;
         const delta = read(target.POSITION);
+        deltas.push(delta);
         if (delta.width !== 3 || delta.count !== n) fail("states", "Shape-state POSITION differs from base vertex shape.");
         accessorBounds(delta);
         const state = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
@@ -325,6 +339,7 @@ function inspectParsed(json, bin, byteLength) {
           accessorBounds(normal);
         }
       }
+      radiusSources.push({ world, pos, deltas });
       for (const b of boxes) for (let mask = 0; mask < 8; mask++) {
         const point = transformPoint(world, [0, 1, 2].map((c) => mask >> c & 1 ? b.max[c] : b.min[c]));
         if (point.some((v) => !Number.isFinite(v))) fail("transform", "Transformed geometry bounds overflowed.");
@@ -343,6 +358,7 @@ function inspectParsed(json, bin, byteLength) {
     }
   }
   if (!primitives) fail("empty", "The default GLB scene contains no geometry.");
+  bounds.radius = framingRadius(bounds, radiusSources);
   for (const part of parts) if (duplicateNames.has(part.node)) part.node = "";
   if (byteLength > GLB_LIMITS.warnBytes) warnings.push(`${byteLength} bytes exceeds the ${GLB_LIMITS.warnBytes}-byte warning threshold. ${hint}`);
   if (triangles > GLB_LIMITS.warnTriangles) warnings.push(`${triangles} triangles exceeds the ${GLB_LIMITS.warnTriangles}-triangle warning threshold. ${hint}`);

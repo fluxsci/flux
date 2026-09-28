@@ -101,6 +101,18 @@ try {
     return {skin,maxAlpha,left,right,cascade:l.diff(parent,children),hiddenAlpha,mixedVisible:mixed.some((v:number,i:number)=>i%4===3&&v>0)};});
   h.eq(edgeMeshes.skin.changed,0,'skinned GLB displays exact stored mesh geometry');h.eq(edgeMeshes.maxAlpha,128,'semantic manifest preserves source material alpha');h.eq(edgeMeshes.left,0,'field remapping one GLTF instance preserves sibling pixels');h.ok(edgeMeshes.right>100,'instance field override changes target pixels');h.eq(edgeMeshes.cascade.changed,0,'ancestor fill equals equivalent leaf fills');h.eq(edgeMeshes.hiddenAlpha,0,'hidden ancestor hides subtree');h.ok(edgeMeshes.mixedVisible,'implicit and identity-indexed morph pair accepted');
 
+  // FRAMING: the renderer frames by the caller's stored bounds when given, so
+  // metadata without a tight radius keeps its half-diagonal framing everywhere.
+  const plainBounds = inspectGlb(Buffer.from(fixtures.plain.bytes, 'base64')).bounds;
+  const framing = await page.evaluate(async (legacy: { min: number[]; max: number[] }) => {
+    const l=(window as any).lab;
+    await l.core.load('plain-legacy', l.bytes(l.fixtures.plain.bytes), legacy);
+    const tight=l.core.render(l.spec('plain')).pose.radius, stored=l.core.render({...l.spec('plain'),assetId:'plain-legacy'}).pose.radius;
+    return {tight,stored};
+  }, { min: plainBounds.min, max: plainBounds.max });
+  const halfDiagonal = Math.hypot(...plainBounds.max.map((v, i) => (v - plainBounds.min[i]) / 2));
+  h.ok(Math.abs(framing.tight - plainBounds.radius!) < 1e-9 && Math.abs(framing.stored - halfDiagonal) < 1e-9 && framing.tight < framing.stored, `renderer frames by inspected tight radius (${framing.tight.toFixed(4)}) or by stored legacy bounds (${framing.stored.toFixed(4)})`);
+
   // M1 parity: glbCore part names are renderCore styling ids, unnamed nodes too.
   const unnamedNames = inspectGlb(generated.unnamed).partNames;
   const unnamedStyle = await page.evaluate((names: string[]) => {

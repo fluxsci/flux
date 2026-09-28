@@ -14,9 +14,13 @@ export interface OrbitPose {
   fovY: number; zoom: number; distance: number;
 }
 export type OrbitProps = Pick<Model3dElement, 'orbitAzimuth' | 'orbitElevation' | 'orbitRoll' | 'orbitZoom' | 'orbitPanX' | 'orbitPanY' | 'orbitProjection' | 'orbitFov'>;
+/** Orbit framing sphere R about the AABB centre. `bounds.radius` is glbCore's
+ * tight radius (farthest world vertex, base and every state at weight 1);
+ * metadata inspected before it existed falls back to the half-diagonal. */
 export function boundsSphere(bounds: ModelBounds): {center: Vec3; radius: number} {
   const center = bounds.min.map((v,i) => (v + bounds.max[i]) / 2) as Vec3;
-  return {center, radius: Math.max(Math.hypot(...bounds.max.map((v,i) => v-center[i])), 1e-9)};
+  const tight = typeof bounds.radius === 'number' && Number.isFinite(bounds.radius) && bounds.radius >= 0 ? bounds.radius : undefined;
+  return {center, radius: Math.max(tight ?? Math.hypot(...bounds.max.map((v,i) => v-center[i])), 1e-9)};
 }
 export function orbitPose(el: OrbitProps, bounds: ModelBounds, viewport: Viewport): OrbitPose {
   const {center, radius:R} = boundsSphere(bounds);

@@ -25,7 +25,7 @@ interface Part {
   node: string; mesh: Mesh<BufferGeometry, FluxMaterial>; sourceColor: Color; sourceOpacity: number;
   sourceColors?: Attribute; materials: Map<string, FluxMaterial>; colorKey?: string; vertexAlpha: boolean;
 }
-interface Loaded { bytes: ArrayBuffer; group: Group; parts: Part[]; stats: LoadedModelStats }
+interface Loaded { bytes: ArrayBuffer; group: Group; parts: Part[]; stats: LoadedModelStats; storedBounds?: ModelBounds }
 interface MorphPart { mesh: Mesh<BufferGeometry, FluxMaterial>; a: Part; b: Part; colorA: string; colorB: string; opacityA: number; opacityB: number; hiddenA: boolean; hiddenB: boolean; vertexColors: boolean }
 interface Morph { group: Group; parts: MorphPart[]; ids: [string, string] }
 const liveCanvases = new WeakSet<object>();
@@ -134,8 +134,8 @@ function compatible(a: Part, b: Part) {
 function sphereLerpBounds(a: ModelBounds, b: ModelBounds, t: number): ModelBounds {
   const sa = boundsSphere(a), sb = boundsSphere(b), r = sa.radius * (1 - t) + sb.radius * t;
   const center = sa.center.map((v, i) => v * (1 - t) + sb.center[i] * t);
-  // A diagonal of this box has length 2r; orbitPose recovers exactly the lerped sphere.
-  return { min: center.map((v) => v - r / Math.sqrt(3)) as [number, number, number], max: center.map((v) => v + r / Math.sqrt(3)) as [number, number, number] };
+  // A diagonal of this box has length 2r and `radius` is r: orbitPose recovers exactly the lerped sphere.
+  return { min: center.map((v) => v - r / Math.sqrt(3)) as [number, number, number], max: center.map((v) => v + r / Math.sqrt(3)) as [number, number, number], radius: r };
 }
 export function createRenderCore(canvas: Canvas, options: { onContextState?: (lost: boolean) => void } = {}) {
   if (liveCanvases.has(canvas)) throw new Error('A 3D canvas cannot own a second renderer');
@@ -157,7 +157,10 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
   let loads = 0, renders = 0, lastWidth = 0, lastHeight = 0;
   function stats(): RenderCoreStats { return { contexts: disposed ? 0 : 1, residentBytes: [...assets.values()].reduce((sum, a) => sum + a.bytes.byteLength, 0), loads, renders, lost, assets: assets.size, morphPairs: morphs.size }; }
   function guard() { if (disposed) throw new Error('3D renderer disposed'); if (lost) throw new Error('3D WebGL context unavailable'); }
-  async function parse(id: string, bytes: ArrayBuffer): Promise<Loaded> {
+  /** Stored asset bounds, when the caller has them, govern framing: they are what
+   * the furniture/overlay projection uses, including old metadata without a
+   * tight radius (half-diagonal). Without them the inspected bounds are used. */
+  async function parse(id: string, bytes: ArrayBuffer, storedBounds?: ModelBounds): Promise<Loaded> {
     const started = performance.now(), prepared = prepareGlb(bytes), data = prepared.bytes.slice().buffer as ArrayBuffer;
     const gltf = await loader.parseAsync(data, '');
     const group = gltf.scene, parts: Part[] = [];
@@ -185,18 +188,19 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
       // State defaults are explicit in the authored element, never hidden GLB state.
       sourceMesh.morphTargetInfluences?.fill(0); parts.push(part);
     });
-    return { bytes: data, group, parts, stats: { ...prepared.info, bytes: data.byteLength, parseMs: performance.now() - started } };
+    const bounds = storedBounds ? structuredClone(storedBounds) : prepared.info.bounds;
+    return { bytes: data, group, parts, storedBounds, stats: { ...prepared.info, bounds, bytes: data.byteLength, parseMs: performance.now() - started } };
   }
   function dropMorphs(id?: string) {
     for (const [key, pair] of morphs) if (!id || pair.ids.includes(id)) { disposeGroup(pair.group); morphs.delete(key); }
   }
   function releaseLoaded(asset: Loaded) { for (const part of asset.parts) for (const material of part.materials.values()) material.dispose(); disposeGroup(asset.group); }
-  function load(assetId: string, bytes: ArrayBuffer): Promise<LoadedModelStats> {
+  function load(assetId: string, bytes: ArrayBuffer, storedBounds?: ModelBounds): Promise<LoadedModelStats> {
     if (disposed) return Promise.reject(new Error('3D renderer disposed'));
     const existing = assets.get(assetId); if (existing) return Promise.resolve(existing.stats);
     if (inflight.has(assetId)) return inflight.get(assetId)!;
     const version = generation, ticket = (tickets.get(assetId) ?? 0) + 1; tickets.set(assetId, ticket);
-    const promise = parse(assetId, bytes).then((loaded) => {
+    const promise = parse(assetId, bytes, storedBounds).then((loaded) => {
       if (disposed || version !== generation || tickets.get(assetId) !== ticket) { releaseLoaded(loaded); throw new Error('3D load was invalidated'); }
       assets.set(assetId, loaded); loads++; return loaded.stats;
     }).finally(() => { if (inflight.get(assetId) === promise) inflight.delete(assetId); });
@@ -289,9 +293,9 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
   const onLost = (event: Event) => { event.preventDefault(); lost = true; options.onContextState?.(true); };
   const onRestored = () => {
     if (disposed) return;
-    const retained = [...assets].map(([id, a]) => [id, a.bytes, tickets.get(id)] as const); const restoredGeneration = ++generation; inflight.clear(); dropMorphs();
+    const retained = [...assets].map(([id, a]) => [id, a.bytes, tickets.get(id), a.storedBounds] as const); const restoredGeneration = ++generation; inflight.clear(); dropMorphs();
     for (const asset of assets.values()) releaseLoaded(asset); assets.clear(); lastWidth = 0; lastHeight = 0;
-    restores = Promise.all(retained.map(async ([id, bytes, ticket]) => { const loaded = await parse(id, bytes); if (disposed || restoredGeneration !== generation || tickets.get(id) !== ticket) releaseLoaded(loaded); else assets.set(id, loaded); })).then(() => { if (!disposed && restoredGeneration === generation) { lost = false; options.onContextState?.(false); } });
+    restores = Promise.all(retained.map(async ([id, bytes, ticket, storedBounds]) => { const loaded = await parse(id, bytes, storedBounds); if (disposed || restoredGeneration !== generation || tickets.get(id) !== ticket) releaseLoaded(loaded); else assets.set(id, loaded); })).then(() => { if (!disposed && restoredGeneration === generation) { lost = false; options.onContextState?.(false); } });
     restores.catch(() => { lost = true; });
   };
   canvas.addEventListener('webglcontextlost', onLost); canvas.addEventListener('webglcontextrestored', onRestored);

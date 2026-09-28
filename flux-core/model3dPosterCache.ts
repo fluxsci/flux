@@ -157,7 +157,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       const byId = new Map(batch.map(request => [request.asset.id, request.asset]));
       try {
         await (options.renderBatch ?? renderModelPosterBatch)(batch.map(request => ({ key: request.key, spec: { assetId: request.asset.id, w: request.w, h: request.h, element: request.element, manifest: request.manifest } })), {
-          outDir, ...(options.policy === 'project' ? { publicationRoot: root } : {}), signal: options.signal, modelBytes: async (id, signal) => {
+          outDir, ...(options.policy === 'project' ? { publicationRoot: root } : {}), signal: options.signal, modelBounds: id => byId.get(id)?.model.bounds, modelBytes: async (id, signal) => {
             abort(options.signal);
             const asset = byId.get(id), file = paths.get(id); if (!asset || !file) throw new Error(`Missing GLB asset ${id}`);
             const bytes = await boundedModelFile(file, GLB_LIMITS.maxBytes, root, signal ?? options.signal); abort(options.signal);
