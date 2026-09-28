@@ -8220,3 +8220,7 @@ control exemption is used. Failure receipts now retain phase, both control event
 streams and public watcher state before cleanup. The original aggregate failure is
 preserved as a failed checkpoint; focused requalification is separate.
 Author and independent registered cache-watch groups both passed6/6 (18-43-47 / 18-44-44), sourceChanged=false, including22 real watcher assertions and existing source/plot/dissection/native-policy checks. This gate-only correction does not replace the pending final aggregate receipt.
+
+
+### 2026-09-28 — Stage 1 review checkpoint (Codex, model3d)
+**Work:** Completed Stage 1 Figure/Python features and independent review; final pure335/335, Paper68/68, model3d browser9/9, bundle/startup6/6 and type checks pass. Native performance qualification remains open after observed external desktop focus transfer; the previous strict16.7ms failure and older notebook full-pipeline timings remain explicit in `docs/model3d/NATIVE_ACCEPTANCE.md`, with no threshold waiver. The owner has paused Stage 2; no Slides activation or rebase is implied by this checkpoint.
