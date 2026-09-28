@@ -33,7 +33,6 @@ export function parseScene3d(input:unknown): Scene3dManifest|Scene3dIssue {
   if(data.order?.some(id=>!ids.has(id)))return {issue:'Unknown part in scene3d order'};
   return data;
 }
-export const scene3dPartIndex=buildScene3dPartIndex;
 export function scene3dFields(manifest?:Scene3dManifest|null):Record<string,Scene3dField>{
  const fields:Record<string,Scene3dField>=Object.create(null);for(const p of manifest?.parts??[])if(typeof p.field==='object')fields[p.id]=p.field;return fields;
 }

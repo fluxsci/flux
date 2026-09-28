@@ -1,7 +1,8 @@
 'use strict';
 const fs=require('node:fs/promises'),assert=require('node:assert/strict'),os=require('node:os'),path=require('node:path');
 const vm=require('node:vm');
-const {compareCohorts,qualificationSamples}=require('./lib/model3dS8Metrics.cjs');
+const {compareCohorts,qualificationSamples,cohortIdleVsyncMs}=require('./lib/model3dS8Metrics.cjs');
+const {orbitFrameQualification,idleVsyncMs}=require('./lib/model3dNativeScaleBudget.cjs');
 const {s8CaptureRect,verifyS8RasterReplacement}=require('./lib/model3dS8Baseline.cjs');
 const {s8BoxesVisible,s8InteractionEvidence}=require('./perf/input-probe-model3d.cjs');
 async function main(){
@@ -48,7 +49,9 @@ async function main(){
   const preciseImage=probeTiming(10.001),preciseModel=probeTiming(11.0012);
   h.ok(preciseImage.gaps.every(x=>x===10)&&preciseModel.gaps.every(x=>x===11)&&preciseImage.keyPaint.every(x=>x===20)&&preciseModel.keyPaint.every(x=>x===22),'legacy one-decimal probe summaries remain compatible');
   const asCohort=(variant,raw)=>({variant,samples:Object.fromEntries(['hover','panSmall','zoom','typing'].map(phase=>[phase,qualificationSamples(raw,phase)]))});
-  const exactComparison=compareCohorts([asCohort('model',preciseModel),asCohort('image',preciseImage),asCohort('image',preciseImage),asCohort('model',preciseModel)]);
+  // Synthetic 10/11 ms clock: a sub-millisecond vsync keeps the ratio branch decisive.
+  const synthetic={idleVsyncMs:.5};
+  const exactComparison=compareCohorts([asCohort('model',preciseModel),asCohort('image',preciseImage),asCohort('image',preciseImage),asCohort('model',preciseModel)],synthetic);
   h.ok(Object.values(exactComparison).every(row=>!row.ok&&row.ratio>1.1),'actual native instrumentation through S8 rejects a just-over10% regression hidden by displayed rounding');
   assert.throws(()=>qualificationSamples({gaps:[10],keyPaint:[20]},'hover'),/samples/);
   h.ok(true,'older rounded-only qualification receipts cannot silently pass as raw timing');
@@ -67,14 +70,32 @@ async function main(){
   h.ok(true,'changed original artwork, new placement geometry, sibling figures or original assets invalidate the comparison');
   const baseline={variant:'image',samples:{hover:[10,10],panSmall:[10,10],zoom:[10,10],typing:[10,10]}};
   const model={variant:'model',samples:{hover:[11,11],panSmall:[11,11],zoom:[11,11],typing:[11,11]}};
-  h.ok(Object.values(compareCohorts([model,baseline,baseline,model])).every(r=>r.ok),'exact10% regression passes without an absolute timing floor');
+  h.ok(Object.values(compareCohorts([model,baseline,baseline,model],synthetic)).every(r=>r.ok),'exact10% regression passes (ratio branch of the budget)');
   const slow=structuredClone(model);slow.samples.hover=[11.01,11.01];
-  h.eq(compareCohorts([slow,baseline,baseline,slow]).hover.ok,false,'a regression beyond10% fails without rounding away the excess');
-  const fast=structuredClone(model);fast.samples.hover=[5,5];h.eq(compareCohorts([fast,baseline,baseline,fast]).hover.ok,true,'faster results are recorded as improvements');
-  assert.throws(()=>compareCohorts([model,baseline,model]),/ABBA/);
-  const missing=structuredClone(model);missing.samples.typing=[];assert.throws(()=>compareCohorts([missing,baseline,baseline,model]),/samples/);
-  const invalid=structuredClone(model);invalid.samples.zoom=[NaN];assert.throws(()=>compareCohorts([invalid,baseline,baseline,model]),/samples/);
+  h.eq(compareCohorts([slow,baseline,baseline,slow],synthetic).hover.ok,false,'a regression beyond10% fails without rounding away the excess');
+  const fast=structuredClone(model);fast.samples.hover=[5,5];h.eq(compareCohorts([fast,baseline,baseline,fast],synthetic).hover.ok,true,'faster results are recorded as improvements');
+  assert.throws(()=>compareCohorts([model,baseline,model],synthetic),/ABBA/);
+  const missing=structuredClone(model);missing.samples.typing=[];assert.throws(()=>compareCohorts([missing,baseline,baseline,model],synthetic),/samples/);
+  const invalid=structuredClone(model);invalid.samples.zoom=[NaN];assert.throws(()=>compareCohorts([invalid,baseline,baseline,model],synthetic),/samples/);
   h.ok(true,'missing cohorts or raw input timing samples cannot qualify');
+  // Review R2: at vsync granularity one extra refresh is not a regression.
+  assert.throws(()=>compareCohorts([model,baseline,baseline,model]),/idle vsync/);
+  const vsync=16.674,display=phases=>({variant:phases.variant,samples:Object.fromEntries(['hover','panSmall','zoom','typing'].map(p=>[p,phases.values]))});
+  const imageFrames=display({variant:'image',values:[16.7,16.7]}),oneRefresh=display({variant:'model',values:[33.37,33.37]}),twoRefresh=display({variant:'model',values:[33.4,33.4]});
+  h.ok(Object.values(compareCohorts([oneRefresh,imageFrames,imageFrames,oneRefresh],{idleVsyncMs:vsync})).every(r=>r.ok&&Math.abs(r.budgetMs-(16.7+vsync))<1e-9),'a model p95 one idle vsync above the image baseline passes: budget = image + vsync');
+  h.ok(Object.values(compareCohorts([twoRefresh,imageFrames,imageFrames,twoRefresh],{idleVsyncMs:vsync})).every(r=>!r.ok),'more than one idle vsync above the baseline still fails');
+  h.eq(cohortIdleVsyncMs([{gaps:Array(60).fill(16.674)},{gaps:[...Array(59).fill(16.674),50]}]),16.674,'pooled idle controls give the display vsync (median, robust to a hitch)');
+  assert.throws(()=>cohortIdleVsyncMs([{gaps:[16.7]}]),/at least 30/);h.ok(true,'a too-short idle control cannot qualify');
+  // Review R1 (owner sign-off): native orbit uses the 17 ms house budget plus a
+  // dropped-frame bound; the 59.97 Hz evidence would fail the old 16.7 ms rule.
+  const idle=Array(120).fill(16.674),owner=[...Array(94).fill(16.674),...Array(6).fill(16.702)];
+  const ownerBudget=orbitFrameQualification({steadyGaps:owner,idleGaps:idle});
+  h.ok(ownerBudget.ok&&ownerBudget.p95Ms===16.702&&ownerBudget.p95Ms>16.7,'the measured empty-figure control (p95 16.702 ms at vsync 16.674 ms) passes the house budget the old 16.7 ms rule failed');
+  h.eq(idleVsyncMs(idle),16.674,'idle vsync is the control median');
+  const oneDrop=orbitFrameQualification({steadyGaps:[...Array(99).fill(16.674),33.35],idleGaps:idle}),threeDrops=orbitFrameQualification({steadyGaps:[...Array(97).fill(16.674),33.35,33.35,33.35],idleGaps:idle});
+  h.ok(oneDrop.ok&&oneDrop.dropped===1&&oneDrop.allowedDropped===2,'one dropped refresh in 100 steady gaps passes');
+  h.ok(!threeDrops.droppedOk&&threeDrops.p95Ok&&threeDrops.dropped===3,'three dropped refreshes in 100 fail even though the p95 stays within 17 ms');
+  h.eq(orbitFrameQualification({steadyGaps:Array(100).fill(17.5),idleGaps:idle}).p95Ok,false,'a p95 above 17 ms fails');
   const box={x:10,y:10,right:90,bottom:80,width:80,height:70,poster:true,image:true};
   const sample={host:{x:0,y:0,right:400,bottom:300},figure:{x:5,y:5,right:395,bottom:295,width:390,height:290},boxes:Array.from({length:4},()=>({...box}))};
   h.ok(s8BoxesVisible(sample,'model')&&s8BoxesVisible(sample,'image'),'all four decoded boxes qualify in matched viewport geometry');

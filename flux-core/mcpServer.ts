@@ -171,8 +171,11 @@ export async function startMcpServer(options: { root?: string; toolset?: McpTool
     },
     async ({ canvasId, scale, project }) => {
       const ROOT = await getRoot({ project });
-      const { png, canvasId: cid } = await core.renderCanvasPng(ROOT, canvasId, scale ?? 1);
-      const warns = await core.textLayoutProbe(ROOT, { canvasId: cid }); // WS-12
+      // Read-only image request: 3D posters may render into the machine cache
+      // only (PLAN §4.5), and their placeholder warnings travel with the image.
+      const modelWarnings: string[] = [];
+      const { png, canvasId: cid } = await core.renderCanvasPng(ROOT, canvasId, scale ?? 1, { model3dPolicy: 'image', warnings: modelWarnings });
+      const warns = [...await core.textLayoutProbe(ROOT, { canvasId: cid }), ...modelWarnings]; // WS-12
       return {
         content: [
           { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },

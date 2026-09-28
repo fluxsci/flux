@@ -18,7 +18,7 @@ scope.onmessage = ({ data }) => {
         const gl = canvas.getContext('webgl2')!, debug = gl.getExtension('WEBGL_debug_renderer_info');
         scope.postMessage({ type: 'available', reqId, ok: true, renderer: gl.getParameter(debug?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER), stats: renderer.stats() });
       } else if (type === 'load') {
-        const model = await renderer.load(data.assetId, data.bytes);
+        const model = await renderer.load(data.assetId, data.bytes, data.bounds);
         scope.postMessage({ type: 'loaded', reqId, model, stats: renderer.stats() });
       } else if (type === 'unload') {
         renderer.unload(data.assetId); scope.postMessage({ type: 'unloaded', reqId, stats: renderer.stats() });

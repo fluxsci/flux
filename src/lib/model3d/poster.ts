@@ -1,8 +1,9 @@
 import { canonical,cyrb53,hex14 } from './hash';
 import { clamp,normalizeAzimuth } from './orbit';
 import { buildScene3dPartIndex,scene3dFields,resolveScene3dPartStyle } from './scene3d';
+import { resolvedColormap } from './colormap';
 import type { Model3dAsset,Model3dElement,Scene3dManifest,Rect } from './types';
-export const RENDERER_VERSION='m3d-r1';
+export const RENDERER_VERSION='m3d-r3';
 const round=(n:number,p:number)=>Math.round(n/p)*p;
 const sig=(n:number)=>Number(n.toPrecision(5));
 export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number}):string{
@@ -12,9 +13,16 @@ export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dM
   for(const k of ['fill','opacity','hidden'] as const)if(override[k]!=null)entry[k]=k==='fill'?String(override[k]).toLowerCase():override[k];
   if(Object.keys(entry).length)parts[id]=entry;
  }
- for(const [id,f]of Object.entries(scene3dFields(manifest))){const o=el.fields?.[id];fields[id]={cmap:o?.cmap??f.cmap.name,range:o?.range??f.range,stops:o?.cmap&&o.cmap!==f.cmap.name?undefined:f.cmap.stops,missing:f.missingColor??'#D8D8D8'};}
+ // The key holds every render input: the stops the renderer resolves (a named
+ // override's stops, not just its name), the transparent draw order and the framing radius.
+ for(const [id,f]of Object.entries(scene3dFields(manifest))){
+  const o=el.fields?.[id];let stops:Array<[number,string]>|null;
+  try{stops=resolvedColormap(f,o);}catch{stops=null;}
+  fields[id]={cmap:o?.cmap??f.cmap.name,range:o?.range??f.range,stops,missing:f.missingColor??'#D8D8D8'};
+ }
+ const radius=asset.model.bounds?.radius,framing=typeof radius==='number'&&Number.isFinite(radius)?Number(radius.toPrecision(9)):null;
  for(const [k,v]of Object.entries(el.modelStates??{}))if(v!==0)states[k]=sig(v);
- return 'm3d-'+hex14(cyrb53(canonical({v:RENDERER_VERSION,glb:asset.sha256,az:round(normalizeAzimuth(el.orbitAzimuth),.001),el:round(clamp(el.orbitElevation,-90,90),.001),roll:round(normalizeAzimuth(el.orbitRoll??0),.001),z:sig(clamp(el.orbitZoom,.02,50)),px:round(el.orbitPanX??0,.0001),py:round(el.orbitPanY??0,.0001),proj:el.orbitProjection,fov:el.orbitProjection==='perspective'?round(el.orbitFov,.001):null,fill:el.fill.toLowerCase(),colors:el.modelColors??'uniform',lighting:el.modelLighting??'studio',parts,fields,states,w:px.w,h:px.h})));
+ return 'm3d-'+hex14(cyrb53(canonical({v:RENDERER_VERSION,glb:asset.sha256,az:round(normalizeAzimuth(el.orbitAzimuth),.001),el:round(clamp(el.orbitElevation,-90,90),.001),roll:round(normalizeAzimuth(el.orbitRoll??0),.001),z:sig(clamp(el.orbitZoom,.02,50)),px:round(el.orbitPanX??0,.0001),py:round(el.orbitPanY??0,.0001),proj:el.orbitProjection,fov:el.orbitProjection==='perspective'?round(el.orbitFov,.001):null,fill:el.fill.toLowerCase(),colors:el.modelColors??'uniform',lighting:el.modelLighting??'studio',parts,fields,states,order:manifest?.order??null,framing,w:px.w,h:px.h})));
 }
 export type PosterSurface='figure'|'slide'|'thumbnail'|'pdf'|'svg'|{kind:'raster';dpi:number}|{kind:'editor';base?:'figure'|'slide';onscreen?:{w:number;h:number};dpr?:number};
 /** Input is already the furniture-subtracted viewport in canvas CSS px. */

@@ -13,6 +13,7 @@
 import { scaffoldProject } from "./scaffold";
 import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
 import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership } from '../model3d/importData';
+import { GLB_LIMITS } from '../model3d/glbCore.mjs';
 
 const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
@@ -83,7 +84,7 @@ export function createMemBridge(): FileBridge & {
     if (prefix === null) throw new Error('Unrecognized Figure project format');
     const sourcePath = norm(request.sourcePath);
     if (!/\.glb$/i.test(dropped?.name ?? sourcePath)) throw new Error('Choose a binary .glb model file');
-    if (dropped && dropped.size > 200 * 1024 * 1024) throw new Error('GLB exceeds 200 MiB');
+    if (dropped && dropped.size > GLB_LIMITS.maxBytes) throw new Error(`GLB exceeds ${GLB_LIMITS.maxBytes / 1024 / 1024} MiB`);
     const bytes = dropped ? new Uint8Array(await dropped.arrayBuffer()) : files.get(sourcePath);
     if (!bytes) throw new Error(`Missing GLB source ${sourcePath}`);
     const manifestPath = request.manifestPath ?? sourcePath.replace(/\.glb$/i, '.fluxplot.json');

@@ -10,7 +10,7 @@ import { harness } from './lib/harness.mjs';
 import { buildModel3dAssets } from './gen-model3d-viewer.mjs';
 import { createServiceHost } from '../src/lib/model3d/serviceHost';
 import { createModel3dService } from '../src/lib/model3d/service';
-import { writeGlb } from '../src/lib/model3d/glbCore.mjs';
+import { writeGlb, inspectGlb } from '../src/lib/model3d/glbCore.mjs';
 const h = harness('verify-model3d-render-browser');
 const assert = await import('node:assert/strict').then(m=>m.default);
 async function serviceHostLifecycle(){
@@ -37,10 +37,12 @@ const viewer = await readFile(path.join(scratch, 'flux-model3d-viewer.js'), 'utf
 for (const [entry, file] of [['src/lib/model3d/service.ts', 'service.js'], ['src/lib/model3d/model3d.worker.ts', 'model3d.worker.ts']])
   await build({ absWorkingDir: root, entryPoints: [entry], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(scratch, file) });
 const server = createServer(async (req, res) => { try { const name = req.url === '/service.js' ? 'service.js' : req.url === '/model3d.worker.ts' ? 'model3d.worker.ts' : null; res.setHeader('Content-Type', name ? 'text/javascript' : 'text/html'); res.end(name ? await readFile(path.join(scratch, name)) : '<!doctype html><html><head><link rel="icon" href="data:,"></head><body style="margin:0"><div id="viewer"></div></body></html>'); } catch { res.statusCode = 404; res.end(); } });
-await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(1443, '127.0.0.1', resolve); });
+// An ephemeral port: this pure-tier gate may run in parallel with others.
+await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+const origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/`;
 const { browser, page } = await launch({ width: 900, height: 750 });
 try {
-  await page.goto('http://127.0.0.1:1443/'); await page.evaluate('window.__name = (value) => value'); await page.addScriptTag({ content: bundle });
+  await page.goto(origin); await page.evaluate('window.__name = (value) => value'); await page.addScriptTag({ content: bundle });
   const names = ['plain', 'named-parts', 'continuous', 'categorical-missing', 'box-axes', 'scalebar', 'morph-a', 'morph-b', 'morph-incompatible', 'states', 'sequence'];
   const fixtures = Object.fromEntries(await Promise.all(names.map(async (name) => [name, { bytes: (await readFile(path.join(root, `scripts/fixtures/model3d/fluxplot/${name}.glb`))).toString('base64'), manifest: JSON.parse(await readFile(path.join(root, `scripts/fixtures/model3d/fluxplot/${name}.fluxplot.json`), 'utf8')) }])));
   const marker = writeGlb({ parts: [
@@ -100,6 +102,30 @@ try {
     const skin=l.diff(l.render(l.spec('implicit')).pixels,l.render(l.spec('skin')).pixels);l.render({...l.spec('unnamed'),morph:{to:'unnamed',t:.5,pairs:[{nodeA:'',nodeB:'',primitiveA:0,primitiveB:0},{nodeA:'',nodeB:'',primitiveA:1,primitiveB:1}]}});
     return {skin,maxAlpha,left,right,cascade:l.diff(parent,children),hiddenAlpha,mixedVisible:mixed.some((v:number,i:number)=>i%4===3&&v>0)};});
   h.eq(edgeMeshes.skin.changed,0,'skinned GLB displays exact stored mesh geometry');h.eq(edgeMeshes.maxAlpha,128,'semantic manifest preserves source material alpha');h.eq(edgeMeshes.left,0,'field remapping one GLTF instance preserves sibling pixels');h.ok(edgeMeshes.right>100,'instance field override changes target pixels');h.eq(edgeMeshes.cascade.changed,0,'ancestor fill equals equivalent leaf fills');h.eq(edgeMeshes.hiddenAlpha,0,'hidden ancestor hides subtree');h.ok(edgeMeshes.mixedVisible,'implicit and identity-indexed morph pair accepted');
+
+  // FRAMING: the renderer frames by the caller's stored bounds when given, so
+  // metadata without a tight radius keeps its half-diagonal framing everywhere.
+  const plainBounds = inspectGlb(Buffer.from(fixtures.plain.bytes, 'base64')).bounds;
+  const framing = await page.evaluate(async (legacy: { min: number[]; max: number[] }) => {
+    const l=(window as any).lab;
+    await l.core.load('plain-legacy', l.bytes(l.fixtures.plain.bytes), legacy);
+    const tight=l.core.render(l.spec('plain')).pose.radius, stored=l.core.render({...l.spec('plain'),assetId:'plain-legacy'}).pose.radius;
+    return {tight,stored};
+  }, { min: plainBounds.min, max: plainBounds.max });
+  const halfDiagonal = Math.hypot(...plainBounds.max.map((v, i) => (v - plainBounds.min[i]) / 2));
+  h.ok(Math.abs(framing.tight - plainBounds.radius!) < 1e-9 && Math.abs(framing.stored - halfDiagonal) < 1e-9 && framing.tight < framing.stored, `renderer frames by inspected tight radius (${framing.tight.toFixed(4)}) or by stored legacy bounds (${framing.stored.toFixed(4)})`);
+
+  // M1 parity: glbCore part names are renderCore styling ids, unnamed nodes too.
+  const unnamedNames = inspectGlb(generated.unnamed).partNames;
+  const unnamedStyle = await page.evaluate((names: string[]) => {
+    const l=(window as any).lab, spec=l.spec('unnamed',{orbitAzimuth:0,orbitElevation:0,modelColors:'source'}), base=l.render(spec).pixels;
+    const filled=names.map(name=>l.diff(base,l.render({...spec,element:{...spec.element,overrides:{[name]:{fill:'#ff0000'}}}}).pixels).changed);
+    const hidden=l.render({...spec,element:{...spec.element,overrides:Object.fromEntries(names.map(name=>[name,{hidden:true}]))}}).pixels;
+    let alpha=0;for(let i=3;i<hidden.length;i+=4)alpha+=hidden[i];
+    return {filled,alpha};
+  }, unnamedNames);
+  h.eq(unnamedNames, ['node-0', 'node-1'], 'glbCore names unnamed nodes node-<glTF node index>');
+  h.ok(unnamedStyle.filled.every((changed: number) => changed > 0.001) && unnamedStyle.alpha === 0, `renderCore fills and hides unnamed parts by the glbCore part ids (${unnamedStyle.filled.map((c: number) => (c * 100).toFixed(1) + '%').join(', ')})`);
 
   const synthetic = await page.evaluate(() => {
     const l=(window as any).lab, manifest={parts:[{id:'left',role:'mesh',node:'left',series:'pair',color:'#0000ff'},{id:'right',role:'mesh',node:'right',series:'pair',color:'#0000ff'}]}, raw=JSON.stringify(manifest);
@@ -193,7 +219,7 @@ try {
   h.ok(perf.recolor650kMs.every(Number.isFinite),'650k-vertex CPU recolor measured');
   const disposed=await page.evaluate(()=>{(window as any).viewer.dispose();const l=(window as any).lab;l.core.dispose();return l.core.stats();});h.eq(disposed.contexts,0,'core disposal frees context');h.eq(disposed.residentBytes,0,'core disposal frees retained bytes');
   h.section('offline viewer under hashed script CSP');
-  const offline=await browser.newPage();await offline.goto('http://127.0.0.1:1443/');await offline.setOfflineMode(true);
+  const offline=await browser.newPage();await offline.goto(origin);await offline.setOfflineMode(true);
   const boot=`FluxModel3dViewer.mount(document.getElementById('output'),${JSON.stringify({glb:fixtures.states.bytes,manifest:fixtures.states.manifest,width:320,height:240})}).then(v=>{window.offlineViewer=v;window.offlineReady=v.available;});`;
   const hashes=[viewer,boot].map(code=>`'sha256-${createHash('sha256').update(code).digest('base64')}'`).join(' ');
   await offline.setContent(`<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${hashes}; connect-src 'none'; img-src data:; style-src 'none'"><div id="output"></div><script>${viewer}</script><script>${boot}</script>`);

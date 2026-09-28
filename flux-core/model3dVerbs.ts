@@ -17,8 +17,10 @@ const viewParams = {
   colors: z.enum(['source', 'uniform']).optional(), lighting: z.enum(['studio', 'unlit']).optional(),
   preset: z.enum(MODEL_VIEW_PRESETS).optional(), states: states.optional(), frame: finite().optional(),
 };
-const targetParams = { target: z.string(), figureId: z.string().optional(), deckId: z.string().optional(), slideId: z.string().optional(), noPoster: z.boolean().optional() };
-const target = (args: Record<string, unknown>) => ({ target: String(args.target), figureId: args.figureId as string | undefined, deckId: args.deckId as string | undefined, slideId: args.slideId as string | undefined, noPoster: args.noPoster as boolean | undefined });
+// Figure targets only: deck/slide selectors return with the Slides phase (P4),
+// so the schemas never advertise parameters that always fail.
+const targetParams = { target: z.string(), figureId: z.string().optional(), noPoster: z.boolean().optional() };
+const target = (args: Record<string, unknown>) => ({ target: String(args.target), figureId: args.figureId as string | undefined, noPoster: args.noPoster as boolean | undefined });
 const targetArgs: CliArgSpec[] = [{ kind: 'pos', at: 0, into: 'target', required: true }, { kind: 'flag', at: 'figure', into: 'figureId' }, { kind: 'flag', at: 'no-poster', into: 'noPoster', as: 'boolean' }];
 
 export const MODEL3D_VERBS: VerbDef[] = [
@@ -61,9 +63,9 @@ export const MODEL3D_VERBS: VerbDef[] = [
   },
   {
     name: 'render_model_posters', cli: 'render-model-posters', cliRoot: 'flags', scope: 'project',
-    summary: 'Render saved Figure model views into the project poster cache using a batched native worker. Optional figure filter; prune removes only unreferenced posters older than 14 days. Ordinary Connect reads never render or write these caches.',
-    params: { figureId: z.string().optional(), deckId: z.string().optional(), prune: z.boolean().optional() },
+    summary: 'Render saved Figure model views into the project poster cache using a batched native worker. Optional figure filter; prune removes only unreferenced posters older than 14 days and bounds the machine cache (14 days, 1 GiB). Ordinary Connect reads never render or write these caches.',
+    params: { figureId: z.string().optional(), prune: z.boolean().optional() },
     cliArgs: [{ kind: 'flag', at: 'figure', into: 'figureId' }, { kind: 'flag', at: 'prune', into: 'prune', as: 'boolean' }],
-    handler: (ctx, a) => renderModelPosters(ctx.root, { figureId: a.figureId as string | undefined, deckId: a.deckId as string | undefined, prune: a.prune as boolean | undefined, signal: ctx.signal }),
+    handler: (ctx, a) => renderModelPosters(ctx.root, { figureId: a.figureId as string | undefined, prune: a.prune as boolean | undefined, signal: ctx.signal }),
   },
 ];

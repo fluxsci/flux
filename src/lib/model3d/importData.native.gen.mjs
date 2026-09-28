@@ -66,7 +66,7 @@ function parseGlb(input) {
     } else if (kind === 5130562) {
       if (chunks !== 1) fail("chunk", "BIN must follow JSON and appear once.");
       bin = bytes;
-    } else fail("chunk", "Unsupported GLB chunk type.");
+    }
     chunks++;
   }
   if (!object(json) || json.asset?.version !== "2.0") fail("json", "GLB must contain a glTF 2.0 object.");
@@ -102,7 +102,6 @@ function makeReader(json, bin) {
     if (!integer(off) || off % size || stride < bytes || stride % size || a.bufferView != null && !v) fail("accessor", "Invalid accessor offset, view or stride.");
     const base = v ? bufferSlice(a.bufferView, off, bytes, stride, a.count) : 0;
     if (base % size) fail("alignment", "Accessor data is not component-aligned.");
-    if (!v && !a.sparse) fail("accessor", "Accessor without data or sparse values.");
     const componentOffset = (c) => dim ? Math.floor(c / dim) * colStride + c % dim * size : c * size;
     const normalize = (value) => a.normalized && a.componentType !== 5126 ? Math.max(a.componentType === 5120 || a.componentType === 5122 ? -1 : 0, value / divisor) : value;
     let sparse;
@@ -216,6 +215,19 @@ function extensionNames(json) {
   return [...names].sort();
 }
 var linearHex = (rgb) => "#" + rgb.slice(0, 3).map((x) => Math.round(255 * (x <= 31308e-7 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055))).map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("");
+function framingRadius(bounds, sources) {
+  const cx = (bounds.min[0] + bounds.max[0]) / 2, cy = (bounds.min[1] + bounds.max[1]) / 2, cz = (bounds.min[2] + bounds.max[2]) / 2;
+  let r2 = 0;
+  for (const { world: m, pos, deltas } of sources) for (let vi = 0; vi < pos.count; vi++) {
+    const bx = pos.get(vi, 0), by = pos.get(vi, 1), bz = pos.get(vi, 2);
+    for (let k = -1; k < deltas.length; k++) {
+      const x = k < 0 ? bx : bx + deltas[k].get(vi, 0), y = k < 0 ? by : by + deltas[k].get(vi, 1), z = k < 0 ? bz : bz + deltas[k].get(vi, 2);
+      const dx = m[0] * x + m[4] * y + m[8] * z + m[12] - cx, dy = m[1] * x + m[5] * y + m[9] * z + m[13] - cy, dz = m[2] * x + m[6] * y + m[10] * z + m[14] - cz, q = dx * dx + dy * dy + dz * dz;
+      if (q > r2) r2 = q;
+    }
+  }
+  return Math.sqrt(r2);
+}
 function inspectParsed(json, bin, byteLength) {
   const warnings = [], extensions = extensionNames(json);
   for (const ext of extensions) if (ext === "KHR_draco_mesh_compression" || ext === "EXT_meshopt_compression" || ext === "KHR_meshopt_compression") fail("compression", `${ext} is unsupported. Re-export without compression, e.g. gltfpack -i in.glb -o out.glb without -c/-cc.`);
@@ -249,7 +261,7 @@ function inspectParsed(json, bin, byteLength) {
   };
   let triangles = 0, vertices = 0, primitives = 0, hasNormals = true, hasColors = false, hasValues = false;
   const usedMeshes = /* @__PURE__ */ new Set(), parts = [], partNames = [], bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
-  const seen = /* @__PURE__ */ new Set(), namedNodes = /* @__PURE__ */ new Map(), duplicateNames = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set(), namedNodes = /* @__PURE__ */ new Map(), duplicateNames = /* @__PURE__ */ new Set(), radiusSources = [];
   let roots;
   if (scenes.length) {
     const scene = json.scene ?? 0;
@@ -306,10 +318,11 @@ function inspectParsed(json, bin, byteLength) {
       hasNormals &&= p.attributes.NORMAL != null;
       hasColors ||= p.attributes.COLOR_0 != null;
       hasValues ||= p.attributes._VALUE != null;
-      const local = accessorBounds(pos), boxes = [local];
+      const local = accessorBounds(pos), boxes = [local], deltas = [];
       if (!invalidStates.has(node.mesh)) for (const target of p.targets ?? []) {
         if (target.POSITION == null) continue;
         const delta = read(target.POSITION);
+        deltas.push(delta);
         if (delta.width !== 3 || delta.count !== n) fail("states", "Shape-state POSITION differs from base vertex shape.");
         accessorBounds(delta);
         const state = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
@@ -326,6 +339,7 @@ function inspectParsed(json, bin, byteLength) {
           accessorBounds(normal);
         }
       }
+      radiusSources.push({ world, pos, deltas });
       for (const b of boxes) for (let mask = 0; mask < 8; mask++) {
         const point = transformPoint(world, [0, 1, 2].map((c) => mask >> c & 1 ? b.max[c] : b.min[c]));
         if (point.some((v) => !Number.isFinite(v))) fail("transform", "Transformed geometry bounds overflowed.");
@@ -344,6 +358,7 @@ function inspectParsed(json, bin, byteLength) {
     }
   }
   if (!primitives) fail("empty", "The default GLB scene contains no geometry.");
+  bounds.radius = framingRadius(bounds, radiusSources);
   for (const part of parts) if (duplicateNames.has(part.node)) part.node = "";
   if (byteLength > GLB_LIMITS.warnBytes) warnings.push(`${byteLength} bytes exceeds the ${GLB_LIMITS.warnBytes}-byte warning threshold. ${hint}`);
   if (triangles > GLB_LIMITS.warnTriangles) warnings.push(`${triangles} triangles exceeds the ${GLB_LIMITS.warnTriangles}-triangle warning threshold. ${hint}`);
@@ -379,7 +394,7 @@ function encodeGlb(json, bin) {
   bytes.set(bin, 28 + jl);
   return bytes;
 }
-function prepareGlbUnsafe(input, _opts = {}) {
+function prepareGlbUnsafe(input) {
   const source = asBytes(input), { json, bin } = parseGlb(source), { info, invalidStates } = inspectParsed(json, bin, source.length);
   delete json.images;
   delete json.textures;
@@ -432,7 +447,7 @@ function safeGlb(fn) {
     throw new GlbError("structure", "Malformed GLB structure: " + (error instanceof Error ? error.message : String(error)));
   }
 }
-var prepareGlb = (input, opts) => safeGlb(() => prepareGlbUnsafe(input, opts));
+var prepareGlb = (input) => safeGlb(() => prepareGlbUnsafe(input));
 
 // src/lib/model3d/scene3dValidator.gen.mjs
 var validateScene3d = validate10;
@@ -2663,6 +2678,13 @@ function scene3dSourceBindingIssue(manifest, binding) {
 
 // src/lib/model3d/importData.ts
 var MAX_METADATA_BYTES = 4 * 1024 * 1024;
+function isScene3dText(text) {
+  try {
+    return isScene3d(JSON.parse(text));
+  } catch {
+    return false;
+  }
+}
 var encoder = new TextEncoder();
 async function sha256ModelBytes(bytes) {
   const copy = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(0));
@@ -2676,7 +2698,7 @@ async function parseModel3dImportMetadata(input) {
     if (encoder.encode(text).byteLength > MAX_METADATA_BYTES) {
       result.warnings.push("3D manifest exceeds 4 MiB; importing the mesh without scene metadata");
     } else {
-      result.raw = { manifest: text };
+      if (isScene3dText(text)) result.raw = { manifest: text };
       result.manifestHash = await sha256ModelBytes(encoder.encode(text));
       const parsed = parseScene3d(text);
       if ("issue" in parsed) result.warnings.push(`${parsed.issue}; importing the mesh without scene metadata`);
@@ -2694,9 +2716,9 @@ async function parseModel3dImportMetadata(input) {
     if (encoder.encode(input.recipeText).byteLength > MAX_METADATA_BYTES) {
       result.warnings.push("3D recipe exceeds 4 MiB; regeneration metadata was ignored");
     } else {
-      result.raw = { ...result.raw, recipe: input.recipeText };
       try {
         result.recipe = JSON.parse(input.recipeText);
+        result.raw = { ...result.raw, recipe: input.recipeText };
       } catch {
         result.warnings.push("Invalid 3D recipe JSON; regeneration metadata was ignored");
       }

@@ -13,7 +13,7 @@ import { storedAssetPath } from "./assetPath";
 // figure numbering + palette + assets). The user never hand-edits `fig/`.
 
 import { get } from "svelte/store";
-import { readFigureSnapshot } from "./figureSnapshot";
+import { readFigureSnapshot, missingModelFileMessage } from "./figureSnapshot";
 import { withIpcLock, type IpcLease } from "../references/libLock";
 import { applySourceUpdates, writeSourceUpdates, type SourceUpdate } from "../plot/sourceSync";
 import { commitTextGeneration, recoverTextGeneration, bytesToBase64, type GenerationWrite } from "./textGeneration";
@@ -175,7 +175,7 @@ export async function loadFigInto(
     try {
       const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
       if (a.kind === "glb") {
-        if (!await fig.exists(assetPath)) throw new Error(`Missing GLB asset ${a.id}`);
+        if (!await fig.exists(assetPath)) throw new Error(missingGlbMessage(proj.figures, a.id, `${SUB}/${a.path}`));
         const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
         if (sidecars.issues?.length) modelIssues[a.id] = sidecars.issues;
         if (sidecars.manifest) primedModels[a.id] = sidecars.manifest;
@@ -245,6 +245,14 @@ export async function loadFigInto(
 // saving would downgrade files this build doesn't understand.
 let figSubsystemLocked = false;
 let figLoadFailure: string | null = null;
+/** Names the file, element and figure (the "Missing GLB" prefix is what the
+ * persistence gate and older messages match on). */
+function missingGlbMessage(figures: readonly Figure[], assetId: string, file: string): string {
+  for (const figure of figures) for (const element of figure.elements) {
+    if (element.type === "model3d" && element.assetId === assetId) return `Missing GLB asset ${assetId}: ${missingModelFileMessage(file, element, figure)}`;
+  }
+  return `Missing GLB asset ${assetId}: ${file} is missing (no figure element places it); restore ${file}`;
+}
 
 // WS-5.3: last-written/loaded serialized text per canvas — the skip-unchanged
 // guard (and WS-5.4's divergence probe reads the same baseline).
@@ -569,7 +577,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
       if (a.kind === "glb") {
         const rel = storedAssetPath(`${SUB}/${a.path}`);
         const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
-        if (!await fig.exists(path)) throw new Error(`Missing GLB asset ${a.id}`);
+        if (!await fig.exists(path)) throw new Error(missingGlbMessage(view.figures, a.id, `${SUB}/${a.path}`));
         const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
         for(const message of sidecars.issues??[]) issues.push({assetId:a.id,message});
         if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;

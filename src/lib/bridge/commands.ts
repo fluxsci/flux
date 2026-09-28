@@ -19,7 +19,7 @@ import type { AlignKind } from "../geometry";
 import type { PartOverride, TextStyle, VectorNode } from "../types";
 import { ELEMENT_CASCADE_PROPS, type CascadeSpec } from "../cascade";
 import { scene3dManifests } from '../model3d/store';
-import { applyModelViewCommand, applyModelFieldCommand, validateModelViewCommand, validateModelFieldCommand, assertModelPart, type ModelViewCommand, type ModelFieldCommand } from '../model3d/commandOps';
+import { applyModelViewCommand, applyModelFieldCommand, validateModelViewCommand, validateModelFieldCommand, assertModelPart, applyModelPartStyle, type ModelViewCommand, type ModelFieldCommand } from '../model3d/commandOps';
 import type { Model3dAsset } from '../model3d/types';
 
 export type Command = { type: string } & Record<string, unknown>;
@@ -217,7 +217,12 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       if (element?.type === 'model3d') {
         const asset = p.assets.find(asset => asset.id === element.assetId);
         if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${element.assetId}`);
-        assertModelPart(element, asset as Model3dAsset, get(scene3dManifests)[element.assetId], partId);
+        const manifest = get(scene3dManifests)[element.assetId], patch = (c.patch ?? {}) as PartOverride;
+        assertModelPart(element, asset as Model3dAsset, manifest, partId);
+        // Same op as the headless verb: a mesh fill on a Uniform model switches it to Source.
+        let switchedToSource = false;
+        store.commit((p) => { switchedToSource = applyModelPartStyle(p, target, partId, patch, manifest).switchedToSource; });
+        return { elementId: target, partId, ...(switchedToSource ? { modelColors: 'source' } : {}) };
       }
       store.commit((p) => ops.setPartOverride(p, target, partId, (c.patch ?? {}) as PartOverride));
       return { elementId: target, partId };
@@ -231,11 +236,12 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
         const figure = get(store.project).figures.find(figure => figure.id === c.figureId);
         if (targets.some(id => !figure?.elements.some(element => element.id === id))) throw new Error('Model target is outside the requested figure');
       }
+      let warnings: string[] = [];
       store.commit(p => {
-        if (c.type === 'set_model_view') applyModelViewCommand(p, targets, c as ModelViewCommand, manifests);
+        if (c.type === 'set_model_view') warnings = applyModelViewCommand(p, targets, c as ModelViewCommand, manifests);
         else applyModelFieldCommand(p, targets, c as unknown as ModelFieldCommand, manifests);
       });
-      return { elementIds: targets };
+      return { elementIds: targets, ...(warnings.length ? { warnings } : {}) };
     }
 
     case "set_style": {

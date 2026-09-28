@@ -26,15 +26,33 @@ export function staticModelRequest(element: Model3dElement, asset: Model3dAsset,
 export function model3dSvgContext(assets: readonly Asset[], manifests: Record<string, Scene3dManifest>, surface: PosterSurface = 'figure', namespace?: string): Model3dSvgContext {
   const byId = new Map(assets.filter((asset): asset is Model3dAsset => asset.kind === 'glb' && !!asset.model && !!asset.sha256).map(asset => [asset.id, asset]));
   return { namespace, assetOf: element => byId.get(element.assetId), manifestOf: element => manifests[element.assetId],
-    posterIdOf: element => { const asset = byId.get(element.assetId); return asset ? staticModelRequest(element, asset, manifests[element.assetId], surface).ref : undefined; } };
+    // A placement whose request cannot be formed draws the placeholder instead of
+    // failing the whole figure; collectModelPosters reports why.
+    posterIdOf: element => {
+      const asset = byId.get(element.assetId);
+      if (!asset) return undefined;
+      try { return staticModelRequest(element, asset, manifests[element.assetId], surface).ref; } catch { return undefined; }
+    } };
 }
-export function collectModelPosters(figures: readonly Figure[], context: Model3dSvgContext, surface: PosterSurface): StaticModelPosterRequest[] {
+export interface CollectModelPosterOptions {
+  /** Read paths degrade a placement they cannot request to a placeholder and a
+   * named issue. Without this callback (exports) the first problem throws. */
+  onIssue?: (element: Model3dElement, message: string) => void;
+}
+export function collectModelPosters(figures: readonly Figure[], context: Model3dSvgContext, surface: PosterSurface, options: CollectModelPosterOptions = {}): StaticModelPosterRequest[] {
   const out: StaticModelPosterRequest[] = [];
   for (const figure of figures) for (const element of figure.elements) {
     if (element.type !== 'model3d' || effectiveHidden(figure, element)) continue;
-    const asset = context.assetOf(element);
-    if (!asset) throw new Error(`Cannot render 3D model "${element.name || element.id}": missing model metadata`);
-    out.push(staticModelRequest(element, asset, context.manifestOf(element), surface));
+    const label = element.name || element.id;
+    try {
+      const asset = context.assetOf(element);
+      if (!asset) throw new Error(`Cannot render 3D model "${label}": missing model metadata`);
+      out.push(staticModelRequest(element, asset, context.manifestOf(element), surface));
+    } catch (error) {
+      if (!options.onIssue) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      options.onIssue(element, reason.startsWith('Cannot render 3D model') ? reason : `Cannot render 3D model "${label}": ${reason}`);
+    }
   }
   return out;
 }

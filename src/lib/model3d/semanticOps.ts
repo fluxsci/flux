@@ -49,7 +49,7 @@ export function setModelStates(project: Project, ids: readonly Id[], states: Rec
   const selected = models(project, ids);
   for (const element of selected) {
     const names = new Set(project.assets.find(asset => asset.id === element.assetId)?.model?.states ?? []);
-    for (const name of Object.keys(weights)) if (!names.has(name)) throw new Error(`Unknown shape state ${name} for ${element.name ?? element.id}`);
+    for (const name of Object.keys(weights)) if (!names.has(name)) throw new Error(`Unknown shape state ${name} for ${element.name ?? element.id}. ${names.size ? `Known shape states: ${[...names].slice(0, 40).join(', ')}` : 'This model has no shape states'}`);
   }
   for (const element of selected) {
     if (Object.keys(weights).length) element.modelStates = { ...weights }; else delete element.modelStates;

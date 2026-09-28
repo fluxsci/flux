@@ -44,6 +44,12 @@ const actualCases = [
   ["scripts/fixtures/model3d/native/neuron.glb", ["group:model3d"]],
   ["src/lib/Model3dElement.svelte", ["group:model3d", "group:model3d-gui"]],
   ["src/lib/model3d/posterStore.ts", ["group:model3d", "group:model3d-gui"]],
+  // Review R5: pure 3D cores run pure + headless-browser gates only; renderer and UI modules keep the full group.
+  ["src/lib/model3d/orbit.ts", ["group:model3d-pure", "group:model3d-ui", "group:model3d-xray"]],
+  ["src/lib/model3d/glbCore.mjs", ["group:model3d-pure", "group:model3d-ui", "group:model3d-xray"]],
+  ["src/lib/model3d/renderCore.ts", ["group:model3d", "group:model3d-xray"]],
+  ["src/lib/model3d/OrbitOverlay.svelte", ["group:model3d", "group:model3d-xray"]],
+  ["src/lib/model3d/sourceRegistry.ts", ["group:model3d-source"]],
   ["src/lib/plot/Model3dChip.svelte", ["group:model3d", "group:model3d-gui"]],
   // F2 adds routing coverage without dropping the titlebar's live-view gates.
   ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
@@ -111,6 +117,9 @@ equal(slideSelection.scripts.includes("verify-slide-ghost-gui.mjs"), true, "slid
 equal(slideSelection.scripts.includes("verify-paper-slide-embeds.mjs"), true, "shared player changes select inline slide playback");
 equal(slideSelection.scripts.includes("verify-scale-paper-slide-embeds.mjs"), true, "shared player changes select inline slide performance");
 equal(slideSelection.diagnostics, [], "overhaul mapping has no unresolved references");
+const pureModel = resolveChangedRuns(collectChangedRuns(["src/lib/model3d/orbit.ts"], manifest.pathMap), manifest);
+equal(pureModel.scripts.filter((s) => manifest.tiers.electron.includes(s) || manifest.tiers.scale.includes(s) || manifest.execution?.[s]?.externalNetwork), [], "a pure 3D core edit selects no electron, scale or network gate");
+equal(["verify-model3d-glb.ts", "verify-model3d-render-browser.ts", "verify-model3d-orbit-gui.mjs"].every((s) => pureModel.scripts.includes(s)) && !pureModel.diagnostics.length, true, "a pure 3D core edit still selects its pure and headless-browser gates");
 
 for (const file of ['README.md', 'resources/flux-context/REVIEW.md', 'resources/agent-skills/flux-connect/SKILL.md', 'electron/fluxContextDocs.gen.cjs', 'src/lib/Help.svelte', 'src/shell/command/commands.ts']) {
   const selection = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest);

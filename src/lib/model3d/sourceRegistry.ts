@@ -2,6 +2,7 @@
 import { joinPath, type FileBridge } from '../project/types';
 import { storedAssetPath } from '../project/assetPath';
 import type { Model3dAsset } from './types';
+import { GLB_LIMITS } from './glbCore.mjs';
 import type { Model3dService } from './service';
 
 export interface ModelPosterSource {
@@ -57,7 +58,7 @@ export async function sourceModel3dService(source: ModelPosterSource) {
       if (!entry) throw abort();
       const { source, asset } = entry, path = await checkModelFile(source, asset);
       const bytes = await source.bridge!.readFile(path); checkModelSource(source);
-      if (bytes.byteLength > 200 * 1024 * 1024) throw new Error(`3D model "${asset.name || asset.id}" exceeds the model byte limit`);
+      if (bytes.byteLength > GLB_LIMITS.maxBytes) throw new Error(`3D model "${asset.name || asset.id}" exceeds the model byte limit`);
       const hash = await crypto.subtle.digest('SHA-256', bytes.slice(0)); checkModelSource(source);
       const sha = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
       if (sha !== asset.sha256) throw new Error(`3D model "${asset.name || asset.id}" changed since this view was captured`);
@@ -86,7 +87,8 @@ export function retainSourceModel(asset: Model3dAsset, source: ModelPosterSource
   const ready = sourceModel3dService(source).then(async service => {
     checkModelSource(source); if (released) throw abort();
     retained = service;
-    await service.retain(id); checkModelSource(source);
+    // Stored metadata frames the render exactly like the furniture projection.
+    await service.retain({ id, bounds: entry.asset.model.bounds }); checkModelSource(source);
     if (released) throw abort();
     return { service, assetId: id, owner: source };
   });

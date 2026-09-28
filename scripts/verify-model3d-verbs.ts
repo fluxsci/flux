@@ -114,6 +114,16 @@ try {
   for (const args of [['set-model-field', field.elementId, 'height.field', '--min','3','--max','2'], ['set-model-view', model.id, '--frame','1','--state','inflated=.5'], ['set-model-view', model.id, '--state','ghost=1'], ['restyle', figureId, 'typo', '--element', field.elementId, '--fill','#f00']]) h.ok((await run([...args, '--root',root])).code !== 0, 'invalid built command returns failure: ' + args[0]);
   h.eq(JSON.stringify((await loadFigModel(root)).project), beforeInvalid, 'invalid built commands leave figure bytes semantically unchanged');
   const resetField = await cli(['set-model-field', field.elementId, 'height.field', '--root', root, '--reset']); h.ok(!resetField.element.fields, 'reset removes the field override');
+  // P2: a const switch never turns an explicit false into true.
+  const partHidden = async () => ((await loadFigModel(root)).project.figures.flatMap(f => f.elements).find(e => e.id === field.elementId) as typeof model).overrides?.['height.field']?.hidden;
+  await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden']); h.eq(await partHidden(), true, 'bare --hidden hides the part');
+  await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden', 'false']); h.eq(await partHidden(), false, '--hidden false shows the part instead of hiding it');
+  await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden']); await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--show']); h.eq(await partHidden(), false, '--show is the documented unhide path');
+  const switchValue = await run(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--italic=false']);
+  h.ok(switchValue.code !== 0 && /--italic is a switch.*--no-italic/.test(switchValue.err), 'a non-boolean switch refuses an explicit value and names its opposite');
+  const contradictory = await run(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden', '--show']); h.ok(contradictory.code !== 0, '--hidden with --show is contradictory');
+  // P5: no always-failing slide selectors are advertised before the Slides phase.
+  for (const name of ['set_model_view', 'set_model_field', 'render_model_posters']) { const params = VERBS.find(v => v.name === name)!.params; h.ok(!('deckId' in params) && !('slideId' in params), `${name} advertises no deck/slide parameters`); }
   const {withLock}=await import('../flux-core/locks');
   await withLock(root,'project','gate-owned-document',async()=>{const cache=await core.renderModelPosters(root,{figureId});h.ok(cache.posters.length===3,'derived poster operation does not acquire a document writer lease');});
   const journalBeforeCancel=await fs.readFile(path.join(root,'.meta/journal.ndjson'),'utf8'),cancelled=new AbortController();cancelled.abort();
@@ -195,6 +205,54 @@ try {
       const beforePart=JSON.stringify(get(store.project));await assert.rejects(dispatchCommand({type:'restyle_part',elementId:field.elementId,partId:'typo',patch:{fill:'#fff'}}),/Unknown part/);h.eq(JSON.stringify(get(store.project)),beforePart,`${tenant}: unknown semantic part cannot create an inert override`);
     }finally{release();}
   }}finally{cleanup();setStoreTenant('figure');}
+
+  // Lower review items: caller mistakes are usage errors, errors list known
+  // names, and colour edits never silently do nothing.
+  for (const args of [['model-info', 'absent.glb'], ['model-info', 'states.fluxplot.json'], ['model-info', 'states.glb', '--morph-with', 'absent.glb']]) {
+    const refused = await run(args); h.ok(refused.code !== 0 && /not found|must be a \.glb/.test(refused.err), `model-info usage error exits non-zero: ${args.slice(1).join(' ')}`);
+  }
+  await assert.rejects(core.setModelViewCommand(root, { target: model.id, noPoster: true }, { states: { ghost: 1 } }), /Unknown shape state ghost.*Known shape states: .*inflated/);
+  const seqId = seq.elementId; await assert.rejects(core.setModelFieldCommand(root, { target: seqId, noPoster: true }, { field: 'height.field', min: 0 }), /Unknown value field.*This model has no value fields/);
+  await assert.rejects(core.setModelFieldCommand(root, { target: field.elementId, noPoster: true }, { field: 'typo', min: 0 }), /Known value fields: height\.field/);
+  h.ok(true, 'unknown shape states and value fields name the known ones');
+  const partFigure = await core.createFigure(root, { id: 'part-colors', name: 'Part colours' });
+  const parts = await cli(['add-model', partFigure.figureId, 'named-parts.glb', '--root', root, '--no-poster']);
+  const uniform = await cli(['set-model-view', parts.elementId, '--root', root, '--colors', 'uniform', '--no-poster']);
+  h.eq(uniform.element.modelColors, 'uniform', 'fixture model starts in Uniform colours');
+  const colorsOf = async () => ((await loadFigModel(root)).project.figures.flatMap(f => f.elements).find(e => e.id === parts.elementId) as typeof model).modelColors;
+  await cli(['restyle-part', partFigure.figureId, 'legend', '--root', root, '--element', parts.elementId, '--fill', '#224466', '--no-poster']);
+  h.eq(await colorsOf(), 'uniform', 'a furniture fill leaves Uniform colours alone');
+  const meshFill = await run(['restyle-part', partFigure.figureId, 'neuron.soma', '--root', root, '--element', parts.elementId, '--fill', '#aa2200', '--no-poster']);
+  h.ok(meshFill.code === 0 && meshFill.err.includes('switched colors to Source') && await colorsOf() === 'source', 'a mesh part fill on a Uniform model switches it to Source in the same edit');
+  const hiddenColor = await cli(['set-model-view', parts.elementId, '--root', root, '--color', '#336699', '--no-poster']);
+  h.ok(hiddenColor.warnings.some((w: string) => w.includes('no visible effect while colors are Source')), '--color in Source colours warns that it cannot show');
+  const shownColor = await cli(['set-model-view', parts.elementId, '--root', root, '--color', '#336699', '--colors', 'uniform', '--no-poster']);
+  h.ok(!shownColor.warnings.some((w: string) => w.includes('no visible effect')), '--color with --colors uniform does not warn');
+
+  // L1: flux-core import follows the native sidecar boundary and never
+  // persists sidecar bytes that do not parse.
+  const sidecarDir = path.join(scratch, 'sidecars'), secret = path.join(scratch, 'secret.txt'); await fs.mkdir(sidecarDir);
+  await fs.writeFile(secret, 'private token'); await fs.copyFile(input('states'), path.join(sidecarDir, 'linked.glb')); await fs.symlink(secret, path.join(sidecarDir, 'linked.fluxplot.json'));
+  const linkedImport = await core.addModel(root, partFigure.figureId, path.join(sidecarDir, 'linked.glb'), { noPoster: true });
+  h.ok(linkedImport.warnings.some(w => w.includes('escapes the model source directory')) && !(await fs.readdir(path.join(root, 'fig/assets'))).some(name => name.startsWith(linkedImport.assetId) && name.endsWith('.json')), 'a sidecar symlink out of the GLB directory is refused and nothing is copied');
+  await fs.copyFile(input('states'), path.join(sidecarDir, 'garbled.glb')); await fs.writeFile(path.join(sidecarDir, 'garbled.fluxplot.json'), 'not json'); await fs.writeFile(path.join(sidecarDir, 'garbled.recipe.json'), '{broken');
+  const garbled = await core.addModel(root, partFigure.figureId, path.join(sidecarDir, 'garbled.glb'), { noPoster: true });
+  h.ok(garbled.assetId.startsWith('model-') && !(await fs.readdir(path.join(root, 'fig/assets'))).some(name => name.startsWith(garbled.assetId) && name.endsWith('.json')), 'unparseable sidecars are not persisted; minted ids share the native model- prefix');
+  const inside = path.join(root, 'plots'); await fs.mkdir(inside, { recursive: true }); await fs.symlink(input('states'), path.join(inside, 'escape.glb'));
+  await assert.rejects(core.addModel(root, partFigure.figureId, path.join(inside, 'escape.glb'), { noPoster: true }), /escapes the project/); h.ok(true, 'an in-project GLB symlink that resolves outside the project is refused');
+
+  // H1 through the built CLI: a placed GLB goes missing; read verbs degrade to
+  // named placeholders and the figure stays repairable.
+  const broken = (await loadFigModel(root)).project, brokenAsset = broken.assets.find(a => a.id === field.assetId)!;
+  await fs.rm(path.join(root, 'fig', brokenAsset.path));
+  const missingOut = path.join(scratch, 'missing.svg'), missingRender = await run(['render-figure', figureId, '--root', root, '--out', missingOut]);
+  h.ok(missingRender.code === 0 && missingRender.err.includes(`fig/${brokenAsset.path} is missing`) && missingRender.err.includes(field.elementId) && (await fs.readFile(missingOut, 'utf8')).includes('data-model3d-placeholder'), 'built render-figure succeeds with a named placeholder for a missing GLB');
+  const missingCanvasOut = path.join(scratch, 'missing-canvas.svg'), missingCanvas = await run(['render-canvas', '--root', root, '--out', missingCanvasOut]);
+  h.ok(missingCanvas.code === 0 && missingCanvas.err.includes('is missing'), 'built render-canvas succeeds and names the missing GLB');
+  const missingPosters = await cli(['render-model-posters', '--root', root, '--figure', figureId]);
+  h.ok(missingPosters.warnings.some((w: string) => w.includes('is missing') && /restore .* or delete the element/.test(w)), 'explicit poster verb names the missing file and its repair');
+  const repaired = await run(['delete-element', field.elementId, '--root', root]);
+  h.ok(repaired.code === 0 && !(await loadFigModel(root)).project.figures.flatMap(f => f.elements).some(e => e.id === field.elementId), 'built delete-element repairs a figure whose GLB is missing');
 
 } catch(error) { console.error(error); h.fail(String(error)); }
 finally { await fs.rm(scratch,{recursive:true,force:true}); }

@@ -161,7 +161,10 @@ try {
  await core.deleteFigure(root,'fig-three');h.ok((await core.loadFigModel(root)).project.assets.some(a=>a.id===asset.id),'GC retains GLB referenced by saved deck');h.eq(await fs.readFile(path.join(root,'fig/assets/neuron.fluxplot.json'),'utf8'),unknown,'GC retains scene3d sidecar bytes');
  await fs.unlink(path.join(root,'fig/assets/neuron.glb'));
  const snapshot=await readFigureSnapshot({readText:rel=>bridge.readText(path.join(root,rel)).catch(()=>null),assetExists:rel=>bridge.exists(path.join(root,rel)),listDirectory:rel=>bridge.readdir!(path.join(root,rel))});
- h.ok(snapshot.status==='partial'&&snapshot.diagnostics.some(d=>/Missing GLB/.test(d.message)),'missing GLB produces a partial-load issue');
+ // Review H1(c): only GLBs a figure element places are the figure snapshot's
+ // concern, and a missing placed one is a non-blocking asset issue (pinned in
+ // verify-model3d-headless). This deck-owned file concerns no figure element.
+ h.ok(snapshot.status==='complete'&&!snapshot.diagnostics.length&&!snapshot.assetIssues.length,'missing GLB placed by no figure element is not a figure snapshot issue');
  await loadFigInto(root,'Models');await assert.rejects(()=>saveFigFrom(root,{force:true}),/Missing GLB/i);h.ok(true,'missing GLB cannot be silently saved away');
  const legacyRoot=path.join(root,'legacy'),saveAsRoot=path.join(root,'save-as');
  await fs.mkdir(path.join(legacyRoot,'assets'),{recursive:true});

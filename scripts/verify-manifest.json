@@ -564,8 +564,7 @@
       "verify-library-20k.mjs",
       "verify-scale-annotate-hover.mjs",
       "verify-scale-inbox.mjs",
-      "verify-scale-model3d.mjs",
-      "verify-model3d-s8.cjs"
+      "verify-scale-model3d.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
@@ -610,7 +609,8 @@
       "verify-model3d-electron.cjs",
       "verify-model3d-smoke-electron.cjs",
       "verify-model3d-verbs-electron.cjs",
-      "verify-scale-model3d-electron.cjs"
+      "verify-scale-model3d-electron.cjs",
+      "verify-model3d-s8.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -900,6 +900,34 @@
       "verify-model3d-import-progress-gui.mjs",
       "verify-model3d-snapshot-quiet.mjs"
     ],
+    "model3d-pure": [
+      "verify-model3d-glb.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-model3d-morph.ts",
+      "verify-model3d-render-browser.ts",
+      "verify-model3d-persistence.ts",
+      "verify-model3d-import.ts",
+      "verify-model3d-semantics.ts",
+      "verify-model3d-view-ops.ts",
+      "verify-model3d-headless.ts",
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-model3d-verbs.ts",
+      "verify-model3d-demo.ts",
+      "verify-model3d-import-progress.ts"
+    ],
+    "model3d-ui": [
+      "verify-model3d-gui.mjs",
+      "verify-model3d-export.mjs",
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-xray-gui.mjs",
+      "verify-model3d-source-gui.mjs",
+      "verify-model3d-verbs-gui.mjs",
+      "verify-model3d-import-progress-gui.mjs",
+      "verify-model3d-snapshot-quiet.mjs"
+    ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
       "verify-loadgate.ts",
@@ -1176,9 +1204,27 @@
       ]
     },
     {
-      "glob": "src/lib/model3d/**",
+      "$why": "Renderer, worker and inline-host modules decide poster/export pixels, so they keep the full 3D group including the native poster and scale gates.",
+      "glob": "src/lib/model3d/{renderCore,service,serviceHost,inlineHost,notebookViewer,model3d.worker}.ts",
       "run": [
         "group:model3d",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "$why": "App-state/UI modules and components keep their existing full mapping.",
+      "glob": "{src/lib/model3d/{store,orbitSession,exportPosters,furnitureDom,importProgress}.ts,src/lib/model3d/*.svelte}",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "$why": "The remaining src/lib/model3d modules are pure cores: their pure and headless-browser gates, never the electron/network/scale gates (review R5).",
+      "glob": "src/lib/model3d/**",
+      "run": [
+        "group:model3d-pure",
+        "group:model3d-ui",
         "group:model3d-xray"
       ]
     },

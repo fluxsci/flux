@@ -6,7 +6,8 @@ import { boundedModelFile, publishModelFile } from './model3dFile';
 import { confinedRecoveryPath } from './recovery';
 import { loadFigModel, mutateFigModel, safeJoin, stageFigureWrites, exists } from './model';
 import { journal } from './journal';
-import { resolveModelPosters, validModelPosterPng } from './model3dPosterCache';
+import { FluxError, NotFoundError, ValidationError } from './errors';
+import { resolveModelPosters, validModelPosterPng, pruneMachineModelPosters } from './model3dPosterCache';
 import { inspectGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { prepareModel3dImport, parseModel3dImportMetadata, makeImportedModel3dElement } from '../src/lib/model3d/importData';
 import { readScene3dSidecars } from '../src/lib/model3d/persistence';
@@ -39,19 +40,35 @@ export async function readModel3dMetadata(root: string, project: Project, assetI
   }, 'fig/assets', assetId, { binding: bindings.get(assetId) });
 }
 
-async function sourceFiles(sourcePath: string) {
+const contained = (parent: string, child: string) => { const relative = path.relative(parent, child); return !relative || (!relative.startsWith('..') && !path.isAbsolute(relative)); };
+/** Same boundary as the native import (electron/model3dImport.cjs): an
+ * in-project source may not resolve outside the project, and implicit sidecars
+ * must resolve inside the real GLB's own directory. */
+async function sourceFiles(sourcePath: string, root?: string) {
   const file = path.resolve(sourcePath);
-  if (!/\.glb$/i.test(file)) throw new Error('3D import accepts .glb files; export a triangle mesh as GLB');
-  const bytes = await boundedModelFile(file, GLB_LIMITS.maxBytes).catch(error => {
+  // Caller mistakes are typed usage errors (non-zero exit / isError); only a
+  // readable GLB that fails geometry rules is a model-info refusal (ok:false).
+  if (!/\.glb$/i.test(file)) throw new ValidationError(`3D input must be a .glb file (got ${path.basename(file)}); export a triangle mesh as GLB`);
+  const real = await fs.realpath(file).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new NotFoundError(`GLB not found: ${file}`);
+    throw error;
+  });
+  if (root && contained(path.resolve(root), file) && !contained(await fs.realpath(root), real)) throw new ValidationError(`Model source symlink escapes the project: ${sourcePath}`);
+  const bytes = await boundedModelFile(real, GLB_LIMITS.maxBytes).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new NotFoundError(`GLB not found: ${file}`);
+    if (String(error).includes('must be a regular file')) throw new ValidationError(`3D input must be a regular .glb file: ${file}`);
     if (String(error).includes('exceeds')) throw new Error(`${(error as Error).message}; re-export a smaller mesh with max_faces or simplify it first`);
     throw error;
   });
   const stem = file.replace(/\.glb$/i, ''), warnings: string[] = [];
   const optional = async (suffix: string) => {
     const name = stem + suffix;
-    try { return { path: name, text: (await boundedModelFile(name, 4 * 1024 * 1024)).toString('utf8') }; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') warnings.push(`${path.basename(name)} could not be read: ${String(error)}`);
+    try {
+      const sidecar = await fs.realpath(name);
+      if (!contained(path.dirname(real), sidecar)) throw new Error('Sidecar symlink escapes the model source directory');
+      return { path: name, text: (await boundedModelFile(sidecar, 4 * 1024 * 1024)).toString('utf8') };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') warnings.push(`${path.basename(name)} could not be read: ${error instanceof Error ? error.message : String(error)}; importing the mesh without this metadata`);
       return undefined;
     }
   };
@@ -71,19 +88,25 @@ export async function modelInfo(sourcePath: string, options: { morphWith?: strin
     let morph;
     if (options.morphWith) {
       try { const other = await inspect(options.morphWith); morph = { path: other.path, ...morphCompatible(source.info, other.info), warnings: other.warnings }; }
-      catch (error) { morph = { path: path.resolve(options.morphWith), ok: false, pairs: [], reason: String((error as Error).message ?? error) }; }
+      catch (error) {
+        if (error instanceof FluxError) throw error;
+        morph = { path: path.resolve(options.morphWith), ok: false, pairs: [], reason: String((error as Error).message ?? error) };
+      }
     }
     return { ok: true, path: source.path, sha256: source.sha256, bytes: source.bytes, ...source.info,
       parts: buildModel3dTree(source.metadata.manifest, source.info), fields: scene3dFields(source.metadata.manifest),
       warnings: source.warnings, ...(morph ? { morph: { ...morph, ...(!morph.ok ? { hint: morphFixHint } : {}) } } : {}) };
-  } catch (error) { return { ok: false, path: path.resolve(sourcePath), reason: String((error as Error).message ?? error) }; }
+  } catch (error) {
+    if (error instanceof FluxError) throw error;
+    return { ok: false, path: path.resolve(sourcePath), reason: String((error as Error).message ?? error) };
+  }
 }
 
 export async function addModel(root: string, figureId: string, sourcePath: string, options: {
   box?: { x?: number; y?: number; width?: number; height?: number }; view?: ModelViewCommand; name?: string; noPoster?: boolean;
 } = {}) {
-  const source = await sourceFiles(sourcePath);
-  const prepared = await prepareModel3dImport({ bytes: source.bytes, assetId: `model_${randomUUID()}`, name: path.basename(source.file), manifestText: source.manifest?.text, recipeText: source.recipe?.text });
+  const source = await sourceFiles(sourcePath, root);
+  const prepared = await prepareModel3dImport({ bytes: source.bytes, assetId: `model-${randomUUID()}`, name: path.basename(source.file), manifestText: source.manifest?.text, recipeText: source.recipe?.text });
   let publishedFile: string | undefined;
   const result = await mutateFigModel(root, 'add_model', async ({ project }) => {
     const figure = project.figures.find(figure => figure.id === figureId);
@@ -91,7 +114,7 @@ export async function addModel(root: string, figureId: string, sourcePath: strin
     const data = prepared.data;
     const element = makeImportedModel3dElement({ ...data, source: { glbPath: source.file, ...(source.manifest ? { manifestPath: source.manifest.path } : {}), ...(source.recipe ? { recipePath: source.recipe.path } : {}) } }, { root, name: options.name, box: options.box, figureWidth: figure.width });
     project.assets.push(data.asset); figure.elements.push(element);
-    if (options.view) applyModelViewCommand(project, [element.id], options.view, data.manifest ? { [data.asset.id]: data.manifest } : {});
+    const viewWarnings = options.view ? applyModelViewCommand(project, [element.id], options.view, data.manifest ? { [data.asset.id]: data.manifest } : {}) : [];
     // New immutable bytes publish before the JSON generation can reference them.
     // A later uncertain save failure retains safe unreferenced bytes, never a
     // destructive rollback of a possibly committed model reference.
@@ -101,7 +124,7 @@ export async function addModel(root: string, figureId: string, sourcePath: strin
     if (data.raw?.manifest !== undefined) sidecars.set(`fig/assets/${data.asset.id}.fluxplot.json`, data.raw.manifest);
     if (data.raw?.recipe !== undefined) sidecars.set(`fig/assets/${data.asset.id}.recipe.json`, data.raw.recipe);
     stageFigureWrites(project, sidecars);
-    return { elementId: element.id, assetId: data.asset.id, parts: buildModel3dTree(data.manifest, data.asset.model), warnings: [...source.warnings, ...data.warnings] };
+    return { elementId: element.id, assetId: data.asset.id, parts: buildModel3dTree(data.manifest, data.asset.model), warnings: [...source.warnings, ...data.warnings, ...viewWarnings] };
   }).catch(error => {
     if (!publishedFile) throw error;
     throw new Error(`${String((error as Error).message ?? error)}. Stored GLB retained at ${publishedFile}. Reload the figure before retrying; remove this file only after confirming it is unreferenced.`, { cause: error });
@@ -121,8 +144,8 @@ export async function ensureModelPoster(root: string, figureId: string, elementI
 export async function setModelViewCommand(root: string, target: ModelTarget, command: ModelViewCommand) {
   const result = await mutateFigModel(root, 'set_model_view', async ({ project }) => {
     const element = targetModel(project, target), metadata = await readModel3dMetadata(root, project, element.assetId);
-    applyModelViewCommand(project, [element.id], command, metadata.manifest ? { [element.assetId]: metadata.manifest } : {});
-    return { element: structuredClone(element), figureId: project.figures.find(figure => figure.elements.includes(element))!.id, warnings: metadata.issues ?? [] };
+    const viewWarnings = applyModelViewCommand(project, [element.id], command, metadata.manifest ? { [element.assetId]: metadata.manifest } : {});
+    return { element: structuredClone(element), figureId: project.figures.find(figure => figure.elements.includes(element))!.id, warnings: [...metadata.issues ?? [], ...viewWarnings] };
   });
   const poster = target.noPoster ? { warnings: [], poster: null } : await ensureModelPoster(root, result.figureId, result.element.id);
   return { ...result, ...poster, warnings: [...new Set([...result.warnings, ...poster.warnings])] };
@@ -161,7 +184,7 @@ export async function renderModelPosters(root: string, options: { figureId?: str
       }
       posters.push({ elementId: request.element.id, key: request.key, path: ready ? file : null, ready, width: request.w, height: request.h });
     }
-    const removed: string[] = [];
+    const removed: string[] = [], machineRemoved: string[] = [];
     if (options.prune) {
       // Rendering may outlive a save in another window/process. Protect the
       // current saved references, including views added during that render.
@@ -175,8 +198,11 @@ export async function renderModelPosters(root: string, options: { figureId?: str
         if (!stat.isFile() || !isModelPosterPrunable(name, stat.mtimeMs, live)) continue;
         options.signal?.throwIfAborted(); await fs.rm(file); removed.push(name);
       }
+      // The shared machine cache (filled by read-only image requests) is bounded
+      // by the same age rule plus a size cap; this project's live keys survive.
+      machineRemoved.push(...await pruneMachineModelPosters({ protect: live }));
     }
-    return { posters, warnings: rendered.warnings, removed };
+    return { posters, warnings: rendered.warnings, removed, ...(options.prune ? { machineRemoved } : {}) };
   })();
   options.signal?.throwIfAborted();
   await journal(root, { action: 'render_model_posters', posters: result.posters.length, pruned: result.removed.length });

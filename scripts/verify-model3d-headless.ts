@@ -62,6 +62,23 @@ try {
   h.ok(svg.includes('rotate(17') && svg.includes('scale(-1 1)') && (svg.match(/opacity="0.6"/g) ?? []).length === 1, 'static model opacity/rotation/flip apply once');
   const signatureBefore = await cache.modelPosterAvailabilitySignature(root); await fs.mkdir(path.join(root, 'fig/renders/model3d'), { recursive: true }); await fs.writeFile(path.join(root, posterPath(request.key)), posterBytes);
   h.ok(signatureBefore !== await cache.modelPosterAvailabilitySignature(root), 'Connect cache signature changes on poster publication');
+  // M3: the signature covers only this project's live keys, and the LRU touch
+  // on a machine-cache hit is not a publication.
+  const signed = await cache.modelPosterAvailabilitySignature(root), machine = cache.machineModelPosterDir();
+  await fs.mkdir(machine, { recursive: true }); await fs.writeFile(path.join(machine, 'm3d-00000000000abc.png'), posterBytes);
+  h.eq(await cache.modelPosterAvailabilitySignature(root), signed, 'another project\'s machine-cache poster does not change this project\'s signature');
+  const liveMachine = path.join(machine, `${request.key}.png`), touched = new Date(Date.now() - 3600_000); await fs.utimes(liveMachine, touched, touched);
+  const touchedSignature = await cache.modelPosterAvailabilitySignature(root);
+  await cache.resolveModelPosters(root, [figure], [asset], { policy: 'collect' });
+  h.ok(Math.abs((await fs.stat(liveMachine)).mtimeMs - touched.getTime()) < 2, 'cold collection never touches the machine cache');
+  await fs.rm(path.join(root, posterPath(request.key)));
+  await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch });
+  h.ok((await fs.stat(liveMachine)).mtimeMs > touched.getTime(), 'an image-request hit marks its machine poster recently used');
+  await fs.writeFile(path.join(root, posterPath(request.key)), posterBytes);
+  h.ok(await cache.modelPosterAvailabilitySignature(root) !== touchedSignature, 'republishing a live project poster changes the signature');
+  const afterRepublish = await cache.modelPosterAvailabilitySignature(root); const now = new Date(); await fs.utimes(liveMachine, now, now);
+  h.eq(await cache.modelPosterAvailabilitySignature(root), afterRepublish, 'an LRU touch alone does not invalidate Connect pictures');
+  await fs.rm(path.join(machine, 'm3d-00000000000abc.png'));
   const stored = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'collect' });
   const source = await import('../src/shell/modes/paper/scholar/figures');
   source.__seedFigures([], { [figure.id]: figure }, {}, [], {}, [asset], [], { [asset.id]: manifest }, stored.urls);
@@ -96,6 +113,77 @@ try {
   await fs.rm(modelFile);await fs.writeFile(modelFile,bytes);
   const escape = path.join(scratch, 'external.png'); await fs.writeFile(escape, posterBytes); const expected = staticModelRequest({ ...element, orbitAzimuth: 298 }, asset, manifest, 'figure'); await fs.symlink(escape, path.join(root, posterPath(expected.key)));
   const denied = await cache.resolveModelPosters(root, [{ ...figure, elements: [expected.element] }], [asset], { policy: 'collect' }); h.ok(!denied.urls[expected.ref], 'project cache symlink cannot read outside project');
+  await fs.rm(path.join(root, posterPath(expected.key)));
+
+  // H1: a missing GLB degrades to "placeholder (or cached poster) + warning";
+  // it never breaks headless rendering, compile or repair of the figure.
+  h.section('poster batch planning (M2) and machine cache pruning (M3)');
+  const { planPosterBatches, POSTER_BATCH_LIMITS } = await import('../flux-core/model3dPosters');
+  const { constants: bufferConstants } = await import('node:buffer');
+  const MiB = 1024 * 1024, sizes: Record<string, number> = { a: 100 * MiB, b: 100 * MiB, c: 100 * MiB, big: 200 * MiB };
+  const reqs = (models: (string | string[])[]) => models.map((m, i) => ({ i, models: Array.isArray(m) ? m : [m] }));
+  const plan = (models: (string | string[])[]) => planPosterBatches(reqs(models), r => r.models, id => sizes[id]);
+  h.eq(plan(['a', 'b', 'c', 'a']).batches.map(b => b.map(r => r.i)), [[0, 1], [2, 3]], 'distinct model bytes above 256 MiB start a new worker job; a shared model counts once');
+  h.eq(plan(Array(66).fill('a')).batches.map(b => b.length), [64, 2], 'the 64-request page limit still applies');
+  h.eq([plan([['big', 'big']]).batches.length, plan([['a', 'big']]).oversized.map(r => r.i)], [1, [0]], 'a request whose own models exceed the page cap is refused, never sent');
+  h.ok(Math.ceil(POSTER_BATCH_LIMITS.maxModelBytes / 3) * 4 + 16 * MiB < bufferConstants.MAX_STRING_LENGTH, `a full batch stays below the V8 string limit (${bufferConstants.MAX_STRING_LENGTH} chars) with page headroom`);
+  const sparse: Model3dAsset[] = [];
+  for (const id of ['heavy-a', 'heavy-b', 'heavy-c']) { const file = path.join(root, 'fig/assets', `${id}.glb`); await fs.writeFile(file, ''); await fs.truncate(file, 150 * MiB); sparse.push({ ...asset, id, path: `assets/${id}.glb`, bytes: 150 * MiB, sha256: createHash('sha256').update(id).digest('hex') }); }
+  const heavy = { ...figure, elements: sparse.map((a, i) => ({ ...element, id: `heavy-${i}`, assetId: a.id })) }, jobs: string[][] = [];
+  await cache.resolveModelPosters(root, [heavy], sparse, { policy: 'image', renderBatch: async requests => { jobs.push([...new Set(requests.map(r => r.spec.assetId))]); throw Error('planned only'); } });
+  h.eq(jobs, [['heavy-a'], ['heavy-b'], ['heavy-c']], 'actual stat sizes split 3 x 150 MiB models into three worker jobs');
+  for (const a of sparse) await fs.rm(path.join(root, 'fig', a.path));
+  const day = 86400_000, t = Date.now(), key = (name: string) => `m3d-${name.padStart(14, '0')}`, entry = (name: string, size: number, ageDays: number) => ({ name: `${key(name)}.png`, size, mtimeMs: t - ageDays * day });
+  h.eq(cache.planMachinePosterPrune([entry('a1', 10, 15), entry('a2', 10, 15), entry('a3', 10, 1)], new Set([key('a2')]), t), [`${key('a1')}.png`], 'machine cache age rule: older than 14 days goes, protected keys stay');
+  const big = 400 * MiB;
+  h.eq(cache.planMachinePosterPrune([entry('b1', big, 3), entry('b2', big, 2), entry('b3', big, 1)], new Set([key('b1')]), t), [`${key('b2')}.png`], 'machine cache size cap evicts least recently used first, skipping protected keys');
+  h.eq(cache.planMachinePosterPrune([entry('c1', 10, 1), { name: 'notes.txt', size: 5 * 1024 * MiB, mtimeMs: 0 }], new Set(), t), [], 'only m3d-*.png files count toward or fall to the prune');
+  const oldMachine = path.join(machine, 'm3d-000000000000ff.png'), keepName = path.join(machine, 'keep.png');
+  await fs.writeFile(oldMachine, posterBytes); await fs.writeFile(keepName, 'x'); const old = new Date(t - 20 * day); await fs.utimes(oldMachine, old, old); await fs.utimes(keepName, old, old);
+  h.eq(await cache.pruneMachineModelPosters({ protect: new Set([request.key]) }), ['m3d-000000000000ff.png'], 'pruneMachineModelPosters applies the plan to <userData>/model3d-posters');
+  h.ok(await fs.access(keepName).then(() => true) && await fs.access(liveMachine).then(() => true), 'unrelated files and protected live posters survive the prune');
+  await fs.rm(keepName);
+
+  h.section('missing GLB file');
+  const { readFigureSnapshot } = await import('../src/lib/project/figureSnapshot');
+  const snapshotIO = { readText: async (rel: string) => fs.readFile(path.join(root, rel), 'utf8').catch(() => null), assetExists: async (rel: string) => fs.access(path.join(root, rel)).then(() => true, () => false), listDirectory: async () => null };
+  model.figures.push({ id: 'plain', name: 'Plain', canvasId: 'canvas', x: 520, y: 0, width: 200, height: 120, elements: [] });
+  model.assets.push({ ...asset, id: 'orphan', path: 'assets/orphan.glb' });
+  await writeModel(); await fs.rm(modelFile);
+  const missingSnapshot = await readFigureSnapshot(snapshotIO);
+  h.eq(missingSnapshot.status, 'complete', 'a missing placed GLB leaves the figure model complete (repairable)');
+  h.ok(missingSnapshot.assetIssues.length === 1 && missingSnapshot.assetIssues[0].message.includes('fig/assets/model.glb') && missingSnapshot.assetIssues[0].message.includes('placed-model') && missingSnapshot.assetIssues[0].message.includes('models') && /restore .* or delete the element/.test(missingSnapshot.assetIssues[0].message), 'the snapshot names file, element and figure with the repair');
+  h.ok(!missingSnapshot.assetIssues.some(issue => issue.assetId === 'orphan') && !missingSnapshot.diagnostics.length, 'a missing GLB that no element places is not flagged');
+  const noSpawn: typeof renderBatch = async () => { throw Error('rendered a missing model'); };
+  const servedMissing = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch: noSpawn });
+  h.ok(servedMissing.urls[request.ref]?.startsWith('data:image/png;') && servedMissing.warnings.some(w => w.includes('fig/assets/model.glb is missing') && w.includes('cached poster')), 'a cached poster is still served by key when its GLB is missing, with a warning');
+  const uncached = { ...figure, elements: [{ ...element, orbitAzimuth: 297 }] };
+  const placeholderMissing = await cache.resolveModelPosters(root, [uncached], [asset], { policy: 'project', renderBatch: noSpawn });
+  h.ok(!Object.keys(placeholderMissing.urls).length && placeholderMissing.warnings.some(w => w.includes('is missing') && w.includes('placeholder')) && !placeholderMissing.warnings.some(w => w.includes('rendered a missing model')), 'an uncached view of a missing GLB is a named placeholder; no worker is spawned');
+  const bare = { ...asset, model: undefined } as unknown as Model3dAsset;
+  const noMetadata = await cache.resolveModelPosters(root, [figure], [bare], { policy: 'image', renderBatch: noSpawn });
+  h.ok(noMetadata.warnings.some(w => w.includes('missing model metadata') && w.includes('Neuron poster')) && figureToSvg(figure, id => noMetadata.urls[id], undefined, undefined, { model3d: noMetadata.context }).includes('data-model3d-placeholder'), 'missing model metadata is a per-placement warning and placeholder, not a thrown read');
+  const figureWarnings: string[] = [], missingSvg = await core.renderFigureSvg(root, figure.id, { model3dPolicy: 'image', warnings: figureWarnings });
+  h.ok(missingSvg.includes('data:image/png;') && figureWarnings.some(w => w.includes('is missing')), 'render-figure succeeds with the cached poster and names the missing file');
+  const canvasWarnings: string[] = [], missingCanvas = await core.renderCanvasSvg(root, 'canvas', { model3dPolicy: 'image', warnings: canvasWarnings });
+  h.ok(missingCanvas.svg.includes('<svg x="520" y="0"') && missingCanvas.svg.includes('data:image/png;') && canvasWarnings.some(w => w.includes('is missing')) && !missingCanvas.svg.includes('data-figure-error'), 'render-canvas renders every figure despite the missing model');
+  const materialized = await core.materializeRenders(root);
+  h.ok(materialized.wrote === 2 && !materialized.failed.length && materialized.warnings.some(w => w.includes('is missing')), 'compile materialization writes every figure and warns about the missing model');
+  const { connect } = await import('../flux-core/connect/index'), { detectAgentIdentity } = await import('../flux-core/agentIdentity');
+  const pack = await connect({ target: root, identity: detectAgentIdentity({}) });
+  h.ok(pack.images.length > 0 && pack.problems.some(p => p.includes('is missing')), 'connect still produces overview images and reports the missing model as a project problem');
+  await core.deleteElements(root, [element.id]);
+  const repaired = await core.loadFigModel(root);
+  h.ok(!repaired.project.figures.flatMap(f => f.elements).some(e => e.id === element.id), 'delete-element removes the broken placement headlessly');
+  const repairedWarnings: string[] = []; await core.renderFigureSvg(root, figure.id, { model3dPolicy: 'image', warnings: repairedWarnings });
+  h.eq(repairedWarnings.filter(w => w.includes('3D')), [], 'after deleting the placement the figure renders without 3D warnings');
+  await fs.writeFile(modelFile, bytes);
+  model.assets.push({ id: 'missing-image', name: 'Missing image', kind: 'png', path: 'assets/missing-image.png', naturalWidth: 10, naturalHeight: 10 });
+  model.figures.push({ id: 'broken', name: 'Broken', canvasId: 'canvas', x: 800, y: 0, width: 100, height: 100, elements: [{ id: 'broken-image', type: 'image', assetId: 'missing-image', x: 0, y: 0, width: 10, height: 10, rotation: 0 } as unknown as Figure['elements'][number]] });
+  await writeModel();
+  const brokenWarnings: string[] = [], brokenCanvas = await core.renderCanvasSvg(root, 'canvas', { model3dPolicy: 'collect', warnings: brokenWarnings });
+  h.ok(brokenCanvas.svg.includes('data-figure-error="broken"') && brokenWarnings.some(w => w.includes('figure "broken"')) && brokenCanvas.svg.includes('<svg x="520" y="0"'), 'one unrenderable figure becomes a named error frame; the rest of the canvas still renders');
+
   const aborted = new AbortController(); aborted.abort(); await assert.rejects(cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', signal: aborted.signal, renderBatch })); h.ok(true, 'canceled native resolve stops before work');
   await fs.mkdir('test-results/model3d/headless', { recursive: true }); await fs.writeFile('test-results/model3d/headless/figure.svg', svg);
 } finally { await fs.rm(scratch, { recursive: true, force: true }); }

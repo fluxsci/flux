@@ -5,7 +5,15 @@ import { axisView, homeView, type AxisView } from './orbit';
 import { setModelView, type ModelViewPatch } from './viewOps';
 import { setModelStates, setModelFrame, setModelField, validateModelFieldPatch } from './semanticOps';
 import { scene3dFields } from './scene3d';
-import { buildScene3dPartIndex } from './parts';
+import { buildScene3dPartIndex, scene3dPartTargets } from './parts';
+import { setPartOverride } from '../ops';
+import type { PartOverride } from '../types';
+
+/** "Known X: a, b" (bounded) or "This model has no X", for actionable errors. */
+export function knownNames(kind: string, names: readonly string[]): string {
+  if (!names.length) return `This model has no ${kind}`;
+  return `Known ${kind}: ${names.slice(0, 40).join(', ')}${names.length > 40 ? `, … (+${names.length - 40} more)` : ''}`;
+}
 
 export const MODEL_VIEW_PRESETS = ['front', 'back', 'right', 'left', 'top', 'bottom', 'home'] as const;
 export interface ModelViewCommand {
@@ -43,8 +51,9 @@ export function validateModelViewCommand(command: ModelViewCommand): void {
 }
 
 /** Preset first, then explicit values. Named weights patch existing weights;
- * zero removes one state. Home restores the source defaults before the patch. */
-export function applyModelViewCommand(project: Project, ids: readonly string[], command: ModelViewCommand, manifests: Record<string, Scene3dManifest> = {}): void {
+ * zero removes one state. Home restores the source defaults before the patch.
+ * Returns advisory warnings (for example a Uniform colour that cannot show). */
+export function applyModelViewCommand(project: Project, ids: readonly string[], command: ModelViewCommand, manifests: Record<string, Scene3dManifest> = {}): string[] {
   validateModelViewCommand(command);
   const selected = commandModels(project, ids);
   const updates = selected.map(element => {
@@ -58,15 +67,21 @@ export function applyModelViewCommand(project: Project, ids: readonly string[], 
     if (command.colors !== undefined) patch.modelColors = command.colors;
     if (command.lighting !== undefined) patch.modelLighting = command.lighting;
     const states = home || command.states ? { ...(home ? home.modelStates : element.modelStates), ...command.states } : undefined;
-    if (states) for (const [name, value] of Object.entries(states)) if (value !== 0 && !asset.model.states.includes(name)) throw new Error(`Unknown shape state ${name} for ${element.name ?? element.id}`);
+    if (states) for (const [name, value] of Object.entries(states)) if (value !== 0 && !asset.model.states.includes(name)) throw new Error(`Unknown shape state ${name} for ${element.name ?? element.id}. ${knownNames('shape states', asset.model.states)}`);
     if (command.frame !== undefined && !manifest?.sequence) throw new Error(`Frame requires a sequence model: ${element.name ?? element.id}`);
     return { element, asset, patch, states };
   });
+  const warnings: string[] = [];
   for (const { element, asset, patch, states } of updates) {
     setModelView(project, [element.id], patch);
     if (states) setModelStates(project, [element.id], states);
     if (command.frame !== undefined) setModelFrame(project, [element.id], asset.model.states, command.frame);
+    // The Uniform colour (fill) is only drawn in Uniform mode.
+    if (command.color !== undefined && element.modelColors === 'source') {
+      warnings.push(`3D model "${element.name || element.id}": color sets the Uniform mesh colour, which has no visible effect while colors are Source; also set colors to uniform to show it`);
+    }
   }
+  return warnings;
 }
 
 export function validateModelFieldCommand(command: ModelFieldCommand): void {
@@ -81,7 +96,7 @@ export function applyModelFieldCommand(project: Project, ids: readonly string[],
   const updates = commandModels(project, ids).map(element => {
     const fields = scene3dFields(manifests[element.assetId]);
     const field = Object.hasOwn(fields, command.field) ? fields[command.field] : undefined;
-    if (!field) throw new Error(`Unknown value field ${command.field} on ${element.name ?? element.id}`);
+    if (!field) throw new Error(`Unknown value field ${command.field} on ${element.name ?? element.id}. ${knownNames('value fields', Object.keys(fields))}`);
     const existing = Object.hasOwn(element.fields ?? {}, command.field) ? element.fields![command.field] : undefined;
     const current = existing?.range ?? field.range;
     const range: [number, number] | undefined = command.min !== undefined || command.max !== undefined ? [command.min ?? current[0], command.max ?? current[1]] : undefined;
@@ -96,4 +111,26 @@ export function applyModelFieldCommand(project: Project, ids: readonly string[],
 export function assertModelPart(element: Model3dElement, asset: Model3dAsset, manifest: Scene3dManifest | undefined, partId: string): void {
   const ids = manifest ? Object.keys(buildScene3dPartIndex(manifest)) : asset.model.partNames;
   if (!ids.includes(partId)) throw new Error(`Unknown part "${partId}" on ${element.name ?? element.id}. Known parts: ${ids.slice(0, 40).join(', ')}`);
+}
+
+/** True when a fill on this part (or on a group/field/series that contains one)
+ * paints rendered mesh geometry rather than vector furniture. */
+export function modelPartAffectsMesh(asset: Model3dAsset, manifest: Scene3dManifest | undefined, partId: string): boolean {
+  if (!manifest) return asset.model.partNames.includes(partId);
+  const index = buildScene3dPartIndex(manifest);
+  return scene3dPartTargets(index, partId).some(id => Object.hasOwn(index, id) && !!index[id].node);
+}
+
+/** The one model3d part-restyle op for CLI/MCP, the live bridge and the GUI.
+ * Validates the part, writes the override, and when a mesh fill lands on a
+ * model in Uniform colours (which ignore part fills) switches that model to
+ * Source colours in the same edit, so the fill is visible. */
+export function applyModelPartStyle(project: Project, elementId: string, partId: string, patch: PartOverride, manifest: Scene3dManifest | undefined): { switchedToSource: boolean } {
+  const element = commandModels(project, [elementId])[0];
+  const asset = project.assets.find(asset => asset.id === element.assetId) as Model3dAsset;
+  assertModelPart(element, asset, manifest, partId);
+  const switchedToSource = typeof patch.fill === 'string' && !!patch.fill && element.modelColors !== 'source' && modelPartAffectsMesh(asset, manifest, partId);
+  setPartOverride(project, elementId, partId, patch);
+  if (switchedToSource) element.modelColors = 'source';
+  return { switchedToSource };
 }

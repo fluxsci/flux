@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { harness } from './lib/harness.mjs';
-import { writeGlb, prepareGlb } from '../src/lib/model3d/glbCore.mjs';
+import { writeGlb, prepareGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { createMemBridge } from '../src/lib/project/memBridge';
 import { prepareModel3dImport, makeImportedModel3dElement, parseModel3dImportMetadata } from '../src/lib/model3d/importData';
 import type { Scene3dManifest } from '../src/lib/model3d/types';
@@ -36,10 +36,14 @@ const unknownDefault=makeImportedModel3dElement({...prepared.data,manifest:{...m
 h.ok(!unknownDefault.modelStates,'public imported element never persists metadata-only shape names');
 const plain = makeImportedModel3dElement({ ...prepared.data, manifest: undefined }, { figureWidth: 400 });
 h.eq([plain.width, plain.height], [200,150], 'plain mesh defaults to half figure width and a 4:3 box');
-for (const text of ['not json', JSON.stringify({ ...manifest, schemaVersion: '9.0.0' }), JSON.stringify({ ...manifest, glbSha256: '0'.repeat(64) }), JSON.stringify({ spec: 'fluxplot', schemaVersion: '0.3.0' })]) {
+// Review L1: bytes that do not even parse as a scene3d manifest are never
+// persisted; newer or differently bound scene3d manifests are kept inactive.
+for (const [text, kept] of [['not json', false], [JSON.stringify({ ...manifest, schemaVersion: '9.0.0' }), true], [JSON.stringify({ ...manifest, glbSha256: '0'.repeat(64) }), true], [JSON.stringify({ spec: 'fluxplot', schemaVersion: '0.3.0' }), false]] as const) {
   const fallback = await parseModel3dImportMetadata({ info: prepared.data.asset.model, sourceSha256: sha(bytes), manifestText: text });
-  h.ok(!fallback.manifest && fallback.warnings.length > 0 && fallback.raw?.manifest === text, 'invalid, newer, mismatched and 2D metadata degrade without rejecting mesh');
+  h.ok(!fallback.manifest && fallback.warnings.length > 0 && (fallback.raw?.manifest === text) === kept, `invalid, newer, mismatched and 2D metadata degrade without rejecting mesh (${kept ? 'raw scene3d kept' : 'unparsed bytes dropped'})`);
 }
+const badRecipe = await parseModel3dImportMetadata({ info: prepared.data.asset.model, sourceSha256: sha(bytes), recipeText: '{broken' });
+h.ok(badRecipe.raw?.recipe === undefined && badRecipe.warnings.some(w => w.includes('recipe')), 'an unparseable recipe is reported and never persisted');
 
 const mem = createMemBridge(), enc = new TextEncoder(), root = '/project';
 mem._files.set(`${root}/project.json`, enc.encode(JSON.stringify({ schemaVersion: '0.1.0' })));
@@ -93,6 +97,7 @@ try {
   h.ok(!(await fs.readdir(path.join(project, 'fig/assets'))).length, 'native cancel removes all and only import-owned files');
 
   const sparse = path.join(project, 'plots/too-large.glb');
+  h.eq(native.MAX_BYTES, GLB_LIMITS.maxBytes, 'the CommonJS import boundary uses the shared GLB byte limit');
   await fs.writeFile(sparse, ''); await fs.truncate(sparse, native.MAX_BYTES + 1);
   await assert.rejects(() => native.prepareModel3d({ root: project, target: request.target, sourcePath: sparse }), /exceeds 200 MiB/);
   h.ok(!(await fs.readdir(path.join(project, 'fig/assets'))).length, 'oversized source is refused before publication or whole-file allocation');
