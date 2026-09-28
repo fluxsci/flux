@@ -1,35 +1,23 @@
 # Figure 3D semantics
 
-Select a model and press **Alt+R** to open its X-ray. The shared tree lists
-named mesh parts, series, value fields with their missing part and colorbar,
-and axes and other furniture. Multiple selected models expose common parts.
-The eye and **x** hide a part; **Show Properties** or **f** opens the same part
-controls used by the Inspector. A mesh exposes colour, opacity and visibility.
-Text furniture exposes font and text colour; lines expose stroke controls.
-Composite colorbars, legends and scale bars keep their data colours when their
-text colour changes.
+User-facing behaviour (X-ray, colour modes, value fields, Shape/Frame) is described in
+[Figure mode](../modes/figure.qmd#3d-models). The implementation keeps these rules:
 
-**Uniform** colour has precedence over part colours. Mesh part controls explain
-this and offer **Use source colours** before a part colour can be edited. The
-switch is explicit because it can restore source colours on sibling meshes.
+- X-ray and the Inspector share the ordinary part adapters; several selected models
+  expose their common parts. Composite colorbars, legends and scale bars keep their
+  data colours when only their text colour changes.
+- **Uniform** colour takes precedence over part colours. Switching to source colours
+  is an explicit action because it can restore source colours on sibling meshes.
+- Value-field edits recolour directly and never execute Python. Min/Max clamp at the
+  other endpoint; equal limits are allowed and normalize exactly as the Python source
+  does. A field edit selects source colours; explicit part fills survive, and the
+  visible Reset part colour action removes the inherited fills that hide a field.
 
-Value fields use the existing colormap collection picker and Min/Max controls.
-They recolour directly; they do not execute Python. Min/Max edits clamp at the
-other endpoint. Equal limits are allowed and map to colormap zero, matching the
-source/Python behavior. Editing a field selects Source colours. Explicit part
-fills remain; a visible Reset part colour action removes the affected inherited
-fill overrides when the field is hidden by them. Reset restores source field
-settings.
-
-The Shape block uses stored GLB target names and optional manifest labels.
-Each weight has a slider and numeric input in the 0–1 UI range. Stored finite
-weights remain unclamped for authored extrapolation; out-of-range combinations
-read Custom and round-trip through persistence. A sequence's Frame is derived:
-zero is the base, 1…N select the ordered targets, and fractional values blend
-adjacent targets. A non-frame combination displays **Custom**. There is no
-persisted frame property. Sequence weights are initially collapsed. Reset
-restores valid source default weights, ignoring source names absent from the
-GLB. A drag or wheel edit is one undo transaction.
+Shape controls use stored GLB target names and optional manifest labels. Stored finite
+weights stay unclamped (only the UI inputs cover 0–1); out-of-range combinations read
+**Custom** and round-trip through persistence. A sequence's Frame is derived from the
+ordered targets and never persisted. Reset restores valid source defaults, ignoring
+names absent from the GLB. A drag or wheel edit is one undo transaction.
 
 ## Shared interfaces
 
@@ -69,7 +57,6 @@ node scripts/run-verifies.mjs --tier pure --only model3d-render-browser
 The render gate self-hosts port 1443; reserve it before running. The UI gate
 imports scratch fixtures through the public import path and uses real part
 colour editing, X-ray eyes/common rows, field typing/picker, furniture fonts,
-and Shape/Frame inputs with history assertions. Screenshots are in
-`test-results/model3d/semantics/`. The browser renderer gate checks unchanged
+and Shape/Frame inputs with history assertions. The browser renderer gate checks unchanged
 sibling pixels, effective parent fill/opacity/hide and source metadata identity.
 Stage B animation remains deferred; this does not enable model3d in old decks.

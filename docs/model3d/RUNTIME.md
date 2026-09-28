@@ -60,10 +60,9 @@ port. The current test owns 127.0.0.1:1443 itself; no app dev server is required
 It verifies fixtures, transparent pixels, projected markers, semantic colors,
 states and morph endpoints, worker parity and lifecycle failures, real notebook
 inputs, independent bundle copies, shadow-root cleanup, fallback stills, context
-restoration, and offline hashed-script CSP execution. Evidence and measurements
-are under `test-results/model3d/browser/`.
+restoration, and offline hashed-script CSP execution.
 
-The drawImage figures distinguish CPU submission from a readback fence; they are
+Its drawImage timings distinguish CPU submission from a readback fence; they are
 not a GPU-only timing measurement. Software and hardware runs must identify their
 actual renderer. Notebook renderer source and browser probes do not substitute
 for final live VS Code Jupyter/QMD acceptance. Skinning is ignored and stored mesh geometry is shown;

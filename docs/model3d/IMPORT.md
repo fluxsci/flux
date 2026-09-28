@@ -40,6 +40,5 @@ children. Regenerate with `node --import tsx scripts/gen-validators.mjs`.
 Run `node scripts/run-verifies.mjs --group model3d-import` under a scratch HOME/XDG
 with `FLUX_NO_MIGRATE=1`. The group covers memory/native parity, provenance,
 physical defaults, refusal, cancellation, project switching and receipt races.
-Real Electron File/preload evidence lives under `test-results/model3d/p2-review/`.
 Figure rendering and interaction are separately covered by the GUI and native
 application gates; this import check alone does not qualify those surfaces.
