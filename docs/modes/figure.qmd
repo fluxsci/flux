@@ -163,6 +163,15 @@ physical size. In a trusted notebook, displaying `sc` opens the interactive view
 Use **Copy view**, apply its dictionary with `sc.view(**view)`, then save to make that
 angle the scene's Home view. For a static output, use `sc.show(static=True)`.
 
+After rerunning Python, **Source changed** appears in the Inspector and as a dot in
+Layers. Choose **Update from source** to accept the new geometry and metadata. Your
+box, camera and look stay in place; restyles and field settings remain for surviving
+part IDs, and shape weights remain for surviving names. Flux warns when parts disappear
+or bounds move substantially. **Undo** restores the previous stored model. Source
+changes never replace the model automatically. A missing original file leaves the saved
+copy available. For a recipe-backed model, **Regenerate** in X-ray reruns the recipe
+with its parameters and applies the same update after it succeeds.
+
 **Double-click the model**, or choose **Orbit** in the Inspector, to turn it:
 
 | Input | Action |

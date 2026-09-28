@@ -14,10 +14,11 @@ function normalizeSourceWatchRequest(request) {
   };
   for (const source of request.sources) {
     if (!source || typeof source !== "object") throw new Error("Invalid linked source");
-    const svg = checked(source.svgPath, ".svg");
+    if ((source.svgPath != null) === (source.glbPath != null)) throw new Error("Specify exactly one linked SVG or GLB source");
+    const svg = source.glbPath != null ? checked(source.glbPath, ".glb") : checked(source.svgPath, ".svg");
     files.add(svg);
-    files.add(svg.replace(/\.svg$/i, ".fluxplot.json"));
-    files.add(svg.replace(/\.svg$/i, ".recipe.json"));
+    files.add(svg.replace(/\.(?:svg|glb)$/i, ".fluxplot.json"));
+    files.add(svg.replace(/\.(?:svg|glb)$/i, ".recipe.json"));
     if (source.manifestPath != null) files.add(checked(source.manifestPath, ".json"));
     if (source.recipePath != null) files.add(checked(source.recipePath, ".json"));
   }

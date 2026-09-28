@@ -413,6 +413,15 @@ Persistence invariants (all machine-checked — do not weaken):
   prevents deletion. A valid-receipt adoption attempt consumes cleanup authority even
   when a late project-generation check rejects it; synchronous placement may already
   reference those files. The registered import gate and real native File probes pin this.
+- **3D source replacement is explicit and immutable.** `model3d/source.ts` owns the
+  pure update; `sourceBridge.ts` owns Figure status and captured-owner orchestration.
+  `source.sha256` is the original GLB receipt, distinct from the prepared asset hash.
+  Native idle stat-gated streaming hashes compare it and the raw source/stored manifest
+  bytes; watchers only publish status. Update appends a fresh asset, keeps old Undo files,
+  preserves view/look and surviving semantic IDs/states, and warns for changed bounds.
+  Linked GLB/JSON grants are exact read/watch capabilities, never recipe execution grants.
+  Recipe output dispatch is shared by Node and Electron; `outputs.glb` stays a path across
+  IPC and applies the same owner-checked update. See [source details](model3d/SOURCE.md).
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -7954,3 +7963,23 @@ Figure scale review exposed upright axis labels running into the mesh and ticks 
 ### 2026-09-28 — Native input qualification policy
 
 The native input probe now has an explicit `--qualify` mode: production background throttling stays unchanged, nonzero native display and focus/visibility are required, and raw failed-cohort focus observations are retained. Default mode preserves its diagnostic behavior and is explicitly labeled. Shared display guard also records bounds/workArea and rejects an unusable display before the production model3d native gate starts input timing. Such runtime receipts say `capability-blocked` and still exit nonzero; prior timing failures remain failures. `verify-input-probe-policy.cjs` tests diagnostic compatibility, no throttling mutation, zero/invalid display refusal, and lost-focus rejection. Native rerun remains pending a usable DISPLAY=:0.
+
+### 2026-09-28 15:47 UTC — Flux 3D P6 explicit source replacement
+
+Added native exact GLB/JSON read/watch grants and idle streaming SHA receipts, with
+stat/inode/ctime caching and owner/path checks. Source changes only raise the Layers
+dot and Inspector banner. The pure update appends an immutable asset, keeps old Undo
+bytes, preserves view/look and surviving part/field/state settings, and warns for
+removed parts or >25% bounds movement. Accepted original GLB/manifest receipts stay
+separate from prepared bytes and saved JSON formatting; legacy missing original SHA
+shows Unknown until Update. Canonical metadata paths use asset IDs even for nested GLBs.
+Regenerate shares `outputs.glb` dispatch across Electron/Node and captures ownership
+before recipe execution, including project A→B→A. New source tests, public fluxplot
+fixture checks, GLB recipe IPC cases and Figure update/Undo/reopen GUI are registered.
+Author and two independent `model3d-source` runs passed 8/8 (37 source assertions,
+27 GUI assertions); check 0/0 and headless types clean. Broad pure passed 327/329 with
+two missing local encoder prerequisites; both passed after installing the already-pinned
+local artifact. Review found and fixed metadata-format/path and delayed-recipe ownership
+cases plus explicit-sidecar symlink races. Screenshots: `test-results/model3d/source/`.
+Production Electron P6 UI was not run while the private display was unavailable;
+real native helper/read/watch guards and recipe child processes are covered separately.

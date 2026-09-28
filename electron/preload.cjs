@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("fig", {
   },
   adoptModel3d: (request) => ipcRenderer.invoke("model3d:adopt", request),
   discardModel3d: (request) => ipcRenderer.invoke("model3d:discard", request),
+  model3dSourceFingerprint: request => ipcRenderer.invoke("model3d:sourceFingerprint", request),
   model3dAvailability: () => ipcRenderer.invoke("model3d:availability"),
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),

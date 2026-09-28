@@ -1,6 +1,7 @@
 <script lang="ts">
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
+  import { modelSourceStatuses, watchModelSources } from "./model3d/sourceBridge";
   import { openFigureMeta } from "./figure/metadataState";
   import { onMount, tick } from "svelte";
   import { editSession } from "./interact/editSession";
@@ -31,6 +32,8 @@
   import { perfCounters } from "./dev/perfCounters";
   import VirtualFixedList from "./ui/VirtualFixedList.svelte";
   import { centerOnFigure } from "./viewportNav";
+
+  onMount(watchModelSources);
 
   function addFigure() {
     const cid = $activeCanvasId;
@@ -636,6 +639,9 @@
                 {labelFor(row.el)}
               </button>
             {/if}
+            {#if row.el.type === 'model3d' && $modelSourceStatuses[row.el.id]?.status === 'changed'}
+              <span class="source-dot" data-model3d-source-changed title="Source changed — select the model to update" aria-label="Source changed">●</span>
+            {/if}
             {#if row.el.type === "text" && row.el.panelLabel}
               <span class="plabel" title="Panel label (caption block)">{row.el.text.trim().slice(0, 3) || "¶"}</span>
             {/if}
@@ -647,6 +653,7 @@
 </aside>
 
 <style>
+  .source-dot { color: var(--c-accent); font-size: 9px; padding: 0 5px; }
   /* The Figure rail (2026-09-15 surface redesign): a raised strip with three
      hairline-separated sections; rows are square, hover is a quiet surface
      lift, and the active row is an accent tint with a 2px rail — never a

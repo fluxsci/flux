@@ -329,7 +329,9 @@
       "verify-model3d-semantics.ts",
       "verify-model3d-view-ops.ts",
       "verify-model3d-headless.ts",
-      "verify-input-probe-policy.cjs"
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -473,7 +475,8 @@
       "verify-model3d-gui.mjs",
       "verify-model3d-export.mjs",
       "verify-model3d-orbit-gui.mjs",
-      "verify-model3d-xray-gui.mjs"
+      "verify-model3d-xray-gui.mjs",
+      "verify-model3d-source-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -868,7 +871,10 @@
       "verify-model3d-headless.ts",
       "verify-model3d-electron.cjs",
       "verify-scale-model3d.mjs",
-      "verify-input-probe-policy.cjs"
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-model3d-source-gui.mjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -951,6 +957,16 @@
     ],
     "model3d-native-policy": [
       "verify-input-probe-policy.cjs"
+    ],
+    "model3d-source": [
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-source-watch.ts",
+      "verify-fluxplot-recipe-ipc.ts",
+      "verify-f2-recipe.ts",
+      "verify-model3d-import.ts",
+      "verify-ipc-contract.ts",
+      "verify-model3d-source-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -974,6 +990,18 @@
       "glob": "scripts/lib/model3dScaleFixture.mjs",
       "run": [
         "group:model3d-scale"
+      ]
+    },
+    {
+      "glob": "electron/model3dSource.cjs",
+      "run": [
+        "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "src/lib/model3d/source*",
+      "run": [
+        "group:model3d-source"
       ]
     },
     {
@@ -8051,6 +8079,35 @@
       "isolation": "scratch",
       "timeoutMs": 30000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-source.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-fluxplot.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-source-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

@@ -86,8 +86,8 @@ export function createMemBridge(): FileBridge & {
     if (dropped && dropped.size > 200 * 1024 * 1024) throw new Error('GLB exceeds 200 MiB');
     const bytes = dropped ? new Uint8Array(await dropped.arrayBuffer()) : files.get(sourcePath);
     if (!bytes) throw new Error(`Missing GLB source ${sourcePath}`);
-    const manifestPath = sourcePath.replace(/\.glb$/i, '.fluxplot.json');
-    const recipePath = sourcePath.replace(/\.glb$/i, '.recipe.json');
+    const manifestPath = request.manifestPath ?? sourcePath.replace(/\.glb$/i, '.fluxplot.json');
+    const recipePath = request.recipePath ?? sourcePath.replace(/\.glb$/i, '.recipe.json');
     const manifestText = !dropped && files.has(manifestPath) ? dec.decode(files.get(manifestPath)) : undefined;
     const recipeText = !dropped && files.has(recipePath) ? dec.decode(files.get(recipePath)) : undefined;
     const { prepareModel3dImport } = await import('../model3d/importData');
@@ -127,6 +127,14 @@ export function createMemBridge(): FileBridge & {
       if (savedBytes && JSON.parse(dec.decode(savedBytes)).assets?.some((a: { id: string }) => a.id === request.assetId)) throw new Error('This model is already saved in the project');
       for (const file of item.paths) files.delete(file);
       modelImports.delete(request.receipt);
+    },
+    async model3dSourceFingerprint(request) {
+      if (watchedRoot !== undefined && norm(request.root) !== watchedRoot) throw new Error('The source project changed');
+      const source = files.get(norm(request.sourcePath));
+      if (!source) throw new Error(`ENOENT: ${request.sourcePath}`);
+      if (source.length > 200 * 1048576) throw new Error('3D source exceeds 200 MiB');
+      const hash = async (path?: string) => { const bytes = path ? files.get(norm(path)) : undefined; if (bytes && bytes.length > 4 * 1048576) throw new Error('3D manifest exceeds 4 MiB'); return bytes ? sha256(bytes) : null; };
+      return { sourceSha256: await sha256(source), manifestHash: await hash(request.manifestPath), storedManifestHash: await hash(request.storedManifestPath) };
     },
     async model3dAvailability() { return { disabled: false }; },
     _runnerCalls: runnerCalls,

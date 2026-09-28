@@ -6,7 +6,7 @@ function createModel3dCore({ rootFor, generationFor = rootFor, fsReadGuard, note
   function owner(e) {
     let current = owners.get(e.sender.id);
     if (!current) {
-      current = { sender: e.sender };
+      current = { sender: e.sender, sourceHasher: require("../model3dSource.cjs").createModel3dSourceHasher(), sourceGeneration: generationFor(e) };
       owners.set(e.sender.id, current);
       e.sender.once("destroyed", () => {
         owners.delete(e.sender.id);
@@ -37,7 +37,7 @@ function createModel3dCore({ rootFor, generationFor = rootFor, fsReadGuard, note
     };
     checkCurrent();
     const owned = await modelIO.prepareModel3d({
-      root, target: request?.target, sourcePath: request?.sourcePath, checkCurrent,
+      root, target: request?.target, sourcePath: request?.sourcePath, manifestPath: dropped ? undefined : request?.manifestPath, recipePath: dropped ? undefined : request?.recipePath, checkCurrent,
       // Only importDroppedModel3d(File, ...) in the isolated preload can reach
       // the drop channel; it obtains sourcePath from webUtils, never a caller
       // path string or a renderer-controlled grant flag.
@@ -80,6 +80,13 @@ function createModel3dCore({ rootFor, generationFor = rootFor, fsReadGuard, note
         if (prepared.get(request.receipt) === item) item.state = 'discard-failed';
         throw error;
       }
+    });
+    ipcMain.handle("model3d:sourceFingerprint", async (e, request) => {
+      const current = owner(e), root = rootFor(e), generation = generationFor(e);
+      const checkCurrent = () => { if (!root || request?.root !== root || e.sender.isDestroyed() || rootFor(e) !== root || generationFor(e) !== generation) throw new Error("The source project changed"); };
+      checkCurrent();
+      if (current.sourceGeneration !== generation) { current.sourceHasher.clear(); current.sourceGeneration = generation; }
+      return current.sourceHasher.fingerprint(request, { checkCurrent, readGuard: file => fsReadGuard(file, e.sender.id) });
     });
     ipcMain.handle("model3d:availability", () => ({ disabled: process.env.FLUX_MODEL3D_DISABLE === "1" }));
   }

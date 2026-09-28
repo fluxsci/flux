@@ -19,7 +19,8 @@ or Preview opens a static larger preview. Previewing never imports source files.
 A figure model behaves like the existing placement box: select, move, resize, rotate,
 duplicate, clipboard, cross-figure drag and Undo/Redo. Resize reframes the mesh and retains
 furniture point sizes. True size is intentionally unavailable for model placements.
-The 3D camera controls and export/Paper/Slide activation are separate later phases.
+The Inspector adds camera controls and semantic shape/field settings. Linked source changes
+use an explicit [source update](SOURCE.md); they never replace a model automatically.
 
 The mesh is a decoded PNG data URL inside the scene SVG. Furniture stays vector text and
 geometry. This makes the mesh available to the existing zoom proxy. A root-and-load-generation

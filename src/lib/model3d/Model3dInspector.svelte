@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { modelSourceStatuses, modelSourceBusy, updateModelFromSource } from './sourceBridge';
+  import { pushToast, errMsg } from '../toast';
   import { untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { project, selection, commit, mutate } from '../store';
@@ -44,6 +46,7 @@
     const selected = ids();
     (live ? mutate : commit)(p => setModelView(p, selected, patch));
   }
+  async function updateSource() { try { await updateModelFromSource(element.id); } catch (error) { pushToast('error', '3D source update failed', { detail: errMsg(error) }); } }
   function home() {
     if (readOnly) return;
     const view = homeView(asset, manifest), selected = ids();
@@ -54,6 +57,14 @@
   <div class="heading"><h3>3D model</h3><button title={unavailable || 'Drag to orbit; Shift to pan; Alt to roll'} disabled={!!unavailable} onclick={() => beginModelOrbit(element.id)}>{$modelOrbit?.id === element.id ? 'Orbiting' : 'Orbit'}</button></div>
   <p class="info">{asset?.model?.triangles.toLocaleString() ?? '—'} triangles · {((asset?.bytes ?? 0) / 1048576).toFixed(1)} MiB{manifest?.units ? ` · ${manifest.units}` : ''}</p>
   {#if unavailable}<p class="info" data-model3d-orbit-unavailable>{unavailable}</p>{/if}
+  {#if element.source?.glbPath}
+    <div class="source-status" data-model3d-source-status={$modelSourceStatuses[element.id]?.status ?? 'checking'}>
+      {#if $modelSourceStatuses[element.id]?.status === 'changed'}<strong>Source changed</strong>{/if}
+      {#if element.source.frozen}<p class="info">Source link is frozen.</p>{/if}
+      {#if $modelSourceStatuses[element.id]?.detail}<p class="info">{$modelSourceStatuses[element.id].detail}</p>{/if}
+      <button disabled={readOnly || element.source.frozen || $modelSourceBusy.has(element.id)} onclick={updateSource}>{$modelSourceBusy.has(element.id) ? 'Updating…' : 'Update from source'}</button>
+    </div>
+  {/if}
   <fieldset disabled={readOnly}>
     <div class="numbers">{#each numbers as field}
       <NumberField label={field.label} value={element[field.key] ?? 0} step={field.step} factor={field.factor} min={field.min ?? null} max={field.max ?? null}
@@ -73,6 +84,8 @@
 </section>
 <style>
   .model3d-properties { border-top: 1px solid var(--c-line); padding: 10px; }
+  .source-status { margin: 8px 0; font: 11px var(--font-ui); }
+  .source-status strong { display: block; color: var(--c-accent); margin-bottom: 5px; }
   .heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   h3 { margin: 0; font: 12px var(--font-ui); color: var(--c-tx); }
   .info { margin: 5px 0 9px; font: 10px var(--font-ui); color: var(--c-tx-muted); overflow-wrap: anywhere; }

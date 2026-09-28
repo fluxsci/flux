@@ -144,7 +144,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
     fsGuard(p, senderId);
   }
   function setSourceReadFiles(senderId, scope, files) {
-    if (!Array.isArray(files) || files.some((p) => typeof p !== "string" || !path.isAbsolute(p) || p.includes("\0") || !/\.(?:svg|json)$/i.test(p))) throw new Error("Invalid linked source read files");
+    if (!Array.isArray(files) || files.some((p) => typeof p !== "string" || !path.isAbsolute(p) || p.includes("\0") || !/\.(?:svg|glb|json)$/i.test(p))) throw new Error("Invalid linked source read files");
     let scopes = sourceReadFiles.get(senderId);
     if (!scopes) sourceReadFiles.set(senderId, scopes = new Map());
     if (files.length) scopes.set(scope, new Set(files.map((p) => foldCase(realIdentity(p)))));

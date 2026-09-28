@@ -173,6 +173,7 @@ export interface FileBridge {
   importDroppedModel3d?(file: File, request: Omit<import('../model3d/importData').Model3dImportRequest, 'sourcePath'>): Promise<import('../model3d/importData').Model3dImportResult>;
   adoptModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
   discardModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
+  model3dSourceFingerprint?(request: import("../model3d/source").ModelSourceFingerprintRequest): Promise<import("../model3d/source").ModelSourceFingerprint>;
   model3dAvailability?(): Promise<{ disabled: boolean }>;
   runnerCapabilities?(): Promise<RunnerCapability[]>;
   runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
@@ -491,6 +492,8 @@ export interface FileBridge {
     options?: {jobId?: string},
   ): Promise<{
     code: number;
+    glbPath?: string | null;
+    manifestPath?: string | null;
     svgText: string | null;
     manifestText: string | null;
     recipeText: string;

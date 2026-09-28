@@ -3,7 +3,7 @@ import { withRecipeLease, readRecipeText, snapshotRecipe, discardRecipeSnapshot 
 // generating script + params) and capture the emitted SVG/manifest (split out
 // of index.ts; WS-6.2).
 
-import { recipeInvocation, completedRecipe } from "../src/lib/plot/recipeContract.mjs";
+import { recipeInvocation, completedRecipe, recipeOutput } from "../src/lib/plot/recipeContract.mjs";
 import { runProcess } from "../electron/processRunner.cjs";
 import * as path from "node:path";
 import { stamp, journal } from "./journal";
@@ -20,6 +20,7 @@ import { readJSON, writeText, findProjectRoot } from "./model";
 export interface RecipeRunResult {
   code: number;
   svgPath: string;
+  glbPath?: string;
   manifestPath: string;
   stdout: string;
   stderr: string;
@@ -40,7 +41,8 @@ async function runRecipeLocked(
     cwd?: string;
     params?: Record<string, unknown>;
     plot?: string;
-    output: string;
+    output?: string;
+    outputs?: { glb?: string; svg?: string; manifest?: string };
     lastRun?: string;
   }>(recipePath);
   if (!recipe.command) throw new Error("recipe has no `command`");
@@ -74,14 +76,16 @@ async function runRecipeLocked(
     await discardRecipeSnapshot(snapshot);
   }
 
-  const out = code === 0 && status === "exited" && completed.output ? path.resolve(dir, completed.output) : "";
+  const output = recipeOutput(completed);
+  const out = code === 0 && status === "exited" && output.path ? path.resolve(dir, output.path) : "";
   const root = await findProjectRoot(dir);
   if (root) await journal(root, { action: "rerun-plot", recipe: path.relative(root, recipePath), params, code });
 
   return {
     code,
-    svgPath: out,
-    manifestPath: out.replace(/\.svg$/, ".fluxplot.json"),
+    svgPath: output.kind === "svg" ? out : "",
+    ...(output.kind === "glb" && out ? { glbPath: out } : {}),
+    manifestPath: out && output.manifest ? path.resolve(dir, output.manifest) : "",
     stdout,
     stderr,
   };

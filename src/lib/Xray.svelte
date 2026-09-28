@@ -20,7 +20,9 @@
   // no scanlines, no glow, no boot flicker; it opens beside the selection.
   import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
   import type { Model3dElement } from "./model3d/types";
-  import { scene3dManifests } from "./model3d/store";
+  import { scene3dManifests, scene3dRecipes, scene3dGeneration } from "./model3d/store";
+  import { updateModelFromSource, modelSourceOwnerEpoch } from "./model3d/sourceBridge";
+  import { modelSourceIdentity } from "./model3d/source";
   import { resolveScene3dPartStyle } from "./model3d/scene3d";
   import ColorScaleControls from "./plot/ColorScaleControls.svelte";
   import { validateIncomingPlot } from "./plot/contract";
@@ -88,31 +90,35 @@
   // Regenerate: re-run the plot's recipe and hot-swap the result in place,
   // preserving the id-keyed overrides. Gated behind this explicit action (never
   // auto-runs user code) AND on a recipe-backed plot root.
-  $: recipe = (rootPlot ? $plotRecipes[rootPlot.assetId] : undefined) as
+  $: recipe = (rootModel ? $scene3dRecipes[rootModel.assetId] : rootPlot ? $plotRecipes[rootPlot.assetId] : undefined) as
     | { params?: Record<string, unknown>; lastRun?: string }
     | undefined;
-  $: recipePath = rootPlot?.source?.recipePath;
+  $: recipePath = (rootModel ?? rootPlot)?.source?.recipePath;
   $: projRoot = $embeddedProjectRoot ?? $projectDir;
-  $: srcLabel = rootPlot?.source?.svgPath ? toProjectRelativeSource(projRoot, rootPlot.source.svgPath) : "";
+  $: sourcePath = rootModel?.source?.glbPath ?? rootPlot?.source?.svgPath;
+  $: srcLabel = sourcePath ? toProjectRelativeSource(projRoot, sourcePath) : "";
   let regenJobId = "";
   let regenBusy = false;
   let regenMsg = "";
   async function regenerate(parameters: Record<string, unknown> = recipe?.params ?? {}) {
     const fb = fileBridge();
     if (regenBusy) return;
-    if (!rootPlot || !recipePath || !fb?.runRecipe) {
+    const rootElement = rootModel ?? rootPlot;
+    if (!rootElement || !recipePath || !fb?.runRecipe) {
       regenMsg = "no recipe";
       return;
     }
     // Re-rooting is allowed while the recipe runs. Pin its owner before any
     // await so its result can never replace the newly inspected plot.
-    const target = { id: rootPlot.id, assetId: rootPlot.assetId, figId: root!.figId, recipePath, projRoot };
-    const owner = get(project);
+    const target = { id: rootElement.id, assetId: rootElement.assetId, kind: rootElement.type, identity: rootElement.type === "model3d" ? modelSourceIdentity(rootElement) : null, figId: root!.figId, recipePath, projRoot };
+    const owner = get(project), sourceEpoch = modelSourceOwnerEpoch(), sourceGeneration = get(scene3dGeneration);
     const ownsTarget = () => {
+      if (target.kind === "model3d" && (modelSourceOwnerEpoch() !== sourceEpoch || get(scene3dGeneration) !== sourceGeneration)) return false;
       if (get(project) !== owner || (get(embeddedProjectRoot) ?? get(projectDir)) !== target.projRoot) return false;
       const el = owner.figures.find((f) => f.id === target.figId)?.elements.find((e) => e.id === target.id);
-      return el?.type === "plot" && el.assetId === target.assetId && el.source?.recipePath === target.recipePath;
+      return (el?.type === "plot" || el?.type === "model3d") && el.type === target.kind && el.assetId === target.assetId && el.source?.recipePath === target.recipePath && (el.type !== "model3d" || modelSourceIdentity(el) === target.identity);
     };
+    let completed = false;
     regenBusy = true;
     regenJobId = crypto.randomUUID();
     regenMsg = "";
@@ -121,7 +127,7 @@
       // runRecipe reads the file and resolves the recipe's `cwd` from its
       // dirname — it needs a real absolute path.
       let recipeAbs = "";
-      for (const c of plotSourceCandidates(target.projRoot, target.recipePath)) {
+      for (const c of plotSourceCandidates(target.projRoot, target.recipePath, rootElement.source)) {
         if (await fb.exists(c)) {
           recipeAbs = c;
           break;
@@ -138,6 +144,10 @@
         if (res.code !== 0) {
           const why = String(res.stderr ?? "").trim();
           regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
+        } else if (target.kind === 'model3d') {
+          if (!res.glbPath) throw new Error('The recipe did not produce a GLB output');
+          await updateModelFromSource(target.id, { sourcePath: res.glbPath, manifestPath: res.manifestPath ?? undefined, recipePath: recipeAbs, isCurrent: ownsTarget });
+          completed = true; regenMsg = 'regenerated ✓';
         } else if (res.svgText && res.manifestText) {
           await validateIncomingPlot(res.svgText, res.manifestText);
           if (!ownsTarget()) return;
@@ -155,7 +165,7 @@
     } finally {
       regenBusy = false;
       regenJobId = "";
-      if (rootPlot?.id !== target.id || !ownsTarget()) regenMsg = "";
+      if ((rootModel ?? rootPlot)?.id !== target.id || (!completed && !ownsTarget())) regenMsg = "";
     }
   }
 
@@ -685,7 +695,7 @@
             {/each}
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
-          {#if rootPlot && recipePath}
+          {#if (rootPlot || (rootModel && !rootModel.source?.frozen)) && recipePath}
             {#if regenBusy}<button class="regen" title="Cancel the running recipe (24 hour maximum)" on:click={() => fileBridge()?.cancelRecipe?.(regenJobId)}>Cancel run</button>{/if}
             <button class="regen" on:click={() => regenerate()} disabled={regenBusy} title={recipePath}>
               {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}

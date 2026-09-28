@@ -17,23 +17,29 @@ function importPolicy() {
   return pure ??= import(pathToFileURL(path.join(__dirname, "../src/lib/model3d/importData.native.gen.mjs")).href);
 }
 
-async function readBounded(file, limit, label) {
-  if (!(await fsp.lstat(file)).isFile()) throw new Error(`${label} must be a regular file`);
+const fileIdentity = stat => [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':');
+async function readBounded(file, limit, label, { validate = async () => {}, checkCurrent = () => {} } = {}) {
+  await checkCurrent(); await validate();
+  const expected = await fsp.lstat(file);
+  if (!expected.isFile()) throw new Error(`${label} must be a regular file`);
+  await validate();
   // O_NONBLOCK keeps a concurrently substituted FIFO from stalling native IPC.
   const handle = await fsp.open(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0) | (fs.constants.O_NOFOLLOW || 0));
   try {
     const before = await handle.stat();
-    if (!before.isFile()) throw new Error(`${label} must be a regular file`);
+    if (!before.isFile() || fileIdentity(before) !== fileIdentity(expected)) throw new Error(`${label} changed before reading`);
     if (before.size > limit) throw new Error(`${label} exceeds ${limit / 1024 / 1024} MiB. Use fp.mesh3d(..., max_faces=…) to reduce the mesh.`);
+    await checkCurrent();
     const bytes = Buffer.alloc(before.size);
     let offset = 0;
     while (offset < bytes.length) {
-      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      await checkCurrent();
+      const { bytesRead } = await handle.read(bytes, offset, Math.min(1048576, bytes.length - offset), offset);
       if (!bytesRead) throw new Error(`${label} changed while reading`);
       offset += bytesRead;
     }
-    const after = await handle.stat();
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) throw new Error(`${label} changed while reading`);
+    await validate(); await checkCurrent();
+    if (fileIdentity(before) !== fileIdentity(await handle.stat()) || fileIdentity(before) !== fileIdentity(await fsp.lstat(file))) throw new Error(`${label} changed while reading`);
     return bytes;
   } finally { await handle.close(); }
 }
@@ -98,7 +104,7 @@ async function publishExclusive(location, file, bytes, checkCurrent) {
 
 /** Prepare outside document locks, then publish owned, immutable native files.
  * The caller retains this receipt until its document mutation succeeds. */
-async function prepareModel3d({ root, target, sourcePath, checkCurrent = () => {}, readGuard = () => {} }) {
+async function prepareModel3d({ root, target, sourcePath, manifestPath, recipePath, checkCurrent = () => {}, readGuard = () => {} }) {
   await checkCurrent();
   if (typeof sourcePath !== "string" || !path.isAbsolute(sourcePath) || !/\.glb$/i.test(sourcePath) || sourcePath.includes("\0")) throw new Error("Choose a binary .glb model file");
   const location = await importLocation(root, target);
@@ -107,16 +113,26 @@ async function prepareModel3d({ root, target, sourcePath, checkCurrent = () => {
   // In-project sources keep the same real containment guarantee as all project
   // media. Explicitly picked external files are authorized by the caller.
   if (contained(path.resolve(root), path.resolve(sourcePath)) && !contained(location.realRoot, sourceReal)) throw new Error("Model source symlink escapes the project");
-  const bytes = await readBounded(sourceReal, MAX_BYTES, "GLB");
+  // Revalidate the authorized alias and its resolved target around the bounded
+  // open/read. Explicit sidecars use this same boundary with their own grant.
+  const validateRead = (file, real, directory) => async () => {
+    await checkCurrent(); await readGuard(file); await readGuard(real);
+    if (await fsp.realpath(file) !== real) throw new Error('Model source path changed while reading');
+    if (contained(path.resolve(root), path.resolve(file)) && !contained(location.realRoot, real)) throw new Error('Model source symlink escapes the project');
+    if (directory && !contained(directory, real)) throw new Error('Sidecar symlink escapes the model source directory');
+  };
+  const bytes = await readBounded(sourceReal, MAX_BYTES, "GLB", { validate: validateRead(sourcePath, sourceReal), checkCurrent });
   await checkCurrent();
   const warnings = [], source = { glbPath: path.resolve(sourcePath) };
   async function sidecar(suffix, key) {
-    const file = sourcePath.replace(/\.glb$/i, suffix);
+    const explicit = key === "manifestPath" ? manifestPath : recipePath;
+    if (explicit !== undefined && (typeof explicit !== "string" || !path.isAbsolute(explicit) || !/\.json$/i.test(explicit) || explicit.includes("\0"))) throw new Error("Invalid 3D sidecar path");
+    const file = explicit ?? sourcePath.replace(/\.glb$/i, suffix);
     try {
       await readGuard(file);
       const real = await fsp.realpath(file);
-      if (!contained(path.dirname(sourceReal), real)) throw new Error("Sidecar symlink escapes the model source directory");
-      const text = (await readBounded(real, MAX_METADATA_BYTES, `${key} metadata`)).toString("utf8");
+      if (!explicit && !contained(path.dirname(sourceReal), real)) throw new Error("Sidecar symlink escapes the model source directory");
+      const text = (await readBounded(real, MAX_METADATA_BYTES, `${key} metadata`, { validate: validateRead(file, real, explicit ? undefined : path.dirname(sourceReal)), checkCurrent })).toString("utf8");
       source[key] = path.resolve(file);
       return text;
     } catch (error) {
