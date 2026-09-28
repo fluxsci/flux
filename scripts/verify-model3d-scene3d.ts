@@ -4,11 +4,15 @@ import {execFileSync} from 'node:child_process';
 import {harness} from './lib/harness.mjs';
 import {parseScene3d,buildScene3dPartIndex,isScene3d,resolveScene3dPartStyle} from '../src/lib/model3d/scene3d';
 import {inspectGlb,parseGlb} from '../src/lib/model3d/glbCore.mjs';
-const h=harness('verify-model3d-scene3d'),dir=new URL('./fixtures/model3d/fluxplot/',import.meta.url);
+const h=harness('verify-model3d-scene3d');
 execFileSync(process.execPath,['scripts/gen-model3d-validator.mjs','--check'],{stdio:'pipe'});h.ok(true,'generated validator is fresh');
+// Frozen contract oracle and fixtures emitted through the public Python API are independent inputs.
+for (const fixtureSet of ['fluxplot', 'fluxplot-library']) {
+const dir=new URL(`./fixtures/model3d/${fixtureSet}/`,import.meta.url);
 const checksums=JSON.parse(await readFile(new URL('SHA256SUMS.json',dir),'utf8'));
 for(const name of (await readdir(dir)).filter(n=>n.endsWith('.fluxplot.json'))){const raw=await readFile(new URL(name,dir),'utf8'),m=parseScene3d(raw);h.ok(!('issue'in m),`${name} schema and semantic validation`);if('issue'in m)continue;const bytes=await readFile(new URL(m.glb,dir));h.eq(createHash('sha256').update(bytes).digest('hex'),m.glbSha256,`${name} original source SHA`);const info=inspectGlb(bytes),index=buildScene3dPartIndex(m);h.ok(info.partNames.every(n=>Object.values(index).some(p=>p.node===n)),`${name} semantic node binding`);h.eq(info.states,m.states?.map(s=>s.name)??[],`${name} GLB state names`);const p=parseGlb(bytes);for(const a of p.json.accessors)if(a.componentType===5126){const v=p.json.bufferViews[a.bufferView],d=new DataView(p.bin.buffer,p.bin.byteOffset+(v.byteOffset??0),v.byteLength);for(let i=0;i<v.byteLength;i+=4)if(!Number.isFinite(d.getFloat32(i,true)))h.fail(`${name} non-finite float`);}}
 for(const [name,sha]of Object.entries(checksums))h.eq(createHash('sha256').update(await readFile(new URL(name,dir))).digest('hex'),sha,`receipt ${name}`);
+}
 const base={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'test.glb'};
 const styled={...base,parts:[{id:'parent',role:'mesh',color:'#FF0000',opacity:.5},{id:'child',role:'mesh',parent:'parent',color:'#0000FF',hidden:true}]};
 const parsedStyled=parseScene3d(styled);if('issue' in parsedStyled)throw Error(parsedStyled.issue);

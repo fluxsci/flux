@@ -368,6 +368,11 @@ Persistence invariants (all machine-checked — do not weaken):
   Topology hashes use logical uint32 little-endian indices, independent of storage width.
   Scientific missing values use finite float32 `_VALUE` and optional uint8 `_VALID` with
   four-byte vertex stride; glTF floating accessors cannot contain NaN or infinity.
+  `fluxplot-library/` adds fixtures generated through the public Python API beside the
+  independent frozen contract oracle. Both are receipt-checked in the scene3d gate.
+  v1 accepts triangle meshes; point/line primitives fail with an actionable explanation.
+  Preparation strips skin bindings and warns that stored mesh geometry is shown: retaining
+  default joint transforms would invalidate the shared bounds. Bake skeletal poses first.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -493,6 +498,13 @@ Persistence invariants (all machine-checked — do not weaken):
 
 ## 4. Renderer architecture notes
 
+- **3D rendering is lazy and shared.** `renderCore.ts` is hosted by the one-worker service
+  or the document-wide inline host. The editor imports neither three nor the worker eagerly.
+  Mesh pixels and pure vector furniture share orbit math; the notebook IIFE is built from
+  those same modules, with one canonical renderer version in `poster.ts`. Independently
+  embedded viewer bundles share a document context and scope model IDs by source. Destroying
+  an output releases its host even inside notebook shadow roots. The live P2/P3 app wiring
+  is separate from the P0 renderer seams; see the active 3D ledger for phase status.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
@@ -1884,6 +1896,9 @@ Run it through the hermetic runner; never validate a migration on real projects.
 
 **Agent tools, launchers and processes:**
 
+- A synthetic WebGL context restoration cannot run at the loss event's microtask
+  checkpoint: that event must finish dispatching first. The 3D gate uses MessageChannel
+  to reach the next task, not a timer or a product latency workaround.
 - GPU devices can be hidden by an execution sandbox while available on the host. A
   software-only run is not a hardware pass: native 3D gates must report their actual WebGL
   renderer. Use authorized host execution with scratch HOME/XDG for hardware qualification;

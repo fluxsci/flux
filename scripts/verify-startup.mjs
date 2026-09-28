@@ -10,8 +10,8 @@ import puppeteer from "puppeteer-core";
 import { CHROME } from "./lib/driver.mjs";
 import { recordBrowserRuntime } from './lib/runtimeEvidence.mjs';
 
-const PORT = 4319;
-const URL = `http://127.0.0.1:${PORT}/`;
+const URL = process.env.FLUX_URL || 'http://127.0.0.1:4319/';
+const PORT = Number(new globalThis.URL(URL).port || 80);
 const BUDGET = 800 * 1024; // eager shell JS ceiling (raw bytes)
 const MODE_RE = /(Paper|Figure|Slide|Reader|Library)Mode-/;
 const WORKER_RE = /worker|pdf\.worker|pdfjs/i;
