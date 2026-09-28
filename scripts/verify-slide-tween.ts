@@ -10,17 +10,17 @@
 // same-beat appearance/transform conflict rule holds.
 // Run: npx tsx scripts/verify-slide-tween.ts
 import { parseHTML, DOMParser } from "linkedom";
-import {
-  applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
-  contentPlan, foldPreState,
-} from "../src/lib/slide/tween";
+import * as tween from "../src/lib/slide/tween";
+const { applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
+  contentPlan, foldPreState, arcBox, overshootBox } = tween;
 import { compileSlide } from "../src/lib/slide/compile";
 import { resampleNodes, nodesToPath, pathD } from "../src/lib/path";
 import type { Element as FigElement, RectElement, TextElement, PathElement, VectorNode } from "../src/lib/types";
 
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-tween");
 function assert(cond: unknown, msg: string) {
-  if (!cond) throw new Error("FAIL: " + msg);
-  console.log("  ok:", msg);
+  if (!h.ok(cond, msg)) throw new Error("FAIL: " + msg);
 }
 const near = (a: number, b: number, eps = 0.01) => Math.abs(a - b) <= eps;
 
@@ -33,6 +33,37 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   text: "hello", fontFamily: "Arial", fontSize: 16, fontWeight: 400,
   fontStyle: "normal", align: "left", color: "#ffffff", sizing: "auto", ...over,
 });
+
+// Discrete channels follow the raw clock, even when easing reverses.
+{
+  const { resolveCurve } = await import("../src/lib/slide/curves");
+  for (const curve of [{ kind: "bezier", p: [.3, 2, .7, -1] }, { kind: "spring", bounce: .8 }] as const) {
+    const ease = resolveCurve({ curve: curve as import("../src/lib/slide/types").Curve });
+    const before = text(), after = text({ fontFamily: "Georgia", align: "center", flipX: true });
+    const frames = Array.from({ length: 60 }, (_, i) => lerpElement(before, after, ease.clamped(i/59), i/59) as TextElement);
+    const flips = frames.slice(1).filter((f,i) => f.fontFamily !== frames[i].fontFamily).length;
+    assert(flips === 1, `non-monotone timing flips a discrete prop once over 60 samples (observed ${flips})`);
+    assert(frames.every((f,i) => f.fontFamily === (i/59 < .5 ? "Arial" : "Georgia")), "discrete props use raw progress even at clamped eased endpoints");
+  }
+}
+
+// M6: the arc acts only on an owned sample's position; zero keeps exact bytes.
+{
+  const a = rect(), b = rect({ x: 210, y: 120, width: 220, rotation: 35 });
+  for (const u of [0, .1, .5, .9, 1, 1.15, -.1]) {
+    const sample = overshootBox(lerpElement(a, b, Math.max(0, Math.min(1, u))), a, b, u);
+    const bytes = JSON.stringify(sample);
+    assert(arcBox(sample, a, b, u, 0) === sample && JSON.stringify(sample) === bytes, `arc 0 is byte-identical at ${u}`);
+    for (const arc of [-1, 1]) {
+      const curved = arcBox(structuredClone(sample), a, b, u, arc);
+      assert(near(curved.x, a.x + (b.x-a.x)*u - (b.y-a.y)*arc*u*(1-u), 1e-12) &&
+        near(curved.y, a.y + (b.y-a.y)*u + (b.x-a.x)*arc*u*(1-u), 1e-12), `arc ${arc} quadratic position at ${u}`);
+      assert(JSON.stringify({ ...curved, x: sample.x, y: sample.y }) === bytes, "arc changes only x/y");
+      if (u === .5) assert(near(Math.hypot(curved.x-sample.x, curved.y-sample.y), Math.hypot(b.x-a.x,b.y-a.y)/4, 1e-12), "arc ±1 midpoint has one quarter of the travel distance");
+    }
+  }
+
+}
 
 // --- numerics + rotation + opacity -------------------------------------------
 {
@@ -436,3 +467,5 @@ function build(slide: Slide) {
 }
 
 console.log("\nSLIDE TWEEN (transform core + player drive): PASS");
+
+await h.done();

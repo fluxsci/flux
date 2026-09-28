@@ -328,7 +328,8 @@
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
       "verify-plot-binding.ts",
-      "verify-plot-view-verb.ts"
+      "verify-plot-view-verb.ts",
+      "verify-slide-stagger.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -792,7 +793,8 @@
       "verify-v020-morph-startup.mjs",
       "verify-slide-handoff-browser.ts",
       "verify-slide-camera.ts",
-      "verify-slide-player.ts"
+      "verify-slide-player.ts",
+      "verify-slide-stagger.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -848,8 +850,28 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "src/lib/slide/stagger.ts",
+      "run": [
+        "verify-slide-stagger.ts",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "scripts/lib/animatorMotionChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs"
+      ]
+    },
+    {
       "glob": "{scripts/lib/m4GhostFixture.ts,scripts/fixtures/m4-ghost-disappear-pre-m3.json}",
-      "run": ["verify-slide-ghost-structure.ts"]
+      "run": [
+        "verify-slide-ghost-structure.ts"
+      ]
     },
     {
       "glob": "scripts/lib/animatorCurveChecks.mjs",
@@ -8075,6 +8097,15 @@
       "coverage": "behavior"
     },
     "verify-plot-view-verb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-stagger.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

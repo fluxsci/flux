@@ -205,9 +205,9 @@ type DataGeometry = { circles: ReadonlySet<string>; lines: ReadonlySet<string> }
  * both endpoints that the live node already holds compiles to nothing, and
  * every write compares first, so a static frame performs no DOM writes. */
 function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) {
-  const writes: ((t: number) => void)[] = [];
+  const writes: ((t: number, raw: number) => void)[] = [];
   const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
-  function sampler(name: string, a: string | null, b: string | null): (t: number) => string | null {
+  function sampler(name: string, a: string | null, b: string | null): (t: number, raw: number) => string | null {
     if (a === b) return () => a;
     if (a !== null && b !== null) {
       if (["fill", "stroke", "color", "stop-color", "flood-color"].includes(name)) return prepareColorLerp(a, b);
@@ -224,7 +224,7 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
         };
       }
     }
-    return t => t < .5 ? a : b;
+    return (_t, raw) => raw < .5 ? a : b;
   }
   return {
     /** `force` also binds endpoint-constant values: a node a later chained
@@ -241,8 +241,8 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
             const av = as.getPropertyValue(prop) || null, bv = bs.getPropertyValue(prop) || null;
             if (!force && av === bv && (ns.getPropertyValue(prop) || null) === av) continue;
             const sample = sampler(prop, av, bv);
-            writes.push(t => {
-              const v = sample(t);
+            writes.push((t, raw) => {
+              const v = sample(t, raw);
               if (v === null) { if (ns.getPropertyValue(prop)) ns.removeProperty(prop); }
               else if (ns.getPropertyValue(prop) !== v) ns.setProperty(prop, v);
             });
@@ -255,8 +255,8 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
           // still holds the old frame's value. Never replace those shared nodes.
           if (!force && av === bv && node.getAttribute(name) === av) continue;
           const sample = sampler(name, av, bv);
-          writes.push(t => {
-            const v = sample(t);
+          writes.push((t, raw) => {
+            const v = sample(t, raw);
             if (v === null) { if (node.hasAttribute(name)) node.removeAttribute(name); }
             else if (node.getAttribute(name) !== v) node.setAttribute(name, v);
           });
@@ -264,10 +264,10 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
       }
       if (!a.children.length && !b.children.length && (force || a.textContent !== b.textContent || node.textContent !== a.textContent)) {
         const av = a.textContent ?? "", bv = b.textContent ?? "";
-        writes.push(t => { const v = t < .5 ? av : bv; if (node.textContent !== v) node.textContent = v; });
+        writes.push((_t, raw) => { const v = raw < .5 ? av : bv; if (node.textContent !== v) node.textContent = v; });
       }
     },
-    update(t: number) { for (const write of writes) write(t); },
+    update(t: number, raw = t) { for (const write of writes) write(t, raw); },
   };
 }
 
@@ -300,7 +300,7 @@ function manifestNames(m: import("../../plot/types").FluxPlotManifest | undefine
 
 /** Match plot content by semantic identity; topology changes fade locally.
  * All clones and bindings are built here. Playback only writes attributes. */
-export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: DataGeometry): ((el: FigElement, t: number) => void) | null {
+export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: DataGeometry): ((el: FigElement, t: number, raw?: number) => void) | null {
   const from = document.createElement("div"), to = document.createElement("div");
   fillContent(from, pre, ctx); fillContent(to, end, ctx);
   const a = from.firstElementChild, b = to.firstElementChild, live = w.firstElementChild;
@@ -345,8 +345,8 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     // zero when later appearance tracks compile their baseline.
     if (entering) (node as SVGElement).style.display = "none";
   };
-  const update = (_el: FigElement, t: number) => {
-    bindings.update(t);
+  const update = (_el: FigElement, t: number, raw = t) => {
+    bindings.update(t, raw);
     for (const f of fades) {
       const weight = f.entering ? Math.max(0, Math.min(1, (t - .6) / .4)) : Math.max(0, Math.min(1, 1 - t / .4));
       const st = (f.node as SVGElement).style;
@@ -486,7 +486,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
 /** Compile the serializer's two endpoints into stable attribute bindings.
  * Normal shape transforms never serialize/parse SVG during playback. A
  * topology change returns null so the caller can crossfade complete layers. */
-export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }): ((el: FigElement, t: number) => void) | null {
+export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }): ((el: FigElement, t: number, raw?: number) => void) | null {
   if (pre.type === "text" && end.type === "text") {
     const svg = w.firstElementChild, text = svg?.querySelector("text");
     if (!svg || !text) return null;
@@ -557,12 +557,12 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
   };
   if (!bind(liveSvg, aSvg, bSvg)) return null;
   const path = pre.type === "path" ? liveSvg.querySelector("path") : null;
-  return (el, t) => {
+  return (el, t, raw = t) => {
     if (el.type !== "plot") {
       const bb = elementBBox({ ...el, rotation: 0 });
       liveSvg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
     }
-    bindings.update(t);
+    bindings.update(t, raw);
     // The path tween owns its resampled geometry; interpolating raw d strings
     // would pair unrelated commands when the node count changed.
     if (path && el.type === "path") path.setAttribute("d", el.d);

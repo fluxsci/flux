@@ -6,7 +6,7 @@
 // hidden until its intro beat, shown after — accumulated per property).
 // Run: npx tsx scripts/verify-slide-player.ts
 import { parseHTML } from "linkedom";
-import { computeSlideAnims, applyStatic, resolveEasing } from "../src/lib/slide/player/player";
+import { computeSlideAnims, applyStatic, applyAt, resolveEasing } from "../src/lib/slide/player/player";
 import { PRESETS } from "../src/lib/slide/player/presets";
 import { FLUX_DARK } from "../src/lib/slide/theme";
 import type { Track } from "../src/lib/slide/types";
@@ -14,9 +14,10 @@ import type { RenderedSlide } from "../src/lib/slide/player/render";
 import type { Slide, StageSize } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-player");
 function assert(cond: unknown, msg: string) {
-  if (!cond) throw new Error("FAIL: " + msg);
-  console.log("  ok:", msg);
+  if (!h.ok(cond, msg)) throw new Error("FAIL: " + msg);
 }
 
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
@@ -218,6 +219,19 @@ assert(resolveEasing("linear") === "linear" && resolveEasing(undefined).startsWi
 const { createPlayer } = await import("../src/lib/slide/player/player");
 const { createDeck } = await import("../src/lib/slide/ops");
 const { resolveCurve } = await import("../src/lib/slide/curves");
+// Named colors have no numeric interpolation. Their fallback must use raw time,
+// even when the timing curve crosses the midpoint three times.
+{
+  const node = el("discrete-color");
+  const spec = { ...titleSpec, node, keyframes: [{ color: "red" }, { color: "blue" }],
+    duration: 1000, delay: 0, ease: resolveCurve({ curve: { kind: "bezier", p: [.3, 2, .7, -1] } }) };
+  const colors: string[] = [];
+  for (let i = 0; i < 60; i++) { applyAt([spec], 1, 1000 * i / 59); colors.push(node.style.color); }
+  const switches = colors.slice(1).filter((v, i) => v !== colors[i]).length;
+  assert(switches === 1 && colors.every((v, i) => v === (i / 59 < .5 ? "red" : "blue")),
+    `named-color fallback switches once at raw halfway over 60 samples (got ${switches})`);
+}
+
 const { overshootBox } = await import("../src/lib/slide/tween");
 const { staggerDelay } = await import("../src/lib/slide/stagger");
 const core = await import("../flux-core/index");
@@ -274,7 +288,7 @@ player.destroy();
 // Native WAAPI and sampled frames share the same resolved spring. The fadeRise
 // spec contains transform AND opacity, so its opacity must use the clamp channel.
 const { build } = await import("esbuild");
-const { readFile } = await import("node:fs/promises");
+const { readFile, mkdir } = await import("node:fs/promises");
 const { dirname } = await import("node:path");
 const { launch } = await import("./lib/driver.mjs");
 const bundle = await build({ stdin: { contents: `
@@ -323,6 +337,48 @@ try {
   assert(error <= .005, `native and sampled spring frames agree within 0.5% at 20 times (max ${error})`);
   assert(native.frames.every(f => Math.abs(f.paintedX - (400 + 200 * ease.fn(f.raw))) < .001), "painted same-kind content follows the overshooting wrapper without cancelling its motion");
   assert(native.frames.some(f => /translateY\(([-\d.]+)px/.test(f.transform) && Number(/translateY\(([-\d.]+)(?:px)?/.exec(f.transform)![1]) < 0), "mixed keyframes extrapolate transform while clamping opacity");
+  // Named paints use the non-interpolable fallback through real SVG bindings.
+  const colorDeck = createDeck({ withTitleSlide: false, stage }); colorDeck.defaults.transition = "none";
+  colorDeck.slides = [{ id: "raw-color", elements: [{ type: "rect", id: "raw-color", x: 100, y: 100, width: 80, height: 60, rotation: 0, fill: "red", stroke: "none", strokeWidth: 0, cornerRadius: 0 }], beats: [
+    { id: "base", tracks: [] }, { id: "change", tracks: [{ target: "raw-color", preset: "transform", duration: 1000, curve: { kind: "bezier", p: [.3, 2, .7, -1] }, to: { state: { fill: "blue" } } }] },
+  ] }];
+  const paints = await page.evaluate(deck => {
+    const host = document.getElementById("host")!, player = (window as any).springPlayer(host, deck);
+    const frames = Array.from({ length: 60 }, (_, i) => {
+      player.seek(0, 1, 1000 * i / 59);
+      return host.querySelector("rect")!.getAttribute("fill");
+    });
+    player.destroy(); return frames;
+  }, colorDeck);
+  const paintFlips = paints.slice(1).filter((paint, i) => paint !== paints[i]).length;
+  assert(paintFlips === 1 && paints.every((paint, i) => paint === (i / 59 < .5 ? "red" : "blue")),
+    `real browser named paint follows raw .5 once over 60 non-monotone samples (flips ${paintFlips})`);
+  const { compileSlide } = await import("../src/lib/slide/compile");
+  const compiledColor = compileSlide(colorDeck.slides[0], stage);
+  assert(paints.every((paint, i) => (compiledColor.sample(1, 1000 * i / 59).elements[0] as any).fill === paint), "named-paint compiler and real SVG player agree on all 60 raw samples");
+  for (const contentChange of [false, true]) for (const arc of [-1, 0, 1]) {
+    const arcDeck = createDeck({ withTitleSlide: false, stage }); arcDeck.defaults.transition = "none";
+    arcDeck.slides = [{ id: "arc", elements: [{ type: "rect", id: "arc", x: 100, y: 100, width: 80, height: 60, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 }], beats: [
+      { id: "base", tracks: [] }, { id: "move", tracks: [{ id: "arc", target: "arc", preset: "transform", arc, easing: "linear", duration: 1000, to: { state: { x: 300, ...(contentChange ? { fill: "#d0a215", width: 120 } : {}) } } }] },
+    ] }];
+    const midpoint = await page.evaluate(deck => {
+      const host = document.getElementById("host")!;
+      const player = (window as any).springPlayer(host, deck); player.seek(0,1,500);
+      const wrap = host.querySelector<HTMLElement>('[data-el-id="arc"]')!, box = wrap.getBoundingClientRect(), origin = host.getBoundingClientRect();
+      const painted = wrap.querySelector("rect")!.getBoundingClientRect();
+      const frame = { x: box.x-origin.x, y: box.y-origin.y, paintedX: painted.x-origin.x, paintedY: painted.y-origin.y, left: wrap.style.left, top: wrap.style.top };
+      player.destroy(); return frame;
+    }, arcDeck);
+    assert(Math.abs(midpoint.x - 200) < .001 && Math.abs(midpoint.y - (100+50*arc)) < .001, `real browser player paints arc ${arc} apex at t=.5`);
+    assert(Math.abs(midpoint.paintedX - 200) < .001 && Math.abs(midpoint.paintedY - (100+50*arc)) < .001, `painted content follows arc ${arc} with content change=${contentChange}`);
+    assert(midpoint.left === "100px" && midpoint.top === "100px", "arc preserves the frozen layout box");
+    await page.evaluate(deck => { (window as any).__arcPlayer?.destroy(); (window as any).__arcPlayer = (window as any).springPlayer(document.getElementById("host"), deck); (window as any).__arcPlayer.seek(0,1,500); }, arcDeck);
+    await mkdir("notes/flux_animation_v2/workers/out/shots/M6", { recursive: true });
+    await page.screenshot({ path: `notes/flux_animation_v2/workers/out/shots/M6/arc-${arc}-${contentChange ? "content" : "box"}.png` });
+    await page.evaluate(() => (window as any).__arcPlayer.destroy());
+  }
 } finally { await browser.close(); }
 
 console.log("\nALL SLIDE-PLAYER (P2) TESTS PASSED");
+
+await h.done();

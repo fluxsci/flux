@@ -23,6 +23,18 @@ import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type Trac
 
 // --- shared bits -------------------------------------------------------------
 
+const staggerSchema = z.object({
+  perMs: z.number().nonnegative().optional(), totalMs: z.number().nonnegative().optional(),
+  by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+  seed: z.number().int().min(0).max(0xffffffff).optional(),
+  curve: z.union([
+    z.enum(EASING_TOKENS),
+    z.object({ kind: z.literal("bezier"), p: z.tuple([z.number().min(0).max(1), z.number().min(-1).max(2), z.number().min(0).max(1), z.number().min(-1).max(2)]) }).strict(),
+    z.object({ kind: z.literal("spring"), bounce: z.number().min(-0.5).max(0.8), velocity: z.number().optional() }).strict(),
+    z.object({ kind: z.literal("steps"), n: z.number().int().min(1).max(60), jump: z.enum(["start", "end"]).optional() }).strict(),
+  ]).optional(),
+}).refine(s => s.perMs !== undefined || s.totalMs !== undefined, "Stagger needs perMs or totalMs");
+
 /** Copy the defined keys of `a` listed in `keys` into a fresh patch object —
  *  the "only the fields you pass change" contract every patch verb keeps. */
 const pick = (a: Record<string, unknown>, keys: string[]): Record<string, never> => {
@@ -2955,17 +2967,18 @@ export const VERBS: VerbDef[] = [
       curve: z.string().describe(CURVE_GRAMMAR).optional(),
       params: z.record(z.unknown()).optional(),
       influence: z.object({ in: z.number().min(0).max(100), out: z.number().min(0).max(100) }).optional(),
-      stagger: z.object({ perMs: z.number().nonnegative(), by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges"]).optional() }).optional(),
+      stagger: staggerSchema.optional(),
+      arc: z.number().min(-1).max(1).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "action", required: true }, { kind: "pos", at: 1, into: "deckId", required: true }, { kind: "pos", at: 2, into: "id" },
       ...["name", "family", "preset", "easing", "curve"].map(at => ({ kind: "flag" as const, at, into: at })),
-      ...["duration", "start"].map(at => ({ kind: "flag" as const, at, into: at, as: "number" as const })),
+      ...["duration", "start", "arc"].map(at => ({ kind: "flag" as const, at, into: at, as: "number" as const })),
       ...["params", "influence", "stagger"].map(at => ({ kind: "flag" as const, at, into: at, as: "json" as const })),
     ],
     handler: (ctx, a) => core.animStyleVerb(ctx.root, s(a.deckId), a.action as "create", {
       id: a.id as string | undefined, name: a.name as string | undefined, family: a.family as "appearance" | undefined,
-      track: { ...pick(a, ["preset", "duration", "start", "params", "stagger"]), ...timingCurveArgs(a) },
+      track: { ...pick(a, ["preset", "duration", "start", "params", "stagger", "arc"]), ...timingCurveArgs(a) },
     }),
     render: {
       human: (r) => ({ out: JSON.stringify(r) }),
@@ -2986,15 +2999,23 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
-    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset.",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash).",
     params: {
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
+      staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
+      staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+      seed: z.number().int().min(0).max(0xffffffff).optional(),
       styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
       start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       curve: z.string().describe(CURVE_GRAMMAR).optional(),
     },
     cliArgs: [
+      { kind: "flag", at: "stagger-each", into: "staggerEach", as: "number" },
+      { kind: "flag", at: "stagger-total", into: "staggerTotal", as: "number" },
+      { kind: "flag", at: "stagger-curve", into: "staggerCurve" },
+      { kind: "flag", at: "stagger-from", into: "staggerFrom" },
+      { kind: "flag", at: "seed", into: "seed", as: "number" },
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
       { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
       { kind: "flag", at: "anchor", into: "anchor" }, { kind: "flag", at: "no-anchor", into: "noAnchor", as: "boolean" },
@@ -3004,6 +3025,19 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
       const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
+      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "seed"].some(k => a[k] !== undefined)) {
+        const stagger: NonNullable<typeof patch.stagger> = {};
+        if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
+        if (a.staggerTotal !== undefined) stagger.totalMs = n(a.staggerTotal);
+        if (a.staggerFrom !== undefined) stagger.from = a.staggerFrom as typeof stagger.from;
+        if (a.seed !== undefined) stagger.seed = n(a.seed);
+        if (a.staggerCurve !== undefined) {
+          const curve = parseCurve(s(a.staggerCurve));
+          if (!curve) throw new ValidationError("Invalid stagger curve");
+          stagger.curve = curve;
+        }
+        patch.stagger = stagger;
+      }
       if (a.noStyle) patch.styleId = null; else if (a.styleId !== undefined) patch.styleId = s(a.styleId);
       if (a.noAnchor) patch.anchor = null;
       else if (a.anchor !== undefined) {
@@ -3067,6 +3101,7 @@ export const VERBS: VerbDef[] = [
       duration: z.number().optional(),
       easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       curve: z.string().describe(CURVE_GRAMMAR).optional(),
+      arc: z.number().min(-1).max(1).optional(),
       toAssetId: z.string().optional(),
     },
     cliArgs: [
@@ -3080,6 +3115,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
       { kind: "flag", at: "curve", into: "curve" },
+      { kind: "flag", at: "arc", into: "arc", as: "number" },
       { kind: "flag", at: "to-asset", into: "toAssetId" },
     ],
     handler: (ctx, a) =>
@@ -3089,6 +3125,7 @@ export const VERBS: VerbDef[] = [
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...timingCurveArgs(a),
+        ...(a.arc !== undefined ? { arc: n(a.arc) } : {}),
         ...(a.toAssetId != null ? { toAssetId: s(a.toAssetId) } : {}),
       }),
     render: {
@@ -3188,7 +3225,7 @@ export const VERBS: VerbDef[] = [
     cli: "cascade-tracks",
     cliRoot: "flags",
     summary:
-      "Cascade one timing property across animation tracks: the track at rank k (0-indexed) gets value + delta·step, where step = k with --first-fixed, else k+1; --factor switches to multiplicative (value · factor^step). property ∈ start|duration|influence.in|influence.out|stagger.perMs. --order timeline (beat index, then lane — the default) or list (the given track order). Clamps: start ≥ 0 ms, duration ≥ 50 ms, influence 0–100 (both-zero deletes the velocity profile), perMs ≥ 0 (only stagger-bearing tracks rank). GUI: ⌃⇧C in the animator with ≥2 tracks selected.",
+      "Cascade one timing property across animation tracks: the track at rank k (0-indexed) gets value + delta·step, where step = k with --first-fixed, else k+1; --factor switches to multiplicative (value · factor^step). property ∈ start|duration|influence.in|influence.out|curve.bounce|stagger.perMs|stagger.totalMs|arc. --order timeline (beat index, then lane — the default) or list (the given track order). Clamps: start ≥ 0 ms, duration ≥ 50 ms, influence 0–100 (both-zero deletes the velocity profile), spring bounce −0.5…0.8 (only spring tracks rank), stagger ≥ 0 (only stagger-bearing tracks rank), arc −1…1 (only transform tracks rank). GUI: ⌃⇧C in the animator with ≥2 tracks selected.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3710,7 +3747,7 @@ export const VERBS: VerbDef[] = [
     scope: "project",
     pathParams: {"to.svgPath": "path", "to.manifestPath": "path"},cli:'set-animation',cliRoot:'flags',
     summary:'Add or replace an animation track on a beat. --track JSON accepts the full track; --append preserves existing effects.',
-    params:{ deckId:z.string().min(1),slideId:z.string().min(1),beatId:z.string().min(1),track:z.record(z.unknown()).optional(),target:z.string().optional(),append:z.boolean().optional(),preset:z.enum(SLIDE_PRESETS).optional(),part:z.string().optional(),start:z.number().optional(),duration:z.number().optional(),easing:z.string().optional(),params:z.record(z.unknown()).optional(),influence:z.object({in:z.number(),out:z.number()}).optional(),stagger:z.object({perMs:z.number(),by:z.enum(['index','x','y']).optional(),from:z.enum(['start','end','center','edges']).optional()}).optional(),groupId:z.string().optional(),to:z.object({assetId:z.string().optional(),x:z.number().optional(),y:z.number().optional(),zoom:z.number().optional(),state:z.record(z.unknown()).optional(),svgPath:z.string().optional(),manifestPath:z.string().optional()}).optional() },
+    params:{ deckId:z.string().min(1),slideId:z.string().min(1),beatId:z.string().min(1),track:z.record(z.unknown()).optional(),target:z.string().optional(),append:z.boolean().optional(),preset:z.enum(SLIDE_PRESETS).optional(),part:z.string().optional(),start:z.number().optional(),duration:z.number().optional(),easing:z.string().optional(),params:z.record(z.unknown()).optional(),influence:z.object({in:z.number(),out:z.number()}).optional(),stagger:staggerSchema.optional(),groupId:z.string().optional(),to:z.object({assetId:z.string().optional(),x:z.number().optional(),y:z.number().optional(),zoom:z.number().optional(),state:z.record(z.unknown()).optional(),svgPath:z.string().optional(),manifestPath:z.string().optional()}).optional() },
     cliArgs:[{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},{kind:'pos',at:2,into:'beatId',required:true},{kind:'pos',at:3,into:'target'},
       {kind:'flag',at:'target',into:'target'}, {kind:'flag',at:'track',into:'track',as:'json'}, {kind:'flag',at:'append',into:'append',as:'boolean'},
       ...['preset','part','easing'].map(at=>({kind:'flag' as const,at,into:at})),

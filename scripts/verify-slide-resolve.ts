@@ -141,6 +141,14 @@ h.eq(JSON.stringify(beat), before, "refusals leave the beat unchanged");
 const manifest = { parts: { id: "root", role: "figure", children: [{ id: "points", role: "points", children: [0, 1, 2].map(i => ({ id: `p${i}`, role: "point" })) }] } } as FluxPlotManifest;
 const staggered: Beat = { id: "staggered", tracks: [{ ...a, part: "points", stagger: { perMs: 30, from: "start" } }, b] };
 h.eq(resolveStart(b, staggered, deck, () => manifest).start, 220, "end edge includes the last semantic leaf's stagger delay");
+const totalBeat = structuredClone(staggered);
+totalBeat.tracks[0].stagger = { totalMs: 800, curve: "enter", from: "random", seed: 3 };
+h.eq(resolveStart(b, totalBeat, deck, () => manifest).start, 960, "end anchor follows Total span with a curve and random order");
+const arcDeck = structuredClone(deck);
+const arcStyle = ops.addAnimStyle(arcDeck, { name: "Arc", family: "transform", track: { preset: "transform", arc: .6 } });
+h.eq(resolveTrack({ target: x, preset: "transform", styleId: arcStyle.id }, arcDeck).arc, .6, "arc inherits as a HOW field");
+h.eq(resolveTrack({ target: x, preset: "transform", styleId: arcStyle.id, arc: 0 }, arcDeck).arc, 0, "straight arc sentinel overrides style");
+
 const geometrySlide = { ...slide, beats: [staggered] };
 h.eq(trackEndMs(b, geometrySlide, manifest, deck, () => manifest), 420, "lane end uses anchored start");
 h.eq(beatEndMs(staggered.tracks, geometrySlide, () => manifest, deck), 420, "beat lane footprint uses resolved timing");
@@ -274,6 +282,14 @@ try {
   await core.saveDeck(root, presetDeck!);
   const savedGhost = (await core.loadDeck(root, "presets")).slides[0].beats[1].tracks.find(t => t.ghostFrom)!;
   h.ok(savedGhost.preset === "transform" && savedGhost.styleId === "move", "flux-core saveDeck publishes the linked ghost birth");
+  h.eq(run("set-track", "cli", "s", "a", "--stagger-total", "800", "--stagger-from", "random", "--seed", "42", "--stagger-curve", "bouncy").status, 0, "CLI authors Total/random/spring distribution");
+  const motion = (await core.loadDeck(root, "cli")).slides[0].beats[1].tracks[0].stagger;
+  h.eq(motion, { totalMs: 800, from: "random", seed: 42, curve: { kind: "spring", bounce: .35 } }, "CLI persists canonical stagger shape without Each");
+  h.eq(run("set-track", "cli", "s", "a", "--stagger-each", "25").status, 0, "CLI switches to Each");
+  const each = (await core.loadDeck(root, "cli")).slides[0].beats[1].tracks[0].stagger;
+  h.ok(each?.perMs === 25 && each.totalMs === undefined && each.seed === 42, "CLI Each clears Total and preserves the seed");
+  const motionBytes = await fs.readFile(file, "utf8");
+  h.ok(run("set-track", "cli", "s", "a", "--stagger-curve", "garbage").status !== 0 && await fs.readFile(file, "utf8") === motionBytes, "bad distribution refuses without a write");
   const final = await core.loadDeck(root, "cli");
   h.ok(final.slides[0].beats[1].tracks.every(t => !t.styleId && t.duration === 900), "delete persists detached effective duration");
   h.eq(final.slides[0].beats[1].tracks[1].start, 910, "anchor detach preserves the last resolved start");
@@ -339,5 +355,11 @@ try {
   const movedFollower = (await core.loadDeck(root, "cli-plot")).slides[0].beats[2].tracks[0];
   h.eq([movedFollower.id, movedFollower.start, movedFollower.anchor], ["follower", 220, undefined], "REAL CLI cross-beat move detaches the anchor at its resolved start, incl. the plot's semantic stagger tail (50 + 100 + 2×30 + 10)");
 
+  const target = cliSlide.elements[0].id;
+  h.eq(run("set-transform", "cli", "s", "b", target, "--state", '{"x":240}', "--arc", "-0.5").status, 0, "CLI set-transform authors a negative arc");
+  const moved = (await core.loadDeck(root, "cli")).slides[0].beats[1].tracks.find(t => t.preset === "transform");
+  h.eq(moved?.arc, -.5, "CLI persists arc through the shared transform op");
+  const arcBytes = await fs.readFile(file, "utf8");
+  h.ok(run("set-transform", "cli", "s", "b", target, "--arc", "2").status !== 0 && await fs.readFile(file, "utf8") === arcBytes, "invalid arc refuses without a write");
 } finally { await fs.rm(root, { recursive: true, force: true }); }
 await h.done();

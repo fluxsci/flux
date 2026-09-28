@@ -68,6 +68,8 @@
     "influence.out": "Ease-out influence (%)",
     "curve.bounce": "Spring bounce",
     "stagger.perMs": "Stagger per-item (ms)",
+    "stagger.totalMs": "Stagger total (ms)",
+    arc: "Arc",
   };
   const STEP: Partial<Record<string, number>> = {
     opacity: 0.05,
@@ -77,6 +79,8 @@
     start: 50,
     duration: 50,
     "stagger.perMs": 25,
+    "stagger.totalMs": 50,
+    arc: 0.1,
     "influence.in": 5,
     "influence.out": 5,
     "curve.bounce": 0.05,
@@ -174,9 +178,7 @@
   $: applyCount =
     kind === "elements"
       ? (elInfo?.applies[prop as ElementCascadeProp] ?? 0)
-      : prop === "stagger.perMs"
-        ? (trackApplies?.["stagger.perMs"] ?? 0)
-        : trackTotal;
+      : (trackApplies?.[prop as TrackCascadeProp] ?? trackTotal);
   $: totalCount = kind === "elements" ? (elInfo?.total ?? 0) : trackTotal;
   $: colorMode = kind === "elements" && isColorProp(prop as ElementCascadeProp);
 

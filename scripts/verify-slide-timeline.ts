@@ -17,8 +17,9 @@ const { compilePtTrueBindings, compensatePtTrue, restorePtTrue } = await import(
 import type { Slide } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 const stage = { width: 640, height: 360 }, opts = { theme: FLUX_DARK };
-let checks = 0;
-function check(value: unknown, label: string) { assert.ok(value, label); checks++; console.log("  ok:", label); }
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-timeline");
+function check(value: unknown, label: string) { h.ok(value, label); assert.ok(value, label); }
 const rect = { id: "r", type: "rect" as const, x: 50, y: 60, width: 90, height: 70, rotation: 35, opacity: .6, fill: "#4385be", stroke: "#222222", strokeWidth: 1 };
 const text = { id: "t", type: "text" as const, x: 220, y: 60, width: 280, height: 40, rotation: 0, text: "Alpha", fontFamily: "Arial", fontSize: 24, fontWeight: 400, fontStyle: "normal" as const, align: "left" as const, color: "#fff", sizing: "fixed" as const };
 const host = document.createElement("div") as unknown as HTMLElement;
@@ -333,4 +334,43 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   const { overshootBox } = await import("../src/lib/slide/tween");
   check([0, .25, 1].every(u => overshootBox(end, springSlide.elements[0], end, u) === end), "overshootBox preserves the same sampled reference in range");
 }
-console.log(`\nSLIDE TIMELINE: PASS (${checks} assertions)`);
+// M6: sample and the exported player share curved box motion and raw discrete decisions.
+{
+  for (const arc of [-1, 0, 1]) {
+    const source = { ...rect, x: 100, y: 100, rotation: 0, flipX: false };
+    const slide: Slide = { id: "arc", elements: [source], beats: [{ id: "base", tracks: [] }, { id: "motion", tracks: [
+      { id: "arc", target: source.id, preset: "transform", arc, easing: "linear", duration: 1000, to: { state: { x: 300, flipX: true } } },
+    ] }] };
+    const d = createDeck({ withTitleSlide: false, stage }); d.defaults.transition = "none"; d.slides = [slide];
+    const mount = document.createElement("div") as unknown as HTMLElement;
+    const p = createPlayer(mount, d, { ...opts, reducedMotion: true });
+    const compiled = compileSlide(slide, stage);
+    for (const time of [500, 1000, 0, 750, 250]) {
+      p.seek(0, 1, time);
+      const box = mount.querySelector<HTMLElement>('[data-el-id="r"]')!, el = compiled.sample(1,time).elements[0];
+      // At the discrete flip the wrapper is centre-conjugated; use the model for
+      // position, and assert the actual composite branch/flip on the live node.
+      check((time === 0 || time === 1000) || box.style.transform.includes("translate"), "arc flight stays on the composite placement path");
+      check(box.style.transform.includes("scaleX(-1)") === (time >= 500), "player flips the wrapper at raw halfway");
+      check(Math.abs(el.x - (100 + 200*time/1000)) < 1e-9 && Math.abs(el.y - (100 + arc*200*(time/1000)*(1-time/1000))) < 1e-9, "compiler samples the quadratic position");
+    }
+    const curve = { kind: "bezier", p: [.3,2,.7,-1] } as const;
+    p.destroy();
+    slide.beats[1].tracks[0].curve = curve as any;
+    const saved = JSON.parse(JSON.stringify(d));
+    const q = createPlayer(mount, saved, { ...opts, reducedMotion: true });
+    const c = compileSlide(saved.slides[0], stage);
+    const observed: boolean[] = [];
+    for (let i=0; i<60; i++) {
+      const raw = i/59; q.seek(0,1,raw*1000);
+      observed.push(mount.querySelector<HTMLElement>('[data-el-id="r"]')!.style.transform.includes("scaleX(-1)"));
+      check(c.sample(1,raw*1000).elements[0].flipX === (raw >= .5), "persisted non-monotone curve keeps compiler discrete state raw");
+    }
+    check(observed.every((v,i) => v === (i/59 >= .5)) && observed.slice(1).filter((v,i) => v !== observed[i]).length === 1, "real player flips exactly once over 60 non-monotone frames");
+    q.destroy();
+  }
+}
+
+console.log(`\nSLIDE TIMELINE: PASS (${h.checks} assertions)`);
+
+await h.done();

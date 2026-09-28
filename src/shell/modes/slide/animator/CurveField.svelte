@@ -32,10 +32,13 @@
   import { editSession } from "../../../../lib/interact/editSession";
   import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
 
-  let { tracks, contextKey, onChange }: {
+  let { tracks, contextKey, onChange, variant = "timing" }: {
+    variant?: "timing" | "distribution";
     tracks: Track[]; contextKey: string;
     onChange: (curve: CurveEdit, keepArrival: boolean) => void;
   } = $props();
+  const distribution = $derived(variant === "distribution");
+  const label = $derived(distribution ? "Stagger distribution" : "Easing");
   const groups = [...new Set(CURVE_CATALOG.map(c => c.group))];
   const tiles = CURVE_CATALOG.map(c => ({ ...c, resolved: resolveCurve(typeof c.spec === "string" ? { easing: c.spec } : { curve: c.spec }) }));
   const track = $derived(tracks.at(-1)!);
@@ -103,7 +106,7 @@
     error = "";
     // The outer mutation lets commitDeckLive's nested operation join our owned
     // checkpoint; cancel restores redo and dirty state as well as the curve.
-    session.run(() => mutate(() => onChange(value, keepArrival)));
+    session.run(() => mutate(() => onChange(value, !distribution && keepArrival)));
   }
   function paste(value: string) {
     const parsed = parseCurve(value);
@@ -188,20 +191,20 @@
 </script>
 
 <svelte:window onpointerdowncapture={outside} onresize={place} />
-<div class="curve-field">
-  <div class="field-label">Easing <kbd>e</kbd></div>
-  <button class="curve-trigger" data-fld="e" bind:this={trigger} aria-label="Easing curve" aria-haspopup="dialog" aria-expanded={open}
+<div class="curve-field" class:compact={distribution}>
+  <div class="field-label">{distribution ? "distribution" : "Easing"} {#if !distribution}<kbd>e</kbd>{/if}</div>
+  <button class="curve-trigger" data-fld={distribution ? undefined : "e"} bind:this={trigger} aria-label={distribution ? label : "Easing curve"} aria-haspopup="dialog" aria-expanded={open}
     onfocus={() => void show()} onclick={() => void show()} onkeydown={e => {
-      if (!e.ctrlKey && !e.metaKey && ["e", "Enter", " "].includes(e.key)) { e.preventDefault(); e.stopPropagation(); void show(); }
+      if (!e.ctrlKey && !e.metaKey && (e.key === "Enter" || e.key === " " || (!distribution && e.key === "e"))) { e.preventDefault(); e.stopPropagation(); void show(); }
     }}>
     <svg width="28" height="16" viewBox="0 -.2 1 1.4" preserveAspectRatio="none" aria-hidden="true"><path d={curvePath(resolved)} /></svg>
     <span class="curve-name">{name}</span>
-    <span class="readout">{mixed || mixedDuration ? "Timing varies" : `arrives ${Math.round(resolved.arrival * duration)} ms · settles ${Math.round(duration)} ms`}</span>
+    {#if !distribution}<span class="readout">{mixed || mixedDuration ? "Timing varies" : `arrives ${Math.round(resolved.arrival * duration)} ms · settles ${Math.round(duration)} ms`}</span>{/if}
   </button>
 </div>
 {#if open}
-  <div class="curve-popover" bind:this={panel} use:watchSize style={`left:${pos.left}px;top:${pos.top}px`} role="dialog" aria-label="Easing curve editor" aria-modal="false" tabindex="-1" onkeydown={key} onpaste={onPaste}>
-    <header><strong>Easing</strong><span>{name}</span><button aria-label="Commit easing" onclick={() => close(false)}>Done</button></header>
+  <div class="curve-popover" bind:this={panel} use:watchSize style={`left:${pos.left}px;top:${pos.top}px`} role="dialog" aria-label={`${label} curve editor`} aria-modal="false" tabindex="-1" onkeydown={key} onpaste={onPaste}>
+    <header><strong>{label}</strong><span>{name}</span><button aria-label={distribution ? "Commit stagger distribution" : "Commit easing"} onclick={() => close(false)}>Done</button></header>
     <div class="curve-groups">
       {#each groups as g}
         <div class="curve-group" data-group={g}>
@@ -249,8 +252,8 @@
         {#each samples as x}<circle cx={32 + x * 240} cy="14" r="2.5" />{/each}
       </svg>
     </div>
-    <div class="readout timing-readout">{mixed || mixedDuration ? "Timing varies per effect" : `arrives ${Math.round(resolved.arrival * duration)} ms · settles ${Math.round(duration)} ms`}{#if peak > .00001}<span class="overshoot-readout">overshoot {(peak * 100).toFixed(1)}%</span>{/if}</div>
-    <label class="keep"><input type="checkbox" bind:checked={keepArrival} />Keep arrival <small>Adjust duration to preserve arrival time</small></label>
+    {#if !distribution}<div class="readout timing-readout">{mixed || mixedDuration ? "Timing varies per effect" : `arrives ${Math.round(resolved.arrival * duration)} ms · settles ${Math.round(duration)} ms`}{#if peak > .00001}<span class="overshoot-readout">overshoot {(peak * 100).toFixed(1)}%</span>{/if}</div>
+    <label class="keep"><input type="checkbox" bind:checked={keepArrival} />Keep arrival <small>Adjust duration to preserve arrival time</small></label>{/if}
     <div class="clipboard"><input aria-label="Paste curve" placeholder="Paste a curve…" bind:value={pasteText} /><button onclick={() => paste(pasteText)}>Paste</button><button onclick={() => void copy()}>Copy</button></div>
     {#if error}<div class="curve-error" role="alert">{error}</div>{/if}
     <footer>1–9 choose in {group} · Enter commits · Esc reverts</footer>
@@ -259,6 +262,8 @@
 
 <style>
   .curve-field { border-top: 1px solid var(--c-line); padding-top: 6px; }
+  .curve-field.compact { border-top: 0; padding-top: 0; }
+  .compact .curve-trigger { padding: 2px 6px; }
   .field-label { display: flex; gap: 6px; color: var(--c-tx-muted); font: 12px var(--font-ui); margin-bottom: 4px; }
   kbd, .readout, output, input, .eyebrow, footer { font: 10px/1.5 var(--font-mono); font-variant-numeric: tabular-nums; }
   button { font: 11px var(--font-ui); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); background: transparent; cursor: var(--cursor-cross-hover); }

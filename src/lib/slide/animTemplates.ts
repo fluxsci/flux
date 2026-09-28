@@ -22,7 +22,7 @@ import { newId } from "../ids";
  *  WHAT). */
 export type PresetTrack = Pick<
   Track,
-  "preset" | "params" | "start" | "duration" | "easing" | "influence" | "curve" | "stagger"
+  "preset" | "params" | "start" | "duration" | "easing" | "influence" | "curve" | "stagger" | "arc"
 >;
 
 export interface AnimPreset {
@@ -86,6 +86,7 @@ export function presetTrackOf(t: Track): PresetTrack {
   if (t.curve != null) out.curve = structuredClone(t.curve);
   if (t.influence != null) out.influence = structuredClone(t.influence);
   if (t.stagger != null) out.stagger = structuredClone(t.stagger);
+  if (t.arc != null) out.arc = t.arc;
   return out;
 }
 

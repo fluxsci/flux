@@ -162,6 +162,7 @@ The established shared cores — extend these, don't duplicate them:
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts`, `verify-slide-easing.ts` (legacy snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists; `animator/CurveField.svelte` is the UI consumer, covered by `verify-slide-animator-gui.mjs`, authoring/cascade GUI and both surface gates |
+| Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
@@ -890,11 +891,12 @@ Persistence invariants (all machine-checked — do not weaken):
   the player's out-of-range camera frames call the preset's exact `transformAt(u)`
   rather than extrapolating its 24 keyframes. `staggerDelay` owns delays in
   playback, compilation and span calculation; no second per-item formula belongs there.
-  `Track.curve` is an optional tagged bezier/spring/steps record in the 0.6.0 schema,
-  shared by ordinary tracks, ghost births and animation styles. Grammar inputs clamp;
-  disk validation refuses invalid shapes/ranges. Authoring uses `setTrackCurve` or
-  the timing patch ops, which clear competing easing/influence fields. Player channel
-  plumbing remains M2's independent packet.
+  Stagger Each/Total modes, distribution curves and seeded random order share
+  `stagger.ts`. The distribution uses a compact `CurveField` writing `stagger.curve`
+  through authoring ops; it never changes the effect duration or timing curve.
+  `arcBox` changes only box x/y; an arc of ±1 offsets the quadratic control by half
+  the travel distance and its midpoint apex by one quarter. Non-interpolable
+  keyframe values, including named-color fallbacks, select endpoints by raw progress.
   `animator/CurveField.svelte` edits that one timing field: catalog/graph/clipboard
   previews share an owned edit session, with keep-arrival duration changes in the same
   checkpoint. A nested `mutate` lets `commitDeckLive` join the field's checkpoint;
@@ -8226,3 +8228,27 @@ and `/tmp/flux-m4-qa`, with Electron verification and git mutations reserved for
   Capturing outside the viewport can fire resize placement and mask clipping after
   dynamic controls/errors grow. M4 has this packet-owned placement bug; the QA gate
   now exposes it and the proposed ResizeObserver fix is pending orchestrator approval.
+
+### 2026-09-28 05:36 UTC — Total stagger and box arcs (Codex, av2/M6)
+**Work:** Added shared Total/distributed/seeded-random stagger, box arcs, authoring/CLI/style
+and cascade support, schema validation, and real player/inspector regressions. M2's discrete
+property flips now use raw progress and compiled tracks retain maxRank. The new stagger gate
+and all seven extended gates fail at e9eb26e; focused pure slide and Animator runs pass.
+**Learnings:** Promoted the motion core to §2. Expanded children of a single stagger track
+must never supersede one another in playback. The arc driver restores the content frame
+after applying its wrapper box; the painted-content gate catches viewBox cancellation. A quadratic control offset of half the move
+length produces a quarter-length apex, which the geometry gate pins; Total normalizes
+symmetric ranks without changing legacy Each arithmetic. M4 mounts CurveField at the marked
+inspector slot; M3 owns the separate Track.curve schema.
+
+### 2026-09-28 14:33 UTC — M6 integration over M3/M4 (Codex, av2-M6)
+**Work:** Resolved the M6 worker conflicts by retaining timing-curve group inheritance,
+anchor/follower detachment, camera paths and plot-view verbs alongside stagger modes,
+seeded distribution, arcs and cascades. Regenerated validators/manual, mounted the compact
+stagger CurveField, widened uint32 seeds, and added a raw-progress named-color regression.
+**Learnings:** Non-conflicting imports and test harnesses can duplicate during this merge;
+inspect them after resolving blocks. A non-numeric keyframe fallback is a discrete channel,
+so both segment selection and interpolation must use raw progress. SVG paint bindings
+need the same raw argument through `prepareColorLerp`; the compiler and outline sampler
+thread it too. The integration includes f6c88ba's render/transform callback plumbing
+as the prerequisite for this fix; its Library and additional QA changes remain pending.

@@ -25,13 +25,48 @@ import * as slideOps from "../src/lib/slide/ops";
 import { validateDeck as validateDeckVerb, saveDeck, loadDeck, mutateDeck } from "../flux-core/slides";
 import { scaffold } from "../flux-core/index";
 
-function assert(c: unknown, m: string) { if (!c) throw new Error("FAIL: " + m); console.log("  ok:", m); }
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-deck-schema");
+function assert(cond: unknown, msg: string) {
+  if (!h.ok(cond, msg)) throw new Error("FAIL: " + msg);
+}
 
 // --- a good deck (built through the one blank-deck source) validates -----------
 const good = slideOps.createDeck({ id: "g", title: "Good" });
 slideOps.addSlideText(good, good.slides[0].id, { text: "hi", x: 10, y: 10 });
 assert(DECK_SCHEMA_VERSION === "0.6.0", "the animation-v2 format is 0.6.0 (0.x minor = the breaking slot)");
 assert(validateDeckFile(good).length === 0, "a createDeck() deck validates against the bundled schema");
+
+// M6: load the same stagger/arc shape on tracks and linked styles.
+{
+  for (const fields of [
+    { stagger: { totalMs: 800, curve: "enter", from: "random", seed: 42 } },
+    { stagger: { perMs: 30, curve: { kind: "spring", bounce: .35 } } },
+    { stagger: { totalMs: 0, curve: { kind: "steps", n: 8 } } },
+    { stagger: { totalMs: 800, curve: { kind: "bezier", p: [.3, 2, .7, -1] } } },
+    { arc: -1 }, { arc: 0 }, { arc: 1 },
+  ]) {
+    const deck = structuredClone(good), slide = deck.slides[0];
+    slideOps.addBeat(deck, slide.id)!.tracks = [{ target: slide.elements[0].id, preset: "transform", ...fields }] as any;
+    deck.animStyles = [{ id: "motion", name: "Motion", family: "transform", track: { preset: "transform", ...fields } }] as any;
+    assert(validateDeckFile(JSON.parse(JSON.stringify(deck))).length === 0, `M6 fields accepted: ${JSON.stringify(fields)}`);
+  }
+  for (const fields of [
+    { stagger: { totalMs: -1 } }, { stagger: { totalMs: "800" } }, { stagger: {} },
+    { stagger: { perMs: 3, from: "shuffle" } }, { stagger: { perMs: 3, seed: -1 } },
+    { stagger: { totalMs: 3, seed: 1.5 } }, { stagger: { totalMs: 3, seed: 4294967296 } },
+    { stagger: { totalMs: 3, curve: "banana" } }, { stagger: { totalMs: 3, curve: { kind: "spring" } } },
+    { stagger: { totalMs: 3, curve: { kind: "bezier", p: [0, 0, 1] } } },
+    { stagger: { totalMs: 3, curve: { kind: "steps", n: 0 } } }, { arc: -1.01 }, { arc: 1.01 }, { arc: "0" },
+  ]) {
+    for (const style of [false, true]) {
+      const deck = structuredClone(good), slide = deck.slides[0];
+      if (style) deck.animStyles = [{ id: "bad", name: "Bad", family: "transform", track: fields }] as any;
+      else slideOps.addBeat(deck, slide.id)!.tracks = [{ target: slide.elements[0].id, ...fields }] as any;
+      assert(validateDeckFile(deck).length > 0, `bad M6 ${style ? "style" : "track"} refused: ${JSON.stringify(fields)}`);
+    }
+  }
+}
 
 // Camera paths are additive; unknown paths must never silently become Zoom.
 {
@@ -217,3 +252,5 @@ try {
 }
 
 console.log("\nDECK SCHEMA (0.6.0 load gate + 0.2–0.5 migration + clean break + dangling-target posture): PASS");
+
+await h.done();

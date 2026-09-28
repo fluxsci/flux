@@ -4,7 +4,6 @@
 // mask-disables-instead-of-deletes, setPartStyle, per-kind element tracks,
 // morph authoring + the shared compatibility gate.
 // Run: npx tsx scripts/verify-slide-track-ops.ts
-import { harness } from "./lib/harness.mjs";
 import { resolveTrack } from "../src/lib/slide/resolve";
 import * as core from "../flux-core/index";
 import * as ops from "../src/lib/slide/ops";
@@ -15,9 +14,10 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { familyOf } from "../src/lib/slide/family";
 import { targetPartIds, trackKey } from "../src/lib/slide/targets";
 
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-track-ops");
 function assert(cond: unknown, msg: string) {
-  if (!cond) throw new Error("FAIL: " + msg);
-  console.log("  ok:", msg);
+  if (!h.ok(cond, msg)) throw new Error("FAIL: " + msg);
 }
 
 const deck = ops.createDeck({ id: "t", title: "Track ops" });
@@ -264,7 +264,7 @@ assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.
   }
 }
 
-const m3 = harness("verify-slide-track-ops");
+const m3 = h;
 m3.section("one timing-curve field through the public ops");
 {
   const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "curves" });
@@ -419,6 +419,32 @@ m3.section("M3 integration D1: migrated easing through the exported player");
   m3.ok(Number(frames[0][2]) > 0 && Number(frames[0][2]) < 1, "D1: comparison includes a real intermediate player frame");
   players.forEach(p => p.destroy());
 }
-await m3.done();
+// M6 Each/Total writes clear the other field, retain distribution and roll back bad edits.
+{
+  const d = ops.createDeck(), slide = d.slides[0], beat = ops.addBeat(d, slide.id)!;
+  beat.tracks = [{ id: "wave", target: "plot", preset: "fade", stagger: { perMs: 20, curve: "enter", from: "random", seed: 3 } },
+    { id: "move", target: "box", preset: "transform", arc: .2 }];
+  const wave = beat.tracks[0];
+  assert(ops.setTrack(d, slide.id, "wave", { stagger: { totalMs: 800 } }).ok, "setTrack selects Total");
+  assert(wave.stagger?.totalMs === 800 && !Object.hasOwn(wave.stagger!, "perMs") && wave.stagger?.seed === 3 && wave.stagger.curve === "enter", "Total clears Each, retains distribution and seed");
+  ops.setTrack(d, slide.id, "wave", { stagger: { perMs: 50 } });
+  assert(wave.stagger?.perMs === 50 && !Object.hasOwn(wave.stagger!, "totalMs"), "Each clears Total");
+  const before = JSON.stringify(beat);
+  for (const patch of [{ stagger: { perMs: 5, totalMs: 20 } }, { stagger: { totalMs: -1 } }, { arc: 2 }, { stagger: { seed: 1.5 } }])
+    assert(!ops.setTrack(d, slide.id, "wave", patch).ok && JSON.stringify(beat) === before, "invalid motion edits refuse atomically");
+  const style = ops.addAnimStyle(d, { name: "Motion", family: "transform", track: { preset: "transform", arc: -.6 } });
+  ops.linkTrackStyle(d, slide.id, "move", style.id);
+  ops.setTrack(d, slide.id, "move", { arc: 0 });
+  const { resolveTrack } = await import("../src/lib/slide/resolve");
+  const { presetTrackOf } = await import("../src/lib/slide/animTemplates");
+  assert(presetTrackOf({ ...beat.tracks[1], arc: .7, stagger: { totalMs: 800, from: "random", seed: 5, curve: "enter" } }).arc === .7, "animation presets retain arc");
+  assert(resolveTrack(beat.tracks[1], d).arc === 0, "arc zero overrides an inherited curve");
+  ops.cascadeTracks(d, slide.id, ["wave", "move"], { property: "stagger.totalMs", delta: 200 });
+  assert(wave.stagger?.totalMs === 200 && wave.stagger.perMs === undefined, "Total cascade ranks stagger tracks and clears Each");
+  ops.cascadeTracks(d, slide.id, ["wave", "move"], { property: "arc", delta: 2 });
+  assert(beat.tracks[1].arc === 1 && wave.arc === undefined, "arc cascade ranks transforms only and clamps");
+}
 
 console.log("\nSLIDE TRACK-OPS (WS2 + 0.3.0 families/groups) TESTS PASSED");
+
+await h.done();

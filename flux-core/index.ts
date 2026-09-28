@@ -106,8 +106,9 @@ export { targetOutlines, elementStageOutlines, partStageOutlines, plotStageMappi
 export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
 export { setTrackCurve, becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
 export { autoAnimateExcept } from "../src/lib/slide/autobuild";
-export { overshootBox } from "../src/lib/slide/tween";
-export { staggerDelay } from "../src/lib/slide/stagger";
+export { overshootBox, arcBox } from "../src/lib/slide/tween";
+export { setTrackArc } from "../src/lib/slide/ops";
+export { staggerDelay, staggerRanks, staggerSpan, staggerSeed, reshuffleSeed, patchStagger } from "../src/lib/slide/stagger";
 export { compileSlide, type CompiledSlide, type CompileOptions } from "../src/lib/slide/compile";
 export { sampleCamera, flyDuration, type CameraPose, type CameraPath } from "../src/lib/slide/camera";
 export {

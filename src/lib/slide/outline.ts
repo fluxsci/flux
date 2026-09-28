@@ -620,12 +620,12 @@ export function arrowFade(plan: ElementMorphPlan, which: "start" | "end", t: num
 /** The synthetic PATH element at time t ∈ (0,1) — endpoints are the caller's
  *  business (they return the real elements verbatim). Identity/base props come
  *  from `end` (the state the element is becoming), box and style are lerped. */
-export function sampleElementMorph(plan: ElementMorphPlan, t: number): PathElement {
+export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): PathElement {
   const { pre, end, preBox, endBox, preStyle, endStyle } = plan;
   const w = lerp(preBox.w, endBox.w, t), h = lerp(preBox.h, endBox.h, t);
   const nodes = sampleNodes(plan.a, plan.b, t, w, h);
-  const fill = lerpColor(preStyle.fill, endStyle.fill, t);
-  const stroke = lerpColor(preStyle.stroke, endStyle.stroke, t);
+  const fill = lerpColor(preStyle.fill, endStyle.fill, t, undefined, raw);
+  const stroke = lerpColor(preStyle.stroke, endStyle.stroke, t, undefined, raw);
   const out: PathElement = {
     type: "path",
     id: end.id,

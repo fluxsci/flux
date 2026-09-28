@@ -179,6 +179,32 @@ inner content uses the clamped state, including its SVG viewBox, so it cannot ca
 outer box's motion. `staggerDelay` supplies playback, compiler and timeline span arithmetic.
 Schema, validators and authoring writes belong to M3; the curve UI and user docs to M4.
 
+### Stagger and box arcs (Animation v2 M6)
+
+`Stagger` stores `perMs?` or `totalMs?`, optional `curve: Curve | EasingToken`,
+`by: index|x|y`, `from: start|end|center|edges|random`, and an optional uint32 `seed`.
+Authoring Each/Total clears the other field; if both are loaded, Total wins. Each retains
+legacy rank arithmetic. Total normalizes ranks to start at zero; an all-tied order with
+at least two items breaks ties by input order. One target has zero span. `staggerDelay`
+uses `span × clamped(rank/maxRank)` and `staggerSpan` uses the same endpoint law.
+Random is a seeded Fisher–Yates permutation; absent seeds hash the track id, so saved
+slides and exported playback agree. Curves resolve before frames and compiled tracks
+retain `maxRank`. The player never supersedes another leaf from the same stagger track.
+
+`Track.arc?: number` in [−1, 1] is a HOW field shared by styles and animation presets.
+`arcBox` follows a quadratic Bézier whose control point is the midpoint plus a perpendicular
+`arc × distance / 2` offset. Consequently the halfway apex is `arc × distance / 4`.
+Only x/y change; arc zero returns byte-identical straight-line samples. Compiler and player
+apply it after `overshootBox`, with the same unclamped eased progress. The player restores
+the content sample's position after applying the wrapper box, so its SVG viewBox cannot
+cancel the bend when a move also changes size or fill. `lerpElement`
+receives raw progress separately for discrete property flips, including non-monotone curves.
+
+The inspector provides Each/Total, Random/seed/reshuffle, a distribution selector, and an Arc
+slider with a path preview. M4's `CurveField` mounts at the marked distribution slot at
+integration. Cascade supports `stagger.totalMs` and `arc`. HTML/video use the same player;
+PPTX does not reproduce eased stagger distributions or curved motion paths.
+
 ### Camera paths (Animation v2 M5)
 
 `slide/camera.ts` exports the one `sampleCamera(a, b, u, stage, path, out?)` used by the

@@ -60,7 +60,7 @@ flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min
 
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
-     [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
+     [--start ms] [--duration ms] [--easing e] [--arc -1..1] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
@@ -75,13 +75,15 @@ flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]    
 
 # linked deck styles + relative timing
 flux anim-style create <deck> --name L --family appearance|transform|media --preset P
-     [--duration ms --start ms --curve grammar --params json --influence json --stagger '{"perMs":30}'] # (anim_style)
-flux anim-style set <deck> <styleId> [--name L --preset P --duration ms --start ms --curve grammar --params json --influence json]
+     [--duration ms --start ms --curve grammar --arc -1..1 --params json --influence json --stagger '{"perMs":30}'] # (anim_style)
+flux anim-style set <deck> <styleId> [--name L --preset P --duration ms --start ms --curve grammar --arc -1..1 --params json --influence json]
 flux anim-style delete <deck> <styleId>                         # detach linked effects, preserving their settings
 flux anim-style list <deck>
 flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (animate_like) share the source style; family mismatches reported
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
      [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
+     [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
+     [--stagger-from start|end|center|edges|random] [--seed uint32]
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -90,7 +92,7 @@ flux cascade-tracks <deck> <slideId> <property> t1,t2… [--delta n | --factor n
      [--order timeline|list] [--reverse] [--first-fixed]          # (cascade_tracks)  stepped timing delta
                                                # across tracks: rank k gets value+delta·step (step = k with
                                                # --first-fixed, else k+1); property ∈ start|duration|
-                                               # influence.in|influence.out|stagger.perMs; a start cascade
+                                               # influence.in|influence.out|curve.bounce|stagger.perMs|stagger.totalMs|arc; a start cascade
                                                # with --first-fixed IS the classic stagger
 flux apply-anim-template <deck> <slideId> <name|path.json> [--element id [--part axis.y] | --elements a,b,c] [--beat id]
                                                # (apply_anim_template)  bind a saved preset bundle by role/type
@@ -122,7 +124,15 @@ to place multiple appearance effects on the same object in one step.
 - `writeOn`/`wipeOut` take `params.direction: ltr|rtl|ttb|btt`.
 - Timing knobs on every track: `start`, `duration`, `curve`, `easing`
   (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
-  profile), `stagger` ({perMs, by: index|x|y, from: start|end|center|edges}).
+  profile), `stagger` ({perMs? or totalMs?, curve?, by: index|x|y, from: start|end|center|edges|random, seed?}).
+  Each/Total authoring clears the other field. Total spans first-to-last starts; one target has
+  no tail. The distribution uses the clamped curve grammar (`enter`, `bouncy`,
+  `cubic-bezier(.2,.1,.8,1)`, `steps(8)`). Random replays from a uint32 seed or the track-id hash.
+  Total normalizes symmetric ranks; if all ranks tie it uses input order.
+- Transforms also carry `arc` (−1…1); zero is straight, either sign bends box x/y along a
+  quadratic Bézier. The control point is offset by half the move distance times arc;
+  at halfway the path offset is one quarter of the distance times arc. Styles/presets
+  retain it. HTML/video play these paths; PPTX does not reproduce curves/distributions.
 
 **2. Transforms** — ONE track kind (`preset: "transform"`, at most one per element per
 beat — chain across beats) authored three ways:

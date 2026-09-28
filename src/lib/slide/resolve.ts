@@ -18,9 +18,9 @@ export type StyleContext = Pick<Deck, "animStyles">;
 export type ManifestFor = (target: string) => FluxPlotManifest | undefined;
 export interface TimingIssue { trackId?: string; target: string; reason: string }
 /** Every field an `AnimStyle.track` carries (materialize/detach copies all of them). */
-export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "curve", "stagger"] as const;
+export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "curve", "stagger", "arc"] as const;
 /** The style fields a linked track inherits by resolution: all but `preset` (see the header). */
-export const INHERITED_STYLE_FIELDS = ["params", "start", "duration", "easing", "influence", "curve", "stagger"] as const;
+export const INHERITED_STYLE_FIELDS = ["params", "start", "duration", "easing", "influence", "curve", "stagger", "arc"] as const;
 
 /** Style fields under the track's own: a field PRESENT on the track wins, an
  * absent one inherits (`preset` never does; see the header). Present means a

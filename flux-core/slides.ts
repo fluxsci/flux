@@ -451,6 +451,7 @@ export async function setTransformTrack(
     start?: number;
     duration?: number;
     toAssetId?: string;
+    arc?: number;
   } & slideOps.TimingCurvePatch = {},
 ): Promise<{ trackId: string }> {
   return mutateDeck(root, deckId, "set_transform", async (deck) => {
@@ -465,6 +466,7 @@ export async function setTransformTrack(
       ...(opts.easing !== undefined ? { easing: opts.easing } : {}),
       ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
       ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
+      ...(opts.arc !== undefined ? { arc: opts.arc } : {}),
       ...(opts.toAssetId != null ? { toAssetId: opts.toAssetId } : {}),
       ...paths,
     });

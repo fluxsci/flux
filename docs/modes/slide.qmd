@@ -145,7 +145,7 @@ It leaves their targets, start times and linked style identities in place.
 
 ## Animation styles
 
-Deck animation styles share an effect's preset, parameters, duration, easing, stagger and
+Deck animation styles share an effect's preset, parameters, duration, easing, stagger, arc and
 start. A linked effect inherits absent fields; changing a field on that effect overrides the
 style for that field. Editing the style updates every inheriting effect. An effect links only to
 a style of its own kind (appearance, transform or video command); linking gives it the style's
@@ -229,6 +229,19 @@ tweens a number in a text element ("n = 1,247" counts up in place). Draw-on/off 
 **trim path** control (direction, anchor, single/both-ends/middle-out, partial windows), and
 wipes pick their direction.
 
+Use **Stagger → Each** for the delay between ranks, or **Total** for the time between the
+first and last item starting. Switching modes preserves the current span. **From → Random**
+uses a repeatable order; edit **Seed** or click **↻** to reshuffle (one Undo restores it).
+The distribution curve controls how densely starts fall within the span: an ease-out curve
+starts widely spaced, then packs later starts together. Springs are clamped to the span.
+Center and Edges keep symmetric pairs together; if every item ties, Total uses input order.
+A single target has no stagger tail.
+
+```bash
+flux set-track talk slide1 effect1 --stagger-total 800 --stagger-curve enter --stagger-from random --seed 42
+flux set-track talk slide1 effect1 --stagger-each 30
+```
+
 ## Transforms {#transforms}
 
 Every object can be **transformed** at a step in exactly three ways. They share one lane kind in
@@ -245,6 +258,14 @@ previous step (or Design for the first change), while **After** selects this ste
 above the stage always identifies where subsequent edits will go. Chained changes compose across
 steps; colors blend perceptually and rewritten numbers digit-tween. Drop a captured property in the
 Animation inspector's **Δ** row to let it inherit from earlier steps.
+
+For a box move, the **Arc** slider bends the path to either side of the straight line.
+Zero keeps it straight; the endpoints stay fixed. The small path preview shows the bend.
+Arc shares the transform's easing and can be inherited from an animation style.
+
+```bash
+flux set-transform talk slide1 step1 object1 --state '{"x":420,"y":160}' --arc 0.5
+```
 
 ### Ghost
 
@@ -409,7 +430,7 @@ changed properties and inheriting earlier limits. `--reset` restores the generat
 ## Cascading tracks
 
 Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)
-popover, over animation — stagger **start**, **duration**, **per-item stagger**, or easing
+popover, over animation — stagger **start**, **duration**, **per-item or total stagger**, **Arc**, or easing
 **influence** or **Spring bounce** in even steps across the selection. Spring bounce skips
 non-spring effects, which do not consume a step. Five drawOns starting 120 ms apart is one
 gesture, not arithmetic.
@@ -479,7 +500,7 @@ the effect's duration:
 
 Objects are named with a leading `!!` (the Selection Pane shows it) — that is how Morph pairs
 them across slides, so keep the names if you edit a build. Morph uses its own ease, so a
-step's easing is not copied; a plot whose parts build in cross-fades from one state to the
+step's easing, arc paths and eased stagger distribution are not copied; a plot whose parts build in cross-fades from one state to the
 next, and a count-up cross-fades from its first number to its last. Morph needs PowerPoint 2019
 or Microsoft 365; older versions show a plain fade.
 

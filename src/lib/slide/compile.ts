@@ -3,11 +3,11 @@
 import type { Element } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
-import { lerpElement, overshootBox, transformEndState, transformPreState } from "./tween";
+import { lerpElement, overshootBox, arcBox, transformEndState, transformPreState } from "./tween";
 import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
 import { seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
-import { staggerRanks, staggerSpan, staggerDelay } from "./stagger";
+import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
@@ -26,7 +26,7 @@ export interface CompileOptions extends StyleContext {
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
 }
-export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; ease: ResolvedCurve }
+export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; maxRank: number; ease: ResolvedCurve }
 export interface PartFrame { opacity: number; visible: boolean; transform?: string }
 export interface SlideFrame {
   elements: Element[];
@@ -109,8 +109,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const el = transformPreState(slide, track.target, bi), manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
       const by = track.stagger?.by;
       const coordinates = by === "x" || by === "y" ? new Map((manifest?.series ?? []).flatMap((s) => (s.points ?? []).map((p) => [p.svgId, p[by]] as const))) : undefined;
-      const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates ? parts.map((id) => coordinates.get(id) ?? null) : undefined);
-      tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, ease: resolveCurve(track, familyOf(track)) });
+      const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates ? parts.map((id) => coordinates.get(id) ?? null) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined);
+      tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, maxRank: Math.max(0, ...ranks), ease: resolveCurve(track, familyOf(track)) });
     }
     // Same target/property concurrent effects are visible diagnostics, never a
     // silent replacement. Different channels (e.g. Change + Fade) compose.
@@ -211,7 +211,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         if (hasPartBinding(track)) continue;
         const pre = transformPreState(slide, track.target, bi) ?? el;
         const end = transformEndState(pre, track);
-        const sampled = overshootBox(lerpElement(pre, end, t), pre, end, ct.ease.fn(raw));
+        const u = ct.ease.fn(raw);
+        const sampled = arcBox(overshootBox(lerpElement(pre, end, t, raw), pre, end, u), pre, end, u, track.arc);
         for (const key of Object.keys(el)) if (!(key in sampled)) delete (el as unknown as Record<string, unknown>)[key];
         Object.assign(el, sampled);
         continue;
@@ -229,9 +230,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         camera = sampleCamera(from, to, ct.ease.fn(raw), stage, track.to?.path, from);
         continue;
       }
-      const maxRank = Math.max(0, ...ct.ranks);
       for (const [i, key] of targetsFor(ct).entries()) {
-        const at = ct.duration > 0 ? ct.ease.clamped(clamp((local - ct.start - staggerDelay(track, ct.ranks[i] ?? 0, maxRank)) / ct.duration)) : 1;
+        const at = ct.duration > 0 ? ct.ease.clamped(clamp((local - ct.start - staggerDelay(track, ct.ranks[i] ?? 0, ct.maxRank)) / ct.duration)) : 1;
         const previous = appearance.get(key) ?? { opacity: 1, visible: true };
         const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? 1 - .7 * at : preset === "highlight" ? .4 + .6 * at : previous.opacity;
         appearance.set(key, { opacity, visible: opacity > 0 });

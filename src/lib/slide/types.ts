@@ -80,7 +80,7 @@ export interface AnimStyle {
   id: Id;
   name: string;
   family: "appearance" | "transform" | "media";
-  track: Pick<Track, "preset" | "params" | "start" | "duration" | "easing" | "influence" | "curve" | "stagger">;
+  track: Pick<Track, "preset" | "params" | "start" | "duration" | "easing" | "influence" | "curve" | "stagger" | "arc">;
 }
 
 export interface Deck {
@@ -255,16 +255,20 @@ export interface BecomeSpec {
   reveal?: "flip" | "draw";
 }
 
-/** Stagger a set: each child starts `perMs` after the previous, ordered `by`
- *  and seeded `from` an edge/center. */
+/** Spread target starts by Each delay or Total span, with optional distribution/order. */
 export interface Stagger {
-  perMs: number;
+  perMs?: number;
+  /** Total spread, independent of target count; takes precedence over perMs. */
+  totalMs?: number;
+  curve?: Curve | EasingToken;
+  /** Random order uses this seed, or a stable hash of the track id. */
+  seed?: number;
   /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
    *  each target's spatial coordinate (data-x/data-y, falling back to the
    *  rendered x/y), so points fire left→right ("x") or low→high ("y").
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
   by?: "index" | "x" | "y";
-  from?: "start" | "end" | "center" | "edges";
+  from?: "start" | "end" | "center" | "edges" | "random";
 }
 
 /** The destination of a `transform` (a sparse element-state patch plus, for
@@ -360,6 +364,8 @@ export interface Track {
    *  one group: any own value suppresses the style's whole timing curve. */
   curve?: Curve;
   stagger?: Stagger;
+  /** Box-move curvature in [-1, 1]; zero preserves the straight path. */
+  arc?: number;
   /** transform/camera/move destination. */
   to?: TrackTarget;
   /** Forward-compat full keyframes (preset optional when present). */

@@ -6,8 +6,9 @@
 // frame until Stop, with no animation clock running once paused.
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL, waitFor } from "./lib/driver.mjs";
 
-let fails = 0;
-const ok = (c, msg, extra = "") => (c ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg + (extra ? ` — ${extra}` : ""))));
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-animator-gui");
+const ok = (c, msg, extra = "") => h.ok(c, msg + (!c && extra ? ` — ${extra}` : ""));
 
 const chord = async (page, key) => {
   await page.keyboard.down("Control");
@@ -465,6 +466,9 @@ try {
   const { verifyDestinations } = await import("./lib/animatorDestinationChecks.mjs");
   await verifyDestinations(page, ok);
 
+  const { verifyMotion } = await import("./lib/animatorMotionChecks.mjs");
+  await verifyMotion(page, ok);
+
   // Camera authoring uses the actual Zoom action, path toggle and duration op.
   // The linked-style checks above end on an inserted preset slide, so the
   // camera target is placed on whichever slide is active now.
@@ -526,5 +530,4 @@ try {
 } finally {
   await browser.close();
 }
-console.log(fails ? `\nSLIDE ANIMATOR GUI: FAIL (${fails})` : "\nSLIDE ANIMATOR GUI: PASS");
-process.exit(fails ? 1 : 0);
+await h.done();

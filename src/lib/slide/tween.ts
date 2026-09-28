@@ -359,20 +359,30 @@ export function overshootBox(el: Element, pre: Element, end: Element, u: number)
   return out;
 }
 
-/** Interpolate two states of ONE element (same id/type). t≤0 / t≥1 return
+/** Bend a sampled box about the midpoint, with control offset arc·distance/2.
+ * Mutates only the owned sample's x/y; endpoints and arc 0 are byte-identical. */
+export function arcBox(el: Element, pre: Element, end: Element, u: number, arc = 0): Element {
+  if (!arc || u === 0 || u === 1) return el;
+  const bend = arc * u * (1 - u);
+  el.x = lerp(pre.x, end.x, u) - (end.y - pre.y) * bend;
+  el.y = lerp(pre.y, end.y, u) + (end.x - pre.x) * bend;
+  return el;
+}
+
+/** Interpolate two states of ONE element (same id/type). raw≤0 / raw≥1 return
  *  clones of the endpoints verbatim (true end nodes, no resample residue).
- *  Non-interpolable props step at t = 0.5. */
-export function lerpElement(pre: Element, end: Element, t: number): Element {
-  if (t <= 0) return structuredClone(pre);
-  if (t >= 1) return structuredClone(end);
+ *  Non-interpolable props step at raw progress = 0.5. */
+export function lerpElement(pre: Element, end: Element, t: number, raw = t): Element {
+  if (raw <= 0) return structuredClone(pre);
+  if (raw >= 1) return structuredClone(end);
   // Across kinds (or a path changing closedness): the outline morph — one
   // synthetic path mid-flight. Kinds without an outline step their content
   // at t = 0.5 while box/rotation/opacity still tween (the driver crossfades).
   if (outlineMorphable(pre, end)) {
     const plan = planElementMorph(pre, end);
-    if (plan) return sampleElementMorph(plan, t);
+    if (plan) return sampleElementMorph(plan, t, raw);
   }
-  if (pre.type !== end.type) return lerpAcrossKinds(pre, end, t);
+  if (pre.type !== end.type) return lerpAcrossKinds(pre, end, t, raw);
   const a = pre as unknown as Record<string, unknown>;
   const b = end as unknown as Record<string, unknown>;
   const out = structuredClone(b); // end's shape; every differing prop overwritten below
@@ -392,7 +402,7 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
       const fb = typeof vb === "number" ? vb : k === "contentScale" ? 1 : 0;
       out[k] = lerp(fa, fb, t);
     } else if (COLOR_PROPS.has(k) && typeof va === "string" && typeof vb === "string") {
-      out[k] = lerpColor(va, vb, t);
+      out[k] = lerpColor(va, vb, t, undefined, raw);
     } else if (k === "dash") {
       const d = lerpDash(va as number[] | undefined, vb as number[] | undefined, t);
       if (d) out[k] = d;
@@ -406,25 +416,25 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
           height: lerp(Number(va.height), Number(vb.height), t),
         };
       } else {
-        if (step(va, vb, t) === undefined) delete out[k];
-        else out[k] = structuredClone(step(va, vb, t));
+        if (step(va, vb, raw) === undefined) delete out[k];
+        else out[k] = structuredClone(step(va, vb, raw));
       }
     } else if (k === "view") {
-      const view = lerpView(va as PlotView | undefined, vb as PlotView | undefined, t);
+      const view = lerpView(va as PlotView | undefined, vb as PlotView | undefined, t, raw);
       if (view) out[k] = view; else delete out[k];
     } else if (k === "overrides") {
-      out[k] = lerpOverrides(va as Record<string, PartOverride> | undefined, vb as Record<string, PartOverride> | undefined, t);
+      out[k] = lerpOverrides(va as Record<string, PartOverride> | undefined, vb as Record<string, PartOverride> | undefined, t, raw);
       if (!Object.keys(out[k] as object).length) delete out[k];
     } else if (k === "nodes" || k === "d" || k === "closed") {
       continue; // path geometry handled wholesale below
     } else if (k === "text" && typeof va === "string" && typeof vb === "string") {
       const sampler = numericTextTween(va, vb);
-      out[k] = sampler ? sampler(t) : step(va, vb, t);
+      out[k] = sampler ? sampler(t) : step(va, vb, raw);
     } else if (k === "fontWeight") {
       out[k] = Math.round(lerp(Number(va ?? 400), Number(vb ?? 400), t) / 100) * 100;
     } else {
       // discrete (booleans, align, fontFamily, sizing, arrow flags, cap, …)
-      const v = step(va, vb, t);
+      const v = step(va, vb, raw);
       if (v === undefined) delete out[k];
       else out[k] = structuredClone(v);
     }
@@ -451,8 +461,8 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
 /** Two kinds with no shared outline (a text becoming a plot, an image becoming
  *  a rect…): the content steps at t = 0.5, the shared base tweens. The driver
  *  renders this as a crossfade over the lerped box. */
-function lerpAcrossKinds(pre: Element, end: Element, t: number): Element {
-  const src = t < 0.5 ? pre : end;
+function lerpAcrossKinds(pre: Element, end: Element, t: number, raw: number): Element {
+  const src = raw < 0.5 ? pre : end;
   const out = structuredClone(src) as unknown as Record<string, unknown>;
   const ba = elementBBox({ ...pre, rotation: 0 }), bb = elementBBox({ ...end, rotation: 0 });
   const w = lerp(ba.w, bb.w, t), h = lerp(ba.h, bb.h, t);
@@ -471,17 +481,17 @@ function lerpAcrossKinds(pre: Element, end: Element, t: number): Element {
 
 /** Sparse views have no implicit numeric domain: absent ends step in the
  * model, while the renderer resolves the manifest defaults and blends fits. */
-export function lerpView(a: PlotView | undefined, b: PlotView | undefined, t: number): PlotView | undefined {
-  if (t <= 0) return a ? structuredClone(a) : undefined;
-  if (t >= 1) return b ? structuredClone(b) : undefined;
+export function lerpView(a: PlotView | undefined, b: PlotView | undefined, t: number, raw = t): PlotView | undefined {
+  if (raw <= 0) return a ? structuredClone(a) : undefined;
+  if (raw >= 1) return b ? structuredClone(b) : undefined;
   const out: PlotView = {};
   for (const key of ["x", "y"] as const) {
     const pa = a?.[key], pb = b?.[key];
     const domain = pa?.domain && pb?.domain ? pa.domain.map((v, i) =>
       pa.scale === "log" && pb.scale === "log" && v > 0 && pb.domain![i] > 0
         ? Math.exp(lerp(Math.log(v), Math.log(pb.domain![i]), t)) : lerp(v, pb.domain![i], t)) as [number, number]
-      : step(pa?.domain, pb?.domain, t);
-    const scale = step(pa?.scale, pb?.scale, t);
+      : step(pa?.domain, pb?.domain, raw);
+    const scale = step(pa?.scale, pb?.scale, raw);
     if (domain || scale) out[key] = { ...(domain ? { domain: [...domain] } : {}), ...(scale ? { scale } : {}) };
   }
   return out.x || out.y ? out : undefined;
@@ -491,6 +501,7 @@ function lerpOverrides(
   a: Record<string, PartOverride> | undefined,
   b: Record<string, PartOverride> | undefined,
   t: number,
+  raw = t,
 ): Record<string, PartOverride> {
   const out: Record<string, PartOverride> = {};
   const parts = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
@@ -507,9 +518,9 @@ function lerpOverrides(
       }
       if ((k === "stroke" || k === "fill") && (typeof va === "string" || typeof vb === "string")) {
         // one side absent = "generator default" — not a color we can blend; step.
-        if (typeof va === "string" && typeof vb === "string") merged[k] = lerpColor(va, vb, t);
+        if (typeof va === "string" && typeof vb === "string") merged[k] = lerpColor(va, vb, t, undefined, raw);
         else {
-          const v = step(va, vb, t);
+          const v = step(va, vb, raw);
           if (typeof v === "string") merged[k] = v;
         }
       } else if (typeof va === "number" && typeof vb === "number") {
@@ -517,7 +528,7 @@ function lerpOverrides(
       } else if ((typeof va === "number" || typeof vb === "number") && (k === "dx" || k === "dy")) {
         merged[k] = lerp(Number(va ?? 0), Number(vb ?? 0), t);
       } else {
-        const v = step(va, vb, t);
+        const v = step(va, vb, raw);
         if (v !== undefined) merged[k] = v;
       }
     }

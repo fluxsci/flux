@@ -22,6 +22,7 @@ import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
+import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
 import { defaultEasingFor, isExitPreset } from "./presetCatalog";
@@ -851,10 +852,17 @@ export function setTrackAnchor(deck: Deck, slideId: Id, trackId: Id, anchor: Tra
   return { ok: true };
 }
 
+/** Arc is a HOW field; zero is an explicit straight-line style override. */
+export function setTrackArc(track: Track, arc: number): void {
+  if (!Number.isFinite(arc) || arc < -1 || arc > 1) throw new Error("Arc must be between -1 and 1");
+  track.arc = arc;
+}
+
 /** Generic timing edits share linked-style and anchored-start semantics. */
 export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
   styleId?: Id | null; anchor?: Track["anchor"] | null;
   start?: number; duration?: number;
+  stagger?: Partial<Stagger>; arc?: number;
 } & TimingCurvePatch, manifestFor: ManifestFor = () => undefined): TrackEditResult {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
@@ -882,6 +890,13 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
       found.track.anchor.offsetMs = (found.track.anchor.offsetMs ?? 0) + value - current;
     } else found.track[key] = value;
   }
+  try {
+    if (patch.stagger !== undefined) {
+      if (familyOf(found.track) === "media") throw new Error("Video commands cannot stagger");
+      found.track.stagger = patchStagger(resolveTrack(found.track, deck).stagger, patch.stagger);
+    }
+    if (patch.arc !== undefined) setTrackArc(found.track, patch.arc);
+  } catch (error) { return restore({ ok: false, reason: (error as Error).message }); }
   patchTimingCurve(found.track, patch);
   return { ok: true };
 }
@@ -1185,6 +1200,7 @@ export function setTransform(
     replaceState?: boolean;
     start?: number;
     duration?: number;
+    arc?: number;
     /** content half: the asset the element's content becomes (+ explicit
      *  source paths; `source` carries the full bundle of a placed plot). */
     toAssetId?: Id;
@@ -1193,6 +1209,7 @@ export function setTransform(
     source?: SemanticPlotElement["source"] | null;
   } & TimingCurvePatch = {},
 ): Track | null {
+  if (opts.arc !== undefined && (!Number.isFinite(opts.arc) || opts.arc < -1 || opts.arc > 1)) throw new Error("Arc must be between -1 and 1");
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b) return null;
@@ -1234,6 +1251,7 @@ export function setTransform(
   if (opts.start != null) t.start = opts.start;
   if (opts.duration != null) t.duration = opts.duration;
   patchTimingCurve(t, opts);
+  if (opts.arc !== undefined) setTrackArc(t, opts.arc);
   return t;
 }
 
@@ -1362,6 +1380,7 @@ export interface TrackCascadeBaseline {
   duration?: number;
   influence?: Influence;
   stagger?: Stagger;
+  arc?: number;
 }
 
 /** Cascade one timing property across the given tracks of one slide: the
@@ -1404,8 +1423,10 @@ export function cascadeTracks(
         easing: t.easing,
         influence: t.influence ? { ...t.influence } : undefined,
         stagger: t.stagger ? { ...t.stagger } : undefined,
+        arc: t.arc,
       });
     const b0 = base.get(t.id)!;
+    if (b0.arc === undefined) delete t.arc; else t.arc = b0.arc;
     if (b0.anchor === undefined) delete t.anchor; else t.anchor = { ...b0.anchor };
     if (b0.start === undefined) delete t.start;
     else t.start = b0.start;
@@ -1418,7 +1439,7 @@ export function cascadeTracks(
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!resolveTrack(t, deck).stagger : spec.property === "curve.bounce" ? resolveTrack(t, deck).curve?.kind === "spring" : true));
+  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property !== "curve.bounce" || resolveTrack(t, deck).curve?.kind === "spring") && (spec.property.startsWith("stagger.") ? !!resolveTrack(t, deck).stagger : spec.property === "arc" ? familyOf(t) === "transform" : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
@@ -1453,9 +1474,13 @@ export function cascadeTracks(
         });
         break;
       }
+      case "arc":
+        setTrackArc(t, clampTrackValue("arc", cascadeValue(b0.arc ?? 0, spec, step)));
+        break;
+      case "stagger.totalMs":
       case "stagger.perMs": {
-        const st = b0.stagger!;
-        t.stagger = { ...st, perMs: clampTrackValue("stagger.perMs", cascadeValue(st.perMs, spec, step)) };
+        const key = spec.property === "stagger.totalMs" ? "totalMs" : "perMs";
+        t.stagger = patchStagger(b0.stagger, { [key]: clampTrackValue(spec.property, cascadeValue(b0.stagger?.[key] ?? 0, spec, step)) });
         break;
       }
     }

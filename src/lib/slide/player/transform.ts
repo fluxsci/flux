@@ -36,7 +36,7 @@ import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr } from "../../geometry";
 import { pathRender } from "../../path";
-import { lerpElement, overshootBox, contentPlan, type ContentPlan } from "../tween";
+import { lerpElement, overshootBox, arcBox, contentPlan, type ContentPlan } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
@@ -45,6 +45,7 @@ import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promo
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export interface TransformCtx extends SlideRenderCtx {
+  arc?: number;
   /** Effective source content after earlier cues (may be a crossfade layer). */
   contentHost?: HTMLElement;
   /** assetId → manifest (plot frame updates + the content-morph half). */
@@ -306,8 +307,9 @@ export function createTransform(
 
   function seek(u: number, raw = clamp01(u)): void {
     const t = clamp01(u);
-    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t)) : lerpElement(pre, end, t);
-    const el = overshootBox(content, pre, end, u);
+    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t, raw)) : lerpElement(pre, end, t, raw);
+    const contentX = content.x, contentY = content.y;
+    const el = arcBox(overshootBox(content, pre, end, u), pre, end, u, ctx.arc);
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
     if (content.type === "text" && content.needsLayout) applyTextLayout(content);
@@ -318,6 +320,10 @@ export function createTransform(
       applyWrapperBox(wrap, el, boxOpts);
       if (glide) { settleWrapper(wrap); armFlightMark(wrap); }
     }
+
+    // The frozen content frame must not counter-translate the curved wrapper.
+    // Restore the owned content sample after its box has been applied, without a clone.
+    if (ctx.arc && el === content) { content.x = contentX; content.y = contentY; }
 
     if (morphPlan) {
       if (raw > 0 && raw < 1) writeMorphFrame(content, t);
@@ -347,7 +353,7 @@ export function createTransform(
         // exactly a fresh mount, idempotent at any t.
         restorePtTrue(inst, ptTrueBindings);
         restoreProjection(inst);
-        plotUpdate?.(content, t);
+        plotUpdate?.(content, t, raw);
         if (naturalViewBox && intrinsic) {
           if (p.crop) {
             inst.setAttribute("viewBox", cropViewBoxValue(naturalViewBox, intrinsic, p.crop));
@@ -376,7 +382,7 @@ export function createTransform(
       return;
     }
 
-    if (staticUpdate) staticUpdate(content, t);
+    if (staticUpdate) staticUpdate(content, t, raw);
     else updateStaticContent(contentHost, content, ctx);
   }
 

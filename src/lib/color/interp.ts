@@ -136,17 +136,17 @@ export function shiftOklch(s: string, d: OklchDelta, k: number): string | null {
  *  • both parseable → OKLab blend (+ linear alpha), formatted as hex
  *  • "none" ↔ color → the color with its alpha ramped from/to 0
  *  • both "none" → "none"
- *  • anything unparseable → step at t = 0.5 (predictable, never garbage)
- *  t ≤ 0 / ≥ 1 return the ORIGINAL strings verbatim (endpoint identity). */
-export function lerpColor(a: string, b: string, t: number, prepared?: (t: number) => string): string {
-  if (t <= 0) return a;
-  if (t >= 1) return b;
-  return (prepared ?? prepareColorLerp(a, b))(t);
+ *  • anything unparseable → step at raw = 0.5 (predictable, never garbage)
+ *  Continuous endpoints preserve their original strings; discrete fallbacks use raw
+ *  progress when supplied, even at an eased endpoint reached early. */
+export function lerpColor(a: string, b: string, t: number, prepared?: (t: number, raw?: number) => string, raw = t): string {
+  if (raw === t) { if (t <= 0) return a; if (t >= 1) return b; }
+  return (prepared ?? prepareColorLerp(a, b))(t, raw);
 }
 
 /** Parse/convert once for a flight. Sampling reuses the color scratch objects;
  *  only the resulting CSS string is allocated on the frame path. */
-export function prepareColorLerp(a: string, b: string): (t: number) => string {
+export function prepareColorLerp(a: string, b: string): (t: number, raw?: number) => string {
   const aNone = isNone(a), bNone = isNone(b);
   if (aNone && bNone) return (t) => t >= 1 ? b : a;
   const ca = aNone ? null : parseColor(a);
@@ -161,7 +161,7 @@ export function prepareColorLerp(a: string, b: string): (t: number) => string {
       return formatColor(out);
     };
   }
-  if (!ca || !cb) return (t) => t < 0.5 ? a : b;
+  if (!ca || !cb) return (t, raw = t) => raw < 0.5 ? a : b;
   const la = toOklab(ca), lb = toOklab(cb);
   const lab = { ...la }, out = { ...ca };
   return (t) => {

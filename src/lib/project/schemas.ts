@@ -41,6 +41,13 @@ const TIMING_CURVE_PROPS = {
   influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
   curve: CURVE,
 };
+const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
+const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
+  perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
+  by: { enum: ["index", "x", "y"] }, from: { enum: ["start", "end", "center", "edges", "random"] },
+  seed: { type: "integer", minimum: 0, maximum: 4294967295 }, curve: STAGGER_CURVE,
+} };
+const ARC = { type: "number", minimum: -1, maximum: 1 };
 
 const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 // Per-range text formatting (textRuns.ts). Lenient like every other element
@@ -481,7 +488,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             id: { type: "string" },
             name: { type: "string" },
             family: { enum: ["appearance", "transform", "media"] },
-            track: { type: "object", properties: TIMING_CURVE_PROPS },
+            track: { type: "object", properties: { ...TIMING_CURVE_PROPS, stagger: STAGGER, arc: ARC } },
           },
         },
       },
@@ -540,7 +547,8 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         start: { type: "number" },
                         duration: { type: "number" },
                         ...TIMING_CURVE_PROPS,
-                        stagger: { type: "object" },
+                        stagger: STAGGER,
+                        arc: ARC,
                         // 0.3.0: `to.state` carries a transform's sparse patch
                         to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },
                         keyframes: { type: "array" },

@@ -11,17 +11,19 @@
   // keyboard cockpit). Presentation follows the editor-surface spec: hairline-
   // separated blocks, square controls, the preset colour only as a thin rail
   // on the header name (2026-09-15 surface redesign).
-  import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, currentDeck, activeBeat } from "../../../../lib/slide/store";
+  import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, sealHistory, currentDeck, activeBeat } from "../../../../lib/slide/store";
   import { selection, setPartSelections } from "../../../../lib/store";
   import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
+  import { patchStagger as staggerPatch, staggerSpan, staggerRanks, staggerSeed, reshuffleSeed } from "../../../../lib/slide/stagger";
+  import { influenceToBezier } from "../../../../lib/motion/tokens";
   import { flyDuration, type CameraPath } from "../../../../lib/slide/camera";
   import { hasTweenableSeries } from "../../../../lib/plot/project";
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation } from "../../../../lib/slide/ops";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation, setTrackArc } from "../../../../lib/slide/ops";
   import { trackRef, targetPartIds, sameRef, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
   import { targetOutlines } from "../../../../lib/slide/targetGeometry";
   import { autoAnimateExcept } from "../../../../lib/slide/autobuild";
@@ -102,7 +104,7 @@
     savingStyle = false; styleName = ""; styleOpen = false;
   }
   // The same field controls edit either local overrides or the style itself.
-  function editFields(fn: (t: Track, resolved: Track) => void) {
+  function editFields(fn: (t: Track, resolved: Track) => void, coalesce?: string) {
     if (editingStyle) {
       const id = editingStyle.id;
       commitDeckLive(d => {
@@ -113,8 +115,8 @@
         const keys = [...INHERITED_STYLE_FIELDS, "preset"] as const;
         const patch = Object.fromEntries(keys.filter(k => JSON.stringify(t[k]) !== JSON.stringify(style.track[k])).map(k => [k, t[k]]));
         setAnimStyle(d, id, { track: patch });
-      });
-    } else withSelectedTracks(fn);
+      }, coalesce ? { coalesce } : undefined);
+    } else withSelectedTracks(fn, coalesce);
   }
   type StyleField = typeof INHERITED_STYLE_FIELDS[number] | "preset";
   function overridden(key: StyleField) {
@@ -219,7 +221,7 @@
   const anyMixed = $derived(
     selTracks.length > 1 &&
       (mixed((t) => t.preset) || mixed((t) => trackDuration(t)) || mixed((t) => t.start ?? 0) ||
-        mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => resolveCurve(t, familyOf(t)).key)),
+        mixed((t) => JSON.stringify(t.stagger ?? { perMs: 0 })) || mixed((t) => t.arc ?? 0) || mixed((t) => resolveCurve(t, familyOf(t)).key)),
   );
 
   const patchTrack = (p: Partial<Track>) => {
@@ -236,9 +238,20 @@
     commitDeckLive(d => { for (const t of rawSelTracks) if (t.id) setTrack(d, slide.id, t.id, { [field]: Math.max(field === "start" ? 0 : 1, n) }, manifestFor); });
   }
   function patchStagger(p: Partial<Stagger>) {
+    if (editingStyle) editFields((t, resolved) => { t.stagger = staggerPatch(resolved.stagger, p); });
+    else withSelectedTracks((t, _resolved, d, sid) => {
+      if (t.id) setTrack(d, sid, t.id, { stagger: p }, manifestFor);
+    });
+  }
+  function staggerMode(total: boolean) {
     editFields((t, resolved) => {
-      if (p.perMs === 0) { if (t.styleId) t.stagger = { perMs: 0 }; else t.stagger = undefined; return; }
-      t.stagger = { perMs: resolved.stagger?.perMs ?? 40, ...resolved.stagger, ...p } as Stagger;
+      if (total === (resolved.stagger?.totalMs !== undefined)) return;
+      const count = targetPartIds(resolved, manifestFor(resolved.target)).length;
+      const maxRank = Math.max(1, ...staggerRanks(count, resolved.stagger?.from));
+      const span = staggerSpan(resolved, count);
+      t.stagger = staggerPatch(resolved.stagger, total
+        ? { totalMs: span || resolved.stagger?.perMs || 0 }
+        : { perMs: span / maxRank });
     });
   }
   function changeCurve(value: CurveEdit, keepArrival: boolean) {
@@ -262,6 +275,27 @@
         setTrack(d, sid, t.id, { duration: Math.max(150, Math.min(4000, duration * arrival / resolveCurve(updated, familyOf(updated)).arrival)) });
       }
     });
+  }
+  function staggerCurve(value: CurveEdit) {
+    const curve = typeof value === "object" && "influence" in value
+      ? { kind: "bezier" as const, p: influenceToBezier(value.influence) } : value;
+    patchStagger({ curve });
+  }
+  function reshuffle() {
+    editFields((t, resolved) => {
+      const seed = reshuffleSeed(resolved, targetPartIds(resolved, manifestFor(resolved.target)).length);
+      t.stagger = staggerPatch(resolved.stagger, { seed });
+    });
+  }
+  const distributionTracks = $derived((editingStyle && curTrack ? [curTrack] : selTracks).map(t => {
+    const curve = t.stagger?.curve ?? "linear";
+    return { target: t.target, preset: "fade" as const,
+      duration: staggerSpan(t, targetPartIds(t, manifestFor(t.target)).length),
+      ...(typeof curve === "string" ? { easing: curve } : { curve }) };
+  }));
+  function arc(value: string) {
+    const n = Number(value);
+    if (Number.isFinite(n)) editFields(t => setTrackArc(t, Math.max(-1, Math.min(1, n))), "animator-arc");
   }
   function resetCurve() {
     withSelectedTracks((t, _resolved, d, sid) => { if (t.id) setTrackCurve(d, sid, t.id, null); });
@@ -589,6 +623,15 @@
       </label>
     {/if}
 
+    {#if curFamily === "transform" && selTracks.every(t => !t.to?.become || t.to.become.mode !== "handoff")}
+      <label class="f arc-row">Arc
+        <input aria-label="Transform arc" type="range" min="-1" max="1" step="0.05" value={curTrack.arc ?? 0} oninput={e => arc(e.currentTarget.value)} onchange={() => sealHistory()}/>
+        <span class="arc-value">{mixed(t => t.arc ?? 0) ? "Mixed" : (curTrack.arc ?? 0).toFixed(2)}</span>
+        <svg class="arc-preview" aria-hidden="true" width="32" height="28" viewBox="0 0 32 28"><path d={`M2 14 Q16 ${14 + 14 * (curTrack.arc ?? 0)} 30 14`} fill="none" stroke="currentColor"/></svg>
+      </label>
+      {@render overrideRow("arc")}
+    {/if}
+
     {@render overrideRow("preset")}
     {#if allCamera}
       <div class="f">
@@ -631,21 +674,35 @@
       <span class="unit"><input data-fld="d" type="number" min="1" step="50" placeholder="Mixed" value={mixed(t => trackDuration(t)) ? "" : trackDuration(curTrack)} onchange={(e) => timing("duration", e.currentTarget.value)} /><small>ms</small></span>
     </label>{@render overrideRow("duration")}{/if}
     {#if curFamily === "appearance" && !anyGhost && !anyMedia}
-      <label class="f">stagger<kbd class="kc" title="shortcut: g">g</kbd>
-        <span class="unit"><input data-fld="g" type="number" min="0" step="10" value={curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger({ perMs: +e.currentTarget.value })} /><small>ms</small></span>
+      <div class="f"><span class="fl">stagger<kbd class="kc" title="shortcut: g">g</kbd></span>
+        <div class="seg" role="group" aria-label="Stagger mode">
+          <button class="sg" class:on={curTrack.stagger?.totalMs === undefined} aria-pressed={curTrack.stagger?.totalMs === undefined} onclick={() => staggerMode(false)}>Each</button>
+          <button class="sg" class:on={curTrack.stagger?.totalMs !== undefined} aria-pressed={curTrack.stagger?.totalMs !== undefined} onclick={() => staggerMode(true)}>Total</button>
+        </div>
+      </div>
+      <label class="f">{curTrack.stagger?.totalMs !== undefined ? "total" : "each"}
+        <span class="unit"><input data-fld="g" aria-label="Stagger milliseconds" type="number" min="0" step="10" value={curTrack.stagger?.totalMs ?? curTrack.stagger?.perMs ?? 0} onchange={(e) => patchStagger(curTrack?.stagger?.totalMs !== undefined ? { totalMs: Math.max(0, +e.currentTarget.value) } : { perMs: Math.max(0, +e.currentTarget.value) })} /><small>ms</small></span>
       </label>
       {@render overrideRow("stagger")}
-      {#if curTrack.stagger?.perMs}
+      {#if curTrack.stagger?.totalMs !== undefined || curTrack.stagger?.perMs}
         <label class="f">by
-          <select value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
+          <select aria-label="Stagger order" value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
             <option value="index">order</option><option value="x">x →</option><option value="y">y ↑</option>
           </select>
         </label>
         <label class="f">from
-          <select value={curTrack.stagger?.from ?? "start"} onchange={(e) => patchStagger({ from: e.currentTarget.value as Stagger["from"] })}>
-            <option value="start">start</option><option value="end">end</option><option value="center">center</option><option value="edges">edges</option>
+          <select aria-label="Stagger from" value={curTrack.stagger?.from ?? "start"} onchange={(e) => patchStagger({ from: e.currentTarget.value as Stagger["from"] })}>
+            <option value="start">start</option><option value="end">end</option><option value="center">center</option><option value="edges">edges</option><option value="random">Random</option>
           </select>
         </label>
+        {#if curTrack.stagger?.from === "random"}
+          <label class="f">seed<span class="unit">
+            <input class="seed" aria-label="Stagger seed" type="number" min="0" max="4294967295" step="1" value={staggerSeed(curTrack)} onchange={e => patchStagger({ seed: Math.max(0, Math.min(0xffffffff, Math.round(+e.currentTarget.value))) })}/>
+            <button class="mini" type="button" aria-label="Reshuffle stagger" title="Reshuffle" onclick={reshuffle}>↻</button>
+          </span></label>
+        {/if}
+        <CurveField tracks={distributionTracks} contextKey={`stagger:${slide.id}:${$selTrackIds.join(",")}:${editingStyle?.id ?? "track"}`}
+          variant="distribution" onChange={staggerCurve} />
       {/if}
     {/if}
     {#if isWipe}
@@ -825,6 +882,11 @@
   .pick-morph:hover, .psave button:hover, .mini:hover, .dirb:hover, .pb:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .dirb { height: 20px; padding: 0 6px; font-size: 11px; }
   .dirb.on, .pb.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
+
+  .arc-row input { min-width: 35px; flex: 1; }
+  .arc-value { font: 11px var(--font-mono); min-width: 4ch; }
+  .arc-preview { flex: none; color: var(--c-tx-muted); }
+  .unit input.seed { width: calc(10ch + 38px); min-width: calc(10ch + 38px); flex: none; }
 
   /* joined segments: shared 1px borders, outer radius only */
   .seg, .seg2 { display: flex; gap: 0; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); overflow: hidden; }
