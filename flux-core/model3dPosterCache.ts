@@ -12,6 +12,8 @@ import { collectModel3dSourceBindings } from '../src/lib/model3d/sourceBinding';
 import { readScene3dSidecars } from '../src/lib/model3d/persistence';
 import { collectModelPosters, model3dSvgContext, staticModelRequest, type StaticModelPosterRequest } from '../src/lib/model3d/static';
 import { modelPosterWarning, type PosterSurface } from '../src/lib/model3d/poster';
+import { GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
+import { missingModelFileMessage } from '../src/lib/project/figureSnapshot';
 import type { Asset, Figure } from '../src/lib/types';
 import type { Scene3dManifest } from '../src/lib/model3d/types';
 
@@ -72,37 +74,62 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
   const bindings = collectModel3dSourceBindings((options.allFigures ?? figures).flatMap(figure => figure.elements));
   const used = new Set(figures.flatMap(figure => figure.elements.filter(element => element.type === 'model3d').map(element => element.assetId)));
   const paths = new Map<string, string>();
+  // Project-relative GLB files that are absent. Posters are keyed by the stored
+  // asset.sha256, so a missing file still serves cache hits; it only cannot render.
+  const missingFiles = new Map<string, string>();
   if (!used.size) return { context: model3dSvgContext(assets, manifests, surface), urls, warnings, requests: [] as StaticModelPosterRequest[], manifests };
   for (const asset of assets) if (used.has(asset.id) && asset.kind === 'glb') {
     abort(options.signal);
-    const modelPath = await projectAssetPath(root, `fig/${asset.path}`);
-    if (!await exists(modelPath)) throw new Error(`Missing GLB asset "${asset.name || asset.id}"`);
-    paths.set(asset.id, safeJoin(root, `fig/${asset.path}`));
-    const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
-      return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, options.signal)).toString('utf8');
-    } }, 'fig/assets', asset.id, { binding: bindings.get(asset.id) });
-    if (metadata.manifest) manifests[asset.id] = metadata.manifest;
-    warnings.push(...metadata.issues ?? []);
+    const rel = `fig/${asset.path}`;
+    try {
+      // Metadata-only presence probe; symlink/escape problems are named per model.
+      if (await exists(await projectAssetPath(root, rel))) paths.set(asset.id, safeJoin(root, rel));
+      else missingFiles.set(asset.id, rel);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') missingFiles.set(asset.id, rel);
+      else warnings.push(`3D model "${asset.name || asset.id}": ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
+        return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, options.signal)).toString('utf8');
+      } }, 'fig/assets', asset.id, { binding: bindings.get(asset.id) });
+      if (metadata.manifest) manifests[asset.id] = metadata.manifest;
+      warnings.push(...metadata.issues ?? []);
+    } catch (error) {
+      abort(options.signal);
+      warnings.push(`3D model "${asset.name || asset.id}": scene metadata could not be read; showing the stored mesh. ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-  const context = model3dSvgContext(assets, manifests, surface), allRequests = collectModelPosters(figures, context, surface);
+  const context = model3dSvgContext(assets, manifests, surface);
+  // One bad placement (missing metadata, unusable box) becomes a placeholder and
+  // a named warning; the rest of the figure still renders.
+  const allRequests = collectModelPosters(figures, context, surface, { onIssue: (_element, message) => warnings.push(`${message}; showing a placeholder`) });
   const requests = [...new Map(allRequests.map(request => [request.key, request])).values()], missing: StaticModelPosterRequest[] = [];
   const projectDir = safeJoin(root, 'fig/renders/model3d'), machineDir = machineModelPosterDir();
-  await confinedRecoveryPath(root, projectDir);
+  let projectCache = true;
+  try { await confinedRecoveryPath(root, projectDir); }
+  catch (error) {
+    // Never read or publish through an escaping cache directory; the machine
+    // cache and placeholders still serve this request.
+    abort(options.signal); projectCache = false;
+    warnings.push(`3D poster cache fig/renders/model3d is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
   for (const request of requests) {
     abort(options.signal);
-    const bytes = await cached(path.join(projectDir, `${request.key}.png`), request, root) ?? await cached(path.join(machineDir, `${request.key}.png`), request);
+    const bytes = (projectCache ? await cached(path.join(projectDir, `${request.key}.png`), request, root) : undefined) ?? await cached(path.join(machineDir, `${request.key}.png`), request);
     if (bytes) urls[request.ref] = url(bytes); else missing.push(request);
   }
-  if (options.policy !== 'collect' && missing.length) {
+  const renderable = missing.filter(request => paths.has(request.asset.id));
+  if (options.policy !== 'collect' && renderable.length && (projectCache || options.policy !== 'project')) {
     const outDir = options.policy === 'project' ? projectDir : machineDir;
     const chunks: StaticModelPosterRequest[][] = [], actualSizes = new Map<string, number>(); let chunk: StaticModelPosterRequest[] = [], models = new Set<string>(), totalBytes = 0;
-    for (const request of missing) {
+    for (const request of renderable) {
       let size = actualSizes.get(request.asset.id);
       try {
-        if (!Number.isFinite(request.asset.bytes) || request.asset.bytes <= 0 || request.asset.bytes > 200 * 1024 * 1024) throw new Error('model byte limit prevents poster rendering');
+        if (!Number.isFinite(request.asset.bytes) || request.asset.bytes <= 0 || request.asset.bytes > GLB_LIMITS.maxBytes) throw new Error('model byte limit prevents poster rendering');
         if (size === undefined) {
           const file = await projectAssetPath(root, `fig/${request.asset.path}`), stat = await fs.stat(file);
-          if (!stat.isFile() || stat.size <= 0 || stat.size > 200 * 1024 * 1024) throw new Error('model byte limit prevents poster rendering');
+          if (!stat.isFile() || stat.size <= 0 || stat.size > GLB_LIMITS.maxBytes) throw new Error('model byte limit prevents poster rendering');
           size = stat.size; actualSizes.set(request.asset.id, size);
         }
       } catch (error) { warnings.push(`3D model "${label(request)}": ${error instanceof Error ? error.message : String(error)}`); continue; }
@@ -119,7 +146,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
           outDir, ...(options.policy === 'project' ? { publicationRoot: root } : {}), signal: options.signal, modelBytes: async (id, signal) => {
             abort(options.signal);
             const asset = byId.get(id), file = paths.get(id); if (!asset || !file) throw new Error(`Missing GLB asset ${id}`);
-            const bytes = await boundedModelFile(file, 200 * 1024 * 1024, root, signal ?? options.signal); abort(options.signal);
+            const bytes = await boundedModelFile(file, GLB_LIMITS.maxBytes, root, signal ?? options.signal); abort(options.signal);
             if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error(`3D model "${asset.name || id}" changed since this view was captured`);
             return bytes;
           },
@@ -134,11 +161,19 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       }
     }
   }
-  for (const request of allRequests) if (!urls[request.ref]) {
-    const stored = staticModelRequest(request.element, request.asset, request.manifest, 'figure');
-    const bytes = stored.key === request.key ? undefined : await cached(path.join(projectDir, `${stored.key}.png`), stored, root) ?? await cached(path.join(machineDir, `${stored.key}.png`), stored);
-    if (bytes) { urls[request.ref] = url(bytes); warnings.push(`3D model "${label(request)}": using the stored poster because the requested export resolution could not be rendered`); }
-    else warnings.push(modelPosterWarning(label(request)));
+  const figureOf = new Map(figures.flatMap(figure => figure.elements.map(element => [element.id, figure] as const)));
+  for (const request of allRequests) {
+    const missingFile = missingFiles.get(request.asset.id);
+    if (!urls[request.ref]) {
+      const stored = staticModelRequest(request.element, request.asset, request.manifest, 'figure');
+      const bytes = stored.key === request.key ? undefined : (projectCache ? await cached(path.join(projectDir, `${stored.key}.png`), stored, root) : undefined) ?? await cached(path.join(machineDir, `${stored.key}.png`), stored);
+      if (bytes) { urls[request.ref] = url(bytes); warnings.push(`3D model "${label(request)}": using the stored poster because the requested export resolution could not be rendered`); }
+      else if (!missingFile) warnings.push(modelPosterWarning(label(request)));
+    }
+    if (missingFile) {
+      const figure = figureOf.get(request.element.id) ?? { id: '?' };
+      warnings.push(`${missingModelFileMessage(missingFile, request.element, figure)} (${urls[request.ref] ? 'showing its cached poster' : 'showing a placeholder'})`);
+    }
   }
   abort(options.signal);
   return { context, urls, warnings: [...new Set(warnings)], requests: allRequests, manifests };

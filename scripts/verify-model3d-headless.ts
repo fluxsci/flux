@@ -96,6 +96,50 @@ try {
   await fs.rm(modelFile);await fs.writeFile(modelFile,bytes);
   const escape = path.join(scratch, 'external.png'); await fs.writeFile(escape, posterBytes); const expected = staticModelRequest({ ...element, orbitAzimuth: 298 }, asset, manifest, 'figure'); await fs.symlink(escape, path.join(root, posterPath(expected.key)));
   const denied = await cache.resolveModelPosters(root, [{ ...figure, elements: [expected.element] }], [asset], { policy: 'collect' }); h.ok(!denied.urls[expected.ref], 'project cache symlink cannot read outside project');
+  await fs.rm(path.join(root, posterPath(expected.key)));
+
+  // H1: a missing GLB degrades to "placeholder (or cached poster) + warning";
+  // it never breaks headless rendering, compile or repair of the figure.
+  h.section('missing GLB file');
+  const { readFigureSnapshot } = await import('../src/lib/project/figureSnapshot');
+  const snapshotIO = { readText: async (rel: string) => fs.readFile(path.join(root, rel), 'utf8').catch(() => null), assetExists: async (rel: string) => fs.access(path.join(root, rel)).then(() => true, () => false), listDirectory: async () => null };
+  model.figures.push({ id: 'plain', name: 'Plain', canvasId: 'canvas', x: 520, y: 0, width: 200, height: 120, elements: [] });
+  model.assets.push({ ...asset, id: 'orphan', path: 'assets/orphan.glb' });
+  await writeModel(); await fs.rm(modelFile);
+  const missingSnapshot = await readFigureSnapshot(snapshotIO);
+  h.eq(missingSnapshot.status, 'complete', 'a missing placed GLB leaves the figure model complete (repairable)');
+  h.ok(missingSnapshot.assetIssues.length === 1 && missingSnapshot.assetIssues[0].message.includes('fig/assets/model.glb') && missingSnapshot.assetIssues[0].message.includes('placed-model') && missingSnapshot.assetIssues[0].message.includes('models') && /restore .* or delete the element/.test(missingSnapshot.assetIssues[0].message), 'the snapshot names file, element and figure with the repair');
+  h.ok(!missingSnapshot.assetIssues.some(issue => issue.assetId === 'orphan') && !missingSnapshot.diagnostics.length, 'a missing GLB that no element places is not flagged');
+  const noSpawn: typeof renderBatch = async () => { throw Error('rendered a missing model'); };
+  const servedMissing = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch: noSpawn });
+  h.ok(servedMissing.urls[request.ref]?.startsWith('data:image/png;') && servedMissing.warnings.some(w => w.includes('fig/assets/model.glb is missing') && w.includes('cached poster')), 'a cached poster is still served by key when its GLB is missing, with a warning');
+  const uncached = { ...figure, elements: [{ ...element, orbitAzimuth: 297 }] };
+  const placeholderMissing = await cache.resolveModelPosters(root, [uncached], [asset], { policy: 'project', renderBatch: noSpawn });
+  h.ok(!Object.keys(placeholderMissing.urls).length && placeholderMissing.warnings.some(w => w.includes('is missing') && w.includes('placeholder')) && !placeholderMissing.warnings.some(w => w.includes('rendered a missing model')), 'an uncached view of a missing GLB is a named placeholder; no worker is spawned');
+  const bare = { ...asset, model: undefined } as unknown as Model3dAsset;
+  const noMetadata = await cache.resolveModelPosters(root, [figure], [bare], { policy: 'image', renderBatch: noSpawn });
+  h.ok(noMetadata.warnings.some(w => w.includes('missing model metadata') && w.includes('Neuron poster')) && figureToSvg(figure, id => noMetadata.urls[id], undefined, undefined, { model3d: noMetadata.context }).includes('data-model3d-placeholder'), 'missing model metadata is a per-placement warning and placeholder, not a thrown read');
+  const figureWarnings: string[] = [], missingSvg = await core.renderFigureSvg(root, figure.id, { model3dPolicy: 'image', warnings: figureWarnings });
+  h.ok(missingSvg.includes('data:image/png;') && figureWarnings.some(w => w.includes('is missing')), 'render-figure succeeds with the cached poster and names the missing file');
+  const canvasWarnings: string[] = [], missingCanvas = await core.renderCanvasSvg(root, 'canvas', { model3dPolicy: 'image', warnings: canvasWarnings });
+  h.ok(missingCanvas.svg.includes('<svg x="520" y="0"') && missingCanvas.svg.includes('data:image/png;') && canvasWarnings.some(w => w.includes('is missing')) && !missingCanvas.svg.includes('data-figure-error'), 'render-canvas renders every figure despite the missing model');
+  const materialized = await core.materializeRenders(root);
+  h.ok(materialized.wrote === 2 && !materialized.failed.length && materialized.warnings.some(w => w.includes('is missing')), 'compile materialization writes every figure and warns about the missing model');
+  const { connect } = await import('../flux-core/connect/index'), { detectAgentIdentity } = await import('../flux-core/agentIdentity');
+  const pack = await connect({ target: root, identity: detectAgentIdentity({}) });
+  h.ok(pack.images.length > 0 && pack.problems.some(p => p.includes('is missing')), 'connect still produces overview images and reports the missing model as a project problem');
+  await core.deleteElements(root, [element.id]);
+  const repaired = await core.loadFigModel(root);
+  h.ok(!repaired.project.figures.flatMap(f => f.elements).some(e => e.id === element.id), 'delete-element removes the broken placement headlessly');
+  const repairedWarnings: string[] = []; await core.renderFigureSvg(root, figure.id, { model3dPolicy: 'image', warnings: repairedWarnings });
+  h.eq(repairedWarnings.filter(w => w.includes('3D')), [], 'after deleting the placement the figure renders without 3D warnings');
+  await fs.writeFile(modelFile, bytes);
+  model.assets.push({ id: 'missing-image', name: 'Missing image', kind: 'png', path: 'assets/missing-image.png', naturalWidth: 10, naturalHeight: 10 });
+  model.figures.push({ id: 'broken', name: 'Broken', canvasId: 'canvas', x: 800, y: 0, width: 100, height: 100, elements: [{ id: 'broken-image', type: 'image', assetId: 'missing-image', x: 0, y: 0, width: 10, height: 10, rotation: 0 } as unknown as Figure['elements'][number]] });
+  await writeModel();
+  const brokenWarnings: string[] = [], brokenCanvas = await core.renderCanvasSvg(root, 'canvas', { model3dPolicy: 'collect', warnings: brokenWarnings });
+  h.ok(brokenCanvas.svg.includes('data-figure-error="broken"') && brokenWarnings.some(w => w.includes('figure "broken"')) && brokenCanvas.svg.includes('<svg x="520" y="0"'), 'one unrenderable figure becomes a named error frame; the rest of the canvas still renders');
+
   const aborted = new AbortController(); aborted.abort(); await assert.rejects(cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', signal: aborted.signal, renderBatch })); h.ok(true, 'canceled native resolve stops before work');
   await fs.mkdir('test-results/model3d/headless', { recursive: true }); await fs.writeFile('test-results/model3d/headless/figure.svg', svg);
 } finally { await fs.rm(scratch, { recursive: true, force: true }); }

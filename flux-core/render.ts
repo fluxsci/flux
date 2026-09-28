@@ -375,8 +375,15 @@ export async function renderCanvasSvg(root: string, canvasId?: string, opts: Mod
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((f) => byId[f.id]);
   if (!figs.length) throw new Error(`canvas ${cid} has no figures`);
-  snapshot.models = await resolveModelPosters(root, figs, snapshot.assets, { policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal });
-  opts.warnings?.push(...snapshot.models.warnings);
+  // One batched poster resolution (one worker spawn) for the canvas. Should it
+  // fail outright, each figure resolves its own models inside its own try below.
+  try {
+    snapshot.models = await resolveModelPosters(root, figs, snapshot.assets, { policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal });
+    opts.warnings?.push(...snapshot.models.warnings);
+  } catch (error) {
+    opts.signal?.throwIfAborted();
+    opts.warnings?.push(`3D posters for canvas ${cid} could not be resolved together; resolving per figure: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   const LABEL_H = 26;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -391,13 +398,25 @@ export async function renderCanvasSvg(root: string, canvasId?: string, opts: Mod
 
   const parts: string[] = [];
   for (const f of figs) {
-    const svg = await renderFigureSvg(root, f.id, opts, snapshot);
     // Nest the figure's own render at its canvas position (nested <svg x y>).
     parts.push(
       `<text x="${f.x}" y="${f.y - 8}" font-family="sans-serif" font-size="16" fill="#8a8279">` +
         `${escXml(f.name)} · ${escXml(f.id)}</text>`,
     );
-    parts.push(svg.replace("<svg ", `<svg x="${f.x}" y="${f.y}" `));
+    try {
+      const svg = await renderFigureSvg(root, f.id, opts, snapshot);
+      parts.push(svg.replace("<svg ", `<svg x="${f.x}" y="${f.y}" `));
+    } catch (error) {
+      // One broken figure must not blank the whole canvas look: draw a named
+      // error frame in its place and say why.
+      opts.signal?.throwIfAborted();
+      const reason = error instanceof Error ? error.message.split("\n")[0] : String(error);
+      opts.warnings?.push(`figure "${f.id}" could not be rendered on canvas ${cid}: ${reason}`);
+      parts.push(
+        `<g data-figure-error="${escXml(f.id)}"><rect x="${f.x}" y="${f.y}" width="${f.width}" height="${f.height}" fill="#fff5f2" stroke="#d14d41" stroke-dasharray="6 4"/>` +
+          `<text x="${f.x + 12}" y="${f.y + 24}" font-family="sans-serif" font-size="14" fill="#af3029">Could not render: ${escXml(reason.slice(0, 160))}</text></g>`,
+      );
+    }
   }
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
@@ -473,15 +492,23 @@ export async function materializeRenders(
   // materialized SVGs are exactly what the compiled manuscript will show.
   warnings.push(...(await textLayoutProbe(root, { figureIds: [...ids] })));
   const snapshot = await loadRender(root);
-  snapshot.models = await resolveModelPosters(root, [...ids].map(id => snapshot.byId[id]).filter(Boolean), snapshot.assets, { policy: 'project', surface: 'figure', allFigures: Object.values(snapshot.byId) });
-  warnings.push(...snapshot.models.warnings);
+  // Batched first (one worker spawn). If that fails as a whole, every figure
+  // resolves its own models inside the per-figure try, so one bad model can
+  // only fail its own figure, never the compile.
+  try {
+    snapshot.models = await resolveModelPosters(root, [...ids].map(id => snapshot.byId[id]).filter(Boolean), snapshot.assets, { policy: 'project', surface: 'figure', allFigures: Object.values(snapshot.byId) });
+    warnings.push(...snapshot.models.warnings);
+  } catch (error) {
+    warnings.push(`3D posters could not be resolved together; resolving per figure: ${error instanceof Error ? error.message : String(error)}`);
+  }
   for (const id of ids) {
     try {
-      const svg = await renderFigureSvg(root, id, { model3dPolicy: 'project', posterSurface: 'figure' }, snapshot);
+      const svg = await renderFigureSvg(root, id, { model3dPolicy: 'project', posterSurface: 'figure', warnings }, snapshot);
       await atomicWrite(safeJoin(root, `fig/renders/${id}.svg`), svg);
       wrote++;
-    } catch {
+    } catch (error) {
       failed.push(id);
+      warnings.push(`figure "${id}" was not rendered: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
     }
   }
   return { wrote, failed, warnings };

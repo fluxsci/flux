@@ -196,6 +196,19 @@ try {
     }finally{release();}
   }}finally{cleanup();setStoreTenant('figure');}
 
+  // H1 through the built CLI: a placed GLB goes missing; read verbs degrade to
+  // named placeholders and the figure stays repairable.
+  const broken = (await loadFigModel(root)).project, brokenAsset = broken.assets.find(a => a.id === field.assetId)!;
+  await fs.rm(path.join(root, 'fig', brokenAsset.path));
+  const missingOut = path.join(scratch, 'missing.svg'), missingRender = await run(['render-figure', figureId, '--root', root, '--out', missingOut]);
+  h.ok(missingRender.code === 0 && missingRender.err.includes(`fig/${brokenAsset.path} is missing`) && missingRender.err.includes(field.elementId) && (await fs.readFile(missingOut, 'utf8')).includes('data-model3d-placeholder'), 'built render-figure succeeds with a named placeholder for a missing GLB');
+  const missingCanvasOut = path.join(scratch, 'missing-canvas.svg'), missingCanvas = await run(['render-canvas', '--root', root, '--out', missingCanvasOut]);
+  h.ok(missingCanvas.code === 0 && missingCanvas.err.includes('is missing'), 'built render-canvas succeeds and names the missing GLB');
+  const missingPosters = await cli(['render-model-posters', '--root', root, '--figure', figureId]);
+  h.ok(missingPosters.warnings.some((w: string) => w.includes('is missing') && /restore .* or delete the element/.test(w)), 'explicit poster verb names the missing file and its repair');
+  const repaired = await run(['delete-element', field.elementId, '--root', root]);
+  h.ok(repaired.code === 0 && !(await loadFigModel(root)).project.figures.flatMap(f => f.elements).some(e => e.id === field.elementId), 'built delete-element repairs a figure whose GLB is missing');
+
 } catch(error) { console.error(error); h.fail(String(error)); }
 finally { await fs.rm(scratch,{recursive:true,force:true}); }
 await h.done();

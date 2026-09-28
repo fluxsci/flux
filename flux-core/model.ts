@@ -147,7 +147,7 @@ export async function readCanvasFiles(
   root: string,
   idx: FigIndexFile,
 ): Promise<{ byId: Record<string, Figure>; canvasOf: Record<string, string> }> {
-  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotIO(root)));
+  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotIO(root)), 'read');
   const byId: Record<string, Figure> = Object.create(null);
   const canvasOf: Record<string, string> = Object.create(null);
   for (const figure of snapshot.project.figures) { byId[figure.id] = figure; canvasOf[figure.id] = figure.canvasId; }
@@ -176,13 +176,14 @@ function generationIO(root: string) {
 const acceptedFiles = new WeakMap<Project, Map<string,string|null>>();
 const acceptedCaptions = new WeakMap<Project, Map<string, CaptionBaseline>>();
 
-export async function loadFigModel(root: string): Promise<{ project: Project; index: FigIndexFile }> {
+export async function loadFigModel(root: string, opts: { intent?: 'read' | 'modify' } = {}): Promise<{ project: Project; index: FigIndexFile }> {
   // A missing fig/index.json is writable only after an empty inventory — a missing
   // project.json means this isn't a Flux project at all: without the guard a
   // mutate verb sees an empty model and reports "figure not found" instead.
   await requireProject(root);
   await recoverFigureReferenceUpdate(root, referenceSyncIO(root));
-  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotIO(root)));
+  // Read verbs must not claim they tried to modify anything; mutateFigModel says so.
+  const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotIO(root)), opts.intent ?? 'read');
   const project = snapshot.project, index = snapshot.index ?? emptyIndex();
   acceptedCaptions.set(project, snapshot.captionBaselines);
   acceptedFiles.set(project, snapshot.baselines);
@@ -215,7 +216,7 @@ export async function mutateFigModel<T>(
   let changed = true;
   await withLock(root, "project", CLIENT, async lease => {
     await withLock(root,"slides",CLIENT,slidesLease=>withLock(root,"manifest",CLIENT,manifestLease=>recoverTextGeneration(generationIO(root),async()=>{await assertLockOwned(lease);await assertLockOwned(slidesLease);await assertLockOwned(manifestLease)})));
-    const m = await loadFigModel(root);
+    const m = await loadFigModel(root, { intent: 'modify' });
     out = await fn(m);
     changed = opts.changed?.(out) ?? true;
     figIds = m.project.figures.map((f) => f.id);
