@@ -6,9 +6,9 @@ export const RENDERER_VERSION='m3d-r1';
 const round=(n:number,p:number)=>Math.round(n/p)*p;
 const sig=(n:number)=>Number(n.toPrecision(5));
 export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number}):string{
- const index=manifest?buildScene3dPartIndex(manifest):{},parts:Record<string,unknown>={},fields:Record<string,unknown>={},states:Record<string,number>={};
+ const index:ReturnType<typeof buildScene3dPartIndex>=manifest?buildScene3dPartIndex(manifest):Object.create(null),parts:Record<string,unknown>=Object.create(null),fields:Record<string,unknown>=Object.create(null),states:Record<string,number>=Object.create(null);
  for(const id of manifest?Object.values(index).filter(p=>p.node).map(p=>p.id):asset.model.partNames){
-  const override=resolveScene3dPartStyle(manifest,el.overrides,id),entry:Record<string,unknown>={};
+  const override=resolveScene3dPartStyle(manifest,el.overrides,id,{index}),entry:Record<string,unknown>={};
   for(const k of ['fill','opacity','hidden'] as const)if(override[k]!=null)entry[k]=k==='fill'?String(override[k]).toLowerCase():override[k];
   if(Object.keys(entry).length)parts[id]=entry;
  }

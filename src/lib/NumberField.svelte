@@ -26,6 +26,7 @@
   export let title = "";
   export let history = true;
   export let mixed = false;
+  export let mixedLabel = "Mixed";
   export let disabled = false;
   const session = editSession();
   let scrubBaseline = value;
@@ -131,7 +132,7 @@
     inputmode="decimal"
     spellcheck="false"
     {disabled}
-    placeholder={mixed ? "Mixed" : ""}
+    placeholder={mixed ? mixedLabel : ""}
     value={mixed ? "" : display}
     on:change={onChange}
     on:keydown={onKey}

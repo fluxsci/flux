@@ -1,3 +1,5 @@
+import { scene3dManifests } from "./model3d/store";
+import { readPartStyle } from "./plot/partStyle";
 import { writable, get } from "svelte/store";
 import type { ColorGroup, ColorSwatch, GradientFill, Id, PartOverride } from "./types";
 import { project, selection, partSelection, partSelections, drawStyle, commit, mutate } from "./store";
@@ -186,8 +188,8 @@ export function currentColor(target: "fill" | "stroke"): string {
   if (ps) {
     for (const f of p.figures)
       for (const e of f.elements)
-        if (e.id === ps.elementId && e.type === "plot") {
-          const v = e.overrides?.[ps.partId]?.[target];
+        if (e.id === ps.elementId && (e.type === "plot" || e.type === "model3d")) {
+          const v = e.type === "model3d" ? readPartStyle(e, ps.partId, get(scene3dManifests)[e.assetId])[target] : e.overrides?.[ps.partId]?.[target];
           if (typeof v === "string") return v;
         }
   }

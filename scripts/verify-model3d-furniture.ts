@@ -34,4 +34,14 @@ const sm:Scene3dManifest=JSON.parse(await readFile(new URL('scalebar.fluxplot.js
 const hidden={...sm,parts:sm.parts!.map(p=>p.id==='scalebar'?{...p,hidden:true}:p)};h.eq(furnitureLayout(hidden,se,{'scalebar':{hidden:false}}).scalebars.length,1,'explicit show overrides source-hidden');
 h.eq(niceTicks(-1,1),[-1,-.5,0,.5,1],'nice tick oracle');h.eq(niceTicks(1.21,3.82),[1.5,2,2.5,3,3.5],'data range tick oracle');
 for(const name of ['furniture.ts','furnitureLayout.ts','ticks.ts'])h.ok(!/getBoundingClientRect|measureText|document\.|window\./.test(await readFile(new URL(`../src/lib/model3d/${name}`,import.meta.url),'utf8')),`${name} no DOM/text measurement`);
-const styled={...el,overrides:{'axes.x.label':{fill:'#FF0000',fontSize:21}}},s=furnitureSvg(m,styled,pose,layout);h.ok(s.under.includes('fill="#FF0000"')&&s.under.includes('font-size="21"'),'part text styling shares plot units');await h.done();
+const styled={...el,overrides:{'axes.x.label':{fill:'#FF0000',fontSize:21}}},s=furnitureSvg(m,styled,pose,layout);h.ok(s.under.includes('fill="#FF0000"')&&s.under.includes('font-size="21"'),'part text styling shares plot units');
+const cm=JSON.parse(await readFile(new URL('continuous.fluxplot.json',root),'utf8')) as Scene3dManifest;
+const ce={...el,overrides:{'height.colorbar':{fill:'#aa2244',fontSize:18}}},fl=furnitureLayout(cm,ce,ce.overrides),styledBar=furnitureSvg(cm,ce,pose,fl).overNodes.find(n=>n.partId==='height.colorbar')!;
+h.ok(styledBar.children!.filter(n=>n.tag==='text').every(n=>n.attrs.fill==='#aa2244'&&n.attrs['font-size']===18),'composite furniture exposes text fill and font size');
+h.ok(String(styledBar.children!.find(n=>n.tag==='rect')!.attrs.fill).startsWith('url('),'composite text fill preserves colorbar gradient');
+const scaleText=furnitureSvg(sm,{...se,overrides:{scalebar:{fill:'#aa2244',stroke:'#336699',fontSize:18}}},sp,sl).overNodes.find(n=>n.partId==='scalebar')!;
+h.ok(scaleText.children!.some(n=>n.tag==='text'&&n.attrs.fill==='#aa2244'&&n.attrs['font-size']===18)&&scaleText.children!.some(n=>n.tag==='line'&&n.attrs.stroke==='#336699'),'scale bar text and line expose independent shared style keys');
+const closeView={...el,orbitAzimuth:0,orbitElevation:0,orbitProjection:'perspective' as const,orbitFov:30};
+const closeLayout=furnitureLayout(m,closeView),faceZoom=Math.sqrt(3)/Math.sin(Math.PI/12);
+for(const zoom of [faceZoom,faceZoom+1,50]) { const view={...closeView,orbitZoom:zoom},svg=furnitureSvg(m,view,orbitPose(view,{min:[-1,-1,-1],max:[1,1,1]},closeLayout.viewport),closeLayout); h.ok(!/NaN|Infinity/.test(svg.under+svg.over),`camera on/inside axes box emits finite SVG at zoom ${zoom}`); }
+await h.done();

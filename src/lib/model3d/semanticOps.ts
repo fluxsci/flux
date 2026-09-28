@@ -1,6 +1,6 @@
 /** Pure semantic mutations shared by Figure controls, CLI and live commands. */
 import type { Id, Project } from '../types';
-import type { Model3dElement, ModelFieldOverride } from './types';
+import type { Model3dElement, ModelFieldOverride, Scene3dManifest } from './types';
 import { findColormap } from '../color/collections';
 import { statesAtFrame } from './orbit';
 
@@ -33,14 +33,14 @@ export function setModelField(project: Project, ids: readonly Id[], fieldId: str
   }
 }
 
-/** Replace the complete named-weight vector. Zero weights are stored as absence.
+/** Replace the complete named-weight vector. Finite stored weights are unclamped;
+ * controls clamp user input to 0–1. Zero weights are stored as absence.
  * Geometry is authoritative for names; validate the whole batch before writing. */
 export function setModelStates(project: Project, ids: readonly Id[], states: Record<string, number> | null): void {
   const weights: Record<string, number> = Object.create(null);
   for (const [name, value] of Object.entries(states ?? {})) {
     if (!Number.isFinite(value)) throw new Error(`Shape weight ${name} must be finite`);
-    const weight = Math.max(0, Math.min(1, value));
-    if (weight) weights[name] = weight;
+    if (value !== 0) weights[name] = value;
   }
   const selected = models(project, ids);
   for (const element of selected) {
@@ -50,6 +50,20 @@ export function setModelStates(project: Project, ids: readonly Id[], states: Rec
   for (const element of selected) {
     if (Object.keys(weights).length) element.modelStates = { ...weights }; else delete element.modelStates;
   }
+}
+
+/** Source metadata may describe targets absent from this GLB. Reset/Home ignore
+ * those warned-about names; explicit authored edits remain strictly validated. */
+export function modelDefaultStates(manifest: Scene3dManifest | undefined, names: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = Object.create(null);
+  for (const name of names) {
+    const value = manifest?.view?.states && Object.hasOwn(manifest.view.states, name) ? manifest.view.states[name] : 0;
+    if (Number.isFinite(value) && value !== 0) out[name] = value;
+  }
+  return out;
+}
+export function modelStateWeight(states: Record<string, number> | undefined, name: string): number {
+  return states && Object.hasOwn(states, name) ? states[name] : 0;
 }
 
 /** Frame zero is the base. Names follow stored GLB target order, never object
@@ -71,7 +85,7 @@ export function modelFrame(states: Record<string, number> | undefined, names: re
   for (const [name, value] of Object.entries(states ?? {})) {
     if (!Number.isFinite(value) || value < 0 || value > 1 || (value !== 0 && !known.has(name))) return null;
   }
-  const frame = names.reduce((sum, name, index) => sum + (states?.[name] ?? 0) * (index + 1), 0);
+  const frame = names.reduce((sum, name, index) => sum + modelStateWeight(states, name) * (index + 1), 0);
   const expected = statesAtFrame(names, frame);
-  return frame <= names.length && names.every(name => Math.abs((states?.[name] ?? 0) - (expected[name] ?? 0)) <= 1e-6) ? frame : null;
+  return frame <= names.length && names.every(name => Math.abs(modelStateWeight(states, name) - modelStateWeight(expected, name)) <= 1e-6) ? frame : null;
 }

@@ -101,6 +101,19 @@ try {
     return {skin,maxAlpha,left,right,cascade:l.diff(parent,children),hiddenAlpha,mixedVisible:mixed.some((v:number,i:number)=>i%4===3&&v>0)};});
   h.eq(edgeMeshes.skin.changed,0,'skinned GLB displays exact stored mesh geometry');h.eq(edgeMeshes.maxAlpha,128,'semantic manifest preserves source material alpha');h.eq(edgeMeshes.left,0,'field remapping one GLTF instance preserves sibling pixels');h.ok(edgeMeshes.right>100,'instance field override changes target pixels');h.eq(edgeMeshes.cascade.changed,0,'ancestor fill equals equivalent leaf fills');h.eq(edgeMeshes.hiddenAlpha,0,'hidden ancestor hides subtree');h.ok(edgeMeshes.mixedVisible,'implicit and identity-indexed morph pair accepted');
 
+  const synthetic = await page.evaluate(() => {
+    const l=(window as any).lab, manifest={parts:[{id:'left',role:'mesh',node:'left',series:'pair',color:'#0000ff'},{id:'right',role:'mesh',node:'right',series:'pair',color:'#0000ff'}]}, raw=JSON.stringify(manifest);
+    const spec=l.spec('instances',{orbitAzimuth:0,orbitElevation:0},{manifest}),base=l.render(spec).pixels;
+    const single=l.render({...spec,element:{...spec.element,overrides:{left:{fill:'#ff0000'}}}}).pixels;
+    let left=0,right=0;for(let i=0;i<base.length;i+=4){const d=Math.abs(base[i]-single[i])+Math.abs(base[i+2]-single[i+2]);if((i/4)%320<160)left+=d;else right+=d;}
+    const parent=l.render({...spec,element:{...spec.element,overrides:{'@series:pair':{fill:'#44aa99',opacity:.4}}}}).pixels;
+    const leaves=l.render({...spec,element:{...spec.element,overrides:{left:{fill:'#44aa99',opacity:.4},right:{fill:'#44aa99',opacity:.4}}}}).pixels;
+    const hidden=l.render({...spec,element:{...spec.element,overrides:{'@series:pair':{hidden:true}}}}).pixels;
+    return {left,right,equal:l.diff(parent,leaves).changed,hidden:hidden.every((v:number,i:number)=>i%4!==3||v===0),unchanged:JSON.stringify(manifest)===raw};
+  });
+  h.ok(synthetic.left>100,'part recolour changes selected mesh pixels');h.eq(synthetic.right,0,'part recolour preserves sibling mesh pixels');
+  h.eq(synthetic.equal,0,'synthetic series fill and opacity exactly match equivalent leaf overrides');h.ok(synthetic.hidden,'synthetic series visibility hides all member pixels');h.ok(synthetic.unchanged,'renderer never rewrites public semantic source');
+
   const projection = await page.evaluate(() => { const l=(window as any).lab;return [{orbitAzimuth:0,orbitElevation:0},{orbitAzimuth:90,orbitElevation:20},{orbitAzimuth:30,orbitElevation:90},{orbitAzimuth:30,orbitElevation:20,orbitRoll:45},{orbitAzimuth:30,orbitElevation:20,orbitProjection:'perspective'}].map((view)=>{const s=l.spec('marker',view),r=l.render(s);let x=0,y=0,w=0;for(let i=0;i<r.pixels.length;i+=4){const a=r.pixels[i+3];if(r.pixels[i]>100&&a){const p=i/4;x+=(p%s.w+.5)*a;y+=(Math.floor(p/s.w)+.5)*a;w+=a;}}const expected=l.api.project([.3,.1,0],r.info.pose,{width:s.w,height:s.h});return {view,error:Math.hypot(x/w-expected.x,y/w-expected.y)};}); });
   projection.forEach((r)=>h.ok(r.error<=.5,`rendered-marker projection agrees ≤0.5px (${r.error.toFixed(3)}px)`));
   const poster = await page.evaluate(() => { const l=(window as any).lab; l.core.render({assetId:'named-parts',w:320,h:240,element:{id:'test-model',type:'model3d',assetId:'named-parts',x:0,y:0,width:320,height:240,rotation:0,opacity:1,orbitAzimuth:0,orbitElevation:20,orbitZoom:.9,orbitProjection:'orthographic',orbitFov:30,fill:'#4385be'}}); return l.canvas.toDataURL(); });

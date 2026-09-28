@@ -2478,6 +2478,35 @@ function validate10(data, { instancePath = "", parentData, parentDataProperty, r
   return errors === 0;
 }
 
+// src/lib/model3d/parts.ts
+var scene3dSeriesId = (series) => `@series:${series}`;
+var scene3dAxesId = (axis) => axis ? `@axes:${axis}` : "@axes";
+var scene3dFieldId = (field) => `@field:${field}`;
+function buildScene3dPartIndex(manifest) {
+  const index = /* @__PURE__ */ Object.create(null);
+  for (const part of manifest.parts ?? []) {
+    if (part.id.startsWith("@")) throw new Error(`Reserved 3D part id ${part.id}`);
+    index[part.id] = { ...part, kind: part.kind ?? (part.node ? typeof part.field === "object" ? "field" : part.id.endsWith(".missing") ? "missing" : "mesh" : "furniture") };
+  }
+  const group = (id, label, role, parent) => {
+    index[id] ??= { id, label, role, kind: "furniture", synthetic: true, ...parent ? { parent } : {} };
+    return id;
+  };
+  const series = (name) => group(scene3dSeriesId(name), name, "series");
+  const axes = (axis) => group(scene3dAxesId(axis), `${axis.toUpperCase()} axis`, "axis-group", group(scene3dAxesId(), "Axes", "axes-group"));
+  for (const part of Object.values(index)) if (typeof part.field === "object" && !part.parent) {
+    part.parent = group(scene3dFieldId(part.id), part.field.label ?? part.label ?? part.id, "field-group", part.series ? series(part.series) : void 0);
+  }
+  for (const part of Object.values(index)) {
+    if (part.synthetic || part.parent) continue;
+    const field = typeof part.field === "string" ? index[part.field] : void 0;
+    if (field && field.parent === scene3dFieldId(field.id)) part.parent = field.parent;
+    else if (!part.node && /^axes\.[xyz]\./.test(part.id)) part.parent = axes(part.id.split(".")[1]);
+    else if (part.series) part.parent = series(part.series);
+  }
+  return index;
+}
+
 // src/lib/model3d/scene3d.ts
 var isScene3d = (value) => !!value && typeof value === "object" && value.spec === "fluxplot/scene3d";
 function parseScene3d(input) {
@@ -2526,11 +2555,6 @@ function parseScene3d(input) {
   if (data.states && new Set(data.states.map((s) => s.name)).size !== data.states.length) return { issue: "Duplicate shape state names" };
   if (data.order?.some((id) => !ids.has(id))) return { issue: "Unknown part in scene3d order" };
   return data;
-}
-function buildScene3dPartIndex(manifest) {
-  const index = /* @__PURE__ */ Object.create(null);
-  for (const p of manifest.parts ?? []) index[p.id] = { ...p, kind: p.kind ?? (p.node ? typeof p.field === "object" ? "field" : p.id.endsWith(".missing") ? "missing" : "mesh" : "furniture") };
-  return index;
 }
 function scene3dStateIssues(manifest, info) {
   const names = new Set(info.states);

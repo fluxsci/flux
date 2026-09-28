@@ -18,6 +18,10 @@
   // Change) straight onto the timeline. Regenerate stays, gated on a
   // recipe-backed plot root. Always dark — an x-ray screen by nature — but flat:
   // no scanlines, no glow, no boot flicker; it opens beside the selection.
+  import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
+  import type { Model3dElement } from "./model3d/types";
+  import { scene3dManifests } from "./model3d/store";
+  import { resolveScene3dPartStyle } from "./model3d/scene3d";
   import ColorScaleControls from "./plot/ColorScaleControls.svelte";
   import { validateIncomingPlot } from "./plot/contract";
   import { get } from "svelte/store";
@@ -55,16 +59,16 @@
   // below gates the DOM but not $: blocks, so a closed X-ray never pays a
   // rebuild on every commit.
   $: root = $xrayRoot;
-  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests) : null;
+  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests, $scene3dManifests) : null;
   // A multi-plot root's SHARED parts (one row hides a part everywhere).
-  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests) : [];
-  function rootPlots(p: typeof $project, r: XrayTarget | null): SemanticPlotElement[] {
+  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!]))) : [];
+  function rootPlots(p: typeof $project, r: XrayTarget | null): (SemanticPlotElement | Model3dElement)[] {
     if (!r || r.kind !== "elements") return [];
     const f = p.figures.find((ff) => ff.id === r.figId);
     if (!f) return [];
     return r.elementIds
       .map((id) => f.elements.find((e) => e.id === id))
-      .filter((e): e is SemanticPlotElement => !!e && e.type === "plot");
+      .filter((e): e is SemanticPlotElement | Model3dElement => !!e && (e.type === "plot" || e.type === "model3d"));
   }
 
   // Parents of the current root (double-click re-root pushes; Backspace pops).
@@ -78,6 +82,8 @@
     const el = f?.elements.find((e) => e.id === root.elementId);
     return el && el.type === "plot" ? (el as SemanticPlotElement) : null;
   })();
+
+  $: rootModel = root?.kind === 'element' ? $project.figures.find(f => f.id === root?.figId)?.elements.find((e): e is Model3dElement => e.id === (root?.kind === 'element' ? root.elementId : '') && e.type === 'model3d') : undefined;
 
   // Regenerate: re-run the plot's recipe and hot-swap the result in place,
   // preserving the id-keyed overrides. Gated behind this explicit action (never
@@ -480,7 +486,7 @@
         // member (Show hidden off) must neither change nor reverse this action.
         const hidden = elementIds.every((id) => {
           const el = fig?.elements.find((e) => e.id === id);
-          return el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
+          return el?.type === "model3d" ? !!resolveScene3dPartStyle(get(scene3dManifests)[el.assetId], el.overrides, n.partId!).hidden : el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
         });
         return { ...n, elementIds, hidden };
       });
@@ -561,7 +567,11 @@
   }
 
   function onWin(e: KeyboardEvent) {
-    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if (e.defaultPrevented || yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    // Embedded field/Shape controls own typing, native slider keys and their
+    // picker shortcuts. Tree Ctrl+A/Backspace must never steal numeric edits.
+    if (target?.matches('input, textarea, select') || target?.isContentEditable || target?.closest('.model-controls')) return;
     // The property menu (opened ON TOP by Show Properties) owns the keyboard
     // while it is up — everything here yields until it closes.
     if (!$xrayOpen || $fluxFigMenuOpen || mode !== "tree") return;
@@ -708,11 +718,12 @@
               <ColorScaleControls assetId={rootPlot.assetId} manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
                 on:regenerate={(event) => regenerate(event.detail)} />
             {/if}
+            {#if rootModel}<div class="model-controls"><Model3dSemantics element={rootModel}/></div>{/if}
             {#each rows as r, ri (r.node.id)}
               {#if commonCount && !q && ri === 0}
                 <div class="section">Common parts <span class="scount">shared by all {common[0]?.elementIds?.length ?? 0}</span></div>
               {:else if commonCount && !q && ri === commonCount}
-                <div class="section">Plots</div>
+                <div class="section">Objects</div>
               {/if}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
@@ -784,6 +795,7 @@
 {/if}
 
 <style>
+  .model-controls { padding: 0 10px 12px; }
   /* Radiograph, flat: a near-black tube field with phosphor accents and mono
      type — always dark by nature (the --xr-* ramp, never the theme-scoped
      --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a

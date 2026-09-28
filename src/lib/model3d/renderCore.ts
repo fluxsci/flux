@@ -9,7 +9,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { prepareGlb } from './glbCore.mjs';
 import { orbitPose, boundsSphere, type OrbitPose } from './orbit';
 import { mapValues } from './colormap';
-import { resolveScene3dPartStyle } from './scene3d';
+import { buildScene3dPartIndex, scene3dPartLineage, type Scene3dPartIndex, resolveScene3dPartStyle } from './scene3d';
 import { RENDERER_VERSION } from './poster';
 export { RENDERER_VERSION } from './poster';
 import { lerpColor } from '../color/interp';
@@ -48,18 +48,21 @@ function setStates(part: Part, states: Record<string, number>) {
   mesh.morphTargetInfluences.fill(0);
   for (const [name, index] of Object.entries(mesh.morphTargetDictionary ?? {})) mesh.morphTargetInfluences[index] = Number.isFinite(states[name]) ? states[name] : 0;
 }
-function partSpec(part: Part, manifest?: Scene3dManifest): Scene3dPart | undefined {
-  return manifest?.parts?.find((p) => p.node === part.node || p.id === part.node);
+interface SemanticIndex { parts: Scene3dPartIndex; nodes: Map<string, Scene3dPart>; order: Map<string, number> }
+function semanticIndex(manifest?: Scene3dManifest): SemanticIndex {
+  const parts = manifest ? buildScene3dPartIndex(manifest) : Object.create(null), nodes = new Map<string, Scene3dPart>();
+  for (const part of manifest?.parts ?? []) { if (part.node && !nodes.has(part.node)) nodes.set(part.node, part); if (!nodes.has(part.id)) nodes.set(part.id, part); }
+  return { parts, nodes, order: new Map((manifest?.order ?? []).map((id, i) => [id, i])) };
 }
 /** The pure field mapper owns LUT/range/missing semantics; renderer owns GPU attributes. */
-function stylePart(part: Part, element: Model3dElement, manifest?: Scene3dManifest) {
-  const entry = partSpec(part, manifest), id = entry?.id ?? part.node, override = resolveScene3dPartStyle(manifest, element.overrides ?? {}, id, { sourceColors: false });
+function stylePart(part: Part, element: Model3dElement, manifest: Scene3dManifest | undefined, index: SemanticIndex) {
+  const entry = index.nodes.get(part.node), id = entry?.id ?? part.node, override = resolveScene3dPartStyle(manifest, element.overrides ?? {}, id, { sourceColors: false, index: index.parts });
   const lighting = element.modelLighting ?? 'studio';
   let material = part.materials.get(lighting);
   if (!material) { material = makeMaterial(lighting); part.materials.set(lighting, material); }
   part.mesh.material = material;
   const source = element.modelColors === 'source';
-  const fieldOwner = typeof entry?.field === 'string' ? manifest?.parts?.find((p) => p.id === entry.field) : entry;
+  const fieldOwner = typeof entry?.field === 'string' ? index.parts[entry.field] : entry;
   const field = fieldOwner?.field && typeof fieldOwner.field === 'object' ? fieldOwner.field : undefined;
   const value = part.mesh.geometry.getAttribute('_value') ?? part.mesh.geometry.getAttribute('_VALUE');
   const valid = part.mesh.geometry.getAttribute('_valid') ?? part.mesh.geometry.getAttribute('_VALID');
@@ -81,15 +84,13 @@ function stylePart(part: Part, element: Model3dElement, manifest?: Scene3dManife
   else if (remap) material.color.setRGB(1, 1, 1);
   else if (entry?.color) material.color.set(rgb(entry.color));
   else material.color.copy(part.sourceColor);
-  let opacityEntry = entry, semanticOpacity = element.overrides?.[id]?.opacity !== undefined;
-  const visited = new Set<string>();
-  while (opacityEntry && !visited.has(opacityEntry.id)) { visited.add(opacityEntry.id); semanticOpacity ||= opacityEntry.opacity !== undefined || element.overrides?.[opacityEntry.id]?.opacity !== undefined; opacityEntry = manifest?.parts?.find((p) => p.id === opacityEntry?.parent); }
+  const semanticOpacity = element.overrides?.[id]?.opacity !== undefined || scene3dPartLineage(index.parts, id).some(p => p.opacity !== undefined || element.overrides?.[p.id]?.opacity !== undefined);
   material.opacity = clamp01(Number(semanticOpacity ? override.opacity : alpha(entry?.color) ?? part.sourceOpacity) * (alpha(!source ? element.fill : override.fill) ?? 1));
   const transparent = material.opacity < 1 || (vertexColors && part.vertexAlpha);
   if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }
   material.depthWrite = !transparent;
   part.mesh.visible = !(override?.hidden ?? entry?.hidden ?? false);
-  const order = manifest?.order?.indexOf(id) ?? -1;
+  const order = index.order.get(id) ?? -1;
   part.mesh.renderOrder = (transparent ? 1_000_000 : 0) + Math.max(0, order);
 }
 function effectiveAttribute(part: Part, name: 'position' | 'normal') {
@@ -200,15 +201,18 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
   }
   function unload(assetId: string) { tickets.set(assetId, (tickets.get(assetId) ?? 0) + 1); inflight.delete(assetId); const asset = assets.get(assetId); if (!asset) return; dropMorphs(assetId); assets.delete(assetId); releaseLoaded(asset); }
   function style(asset: Loaded, element: Model3dElement, manifest?: Scene3dManifest, states?: Record<string, number>) {
-    for (const part of asset.parts) { stylePart(part, element, manifest); setStates(part, modelStates(element, states)); }
+    const index = semanticIndex(manifest);
+    for (const part of asset.parts) { stylePart(part, element, manifest, index); setStates(part, modelStates(element, states)); }
   }
   function getMorph(spec: RenderSpec, a: Loaded, b: Loaded): Morph {
     const destination = spec.morph!.toElement ?? spec.element;
     const appearance = (el: Model3dElement) => [el.fill, el.modelColors, el.modelLighting, el.overrides, el.fields, el.modelStates];
     const cacheKey = JSON.stringify([spec.assetId, spec.morph!.to, spec.morph!.pairs, appearance(spec.element), appearance(destination), spec.states, spec.manifest, spec.morph!.toManifest]);
     const old = morphs.get(cacheKey); if (old) return old;
+    const indices = new Map<Scene3dManifest | undefined, SemanticIndex>();
     const endpoint = (part: Part, el: Model3dElement, manifest?: Scene3dManifest, states?: Record<string, number>) => {
-      stylePart(part, el, manifest); setStates(part, modelStates(el, states));
+      if (!indices.has(manifest)) indices.set(manifest, semanticIndex(manifest));
+      stylePart(part, el, manifest, indices.get(manifest)!); setStates(part, modelStates(el, states));
       return { position: effectiveAttribute(part, 'position'), normal: effectiveAttribute(part, 'normal'), colors: effectiveColors(part), vertexColors: part.mesh.material.vertexColors, color: `#${part.mesh.material.color.getHexString()}`, opacity: part.mesh.material.opacity, hidden: !part.mesh.visible };
     };
     const pair: Morph = { group: new Group(), parts: [], ids: [spec.assetId, spec.morph!.to] };

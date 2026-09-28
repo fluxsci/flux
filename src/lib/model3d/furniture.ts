@@ -19,15 +19,16 @@ export const furniturePartDomId=(elementId:string,partId:string)=>`${elementId}_
 export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3dElement,pose:OrbitPose,layout:FurnitureLayout):Pick<FurnitureSvg, "underNodes"|"overNodes"> {
  if(!manifest)return {underNodes:[],overNodes:[]};
  const under:FurnitureNode[]=[],over:FurnitureNode[]=[],parts=buildScene3dPartIndex(manifest),fields=scene3dFields(manifest),style=manifest.style??{},ink=style.ink??'#100F0F',muted=style.muted??'#6F6E69',fs=layout.fontSize,lw=(style.lineWidthPt??.6)*4/3,toWorld=manifest.toWorld??ID;
- const override=(id:string):PartOverride=>resolveScene3dPartStyle(manifest,el.overrides,id);
+ const override=(id:string):PartOverride=>resolveScene3dPartStyle(manifest,el.overrides,id,{index:parts});
  const add=(layer:FurnitureNode[],id:string,tag:FurnitureNode['tag'],key:string,attrs:Record<string,string|number>,text?:string,children?:FurnitureNode[])=>{
-  const o=override(id);if(o.hidden)return;
-  const a={...attrs};if(o.fill!=null)a.fill=o.fill;if(o.stroke!=null)a.stroke=o.stroke;if(o.strokeWidth!=null)a['stroke-width']=o.strokeWidth;if(o.opacity!=null&&o.opacity!==1)a.opacity=o.opacity;
+  const o=override(id);if(o.hidden||Object.values(attrs).some(v=>typeof v==='number'&&!Number.isFinite(v)))return;
+  const a={...attrs};if(o.fill!=null&&(tag==='text'||!['colorbar','legend','scalebar'].includes(parts[id]?.role)))a.fill=o.fill;if(o.stroke!=null)a.stroke=o.stroke;if(o.strokeWidth!=null)a['stroke-width']=o.strokeWidth;if(o.opacity!=null&&o.opacity!==1)a.opacity=o.opacity;
   if(tag==='text'){a['font-family']=o.fontFamily??sourceFont(style.font??'Inter');a['font-size']=o.fontSize??a['font-size']??fs;a['font-weight']=o.fontWeight??400;if(o.fontStyle)a['font-style']=o.fontStyle;if(o.textDecoration)a['text-decoration']=o.textDecoration;}
   if(o.dx||o.dy)a.transform=`translate(${num(o.dx??0)} ${num(o.dy??0)})`;
   layer.push({tag,key,partId:id,attrs:a,...(text!=null?{text}:{}),...(children?{children}:{})});
  };
- const line=(layer:FurnitureNode[],id:string,key:string,a:{x:number;y:number},b:{x:number;y:number},attrs:Record<string,string|number>={})=>add(layer,id,'line',key,{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:ink,'stroke-width':lw,...attrs});
+ const projected=(p:{x:number;y:number;depth?:number})=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&(pose.projection!=='perspective'||p.depth==null||p.depth>=pose.near);
+ const line=(layer:FurnitureNode[],id:string,key:string,a:{x:number;y:number;depth?:number},b:{x:number;y:number;depth?:number},attrs:Record<string,string|number>={})=>{if(projected(a)&&projected(b))add(layer,id,'line',key,{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:ink,'stroke-width':lw,...attrs});};
  const text=(layer:FurnitureNode[],id:string,key:string,x:number,y:number,label:string,attrs:Record<string,string|number>={})=>add(layer,id,'text',key,{x,y,fill:ink,'font-size':fs,'text-anchor':'middle',...attrs},label);
  const world=(p:Vec3)=>transformPoint(toWorld,p);
  const screen=(p:Vec3)=>project(world(p),pose,layout.viewport);
@@ -43,17 +44,19 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
   // Panes face away from the viewer in original data coordinates.
   for(let axis=0;axis<3;axis++){
    const other=[0,1,2].filter(i=>i!==axis),corners=[[0,0],[1,0],[1,1],[0,1]].map(([a,b])=>{const p=[...center] as Vec3;p[axis]=limits[axis][back[axis]];p[other[0]]=limits[other[0]][a];p[other[1]]=limits[other[1]][b];return screen(p);});
+   if(corners.some(p=>!projected(p)))continue;
    add(under,`axes.${labels[axis]}.pane`,'path',`pane-${axis}`,{d:corners.map((p,i)=>`${i?'L':'M'}${num(p.x)} ${num(p.y)}`).join(' ')+'Z',fill:muted,'fill-opacity':.06,stroke:muted,'stroke-opacity':.25,'stroke-width':lw});
   }
   for(let axis=0;axis<3;axis++){
    const label=labels[axis],other=[0,1,2].filter(i=>i!==axis),candidates:Array<{a:Vec3;b:Vec3;y:number;depth:number}>=[];
-   for(let k=0;k<4;k++){const a=[...center] as Vec3,b=[...center] as Vec3;a[axis]=limits[axis][0];b[axis]=limits[axis][1];for(let j=0;j<2;j++)a[other[j]]=b[other[j]]=limits[other[j]][(k>>j)&1];const m=screen(a.map((v,i)=>(v+b[i])/2) as Vec3);candidates.push({a,b,y:m.y,depth:m.depth});}
+   for(let k=0;k<4;k++){const a=[...center] as Vec3,b=[...center] as Vec3;a[axis]=limits[axis][0];b[axis]=limits[axis][1];for(let j=0;j<2;j++)a[other[j]]=b[other[j]]=limits[other[j]][(k>>j)&1];const m=screen(a.map((v,i)=>(v+b[i])/2) as Vec3);if(!projected(m)||!projected(screen(a))||!projected(screen(b)))continue;candidates.push({a,b,y:m.y,depth:m.depth});}
+   if(!candidates.length)continue;
    candidates.sort((a,b)=>Math.abs(b.y-a.y)>1e-6?b.y-a.y:a.depth-b.depth);const edge=candidates[0],a=screen(edge.a),b=screen(edge.b),mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},origin=screen(center);
    let ox=mid.x-origin.x,oy=mid.y-origin.y;const length=Math.hypot(ox,oy);if(length<1e-6){ox=0;oy=1;}else{ox/=length;oy/=length;}
    if(Math.hypot(b.x-a.x,b.y-a.y)<1)continue;
    line(under,`axes.${label}.axis`,`axis-${label}`,a,b);
    const ticks=axes[axis]?.ticks??niceTicks(limits[axis][0],limits[axis][1]);
-   ticks.forEach((value,ti)=>{if(value<limits[axis][0]||value>limits[axis][1])return;const p=[...edge.a] as Vec3;p[axis]=value;const at=screen(p);
+   ticks.forEach((value,ti)=>{if(value<limits[axis][0]||value>limits[axis][1])return;const p=[...edge.a] as Vec3;p[axis]=value;const at=screen(p);if(!projected(at))return;
     line(under,`axes.${label}.ticks`,`tick-${label}-${ti}`,at,{x:at.x+ox*4,y:at.y+oy*4});text(under,`axes.${label}.ticks`,`tick-label-${label}-${ti}`,at.x+ox*(fs*.9+4),at.y+oy*(fs*.9+4)+fs*.3,axes[axis]?.tickLabels?.[ti]??tickLabel(value),{'text-anchor':ox<-.5?'end':ox>.5?'start':'middle'});
     if(manifest.axes?.grid!==false)for(const plane of other){const across=other.find(i=>i!==plane)!,p1=[...center] as Vec3,p2=[...center] as Vec3;p1[axis]=p2[axis]=value;p1[plane]=p2[plane]=limits[plane][back[plane]];p1[across]=limits[across][0];p2[across]=limits[across][1];line(under,`axes.${label}.grid`,`grid-${label}-${ti}-${plane}`,screen(p1),screen(p2),{stroke:muted,'stroke-opacity':.3});}
    });

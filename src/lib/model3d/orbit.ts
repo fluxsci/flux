@@ -61,7 +61,7 @@ export function homeView(_asset?: Model3dAsset | null, manifest?: Scene3dManifes
 }
 /** Frame zero is the base; frame 1..N selects target 0..N-1. */
 export function statesAtFrame(names: readonly string[], frame: number): Record<string,number> {
-  const f=clamp(finite(frame,0),0,names.length), lo=Math.floor(f), hi=Math.ceil(f), out:Record<string,number>={};
+  const f=clamp(finite(frame,0),0,names.length), lo=Math.floor(f), hi=Math.ceil(f), out:Record<string,number>=Object.create(null);
   if(lo===hi){if(lo>0) out[names[lo-1]]=1;} else {if(lo>0) out[names[lo-1]]=hi-f; if(hi>0) out[names[hi-1]]=f-lo;}
   return out;
 }

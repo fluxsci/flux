@@ -40,7 +40,8 @@
   import ColorPicker from "./ColorPicker.svelte";
   import Logomark from "../shell/Logomark.svelte";
   import { elementLabel } from "./xray/buildXrayTree";
-  import { buildPartIndex } from "./plot/parse";
+  import { semanticPartIndex } from "./plot/partStyle";
+  import { scene3dManifests } from "./model3d/store";
   import type { Element as FluxElement, Figure } from "./types";
 
   type Mode = "hotkey" | "field" | "option" | "color" | "search";
@@ -61,7 +62,7 @@
 
   // (Re)build the field list whenever the selection / part selection or its
   // data changes (the global style library too — it feeds the style fields).
-  $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles) : [];
+  $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles, $scene3dManifests) : [];
   $: groups = groupFields(fields);
   $: cols = fields.length > 18 ? 3 : fields.length > 8 ? 2 : 1;
   $: width = mode === "color" ? 620 : cols === 3 ? 664 : cols === 2 ? 452 : 240;
@@ -73,12 +74,13 @@
   // hairline, then the same name the Layers rail shows — "rect 1", a plot's
   // file name, a custom name — and for a part the plot › part; `.ctx` carries
   // the kind or the plural count so the plural pick still reads "2 plot parts".
-  $: head = describeHead($selection, $partSelections, $project, $plotManifests);
+  $: head = describeHead($selection, $partSelections, $project, $plotManifests, $scene3dManifests);
   function describeHead(
     sel: Set<string>,
     parts: { elementId: string; partId: string }[],
     p: typeof $project,
     manifests: typeof $plotManifests,
+    models: typeof $scene3dManifests,
   ): { name: string; ctx: string } {
     const find = (id: string): { f: Figure; e: FluxElement } | null => {
       for (const f of p.figures) {
@@ -92,12 +94,12 @@
       const plotName = first ? elementLabel(first.f, first.e, manifests) : "plot";
       const plots = new Set(parts.map((pt) => pt.elementId)).size;
       if (parts.length === 1) {
-        const m = first?.e.type === "plot" ? manifests[first.e.assetId] : undefined;
-        const info = m ? buildPartIndex(m)[parts[0].partId] : undefined;
+        const m = first?.e.type === "model3d" ? models[first.e.assetId] : first?.e.type === "plot" ? manifests[first.e.assetId] : undefined;
+        const info = m ? semanticPartIndex(m)[parts[0].partId] : undefined;
         const label =
           info?.label ??
-          ([info?.role, info?.series, info?.index !== undefined ? `#${info.index}` : null].filter(Boolean).join(" · ") || parts[0].partId);
-        return { name: `${plotName} › ${label}`, ctx: "plot part" };
+          ([info?.role, info?.series, info && "index" in info && info.index !== undefined ? `#${info.index}` : null].filter(Boolean).join(" · ") || parts[0].partId);
+        return { name: `${plotName} › ${label}`, ctx: first?.e.type === "model3d" ? "3D part" : "plot part" };
       }
       return { name: plots > 1 ? `${plots} plots` : plotName, ctx: `${parts.length} plot parts` };
     }
@@ -495,6 +497,7 @@
           {/if}
         </div>
 
+        {#if fields.some(f => f.hint)}<p class="part-mode-note">{fields.find(f => f.hint)?.hint}</p>{/if}
         <div class="body" class:cols2={mode !== "color" && cols === 2} class:cols3={mode !== "color" && cols === 3}>
           {#if mode === "color" && colorField}
             <div class="color-mode">
@@ -606,6 +609,7 @@
 {/if}
 
 <style>
+  .part-mode-note { color: var(--c-tx-muted); font-size: 11px; margin: 4px 12px; }
   /* Transparent catcher: a surface, not a modal — clicking elsewhere closes. */
   .fbackdrop { position: fixed; inset: 0; background: transparent; z-index: 300; }
   .fwrap { position: fixed; inset: 0; z-index: 301; pointer-events: none; }
