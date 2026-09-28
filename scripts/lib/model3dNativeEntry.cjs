@@ -8,7 +8,7 @@ const artifacts = process.env.MODEL3D_NATIVE_ARTIFACTS, scenario = process.env.M
 if (!scratch || !root?.startsWith(scratch + path.sep) || !artifacts || !scenario) throw Error('Hermetic model3d native context required');
 if (process.platform === 'linux' && (process.env.FLUX_PRIVATE_DISPLAY !== '1' || !process.argv.includes('--ozone-platform=x11'))) throw Error('Native model3d gate requires explicit private x11 display');
 const checks = [], errors = [], dialogs = [], metrics = {};
-let win, contextProbe;
+let win, contextProbe, measuringInput = false;
 dialog.showOpenDialog = async (_win, opts) => {
   dialogs.push({ kind: 'open', filters: opts.filters });
   return { canceled: false, filePaths: [path.join(root, scenario === 'shape' ? 'plots/cortex-states.glb' : 'plots/neuron.glb')] };
@@ -30,10 +30,14 @@ function check(value, label) {
 async function wait(fn, label, timeout = 30000) {
   const start = Date.now(); let last;
   while (Date.now() - start < timeout) {
+    if (measuringInput) await timingWindow();
     try { const value = await fn(); if (value) return value; } catch (error) { last = error; }
     await new Promise(resolve => setTimeout(resolve, 30));
   }
   throw Error(`Timeout: ${label}${last ? ` (${last.message})` : ''}`);
+}
+async function timingWindow() {
+  if (!await js("document.visibilityState==='visible'&&document.hasFocus()")) throw Error('Native input measurement lost its visible focused window; timing cohort is unqualified');
 }
 async function focus() {
   await wait(async () => { app.focus({ steal: true }); win.focus(); win.webContents.focus(); return win.isFocused() && await js('document.hasFocus()'); }, 'native focus');
@@ -151,6 +155,7 @@ async function measuredOrbit() {
   const before = await captureMesh('orbit-before');
   const start = await point(orbitSelector);
   await js('window.__nativeModelEvidence.frames.length=0;window.__nativeModelEvidence.inputs.length=0;void 0');
+  measuringInput = true;
   // One matching render per paced input, followed by a genuine continuous
   // native drag burst. Coalesced requests are counted, never called painted.
   win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...start });
@@ -164,14 +169,18 @@ async function measuredOrbit() {
   const pacedEnd = await js('window.__nativeModelEvidence.frames.length');
   const burstInputStart = await js('window.__nativeModelEvidence.inputs.length');
   for (let i = 1; i <= 36; i++) {
+    await timingWindow();
     win.webContents.sendInputEvent({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: start.x + 60 + i, y: start.y + 10 + Math.round(Math.sin(i / 4) * 8) }); sent++;
     await js('new Promise(resolve=>requestAnimationFrame(resolve))');
   }
-  win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, x: start.x + 96, y: start.y + 10 + Math.round(Math.sin(9) * 8) });
   const lastBurstStamp = await wait(() => js(`window.__nativeModelEvidence.inputs.slice(${burstInputStart}).findLast(input=>input.type==='pointermove'&&input.buttons===1&&input.x===${start.x + 96}&&input.y===${start.y + 10 + Math.round(Math.sin(9) * 8)})?.timeStamp`), 'last sent burst coordinate delivered');
   await wait(() => js(`window.__nativeModelEvidence.frames.some(frame=>frame.inputTimeStamp===${lastBurstStamp}&&frame.nextFrame)`), 'last burst input matching publication and next frame');
+  const releaseStart = await js('window.__nativeModelEvidence.frames.length');
+  win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, x: start.x + 96, y: start.y + 10 + Math.round(Math.sin(9) * 8) });
+  await wait(() => js(`window.__nativeModelEvidence.frames.slice(${releaseStart}).some(frame=>frame.inputTimeStamp===${lastBurstStamp}&&frame.fullResolution&&frame.nextFrame)`), 'release publishes full-resolution latest view');
   await wait(() => js('window.__nativeModelEvidence.pending===0'), 'paint observations settled');
   const evidence = await js('window.__nativeModelEvidence');
+  measuringInput = false;
   const dragInputs = evidence.inputs.filter(input => input.type === 'pointermove' && input.buttons === 1);
   const stamps = new Set(dragInputs.map(input => input.timeStamp));
   const seen = new Set();
