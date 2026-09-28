@@ -195,6 +195,16 @@ try {
  // Two overlapping saves must publish in request order, including a final
  // native write that is already in flight when a newer snapshot is requested.
  const {saveProject}=await import('../src/lib/io');
+ const {clearScene3dSidecars}=await import('../src/lib/model3d/store');clearScene3dSidecars();
+ store.project.set(structuredClone({...model,assets:[asset]}));store.projectDir.set(legacyRoot);store.dirty.set(true);
+ const unreadableSidecar=path.join(legacyRoot,'assets/neuron.fluxplot.json'),storedSidecar=await originalRead(unreadableSidecar);
+ bridge.readText=async(p:string)=>{if(p===unreadableSidecar)throw Error('optional sidecar unreadable');return originalRead(p);};
+ bridge.copyFileVerified=async()=>{throw Error('same-root saves must not copy existing GLB');};
+ await saveProject();
+ h.ok(!get(store.dirty)&&await bridge.exists(path.join(legacyRoot,'project.json')),'ordinary same-root save succeeds despite unreadable optional metadata');
+ h.eq(await originalRead(unreadableSidecar),storedSidecar,'ordinary same-root save preserves unreadable sidecar without replacement');
+ h.eq(await fs.readFile(path.join(legacyRoot,asset.path)),Buffer.from(bytes),'ordinary save leaves owned GLB bytes in place');
+ bridge.readText=originalRead;bridge.copyFileVerified=nativeCopy;
  store.project.set(structuredClone({...model,assets:[asset]}));store.projectDir.set(legacyRoot);store.dirty.set(true);
  let releaseFirst!:()=>void,firstEntered!:()=>void;const held=new Promise<void>(r=>{releaseFirst=r;}),entered=new Promise<void>(r=>{firstEntered=r;});let canonicalWrites=0;
  bridge.writeText=async(p,t,o)=>{if(p===path.join(legacyRoot,'project.json')&&++canonicalWrites===1){firstEntered();await held;}await originalWrite(p,t,o);};

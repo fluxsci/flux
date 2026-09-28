@@ -1,6 +1,7 @@
 import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
 import { prepareModelCopy, publishModelCopy } from './model3d/copy';
+import { storedAssetPath } from './project/assetPath';
 import type { Scene3dManifest } from './model3d/types';
 import { storeTenant } from "./tenancy";
 import { preparePlot } from "./plot/parse";
@@ -591,7 +592,14 @@ function writeProjectTo(dir: string) {
     const modelCopies=new Map<string,Awaited<ReturnType<typeof prepareModelCopy>>>();
     for(const asset of p.assets) if(asset.kind==='glb') {
       if(!sourceRoot) throw new Error(`Cannot save GLB ${asset.id}: source project is unavailable`);
-      modelCopies.set(asset.id,await prepareModelCopy(window.fig,sourceRoot,asset,dir,asset.path));
+      if(dir!==sourceRoot) modelCopies.set(asset.id,await prepareModelCopy(window.fig,sourceRoot,asset,dir,asset.path));
+      else {
+        // Ordinary saves own the existing binary and preserve optional sidecars
+        // in place. Only transfers require a lossless strict sidecar preflight.
+        const relative=storedAssetPath(asset.path);
+        const source=window.fig.projectAssetPath?await window.fig.projectAssetPath(sourceRoot,relative):joinPath(sourceRoot,relative);
+        if(!await window.fig.exists(source)) throw new Error(`Missing GLB asset ${asset.id}`);
+      }
       assertOwner();
     }
     if (!(await window.fig.exists(dir))) { assertOwner(); await window.fig.mkdir(dir); }
@@ -605,9 +613,9 @@ function writeProjectTo(dir: string) {
 
     for (const asset of p.assets) {
       if (asset.kind === "glb") {
-        const copy=modelCopies.get(asset.id)!;
-        await publishModelCopy(window.fig,copy,assertOwner); asset.path=copy.asset.path;
-        for(const [path,text] of scene3dSidecarWrites(joinPath(dir,"assets"),asset.id,{...copy.sidecars,manifest:models[asset.id],recipe:modelRecipes[asset.id]})) {
+        const copy=modelCopies.get(asset.id);
+        if(copy) { await publishModelCopy(window.fig,copy,assertOwner); asset.path=copy.asset.path; }
+        for(const [path,text] of scene3dSidecarWrites(joinPath(dir,"assets"),asset.id,{...copy?.sidecars,manifest:models[asset.id],recipe:modelRecipes[asset.id]})) {
           assertOwner();
           if(text!==null) await window.fig.writeText(path,text); else await window.fig.remove?.(path);
         }
