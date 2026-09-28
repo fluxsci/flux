@@ -42,7 +42,6 @@
   import { hasPartBinding, isWholeElementRef, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
   import { autoAnimateExcept } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
-  import { partBreadcrumb } from "../../../lib/plot/partStyle";
   import { isExitPreset } from "../../../lib/slide/presetCatalog";
   import { addAppearanceTracks } from "../../../lib/slide/animateSelection";
   import { xrayAnimate, xrayBecomeSource, type XrayAnimateTarget, type XrayAnimateRequest } from "../../../lib/xray/animateHook";
@@ -120,6 +119,7 @@
   import GhostCopyControls from "./animator/GhostCopyControls.svelte";
   import GhostTransformDialog from "./GhostTransformDialog.svelte";
   import { ghostBirth, objectLabel } from "./animator/ghostEditing";
+  import { refLabel as sharedRefLabel } from "./animator/shared";
   import { hoverTrackId } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
   import SlidePresetMenu from "./SlidePresetMenu.svelte";
@@ -1027,15 +1027,11 @@
       return mine.length ? mine : [{elementId}];
     }));
   }
+  /** The pick bar, X-ray header and toast name a ref exactly as its lane does. */
   function refLabel(ref: TargetRef): string {
     const s = activeSlide;
     if (!s) return ref.element;
-    if (ref.group) return s.groups?.[ref.group]?.name ?? "Group";
-    const name = objectLabel(s, ref.element), el = s.elements.find(e => e.id === ref.element);
-    if (!ref.parts?.length || el?.type !== "plot") return name;
-    const labels = partBreadcrumb(get(plotManifests)[el.assetId], ref.parts[0]);
-    const part = labels.slice(-2).join(" ") || ref.parts[0];
-    return `${name} › ${part}${ref.parts.length > 1 ? ` + ${ref.parts.length - 1}` : ""}`;
+    return sharedRefLabel(ref, s, id => { const el = s.elements.find(e => e.id === id); return el?.type === "plot" ? get(plotManifests)[el.assetId] : undefined; }, plotTags);
   }
   function oneRef(refs: TargetRef[]): TargetRef | null {
     if (refs.length === 1) return refs[0];

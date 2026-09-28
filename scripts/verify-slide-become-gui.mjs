@@ -153,11 +153,17 @@ try{
   await page.keyboard.press('Enter');await paint();state=await read();
   check(JSON.stringify(handoff(state)?.to.become.ref)==='{"element":"bh-plot","parts":["axis.x.spine","axis.y.spine"]}','Enter commits one hand-off ref containing both spines');
   check(await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].reverse().find(el=>el.textContent.includes('hands off to')&&el.textContent.toLowerCase().includes('x axis spine + 1'));return !!toast&&[...toast.querySelectorAll('button')].some(b=>b.textContent.includes('Auto-animate the rest'));}),'a part hand-off toast offers Auto-animate the rest…');
+  // One ref label (animator/shared.ts refLabel): the toast names both sides exactly as the lane does.
+  const laneC=await page.$eval(`.lane-row[data-track-id="${handoff(state).id}"] .track-label`,e=>e.firstChild.textContent.trim());
+  check(laneC==='Path 1 → Plot 1 › X axis spine + 1'&&await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('‹Path 1› hands off to ‹Plot 1 › X axis spine + 1›'))),'the toast and the lane share one ref label ("Plot 1 › X axis spine + 1")');
   const pairBytes=JSON.stringify(state.slide);
   await seed();await openTransform('Become…');await clickObject('bh-plot');state=await read();
   check(JSON.stringify(handoff(state)?.to.become.ref)==='{"element":"bh-plot"}'&&state.slide.elements.some(e=>e.id==='bh-plot'),'plain plot click hands off to the whole plot and retains it');
   check(await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].reverse().find(el=>/hands off to ‹Plot 1›/.test(el.textContent));return !!toast&&![...toast.querySelectorAll('button')].some(el=>el.textContent.includes('Auto-animate the rest'));}),'a whole-plot hand-off toast offers no Auto-animate the rest… (nothing is left to build)');
-  await seed();await pickPart('peaches.box');await openTransform('Become…');await clickObject('bh-rect');state=await read();
+  await seed();await pickPart('peaches.box');await openTransform('Become…');
+  const barSource=await page.$eval('.become-bar .become-msg strong',e=>e.textContent.trim());
+  await clickObject('bh-rect');state=await read();
+  check(await page.$eval(`.lane-row[data-track-id="${handoff(state).id}"] .track-label`,(e,src)=>e.firstChild.textContent.trim()===`${src} → Rect 1`,barSource),'the pick bar names a part-set source exactly as its lane does');
   check(handoff(state)?.target==='bh-plot'&&JSON.stringify(handoff(state)?.parts??[handoff(state)?.part])==='["peaches.box"]'&&handoff(state)?.to.become.ref.element==='bh-rect','a drilled box is the source of a part-level hand-off to a rect');
   await clickText('.props .dacts button','Become an object…');await clickObject('bh-rect2');state=await read();
   const retargeted=state.slide.beats[1].tracks.filter(t=>t.target==='bh-plot');
