@@ -35,7 +35,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop") => void;
+    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
@@ -44,9 +44,16 @@
   let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void } | null>(null);
   let libOpen = $state(false);
   // ONE class of action — Transform — three ways: Change · Ghost · Become.
+  let appearMenu = $state<{ x: number; y: number } | null>(null);
+  function openAppearMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    transformMenu = null;
+    appearMenu = appearMenu ? null : {x: r.left, y: r.bottom + 4};
+  }
   let transformMenu = $state<{ x: number; y: number } | null>(null);
   function openTransformMenu(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    appearMenu = null;
     transformMenu = transformMenu ? null : { x: r.left, y: r.bottom + 4 };
   }
 
@@ -61,10 +68,15 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+  const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
+  const appearItems = $derived<MenuItem[]>([
+    {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
+    {label: "Appear from object…", hint: "Pick the object this selection comes from", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
+  ]);
   const transformItems = $derived<MenuItem[]>([
     { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },
     { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
-    { label: "Become…", hint: selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("become") },
+    { label: "Become…", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
   ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
   // so the timeline stays legible; single-plot slides get no tags.
@@ -291,7 +303,11 @@
     <div class="bar">
       <strong class="ttl">Animate</strong>
       <div class="actions" aria-label="Add animation">
-        <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
+        <div class="appear-split">
+          <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
+          <button class="b split-arrow" disabled={!sel.length} onclick={openAppearMenu} aria-label="Appear options" aria-haspopup="menu" aria-expanded={!!appearMenu}>▾</button>
+          {#if appearMenu}<TimelineMenu x={appearMenu.x} y={appearMenu.y} items={appearItems} onClose={() => (appearMenu = null)} />{/if}
+        </div>
         <span class="tf-wrap">
           <button class="b tf" class:active={!!transformMenu} disabled={!sel.length} onclick={openTransformMenu} aria-haspopup="menu" aria-expanded={!!transformMenu}
             title="Transform the selection at this step — Change (edit it), Ghost (copies), or Become (turn into another object)">Transform ▾</button>
@@ -402,6 +418,8 @@
   .b.play { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }
   .b.play:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); color: var(--c-on-accent); }
   .lib-wrap, .tf-wrap { position: relative; display: inline-flex; }
+  .appear-split { display:flex;align-items:center;gap:0; }
+  .appear-split .split-arrow { padding:0 4px;border-left:1px solid var(--c-line-strong); }
   /* Transform keeps its olive hue as text + border only */
   .b.tf { color: var(--c-success); border-color: color-mix(in oklab, var(--flx-olive-600) 70%, transparent); }
   .b.tf:hover:not(:disabled), .b.tf.active { border-color: var(--c-success); color: var(--c-tx-hi); background: transparent; }

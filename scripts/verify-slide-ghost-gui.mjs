@@ -105,6 +105,12 @@ try{
   await page.evaluate(()=>window.__flux.slide.activeBeat.set(2));await paint();await page.click(`[data-track-id="${births[0].id}"] .track-label`);await selectCopy(ids[0]);
   // Real creation controls at the normal and larger fanout sizes.
   for(const count of [8,32]){const beforeCount=(await read()).slide.beats[2].tracks.filter(t=>t.ghostFrom).length;await clickText('.copy-actions button','Select original');await create(count,'transform');state=await read();check(state.slide.beats[2].tracks.filter(t=>t.ghostFrom).length===beforeCount+count,`${count}-copy creation completes through the real dialog`);}
+  // A part-only exit does not decide the original object's whole-object
+  // Ghost policy (ops.hasPartBinding already makes this distinction).
+  await page.evaluate(()=>{const f=window.__flux,sid=f.get(f.fig.activeFigureId);f.slide.setEditDestination({kind:'design'});f.slide.selTrackIds.set([]);f.slide.commitDeckLive(d=>{const s=f.slideOps.slideById(d,sid);s.elements.push({id:'part-exit-plot',type:'plot',name:'Part exit',assetId:'missing-fixture',x:100,y:100,width:200,height:120,rotation:0});s.beats[2].tracks.push({id:'part-only-exit',target:'part-exit-plot',parts:['axis.x.spine','axis.y.spine'],preset:'fadeOut',start:0,duration:300});});f.slide.activeBeat.set(2);f.fig.selectOnly('part-exit-plot');});await paint();
+  await openGhost();
+  check(await page.$eval('input[name="ghost-original"][value="stay"]',el=>el.checked),'a parts-only exit leaves the Ghost dialog original policy on Stay');
+  await page.keyboard.press('Escape');
   check(timings.creation.every(t=>t.ms<=1000),'3/8/32-copy creation paints within the 1s navigation budget');
   check([...timings.selection,...timings.editing,...timings.scrub].every(ms=>ms<=100),'copy selection, endpoint editing and scrub paint within 100ms');
   check(realErrors(page).length===0,'no renderer errors');

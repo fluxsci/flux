@@ -232,44 +232,53 @@ ghost's creation lane removes that copy and its later effects; Undo restores the
 
 ### Become
 
-**Transform ▸ Become…** (or **Ctrl+Shift+E**) turns an object into another object. You do not
-edit the original: you point at what it should turn into.
+**Transform ▸ Become…** (or **Ctrl+Shift+E** with the Animator open) makes an object
+become another object or part of a plot. Select the source first. To start from plot parts,
+**Ctrl+click** a part or pick several rows in the **X-ray** before arming Become.
 
-1. Select the source object and the step, then choose **Transform ▸ Become…**. A bar above the
-   stage says the source is waiting for its target; the step is checked out **After** so you see
-   the context.
-2. Select the object it becomes — draw a new one with the Rect, Ellipse, Line, Arrow or Pen tools
-   (it is picked the moment the tool finishes), or click an object already on the slide.
-3. That object is consumed: it disappears from the slide and its appearance becomes the source's
-   **After** state, exactly as if you had sculpted the source into it. The source keeps its name,
-   group and layer. One Undo brings the target back.
+The bar names what is waiting and how to choose its destination:
 
-Anything drawn with the pen, line and shape tools can become anything else drawn with them — a
-line becomes an ellipse, a bracket becomes an arrow, a rounded rectangle becomes a curve. The
-morph is continuous: outlines are put into correspondence and glide into each other, strokes
-inflate into filled shapes (or shapes deflate into strokes), colors blend, widths and dashes tween,
-and arrowheads fade rather than pop. Text, images and video have no outline to morph, so they
-crossfade while their box, rotation and opacity still tween. Text stays readable as text; its
-letters are not traced into shape outlines. A Become at a step that already has a
-Change replaces that Change's endpoint; a ghost copy can Become something at its birth step.
+- Click a drawn object to use it immediately, or draw a new shape with the usual tools.
+- Click a plot to hand off to the whole plot. **Ctrl+click** picks just the part under the
+  pointer, such as a box or an axis spine.
+- Hold **Shift** while clicking to add picks without confirming. **Shift+Ctrl+click** adds
+  plot parts. Each picked part stays outlined; **Enter** or **Become** confirms the set.
+  A hand-off has one destination object: pick parts of one plot, or group several objects
+  first and pick their group in the X-ray.
+- Hover a plot and press **Alt+R** to open its X-ray while picking. Select rows, then press
+  **b** (**Become this**), either in the tree or its **a** menu. Axis rows include their
+  spine, ticks and labels; expand them to choose only the spine. The menu names the source
+  that is waiting.
+- **Escape** or **Cancel** leaves the pick without creating a transform. Changing slides
+  also cancels it.
 
-**Plots become other plots** in two ways. Click another plot placed on the slide and the source
-turns into it, axes and all. Or, with a plot source, choose **From gallery…** in the bar (or
-**Data from gallery…** in the Animation inspector) and pick a plot from the project: the frame
-stays where it is and only the plot's content becomes the picked plot's. Shared line or point
-series with supported, matching axis scales can tween their data through smoothly interpolated
-axes. Pairs whose SVG structures cannot be matched still crossfade while the frame moves. The source
-path is retained so linked data can update, and **Keep own data** drops the data target again.
-There is no separate "data morph": it is a Become.
+A loose drawn destination between whole objects is **consumed**: its appearance becomes the source's After state
+and the destination is removed. The source keeps its identity; one Undo restores both.
+Plots, images, groups and part sets use a **hand-off**: both objects stay in the slide,
+with the destination hidden before landing and the source hidden afterwards. For example,
+a drawn chevron can become a plot's X and Y axis spines, or a box on a plot can become a
+rectangle. The canvas lands in **Edit after step**, with the track selected in the
+**Animation** inspector. **Show hidden** lets you inspect hidden objects as faint ghosts.
+Video clips cannot take part; use Change to move or resize them. Groups can be destinations;
+choose one object or plot parts as the source.
 
-Hand-off pairing connects shapes and plot parts by **position**, **order**, **data**, or
-**tiling**. Connected strokes, such as the two axis spines, form one path. Order follows point
-indices; tiling divides one outline among several partners by their lengths. **By data** lands
-each point at its value on the destination axis and divides the destination curve halfway
-between neighbouring points. This is **data ↔ summary**: points can become a distribution,
-or a summary can expand back into its points. Unmatched sources fade during the first 40%
-of the animation; unmatched destinations appear during the last 40%. Text and images crossfade.
-You can preview or scrub a hand-off as soon as you open the animation dock.
+To work from the other end, select the destination object or plot parts and choose
+**Appear ▾ → Appear from object…**. The main **Appear** button still adds a normal entrance.
+The bar now names what **appears from…**; click its source, or **Ctrl+click** source parts.
+In the X-ray, **a**, then **5** (**Appear from…**) starts this same flow from the picked
+rows. Both routes create exactly the same hand-off.
+
+**Pair** chooses how the outlines match: **auto**, **by position**, **by order**, **by data**,
+or **tile**. Connected strokes, such as two axis spines, form one path. Order follows point
+indices; tile divides one outline among its partners. By data lands points at their values
+on the destination axis. This supports **data ↔ summary**: points can become a distribution,
+or a summary can expand back into its points. Unmatched sources fade out; unmatched
+parts of the destination fade in. Text and images crossfade while their boxes move.
+
+After a hand-off to some of a plot's parts, when the plot has no appearance effects yet,
+the toast offers **Auto-animate the rest…**. It adds the plot's remaining build phases after
+the landing, excluding the leaves already revealed by the hand-off. A hand-off to the whole
+plot already reveals every part, so it offers no remainder.
 
 **Destination.** The Animation inspector names both sides of a hand-off. **Pair ▾** chooses
 auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
@@ -278,6 +287,12 @@ For whole loose objects, **Consume instead** asks for a second click before remo
 destination. **Auto-animate the rest…** builds the destination plot's remaining parts after
 the hand-off. **Become an object…** picks a different destination for this effect.
 
+With a whole plot as the source, **From gallery…** keeps its frame and changes its content
+to another project plot. **Data from gallery…** and **Keep own data** in the Animation
+inspector edit or remove that content target. Shared supported series tween in data space;
+unsupported matches crossfade. A Become at a step with an existing Change replaces that
+same target's endpoint; a ghost can Become something at its birth step.
+
 From the command line or an agent, `become` can name destination parts with `--part` and
 source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:
 the source hides after landing and the destination stays on the slide. Whole drawn objects
@@ -285,10 +300,6 @@ use **consume**, which replaces the source and removes the destination; `--mode`
 either completion for whole objects. `appear-from` authors the same hand-off from the
 destination's side. `--pair` chooses how outlines match, and `--reveal` chooses flip or draw.
 See the [slide command reference](../../resources/flux-context/SLIDES.md) for syntax.
-
-The Animation inspector's **Destination** row states what the object becomes at the step
-("Becomes an ellipse", "Data becomes growth-b.svg") and offers **Become an object…** to point an
-existing transform somewhere else.
 
 **Alt+G** opens the same [Plot gallery](figure.qmd#getting-plots-in) used by Figure.
 Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a

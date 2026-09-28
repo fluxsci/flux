@@ -1268,10 +1268,21 @@ Persistence invariants (all machine-checked — do not weaken):
     open ONE x-ray rooted at `{kind:"elements"}`: `commonPartRows` lists parts whose id AND
     role agree across every plot (`common:<partId>` rows fan out to all of them), then each
     plot's tree. Slide registers `xrayAnimate` (`xray/animateHook.ts`) so **Animate selected**
-    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
+    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
     Reopening follows the full plot selection even when a primary drilled part exists.
+    Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
+    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
+    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
+    Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
+    `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
+    Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
+    or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
+    compiler's future hand-off destination visibility while ordinary appearances stay editable.
+    Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
+    `autoAnimateExcept` shares generated reveal exclusion with headless hosts, narrows partial
+    containers, and places the remaining phases after the plot's last hand-off.
     Common-row actions filter each member through Show hidden exclusions, and animation
     batches deduplicate exact element/part targets. Keyboard navigation reveals its active
     row. Regeneration pins the original project/plot before awaits; re-rooting cannot redirect
@@ -8046,3 +8057,19 @@ frames now sample the preset's exact `transformAt(u)`; max deviation 0.1243 px (
 keyframe residual). `verify-slide-camera` pins overshoot, positivity, parity and landing.
 **Learnings:** A keyframed approximation that is exact in 0–1 is not exact outside it; any
 spec whose path is non-linear in its keyframe values needs its own sampler for overshoot.
+
+### 2026-09-28 03:50 UTC — Hand-off picking and destination-side authoring (Codex, `av2/D1`)
+**Work:** Unified Become, Appear from and Animate like picking; added canvas part accumulation,
+Pair, X-ray 5/b and destination highlights. Added the shared Auto-animate the rest helper,
+Design destination visibility, the parts-only Ghost policy fix, user docs and real-path gates.
+Changes remain uncommitted for the orchestrator; D2 owns inspector Destination/Swap controls.
+**Learnings:** Promoted pick ownership and the view-only Canvas/Design seams into §4. Shift was
+previously a deliberate deep-select exclusion; the pick surface needs an explicit override
+without changing Figure drag behavior. Generated remainder phases must follow the landing,
+and partially excluded containers must keep their other leaves.
+**Validation:** Pure slide 54/54; UI slide 20/20; final Become 42 checks, Ghost 39,
+X-ray multi 35, autobuild 36. Transform, beat display, surface/theme, docs, chord census
+and shell gates pass; check/check:headless are 0 errors/0 warnings. Old-file and disabled-
+behavior runs prove the new assertions red, then green. Build passes with one unrelated
+`zoteroFields` ineffective dynamic-import warning, no undefined imports. Native/bundle/startup
+tiers remain the orchestrator's gates.

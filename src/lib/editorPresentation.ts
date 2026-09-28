@@ -4,8 +4,11 @@ import { buildPartTree, type XrayNode } from "./plot/tree";
 
 /** Optional presentation chrome supplied by an embedded editor. It never
  *  becomes figure document data, and ordinary Figure mode supplies none. */
+export interface EditorHighlight { elementId: string; partIds?: readonly string[] }
 export interface EditorCanvasPresentation {
-  highlight?: { elementId: string; partIds?: readonly string[] } | null;
+  highlight?: EditorHighlight | readonly EditorHighlight[] | null;
+  /** Destination picking permits Shift deep-selection without starting a drag. */
+  picking?: boolean;
   hiddenElementIds?: readonly string[];
   /** Objects which do not exist at this frame, even in Show hidden. */
   unbornElementIds?: readonly string[];

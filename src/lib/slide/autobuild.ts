@@ -31,7 +31,7 @@ import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
 import { presetDef } from "./presetCatalog";
-import { targetPartIds } from "./targets";
+import { resolveTargetLeaves, targetPartIds } from "./targets";
 import { resolveBeat } from "./resolve";
 
 // manifest animation name → player preset name
@@ -385,17 +385,26 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
 
 /** Build the plot's remaining leaves after its hand-off, preserving manual
  * tracks and other plots' shared build phases. A partially excluded group
- * becomes an explicit part set so none of its remaining leaves are lost. */
+ * becomes an explicit part set so none of its remaining leaves are lost.
+ * Anchors are beat-local: an effect anchored across a generated reveal that is
+ * excluded or moves behind the landing keeps its effective start, and a
+ * rebuilt phase never reuses a beat id an authored effect still holds. */
 export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest: FluxPlotManifest | undefined, exceptLeaves: readonly string[]): number {
+  const slide = slideById(deck, slideId);
+  if (!slide) return 0;
+  const manifestFor = (id: Id) => id === plotId ? manifest : undefined;
+  const starts = new Map(slide.beats.flatMap(b => resolveBeat(b, deck, manifestFor).tracks.map(t => [t.id, t.start ?? 0] as const)));
+  const moved = new Set(slide.beats.flatMap(b => b.tracks.filter(t => t.target === plotId && t.generatedBy === "auto-reveal").map(t => t.id)));
   if (!applyAutoAnimation(deck, slideId, plotId, manifest)) return 0;
-  const slide = slideById(deck, slideId)!;
   const except = new Set(exceptLeaves);
   const generated: Beat[] = [];
   for (const beat of slide.beats) {
-    const resolved = resolveBeat(beat, deck, id => id === plotId ? manifest : undefined).tracks;
+    const resolved = resolveBeat(beat, deck, manifestFor).tracks;
     const kept: Track[] = [];
     for (const track of beat.tracks) {
       if (track.target !== plotId || track.generatedBy !== "auto-reveal") continue;
+      moved.add(track.id);
+      if (!starts.has(track.id)) starts.set(track.id, resolved.find(t => t.id === track.id)?.start ?? 0);
       const leaves = targetPartIds(track, manifest), rest = leaves.filter(id => !except.has(id));
       if (!rest.length) continue;
       if (rest.length !== leaves.length) { delete track.part; delete track.selector; track.parts = rest; }
@@ -409,13 +418,29 @@ export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest:
     beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal" || keptIds.has(t.id));
     if (kept.length) generated.push({ ...beat, id: `auto-rest-${plotId}-${beat.autoPhase}`, autoTarget: plotId, tracks: kept, groups: undefined });
   }
-  const landing = slide.beats.findLast(b => b.tracks.some(t => t.to?.become?.mode === "handoff" && t.to.become.ref.element === plotId));
+  const landing = slide.beats.findLast(b => b.tracks.some(t => !t.disabled && t.to?.become?.mode === "handoff" &&
+    resolveTargetLeaves(t.to.become.ref, slide, manifestFor).some(r => r.elementId === plotId)));
   if (landing) {
     // Global auto phases precede manual steps. Move only this plot's generated
     // tracks behind its landing, leaving every other phase participant in place.
     for (const beat of slide.beats) beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal");
   }
   slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length || b.generatedBy !== "auto-reveal");
-  if (landing) slide.beats.splice(slide.beats.indexOf(landing) + 1, 0, ...generated);
+  if (landing) {
+    const ids = new Set(slide.beats.map(b => b.id));
+    for (const phase of generated) {
+      const base = phase.id;
+      for (let n = 2; ids.has(phase.id); n++) phase.id = `${base}-${n}`;
+      ids.add(phase.id);
+    }
+    slide.beats.splice(slide.beats.indexOf(landing) + 1, 0, ...generated);
+  }
+  for (const beat of slide.beats) {
+    const ids = new Set(beat.tracks.map(t => t.id));
+    for (const track of beat.tracks) if (track.anchor && !ids.has(track.anchor.trackId) && (moved.has(track.id) || moved.has(track.anchor.trackId))) {
+      track.start = starts.get(track.id) ?? track.start ?? 0;
+      delete track.anchor;
+    }
+  }
   return generated.length;
 }

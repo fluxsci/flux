@@ -427,9 +427,25 @@ export function refreshBeatDisplay(): void {
     stage: o.stage, animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id],
   }) : null;
   const evaluated = new Map(frame?.elements.map(e => [e.id, e]) ?? []);
-  slideCanvasPresentation.set(frame?.presentation ?? {elementStates:{},hiddenElementIds:[],partStates:{},
+  const designPresentation: SlideFrame["presentation"] = {elementStates:{},hiddenElementIds:[],partStates:{},
     unbornElementIds: canonical?.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom).map(t => t.target)) ?? [],
-  });
+  };
+  // Design keeps ordinary appearances editable, but a hand-off's future
+  // destination must not appear beside its source before the landing.
+  if (!frame && canonical?.beats.some(b => b.tracks.some(t => t.to?.become?.mode === "handoff"))) {
+    const compiled = compileSlide(canonical, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
+    const initial = compiled.sample(0).presentation;
+    for (const handoff of compiled.handoffs) for (const target of handoff.destination) {
+      if (target.partIds) {
+        const states = initial.partStates[target.elementId];
+        for (const id of target.partIds) if (states?.[id]) (designPresentation.partStates[target.elementId] ??= {})[id] = states[id];
+      } else if (initial.hiddenElementIds.includes(target.elementId)) {
+        if (!designPresentation.hiddenElementIds.includes(target.elementId)) designPresentation.hiddenElementIds.push(target.elementId);
+        designPresentation.elementStates[target.elementId] = initial.elementStates[target.elementId];
+      }
+    }
+  }
+  slideCanvasPresentation.set(frame?.presentation ?? designPresentation);
   const wanted = new Set(k > 0 ? fig.elements.map(e=>e.id) : []);
 
   // 2. Elements leaving the display set restore their base; 3. elements in it

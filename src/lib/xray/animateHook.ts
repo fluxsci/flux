@@ -8,8 +8,9 @@ import { writable } from "svelte/store";
 export interface XrayAnimateTarget {
   elementId: string;
   partId?: string;
+  groupId?: string;
 }
-export type XrayAnimateKind = "appear" | "emphasize" | "disappear" | "change";
+export type XrayAnimateKind = "appear" | "emphasize" | "disappear" | "change" | "become-destination" | "appear-from" | "animate-like";
 export interface XrayAnimateRequest {
   kind: XrayAnimateKind;
   targets: XrayAnimateTarget[];
@@ -18,3 +19,6 @@ export type XrayAnimateHandler = (req: XrayAnimateRequest) => void;
 
 /** Non-null only while a slide editor is mounted. */
 export const xrayAnimate = writable<XrayAnimateHandler | null>(null);
+
+/** View-only destination picking; the shared X-ray never imports Slide mode. */
+export const xrayBecomeSource = writable<string | null>(null);
