@@ -64,7 +64,7 @@ async function main(h) {
       }
     };
     for (const name of ["pdf-lib", "@pdf-lib/standard-fonts", "@pdf-lib/upng", "pako", "tslib"]) {
-      let from = path.dirname(require.resolve(name, { paths: [path.dirname(require.resolve("pdf-lib")), repo] }));
+      let from = path.dirname(require.resolve(name, { paths: name === 'tslib' ? [repo] : [path.dirname(require.resolve("pdf-lib")), repo] }));
       while (JSON.parse(await fs.readFile(path.join(from, "package.json"), "utf8").catch(() => '{}')).name !== name) {
         const parent = path.dirname(from); if (parent === from) throw Error(`Missing package root for ${name}`); from = parent;
       }
