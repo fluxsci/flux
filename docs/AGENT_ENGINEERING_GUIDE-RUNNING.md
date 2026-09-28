@@ -7754,3 +7754,12 @@ and pinned project A/B/A, discard/adopt and partially failed cleanup races.
 **Learnings:** Original-byte metadata binding must also run on reopen; retaining raw
 ignored metadata alone can silently reactivate it. That shared loader correction is
 a separate reviewed P2 stream. App scene/GUI qualification remains at the P2 phase exit.
+
+### 2026-09-28 07:48 UTC — Flux 3D colorbar title spacing (Codex, model3d-furniture-fix)
+**Work:** Final P2 expanded-gallery screenshot exposed title/top-tick overlap. The
+shared pure layout now reserves separate text lines using the effective colorbar
+font size, preserving authored physical type at every box scale. Regenerated the
+33 fixture/view goldens through their generator; added six box/font combinations
+with spacing and physical-size assertions. Furniture gate passed, check 0/0.
+**Learning:** Exact SVG goldens do not establish visual quality. Inspect the actual
+expanded preview as well as small contact sheets before accepting furniture.
