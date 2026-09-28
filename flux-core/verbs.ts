@@ -413,7 +413,7 @@ export const VERBS: VerbDef[] = [
     aliases: ['restyle-part'],
     cliRoot: "flags",
     summary:
-      "Restyle a semantic plot or 3D part/group by its stable id. Writes an override that survives regeneration. Omit elementId if the figure has one semantic panel. 3D mesh fills are visible in Source colors mode.",
+      "Restyle a semantic plot or 3D part/group by its stable id. Writes an override that survives regeneration. Omit elementId if the figure has one semantic panel. A 3D mesh fill switches that model to Source colors so it shows.",
     // WS-6.1: the FULL PartOverride surface (the CLI exposed these all along —
     // same core.setPartOverride underneath; the 5-prop schema was drift).
     params: {

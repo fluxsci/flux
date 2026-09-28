@@ -206,6 +206,29 @@ try {
     }finally{release();}
   }}finally{cleanup();setStoreTenant('figure');}
 
+  // Lower review items: caller mistakes are usage errors, errors list known
+  // names, and colour edits never silently do nothing.
+  for (const args of [['model-info', 'absent.glb'], ['model-info', 'states.fluxplot.json'], ['model-info', 'states.glb', '--morph-with', 'absent.glb']]) {
+    const refused = await run(args); h.ok(refused.code !== 0 && /not found|must be a \.glb/.test(refused.err), `model-info usage error exits non-zero: ${args.slice(1).join(' ')}`);
+  }
+  await assert.rejects(core.setModelViewCommand(root, { target: model.id, noPoster: true }, { states: { ghost: 1 } }), /Unknown shape state ghost.*Known shape states: .*inflated/);
+  const seqId = seq.elementId; await assert.rejects(core.setModelFieldCommand(root, { target: seqId, noPoster: true }, { field: 'height.field', min: 0 }), /Unknown value field.*This model has no value fields/);
+  await assert.rejects(core.setModelFieldCommand(root, { target: field.elementId, noPoster: true }, { field: 'typo', min: 0 }), /Known value fields: height\.field/);
+  h.ok(true, 'unknown shape states and value fields name the known ones');
+  const partFigure = await core.createFigure(root, { id: 'part-colors', name: 'Part colours' });
+  const parts = await cli(['add-model', partFigure.figureId, 'named-parts.glb', '--root', root, '--no-poster']);
+  const uniform = await cli(['set-model-view', parts.elementId, '--root', root, '--colors', 'uniform', '--no-poster']);
+  h.eq(uniform.element.modelColors, 'uniform', 'fixture model starts in Uniform colours');
+  const colorsOf = async () => ((await loadFigModel(root)).project.figures.flatMap(f => f.elements).find(e => e.id === parts.elementId) as typeof model).modelColors;
+  await cli(['restyle-part', partFigure.figureId, 'legend', '--root', root, '--element', parts.elementId, '--fill', '#224466', '--no-poster']);
+  h.eq(await colorsOf(), 'uniform', 'a furniture fill leaves Uniform colours alone');
+  const meshFill = await run(['restyle-part', partFigure.figureId, 'neuron.soma', '--root', root, '--element', parts.elementId, '--fill', '#aa2200', '--no-poster']);
+  h.ok(meshFill.code === 0 && meshFill.err.includes('switched colors to Source') && await colorsOf() === 'source', 'a mesh part fill on a Uniform model switches it to Source in the same edit');
+  const hiddenColor = await cli(['set-model-view', parts.elementId, '--root', root, '--color', '#336699', '--no-poster']);
+  h.ok(hiddenColor.warnings.some((w: string) => w.includes('no visible effect while colors are Source')), '--color in Source colours warns that it cannot show');
+  const shownColor = await cli(['set-model-view', parts.elementId, '--root', root, '--color', '#336699', '--colors', 'uniform', '--no-poster']);
+  h.ok(!shownColor.warnings.some((w: string) => w.includes('no visible effect')), '--color with --colors uniform does not warn');
+
   // H1 through the built CLI: a placed GLB goes missing; read verbs degrade to
   // named placeholders and the figure stays repairable.
   const broken = (await loadFigModel(root)).project, brokenAsset = broken.assets.find(a => a.id === field.assetId)!;

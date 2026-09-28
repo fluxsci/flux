@@ -6,6 +6,7 @@ import { boundedModelFile, publishModelFile } from './model3dFile';
 import { confinedRecoveryPath } from './recovery';
 import { loadFigModel, mutateFigModel, safeJoin, stageFigureWrites, exists } from './model';
 import { journal } from './journal';
+import { FluxError, NotFoundError, ValidationError } from './errors';
 import { resolveModelPosters, validModelPosterPng } from './model3dPosterCache';
 import { inspectGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { prepareModel3dImport, parseModel3dImportMetadata, makeImportedModel3dElement } from '../src/lib/model3d/importData';
@@ -41,8 +42,12 @@ export async function readModel3dMetadata(root: string, project: Project, assetI
 
 async function sourceFiles(sourcePath: string) {
   const file = path.resolve(sourcePath);
-  if (!/\.glb$/i.test(file)) throw new Error('3D import accepts .glb files; export a triangle mesh as GLB');
+  // Caller mistakes are typed usage errors (non-zero exit / isError); only a
+  // readable GLB that fails geometry rules is a model-info refusal (ok:false).
+  if (!/\.glb$/i.test(file)) throw new ValidationError(`3D input must be a .glb file (got ${path.basename(file)}); export a triangle mesh as GLB`);
   const bytes = await boundedModelFile(file, GLB_LIMITS.maxBytes).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new NotFoundError(`GLB not found: ${file}`);
+    if (String(error).includes('must be a regular file')) throw new ValidationError(`3D input must be a regular .glb file: ${file}`);
     if (String(error).includes('exceeds')) throw new Error(`${(error as Error).message}; re-export a smaller mesh with max_faces or simplify it first`);
     throw error;
   });
@@ -71,12 +76,18 @@ export async function modelInfo(sourcePath: string, options: { morphWith?: strin
     let morph;
     if (options.morphWith) {
       try { const other = await inspect(options.morphWith); morph = { path: other.path, ...morphCompatible(source.info, other.info), warnings: other.warnings }; }
-      catch (error) { morph = { path: path.resolve(options.morphWith), ok: false, pairs: [], reason: String((error as Error).message ?? error) }; }
+      catch (error) {
+        if (error instanceof FluxError) throw error;
+        morph = { path: path.resolve(options.morphWith), ok: false, pairs: [], reason: String((error as Error).message ?? error) };
+      }
     }
     return { ok: true, path: source.path, sha256: source.sha256, bytes: source.bytes, ...source.info,
       parts: buildModel3dTree(source.metadata.manifest, source.info), fields: scene3dFields(source.metadata.manifest),
       warnings: source.warnings, ...(morph ? { morph: { ...morph, ...(!morph.ok ? { hint: morphFixHint } : {}) } } : {}) };
-  } catch (error) { return { ok: false, path: path.resolve(sourcePath), reason: String((error as Error).message ?? error) }; }
+  } catch (error) {
+    if (error instanceof FluxError) throw error;
+    return { ok: false, path: path.resolve(sourcePath), reason: String((error as Error).message ?? error) };
+  }
 }
 
 export async function addModel(root: string, figureId: string, sourcePath: string, options: {
@@ -91,7 +102,7 @@ export async function addModel(root: string, figureId: string, sourcePath: strin
     const data = prepared.data;
     const element = makeImportedModel3dElement({ ...data, source: { glbPath: source.file, ...(source.manifest ? { manifestPath: source.manifest.path } : {}), ...(source.recipe ? { recipePath: source.recipe.path } : {}) } }, { root, name: options.name, box: options.box, figureWidth: figure.width });
     project.assets.push(data.asset); figure.elements.push(element);
-    if (options.view) applyModelViewCommand(project, [element.id], options.view, data.manifest ? { [data.asset.id]: data.manifest } : {});
+    const viewWarnings = options.view ? applyModelViewCommand(project, [element.id], options.view, data.manifest ? { [data.asset.id]: data.manifest } : {}) : [];
     // New immutable bytes publish before the JSON generation can reference them.
     // A later uncertain save failure retains safe unreferenced bytes, never a
     // destructive rollback of a possibly committed model reference.
@@ -101,7 +112,7 @@ export async function addModel(root: string, figureId: string, sourcePath: strin
     if (data.raw?.manifest !== undefined) sidecars.set(`fig/assets/${data.asset.id}.fluxplot.json`, data.raw.manifest);
     if (data.raw?.recipe !== undefined) sidecars.set(`fig/assets/${data.asset.id}.recipe.json`, data.raw.recipe);
     stageFigureWrites(project, sidecars);
-    return { elementId: element.id, assetId: data.asset.id, parts: buildModel3dTree(data.manifest, data.asset.model), warnings: [...source.warnings, ...data.warnings] };
+    return { elementId: element.id, assetId: data.asset.id, parts: buildModel3dTree(data.manifest, data.asset.model), warnings: [...source.warnings, ...data.warnings, ...viewWarnings] };
   }).catch(error => {
     if (!publishedFile) throw error;
     throw new Error(`${String((error as Error).message ?? error)}. Stored GLB retained at ${publishedFile}. Reload the figure before retrying; remove this file only after confirming it is unreferenced.`, { cause: error });
@@ -121,8 +132,8 @@ export async function ensureModelPoster(root: string, figureId: string, elementI
 export async function setModelViewCommand(root: string, target: ModelTarget, command: ModelViewCommand) {
   const result = await mutateFigModel(root, 'set_model_view', async ({ project }) => {
     const element = targetModel(project, target), metadata = await readModel3dMetadata(root, project, element.assetId);
-    applyModelViewCommand(project, [element.id], command, metadata.manifest ? { [element.assetId]: metadata.manifest } : {});
-    return { element: structuredClone(element), figureId: project.figures.find(figure => figure.elements.includes(element))!.id, warnings: metadata.issues ?? [] };
+    const viewWarnings = applyModelViewCommand(project, [element.id], command, metadata.manifest ? { [element.assetId]: metadata.manifest } : {});
+    return { element: structuredClone(element), figureId: project.figures.find(figure => figure.elements.includes(element))!.id, warnings: [...metadata.issues ?? [], ...viewWarnings] };
   });
   const poster = target.noPoster ? { warnings: [], poster: null } : await ensureModelPoster(root, result.figureId, result.element.id);
   return { ...result, ...poster, warnings: [...new Set([...result.warnings, ...poster.warnings])] };
