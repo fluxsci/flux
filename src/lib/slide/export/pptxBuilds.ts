@@ -19,6 +19,7 @@
 //   • the slide-to-slide transition (fade / slide / push) enters each slide.
 // Morph has one ease of its own, so a track's easing is not carried; a plot's
 // staggered parts cross-fade as one picture.
+import { beatDelayMs } from "../timing";
 import type { CompiledSlide } from "../compile";
 import { compileSlideFor, evaluateSlide, type EvaluatedSlide } from "../embedRender";
 import type { ExportPayload } from "../payload";
@@ -74,7 +75,7 @@ function runsOf(payload: ExportPayload): Run[] {
   const slide = payload.deck.slides[0], runs: Run[] = [];
   for (let from = 1; from < slide.beats.length;) {
     const to = cueEnd(slide, from), beat = slide.beats[from];
-    runs.push({ from, to, auto: beat.advance === "auto", autoDelayMs: Math.max(0, beat.autoDelayMs ?? 600) });
+    runs.push({ from, to, auto: beat.advance === "auto", autoDelayMs: beatDelayMs(beat) });
     from = to + 1;
   }
   return runs;

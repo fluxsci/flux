@@ -33,7 +33,9 @@ shows the selected step's effects.
 
 The bar above the stage states where your edits go:
 
-- **Design** edits the original slide objects. All authored objects are available for arranging.
+- **Design** edits the original slide objects. Future hand-off destinations stay hidden until
+  landing; **Show hidden** makes them available as faint, selectable ghosts. Unborn ghost copies
+  remain absent even with Show hidden enabled.
 - **Edit after step N** shows the evaluated result through that step. Move, resize, recolor,
   rewrite, or restyle an object to create or update a Change at **that exact step**. Earlier
   steps remain intact. Adding, deleting, grouping, and renaming objects are structural slide edits.
@@ -58,7 +60,7 @@ To animate something, select it on the stage (**Ctrl/Cmd+click** drills to a plo
 
 - **Appear** / **Ctrl+Shift+A** — add an entrance.
 - **Transform ▾** — one action, three ways: **Change** (**Ctrl+Shift+T**) shapes a new state of the
-  object at this step; **Ghost…** creates copies that transform independently; **Become…**
+  object at this step; **Ghost…** creates copies that transform independently; **Become**
   (**Ctrl+Shift+E**) turns the object into another one. See [Transforms](#transforms).
 - **Emphasize** — add a highlight.
 - **Disappear** / **Ctrl+Shift+D** — add an exit.
@@ -85,8 +87,9 @@ selected effect shows its start and end across all lanes so alignment reads at a
 The **X-ray** (**Alt+R**) animates too: select one plot — or several — press **Alt+R**, pick
 the rows you want (**Shift+click** a run, **Ctrl/Cmd+click** to toggle, **Ctrl/Cmd+A** for all;
 a multi-plot X-ray lists the parts every plot shares), then press **A** and choose
-**Appear**, **Emphasize**, **Disappear** or **Change**. Every picked part lands on the current
-step as its own effect, ready to retime in the timeline. Selecting the same part through
+**Appear**, **Emphasize**, **Disappear** or **Change**. Appearance actions give each picked part
+its own effect on the current step, ready to retime. **Change** selects the whole owning objects;
+part-style edits are captured in each plot’s Change. Selecting the same part through
 both a common row and its plot's tree creates one effect. With **Show hidden** off,
 disappeared targets remain untouched by common-row visibility and animation actions.
 
@@ -100,7 +103,8 @@ issue to inspect its track. The **Easing** field shows the timing curve and open
 Keyboard commands belong to the focused surface. In the animation dock or inspector, **Delete**
 removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts, and
 **Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
-them. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
+them. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset, **G** Stagger, and **E**
+opens Easing. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
 
 ## Easing and springs
 
@@ -114,7 +118,9 @@ arrival tick.
 Choose a tile from **Ease**, **Overshoot**, **Spring**, or **Discrete**. Hover a tile for one
 preview pass; reduced motion keeps that preview still. Focus a group and press **1–9** to
 choose within it. **Bouncy** is a spring with overshoot and a settling tail. Adjust
-**Bounce** to change its character and **Velocity** to change its starting speed.
+**Bounce** to change its character and **Velocity** to change its starting speed. For a Discrete
+curve, **Steps** sets the count from 1 to 60. The **overshoot …%** readout reports how far the
+curve passes its endpoint; data and other bounded channels still stay within their limits.
 
 ![Bouncy, its spring graph, and the spacing chart.](../images/animation-curve-spring.png)
 
@@ -129,7 +135,8 @@ The graph's handles edit a custom bezier. Arrow keys move a focused handle by 0.
 influence curves keep their handles horizontal; dragging vertically converts them to a free
 bezier. The spacing chart shows 13 positions at equal times: close dots mean slower motion.
 
-**Ctrl+V** in the editor accepts names such as `bouncy`, or strings such as
+Use the **Paste a curve…** field and **Paste** button, or **Ctrl+V** in the editor, to enter
+names such as `bouncy`, or strings such as
 `spring(0.35, v=2)`, `cubic-bezier(.2,1.4,.4,1)` and `steps(8)`. **Copy** copies the current curve.
 Invalid text shows an error without changing the effect. Different selected curves show
 **Mixed**; choosing a curve applies to all selected effects as one edit. **Enter**, **Done**,
@@ -160,8 +167,10 @@ all; a selection spanning different families explains why linking is unavailable
 ![The style picker lists compatible deck styles and the save, edit, and detach actions.](../images/animation-style-picker.png)
 
 A local edit shows **override** beside **↺ use style**. Reset removes that field's override
-so it follows the style again. Setting stagger or custom influence to zero explicitly turns
-it off for this effect, even when the style has it enabled. **Edit style…** opens the shared
+so it follows the style again. Setting stagger to zero turns it off for this effect. Setting
+both custom influence values to zero in the editor resets the timing field to its style or
+preset default. A stored zero-influence record can explicitly suppress inherited influence,
+but the editor’s zero action restores inheritance. **Edit style…** opens the shared
 fields under an **Editing style ‹name› · N tracks** banner; **Back to effect** returns to local
 edits. **Detach** keeps the current settings as independent values.
 
@@ -246,8 +255,8 @@ flux set-track talk slide1 effect1 --stagger-each 30
 
 Every object can be **transformed** at a step in exactly three ways. They share one lane kind in
 the timeline (**Transform · Change**, **Transform · Ghost**, **Transform · Become**), one set of
-timing and easing controls, and the same rules: one transform per object per step, chained across
-steps, with the **Before** / **After** buttons choosing which endpoint you edit.
+timing and easing controls, and the same rules: one transform per complete source target per step
+(a whole object or a particular part set), chained across steps, with the **Before** / **After** buttons choosing which endpoint you edit.
 
 ### Change
 
@@ -294,7 +303,7 @@ ghost's creation lane removes that copy and its later effects; Undo restores the
 
 ### Become
 
-**Transform ▸ Become…** (or **Ctrl+Shift+E** with the Animator open) makes an object
+**Transform ▸ Become** (or **Ctrl+Shift+E** with the Animator open) makes an object
 become another object or part of a plot. Select the source first. To start from plot parts,
 **Ctrl+click** a part or pick several rows in the **X-ray** before arming Become.
 
@@ -308,13 +317,13 @@ The bar names what is waiting and how to choose its destination:
   A hand-off has one destination object: pick parts of one plot, or group several objects
   first and pick their group in the X-ray.
 - Hover a plot and press **Alt+R** to open its X-ray while picking. Select rows, then press
-  **b** (**Become this**), either in the tree or its **a** menu. Axis rows include their
+  **b** (**Become**), either in the tree or its **a** menu. Axis rows include their
   spine, ticks and labels; expand them to choose only the spine. The menu names the source
   that is waiting.
 - **Escape** or **Cancel** leaves the pick without creating a transform. Changing slides
   also cancels it.
 
-A loose drawn destination between whole objects is **consumed**: its appearance becomes the source's After state
+A loose drawn destination between whole objects uses **Consume**: its appearance becomes the source's After state
 and the destination is removed. The source keeps its identity; one Undo restores both.
 Plots, images, groups and part sets use a **hand-off**: both objects stay in the slide,
 with the destination hidden before landing and the source hidden afterwards. For example,
@@ -325,7 +334,7 @@ Video clips cannot take part; use Change to move or resize them. Groups can be d
 choose one object or plot parts as the source.
 
 To work from the other end, select the destination object or plot parts and choose
-**Appear ▾ → Appear from object…**. The main **Appear** button still adds a normal entrance.
+**Appear ▾ → Appear from…**. The main **Appear** button still adds a normal entrance.
 The bar now names what **appears from…**; click its source, or **Ctrl+click** source parts.
 In the X-ray, **a**, then **5** (**Appear from…**) starts this same flow from the picked
 rows. Both routes create exactly the same hand-off.
@@ -344,11 +353,13 @@ plot already reveals every part, so it offers no remainder.
 
 **Destination.** The Animation inspector names both sides of a hand-off. **Pair ▾** chooses
 auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
-**↔ Swap direction** reverses the hand-off, including plot parts, in one Undo.
+**↔ Swap direction** reverses the hand-off, including plot parts, in one Undo. It keeps timing,
+styles and follower links. It refuses ghost births, group sources, missing outlines and a
+destination that already has a transform in this step. The command twin is `swap-become`.
 For whole loose objects, **Consume instead** asks for a second click before removing the
 destination. **Auto-animate the rest…** builds the destination plot's remaining parts after
 the hand-off; like the toast, it appears only for a hand-off to some of the plot's parts.
-**Become an object…** picks a different destination for this effect.
+**Become** picks a different destination for this effect.
 
 With a whole plot as the source, **From gallery…** keeps its frame and changes its content
 to another project plot. **Data from gallery…** and **Keep own data** in the Animation
@@ -360,7 +371,7 @@ same target's endpoint; a ghost can Become something at its birth step.
 From the command line or an agent, `become` can name destination parts with `--part` and
 source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:
 the source hides after landing and the destination stays on the slide. Whole drawn objects
-use **consume**, which replaces the source and removes the destination; `--mode` chooses
+use **Consume**, which replaces the source and removes the destination; `--mode` chooses
 either completion for whole objects. `appear-from` authors the same hand-off from the
 destination's side. `--pair` chooses how outlines match, and `--reveal` chooses flip or draw.
 See the [slide command reference](../../resources/flux-context/SLIDES.md) for syntax.
@@ -385,9 +396,9 @@ and easing yourself.
 Release note: existing zooming camera tracks now use the geometric Zoom path. Their mid-flight
 frames change; their start and end views are identical. There is no legacy-path switch.
 
-### Data-space transforms
+### Axis view: data-space transforms
 
-A plot's **data view** records its x/y limits and linear or log scales. A Change of this view
+**Axis view** edits a plot's data view, which records its x/y limits and linear or log scales. A Change of this view
 zooms, pans or rescales the data inside the plot; the plot's position and size can change at
 the same time. A ghost can therefore float away while zooming into a smaller data range.
 A saved view also applies in Figure mode, Paper embeds and exports.
@@ -398,7 +409,8 @@ positive data; an unsupported series keeps its original geometry and the animati
 Bars, boxes, violins and filled areas keep their original geometry in this version. Zooming out
 does not generate extra ticks; regenerate the plot to obtain a newly laid-out set of guides.
 
-Select a plot and use **Axis view** in the Object inspector, or **x view** / **y view** in
+A plot needs a manifest with series and calibrated axes. Unsupported axes stay disabled with
+a reason. Select a plot and use **Axis view** in the Object inspector, or **x view** / **y view** in
 its **F** menu. Enter limits in data units; empty fields use the generated limits shown as
 placeholders. Choose **linear** or **log**, or **Reset** both axes. At **After step N** the
 edit becomes a Change on that step, with one undo per edit. Scrubbing previews the axis glide.

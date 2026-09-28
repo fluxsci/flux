@@ -511,10 +511,18 @@ export async function ungroupTracksVerb(
 async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
   const slide = mustSlide(deck, slideId);
   const manifests = new Map<string, FluxPlotManifest | undefined>();
-  // Pre-states read preset/to only, which a style never supplies (slide/resolve.ts).
+  const add = async (el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } }) => {
+    if (!manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
+  };
+  for (const el of slide.elements) if (el.type === "plot") await add(el);
+  // Include effective pre-states and assets held only by future endpoints.
   for (let bi = 0; bi < slide.beats.length; bi++) for (const track of slide.beats[bi].tracks) {
     const el = transformPreState(slide, track.target, bi);
-    if (el?.type === "plot" && !manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
+    if (el?.type === "plot") await add(el);
+    if (track.to?.assetId) await add({ assetId: track.to.assetId, source: {
+      ...(typeof track.to.svgPath === "string" ? { svgPath: track.to.svgPath } : {}),
+      ...(typeof track.to.manifestPath === "string" ? { manifestPath: track.to.manifestPath } : {}),
+    } });
   }
   return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id) };
 }
@@ -873,17 +881,21 @@ async function resolveAssetSource(root: string, assetId: string): Promise<{ svgP
 }
 
 async function compileBecomeSlide(root: string, deck: Deck, slide: Slide) {
-  const manifests = new Map<string, FluxPlotManifest | undefined>();
-  for (const el of slide.elements) if (el.type === "plot") manifests.set(el.assetId, await readPlotManifest(root, el));
-  for (const beat of slide.beats) for (const track of beat.tracks) if (track.to?.assetId && !manifests.has(track.to.assetId)) {
-    const to = track.to;
-    manifests.set(to.assetId!, await readPlotManifest(root, { assetId: to.assetId!, source: {
-      ...(typeof to.svgPath === "string" ? { svgPath: to.svgPath } : {}),
-      ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
-    } }));
-  }
-  // Linked styles (F1) decide the timing the Become checks against; a style-less compile would misplace births.
-  return compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => manifests.get(id) });
+  return compileSlide(slide, deck.stage, await slideCompileOptions(root, deck, slide.id));
+}
+
+/** Headless twin of the inspector's Swap direction, with the same prepared geometry. */
+export async function swapBecomeVerb(root: string, deckId: string, slideId: string, trackId: string): Promise<{ trackId: string }> {
+  return mutateDeck(root, deckId, "swap_become", async deck => {
+    const slide = mustSlide(deck, slideId);
+    const options = await slideCompileOptions(root, deck, slideId);
+    await ensureDom();
+    const { payload } = await gatherPayload(root, { ...deck, slides: [slide] }, {
+      readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p),
+    });
+    const roots = new Map(Object.entries(payload.plots ?? {}).map(([id, plot]) => [id, preparePlot(plot.svg, plot.manifest).root]));
+    return { trackId: slideOps.swapBecome(deck, slideId, trackId, { ...options, plotRoot: id => roots.get(id) ?? undefined }) };
+  });
 }
 
 export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled"> & {

@@ -4,16 +4,18 @@
 import { harness } from "./lib/harness.mjs";
 import type { PresetName, Slide, Track } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import { PRESET_CATALOG, presetDef, defaultEasingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS } from "../src/lib/slide/presetCatalog";
+import { PRESET_CATALOG, defaultTimingFor, presetDef, defaultEasingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS } from "../src/lib/slide/presetCatalog";
 import { EASING_TOKENS } from "../src/lib/slide/curves";
 import { PRESETS, ENTER_PRESETS, EXIT_PRESETS, PRESET_WRAPPER_PROPS } from "../src/lib/slide/player/presets";
 import { familyOf } from "../src/lib/slide/family";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
-import { autoAnimatePlot, suggestTrack } from "../src/lib/slide/autobuild";
+import { autoAnimatePlot, canAutoAnimateRest, suggestTrack } from "../src/lib/slide/autobuild";
 import { isVideoCommand } from "../src/lib/slide/mediaTimeline";
-import { PRESET_COLOR, EDIT_PRESETS, EASINGS, presetLabel } from "../src/shell/modes/slide/animator/shared";
+import { PRESET_COLOR, chipLabel, refLabel, EDIT_PRESETS, EASINGS, presetLabel } from "../src/shell/modes/slide/animator/shared";
 import * as core from "../flux-core/index";
-import { PAIR_POLICIES, PAIR_POLICY_IDS } from "../src/lib/slide/targets";
+import { PAIR_POLICIES, PAIR_POLICY_IDS, isHandoff } from "../src/lib/slide/targets";
+import { beatDelayMs } from "../src/lib/slide/timing";
+import { ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS } from "../src/lib/slide/resolve";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
 
@@ -211,4 +213,44 @@ walk(path.join(repo, "src/lib/xray"));
 scanned.push(path.join(repo, "src/lib/Xray.svelte"), path.join(repo, "flux-core/slides.ts"), path.join(repo, "flux-core/verbs.ts"));
 h.eq(scanned.filter(f => f !== targetsFile).flatMap(f => pairLists(readFileSync(f, "utf8")).map(list => `${path.relative(repo, f)}: ${list}`)), [],
   "no literal pair-policy list outside slide/targets.ts (src/lib/slide/**, src/shell/**, X-ray, flux-core/{slides,verbs}.ts)");
+
+h.section("X1: one ID construction and one authoring vocabulary");
+function partIdLiterals(source: string): string[] {
+  // Paper caption placeholders close with __; they do not join two IDs.
+  const code = source.replace(/__CAP\$\{[^}]+\}__/g, "");
+  return [...code.matchAll(/\$\{[^}]+\}__(?!el:|group:)|\+\s*["']__["']/g)].map(m => m[0]);
+}
+h.eq(partIdLiterals('`${id}__${part}`; `${id}__axis.x`; `${id}__`; id + "__"').length, 4, "ID census catches compositions and prefix tests");
+h.eq(partIdLiterals('`${prefix}__el:${id}`; `${prefix}__group:${id}`; __CAP${index}__; partDomId(id, part)'), [], "export namespaces are distinct from part IDs");
+scanned.length = 0; walk(path.join(repo, "src"));
+h.eq(scanned.filter(f => f !== path.join(repo, "src/lib/plot/parse.ts")).flatMap(f => partIdLiterals(readFileSync(f, "utf8")).map(hit => `${path.relative(repo, f)}: ${hit}`)), [],
+  "all src/** part IDs use plot/parse.ts (including prefix decoding and X-ray rows)");
+const vocabularyFiles = ["docs/modes/slide.qmd", "docs/modes/figure.qmd", "docs/reference/shortcuts.qmd", "docs/SLIDE_TRANSFORMS.md", "resources/flux-context/SLIDES.md", "resources/flux-context/CLI-REFERENCE.md", "flux-core/verbs.ts", "src/lib/Xray.svelte"];
+const slideUi = scanned.filter(f => f.includes("src/shell/modes/slide/"));
+const retiredNames = /\b(?:Hand off|Handoff|Appear-from|Animate-like|axis-view|Become an object…|Become this|Become…|Appear from object…)\b|Become…|Appear from object…/g;
+h.eq([...('Hand off; Handoff; Appear-from; Animate-like; axis-view; Become…').matchAll(retiredNames)].length, 6, "vocabulary census detects retired displayed names");
+h.eq([...new Set([...slideUi, ...vocabularyFiles.map(f => path.join(repo, f))])].flatMap(f => [...readFileSync(f, "utf8").matchAll(retiredNames)].map(m => `${path.relative(repo, f)}: ${m[0]}`)), [], "UI, verb help and user docs share the canonical vocabulary");
+
+h.section("X1: shared defaults and semantic labels");
+h.eq(defaultTimingFor("camera"), { duration: 900, easing: "smooth" }, "camera commands retain their authored 900 ms / smooth policy");
+h.eq(defaultTimingFor("transform"), { duration: 600, easing: "smooth" }, "transform authoring derives the catalog default");
+h.eq(defaultTimingFor("fade"), { duration: 320, easing: "standard" }, "ordinary effects derive catalog timing");
+h.ok(core.defaultTimingFor === defaultTimingFor && core.beatDelayMs === beatDelayMs && core.isHandoff === isHandoff && core.canAutoAnimateRest === canAutoAnimateRest, "both engines expose the same helpers");
+const panel = readFileSync(path.join(repo, "src/shell/modes/slide/AnimatePanel.svelte"), "utf8");
+h.eq([...panel.matchAll(/\.\.\.defaultTimingFor\("camera"\)/g)].length, 2, "both real camera commands consume the catalog authoring policy");
+h.ok(!/case ["']o["']|focusField\(["']o["']\)/.test(panel), "the dead o shortcut is absent");
+h.ok(!readFileSync(path.join(repo, "src/shell/modes/slide/animator/shared.ts"), "utf8").includes("INFLUENCE_PRESETS"), "the obsolete influence list is absent");
+h.eq([beatDelayMs({}), beatDelayMs({ autoDelayMs: -3 }), beatDelayMs({ autoDelayMs: 123 })], [600, 0, 123], "player and exporters share the absent, clamped and authored beat delay");
+h.eq(INHERITED_STYLE_FIELDS, ANIM_STYLE_FIELDS.filter(f => f !== "preset"), "inheritance derives all style fields except preset");
+h.ok(isHandoff({ to: { become: { mode: "handoff", ref: { element: "p" } } } }) && !isHandoff({ to: {} }) && !isHandoff(null), "structural hand-off detection leaves preset/enabled policy to its caller");
+const labelSlide: Slide = { id: "labels", elements: [{ type: "plot", id: "p", name: "Plot", assetId: "a", x: 0, y: 0, width: 100, height: 100, rotation: 0 }], beats: [{ id: "base", tracks: [] }] };
+const labelManifest: FluxPlotManifest = { spec: "fluxplot", schemaVersion: "0.3.0", plotType: "test", svg: "fixture.svg", size: { width: 100, height: 100, unit: "px" }, axes: [], series: [], parts: { id: "plot", role: "plot", children: [{ id: "axis.x.spine", role: "line", label: "Horizontal spine" }] } };
+const tags = new Map<string, string>(), manifestFor = () => labelManifest;
+for (const binding of [{ part: "axis.x.spine" }, { parts: ["axis.x.spine"] }])
+  h.eq(chipLabel({ target: "p", preset: "fade", ...binding }, labelSlide, tags, {}, manifestFor), refLabel({ element: "p", parts: ["axis.x.spine"] }, labelSlide, manifestFor), "part and singleton-parts chips use the same semantic label");
+h.eq(chipLabel({ target: "p", preset: "fade" }, labelSlide, tags), refLabel({ element: "p" }, labelSlide), "ordinary whole-object chips share refLabel");
+const partial = { element: "p", parts: ["axis.x.spine"] };
+h.ok(canAutoAnimateRest(labelSlide, partial, labelManifest) && !canAutoAnimateRest(labelSlide, partial, undefined) && !canAutoAnimateRest(labelSlide, { element: "p" }, labelManifest) && !canAutoAnimateRest(labelSlide, { ...partial, group: "g" }, labelManifest), "both Auto-animate the rest surfaces require a manifest and a partial plot destination");
+labelSlide.beats[0].tracks.push({ target: "p", preset: "fade", disabled: true });
+h.ok(!canAutoAnimateRest(labelSlide, partial, labelManifest), "existing appearance work, including disabled work, prevents automatic replacement");
 await h.done();

@@ -286,7 +286,9 @@ box to make them bigger.
 
 ## Axis view
 
-Select a plot to edit **Axis view** in the Object inspector. Each axis has **min** and **max**
+Select a plot with a manifest containing series and calibrated axes to edit **Axis view** in
+the Object inspector. The controls are unavailable without axes and series; an unsupported axis
+is disabled with its reason. Each supported axis has **min** and **max**
 in data units and a **linear/log** scale. An empty field uses the generated plot's limit,
 shown as its placeholder. **Reset** restores both generated axes. Typing or wheeling previews
 the change; finishing the edit makes one undo step, and **Escape** cancels it.

@@ -9,7 +9,7 @@
 
 import type { FluxPlotManifest, PartNode } from "./types";
 import type { SemanticPlotElement, PartOverride } from "../types";
-import { drawablesUnder, buildPartIndex, partDomId } from "./parse";
+import { drawablesUnder, buildPartIndex, partDomId, partIdFromDom } from "./parse";
 import { inferRole, labelForPart } from "./tree";
 import { parseStyleAttr } from "./paint";
 import { plotDom } from "./store";
@@ -136,14 +136,13 @@ export function resolvePartId(
   elementId: string,
   index?: ReturnType<typeof buildPartIndex>,
 ): string | null {
-  const p = elementId + "__";
   const idx = index ?? buildPartIndex(manifest);
   let nearest: string | null = null;
   let el: Element | null = node;
   while (el) {
     const id = el.getAttribute?.("id");
-    if (id && id.startsWith(p)) {
-      const sem = id.slice(p.length);
+    const sem = id ? partIdFromDom(id, elementId) : null;
+    if (sem !== null) {
       if (nearest == null) nearest = sem;
       if (idx[sem]) return sem;
     }

@@ -26,12 +26,12 @@ import { buildPartTree, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
 import { hasTweenableSeries } from "../plot/project";
-import type { Beat, Track, PresetName, Deck } from "./types";
+import type { Beat, Track, PresetName, Deck, Slide, TargetRef } from "./types";
 import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
 import { presetDef } from "./presetCatalog";
-import { resolveTargetLeaves, targetPartIds } from "./targets";
+import { isHandoff, resolveTargetLeaves, targetPartIds, isWholeElementRef } from "./targets";
 import { resolveBeat } from "./resolve";
 
 // manifest animation name → player preset name
@@ -383,6 +383,13 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
   return auto.length;
 }
 
+/** Shared eligibility for the inspector and the post-Become toast. */
+export function canAutoAnimateRest(slide: Slide, ref: TargetRef, manifest: FluxPlotManifest | undefined): boolean {
+  const plot = slide.elements.find(e => e.id === ref.element);
+  return plot?.type === "plot" && !!manifest && !ref.group && !isWholeElementRef(ref)
+    && !slide.beats.some(b => b.tracks.some(t => t.target === plot.id && familyOf(t) === "appearance"));
+}
+
 /** Build the plot's remaining leaves after its hand-off, preserving manual
  * tracks and other plots' shared build phases. A partially excluded group
  * becomes an explicit part set so none of its remaining leaves are lost.
@@ -418,7 +425,7 @@ export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest:
     beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal" || keptIds.has(t.id));
     if (kept.length) generated.push({ ...beat, id: `auto-rest-${plotId}-${beat.autoPhase}`, autoTarget: plotId, tracks: kept, groups: undefined });
   }
-  const landing = slide.beats.findLast(b => b.tracks.some(t => !t.disabled && t.to?.become?.mode === "handoff" &&
+  const landing = slide.beats.findLast(b => b.tracks.some(t => !t.disabled && isHandoff(t) &&
     resolveTargetLeaves(t.to.become.ref, slide, manifestFor).some(r => r.elementId === plotId)));
   if (landing) {
     // Global auto phases precede manual steps. Move only this plot's generated

@@ -3,7 +3,7 @@ import { project, selection, partSelections, activeFigureId, selectedFrameId, vi
 import { storeTenant } from "../tenancy";
 import { plotManifests, plotGen } from "../plot/store";
 import { resolvePartId } from "../plot/partStyle";
-import { buildPartIndex } from "../plot/parse";
+import { buildPartIndex, partDomId } from "../plot/parse";
 import { boundsOf, registerTargetResolver, type TargetHit } from "./targetResolvers";
 import { describeTarget, type TargetRef } from "../project/targets";
 import type { Element as ModelElement, Figure } from "../types";
@@ -87,7 +87,7 @@ export function canvasAnnotationTargets(root: HTMLElement) {
           const partId = resolvePartId(manifest, node, e.id, index);
           if (partId) {
             const part = index[partId];
-            const partNode = root.ownerDocument.getElementById(`${e.id}__${partId}`) ?? wrapper;
+            const partNode = root.ownerDocument.getElementById(partDomId(e.id, partId)) ?? wrapper;
             hits.push(hitOf({ kind: "part", figureId: figure.id, elementId: e.id, partId, role: part?.role, label: part?.label ?? part?.series, elementName: e.name }, partNode));
           }
         }

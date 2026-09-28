@@ -3,6 +3,7 @@
 // Reads fig/ from disk via readFigSource — never touches the figure-editor store
 // (Flux_Paper_Plan.md B-data layer).
 
+import { partDomId } from "../../../../lib/plot/parse";
 import { get, writable } from "svelte/store";
 import { createFigureReferenceResolver } from "../../../../lib/figureReferences";
 import type { Asset, Element, Figure, FigureFamilyDef, Project } from "../../../../lib/types";
@@ -251,7 +252,7 @@ function plotMarkupFor(el: Element, ns?: string): string | undefined {
   if (!url || !url.startsWith("data:image/svg+xml")) return undefined;
   try {
     const text = new TextDecoder().decode(dataUrlToBytes(url));
-    const frame = ns ? { ...el, id: `${ns}__${el.id}` } : el;
+    const frame = ns ? { ...el, id: partDomId(ns, el.id) } : el;
     return buildPlotMarkup(text, frame, el.overrides, assetManifests[el.assetId]) ?? undefined;
   } catch (e) {
     console.warn(`paper: plot inline failed for asset "${el.assetId}" — drawing the raster fallback`, e);
@@ -643,7 +644,7 @@ export function captureFigureExport(source?: { figures: Record<string, Figure>; 
         if (!isCurrent()) return undefined;
         if (el.type !== "plot" || effectiveHidden(figure, el)) continue;
         const url = data[el.assetId];
-        if (url?.startsWith("data:image/svg+xml")) plots.set(el, buildPlotMarkup(new TextDecoder().decode(dataUrlToBytes(url)), (namespaced ? { ...el, id: `${PAPER_SVG_NS}__${el.id}` } : el), el.overrides, manifests[el.assetId]) ?? undefined);
+        if (url?.startsWith("data:image/svg+xml")) plots.set(el, buildPlotMarkup(new TextDecoder().decode(dataUrlToBytes(url)), (namespaced ? { ...el, id: partDomId(PAPER_SVG_NS, el.id) } : el), el.overrides, manifests[el.assetId]) ?? undefined);
         if (performance.now() - began >= 6) { await new Promise<void>(resolve => setTimeout(resolve, 0)); began = performance.now(); }
       }
       if (!isCurrent()) return undefined;

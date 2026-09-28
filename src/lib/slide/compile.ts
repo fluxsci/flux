@@ -11,7 +11,7 @@ import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger"
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
-import { targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, type ResolvedTarget } from "./targets";
+import { isHandoff, targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, type ResolvedTarget } from "./targets";
 import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
@@ -128,8 +128,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
   const births = ghostBirths(slide);
   for (const cue of cues) for (const ct of cue.tracks) {
-    const spec = ct.track.preset === "transform" ? ct.track.to?.become : undefined;
-    if (spec?.mode !== "handoff") continue;
+    if (ct.track.preset !== "transform" || !isHandoff(ct.track)) continue;
+    const spec = ct.track.to.become;
     const source = resolveTarget(trackRef(ct.track), ct.beat), destination = resolveTarget(spec.ref, ct.beat);
     const unborn = births.filter(b => !b.enabled || b.beat > ct.beat || b.beat === ct.beat && b.start > ct.start);
     let reason = !slide.elements.some(e => e.id === spec.ref.element) ? "Destination parts not found. Retarget this Become."
@@ -193,7 +193,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;
       const t = ct.ease.clamped(raw);
       const el = byId.get(track.target);
-      if (preset === "transform" && track.to?.become?.mode === "handoff") {
+      if (preset === "transform" && isHandoff(track)) {
         const flight = flights.get(ct);
         if (flight) {
           if (raw > 0) for (const key of flight.source) {

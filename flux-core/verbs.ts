@@ -3089,7 +3089,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-transform",
     cliRoot: "flags",
     summary:
-      "Add or update THE transform track for an element on a beat (max one per element per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade; explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade; explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3422,7 +3422,7 @@ export const VERBS: VerbDef[] = [
     cli: "become",
     cliRoot: "flags",
     summary:
-      "Become another object or plot parts at a build step. Loose drawn destinations default to consume: their evaluated endpoint replaces the source and they are deleted. Plots, images and part sets default to handoff: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot source, asset instead replaces content in the same frame; a pair without shared tweenable data requires force; semantic parts still bind locally, while ID-less plots crossfade.",
+      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot source, asset instead replaces content in the same frame; a pair without shared tweenable data requires force; semantic parts still bind locally, while ID-less plots crossfade.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3480,11 +3480,29 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "swap_become",
+    scope: "project",
+    cli: "swap-become",
+    cliRoot: "flags",
+    summary: "Swap direction of a hand-off Become. Retains both objects, authored timing, style and follower anchors; refuses group sources, ghost births, missing outlines and conflicting transforms.",
+    params: { deckId: z.string(), slideId: z.string(), trackId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "trackId", required: true },
+    ],
+    handler: (ctx, a) => core.swapBecomeVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId)),
+    render: {
+      human: r => ({ out: (r as { trackId: string }).trackId, err: "✓ swapped Become direction" }),
+      mcp: r => text(`swapped Become direction (track ${(r as { trackId: string }).trackId})`),
+    },
+  },
+  {
     name: "appear_from",
     scope: "project",
     cli: "appear-from",
     cliRoot: "flags",
-    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw.",
+    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as Become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw.",
     params: {
       deckId: z.string(),
       slideId: z.string(),

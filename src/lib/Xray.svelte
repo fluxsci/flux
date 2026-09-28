@@ -40,7 +40,7 @@
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
-  import { buildXrayTree, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { buildXrayTree, partRowId, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
@@ -248,7 +248,7 @@
     selectedIds = new Set();
     anchorId = null;
     if (parts.length && root && (root.kind === "element" || root.kind === "elements")) {
-      for (const ps of parts) revealRow(`part:${ps.elementId}__${ps.partId}`, true);
+      for (const ps of parts) revealRow(partRowId(ps.elementId, ps.partId), true);
     }
     requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
@@ -522,7 +522,7 @@
     { kind: "change", label: "Change", key: "4", hint: "transform — edit the object after this step" },
     { kind: "appear-from", label: "Appear from…", key: "5", hint: "Pick the object these rows come from" },
     { kind: "animate-like", label: "Animate like…", key: "6", hint: "Pick another object's effect in this step" },
-    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become this", key: "b", hint: "Hand off to the picked rows"}] : []),
+    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows"}] : []),
   ] as AnimateOption[];
   function animateTargets(kind?: XrayAnimateKind): XrayAnimateTarget[] {
     const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
@@ -781,7 +781,7 @@
             </div>
           {/if}
           <div class="actions">
-            {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become this <span class="hk">b</span></button>{/if}
+            {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
             {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
             <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (a)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>

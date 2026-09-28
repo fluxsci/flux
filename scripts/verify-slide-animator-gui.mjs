@@ -497,6 +497,12 @@ try {
     return f.get(f.slide.deckOverlay).slides.flatMap(s => s.beats.flatMap(b => b.tracks)).find(t => t.id === id);
   }, cameraId);
   const initialCamera = await cameraTrack();
+  const expectedCamera = await page.evaluate(() => {
+    const st = window.__flux.slide.currentDeck().stage;
+    return { target: "@camera", preset: "camera", to: { zoom: Math.max(1.05, Math.min(st.width / 120, st.height / 80) * .82), x: 360, y: 220 }, duration: 900, easing: "smooth" };
+  });
+  const { id: cameraGeneratedId, ...cameraBytes } = initialCamera;
+  ok(JSON.stringify(cameraBytes) === JSON.stringify(expectedCamera), "real Zoom command retains byte-identical camera authoring defaults and endpoint");
   ok(!Object.hasOwn(initialCamera.to, "path"), "new Zoom tracks store the default path as absence");
   await waitFor(page, () => !!document.querySelector('[aria-label="Camera path"]'), null, { timeout: 3000, label: "camera path toggle" });
   ok(await page.$eval('[aria-label="Camera path"] button:first-child', b => b.getAttribute("aria-pressed") === "true"), "camera Path defaults to Zoom");
@@ -524,6 +530,14 @@ try {
   await waitFor(page, () => !document.querySelector('[data-camera-duration]'), null, { timeout: 3000, label: "Zoom hides Fly suggestion" });
   const resetCamera = await cameraTrack();
   ok(!Object.hasOwn(resetCamera.to, "path") && resetCamera.to.x === initialCamera.to.x && resetCamera.to.zoom === initialCamera.to.zoom, "Zoom deletes path and preserves the endpoint");
+
+  await page.click('.animator button[title="Camera: pull back to the full slide"]');
+  const resetBytes = await page.evaluate(() => {
+    const f = window.__flux, d = f.slide.currentDeck(), s = d.slides.find(s => s.id === f.get(f.fig.activeFigureId));
+    const { id, ...track } = s.beats.at(-1).tracks.find(t => t.preset === "camera");
+    return { track, expected: { target: "@camera", preset: "camera", to: { zoom: 1, x: d.stage.width / 2, y: d.stage.height / 2 }, duration: 900, easing: "smooth" } };
+  });
+  ok(JSON.stringify(resetBytes.track) === JSON.stringify(resetBytes.expected), "real Reset command retains byte-identical camera timing and full-slide endpoint");
 
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));

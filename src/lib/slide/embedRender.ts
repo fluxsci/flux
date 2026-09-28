@@ -1,7 +1,7 @@
 import type { Deck } from "./types";
 import type { ExportPayload } from "./payload";
 import type { Figure } from "../types";
-import { preparePlot } from "../plot/parse";
+import { preparePlot, partIdFromDom } from "../plot/parse";
 import { buildPlotMarkup } from "../plot/inlineMarkup";
 import { figureToSvg } from "../export";
 import { compileSlide, type CompiledSlide } from "./compile";
@@ -86,7 +86,7 @@ export function evaluateSlide(payload: ExportPayload, step = 0, timeMs = Infinit
     if (!parts) return markup;
     const root = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
     for (const node of Array.from(root.querySelectorAll("[id]"))) {
-      const key = node.id.startsWith(`${el.id}__`) ? node.id.slice(el.id.length + 2) : "";
+      const key = partIdFromDom(node.id, el.id) ?? "";
       const state = parts[key];
       if (!state) continue;
       const styled = node as SVGElement;

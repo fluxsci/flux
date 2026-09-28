@@ -213,7 +213,7 @@ try {
   await sleep(150);
   ok(await page.evaluate(() => !!document.querySelector(".xray .animmenu")), "a opens the animate chooser");
   ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('5') && e.textContent.includes('Appear from…'))), "X-ray always offers 5 Appear from in Slide mode");
-  ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become this'))), "X-ray has no Become this item while no Become is armed");
+  ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become'))), "X-ray has no Become item while no Become is armed");
   await page.keyboard.press("1");
   await waitForGone(page, ".xray");
   ok(!(await page.$(".xray")), "choosing Appear closes the X-ray");
@@ -258,7 +258,7 @@ try {
   await waitFor(page, () => document.activeElement?.classList.contains('xray'));
   await clickRow('part','X axis');await page.keyboard.press('a');
   await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
-  ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('b') && e.textContent.includes('Become this'))), 'armed X-ray offers b Become this');
+  ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('b') && e.textContent.includes('Become'))), 'armed X-ray offers b Become');
   ok(await page.$eval('.xray .am-ttl', el => el.textContent.includes('becomes…')), 'armed X-ray menu header names a waiting source');
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');await waitForGone(page,'.xray');await page.keyboard.press('Escape');
   await page.evaluate(() => window.__flux.fig.selectOnly('xm-t'));
@@ -266,7 +266,7 @@ try {
   await waitFor(page, () => document.activeElement?.classList.contains('xray'));
   await clickRow('part','X axis');await page.keyboard.press('a');
   await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
-  ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become this')) && els.some(e => e.textContent.includes('Appear from…'))), 'cancelling removes b while preserving 5');
+  ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become')) && els.some(e => e.textContent.includes('Appear from…'))), 'cancelling removes b while preserving 5');
 
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);

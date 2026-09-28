@@ -312,6 +312,7 @@ export function figureToSvg(
       // Per-element wrapper id: makes every member individually addressable
       // from slides (Track part "el:<elementId>" — same grammar family as the
       // group wrappers). Plot PARTS inside keep their own <elId>__<partId> ids.
+      // Export element/group namespaces are separate from the plot-part DOM namespace.
       return markup ? `<g id="${esc(fig.id)}__el:${esc(n.el.id)}">${markup}</g>` : "";
     }
     if (n.def.hidden) return ""; // hidden group: whole subtree omitted, no empty wrapper

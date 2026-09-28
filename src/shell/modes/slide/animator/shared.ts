@@ -6,7 +6,7 @@ import type { Figure, Element } from "../../../../lib/types";
 import type { FluxPlotManifest, PartNode } from "../../../../lib/plot/types";
 import { labelForPart } from "../../../../lib/plot/tree";
 import { elementLabel } from "../../../../lib/xray/buildXrayTree";
-import { trackRef, targetPartIds } from "../../../../lib/slide/targets";
+import { isHandoff, trackRef, targetPartIds } from "../../../../lib/slide/targets";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
@@ -41,14 +41,6 @@ export function trackKindLabel(t: Track, deck: StyleContext = {}): string {
   if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}`;
   return presetLabel(t.preset ?? "fade");
 }
-export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
-  { name: "ease", in: 0, out: 0 },
-  { name: "subtle", in: 25, out: 25 },
-  { name: "medium", in: 50, out: 50 },
-  { name: "strong", in: 75, out: 75 },
-  { name: "extreme", in: 95, out: 95 },
-];
-
 /** Element type → a compact glyph for tree rows / chip labels (the figure
  *  element union — slides-are-figures). */
 export const EL_GLYPH: Record<string, string> = {
@@ -82,22 +74,10 @@ export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: Manif
 export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>, deck: StyleContext = {}, manifestFor: ManifestFor = () => undefined): string {
   t = resolveTrack(t, deck);
   if (t.target.startsWith("@")) return t.target.slice(1);
-  if (t.to?.become?.mode === "handoff") return `${refLabel(trackRef(t), slide, manifestFor, plotTags)} → ${refLabel(t.to.become.ref, slide, manifestFor, plotTags)}`;
-  if (t.parts?.length) return refLabel(trackRef(t), slide, manifestFor, plotTags);
-  const tag = plotTags.get(t.target);
-  const pre = tag ? `${tag} · ` : "";
-  if (t.part) {
-    const el = slide?.elements.find((e) => e.id === t.target);
-    return `${el?.name || tag || "Plot"} › ${t.part.split(".").join(" › ")}`;
-  }
-  const el = slide?.elements.find((e) => e.id === t.target);
-  if (!el) return pre + "missing"; // dangling target — tolerated + surfaced
-  if (t.ghostFrom) {
-    const source = slide?.elements.find(e => e.id === t.ghostFrom);
-    return `${source?.name || source?.type || "Missing source"} → ${el.name || "Ghost"}`;
-  }
-  if (el.type === "text") return pre + (el.name || el.text.split("\n")[0]?.slice(0, 60) || "Text");
-  return pre + ((el.name ?? el.type) || "elem");
+  if (isHandoff(t)) return `${refLabel(trackRef(t), slide, manifestFor, plotTags)} → ${refLabel(t.to.become.ref, slide, manifestFor, plotTags)}`;
+  // Ghost chips describe lineage; ordinary bindings share the semantic ref label.
+  if (t.ghostFrom) return `${refLabel({ element: t.ghostFrom }, slide, manifestFor, plotTags)} → ${refLabel(trackRef(t), slide, manifestFor, plotTags)}`;
+  return refLabel(trackRef(t), slide, manifestFor, plotTags);
 }
 
 /** A track whose element target no longer exists on the slide (the figure

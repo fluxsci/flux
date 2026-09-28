@@ -157,6 +157,7 @@ The established shared cores — extend these, don't duplicate them:
 | Semantic targets, hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
+| Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
@@ -192,8 +193,11 @@ missing standard files heal on open via contextHeal.ts / `flux context-init`, on
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
 `slides/<deckId>/deck.json` (0.6.0: shared figure editor elements plus slide-only video
 and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
-FAMILIES — appearances, media commands, and transforms (`to.state` = a sparse t2 patch folded
-left-to-right across beats; `Beat.groups` = collapsible animator lanes);
+FAMILIES — appearances, media commands, camera and transforms (`to.state` = a sparse t2 patch
+folded left-to-right across beats; `to.become` = Consume provenance or live hand-off refs);
+plot `view` stores axis domains/scales, `curve` stores timing, `animStyles` plus track
+`styleId`/`anchor` link settings and timing, `stagger.totalMs/curve/seed` distribute starts,
+`arc` bends box motion, camera `to.path` selects Zoom/Fly, and `Beat.groups` holds collapsible lanes;
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
 plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4/0.5` decks migrate via a
 version stamp at the normalizeDeck chokepoint (which also normalizes legacy morphs and drops unknown easing strings before validation); `0.4` adds ghost births so old players
@@ -873,6 +877,9 @@ Persistence invariants (all machine-checked — do not weaken):
   (for example, fade is 320 ms in playback and 300 ms in autobuild). Role/element
   recommendation policy stays in `autobuild.ts`. `defaultEasing` preserves smooth
   transforms, standard appearances/countUp/camera and unused linear media timing.
+  `defaultTimingFor` writes authoring defaults from the same catalog; explicit camera
+  commands retain their 900 ms/Smooth policy while omitted playback stays 320 ms/Standard.
+  Automatic beat delays use `timing.beatDelayMs` in Present, video and PowerPoint.
   `slide/curves.ts` owns the cached timing resolver, grammar and catalog; compatibility
   wrappers retain legacy CSS and the 1,001-point sampled snapshots byte for byte; off the
   grid the legacy functions overshot 1 by roundoff near t = 1, and the wrapper
@@ -1002,8 +1009,9 @@ Persistence invariants (all machine-checked — do not weaken):
   default to hand-off: `to.become={ref,mode:"handoff",pair,reveal}`, `to.state={}`, both model
   identities retained. Part sources keep their plot's props; the full ref keys the family law.
   The Animation inspector's Destination controls edit that same record through
-  `becomeTransform`. Swap reverses the source/destination refs in one `commitDeckLive`
-  transaction, keeping style/timing and rebinding followers; group destinations and
+  `becomeTransform`. `swapBecome` reverses source/destination refs atomically, with the
+  pane making one `commitDeckLive` transaction and `swap-become`/`swap_become` using the
+  same op. It keeps style/timing and rebinds followers; group destinations and
   ghost births cannot be reversed there. Consume uses inline two-click confirmation for
   whole loose targets. `autoAnimateExcept` shares the auto-build core, excludes landing
   leaves (including partial groups), and places the remaining plot phases after the
@@ -7917,8 +7925,7 @@ disabled projection restoration fails 7/54; restored implementation passes 54/54
 twice; recover guides from pristine source roots for chained transitions. Apply ghost part
 opacity before projection edge fading. Keep unchanged-view movement on the box-only path.
 E4 still owns id-keyed residual fades/topology changes; Axis view UI/verbs remain later
-packets. Native, bundle and startup qualification belong to the orchestrator. Changes are
-uncommitted; no user config, main checkout or external ledger was modified.
+packets. Native, bundle and startup qualification belong to the orchestrator. Integrated in Animation v2; no user config, main checkout or external ledger was modified.
 
 ### 2026-09-27 23:45 UTC — Animation v2 linked styles and timing anchors (Codex, `av2/F1`)
 **Work:** Added pure style/anchor resolution, shared authoring ops, portable style snapshots,
@@ -7948,7 +7955,7 @@ and the production build pass; model validation and player channel plumbing rema
 ### 2026-09-28 00:47 UTC — M1 integration QA (Codex, `av2/M1`)
 **Work:** Qualified committed 829d95a with 321 pure, 34 mapped UI/UI-extra and 13 mapped
 scale gates, both type checks and the production build. Independently executed the old easing
-module and repeated both required fault controls. Added uncommitted near-endpoint assertions:
+module and repeated both required fault controls. Added near-endpoint assertions:
 four failed because the compatibility wrapper clips legacy roundoff. The orchestrator decided
 the contract (wrapper = clamped curve, raw `fn` keeps the bytes) and rewrote the assertions to
 pin it. No product logic changed.
@@ -7966,15 +7973,6 @@ and export assertions fail without their corresponding fixes.
   ownership into the guide body. Runtime flights consume `CompiledSlide.handoffs` (C2).
 - Canvas SVG assertions must scope to `data-editor-element-id`: filmstrip copies may share
   semantic ids and are not evidence of editor presentation.
-
-### 2026-09-28 01:44 UTC — C1 integration QA (Codex, av2/C1)
-**Work:** Pinned the headless linked-style birth check with a real-handler red/green proof.
-Found and fixed a second F1/C1 seam: replacing an existing source transform validated its raw
-start instead of its retained effective timing. Added style/anchor/disabled-source cases,
-part-set family-law and CLI refusal checks, and raw-progress sampler probes; repeated the
-worker's baseline, overlap, embed-remap and PPTX fault controls. Qualification evidence and
-the ordinary-entrance versus ghost-birth contract question are recorded in the QA report.
-**Learnings:** Promoted resolved source timing and disabled-track inspection into the body.
 
 ### 2026-09-28 01:18 UTC — Animation v2 hand-off runtime (Codex, av2/C2)
 **Work:** Added the camera-local flight SVG, pure hand-off planning adapter, retained path/
@@ -8006,24 +8004,13 @@ No commits, main-checkout/config writes, native, bundle-tier or startup-tier run
 **Work:** Kept literal hand-off part ids when a static host has no manifest, while
 retaining manifest-backed validation. Removed the provisional player inventory;
 `CompiledSlide.handoffs` and its record type are now authoritative. Added compile
-and exported-player pins, including a refused overlapping landing. Changes remain
-uncommitted for the orchestrator.
+and exported-player pins, including a refused overlapping landing. These changes are integrated in Animation v2.
 **Learnings:** The approved dock context patch is present, but an idle warm can lose
 the race to first seek. Instrumented 40-point data-flight preparation cost 134.4 ms
 on that cold path (planning 5.7 ms, DOM build/insertion 1.4 ms); warm cache hits
 seek in 13.8–15.3 ms. The unchanged 100 ms first-seek gate still fails. Qualification
 stopped at this worker-level preparation/scheduling decision, per the packet.
 Temporary instrumentation was removed; no budget was changed.
-
-### 2026-09-28 03:23 UTC — Hand-off cold preparation (Codex, av2/C2P)
-**Work:** Profiled the real 40-point cold preview, then hoisted invariant source stations
-out of the seam candidate loop. Preparation fell from 130.4 to 14.0 ms; the unchanged
-startup gate passed three consecutive runs. Reverting the planner restores the first-seek
-failure (169.1 ms). Frozen old-planner pairs retain exact arrays and zero sampled deviation;
-a wrong-station fault fails their new geometry checks. No sampling reduction, lifecycle
-change, budget change or frame-path edit was needed. Changes remain uncommitted.
-**Learnings:** The dominant work was repeated source arc inversion during alignment,
-not parameterization or node allocation. Promoted the measured contract to §4.
 
 ### 2026-09-28 01:42 UTC — Animation v2 style and timing UI (Codex, `av2/F2`)
 **Work:** Resolved all Animator timing readers and drag previews; added family-scoped style
@@ -8048,6 +8035,15 @@ stop guards, subsequently restored byte-for-byte; both verification servers were
 Promoted the selector union trap above. No commits, native gate execution, real project or
 user config changes.
 
+### 2026-09-28 01:44 UTC — C1 integration QA (Codex, av2/C1)
+**Work:** Pinned the headless linked-style birth check with a real-handler red/green proof.
+Found and fixed a second F1/C1 seam: replacing an existing source transform validated its raw
+start instead of its retained effective timing. Added style/anchor/disabled-source cases,
+part-set family-law and CLI refusal checks, and raw-progress sampler probes; repeated the
+worker's baseline, overlap, embed-remap and PPTX fault controls. Qualification evidence and
+the ordinary-entrance versus ghost-birth contract question are recorded in the QA report.
+**Learnings:** Promoted resolved source timing and disabled-track inspection into the body.
+
 ### 2026-09-28 03:21 UTC — F2 integration table seam (Codex, `av2/F2`)
 **Work:** Consolidated the preset and linked-style rows duplicated by the M1/F2 rebase,
 retaining both packets' facts and verification references. Added a docs gate assertion
@@ -8056,21 +8052,21 @@ and green after consolidation. Product behavior is unchanged.
 **Learnings:** Merge shared-core table rows by domain, retaining the union of facts
 and gates; appending both variants breaks the table and creates competing references.
 
+### 2026-09-28 03:23 UTC — Hand-off cold preparation (Codex, av2/C2P)
+**Work:** Profiled the real 40-point cold preview, then hoisted invariant source stations
+out of the seam candidate loop. Preparation fell from 130.4 to 14.0 ms; the unchanged
+startup gate passed three consecutive runs. Reverting the planner restores the first-seek
+failure (169.1 ms). Frozen old-planner pairs retain exact arrays and zero sampled deviation;
+a wrong-station fault fails their new geometry checks. No sampling reduction, lifecycle
+change, budget change or frame-path edit was needed. Integrated on animation-v2.
+**Learnings:** The dominant work was repeated source arc inversion during alignment,
+not parameterization or node allocation. Promoted the measured contract to §4.
+
 ### 2026-09-28 03:29 UTC — F2 window-key integration seam (Codex, `av2/F2`)
 **Work:** Guarded Animate like's global key listener against non-Element event targets.
 The existing annotation gate exposed `target.closest is not a function`; a focused
 Animator assertion also failed when window-dispatched Escape could not cancel a pick.
 **Learnings:** Promoted the window-target contract into the keyboard traps above.
-
-### 2026-09-28 03:51 UTC — Animation v2 Destination inspector (Codex, `av2/D2`)
-**Work:** Added hand-off Destination controls, atomic reversal with style/anchor preservation,
-inline consume confirmation, semantic lane labels and camera framing of drilled parts.
-Added/exported `autoAnimateExcept` because the D1 helper was absent on this base; its remaining
-phases follow the landing and preserve manual/other-plot tracks. Animator 102, Transform GUI 31,
-Become GUI 20 and autobuild 34 checks pass; old UI/old helper and deliberately reversed Swap
-arguments fail, both type checks are 0/0, docs/path-map/build pass, and changes remain uncommitted.
-**Learnings:** Promoted the shared helper and inspector/geometry contracts to §4. Verification
-server polling worked around the host's exhausted file-watcher quota without product changes.
 
 ### 2026-09-28 03:33 UTC — Geometric camera paths (Codex, av2/M5)
 **Work:** Added the shared Zoom/pole and Fly sampler, 24-frame camera preset, live-FROM
@@ -8081,39 +8077,23 @@ The old readers fail 132 camera checks; the old UI and schema fail their new ass
 **Learnings:** Promoted T7's retirement into §9. Camera rebasing must invalidate cached
 segment samplers and release their native bindings; replacing frame zero alone is insufficient.
 M2 still owns unclamped easing and segment extrapolation at the explicitly marked seam.
-### 2026-09-28 04:05 UTC — Animation v2 curve plumbing (Codex, av2/M2)
-**Work:** Player specs and compiled tracks now share `ResolvedCurve`; box channels
-extrapolate while content/data channels clamp, controller phases read raw progress,
-and `staggerDelay` owns the three delay calculations. Real-player/compiler/export
-gates pin spring overshoot, native/sample agreement and clamped data inputs with
-old-code and injected-fault negative proofs; isolated pure 324/324, transforms 16/16,
-both checks 0/0 and build passed without undefined imports. The first scale cohort
-passed 13/13, but isolated dense glyph timing later failed at 33.3 ms p95 on BOTH M2
-and a base control; inbox GUI's two background-agent availability failures also
-reproduce at base, while watcher and pinned-caption failures passed isolated retries.
-**Learnings:**
-- Promoted T1–T4, inner-content/viewBox cancellation and unitless-zero interpolation
-  traps to §9, the channel seam to §2/§4, and additive `--changed` selection to §7;
-  compiler camera zoom remains clamped until M5.
-- An interrupted shell left overbroad runners alive in this session, including one
-  at the default :1420 port; no native attempts ran. Exclude those cohorts and confirm
-  runner completion before qualifying isolated scale measurements (§7).
 
-### 2026-09-28 04:45 UTC — M2 × M5 camera reconciliation (Claude Opus 5.5, QA `av2/M2`)
-**Work:** Reconciled the compiler's camera to the unclamped curve (`sampleCamera(…, ct.ease.fn(raw), …)`)
-and removed both packets' placeholder comments. The requested spring parity check was red:
-the player extrapolated the last of its 24 camera keyframes linearly (9.1048 px from the
-compiler for spring(0.5) 1→2; played zoom −0.034 for spring(0.8) 1→0.05). Out-of-range camera
-frames now sample the preset's exact `transformAt(u)`; max deviation 0.1243 px (the in-range
-keyframe residual). `verify-slide-camera` pins overshoot, positivity, parity and landing.
-**Learnings:** A keyframed approximation that is exact in 0–1 is not exact outside it; any
-spec whose path is non-linear in its keyframe values needs its own sampler for overshoot.
+### 2026-09-28 03:34 UTC — Animation v2 curve authoring and persistence (Codex, av2/M3)
+**Work:** Added the optional tagged curve schema, whole-group style inheritance and curve edits,
+curve-bearing templates and transform/ghost/Become options, catalog easing defaults, CLI grammar,
+beat-filtered Animate like, media-style stagger refusal and cross-beat anchor detachment.
+Updated model/manual docs and generated validators/manual. The slide suite passes 53/53;
+new model/ops/CLI assertions fail on the pre-M3 tree. The all-source easing census deliberately
+reports the pending F2 `animator/shared.ts` literal on this base; that file remains F2-owned.
+**Learnings:** The canonical schema/generator live in `src/lib/project`, with flux-core re-export
+shims. Cross-beat anchor detachment needs the source beat's manifests for semantic stagger tails;
+the pure ops accept `manifestFor` and headless move supplies it. Promoted both contracts to the body.
 
 ### 2026-09-28 03:50 UTC — Hand-off picking and destination-side authoring (Codex, `av2/D1`)
 **Work:** Unified Become, Appear from and Animate like picking; added canvas part accumulation,
 Pair, X-ray 5/b and destination highlights. Added the shared Auto-animate the rest helper,
 Design destination visibility, the parts-only Ghost policy fix, user docs and real-path gates.
-Changes remain uncommitted for the orchestrator; D2 owns inspector Destination/Swap controls.
+Integrated on animation-v2 with D2’s Destination/Swap controls.
 **Learnings:** Promoted pick ownership and the view-only Canvas/Design seams into §4. Shift was
 previously a deliberate deep-select exclusion; the pick surface needs an explicit override
 without changing Figure drag behavior. Generated remainder phases must follow the landing,
@@ -8124,16 +8104,6 @@ and shell gates pass; check/check:headless are 0 errors/0 warnings. Old-file and
 behavior runs prove the new assertions red, then green. Build passes with one unrelated
 `zoteroFields` ineffective dynamic-import warning, no undefined imports. Native/bundle/startup
 tiers remain the orchestrator's gates.
-
-### 2026-09-28 05:20 UTC — D1 integration: one helper, one label, one pair list (Claude QA, `av2/D1`)
-**Work:** Rebased D1 over D2, M5 and M2. Reconciled the two `autoAnimateExcept`s into D2's
-landed function plus D1's landing, anchor and beat-id behaviour; removed the duplicate flux-core
-export the rebase auto-merged. Added `PAIR_POLICIES`, replacing four literal pair lists. The
-pick UI now uses D2's shared `refLabel`, and Auto-animate the rest is hidden for whole-plot
-hand-offs. Each change was shown red, then green.
-**Learnings:** Parallel packets told to add the same helper will both add it, and git merges
-the two `export` lines silently: grep flux-core/index.ts for duplicate names after every rebase.
-Label and choice lists drift the same way — census them like presets and easings.
 
 ### 2026-09-28 03:50 UTC — Partial plot binding and Axis view authoring (Codex, av2/E2)
 
@@ -8169,27 +8139,53 @@ machine-wide EMFILE watcher failures, both passing serial retries. Final Axis vi
 registry, docs, offline export and timeline gates pass. The final GUI run used Vite polling
 to avoid the same watcher limit. No gate was loosened; no commits were made by this worker.
 
-### 2026-09-28 05:40 UTC — E2 integration: positional ids, rest frames, write-free static frames (Claude QA, `av2/E2`)
-**Work:** A real-UI probe of panels-a → b showed E4 pairing nodes by positional ids: stamped
-`n<k>` and matplotlib's `ytick_N` shift when a regenerated plot has fewer ticks, so the shared
-line crossfaded against a stranger and 8/52 destination parts stayed hidden at rest. Binding
-now ignores positional ids, keys wrappers by their semantic descendants, keeps a source-only
-wrapper that holds shared parts, strips shared parts from destination copies, and skips the
-guide edge fade on an asset change's rest frames. The attribute compiler regained its
-unchanged-value skip. Compiler/`become --asset` wording is "has no counterpart and fades".
-**Learnings:** Test rest frames against the endpoint's own static render in both directions
-(`verify-plot-binding`); fixture ids in a pure gate that bypass `preparePlot` hide id stamping.
+### 2026-09-28 03:51 UTC — Animation v2 Destination inspector (Codex, `av2/D2`)
+**Work:** Added hand-off Destination controls, atomic reversal with style/anchor preservation,
+inline consume confirmation, semantic lane labels and camera framing of drilled parts.
+Added/exported `autoAnimateExcept` because the D1 helper was absent on this base; its remaining
+phases follow the landing and preserve manual/other-plot tracks. Animator 102, Transform GUI 31,
+Become GUI 20 and autobuild 34 checks pass; old UI/old helper and deliberately reversed Swap
+arguments fail, both type checks are 0/0, docs/path-map/build pass, and the packet is integrated on animation-v2.
+**Learnings:** Promoted the shared helper and inspector/geometry contracts to §4. Verification
+server polling worked around the host's exhausted file-watcher quota without product changes.
 
-### 2026-09-28 03:34 UTC — Animation v2 curve authoring and persistence (Codex, av2/M3)
-**Work:** Added the optional tagged curve schema, whole-group style inheritance and curve edits,
-curve-bearing templates and transform/ghost/Become options, catalog easing defaults, CLI grammar,
-beat-filtered Animate like, media-style stagger refusal and cross-beat anchor detachment.
-Updated model/manual docs and generated validators/manual. The slide suite passes 53/53;
-new model/ops/CLI assertions fail on the pre-M3 tree. The all-source easing census deliberately
-reports the pending F2 `animator/shared.ts` literal on this base; that file remains F2-owned.
-**Learnings:** The canonical schema/generator live in `src/lib/project`, with flux-core re-export
-shims. Cross-beat anchor detachment needs the source beat's manifests for semantic stagger tails;
-the pure ops accept `manifestFor` and headless move supplies it. Promoted both contracts to the body.
+### 2026-09-28 04:05 UTC — Animation v2 curve plumbing (Codex, av2/M2)
+**Work:** Player specs and compiled tracks now share `ResolvedCurve`; box channels
+extrapolate while content/data channels clamp, controller phases read raw progress,
+and `staggerDelay` owns the three delay calculations. Real-player/compiler/export
+gates pin spring overshoot, native/sample agreement and clamped data inputs with
+old-code and injected-fault negative proofs; isolated pure 324/324, transforms 16/16,
+both checks 0/0 and build passed without undefined imports. The first scale cohort
+passed 13/13, but isolated dense glyph timing later failed at 33.3 ms p95 on BOTH M2
+and a base control; inbox GUI's two background-agent availability failures also
+reproduce at base, while watcher and pinned-caption failures passed isolated retries.
+**Learnings:**
+- Promoted T1–T4, inner-content/viewBox cancellation and unitless-zero interpolation
+  traps to §9, the channel seam to §2/§4, and additive `--changed` selection to §7;
+  compiler camera zoom remains clamped until M5.
+- An interrupted shell left overbroad runners alive in this session, including one
+  at the default :1420 port; no native attempts ran. Exclude those cohorts and confirm
+  runner completion before qualifying isolated scale measurements (§7).
+
+### 2026-09-28 04:37 UTC — Animation v2 easing UI (Codex, `av2/M4`)
+**Work:** Added CurveField catalog/graph/spacing controls, keep-arrival timing, clipboard grammar,
+owned preview/cancel history, cached rail sparklines, spring-bounce cascade and timing copy/paste.
+Extended the real Animator, authoring, cascade and surface gates; captured the user-doc screenshots.
+Updated the ghost-selection gate's retired easing-select assertion to require the curve button.
+**Learnings:** Curve edits must nest the deck operation inside the owned mutation to preserve
+one Undo and cancellation's prior redo state. Idle animation probes wait for autosave's dirty
+indicator transition before their 500 ms census; otherwise a finite save transition is mistaken
+for resting motion. Both contracts are now covered by the Animator gate.
+
+### 2026-09-28 04:45 UTC — M2 × M5 camera reconciliation (Claude Opus 5.5, QA `av2/M2`)
+**Work:** Reconciled the compiler's camera to the unclamped curve (`sampleCamera(…, ct.ease.fn(raw), …)`)
+and removed both packets' placeholder comments. The requested spring parity check was red:
+the player extrapolated the last of its 24 camera keyframes linearly (9.1048 px from the
+compiler for spring(0.5) 1→2; played zoom −0.034 for spring(0.8) 1→0.05). Out-of-range camera
+frames now sample the preset's exact `transformAt(u)`; max deviation 0.1243 px (the in-range
+keyframe residual). `verify-slide-camera` pins overshoot, positivity, parity and landing.
+**Learnings:** A keyframed approximation that is exact in 0–1 is not exact outside it; any
+spec whose path is non-linear in its keyframe values needs its own sampler for overshoot.
 
 ### 2026-09-28 04:45 UTC — M3 integration QA (Claude, av2/M3)
 **Work:** Rebased M3 over C2P, F2 and D2. F2 and M3 each brought an easing-token census to
@@ -8204,33 +8200,15 @@ so a curve-only track plays the family default. The Animator's easing `<select>`
 influence fields assign fields directly and leave an own `curve` in place; route them through
 `setTrackCurve` when CurveField replaces them (M4), before curves become audible.
 
-### 2026-09-28 04:37 UTC — Animation v2 easing UI (Codex, `av2/M4`)
-**Work:** Added CurveField catalog/graph/spacing controls, keep-arrival timing, clipboard grammar,
-owned preview/cancel history, cached rail sparklines, spring-bounce cascade and timing copy/paste.
-Extended the real Animator, authoring, cascade and surface gates; captured the user-doc screenshots.
-Updated the ghost-selection gate's retired easing-select assertion to require the curve button.
-**Learnings:** Curve edits must nest the deck operation inside the owned mutation to preserve
-one Undo and cancellation's prior redo state. Idle animation probes wait for autosave's dirty
-indicator transition before their 500 ms census; otherwise a finite save transition is mistaken
-for resting motion. Both contracts are now covered by the Animator gate.
-
-
-### 2026-09-28 06:47 UTC — M4 integration seams and red-first QA (Codex, `av2/M4`)
-**Work:** Applied the orchestrator's M3 decisions alongside M4: unknown easing migration,
-pre-M3 ghost disappearance bytes, curve-preserving Library apply, pane/cascade reset parity,
-manifest-aware GUI moves/copies, and follower detachment. Added real-pane pins (including
-keep-arrival after a linked reset), a generated pre-M3 ghost fixture, and a duration-width pin.
-All changes remain uncommitted for orchestrator review; QA evidence lives in the worktree
-and `/tmp/flux-m4-qa`, with Electron verification and git mutations reserved for the orchestrator.
-**Learnings:**
-- Keep-arrival must measure the resolved curve after the authoring op: clearing a local
-  override can restore a linked spring, so the input patch is not the resulting curve.
-- The ghost original's disappearance uses an authored `smooth`, independent of the
-  ordinary fadeOut default. Its full normalized deck bytes are pinned to pre-M3 `fa47852`.
-- Read popup bounds before screenshotting, and use `captureBeyondViewport: false`.
-  Capturing outside the viewport can fire resize placement and mask clipping after
-  dynamic controls/errors grow. M4 has this packet-owned placement bug; the QA gate
-  now exposes it and the proposed ResizeObserver fix is pending orchestrator approval.
+### 2026-09-28 05:20 UTC — D1 integration: one helper, one label, one pair list (Claude QA, `av2/D1`)
+**Work:** Rebased D1 over D2, M5 and M2. Reconciled the two `autoAnimateExcept`s into D2's
+landed function plus D1's landing, anchor and beat-id behaviour; removed the duplicate flux-core
+export the rebase auto-merged. Added `PAIR_POLICIES`, replacing four literal pair lists. The
+pick UI now uses D2's shared `refLabel`, and Auto-animate the rest is hidden for whole-plot
+hand-offs. Each change was shown red, then green.
+**Learnings:** Parallel packets told to add the same helper will both add it, and git merges
+the two `export` lines silently: grep flux-core/index.ts for duplicate names after every rebase.
+Label and choice lists drift the same way — census them like presets and easings.
 
 ### 2026-09-28 05:36 UTC — Total stagger and box arcs (Codex, av2/M6)
 **Work:** Added shared Total/distributed/seeded-random stagger, box arcs, authoring/CLI/style
@@ -8244,6 +8222,42 @@ length produces a quarter-length apex, which the geometry gate pins; Total norma
 symmetric ranks without changing legacy Each arithmetic. M4 mounts CurveField at the marked
 inspector slot; M3 owns the separate Track.curve schema.
 
+### 2026-09-28 05:40 UTC — E2 integration: positional ids, rest frames, write-free static frames (Claude QA, `av2/E2`)
+**Work:** A real-UI probe of panels-a → b showed E4 pairing nodes by positional ids: stamped
+`n<k>` and matplotlib's `ytick_N` shift when a regenerated plot has fewer ticks, so the shared
+line crossfaded against a stranger and 8/52 destination parts stayed hidden at rest. Binding
+now ignores positional ids, keys wrappers by their semantic descendants, keeps a source-only
+wrapper that holds shared parts, strips shared parts from destination copies, and skips the
+guide edge fade on an asset change's rest frames. The attribute compiler regained its
+unchanged-value skip. Compiler/`become --asset` wording is "has no counterpart and fades".
+**Learnings:** Test rest frames against the endpoint's own static render in both directions
+(`verify-plot-binding`); fixture ids in a pure gate that bypass `preparePlot` hide id stamping.
+
+### 2026-09-28 06:23 UTC — M6 preset integration QA (Codex, `av2/M6`)
+**Work:** Found that a saved Arc survived in the preset payload but disappeared when the existing library applied a transform preset. Forwarded it through `setTransform` and pinned real Save, Apply and one-step Undo in the animator gate (125/126 before the fix, 126/126 after). Added screenshots for Each/Total and Random/reshuffle/Undo. The conflicting arc-apex requirements remain an orchestrator decision; no motion formula was changed.
+**Learnings:** Extended the preset row in §2 to cover the explicit GUI reader as well as the reusable payload.
+
+### 2026-09-28 06:35 UTC — M6 raw SVG binding integration QA (Codex, `av2/M6`)
+**Work:** Forwarded raw progress through the shared static/plot content bindings. E2's attribute cache had retained eased midpoint switching after M6 corrected the model. Added compiler/player and real Chromium regressions: the old binding switches line caps three times across 60 non-monotone samples; the corrected binding switches once. Added a maxRank scan detector (15 negative assertions when the old per-frame scan is restored), and real mixed-selection Arc/Total cascade coverage/screenshots.
+**Learnings:** Model interpolation passing does not prove painted attributes follow the same channel; verify both through exported createPlayer. Named-color fallback still reads eased progress in the packet's own tween logic and is escalated, along with the conflicting arc-apex requirement.
+
+### 2026-09-28 06:47 UTC — M4 integration seams and red-first QA (Codex, `av2/M4`)
+**Work:** Applied the orchestrator's M3 decisions alongside M4: unknown easing migration,
+pre-M3 ghost disappearance bytes, curve-preserving Library apply, pane/cascade reset parity,
+manifest-aware GUI moves/copies, and follower detachment. Added real-pane pins (including
+keep-arrival after a linked reset), a generated pre-M3 ghost fixture, and a duration-width pin.
+Integrated on animation-v2 at `91dc34a`, including the approved ResizeObserver fix.
+QA evidence lives in the worktree and `/tmp/flux-m4-qa`; Electron qualification belongs to the orchestrator.
+**Learnings:**
+- Keep-arrival must measure the resolved curve after the authoring op: clearing a local
+  override can restore a linked spring, so the input patch is not the resulting curve.
+- The ghost original's disappearance uses an authored `smooth`, independent of the
+  ordinary fadeOut default. Its full normalized deck bytes are pinned to pre-M3 `fa47852`.
+- Read popup bounds before screenshotting, and use `captureBeyondViewport: false`.
+  Capturing outside the viewport can fire resize placement and mask clipping after
+  dynamic controls/errors grow. The QA gate exposes this placement bug; the approved
+  ResizeObserver fix landed with M4 at `91dc34a`.
+
 ### 2026-09-28 14:33 UTC — M6 integration over M3/M4 (Codex, av2-M6)
 **Work:** Resolved the M6 worker conflicts by retaining timing-curve group inheritance,
 anchor/follower detachment, camera paths and plot-view verbs alongside stagger modes,
@@ -8256,10 +8270,25 @@ need the same raw argument through `prepareColorLerp`; the compiler and outline 
 thread it too. The integration includes f6c88ba's render/transform callback plumbing
 as the prerequisite for this fix; its Library and additional QA changes remain pending.
 
-### 2026-09-28 06:23 UTC — M6 preset integration QA (Codex, `av2/M6`)
-**Work:** Found that a saved Arc survived in the preset payload but disappeared when the existing library applied a transform preset. Forwarded it through `setTransform` and pinned real Save, Apply and one-step Undo in the animator gate (125/126 before the fix, 126/126 after). Added screenshots for Each/Total and Random/reshuffle/Undo. The conflicting arc-apex requirements remain an orchestrator decision; no motion formula was changed.
-**Learnings:** Extended the preset row in §2 to cover the explicit GUI reader as well as the reusable payload.
-
-### 2026-09-28 06:35 UTC — M6 raw SVG binding integration QA (Codex, `av2/M6`)
-**Work:** Forwarded raw progress through the shared static/plot content bindings. E2's attribute cache had retained eased midpoint switching after M6 corrected the model. Added compiler/player and real Chromium regressions: the old binding switches line caps three times across 60 non-monotone samples; the corrected binding switches once. Added a maxRank scan detector (15 negative assertions when the old per-frame scan is restored), and real mixed-selection Arc/Total cascade coverage/screenshots.
-**Learnings:** Model interpolation passing does not prove painted attributes follow the same channel; verify both through exported createPlayer. Named-color fallback still reads eased progress in the packet's own tween logic and is escalated, along with the conflicting arc-apex requirement.
+### 2026-09-28 15:29 UTC — Animation v2 coherence close (Codex, av2/X1)
+**Work:** Centralized part IDs, semantic labels, authoring timing, hand-off detection,
+Auto-animate eligibility, beat delay and deck-aware compile options. Extracted atomic
+`swapBecome` with CLI/MCP twins, retaining style/curve/anchor/group fields and one Undo.
+Aligned UI/help/manual vocabulary and the Slide/Figure/shortcut/transform docs with 0.6.0;
+regenerated the manual and MCP golden, removed dead influence choices and the O shortcut,
+and ordered only the Animation v2 log entries. M6 had already removed the duplicate curve
+paragraph and stale M2 deferral.
+**Verification:** Pure 328/328; slide selection 76/76; mapped UI 77/78, UI-extra 5/5,
+scale 13/13 and presence 11/11. All 67 non-electron Paper gates passed. Both type checks
+are 0 errors/0 warnings; build and build:cli passed (the unrelated zoteroFields dynamic-import
+warning remains). Old-code controls fail for ID/naming/default/label drift, the missing swap
+op/verb and deck-local manifest omission; current gates pass. The one mapped UI failure is
+`verify-inbox-gui`: the background recipient is missing in two of 88 checks, identically on
+base `9822a62` with all X1 product sources reverted. No Inbox code or gate was changed.
+Electron/startup/bundle qualification remains the orchestrator's responsibility. Evidence:
+`test-results/runs/2026-09-28T15-06-51-490Z-3` (pure),
+`test-results/runs/2026-09-28T15-07-33-328Z-3` (slides), and `/tmp/flux-x1/qualification.json`.
+**Learnings:** Camera authoring (900 ms/smooth) and omitted playback timing (320 ms/standard)
+are distinct catalog policies. Keep a swap's admission on private beats so a refused shared
+op cannot publish partial changes. Compare mapped gates per tier: the runner's `--changed`
+adds all mapped tiers, including native gates a worker must delegate.

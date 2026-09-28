@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { defaultTimingFor } from "../../../lib/slide/presetCatalog";
   import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
 
   import { animatorAnnotationTargets } from "./animator/annotationTargets";
@@ -71,12 +72,12 @@
   const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
   const appearItems = $derived<MenuItem[]>([
     {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
-    {label: "Appear from object…", hint: "Pick the object this selection comes from", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
+    {label: "Appear from…", hint: "Pick the object this selection comes from", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
   ]);
   const transformItems = $derived<MenuItem[]>([
     { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },
     { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
-    { label: "Become…", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
+    { label: "Become", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
   ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
   // so the timeline stays legible; single-plot slides get no tags.
@@ -151,7 +152,7 @@
       case "x": if (!mod) { e.preventDefault(); toggleSelectedDisabled(); } break;
       case "[": e.preventDefault(); moveSelectedToAdjacentBeat(-1); break;
       case "]": e.preventDefault(); moveSelectedToAdjacentBeat(1); break;
-      case "p": case "d": case "t": case "g": case "e": case "o":
+      case "p": case "d": case "t": case "g": case "e":
         if (!mod) { e.preventDefault(); focusField(e.key); }
         break;
     }
@@ -262,7 +263,7 @@
     if (!d0 || !slide) return;
     const st = d0.stage;
     if (kind === "reset") {
-      addBeatWith("Reset view", { target: "@camera", preset: "camera", to: { zoom: 1, x: st.width / 2, y: st.height / 2 }, duration: 900, easing: "smooth" });
+      addBeatWith("Reset view", { target: "@camera", preset: "camera", to: { zoom: 1, x: st.width / 2, y: st.height / 2 }, ...defaultTimingFor("camera") });
       return;
     }
     const el = sel.length ? slide.elements.find((e) => e.id === sel[0]) : null;
@@ -278,7 +279,7 @@
     }
     const w = $partSelections.length ? Math.max(1, box.w) : box.w, h = $partSelections.length ? Math.max(1, box.h) : box.h;
     const zoom = Math.max(1.05, Math.min(st.width / w, st.height / h) * 0.82);
-    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: box.x + box.w / 2, y: box.y + box.h / 2 }, duration: 900, easing: "smooth" });
+    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: box.x + box.w / 2, y: box.y + box.h / 2 }, ...defaultTimingFor("camera") });
   }
   function addBeat() {
     const sid = slide?.id;

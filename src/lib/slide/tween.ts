@@ -16,6 +16,7 @@
 // paths, incompatible plots) is reported by contentPlan().
 // ---------------------------------------------------------------------------
 
+import { isHandoff } from "./targets";
 import type { Element, SemanticPlotElement, PartOverride, PlotView, VectorNode } from "../types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
@@ -620,7 +621,7 @@ export function warmSlideMorphs(slide: Slide, geometry?: GeometryCtx): void {
   for (let bi = 0; bi < slide.beats.length; bi++) {
     for (const track of slide.beats[bi].tracks) {
       if (track.disabled || track.keyframes || familyOf(track) !== "transform") continue;
-      if (track.to?.become?.mode === "handoff") {
+      if (isHandoff(track)) {
         // Plot hosts pass their scoped pristine roots/manifests. Geometry does
         // not read camera coordinates, so its warm compile needs no stage size.
         if (geometry) {

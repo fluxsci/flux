@@ -27,7 +27,7 @@ export async function verifyDestinations(page,ok) {
     });f.slide.selectSlide(sid);f.slide.activeBeat.set(1);return {sid,tid};
   });
   await paint(page);await select(page,ids.tid);await click(page,'.inspector-tabs button','Animation');
-  ok(await page.$eval('.dest .dv',e=>e.textContent.trim())==='Hands off to Plot 1 › X axis spine, Y axis spine · pair: auto','Destination names both human-readable spine parts');
+  ok(await page.$eval('.dest .dv',e=>e.textContent.trim())==='hands off to Plot 1 › X axis spine, Y axis spine · pair: auto','Destination names both human-readable spine parts');
   ok(await page.$eval(`.lane-row[data-track-id="${ids.tid}"] .track-label`,e=>e.textContent.includes('path 1 → Plot 1 › X axis spine + 1')&&e.textContent.includes('Transform · Become')),'hand-off lane names both sides and Transform · Become');
   ok(!await page.$('.props .delta')&&!await page.$('[aria-label="Animation plot part"]'),'hand-off hides Δ and the transform part selector');
   for(const pair of ['spatial','order','tile','auto','data']) {
@@ -83,7 +83,7 @@ export async function verifyDestinations(page,ok) {
   ok(JSON.stringify(await read(page))===consumeBefore&&!!await page.$('.dest .warn'),'first Consume click only arms inline confirmation');
   await click(page,'.dest button','Cancel');
   ok(JSON.stringify(await read(page))===consumeBefore,'Cancel leaves the hand-off untouched');
-  await click(page,'.dest button','Consume instead');await click(page,'.dest button','Confirm consume');
+  await click(page,'.dest button','Consume instead');await click(page,'.dest button','Confirm Consume');
   s=await read(page);t=track(s);
   ok(!s.elements.some(e=>e.id==='d2-ellipse')&&t.to.state.type==='ellipse'&&t.to.become.mode==='consume','confirmed Consume removes the ellipse and writes its type into the endpoint');
   ok(await page.$eval('.dest .dv',e=>e.textContent.trim())==='Became an ellipse (consumed)','consumed Destination states the completion explicitly');

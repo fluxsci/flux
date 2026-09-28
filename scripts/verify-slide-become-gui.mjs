@@ -25,11 +25,11 @@ try{
   // --- the menu is ONE class of action with three ways ---------------------------------
   await clickText('.animator .actions button','Transform ▾');await page.waitForSelector('.menu button[role="menuitem"]');
   const items=await page.$$eval('.menu button[role="menuitem"]',els=>els.map(e=>e.firstChild.textContent.trim()));
-  check(items.join('|')==='Change|Ghost…|Become…','the Transform menu offers exactly Change · Ghost… · Become…');
+  check(items.join('|')==='Change|Ghost…|Become','the Transform menu offers exactly Change · Ghost… · Become');
   check(!(await page.$$eval('.animator .bar button',els=>els.some(e=>/Data morph|Ghost transform…/.test(e.textContent)))),'the old Change / Ghost transform… / Data morph… buttons are gone');
   await page.keyboard.press('Escape');await paint();
   // --- Become by clicking an existing object ---------------------------------------------
-  await openTransform('Become…');
+  await openTransform('Become');
   let state=await read();
   check(!!await page.$('.become-bar')&&state.destination.kind==='after'&&state.beat===1&&state.slide.beats.length===2,'Become arms a pick bar, creates the first step and checks it out After');
   check(state.selected[0]==='src-line'&&await page.$eval('.become-bar .become-msg',e=>e.textContent.includes('Arrow')),'the bar names the source; the source stays selected while picking');
@@ -57,7 +57,7 @@ try{
   await page.keyboard.press('Escape');await paint();
   check(!(await page.$('.become-bar'))&&JSON.stringify((await read()).slide)===before,'Escape cancels the pick with no document change');
   // --- Become by DRAWING the target with the Rect tool ----------------------------------------
-  await openTransform('Become…');
+  await openTransform('Become');
   await clickText('.toolbar .tools button','Rect');
   const stage=await page.$eval('.canvas-wrap',e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,w:r.width,h:r.height};});
   await page.mouse.move(stage.x+stage.w*0.55,stage.y+stage.h*0.6);await page.mouse.down();await page.mouse.move(stage.x+stage.w*0.7,stage.y+stage.h*0.8,{steps:6});await page.mouse.up();await paint();await paint();
@@ -66,7 +66,7 @@ try{
   check(!!drawn&&!('type' in drawn.to.state)&&drawn.to.state.width>100&&drawn.to.state.fill!=='#879a39'&&state.slide.elements.length===2&&!(await page.$('.become-bar')),'drawing a rect while armed makes "Other" become it (same kind → an ordinary patch); the drawn rect is consumed');
   check(state.display.find(e=>e.id==='other').type==='rect'&&Math.abs(state.display.find(e=>e.id==='other').width-drawn.to.state.width)<0.01,'the canvas shows the drawn geometry as the After state');
   // --- the source itself is never a target; a video never takes part ---------------------------
-  await openTransform('Become…');
+  await openTransform('Become');
   const self=await center('other');await page.mouse.click(self.x,self.y);await paint();
   check(!!await page.$('.become-bar'),'clicking the source itself keeps the pick armed');
   await page.keyboard.press('Escape');await paint();
@@ -74,8 +74,8 @@ try{
   await page.evaluate(()=>{const f=window.__flux,sid=f.get(f.fig.activeFigureId);f.slide.commitDeckLive(d=>{const s=f.slideOps.slideById(d,sid);s.elements.push({id:'late',type:'ellipse',name:'Late',x:500,y:250,width:80,height:80,rotation:0,fill:'#4385be',stroke:'none',strokeWidth:0});});});await paint();
   await page.evaluate(()=>{const f=window.__flux;f.slide.activeBeat.set(1);const s=f.slide.composedSlide(f.get(f.fig.activeFigureId));f.slide.selTrackIds.set([s.beats[1].tracks.find(t=>t.target==='src-line').id]);});await paint();
   await clickText('.inspector-tabs button','Animation');
-  await clickText('.props .dacts button','Become an object…');
-  check(!!await page.$('.become-bar')&&(await read()).selected[0]==='src-line','the pane\'s Become an object… arms the pick for that transform\'s target');
+  await clickText('.props .dacts button','Become');
+  check(!!await page.$('.become-bar')&&(await read()).selected[0]==='src-line','the pane\'s Become arms the pick for that transform\'s target');
   const late=await center('late');await page.mouse.click(late.x,late.y);await paint();await paint();state=await read();
   const repointed=state.slide.beats[1].tracks.find(t=>t.target==='src-line');
   check(repointed.to.state.type==='ellipse'&&repointed.to.state.fill==='#4385be'&&!state.slide.elements.some(e=>e.id==='late')&&state.slide.beats[1].tracks.filter(t=>t.target==='src-line').length===1,'re-pointing replaces the endpoint on the SAME track (still one transform per object per step)');
@@ -140,14 +140,14 @@ try{
     await page.click('.xray [data-rid="part:bh-plot__axis.x.spine"]');
     await page.keyboard.down(mod);await page.click('.xray [data-rid="part:bh-plot__axis.y.spine"]');await page.keyboard.up(mod);await paint();
   };
-  await seed();await openTransform('Become…');await pickPart('axis.x.spine');state=await read();
+  await seed();await openTransform('Become');await pickPart('axis.x.spine');state=await read();
   check(JSON.stringify(handoff(state)?.to.become.ref)==='{"element":"bh-plot","parts":["axis.x.spine"]}','Ctrl-click on a spine creates a part hand-off');
   check(state.destination.kind==='after'&&state.presentation.hiddenElementIds.includes('bh-path')&&state.presentation.partStates['bh-plot']['axis.x.spine'].visible,'After checkout reveals the spine and hides the path');
   check(await page.$eval('[data-editor-element-id="bh-path"]',e=>Number(e.getAttribute('opacity'))===.25),'the canvas paints the hidden source as a Show hidden ghost');
   await clickText('.edit-switch button','Design');state=await read();
   check(!state.presentation.hiddenElementIds.includes('bh-path')&&state.presentation.partStates['bh-plot']?.['axis.x.spine']?.visible===false,'Design restores the source and hides the future landing spine');
   check(await page.$eval('[data-editor-element-id="bh-plot"]',e=>[...e.querySelectorAll('[id]')].find(n=>n.id.endsWith('__axis.x.spine')).style.opacity==='0.25'),'the canvas paints the future spine as a Show hidden ghost in Design');
-  await seed();await openTransform('Become…');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);state=await read();
+  await seed();await openTransform('Become');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);state=await read();
   check(!handoff(state)&&!!await page.$('.become-bar')&&await page.$$eval('.presentation-target',els=>els.length===2),'Shift+Ctrl-click accumulates two highlighted spines without committing');
   await page.screenshot({path:'test-results/slide-become-two-spines.png'});
   await page.keyboard.press('Enter');await paint();state=await read();
@@ -157,18 +157,24 @@ try{
   const laneC=await page.$eval(`.lane-row[data-track-id="${handoff(state).id}"] .track-label`,e=>e.firstChild.textContent.trim());
   check(laneC==='Path 1 → Plot 1 › X axis spine + 1'&&await page.evaluate(()=>[...document.querySelectorAll('.toast')].some(el=>el.textContent.includes('‹Path 1› hands off to ‹Plot 1 › X axis spine + 1›'))),'the toast and the lane share one ref label ("Plot 1 › X axis spine + 1")');
   const pairBytes=JSON.stringify(state.slide);
-  await seed();await openTransform('Become…');await clickObject('bh-plot');state=await read();
+  await seed();await openTransform('Become');await clickObject('bh-plot');state=await read();
   check(JSON.stringify(handoff(state)?.to.become.ref)==='{"element":"bh-plot"}'&&state.slide.elements.some(e=>e.id==='bh-plot'),'plain plot click hands off to the whole plot and retains it');
   check(await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].reverse().find(el=>/hands off to ‹Plot 1›/.test(el.textContent));return !!toast&&![...toast.querySelectorAll('button')].some(el=>el.textContent.includes('Auto-animate the rest'));}),'a whole-plot hand-off toast offers no Auto-animate the rest… (nothing is left to build)');
-  await seed();await pickPart('peaches.box');await openTransform('Become…');
+  await seed();await pickPart('peaches.box');await openTransform('Become');
   const barSource=await page.$eval('.become-bar .become-msg strong',e=>e.textContent.trim());
   await clickObject('bh-rect');state=await read();
   check(await page.$eval(`.lane-row[data-track-id="${handoff(state).id}"] .track-label`,(e,src)=>e.firstChild.textContent.trim()===`${src} → Rect 1`,barSource),'the pick bar names a part-set source exactly as its lane does');
   check(handoff(state)?.target==='bh-plot'&&JSON.stringify(handoff(state)?.parts??[handoff(state)?.part])==='["peaches.box"]'&&handoff(state)?.to.become.ref.element==='bh-rect','a drilled box is the source of a part-level hand-off to a rect');
-  await clickText('.props .dacts button','Become an object…');await clickObject('bh-rect2');state=await read();
+  await clickText('.props .dacts button','Become');await clickObject('bh-rect2');state=await read();
   const retargeted=state.slide.beats[1].tracks.filter(t=>t.target==='bh-plot');
   check(retargeted.length===1&&JSON.stringify(retargeted[0].parts??[retargeted[0].part])==='["peaches.box"]'&&retargeted[0].to.become.ref.element==='bh-rect2'&&state.slide.elements.some(e=>e.id==='bh-rect2'),'inspector retargeting preserves the part source and the hand-off completion');
-  await seed();await openTransform('Become…');await openPlotXray();await pickRows();
+  const beforeSwap=JSON.stringify(state.slide), oldTrack=retargeted[0];
+  await clickText('.props .dacts button','↔ Swap direction');state=await read();
+  const swapped=state.slide.beats[1].tracks.find(t=>t.to?.become?.ref.element==='bh-plot');
+  check(swapped?.target==='bh-rect2'&&JSON.stringify(swapped.to.become.ref.parts)==='["peaches.box"]'&&swapped.duration===oldTrack.duration&&state.tracks[0]===swapped.id,'the real Swap direction button uses the shared op, reverses part refs and selects the new lane');
+  await page.click('[aria-label="Undo"]');await paint();
+  check(JSON.stringify((await read()).slide)===beforeSwap,'one GUI Undo restores the exact pre-swap slide');
+  await seed();await openTransform('Become');await openPlotXray();await pickRows();
   check(!handoff(await read()),'X-ray row picking never prematurely confirms the canvas pick');
   await page.keyboard.press('a');await paint();
   check(await page.$eval('.xray .am-ttl',e=>e.textContent.includes('Path 1')),'the destination menu names the waiting source');
@@ -176,7 +182,7 @@ try{
   check(JSON.stringify((await read()).slide)===pairBytes,'X-ray b writes exactly the two-spine canvas hand-off bytes');
   await seed();await page.evaluate(()=>window.__flux.fig.selectOnly('bh-plot'));await openPlotXray();await pickRows();
   await page.keyboard.press('Escape');await paint();
-  await page.click('[aria-label="Appear options"]');await clickText('.menu button[role="menuitem"]','Appear from object…');
+  await page.click('[aria-label="Appear options"]');await clickText('.menu button[role="menuitem"]','Appear from…');
   check(await page.$eval('.become-msg',e=>e.textContent.includes('appears from')&&e.textContent.includes('+ 1')),'Appear from names the destination part set');
   // The path's midpoint is on the apex; its bounding-box center is empty.
   const pathPoint=await page.$eval('[data-editor-element-id="bh-path"] path',el=>{const p=el.getPointAtLength(el.getTotalLength()*.5),q=new DOMPoint(p.x,p.y).matrixTransform(el.getScreenCTM());return{x:q.x,y:q.y};});
@@ -185,14 +191,14 @@ try{
   await seed();await page.evaluate(()=>window.__flux.fig.selectOnly('bh-plot'));await openPlotXray();await pickRows();await page.keyboard.press('a');await page.keyboard.press('5');await paint();
   await page.mouse.click(pathPoint.x,pathPoint.y);await paint();
   check(JSON.stringify((await read()).slide)===pairBytes,'X-ray a then 5 authors the same hand-off from its destination');
-  await seed();await openTransform('Become…');await pickPart('axis.x.spine',true);const cancelBytes=JSON.stringify((await read()).slide);await page.keyboard.press('Escape');await paint();
+  await seed();await openTransform('Become');await pickPart('axis.x.spine',true);const cancelBytes=JSON.stringify((await read()).slide);await page.keyboard.press('Escape');await paint();
   check(!await page.$('.become-bar')&&JSON.stringify((await read()).slide)===cancelBytes,'Escape discards accumulated picks without a track or document change');
-  await seed();await openTransform('Become…');await page.select('[aria-label="Become pairing"]','data');await pickPart('axis.x.spine');
+  await seed();await openTransform('Become');await page.select('[aria-label="Become pairing"]','data');await pickPart('axis.x.spine');
   check(handoff(await read())?.to.become.pair==='data','Pair by data is written on the hand-off record');
-  await seed();await openTransform('Become…');await clickObject('bh-rect',true);await clickObject('bh-rect2',true);await page.keyboard.press('Enter');await paint();
+  await seed();await openTransform('Become');await clickObject('bh-rect',true);await clickObject('bh-rect2',true);await page.keyboard.press('Enter');await paint();
   check(!handoff(await read())&&!!await page.$('.become-bar')&&await page.evaluate(()=>document.body.textContent.includes('Group these objects first')),'multiple whole objects are refused with the group-first hint');
   await page.keyboard.press('Escape');
-  await seed();await openTransform('Become…');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);await clickText('.become-bar button','Become');await paint();
+  await seed();await openTransform('Become');await pickPart('axis.x.spine',true);await pickPart('axis.y.spine',true);await clickText('.become-bar button','Become');await paint();
   await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].find(el=>el.textContent.toLowerCase().includes('x axis spine + 1'));const button=[...toast.querySelectorAll('button')].find(el=>el.textContent.includes('Auto-animate the rest'));button.click();});await paint();state=await read();
   const landingIndex=state.slide.beats.findIndex(b=>b.id==='bh-step'),generated=state.slide.beats.flatMap((b,i)=>b.tracks.filter(t=>t.generatedBy==='auto-reveal').map(t=>({t,i})));
   check(generated.length>0&&generated.every(({t,i})=>i>landingIndex&&!['axis.x.spine','axis.y.spine'].includes(t.part)),'toast Auto-animate the rest generates later reveals without the landed spines');

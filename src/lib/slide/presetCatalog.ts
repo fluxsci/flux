@@ -17,6 +17,9 @@ export interface PresetDef {
   /** Plot build recommendations historically use different durations from
    *  tracks with omitted timing. Preserve both when authoring a build. */
   autoBuildDurationMs?: number;
+  /** Explicit camera commands historically author a longer, smooth move.
+   * Omitted playback timing still uses defaultDurationMs/defaultEasing. */
+  authoringTiming?: { duration: number; easing: EasingToken };
 }
 
 // Editable entries are in the Animator's established select order.
@@ -39,7 +42,7 @@ export const PRESET_CATALOG: Readonly<Record<PresetName, PresetDef>> = {
   move: { name: "move", family: "appearance", phase: "spatial", label: "move", colour: "#4385be", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: false, legacy: true },
   scale: { name: "scale", family: "appearance", phase: "spatial", label: "scale", colour: "#4385be", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: false, legacy: true },
   rotate: { name: "rotate", family: "appearance", phase: "spatial", label: "rotate", colour: "#4385be", wrapperProps: ["transform"], defaultDurationMs: 320, defaultEasing: "standard", editable: false, legacy: true },
-  camera: { name: "camera", family: "camera", phase: "camera", label: "Camera", colour: "#a02f6f", wrapperProps: [], defaultDurationMs: 320, defaultEasing: "standard", editable: false },
+  camera: { name: "camera", family: "camera", phase: "camera", label: "Camera", colour: "#a02f6f", wrapperProps: [], defaultDurationMs: 320, defaultEasing: "standard", editable: false, authoringTiming: { duration: 900, easing: "smooth" } },
   transform: { name: "transform", family: "transform", phase: "transform", label: "Transform", colour: "#66800b", wrapperProps: [], defaultDurationMs: 600, defaultEasing: "smooth", editable: false },
   videoStart: { name: "videoStart", family: "media", phase: "media", label: "Start video", colour: "#3aa99f", wrapperProps: [], defaultDurationMs: 0, defaultEasing: "linear", editable: false },
   videoPause: { name: "videoPause", family: "media", phase: "media", label: "Pause video", colour: "#d0a215", wrapperProps: [], defaultDurationMs: 0, defaultEasing: "linear", editable: false },
@@ -58,4 +61,10 @@ export const EDITABLE_PRESETS: readonly PresetName[] = Object.values(PRESET_CATA
 
 export function defaultEasingFor(preset?: string): EasingToken {
   return presetDef(preset).defaultEasing;
+}
+
+/** Timing written by authoring commands, distinct from omitted playback timing. */
+export function defaultTimingFor(preset?: string): { duration: number; easing: EasingToken } {
+  const def = presetDef(preset);
+  return def.authoringTiming ?? { duration: def.defaultDurationMs, easing: defaultEasingFor(preset) };
 }

@@ -24,6 +24,7 @@
 // project figures + overlay. One core, two engines, no drift.
 // ---------------------------------------------------------------------------
 
+import { isHandoff } from "./targets";
 import { writable, get } from "svelte/store";
 import type { Asset, Element, Id, Project } from "../types";
 import type { Deck, Slide, Track } from "./types";
@@ -432,7 +433,7 @@ export function refreshBeatDisplay(): void {
   };
   // Design keeps ordinary appearances editable, but a hand-off's future
   // destination must not appear beside its source before the landing.
-  if (!frame && canonical?.beats.some(b => b.tracks.some(t => t.to?.become?.mode === "handoff"))) {
+  if (!frame && canonical?.beats.some(b => b.tracks.some(t => isHandoff(t)))) {
     const compiled = compileSlide(canonical, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
     const initial = compiled.sample(0).presentation;
     for (const handoff of compiled.handoffs) for (const target of handoff.destination) {

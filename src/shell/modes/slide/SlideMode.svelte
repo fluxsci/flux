@@ -40,7 +40,7 @@
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
   import { hasPartBinding, isWholeElementRef, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
-  import { autoAnimateExcept } from "../../../lib/slide/autobuild";
+  import { autoAnimateExcept, canAutoAnimateRest } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { isExitPreset } from "../../../lib/slide/presetCatalog";
   import { addAppearanceTracks } from "../../../lib/slide/animateSelection";
@@ -118,7 +118,7 @@
   import PropertiesPane from "./animator/PropertiesPane.svelte";
   import GhostCopyControls from "./animator/GhostCopyControls.svelte";
   import GhostTransformDialog from "./GhostTransformDialog.svelte";
-  import { ghostBirth, objectLabel } from "./animator/ghostEditing";
+  import { ghostBirth } from "./animator/ghostEditing";
   import { refLabel as sharedRefLabel } from "./animator/shared";
   import { hoverTrackId } from "./animator/animatorState";
   import DeckPicker from "./DeckPicker.svelte";
@@ -772,7 +772,7 @@
     if(!request||!picks.length)return;
     if(picks.length!==1)throw new Error("Choose one plot for the next data state.");
     const incoming=await readIncomingPlot(picks[0].abs);
-    if(incoming.el.type!=="plot")throw new Error("Choose an SVG plot for a data morph.");
+    if(incoming.el.type!=="plot")throw new Error("Choose an SVG plot for a data-only Become.");
     if(!get(importerOpen) || morphFor !== request) return;
     if(get(deckOverlay)?.id!==request.deckId || get(activeFigureId)!==request.slideId) return;
     const source=incoming.el.source;let addedId:string|undefined;let selectedBeat=0;
@@ -1166,7 +1166,7 @@
       if (result.ref) {
         const plot = s.elements.find(e => e.id === dest.element), beatId = s.beats[pick.beatIndex].id, deckId = activeDeckId;
         // A whole-plot hand-off reveals every part already: nothing is left to build.
-        const canAuto = plot?.type === "plot" && !dest.group && !isWholeElementRef(dest) && !s.beats.some(b => b.tracks.some(t => t.target === plot.id && familyOf(t) === "appearance"));
+        const canAuto = plot?.type === "plot" && canAutoAnimateRest(s, dest, get(plotManifests)[plot.assetId]);
         const leaves = compiled.resolveTarget(dest, pick.beatIndex).flatMap(t => t.partIds ?? (plot?.type === "plot" ? buildPartTree(get(plotManifests)[plot.assetId])?.targets ?? [] : []));
         pushToast("success", `‹${refLabel(source)}› hands off to ‹${refLabel(dest)}›`, {ttl: canAuto ? 10000 : 3500, ...(canAuto ? {action: {label: "Auto-animate the rest…", run: () => {
           if (activeDeckId !== deckId || $activeFigureId !== s.id) return;
@@ -1684,7 +1684,7 @@
       {#if selectedUnbornGhosts.length && (inspectorTab === "object" || inspectorTab === "animation")}
         <section class="ghost-unborn" aria-label="Ghost destination">
           {#each selectedUnbornGhosts as ghost (ghost.id)}
-            <strong>{activeSlide ? objectLabel(activeSlide, ghost.id) : "Ghost"}</strong>
+            <strong>{activeSlide ? refLabel({ element: ghost.id }) : "Ghost"}</strong>
             <p>Starts at step {ghost.beatIndex} · {activeSlide?.beats[ghost.beatIndex]?.label || "Step"}. Its destination is editable after that step.</p>
             <button onclick={() => editGhostDestination(ghost.id)}>{ghost.track.disabled ? "Enable and edit destination" : "Edit destination"}</button>
           {/each}
@@ -1795,7 +1795,7 @@
 <PresetPicker />
 
 {#if ghostDialog && activeSlide}
-  <GhostTransformDialog source={objectLabel(activeSlide, ghostDialog.sourceId)} step={`step ${ghostDialog.beatIndex} · ${activeSlide.beats[ghostDialog.beatIndex]?.label || "New step"}`} initialOriginal={ghostDialog.original} onCreate={createGhosts} onClose={() => ghostDialog = null}/>
+  <GhostTransformDialog source={refLabel({ element: ghostDialog.sourceId })} step={`step ${ghostDialog.beatIndex} · ${activeSlide.beats[ghostDialog.beatIndex]?.label || "New step"}`} initialOriginal={ghostDialog.original} onCreate={createGhosts} onClose={() => ghostDialog = null}/>
 {/if}
 {/if}
 

@@ -10,7 +10,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
-import { loadDeck, saveDeck, become as becomeHeadless } from "../flux-core/slides";
+import { loadDeck, saveDeck, compileDeckSlide, become as becomeHeadless } from "../flux-core/slides";
+import { ensureDom } from "../flux-core/index";
+import { preparePlot } from "../src/lib/plot/parse";
 import * as ops from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
 import { familyOf } from "../src/lib/slide/family";
@@ -238,6 +240,51 @@ const compiledFor = (deck: Deck) => compileSlide(deck.slides[0], deck.stage, { p
   } finally { unregister(); setStoreTenant(null); }
 }
 
+console.log("── shared Swap direction ──");
+await ensureDom();
+const plotRoot = preparePlot(await fs.readFile("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.svg", "utf8"), manifest).root;
+const swapOptions = { plotManifest: () => manifest, plotRoot: () => plotRoot };
+{
+  const { deck, slideId, beats } = deckWith([line("src"), plot(), rect("box"), rect("follower-box")]);
+  const result = ops.becomeTransform(deck, slideId, beats[1], "src", spines, { compiled: compiledFor(deck), pair: "order", reveal: "draw" })!;
+  const beat = deck.slides[0].beats[1], original = beat.tracks[0];
+  const style = ops.addAnimStyle(deck, { name: "Flight", family: "transform", track: { preset: "transform", duration: 750, easing: "linear", arc: .4 } });
+  ops.linkTrackStyle(deck, slideId, result.trackId, style.id);
+  original.curve = { kind: "spring", bounce: .25 }; original.groupId = "tg";
+  beat.groups = [{ id: "tg", label: "Linked", collapsed: true }];
+  ops.setAnimation(deck, slideId, beats[1], { id: "leader", target: "box", preset: "fade", duration: 100 });
+  ops.setTrackAnchor(deck, slideId, result.trackId, { trackId: "leader", edge: "end", offsetMs: 30 });
+  ops.setAnimation(deck, slideId, beats[1], { id: "follower", target: "follower-box", preset: "fadeOut", duration: 50, anchor: { trackId: result.trackId, edge: "end", offsetMs: 20 } });
+  const how = ({ id, target, part, parts, selector, to, ...rest }: typeof original) => rest;
+  const before = structuredClone(deck);
+  const id = ops.swapBecome(deck, slideId, result.trackId, swapOptions);
+  const swapped = deck.slides[0].beats[1].tracks.find(t => t.id === id)!;
+  ok(swapped.target === "plot" && JSON.stringify(swapped.parts) === JSON.stringify(spines.parts) && swapped.to?.become?.ref.element === "src", "the exported swap op reverses complete source/destination refs");
+  ok(JSON.stringify(how(swapped)) === JSON.stringify(how(original)) && swapped.to?.become?.pair === "order" && swapped.to.become.reveal === "draw", "swap preserves style, explicit curve, anchor, group, pairing and reveal without materializing inherited fields");
+  ok(deck.slides[0].beats[1].tracks.find(t => t.id === "follower")?.anchor?.trackId === id && JSON.stringify(deck.slides[0].beats[1].groups) === JSON.stringify(beat.groups), "swap rebinds followers and retains track groups");
+  ok(validateDeckFile(deck).length === 0 && compiledFor(deck).handoffs.length === 1, "swapped deck validates and compiles through the real shared compiler");
+  const store = await import("../src/lib/slide/store"), fig = await import("../src/lib/store");
+  const { setStoreTenant } = await import("../src/lib/tenancy");
+  setStoreTenant("slide"); const unregister = fig.registerHistoryCompanion(store.overlayHistoryCompanion());
+  try {
+    store.loadDeckModel(before);
+    const bytes = JSON.stringify(store.currentDeck()), count = fig.historyStats().past;
+    store.commitDeckLive(d => ops.swapBecome(d, slideId, result.trackId, swapOptions));
+    ok(fig.historyStats().past === count + 1, "Swap direction adds exactly one live undo entry");
+    fig.undo(); ok(JSON.stringify(store.currentDeck()) === bytes, "one live undo restores the exact deck before Swap direction");
+  } finally { unregister(); setStoreTenant(null); }
+  for (const variant of ["group", "ghost", "occupied", "outline", "ordinary"] as const) {
+    const candidate = structuredClone(before), t = candidate.slides[0].beats[1].tracks[0];
+    if (variant === "group") t.to!.become!.ref.group = "g";
+    if (variant === "ghost") t.ghostFrom = "box";
+    if (variant === "occupied") ops.setTransform(candidate, slideId, beats[1], "plot", { ref: { parts: spines.parts }, state: {} });
+    if (variant === "ordinary") delete t.to!.become;
+    const bytes = JSON.stringify(candidate);
+    assert.throws(() => ops.swapBecome(candidate, slideId, t.id!, variant === "outline" ? { ...swapOptions, plotRoot: () => preparePlot('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"/>', manifest).root } : swapOptions), /Groups cannot|creates a ghost|already has a transform|no outline|Choose a hand-off/);
+    ok(JSON.stringify(candidate) === bytes, `${variant}: refused swap is atomic`);
+  }
+}
+
 console.log("── legacy morph normalizes ──");
 {
   const raw = { schemaVersion: "0.4.0", id: "old", title: "Old", created: "", modified: "", stage: { width: 640, height: 360 }, theme: "flux-dark", defaults: { transition: "none", buildEasing: "smooth", advance: "click" }, assets: [],
@@ -288,6 +335,24 @@ try {
   }
   await saveDeck(root, deck);
   const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "flux-cli.ts", ...args, "--root", root], { cwd: repo, encoding: "utf8", env: { ...process.env, FLUX_NO_MIGRATE: "1" }, timeout: 30000 });
+  // Only the deck-local manifest exists: both headless compile paths must find it.
+  const localPlot = { ...plot(), assetId: "deck-only", source: undefined };
+  const local = deckWith([line("src"), localPlot]);
+  local.deck.id = "local-become";
+  local.deck.assets.push({ id: "deck-only", name: "Deck-only plot", kind: "svg", path: "assets/deck-only.svg", naturalWidth: 640, naturalHeight: 480 });
+  const localDir = path.join(root, "slides", local.deck.id, "assets");
+  await fs.mkdir(localDir, { recursive: true });
+  for (const suffix of ["svg", "fluxplot.json"]) await fs.copyFile(`scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.${suffix}`, path.join(localDir, `deck-only.${suffix}`));
+  await saveDeck(root, local.deck);
+  const localPath = path.join(root, "slides", local.deck.id, "deck.json"), localBytes = await fs.readFile(localPath, "utf8");
+  await assert.rejects(() => becomeHeadless(root, local.deck.id, local.slideId, local.beats[1], "src", { targetId: "plot", parts: ["missing.part"] }), /Destination parts not found/);
+  ok(await fs.readFile(localPath, "utf8") === localBytes, "deck-local manifest is used by real Become validation before any mutation");
+  const localResult = await becomeHeadless(root, local.deck.id, local.slideId, local.beats[1], "src", { targetId: "plot", parts: spines.parts });
+  const localCompiled = await compileDeckSlide(root, await loadDeck(root, local.deck.id), local.slideId);
+  ok(localCompiled.handoffs.length === 1 && !localCompiled.issues.length, "the shared headless compile helper resolves valid deck-local plot parts");
+  const localSwap = run("swap-become", local.deck.id, local.slideId, localResult.trackId);
+  ok(localSwap.status === 0 && (await loadDeck(root, local.deck.id)).slides[0].beats[1].tracks[0].target === "plot", `real swap reads deck-local SVG geometry: ${localSwap.stderr}`);
+  await saveDeck(root, deck);
   const cli = run("become", deck.id, slideId, beats[1], "src", "--target", "tgt", "--duration", "800");
   ok(cli.status === 0, `CLI succeeds: ${cli.stderr}`);
   const trackId = cli.stdout.trim();
@@ -342,9 +407,23 @@ try {
   ok(sourcePartTwin.status === 0, `real appear-from --source-part succeeds: ${sourcePartTwin.stderr}`);
   const twinDeck = await loadDeck(root, live.deck.id); twinDeck.modified = partDeck.modified;
   ok(JSON.stringify(twinDeck) === JSON.stringify(partDeck), "destination-side part-source authoring retains exactly the existing hand-off bytes");
+  // Real CLI swap uses the same op and preserves the HOW bytes of the source.
+  const swapInput = await loadDeck(root, live.deck.id);
+  const swapSource = swapInput.slides[0].beats[1].tracks.find(t => t.target === "src")!;
+  const expectedSwap = structuredClone(swapInput);
+  const expectedId = ops.swapBecome(expectedSwap, live.slideId, swapSource.id!, swapOptions);
+  const swapCli = run("swap-become", live.deck.id, live.slideId, swapSource.id!);
+  ok(swapCli.status === 0, `real CLI swap-become succeeds: ${swapCli.stderr}`);
+  const swappedDeck = await loadDeck(root, live.deck.id), actualId = swapCli.stdout.trim();
+  const actualSwap = swappedDeck.slides[0].beats[1].tracks.find(t => t.id === actualId)!;
+  actualSwap.id = expectedId; swappedDeck.modified = expectedSwap.modified;
+  ok(JSON.stringify(swappedDeck) === JSON.stringify(expectedSwap), "real CLI swap and exported GUI op write identical decks apart from generated ID and writer time");
+  const swapPath = path.join(root, "slides", live.deck.id, "deck.json"), swapBytes = await fs.readFile(swapPath, "utf8");
+  const missingSwap = run("swap-become", live.deck.id, live.slideId, "missing");
+  ok(missingSwap.status !== 0 && /Choose a hand-off/.test(missingSwap.stderr) && await fs.readFile(swapPath, "utf8") === swapBytes, "real CLI swap refusal reports the reason and leaves persisted bytes untouched");
   const forced = run("become", live.deck.id, live.slideId, live.beats[2], "box", "--target", "plot", "--mode", "consume");
   ok(forced.status === 0 && !(await loadDeck(root, live.deck.id)).slides[0].elements.some(e => e.id === "plot"), "real --mode consume retains the whole-plot consume route");
-  const { appearFromTransform, becomeTransform, handoffTargetsOverlap } = await import("../flux-core/index");
-  ok(appearFromTransform === ops.appearFrom && becomeTransform === ops.becomeTransform && typeof handoffTargetsOverlap === "function", "flux-core exposes the same pure authoring functions and resolver helpers");
+  const { appearFromTransform, becomeTransform, handoffTargetsOverlap, swapBecome } = await import("../flux-core/index");
+  ok(appearFromTransform === ops.appearFrom && becomeTransform === ops.becomeTransform && swapBecome === ops.swapBecome && typeof handoffTargetsOverlap === "function", "flux-core exposes the same pure authoring functions and resolver helpers");
   console.log(`##VERIFY## ${JSON.stringify({ script: "verify-slide-become", ok: true, checks })}`);
 } finally { await fs.rm(root, { recursive: true, force: true }); }

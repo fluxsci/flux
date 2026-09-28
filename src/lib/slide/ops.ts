@@ -25,13 +25,14 @@ import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, 
 import { patchStagger } from "./stagger";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
-import { defaultEasingFor, isExitPreset } from "./presetCatalog";
+import { defaultEasingFor, defaultTimingFor, isExitPreset } from "./presetCatalog";
 import { EASING_TOKENS } from "./curves";
-import { compileSlide, trackDuration } from "./compile";
+import { compileSlide, trackDuration, type CompileOptions } from "./compile";
+import { targetOutlines } from "./targetGeometry";
 import { diffState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
-import { trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
+import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
 import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
 import {
   DECK_SCHEMA_VERSION,
@@ -1063,7 +1064,7 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     delete (copy as unknown as Record<string, unknown>).panelLabel;
     slide.elements.push(copy);
     const track: Track = { id: newId("track"), target: copy.id, ghostFrom: sourceId, preset: "transform", groupId,
-      duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("transform"), start: opts.start ?? 0,
+      duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0,
       to: { state: structuredClone(opts.states?.[i] ?? {}) } };
     patchTimingCurve(track, opts);
     beat.tracks.push(track); out.elementIds.push(copy.id); out.trackIds.push(track.id!);
@@ -1073,7 +1074,7 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     const previous = changes[0];
     const track = setTransform(deck, slideId, beatId, sourceId, {
       ...(opts.originalState ? { state: opts.originalState } : {}),
-      ...(!previous ? { duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("transform"), start: opts.start ?? 0,
+      ...(!previous ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0,
         ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
         ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
       } : {}),
@@ -1082,10 +1083,9 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     if (!previous) track.groupId = groupId;
     out.originalTrackId = track.id;
   } else if (original === "disappear") {
-    // Ghost disappearance authors smooth to match the births. This is an
-    // authored value, not the ordinary appearance preset's default.
+    // Ghost disappearance matches the births: smooth is authored, not a default (ledger 2026-09-28).
     const track = exits[0] ?? { id: newId("track"), target: sourceId, preset: "fadeOut" as const,
-      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
+      duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
     if (!exits.length) { patchTimingCurve(track, opts); beat.tracks.push(track); }
     out.originalTrackId = track.id;
   }
@@ -1216,7 +1216,7 @@ export function setTransform(
   const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
   let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
   if (!t) {
-    t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: defaultEasingFor("transform"), to: { state: {} } };
+    t = { id: newId("track"), target: targetId, preset: "transform", ...defaultTimingFor("transform"), to: { state: {} } };
     if (opts.ref?.parts?.length) {
       if (opts.ref.parts.length === 1) t.part = opts.ref.parts[0];
       else t.parts = [...opts.ref.parts];
@@ -1304,7 +1304,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   const mode = opts.mode ?? (isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
   const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
   const timing = {
-    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("transform"), start: opts.start ?? 0 } : {}),
+    ...(!existing ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0 } : {}),
     ...(opts.duration != null ? { duration: opts.duration } : {}),
     ...(opts.easing !== undefined ? { easing: opts.easing } : {}),
     ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
@@ -1325,7 +1325,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     if (unborn.some(b => destination.some(t => t.elementId === b.target))) throw new Error("The destination is not yet born at this step. Choose a later step.");
     if (unborn.some(b => sources.some(t => t.elementId === b.target))) throw new Error("The source is not yet born at this step. Choose a later step.");
     for (const other of slide.beats[bi].tracks) {
-      if (other === existing || other.disabled || other.preset !== "transform" || other.to?.become?.mode !== "handoff") continue;
+      if (other === existing || other.disabled || other.preset !== "transform" || !isHandoff(other)) continue;
       if (handoffTargetsOverlap(destination, compiled.resolveTarget(other.to.become.ref, bi)))
         throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
     }
@@ -1369,6 +1369,45 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
 /** Destination-side authoring of exactly the same source-owned hand-off. */
 export function appearFrom(deck: Deck, slideId: Id, beatId: Id, dest: TargetRef, source: TargetRef | Id, opts: BecomeOptions = {}): BecomeResult | null {
   return becomeTransform(deck, slideId, beatId, source, dest, { ...opts, mode: "handoff" });
+}
+
+/** Reverse a hand-off atomically, retaining authored timing/style and followers.
+ * Geometry is supplied by the host, just as for compileSlide's plot diagnostics. */
+export function swapBecome(deck: Deck, slideId: Id, trackId: Id, opts: CompileOptions = {}): Id {
+  const slide = slideById(deck, slideId);
+  const bi = slide?.beats.findIndex(b => b.tracks.some(t => t.id === trackId)) ?? -1;
+  const track = slide?.beats[bi]?.tracks.find(t => t.id === trackId);
+  if (!slide || !track || track.preset !== "transform" || !isHandoff(track)) throw new Error("Choose a hand-off Become to swap direction.");
+  const spec = track.to.become;
+  if (spec.ref.group) throw new Error("Groups cannot be Become sources. Choose an object or plot parts.");
+  if (track.ghostFrom) throw new Error("This track creates a ghost. Keep its birth and author a reverse hand-off in a later step.");
+  if (slide.beats[bi].tracks.some(other => other.id !== trackId && familyOf(other) === "transform" && sameRef(trackRef(other), spec.ref)))
+    throw new Error("The destination already has a transform in this step.");
+  const options = { ...opts, animStyles: deck.animStyles };
+  const compiled = compileSlide(slide, deck.stage, options);
+  if (!targetOutlines(spec.ref, compiled.sample(bi), { manifest: opts.plotManifest ?? (() => undefined), plotRoot: opts.plotRoot ?? (() => undefined), groups: slide.groups }).length)
+    throw new Error("The destination has no outline. Choose another object or plot part.");
+  const resolved = compiled.resolvedSlide.beats[bi].tracks.find(t => t.id === trackId)!;
+  // Finish all admission checks on private beats before publishing any mutation.
+  const candidate = { ...slide, beats: structuredClone(slide.beats) };
+  const work = { ...deck, slides: [candidate] };
+  const beat = candidate.beats[bi], groups = beat.groups;
+  removeTracks(work, slideId, [trackId]);
+  const result = becomeTransform(work, slideId, beat.id, spec.ref, trackRef(track), {
+    mode: "handoff", pair: spec.pair, reveal: spec.reveal,
+    start: resolved.start ?? 0, duration: trackDuration(resolved), easing: resolved.easing,
+    compiled: compileSlide(candidate, deck.stage, options),
+  });
+  if (!result) throw new Error("This hand-off cannot be reversed.");
+  const reverse = beat.tracks.find(t => t.id === result.trackId)!;
+  const { target, part, parts, selector, to, id, ...how } = track;
+  setAnimation(work, slideId, beat.id, { ...how, target: reverse.target, part: reverse.part, parts: reverse.parts,
+    selector: reverse.selector, to: reverse.to, id: result.trackId });
+  beat.groups = groups;
+  for (const follower of beat.tracks) if (follower.anchor?.trackId === trackId)
+    setTrackAnchor(work, slideId, follower.id!, { ...follower.anchor, trackId: result.trackId });
+  slide.beats = candidate.beats;
+  return result.trackId;
 }
 
 /** The cascade-editable timing fields of one track at session start. */

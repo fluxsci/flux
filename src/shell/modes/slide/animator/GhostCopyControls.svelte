@@ -3,7 +3,8 @@
   import { selection, partSelection } from "../../../../lib/store";
   import { duplicateTrack } from "../../../../lib/slide/ops";
   import type { Slide } from "../../../../lib/slide/types";
-  import { ghostBirth, ghostSiblings, objectLabel } from "./ghostEditing";
+  import { refLabel } from "./shared";
+  import { ghostBirth, ghostSiblings } from "./ghostEditing";
   let {slide, onEditGhost}: {slide: Slide; onEditGhost: (id: string) => void} = $props();
   const curTrack = $derived(slide.beats.flatMap(b => b.tracks).find(t => t.id === $selTrackIds[$selTrackIds.length - 1]));
   const ghostContext = $derived.by(() => {
@@ -38,14 +39,14 @@
 
   {#if ghostContext}
     <section class="ghost-copies" aria-label="Ghost copies">
-      <strong>Ghosts of {objectLabel(slide, ghostContext.track.ghostFrom!)}</strong>
+      <strong>Ghosts of {refLabel({ element: ghostContext.track.ghostFrom! }, slide)}</strong>
       <small>Born at step {ghostContext.beatIndex} · independent destinations</small>
       <label>Copy <select aria-label="Selected ghost" value={selectedCopyIndex >= 0 ? copies[selectedCopyIndex].target : ""} onchange={e => selectCopy(e.currentTarget.value)}>
         <option value="" disabled>Select a copy</option>
-        {#each copies as copy}<option value={copy.target}>{objectLabel(slide, copy.target)}{copy.disabled ? " (disabled)" : ""}</option>{/each}
+        {#each copies as copy}<option value={copy.target}>{refLabel({ element: copy.target }, slide)}{copy.disabled ? " (disabled)" : ""}</option>{/each}
       </select></label>
       {#if selectedCopyIndex >= 0}
-        <label>Name <input aria-label="Ghost name" value={objectLabel(slide, copies[selectedCopyIndex].target)} onchange={e => {
+        <label>Name <input aria-label="Ghost name" value={refLabel({ element: copies[selectedCopyIndex].target }, slide)} onchange={e => {
           const name = e.currentTarget.value.trim(), id = copies[selectedCopyIndex].target;
           if (name) commitDeckLive(d => { const el = d.slides.find(s => s.id === slide.id)?.elements.find(e => e.id === id); if (el) el.name = name; });
         }}/></label>

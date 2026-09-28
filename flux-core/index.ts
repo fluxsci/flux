@@ -98,13 +98,13 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 export { exportSlideVideo } from "./slideVideo";
 // animation v2 target vocabulary (pure; the family law's identity)
 export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef, PAIR_POLICIES, PAIR_POLICY_IDS } from "../src/lib/slide/targets";
-export { PRESET_CATALOG, presetDef, defaultEasingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
+export { PRESET_CATALOG, presetDef, defaultEasingFor, defaultTimingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
 export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
 export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
 export { planHandoff } from "../src/lib/slide/handoffPlan";
 export { targetOutlines, elementStageOutlines, partStageOutlines, plotStageMapping, type GeometryCtx } from "../src/lib/slide/targetGeometry";
 export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
-export { setTrackCurve, becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
+export { setTrackCurve, becomeTransform, swapBecome, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
 export { autoAnimateExcept } from "../src/lib/slide/autobuild";
 export { overshootBox, arcBox } from "../src/lib/slide/tween";
 export { setTrackArc } from "../src/lib/slide/ops";
@@ -146,6 +146,7 @@ export {
   animateElementVerb,
   become,
   appearFrom,
+  swapBecomeVerb,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
   setPlotViewVerb,
@@ -172,3 +173,7 @@ export { plotViewPatch } from "../src/lib/plot/viewControls";
 export type { PlotViewFields } from "../src/lib/plot/viewControls";
 export { setPlotView } from "../src/lib/ops";
 export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolve";
+
+export { beatDelayMs } from "../src/lib/slide/timing";
+export { isHandoff } from "../src/lib/slide/targets";
+export { canAutoAnimateRest } from "../src/lib/slide/autobuild";

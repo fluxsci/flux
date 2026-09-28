@@ -17,7 +17,7 @@ import type { FluxPlotManifest } from "../plot/types";
 import { buildPartIndex } from "../plot/parse";
 import { resolveTargets } from "../plot/tree";
 import { membersDeep } from "../groups";
-import type { Slide, TargetRef, Track, TrackSelector } from "./types";
+import type { Slide, TargetRef, Track, TrackSelector, BecomeSpec } from "./types";
 
 /** How a Become pairs source and destination outlines, in menu order, with the
  *  label every surface shows — the ONE list (the verbs' zod enums, the Animation
@@ -33,6 +33,11 @@ export const PAIR_POLICIES = [
 ] as const;
 /** The ids alone, as the non-empty tuple `z.enum` takes. */
 export const PAIR_POLICY_IDS = PAIR_POLICIES.map(p => p.id) as [(typeof PAIR_POLICIES)[number]["id"], ...(typeof PAIR_POLICIES)[number]["id"][]];
+
+/** Structural endpoint test; callers own preset and enabled eligibility. */
+export function isHandoff<T extends Pick<Track, "to">>(track: T | null | undefined): track is T & { to: { become: BecomeSpec } } {
+  return track?.to?.become?.mode === "handoff";
+}
 
 /** The ref a track's OWN target denotes. Whole-element tracks (and the virtual
  *  `@camera`/`@stage`) come back as `{ element }` alone. */

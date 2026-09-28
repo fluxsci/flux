@@ -188,14 +188,21 @@ Everything in the Figure table works on the stage. Additionally:
 | **Shift+click** / **Shift+Ctrl+click** *(Become pick)* | Add objects / plot parts without confirming |
 | **Enter** *(Become pick)* | Confirm the accumulated destination (one object or parts of one plot) |
 | **Alt+R** *(Become pick)* | X-ray the hovered or selected plot to pick destination rows |
-| **B** *(X-ray while Become is armed)* | Become this: confirm the picked rows |
+| **B** *(X-ray while Become is armed)* | Become: confirm the picked rows |
 | **Escape** *(Become / Appear from… pick)* | Cancel without creating a transform |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
 
 In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** duplicate tracks ·
 **Ctrl+G**/**Ctrl+Shift+G** group/ungroup tracks · **Alt+←/→** nudge start ·
 **Alt+Shift+←/→** trim duration · **[** / **]** move track to previous/next beat ·
-**x** disable · **Delete** remove · **Enter** jump to the properties fields.
+**X** disable · **Delete**/**Backspace** remove · **Enter** jump to the properties fields ·
+**Space** play/pause · **Ctrl+A** select this step’s effects · **Escape** stop preview or clear
+the selection/endpoint edit. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset,
+**G** Stagger, and **E** opens Easing.
+
+In the Easing editor: **1–9** choose a tile in the focused group · **arrows** move a focused
+bezier handle by 0.01 (**Shift+arrows** by 0.1) · **Ctrl+V** pastes a curve · **Enter** commits ·
+**Escape** restores the opening curve and duration. See [Easing and springs](../modes/slide.qmd#easing-and-springs).
 
 While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) ·
 **← / Backspace / PageUp** previous (**+Shift**: previous slide) · **↑/↓** whole slides ·

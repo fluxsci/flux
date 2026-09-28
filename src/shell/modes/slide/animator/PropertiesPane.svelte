@@ -13,7 +13,6 @@
   // on the header name (2026-09-15 surface redesign).
   import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, sealHistory, currentDeck, activeBeat } from "../../../../lib/slide/store";
   import { selection, setPartSelections } from "../../../../lib/store";
-  import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
   import { patchStagger as staggerPatch, staggerSpan, staggerRanks, staggerSeed, reshuffleSeed } from "../../../../lib/slide/stagger";
@@ -23,10 +22,9 @@
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation, setTrackArc } from "../../../../lib/slide/ops";
-  import { trackRef, targetPartIds, sameRef, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
-  import { targetOutlines } from "../../../../lib/slide/targetGeometry";
-  import { autoAnimateExcept } from "../../../../lib/slide/autobuild";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, swapBecome, setTrackArc } from "../../../../lib/slide/ops";
+  import { isHandoff, trackRef, targetPartIds, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
+  import { autoAnimateExcept, canAutoAnimateRest } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import CurveField, { type CurveEdit } from "./CurveField.svelte";
@@ -156,13 +154,13 @@
   }
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
   const curWay = $derived(curTrack && curFamily === "transform" ? transformWay(curTrack) : null);
-  const handoff = $derived(curTrack?.to?.become?.mode === "handoff" ? curTrack.to.become : null);
+  const handoff = $derived(isHandoff(curTrack) ? curTrack.to.become : null);
   /** What the object becomes at this step, for the Destination row. */
   const destinationLabel = $derived.by(() => {
     if (!curTrack || curFamily !== "transform") return "";
     const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
     const kind = typeof st.type === "string" ? st.type : null;
-    if (handoff) return `Hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}`;
+    if (handoff) return `hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}`;
     if (curTrack.to?.become?.mode === "consume") {
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
@@ -346,46 +344,18 @@
   const destinationEl = $derived(handoff ? slide.elements.find(e => e.id === handoff.ref.element) : undefined);
   const canConsume = $derived(!!handoff && !!curTrack && isWholeElementRef(handoff.ref) && isWholeElementRef(trackRef(curTrack)) && !!destinationEl && !destinationEl.groupId);
   // A whole-plot hand-off reveals every part already: nothing is left to build.
-  const canAutoAnimate = $derived(destinationEl?.type === "plot" && !!handoff && !handoff.ref.group && !isWholeElementRef(handoff.ref) && !!$plotManifests[destinationEl.assetId] && !slide.beats.some(b => b.tracks.some(t => t.target === destinationEl.id && familyOf(t) === "appearance")));
-  function reverseHandoff(d: Deck, id: string) {
-    const s = d.slides.find(s => s.id === slide.id)!;
-    const b = s.beats.find(b => b.tracks.some(t => t.id === id))!;
-    const t = b.tracks.find(t => t.id === id)!;
-    const spec = t.to!.become!;
-    if (spec.ref.group) throw new Error("Groups cannot be Become sources. Choose an object or plot parts.");
-    if (t.ghostFrom) throw new Error("This track creates a ghost. Keep its birth and author a reverse hand-off in a later step.");
-    if (b.tracks.some(other => other.id !== id && familyOf(other) === "transform" && sameRef(trackRef(other), spec.ref)))
-      throw new Error("The destination already has a transform in this step.");
-    const compiled = compile(d, s);
-    const ctx = { manifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id), groups: s.groups };
-    if (!targetOutlines(spec.ref, compiled.sample(s.beats.indexOf(b)), ctx).length)
-      throw new Error("The destination has no outline. Choose another object or plot part.");
-    const resolved = compiled.resolvedSlide.beats[s.beats.indexOf(b)].tracks.find(x => x.id === id)!;
-    const groups = b.groups;
-    removeTracks(d, s.id, [id]);
-    const result = becomeTransform(d, s.id, b.id, spec.ref, trackRef(t), { mode: "handoff", pair: spec.pair, reveal: spec.reveal,
-      start: resolved.start ?? 0, duration: trackDuration(resolved), easing: resolved.easing, compiled: compile(d, s) });
-    if (!result) throw new Error("This hand-off cannot be reversed.");
-    const reverse = b.tracks.find(t => t.id === result.trackId)!;
-    // Retain the authored HOW, including style inheritance, while changing the binding.
-    const { target, part, parts, selector, to, id: oldId, ...how } = t;
-    setAnimation(d, s.id, b.id, { ...how, ...trackBinding(reverse), to: reverse.to, id: result.trackId });
-    b.groups = groups;
-    for (const follower of b.tracks) if (follower.anchor?.trackId === id)
-      setTrackAnchor(d, s.id, follower.id!, { ...follower.anchor, trackId: result.trackId });
-    return result.trackId;
-  }
-  function trackBinding(t: Track) { return { target: t.target, part: t.part, parts: t.parts, selector: t.selector }; }
+  const canAutoAnimate = $derived(!!handoff && canAutoAnimateRest(slide, handoff.ref, manifestFor(handoff.ref.element)));
+  const swapOptions = () => ({ plotManifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id) });
   const swapReason = $derived.by(() => {
     void $plotGen;
     if (!handoff || !curTrack?.id || !$deckOverlay) return "";
-    try { reverseHandoff(structuredClone({ ...$deckOverlay, slides: [slide] }), curTrack.id); return ""; }
+    try { swapBecome(structuredClone({ ...$deckOverlay, slides: [slide] }), slide.id, curTrack.id, swapOptions()); return ""; }
     catch (e) { return e instanceof Error ? e.message : String(e); }
   });
   function swapDirection() {
     if (!curTrack?.id || swapReason) return;
     try {
-      const id = commitDeckLive(d => reverseHandoff(d, curTrack!.id!));
+      const id = commitDeckLive(d => swapBecome(d, slide.id, curTrack!.id!, swapOptions()));
       selTrackIds.set([id]);
       const s = currentDeck()?.slides.find(s => s.id === slide.id), t = s?.beats.flatMap(b => b.tracks).find(t => t.id === id);
       if (t) { selection.set(new Set([t.target])); setPartSelections((trackRef(t).parts ?? []).map(partId => ({ elementId: t.target, partId }))); }
@@ -524,7 +494,7 @@
     {/if}
     {#if targetMissing && !editingStyle}<div class="target-warning">This target is missing. Choose an object or plot part below to reconnect the effect.</div>{/if}
     {#if curTrack.ghostFrom}
-      <div class="note">Starts from <b>{objectLabel(slide, curTrack.ghostFrom)}</b> before this step. Edit this copy’s destination with <b>After</b>.</div>
+      <div class="note">Starts from <b>{refLabel({ element: curTrack.ghostFrom }, slide, manifestFor)}</b> before this step. Edit this copy’s destination with <b>After</b>.</div>
     {/if}
     {#if anyGhost && selTracks.length > 1}
       <div class="note ghost-mixed-note">This selection includes ghost births. Timing and easing apply to all selected effects. Select one effect to edit its destination.</div>
@@ -534,7 +504,7 @@
       <label class="f">Object
         <select aria-label="Animation target" value={curTrack.target} onchange={e => retarget(e.currentTarget.value)}>
           {#if !curTargetEl}<option value={curTrack.target}>Missing object</option>{/if}
-          {#each slide.elements.filter(e => !allMedia || e.type === "video") as e (e.id)}<option value={e.id}>{e.name || (e.type === "text" ? e.text.slice(0, 36) : e.type)}</option>{/each}
+          {#each slide.elements.filter(e => !allMedia || e.type === "video") as e (e.id)}<option value={e.id}>{refLabel({ element: e.id }, slide, manifestFor)}</option>{/each}
         </select>
       </label>
       {#if curTargetEl?.type === "plot" && curFamily !== "transform"}
@@ -542,7 +512,7 @@
           <select aria-label="Animation plot part" value={curTrack.part ?? ""} onchange={e => setPart(e.currentTarget.value)}>
             <option value="">Whole plot</option>
             {#if curTrack.part && !targetParts.includes(curTrack.part)}<option value={curTrack.part}>{curTrack.part} (missing)</option>{/if}
-            {#each targetParts as part}<option value={part}>{part.replaceAll(".", " › ")}</option>{/each}
+            {#each targetParts as part}<option value={part}>{refLabel({ element: curTrack.target, parts: [part] }, slide, manifestFor)}</option>{/each}
           </select>
         </label>
       {/if}
@@ -574,7 +544,7 @@
            ways to point it somewhere else (Become another object · plot data) -->
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
-        <div class="dv">{destinationLabel}{#if dataCompatible === false} <span class="warn" title="The two plots have different structures — the frame tweens and the plots crossfade">· crossfade</span>{/if}</div>
+        <div class="dv">{destinationLabel}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
@@ -589,7 +559,7 @@
           <div class="dacts">
             <button class="pick-morph" disabled={!!swapReason} title={swapReason || "Reverse this hand-off in one undoable edit"} onclick={swapDirection}>↔ Swap direction</button>
             {#if canConsume}
-              <button class="pick-morph" class:warn={consumeArmed} title="Consume removes the destination object and writes its appearance into the source" onclick={() => consumeArmed ? changeHandoff({ mode: "consume" }) : consumeArmed = true}>{consumeArmed ? "Confirm consume" : "Consume instead"}</button>
+              <button class="pick-morph" class:warn={consumeArmed} title="Consume removes the destination object and writes its appearance into the source" onclick={() => consumeArmed ? changeHandoff({ mode: "consume" }) : consumeArmed = true}>{consumeArmed ? "Confirm Consume" : "Consume instead"}</button>
               {#if consumeArmed}<button class="pick-morph" onclick={() => consumeArmed = false}>Cancel</button>{/if}
             {/if}
             {#if canAutoAnimate}<button class="pick-morph" onclick={animateRest}>Auto-animate the rest…</button>{/if}
@@ -597,7 +567,7 @@
         {/if}
         {#if curTargetEl && curBeatIndex > 0}
           <div class="dacts">
-            <button class="pick-morph" onclick={armBecome} title="Pick another object on the slide (or draw one): this object turns into it at this step">Become an object…</button>
+            <button class="pick-morph" onclick={armBecome} title="Pick another object or plot parts on the slide (or draw one): this target becomes it at this step">Become</button>
             {#if curTargetEl.type === "plot"}
               <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)} title="Keep the frame; the plot's data becomes another project plot's">Data from gallery…</button>
             {/if}
@@ -623,7 +593,7 @@
       </label>
     {/if}
 
-    {#if curFamily === "transform" && selTracks.every(t => !t.to?.become || t.to.become.mode !== "handoff")}
+    {#if curFamily === "transform" && selTracks.every(t => !isHandoff(t))}
       <label class="f arc-row">Arc
         <input aria-label="Transform arc" type="range" min="-1" max="1" step="0.05" value={curTrack.arc ?? 0} oninput={e => arc(e.currentTarget.value)} onchange={() => sealHistory()}/>
         <span class="arc-value">{mixed(t => t.arc ?? 0) ? "Mixed" : (curTrack.arc ?? 0).toFixed(2)}</span>

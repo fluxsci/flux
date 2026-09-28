@@ -1,3 +1,4 @@
+import { beatDelayMs } from "./timing";
 /** Continuous single-slide timing. Pure: shared by settings, capture and CLI. */
 import type { Slide, StageSize } from "./types";
 import { videoContentEnd, videoEventsForPlan, type MediaTimingContext } from "./mediaTimeline";
@@ -47,7 +48,7 @@ export function planSlideVideo(slide: Slide, durations: number[], input: Partial
     const end = cueEnd(slide, from), next = slide.beats[from];
     // Start hold controls the first cue; subsequent automatic cues retain their
     // authored delay. The export delay replaces a presenter's manual pause.
-    if (cues.length) time += next.advance === "auto" ? Math.max(0, next.autoDelayMs ?? 600) : opts.stepDelayMs;
+    if (cues.length) time += next.advance === "auto" ? beatDelayMs(next) : opts.stepDelayMs;
     const duration = Math.max(...Array.from({ length: end - from + 1 }, (_, i) => durationOf(from + i)));
     cues.push({ fromBeat: from, beat: end, start: time, duration }); time += duration;
     from = end + 1;

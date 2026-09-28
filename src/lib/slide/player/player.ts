@@ -7,11 +7,12 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
+import { beatDelayMs } from "../timing";
 import { DUR } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
-import { targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
+import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
@@ -173,7 +174,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const wrap = rendered.elements.get(track.target);
         const preEl = transformPreState(slide, track.target, bi);
         if (!wrap || !preEl) continue; // dangling target — tolerated no-op
-        if (track.to?.become?.mode === "handoff") {
+        if (isHandoff(track)) {
           const handoff = handoffs.find(h => h.trackId === track.id && h.beat === bi);
           if (!handoff) continue;
           const preFrame = compiled.sample(bi, track.start ?? 0);
@@ -205,7 +206,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           // redirect later source tracks into that other element's DOM.
           if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
           specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
-            delay: track.start ?? 0, duration: track.duration ?? 600,
+            delay: ct.start, duration: ct.duration,
             ease: ct.ease,
             morph: driver, handoff: driver });
           if (handoff.spec.reveal === "draw") {
@@ -213,7 +214,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
             for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
               node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
               key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id, owner: track,
-              delay: (track.start ?? 0) + (track.duration ?? 600), duration: DUR.gentle,
+              delay: ct.start + ct.duration, duration: DUR.gentle,
               ease: resolveCurve(draw),
             });
           }
@@ -634,7 +635,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const next = deck.slides[si]?.beats[bi + 1];
     if (next?.advance === "auto") {
       const stamp = generation;
-      auto = setTimeout(() => { if (stamp === generation) nextCue(); }, Math.max(0, next.autoDelayMs ?? 600));
+      auto = setTimeout(() => { if (stamp === generation) nextCue(); }, beatDelayMs(next));
     }
   }
   function finish(): void {
