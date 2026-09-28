@@ -207,7 +207,10 @@ never change playback. Collapse state persists in the deck (you can read the aut
 layout).
 
 **Linked reuse:** `deck.animStyles` carries named HOW definitions. An own track field wins;
-an absent field inherits. Linking removes own HOW fields. Detaching or deleting a style
+an absent field inherits. Linking removes own HOW fields except `preset`, which always stays on
+the track: linking writes the style's preset (same family only), and `anim-style set --preset`
+rewrites it on every linked track. "None though the style has one" is `stagger:{perMs:0}`,
+`influence:{in:0,out:0}` or `params:{}` on the track (never `null`). Detaching or deleting a style
 materializes the resolved settings; bindings and transform endpoints stay on each track.
 `animate-like` links the source and targets to a shared style (creating `Like <label>` when
 needed), refusing incompatible families per target. Portable slide snapshots carry referenced

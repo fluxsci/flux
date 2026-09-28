@@ -2410,7 +2410,13 @@ outside this PNG packaging change.
   present on the track overrides the style; `undefined`/`null` are absent and inherit (there is
   no explicit-null override, and the schema refuses `null`). "None though the style has one" is a
   sentinel the Animator already writes: `stagger: {perMs: 0}`, `influence: {in: 0, out: 0}`,
-  `params: {}`. Resolution is idempotent. Snapshot saves carry `slideAnimStyles`; cloned
+  `params: {}`. Resolution is idempotent. **`preset` never resolves from a style:** it defines
+  the family, and `familyOf(track)` (family law, `tracksMatch`, ghost births, media checks) reads
+  the raw track, so a linked track always keeps its own `preset` (a ghost birth keeps
+  `transform` and passes the schema's `ghostFrom → preset` rule). It is the one style field that
+  propagates by write: `linkTrackStyle` writes a same-family style's preset once (another family
+  is refused) and `setAnimStyle(…, {track: {preset}})` rewrites every linked track's preset.
+  Snapshot saves carry `slideAnimStyles`; cloned
   tracks remap timing anchors beside ghost IDs. `trackDuration` remains exported by compile
   but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
@@ -7749,6 +7755,8 @@ covers the headless verb enum. Updated the body with the resolution boundary and
 **Learnings:**
 - A fixture with DOM nodes but no model targets bypassed compiler validation; exit coverage now
   supplies real model targets while retaining its playback assertions.
-- The packet's schema/Svelte boundary leaves explicit-null persistence and existing Svelte reader
-  wiring to integration unless the owner authorizes those compatibility edits. The current ghost
-  schema also requires an own `preset`, so a ghost inheriting `transform` cannot pass the save gate.
+- The packet's schema/Svelte boundary left explicit-null persistence, linked-ghost persistence and
+  the Svelte readers open. Integration (orchestrator decision) settled the first two without a
+  schema change: no explicit null (the Animator's sentinels override a style) and `preset` always
+  stays on the track (it propagates by write). The Svelte readers (lanes, inspector, library,
+  thumbnails, present, video dialog) are packet F2's.

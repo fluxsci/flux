@@ -44,7 +44,6 @@ import {
   registerEditorTransactionAdapter,
 } from "../store";
 import { familyOf } from "./family";
-import { resolveTrack } from "./resolve";
 import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourceSync";
 import { setTransform, removeTracks } from "./ops";
 import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
@@ -550,11 +549,10 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
 export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdit["entries"] {
   endpointEdit.set(null);
   const entries: EndpointEdit["entries"] = [];
-  const styles = get(deckOverlay) ?? {};
   const targets: Id[] = [];
   for (const trackId of trackIds) {
     const found = overlayTrack(trackId);
-    if (!found || familyOf(resolveTrack(found.track, styles)) !== "transform") continue;
+    if (!found || familyOf(found.track) !== "transform") continue;
     const target = end === "t1" && found.track.ghostFrom ? found.track.ghostFrom : found.track.target;
     targets.push(target);
     if (end === "t2") {
@@ -564,7 +562,7 @@ export function enterEndpointEdit(trackIds: Id[], end: "t1" | "t2"): EndpointEdi
       let prev: Track | null = null;
       for (let bi = 0; bi < found.beatIndex; bi++) {
         for (const t of found.slide.beats[bi].tracks) {
-          if (!t.disabled && t.target === target && familyOf(resolveTrack(t, styles)) === "transform") prev = t;
+          if (!t.disabled && t.target === target && familyOf(t) === "transform") prev = t;
         }
       }
       entries.push({ trackId: prev?.id ?? null, target });

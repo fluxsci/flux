@@ -29,7 +29,7 @@ export function withSelectedTracks(fn: (t: Track, resolved: Track) => void, coal
       const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
       fn(t, resolveTrack(t, d));
       if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
-      if (familyOf(resolveTrack(t, d)) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
+      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
     }
   }, coalesce ? { coalesce } : undefined);
 }

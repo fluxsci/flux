@@ -1,4 +1,13 @@
-/** Deck styles and beat-local timing, resolved once before compilation/binding. */
+/** Deck styles and beat-local timing, resolved before compilation/binding.
+ *
+ * A linked track (`styleId`) inherits every style field it does not carry
+ * itself, EXCEPT `preset`. The preset defines the track's family, and
+ * `familyOf(track)` (the family law, `tracksMatch`, ghost births, the media
+ * checks) reads the RAW track, so a track never gives its preset up to a style.
+ * `preset` is the one style field that propagates by WRITE rather than by
+ * resolution: `linkTrackStyle` writes a same-family style's preset onto the
+ * track once (a different family is refused), and `setAnimStyle(…, {track:
+ * {preset}})` writes the new preset onto every linked track. */
 import type { Beat, Deck, Slide, Track } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
 import { targetPartIds } from "./targets";
@@ -8,12 +17,16 @@ import { trackDuration } from "./timing";
 export type StyleContext = Pick<Deck, "animStyles">;
 export type ManifestFor = (target: string) => FluxPlotManifest | undefined;
 export interface TimingIssue { trackId?: string; target: string; reason: string }
+/** Every field an `AnimStyle.track` carries (materialize/detach copies all of them). */
 export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "stagger"] as const;
+/** The style fields a linked track inherits by resolution: all but `preset` (see the header). */
+export const INHERITED_STYLE_FIELDS = ["params", "start", "duration", "easing", "influence", "stagger"] as const;
 
 /** Style fields under the track's own: a field PRESENT on the track wins, an
- * absent one inherits. Present means a value: `undefined` and `null` are
- * absent (JSON drops `undefined` and the deck schema refuses `null`, so memory
- * and disk agree; there is no explicit-null override). "None though the style
+ * absent one inherits (`preset` never does; see the header). Present means a
+ * value: `undefined` and `null` are absent (JSON drops `undefined` and the deck
+ * schema refuses `null`, so memory and disk agree; there is no explicit-null
+ * override). "None though the style
  * has one" is written with the sentinels the Animator already writes, which
  * are ordinary present values: `stagger: { perMs: 0 }` (no stagger),
  * `influence: { in: 0, out: 0 }` (no velocity profile; the easing token
@@ -22,7 +35,8 @@ export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easi
 export function resolveTrack(track: Track, deck: StyleContext): Track {
   const style = track.styleId == null ? undefined : deck.animStyles?.find(s => s.id === track.styleId);
   const result: Track = { ...track }, fields = result as unknown as Record<string, unknown>;
-  for (const key of ANIM_STYLE_FIELDS) {
+  if (result.preset == null) delete result.preset;
+  for (const key of INHERITED_STYLE_FIELDS) {
     if (fields[key] != null) continue;
     const inherited = style?.track[key];
     if (inherited == null) delete fields[key];

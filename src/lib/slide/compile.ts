@@ -12,7 +12,7 @@ import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } 
 import { familyOf } from "./family";
 import { isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
 import { targetPartIds, hasPartBinding, trackKey } from "./targets";
-import { resolveTrack, resolveBeat, type StyleContext } from "./resolve";
+import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
 export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
@@ -204,13 +204,14 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   return { cues, issues, sample };
 }
 export function compileSlide(slide: Slide, stage: StageSize = { width: 640, height: 360 }, opts: CompileOptions = {}): CompiledSlide {
-  // Normalize before ghost and transform folds: their family/pre-state reads
-  // must see inherited presets too. Keep authored tracks untouched.
-  const styled = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.map(t => resolveTrack(t, opts)) })) };
+  // Resolve styles and anchors before the ghost and transform folds, which
+  // then see inherited timing. Families and pre-states read `preset`/`to`,
+  // which never come from a style (slide/resolve.ts header), so the manifest
+  // lookup reads the authored slide. Authored tracks stay untouched.
   const timingIssues: AnimationIssue[] = [];
   const timed = { ...slide, beats: slide.beats.map((beat, bi) => {
     const resolved = resolveBeat(beat, opts, target => {
-      const el = transformPreState(styled, target, bi);
+      const el = transformPreState(slide, target, bi);
       return el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
     });
     timingIssues.push(...resolved.issues);

@@ -106,7 +106,9 @@ them. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gestu
 
 Deck animation styles share an effect's preset, parameters, duration, easing, stagger and
 start. A linked effect inherits absent fields; changing a field on that effect overrides the
-style for that field. Editing the style updates every inheriting effect. Detaching a style,
+style for that field. Editing the style updates every inheriting effect. An effect links only to
+a style of its own kind (appearance, transform or video command); linking gives it the style's
+preset, and changing the style's preset changes it on every linked effect. Detaching a style,
 or deleting it, keeps each effect's current settings. Saved slide presets carry the styles
 they use, and insertion reuses an existing style with the same name and family.
 

@@ -12,6 +12,7 @@ import { trackEndMs, beatEndMs } from "../src/shell/modes/slide/animator/shared"
 import { videoEventsForPlan } from "../src/lib/slide/mediaTimeline";
 import { staggerSpan } from "../src/lib/slide/stagger";
 import { resolveEasing } from "../src/lib/slide/easing";
+import { familyOf } from "../src/lib/slide/family";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import { validateDeckFile } from "../src/lib/project/validate";
 import type { Track, Beat } from "../src/lib/slide/types";
@@ -19,6 +20,7 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 import * as core from "../flux-core/index";
 
 const h = harness("verify-slide-resolve");
+let presetDeck: ReturnType<typeof ops.createDeck> | undefined;
 const deck = ops.createDeck({ id: "styles", withTitleSlide: false });
 const slide = ops.addSlide(deck, { id: "s" });
 const beat = ops.addBeat(deck, slide.id, { id: "b" })!;
@@ -98,7 +100,7 @@ h.eq(beatEndMs(staggered.tracks, geometrySlide, () => manifest, deck), 420, "bea
 h.section("link, detach, family and copy operations");
 beat.tracks = [a, b, c];
 h.ok(ops.linkTrackStyle(deck, slide.id, "a", style.id).ok, "link succeeds within family");
-h.ok(!("preset" in a) && !("duration" in a) && !("start" in a) && !("easing" in a), "link drops own HOW fields");
+h.ok(a.preset === "fade" && !("duration" in a) && !("start" in a) && !("easing" in a), "link drops own HOW fields but keeps the family-defining preset");
 h.eq(resolveTrack(a, deck).duration, 300, "linked track inherits");
 ops.setAnimStyle(deck, style.id, { track: { duration: 450 } });
 h.eq(resolveTrack(a, deck).duration, 450, "style edits propagate with no track edit");
@@ -117,7 +119,7 @@ h.ok(like.refused[0].reason.includes("Family mismatch"), "family refusal names t
 h.ok(!!like.styleId && a.styleId === b.styleId && deck.animStyles?.[0].name.startsWith("Like "), "Animate like creates a named style and links source and target");
 h.eq(b.anchor?.trackId, "a", "linking keeps binding and anchor");
 const transformStyle = ops.styleFromTrack(deck, slide.id, "tx", "Change")!;
-h.ok(!tx.preset && resolveTrack(tx, deck).preset === "transform", "linked transforms inherit their family-defining preset");
+h.ok(tx.preset === "transform" && tx.styleId === transformStyle?.id, "a linked transform keeps its own preset (familyOf reads the raw track)");
 const same = ops.setTransform(deck, slide.id, beat.id, z, { state: { y: 50 } });
 h.ok(same === tx && beat.tracks.filter(t => resolveTrack(t, deck).preset === "transform").length === 1, "setTransform finds a styled transform, preserving family uniqueness");
 h.ok(!!transformStyle && compileSlide(slide, deck.stage, deck).sample(1).elements.find(e => e.id === z)?.x === 120, "styled transforms play through the compiler fold");
@@ -148,14 +150,45 @@ h.eq(b.duration, resolveTrack(a, deck).duration! + 100, "styled cascade writes a
 ops.removeTracks(deck, slide.id, ["a"]);
 h.ok(b.anchor?.trackId === "a" && compileSlide(slide, deck.stage, deck).issues.some(i => i.trackId === "b" && /anchor/.test(i.reason)), "removed anchor stays dangling and compiles with an issue");
 
+h.section("preset stays on the track (orchestrator decision, F1 integration)");
+// familyOf(track) — the family law, tracksMatch, ghost births, the media checks — reads the RAW
+// track, so a style never supplies `preset` by resolution; it reaches linked tracks by write.
+{
+  const pd = ops.createDeck({ id: "presets", withTitleSlide: false });
+  const ps = ops.addSlide(pd, { id: "s" });
+  const ids = ["p", "q", "r", "g"].map(t => ops.addSlideText(pd, "s", { text: t, x: 0, y: 0, width: 100, height: 30 })!);
+  const pb = ops.addBeat(pd, "s", { id: "b" })!;
+  const reveal = ops.addAnimStyle(pd, { name: "Reveal", family: "appearance", track: { preset: "fade", duration: 250 } }, "reveal");
+  h.eq(resolveTrack({ target: ids[0], styleId: reveal.id }, pd).preset, undefined, "resolution never supplies a preset from the style");
+  pb.tracks = [{ id: "p", target: ids[0], preset: "fadeOut", duration: 90 }, { id: "q", target: ids[1], preset: "fade" }, { id: "r", target: ids[2], preset: "popIn" }];
+  h.ok(ops.linkTrackStyle(pd, "s", "p", reveal.id).ok && pb.tracks[0].preset === "fade", "linking to a same-family style with another preset writes the style's preset once");
+  h.ok(ops.linkTrackStyle(pd, "s", "q", reveal.id).ok && pb.tracks[1].preset === "fade", "linking keeps an equal preset");
+  h.ok(!ops.linkTrackStyle(pd, "s", "r", "missing").ok && pb.tracks[2].preset === "popIn", "a refused link leaves the preset");
+  ops.setAnimStyle(pd, reveal.id, { track: { preset: "fadeRise" } });
+  h.ok(pb.tracks.slice(0, 2).every(t => t.preset === "fadeRise") && pb.tracks[2].preset === "popIn", "setAnimStyle writes a new preset onto every linked track, and only those");
+  ops.setAnimStyle(pd, reveal.id, { track: { duration: 400 } });
+  h.ok(pb.tracks.slice(0, 2).every(t => t.preset === "fadeRise" && !Object.hasOwn(t, "duration")), "a style edit without a preset leaves linked presets and inheritance alone");
+  const ghost = ops.addGhostTransform(pd, "s", "b", ids[3], { count: 1, states: [{ x: 200 }] })!;
+  const birth = pb.tracks.find(t => t.id === ghost.trackIds[0])!;
+  const move = ops.addAnimStyle(pd, { name: "Move", family: "transform", track: { preset: "transform", duration: 900, easing: "linear" } }, "move");
+  h.ok(ops.linkTrackStyle(pd, "s", birth.id!, move.id).ok, "a ghost birth links to a transform style");
+  h.ok(birth.preset === "transform" && !!birth.ghostFrom && birth.styleId === move.id && !Object.hasOwn(birth, "duration"), "the linked birth keeps preset: transform beside ghostFrom");
+  h.ok(!ops.linkTrackStyle(pd, "s", birth.id!, reveal.id).ok && birth.styleId === move.id, "a birth cannot link to an appearance style");
+  h.eq(validateDeckFile(JSON.parse(JSON.stringify(pd))), [], "the deck with a linked ghost birth validates (ghostFrom -> preset rule)");
+  const linkedTracks = pd.slides.flatMap(sl => sl.beats.flatMap(b => b.tracks)).filter(t => t.styleId);
+  h.ok(linkedTracks.length === 3 && linkedTracks.every(t => familyOf(t) === pd.animStyles!.find(st => st.id === t.styleId)!.family), "familyOf of every linked track equals its style's family");
+  h.eq(compileSlide(ps, pd.stage, pd).cues[1].tracks.find(ct => ct.track.id === birth.id)?.duration, 900, "the compiled birth inherits the style's duration");
+  presetDeck = pd;
+}
+
 h.section("media timing and persisted headless operations");
 const mediaDeck = ops.createDeck({ id: "media", withTitleSlide: false });
 const mediaSlide = ops.addSlide(mediaDeck, { id: "media-slide" });
 mediaSlide.elements.push({ type: "video", id: "v", x: 0, y: 0, width: 100, height: 100, rotation: 0, assetId: "movie", posterAssetId: "poster", durationMs: 1000 });
 const mediaBeat = ops.addBeat(mediaDeck, mediaSlide.id)!;
-mediaBeat.tracks = [{ id: "wait", target: "v", preset: "fade", duration: 450 }, { id: "play", target: "v", styleId: "start-video", anchor: { trackId: "wait", edge: "end", offsetMs: 25 } }];
+mediaBeat.tracks = [{ id: "wait", target: "v", preset: "fade", duration: 450 }, { id: "play", target: "v", preset: "videoStart", styleId: "start-video", anchor: { trackId: "wait", edge: "end", offsetMs: 25 } }];
 ops.addAnimStyle(mediaDeck, { name: "Start clip", family: "media", track: { preset: "videoStart" } }, "start-video");
-h.eq(videoEventsForPlan(mediaSlide, { cues: [{ fromBeat: 1, beat: 1, start: 1000, duration: 475 }] }, mediaDeck).map(e => [e.command, e.at]), [["videoStart", 1475]], "media cue inherits its command and anchored time");
+h.eq(videoEventsForPlan(mediaSlide, { cues: [{ fromBeat: 1, beat: 1, start: 1000, duration: 475 }] }, mediaDeck).map(e => [e.command, e.at]), [["videoStart", 1475]], "a linked media command plays at its anchored time");
 const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-resolve-"));
 try {
   const tree = buildScaffoldTree({ title: "Style verification" }, ops.createDeck());
@@ -178,6 +211,7 @@ try {
   h.ok(anchor.stdout.includes("start 610 ms (anchored)"), "headless render shows resolved start and anchored marker");
   const loaded = await core.loadDeck(root, "cli"), tracks = loaded.slides[0].beats[1].tracks;
   h.ok(tracks.every(t => t.styleId === styleId && !Object.hasOwn(t, "duration")), "CLI persists links instead of copied fields");
+  h.ok(tracks.every(t => t.preset === "fade"), "CLI-linked tracks persist the style's preset on the track (b: fadeOut -> fade, written once)");
   h.eq(resolveStart(tracks[1], loaded.slides[0].beats[1], loaded).start, 610, "saved anchor resolves to inherited end");
   h.eq(validateDeckFile(loaded).length, 0, "saved deck validates");
   const file = path.join(root, "slides/cli/deck.json"), bytes = await fs.readFile(file, "utf8");
@@ -187,6 +221,9 @@ try {
   h.ok(run("set-track", "cli", "s", "b").stdout.includes("start 910 ms (anchored)"), "style edit retimes follower without track edits");
   h.eq(run("set-track", "cli", "s", "b", "--no-anchor").status, 0, "CLI detaches anchor");
   h.eq(run("anim-style", "delete", "cli", styleId).status, 0, "CLI deletes style with materialization");
+  await core.saveDeck(root, presetDeck!);
+  const savedGhost = (await core.loadDeck(root, "presets")).slides[0].beats[1].tracks.find(t => t.ghostFrom)!;
+  h.ok(savedGhost.preset === "transform" && savedGhost.styleId === "move", "flux-core saveDeck publishes the linked ghost birth");
   const final = await core.loadDeck(root, "cli");
   h.ok(final.slides[0].beats[1].tracks.every(t => !t.styleId && t.duration === 900), "delete persists detached effective duration");
   h.eq(final.slides[0].beats[1].tracks[1].start, 910, "anchor detach preserves the last resolved start");

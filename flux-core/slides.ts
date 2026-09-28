@@ -44,7 +44,6 @@ import { gatherPayload } from "../src/lib/slide/payload";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
-import { resolveTrack } from "../src/lib/slide/resolve";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { transformPreState } from "../src/lib/slide/tween";
 import { ValidationError } from "./errors";
@@ -467,9 +466,9 @@ export async function ungroupTracksVerb(
 async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
   const slide = mustSlide(deck, slideId);
   const manifests = new Map<string, FluxPlotManifest | undefined>();
-  const styled = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.map(t => resolveTrack(t, deck)) })) };
-  for (let bi = 0; bi < styled.beats.length; bi++) for (const track of styled.beats[bi].tracks) {
-    const el = transformPreState(styled, track.target, bi);
+  // Pre-states read preset/to only, which a style never supplies (slide/resolve.ts).
+  for (let bi = 0; bi < slide.beats.length; bi++) for (const track of slide.beats[bi].tracks) {
+    const el = transformPreState(slide, track.target, bi);
     if (el?.type === "plot" && !manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
   }
   return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id) };

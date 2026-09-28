@@ -21,7 +21,7 @@ import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, t
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
-import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, type StyleContext, type ManifestFor } from "./resolve";
+import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
 import { isExitPreset } from "./presetCatalog";
@@ -703,8 +703,10 @@ export function findTrack(deck: Deck, trackId: Id): { slide: Slide; beat: Beat; 
   return null;
 }
 
-// Linked animation styles. Bindings, endpoints, anchors and identity stay on
-// the track; the reusable HOW lives in the deck.
+// Linked animation styles. Bindings, endpoints, anchors, identity and the
+// family-defining `preset` stay on the track; the reusable HOW lives in the
+// deck. `preset` reaches linked tracks by write (link, setAnimStyle), never by
+// resolution (slide/resolve.ts header).
 export interface TrackEditResult { ok: boolean; reason?: string }
 
 function styleValid(style: Omit<AnimStyle, "id">): void {
@@ -725,9 +727,12 @@ export function setAnimStyle(deck: Deck, id: Id, patch: Partial<Omit<AnimStyle, 
   if (!style) return false;
   const next = { ...style, ...structuredClone(patch), track: { ...style.track, ...structuredClone(patch.track) } };
   styleValid(next);
-  if (next.family !== style.family && deck.slides.some(s => s.beats.some(b => b.tracks.some(t => t.styleId === id))))
+  const linked = deck.slides.flatMap(s => s.beats.flatMap(b => b.tracks.filter(t => t.styleId === id)));
+  if (next.family !== style.family && linked.length)
     throw new Error("Detach linked tracks before changing a style's family");
   Object.assign(style, next);
+  // The one field that propagates by write: linked tracks keep their own preset.
+  if (patch.track?.preset !== undefined) for (const track of linked) track.preset = style.track.preset;
   return true;
 }
 
@@ -753,9 +758,11 @@ export function linkTrackStyle(deck: Deck, slideId: Id, trackId: Id, styleId: Id
   if (styleId === null) { materializeStyle(found.track, deck); return { ok: true }; }
   const style = deck.animStyles?.find(s => s.id === styleId);
   if (!style) return { ok: false, reason: "Animation style not found" };
-  const family = familyOf(resolveTrack(found.track, deck));
+  const family = familyOf(found.track);
   if (family !== style.family) return { ok: false, reason: `Family mismatch: ${family} track cannot link to ${style.family} style` };
-  for (const key of ANIM_STYLE_FIELDS) delete found.track[key];
+  for (const key of INHERITED_STYLE_FIELDS) delete found.track[key];
+  // The preset stays on the track; a same-family style's differing preset is written once.
+  if (style.track.preset != null) found.track.preset = style.track.preset;
   found.track.styleId = styleId;
   return { ok: true };
 }
@@ -763,7 +770,7 @@ export function linkTrackStyle(deck: Deck, slideId: Id, trackId: Id, styleId: Id
 export function styleFromTrack(deck: Deck, slideId: Id, trackId: Id, name: string): AnimStyle | null {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return null;
-  const resolved = resolveTrack(found.track, deck), family = familyOf(resolved);
+  const resolved = resolveTrack(found.track, deck), family = familyOf(found.track);
   if (family === "camera") return null;
   const style = addAnimStyle(deck, { name, family, track: presetTrackOf(resolved) });
   linkTrackStyle(deck, slideId, trackId, style.id);
@@ -848,7 +855,7 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
     if (i < 0) continue;
     const candidate = b.tracks[i];
     if (to === s.beats[0]) return false;
-    if (["transform", "media"].includes(familyOf(resolveTrack(candidate, deck))) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate, deck))) return false;
+    if (["transform", "media"].includes(familyOf(candidate)) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate))) return false;
     const [t] = b.tracks.splice(i, 1);
     if (b.id !== to.id && t.groupId) delete t.groupId;
     // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
@@ -871,7 +878,7 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
     if (i < 0) continue;
     const to = toBeatId ? beatById(s, toBeatId) : b;
     if (!to || to === s.beats[0] || b === s.beats[0]) return null;
-    if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(resolveTrack(b.tracks[i], deck))) && to.tracks.some(t => tracksMatch(t, b.tracks[i], deck))) return null;
+    if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(b.tracks[i])) && to.tracks.some(t => tracksMatch(t, b.tracks[i]))) return null;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
     if (copy.ghostFrom) copy.target = cloneBirthResults(s, [copy]).get(copy.target) ?? copy.target;
@@ -962,8 +969,8 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   if (source.type === "video") throw new Error("Duplicate the video clip to create an independent copy; Ghost transforms do not support video.");
   const beat = slide.beats[bi];
   const whole = beat.tracks.filter(t => t.target === sourceId && !hasPartBinding(t) && !t.disabled);
-  const changes = whole.filter(t => familyOf(resolveTrack(t, deck)) === "transform");
-  const exits = whole.filter(t => isExitPreset(resolveTrack(t, deck).preset));
+  const changes = whole.filter(t => familyOf(t) === "transform");
+  const exits = whole.filter(t => isExitPreset(t.preset));
   if (changes.length > 1 || exits.length > 1 || original === "stay" && (changes.length || exits.length) || original === "transform" && exits.length || original === "disappear" && changes.length)
     throw new Error(`The original already has a Change or exit in this step. Choose its existing behavior or edit those effects first.`);
   if (opts.sourceSnapshot && (opts.sourceSnapshot.id !== sourceId || opts.sourceSnapshot.type !== source.type)) throw new Error("Copy snapshot must belong to the selected source object");
@@ -1046,8 +1053,7 @@ export function setTrackEnabled(deck: Deck, slideId: Id, trackId: Id, enabled: b
  *  target (whole element, or the same part-set) replace each other: "max one
  *  transform per target per beat" — chaining happens across beats. Media
  *  commands stay whole-clip and unique per clip. */
-function tracksMatch(a: Track, b: Track, deck: StyleContext = {}): boolean {
-  a = resolveTrack(a, deck); b = resolveTrack(b, deck);
+function tracksMatch(a: Track, b: Track): boolean {
   if (a.target !== b.target) return false;
   const fam = familyOf(a);
   if (fam !== familyOf(b)) return false;
@@ -1061,8 +1067,8 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b) return false;
-  if (familyOf(resolveTrack(track, deck)) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
-  const i = b.tracks.findIndex((t) => tracksMatch(t, track, deck));
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
+  const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
   // A matched track's group membership survives the replace (grouping is
@@ -1085,8 +1091,8 @@ export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track):
 export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): Track | null {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
-  if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(resolveTrack(track, deck))) && b.tracks.some(t => tracksMatch(t, track, deck)))) return null;
-  if (familyOf(resolveTrack(track, deck)) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
+  if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(track)) && b.tracks.some(t => tracksMatch(t, track)))) return null;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);
   return added;
@@ -1126,7 +1132,7 @@ export function setTransform(
   const b = s && beatById(s, beatId);
   if (!b) return null;
   const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
-  let t = b.tracks.find((x) => familyOf(resolveTrack(x, deck)) === "transform" && trackKey(x) === want);
+  let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
   if (!t) {
     t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
     if (opts.ref?.parts?.length) {
@@ -1217,7 +1223,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   const evaluated = frame.elements.find((e) => e.id === targetId) ?? target;
   const endEl = withGhostIdentity(sourceAt(compiled.resolvedSlide, targetId, bi + 1, evaluated), source);
   const state = diffState(pre, endEl) ?? {};
-  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(resolveTrack(t, deck)) === "transform");
+  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(t) === "transform");
   const track = setTransform(deck, slideId, beatId, sourceId, {
     state, replaceState: true,
     ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
@@ -1302,7 +1308,7 @@ export function cascadeTracks(
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (familyOf(resolveTrack(t, deck)) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!resolveTrack(t, deck).stagger : true));
+  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!resolveTrack(t, deck).stagger : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));

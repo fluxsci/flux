@@ -1,5 +1,4 @@
 import { familyOf } from "./family";
-import { resolveTrack } from "./resolve";
 // ---------------------------------------------------------------------------
 // Flux Slide — autoAnimatePlot (§ the one-click magic). Turn a FluxPlot's own
 // authored build hints (manifest.build.order + build.presets) into a ready-to-
@@ -342,9 +341,9 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
     // Legacy auto-* phase ownership is recognized once and stamped explicitly.
     const legacy = /^auto-(?:\d+|ghost-.+-\d+)$/.test(b.id);
     if (legacy) { b.generatedBy = "auto-reveal"; b.autoPhase ??= Number(b.id.match(/(\d+)$/)?.[1] ?? 0); b.autoTarget ??= b.id.match(/^auto-ghost-(.+)-\d+$/)?.[1]; }
-    const ownedGroups = new Set(b.tracks.filter(t => t.target === elId && !t.ghostFrom && (t.generatedBy === "auto-reveal" || legacy && !["transform", "media"].includes(familyOf(resolveTrack(t, deck))))).map(t => t.groupId).filter(Boolean));
+    const ownedGroups = new Set(b.tracks.filter(t => t.target === elId && !t.ghostFrom && (t.generatedBy === "auto-reveal" || legacy && !["transform", "media"].includes(familyOf(t)))).map(t => t.groupId).filter(Boolean));
     b.tracks = b.tracks.filter(t => t.target !== elId || !!t.ghostFrom ||
-      (t.generatedBy !== "auto-reveal" && !(legacy && !["transform", "media"].includes(familyOf(resolveTrack(t, deck))))));
+      (t.generatedBy !== "auto-reveal" && !(legacy && !["transform", "media"].includes(familyOf(t)))));
     if (b.groups) { const used = new Set(b.tracks.map(t => t.groupId).filter(Boolean)); b.groups = b.groups.filter(g => used.has(g.id) || !ownedGroups.has(g.id)); }
   }
 

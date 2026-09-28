@@ -10,7 +10,6 @@ import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, appendAnimation } from "./ops";
 import { suggestTrack, suggestElementTrack } from "./autobuild";
 import { familyOf } from "./family";
-import { resolveTrack } from "./resolve";
 import { newId } from "../ids";
 import { trackKey } from "./targets";
 
@@ -75,7 +74,7 @@ export function addAppearanceTracks(
       track.duration = 500;
     }
     const key = trackKey(track);
-    const prior = beat.tracks.filter((x) => trackKey(x) === key && familyOf(resolveTrack(x, deck)) === "appearance");
+    const prior = beat.tracks.filter((x) => trackKey(x) === key && familyOf(x) === "appearance");
     const last = prior.at(-1);
     if (last) {
       last.id ??= newId("track");

@@ -3,7 +3,6 @@ import { deckOverlay, activeBeat, selTrackIds } from "../../../../lib/slide/stor
 import { timelinePxPerMs } from "./animatorState";
 import { registerTargetResolver, boundsOf, type TargetHit } from "../../../../lib/bridge/targetResolvers";
 import { describeTarget, type TargetRef } from "../../../../lib/project/targets";
-import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
 import type { Slide } from "../../../../lib/slide/types";
 
@@ -13,7 +12,7 @@ export function animatorAnnotationTargets(root: HTMLElement, getSlide: () => Sli
     tracks = new Map();
     const slide = getSlide(), deck = get(deckOverlay);
     if (slide && deck) slide.beats.forEach((b, beat) => b.tracks.forEach(t => {
-      if (t.id) tracks.set(t.id, { kind: "track", deckId: deck.id, slideId: slide.id, trackId: t.id, family: familyOf(resolveTrack(t, deck)), elementId: t.target, beat, label: resolveTrack(t, deck).preset });
+      if (t.id) tracks.set(t.id, { kind: "track", deckId: deck.id, slideId: slide.id, trackId: t.id, family: familyOf(t), elementId: t.target, beat, label: t.preset });
     }));
   }
   const dispose = registerTargetResolver({ surface: "slide", root: () => root, prepare,
