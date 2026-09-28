@@ -25,6 +25,12 @@ Every file in a project is one of three kinds:
   caches. Everything derived is rebuildable: if it's stale or missing, Flux regenerates it.
   Derived files are safe to leave out of backups and version control.
 
+The same division applies to [3D models](../modes/figure.qmd#3d-models-and-3d-fluxplots).
+Your analysis writes a GLB mesh and optional semantic manifest to `plots/`. Flux keeps an
+accepted copy in `fig/assets/`, and stores its camera, shape weights and part restyles in
+the composition. Mesh posters under `fig/renders/model3d/` are a derived cache. Keep the
+accepted GLB when sharing or backing up the project; the PNG cache can be rebuilt.
+
 # Saving: you don't
 
 Flux autosaves as you work. A file replacement writes and flushes a temporary file before

@@ -14,16 +14,19 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
 │   └── _quarto.yml              #   shared export settings
 ├── plots/                       # YOURS — analysis output lands here, any structure you like
 │   ├── growth.{svg,fluxplot.json,recipe.json}   # a semantic plot + manifest + recipe
+│   ├── neuron.{glb,fluxplot.json,recipe.json} #   a 3D mesh + semantic manifest + recipe
 │   ├── _dissections/growth/     #   growth's companion material (per-subject panels, stats CSVs)
 │   ├── _lighttable/             #   Lighttable collections for exploratory image sets
+│   ├── _videos/                 #   video clips for slides
 │   ├── pasted/                  #   originals of images pasted from the clipboard
 │   └── paper_snips/             #   regions snipped out of PDFs in the reader
 ├── fig/                         # APP-MANAGED — the figure subsystem
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real compositions (figures → elements)
 │   ├── captions/<id>.md         #   composed caption mirror, reconciled with the composition
-│   ├── assets/                  #   accepted plot bundles (SVG + semantic sidecars)
+│   ├── assets/                  #   accepted SVG/GLB bundles + semantic sidecars
 │   └── renders/                 #   derived static renders
+│       └── model3d/             #   keyed PNG posters; meshes remain in assets/
 ├── slides/<deckId>/deck.json    # APP-MANAGED — one deck per folder (+ its assets/)
 ├── references/library.bib       # YOURS — the project's cited subset (BibTeX)
 ├── AGENTS.md                    # passive pointer to flux-connect
@@ -80,13 +83,19 @@ A Flux project is a plain folder whose marker is `project.json`. Here is the can
   subfolders are written *for* you, and are yours to keep or delete: `plots/pasted/` holds
   the original of every image you paste from the clipboard, and `plots/paper_snips/` holds
   every region you snip out of a PDF. Both exist so the pixels you contribute live somewhere
-  you own, not only inside the app's `fig/assets/` copy. Two names are reserved, both starting
+  you own, not only inside the app's `fig/assets/` copy. Three names are reserved, all starting
   with `_`: `plots/_dissections/` holds each plot's
   [companion material](../concepts/dissections.qmd) (the **D** key in the figure editor views
-  it), and `plots/_lighttable/` is where [Lighttable](../lighttable.qmd) collections belong —
-  the sweeps and per-cell batches you triage before choosing a panel. Neither shows up in an
+  it); `plots/_lighttable/` is where [Lighttable](../lighttable.qmd) collections belong —
+  the sweeps and per-cell batches you triage before choosing a panel; and `plots/_videos/`
+  holds video clips for slides. Companion collections stay out of an
   ordinary plot-importer search, however many thousands of images they hold; type **`_`** in
   the importer to list them and **Enter** to search inside one.
+- **3D fluxplots** keep the source GLB and its `.fluxplot.json` beside each other in `plots/`.
+  Import copies the accepted bundle into `fig/assets/`. Camera settings, shape weights and
+  part restyles live in the figure composition. `fig/renders/model3d/` contains rebuildable
+  PNG posters keyed to the accepted mesh and view; deleting that cache does not delete the
+  mesh or its edits. Exported SVG/PDF artwork combines those mesh pixels with vector labels.
 - **`.meta/`** holds the operational machinery: `journal.ndjson` (every write: who/what/when),
   `feedback.ndjson` (annotations and inbox status), advisory `locks/`, JSON `schema/`
   for every file type, and the live-bridge descriptor while the app is open. Connected
