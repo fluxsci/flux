@@ -171,7 +171,10 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
       if (!sourceMesh.geometry.getAttribute('normal')) sourceMesh.geometry.computeVertexNormals();
       let node: Object3D | null = object, index: number | undefined;
       while (node && index === undefined) { index = gltf.parser.associations.get(node)?.nodes; node = node.parent; }
-      const nodeName = index !== undefined ? gltf.parser.json.nodes[index]?.name : undefined;
+      // Same part id as glbCore (`name || node-<glTF node index>`). three renames
+      // unnamed objects (mesh_<n>), which made styling unnamed parts a no-op.
+      const nodeDef = index !== undefined ? gltf.parser.json.nodes?.[index] : undefined;
+      const nodeName = index === undefined ? undefined : typeof nodeDef?.name === 'string' && nodeDef.name ? nodeDef.name : `node-${index}`;
       const name = nodeName ?? object.name ?? `${id}:${parts.length}`;
       const colors = sourceMesh.geometry.getAttribute('color');
       let vertexAlpha = false;

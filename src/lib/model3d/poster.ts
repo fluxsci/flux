@@ -2,7 +2,7 @@ import { canonical,cyrb53,hex14 } from './hash';
 import { clamp,normalizeAzimuth } from './orbit';
 import { buildScene3dPartIndex,scene3dFields,resolveScene3dPartStyle } from './scene3d';
 import type { Model3dAsset,Model3dElement,Scene3dManifest,Rect } from './types';
-export const RENDERER_VERSION='m3d-r1';
+export const RENDERER_VERSION='m3d-r2';
 const round=(n:number,p:number)=>Math.round(n/p)*p;
 const sig=(n:number)=>Number(n.toPrecision(5));
 export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number}):string{

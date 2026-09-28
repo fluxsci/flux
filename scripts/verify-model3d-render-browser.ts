@@ -10,7 +10,7 @@ import { harness } from './lib/harness.mjs';
 import { buildModel3dAssets } from './gen-model3d-viewer.mjs';
 import { createServiceHost } from '../src/lib/model3d/serviceHost';
 import { createModel3dService } from '../src/lib/model3d/service';
-import { writeGlb } from '../src/lib/model3d/glbCore.mjs';
+import { writeGlb, inspectGlb } from '../src/lib/model3d/glbCore.mjs';
 const h = harness('verify-model3d-render-browser');
 const assert = await import('node:assert/strict').then(m=>m.default);
 async function serviceHostLifecycle(){
@@ -100,6 +100,18 @@ try {
     const skin=l.diff(l.render(l.spec('implicit')).pixels,l.render(l.spec('skin')).pixels);l.render({...l.spec('unnamed'),morph:{to:'unnamed',t:.5,pairs:[{nodeA:'',nodeB:'',primitiveA:0,primitiveB:0},{nodeA:'',nodeB:'',primitiveA:1,primitiveB:1}]}});
     return {skin,maxAlpha,left,right,cascade:l.diff(parent,children),hiddenAlpha,mixedVisible:mixed.some((v:number,i:number)=>i%4===3&&v>0)};});
   h.eq(edgeMeshes.skin.changed,0,'skinned GLB displays exact stored mesh geometry');h.eq(edgeMeshes.maxAlpha,128,'semantic manifest preserves source material alpha');h.eq(edgeMeshes.left,0,'field remapping one GLTF instance preserves sibling pixels');h.ok(edgeMeshes.right>100,'instance field override changes target pixels');h.eq(edgeMeshes.cascade.changed,0,'ancestor fill equals equivalent leaf fills');h.eq(edgeMeshes.hiddenAlpha,0,'hidden ancestor hides subtree');h.ok(edgeMeshes.mixedVisible,'implicit and identity-indexed morph pair accepted');
+
+  // M1 parity: glbCore part names are renderCore styling ids, unnamed nodes too.
+  const unnamedNames = inspectGlb(generated.unnamed).partNames;
+  const unnamedStyle = await page.evaluate((names: string[]) => {
+    const l=(window as any).lab, spec=l.spec('unnamed',{orbitAzimuth:0,orbitElevation:0,modelColors:'source'}), base=l.render(spec).pixels;
+    const filled=names.map(name=>l.diff(base,l.render({...spec,element:{...spec.element,overrides:{[name]:{fill:'#ff0000'}}}}).pixels).changed);
+    const hidden=l.render({...spec,element:{...spec.element,overrides:Object.fromEntries(names.map(name=>[name,{hidden:true}]))}}).pixels;
+    let alpha=0;for(let i=3;i<hidden.length;i+=4)alpha+=hidden[i];
+    return {filled,alpha};
+  }, unnamedNames);
+  h.eq(unnamedNames, ['node-0', 'node-1'], 'glbCore names unnamed nodes node-<glTF node index>');
+  h.ok(unnamedStyle.filled.every((changed: number) => changed > 0.001) && unnamedStyle.alpha === 0, `renderCore fills and hides unnamed parts by the glbCore part ids (${unnamedStyle.filled.map((c: number) => (c * 100).toFixed(1) + '%').join(', ')})`);
 
   const synthetic = await page.evaluate(() => {
     const l=(window as any).lab, manifest={parts:[{id:'left',role:'mesh',node:'left',series:'pair',color:'#0000ff'},{id:'right',role:'mesh',node:'right',series:'pair',color:'#0000ff'}]}, raw=JSON.stringify(manifest);
