@@ -109,6 +109,8 @@ interface Spec {
   prep?: () => void;
   /** Rebuild all camera frames from live FROM at play time, or restore on seek. */
   refreshCamera?: (transform?: string) => boolean;
+  /** Exact transform for eased progress outside [0,1] (the camera's geometric path). */
+  transformAt?: (u: number) => string;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
   handoff?: HandoffController;
@@ -277,6 +279,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           key,
           prep: na.prep,
           refreshCamera: na.refreshCamera,
+          transformAt: na.transformAt,
           trackId: track.id,
           preset: track.preset,
         });
@@ -385,6 +388,9 @@ function frameSampler(spec: Spec): (t: number) => Keyframe {
     const u = spec.ease.fn(raw), t = spec.ease.clamped(raw);
     for (const channel of channels) {
       const progress = channel.discrete ? raw : channel.box ? u : t;
+      // Overshoot leaves the keyframed range: a spec that knows its exact path
+      // (the camera) samples it instead of extrapolating the last segment.
+      if (channel.box && spec.transformAt && (u < 0 || u > 1)) { frame[channel.property] = spec.transformAt(u); continue; }
       const segments = channel.segments;
       if (!segments.length) { frame[channel.property] = channel.constant; continue; }
       let i = 0;

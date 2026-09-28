@@ -882,8 +882,10 @@ Persistence invariants (all machine-checked — do not weaken):
   springs). Endpoint guards need a continuity probe to catch a missing spring residual.
   The type-only `Track.curve` seam awaits M3 validation. M2 binds one `ResolvedCurve`
   per compiled track/spec: box channels extrapolate `fn`, other channels use `clamped`,
-  and controllers receive `seek(u, raw)` for raw-keyed phase decisions. The compiler
-  camera remains clamped until M5 adds geometric zoom. `staggerDelay` owns delays in
+  and controllers receive `seek(u, raw)` for raw-keyed phase decisions. The camera is a
+  box-class channel: compiler and player both take `fn` through `slide/camera.ts`, and
+  the player's out-of-range camera frames call the preset's exact `transformAt(u)`
+  rather than extrapolating its 24 keyframes. `staggerDelay` owns delays in
   playback, compilation and span calculation; no second per-item formula belongs there.
   Legacy move/scale/rotate remain
   appearance-family compatibility effects, excluded from the editable preset list.
@@ -2481,8 +2483,12 @@ outside this PNG packaging change.
   compiled FROM before random seek. Replacing only frame zero breaks the path.
   `flyDuration` is natural S in seconds; the UI converts to ms and uses `setTrack`.
   Gate `verify-slide-camera` pins the old 23.58 px disagreement and new sub-0.5 px
-  compiler/player agreement. M2 supplies unclamped easing/segment extrapolation;
-  retain the camera's M2 hook until the integration replaces `ct.ease(raw)` with `.fn`.
+  compiler/player agreement. Both readers take the unclamped curve (M2 × M5
+  integration). A spring's overshoot leaves the keyframed 0–1 range, and linear
+  extrapolation of the last transform segment is NOT the geometric path: 9.1 px off
+  the compiler for spring(0.5) 1→2, and a negative `scale()` for spring(0.8) 1→0.05.
+  Out-of-range frames therefore sample the preset's `transformAt(u)` (the same
+  `sampleCamera`); the gate pins both failures.
 
 - **Retired easing traps T1–T4 (Animation v2 M2):** T1 rebuilt JS easing from CSS and
   treated every `linear()` as smoothstep; specs now retain `ResolvedCurve`, with
@@ -8030,3 +8036,13 @@ reproduce at base, while watcher and pinned-caption failures passed isolated ret
 - An interrupted shell left overbroad runners alive in this session, including one
   at the default :1420 port; no native attempts ran. Exclude those cohorts and confirm
   runner completion before qualifying isolated scale measurements (§7).
+
+### 2026-09-28 04:45 UTC — M2 × M5 camera reconciliation (Claude Opus 5.5, QA `av2/M2`)
+**Work:** Reconciled the compiler's camera to the unclamped curve (`sampleCamera(…, ct.ease.fn(raw), …)`)
+and removed both packets' placeholder comments. The requested spring parity check was red:
+the player extrapolated the last of its 24 camera keyframes linearly (9.1048 px from the
+compiler for spring(0.5) 1→2; played zoom −0.034 for spring(0.8) 1→0.05). Out-of-range camera
+frames now sample the preset's exact `transformAt(u)`; max deviation 0.1243 px (the in-range
+keyframe residual). `verify-slide-camera` pins overshoot, positivity, parity and landing.
+**Learnings:** A keyframed approximation that is exact in 0–1 is not exact outside it; any
+spec whose path is non-linear in its keyframe values needs its own sampler for overshoot.

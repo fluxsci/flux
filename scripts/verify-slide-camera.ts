@@ -103,6 +103,42 @@ for (const path of ["pole", "fly"] as const) {
   player.destroy();
 }
 
+h.section("M2 channel law: a spring camera overshoots geometrically");
+// The camera is a physical channel (EASING_AND_MOTION §1.4): the compiler and
+// the player both take the unclamped curve. Curve is type-only until M3, so this
+// deck stays in memory.
+{
+  const spring = fixture();
+  const track = spring.beats[1].tracks[0]; delete track.easing; track.curve = { kind: "spring", bounce: .5 };
+  const plan = compileSlide(spring, stage), { host, player } = mounted(spring);
+  let peak = 0, worst = 0;
+  for (let i = 1; i < 60; i++) {
+    const ms = 1000 * i / 60, pose = plan.sample(1, ms).camera!;
+    peak = Math.max(peak, pose.zoom);
+    player.seek(0, 1, ms);
+    worst = Math.max(worst, error(pose, livePose(host)));
+  }
+  h.ok(peak > b.zoom * 1.05, `spring(0.5) compiler zoom overshoots its target mid-flight (peak ${peak.toFixed(4)} > ${b.zoom})`);
+  h.ok(worst < .5, `spring(0.5) compiler/player agree within 0.5 px at 59 samples (max ${worst.toFixed(4)} px)`);
+  player.seek(0, 1, 1000);
+  h.ok(error(b, livePose(host)) < 1e-9 && error(b, plan.sample(1, 1000).camera!) < 1e-9, "spring camera lands exactly on its target");
+  player.destroy();
+  // A deep zoom-out under a bouncy spring: linear zoom would cross 0 (1 − .95·u < 0
+  // once u > 1.053). Geometric zoom stays positive in both readers.
+  const out = fixture(a, { x: a.x, y: a.y, zoom: .05 });
+  const outTrack = out.beats[1].tracks[0]; delete outTrack.easing; outTrack.curve = { kind: "spring", bounce: .8 };
+  const outPlan = compileSlide(out, stage), live = mounted(out);
+  let minCompiled = Infinity, minPlayed = Infinity, farthest = 1;
+  for (let i = 1; i < 60; i++) {
+    const ms = 1000 * i / 60, pose = outPlan.sample(1, ms).camera!;
+    live.player.seek(0, 1, ms);
+    minCompiled = Math.min(minCompiled, pose.zoom); minPlayed = Math.min(minPlayed, livePose(live.host).zoom);
+    farthest = Math.max(farthest, Math.log(pose.zoom) / Math.log(.05));
+  }
+  h.ok(farthest > 1.053 && minCompiled > 0 && minPlayed > 0, `spring(0.8) zoom-out overshoots past linear zoom's zero and stays positive (u ${farthest.toFixed(3)}; min zoom compiled ${minCompiled.toExponential(3)}, played ${minPlayed.toExponential(3)})`);
+  live.player.destroy();
+}
+
 h.section("FROM is read from the live layer at play time");
 const callbacks = new Map<number, FrameRequestCallback>(); let serial = 0;
 Object.assign(globalThis, { requestAnimationFrame: (fn: FrameRequestCallback) => { callbacks.set(++serial, fn); return serial; }, cancelAnimationFrame: (id: number) => callbacks.delete(id) });

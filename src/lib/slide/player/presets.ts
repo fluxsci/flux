@@ -37,6 +37,10 @@ export interface NodeAnim {
   prep?: () => void;
   /** Rebuild camera frames at play start; no argument restores the compiled FROM. */
   refreshCamera?: (transform?: string) => boolean;
+  /** The exact transform at an eased progress OUTSIDE [0,1] (a spring's
+   *  overshoot). Keyframes cover [0,1]; extrapolating their last segment
+   *  linearly would leave the geometric camera path the compiler samples. */
+  transformAt?: (u: number) => string;
 }
 
 export type Preset = (nodes: TargetNode[], track: Track, ctx: PresetCtx) => NodeAnim[];
@@ -348,20 +352,21 @@ export const PRESETS: Record<string, Preset> = {
       const to = { x: num(t.to?.x, initial.x), y: num(t.to?.y, initial.y), zoom: num(t.to?.zoom, initial.zoom) };
       const keyframes: Keyframe[] = Array.from({ length: 24 }, (_, i) => ({ offset: i / 23 }));
       const pose = { ...initial };
-      let last: CameraPose | undefined;
+      let last: CameraPose | undefined, current = initial;
+      const transformAt = (u: number) => {
+        sampleCamera(current, to, u, ctx.stage, t.to?.path, pose);
+        const { x, y, zoom } = editorCameraTransform(pose, ctx.stage);
+        return `translate(${x}px, ${y}px) scale(${zoom})`;
+      };
       const refreshCamera = (transform?: string) => {
         const from = transform === undefined ? initial : poseOf(transform);
         if (last && from.x === last.x && from.y === last.y && from.zoom === last.zoom) return false;
-        last = from;
-        for (let i = 0; i < keyframes.length; i++) {
-          sampleCamera(from, to, i / 23, ctx.stage, t.to?.path, pose);
-          const { x, y, zoom } = editorCameraTransform(pose, ctx.stage);
-          keyframes[i].transform = `translate(${x}px, ${y}px) scale(${zoom})`;
-        }
+        last = current = from;
+        for (let i = 0; i < keyframes.length; i++) keyframes[i].transform = transformAt(i / 23);
         return true;
       };
       refreshCamera();
-      return { node, index, enter: false, keyframes, refreshCamera };
+      return { node, index, enter: false, keyframes, refreshCamera, transformAt };
     });
   },
 

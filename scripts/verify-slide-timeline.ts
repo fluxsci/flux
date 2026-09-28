@@ -310,7 +310,7 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   ] }] };
   const manifest = { axes: [], series: [], parts: { id: "figure", children: [{ id: "data.point", role: "point" }] } } as unknown as FluxPlotManifest;
   const compiled = compileSlide(springSlide, stage, { plotManifest: () => manifest });
-  let peak = 0, bounded = true, cameraClamped = true, positiveBox = true, rotationOvershoots = false, scaleFloor = false;
+  let peak = 0, bounded = true, cameraPositive = true, cameraOvershoots = false, positiveBox = true, rotationOvershoots = false, scaleFloor = false;
   for (let i = 0; i < 60; i++) {
     const f = compiled.sample(1, 1000 * i / 59), r = f.elements[0], p = f.elements[1] as import("../src/lib/types").SemanticPlotElement;
     peak = Math.max(peak, r.x); rotationOvershoots ||= r.rotation > 370;
@@ -319,13 +319,15 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
     bounded &&= r.opacity! >= 0 && r.opacity! <= 1 && /^#[0-9a-f]{6}$/i.test((r as any).fill) && (r as any).strokeWidth >= 0 && (r as any).strokeWidth <= 1 &&
       domain[0] >= 0 && domain[0] <= 2 && domain[1] >= 4 && domain[1] <= 10 && alpha >= 0 && alpha <= 1 &&
       Number((f.elements[2] as any).text.replace("%", "")) <= 100;
-    // M5 switches to geometric zoom and fn together. Linear zoom is clamped in M2.
-    cameraClamped &&= f.camera!.x >= 0 && f.camera!.x <= stage.width / 2 && f.camera!.y >= 0 && f.camera!.y <= stage.height / 2 && f.camera!.zoom >= .01 - 1e-12 && f.camera!.zoom <= 1;
+    // The camera is a physical channel (§1.4): geometric zoom takes the unclamped
+    // curve, so it may pass its target, but zoom never reaches 0.
+    cameraPositive &&= f.camera!.zoom > 0 && Number.isFinite(f.camera!.x) && Number.isFinite(f.camera!.y);
+    cameraOvershoots ||= f.camera!.zoom < .01;
   }
   check(peak >= 605 && rotationOvershoots, `compiler extrapolates only box motion with shortest-arc rotation (x peak ${peak.toFixed(3)})`);
   check(bounded, "compiler spring opacity, colour, stroke, parts, countUp and plot view stay bounded at 60 samples");
   check(positiveBox && scaleFloor, "compiler floors extrapolated size at zero and contentScale at .01");
-  check(cameraClamped, "M2 camera stays clamped until M5 replaces linear zoom");
+  check(cameraPositive && cameraOvershoots, "the spring camera zooms past its .01 target and zoom stays positive (geometric, unclamped curve)");
   const end = compiled.sample(1).elements[0];
   check(end.x === 600 && end.rotation === 10 && end.width === 0 && end.height === 0, "compiler lands on exact authored endpoints");
   const { overshootBox } = await import("../src/lib/slide/tween");

@@ -138,7 +138,7 @@ specs without a transform. Mixed keyframes choose the curve per property.
 | Channel | Progress | Constraint |
 | --- | --- | --- |
 | Box x/y, width/height, rotation, contentScale; wrapper transform keyframes | `fn(raw)` | Extrapolate the first/last keyframe segment; floor size at 0 and contentScale at .01. Rotation keeps the shortest arc. |
-| Camera | Clamped in the M2 compiler | M5 switches to `fn` together with geometric, positive zoom. |
+| Camera x/y/zoom | `fn(raw)` | Geometric (log) zoom stays positive; the player's overshoot frames sample `sampleCamera` exactly instead of extrapolating a keyframe segment. |
 | Opacity and OKLab colours | `clamped(raw)` | Stay within the authored endpoints and colour gamut. |
 | Trim, draw-on, wipe, stroke width and dash | `clamped(raw)` | No negative widths or overshooting dash windows. |
 | CountUp and plot data/view | `clamped(raw)` | Data never overshoots. |
@@ -174,9 +174,12 @@ nonnegative natural length S in seconds at unit speed; the Inspector displays
 
 The player emits 24 uniformly spaced transform keyframes and applies the timing curve to
 time. It rebuilds all frames from the live camera at play start, then restores compiled
-FROM poses on random seek. Transform flight promotion/demotion is unchanged. M2 owns
-unclamped time easing and first/last-segment extrapolation; M5's compiler call retains
-the explicit M2 handoff comment until that integration. `verify-slide-camera` drives
+FROM poses on random seek. Transform flight promotion/demotion is unchanged. Both
+readers take the unclamped curve (`fn`). Keyframes cover eased progress 0–1 only; when a
+spring carries `u` past either end, the player samples `sampleCamera` at that `u`
+(`NodeAnim.transformAt`) instead of extrapolating the last keyframe segment, which drifts
+9.1 px from the compiler at a spring(0.5) 1→2 zoom and turns zoom NEGATIVE (a mirrored
+stage) for a spring(0.8) zoom-out to 0.05. `verify-slide-camera` drives
 both the exported compiler and `createPlayer`, including chained/reverse seeks and the
 T7 fixture that differed by 23.58 px on the old code.
 

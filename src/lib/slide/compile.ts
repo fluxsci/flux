@@ -222,11 +222,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         continue;
       }
       if (preset === "camera") {
-        // M5 enables overshoot with geometric zoom; linear zoom must stay clamped.
         const from = camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 };
         const to = { x: track.to?.x ?? from.x, y: track.to?.y ?? from.y, zoom: track.to?.zoom ?? from.zoom };
-        // M2: pass `ease.fn(raw)` here (overshoot allowed; zoom is geometric).
-        camera = sampleCamera(from, to, t, stage, track.to?.path, from);
+        // The camera is a physical channel: it takes the unclamped curve. Zoom
+        // is geometric (log space), so an overshooting spring keeps it positive.
+        camera = sampleCamera(from, to, ct.ease.fn(raw), stage, track.to?.path, from);
         continue;
       }
       const maxRank = Math.max(0, ...ct.ranks);
