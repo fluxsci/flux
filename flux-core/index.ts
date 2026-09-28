@@ -96,6 +96,7 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 // re-exported here so the CLI + MCP reach them through one flux-core surface.
 // --------------------------------------------------------------------------
 export { exportSlideVideo } from "./slideVideo";
+export { addModel, modelInfo, setModelViewCommand, setModelFieldCommand, renderModelPosters } from './model3d';
 export {
   loadDeck,
   saveDeck,

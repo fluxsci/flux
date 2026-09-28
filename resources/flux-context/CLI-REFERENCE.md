@@ -81,7 +81,7 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `arrange <figId> [--rows N\|--cols N]` · `auto-label <figId>` | `arrange_figure` · `auto_label` | grid panels / letter panels a,b,c… (panels missing a label get one created first, so import-plots → arrange → auto-label just works) |
 | `add-fig-text <figId> "text" [--x --y --size-pt n] [--panel-label]` | `add_fig_text` | add a text element; `--panel-label` = a semantic panel label auto-label letters |
 | `toggle-text-run-style <elId> <from> <to> <bold\|italic\|underline>` · `toggle-text-run-script <elId> <from> <to> <super\|sub>` · `set-text-run-color <elId> <from> <to> <#hex\|inherit>` | `toggle_text_run_style` · `toggle_text_run_script` · `set_text_run_color` | format a character RANGE of one text element (0-based offsets into its text, `to` exclusive) — what selecting letters in the editor does; `toggle-text-style <bold\|italic\|underline> <ids…>` still styles whole elements |
-| `restyle <figId> <partId> [--stroke c] [--fill c] …` | `restyle_part` | restyle a plot part by **stable id** (survives regeneration) |
+| `restyle <figId> <partId> [--stroke c] [--fill c] …` | `restyle_part` | restyle a plot or 3D part by **stable id** (`restyle-part` is an alias) (survives regeneration) |
 | `set-style <ids…> [--fill] [--stroke] …` | `set_style` | element-level style |
 | `delete-element <ids…>` · `delete-figure <figId>` · `duplicate-figure <figId>` | `delete_elements` · `delete_figure` · `duplicate_figure` | remove elements / remove or copy a whole figure |
 | `align <figId> <edge> [--ids a,b,c]` · `group <ids…>` · `ungroup <ids…>` | `align_figure` · `group_elements` · `ungroup_elements` | align (left/right/top/bottom/centerH/centerV) / group / ungroup |
@@ -128,6 +128,29 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `highlights [search q] [--key K] [--md]` · `add-highlight --key K --page N --quote "…"` | `list_highlights`/`search_highlights` · `add_highlight` | read / add FluxReader highlights & notes |
 | — | `get_app_context` · `dispatch_command` · `act_on_selection` | the **live bridge** (app open only) |
 | `view --png --out <file> [--max-edge n] [--root R]` | `get_view {maxEdge?}` | capture the open project's Flux window as PNG plus current context; maxEdge defaults to 1600, clamped to 256–1600; requires viewing enabled in Settings |
+
+### Figure 3D models
+
+| Verb (CLI) | MCP tool | What it does |
+|---|---|---|
+| `add-model <figureId> <source.glb> [--x n --y n --width n --height n --name N --view '<json>']` | `add_model` | Copy a GLB and optional raw sidecars into the figure; returns element/asset IDs, parts, warnings and a poster result. |
+| `set-model-view <elementId> [--figure id --preset front\|back\|right\|left\|top\|bottom\|home --azimuth n --elevation n --roll n --zoom n --pan-x n --pan-y n --projection orthographic\|perspective --fov n --colors source\|uniform --color c --lighting studio\|unlit]` | `set_model_view` | Patch the saved model view. Explicit properties apply after the preset. Repeat `--state name=weight`, or use `--frame n` for a sequence; these forms are exclusive. |
+| `set-model-field <elementId> <fieldId> [--cmap name --min n --max n \| --reset]` | `set_model_field` | Remap an accepted value field, activating Source colors; explicit part fills survive. Equal limits are valid and map to colormap zero. |
+| `restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden true]` | `restyle_part` | Alias of `restyle`, using the same stable mesh/furniture/group IDs. |
+| `model-info <source.glb> [--morph-with other.glb]` | `model_info` | Read-only file inspection: stats, bounds, topology, names, fields, warnings/refusal and optional morph compatibility; no project required. |
+| `render-model-posters [--figure id --prune]` | `render_model_posters` | Batch-render saved Figure views into the project cache. Pruning protects every live figure view and all entries younger than 14 days. |
+
+Live `dispatch_command` accepts `set_model_view` and `set_model_field` with these
+camelCase parameters and `target` (or the current selection). They use the same
+pure mutations and one Undo step in either resident editor tenancy. The file
+verbs currently refuse deck/slide selectors; 3D deck persistence is a later phase.
+Figure model mutations attempt a matching project poster after saving; use
+`--no-poster` on import/view/field/restyle to defer this derived work. A poster
+failure is a warning on a successful edit.
+
+Repeated flags remain errors except the explicitly repeatable `--state` flag;
+duplicate state names, unknown shapes and nonfinite weights are errors. A zero
+weight removes one state; finite negative or above-one weights are retained.
 
 ### Slides (Flux Slide — see `SLIDES.md`)
 

@@ -32,6 +32,10 @@ export function posterPixels(viewport:{width:number;height:number},surface:Poste
 }
 export const posterPath=(key:string)=>{if(!/^m3d-[\da-f]{14}$/.test(key))throw new Error('Invalid model poster key');return `fig/renders/model3d/${key}.png`;};
 export const posterRef=(key:string)=>`m3dposter:${key}`;
+/** Shared GUI/Node cache GC policy: current views and recent history survive. */
+export function isModelPosterPrunable(name:string,mtimeMs:number,live:ReadonlySet<string>,now=Date.now()):boolean {
+ return /^m3d-[\da-f]{14}\.png$/.test(name)&&Number.isFinite(mtimeMs)&&mtimeMs<now-14*86400_000&&!live.has(name.slice(0,-4));
+}
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]!));
 export function modelPlaceholder(name:string,box:Rect):string{return `<g data-model3d-placeholder="true"><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="#F2F0E5" stroke="#B7B5AC" stroke-width="0.75"/><text x="${box.x+box.width/2}" y="${box.y+box.height/2-4}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#6F6E69">3D</text><text x="${box.x+box.width/2}" y="${box.y+box.height/2+14}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#6F6E69">${esc(name)}</text></g>`;}
 export const modelPosterWarning=(name:string)=>`3D model "${name}": poster not rendered — open the project in Flux or run flux render-model-posters`;

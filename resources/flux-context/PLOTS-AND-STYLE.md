@@ -157,3 +157,65 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
 - **Regenerated at a different size?** `sync-figure` resizes the element true-size (preserving a
   deliberate hand-scale) and grows the figure frame if needed — re-`arrange` when the grid
   should reflow around the new size.
+
+## 3D fluxplots
+
+Use `fp.scene3d`, `fp.mesh3d` and `fp.surface3d` for triangle meshes. This is a
+first-class fluxplot: named parts, saved view, values and physical typography
+travel with the mesh. Lines and points are outside this 3D surface.
+
+```python
+import fluxplot as fp
+fp.use_paper()
+sc = fp.scene3d(figsize=(3.5, 3), units="nm", up="-y", scalebar=10_000)
+fp.mesh3d(sc, {"soma": soma, "axon": axon, "dendrites": dendrites},
+          series="neuron", legend=True)
+sc.view(azimuth=30, elevation=15, zoom=0.9)
+fp.save(sc, "plots/neuron", recipe=dict(script=__file__, params={}))
+```
+
+`figsize` is inches. `up` supports signed axes and converts data coordinates to
+glTF Y-up; axes and scale bars retain data units. Mesh input can be `(vertices,
+faces)` or a mesh object; file adapters and accelerated simplification use the
+optional `fluxplot[mesh]` dependencies. Convert volumes to a triangle mesh first.
+`fp.save` writes `neuron.glb`, `neuron.fluxplot.json` and `neuron.recipe.json`.
+The recipe uses `outputs.glb`; `rerun-plot` can regenerate it. The source is
+immutable in Flux until an explicit Update from source. Do not overwrite
+`fig/assets/` directly.
+
+```python
+cx = fp.scene3d(figsize=(3, 3), units="mm", axes="triad")
+fp.surface3d(cx, thickness, series="thickness", surfaces=(vertices, faces),
+             kind="continuous", cmap="viridis", percentile=(2, 98),
+             colorbar=True, cbar_label="Thickness (mm)")
+fp.mesh3d(cx, pial, series="cortex", states={"inflated": inflated})
+cx.view(states={"inflated": 0.25})
+```
+
+Continuous values use the same mapping policy as `fp.surface`; 3D interpolates
+vertex colors while the 2D surface uses each face's mean value. Use
+`color_range=(min,max)` for explicit limits. Labels use `kind="label"`,
+`categories={code:name}` and `palette={name_or_code:color}`. Missing samples are
+encoded separately from real zero and get a `<series>.missing` part. Flux can
+remap continuous colormaps/ranges and restyle stable parts such as `neuron.axon`
+and `thickness.field` without rerunning Python.
+
+Every shape state must match the base vertex count and exact triangle order.
+For a sequence, pass `states=frames[1:], sequence=True`; frame 0 is the base,
+and `sc.view(frame=2.5)` blends frames 2 and 3. Separate morph files should share
+series/part names. Simplify the reference with `max_faces=200_000`, construct the
+partner using `share_topology_with=reference, morph_group="cortex"`, and check
+`fp.can_morph(reference, partner)`. Independent simplification can destroy
+correspondence. Named parts are simplified separately; collapse mapping is
+replayed on all states and the paired mesh. Keep inputs below Flux's 200 MiB and
+2 million triangle import limits; `model-info` reports violations with guidance.
+
+Notebook display bundles a self-contained interactive viewer and PNG. Trusted
+VS Code Jupyter and QMD Notebook execute it. Drag orbits, wheel zooms, axis keys
+choose views, Home resets, and Copy view produces Python view arguments.
+`sc.show(static=True)` explicitly requests a still. Untrusted VS Code can select
+blocked HTML from mixed HTML/PNG output without falling back automatically;
+choose the PNG representation or emit the static form before sharing. HTML
+frontends that disable scripts retain an inline PNG. This does not require a
+network service. A static preview may differ around intersecting transparent
+geometry; the saved mesh retains the full geometry and semantic data.

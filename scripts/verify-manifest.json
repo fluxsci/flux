@@ -331,7 +331,8 @@
       "verify-model3d-headless.ts",
       "verify-input-probe-policy.cjs",
       "verify-model3d-source.ts",
-      "verify-model3d-fluxplot.ts"
+      "verify-model3d-fluxplot.ts",
+      "verify-model3d-verbs.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -476,7 +477,8 @@
       "verify-model3d-export.mjs",
       "verify-model3d-orbit-gui.mjs",
       "verify-model3d-xray-gui.mjs",
-      "verify-model3d-source-gui.mjs"
+      "verify-model3d-source-gui.mjs",
+      "verify-model3d-verbs-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -599,7 +601,8 @@
       "verify-model3d-poster-worker.cjs",
       "verify-figure-pdf-size.cjs",
       "verify-model3d-electron.cjs",
-      "verify-model3d-smoke-electron.cjs"
+      "verify-model3d-smoke-electron.cjs",
+      "verify-model3d-verbs-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -876,7 +879,10 @@
       "verify-model3d-source.ts",
       "verify-model3d-fluxplot.ts",
       "verify-model3d-source-gui.mjs",
-      "verify-model3d-smoke-electron.cjs"
+      "verify-model3d-smoke-electron.cjs",
+      "verify-model3d-verbs.ts",
+      "verify-model3d-verbs-gui.mjs",
+      "verify-model3d-verbs-electron.cjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -973,6 +979,21 @@
     ],
     "model3d-native-smoke": [
       "verify-model3d-smoke-electron.cjs"
+    ],
+    "model3d-verbs": [
+      "verify-model3d-verbs.ts",
+      "verify-registry-parity.ts",
+      "verify-f1-mcp.ts",
+      "verify-w11-verbs.ts",
+      "verify-context-scheme.ts",
+      "verify-model3d-headless.ts",
+      "verify-connect.ts"
+    ],
+    "model3d-verbs-native": [
+      "verify-model3d-verbs-electron.cjs"
+    ],
+    "model3d-verbs-gui": [
+      "verify-model3d-verbs-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1008,6 +1029,24 @@
       "glob": "src/lib/model3d/source*",
       "run": [
         "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "flux-core/model3d{,File,Verbs}.ts",
+      "run": [
+        "group:model3d-verbs",
+        "group:model3d-verbs-native",
+        "group:model3d-verbs-gui",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/model3d/commandOps.ts",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray",
+        "group:model3d-verbs",
+        "group:model3d-verbs-gui"
       ]
     },
     {
@@ -8127,6 +8166,37 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 360000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-verbs.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-verbs-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-verbs-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

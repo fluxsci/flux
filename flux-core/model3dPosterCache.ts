@@ -1,6 +1,6 @@
 /** Native static poster resolution. Caller policy is explicit; collect stays cold. */
 import * as fs from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { boundedModelFile } from './model3dFile';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
@@ -60,32 +60,8 @@ export function validModelPosterPng(bytes: Buffer, expected: { w: number; h: num
     return true;
   } catch { return false; }
 }
-/** Bound allocation against the opened regular file, rechecking confinement
- * after open so a delayed provider cannot follow a substituted symlink. */
-async function boundedFile(file: string, limit: number, root?: string, signal?: AbortSignal): Promise<Buffer> {
-  const resolve = () => root ? projectAssetPath(root, path.relative(root, file)) : fs.realpath(file);
-  signal?.throwIfAborted();
-  const real = await resolve(), beforePath = await fs.lstat(real);
-  if (!beforePath.isFile()) throw new Error('3D input must be a regular file');
-  const handle = await fs.open(real, constants.O_RDONLY | (constants.O_NONBLOCK || 0) | (constants.O_NOFOLLOW || 0));
-  try {
-    const before = await handle.stat();
-    if (!before.isFile() || before.dev !== beforePath.dev || before.ino !== beforePath.ino || await resolve() !== real) throw new Error('3D input changed before reading');
-    if (before.size > limit) throw new Error(`3D input exceeds ${limit / 1024 / 1024} MiB`);
-    signal?.throwIfAborted();
-    const bytes = Buffer.alloc(before.size); let offset = 0;
-    while (offset < bytes.length) {
-      signal?.throwIfAborted();
-      const { bytesRead } = await handle.read(bytes, offset, Math.min(1024 * 1024, bytes.length - offset), offset);
-      if (!bytesRead) throw new Error('3D input changed while reading'); offset += bytesRead;
-    }
-    const after = await handle.stat();
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || await resolve() !== real) throw new Error('3D input changed while reading');
-    signal?.throwIfAborted(); return bytes;
-  } finally { await handle.close(); }
-}
 async function cached(file: string, size: { w: number; h: number }, root?: string): Promise<Buffer | undefined> {
-  try { const bytes = await boundedFile(file, 300 * 1024 * 1024, root); return validModelPosterPng(bytes, size) ? bytes : undefined; } catch { return undefined; }
+  try { const bytes = await boundedModelFile(file, 300 * 1024 * 1024, root); return validModelPosterPng(bytes, size) ? bytes : undefined; } catch { return undefined; }
 }
 const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`;
 const label = (request: StaticModelPosterRequest) => request.element.name || request.asset.name || request.element.id;
@@ -103,7 +79,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
     if (!await exists(modelPath)) throw new Error(`Missing GLB asset "${asset.name || asset.id}"`);
     paths.set(asset.id, safeJoin(root, `fig/${asset.path}`));
     const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
-      return (await boundedFile(safeJoin(root, rel), 4 * 1024 * 1024, root, options.signal)).toString('utf8');
+      return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, options.signal)).toString('utf8');
     } }, 'fig/assets', asset.id, { binding: bindings.get(asset.id) });
     if (metadata.manifest) manifests[asset.id] = metadata.manifest;
     warnings.push(...metadata.issues ?? []);
@@ -140,10 +116,10 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       const byId = new Map(batch.map(request => [request.asset.id, request.asset]));
       try {
         await (options.renderBatch ?? renderModelPosterBatch)(batch.map(request => ({ key: request.key, spec: { assetId: request.asset.id, w: request.w, h: request.h, element: request.element, manifest: request.manifest } })), {
-          outDir, signal: options.signal, modelBytes: async (id, signal) => {
+          outDir, ...(options.policy === 'project' ? { publicationRoot: root } : {}), signal: options.signal, modelBytes: async (id, signal) => {
             abort(options.signal);
             const asset = byId.get(id), file = paths.get(id); if (!asset || !file) throw new Error(`Missing GLB asset ${id}`);
-            const bytes = await boundedFile(file, 200 * 1024 * 1024, root, signal ?? options.signal); abort(options.signal);
+            const bytes = await boundedModelFile(file, 200 * 1024 * 1024, root, signal ?? options.signal); abort(options.signal);
             if (createHash('sha256').update(bytes).digest('hex') !== asset.sha256) throw new Error(`3D model "${asset.name || id}" changed since this view was captured`);
             return bytes;
           },

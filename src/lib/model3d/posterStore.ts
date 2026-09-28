@@ -6,7 +6,7 @@ import { storedAssetPath } from '../project/assetPath';
 import { bytesToDataUrl } from '../assets';
 import { scene3dGeneration, scene3dManifests } from './store';
 import { furnitureLayout } from './furnitureLayout';
-import { posterKey, posterPath, posterPixels, type PosterSurface } from './poster';
+import { posterKey, posterPath, posterPixels, isModelPosterPrunable, type PosterSurface } from './poster';
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from './types';
 
 export { type ModelPosterSource } from './sourceRegistry';
@@ -180,12 +180,12 @@ export async function pruneModelPosters(root: string, isCurrent: () => boolean =
     live.add(posterKey(element, asset as Model3dAsset, manifest, posterPixels(viewport, 'figure')));
   }
   const dir = joinPath(root, 'fig/renders/model3d'); if (!await fb.exists(dir)) return;
-  const entries = await fb.readdir(dir), cutoff = Date.now() - 14 * 86400_000;
+  const entries = await fb.readdir(dir);
   for (const entry of entries) {
     if (!isCurrent()) return;
     if (entry.dir || !/^m3d-[\da-f]{14}\.png$/.test(entry.name) || live.has(entry.name.slice(0, -4))) continue;
     const path = joinPath(dir, entry.name), stat = await fb.stat(path);
-    if (stat && stat.mtimeMs < cutoff && isCurrent()) await fb.remove(path);
+    if (stat && isModelPosterPrunable(entry.name, stat.mtimeMs, live) && isCurrent()) await fb.remove(path);
   }
 }
 export function model3dAppStats() { return { ...(modelSourceRegistryStats() ?? { contexts: 0, retained: 0, residentBytes: 0, loads: 0, renders: 0, queued: 0, active: false }), posters: cache.size, pendingPosters: pending.size, scope: context?.source.scope ?? null }; }

@@ -16,14 +16,16 @@
 │   └── notes.comments.json      #   the user's review comments (sidecar; see REVIEW.md)
 ├── plots/                       # USER-OWNED drop-zone — your fluxplot output lands here
 │   ├── growth.{svg,fluxplot.json,recipe.json}
+│   ├── neuron.{glb,fluxplot.json,recipe.json}
 │   ├── _dissections/growth/     #   growth's companion material (see below) — NOT composable plots
 │   └── _lighttable/<name>/      #   Lighttable collections (exploratory image sets) — same
 ├── fig/                         # APP-MANAGED — NEVER hand-edit
 │   ├── index.json               #   canvases + figures rollup
 │   ├── canvases/<id>.json       #   the real figure composition (figures → elements)
 │   ├── captions/<id>.md         #   readable projection of model caption blocks
-│   ├── assets/                  #   Flux's imported copies of your plot SVGs
+│   ├── assets/                  #   imported SVGs, GLBs and metadata sidecars
 │   └── renders/                 #   auto static renders (derived)
+│       └── model3d/             #   mesh-only PNG posters; vector furniture stays separate
 ├── references/library.bib       # USER-OWNED bibliography (BibTeX, [@citekey])
 ├── slides/<deckId>/deck.json    # Flux Slide decks (see SLIDES.md)
 ├── styles/                      # reusable figure styles
@@ -110,6 +112,52 @@ Hierarchy: **Project → Canvases → Figures → Elements**.
 - A **figure** is one publication figure (a bounded frame) on a canvas.
 - An **element** is a panel inside a figure — usually an imported plot (a *semantic plot*
   element that points back to `plots/` and carries per-part overrides), plus panel-label text.
+
+## 3D model panels
+
+A `model3d` element stores a physical rectangle, camera, named shape weights and
+semantic overrides. Its immutable GLB copy and metadata live in `fig/assets/`;
+figure JSON and history contain metadata, never mesh bytes. Ordinary arrange,
+rotate, flip, group, duplicate and delete operations work on its rectangle.
+Double-click in Flux to orbit; Home restores the source view. Shape sliders edit
+named states; a sequence also has a derived Frame control.
+
+```bash
+"{{FLUX_CLI}}" model-info plots/neuron.glb
+"{{FLUX_CLI}}" add-model fig3 plots/neuron.glb --width 260 --name Neuron
+# Use the returned elementId below.
+"{{FLUX_CLI}}" set-model-view <elementId> --preset front --azimuth 25 --colors source
+"{{FLUX_CLI}}" restyle-part fig3 neuron.axon --element <elementId> --fill '#205EA6'
+"{{FLUX_CLI}}" set-model-field <elementId> thickness.field --cmap viridis --min 0 --max 4
+"{{FLUX_CLI}}" render-model-posters --figure fig3
+```
+
+`restyle-part` is an alias of `restyle`; both address 2D plot and 3D mesh/furniture
+parts. Mesh fill overrides are visible in Source colors mode. Uniform colors
+uses the whole element's fill. Field edits activate Source colors and preserve
+explicit part fills, which can intentionally conceal a value map on that part.
+`--reset` on `set-model-field` removes that field's remapping only.
+
+Use `--state inflated=.5 --state bent=.2` to patch named weights (`0` removes a
+weight), or `--frame 2.5` for a sequence. Stored finite weights can extrapolate
+outside 0–1; the UI sliders cover 0–1. The frame encloses the base and each shape
+at weight 1; combined or extrapolated shapes may extend beyond it. Frame itself
+is not persisted. Home restores accepted source defaults. Use `model-info a.glb
+--morph-with b.glb` to check correspondence before authoring a morph.
+
+An invalid/newer/mismatched optional manifest degrades to a named plain mesh
+with a warning; its original bytes remain stored. Geometry refusal is explicit.
+An unavailable renderer retains the imported model and reports an unavailable
+poster. Import/view/field/restyle commands attempt a matching poster after saving;
+`--no-poster` leaves it for a later explicit render. Cached posters are derived; `render-model-posters --prune` removes only
+unreferenced entries older than 14 days, considering every saved figure. Connect
+uses cached posters or labeled placeholders without reading GLB bytes or
+creating model posters. Explicit image requests/export can render them. Exports
+embed mesh pixels at the requested resolution and keep furniture as SVG text
+and paths; GLB bytes are never embedded in figure SVG.
+
+These commands target Figures. Deck selectors and 3D figure-to-slide conversion
+remain unavailable until the Slides integration is enabled.
 
 ## Conventions and identity
 

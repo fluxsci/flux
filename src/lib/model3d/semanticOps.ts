@@ -14,12 +14,15 @@ function models(project: Project, ids: readonly Id[]): Model3dElement[] {
 
 /** Null resets the field; null members reset only that setting to its source.
  * Applying a field makes source colors visible, retaining explicit part fills. */
-export function setModelField(project: Project, ids: readonly Id[], fieldId: string, patch: ModelFieldPatch | null): void {
+export function validateModelFieldPatch(fieldId: string, patch: ModelFieldPatch | null): void {
   if (!fieldId || fieldId.includes('\0')) throw new Error('A value field id is required');
   if (patch?.cmap != null && !findColormap(patch.cmap)) throw new Error(`Unknown colormap ${patch.cmap}`);
   if (patch?.range != null && (patch.range.length !== 2 || !patch.range.every(Number.isFinite) || patch.range[0] > patch.range[1])) {
     throw new Error('Field minimum and maximum must be finite, with minimum at or below maximum');
   }
+}
+export function setModelField(project: Project, ids: readonly Id[], fieldId: string, patch: ModelFieldPatch | null): void {
+  validateModelFieldPatch(fieldId, patch);
   for (const element of models(project, ids)) {
     const fields: Record<string, ModelFieldOverride> = Object.assign(Object.create(null), element.fields);
     const field: ModelFieldOverride = Object.hasOwn(fields, fieldId) ? { ...fields[fieldId] } : {};

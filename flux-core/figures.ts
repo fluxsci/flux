@@ -1,4 +1,7 @@
 import { elementSourceAssetIds } from "../src/lib/model3d/refs";
+import { readModel3dMetadata, ensureModelPoster } from './model3d';
+import { assertModelPart } from '../src/lib/model3d/commandOps';
+import type { Model3dAsset } from '../src/lib/model3d/types';
 import { stageFigureWrites } from "./model";
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
@@ -661,19 +664,27 @@ export async function setPartOverride(
   partId: string,
   patch: PartOverride,
   elementId?: string,
-): Promise<{ elementId: string }> {
-  return mutateFigModel(root, "restyle_part", async ({ project }) => {
+  options: { noPoster?: boolean } = {},
+): Promise<{ elementId: string; warnings?: string[] }> {
+  let model = false;
+  const result = await mutateFigModel(root, "restyle_part", async ({ project }) => {
     const fig = ops.figById(project, figId);
     if (!fig) throw new Error(`figure not found: ${figId}`);
     let elId = elementId;
     if (!elId) {
-      const plots = fig.elements.filter((e) => e.type === "plot");
-      if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} plot panels; pass elementId`);
+      const plots = fig.elements.filter((e) => e.type === "plot" || e.type === 'model3d');
+      if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} semantic panels; pass elementId`);
       elId = plots[0].id;
     }
     // AGT-13: reject typo'd partIds instead of silently writing an inert override.
     const el = fig.elements.find((e) => e.id === elId);
-    if (el) {
+    if (el?.type === 'model3d') {
+      model = true;
+      const asset = project.assets.find(asset => asset.id === el.assetId);
+      if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${el.assetId}`);
+      const metadata = await readModel3dMetadata(root, project, el.assetId);
+      assertModelPart(el, asset as Model3dAsset, metadata.manifest, partId);
+    } else if (el) {
       const manifest = await readPlotManifest(root, el);
       if (manifest) {
         const valid = addressablePartIds(manifest);
@@ -690,6 +701,7 @@ export async function setPartOverride(
     ops.setPartOverride(project, elId, partId, patch);
     return { elementId: elId };
   });
+  return model && !options.noPoster ? { ...result, warnings: (await ensureModelPoster(root, figId, result.elementId)).warnings } : result;
 }
 
 /** set element-level style (fill/stroke/strokeWidth/opacity/color/font…) on ids.
