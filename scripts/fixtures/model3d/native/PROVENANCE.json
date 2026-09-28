@@ -1,0 +1,9 @@
+{
+  "generator": "fluxplot examples/scene3d_demo.py:neuron_scene/build",
+  "fluxplotCommit": "8a1d643",
+  "command": "uv run --extra mesh python examples/scene3d_demo.py --out test-results/model3d/demo/plots",
+  "files": {
+    "neuron.glb": "78f676f09acb4eee03a885b07323c003def7a16ccc4ee760ea13a4d9f2e2ada4",
+    "neuron.fluxplot.json": "8bbfd0e04a894f54056bd4ca4956cea46afd3f4f31aa839e14ba1fd92b2f3a96"
+  }
+}

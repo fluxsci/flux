@@ -592,7 +592,8 @@
       "verify-live-view-electron.cjs",
       "verify-ask-electron.cjs",
       "verify-model3d-poster-worker.cjs",
-      "verify-figure-pdf-size.cjs"
+      "verify-figure-pdf-size.cjs",
+      "verify-model3d-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -862,7 +863,8 @@
       "verify-model3d-orbit-gui.mjs",
       "verify-model3d-view-ops.ts",
       "verify-model3d-xray-gui.mjs",
-      "verify-model3d-headless.ts"
+      "verify-model3d-headless.ts",
+      "verify-model3d-electron.cjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -936,10 +938,20 @@
     "model3d-offline-colors": [
       "verify-color-collections.ts",
       "verify-slide-headless-e2e.ts"
+    ],
+    "model3d-native": [
+      "verify-model3d-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "scripts/lib/model3dNative*",
+      "run": [
+        "verify-model3d-electron.cjs",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "{electron/figurePdf.cjs,electron/ipc/staticPrint.cjs}",
       "run": [
@@ -7975,6 +7987,18 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 360000,
       "exclusive": true,
       "coverage": "behavior"
     }
