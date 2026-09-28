@@ -37,10 +37,12 @@ const viewer = await readFile(path.join(scratch, 'flux-model3d-viewer.js'), 'utf
 for (const [entry, file] of [['src/lib/model3d/service.ts', 'service.js'], ['src/lib/model3d/model3d.worker.ts', 'model3d.worker.ts']])
   await build({ absWorkingDir: root, entryPoints: [entry], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(scratch, file) });
 const server = createServer(async (req, res) => { try { const name = req.url === '/service.js' ? 'service.js' : req.url === '/model3d.worker.ts' ? 'model3d.worker.ts' : null; res.setHeader('Content-Type', name ? 'text/javascript' : 'text/html'); res.end(name ? await readFile(path.join(scratch, name)) : '<!doctype html><html><head><link rel="icon" href="data:,"></head><body style="margin:0"><div id="viewer"></div></body></html>'); } catch { res.statusCode = 404; res.end(); } });
-await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(1443, '127.0.0.1', resolve); });
+// An ephemeral port: this pure-tier gate may run in parallel with others.
+await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+const origin = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/`;
 const { browser, page } = await launch({ width: 900, height: 750 });
 try {
-  await page.goto('http://127.0.0.1:1443/'); await page.evaluate('window.__name = (value) => value'); await page.addScriptTag({ content: bundle });
+  await page.goto(origin); await page.evaluate('window.__name = (value) => value'); await page.addScriptTag({ content: bundle });
   const names = ['plain', 'named-parts', 'continuous', 'categorical-missing', 'box-axes', 'scalebar', 'morph-a', 'morph-b', 'morph-incompatible', 'states', 'sequence'];
   const fixtures = Object.fromEntries(await Promise.all(names.map(async (name) => [name, { bytes: (await readFile(path.join(root, `scripts/fixtures/model3d/fluxplot/${name}.glb`))).toString('base64'), manifest: JSON.parse(await readFile(path.join(root, `scripts/fixtures/model3d/fluxplot/${name}.fluxplot.json`), 'utf8')) }])));
   const marker = writeGlb({ parts: [
@@ -217,7 +219,7 @@ try {
   h.ok(perf.recolor650kMs.every(Number.isFinite),'650k-vertex CPU recolor measured');
   const disposed=await page.evaluate(()=>{(window as any).viewer.dispose();const l=(window as any).lab;l.core.dispose();return l.core.stats();});h.eq(disposed.contexts,0,'core disposal frees context');h.eq(disposed.residentBytes,0,'core disposal frees retained bytes');
   h.section('offline viewer under hashed script CSP');
-  const offline=await browser.newPage();await offline.goto('http://127.0.0.1:1443/');await offline.setOfflineMode(true);
+  const offline=await browser.newPage();await offline.goto(origin);await offline.setOfflineMode(true);
   const boot=`FluxModel3dViewer.mount(document.getElementById('output'),${JSON.stringify({glb:fixtures.states.bytes,manifest:fixtures.states.manifest,width:320,height:240})}).then(v=>{window.offlineViewer=v;window.offlineReady=v.available;});`;
   const hashes=[viewer,boot].map(code=>`'sha256-${createHash('sha256').update(code).digest('base64')}'`).join(' ');
   await offline.setContent(`<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${hashes}; connect-src 'none'; img-src data:; style-src 'none'"><div id="output"></div><script>${viewer}</script><script>${boot}</script>`);
