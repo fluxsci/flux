@@ -25,6 +25,7 @@ const { pickRelease } = require("./updateCheck.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
 const { recordProjectOpened } = require("./projectsRegistry.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
+const { isDerivedFigureRenderPath } = require("./projectWatchPaths.cjs");
 
 // Machine config is ALWAYS the lowercase app dir (~/.config/flux on Linux) —
 // pinned before ANYTHING touches userData (the single-instance lock, prefs,
@@ -1156,6 +1157,7 @@ sourceWatchCore.registerHandlers(ipcMain);
 let plotFolderRules = null;
 let dissectRules = null;
 function subsystemFor(root, abs) {
+  if (isDerivedFigureRenderPath(root, abs)) return null;
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
   if (rel.startsWith("plots/")) {
@@ -1264,10 +1266,10 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
         s.win.webContents.send("fs:changed", { subsystem, path: p });
     pending.clear();
   };
-  // plots/_lighttable/ can hold thousands of exploratory images that nothing in Flux reads —
-  // pruning the subtree here means chokidar never opens a descriptor for any of them, rather
-  // than watching them all to discard every event.
+  // Derived Figure renders must not invalidate their canonical source. Prune
+  // them and exploratory lighttable collections before opening watch descriptors.
   const isPrunedWatchPath = (abs) => {
+    if (isDerivedFigureRenderPath(projectRoot, abs)) return true;
     if (!plotFolderRules) return false;
     const rel = path.relative(projectRoot, abs).split(path.sep).join("/");
     return !rel.startsWith("..") && plotFolderRules.isLighttableProjectRel(rel);

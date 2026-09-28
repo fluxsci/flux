@@ -538,6 +538,9 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
+  The native project watcher prunes `fig/renders/` (including first-created directories)
+  rather than treating derived publication/pruning as a canonical Figure change. The
+  classifier has the same fallback; linked-source exact-file watches remain independent.
   Content-addressed `fig/renders/model3d/m3d-*.png` posters are an explicit subsystem-lease
   exception: every writer publishes a complete image atomically for the same view key.
   They do not travel with git. Explicit read-only image requests may render into the
@@ -8078,3 +8081,23 @@ the saved notebook bundle bytes and screenshots. Clipboard byte transport and un
 mixed-output fallback were not claimed. Native3D acceptance now points to that evidence
 and distinguishes completed functional smoke from the unchanged 16.702ms scale failure
 and unfinished S8 comparison. Historical blocked/unrun entries remain checkpoint records.
+
+### 2026-09-28 17:10 UTC — Derived Figure caches do not invalidate Paper
+
+The instrumented S8 idle failure showed a Figure-reference store refresh scheduling two
+CodeMirror measure callbacks after model rendering had settled. Real chokidar plus the
+production file IPC handlers reproduced the missing boundary: first `fs:mkdir` of
+`fig/renders/model3d` was not a self-marked file write and the project watcher classified
+it as canonical Figure data. That path reaches `bumpFigRevision`, `loadFigures`,
+`figureRefs`, and Paper's refresh-chips transaction.
+
+The native watcher now prunes the reserved derived `fig/renders/` tree, with a matching
+classifier fallback. This covers parent-directory creation, 2D/3D cache files and cache
+pruning without suppressing Figure index/canvas/GLB/metadata or linked-source changes.
+The new packaged CommonJS path helper is covered by the existing `electron/**/*`
+allowlist. Registered `verify-model3d-cache-watch.cjs` runs two real watchers against
+the same scratch project: an unpruned control observes the unmarked directory event,
+while the production policy opens no cache descriptors and emits only the subsequent
+canonical/source edits. No Paper readiness delay, idle rule or performance budget was
+changed. Focused source/policy gates precede integration; affected Paper and native S8
+qualification remain separate checks on the combined production build.
