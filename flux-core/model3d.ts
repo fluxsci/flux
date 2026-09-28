@@ -40,12 +40,21 @@ export async function readModel3dMetadata(root: string, project: Project, assetI
   }, 'fig/assets', assetId, { binding: bindings.get(assetId) });
 }
 
-async function sourceFiles(sourcePath: string) {
+const contained = (parent: string, child: string) => { const relative = path.relative(parent, child); return !relative || (!relative.startsWith('..') && !path.isAbsolute(relative)); };
+/** Same boundary as the native import (electron/model3dImport.cjs): an
+ * in-project source may not resolve outside the project, and implicit sidecars
+ * must resolve inside the real GLB's own directory. */
+async function sourceFiles(sourcePath: string, root?: string) {
   const file = path.resolve(sourcePath);
   // Caller mistakes are typed usage errors (non-zero exit / isError); only a
   // readable GLB that fails geometry rules is a model-info refusal (ok:false).
   if (!/\.glb$/i.test(file)) throw new ValidationError(`3D input must be a .glb file (got ${path.basename(file)}); export a triangle mesh as GLB`);
-  const bytes = await boundedModelFile(file, GLB_LIMITS.maxBytes).catch(error => {
+  const real = await fs.realpath(file).catch(error => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new NotFoundError(`GLB not found: ${file}`);
+    throw error;
+  });
+  if (root && contained(path.resolve(root), file) && !contained(await fs.realpath(root), real)) throw new ValidationError(`Model source symlink escapes the project: ${sourcePath}`);
+  const bytes = await boundedModelFile(real, GLB_LIMITS.maxBytes).catch(error => {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new NotFoundError(`GLB not found: ${file}`);
     if (String(error).includes('must be a regular file')) throw new ValidationError(`3D input must be a regular .glb file: ${file}`);
     if (String(error).includes('exceeds')) throw new Error(`${(error as Error).message}; re-export a smaller mesh with max_faces or simplify it first`);
@@ -54,9 +63,12 @@ async function sourceFiles(sourcePath: string) {
   const stem = file.replace(/\.glb$/i, ''), warnings: string[] = [];
   const optional = async (suffix: string) => {
     const name = stem + suffix;
-    try { return { path: name, text: (await boundedModelFile(name, 4 * 1024 * 1024)).toString('utf8') }; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') warnings.push(`${path.basename(name)} could not be read: ${String(error)}`);
+    try {
+      const sidecar = await fs.realpath(name);
+      if (!contained(path.dirname(real), sidecar)) throw new Error('Sidecar symlink escapes the model source directory');
+      return { path: name, text: (await boundedModelFile(sidecar, 4 * 1024 * 1024)).toString('utf8') };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') warnings.push(`${path.basename(name)} could not be read: ${error instanceof Error ? error.message : String(error)}; importing the mesh without this metadata`);
       return undefined;
     }
   };
@@ -93,8 +105,8 @@ export async function modelInfo(sourcePath: string, options: { morphWith?: strin
 export async function addModel(root: string, figureId: string, sourcePath: string, options: {
   box?: { x?: number; y?: number; width?: number; height?: number }; view?: ModelViewCommand; name?: string; noPoster?: boolean;
 } = {}) {
-  const source = await sourceFiles(sourcePath);
-  const prepared = await prepareModel3dImport({ bytes: source.bytes, assetId: `model_${randomUUID()}`, name: path.basename(source.file), manifestText: source.manifest?.text, recipeText: source.recipe?.text });
+  const source = await sourceFiles(sourcePath, root);
+  const prepared = await prepareModel3dImport({ bytes: source.bytes, assetId: `model-${randomUUID()}`, name: path.basename(source.file), manifestText: source.manifest?.text, recipeText: source.recipe?.text });
   let publishedFile: string | undefined;
   const result = await mutateFigModel(root, 'add_model', async ({ project }) => {
     const figure = project.figures.find(figure => figure.id === figureId);

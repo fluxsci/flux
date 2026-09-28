@@ -2663,6 +2663,13 @@ function scene3dSourceBindingIssue(manifest, binding) {
 
 // src/lib/model3d/importData.ts
 var MAX_METADATA_BYTES = 4 * 1024 * 1024;
+function isScene3dText(text) {
+  try {
+    return isScene3d(JSON.parse(text));
+  } catch {
+    return false;
+  }
+}
 var encoder = new TextEncoder();
 async function sha256ModelBytes(bytes) {
   const copy = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice(0));
@@ -2676,7 +2683,7 @@ async function parseModel3dImportMetadata(input) {
     if (encoder.encode(text).byteLength > MAX_METADATA_BYTES) {
       result.warnings.push("3D manifest exceeds 4 MiB; importing the mesh without scene metadata");
     } else {
-      result.raw = { manifest: text };
+      if (isScene3dText(text)) result.raw = { manifest: text };
       result.manifestHash = await sha256ModelBytes(encoder.encode(text));
       const parsed = parseScene3d(text);
       if ("issue" in parsed) result.warnings.push(`${parsed.issue}; importing the mesh without scene metadata`);
@@ -2694,9 +2701,9 @@ async function parseModel3dImportMetadata(input) {
     if (encoder.encode(input.recipeText).byteLength > MAX_METADATA_BYTES) {
       result.warnings.push("3D recipe exceeds 4 MiB; regeneration metadata was ignored");
     } else {
-      result.raw = { ...result.raw, recipe: input.recipeText };
       try {
         result.recipe = JSON.parse(input.recipeText);
+        result.raw = { ...result.raw, recipe: input.recipeText };
       } catch {
         result.warnings.push("Invalid 3D recipe JSON; regeneration metadata was ignored");
       }

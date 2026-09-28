@@ -229,6 +229,18 @@ try {
   const shownColor = await cli(['set-model-view', parts.elementId, '--root', root, '--color', '#336699', '--colors', 'uniform', '--no-poster']);
   h.ok(!shownColor.warnings.some((w: string) => w.includes('no visible effect')), '--color with --colors uniform does not warn');
 
+  // L1: flux-core import follows the native sidecar boundary and never
+  // persists sidecar bytes that do not parse.
+  const sidecarDir = path.join(scratch, 'sidecars'), secret = path.join(scratch, 'secret.txt'); await fs.mkdir(sidecarDir);
+  await fs.writeFile(secret, 'private token'); await fs.copyFile(input('states'), path.join(sidecarDir, 'linked.glb')); await fs.symlink(secret, path.join(sidecarDir, 'linked.fluxplot.json'));
+  const linkedImport = await core.addModel(root, partFigure.figureId, path.join(sidecarDir, 'linked.glb'), { noPoster: true });
+  h.ok(linkedImport.warnings.some(w => w.includes('escapes the model source directory')) && !(await fs.readdir(path.join(root, 'fig/assets'))).some(name => name.startsWith(linkedImport.assetId) && name.endsWith('.json')), 'a sidecar symlink out of the GLB directory is refused and nothing is copied');
+  await fs.copyFile(input('states'), path.join(sidecarDir, 'garbled.glb')); await fs.writeFile(path.join(sidecarDir, 'garbled.fluxplot.json'), 'not json'); await fs.writeFile(path.join(sidecarDir, 'garbled.recipe.json'), '{broken');
+  const garbled = await core.addModel(root, partFigure.figureId, path.join(sidecarDir, 'garbled.glb'), { noPoster: true });
+  h.ok(garbled.assetId.startsWith('model-') && !(await fs.readdir(path.join(root, 'fig/assets'))).some(name => name.startsWith(garbled.assetId) && name.endsWith('.json')), 'unparseable sidecars are not persisted; minted ids share the native model- prefix');
+  const inside = path.join(root, 'plots'); await fs.mkdir(inside, { recursive: true }); await fs.symlink(input('states'), path.join(inside, 'escape.glb'));
+  await assert.rejects(core.addModel(root, partFigure.figureId, path.join(inside, 'escape.glb'), { noPoster: true }), /escapes the project/); h.ok(true, 'an in-project GLB symlink that resolves outside the project is refused');
+
   // H1 through the built CLI: a placed GLB goes missing; read verbs degrade to
   // named placeholders and the figure stays repairable.
   const broken = (await loadFigModel(root)).project, brokenAsset = broken.assets.find(a => a.id === field.assetId)!;
