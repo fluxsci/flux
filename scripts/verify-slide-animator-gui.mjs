@@ -472,10 +472,18 @@ try {
   await page.click('.animator button[title="Camera: zoom in to the selected element"]');
   const cameraId = await page.evaluate(() => {
     const f = window.__flux, s = f.get(f.slide.deckOverlay).slides.find(s => s.id === f.get(f.fig.activeFigureId));
-    const t = s.beats.at(-1).tracks.find(t => t.preset === "camera");
-    f.slide.selTrackIds.set([t.id]);
-    return t.id;
+    return s.beats.at(-1).tracks.find(t => t.preset === "camera").id;
   });
+  // Select the camera effect the way a user does: its lane label, then its bar,
+  // with the Zoom target still selected on the canvas (the stage-level track has
+  // no canvas counterpart, so the canvas sync must not clear it).
+  for (const part of [".track-label", ".trk"]) {
+    await page.evaluate(() => { window.__flux.slide.selTrackIds.set([]); window.__flux.fig.selectOnly("cam-rect"); });
+    await page.click(`.animator .lane-row[data-track-id="${cameraId}"] ${part}`);
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const picked = await page.evaluate(() => ({ ids: window.__flux.get(window.__flux.slide.selTrackIds), path: !!document.querySelector('[aria-label="Camera path"]') }));
+    ok(picked.ids.length === 1 && picked.ids[0] === cameraId && picked.path, `clicking the camera lane's ${part === ".trk" ? "bar" : "label"} selects its track and shows the Path row`, JSON.stringify(picked));
+  }
   const cameraTrack = () => page.evaluate(id => {
     const f = window.__flux;
     return f.get(f.slide.deckOverlay).slides.flatMap(s => s.beats.flatMap(b => b.tracks)).find(t => t.id === id);

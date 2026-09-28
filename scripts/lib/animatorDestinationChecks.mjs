@@ -104,6 +104,9 @@ export async function verifyDestinations(page,ok) {
   await click(page,'.animator .bar button','🎥 Zoom');s=await read(page);const camera=s.beats.at(-1).tracks.find(t=>t.target==='@camera');
   ok(camera&&['x','y','zoom'].every(k=>Math.abs(camera.to[k]-expected[k])<1e-8),'Zoom frames the drilled box’s targetOutlines bbox with the 0.82 rule');
   await page.screenshot({path:'test-results/d2/camera-to-box.png'});
+  // M5 integration: the stage-level camera lane stays selectable while a drilled part is selected.
+  await select(page,camera.id);
+  ok(await page.evaluate(id=>{const f=window.__flux,ids=f.get(f.slide.selTrackIds);return ids.length===1&&ids[0]===id&&!!document.querySelector('[aria-label="Camera path"]');},camera.id),'clicking a drilled-part camera lane selects its track and shows the Path row');
   await page.evaluate(()=>{const f=window.__flux;f.slide.activeBeat.set(1);f.fig.selection.set(new Set(['d2-plot']));f.fig.setPartSelections([{elementId:'d2-plot',partId:'box.2'},{elementId:'d2-plot',partId:'box.3'}]);});await paint(page);
   await click(page,'.animator .bar button','🎥 Zoom');s=await read(page);
   const unionCamera=s.beats.at(-1).tracks.find(t=>t.target==='@camera');

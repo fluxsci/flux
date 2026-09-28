@@ -195,6 +195,10 @@
     const current = untrack(() => $selTrackIds);
     const tracks = slide?.beats[untrack(() => $activeBeat)]?.tracks ?? [];
     if (current.some(id => tracks.some(t => t.id === id && ids.includes(t.target) && (!part || t.part === part.partId)))) return;
+    // Stage-level effects (@camera/@stage) have no canvas counterpart: choosing
+    // one clears the canvas selection, which must not clear the effect itself.
+    const all = slide?.beats.flatMap(b => b.tracks) ?? [];
+    if (!ids.length && !part && current.length && current.every(id => all.find(t => t.id === id)?.target.startsWith("@"))) return;
     selTrackIds.set(tracks.filter(t => ids.includes(t.target) && (!part || t.part === part.partId)).map(t => t.id!).filter(Boolean));
   });
 
