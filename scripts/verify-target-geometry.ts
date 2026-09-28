@@ -3,12 +3,13 @@ import fs from "node:fs";
 import { DOMParser, parseHTML } from "linkedom";
 import { harness } from "./lib/harness.mjs";
 import { preparePlot } from "../src/lib/plot/parse";
-import { targetOutlines, partStageOutlines, elementStageOutlines } from "../src/lib/slide/targetGeometry";
+import { targetOutlines, partStageOutlines, elementStageOutlines, plotStageMapping } from "../src/lib/slide/targetGeometry";
 import { pathToNodes, pathToSubpaths, refitPath, nodesExtent } from "../src/lib/path";
 import { planElementMorph } from "../src/lib/slide/outline";
 import { planCorrespondence } from "../src/lib/slide/correspondence";
 import { parseTransform, compose, applyToPoint, applyToNodes, transformToAncestor } from "../src/lib/plot/svgMatrix";
 import { readPaint } from "../src/lib/plot/paint";
+import { axisFit, projectWith } from "../src/lib/plot/project";
 import { ptTrueFactors } from "../src/lib/plot/compensate";
 import { rotatedAABB } from "../src/lib/geometry";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -70,6 +71,13 @@ h.ok(near(rotated.nodes[0].x, 223.82225316619306) && near(rotated.nodes[0].y, 11
 // Intrinsic is 240×144 CSS px: centre quarter crop = (60,36,120,72) → vb (45,27,90,54).
 const cropped = one("peaches.box", plot({ crop: { x: 60, y: 36, width: 120, height: 72 } }))[0];
 h.ok(near(cropped.nodes[0].x, 16.68693777777778) && near(cropped.nodes[0].y, 70.73252888888889), "centre-quarter crop subtracts vb.x and vb.y before mapping");
+// Data pairing must use exactly the geometry bridge's crop/flip placement.
+for (const el of [plot(), plot({ flipX: true, flipY: true, crop: { x: 60, y: 36, width: 120, height: 72 } })]) {
+  const mapping = plotStageMapping(el, box.root!), axes = box.manifest!.axes[0];
+  const xf = axisFit(axes.x), yf = axisFit(axes.y), x = axes.x.domain[0], y = axes.y.domain[1];
+  const pt = mapping.toStage(projectWith(xf, x), projectWith(yf, y));
+  h.ok(near(projectWith(mapping.fitX(xf), x), pt.x) && near(projectWith(mapping.fitY(yf), y), pt.y), "lifted axis fits equal user-to-stage geometry, including crop and both flips");
+}
 const shifted = one("peaches.box", plot({ overrides: { "peaches.box": { dx: 9, dy: -4.5, fill: "#ff0000", stroke: "#abcdef", strokeWidth: 4, opacity: .3 } } }))[0];
 h.ok(near(shifted.nodes[0].x - b[0].nodes[0].x, 10) && near(shifted.nodes[0].y - b[0].nodes[0].y, -5), "dx/dy are user units before stage mapping");
 // Stage stroke widths (the pt-true contract, in STAGE px): a stroke renders at its declared width

@@ -13,7 +13,8 @@ import { buildPartIndex, drawablesUnder } from "../plot/parse";
 import { resolveTargets } from "../plot/tree";
 import { svgIntrinsicPx, cropViewBoxValue, ptTrueFactors } from "../plot/compensate";
 import { parseStyleAttr, readPaint } from "../plot/paint";
-import { IDENTITY, compose, parseTransform, applyToNodes, type SvgMatrix } from "../plot/svgMatrix";
+import { IDENTITY, compose, parseTransform, applyToNodes, applyToPoint, type SvgMatrix } from "../plot/svgMatrix";
+import { viewFits, projectSeries, projectWith, guideData, guideAxes, type Fit } from "../plot/project";
 
 export interface GeometryCtx {
   manifest(assetId: string): FluxPlotManifest | undefined;
@@ -133,20 +134,96 @@ function localOutlines(node: Element, geo: PreparedGeometry): Outline[] {
   return out;
 }
 
-export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], ctx: GeometryCtx): StageOutline[] {
-  if (!leafIds.length) return [];
-  const root = ctx.plotRoot(plot.assetId);
-  if (!root) return elementStageOutlines(plot);
-  const manifest = ctx.manifest(plot.assetId), index = indexFor(manifest), geo = geometryFor(root);
+function plotMapping(plot: SemanticPlotElement, root: Element) {
   const intrinsic = svgIntrinsicPx(root);
   const vbAttr = plot.crop ? cropViewBoxValue(root.getAttribute("viewBox"), intrinsic, plot.crop) : root.getAttribute("viewBox");
   const v = (vbAttr ?? "").trim().split(/[\s,]+/).map(Number);
   const vb = v.length === 4 && v.every(Number.isFinite) && v[2] > 0 && v[3] > 0
     ? { x: v[0], y: v[1], w: v[2], h: v[3] } : { x: 0, y: 0, ...intrinsic };
-  if (!(vb.w > 0 && vb.h > 0)) return elementStageOutlines(plot);
   const sx = plot.width / vb.w, sy = plot.height / vb.h;
   const mapping: SvgMatrix = [sx, 0, 0, sy, plot.x - vb.x * sx, plot.y - vb.y * sy];
   const toStage = compose(placement(plot, true), mapping);
+  return { intrinsic, sx, sy, matrix: toStage };
+}
+
+/** The same cropped viewBox/placement mapping used by partStageOutlines.
+ *  Axis fits are meaningful only for unrotated plots; callers fall back to
+ *  spatial pairing when the data axes are not stage-axis-aligned. */
+export function plotStageMapping(plot: SemanticPlotElement, root: Element): {
+  toStage(x: number, y: number): { x: number; y: number };
+  fitX(fit: Fit): Fit;
+  fitY(fit: Fit): Fit;
+} {
+  const { matrix: m } = plotMapping(plot, root);
+  const lift = (fit: Fit, s: number, offset: number): Fit => ({ ...fit,
+    m: fit.m * s, c: fit.c * s + offset,
+    ...(fit.linear === undefined ? {} : { linear: fit.linear * s, logarithmic: (fit.logarithmic ?? 0) * s }),
+  });
+  return { toStage: (x, y) => applyToPoint({ x, y }, m),
+    fitX: fit => lift(fit, m[0], m[4]), fitY: fit => lift(fit, m[3], m[5]) };
+}
+
+// Read the projection kernel's output, without writing to the pristine root.
+// These are the same data vertices/fits the one DOM writer applies before
+// compensation. Filled marks retain their authored geometry, as in that writer.
+function projectedGeometry(plot: SemanticPlotElement, root: Element, manifest: FluxPlotManifest | undefined, geo: PreparedGeometry) {
+  const outlines = new Map<Element, Outline[]>(), offsets = new Map<Element, SvgMatrix>(), opacities = new Map<Element, number>();
+  if (!plot.view || !manifest) return { outlines, offsets, opacities };
+  for (const series of manifest.series ?? []) {
+    const raw = viewFits(manifest, undefined, series.panelId), fits = viewFits(manifest, plot.view, series.panelId);
+    if (!raw || !fits || series.rasterized || series.capabilities?.dataMorph === false || series.roles?.some(r => !["line", "point"].includes(r))) continue;
+    const vertices = projectSeries(series, null, raw, fits, 1);
+    if (!vertices.length || vertices.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) continue;
+    const part = series.svg?.line ? geo.ids.get(series.svg.line) : undefined;
+    const line = part?.tagName.toLowerCase() === "path" ? part : part?.querySelector("path");
+    if (line) {
+      const paths: Outline[] = [];
+      let previous = -2;
+      for (const p of vertices) {
+        if (p.index !== previous + 1) paths.push({ nodes: [], closed: false });
+        paths[paths.length - 1].nodes.push({ x: p.x, y: p.y, type: "corner" });
+        previous = p.index;
+      }
+      outlines.set(line, paths.filter(p => p.nodes.length >= 2));
+    }
+    const byIndex = new Map(vertices.map(p => [p.index, p]));
+    for (const point of series.points ?? []) {
+      const node = geo.ids.get(point.svgId), p = byIndex.get(point.index);
+      if (!node || !p) continue;
+      // Marker translate is a CSS individual transform in projectDom, before
+      // its SVG transform. Circles instead have their centre attributes written.
+      const circle = node.tagName.toLowerCase() === "circle";
+      const dx = p.x - (circle ? number(node, "cx") : projectWith(raw.x, point.x));
+      const dy = p.y - (circle ? number(node, "cy") : projectWith(raw.y, point.y));
+      if (circle) outlines.set(node, localOutlines(node, geo).map(o => ({ ...o, nodes: applyToNodes(o.nodes, translate(dx, dy)) })));
+      else offsets.set(node, translate(Math.round(dx * 100) / 100, Math.round(dy * 100) / 100));
+    }
+  }
+  for (const [id, guide] of guideData(manifest, root)) {
+    const node = geo.ids.get(id), axes = guideAxes(manifest, id);
+    if (!node || !axes) continue;
+    const raw = viewFits(manifest, undefined, axes.panelId), fits = viewFits(manifest, plot.view, axes.panelId);
+    if (!raw || !fits) continue;
+    const fit = fits[guide.axis], original = raw[guide.axis];
+    if (fit.m === original.m && fit.c === original.c && fit.log === original.log) continue;
+    const pixel = projectWith(fit, guide.value), origin = projectWith(original, guide.value);
+    const ends = axes[guide.axis].domain.map(v => projectWith(original, v));
+    const lo = Math.min(...ends), hi = Math.max(...ends);
+    const fade = Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
+    opacities.set(node, fade);
+    const delta = Number.isFinite(pixel) ? pixel - origin : 0;
+    offsets.set(node, translate(guide.axis === "x" ? delta : 0, guide.axis === "y" ? delta : 0));
+  }
+  return { outlines, offsets, opacities };
+}
+
+export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], ctx: GeometryCtx): StageOutline[] {
+  if (!leafIds.length) return [];
+  const root = ctx.plotRoot(plot.assetId);
+  if (!root) return elementStageOutlines(plot);
+  const manifest = ctx.manifest(plot.assetId), index = indexFor(manifest), geo = geometryFor(root);
+  const { intrinsic, sx, sy, matrix: toStage } = plotMapping(plot, root);
+  const projection = projectedGeometry(plot, root, manifest, geo);
   const { fx, fy, fs } = ptTrueFactors({ elW: plot.width, elH: plot.height, crop: plot.crop, contentScale: plot.contentScale, intrinsic });
   // A stroke renders at declared × fs (compensatePtTrue's style write, or the glyph/text
   // transform) × the outer viewBox→box scale; rotation and flips are rigid. In stage px that is
@@ -186,6 +263,8 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
     let m = geo.transforms.get(node);
     if (!m) { m = parseTransform(node.getAttribute("transform")); geo.transforms.set(node, m); }
     if (ov?.dx != null || ov?.dy != null) m = compose(translate(Number(ov.dx ?? 0), Number(ov.dy ?? 0)), m);
+    const projected = projection.offsets.get(node);
+    if (projected) m = compose(projected, m);
     if (node.getAttribute("data-flux-glyph") === "1") m = compose(m, scale(fx, fy));
     else if (node.tagName.toLowerCase() === "text") {
       const ax = number(node, "x"), ay = number(node, "y");
@@ -195,7 +274,7 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
     const state = {
       matrix: compose(parent.matrix, m),
       hidden: parent.hidden || (ov?.hidden ?? (style.get("display") === "none" || node.getAttribute("display") === "none")),
-      opacity: parent.opacity * (ov?.opacity ?? (Number.isFinite(ownOpacity) ? ownOpacity : 1)),
+      opacity: parent.opacity * (ov?.opacity ?? (Number.isFinite(ownOpacity) ? ownOpacity : 1)) * (projection.opacities.get(node) ?? 1),
     };
     states.set(node, state);
     return state;
@@ -230,7 +309,7 @@ export function partStageOutlines(plot: SemanticPlotElement, leafIds: string[], 
       if (tag === "text" || tag === "tspan") paint.text = true;
       if (tag === "image") paint.raster = true;
       const matrix = compose(toStage, state.matrix);
-      for (const outline of localOutlines(node, geo)) out.push(stage(outline, matrix, owner, paint));
+      for (const outline of projection.outlines.get(node) ?? localOutlines(node, geo)) out.push(stage(outline, matrix, owner, paint));
     }
   }
   return out;

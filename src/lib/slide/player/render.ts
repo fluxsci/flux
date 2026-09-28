@@ -57,6 +57,8 @@ export interface SlideRenderCtx {
 export interface RenderedSlide {
   /** elId → the wrapper element (the player/editor animates/overlays these). */
   elements: Map<string, HTMLElement>;
+  /** One stage-space surface for cross-object flights, inside the camera. */
+  flight: SVGSVGElement;
   sourceSlide?: Slide;
 }
 
@@ -459,7 +461,15 @@ export function renderSlide(
     host.appendChild(w);
     elements.set(el.id, w);
   }
-  return { elements, sourceSlide: slide };
+  const flight = document.createElementNS(SVG_NS, "svg");
+  flight.setAttribute("class", "sl-flight");
+  flight.setAttribute("viewBox", `0 0 ${stage.width} ${stage.height}`);
+  flight.setAttribute("width", "100%");
+  flight.setAttribute("height", "100%");
+  flight.setAttribute("preserveAspectRatio", "none");
+  flight.style.cssText = "pointer-events:none;position:absolute;inset:0;overflow:visible;display:block";
+  host.appendChild(flight);
+  return { elements, flight, sourceSlide: slide };
 }
 
 /** The wrapper box/transform/opacity for an element state at REST — exported

@@ -80,7 +80,7 @@
   import { resolveTheme, BUILTIN_THEMES } from "../../../lib/slide/theme";
   import type { Deck, TransitionKind } from "../../../lib/slide/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
-  import { plotManifests, plotGen } from "../../../lib/plot/store";
+  import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -644,7 +644,7 @@
     if (!slide || warmedSlideId === slide.id) return;
     warmedSlideId = slide.id;
     const idle = (globalThis as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
-    const run = () => { try { warmSlideMorphs(slide); } catch { /* warming must never break the editor */ } };
+    const run = () => { try { warmSlideMorphs(slide, { manifest: id => get(plotManifests)[id], plotRoot: id => plotDom.get(id) }); } catch { /* warming must never break the editor */ } };
     if (idle) idle(run); else setTimeout(run, 0);
   });
 

@@ -981,7 +981,17 @@ Persistence invariants (all machine-checked — do not weaken):
   geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
   `owner.members` are the reveal inventory. Large marker sets expose glyph landing points;
   text/raster pairs expose crossfade boxes without a path plan. The core does not mount the
-  hand-off flight layer. The existing element driver draws three layers — A the original
+  hand-off flight layer. The player's `handoff.ts` owns one retained drawing group per
+  controller inside `renderSlide`'s last camera child, `svg.sl-flight`. `handoffPlan.ts`
+  prepares the same correspondence for playback and optional-context dock warming.
+  Whole-plot defaults pair the merged spines and leave the other parts to fade in;
+  cropped plots discard wholly outside outlines and clip the retained flight drawing.
+  Visibility uses reversible inline `visibility` leases, so chains and reverse seeks
+  compose with opacity presets; disposal restores prior values. A static host bakes
+  sampled visibility before disposal. `seek(eased, raw?)` uses raw progress for phase
+  changes and the glyph's final-15-percent fade, clamping only data interpolation.
+  Marker flights write SVG transform attributes, never per-marker CSS transforms.
+  The existing element driver draws three layers — A the original
   nodes (t=0), M one live `<path>` written
   per frame with no serialization, B the end markup from the ONE serializer (t=1, later
   tracks bind here). Heads that only one side draws fade (`fixedHeadOpacity`/`arrowFade`);
@@ -1033,7 +1043,12 @@ Persistence invariants (all machine-checked — do not weaken):
   × px-per-user-unit at any box size (4/3 for a matplotlib pt viewBox), pinned against the
   live computed stroke × screen-CTM scale. Text is a box-only crossfade target: explicit
   SVG bounds/textLength are used when present; otherwise its anchor is retained without
-  guessing glyph metrics. The eventual clone-rendering consumer owns text measurement.
+  guessing glyph metrics. The hand-off clone renderer measures text once with live
+  `getBBox()`. Plot `view` data uses the shared projection kernel before stage mapping;
+  spines remain fixed while guides follow the DOM writer's data coordinates/fading.
+  `plotStageMapping` factors that same viewBox/crop/flip/placement mapping for axis
+  fits used by data pairing. A rotated plot cannot supply a stage-axis-aligned fit:
+  correspondence falls back to spatial/tile pairing, preserving visible geometry.
   Gates: `verify-target-geometry` (linkedom plus core parity) and
   `verify-target-geometry-browser` (real renderSlide/Chrome CTM, pure tier).
 - **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
@@ -7828,3 +7843,29 @@ part-set family-law and CLI refusal checks, and raw-progress sampler probes; rep
 worker's baseline, overlap, embed-remap and PPTX fault controls. Qualification evidence and
 the ordinary-entrance versus ghost-birth contract question are recorded in the QA report.
 **Learnings:** Promoted resolved source timing and disabled-track inspection into the body.
+
+### 2026-09-28 01:18 UTC — Animation v2 hand-off runtime (Codex, av2/C2)
+**Work:** Added the camera-local flight SVG, pure hand-off planning adapter, retained path/
+text/raster/glyph driver, reversible visibility leases, raw-progress phase control, draw
+reveals and static-host disposal. Player consumes C1's optional compiled inventory with a
+local resolver fallback until integration. Geometry now shares plot view projection and a
+factored cropped/flipped user-to-stage mapping; rotated data fits fall back to spatial/tile.
+Dense glyphs clone each owner once, normalize directly on the copied marker, and prepare
+while detached so clone writes cannot invalidate subsequent source layout reads.
+**Verification:** Hermetic pure slide 52/52, transform 1/1, Become 2/2, ghost 4/4. New exported
+hand-off browser gate 39/39; old player fails 13/17 reached checks, and disabling the active
+destination-hidden write fails 3/39. Geometry pure 72/72 and browser 71/71; old geometry
+fails 2/71 (projected curve/tick placement). All three requested UI gates passed on :1422.
+Dense 1,200-marker flight passes at 16.8 ms p95 (71 distinct frames, zero pair paths), after
+removing redundant SVG nesting following a 33.4 ms failure. Final check: 928 files, 0 errors/
+0 warnings; headless check and production build pass, with no import-is-undefined warning.
+**Not merge-ready:** The extended cold-preview UI gate fails its first-seek budget at
+171.1 ms (limit 100). The existing SlideMode dock caller supplies no plot geometry to
+warmSlideMorphs. C2 forbids Svelte edits and C1 owns core exports/user docs; the requested
+caller exception had no response at hand-off. `/tmp/av2-C2-integration.patch` contains the
+unapplied caller change and exports for plotStageMapping/planHandoff; its performance effect
+is not verified. C1 must integrate its inventory/baseline and update docs/modes/slide.qmd.
+The E1 writer moves ticks on the changed data axis: parity preserves spines and orthogonal
+ticks, and projects changed-axis ticks rather than freezing them. Core OKLab colors remain
+valid hex/RGBA strings; the browser gate checks CSS validity and computed rgb/rgba values.
+No commits, main-checkout/config writes, native, bundle-tier or startup-tier runs.

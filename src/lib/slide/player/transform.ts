@@ -63,7 +63,7 @@ const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
  *  busy page. Warming work only — every caller must stay correct if it never
  *  runs at all, and on a page too busy to ever go idle, that is the right
  *  answer rather than a stolen frame. */
-function warmWhenIdle(job: () => void): void {
+export function warmWhenIdle(job: () => void): void {
   const g = globalThis as { requestIdleCallback?: (cb: () => void) => number; setTimeout?: typeof setTimeout };
   if (typeof g.requestIdleCallback === "function") g.requestIdleCallback(job);
   else if (typeof g.setTimeout === "function") g.setTimeout(job, 0);

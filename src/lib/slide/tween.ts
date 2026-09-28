@@ -23,6 +23,9 @@ import { lerpColor } from "../color/interp";
 import { elementBBox } from "../geometry";
 import { pathD, pathToNodes, resampleNodes } from "../path";
 import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outline";
+import { compileSlide } from "./compile";
+import { planHandoff } from "./handoffPlan";
+import type { GeometryCtx } from "./targetGeometry";
 
 // --- the property law --------------------------------------------------------
 
@@ -585,10 +588,20 @@ export function transformEndState(pre: Element, track: { to?: { state?: Record<s
  *  in tens of milliseconds and budgeted (§6). Warming is never required for
  *  correctness: skip it, interrupt it, call it twice, and every caller still
  *  gets the same answer, only later. */
-export function warmSlideMorphs(slide: Slide): void {
+export function warmSlideMorphs(slide: Slide, geometry?: GeometryCtx): void {
+  let compiled: ReturnType<typeof compileSlide> | undefined;
   for (let bi = 0; bi < slide.beats.length; bi++) {
     for (const track of slide.beats[bi].tracks) {
       if (track.disabled || track.keyframes || familyOf(track) !== "transform") continue;
+      if (track.to?.become?.mode === "handoff") {
+        // Plot hosts pass their scoped pristine roots/manifests. Geometry does
+        // not read camera coordinates, so its warm compile needs no stage size.
+        if (geometry) {
+          compiled ??= compileSlide(slide, { width: 1, height: 1 }, { plotManifest: geometry.manifest });
+          planHandoff(track, compiled.sample(bi, track.start ?? 0), { ...geometry, groups: slide.groups }).prepare();
+        }
+        continue;
+      }
       const pre = transformPreState(slide, track.target, bi);
       if (!pre) continue;
       const end = transformEndState(pre, track);

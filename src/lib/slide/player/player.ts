@@ -12,16 +12,20 @@ import { smoothstep, cubicBezierFn } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
-import { targetPartIds, hasPartBinding, trackKey } from "../targets";
+import { targetPartIds, hasPartBinding, trackKey, trackRef, resolveTargetLeaves, type ResolvedTarget } from "../targets";
+import { get } from "svelte/store";
+import { plotDom, plotManifests } from "../../plot/store";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
 import { KNOWN_PRESETS } from "../presetCatalog";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
+import { createHandoff, type HandoffController } from "./handoff";
+import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
-import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
+import type { Deck, Slide, Track, StageSize, DeckTheme, BecomeSpec } from "../types";
 
 export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   animStyles?: Deck["animStyles"];
@@ -111,6 +115,7 @@ interface Spec {
   morph?: MorphController;
   /** Time-easing sampler for a morph (honours the track's influence/easing). */
   morphEase?: (t: number) => number;
+  handoff?: HandoffController;
   trackId?: string;
   preset?: string;
   baseStyle?: Record<string, string>;
@@ -119,6 +124,25 @@ interface Spec {
 // transformPreState moved to ../tween (pure) — the endpoint checkout and the
 // player must share ONE fold. Re-exported for existing consumers/gates.
 export { transformPreState } from "../tween";
+
+// C1 supplies this inventory on CompiledSlide. Until that packet is integrated,
+// derive exactly the same concrete bindings from the same pre-frame resolver.
+interface HandoffRecord { trackId?: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec }
+function handoffsFor(slide: Slide, compiled: ReturnType<typeof compileSlide>, manifest: (id: string) => FluxPlotManifest | undefined): HandoffRecord[] {
+  const supplied = (compiled as typeof compiled & { handoffs?: HandoffRecord[] }).handoffs;
+  if (supplied) return supplied;
+  const out: HandoffRecord[] = [];
+  slide.beats.forEach((beat, bi) => {
+    for (const track of beat.tracks) {
+      const spec = track.to?.become;
+      if (track.disabled || track.keyframes || track.preset !== "transform" || spec?.mode !== "handoff") continue;
+      const frame = compiled.sample(bi, track.start ?? 0), scope = { elements: frame.elements, groups: slide.groups };
+      out.push({ trackId: track.id, beat: bi, spec, source: resolveTargetLeaves(trackRef(track), scope, manifest), destination: resolveTargetLeaves(spec.ref, scope, manifest) });
+    }
+  });
+  return out;
+}
+const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
 export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts, compiled = compileSlide(slide, stage, opts)): Spec[] {
@@ -133,6 +157,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, easing: "linear", enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
   }
   const contentRoots = new Map<string, HTMLElement>();
+  const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
+  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups };
+  const handoffs = handoffsFor(slide, compiled, manifest);
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
@@ -162,6 +189,52 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const wrap = rendered.elements.get(track.target);
         const preEl = transformPreState(slide, track.target, bi);
         if (!wrap || !preEl) continue; // dangling target — tolerated no-op
+        if (track.to?.become?.mode === "handoff") {
+          const handoff = handoffs.find(h => h.trackId === track.id && h.beat === bi);
+          if (!handoff) continue;
+          const preFrame = compiled.sample(bi, track.start ?? 0);
+          const roots = new Map(contentRoots);
+          const rootFor = (id: string) => roots.get(id) ?? rendered.elements.get(id);
+          const nodesFor = (targets: ResolvedTarget[]): Element[] => targets.flatMap<Element>(target => {
+            const root = rootFor(target.elementId), wrapper = rendered.elements.get(target.elementId);
+            if (!root || !wrapper) return [];
+            return target.partIds === null ? [wrapper] : target.partIds.flatMap(id => {
+              const node = root.querySelector<SVGElement>(`[id="${partDomId(target.elementId, id).replace(/["\\]/g, "\\$&")}"]`);
+              return node ? [node] : [];
+            });
+          });
+          const sourceNodes = hasPartBinding(track) ? resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots) : [wrap];
+          const destinationNodes = nodesFor(handoff.destination);
+          if (!sourceNodes.length || !destinationNodes.length) continue;
+          const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
+            plan: () => planHandoff(track, preFrame, geometry),
+            ctx: {
+              order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
+              node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
+              crop: owner => {
+                const el = preFrame.elements.find(e => e.id === owner.elementId);
+                return el?.type === "plot" && el.crop ? el : undefined;
+              },
+            },
+          });
+          // The surviving content belongs to the destination identity. Never
+          // redirect later source tracks into that other element's DOM.
+          if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
+          specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
+            delay: track.start ?? 0, duration: track.duration ?? 600,
+            easing: resolveEasing(track.easing ?? "smooth", track.influence),
+            morph: driver, handoff: driver, morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence) });
+          if (handoff.spec.reveal === "draw") {
+            const draw = { ...track, preset: "drawOn" as const, params: undefined };
+            for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
+              node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
+              key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id,
+              delay: (track.start ?? 0) + (track.duration ?? 600), duration: DUR.gentle,
+              easing: resolveEasing(track.easing ?? "standard", track.influence),
+            });
+          }
+          continue;
+        }
         const endEl = transformEndState(preEl, track);
         const driver = createTransform(wrap, preEl, endEl, {
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
@@ -246,6 +319,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       if (factor !== 1) spec.keyframes = spec.keyframes.map((frame) => "opacity" in frame ? { ...frame, opacity: Number(frame.opacity) * factor } : frame);
     }
   }
+  flightLayers.set(specs, rendered.flight);
   return specs;
 }
 
@@ -357,12 +431,17 @@ function boundPlan(specs: Spec[]): BoundPlan {
   bindings.set(specs, plan);
   return plan;
 }
-export function disposeSlideAnims(specs: Spec[]): void {
+export function disposeSlideAnims(specs: Spec[], releaseControllers = true): void {
   const plan = bindings.get(specs);
   if (plan) {
     for (const animation of plan.natives.values()) { try { animation.cancel(); } catch { /* detached */ } }
     // a slide torn down mid-flight leaves no promoted node behind
     for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS) releaseFlightMark(group.node as HTMLElement);
+  }
+  if (releaseControllers) {
+    for (const spec of specs) spec.morph?.dispose?.();
+    flightLayers.get(specs)?.replaceChildren();
+    flightLayers.delete(specs);
   }
   bindings.delete(specs);
 }
@@ -396,7 +475,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       }
       if (selected >= 0) {
         const spec = controllers[selected], p = progressAt(spec, beat, time);
-        spec.morph!.seek((spec.morphEase ?? smoothstep)(Math.max(0, p)));
+        spec.morph!.seek((spec.morphEase ?? smoothstep)(Math.max(0, p)), Math.max(0, p));
       } else controllers[0].morph!.seek(0);
     }
     if (!keyframed.length) continue;
@@ -445,6 +524,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     }
   }
   for (const [spec, animation] of plan.natives) if (!activeNatives.has(spec)) { animation.cancel(); plan.natives.delete(spec); }
+  for (const spec of specs) if (spec.handoff && superseded(spec)) spec.handoff.releaseSource();
 }
 export function applyStatic(specs: Spec[], beatIndex: number): void { applyAt(specs, beatIndex, Infinity); }
 
@@ -540,7 +620,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function selectRun(from: number, to: number): void {
     const key = from < to ? `${si}:${from}:${to}` : "";
     if (key === runKey) return;
-    if (runSpecs) { disposeSlideAnims(runSpecs); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
+    if (runSpecs) { disposeSlideAnims(runSpecs, false); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
     runKey = key;
     runSpecs = from < to ? specs.map((s) => s.beatIndex >= from && s.beatIndex <= to ? { ...s, beatIndex: to } : s) : null;
   }
@@ -649,7 +729,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   if (deck.slides.length) goTo(0, 0);
@@ -670,6 +750,13 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
+  // Dispose owns restoration of live controllers. Bake the sampled visibility
+  // into a still before releasing those leases, just as keyframe styles remain.
+  const visibility = (specs.some(spec => spec.handoff) ? Array.from(camera.querySelectorAll<HTMLElement | SVGElement>("[style]")) : [])
+    .map(node => ({ node, value: node.style.getPropertyValue("visibility"), priority: node.style.getPropertyPriority?.("visibility") ?? "" }));
   disposeSlideAnims(specs); // a still: nothing armed or bound outlives it
+  for (const { node, value, priority } of visibility) {
+    if (value) node.style.setProperty("visibility", value, priority); else node.style.removeProperty("visibility");
+  }
   return rendered;
 }

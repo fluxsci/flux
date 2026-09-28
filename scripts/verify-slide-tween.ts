@@ -9,7 +9,7 @@
 // substrate), chains rest at intermediate states, futures never leak, and the
 // same-beat appearance/transform conflict rule holds.
 // Run: npx tsx scripts/verify-slide-tween.ts
-import { parseHTML } from "linkedom";
+import { parseHTML, DOMParser } from "linkedom";
 import {
   applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
   contentPlan, foldPreState,
@@ -205,7 +205,7 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 
-const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState } = await import("../src/lib/slide/player/player");
+const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState, renderStaticAt } = await import("../src/lib/slide/player/player");
 const { renderSlide } = await import("../src/lib/slide/player/render");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
 type Slide = import("../src/lib/slide/types").Slide;
@@ -409,6 +409,23 @@ function build(slide: Slide) {
   };
   const { specs } = build(slide);
   assert(specs.length === 0, "a dangling transform target emits no spec (tolerated, never crashes)");
+}
+
+// Thumbnail/export stills retain the hand-off's semantic visibility after all
+// temporary controllers and flight drawings have been disposed.
+{
+  const root = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path id="axis.x.spine" d="M10 80H90"/><path id="axis.y.spine" d="M10 80V10"/></svg>', 'image/svg+xml').documentElement;
+  const slide: Slide = { id: "handoff-static", elements: [rect({ id: "source" }), { id: "dest", type: "plot", assetId: "axes", x: 300, y: 100, width: 200, height: 200, rotation: 0 }], beats: [
+    { id: "base", tracks: [] }, { id: "flight", tracks: [{ id: "handoff", target: "source", preset: "transform", duration: 600, to: { state: {}, become: { mode: "handoff", ref: { element: "dest", parts: ["axis.x.spine", "axis.y.spine"] } } } }] },
+  ] };
+  const host = document.createElement("div") as unknown as HTMLElement;
+  for (const beat of [0, 1, 0]) {
+    const rendered = renderStaticAt(host, slide, stage, beat, { theme: FLUX_DARK, plotRoot: () => root as unknown as Element });
+    const parts = [...host.querySelectorAll<SVGElement>('[id="dest__axis.x.spine"],[id="dest__axis.y.spine"]')];
+    assert(parts.length === 2 && parts.every(p => (p.style.visibility ?? "") === (beat ? "" : "hidden")), `renderStaticAt(${beat}) retains the destination parts' ${beat ? "visible" : "hidden"} baseline`);
+    assert((rendered.elements.get("source")!.style.visibility ?? "") === (beat ? "hidden" : ""), `renderStaticAt(${beat}) retains the source state`);
+    assert(rendered.flight.childElementCount === 0, "a static hand-off releases every temporary flight child");
+  }
 }
 
 console.log("\nSLIDE TWEEN (transform core + player drive): PASS");

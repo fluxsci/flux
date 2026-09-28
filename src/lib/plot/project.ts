@@ -14,7 +14,11 @@ export interface Fit {
 }
 export interface Fits { x: Fit; y: Fit }
 export interface MorphPoint { index: number; x: number; y: number }
-export interface MorphController { seek(t: number): void; targetRoot?: HTMLElement }
+export interface MorphController {
+  seek(u: number, raw?: number): void;
+  targetRoot?: HTMLElement;
+  dispose?(): void;
+}
 export type SeriesAxes = FluxPlotManifest["axes"][number];
 
 export function axisFit(axis: FluxPlotAxis): Fit {
