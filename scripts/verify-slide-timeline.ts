@@ -189,6 +189,17 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   visible(2, 99, true, false); visible(2, 100, true, false); visible(2, 400, false, false);
   visible(2, 700, false, true); visible(4, Infinity, false, true);
   visible(0, Infinity, true, false); visible(2, 400, false, false); visible(2, 700, false, true);
+  // Exercise the public compiled cue with M1 curves. Curve binding is M2's
+  // packet; C1's sampler must stay independent of whichever ease is bound.
+  const { resolveCurve } = await import("../src/lib/slide/curves");
+  for (const jump of ["start", "end"] as const) {
+    const compiled = compileSlide(structuredClone(handoff), stage, options);
+    compiled.cues[2].tracks[0].ease = resolveCurve({ curve: { kind: "steps", n: 1, jump } }).clamped;
+    for (const [ms, source, dest] of [[100, true, false], [101, false, false], [400, false, false], [699, false, false], [700, false, true], [100, true, false]] as const) {
+      const frame = compiled.sample(2, ms);
+      check(frame.presentation.elementStates.r.visible === source && destination.parts.every(p => frame.partStates[plot.id][p].visible === dest), `steps(1,${jump}) hand-off visibility reads raw progress at ${ms}ms, including reverse seek`);
+    }
+  }
   check(destination.parts.every(p => Math.abs(state(3).partStates[plot.id][p].opacity - .3) < 1e-12), "a later dim composes with the hand-off's visible destination");
   check(JSON.stringify(plan.preState("r", 4)) === JSON.stringify(handoff.elements[0]) && JSON.stringify(state(2, 400).elements[0]) === JSON.stringify(handoff.elements[0]), "hand-off preserves source props before, during and after flight");
   check(plan.handoffs.length === 1 && plan.handoffs[0].trackId === "handoff" && plan.handoffs[0].beat === 2 && plan.handoffs[0].source[0].elementId === "r" && plan.handoffs[0].destination[0].partIds?.join() === destination.parts.join(), "the public compiled handoffs field exposes the resolved source and destination once");

@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
-import { loadDeck, saveDeck } from "../flux-core/slides";
+import { loadDeck, saveDeck, become as becomeHeadless } from "../flux-core/slides";
 import * as ops from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
 import { familyOf } from "../src/lib/slide/family";
@@ -149,6 +149,14 @@ const compiledFor = (deck: Deck) => compileSlide(deck.slides[0], deck.stage, { p
   ok(tracks.length === 2 && part.part === "peaches.box" && part.to?.become?.mode === "handoff", "a part-set source coexists with a whole-plot Change in the same step");
   ok(part.to?.become?.pair === "order" && part.to.become.reveal === "draw" && part.duration === 900, "pair, reveal and explicit timing survive on the part transform");
   ok(compiledFor(deck).sample(1).elements[0].x === 300 && deck.slides[0].elements.length === 2, "part transform never resets the concurrent whole-plot Change");
+  const same = ops.setTransform(deck, slideId, beats[1], "plot", { ref: { parts: ["peaches.box"] }, state: { opacity: .4 } })!;
+  ok(same.id === part.id && tracks.length === 2, "a plain transform and hand-off on the same part-set share one track, distinct from the whole element");
+  ops.becomeTransform(deck, slideId, beats[1], { element: "plot", parts: ["peaches.box"] }, "box", { compiled: compiledFor(deck) });
+  ok(tracks.length === 2 && tracks.find(t => t.id === part.id)?.to?.become?.mode === "handoff", "re-authoring the part-set Become also reuses that transform track");
+  const many = ops.setTransform(deck, slideId, beats[2], "plot", { ref: { parts: spines.parts }, state: {} })!;
+  const manyResult = ops.becomeTransform(deck, slideId, beats[2], { element: "plot", parts: [...spines.parts!].reverse() }, "box", { compiled: compiledFor(deck) })!;
+  ops.setTransform(deck, slideId, beats[2], "plot", { state: { x: 400 } });
+  ok(manyResult.trackId === many.id && deck.slides[0].beats[2].tracks.length === 2, "multi-part set order is irrelevant to the family law; whole-element Change remains distinct");
 }
 {
   const { deck, slideId, beats } = deckWith([line("src"), rect("box"), plot(), plot("other")]);
@@ -163,6 +171,7 @@ const compiledFor = (deck: Deck) => compileSlide(deck.slides[0], deck.stage, { p
   refuse({ element: "plot", parts: ["missing.part"] }, "box", /Source parts not found/);
   refuse("src", spines, /Consume requires whole/, { mode: "consume" });
   refuse(spines, "box", /Consume requires whole/, { mode: "consume" });
+  refuse({ element: "plot", group: "source-group" }, "box", /Choose an object or plot parts as the Become source, rather than a group\./);
   ops.becomeTransform(deck, slideId, beats[1], "src", spines, { compiled: compiledFor(deck) });
   refuse("box", { element: "plot", parts: ["axis.x"] }, /already lands/);
   refuse("box", "plot", /already lands/);
@@ -250,6 +259,33 @@ try {
     await fs.writeFile(path.join(root, rel), contents);
   }
   const { deck, slideId, beats } = deckWith([line("src"), ellipse("tgt")]);
+  // F1/C1 seam: compileBecomeSlide must carry deck.animStyles into the
+  // real file handler's birth validation, not just compile the raw tracks.
+  const styled = deckWith([line("src"), rect("seed")]);
+  const birth = ops.addGhostTransform(styled.deck, styled.slideId, styled.beats[1], "seed")!;
+  const birthTrack = styled.deck.slides[0].beats[1].tracks.find(t => t.id === birth.trackIds[0])!;
+  const style = ops.addAnimStyle(styled.deck, { name: "Delayed birth", family: "transform", track: { preset: "transform", start: 5000 } });
+  ok(ops.linkTrackStyle(styled.deck, styled.slideId, birthTrack.id!, style.id).ok && !Object.hasOwn(birthTrack, "start"), "destination birth inherits its 5000 ms start only from the linked style");
+  await saveDeck(root, styled.deck);
+  const styledPath = path.join(root, "slides", styled.deck.id, "deck.json");
+  const styledBytes = await fs.readFile(styledPath, "utf8");
+  await assert.rejects(() => becomeHeadless(root, styled.deck.id, styled.slideId, styled.beats[1], "src", { targetId: birth.elementIds[0], mode: "handoff", start: 0 }), /destination is not yet born/);
+  ok(await fs.readFile(styledPath, "utf8") === styledBytes, "real flux-core Become refuses a linked-style late birth atomically");
+  const sourceTrack = ops.setTransform(styled.deck, styled.slideId, styled.beats[1], "src", { state: {} })!;
+  ops.linkTrackStyle(styled.deck, styled.slideId, sourceTrack.id!, style.id);
+  for (const variant of ["style", "anchor", "disabled"] as const) {
+    delete sourceTrack.anchor; delete sourceTrack.disabled;
+    if (variant === "anchor") sourceTrack.anchor = { trackId: birthTrack.id!, edge: "end" };
+    if (variant === "disabled") sourceTrack.disabled = true;
+    const candidate = await loadDeck(root, styled.deck.id);
+    candidate.slides = structuredClone(styled.deck.slides);
+    await saveDeck(root, candidate);
+    const result = await becomeHeadless(root, styled.deck.id, styled.slideId, styled.beats[1], "src", { targetId: birth.elementIds[0], mode: "handoff" });
+    const saved = await loadDeck(root, styled.deck.id), authored = saved.slides[0].beats[1].tracks.find(t => t.id === sourceTrack.id)!;
+    const compiled = compileSlide(saved.slides[0], saved.stage, saved);
+    const resolved = compiled.cues[1].tracks.find(t => t.track.id === result.trackId)!;
+    ok(result.trackId === sourceTrack.id && !Object.hasOwn(authored, "start") && authored.styleId === style.id && !authored.disabled && resolved.start >= 5000 && compiled.handoffs.some(h => h.trackId === result.trackId), `real flux-core Become validates an existing ${variant} source at its resolved start and retains inherited timing`);
+  }
   await saveDeck(root, deck);
   const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "flux-cli.ts", ...args, "--root", root], { cwd: repo, encoding: "utf8", env: { ...process.env, FLUX_NO_MIGRATE: "1" }, timeout: 30000 });
   const cli = run("become", deck.id, slideId, beats[1], "src", "--target", "tgt", "--duration", "800");
@@ -291,6 +327,14 @@ try {
   ops.becomeTransform(expected, live.slideId, live.beats[1], "src", spines, { compiled: compiledFor(expected), pair: "tile", reveal: "draw", start: 25, duration: 700, easing: "linear" });
   expected.modified = directDeck.modified;
   ok(JSON.stringify(expected) === JSON.stringify(directDeck), "GUI pure op and real CLI mutation are byte-identical");
+  for (const args of [
+    ["become", live.deck.id, live.slideId, live.beats[2], "plot", "--target", "plot", "--part", "axis.x.spine", "--source-part", "axis.x.spine"],
+    ["appear-from", live.deck.id, live.slideId, live.beats[2], "--dest", "plot", "--from", "plot", "--part", "axis.x.spine", "--source-part", "axis.x.spine"],
+  ]) {
+    const before = await fs.readFile(path.join(root, "slides", live.deck.id, "deck.json"), "utf8");
+    const refusal = run(...args);
+    ok(refusal.status !== 0 && /Choose a different object for the source to become\./.test(refusal.stderr) && await fs.readFile(path.join(root, "slides", live.deck.id, "deck.json"), "utf8") === before, `real ${args[0]} surfaces a user-readable refusal without writing`);
+  }
   const sourcePart = run("become", live.deck.id, live.slideId, live.beats[2], "plot", "--source-part", "peaches.box", "--target", "box");
   ok(sourcePart.status === 0 && (await loadDeck(root, live.deck.id)).slides[0].beats[2].tracks[0].part === "peaches.box", "real --source-part writes a part-level hand-off");
   const partDeck = await loadDeck(root, live.deck.id);

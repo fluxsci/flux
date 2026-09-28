@@ -1244,7 +1244,10 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     if (!sources.length) throw new Error("Source parts not found. Retarget this Become.");
     const ids = new Set([...sources, ...destination].map(t => t.elementId));
     if (slide.elements.some(e => ids.has(e.id) && e.type === "video")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
-    const start = opts.start ?? existing?.start ?? 0;
+    // Preserve the source's effective style/anchor timing when replacing its
+    // endpoint. resolvedSlide retains disabled tracks, which Become re-enables.
+    const resolvedExisting = existing && compiled.resolvedSlide.beats[bi]?.tracks.find(t => t.id === existing.id);
+    const start = opts.start ?? resolvedExisting?.start ?? existing?.start ?? 0;
     const unborn = compiled.births.filter(b => !b.enabled || b.beat > bi || b.beat === bi && b.start > start);
     if (unborn.some(b => destination.some(t => t.elementId === b.target))) throw new Error("The destination is not yet born at this step. Choose a later step.");
     if (unborn.some(b => sources.some(t => t.elementId === b.target))) throw new Error("The source is not yet born at this step. Choose a later step.");

@@ -957,7 +957,10 @@ Persistence invariants (all machine-checked — do not weaken):
   mid-flight and leaves the source hidden afterwards. Later entrances may reveal it again;
   emphasis changes opacity without resurrecting hidden sides. Authoring and diagnostics share
   `handoffTargets.ts`'s manifest-membership and overlap checks. Canonical refs resolve with
-  effective step manifests, never sampled appearance. Copy/preset/embed remaps retain element
+  effective step manifests, never sampled appearance. When retaining an existing source's
+  timing, birth admission must compare its resolved start (styles/anchors included), not the
+  raw track's start. Read `compiled.resolvedSlide` so disabled tracks being re-enabled keep
+  their effective timing too. Copy/preset/embed remaps retain element
   and group destination identity; deleted destinations remain dangling and diagnosed. PPTX
   phase ownership includes destinations so a later landing cannot leak into an earlier phase.
   The retype law: `applyState` with
@@ -7816,3 +7819,12 @@ and export assertions fail without their corresponding fixes.
   ownership into the guide body. Runtime flights consume `CompiledSlide.handoffs` (C2).
 - Canvas SVG assertions must scope to `data-editor-element-id`: filmstrip copies may share
   semantic ids and are not evidence of editor presentation.
+
+### 2026-09-28 01:44 UTC — C1 integration QA (Codex, av2/C1)
+**Work:** Pinned the headless linked-style birth check with a real-handler red/green proof.
+Found and fixed a second F1/C1 seam: replacing an existing source transform validated its raw
+start instead of its retained effective timing. Added style/anchor/disabled-source cases,
+part-set family-law and CLI refusal checks, and raw-progress sampler probes; repeated the
+worker's baseline, overlap, embed-remap and PPTX fault controls. Qualification evidence and
+the ordinary-entrance versus ghost-birth contract question are recorded in the QA report.
+**Learnings:** Promoted resolved source timing and disabled-track inspection into the body.
