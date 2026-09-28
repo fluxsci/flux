@@ -335,7 +335,8 @@
       "verify-model3d-verbs.ts",
       "verify-model3d-s8-policy.cjs",
       "verify-model3d-demo.ts",
-      "verify-model3d-cache-watch.cjs"
+      "verify-model3d-cache-watch.cjs",
+      "verify-model3d-import-progress.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -481,7 +482,8 @@
       "verify-model3d-orbit-gui.mjs",
       "verify-model3d-xray-gui.mjs",
       "verify-model3d-source-gui.mjs",
-      "verify-model3d-verbs-gui.mjs"
+      "verify-model3d-verbs-gui.mjs",
+      "verify-model3d-import-progress-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -892,7 +894,9 @@
       "verify-model3d-s8-policy.cjs",
       "verify-model3d-s8.cjs",
       "verify-model3d-demo.ts",
-      "verify-model3d-cache-watch.cjs"
+      "verify-model3d-cache-watch.cjs",
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-import-progress-gui.mjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -1033,6 +1037,10 @@
     "model3d-demo": [
       "verify-model3d-demo.ts",
       "verify-model3d-scene3d.ts"
+    ],
+    "model3d-import-progress": [
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-import-progress-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -8331,6 +8339,26 @@
       "isolation": "scratch",
       "timeoutMs": 60000,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-import-progress.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-import-progress-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }

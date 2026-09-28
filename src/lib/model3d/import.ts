@@ -1,12 +1,13 @@
 /** Figure-only orchestration; native import owns binary preparation/publication. */
 import { get } from 'svelte/store';
 import { project, activeFigureId, embeddedProjectRoot, projectDir } from '../store';
-import { storeTenant } from '../tenancy';
+import { storeTenant, storeTenantState } from '../tenancy';
 import { fileBridge, type FileBridge } from '../project/types';
 import { pushToast, errMsg } from '../toast';
 import { cacheScene3dSidecars } from './store';
 import { makeImportedModel3dElement, type Model3dImportRequest, type Model3dImportResult, type Model3dImportOwnership } from './importData';
 import type { Incoming } from '../io';
+import { trackModel3dImport } from './importProgress';
 interface ImportBridge extends FileBridge {
   importModel3d?: (request: Model3dImportRequest) => Promise<Model3dImportResult>;
   importDroppedModel3d?: (file: File, request: Omit<Model3dImportRequest, 'sourcePath'>) => Promise<Model3dImportResult>;
@@ -35,9 +36,14 @@ async function incoming(source: string | File, targetFigure?: string): Promise<I
   if (!bridge?.importModel3d || !bridge.discardModel3d || !bridge.adoptModel3d) throw new Error('3D import requires an updated Flux desktop app.');
   const targetId = targetFigure ?? figureId;
   const current = () => model3dImportRoot() === root && get(project) === owner && get(activeFigureId) === figureId && storeTenant() === 'figure' && owner.figures.some(f => f.id === targetId);
-  const result = typeof source === 'string'
-    ? await bridge.importModel3d({ root, sourcePath: source, target: { kind: 'figure' } })
-    : await (bridge.importDroppedModel3d ? bridge.importDroppedModel3d(source, { root, target: { kind: 'figure' } }) : Promise.reject(new Error('Dropped 3D files require the Flux desktop app.')));
+  const finishProgress = trackModel3dImport(typeof source === 'string' ? source.split(/[\\/]/).pop()! : source.name, current,
+    [project, activeFigureId, embeddedProjectRoot, projectDir, storeTenantState]);
+  let result: Model3dImportResult;
+  try {
+    result = typeof source === 'string'
+      ? await bridge.importModel3d({ root, sourcePath: source, target: { kind: 'figure' } })
+      : await (bridge.importDroppedModel3d ? bridge.importDroppedModel3d(source, { root, target: { kind: 'figure' } }) : Promise.reject(new Error('Dropped 3D files require the Flux desktop app.')));
+  } finally { finishProgress(); }
   const receipt: Model3dImportOwnership = { root, assetId: result.asset.id, receipt: result.receipt, target: { kind: 'figure' } };
   let adopted = false, discarded = false;
   const discard = async () => { if (adopted || discarded) return; discarded = true; await bridge.discardModel3d!(receipt); };

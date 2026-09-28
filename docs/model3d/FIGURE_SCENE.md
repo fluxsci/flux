@@ -10,6 +10,11 @@ sidecar adds authored physical size, view, colors and vector furniture when its 
 contract and original-byte receipt are valid. Plain meshes use the shared model defaults.
 The stored model is a prepared copy; the source receipt remains attached to the element.
 
+If model preparation takes more than one second, a notification names the files still
+being imported. It clears when preparation finishes or the insertion destination changes;
+one completed import does not clear another pending import. After placement, the model box
+shows “Preparing 3D preview” until its poster is ready.
+
 The Project and Global galleries show cube/3D chips and a 3D-only filter in tile and list
 views. Accent chips identify validated scene3d metadata; invalid or future metadata uses
 plain-mesh styling. List checks read bounded metadata only. A rendered thumbnail also
@@ -46,3 +51,6 @@ node scripts/run-verifies.mjs --group model3d-gui
 Use scratch HOME/XDG directories and `FLUX_NO_MIGRATE=1`. Scene screenshots and the JSON
 receipt are under `test-results/model3d/scene/`. Native import and metadata-only persistence
 have separate registered `model3d-import` and `model3d-persistence` groups.
+The `model3d-import-progress` group holds import transport to verify delayed feedback,
+concurrent requests and cleanup through picker, gallery and File-drop paths. Its artifacts
+are under `test-results/model3d/import-progress/`.

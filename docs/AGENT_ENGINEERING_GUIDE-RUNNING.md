@@ -8143,3 +8143,20 @@ project bytes, emit a fallback warning or start another observed native worker. 
 closes the transport-level image acceptance gap without changing coldConnect's separate
 no-render/no-write policy. Source review and native execution are recorded by the gate;
 this entry alone is not an execution result.
+
+### 2026-09-28 17:45 UTC — Delayed feedback during native model import
+
+The shared Figure GLB insertion boundary now owns a one-shot one-second feedback
+timer around native preparation. It starts no extra work and delays no import. Picker,
+gallery and actual File drops use the same path. A sticky status names pending files;
+operation tokens preserve concurrent same-name imports when one finishes or rejects.
+Captured destination-store subscriptions retire stale feedback immediately, including
+A→B→A transitions, and settlement releases subscriptions and the timer. The existing
+placed-model placeholder covers subsequent poster preparation. No invented percentage,
+polling or animation frame was added.
+
+Registered `model3d-import-progress` adds deterministic timer/ownership checks and a
+held-transport GUI gate for the actual picker button, gallery insertion callback and
+File-drop bridge. Existing broad changed-path mapping is retained. Author and independent registered groups each passed 11 pure plus 11 GUI checks;
+existing import5/5, changed-pathmap and both type checks passed. Final UI receipts and
+inspected screenshots are in `test-results/model3d/import-progress/`.
