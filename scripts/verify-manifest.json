@@ -1516,9 +1516,18 @@
       ]
     },
     {
+      "glob": "scripts/fixtures/correspondence-cold.json",
+      "run": [
+        "verify-correspondence.ts"
+      ]
+    },
+    {
       "glob": "{src/lib/slide/outline.ts,src/lib/slide/tween.ts,src/lib/slide/player/transform.ts,src/lib/slide/ops.ts,src/shell/modes/slide/AnimatePanel.svelte,src/shell/modes/slide/animator/PropertiesPane.svelte,src/shell/modes/slide/animator/TimelineMenu.svelte}",
       "run": [
         "group:slide-transforms",
+        "verify-correspondence.ts",
+        "verify-v020-morph-cache.ts",
+        "verify-v020-morph-startup.mjs",
         "verify-no-retired-agent-layer.ts"
       ]
     },

@@ -231,6 +231,7 @@ each point at its value on the destination axis and divides the destination curv
 between neighbouring points. This is **data ↔ summary**: points can become a distribution,
 or a summary can expand back into its points. Unmatched sources fade during the first 40%
 of the animation; unmatched destinations appear during the last 40%. Text and images crossfade.
+You can preview or scrub a hand-off as soon as you open the animation dock.
 
 From the command line or an agent, `become` can name destination parts with `--part` and
 source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:

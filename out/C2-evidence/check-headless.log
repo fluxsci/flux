@@ -1,4 +1,0 @@
-
-> flux@0.1.0 check:headless
-> tsc --project tsconfig.headless.json
-

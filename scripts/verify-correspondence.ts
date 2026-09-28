@@ -1,4 +1,5 @@
 // Animation v2 B2/B3: real public planner + sampler, hand-written stage fixtures.
+import { readFileSync } from "node:fs";
 import { harness } from "./lib/harness.mjs";
 import { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD } from "../src/lib/slide/correspondence";
 import { planCorrespondence as corePlan, sampleCorrespondence as coreSample } from "../flux-core/index";
@@ -168,6 +169,38 @@ for (const a of paints) for (const b of paints) {
   const prepared = prepareColorLerp(a, b);
   h.ok([0, 0.125, 0.4, 0.5, 0.875, 1].every((t) => lerpColor(a, b, t, prepared) === lerpColor(a, b, t)), "prepared paints preserve the color core's exact results");
 }
+
+h.section("cold-path geometry stays exact");
+// Recorded from C2 @ ddbdff3 before hoisting the invariant search stations.
+// Keep the old chains: comparing two callers of today's planner cannot catch drift.
+const coldOracle = JSON.parse(readFileSync(new URL("./fixtures/correspondence-cold.json", import.meta.url), "utf8")) as {
+  cases: { name: string; a: StageOutline; b: StageOutline; expected: ReturnType<typeof planOutlines> }[];
+};
+let maxDeviation = 0;
+for (const { name, a, b, expected } of coldOracle.cases) {
+  const p = planCorrespondence([a], [b], { pair: "spatial" }); p.prepare();
+  const actual = p.pairs[0].plan!;
+  h.ok(JSON.stringify({ a: actual.a, b: actual.b, closed: actual.closed }) === JSON.stringify(expected), `${name}: old planner's nodes, handles, seam and winding are byte-identical`);
+  const out = sampleCorrespondence(p, 0.125);
+  const path = out[0], nodes = path.nodes, identities = nodes.map(n => [n, n.hIn, n.hOut]);
+  let deviation = 0;
+  for (const t of [0.125, 0.5, 0.875]) {
+    sampleCorrespondence(p, t, out);
+    const oldNodes = sampleNodes(expected.a, expected.b, t, a.bbox.w + (b.bbox.w - a.bbox.w) * t, a.bbox.h + (b.bbox.h - a.bbox.h) * t);
+    for (const n of oldNodes) { n.x += a.bbox.x + (b.bbox.x - a.bbox.x) * t; n.y += a.bbox.y + (b.bbox.y - a.bbox.y) * t; }
+    const oldPath = parameterize(oldNodes, expected.closed), newPath = parameterize(out[0].nodes, out[0].closed);
+    for (let i = 0; i < 1000; i++) {
+      const oldPoint = pointAt(oldPath, i / 999), newPoint = pointAt(newPath, i / 999);
+      deviation = Math.max(deviation, Math.hypot(oldPoint.x - newPoint.x, oldPoint.y - newPoint.y));
+    }
+  }
+  maxDeviation = Math.max(maxDeviation, deviation);
+  h.ok(deviation <= 0.25, `${name}: 1,000 stations at each of three flight times deviate by ${deviation} stage px (≤0.25)`);
+  // Planning changes must never allocate new geometry on repeated frame seeks.
+  for (let i = 0; i < 1000; i++) sampleCorrespondence(p, 0.01 + (i % 99) / 100, out);
+  h.ok(path === out[0] && nodes === out[0].nodes && identities.every(([n, hi, ho], i) => n === nodes[i] && hi === nodes[i].hIn && ho === nodes[i].hOut), `${name}: 1,000 frame seeks retain every path, node and handle`);
+}
+console.log(`old-planner maximum sampled deviation: ${maxDeviation} stage px`);
 
 h.section("1,200-marker warm planning budget");
 const dense = Array.from({ length: 1200 }, (_, i) => ring(`dense${i}`, i % 100 * 5, 200 + Math.floor(i / 100) * 5, i / 1199));

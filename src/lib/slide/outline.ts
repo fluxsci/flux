@@ -324,13 +324,22 @@ function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number
 /** Summed squared distance between two unit-frame outlines sampled at `m`
  *  stations, with B traversed from offset `s0` (forward or reversed). */
 export function matchCost(a: Param, b: Param, s0: number, reverse: boolean, closed: boolean, m = 32): number {
-  let cost = 0;
-  for (let i = 0; i <= m; i++) {
-    const s = i / m;
-    const sb = closed ? ((reverse ? s0 - s : s0 + s) % 1 + 1) % 1 : reverse ? 1 - s : s;
-    cost += dist2(pointAt(a, s), pointAt(b, sb));
-  }
-  return cost;
+  return matchCostFromSamples(a, b, closed, m)(s0, reverse);
+}
+
+/** A's stations are identical for every candidate seam/direction. Prepare
+ *  them once per search; only B moves. Keep the station and sum order exact. */
+function matchCostFromSamples(a: Param, b: Param, closed: boolean, m = 32): (s0: number, reverse: boolean) => number {
+  const points = Array.from({ length: m + 1 }, (_, i) => pointAt(a, i / m));
+  return (s0, reverse) => {
+    let cost = 0;
+    for (let i = 0; i <= m; i++) {
+      const s = i / m;
+      const sb = closed ? ((reverse ? s0 - s : s0 + s) % 1 + 1) % 1 : reverse ? 1 - s : s;
+      cost += dist2(points[i], pointAt(b, sb));
+    }
+    return cost;
+  };
 }
 
 export interface OutlineMorphPlan {
@@ -416,17 +425,19 @@ function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, 
     const pa = parameterize(ua.nodes, true), pb = parameterize(ub.nodes, true);
     const flip = Math.sign(signedArea(pa)) * Math.sign(signedArea(pb)) < 0;
     let best = { s0: 0, reverse: flip, cost: Infinity };
+    const costAt = matchCostFromSamples(pa, pb, true);
     const candidates = new Set<number>([...Array.from({ length: CANDIDATES }, (_, i) => i / CANDIDATES), ...boundaryParams(pb, true)]);
     for (const s0 of candidates) {
       for (const reverse of [flip, !flip]) {
-        const cost = matchCost(pa, pb, s0, reverse, true) + (reverse !== flip ? 1e-6 : 0);
+        const cost = costAt(s0, reverse) + (reverse !== flip ? 1e-6 : 0);
         if (cost < best.cost) best = { s0, reverse, cost };
       }
     }
     ub = reseam(ub, best.s0, best.reverse);
   } else if (!ua.closed && !ub.closed) {
     const pa = parameterize(ua.nodes, false), pb = parameterize(ub.nodes, false);
-    if (matchCost(pa, pb, 0, true, false) + 1e-9 < matchCost(pa, pb, 0, false, false)) ub = { nodes: reverseNodes(ub.nodes), closed: false };
+    const costAt = matchCostFromSamples(pa, pb, false);
+    if (costAt(0, true) + 1e-9 < costAt(0, false)) ub = { nodes: reverseNodes(ub.nodes), closed: false };
   } else {
     // one ring, one stroke: cut the ring where it is nearest BOTH ends of the
     // stroke, so the ring opens there and its two ends travel to the stroke's.

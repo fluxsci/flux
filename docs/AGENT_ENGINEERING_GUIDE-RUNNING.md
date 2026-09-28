@@ -976,6 +976,11 @@ Persistence invariants (all machine-checked — do not weaken):
   `sampleNodes` node loop. Animation v2's `correspondence.ts` merges stage outlines and
   pairs spatial/order/data/tile sets through that same 1↔1 planner. Pair arrays remain in
   unit coordinates for exact compatibility; the sampler applies their stage bboxes.
+  Seam searches prepare the invariant source stations once, reusing them for every
+  destination offset/direction. Keep full resolution and arithmetic order: the 40-point
+  cold hand-off's seam search cost 122.7 ms (6.1 ms after hoisting),
+  while splitting/allocation cost only 2.6 ms. Idle warming is optional; first preview
+  and seek must also meet 100 ms when input arrives before the warm callback.
   Call `CorrespondencePlan.prepare()` in the warm hook before sampling (unprepared sampling
   refuses instead of planning on the frame path), and retain its output array to reuse all
   geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
@@ -7882,3 +7887,13 @@ on that cold path (planning 5.7 ms, DOM build/insertion 1.4 ms); warm cache hits
 seek in 13.8–15.3 ms. The unchanged 100 ms first-seek gate still fails. Qualification
 stopped at this worker-level preparation/scheduling decision, per the packet.
 Temporary instrumentation was removed; no budget was changed.
+
+### 2026-09-28 03:23 UTC — Hand-off cold preparation (Codex, av2/C2P)
+**Work:** Profiled the real 40-point cold preview, then hoisted invariant source stations
+out of the seam candidate loop. Preparation fell from 130.4 to 14.0 ms; the unchanged
+startup gate passed three consecutive runs. Reverting the planner restores the first-seek
+failure (169.1 ms). Frozen old-planner pairs retain exact arrays and zero sampled deviation;
+a wrong-station fault fails their new geometry checks. No sampling reduction, lifecycle
+change, budget change or frame-path edit was needed. Changes remain uncommitted.
+**Learnings:** The dominant work was repeated source arc inversion during alignment,
+not parameterization or node allocation. Promoted the measured contract to §4.
