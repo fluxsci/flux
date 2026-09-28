@@ -154,6 +154,7 @@ The established shared cores — extend these, don't duplicate them:
 | Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
+| Semantic targets and hand-off validation | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts` |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
@@ -946,10 +947,20 @@ Persistence invariants (all machine-checked — do not weaken):
   geometry (no endpoint view/compensation), then applies this frame's overrides, projection
   and compensation. Per-panel fits and vertex buffers are prepared once. The old
   `player/morph.ts` is a temporary re-export shim, including `axisFit` for existing consumers.
-  `becomeTransform` (ops.ts; CLI/MCP `become`) diffs the source's step pre-state against the
-  target (`diffState` is retype-aware: type + every non-base prop), writes the track, consumes
-  the target and gc's groups as ONE op (one Undo restores both); it refuses the Design step,
-  self, videos, ghost copies and unborn sources. The retype law: `applyState` with
+  `becomeTransform` (ops.ts; CLI/MCP `become`) has two completion modes. Consume diffs the
+  source pre-state against the destination, writes the endpoint, deletes the target and GCs
+  groups in one Undo; `to.become` records provenance. Plot/image or part-set destinations
+  default to hand-off: `to.become={ref,mode:"handoff",pair,reveal}`, `to.state={}`, both model
+  identities retained. Part sources keep their plot's props; the full ref keys the family law.
+  `appearFrom` / `appear-from` writes the same record from the destination side. The compiler
+  publishes resolved `handoffs`, hides destination keys before landing, hides both sides
+  mid-flight and leaves the source hidden afterwards. Later entrances may reveal it again;
+  emphasis changes opacity without resurrecting hidden sides. Authoring and diagnostics share
+  `handoffTargets.ts`'s manifest-membership and overlap checks. Canonical refs resolve with
+  effective step manifests, never sampled appearance. Copy/preset/embed remaps retain element
+  and group destination identity; deleted destinations remain dangling and diagnosed. PPTX
+  phase ownership includes destinations so a later landing cannot leak into an earlier phase.
+  The retype law: `applyState` with
   `state.type` keeps only BASE_PROPS and completes the new kind's required props
   (`completeRetyped`). Cross-kind flights run the OUTLINE MORPH (`slide/outline.ts`, pure):
   `elementOutline` renders any drawn kind (rect + fillets, ellipse as 4 KAPPA arcs, line,
@@ -2892,9 +2903,9 @@ outside this PNG packaging change.
   is the one static-hiding mechanism) — `setPartVisibility` remains as the
   headless/back-compat op + verb only; don't resurrect a GUI tri-state.
   Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
-  preserve them and test reset/default semantics (September 20 review PS-06). Per-part transform
-  tracks remain deferred (part styling changes ride the plot transform's
-  `overrides` diff). Character-level text morph is the flagged Phase-8
+  preserve them and test reset/default semantics (September 20 review PS-06). Part-set
+  transforms now support hand-off Become; part styling Changes continue to ride the whole
+  plot transform's `overrides` diff. Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
 - **Plot data views (Animation v2 E1–E3):** `view` renders in all five plot hosts and
@@ -7792,3 +7803,16 @@ four failed because the compatibility wrapper clips legacy roundoff. The orchest
 the contract (wrapper = clamped curve, raw `fn` keeps the bytes) and rewrote the assertions to
 pin it. No product logic changed.
 **Learnings:** Promoted near-endpoint floating-point parity probes into the curve guidance above.
+
+### 2026-09-28 01:07 UTC — Hand-off Become model and headless twins (Codex, av2/C1)
+**Work:** Added consume/hand-off authoring, destination-side Appear from, manifest-aware
+validation, compiled flight resolutions and persistent presentation states. Remapped live
+destinations across duplicates, presets and embeds; included them in PPTX phase ownership;
+updated headless verbs, generated manual/golden and model/user docs. Extended existing ops,
+timeline, PPTX and real-canvas gates; targeted reversions prove baseline, overlap, namespace
+and export assertions fail without their corresponding fixes.
+**Learnings:**
+- Promoted canonical target resolution, hidden-state composition and destination phase
+  ownership into the guide body. Runtime flights consume `CompiledSlide.handoffs` (C2).
+- Canvas SVG assertions must scope to `data-editor-element-id`: filmstrip copies may share
+  semantic ids and are not evidence of editor presentation.

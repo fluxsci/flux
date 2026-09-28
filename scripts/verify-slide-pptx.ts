@@ -242,6 +242,34 @@ h.ok(measured.length === 3, `only the uncropped plots are measured (${measured.l
     "a page without an entrance effect can still advance by itself");
 }
 
+// Hand-off visibility goes through the exported build planner, including an
+// earlier disjoint phase in the SAME step (destinations are phase owners too).
+{
+  const manifest = JSON.parse(readFileSync("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.fluxplot.json", "utf8"));
+  const svg = readFileSync("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.svg", "utf8");
+  const d = createDeck({ id: "handoff", withTitleSlide: false });
+  const source = { ...base, id: "source", name: "Flight source", type: "rect" as const, fill: "#205EA6", stroke: "none", strokeWidth: 0, cornerRadius: 0 };
+  const plot = { ...base, id: "plot", name: "Destination", type: "plot" as const, assetId: "boxplot" };
+  d.slides = [{ id: "s", elements: [source, plot, { ...source, id: "earlier" }], beats: [
+    { id: "b0", tracks: [] }, { id: "b1", tracks: [
+      { id: "first", target: "earlier", preset: "fade", duration: 100 },
+      { id: "flight", target: "source", preset: "transform", start: 200, duration: 600, to: { state: {}, become: { ref: { element: "plot", parts: ["axis.x.spine", "axis.y.spine"] }, mode: "handoff" } } },
+    ] }, { id: "b2", tracks: [] },
+  ] }];
+  const payload = { deck: d, plots: { boxplot: { svg, manifest } }, assets: {}, assetSizes: {} };
+  const pages = pptxPages(payload);
+  const spinesHidden = (i: number) => {
+    const markup = pages[i].ev.plotMarkup(pages[i].ev.elements.find(e => e.id === "plot")!)!;
+    const root = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
+    return ["axis.x.spine", "axis.y.spine"].every(id => (root.querySelector(`[id="plot__${id}"]`) as unknown as SVGElement).style.visibility === "hidden");
+  };
+  h.ok(pages.length === 4 && spinesHidden(0) && spinesHidden(1) && !spinesHidden(2) && !spinesHidden(3), "PPTX shows destination leaves only from the landing phase, never the earlier phase of the same step");
+  h.ok(!pages[0].ev.elements.find(e => e.id === "source")!.hidden && !pages[1].ev.elements.find(e => e.id === "source")!.hidden && pages[2].ev.elements.find(e => e.id === "source")!.hidden && pages[3].ev.elements.find(e => e.id === "source")!.hidden, "PPTX removes the source from the landing phase onward");
+  const whole = structuredClone(d); whole.slides[0].beats[1].tracks[1].to!.become!.ref = { element: "plot" };
+  const wholePages = pptxPages({ ...payload, deck: whole });
+  h.ok(wholePages[0].ev.elements.find(e => e.id === "plot")!.hidden && wholePages[1].ev.elements.find(e => e.id === "plot")!.hidden && !wholePages[2].ev.elements.find(e => e.id === "plot")!.hidden, "whole-element hand-offs share the same PPTX phase visibility");
+}
+
 // ---- colour parsing ---------------------------------------------------------
 h.ok(JSON.stringify(pptxColor("#abc")) === JSON.stringify({ rgb: "AABBCC", alpha: 1 }) && pptxColor("none") === null &&
   pptxColor("rgba(255, 0, 0, 0.5)")?.rgb === "FF0000" && pptxColor("rgba(255, 0, 0, 0.5)")?.alpha === 0.5,

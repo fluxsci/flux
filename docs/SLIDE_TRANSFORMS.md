@@ -9,16 +9,15 @@ A slide object can be **transformed** at a step in exactly three ways. They are 
 action in the UI (the **Transform** menu in the animator, the **Transform** chip on a lane) and
 one family in the deck model (`familyOf(track) === "transform"`):
 
-| Way | What the user does | What the deck stores |
-| --- | --- | --- |
-| **Change** | Edits the object itself after the step (move, resize, recolor, rewrite, restyle). | The one transform track for that target on that step; `to.state` = the sparse patch vs the pre-state. (Unchanged.) |
-| **Ghost** | Creates N copies that start where the source is and each get their own destination. | N ordinary result elements, each born by one transform track carrying `ghostFrom`. (Unchanged.) |
-| **Become** | Points at *another* object — one just drawn, one already on the slide, or a plot picked from the gallery — and the source turns into it. | The same one transform track; `to.state` carries the target's properties (including `type` when the kind changes) and, for plots, `to.assetId` (+ source paths). The target object is consumed (deleted) in the same undo step. |
+| Way | What the user does | What the deck stores | Completion |
+| --- | --- | --- | --- |
+| **Change** | Edits the object after the step (move, resize, recolor, rewrite, restyle). | One transform track for that target and step; `to.state` is the sparse patch against its pre-state. | The same object keeps the edited endpoint. |
+| **Ghost** | Creates copies that start where the source is and transform independently. | Ordinary result elements, each born by a transform carrying `ghostFrom`. | Each copy keeps its own endpoint. |
+| **Become** | Points at another object, plot parts, a group, or a gallery plot. | The source's transform carries `to.become`; consume also writes the endpoint in `to.state` and the plot/image content half. An asset-only Become uses `to.assetId`. | **Consume** deletes the destination and retypes the source. **Hand-off** keeps both objects, hides the source and reveals the destination. |
 
-The three are not three track kinds. A Become writes exactly the record a Change would have
-written had the user sculpted the same endpoint by hand — it is a different *way of authoring* the
-endpoint, not a different animation. Everything downstream (chaining across steps, Before/After
-checkout, ghost births, presets, export, video, CLI) therefore works on Become tracks unchanged.
+All three use the transform family. Hand-off is a completion mode of Become, not another
+transform way. The family law keys on the complete `TargetRef`, so one box's hand-off and a
+whole-plot Change can coexist in the same step.
 
 ## 2. Data morph is subsumed by Become — the assessment
 
@@ -36,7 +35,7 @@ Evidence from the code as it stood before this branch:
    track (`acceptMorphTarget` → `setTransform({toAssetId})`). That is precisely what a Become
    whose target is *a plot from the gallery* must write: the source keeps its frame and only its
    content becomes the other plot's.
-3. A Become whose target is *another placed plot* ("axes and all") writes the same content half
+3. A **consume** Become whose target is *another placed plot* ("axes and all") writes the same content half
    plus the geometry/style half the target already carries (`x, y, width, height, rotation,
    crop, contentScale, overrides`) — again the ordinary `to.state` patch.
 4. Playback for both is the existing plot branch of the transform driver: a structurally
@@ -64,19 +63,55 @@ plot-to-plot Become does not, so no fourth way exists. Concretely, this branch:
   `applyState(pre, diffState(pre, cur)) ≡ cur` still holds across kinds.
 - `to.assetId` is the content target for any element that has an `assetId` slot (plots today);
   `transformPreState` folds it forward so chains (A→B→C) start where they should.
-- The pre-state fold, the "one transform per target per step" law, ghost births, and the
-  endpoint checkout are unchanged. A Become at a step where the target already has a Change
-  replaces that Change's endpoint (the object now "becomes" the picked thing at that step).
-- The Become op (`ops.becomeTransform`, twin of `flux become`):
-  1. resolves the source's pre-state at the step (ghost-aware, via `compileSlide.preState`);
-  2. resolves the target's evaluated state at the end of the step (`sample(bi)`), keeps the
-     source's structural identity (`withGhostIdentity`), and for plots carries the target's
-     effective asset + source paths (`sourceAt`);
-  3. writes `diffState(pre, target)` as the track's whole patch (`replaceState`) plus the content
-     half; new tracks get the transform defaults (600 ms, `smooth`);
-  4. deletes the target element and every track that referenced it, then GCs groups —
-     one deck mutation, one undo entry.
-  Refused: a missing/same-as-source target, a video target or source, an unborn ghost target.
+- The family law allows one transform per complete source ref per step. Part-set hand-offs
+  carry no state patch, leaving whole-element pre-state folding unchanged. Their
+  presentation hides the source after landing, just like an exit. A later entrance can show it again.
+- `ops.becomeTransform(deck, slideId, beatId, sourceRef, dest, opts)` accepts strings as
+  whole-element refs and `TargetRef` for parts, selectors or destination groups. Whole loose
+  drawn/text destinations with whole sources default to consume; plot/image, group or part-set
+  destinations and part-set sources default to hand-off. `mode` can override that choice.
+- **Consume** preserves the existing operation: resolve the source pre-state and the
+  destination's evaluated step endpoint, keep source identity through `withGhostIdentity`,
+  write the retype-aware `diffState` and content half, delete the destination and its tracks,
+  then GC groups. `to.become = {ref, mode: "consume"}` is provenance only; playback still reads
+  `to.state` / `to.assetId`. Parts/groups and ghost-copy destinations cannot be consumed.
+- **Hand-off** writes exactly this endpoint (no asset or source-path half):
+
+  ```ts
+  to: {
+    become: { ref: { element: "plot", parts: ["axis.x.spine", "axis.y.spine"] },
+              mode: "handoff", pair: "auto", reveal: "flip" },
+    state: {}
+  }
+  ```
+
+  New tracks use 600 ms, smooth easing and start 0; existing timing survives unless supplied.
+  `pair` accepts auto/spatial/order/data/tile; `reveal` accepts flip/draw. `appearFrom(dest,
+  source, opts)` writes the same source-owned record, with hand-off forced. Both ops are one
+  deck mutation and one live undo entry.
+- Hand-off validation uses `resolveTargetLeaves` over canonical slide identities with the
+  step's effective manifests, then verifies actual leaf membership. Missing/unresolvable
+  destinations, self refs, video on either side, unavailable ghost destinations and a second
+  landing on overlapping destination leaves in the same beat are refused before mutation.
+  A whole-element landing overlaps any of its parts; disabled tracks claim nothing. A ghost
+  can receive a hand-off from its enabled birth time onward. Source groups have no track
+  binding; select one source object or a part set instead.
+- `CompiledSlide.handoffs` publishes `{trackId, beat, source, destination, spec}` for valid
+  enabled flights, with both sides resolved once for the runtime. `resolveTarget(ref, beat)`
+  supplies that same manifest-aware resolution to authoring. Missing/overlapping/unborn
+  destinations produce compiler issues; text/raster-only pairs report the informational
+  crossfade message when geometry is available (`plotRoot` supplies pristine plot roots).
+- Destination presentation keys begin hidden unless an earlier entrance already claimed
+  them; a reverse hand-off preserves the first source's initial visibility. Before start the
+  source keeps its prior state; at raw progress 0 it still shows, at 0 < progress < 1 both
+  sides hide for the flight layer, and at progress >= 1 only the destination shows. Visibility
+  persists across steps and reverse seeks are deterministic. Emphasis cannot resurrect a
+  hidden side; a later Dim on landed spines yields opacity 0.3. Editor, embeds and PPTX builds
+  use these compiled states; PPTX also includes destinations in phase ownership.
+- Duplicate slide/beat, preset insertion and embed namespaces remap destination element and
+  group ids. Removing a destination or its ghost birth leaves a dangling ref with a compiler
+  issue; it never silently deletes the source effect. `clearTransformContent` drops Become
+  metadata along with the content half.
 
 ### Curves (Animation v2 M1)
 

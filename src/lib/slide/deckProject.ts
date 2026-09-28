@@ -191,6 +191,7 @@ export interface ClonedContent {
   groups: Record<Id, GroupDef>;
   /** original element id → its clone's id (callers retarget beats/refs). */
   idRemap: Map<Id, Id>;
+  groupRemap: Map<Id, Id>;
 }
 
 export function cloneContentWithFreshIds(
@@ -207,7 +208,7 @@ export function cloneContentWithFreshIds(
     if (el.groupId) el.groupId = groupRemap.get(el.groupId) ?? el.groupId;
     return el;
   });
-  return { elements: out, groups: cloned, idRemap };
+  return { elements: out, groups: cloned, idRemap, groupRemap };
 }
 
 /** Place cloned content onto a stage at NATIVE size (same 96/in ruler → 1:1,

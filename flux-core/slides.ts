@@ -30,6 +30,7 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
+import { compileSlide } from "../src/lib/slide/compile";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel } from "./model";
 import { syncFigureAssets } from "./figures";
@@ -47,7 +48,7 @@ import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { transformPreState } from "../src/lib/slide/tween";
 import { ValidationError } from "./errors";
-import type { Deck, Track, AnimStyle } from "../src/lib/slide/types";
+import type { Deck, Slide, Track, AnimStyle, TargetRef } from "../src/lib/slide/types";
 import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
@@ -821,31 +822,44 @@ async function resolveAssetSource(root: string, assetId: string): Promise<{ svgP
   return { ...(svgPath ? { svgPath } : {}), ...(manifestPath ? { manifestPath } : {}) };
 }
 
-/** become: the third way of transforming. `sourceId` turns into either another
- *  object on the slide (`targetId` — consumed, its evaluated state becomes the
- *  source's endpoint, kind included) or, for a plot, another project plot
- *  (`assetId` — the data-only form: the frame stays, the content becomes the
- *  other plot's; structurally incompatible pairs crossfade and are refused
- *  unless `force`). Twin of the GUI's Become pick. */
+async function compileBecomeSlide(root: string, deck: Deck, slide: Slide) {
+  const manifests = new Map<string, FluxPlotManifest | undefined>();
+  for (const el of slide.elements) if (el.type === "plot") manifests.set(el.assetId, await readPlotManifest(root, el));
+  for (const beat of slide.beats) for (const track of beat.tracks) if (track.to?.assetId && !manifests.has(track.to.assetId)) {
+    const to = track.to;
+    manifests.set(to.assetId!, await readPlotManifest(root, { assetId: to.assetId!, source: {
+      ...(typeof to.svgPath === "string" ? { svgPath: to.svgPath } : {}),
+      ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
+    } }));
+  }
+  return compileSlide(slide, deck.stage, { plotManifest: id => manifests.get(id) });
+}
+
+export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled"> & {
+  targetId?: string; assetId?: string; parts?: string[]; sourceParts?: string[]; force?: boolean;
+};
+const partRef = (element: string, parts?: string[]): TargetRef => ({ element, ...(parts?.length ? { parts } : {}) });
+
+/** Headless twin of Become: a live destination (consume or hand-off), or
+ * another plot asset's content in the existing source frame. */
 export async function become(
   root: string,
   deckId: string,
   slideId: string,
   beatId: string,
   sourceId: string,
-  opts: { targetId?: string; assetId?: string; duration?: number; start?: number; easing?: import("../src/lib/slide/types").EasingToken; force?: boolean } = {},
-): Promise<{ trackId: string; targetId?: string; assetId?: string }> {
+  opts: BecomeOptions = {},
+): Promise<{ trackId: string; targetId?: string; assetId?: string; ref?: TargetRef }> {
   if (!!opts.targetId === !!opts.assetId) throw new Error("become needs exactly one of --target <elementId> or --asset <assetId>");
+  if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal)) throw new Error("Parts, mode, pair and reveal require --target, rather than --asset.");
   return mutateDeck(root, deckId, "become", async (deck) => {
-    mustSlide(deck, slideId);
+    const slide = mustSlide(deck, slideId);
     if (opts.targetId) {
-      const result = slideOps.becomeTransform(deck, slideId, beatId, sourceId, opts.targetId, {
-        ...(opts.duration != null ? { duration: opts.duration } : {}),
-        ...(opts.start != null ? { start: opts.start } : {}),
-        ...(opts.easing != null ? { easing: opts.easing } : {}),
+      const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), partRef(opts.targetId, opts.parts), {
+        ...opts, compiled: await compileBecomeSlide(root, deck, slide),
       });
       if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
-      return { trackId: result.trackId, targetId: result.targetId };
+      return { trackId: result.trackId, ...(result.ref ? { ref: result.ref } : { targetId: result.targetId }) };
     }
     const assetId = opts.assetId!;
     const found = slideOps.findElement(deck, sourceId);
@@ -864,6 +878,19 @@ export async function become(
     });
     if (!t?.id) throw new Error(`beat not found: ${beatId} on ${slideId}`);
     return { trackId: t.id, assetId };
+  });
+}
+
+/** Destination-side authoring; shares the same pure op and manifest resolution. */
+export async function appearFrom(root: string, deckId: string, slideId: string, beatId: string, destId: string, sourceId: string,
+  opts: Omit<BecomeOptions, "targetId" | "assetId" | "force" | "mode"> = {}): Promise<slideOps.BecomeResult> {
+  return mutateDeck(root, deckId, "appear_from", async deck => {
+    const slide = mustSlide(deck, slideId);
+    const result = slideOps.appearFrom(deck, slideId, beatId, partRef(destId, opts.parts), partRef(sourceId, opts.sourceParts), {
+      ...opts, compiled: await compileBecomeSlide(root, deck, slide),
+    });
+    if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+    return result;
   });
 }
 

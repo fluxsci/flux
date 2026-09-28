@@ -29,7 +29,8 @@ import { compileSlide, trackDuration } from "./compile";
 import { diffState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
-import { trackKey, targetKey, hasPartBinding } from "./targets";
+import { trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
+import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
@@ -44,6 +45,8 @@ import {
   type TransitionKind,
   type Influence,
   type Stagger,
+  type TargetRef,
+  type BecomeSpec,
 } from "./types";
 
 // 16:9 on the FIGURE ruler (96 units/inch): a ~6.7″ × 3.75″ frame, so a
@@ -238,7 +241,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   const src = slideById(deck, slideId);
   if (!src) return null;
   const i = deck.slides.findIndex((s) => s.id === slideId);
-  const { elements, groups, idRemap } = cloneContentWithFreshIds(src.elements, src.groups);
+  const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(src.elements, src.groups);
   const copy: Slide = {
     ...structuredClone(src),
     id: newId("slide"),
@@ -258,6 +261,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
       if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+      remapBecomeTarget(t, idRemap, groupRemap);
     }
   }
   deck.slides.splice(i + 1, 0, copy);
@@ -323,7 +327,7 @@ export function insertSlideSnapshot(
     if (asset.kind === "mp4") delete asset.sourcePath;
     deck.assets.push(asset);
   }
-  const { elements, groups, idRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
+  const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
   for (const el of elements) {
     const withAsset = el as { assetId?: Id };
     if (el.type === "video" && assetRemap.has(el.posterAssetId)) el.posterAssetId = assetRemap.get(el.posterAssetId)!;
@@ -354,6 +358,7 @@ export function insertSlideSnapshot(
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
       if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+      remapBecomeTarget(t, idRemap, groupRemap);
       if (t.to?.assetId && embeddedIds.has(t.to.assetId)) {
         t.to.assetId = assetRemap.get(t.to.assetId) ?? t.to.assetId;
         delete t.to.svgPath; delete t.to.manifestPath; delete t.to.recipePath;
@@ -642,13 +647,14 @@ export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null 
   const i = s.beats.findIndex((b) => b.id === beatId);
   if (i <= 0) return null;
   const copy = structuredClone(s.beats[i]);
-  const idRemap = cloneBirthResults(s, copy.tracks);
+  const { idRemap, groupRemap } = cloneBirthResults(s, copy.tracks);
   copy.id = newId("beat");
   if (copy.label) copy.label += " copy";
   remapBeatTrackIds(copy);
   for (const t of copy.tracks) {
     t.target = idRemap.get(t.target) ?? t.target;
     if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+    remapBecomeTarget(t, idRemap, groupRemap);
   }
   remapBeatGroupIds(copy);
   if (copy.autoTarget) copy.autoTarget = idRemap.get(copy.autoTarget) ?? copy.autoTarget;
@@ -881,7 +887,11 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
     if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(b.tracks[i])) && to.tracks.some(t => tracksMatch(t, b.tracks[i]))) return null;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
-    if (copy.ghostFrom) copy.target = cloneBirthResults(s, [copy]).get(copy.target) ?? copy.target;
+    if (copy.ghostFrom) {
+      const { idRemap, groupRemap } = cloneBirthResults(s, [copy]);
+      copy.target = idRemap.get(copy.target) ?? copy.target;
+      remapBecomeTarget(copy, idRemap, groupRemap);
+    }
     if (to !== b) delete copy.groupId;
     to.tracks.splice(at == null ? to === b ? i + 1 : to.tracks.length : Math.max(0, Math.min(at, to.tracks.length)), 0, copy);
     return copy.id;
@@ -891,9 +901,9 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
 
 /** A birth owns its result object. Duplicating the birth creates another
  * independent result, whereas copying an ordinary element copies no birth. */
-function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Map<Id, Id> {
+function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Pick<ReturnType<typeof cloneContentWithFreshIds>, "idRemap" | "groupRemap"> {
   const ids = new Set(tracks.filter(t => t.ghostFrom).map(t => t.target));
-  const { elements, groups, idRemap } = cloneContentWithFreshIds(slide.elements.filter(e => ids.has(e.id)), slide.groups);
+  const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(slide.elements.filter(e => ids.has(e.id)), slide.groups);
   const sources = new Map(tracks.filter(t => t.ghostFrom).map(t => [idRemap.get(t.target), t.ghostFrom!]));
   const names = new Map<Id, Set<string>>();
   for (const el of elements) {
@@ -903,7 +913,7 @@ function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Map<Id, Id> 
   }
   slide.elements.push(...elements);
   if (Object.keys(groups).length) slide.groups = { ...slide.groups, ...groups };
-  return idRemap;
+  return { idRemap, groupRemap };
 }
 
 function ghostNames(slide: Slide, sourceId: Id): Set<string> {
@@ -1152,7 +1162,7 @@ export function setTransform(
     }
     t.to.state = cur;
   }
-  if (opts.toAssetId != null) t.to.assetId = opts.toAssetId;
+  if (opts.toAssetId != null) { t.to.assetId = opts.toAssetId; delete t.to.become; }
   if (opts.source !== undefined) {
     // a placed plot's whole source bundle travels with the content target
     for (const key of ["svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete t.to[key];
@@ -1176,10 +1186,13 @@ export function setTransform(
 /** Drop the content half of a transform (the object keeps its own content). */
 export function clearTransformContent(track: Track): void {
   if (!track.to) return;
-  for (const key of ["assetId", "svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete track.to[key];
+  for (const key of ["assetId", "svgPath", "manifestPath", "recipePath", "frozen", "external", "become"]) delete track.to[key];
 }
 
 export interface BecomeOptions {
+  mode?: BecomeSpec["mode"];
+  pair?: BecomeSpec["pair"];
+  reveal?: BecomeSpec["reveal"];
   start?: number;
   duration?: number;
   easing?: import("./types").EasingToken;
@@ -1189,24 +1202,27 @@ export interface BecomeOptions {
 export interface BecomeResult {
   trackId: Id;
   /** The consumed target's id (it is no longer on the slide). */
-  targetId: Id;
+  targetId?: Id;
   /** The endpoint patch written to the track. */
-  state: Record<string, unknown>;
+  state?: Record<string, unknown>;
+  /** The live destination of a hand-off (neither object is consumed). */
+  ref?: TargetRef;
 }
 
-/** Ways of transforming, way 3 — BECOME: `sourceId` turns into `targetId` at
- *  the step. The target's evaluated state at the end of the step becomes the
- *  source's transform endpoint (`type` included when the kinds differ; for
- *  plots the content half + source bundle too), then the target is consumed —
- *  removed with every effect that referenced it — in this ONE mutation.
- *  Nothing new is invented: the record is exactly what a Change to the same
- *  endpoint would have stored, so chaining, checkout, ghosts, presets and
- *  export all apply unchanged. Refusals throw with a user-facing reason. */
-export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: Id, targetId: Id, opts: BecomeOptions = {}): BecomeResult | null {
+/** Become consumes a loose drawn destination or hands off to live targets.
+ * Both completions write THE source transform in one mutation. Refusals run
+ * before any write and carry a user-facing reason. */
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, source: Id, dest: Id, opts?: BecomeOptions): BecomeResult | null;
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, source: TargetRef | Id, dest: TargetRef | Id, opts?: BecomeOptions): BecomeResult | null;
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: TargetRef | Id, dest: TargetRef | Id, opts: BecomeOptions = {}): BecomeResult | null {
+  sourceRef = typeof sourceRef === "string" ? { element: sourceRef } : sourceRef;
+  const ref = typeof dest === "string" ? { element: dest } : dest;
+  const sourceId = sourceRef.element, targetId = ref.element;
   const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
   if (!slide || bi < 0) return null;
   if (bi < 1) throw new Error("Become needs a build step after Design. Choose or add a step first.");
-  if (sourceId === targetId) throw new Error("Choose a different object for the source to become.");
+  if (sameRef(sourceRef, ref)) throw new Error("Choose a different object for the source to become.");
+  if (sourceRef.group) throw new Error("Choose an object or plot parts as the Become source, rather than a group.");
   const source = slide.elements.find((e) => e.id === sourceId), target = slide.elements.find((e) => e.id === targetId);
   if (!source) throw new Error("The source object is missing from this slide.");
   if (!target) throw new Error("The object to become is missing from this slide.");
@@ -1214,6 +1230,35 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
   const compiled = opts.compiled ?? compileSlide(slide, deck.stage, deck);
+  const mode = opts.mode ?? (isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
+  const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
+  const timing = {
+    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
+    ...(opts.duration != null ? { duration: opts.duration } : {}),
+    ...(opts.easing != null ? { easing: opts.easing } : {}),
+    ...(opts.start != null ? { start: opts.start } : {}),
+  };
+  if (mode === "handoff") {
+    const destination = compiled.resolveTarget(ref, bi), sources = compiled.resolveTarget(sourceRef, bi);
+    if (!destination.length) throw new Error("Destination parts not found. Retarget this Become.");
+    if (!sources.length) throw new Error("Source parts not found. Retarget this Become.");
+    const ids = new Set([...sources, ...destination].map(t => t.elementId));
+    if (slide.elements.some(e => ids.has(e.id) && e.type === "video")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+    const start = opts.start ?? existing?.start ?? 0;
+    const unborn = compiled.births.filter(b => !b.enabled || b.beat > bi || b.beat === bi && b.start > start);
+    if (unborn.some(b => destination.some(t => t.elementId === b.target))) throw new Error("The destination is not yet born at this step. Choose a later step.");
+    if (unborn.some(b => sources.some(t => t.elementId === b.target))) throw new Error("The source is not yet born at this step. Choose a later step.");
+    for (const other of slide.beats[bi].tracks) {
+      if (other === existing || other.disabled || other.preset !== "transform" || other.to?.become?.mode !== "handoff") continue;
+      if (handoffTargetsOverlap(destination, compiled.resolveTarget(other.to.become.ref, bi)))
+        throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
+    }
+    const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...timing })!;
+    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip" }, state: {} };
+    delete track.disabled;
+    return { trackId: track.id!, ref: structuredClone(ref) };
+  }
+  if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error("Consume requires whole objects, without parts or groups. Use hand-off instead.");
   if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
   const frame = compiled.sample(bi);
   if (frame.presentation.unbornElementIds?.includes(sourceId)) throw new Error("The source is not yet born at this step. Choose a later step.");
@@ -1223,13 +1268,8 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   const evaluated = frame.elements.find((e) => e.id === targetId) ?? target;
   const endEl = withGhostIdentity(sourceAt(compiled.resolvedSlide, targetId, bi + 1, evaluated), source);
   const state = diffState(pre, endEl) ?? {};
-  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(t) === "transform");
   const track = setTransform(deck, slideId, beatId, sourceId, {
-    state, replaceState: true,
-    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
-    ...(opts.duration != null ? { duration: opts.duration } : {}),
-    ...(opts.easing != null ? { easing: opts.easing } : {}),
-    ...(opts.start != null ? { start: opts.start } : {}),
+    state, replaceState: true, ...timing,
   })!;
   delete track.disabled;
   if (endEl.type === "plot" || endEl.type === "image") {
@@ -1237,6 +1277,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
     track.to.assetId = endEl.assetId;
     setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" ? endEl.source ?? null : null });
   } else clearTransformContent(track);
+  track.to!.become = { ref: structuredClone(ref), mode: "consume" };
   // consume the target: its element, every effect on it, and its group slots
   // (ghost copies born FROM the target keep their saved fallback and report
   // the missing source, exactly as when a source is deleted by hand)
@@ -1247,6 +1288,11 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   slide.elements = slide.elements.filter((e) => e.id !== targetId);
   gcGroups(slide as unknown as Figure);
   return { trackId: track.id!, targetId, state };
+}
+
+/** Destination-side authoring of exactly the same source-owned hand-off. */
+export function appearFrom(deck: Deck, slideId: Id, beatId: Id, dest: TargetRef, source: TargetRef | Id, opts: BecomeOptions = {}): BecomeResult | null {
+  return becomeTransform(deck, slideId, beatId, source, dest, { ...opts, mode: "handoff" });
 }
 
 /** The cascade-editable timing fields of one track at session start. */

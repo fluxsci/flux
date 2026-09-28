@@ -61,10 +61,14 @@ flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--re
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
-flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become)  BECOME: the source turns into that object
-     [--start ms --duration ms --easing e]                                         #   (kind included — line→ellipse, bracket→arrow, rect→plot); the target is consumed
-flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]         #   plot data-only form: the frame stays, the content becomes that
-                                                                                   #   project plot's (compatible structures tween data; others crossfade)
+flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become) BECOME
+     [--part id,id --source-part id,id --mode consume|handoff]
+     [--pair auto|spatial|order|data|tile --reveal flip|draw --start ms --duration ms --easing e]
+flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>             # (appear_from) same hand-off from the destination side
+     [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
+     [--start ms --duration ms --easing e]
+flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]          # data-only: keep the frame, replace the plot content
+     [--start ms --duration ms --easing e]                                         # compatible data tweens; otherwise force permits crossfade
 
 # linked deck styles + relative timing
 flux anim-style create <deck> --name L --family appearance|transform|media --preset P
@@ -128,19 +132,27 @@ beat — chain across beats) authored three ways:
   the engine fold. `--to-asset` sets the plot content half (see Become).
 - **Ghost** (`ghost-transform`): copies that start where the source is and transform
   independently (below).
-- **Become** (`become`): the object turns into ANOTHER object. `--target <elId>` consumes that
-  object and writes its evaluated state as the endpoint — `to.state.type` when the kind differs
-  (a line becomes an ellipse, a bracket an arrow, a rect a plot; drawn kinds morph through one
-  outline, other kinds crossfade while the box tweens). `--asset <assetId>` is the plot
-  data-only form: the frame stays and the content becomes that project plot's (`to.assetId` +
-  explicit source paths). Structurally compatible plots (same series ids and point counts, same
-  axis scales) tween their data through blended axes; others crossfade. There is no separate
-  "data morph" — it is a Become.
+- **Become** (`become`): the source turns into another object or plot parts. A whole loose
+  drawn/text destination defaults to **consume**: its evaluated endpoint replaces the source
+  (`to.state`, retype-aware) and the destination is deleted. Plot/image destinations, group
+  refs and part-set sources/destinations default to **hand-off**: both identities stay, the
+  source hides after landing and the destination reveals. `--mode consume` keeps the old
+  whole-plot consume route; consume refuses part sets. `--part` selects destination parts,
+  `--source-part` selects source parts. `--pair` chooses correspondence, `--reveal` flip/draw.
+  A destination cannot receive overlapping hand-offs in one step. Neither side may be video;
+  ghost destinations must already be born. New tracks use 600 ms / smooth / start 0; replacing
+  an existing transform keeps timing unless supplied. **Appear from** (`appear-from`) writes
+  exactly the same source-owned hand-off record from the destination side.
+  `--asset <assetId>` is the separate whole-plot content form (`to.assetId` + source paths):
+  the frame stays, shared line/point series tween in data space, and incompatible plots require
+  `--force` to crossfade. It accepts no hand-off/part flags. All routes write a transform track.
 
 ```
 flux set-transform talk s1 b2 el_rect --state '{"x": 420, "width": 220, "stroke": "#d14d41"}' --duration 700
 flux set-transform talk s1 b3 el_rect --state '{"opacity": 0.3}'        # chains: t1 = b2's end
 flux become talk s1 b2 el_line --target el_ellipse                        # the line becomes the ellipse (consumed)
+flux become talk s1 b2 el_path --target el_plot --part axis.x.spine,axis.y.spine    # hand off to live spines
+flux appear-from talk s1 b2 --dest el_plot --part axis.x.spine,axis.y.spine --from el_path # same record
 flux become talk s1 b2 el_plot --asset growthB                            # the plot's data becomes growthB's
 ```
 

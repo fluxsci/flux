@@ -232,6 +232,14 @@ between neighbouring points. This is **data ↔ summary**: points can become a d
 or a summary can expand back into its points. Unmatched sources fade during the first 40%
 of the animation; unmatched destinations appear during the last 40%. Text and images crossfade.
 
+From the command line or an agent, `become` can name destination parts with `--part` and
+source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:
+the source hides after landing and the destination stays on the slide. Whole drawn objects
+use **consume**, which replaces the source and removes the destination; `--mode` chooses
+either completion for whole objects. `appear-from` authors the same hand-off from the
+destination's side. `--pair` chooses how outlines match, and `--reveal` chooses flip or draw.
+See the [slide command reference](../../resources/flux-context/SLIDES.md) for syntax.
+
 The Animation inspector's **Destination** row states what the object becomes at the step
 ("Becomes an ellipse", "Data becomes growth-b.svg") and offers **Become an object…** to point an
 existing transform somewhere else.

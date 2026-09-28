@@ -126,6 +126,8 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
     const owner = new Map<string, number>();
     for (const ct of compiled.cues.slice(run.from, run.to + 1).flatMap((c) => c.tracks))
       if (familyOf(ct.track) !== "media") owner.set(ct.track.target, Math.max(owner.get(ct.track.target) ?? 0, ct.beat));
+    for (const handoff of compiled.handoffs) if (handoff.beat >= run.from && handoff.beat <= run.to)
+      for (const dest of handoff.destination) owner.set(dest.elementId, Math.max(owner.get(dest.elementId) ?? 0, handoff.beat));
     const done = at(run.to);
     step++;
     for (const [i, phase] of phases.entries()) {

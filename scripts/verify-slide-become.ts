@@ -15,8 +15,8 @@ import * as ops from "../src/lib/slide/ops";
 import { compileSlide } from "../src/lib/slide/compile";
 import { familyOf } from "../src/lib/slide/family";
 import { validateDeckFile } from "../src/lib/project/validate";
-import type { Element, LineElement, EllipseElement, RectElement, PathElement } from "../src/lib/types";
-import type { Deck } from "../src/lib/slide/types";
+import type { Element, LineElement, EllipseElement, RectElement, PathElement, SemanticPlotElement } from "../src/lib/types";
+import type { Deck, TargetRef } from "../src/lib/slide/types";
 
 let checks = 0;
 const ok = (condition: unknown, message: string) => { assert.ok(condition, message); checks++; console.log("  ok:", message); };
@@ -96,7 +96,7 @@ console.log("── plots: whole-object and data-only ──");
   ops.addPlotToSlide(deck, slideId, { assetId: "plotB", x: 300, y: 40, width: 260, height: 180, source: { svgPath: "plots/b.svg", manifestPath: "plots/b.fluxplot.json", recipePath: "plots/b.recipe.json" } });
   const [pa, pb] = deck.slides[0].elements.map((e) => e.id);
   (deck.slides[0].elements[1] as { overrides?: unknown }).overrides = { "s.line": { stroke: "#ff0000" } };
-  const r = ops.becomeTransform(deck, slideId, beats[1], pa, pb)!;
+  const r = ops.becomeTransform(deck, slideId, beats[1], pa, pb, { mode: "consume" })!;
   const t = deck.slides[0].beats[1].tracks.find((x) => x.id === r.trackId)!;
   ok(t.to!.assetId === "plotB" && t.to!.svgPath === "plots/b.svg" && t.to!.manifestPath === "plots/b.fluxplot.json" && t.to!.recipePath === "plots/b.recipe.json", "plot → plot: the content half names the target asset and carries its whole source bundle");
   const st = t.to!.state as Record<string, unknown>;
@@ -107,7 +107,7 @@ console.log("── plots: whole-object and data-only ──");
   ops.addElement(deck, slideId, rect("box"));
   ops.addPlotToSlide(deck, slideId, { assetId: "plotC", x: 1, y: 1, width: 50, height: 50, source: { svgPath: "plots/c.svg" } });
   const pc = deck.slides[0].elements.find((e) => e.type === "plot" && (e as { assetId: string }).assetId === "plotC")!.id;
-  const r2 = ops.becomeTransform(deck, slideId, beats[2], "box", pc)!;
+  const r2 = ops.becomeTransform(deck, slideId, beats[2], "box", pc, { mode: "consume" })!;
   const t2 = deck.slides[0].beats[2].tracks.find((x) => x.id === r2.trackId)!;
   ok((t2.to!.state as { type?: string }).type === "plot" && t2.to!.assetId === "plotC" && t2.to!.svgPath === "plots/c.svg", "rect → plot: retype plus the content half");
   const boxEnd = compileSlide(deck.slides[0]).sample(2).elements.find((e) => e.id === "box")!;
@@ -116,6 +116,117 @@ console.log("── plots: whole-object and data-only ──");
   const r3 = ops.becomeTransform(deck, slideId, beats[2], pa, "oval")!;
   const t3 = deck.slides[0].beats[2].tracks.find((x) => x.id === r3.trackId)!;
   ok((t3.to!.state as { type?: string }).type === "ellipse" && !("assetId" in t3.to!) && !("svgPath" in t3.to!), "plot → ellipse: retype, and the content half is dropped");
+}
+
+console.log("── live hand-offs and destination-side authoring ──");
+const manifest = JSON.parse(await fs.readFile("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.fluxplot.json", "utf8"));
+const plot = (id = "plot"): SemanticPlotElement => ({ type: "plot", id, assetId: "boxplot", x: 250, y: 40, width: 240, height: 180, rotation: 0, source: { svgPath: "plots/boxplot.svg", manifestPath: "plots/boxplot.fluxplot.json" } });
+const spines: TargetRef = { element: "plot", parts: ["axis.x.spine", "axis.y.spine"] };
+const compiledFor = (deck: Deck) => compileSlide(deck.slides[0], deck.stage, { plotManifest: () => manifest });
+{
+  const { deck, slideId, beats } = deckWith([line("src"), plot(), rect("box")]);
+  const t = ops.setTransform(deck, slideId, beats[1], "src", { state: { x: 17 }, toAssetId: "old", source: { svgPath: "plots/old.svg" }, duration: 750, start: 20, easing: "linear" })!;
+  const inverse = structuredClone(deck), beforeElements = JSON.stringify(deck.slides[0].elements);
+  const result = ops.becomeTransform(deck, slideId, beats[1], "src", spines, { compiled: compiledFor(deck) })!;
+  ops.appearFrom(inverse, slideId, beats[1], spines, "src", { compiled: compiledFor(inverse) });
+  ok(JSON.stringify(inverse) === JSON.stringify(deck), "appearFrom writes a byte-identical deck, including the existing track id");
+  ok(result.trackId === t.id && JSON.stringify(result.ref) === JSON.stringify(spines) && result.targetId === undefined, "hand-off returns the source track and live destination ref");
+  ok(JSON.stringify(t.to) === JSON.stringify({ become: { ref: spines, mode: "handoff", pair: "auto", reveal: "flip" }, state: {} }), "spine hand-off writes only to.become and empty state, clearing all content and old state");
+  ok(t.duration === 750 && t.start === 20 && t.easing === "linear" && JSON.stringify(deck.slides[0].elements) === beforeElements, "existing timing and both canonical objects survive a hand-off");
+  ok(JSON.stringify(compiledFor(deck).preState("src", 2)) === JSON.stringify(deck.slides[0].elements[0]), "hand-off never changes source model properties");
+  const whole = ops.becomeTransform(deck, slideId, beats[2], "box", "plot", { compiled: compiledFor(deck) })!;
+  const fresh = deck.slides[0].beats[2].tracks.find(t => t.id === whole.trackId)!;
+  ok(whole.ref?.element === "plot" && fresh.duration === 600 && fresh.start === 0 && fresh.easing === "smooth", "whole plot defaults to hand-off with 600 ms / smooth / 0 timing");
+  ok(validateDeckFile(structuredClone(deck)).length === 0, "hand-off records validate against the real deck schema");
+  ops.clearTransformContent(t);
+  ok(!t.to?.become && JSON.stringify(t.to?.state) === "{}", "clearing transform content also clears Become provenance");
+}
+{
+  const { deck, slideId, beats } = deckWith([plot(), rect("box")]);
+  ops.setTransform(deck, slideId, beats[1], "plot", { state: { x: 300 } });
+  const result = ops.becomeTransform(deck, slideId, beats[1], { element: "plot", parts: ["peaches.box"] }, "box", { compiled: compiledFor(deck), pair: "order", reveal: "draw", duration: 900 })!;
+  const tracks = deck.slides[0].beats[1].tracks, part = tracks.find(t => t.id === result.trackId)!;
+  ok(tracks.length === 2 && part.part === "peaches.box" && part.to?.become?.mode === "handoff", "a part-set source coexists with a whole-plot Change in the same step");
+  ok(part.to?.become?.pair === "order" && part.to.become.reveal === "draw" && part.duration === 900, "pair, reveal and explicit timing survive on the part transform");
+  ok(compiledFor(deck).sample(1).elements[0].x === 300 && deck.slides[0].elements.length === 2, "part transform never resets the concurrent whole-plot Change");
+}
+{
+  const { deck, slideId, beats } = deckWith([line("src"), rect("box"), plot(), plot("other")]);
+  const refuse = (source: TargetRef | string, dest: TargetRef | string, pattern: RegExp, options: ops.BecomeOptions = {}) => {
+    const before = JSON.stringify(deck);
+    assert.throws(() => ops.becomeTransform(deck, slideId, beats[1], source, dest, { compiled: compiledFor(deck), ...options }), pattern);
+    ok(JSON.stringify(deck) === before, `refusal is atomic: ${pattern}`);
+  };
+  refuse(spines, { element: "plot", parts: [...spines.parts!].reverse() }, /different object/);
+  refuse("src", { element: "missing" }, /missing/);
+  refuse("src", { element: "plot", parts: ["missing.part"] }, /Destination parts not found/);
+  refuse({ element: "plot", parts: ["missing.part"] }, "box", /Source parts not found/);
+  refuse("src", spines, /Consume requires whole/, { mode: "consume" });
+  refuse(spines, "box", /Consume requires whole/, { mode: "consume" });
+  ops.becomeTransform(deck, slideId, beats[1], "src", spines, { compiled: compiledFor(deck) });
+  refuse("box", { element: "plot", parts: ["axis.x"] }, /already lands/);
+  refuse("box", "plot", /already lands/);
+  ops.becomeTransform(deck, slideId, beats[1], "box", { element: "plot", parts: ["peaches.box"] }, { compiled: compiledFor(deck) });
+  ok(deck.slides[0].beats[1].tracks.length === 2, "disjoint destinations on the same plot remain legal");
+  ops.becomeTransform(deck, slideId, beats[1], "src", spines, { compiled: compiledFor(deck), start: 30 });
+  ok(deck.slides[0].beats[1].tracks.length === 2, "editing a hand-off does not conflict with itself");
+  const birth = ops.addGhostTransform(deck, slideId, beats[2], "other")!;
+  refuse("src", birth.elementIds[0], /destination is not yet born/, { mode: "handoff" });
+  const accepted = ops.becomeTransform(deck, slideId, beats[2], "src", { element: birth.elementIds[0] }, { mode: "handoff", compiled: compiledFor(deck) });
+  ok(!!accepted?.ref, "a ghost destination at its enabled birth step can receive a hand-off");
+  const image = { type: "image", id: "image", assetId: "img", x: 0, y: 0, width: 20, height: 20, rotation: 0 } as Element;
+  ops.addElement(deck, slideId, image);
+  ok(!!ops.becomeTransform(deck, slideId, beats[2], "box", "image")?.ref, "image destinations default to hand-off");
+  ops.addElement(deck, slideId, { ...image, id: "video", type: "video", durationMs: 100, posterAssetId: "poster" } as Element);
+  refuse("src", "video", /Video/, { mode: "handoff" });
+  refuse("video", "src", /Video/, { mode: "handoff" });
+}
+{
+  const { deck, slideId, beats } = deckWith([line("src"), plot()]);
+  deck.slides[0].groups = { outer: { id: "outer", name: "Outer" }, inner: { id: "inner", name: "Inner", parentId: "outer" } };
+  deck.slides[0].elements[1].groupId = "inner";
+  ops.becomeTransform(deck, slideId, beats[1], "src", { element: "plot", group: "outer" }, { compiled: compiledFor(deck) });
+  const original = structuredClone(deck.slides[0]);
+  const dupId = ops.duplicateSlide(deck, slideId)!;
+  const dup = deck.slides.find(s => s.id === dupId)!;
+  const ref = dup.beats[1].tracks[0].to!.become!.ref;
+  const duplicatePlot = dup.elements.find(e => e.type === "plot")!;
+  ok(ref.element === duplicatePlot.id && ref.group === dup.groups![duplicatePlot.groupId!].parentId && ref.group !== "outer", "duplicateSlide remaps both destination element and nested group ids");
+  const ins = ops.insertSlideSnapshot(deck, { fluxPreset: 1, kind: "slide", name: "Snapshot", savedAt: "", stage: deck.stage, slide: original });
+  const inserted = deck.slides.find(s => s.id === ins.slideId)!;
+  const insertedRef = inserted.beats[1].tracks[0].to!.become!.ref;
+  ok(insertedRef.element === inserted.elements.find(e => e.type === "plot")!.id && !!inserted.groups![insertedRef.group!], "insertSlideSnapshot remaps the element and group of a Become destination");
+  const { namespaceEmbedDeck } = await import("../src/lib/slide/embedRender");
+  const namespaced = namespaceEmbedDeck(deck, "embed").slides[0];
+  const embeddedRef = namespaced.beats[1].tracks[0].to!.become!.ref;
+  ok(embeddedRef.element === "embed-plot" && embeddedRef.group === "embed-outer" && compileSlide(namespaced, deck.stage, { plotManifest: () => manifest }).handoffs.length === 1, "embedded-slide namespaces remap destination refs without dangling identities");
+  const birth = ops.addGhostTransform(deck, slideId, beats[2], "plot")!;
+  deck.slides[0].groups!.ghostGroup = { id: "ghostGroup", name: "Ghost destination" };
+  deck.slides[0].elements.find(e => e.id === birth.elementIds[0])!.groupId = "ghostGroup";
+  ops.becomeTransform(deck, slideId, beats[2], "src", { element: birth.elementIds[0], group: "ghostGroup" }, { mode: "handoff", compiled: compiledFor(deck) });
+  const duplicateBeat = ops.duplicateBeat(deck, slideId, beats[2])!;
+  const clonedBirth = duplicateBeat.tracks.find(t => t.ghostFrom)!;
+  ok(duplicateBeat.tracks.find(t => t.to?.become)?.to?.become?.ref.element === clonedBirth.target && clonedBirth.target !== birth.elementIds[0], "duplicateBeat remaps destinations to its newly cloned ghost results");
+  ok(duplicateBeat.tracks.find(t => t.to?.become)!.to!.become!.ref.group === deck.slides[0].elements.find(e => e.id === clonedBirth.target)!.groupId && duplicateBeat.tracks.find(t => t.to?.become)!.to!.become!.ref.group !== "ghostGroup", "duplicateBeat remaps the group of cloned ghost destinations too");
+  ops.removeTracks(deck, slideId, birth.trackIds);
+  const dangling = deck.slides[0].beats[2].tracks.find(t => t.to?.become)!;
+  ok(dangling.to?.become?.ref.element === birth.elementIds[0] && compiledFor(deck).issues.some(i => /Destination parts not found/.test(i.reason)), "deleting a ghost destination retains the dangling Become and reports it");
+}
+{
+  const { deck, slideId, beats } = deckWith([line("src"), plot()]);
+  const store = await import("../src/lib/slide/store");
+  const fig = await import("../src/lib/store");
+  const { setStoreTenant } = await import("../src/lib/tenancy");
+  setStoreTenant("slide");
+  const unregister = fig.registerHistoryCompanion(store.overlayHistoryCompanion());
+  try {
+    store.loadDeckModel(deck);
+    const before = JSON.stringify(store.currentDeck()), count = fig.historyStats().past;
+    store.commitDeckLive(d => ops.becomeTransform(d, slideId, beats[1], "src", spines, { compiled: compiledFor(d) }));
+    ok(fig.historyStats().past === count + 1, "commitDeckLive adds exactly one undo entry for a hand-off");
+    fig.undo();
+    ok(JSON.stringify(store.currentDeck()) === before, "one live undo restores the exact pre-hand-off deck");
+  } finally { unregister(); setStoreTenant(null); }
 }
 
 console.log("── legacy morph normalizes ──");
@@ -155,5 +266,41 @@ try {
   ok(neither.status !== 0 && /exactly one of/.test(neither.stderr), "exactly one of --target / --asset is required");
   const gone = run("set-morph", deck.id, slideId, beats[1], "src", "x");
   ok(gone.status !== 0, "set-morph is gone (its data-only form is `become --asset`)");
+  const live = deckWith([line("src"), plot(), rect("box")]);
+  // A shared existing id makes exact byte parity observable across processes;
+  // neither test is allowed to normalize away a differing mutation record.
+  ops.setTransform(live.deck, live.slideId, live.beats[1], "src", { state: {} });
+  await fs.mkdir(path.join(root, "plots"), { recursive: true });
+  for (const suffix of ["svg", "fluxplot.json"]) await fs.copyFile(`scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.${suffix}`, path.join(root, `plots/boxplot.${suffix}`));
+  await saveDeck(root, live.deck);
+  const flags = ["--part", spines.parts!.join(","), "--pair", "tile", "--reveal", "draw", "--start", "25", "--duration", "700", "--easing", "linear"];
+  const direct = run("become", live.deck.id, live.slideId, live.beats[1], "src", "--target", "plot", ...flags);
+  ok(direct.status === 0, `CLI become --part succeeds with a real manifest: ${direct.stderr}`);
+  const directDeck = await loadDeck(root, live.deck.id);
+  const reset = await loadDeck(root, live.deck.id);
+  reset.slides = structuredClone(live.deck.slides);
+  await saveDeck(root, reset);
+  const inverse = run("appear-from", live.deck.id, live.slideId, live.beats[1], "--dest", "plot", "--from", "src", ...flags);
+  ok(inverse.status === 0, `CLI appear-from succeeds: ${inverse.stderr}`);
+  const inverseDeck = await loadDeck(root, live.deck.id);
+  // Persistence stamps wall time independently of the mutation. Compare exact
+  // deck bytes with only that documented writer timestamp held equal.
+  inverseDeck.modified = directDeck.modified;
+  ok(JSON.stringify(directDeck) === JSON.stringify(inverseDeck), "real become --part and appear-from produce byte-identical decks apart from the writer timestamp");
+  const expected = structuredClone(live.deck);
+  ops.becomeTransform(expected, live.slideId, live.beats[1], "src", spines, { compiled: compiledFor(expected), pair: "tile", reveal: "draw", start: 25, duration: 700, easing: "linear" });
+  expected.modified = directDeck.modified;
+  ok(JSON.stringify(expected) === JSON.stringify(directDeck), "GUI pure op and real CLI mutation are byte-identical");
+  const sourcePart = run("become", live.deck.id, live.slideId, live.beats[2], "plot", "--source-part", "peaches.box", "--target", "box");
+  ok(sourcePart.status === 0 && (await loadDeck(root, live.deck.id)).slides[0].beats[2].tracks[0].part === "peaches.box", "real --source-part writes a part-level hand-off");
+  const partDeck = await loadDeck(root, live.deck.id);
+  const sourcePartTwin = run("appear-from", live.deck.id, live.slideId, live.beats[2], "--dest", "box", "--from", "plot", "--source-part", "peaches.box");
+  ok(sourcePartTwin.status === 0, `real appear-from --source-part succeeds: ${sourcePartTwin.stderr}`);
+  const twinDeck = await loadDeck(root, live.deck.id); twinDeck.modified = partDeck.modified;
+  ok(JSON.stringify(twinDeck) === JSON.stringify(partDeck), "destination-side part-source authoring retains exactly the existing hand-off bytes");
+  const forced = run("become", live.deck.id, live.slideId, live.beats[2], "box", "--target", "plot", "--mode", "consume");
+  ok(forced.status === 0 && !(await loadDeck(root, live.deck.id)).slides[0].elements.some(e => e.id === "plot"), "real --mode consume retains the whole-plot consume route");
+  const { appearFromTransform, becomeTransform, handoffTargetsOverlap } = await import("../flux-core/index");
+  ok(appearFromTransform === ops.appearFrom && becomeTransform === ops.becomeTransform && typeof handoffTargetsOverlap === "function", "flux-core exposes the same pure authoring functions and resolver helpers");
   console.log(`##VERIFY## ${JSON.stringify({ script: "verify-slide-become", ok: true, checks })}`);
 } finally { await fs.rm(root, { recursive: true, force: true }); }

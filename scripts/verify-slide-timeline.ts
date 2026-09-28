@@ -2,6 +2,7 @@
 // Deterministic inspected frames, property composition, content chains, and
 // clock cancellation. The same renderer/bindings run in the offline browser gate.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parseHTML, DOMParser } from "linkedom";
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, DOMParser });
@@ -166,6 +167,77 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
     compensatePtTrue(svg, sizing); compensatePtTrue(bound, sizing, bindings);
     check(svg.outerHTML === bound.outerHTML, `compiled compensation matches static shared renderer exactly at ${elW}×${elH}`);
   }
+}
+{
+  const manifest = JSON.parse(readFileSync("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.fluxplot.json", "utf8"));
+  const plot = { id: "boxplot", type: "plot" as const, assetId: "boxes", x: 260, y: 40, width: 240, height: 180, rotation: 0 };
+  const destination = { element: plot.id, parts: ["axis.x.spine", "axis.y.spine"] };
+  const become = { id: "handoff", target: "r", preset: "transform" as const, start: 100, duration: 600, easing: "linear" as const,
+    to: { become: { ref: destination, mode: "handoff" as const, pair: "auto" as const, reveal: "flip" as const }, state: {} } };
+  const handoff: Slide = { id: "handoff", elements: [{ ...rect, rotation: 0 }, plot, text], beats: [
+    { id: "base", tracks: [] }, { id: "before", tracks: [] }, { id: "land", tracks: [become] },
+    { id: "dim", tracks: [{ id: "dim-spines", target: plot.id, parts: destination.parts, preset: "dim", duration: 300 }] },
+    { id: "later", tracks: [] },
+  ] };
+  const options = { plotManifest: () => manifest }, plan = compileSlide(handoff, stage, options);
+  const state = (beat: number, ms = Infinity) => plan.sample(beat, ms);
+  const visible = (beat: number, ms: number, source: boolean, dest: boolean) => {
+    const f = state(beat, ms);
+    check((f.presentation.elementStates.r?.visible ?? true) === source && destination.parts.every(p => f.partStates[plot.id][p].visible === dest), `hand-off source/destination visibility at ${beat}:${ms} is ${source}/${dest}`);
+  };
+  visible(0, Infinity, true, false); visible(1, Infinity, true, false);
+  visible(2, 99, true, false); visible(2, 100, true, false); visible(2, 400, false, false);
+  visible(2, 700, false, true); visible(4, Infinity, false, true);
+  visible(0, Infinity, true, false); visible(2, 400, false, false); visible(2, 700, false, true);
+  check(destination.parts.every(p => Math.abs(state(3).partStates[plot.id][p].opacity - .3) < 1e-12), "a later dim composes with the hand-off's visible destination");
+  check(JSON.stringify(plan.preState("r", 4)) === JSON.stringify(handoff.elements[0]) && JSON.stringify(state(2, 400).elements[0]) === JSON.stringify(handoff.elements[0]), "hand-off preserves source props before, during and after flight");
+  check(plan.handoffs.length === 1 && plan.handoffs[0].trackId === "handoff" && plan.handoffs[0].beat === 2 && plan.handoffs[0].source[0].elementId === "r" && plan.handoffs[0].destination[0].partIds?.join() === destination.parts.join(), "the public compiled handoffs field exposes the resolved source and destination once");
+  const partSource = structuredClone(handoff);
+  partSource.beats[2].tracks[0] = { ...become, target: plot.id, part: "peaches.box", to: { state: {}, become: { ref: { element: "r" }, mode: "handoff" } } };
+  const partPlan = compileSlide(partSource, stage, options);
+  check(partPlan.sample(0).presentation.elementStates.r.visible === false && partPlan.sample(2).partStates[plot.id]["peaches.box"].visible === false && partPlan.sample(2).presentation.elementStates.r.visible === true && !partPlan.sample(2).presentation.elementStates[plot.id], "part-set sources hide only their leaves, retaining the owning plot");
+  const prior = structuredClone(handoff);
+  prior.beats[1].tracks = [{ target: plot.id, parts: destination.parts, preset: "fade" }];
+  const priorPlan = compileSlide(prior, stage, options);
+  check(priorPlan.issues.length === 0 && destination.parts.every(p => priorPlan.sample(1).partStates[plot.id][p].visible), "an earlier enter may reveal the destination before a later hand-off without an issue");
+  const emphasis = structuredClone(handoff);
+  emphasis.beats[1].tracks = [{ target: plot.id, parts: destination.parts, preset: "dim" }];
+  emphasis.beats[3].tracks = [{ target: "r", preset: "dim" }];
+  const emphasisPlan = compileSlide(emphasis, stage, options);
+  check(!emphasisPlan.sample(1).partStates[plot.id][destination.parts[0]].visible && !emphasisPlan.sample(3).presentation.elementStates.r.visible, "emphasis cannot reveal an unlanded destination or a departed source");
+  emphasis.beats[3].tracks = [{ target: "r", preset: "fade" }];
+  check(compileSlide(emphasis, stage, options).sample(3).presentation.elementStates.r.visible, "a later entrance may explicitly reveal the departed source again");
+  const reverse = structuredClone(handoff);
+  reverse.beats[3].tracks = [{ id: "reverse", target: plot.id, parts: destination.parts, preset: "transform", to: { state: {}, become: { ref: { element: "r" }, mode: "handoff" } } }];
+  const reversePlan = compileSlide(reverse, stage, options);
+  check(reversePlan.sample(0).presentation.elementStates.r.visible && reversePlan.sample(3).presentation.elementStates.r.visible && !reversePlan.sample(3).partStates[plot.id][destination.parts[0]].visible, "Become back preserves the original source baseline and restores it at the reverse landing");
+  const disabled = structuredClone(handoff); disabled.beats[2].tracks[0].disabled = true;
+  const disabledPlan = compileSlide(disabled, stage, options);
+  check(disabledPlan.handoffs.length === 0 && !disabledPlan.sample(0).presentation.elementStates.r && disabledPlan.sample(0).partStates[plot.id][destination.parts[0]].visible, "disabled hand-offs never claim a destination baseline or hide the source");
+  const zero = structuredClone(handoff); zero.beats[2].tracks[0].duration = 0;
+  check(compileSlide(zero, stage, options).sample(2, 100).partStates[plot.id][destination.parts[0]].visible, "a zero-duration hand-off lands at its start time");
+  const issuesFor = (s: Slide) => compileSlide(s, stage, options).issues.map(i => i.reason).join("\n");
+  const missing = structuredClone(handoff); missing.elements = missing.elements.filter(e => e.id !== plot.id);
+  check(/Destination parts not found. Retarget this Become./.test(issuesFor(missing)), "missing destination element is diagnosed");
+  const missingParts = structuredClone(handoff); missingParts.beats[2].tracks[0].to!.become!.ref.parts = ["absent"];
+  check(/Destination parts not found/.test(issuesFor(missingParts)), "missing literal destination leaves are diagnosed against the manifest");
+  const overlap = structuredClone(handoff);
+  overlap.beats[2].tracks.push({ ...structuredClone(become), id: "second", target: "t", to: { state: {}, become: { ref: { element: plot.id, parts: ["axis.x"] }, mode: "handoff" } } });
+  check(/already lands/.test(issuesFor(overlap)) && compileSlide(overlap, stage, options).handoffs.length === 1, "a second landing on an overlapping expanded leaf set is diagnosed and excluded");
+  const unborn = structuredClone(handoff); unborn.beats[3].tracks = [{ id: "birth", target: plot.id, ghostFrom: "r", preset: "transform", to: { state: {} } }];
+  check(/destination is not yet born/.test(issuesFor(unborn)), "a destination born at a later step is diagnosed");
+  const textPair: Slide = { id: "text-pair", elements: [text, { ...text, id: "other" }], beats: [{ id: "b0", tracks: [] }, { id: "b1", tracks: [{ id: "text-flight", target: "t", preset: "transform", to: { state: {}, become: { ref: { element: "other" }, mode: "handoff" } } }] }] };
+  check(/Neither side of this Become has an outline; it crossfades/.test(issuesFor(textPair)), "box-only text pairs report the crossfade as information");
+  const imagePair = structuredClone(textPair); imagePair.elements[1] = { id: "other", type: "image", assetId: "image", x: 0, y: 0, width: 100, height: 100, rotation: 0 };
+  check(/Neither side/.test(issuesFor(imagePair)), "text-to-raster also reports the non-outline fallback");
+  const labelOnly = structuredClone(handoff);
+  labelOnly.beats[2].tracks[0] = { id: "labels", target: "t", preset: "transform", to: { state: {}, become: { ref: { element: plot.id, parts: ["axis.y.title"] }, mode: "handoff" } } };
+  const { preparePlot } = await import("../src/lib/plot/parse");
+  const prepared = preparePlot(readFileSync("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.svg", "utf8"), manifest);
+  const labelPlan = compileSlide(labelOnly, stage, { ...options, plotRoot: () => prepared.root ?? undefined });
+  check(labelPlan.issues.some(i => /Neither side/.test(i.reason)), "prepared plot text parts use the geometry bridge's informational crossfade diagnostic");
+  imagePair.elements[0] = { ...rect, id: "t" };
+  check(!/Neither side/.test(issuesFor(imagePair)), "one drawn outline is sufficient to avoid the both-sides diagnostic");
 }
 {
   check(Math.abs(resolveEasingFn("enter")(.25) - .825623) < .0001, "custom geometry uses the named enter curve, identical to native effects");

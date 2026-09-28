@@ -102,6 +102,9 @@ export { PRESET_CATALOG, presetDef, defaultEasingFor, isEnterPreset, isExitPrese
 export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
 export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
 export { targetOutlines, elementStageOutlines, partStageOutlines, type GeometryCtx } from "../src/lib/slide/targetGeometry";
+export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
+export { becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
+export { compileSlide, type CompiledSlide, type CompileOptions } from "../src/lib/slide/compile";
 export {
   loadDeck,
   saveDeck,
@@ -136,6 +139,7 @@ export {
   animatePartVerb,
   animateElementVerb,
   become,
+  appearFrom,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
   addGhostTransform,

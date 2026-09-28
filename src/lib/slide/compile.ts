@@ -2,23 +2,29 @@
  * playback binds its targets once and samples only the active cue's properties. */
 import type { Element } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
-import type { Slide, StageSize, Track, Camera } from "./types";
+import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
 import { lerpElement, transformEndState, transformPreState } from "./tween";
 import { resolveEasingFn } from "./easing";
 import { countUpText } from "./player/countup";
 import { hasTweenableSeries, seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
 import { staggerRanks, staggerSpan } from "./stagger";
-import { resolveGhosts, copyFrameSource, type GhostBirth, type ResolvedGhosts } from "./ghost";
+import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
-import { isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
-import { targetPartIds, hasPartBinding, trackKey } from "./targets";
+import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
+import { targetPartIds, hasPartBinding, trackKey, trackRef, sameRef, type ResolvedTarget } from "./targets";
+import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
+import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
 export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
-export interface CompileOptions extends StyleContext { plotManifest?: (assetId: string) => FluxPlotManifest | undefined }
+export interface CompileOptions extends StyleContext {
+  plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
+  /** Pristine prepared roots, when available, for outline diagnostics. */
+  plotRoot?: GeometryCtx["plotRoot"];
+}
 export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; ease: (t: number) => number }
 export interface PartFrame { opacity: number; visible: boolean; transform?: string }
 export interface SlideFrame {
@@ -40,6 +46,9 @@ export interface CompiledSlide {
   partFactors: ResolvedGhosts["partFactors"];
   cues: { id: string; duration: number; tracks: CompiledTrack[] }[];
   issues: AnimationIssue[];
+  handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec }[];
+  /** Manifest-aware canonical resolution, shared with Become authoring. */
+  resolveTarget(ref: TargetRef, beat: number): ResolvedTarget[];
   sample(beat: number, timeMs?: number): SlideFrame;
   preState(target: string, beat: number): Element | null;
   copySourceState(source: string, birthBeat: number): Element | null;
@@ -55,8 +64,9 @@ export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions
   return targetPartIds(track, manifest);
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
-function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample"> {
+function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample" | "handoffs" | "resolveTarget"> {
   const issues: AnimationIssue[] = [];
+  const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined));
   for (const el of slide.elements) if (el.type === "plot") {
     for (const reason of plotViewIssues(opts.plotManifest?.(el.assetId), el.view)) issues.push({ target: el.id, reason });
   }
@@ -112,18 +122,54 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     }
     return { id: beat.id, duration: Math.max(0, ...tracks.map((t) => t.end)), tracks: tracks.sort((a, b) => a.start - b.start) };
   });
+  const handoffs: CompiledSlide["handoffs"] = [];
+  const flights = new Map<CompiledTrack, { source: string[]; destination: string[] }>();
+  const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
+  const births = ghostBirths(slide);
+  for (const cue of cues) for (const ct of cue.tracks) {
+    const spec = ct.track.preset === "transform" ? ct.track.to?.become : undefined;
+    if (spec?.mode !== "handoff") continue;
+    const source = resolveTarget(trackRef(ct.track), ct.beat), destination = resolveTarget(spec.ref, ct.beat);
+    const unborn = births.filter(b => !b.enabled || b.beat > ct.beat || b.beat === ct.beat && b.start > ct.start);
+    let reason = !slide.elements.some(e => e.id === spec.ref.element) ? "Destination parts not found. Retarget this Become."
+      : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
+      : !destination.length ? "Destination parts not found. Retarget this Become."
+      : !source.length ? "Source parts not found. Retarget this Become."
+      : sameRef(trackRef(ct.track), spec.ref) ? "Choose a different object for the source to become."
+      : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
+      : slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
+      : "";
+    if (!reason && handoffs.some(h => h.beat === ct.beat && handoffTargetsOverlap(destination, h.destination)))
+      reason = "Another hand-off in this step already lands on these destination parts. Choose different parts or another step.";
+    if (reason) { issues.push({ trackId: ct.track.id, target: ct.track.target, reason }); continue; }
+    handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec });
+    flights.set(ct, { source: keysOf(source), destination: keysOf(destination) });
+  }
   function sample(beatIndex: number, timeMs = Infinity): SlideFrame {
     const elements = structuredClone(slide.elements);
     const byId = new Map(elements.map((e) => [e.id, e]));
     const appearance = new Map<string, PartFrame>();
+    const handoffVisibility = new Map<string, boolean>(), inFlight = new Set<string>();
     const spatial = new Map<string, Map<string, number[]>>();
     const partStates: SlideFrame["partStates"] = {};
     let camera = slide.camera ? { ...slide.camera } : undefined;
     const targetsFor = (ct: CompiledTrack) => hasPartBinding(ct.track) ? ct.parts.map((p) => `${ct.track.target}\0${p}`) : [ct.track.target];
     // Future first entrances hide; an exit before an entrance still starts
     // visible. This baseline is independent of prior seeks/playback history.
-    const first = new Set<string>(), firstCount = new Set<string>();
+    const first = new Set<string>(), entrances = new Set<string>(), firstCount = new Set<string>();
     for (const cue of cues) for (const ct of cue.tracks) {
+      const flight = flights.get(ct);
+      if (flight) {
+        // A prior entrance owns the initial baseline. Sources are pseudo-exits,
+        // so a reverse hand-off later in the slide never hides the first source.
+        for (const key of flight.source) if (!entrances.has(key)) {
+          first.add(key); entrances.add(key); appearance.set(key, { opacity: 1, visible: true });
+        }
+        for (const key of flight.destination) if (!entrances.has(key)) {
+          first.add(key); entrances.add(key); appearance.set(key, { opacity: 0, visible: false });
+        }
+        continue;
+      }
       if (ct.track.preset === "countUp") {
         const el = byId.get(ct.track.target);
         if (el?.type === "text" && !firstCount.has(el.id)) { firstCount.add(el.id); el.text = countUpText(el.text, ct.track)(0); }
@@ -131,8 +177,13 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       }
       if (familyOf(ct.track) === "media") continue;
       if (ct.track.preset === "transform" || ct.track.preset === "camera") continue;
-      for (const key of targetsFor(ct)) if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: isEnterPreset(ct.track.preset) ? 0 : 1, visible: !isEnterPreset(ct.track.preset) }); }
+      for (const key of targetsFor(ct)) {
+        if (isEnterPreset(ct.track.preset)) entrances.add(key);
+        if (!first.has(key)) { first.add(key); appearance.set(key, { opacity: isEnterPreset(ct.track.preset) ? 0 : 1, visible: !isEnterPreset(ct.track.preset) }); }
+      }
     }
+    for (const flight of flights.values()) for (const key of [...flight.source, ...flight.destination])
+      handoffVisibility.set(key, appearance.get(key)?.visible ?? true);
     for (let bi = 0; bi <= Math.min(beatIndex, cues.length - 1); bi++) for (const ct of cues[bi].tracks) {
       const track = ct.track, preset = track.preset ?? "fade";
       if (familyOf(track) === "media") continue;
@@ -141,7 +192,22 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;
       const t = ct.ease(raw);
       const el = byId.get(track.target);
+      if (preset === "transform" && track.to?.become?.mode === "handoff") {
+        const flight = flights.get(ct);
+        if (flight) {
+          if (raw > 0) for (const key of flight.source) {
+            appearance.set(key, { opacity: 0, visible: false }); handoffVisibility.set(key, false);
+            if (raw < 1) inFlight.add(key);
+          }
+          for (const key of flight.destination) {
+            appearance.set(key, { opacity: raw >= 1 ? 1 : 0, visible: raw >= 1 }); handoffVisibility.set(key, raw >= 1);
+            if (raw > 0 && raw < 1) inFlight.add(key);
+          }
+        }
+        continue; // a hand-off changes presentation, never the source's props
+      }
       if (preset === "transform" && el) {
+        if (hasPartBinding(track)) continue;
         const pre = transformPreState(slide, track.target, bi) ?? el;
         const end = transformEndState(pre, track);
         const sampled = lerpElement(pre, end, t);
@@ -164,6 +230,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const previous = appearance.get(key) ?? { opacity: 1, visible: true };
         const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? 1 - .7 * at : preset === "highlight" ? .4 + .6 * at : previous.opacity;
         appearance.set(key, { opacity, visible: opacity > 0 });
+        if (handoffVisibility.has(key) && (isEnterPreset(preset) || isExitPreset(preset))) handoffVisibility.set(key, opacity > 0);
       }
       // Legacy spatial effects remain inspectable at their endpoint.
       if (el && !ct.parts.length) {
@@ -190,6 +257,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     }
     const elementStates: Record<string, PartFrame> = {};
     for (const [key, state] of appearance) {
+      // Emphasis changes opacity, but only entrances may reveal a hidden side.
+      if (handoffVisibility.get(key) === false || inFlight.has(key)) { state.opacity = 0; state.visible = false; }
       const [id, part] = key.split("\0");
       if (part) (partStates[id] ??= {})[part] = state;
       else elementStates[id] = state;
@@ -201,7 +270,23 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     }
     return { elements, camera, partStates, issues, presentation: { elementStates, hiddenElementIds: Object.entries(elementStates).filter(([, state]) => !state.visible).map(([id]) => id), partStates, camera } };
   }
-  return { cues, issues, sample };
+  const preFrames = new Map<string, SlideFrame>();
+  const ctx: GeometryCtx = { manifest: opts.plotManifest ?? (() => undefined), plotRoot: opts.plotRoot ?? (() => undefined), groups: slide.groups };
+  for (const [ct, flight] of flights) {
+    const ref = ct.track.to!.become!.ref;
+    // Missing plot roots are unavailable geometry, not proof of a raster pair.
+    if ([...flight.source, ...flight.destination].some(key => {
+      const el = transformPreState(slide, key.split("\0")[0], ct.beat);
+      return el?.type === "plot" && !ctx.plotRoot(el.assetId);
+    })) continue;
+    const key = `${ct.beat}:${ct.start}`;
+    let frame = preFrames.get(key);
+    if (!frame) { frame = sample(ct.beat, ct.start); preFrames.set(key, frame); }
+    const a = targetOutlines(trackRef(ct.track), frame, ctx), b = targetOutlines(ref, frame, ctx);
+    if (a.length && b.length && a.every(o => o.paint.text || o.paint.raster) && b.every(o => o.paint.text || o.paint.raster))
+      issues.push({ trackId: ct.track.id, target: ct.track.target, reason: "Neither side of this Become has an outline; it crossfades" });
+  }
+  return { cues, issues, sample, handoffs, resolveTarget };
 }
 export function compileSlide(slide: Slide, stage: StageSize = { width: 640, height: 360 }, opts: CompileOptions = {}): CompiledSlide {
   // Resolve styles and anchors before the ghost and transform folds, which
