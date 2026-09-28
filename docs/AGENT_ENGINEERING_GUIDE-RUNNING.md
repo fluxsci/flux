@@ -154,7 +154,7 @@ The established shared cores — extend these, don't duplicate them:
 | Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
-| Semantic targets and hand-off validation | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts` |
+| Semantic targets, hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
@@ -1281,8 +1281,12 @@ Persistence invariants (all machine-checked — do not weaken):
     or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
     compiler's future hand-off destination visibility while ordinary appearances stay editable.
     Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
-    `autoAnimateExcept` shares generated reveal exclusion with headless hosts, narrows partial
-    containers, and places the remaining phases after the plot's last hand-off.
+    Auto-animate the rest (post-pick toast and Destination row) calls the ONE
+    `autoAnimateExcept`: it narrows partial containers, places the remaining phases after the
+    plot's last enabled hand-off, keeps anchored effective starts and never reuses a beat id an
+    authored effect holds; both surfaces offer it only for part refs (a whole-plot hand-off
+    already reveals every part). Pick bar, X-ray header, toast, lane and Destination row name a
+    ref through `animator/shared.ts refLabel`; every Pair choice renders `targets.ts PAIR_POLICIES`.
     Common-row actions filter each member through Show hidden exclusions, and animation
     batches deduplicate exact element/part targets. Keyboard navigation reveals its active
     row. Regeneration pins the original project/plot before awaits; re-rooting cannot redirect
@@ -8073,3 +8077,13 @@ and shell gates pass; check/check:headless are 0 errors/0 warnings. Old-file and
 behavior runs prove the new assertions red, then green. Build passes with one unrelated
 `zoteroFields` ineffective dynamic-import warning, no undefined imports. Native/bundle/startup
 tiers remain the orchestrator's gates.
+
+### 2026-09-28 05:20 UTC — D1 integration: one helper, one label, one pair list (Claude QA, `av2/D1`)
+**Work:** Rebased D1 over D2, M5 and M2. Reconciled the two `autoAnimateExcept`s into D2's
+landed function plus D1's landing, anchor and beat-id behaviour; removed the duplicate flux-core
+export the rebase auto-merged. Added `PAIR_POLICIES`, replacing four literal pair lists. The
+pick UI now uses D2's shared `refLabel`, and Auto-animate the rest is hidden for whole-plot
+hand-offs. Each change was shown red, then green.
+**Learnings:** Parallel packets told to add the same helper will both add it, and git merges
+the two `export` lines silently: grep flux-core/index.ts for duplicate names after every rebase.
+Label and choice lists drift the same way — census them like presets and easings.
