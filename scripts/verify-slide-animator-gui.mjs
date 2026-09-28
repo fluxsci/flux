@@ -462,7 +462,13 @@ try {
   await verifyDestinations(page, ok);
 
   // Camera authoring uses the actual Zoom action, path toggle and duration op.
-  await page.evaluate(() => window.__flux.fig.selectOnly("anim-rect"));
+  // The linked-style checks above end on an inserted preset slide, so the
+  // camera target is placed on whichever slide is active now.
+  await page.evaluate(() => {
+    const f = window.__flux, sid = f.get(f.fig.activeFigureId);
+    f.fig.commit((p) => { p.figures.find((x) => x.id === sid).elements.push({ type: "rect", id: "cam-rect", name: "Camera target", x: 300, y: 180, width: 120, height: 80, rotation: 0, fill: "#4385be", stroke: "none", strokeWidth: 0, cornerRadius: 0 }); });
+    f.fig.selectOnly("cam-rect");
+  });
   await page.click('.animator button[title="Camera: zoom in to the selected element"]');
   const cameraId = await page.evaluate(() => {
     const f = window.__flux, s = f.get(f.slide.deckOverlay).slides.find(s => s.id === f.get(f.fig.activeFigureId));
