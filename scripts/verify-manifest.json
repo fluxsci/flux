@@ -842,6 +842,10 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "scripts/lib/animatorDestinationChecks.mjs",
+      "run": ["verify-slide-animator-gui.mjs"]
+    },
+    {
       "glob": "scripts/lib/animatorReaderChecks.mjs",
       "run": [
         "verify-slide-authoring-gui.mjs"

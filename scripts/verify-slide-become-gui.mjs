@@ -39,7 +39,7 @@ try{
   check(!(await page.$('.become-bar'))&&state.destination.kind==='after'&&state.selected[0]==='src-line'&&state.tracks[0]===track.id,'the pick disarms, selects the transform and keeps the After checkout');
   check(state.display.find(e=>e.id==='src-line').type==='ellipse'&&state.slide.elements.find(e=>e.id==='src-line').type==='line','the canvas shows the source AS the ellipse; the document still holds the line');
   check(await page.$eval('.lane-row small',e=>e.textContent.trim())==='Transform · Become','the lane reads "Transform · Become"');
-  check(await page.$eval('.props .dest .dv',e=>e.textContent.trim())==='Becomes an ellipse','the Properties pane summarizes the destination');
+  check(await page.$eval('.props .dest .dv',e=>e.textContent.trim())==='Became an ellipse (consumed)','the Properties pane records the consumed destination');
   // --- one Undo restores the target and removes the track ------------------------------
   await page.click('[aria-label="Undo"]');await paint();state=await read();
   check(state.slide.elements.some(e=>e.id==='tgt-ellipse')&&!state.slide.beats[1].tracks.length,'one Undo restores the consumed target and removes the transform together');

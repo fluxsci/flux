@@ -31,6 +31,8 @@ import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
 import { presetDef } from "./presetCatalog";
+import { targetPartIds } from "./targets";
+import { resolveBeat } from "./resolve";
 
 // manifest animation name → player preset name
 const ANIM_TO_PRESET: Record<string, PresetName> = {
@@ -379,4 +381,41 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
   //    produces and no other element fills) — never the resting or a manual beat.
   slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length > 0 || b.generatedBy !== "auto-reveal");
   return auto.length;
+}
+
+/** Build the plot's remaining leaves after its hand-off, preserving manual
+ * tracks and other plots' shared build phases. A partially excluded group
+ * becomes an explicit part set so none of its remaining leaves are lost. */
+export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest: FluxPlotManifest | undefined, exceptLeaves: readonly string[]): number {
+  if (!applyAutoAnimation(deck, slideId, plotId, manifest)) return 0;
+  const slide = slideById(deck, slideId)!;
+  const except = new Set(exceptLeaves);
+  const generated: Beat[] = [];
+  for (const beat of slide.beats) {
+    const resolved = resolveBeat(beat, deck, id => id === plotId ? manifest : undefined).tracks;
+    const kept: Track[] = [];
+    for (const track of beat.tracks) {
+      if (track.target !== plotId || track.generatedBy !== "auto-reveal") continue;
+      const leaves = targetPartIds(track, manifest), rest = leaves.filter(id => !except.has(id));
+      if (!rest.length) continue;
+      if (rest.length !== leaves.length) { delete track.part; delete track.selector; track.parts = rest; }
+      kept.push(track);
+    }
+    const keptIds = new Set(kept.map(t => t.id));
+    for (const track of kept) if (track.anchor && !keptIds.has(track.anchor.trackId)) {
+      track.start = resolved.find(t => t.id === track.id)?.start ?? 0;
+      delete track.anchor;
+    }
+    beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal" || keptIds.has(t.id));
+    if (kept.length) generated.push({ ...beat, id: `auto-rest-${plotId}-${beat.autoPhase}`, autoTarget: plotId, tracks: kept, groups: undefined });
+  }
+  const landing = slide.beats.findLast(b => b.tracks.some(t => t.to?.become?.mode === "handoff" && t.to.become.ref.element === plotId));
+  if (landing) {
+    // Global auto phases precede manual steps. Move only this plot's generated
+    // tracks behind its landing, leaving every other phase participant in place.
+    for (const beat of slide.beats) beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal");
+  }
+  slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length || b.generatedBy !== "auto-reveal");
+  if (landing) slide.beats.splice(slide.beats.indexOf(landing) + 1, 0, ...generated);
+  return generated.length;
 }

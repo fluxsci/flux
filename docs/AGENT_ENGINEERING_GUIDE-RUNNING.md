@@ -952,6 +952,14 @@ Persistence invariants (all machine-checked — do not weaken):
   groups in one Undo; `to.become` records provenance. Plot/image or part-set destinations
   default to hand-off: `to.become={ref,mode:"handoff",pair,reveal}`, `to.state={}`, both model
   identities retained. Part sources keep their plot's props; the full ref keys the family law.
+  The Animation inspector's Destination controls edit that same record through
+  `becomeTransform`. Swap reverses the source/destination refs in one `commitDeckLive`
+  transaction, keeping style/timing and rebinding followers; group destinations and
+  ghost births cannot be reversed there. Consume uses inline two-click confirmation for
+  whole loose targets. `autoAnimateExcept` shares the auto-build core, excludes landing
+  leaves (including partial groups), and places the remaining plot phases after the
+  landing without moving other plots' tracks. Animator labels use semantic part labels;
+  camera Zoom unions drilled parts' `targetOutlines` boxes with the usual 0.82 padding.
   `appearFrom` / `appear-from` writes the same record from the destination side. The compiler
   publishes resolved `handoffs`, hides destination keys before landing, hides both sides
   mid-flight and leaves the source hidden afterwards. Later entrances may reveal it again;
@@ -7948,3 +7956,13 @@ and gates; appending both variants breaks the table and creates competing refere
 The existing annotation gate exposed `target.closest is not a function`; a focused
 Animator assertion also failed when window-dispatched Escape could not cancel a pick.
 **Learnings:** Promoted the window-target contract into the keyboard traps above.
+
+### 2026-09-28 03:51 UTC — Animation v2 Destination inspector (Codex, `av2/D2`)
+**Work:** Added hand-off Destination controls, atomic reversal with style/anchor preservation,
+inline consume confirmation, semantic lane labels and camera framing of drilled parts.
+Added/exported `autoAnimateExcept` because the D1 helper was absent on this base; its remaining
+phases follow the landing and preserve manual/other-plot tracks. Animator 102, Transform GUI 31,
+Become GUI 20 and autobuild 34 checks pass; old UI/old helper and deliberately reversed Swap
+arguments fail, both type checks are 0/0, docs/path-map/build pass, and changes remain uncommitted.
+**Learnings:** Promoted the shared helper and inspector/geometry contracts to §4. Verification
+server polling worked around the host's exhausted file-watcher quota without product changes.

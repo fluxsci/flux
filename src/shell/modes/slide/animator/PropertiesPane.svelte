@@ -11,15 +11,19 @@
   // keyboard cockpit). Presentation follows the editor-surface spec: hairline-
   // separated blocks, square controls, the preset colour only as a thin rail
   // on the header name (2026-09-15 surface redesign).
-  import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive } from "../../../../lib/slide/store";
+  import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, currentDeck, activeBeat } from "../../../../lib/slide/store";
+  import { selection, setPartSelections } from "../../../../lib/store";
   import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
-  import { trackDuration } from "../../../../lib/slide/compile";
+  import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
   import { hasTweenableSeries } from "../../../../lib/plot/project";
-  import { plotManifests } from "../../../../lib/plot/store";
-  import type { Slide, Track, PresetName, Stagger, Influence } from "../../../../lib/slide/types";
-  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrack, setTrackAnchor } from "../../../../lib/slide/ops";
+  import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
+  import type { Slide, Track, PresetName, Stagger, Influence, Deck, BecomeSpec } from "../../../../lib/slide/types";
+  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation } from "../../../../lib/slide/ops";
+  import { trackRef, targetPartIds, sameRef, isWholeElementRef } from "../../../../lib/slide/targets";
+  import { targetOutlines } from "../../../../lib/slide/targetGeometry";
+  import { autoAnimateExcept } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
@@ -77,7 +81,7 @@
   $effect(() => {
     const key = `${slide.id}:${$selTrackIds.join(",")}`;
     if (key === selectionContext.key) return;
-    selectionContext.key = key; editingStyleId = null; styleOpen = false; savingStyle = false; anchorOpen = false;
+    selectionContext.key = key; editingStyleId = null; styleOpen = false; savingStyle = false; anchorOpen = false; consumeArmed = false;
   });
 
   function linkStyle(id: string | null) {
@@ -128,7 +132,7 @@
   const anchorTrack = $derived(rawTrack?.anchor ? slide.beats[curBeatIndex]?.tracks.find(t => t.id === rawTrack.anchor!.trackId) : undefined);
   const anchorIssues = $derived(resolvedBeats.flatMap(b => b.issues).filter(i => rawSelTracks.some(t => t.id === i.trackId)));
   const anchorChoices = $derived(slide.beats[curBeatIndex]?.tracks.filter(t => t.id && !rawSelTracks.some(s => s.id === t.id)) ?? []);
-  function anchorName(t: Track) { return chipLabel(t, slide, plotTags, deck); }
+  function anchorName(t: Track) { return chipLabel(t, slide, plotTags, deck, manifestFor); }
   function anchorTo(trackId: string, edge: "start" | "end") {
     if (!trackId) return;
     commitDeckLive(d => { for (const t of rawSelTracks) if (t.id) {
@@ -147,11 +151,17 @@
   }
   const curFamily = $derived(curTrack ? familyOf(curTrack) : null);
   const curWay = $derived(curTrack && curFamily === "transform" ? transformWay(curTrack) : null);
+  const handoff = $derived(curTrack?.to?.become?.mode === "handoff" ? curTrack.to.become : null);
   /** What the object becomes at this step, for the Destination row. */
   const destinationLabel = $derived.by(() => {
     if (!curTrack || curFamily !== "transform") return "";
     const st = (curTrack.to?.state ?? {}) as Record<string, unknown>;
     const kind = typeof st.type === "string" ? st.type : null;
+    if (handoff) return `Hands off to ${refLabel(handoff.ref, slide, manifestFor, new Map(), 2)} · pair: ${handoff.pair ?? "auto"}`;
+    if (curTrack.to?.become?.mode === "consume") {
+      const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
+      return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
+    }
     const data = curTrack.to?.assetId ? (curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId) : null;
     if (kind && data) return `Becomes a ${kind} showing ${data}`;
     if (kind) return `Becomes ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`;
@@ -230,16 +240,97 @@
   });
 
   // --- transform Δ management (drop a captured prop / clear t2 / morph row) --
-  function withCurTrack(fn: (t: Track) => void) {
+  function withCurTrack(fn: (t: Track, d: Deck) => void) {
     const id = curTrack?.id;
     if (!id) return;
     commitDeckLive((d) => {
       for (const s of d.slides) for (const b of s.beats) {
         const t = b.tracks.find((x) => x.id === id);
-        if (t) fn(t);
+        if (t) fn(t, d);
       }
     });
     refreshEndpointDisplay();
+  }
+  const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id] });
+  function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode">>) {
+    try {
+      withCurTrack((t, d) => {
+        const spec = t.to?.become, s = d.slides.find(s => s.id === slide.id);
+        const b = s?.beats.find(b => b.tracks.includes(t));
+        if (!spec || !s || !b) return;
+        becomeTransform(d, s.id, b.id, trackRef(t), spec.ref, { ...spec, ...patch, compiled: compile(d, s) });
+      });
+    } catch (e) { pushToast("error", String(e instanceof Error ? e.message : e)); }
+    consumeArmed = false;
+  }
+  let consumeArmed = $state(false);
+  $effect(() => { void handoff; consumeArmed = false; });
+  const destinationEl = $derived(handoff ? slide.elements.find(e => e.id === handoff.ref.element) : undefined);
+  const canConsume = $derived(!!handoff && !!curTrack && isWholeElementRef(handoff.ref) && isWholeElementRef(trackRef(curTrack)) && !!destinationEl && !destinationEl.groupId);
+  const canAutoAnimate = $derived(destinationEl?.type === "plot" && !handoff?.ref.group && !!$plotManifests[destinationEl.assetId] && !slide.beats.some(b => b.tracks.some(t => t.target === destinationEl.id && familyOf(t) === "appearance")));
+  function reverseHandoff(d: Deck, id: string) {
+    const s = d.slides.find(s => s.id === slide.id)!;
+    const b = s.beats.find(b => b.tracks.some(t => t.id === id))!;
+    const t = b.tracks.find(t => t.id === id)!;
+    const spec = t.to!.become!;
+    if (spec.ref.group) throw new Error("Groups cannot be Become sources. Choose an object or plot parts.");
+    if (t.ghostFrom) throw new Error("This track creates a ghost. Keep its birth and author a reverse hand-off in a later step.");
+    if (b.tracks.some(other => other.id !== id && familyOf(other) === "transform" && sameRef(trackRef(other), spec.ref)))
+      throw new Error("The destination already has a transform in this step.");
+    const compiled = compile(d, s);
+    const ctx = { manifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id), groups: s.groups };
+    if (!targetOutlines(spec.ref, compiled.sample(s.beats.indexOf(b)), ctx).length)
+      throw new Error("The destination has no outline. Choose another object or plot part.");
+    const resolved = compiled.resolvedSlide.beats[s.beats.indexOf(b)].tracks.find(x => x.id === id)!;
+    const groups = b.groups;
+    removeTracks(d, s.id, [id]);
+    const result = becomeTransform(d, s.id, b.id, spec.ref, trackRef(t), { mode: "handoff", pair: spec.pair, reveal: spec.reveal,
+      start: resolved.start ?? 0, duration: trackDuration(resolved), easing: resolved.easing, compiled: compile(d, s) });
+    if (!result) throw new Error("This hand-off cannot be reversed.");
+    const reverse = b.tracks.find(t => t.id === result.trackId)!;
+    // Retain the authored HOW, including style inheritance, while changing the binding.
+    const { target, part, parts, selector, to, id: oldId, ...how } = t;
+    setAnimation(d, s.id, b.id, { ...how, ...trackBinding(reverse), to: reverse.to, id: result.trackId });
+    b.groups = groups;
+    for (const follower of b.tracks) if (follower.anchor?.trackId === id)
+      setTrackAnchor(d, s.id, follower.id!, { ...follower.anchor, trackId: result.trackId });
+    return result.trackId;
+  }
+  function trackBinding(t: Track) { return { target: t.target, part: t.part, parts: t.parts, selector: t.selector }; }
+  const swapReason = $derived.by(() => {
+    void $plotGen;
+    if (!handoff || !curTrack?.id || !$deckOverlay) return "";
+    try { reverseHandoff(structuredClone({ ...$deckOverlay, slides: [slide] }), curTrack.id); return ""; }
+    catch (e) { return e instanceof Error ? e.message : String(e); }
+  });
+  function swapDirection() {
+    if (!curTrack?.id || swapReason) return;
+    try {
+      const id = commitDeckLive(d => reverseHandoff(d, curTrack!.id!));
+      selTrackIds.set([id]);
+      const s = currentDeck()?.slides.find(s => s.id === slide.id), t = s?.beats.flatMap(b => b.tracks).find(t => t.id === id);
+      if (t) { selection.set(new Set([t.target])); setPartSelections((trackRef(t).parts ?? []).map(partId => ({ elementId: t.target, partId }))); }
+      enterEndpointEdit([id], "t2");
+    } catch (e) { pushToast("error", String(e instanceof Error ? e.message : e)); }
+  }
+  function animateRest() {
+    if (!handoff || destinationEl?.type !== "plot" || !canAutoAnimate) return;
+    const beatId = slide.beats[curBeatIndex]?.id;
+    commitDeckLive(d => {
+      const s = d.slides.find(s => s.id === slide.id)!;
+      const leaves = compile(d, s).resolveTarget(handoff.ref, curBeatIndex).flatMap(t => t.partIds ?? buildPartTree($plotManifests[destinationEl.assetId])?.targets ?? []);
+      autoAnimateExcept(d, s.id, destinationEl.id, $plotManifests[destinationEl.assetId], leaves);
+    });
+    const bi = currentDeck()?.slides.find(s => s.id === slide.id)?.beats.findIndex(b => b.id === beatId);
+    if (bi != null && bi >= 0) activeBeat.set(bi);
+    refreshEndpointDisplay();
+  }
+  function armBecome() {
+    if (!curTrack) return;
+    selection.set(new Set([curTrack.target]));
+    const parts = curTrack.selector ? targetPartIds(curTrack, manifestFor(curTrack.target)) : trackRef(curTrack).parts ?? [];
+    setPartSelections(parts.map(partId => ({ elementId: curTrack.target, partId })));
+    onBecome?.(curTrack.target, curBeatIndex);
   }
   function dropChangedProp(k: string) {
     withCurTrack((t) => {
@@ -326,7 +417,7 @@
   {:else}
     <div class="hd" style={`--pc:${PRESET_COLOR[curTrack.preset ?? "fade"] ?? "#888"}`}>
       <span class="nm">
-        {#if selTracks.length > 1}{selTracks.length} tracks{:else}{groupLabel ? `${groupLabel} › ` : ""}{chipLabel(curTrack, slide, plotTags)}{/if}
+        {#if selTracks.length > 1}{selTracks.length} tracks{:else}{groupLabel ? `${groupLabel} › ` : ""}{chipLabel(curTrack, slide, plotTags, deck, manifestFor)}{/if}
       </span>
       <button class="style-picker" aria-label="Animation style" aria-expanded={styleOpen} disabled={!!styleReason || !!editingStyle}
         title={styleReason || "Link settings to a deck animation style"} onclick={() => styleOpen = !styleOpen}>Style{sameStyle ? ` · ${linkedStyle!.name}` : rawSelTracks.some(t => t.styleId) ? " · mixed" : ""} ▾</button>
@@ -391,7 +482,7 @@
       {:else if epActive === "t1"}
         <div class="note">Editing the state <b>before this step</b>. The stage header names the initial state or earlier step receiving these edits.</div>
       {/if}
-      {#if changedProps.length}
+      {#if !handoff && changedProps.length}
         <div class="delta" title="The properties this transform changes at t₂ — ✕ drops one">
           <span class="dl">Δ</span>
           {#each changedProps as k (k)}
@@ -405,9 +496,29 @@
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
         <div class="dv">{destinationLabel}{#if dataCompatible === false} <span class="warn" title="The two plots have different structures — the frame tweens and the plots crossfade">· crossfade</span>{/if}</div>
+        {#if handoff}
+          <label class="f">Pair ▾
+            <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
+              <option value="auto">auto</option><option value="spatial">by position</option><option value="order">by order</option><option value="data">by data</option><option value="tile">tile</option>
+            </select>
+          </label>
+          <div class="f">Reveal
+            <div class="seg" role="group" aria-label="Hand-off reveal">
+              {#each ["flip", "draw"] as reveal}<button class="sg" class:on={(handoff.reveal ?? "flip") === reveal} aria-pressed={(handoff.reveal ?? "flip") === reveal} onclick={() => changeHandoff({ reveal: reveal as BecomeSpec["reveal"] })}>{reveal}</button>{/each}
+            </div>
+          </div>
+          <div class="dacts">
+            <button class="pick-morph" disabled={!!swapReason} title={swapReason || "Reverse this hand-off in one undoable edit"} onclick={swapDirection}>↔ Swap direction</button>
+            {#if canConsume}
+              <button class="pick-morph" class:warn={consumeArmed} title="Consume removes the destination object and writes its appearance into the source" onclick={() => consumeArmed ? changeHandoff({ mode: "consume" }) : consumeArmed = true}>{consumeArmed ? "Confirm consume" : "Consume instead"}</button>
+              {#if consumeArmed}<button class="pick-morph" onclick={() => consumeArmed = false}>Cancel</button>{/if}
+            {/if}
+            {#if canAutoAnimate}<button class="pick-morph" onclick={animateRest}>Auto-animate the rest…</button>{/if}
+          </div>
+        {/if}
         {#if curTargetEl && curBeatIndex > 0}
           <div class="dacts">
-            <button class="pick-morph" onclick={() => onBecome?.(curTargetEl.id, curBeatIndex)} title="Pick another object on the slide (or draw one): this object turns into it at this step">Become an object…</button>
+            <button class="pick-morph" onclick={armBecome} title="Pick another object on the slide (or draw one): this object turns into it at this step">Become an object…</button>
             {#if curTargetEl.type === "plot"}
               <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)} title="Keep the frame; the plot's data becomes another project plot's">Data from gallery…</button>
             {/if}
@@ -659,6 +770,7 @@
   }
   .pick-morph, .psave button, .saveas, .del { height: 24px; padding: 3px 8px; }
   .pick-morph { text-align: left; }
+  .pick-morph:disabled { opacity: .5; cursor: var(--cursor-cross); }
   .pick-morph:hover, .psave button:hover, .mini:hover, .dirb:hover, .ichip:hover, .pb:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
   .dirb, .ichip { height: 20px; padding: 0 6px; font-size: 11px; }
   .dirb.on, .ichip.on, .pb.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }

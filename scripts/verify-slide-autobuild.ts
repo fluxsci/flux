@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as slideOps from "../src/lib/slide/ops";
-import { autoAnimatePlot, applyAutoAnimation } from "../src/lib/slide/autobuild";
+import { autoAnimatePlot, applyAutoAnimation, autoAnimateExcept } from "../src/lib/slide/autobuild";
 import { resolveBeat, resolveStart } from "../src/lib/slide/resolve";
 import { targetPartIds } from "../src/lib/slide/targets";
 import { compileSlide } from "../src/lib/slide/compile";
@@ -86,5 +86,32 @@ assert(s.beats.slice(1).every((b) => b.tracks.every((t) => t.target === plotId))
 // a plot with no manifest → no-op (the GUI falls back / disables the button)
 const added0 = applyAutoAnimation(deck, sid, plotId, undefined);
 assert(added0 === 0, "applyAutoAnimation is a no-op when the plot has no manifest");
+
+// The inspector and post-pick action use this same exported operation.
+const core = await import("../flux-core/index");
+assert(typeof autoAnimateExcept === "function" && core.autoAnimateExcept === autoAnimateExcept, "headless and GUI share autoAnimateExcept");
+const restDeck = slideOps.createDeck({ id: "rest", title: "Hand-off rest" });
+const restSlide = slideOps.addSlide(restDeck, { layout: "blank" });
+const restPlot = slideOps.addPlotToSlide(restDeck, restSlide.id, { assetId: "scatterA", x: 0, y: 0, width: 800, height: 500 })!;
+const otherPlot = slideOps.addPlotToSlide(restDeck, restSlide.id, { assetId: "scatterA", x: 0, y: 0, width: 800, height: 500 })!;
+applyAutoAnimation(restDeck, restSlide.id, otherPlot, manifest);
+const otherBefore = JSON.stringify(restSlide.beats.flatMap(b => b.tracks.filter(t => t.target === otherPlot)));
+const sourceId = slideOps.addElement(restDeck, restSlide.id, { id: "rest-source", type: "rect", x: 20, y: 20, width: 80, height: 60, rotation: 0, fill: "#333", stroke: "none", strokeWidth: 0, cornerRadius: 0 })!;
+const landing = slideOps.addBeat(restDeck, restSlide.id, { label: "Land" })!;
+const handoff = slideOps.becomeTransform(restDeck, restSlide.id, landing.id, sourceId, { element: restPlot, parts: ["axis.x.spine", "axis.y.spine"] }, { mode: "handoff", compiled: compileSlide(restSlide, restDeck.stage, { plotManifest: () => manifest }) })!;
+const manual = slideOps.appendAnimation(restDeck, restSlide.id, landing.id, { target: restPlot, part: "fit.line", preset: "dim", start: 33 })!;
+const tickLeaves = targetPartIds({ part: "axis.x.ticks" }, manifest);
+const excluded = ["axis.x.spine", "axis.y.spine", tickLeaves[0], ...targetPartIds({part:"setosa.points"},manifest)];
+assert(autoAnimateExcept(restDeck, restSlide.id, restPlot, manifest, excluded) > 0, "auto-animate rest produces remaining phases");
+const generatedTracks = () => restSlide.beats.flatMap(b => b.tracks.filter(t => t.target === restPlot && t.generatedBy === "auto-reveal"));
+assert(generatedTracks().every(t => targetPartIds(t, manifest).every(id => !excluded.includes(id))), "generated tracks exclude every hand-off leaf, including a partial group");
+assert(generatedTracks().some(t => t.parts?.includes(tickLeaves[1])), "unexcluded members of a partially excluded group still animate");
+assert(restSlide.beats.flatMap(b => b.tracks).includes(manual) && restSlide.beats.flatMap(b => b.tracks).some(t => t.id === handoff.trackId), "manual appearance and source hand-off survive");
+assert(JSON.stringify(restSlide.beats.flatMap(b => b.tracks.filter(t => t.target === otherPlot))) === otherBefore, "other plots' shared build tracks are unchanged");
+assert(restSlide.beats.every((b,i) => !b.tracks.some(t => t.target === restPlot && t.generatedBy === "auto-reveal") || i > restSlide.beats.indexOf(landing)), "remaining plot phases follow the landing step");
+assert(compileSlide(restSlide, restDeck.stage, { plotManifest: () => manifest }).issues.every(i => !/anchor/i.test(i.reason)), "excluded anchor owners leave no dangling timing anchors");
+const count = generatedTracks().length;
+autoAnimateExcept(restDeck, restSlide.id, restPlot, manifest, excluded);
+assert(generatedTracks().length === count && new Set(restSlide.beats.map(b => b.id)).size === restSlide.beats.length, "repeating auto-animate rest replaces its phases without duplicate beats");
 
 console.log("\nALL AUTOBUILD (anim 1.4) TESTS PASSED");

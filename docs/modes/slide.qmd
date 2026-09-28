@@ -271,6 +271,13 @@ or a summary can expand back into its points. Unmatched sources fade during the 
 of the animation; unmatched destinations appear during the last 40%. Text and images crossfade.
 You can preview or scrub a hand-off as soon as you open the animation dock.
 
+**Destination.** The Animation inspector names both sides of a hand-off. **Pair ▾** chooses
+auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
+**↔ Swap direction** reverses the hand-off, including plot parts, in one Undo.
+For whole loose objects, **Consume instead** asks for a second click before removing the
+destination. **Auto-animate the rest…** builds the destination plot's remaining parts after
+the hand-off. **Become an object…** picks a different destination for this effect.
+
 From the command line or an agent, `become` can name destination parts with `--part` and
 source parts with `--source-part`. Plots, images and part sets use **hand-off** by default:
 the source hides after landing and the destination stays on the slide. Whole drawn objects
@@ -288,6 +295,7 @@ Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gall
 separate window for repeated insertion onto the active slide.
 
 **Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
+When plot parts are drilled, **Zoom** frames their combined outline instead of the whole plot.
 After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
 
 ### Data-space transforms

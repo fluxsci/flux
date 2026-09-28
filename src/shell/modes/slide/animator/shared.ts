@@ -1,8 +1,12 @@
 // Shared vocabulary of the animator components: preset colors, editor option
 // lists, chip labels, and the temporal math the Gantt lanes are built on.
 
-import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
-import type { FluxPlotManifest } from "../../../../lib/plot/types";
+import type { Slide, Track, PresetName, TargetRef } from "../../../../lib/slide/types";
+import type { Figure, Element } from "../../../../lib/types";
+import type { FluxPlotManifest, PartNode } from "../../../../lib/plot/types";
+import { labelForPart } from "../../../../lib/plot/tree";
+import { elementLabel } from "../../../../lib/xray/buildXrayTree";
+import { trackRef, targetPartIds } from "../../../../lib/slide/targets";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
@@ -27,7 +31,7 @@ export type TransformWay = "change" | "ghost" | "become";
 export function transformWay(t: Track): TransformWay {
   if (t.ghostFrom) return "ghost";
   const st = t.to?.state as Record<string, unknown> | undefined;
-  if ((st && typeof st.type === "string") || t.to?.assetId) return "become";
+  if (t.to?.become || (st && typeof st.type === "string") || t.to?.assetId) return "become";
   return "change";
 }
 export const WAY_LABEL: Record<TransformWay, string> = { change: "Change", ghost: "Ghost", become: "Become" };
@@ -53,9 +57,33 @@ export const EL_GLYPH: Record<string, string> = {
 
 /** A compact label for a track chip (prefixed with a P-tag when the slide has
  *  several plots so identical part names stay distinguishable). */
-export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>, deck: StyleContext = {}): string {
+export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: ManifestFor = () => undefined, plotTags = new Map<string, string>(), maxParts = 1): string {
+  const el = slide?.elements.find(e => e.id === ref.element);
+  if (ref.group) return slide?.groups?.[ref.group]?.name || "Group";
+  if (!el || !slide) return "missing";
+  const manifest = manifestFor(el.id);
+  const manifests = el.type === "plot" && manifest ? { [el.assetId]: manifest } : {};
+  const tag = plotTags.get(el.id);
+  const name = (tag ? `${tag} · ` : "") + elementLabel(slide as unknown as Figure, el as Element, manifests);
+  const ids = ref.selector ? targetPartIds({ parts: ref.parts, selector: ref.selector }, manifest) : [...new Set(ref.parts ?? [])];
+  if (!ids.length) return name;
+  const nodes = new Map<string, PartNode>();
+  const walk = (n: PartNode) => { if (n.id || n.ref) nodes.set((n.id ?? n.ref)!, n); n.children?.forEach(walk); };
+  if (manifest?.parts) walk(manifest.parts);
+  const labels = ids.slice(0, ids.length > maxParts ? 1 : maxParts).map(id => {
+    const node = nodes.get(id) ?? { id };
+    const label = labelForPart(node);
+    const axis = id.match(/(?:^|\.)axis\.([xyz])\./)?.[1];
+    return axis && !node.label ? `${axis.toUpperCase()} axis ${label.toLowerCase()}` : label;
+  });
+  return `${name} › ${labels.join(", ")}${ids.length > maxParts ? ` + ${ids.length - 1}` : ""}`;
+}
+
+export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>, deck: StyleContext = {}, manifestFor: ManifestFor = () => undefined): string {
   t = resolveTrack(t, deck);
   if (t.target.startsWith("@")) return t.target.slice(1);
+  if (t.to?.become?.mode === "handoff") return `${refLabel(trackRef(t), slide, manifestFor, plotTags)} → ${refLabel(t.to.become.ref, slide, manifestFor, plotTags)}`;
+  if (t.parts?.length) return refLabel(trackRef(t), slide, manifestFor, plotTags);
   const tag = plotTags.get(t.target);
   const pre = tag ? `${tag} · ` : "";
   if (t.part) {

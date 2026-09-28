@@ -15,10 +15,12 @@
   import { get } from "svelte/store";
   import { onDestroy, untrack } from "svelte";
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds, exitEndpointEdit } from "../../../lib/slide/store";
-  import { selection, partSelection } from "../../../lib/store";
+  import { selection, partSelection, partSelections } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
-    import { plotManifests } from "../../../lib/plot/store";
+  import { plotManifests, plotDom } from "../../../lib/plot/store";
+  import { compileSlide } from "../../../lib/slide/compile";
+  import { targetOutlines } from "../../../lib/slide/targetGeometry";
   import { slideLayout } from "./slideLayoutStore";
   import type { Slide, Track } from "../../../lib/slide/types";
 
@@ -248,8 +250,18 @@
     }
     const el = sel.length ? slide.elements.find((e) => e.id === sel[0]) : null;
     if (!el) return;
-    const zoom = Math.max(1.05, Math.min(st.width / el.width, st.height / el.height) * 0.82);
-    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: el.x + el.width / 2, y: el.y + el.height / 2 }, duration: 900, easing: "smooth" });
+    let box = { x: el.x, y: el.y, w: el.width, h: el.height };
+    if ($partSelections.length) {
+      const frame = compileSlide(slide, st, { animStyles: d0.animStyles, plotManifest: id => manifests[id] }).sample($activeBeat);
+      const ctx = { manifest: (id: string) => manifests[id], plotRoot: (id: string) => plotDom.get(id), groups: slide.groups };
+      const boxes = $partSelections.flatMap(p => targetOutlines({ element: p.elementId, parts: [p.partId] }, frame, ctx).map(o => o.bbox));
+      if (!boxes.length) return;
+      const x = Math.min(...boxes.map(b => b.x)), y = Math.min(...boxes.map(b => b.y));
+      box = { x, y, w: Math.max(...boxes.map(b => b.x + b.w)) - x, h: Math.max(...boxes.map(b => b.y + b.h)) - y };
+    }
+    const w = $partSelections.length ? Math.max(1, box.w) : box.w, h = $partSelections.length ? Math.max(1, box.h) : box.h;
+    const zoom = Math.max(1.05, Math.min(st.width / w, st.height / h) * 0.82);
+    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: box.x + box.w / 2, y: box.y + box.h / 2 }, duration: 900, easing: "smooth" });
   }
   function addBeat() {
     const sid = slide?.id;

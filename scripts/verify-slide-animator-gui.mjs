@@ -458,6 +458,9 @@ try {
   const { verifyLinkedStyles } = await import("./lib/animatorStyleChecks.mjs");
   await verifyLinkedStyles(page, ok);
 
+  const { verifyDestinations } = await import("./lib/animatorDestinationChecks.mjs");
+  await verifyDestinations(page, ok);
+
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

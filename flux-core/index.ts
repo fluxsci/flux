@@ -105,6 +105,7 @@ export { planHandoff } from "../src/lib/slide/handoffPlan";
 export { targetOutlines, elementStageOutlines, partStageOutlines, plotStageMapping, type GeometryCtx } from "../src/lib/slide/targetGeometry";
 export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
 export { becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
+export { autoAnimateExcept } from "../src/lib/slide/autobuild";
 export { compileSlide, type CompiledSlide, type CompileOptions } from "../src/lib/slide/compile";
 export {
   loadDeck,

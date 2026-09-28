@@ -65,7 +65,7 @@
     }
     return out;
   });
-  const label = (t:Track)=>chipLabel(t,slide,plotTags,deck);
+  const label = (t:Track)=>chipLabel(t,slide,plotTags,deck,manifestFor);
   const width = (t:Track)=>Math.max(6,trackDuration(t)*scale);
   const tail = (t:Track)=>staggerSpan(t,trackFanout(t,slide,manifestFor(t.target)))*scale;
   function chooseBeat(index:number) {
