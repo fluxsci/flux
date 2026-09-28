@@ -5,7 +5,7 @@ import{furnitureGoldens}from'./gen-model3d-furniture-goldens.mjs';
 import{furnitureLayout}from'../src/lib/model3d/furnitureLayout';
 import{furnitureSvg}from'../src/lib/model3d/furniture';
 import{niceTicks}from'../src/lib/model3d/ticks';
-import{orbitPose,axisView,pixelsPerUnit}from'../src/lib/model3d/orbit';
+import{orbitPose,axisView,pixelsPerUnit,project}from'../src/lib/model3d/orbit';
 import{makeModel3dElement}from'../src/lib/model3d/make';
 import{inspectGlb}from'../src/lib/model3d/glbCore.mjs';
 import type{Scene3dManifest,Model3dAsset}from'../src/lib/model3d/types';
@@ -44,4 +44,26 @@ h.ok(scaleText.children!.some(n=>n.tag==='text'&&n.attrs.fill==='#aa2244'&&n.att
 const closeView={...el,orbitAzimuth:0,orbitElevation:0,orbitProjection:'perspective' as const,orbitFov:30};
 const closeLayout=furnitureLayout(m,closeView),faceZoom=Math.sqrt(3)/Math.sin(Math.PI/12);
 for(const zoom of [faceZoom,faceZoom+1,50]) { const view={...closeView,orbitZoom:zoom},svg=furnitureSvg(m,view,orbitPose(view,{min:[-1,-1,-1],max:[1,1,1]},closeLayout.viewport),closeLayout); h.ok(!/NaN|Infinity/.test(svg.under+svg.over),`camera on/inside axes box emits finite SVG at zoom ${zoom}`); }
+// Independent geometric oracles: axes lie on the projected convex box's
+// outline, ticks point perpendicular/outward, and cardinal axes stay distinct.
+for(const projection of ['orthographic','perspective'] as const)for(const azimuth of [0,30,90,150,210,270,330])for(const elevation of [-20,20])for(const roll of [0,35]){
+ const view={...el,width:220,height:210,orbitAzimuth:azimuth,orbitElevation:elevation,orbitRoll:roll,orbitProjection:projection};
+ const l=furnitureLayout(m,view),p=orbitPose(view,info.bounds,l.viewport),svg=furnitureSvg(m,view,p,l);
+ const corners=Array.from({length:8},(_,mask)=>project([0,1,2].map(i=>(mask>>i)&1?1:-1) as [number,number,number],p,l.viewport));
+ const lines=svg.underNodes.filter(n=>n.partId?.endsWith('.axis')).flatMap(n=>n.children??[]);
+ for(const line of lines){
+  const a=line.attrs,dx=Number(a.x2)-Number(a.x1),dy=Number(a.y2)-Number(a.y1),length=Math.hypot(dx,dy);
+  const signed=corners.map(c=>(dx*(c.y-Number(a.y1))-dy*(c.x-Number(a.x1)))/length);
+  assert(signed.every(v=>v>=-1e-6)||signed.every(v=>v<=1e-6),'axis must stay on box silhouette');
+  const axis=line.partId!.split('.')[1],ticks=svg.underNodes.find(n=>n.partId===`axes.${axis}.ticks`)!.children!.filter(n=>n.tag==='line');
+  for(const tick of ticks){const a=tick.attrs,tx=Number(a.x2)-Number(a.x1),ty=Number(a.y2)-Number(a.y1);assert(Math.abs(dx*tx+dy*ty)<1e-6*length,'tick direction is perpendicular');const center=project([0,0,0],p,l.viewport);assert(tx*(Number(a.x1)-center.x)+ty*(Number(a.y1)-center.y)>=-1e-6,'tick direction points outward');}
+ }
+ for(let i=0;i<lines.length;i++)for(let j=i+1;j<lines.length;j++){
+  const a=lines[i].attrs,b=lines[j].attrs,dx=Number(a.x2)-Number(a.x1),dy=Number(a.y2)-Number(a.y1),ex=Number(b.x2)-Number(b.x1),ey=Number(b.y2)-Number(b.y1);
+  if(Math.abs(dx*ey-dy*ex)<1e-6*Math.hypot(dx,dy)*Math.hypot(ex,ey))assert(Math.abs(dx*(Number(b.y1)-Number(a.y1))-dy*(Number(b.x1)-Number(a.x1)))/Math.hypot(dx,dy)>=l.fontSize,'parallel projected axes use distinct outlines');
+ }
+}
+h.ok(true,'56 small-box camera/projection/roll cases keep axis labels on distinct outlines with perpendicular outward ticks');
+const movedTitle=furnitureSvg(m,{...el,overrides:{'axes.y.label':{dx:3,dy:4}}},pose,layout).underNodes.find(n=>n.partId==='axes.y.label')!.children![0];
+h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'part translation preserves readable axis title orientation');
 await h.done();

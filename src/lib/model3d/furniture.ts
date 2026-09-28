@@ -24,7 +24,7 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
   const o=override(id);if(o.hidden||Object.values(attrs).some(v=>typeof v==='number'&&!Number.isFinite(v)))return;
   const a={...attrs};if(o.fill!=null&&(tag==='text'||!['colorbar','legend','scalebar'].includes(parts[id]?.role)))a.fill=o.fill;if(o.stroke!=null)a.stroke=o.stroke;if(o.strokeWidth!=null)a['stroke-width']=o.strokeWidth;if(o.opacity!=null&&o.opacity!==1)a.opacity=o.opacity;
   if(tag==='text'){a['font-family']=o.fontFamily??sourceFont(style.font??'Inter');a['font-size']=o.fontSize??a['font-size']??fs;a['font-weight']=o.fontWeight??400;if(o.fontStyle)a['font-style']=o.fontStyle;if(o.textDecoration)a['text-decoration']=o.textDecoration;}
-  if(o.dx||o.dy)a.transform=`translate(${num(o.dx??0)} ${num(o.dy??0)})`;
+  if(o.dx||o.dy)a.transform=`translate(${num(o.dx??0)} ${num(o.dy??0)})${a.transform?' '+a.transform:''}`;
   layer.push({tag,key,partId:id,attrs:a,...(text!=null?{text}:{}),...(children?{children}:{})});
  };
  const projected=(p:{x:number;y:number;depth?:number})=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&(pose.projection!=='perspective'||p.depth==null||p.depth>=pose.near);
@@ -47,20 +47,34 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
    if(corners.some(p=>!projected(p)))continue;
    add(under,`axes.${labels[axis]}.pane`,'path',`pane-${axis}`,{d:corners.map((p,i)=>`${i?'L':'M'}${num(p.x)} ${num(p.y)}`).join(' ')+'Z',fill:muted,'fill-opacity':.06,stroke:muted,'stroke-opacity':.25,'stroke-width':lw});
   }
+  const labelledEdges:Array<{x1:number;y1:number;x2:number;y2:number}>=[];
+  const boxCorners=Array.from({length:8},(_,mask)=>screen(limits.map((lim,i)=>lim[(mask>>i)&1]) as Vec3)).filter(projected);
   for(let axis=0;axis<3;axis++){
    const label=labels[axis],other=[0,1,2].filter(i=>i!==axis),candidates:Array<{a:Vec3;b:Vec3;y:number;depth:number}>=[];
    for(let k=0;k<4;k++){const a=[...center] as Vec3,b=[...center] as Vec3;a[axis]=limits[axis][0];b[axis]=limits[axis][1];for(let j=0;j<2;j++)a[other[j]]=b[other[j]]=limits[other[j]][(k>>j)&1];const m=screen(a.map((v,i)=>(v+b[i])/2) as Vec3);if(!projected(m)||!projected(screen(a))||!projected(screen(b)))continue;candidates.push({a,b,y:m.y,depth:m.depth});}
    if(!candidates.length)continue;
-   candidates.sort((a,b)=>Math.abs(b.y-a.y)>1e-6?b.y-a.y:a.depth-b.depth);const edge=candidates[0],a=screen(edge.a),b=screen(edge.b),mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},origin=screen(center);
-   let ox=mid.x-origin.x,oy=mid.y-origin.y;const length=Math.hypot(ox,oy);if(length<1e-6){ox=0;oy=1;}else{ox/=length;oy/=length;}
-   if(Math.hypot(b.x-a.x,b.y-a.y)<1)continue;
+   // Label a silhouette edge: the lowest interior edge can put an upright
+   // axis through the mesh and send its ticks along the axis into each other.
+   // This convex-box test also works under perspective and arbitrary roll.
+   const silhouette=candidates.filter(edge=>{const a=screen(edge.a),b=screen(edge.b),length=Math.hypot(b.x-a.x,b.y-a.y);if(length<1)return false;const distances=boxCorners.map(p=>((b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x))/length);return distances.every(d=>d>=-1e-6)||distances.every(d=>d<=1e-6);});
+   const edges=silhouette.length?silhouette:candidates;
+   // At a cardinal azimuth two data axes can project onto the same line.
+   // Use the opposite silhouette for the second one instead of stacking labels.
+   const overlaps=(edge:typeof edges[number])=>{const a=screen(edge.a),b=screen(edge.b),dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy);return labelledEdges.some(e=>{const ex=e.x2-e.x1,ey=e.y2-e.y1;return Math.abs(dx*ey-dy*ex)<1e-6*len*Math.hypot(ex,ey)&&Math.abs(dx*(e.y1-a.y)-dy*(e.x1-a.x))<fs*len;})?1:0;};
+   edges.sort((a,b)=>overlaps(a)-overlaps(b)||(Math.abs(b.y-a.y)>1e-6?b.y-a.y:a.depth-b.depth));const edge=edges[0],a=screen(edge.a),b=screen(edge.b),mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2},origin=screen(center);
+   const length=Math.hypot(b.x-a.x,b.y-a.y);if(length<1)continue;
+   let ox=-(b.y-a.y)/length,oy=(b.x-a.x)/length;
+   if(ox*(mid.x-origin.x)+oy*(mid.y-origin.y)<0){ox=-ox;oy=-oy;}
+   labelledEdges.push({x1:a.x,y1:a.y,x2:b.x,y2:b.y});
    line(under,`axes.${label}.axis`,`axis-${label}`,a,b);
    const ticks=axes[axis]?.ticks??niceTicks(limits[axis][0],limits[axis][1]);
    ticks.forEach((value,ti)=>{if(value<limits[axis][0]||value>limits[axis][1])return;const p=[...edge.a] as Vec3;p[axis]=value;const at=screen(p);if(!projected(at))return;
     line(under,`axes.${label}.ticks`,`tick-${label}-${ti}`,at,{x:at.x+ox*4,y:at.y+oy*4});text(under,`axes.${label}.ticks`,`tick-label-${label}-${ti}`,at.x+ox*(fs*.9+4),at.y+oy*(fs*.9+4)+fs*.3,axes[axis]?.tickLabels?.[ti]??tickLabel(value),{'text-anchor':ox<-.5?'end':ox>.5?'start':'middle'});
     if(manifest.axes?.grid!==false)for(const plane of other){const across=other.find(i=>i!==plane)!,p1=[...center] as Vec3,p2=[...center] as Vec3;p1[axis]=p2[axis]=value;p1[plane]=p2[plane]=limits[plane][back[plane]];p1[across]=limits[across][0];p2[across]=limits[across][1];line(under,`axes.${label}.grid`,`grid-${label}-${ti}-${plane}`,screen(p1),screen(p2),{stroke:muted,'stroke-opacity':.3});}
    });
-   text(under,`axes.${label}.label`,`axis-label-${label}`,mid.x+ox*(fs*4.2),mid.y+oy*(fs*4.2)+fs*.3,parts[`axes.${label}.label`]?.text??axes[axis]?.label??label,{'text-anchor':ox<-.5?'end':ox>.5?'start':'middle'});
+   const titleX=mid.x+ox*(fs*3.4),titleY=mid.y+oy*(fs*3.4),angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+   const uprightAngle=angle>90?angle-180:angle< -90?angle+180:angle;
+   text(under,`axes.${label}.label`,`axis-label-${label}`,titleX,titleY+fs*.3,parts[`axes.${label}.label`]?.text??axes[axis]?.label??label,{transform:`rotate(${num(uprightAngle)} ${num(titleX)} ${num(titleY)})`});
   }
  }else if(manifest.axes?.kind==='triad'){
   const origin={x:layout.viewport.x+30,y:layout.viewport.y+layout.viewport.height-30},labels=['x','y','z'];
