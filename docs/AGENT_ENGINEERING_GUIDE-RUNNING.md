@@ -8131,3 +8131,15 @@ surface, matching `materializeRenders`. The scratch helper now requests that sur
 while retaining collect-only policy and refusing all warnings or placeholders. This
 reuses the stored physical poster without spawning rendering jobs. The failed attempt
 remains recorded; full native S8 comparison is still pending.
+
+### 2026-09-28 — S5 actual MCP Figure image acceptance
+
+The registered native3D agent gate also calls the built compact MCP server over stdio.
+It reuses a real300dpi native poster in a saved named-parts Figure, then checks that
+`get_figure_image` returns the exact canonical composed PNG, with colored mesh pixels
+and visible legend glyphs. The corresponding SVG retains real text nodes; removing
+only text changes the label area and no mesh pixels. The cached request must not write
+project bytes, emit a fallback warning or start another observed native worker. This
+closes the transport-level image acceptance gap without changing coldConnect's separate
+no-render/no-write policy. Source review and native execution are recorded by the gate;
+this entry alone is not an execution result.
