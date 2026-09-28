@@ -328,7 +328,8 @@
       "verify-model3d-import.ts",
       "verify-model3d-semantics.ts",
       "verify-model3d-view-ops.ts",
-      "verify-model3d-headless.ts"
+      "verify-model3d-headless.ts",
+      "verify-input-probe-policy.cjs"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -866,7 +867,8 @@
       "verify-model3d-xray-gui.mjs",
       "verify-model3d-headless.ts",
       "verify-model3d-electron.cjs",
-      "verify-scale-model3d.mjs"
+      "verify-scale-model3d.mjs",
+      "verify-input-probe-policy.cjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -946,10 +948,28 @@
     ],
     "model3d-scale": [
       "verify-scale-model3d.mjs"
+    ],
+    "model3d-native-policy": [
+      "verify-input-probe-policy.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "scripts/lib/nativeWindowQualification.cjs",
+      "run": [
+        "group:model3d-native",
+        "verify-input-probe-policy.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/perf/input-probe-policy.cjs",
+      "run": [
+        "verify-input-probe-policy.cjs",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "scripts/lib/model3dScaleFixture.mjs",
       "run": [
@@ -8022,6 +8042,15 @@
       "isolation": "scratch",
       "timeoutMs": 300000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-input-probe-policy.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

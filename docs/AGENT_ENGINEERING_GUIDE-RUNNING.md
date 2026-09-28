@@ -1714,6 +1714,15 @@ phase with zero long tasks (scrolling was 60–130 ms tasks). Slide mode measure
 Figure. The native Electron key-to-paint gate stays the production oracle for edits. Reader open / project open / whole-doc find are 1s-class navigations and
 within budget. Update these measurements when the corresponding workflow is changed.
 
+The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
+background throttling and schedules measurement RAF callbacks. Such a run is not
+production qualification. Pass `--qualify --ozone=x11` for the qualified native
+variant: it preserves product throttling, requires a nonzero display and continuously
+visible/focused window, and retains raw focus observations if a phase fails. The
+measurement RAF loop remains part of this probe and must be disclosed separately
+from publication-driven native Orbit frame measurements. Use only disposable
+projects and scratch HOME/XDG; `verify-input-probe-policy.cjs` gates this distinction.
+
 ## 7. The verification system (how you prove your work)
 
 Run the hermetic runner from the repository root; never invoke a verify `.ts` directly.
@@ -7941,3 +7950,7 @@ The gate also exercises one-undo orbit, redo, one-event modifier handoff, axis/H
 ### 2026-09-28 15:34 UTC — Box-axis label placement at small sizes
 
 Figure scale review exposed upright axis labels running into the mesh and ticks crowding along their axis. Shared furniture now selects a projected convex-box silhouette edge, sends ticks along its outward perpendicular, and places readable axis titles parallel to that edge. When cardinal views project two axes onto one line, the second uses the opposite silhouette. Text remains physical size; no DOM or font measurement is used, and part translations compose with title rotation. The same pure geometry serves Figure, native/headless exports and notebook/slide runtimes. `verify-model3d-furniture` retains generated SVG goldens and adds56 camera/projection/roll cases asserting outline placement, perpendicular outward ticks and distinct parallel axes. Author and independent runs pass; Svelte check remains0errors/0warnings. Visual before/after evidence: `test-results/model3d/furniture/contact.png`. Full native performance remains pending a usable DISPLAY=:0; this change does not claim that gate.
+
+### 2026-09-28 — Native input qualification policy
+
+The native input probe now has an explicit `--qualify` mode: production background throttling stays unchanged, nonzero native display and focus/visibility are required, and raw failed-cohort focus observations are retained. Default mode preserves its diagnostic behavior and is explicitly labeled. Shared display guard also records bounds/workArea and rejects an unusable display before the production model3d native gate starts input timing. Such runtime receipts say `capability-blocked` and still exit nonzero; prior timing failures remain failures. `verify-input-probe-policy.cjs` tests diagnostic compatibility, no throttling mutation, zero/invalid display refusal, and lost-focus rejection. Native rerun remains pending a usable DISPLAY=:0.

@@ -1,7 +1,8 @@
 'use strict';
 // Production renderer only. Native OS dialog interaction is outside this
 // unattended gate; their deterministic answers still exercise real IPC grants.
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, screen } = require('electron');
+const { assertUsableDisplay } = require('./nativeWindowQualification.cjs');
 const fs = require('node:fs/promises'), path = require('node:path');
 const scratch = process.env.MODEL3D_NATIVE_SCRATCH, root = process.env.MODEL3D_NATIVE_ROOT;
 const artifacts = process.env.MODEL3D_NATIVE_ARTIFACTS, scenario = process.env.MODEL3D_NATIVE_SCENARIO;
@@ -102,7 +103,9 @@ async function boot() {
   check(await js("location.protocol==='file:'&&!window.__flux&&!!window.fig"), 'built production renderer uses actual preload without development handles');
   metrics.boot = { url: win.webContents.getURL(), versions: process.versions, platform: process.platform,
     gpuFeatures: app.getGPUFeatureStatus(), gpuInfo: await app.getGPUInfo('complete'),
-    viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,visibility:document.visibilityState,focused:document.hasFocus()})'), scenario };
+    viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio,visibility:document.visibilityState,focused:document.hasFocus()})'),
+    bounds: win.getBounds(), contentBounds: win.getContentBounds(), displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea,scaleFactor:d.scaleFactor})), scenario };
+  assertUsableDisplay(metrics.boot.displays);
   await instrument();
   if (scenario === 'hardware' || scenario === 'software') {
     contextProbe = require('./model3dNativeContextProbe.cjs')(win.webContents);
@@ -377,7 +380,7 @@ async function finish(error) {
     await screenshot('failure').catch(() => {}); console.error(await js('document.body.textContent.slice(-16000)').catch(() => ''));
   } }
   await fs.mkdir(artifacts, { recursive: true });
-  await fs.writeFile(path.join(artifacts, 'receipt.json'), JSON.stringify({ scenario, checks, metrics, dialogs, errors, ok: !error }, null, 2));
+  await fs.writeFile(path.join(artifacts, 'receipt.json'), JSON.stringify({ scenario, status: error?.code === 'NATIVE_DISPLAY_UNAVAILABLE' ? 'capability-blocked' : error ? 'failed' : 'passed', checks, metrics, dialogs, errors, ok: !error }, null, 2));
   console.log('PROBE result=' + (error ? 'FAIL' : 'PASS'));
   app.exit(error ? 1 : 0);
 }

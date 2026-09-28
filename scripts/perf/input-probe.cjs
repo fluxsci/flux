@@ -17,12 +17,15 @@
 //        [--phases=sweep,hover,clicksEmpty,clicksPlot,dragPlot,idle,panSmall,panSmallEmpty,wheelV,wheelH,wheelNotch,zoom,zoomFast,zoomBursts,panFast,panBursts,scrollV,scrollNotch,typing] [--frames]
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
+//        [--qualify] preserve production background throttling and fail on unusable display/focus loss
 //
 // The project is COPIED to a scratch dir (nothing of the user's is touched);
 // HOME/XDG are isolated (no single-instance clash with a running Flux); the
 // bundle in dist/ must be current (`npm run build`). Default platform is
 // headless: on the owner's live desktop the window gets occluded mid-run (rAF
-// stops, input drops) — use wayland/x11 only as a smoke test. Then:
+// stops, input drops). Default runs suppress background throttling for diagnosis;
+// they are not production qualification. --qualify requires a usable, continuously
+// focused/visible native display and preserves the product setting. Then:
 //   node scripts/perf/trace-summary.mjs <out>/trace-<scenario>-<phase>.json
 'use strict';
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), crypto = require('node:crypto');
@@ -46,7 +49,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0' };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0' };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -109,7 +112,10 @@ if (!process.versions.electron) {
 // ENTRY (inside Electron): drive the real app.
 // ---------------------------------------------------------------------------
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = '1';
-const { app, BrowserWindow, contentTracing } = require('electron');
+const { app, BrowserWindow, contentTracing, screen } = require('electron');
+const { configureWindow, assertWindow } = require('./input-probe-policy.cjs');
+const qualify = process.env.PROBE_QUALIFY === '1';
+let qualificationPolicy;
 const out = process.env.PROBE_OUT;
 const scenarios = (process.env.PROBE_SCENARIOS || 'base').split(',').filter(Boolean);
 const doTrace = process.env.PROBE_TRACE === '1';
@@ -145,6 +151,8 @@ async function click(x, y, hold = 10) { mouse({ type: 'mouseDown', button: 'left
 // Renderer-side instrumentation: rAF gaps, delivered pointer events, pointerdown→paint,
 // long tasks, slow event-timing entries. Installed once per page.
 const INSTR = `(()=>{if(window.__p)return 'ok';const p=window.__p={running:false,raf:0,frames:[],moves:0,downs:0,wheels:0,scrolls:0,keys:0,downPaint:[],keyPaint:[],longtasks:[],evts:[]};
+const qualificationState=()=>({time:performance.now(),visible:document.visibilityState,focused:document.hasFocus()});
+for(const type of ['focus','blur','visibilitychange'])window.addEventListener(type,()=>{if(p.running)p.qualification.push({...qualificationState(),event:type})},true);
 window.addEventListener('pointermove',()=>{p.moves++},true);
 window.addEventListener('pointerdown',(e)=>{p.downs++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.downPaint.push(performance.now()-t0)))},true);
 window.addEventListener('wheel',()=>{p.wheels++},{capture:true,passive:true});
@@ -152,8 +160,8 @@ window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
 window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
-p.stop=()=>{p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const gaps=[];for(let i=1;i<p.frames.length;i++)gaps.push(+(p.frames[i]-p.frames[i-1]).toFixed(1));return {frames:p.frames.length,gaps,moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),longtasks:p.longtasks,evts:p.evts}};
+p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const gaps=[];for(let i=1;i<p.frames.length;i++)gaps.push(+(p.frames[i]-p.frames[i-1]).toFixed(1));return {qualification:p.qualification,frames:p.frames.length,gaps,moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
 // CSS scenarios — bisect knobs. `base` is the shipped app.
@@ -178,12 +186,18 @@ async function setScenario(name) {
   await sleep(350);
 }
 async function measure(label, run, traceName) {
+  if (qualify) assertWindow(win, [await js("({visible:document.visibilityState,focused:document.hasFocus()})")]);
   await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
   await run();
   const wallMs = Date.now() - t0; const cpu = cpuSnapshot(); const m1 = await cdpMetrics();
   let trace = null; if (traceName) trace = await contentTracing.stopRecording(path.join(out, traceName + '.json'));
   const r = await js('window.__p.stop()');
+  if (qualify) {
+    // Preserve raw evidence even when the qualification check rejects this phase.
+    fs.writeFileSync(path.join(out, `qualification-${label.replace(/[^a-z0-9]+/gi,'-')}.json`), JSON.stringify({policy:qualificationPolicy,observations:r.qualification,raw:r},null,2));
+    assertWindow(win, r.qualification);
+  }
   // compress the cursor sequence: kind:imageHash × count @ ms since phase start
   const seq = []; for (const c of cursorLog) { const k = c.type + (c.h ? ':' + c.h : ''); if (!seq.length || seq.at(-1).k !== k) seq.push({ k, n: 1, t: c.t }); else seq.at(-1).n++; }
   const res = { label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
@@ -290,13 +304,13 @@ async function main() {
   win = await wait(() => BrowserWindow.getAllWindows()[0], 'window');
   win.setSize(1600, 1000); win.setAlwaysOnTop(true); win.show(); win.focus();
   if (process.env.PROBE_MAXIMIZE === '1') { win.maximize(); await wait(() => win.isMaximized(), 'maximized native window'); }
-  win.webContents.setBackgroundThrottling(false); // diagnostic run — an occluded window must still tick
+  qualificationPolicy = configureWindow({ qualify, win, displays: screen.getAllDisplays() });
   win.webContents.on('cursor-changed', (_e, type, image) => { let h = null; try { if (image && !image.isEmpty()) h = crypto.createHash('md5').update(image.toBitmap()).digest('hex').slice(0, 6); } catch {} cursorLog.push({ t: Date.now() - phaseT0, type, h }); });
   log('boot', { windows: BrowserWindow.getAllWindows().length, title: win.getTitle(), url: win.webContents.getURL().slice(0, 60), argv: process.argv.filter((a) => a.startsWith('--')), chromiumSwitches: ['disable-features', 'enable-features', 'use-vulkan', 'use-angle'].map((k) => k + '=' + (app.commandLine.hasSwitch(k) ? app.commandLine.getSwitchValue(k) : '<unset>')) });
   await wait(() => js("!!document.querySelector('button[aria-label=Figure]')"), 'shell');
   try { win.webContents.debugger.attach('1.3'); await win.webContents.debugger.sendCommand('Performance.enable'); cdpOk = true; } catch (e) { log('cdp', { err: String(e) }); }
   log('gpu', app.getGPUFeatureStatus());
-  fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
+  fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), qualification: qualificationPolicy, displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
   await js(INSTR);
   if (surface === 'paper' || surface === 'both') await paperPhases();
   if (surface === 'figure' || surface === 'both') await figurePhases();

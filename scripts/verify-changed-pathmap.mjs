@@ -31,6 +31,8 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "tier:pure"]],
+  ["scripts/perf/input-probe-policy.cjs", ["verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/lib/model3dScaleFixture.mjs", ["group:model3d-scale"]],
   ["scripts/lib/model3dNativeEntry.cjs", ["verify-model3d-electron.cjs", "tier:pure"]],
   ["scripts/fixtures/model3d/native/neuron.glb", ["group:model3d"]],
