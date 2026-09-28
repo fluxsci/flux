@@ -37,7 +37,7 @@ const actualCases = [
   ["src/lib/model3d/sourceBridge.ts", ["group:model3d-source"]],
   ["src/lib/model3d/source.ts", ["group:model3d-source"]],
   ["electron/model3dSource.cjs", ["group:model3d-source"]],
-  ["scripts/lib/model3dNativeEntry.cjs", ["verify-model3d-electron.cjs", "tier:pure"]],
+  ["scripts/lib/model3dNativeEntry.cjs", ["verify-model3d-electron.cjs", "verify-model3d-smoke-electron.cjs", "tier:pure"]],
   ["scripts/fixtures/model3d/native/neuron.glb", ["group:model3d"]],
   ["src/lib/Model3dElement.svelte", ["group:model3d", "group:model3d-gui"]],
   ["src/lib/model3d/posterStore.ts", ["group:model3d", "group:model3d-gui"]],

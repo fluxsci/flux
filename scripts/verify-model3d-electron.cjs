@@ -58,13 +58,13 @@ async function inspectExports(report, output, scope, env, h) {
   h.ok(results.tiff.pixels.coloredRatio>.001&&results.tiff.pixels.colored===results.png600.colored, 'TIFF mesh-only colored pixel coverage exactly matches PNG600');
   await fs.writeFile(path.join(output, 'export-inspection.json'), JSON.stringify(results, null, 2));
 }
-async function main() {
+async function runModel3dNative({ scenarios = ['hardware', 'reopen', 'software', 'shape', 'disabled', 'disabled-cached'], artifactName = 'native', gateName = 'verify-model3d-electron' } = {}) {
   const { harness } = await import('./lib/harness.mjs');
   const { TestProcessScope } = await import('./lib/testProcess.mjs');
-  const h = harness('verify-model3d-electron'), scope = new TestProcessScope();
+  const h = harness(gateName), scope = new TestProcessScope();
   const repo = path.resolve(__dirname, '..');
   const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'flux-model3d-electron-')));
-  const artifacts = path.join(repo, 'test-results/model3d/native');
+  const artifacts = path.join(repo, 'test-results/model3d', artifactName);
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'config'),
     XDG_CACHE_HOME: path.join(scratch, 'cache'), XDG_DATA_HOME: path.join(scratch, 'data'), APPDATA: path.join(scratch, 'appdata'),
     FLUX_NO_MIGRATE: '1', FLUX_PRIVATE_DISPLAY: '1', MODEL3D_NATIVE_SCRATCH: scratch };
@@ -72,11 +72,11 @@ async function main() {
   if (process.platform === 'linux') env.DISPLAY = process.env.DISPLAY || ':0';
   try {
     await fs.mkdir(env.HOME, { recursive: true }); await fs.mkdir(artifacts, { recursive: true });
-    for (const scenario of ['hardware', 'reopen', 'software', 'shape', 'disabled', 'disabled-cached']) {
+    for (const scenario of scenarios) {
       const root = path.join(scratch, scenario === 'reopen' ? 'hardware' : scenario);
       if (scenario === 'disabled-cached') await fs.cp(path.join(scratch, 'hardware'), root, { recursive: true });
       else if (scenario !== 'reopen') {
-        const seed = scope.spawn(path.join(__dirname, 'lib/model3dNativeFixture.ts'), [root], { env, cwd: repo });
+        const seed = scope.spawn(path.join(__dirname, 'lib/model3dNativeFixture.ts'), [root, scenario], { env, cwd: repo });
         await scope.waitExit(seed); if (seed.code !== 0) throw Error(seed.stdout + seed.stderr);
       }
       const output = path.join(artifacts, scenario); await fs.mkdir(output, { recursive: true });
@@ -99,4 +99,5 @@ async function main() {
   finally { await scope.dispose(); await fs.rm(scratch, { recursive: true, force: true, maxRetries: 5 }); }
   await h.done();
 }
-void main();
+module.exports = { runModel3dNative };
+if (require.main === module) void runModel3dNative();

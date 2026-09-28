@@ -7983,3 +7983,14 @@ local artifact. Review found and fixed metadata-format/path and delayed-recipe o
 cases plus explicit-sidecar symlink races. Screenshots: `test-results/model3d/source/`.
 Production Electron P6 UI was not run while the private display was unavailable;
 real native helper/read/watch guards and recipe child processes are covered separately.
+
+### 2026-09-28 15:55 UTC — Additional native 3D smoke scenarios authored
+
+The separate registered `model3d-native-smoke` group covers actual X-ray part/field
+controls, the saved Figure view in Paper and actual Quarto Word output, and a scratch
+`uv` fluxplot rerun followed by explicit Update/Undo/Redo. It reuses the production
+native launcher without changing its existing default scenarios; no development
+store handle or substituted model IPC is used. The Python demo is copied from the
+isolated scene3d worktree and changed only inside scratch. See
+[run details](model3d/NATIVE_ACCEPTANCE.md). Source/registration checks are separate
+from native qualification: these new scenarios remain unrun while DISPLAY=:0 is0×0.

@@ -12,7 +12,7 @@ const checks = [], errors = [], dialogs = [], metrics = {};
 let win, contextProbe, measuringInput = false;
 dialog.showOpenDialog = async (_win, opts) => {
   dialogs.push({ kind: 'open', filters: opts.filters });
-  return { canceled: false, filePaths: [path.join(root, scenario === 'shape' ? 'plots/cortex-states.glb' : 'plots/neuron.glb')] };
+  return { canceled: false, filePaths: [path.join(root, scenario === 'shape' ? 'plots/cortex-states.glb' : scenario === 'field' ? 'plots/continuous.glb' : 'plots/neuron.glb')] };
 };
 dialog.showSaveDialog = async (_win, opts) => {
   const filePath = path.join(root, 'exports', `${dialogs.filter(dialog => dialog.kind === 'save').length + 1}-${path.basename(opts.defaultPath)}`);
@@ -352,7 +352,8 @@ async function main() {
       check(await js("document.querySelectorAll('.figure-mode [data-model3d-furniture] text').length>0"), 'vector furniture remains visible without WebGL');
     } else {
       await rendered();
-      if(scenario==='shape') await nativeShapeHistory();
+      if(['semantics','field','paper','source'].includes(scenario)) await require('./model3dNativeSmoke.cjs')({scenario,root,artifacts,js,check,wait,click,clickText,key,screenshot,modelState,rendered,modelSelector,captureMesh,pixelDifference,metrics,inputText:async text=>win.webContents.insertText(text)});
+      else if(scenario==='shape') await nativeShapeHistory();
       else {
         await measuredOrbit();
         await contextRecovery();
@@ -366,7 +367,7 @@ async function main() {
   metrics.evidence = await js('window.__nativeModelEvidence');
   const renderers = metrics.evidence.workers.flatMap(worker => worker.messages).filter(message => message.type === 'available').map(message => message.renderer);
   metrics.renderers = renderers;
-  if (scenario === 'hardware'||scenario==='shape') check(renderers.length > 0 && renderers.every(renderer => !/swiftshader|llvmpipe|software/i.test(renderer)), 'normal production path positively uses the hardware worker renderer');
+  if (['hardware','shape','semantics','field','paper','source'].includes(scenario)) check(renderers.length > 0 && renderers.every(renderer => !/swiftshader|llvmpipe|software/i.test(renderer)), 'normal production path positively uses the hardware worker renderer');
   if (scenario === 'software') check(renderers.some(renderer => /swiftshader/i.test(renderer)), 'SOFTGPU path positively uses the SwiftShader worker renderer');
   if (scenario === 'disabled') check(!metrics.evidence.workers.some(worker => worker.url.includes('model3d.worker')), 'disabled renderer creates no model worker');
   check(errors.length === 0, `production console has no errors: ${errors.join('; ')}`);

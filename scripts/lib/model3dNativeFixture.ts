@@ -7,7 +7,7 @@ import { executeFigSave, planFigSave } from '../../src/lib/project/figfiles';
 import { createDeck } from '../../src/lib/slide/ops';
 import type { Project } from '../../src/lib/types';
 
-const [root] = process.argv.slice(2);
+const [root, scenario] = process.argv.slice(2);
 if (!root) throw Error('Disposable project directory required');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const write = async (rel: string, text: string) => {
@@ -30,3 +30,6 @@ for (const name of ['neuron', 'cortex-states']) {
   await fs.copyFile(source + '.fluxplot.json', path.join(root, 'plots', name + '.fluxplot.json'));
 }
 await write('manuscript/main.qmd', '---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\nFigure @fig-native-model.\n');
+
+if (scenario === 'field') for (const ext of ['.glb','.fluxplot.json']) await fs.copyFile(path.join(repo,'scripts/fixtures/model3d/fluxplot/continuous'+ext),path.join(root,'plots/continuous'+ext));
+if (scenario === 'paper') await write('manuscript/main.qmd','---\ntitle: Native model3d verification\n---\n\n# Disposable native verification\n\n![](../fig/renders/native-model.svg){#fig-native-model}\n\nThe neuron above retains its Figure view.\n');
