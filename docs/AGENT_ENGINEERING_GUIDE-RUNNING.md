@@ -8122,3 +8122,12 @@ figure and original asset, and only four model-to-image replacements at identica
 geometry; the receipt no longer hardcodes that preservation claim. Pure policy checks
 pin covered/clipped captures and changed artwork/placement failures. Native S8 remains
 unqualified until the full comparison runs; these are harness corrections only.
+
+### 2026-09-28 17:23 UTC — Canonical S8 stored Figure poster surface
+
+The native S8 capture passed, but its scratch persisted SVG refresh requested the
+editor poster bucket. Persisted `fig/renders/*.svg` must use the canonical `figure`
+surface, matching `materializeRenders`. The scratch helper now requests that surface
+while retaining collect-only policy and refusing all warnings or placeholders. This
+reuses the stored physical poster without spawning rendering jobs. The failed attempt
+remains recorded; full native S8 comparison is still pending.
