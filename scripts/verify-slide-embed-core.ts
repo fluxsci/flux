@@ -8,7 +8,8 @@ import * as path from "node:path";
 import { inlineSlideFixture, inlineSlideSvg } from "./fixtures/inline-slide";
 import { newSlideEmbed, scanSlideEmbeds, parseSlideEmbed, serializeSlideEmbed, planSlideInsertion } from "../src/lib/slide/embed";
 import { gatherSlidePayload, readEmbedDeck, underRoot } from "../src/lib/slide/payload";
-import { renderSlidePosterSvg, embedPlayerOptions, namespaceEmbedDeck } from "../src/lib/slide/embedRender";
+import { renderSlidePosterSvg, embedPlayerOptions, namespaceEmbedDeck, compileSlideFor } from "../src/lib/slide/embedRender";
+import { compileSlide } from "../src/lib/slide/compile";
 import { createSlideRepository } from "../src/lib/slide/embedRepository";
 import { createPlayer } from "../src/lib/slide/player/player";
 import { plotDom, plotManifests } from "../src/lib/plot/store";
@@ -124,6 +125,17 @@ try {
   const portable = inlineSlideFixture(); portable.slides[0].beats[1].tracks.push({ target: "plot", preset: "transform", disabled: true, to: { assetId: "missing-disabled" } });
   const inactive = await gatherSlidePayload(root, portable, "results", io);
   h.eq(inactive.warnings, [], "disabled animation targets do not become required export assets");
+  // A timing anchor may name a disabled (masked) track: masking is non-destructive, so the
+  // follower keeps its Slide-mode start in the per-slide payload (PPTX/PDF/inline slides).
+  const masked = inlineSlideFixture();
+  masked.slides[0].beats[1].tracks = [{ id: "mask", target: "plot", preset: "transform", duration: 300, disabled: true, to: { assetId: "missing-disabled" } },
+    { id: "follow", target: "signal", preset: "fade", duration: 160, anchor: { trackId: "mask", edge: "end", offsetMs: 40 } }];
+  const authoredStart = compileSlide(masked.slides[0], masked.stage, masked).cues[1].tracks.find(ct => ct.track.id === "follow")?.start;
+  const maskedPayload = await gatherSlidePayload(root, masked, "results", io);
+  const maskedCompiled = compileSlideFor(maskedPayload.payload);
+  h.ok(authoredStart === 340 && maskedCompiled.cues[1].tracks.find(ct => ct.track.id === "follow")?.start === 340 && !maskedCompiled.issues.some(i => /anchor/i.test(i.reason)),
+    `a follower anchored to a disabled track keeps its Slide-mode start in the per-slide payload (authored ${authoredStart}, payload ${maskedCompiled.cues[1].tracks.find(ct => ct.track.id === "follow")?.start})`);
+  h.eq(maskedPayload.warnings, [], "the kept disabled anchor target requires no export asset");
   repo.dispose(); await reject(() => repo.load(ref), /closed/, "disposed repository cannot resurrect pending players");
   const generated = JSON.parse(await fs.readFile(".generated/slide-embed-assets.json", "utf8"));
   h.eq(generated.csp, `'sha256-${createHash("sha256").update(generated.runtime).digest("base64")}'`, "runtime bytes match exact generated CSP hash");
