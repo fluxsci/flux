@@ -163,6 +163,7 @@ The established shared cores — extend these, don't duplicate them:
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar and catalog) | `src/lib/slide/curves.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots) |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
+| Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -879,7 +880,11 @@ Persistence invariants (all machine-checked — do not weaken):
   New CSS `linear()` approximation
   measures vertical error at fixed time (perpendicular distance underestimates steep
   springs). Endpoint guards need a continuity probe to catch a missing spring residual.
-  The type-only `Track.curve` seam awaits M3 validation and M2 channel plumbing.
+  The type-only `Track.curve` seam awaits M3 validation. M2 binds one `ResolvedCurve`
+  per compiled track/spec: box channels extrapolate `fn`, other channels use `clamped`,
+  and controllers receive `seek(u, raw)` for raw-keyed phase decisions. The compiler
+  camera remains clamped until M5 adds geometric zoom. `staggerDelay` owns delays in
+  playback, compilation and span calculation; no second per-item formula belongs there.
   Legacy move/scale/rotate remain
   appearance-family compatibility effects, excluded from the editable preset list.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
@@ -1764,6 +1769,12 @@ that isn't in the manifest doesn't exist.** Tiers:
   `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
   registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
   check defeats the verification contract.
+  The mapped scripts are ADDED to `--tier`/`--group`, not intersected with them. If a worker
+  may run only certain tiers, resolve the map first and run its allowed filenames with
+  `--tier <tier> --only <filename>`; `--changed --tier ui` can also select native gates.
+  When launching through a shell, `exec env ... node scripts/run-verifies.mjs ...`
+  keeps interrupts attached to the runner. A stopped shell is not proof that its runner
+  children stopped: confirm the final summary before starting another cohort.
   An exact-path entry must retain the regression groups of the broader entry it supersedes:
   pathMap uses the first matching entry, not the union of all matching entries.
   `group:paper-gate` is the paper editor's regression suite. Use
@@ -2472,6 +2483,20 @@ outside this PNG packaging change.
   Gate `verify-slide-camera` pins the old 23.58 px disagreement and new sub-0.5 px
   compiler/player agreement. M2 supplies unclamped easing/segment extrapolation;
   retain the camera's M2 hook until the integration replaces `ct.ease(raw)` with `.fn`.
+
+- **Retired easing traps T1–T4 (Animation v2 M2):** T1 rebuilt JS easing from CSS and
+  treated every `linear()` as smoothstep; specs now retain `ResolvedCurve`, with
+  per-property `fn`/`clamped` selection and `css` only for native effects. T2 clamped
+  the physical motion away; keyframe box segments extrapolate, and `overshootBox`
+  extends only position/size/rotation/contentScale after the bounded content tween.
+  T3 flipped A/M/B on eased crossings; controllers now receive `(u, raw)` and use
+  raw for visibility, compositor settlement and endpoint formatting. T4's hand-off
+  reveal and final-15-percent glyph fade already use raw; real-player spring gates
+  pin that seam while correspondence/glyph coordinates stay clamped. Static calls
+  pass both endpoints explicitly. See `docs/SLIDE_TRANSFORMS.md`'s channel table.
+  Two browser-only consequences: a unitless zero in a transform keyframe must retain
+  the other endpoint's CSS unit during interpolation, and inner content/viewBox must
+  use the clamped state—an extrapolated viewBox would cancel the wrapper's overshoot.
 
 - **Resolve animation styles and anchors before reading tracks.** Pass `animStyles` to
   `compileSlide`/`evaluateSlideState`; the player binds `compiled.cues`, and
@@ -7988,3 +8013,20 @@ The old readers fail 132 camera checks; the old UI and schema fail their new ass
 **Learnings:** Promoted T7's retirement into §9. Camera rebasing must invalidate cached
 segment samplers and release their native bindings; replacing frame zero alone is insufficient.
 M2 still owns unclamped easing and segment extrapolation at the explicitly marked seam.
+### 2026-09-28 04:05 UTC — Animation v2 curve plumbing (Codex, av2/M2)
+**Work:** Player specs and compiled tracks now share `ResolvedCurve`; box channels
+extrapolate while content/data channels clamp, controller phases read raw progress,
+and `staggerDelay` owns the three delay calculations. Real-player/compiler/export
+gates pin spring overshoot, native/sample agreement and clamped data inputs with
+old-code and injected-fault negative proofs; isolated pure 324/324, transforms 16/16,
+both checks 0/0 and build passed without undefined imports. The first scale cohort
+passed 13/13, but isolated dense glyph timing later failed at 33.3 ms p95 on BOTH M2
+and a base control; inbox GUI's two background-agent availability failures also
+reproduce at base, while watcher and pinned-caption failures passed isolated retries.
+**Learnings:**
+- Promoted T1–T4, inner-content/viewBox cancellation and unitless-zero interpolation
+  traps to §9, the channel seam to §2/§4, and additive `--changed` selection to §7;
+  compiler camera zoom remains clamped until M5.
+- An interrupted shell left overbroad runners alive in this session, including one
+  at the default :1420 port; no native attempts ran. Exclude those cohorts and confirm
+  runner completion before qualifying isolated scale measurements (§7).

@@ -18,6 +18,12 @@ export function staggerRanks(count: number, from = "start", coordinates?: readon
   return ranks;
 }
 
+/** The one delay law for playback, compilation and timeline extents. */
+export function staggerDelay(track: Track, rank: number, _maxRank: number): number {
+  return Math.max(0, track.stagger?.perMs ?? 0) * rank;
+}
+
 export function staggerSpan(track: Track, targetCount: number): number {
-  return Math.max(0, track.stagger?.perMs ?? 0) * Math.max(0, ...staggerRanks(targetCount, track.stagger?.from));
+  const maxRank = Math.max(0, ...staggerRanks(targetCount, track.stagger?.from));
+  return staggerDelay(track, maxRank, maxRank);
 }

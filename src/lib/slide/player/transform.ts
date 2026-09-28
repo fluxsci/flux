@@ -36,7 +36,7 @@ import { applyTextLayout } from "../../text";
 import type { FluxPlotManifest } from "../../plot/types";
 import { elementBBox, dashAttr } from "../../geometry";
 import { pathRender } from "../../path";
-import { lerpElement, contentPlan, type ContentPlan } from "../tween";
+import { lerpElement, overshootBox, contentPlan, type ContentPlan } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
 import { hasTweenableSeries, seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
@@ -309,13 +309,14 @@ export function createTransform(
     }
   }
 
-  function seek(raw: number): void {
-    const t = clamp01(raw);
-    const el = morphPlan ? (t <= 0 ? pre : t >= 1 ? end : sampleElementMorph(morphPlan, t)) : lerpElement(pre, end, t);
+  function seek(u: number, raw = clamp01(u)): void {
+    const t = clamp01(u);
+    const content = morphPlan ? (raw <= 0 ? pre : raw >= 1 ? end : sampleElementMorph(morphPlan, t)) : lerpElement(pre, end, t);
+    const el = overshootBox(content, pre, end, u);
     // text metrics changed mid-tween → re-wrap with the real measurer (GUI);
     // headless applyTextLayout deletes the cache and falls back (documented).
-    if (el.type === "text" && el.needsLayout) applyTextLayout(el);
-    if (t > 0 && t < 1 && !boxOpts.skipTransform) {
+    if (content.type === "text" && content.needsLayout) applyTextLayout(content);
+    if (raw > 0 && raw < 1 && !boxOpts.skipTransform) {
       applyWrapperBoxComposite(wrap, el, baseBox, { skipOpacity: boxOpts.skipOpacity });
       if (glide) promoteMovingWrapper(wrap);
     } else {
@@ -324,8 +325,8 @@ export function createTransform(
     }
 
     if (morphPlan) {
-      if (t > 0 && t < 1) writeMorphFrame(el, t);
-      showMorphLayer(t);
+      if (raw > 0 && raw < 1) writeMorphFrame(content, t);
+      showMorphLayer(raw);
       return;
     }
 
@@ -351,7 +352,7 @@ export function createTransform(
         // exactly a fresh mount, idempotent at any t.
         restorePtTrue(inst, ptTrueBindings);
         restoreProjection(inst);
-        plotUpdate?.(el, t);
+        plotUpdate?.(content, t);
         if (naturalViewBox && intrinsic) {
           if (p.crop) {
             inst.setAttribute("viewBox", cropViewBoxValue(naturalViewBox, intrinsic, p.crop));
@@ -380,8 +381,8 @@ export function createTransform(
       return;
     }
 
-    if (staticUpdate) staticUpdate(el, t);
-    else updateStaticContent(contentHost, el, ctx);
+    if (staticUpdate) staticUpdate(content, t);
+    else updateStaticContent(contentHost, content, ctx);
   }
 
   // Build in story order, before later tracks resolve their targets. A B-only

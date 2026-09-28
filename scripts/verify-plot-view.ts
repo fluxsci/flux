@@ -184,6 +184,43 @@ for (const [beat, time] of [[1, 500], [2, 500], [2, 1000], [1, 0], [1, 500]]) {
   near(actual[1], expected.y, `data+view step ${beat} at ${time}ms y`);
 }
 player.destroy();
+h.section("spring data and view channels through the real player");
+beat.tracks[0].curve = { kind: "spring", bounce: .8 };
+// Observe the writer's input before its own defensive clamp. The probe bundles
+// the production player unchanged, adding only a call-boundary observation.
+const { build } = await import("esbuild");
+const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+const { tmpdir } = await import("node:os");
+const { join, dirname } = await import("node:path");
+const { pathToFileURL } = await import("node:url");
+const probeDir = await mkdtemp(join(tmpdir(), "flux-view-curve-"));
+const observed: number[] = [];
+(globalThis as any).__viewProgress = observed;
+const probeBundle = await build({ stdin: { contents: 'export { createPlayer } from "./src/lib/slide/player/player";', resolveDir: process.cwd(), loader: "ts" },
+  bundle: true, write: false, format: "esm", platform: "browser", plugins: [{ name: "observe-view-input", setup(build) {
+    build.onLoad({ filter: /projectDom\.ts$/ }, ({ path }) => {
+      const source = readFileSync(path, "utf8"), marker = "export function applyPlotView(";
+      const start = source.indexOf(marker), at = source.indexOf("\n", start);
+      assert.ok(start >= 0 && at > start, "projection observer binds the real writer");
+      return { contents: source.slice(0, at) + '\n  if (opts) (globalThis as any).__viewProgress.push(opts.t);' + source.slice(at), loader: "ts", resolveDir: dirname(path) };
+    });
+  } }] });
+const probeFile = join(probeDir, "player.mjs"); await writeFile(probeFile, probeBundle.outputFiles[0].text);
+const { createPlayer: observedPlayer } = await import(pathToFileURL(probeFile).href);
+const springPlayer = observedPlayer(host, deck, { theme: FLUX_DARK, reducedMotion: true, plotRoot: (id: string) => id === "sine" ? sine.root() : rb, plotManifest: (id: string) => id === "sine" ? sine.manifest : mb });
+const { resolveCurve } = await import("../src/lib/slide/curves");
+const curve = resolveCurve(beat.tracks[0]);
+let clampedView = true, reachedClamp = false;
+for (let i = 0; i < 60; i++) {
+  const raw = i / 59, t = curve.clamped(raw);
+  springPlayer.seek(0, 1, raw * 1000);
+  const expected = projectSeries(sine.manifest.series[0], mb.series[0], viewFits(sine.manifest, preView)!, viewFits(mb, zoom)!, t)[0];
+  const actual = xy(host, "p__2hz.line");
+  clampedView &&= t >= 0 && t <= 1 && Math.abs(actual[0] - expected.x) < 1e-5 && Math.abs(actual[1] - expected.y) < 1e-5;
+  reachedClamp ||= curve.fn(raw) > 1 && Math.abs(actual[0] - expected.x) < 1e-5;
+}
+h.ok(clampedView && reachedClamp && observed.length >= 60 && observed.every(t => t >= 0 && t <= 1), "60 spring(.8) player samples pass only clamped data/view progress to the projection writer");
+springPlayer.destroy(); delete (globalThis as any).__viewProgress; await rm(probeDir, { recursive: true, force: true });
 h.section("a fixed data view keeps the box-only fast path");
 const moveDeck = createDeck({ withTitleSlide: false }), moveSlide = addSlide(moveDeck, { layout: "blank" });
 addElement(moveDeck, moveSlide.id, { ...el, view: zoom });

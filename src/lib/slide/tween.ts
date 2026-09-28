@@ -16,7 +16,7 @@
 // paths, incompatible plots) is reported by contentPlan().
 // ---------------------------------------------------------------------------
 
-import type { Element, PartOverride, PlotView, VectorNode } from "../types";
+import type { Element, SemanticPlotElement, PartOverride, PlotView, VectorNode } from "../types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
@@ -342,6 +342,22 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
 }
 
 // --- lerpElement --------------------------------------------------------------
+
+/** Only physical box channels extrapolate; the clamped content stays intact. */
+export function overshootBox(el: Element, pre: Element, end: Element, u: number): Element {
+  if (u >= 0 && u <= 1) return el;
+  const out = { ...el,
+    x: lerp(pre.x, end.x, u), y: lerp(pre.y, end.y, u),
+    width: Math.max(0, lerp(pre.width, end.width, u)),
+    height: Math.max(0, lerp(pre.height, end.height, u)),
+    rotation: lerpRot(pre.rotation ?? 0, end.rotation ?? 0, u),
+  };
+  if ("contentScale" in pre || "contentScale" in end) {
+    (out as SemanticPlotElement).contentScale = Math.max(.01, lerp(
+      (pre as SemanticPlotElement).contentScale ?? 1, (end as SemanticPlotElement).contentScale ?? 1, u));
+  }
+  return out;
+}
 
 /** Interpolate two states of ONE element (same id/type). t≤0 / t≥1 return
  *  clones of the endpoints verbatim (true end nodes, no resample residue).

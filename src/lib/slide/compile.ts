@@ -3,11 +3,11 @@
 import type { Element } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
-import { lerpElement, transformEndState, transformPreState } from "./tween";
-import { resolveEasingFn } from "./easing";
+import { lerpElement, overshootBox, transformEndState, transformPreState } from "./tween";
+import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
 import { hasTweenableSeries, seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
-import { staggerRanks, staggerSpan } from "./stagger";
+import { staggerRanks, staggerSpan, staggerDelay } from "./stagger";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
@@ -26,7 +26,7 @@ export interface CompileOptions extends StyleContext {
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
 }
-export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; ease: (t: number) => number }
+export interface CompiledTrack { track: Track; beat: number; start: number; duration: number; end: number; parts: string[]; ranks: number[]; ease: ResolvedCurve }
 export interface PartFrame { opacity: number; visible: boolean; transform?: string }
 export interface SlideFrame {
   elements: Element[];
@@ -110,7 +110,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const by = track.stagger?.by;
       const coordinates = by === "x" || by === "y" ? new Map((manifest?.series ?? []).flatMap((s) => (s.points ?? []).map((p) => [p.svgId, p[by]] as const))) : undefined;
       const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates ? parts.map((id) => coordinates.get(id) ?? null) : undefined);
-      tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, ease: resolveEasingFn(track.easing ?? (track.preset === "transform" ? "smooth" : undefined), track.influence) });
+      tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, ease: resolveCurve(track, familyOf(track)) });
     }
     // Same target/property concurrent effects are visible diagnostics, never a
     // silent replacement. Different channels (e.g. Change + Fade) compose.
@@ -191,7 +191,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const local = bi < beatIndex ? Infinity : timeMs;
       if (local < ct.start) continue;
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;
-      const t = ct.ease(raw);
+      const t = ct.ease.clamped(raw);
       const el = byId.get(track.target);
       if (preset === "transform" && track.to?.become?.mode === "handoff") {
         const flight = flights.get(ct);
@@ -211,25 +211,27 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         if (hasPartBinding(track)) continue;
         const pre = transformPreState(slide, track.target, bi) ?? el;
         const end = transformEndState(pre, track);
-        const sampled = lerpElement(pre, end, t);
+        const sampled = overshootBox(lerpElement(pre, end, t), pre, end, ct.ease.fn(raw));
         for (const key of Object.keys(el)) if (!(key in sampled)) delete (el as unknown as Record<string, unknown>)[key];
         Object.assign(el, sampled);
         continue;
       }
       if (preset === "countUp" && el?.type === "text") {
         const pre = transformPreState(slide, track.target, bi);
-        el.text = countUpText(pre?.type === "text" ? pre.text : el.text, track)(t);
+        el.text = countUpText(pre?.type === "text" ? pre.text : el.text, track)(t, raw);
         continue;
       }
       if (preset === "camera") {
+        // M5 enables overshoot with geometric zoom; linear zoom must stay clamped.
         const from = camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 };
         const to = { x: track.to?.x ?? from.x, y: track.to?.y ?? from.y, zoom: track.to?.zoom ?? from.zoom };
         // M2: pass `ease.fn(raw)` here (overshoot allowed; zoom is geometric).
         camera = sampleCamera(from, to, t, stage, track.to?.path, from);
         continue;
       }
+      const maxRank = Math.max(0, ...ct.ranks);
       for (const [i, key] of targetsFor(ct).entries()) {
-        const at = ct.duration > 0 ? ct.ease(clamp((local - ct.start - (ct.ranks[i] ?? 0) * (track.stagger?.perMs ?? 0)) / ct.duration)) : 1;
+        const at = ct.duration > 0 ? ct.ease.clamped(clamp((local - ct.start - staggerDelay(track, ct.ranks[i] ?? 0, maxRank)) / ct.duration)) : 1;
         const previous = appearance.get(key) ?? { opacity: 1, visible: true };
         const opacity = isEnterPreset(preset) ? at : isExitPreset(preset) ? 1 - at : preset === "dim" ? 1 - .7 * at : preset === "highlight" ? .4 + .6 * at : previous.opacity;
         appearance.set(key, { opacity, visible: opacity > 0 });
@@ -237,10 +239,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       }
       // Legacy spatial effects remain inspectable at their endpoint.
       if (el && !ct.parts.length) {
+        const u = ct.ease.fn(raw);
         const effects = spatial.get(el.id) ?? new Map<string, number[]>(); spatial.set(el.id, effects);
-        if (preset === "move") effects.set("move", [Number(track.to?.x ?? 0) * t, Number(track.to?.y ?? 0) * t]);
-        if (preset === "rotate") effects.set("rotate", [Number(track.to?.rotation ?? track.to?.deg ?? track.params?.deg ?? 15) * t]);
-        if (preset === "scale") effects.set("scale", [1 + (Number(track.to?.scale ?? track.params?.scale ?? 1.15) - 1) * t]);
+        if (preset === "move") effects.set("move", [Number(track.to?.x ?? 0) * u, Number(track.to?.y ?? 0) * u]);
+        if (preset === "rotate") effects.set("rotate", [Number(track.to?.rotation ?? track.to?.deg ?? track.params?.deg ?? 15) * u]);
+        if (preset === "scale") effects.set("scale", [1 + (Number(track.to?.scale ?? track.params?.scale ?? 1.15) - 1) * u]);
       }
     }
     // Appearance offsets are a child of authored/changed geometry at runtime.

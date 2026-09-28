@@ -189,12 +189,11 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   visible(2, 99, true, false); visible(2, 100, true, false); visible(2, 400, false, false);
   visible(2, 700, false, true); visible(4, Infinity, false, true);
   visible(0, Infinity, true, false); visible(2, 400, false, false); visible(2, 700, false, true);
-  // Exercise the public compiled cue with M1 curves. Curve binding is M2's
-  // packet; C1's sampler must stay independent of whichever ease is bound.
-  const { resolveCurve } = await import("../src/lib/slide/curves");
+  // Curve and raw progress travel together through the real compiler.
   for (const jump of ["start", "end"] as const) {
-    const compiled = compileSlide(structuredClone(handoff), stage, options);
-    compiled.cues[2].tracks[0].ease = resolveCurve({ curve: { kind: "steps", n: 1, jump } }).clamped;
+    const stepped = structuredClone(handoff);
+    stepped.beats[2].tracks[0].curve = { kind: "steps", n: 1, jump };
+    const compiled = compileSlide(stepped, stage, options);
     for (const [ms, source, dest] of [[100, true, false], [101, false, false], [400, false, false], [699, false, false], [700, false, true], [100, true, false]] as const) {
       const frame = compiled.sample(2, ms);
       check(frame.presentation.elementStates.r.visible === source && destination.parts.every(p => frame.partStates[plot.id][p].visible === dest), `steps(1,${jump}) hand-off visibility reads raw progress at ${ms}ms, including reverse seek`);
@@ -294,5 +293,42 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   applyAt(specs, 1, 101); check(Math.abs(Number(effect.style.opacity) - .005) < 1e-9, "anchored entrance begins at the resolved end plus 1ms");
   check(compiled.cues[1].duration === 300 && specs.find(s => s.trackId === "follower")?.duration === 200, "compiler and binding inherit the styled duration");
   applyAt(specs, 1, 99); check(effect.style.opacity === "0", "reverse seek across an anchor restores the pre-start state");
+}
+// M2 channel law through the public compiler: the box overshoots, data does not.
+{
+  const spring = { kind: "spring", bounce: .8 } as const;
+  const springSlide: Slide = { id: "spring-compile", elements: [
+    { ...rect, x: 400, rotation: 350, opacity: 0, fill: "#000000" },
+    { id: "plot", type: "plot", assetId: "data", x: 0, y: 0, width: 100, height: 80, rotation: 0, contentScale: 1, view: { x: { domain: [0, 10] } } },
+    { ...text, text: "100%" },
+  ], beats: [{ id: "base", tracks: [] }, { id: "spring", tracks: [
+    { target: "r", preset: "transform", duration: 1000, curve: spring, to: { state: { x: 600, rotation: 10, width: 0, height: 0, opacity: 1, fill: "#ffffff", strokeWidth: 0 } } },
+    { target: "plot", preset: "transform", duration: 1000, curve: spring, to: { state: { contentScale: .01, view: { x: { domain: [2, 4] } } } } },
+    { target: "plot", part: "data.point", preset: "fade", duration: 1000, curve: spring },
+    { target: "t", preset: "countUp", duration: 1000, curve: spring, params: { to: 100 } },
+    { target: "@camera", preset: "camera", duration: 1000, curve: spring, to: { x: 0, y: 0, zoom: .01 } },
+  ] }] };
+  const manifest = { axes: [], series: [], parts: { id: "figure", children: [{ id: "data.point", role: "point" }] } } as unknown as FluxPlotManifest;
+  const compiled = compileSlide(springSlide, stage, { plotManifest: () => manifest });
+  let peak = 0, bounded = true, cameraClamped = true, positiveBox = true, rotationOvershoots = false, scaleFloor = false;
+  for (let i = 0; i < 60; i++) {
+    const f = compiled.sample(1, 1000 * i / 59), r = f.elements[0], p = f.elements[1] as import("../src/lib/types").SemanticPlotElement;
+    peak = Math.max(peak, r.x); rotationOvershoots ||= r.rotation > 370;
+    positiveBox &&= r.width >= 0 && r.height >= 0; scaleFloor ||= p.contentScale === .01 && r.x > 600;
+    const domain = p.view!.x!.domain!, alpha = f.partStates.plot["data.point"].opacity;
+    bounded &&= r.opacity! >= 0 && r.opacity! <= 1 && /^#[0-9a-f]{6}$/i.test((r as any).fill) && (r as any).strokeWidth >= 0 && (r as any).strokeWidth <= 1 &&
+      domain[0] >= 0 && domain[0] <= 2 && domain[1] >= 4 && domain[1] <= 10 && alpha >= 0 && alpha <= 1 &&
+      Number((f.elements[2] as any).text.replace("%", "")) <= 100;
+    // M5 switches to geometric zoom and fn together. Linear zoom is clamped in M2.
+    cameraClamped &&= f.camera!.x >= 0 && f.camera!.x <= stage.width / 2 && f.camera!.y >= 0 && f.camera!.y <= stage.height / 2 && f.camera!.zoom >= .01 - 1e-12 && f.camera!.zoom <= 1;
+  }
+  check(peak >= 605 && rotationOvershoots, `compiler extrapolates only box motion with shortest-arc rotation (x peak ${peak.toFixed(3)})`);
+  check(bounded, "compiler spring opacity, colour, stroke, parts, countUp and plot view stay bounded at 60 samples");
+  check(positiveBox && scaleFloor, "compiler floors extrapolated size at zero and contentScale at .01");
+  check(cameraClamped, "M2 camera stays clamped until M5 replaces linear zoom");
+  const end = compiled.sample(1).elements[0];
+  check(end.x === 600 && end.rotation === 10 && end.width === 0 && end.height === 0, "compiler lands on exact authored endpoints");
+  const { overshootBox } = await import("../src/lib/slide/tween");
+  check([0, .25, 1].every(u => overshootBox(end, springSlide.elements[0], end, u) === end), "overshootBox preserves the same sampled reference in range");
 }
 console.log(`\nSLIDE TIMELINE: PASS (${checks} assertions)`);

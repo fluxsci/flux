@@ -76,6 +76,11 @@ try {
   const playerSource = await fs.readFile(new URL("../src/lib/slide/player/player.ts", import.meta.url), "utf8");
   h.ok(!/function handoffsFor\b|interface HandoffRecord\b/.test(playerSource) && /type HandoffRecord = CompiledSlide\["handoffs"\]\[number\]/.test(playerSource), "the player consumes the compiler's hand-off record type without a second detection path");
 
+  // In-memory curves until M3 enables their persisted schema.
+  const springPaths = structuredClone(b), springGlyphs = structuredClone(d);
+  springPaths.id = "spring-pairs"; springGlyphs.id = "spring-glyphs";
+  for (const slide of [springPaths, springGlyphs]) slide.beats[1].tracks[0].curve = { kind: "spring", bounce: .8 };
+  deck.slides.push(springPaths, springGlyphs);
   const file = path.join(tmp, "handoff.html"); await fs.writeFile(file, (await exportDeckHtml({ deck, plots })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
   const errors: string[] = []; page.on("pageerror", (err: Error) => errors.push(String(err))); page.on("console", msg => { if (msg.type() === "error") errors.push(msg.text()); });
@@ -134,6 +139,36 @@ try {
 
   await seek(3, 925); h.ok((await inspect()).glyphs.every(g => near(g.opacity, .5, .0001)), "glyph opacity fades only during the final 15 percent");
   await seek(3, 1000); state = await inspect(); h.ok(state.visibleFlight === 0 && state.curve === "visible", "glyph landing reveals the curve and hides every clone");
+  const { resolveCurve } = await import("../src/lib/slide/curves");
+  const spring = resolveCurve(springPaths.beats[1].tracks[0]);
+  const samples = Array.from({ length: 60 }, (_, i) => ({ raw: i / 59, t: spring.clamped(i / 59) }));
+  const springFlights = await page.evaluate(({ samples, first }) => {
+    const rows: { raw: number; glyph: boolean; error: number; hidden: boolean; opacity: boolean }[] = [];
+    for (const glyph of [false, true]) for (const { raw, t } of samples) {
+      (window as any).fluxDeck.seek(first + Number(glyph), 1, raw * 1000);
+      const flight = document.querySelector(".sl-handoff")!;
+      const nodes = Array.from(flight.querySelectorAll(glyph ? ".sl-handoff-glyph" : ".sl-handoff-path"));
+      const geometry = nodes.map(n => (n.getAttribute(glyph ? "transform" : "d") ?? "").match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)?.map(Number) ?? []);
+      const hidden = getComputedStyle(document.querySelector('[id="dest__2hz.line"]')!).visibility === (raw < 1 ? "hidden" : "visible") && flight.getAttribute("visibility") === (raw > 0 && raw < 1 ? "visible" : "hidden");
+      const opacity = !glyph || raw <= 0 || raw >= 1 || nodes.every(n => Math.abs(Number(n.getAttribute("opacity")) - (raw < .85 ? 1 : (1 - raw) / .15)) < 1e-9);
+      let error = 0;
+      if (raw > 0 && raw < 1) {
+        (window as any).fluxDeck.seek(glyph ? 3 : 1, 1, Math.max(1e-9, Math.min(1 - 1e-9, t)) * 1000);
+        const oracle = Array.from(document.querySelectorAll(glyph ? ".sl-handoff-glyph" : ".sl-handoff-path"));
+        if (oracle.length !== geometry.length) error = Infinity;
+        oracle.forEach((n, i) => {
+          const values = (n.getAttribute(glyph ? "transform" : "d") ?? "").match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)?.map(Number) ?? [];
+          if (values.length !== geometry[i]?.length) error = Infinity;
+          values.forEach((v, j) => { error = Math.max(error, Math.abs(v - (geometry[i]?.[j] ?? Infinity))); });
+        });
+      }
+      rows.push({ raw, glyph, error, hidden, opacity });
+    }
+    return rows;
+  }, { samples, first: deck.slides.length - 2 });
+  h.ok(springFlights.filter(f => !f.glyph).every(f => f.error < .00001), "60 spring(.8) real-player pairing samples match only clamped correspondence progress");
+  h.ok(springFlights.filter(f => f.glyph).every(f => f.error < .00001 && f.opacity), "60 spring(.8) glyph landings stay clamped and fade only over the final raw 15 percent");
+  h.ok(springFlights.every(f => f.hidden), "spring hand-off reveals only at raw=1, never at an earlier eased crossing");
   await seek(4, 500); const wholeMid = await inspect(); await seek(4, 900); const wholeLate = await inspect();
   h.ok(wholeMid.count === 1 && wholeMid.destination === "hidden" && wholeLate.count > 1, "whole plot pairs only the spine chain; other parts fade late as leftovers");
   for (const t of [1, 100, 250, 500, 750, 999]) {
@@ -169,7 +204,7 @@ try {
   // A separate CSP-safe bundle exercises the real static host and controller
   // raw-progress seam; no substitute player or sampling shortcut.
   const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: "ts", contents: `
-    import { renderStaticAt, computeSlideAnims, applyAt, disposeSlideAnims } from './src/lib/slide/player/player';
+    import { createPlayer, renderStaticAt, computeSlideAnims, applyAt, disposeSlideAnims } from './src/lib/slide/player/player';
     import { renderSlide } from './src/lib/slide/player/render';
     import { preparePlot } from './src/lib/plot/parse';
     globalThis.probe = (deck, plots) => {
@@ -187,8 +222,22 @@ try {
         controller.seek(u,p);raw.push({p,flight:r.flight.querySelector('.sl-handoff').getAttribute('visibility'),dest:getComputedStyle(host.querySelector('[id="dest__axis.x.spine"]')).visibility});
       }
       applyAt(specs,1,500);disposeSlideAnims(specs);
-      return {results,raw,disposed:{children:r.flight.childElementCount,source:r.elements.get('source').style.visibility,dest:host.querySelector('[id="dest__axis.x.spine"]').style.visibility}};
-    };` }, bundle: true, platform: "browser", format: "iife", write: false });
+      const disposed={children:r.flight.childElementCount,source:r.elements.get('source').style.visibility,dest:host.querySelector('[id="dest__axis.x.spine"]').style.visibility};
+      globalThis.channelInputs = { pairs: [], glyphs: [] };
+      const player = createPlayer(host, deck, { ...opts, reducedMotion: true });
+      for (const index of [deck.slides.length-2, deck.slides.length-1]) for(let i=0;i<60;i++) player.seek(index,1,1000*i/59);
+      player.destroy();
+      return {results,raw,disposed,channels:globalThis.channelInputs};
+    };` }, bundle: true, platform: "browser", format: "iife", write: false, plugins: [{ name: "observe-handoff-inputs", setup(build) {
+      build.onLoad({ filter: /player[\\/]handoff\.ts$/ }, async ({ path: file }) => {
+        let source = await fs.readFile(file, "utf8");
+        for (const [marker, channel] of [["sampleCorrespondence(sampled!, t, out);", "pairs"], ["for (const glyph of glyphs) {", "glyphs"]]) {
+          if (!source.includes(marker)) throw new Error(`Missing hand-off observation boundary: ${marker}`);
+          source = source.replace(marker, `(globalThis as any).channelInputs?.${channel}.push(t); ${marker}`);
+        }
+        return { contents: source, loader: "ts", resolveDir: path.dirname(file) };
+      });
+    } }] });
   await fs.writeFile(path.join(tmp, "probe.js"), bundle.outputFiles[0].contents);
   await fs.writeFile(path.join(tmp, "static.html"), '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\'; style-src \'unsafe-inline\'"><div id="stage"></div><script src="probe.js"></script>');
   await page.goto(pathToFileURL(path.join(tmp, "static.html")).href);
@@ -198,6 +247,8 @@ try {
   h.ok(statics.results.every((r: any) => r.children === 0), "static hosts release all flight children");
   h.eq(statics.raw.map((r: any) => r.flight), ["visible","visible","hidden","hidden"], "overshooting eased values never trigger a discrete layer swap");
   h.eq(statics.disposed, { children:0,source:"",dest:"" }, "dispose restores all prior inline visibility and releases flight children");
+  h.ok(statics.channels.pairs.length >= 58 && statics.channels.pairs.every((t: number) => t >= 0 && t <= 1), "real-player correspondence receives only [0,1] under spring(.8)");
+  h.ok(statics.channels.glyphs.length >= 116 && statics.channels.glyphs.every((t: number) => t >= 0 && t <= 1), "real-player glyph driver receives only [0,1] under spring(.8)");
   h.eq(errors, [], "exported and static hosts have no browser errors or CSP violations");
 } catch (err) { h.fail(String((err as Error).stack ?? err)); }
 finally { await browser?.close(); await fs.rm(tmp, { recursive:true,force:true }); }

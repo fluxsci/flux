@@ -218,6 +218,40 @@ try {
   assert(post.offset === "" && post.dash === 0, "the drawn rest state restores the authored solid stroke without a temporary dash seam");
   assert(post.polyOpacity === "1", "the arrowhead pops in with the draw");
   assert(post.clip.includes("-20%"), `writeOn's resting clip keeps the overflow margin (descenders survive: ${post.clip})`);
+  // The portable runtime must carry M2 as well. This deck stays in memory until
+  // M3 adds curve validation; exportDeckHtml accepts the compiled payload directly.
+  const { exportDeckHtml } = await import("../src/lib/slide/export/exportDeck");
+  const springDeck = slideOps.createDeck({ withTitleSlide: false }); springDeck.defaults.transition = "none";
+  const springSlide = slideOps.addSlide(springDeck, { layout: "blank" });
+  slideOps.addElement(springDeck, springSlide.id, { type: "rect", id: "spring", x: 400, y: 100, width: 40, height: 40, rotation: 0, fill: "#ffffff", stroke: "none", strokeWidth: 0 });
+  const springBeat = slideOps.addBeat(springDeck, springSlide.id)!;
+  springBeat.tracks = [{ target: "spring", preset: "transform", duration: 1000, curve: { kind: "spring", bounce: .5 }, to: { state: { x: 600 } } }];
+  const springFile = path.join(root, "spring.html"); await fs.writeFile(springFile, (await exportDeckHtml({ deck: springDeck })).html);
+  await page2.goto(pathToFileURL(springFile).href); await page2.waitForFunction("!!window.fluxDeck?.seek");
+  const seekPeak = await page2.evaluate(() => {
+    let peak = 0;
+    for (let i = 0; i < 60; i++) {
+      (window as any).fluxDeck.seek(0, 1, 1000 * i / 59);
+      const box = document.querySelector('[data-el-id="spring"]') as HTMLElement;
+      const m = /translate\(([-\d.]+)px/.exec(box.style.transform);
+      peak = Math.max(peak, parseFloat(box.style.left) + Number(m?.[1] ?? 0));
+    }
+    return peak;
+  });
+  assert(seekPeak >= 605, `exported HTML seek overshoots 600px (peak ${seekPeak.toFixed(3)})`);
+  await page2.evaluate(`(() => {
+    window.__springX = [];
+    const collect = () => {
+      const box = document.querySelector('[data-el-id="spring"]');
+      const m = /translate\\(([-\\d.]+)px/.exec(box.style.transform);
+      window.__springX.push(parseFloat(box.style.left) + Number(m?.[1] ?? 0));
+      if (window.fluxDeck.state().playing) requestAnimationFrame(collect);
+    };
+    window.fluxDeck.play({slide:0,fromBeat:1,toBeat:1}); requestAnimationFrame(collect);
+  })()`);
+  await page2.waitForFunction("window.__springX.length > 2 && !window.fluxDeck.state().playing");
+  const playback = await page2.evaluate("({ peak: Math.max(...window.__springX), end: document.querySelector('[data-el-id=\"spring\"]').style.left })") as { peak: number; end: string };
+  assert(playback.peak >= 605 && playback.end === "600px", `exported HTML rAF overshoots and settles exactly (peak ${playback.peak.toFixed(3)})`);
   await page2.close();
 } finally {
   await browser?.close().catch(() => {});

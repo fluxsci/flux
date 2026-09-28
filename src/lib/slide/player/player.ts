@@ -8,7 +8,6 @@
 // ---------------------------------------------------------------------------
 
 import { DUR } from "../../motion/tokens";
-import { smoothstep, cubicBezierFn } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
@@ -38,9 +37,9 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
 }
 
 export { resolveEasing, resolveEasingFn } from "../easing";
-import { resolveEasing, resolveEasingFn } from "../easing";
+import { resolveCurve, type ResolvedCurve } from "../curves";
 import { compileSlide, type CompiledSlide, type AnimationIssue } from "../compile";
-import { staggerRanks } from "../stagger";
+import { staggerRanks, staggerDelay } from "../stagger";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
@@ -100,7 +99,7 @@ interface Spec {
   keyframes: Keyframe[];
   delay: number;
   duration: number;
-  easing: string;
+  ease: ResolvedCurve;
   enter: boolean;
   /** The authoring identity (target+part+selector) all of a track's node-specs
    *  share. The RE-BASELINE window is computed per key, not per node, because an
@@ -112,8 +111,6 @@ interface Spec {
   refreshCamera?: (transform?: string) => boolean;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
-  /** Time-easing sampler for a morph (honours the track's influence/easing). */
-  morphEase?: (t: number) => number;
   handoff?: HandoffController;
   trackId?: string;
   preset?: string;
@@ -137,7 +134,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     if (!el || !wrap) continue;
     // One materialization per slide build. Later seeks retain these exact nodes.
     if (rendered.sourceSlide !== slide) { wrap.replaceChildren(); fillContent(wrap, el, opts); applyWrapperBox(wrap, el); }
-    specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, easing: "linear", enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
+    specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, ease: resolveCurve({ easing: "linear" }), enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
   }
   const contentRoots = new Map<string, HTMLElement>();
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
@@ -205,15 +202,15 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
           specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
             delay: track.start ?? 0, duration: track.duration ?? 600,
-            easing: resolveEasing(track.easing ?? "smooth", track.influence),
-            morph: driver, handoff: driver, morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence) });
+            ease: ct.ease,
+            morph: driver, handoff: driver });
           if (handoff.spec.reveal === "draw") {
             const draw = { ...track, preset: "drawOn" as const, params: undefined };
             for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
               node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
               key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id,
               delay: (track.start ?? 0) + (track.duration ?? 600), duration: DUR.gentle,
-              easing: resolveEasing(track.easing ?? "standard", track.influence),
+              ease: resolveCurve(draw),
             });
           }
           continue;
@@ -230,9 +227,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         specs.push({
           node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
           delay: ct.start, duration: ct.duration,
-          easing: resolveEasing(track.easing ?? "smooth", track.influence),
+          ease: ct.ease,
           morph: driver,
-          morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),
         });
         continue;
       }
@@ -251,9 +247,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           specs.push({
             node, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
             delay: ct.start, duration: ct.duration,
-            easing: resolveEasing(track.easing ?? "standard", track.influence),
+            ease: ct.ease,
             morph: createCountUp(node, track),
-            morphEase: resolveEasingFn(track.easing ?? "standard", track.influence),
           });
         }
         continue;
@@ -269,14 +264,15 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const from = track.stagger?.from ?? "start";
       const by = track.stagger?.by;
       const ranks = perMs ? staggerRanks(n, from, by === "x" || by === "y" ? nodes.map((node) => spatialCoord(node, by)) : undefined) : [];
-      nodeAnims.forEach((na, i) => {
+      const maxRank = Math.max(0, ...ranks);
+      nodeAnims.forEach((na) => {
         specs.push({
           node: na.node,
           beatIndex: bi,
           keyframes: na.keyframes,
-          delay: ct.start + (perMs ? ranks[na.index] * perMs : 0),
+          delay: ct.start + staggerDelay(track, ranks[na.index] ?? 0, maxRank),
           duration: ct.duration,
-          easing: resolveEasing(track.easing, track.influence),
+          ease: ct.ease,
           enter: na.enter,
           key,
           prep: na.prep,
@@ -363,27 +359,41 @@ const bindings = new WeakMap<Spec[], BoundPlan>();
 function numericSampler(a: unknown, b: unknown): (t: number) => string | number {
   if (typeof a === "number" && typeof b === "number") return (t) => a + (b - a) * t;
   const sa = String(a ?? ""), sb = String(b ?? "");
-  const rx = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
-  const na = (sa.match(rx) ?? []).map(Number), nb = (sb.match(rx) ?? []).map(Number);
-  if (na.length && na.length === nb.length) return (t) => { let i = 0; return sb.replace(rx, () => String(na[i] + (nb[i] - na[i++]) * t)); };
+  const rx = /(-?(?:\d*\.)?\d+(?:e[-+]?\d+)?)([a-z%]*)/gi;
+  const aParts = [...sa.matchAll(rx)], bParts = [...sb.matchAll(rx)];
+  const na = aParts.map(m => Number(m[1])), nb = bParts.map(m => Number(m[1]));
+  // A unitless zero endpoint still needs its other endpoint's unit in flight.
+  const units = bParts.map((m, i) => m[2] || aParts[i]?.[2] || "");
+  if (na.length && na.length === nb.length) return (t) => { let i = 0; return sb.replace(rx, () => String(na[i] + (nb[i] - na[i]) * t) + units[i++]); };
   return (t) => t < .5 ? sa : sb;
 }
 function frameSampler(spec: Spec): (t: number) => Keyframe {
   const frames = spec.keyframes;
-  const segments = frames.slice(1).map((frame, i) => ({
-    from: Number(frames[i].offset ?? i / (frames.length - 1)),
-    to: Number(frame.offset ?? (i + 1) / (frames.length - 1)),
-    props: Object.keys(frame).filter((p) => !["offset", "easing", "composite"].includes(p)).map((p) => [p, numericSampler((frames[i] as Record<string, unknown>)[p], (frame as Record<string, unknown>)[p])] as const),
-  }));
-  const coeff = spec.easing.match(/-?\d*\.?\d+/g)?.map(Number);
-  const ease = spec.easing === "linear" ? (t: number) => t : spec.easing.startsWith("linear(") ? smoothstep : coeff?.length === 4 ? cubicBezierFn(coeff as [number, number, number, number]) : smoothstep;
+  const properties = [...new Set(frames.flatMap(frame => Object.keys(frame).filter(p => !["offset", "easing", "composite"].includes(p))))];
+  const channels = properties.map(property => {
+    const points = frames.flatMap((frame, i) => property in frame
+      ? [{ at: Number(frame.offset ?? i / (frames.length - 1)), value: (frame as Record<string, unknown>)[property] }] : []);
+    return { property, box: property === "transform",
+      discrete: property === "visibility" || property === "strokeLinecap" || property === "transformOrigin",
+      segments: points.slice(1).map((point, i) => ({ from: points[i].at, to: point.at, sample: numericSampler(points[i].value, point.value) })),
+      constant: points[0]?.value };
+  });
+  const frame: Record<string, unknown> = {};
   return (raw) => {
     if (raw <= 0) return frames[0];
     if (raw >= 1) return frames.at(-1)!;
-    const t = ease(raw);
-    const segment = segments.find((s) => t <= s.to) ?? segments.at(-1)!;
-    const u = Math.max(0, Math.min(1, (t - segment.from) / (segment.to - segment.from || 1)));
-    return Object.fromEntries(segment.props.map(([p, sample]) => [p, sample(u)]));
+    const u = spec.ease.fn(raw), t = spec.ease.clamped(raw);
+    for (const channel of channels) {
+      const progress = channel.discrete ? raw : channel.box ? u : t;
+      const segments = channel.segments;
+      if (!segments.length) { frame[channel.property] = channel.constant; continue; }
+      let i = 0;
+      while (i < segments.length - 1 && progress > segments[i].to) i++;
+      const segment = segments[i];
+      const local = (progress - segment.from) / (segment.to - segment.from || 1);
+      frame[channel.property] = segment.sample(channel.box ? local : Math.max(0, Math.min(1, local)));
+    }
+    return frame as Keyframe;
   };
 }
 function boundPlan(specs: Spec[]): BoundPlan {
@@ -406,7 +416,7 @@ function boundPlan(specs: Spec[]): BoundPlan {
   // Materialize content layers in story order before a first random seek.
   // Otherwise seeking directly to a late text change could nest its layer
   // underneath an earlier change which is only materialized afterwards.
-  for (const group of plan.nodes) for (const controller of group.controllers) controller.morph!.seek(0);
+  for (const group of plan.nodes) for (const controller of group.controllers) controller.morph!.seek(0, 0);
   for (const spec of specs) if (spec.keyframes.length) plan.samplers.set(spec, frameSampler(spec));
   bindings.set(specs, plan);
   return plan;
@@ -449,14 +459,14 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       if (selected !== group.lastController) {
         // Reset future crossfade layers outside-in before applying the past.
         // Their DOM is retained so inner-node animation bindings survive.
-        for (let i = controllers.length - 1; i >= 0; i--) controllers[i].morph!.seek(0);
-        for (let i = 0; i < selected; i++) controllers[i].morph!.seek(1);
+        for (let i = controllers.length - 1; i >= 0; i--) controllers[i].morph!.seek(0, 0);
+        for (let i = 0; i < selected; i++) controllers[i].morph!.seek(1, 1);
         group.lastController = selected;
       }
       if (selected >= 0) {
         const spec = controllers[selected], p = progressAt(spec, beat, time);
-        spec.morph!.seek((spec.morphEase ?? smoothstep)(Math.max(0, p)), Math.max(0, p));
-      } else controllers[0].morph!.seek(0);
+        spec.morph!.seek(spec.ease.fn(p), p);
+      } else controllers[0].morph!.seek(0, 0);
     }
     if (!keyframed.length) continue;
     clearAnimStyles(node, properties);
@@ -488,7 +498,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
         let animation = plan.natives.get(spec);
         if (!animation) {
-          animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.easing, fill: "both" });
+          animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.ease.css, fill: "both" });
           animation.pause();
           animation.finished.catch(() => {});
           plan.natives.set(spec, animation);

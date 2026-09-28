@@ -113,7 +113,7 @@ plot-to-plot Become does not, so no fourth way exists. Concretely, this branch:
   issue; it never silently deletes the source effect. `clearTransformContent` drops Become
   metadata along with the content half.
 
-### Curves (Animation v2 M1)
+### Curves (Animation v2 M1–M2)
 
 `slide/curves.ts` is the pure timing core shared with flux-core. A track may carry
 `curve: {kind:"bezier", p:[x1,y1,x2,y2]}`, `{kind:"spring", bounce, velocity?}`, or
@@ -131,10 +131,28 @@ jumps immediately after it (CSS jump-start itself starts at 1/n).
 Resolve once at spec construction and retain `ResolvedCurve`: `fn` permits overshoot,
 `clamped` bounds it, and `css` represents the clamped curve. New springs/overshooting
 beziers use 1,000 sample intervals and vertical-error Douglas–Peucker simplification
-at 0.002. The M2 player/compiler integration must pass `fn` only to box and camera
-channels, `clamped` to opacity/colour/trim/data/view/morph channels, and **raw progress**
-to every discrete visibility/reveal/endpoint decision. M1 adds the type only; schema,
-validators and authoring writes belong to M3. The curve UI and user docs belong to M4.
+at 0.002. Player specs and compiled tracks retain this same resolved curve; sampled
+frames never reconstruct a function from CSS. Native WAAPI receives `css` only for
+specs without a transform. Mixed keyframes choose the curve per property.
+
+| Channel | Progress | Constraint |
+| --- | --- | --- |
+| Box x/y, width/height, rotation, contentScale; wrapper transform keyframes | `fn(raw)` | Extrapolate the first/last keyframe segment; floor size at 0 and contentScale at .01. Rotation keeps the shortest arc. |
+| Camera | Clamped in the M2 compiler | M5 switches to `fn` together with geometric, positive zoom. |
+| Opacity and OKLab colours | `clamped(raw)` | Stay within the authored endpoints and colour gamut. |
+| Trim, draw-on, wipe, stroke width and dash | `clamped(raw)` | No negative widths or overshooting dash windows. |
+| CountUp and plot data/view | `clamped(raw)` | Data never overshoots. |
+| Hand-off correspondence and glyph landings | `clamped(raw)` | Data pairing never extrapolates. |
+| Same-element outline morph | `clamped(raw)` | Shape interpolation stays bounded in v1; its outer box can overshoot. |
+
+`seek(u, raw)` carries both eased and raw progress. Every discrete phase decision—A/M/B
+visibility, endpoint settlement, hand-off reveal, drawOn cleanup and the glyph's final
+15% fade—reads **raw**, so crossing eased 1 never finishes a flight early. CountUp restores
+verbatim endpoint formatting only at raw 1. Static seeks pass `(0, 0)` or `(1, 1)`.
+`overshootBox` changes only the physical box and retains the sampled object in range;
+inner content uses the clamped state, including its SVG viewBox, so it cannot cancel the
+outer box's motion. `staggerDelay` supplies playback, compiler and timeline span arithmetic.
+Schema, validators and authoring writes belong to M3; the curve UI and user docs to M4.
 
 ### Camera paths (Animation v2 M5)
 

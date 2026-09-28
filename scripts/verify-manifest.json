@@ -788,7 +788,8 @@
       "verify-v020-paper-contracts.ts",
       "verify-v020-morph-startup.mjs",
       "verify-slide-handoff-browser.ts",
-      "verify-slide-camera.ts"
+      "verify-slide-camera.ts",
+      "verify-slide-player.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -845,7 +846,9 @@
   "pathMap": [
     {
       "glob": "scripts/lib/animatorDestinationChecks.mjs",
-      "run": ["verify-slide-animator-gui.mjs"]
+      "run": [
+        "verify-slide-animator-gui.mjs"
+      ]
     },
     {
       "glob": "scripts/lib/animatorReaderChecks.mjs",
@@ -5783,7 +5786,9 @@
     },
     "verify-slide-player.ts": {
       "runtime": "tsx",
-      "prerequisites": [],
+      "prerequisites": [
+        "chrome"
+      ],
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,

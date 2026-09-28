@@ -213,4 +213,116 @@ assert(bareDraw.length === 1, "1.5 drawOn: a bare path (already geometry) stays 
 assert(resolveEasing("smooth").startsWith("linear("), "smooth → manim smoothstep linear() string");
 assert(resolveEasing("linear") === "linear" && resolveEasing(undefined).startsWith("cubic-bezier"), "linear + default easings resolve");
 
+// Springs use the real player, including reverse seeks and endpoint settlement.
+// Curve is type-only until M3: these decks never pass through disk validation.
+const { createPlayer } = await import("../src/lib/slide/player/player");
+const { createDeck } = await import("../src/lib/slide/ops");
+const { resolveCurve } = await import("../src/lib/slide/curves");
+const { overshootBox } = await import("../src/lib/slide/tween");
+const { staggerDelay } = await import("../src/lib/slide/stagger");
+const core = await import("../flux-core/index");
+assert(core.overshootBox === overshootBox && core.staggerDelay === staggerDelay, "box extrapolation and stagger have identical GUI/headless exports");
+const spring = { kind: "spring", bounce: .5 } as const;
+const springSlide: Slide = { id: "spring", elements: [
+  { type: "rect", id: "box", x: 400, y: 100, width: 80, height: 60, rotation: 0, opacity: .2, fill: "#000000", stroke: "#000000", strokeWidth: 2 },
+  { type: "rect", id: "plain", x: 400, y: 200, width: 80, height: 60, rotation: 0, opacity: .2, fill: "#000000", stroke: "none", strokeWidth: 0 },
+  { ...tEl("count", 250), text: "100%" },
+  { ...tEl("exact-count", 275), text: "000100%" },
+  { ...tEl("fade", 300) }, { ...tEl("rise", 350) },
+], beats: [{ id: "base", tracks: [] }, { id: "bounce", tracks: [
+  { id: "box", target: "box", preset: "transform", duration: 1000, curve: spring, to: { state: { type: "ellipse", x: 600, opacity: .8, fill: "#ffffff" } } },
+  { id: "plain", target: "plain", preset: "transform", duration: 1000, curve: spring, to: { state: { x: 600, opacity: .8, fill: "#ffffff" } } },
+  { id: "count", target: "count", preset: "countUp", duration: 1000, curve: { kind: "spring", bounce: .8 }, params: { to: 100 } },
+  { target: "exact-count", preset: "countUp", duration: 1000, curve: { kind: "spring", bounce: .8 } },
+  { id: "fade", target: "fade", preset: "fade", duration: 1000, curve: spring },
+  { id: "rise", target: "rise", preset: "fadeRise", duration: 1000, curve: spring },
+] }] };
+const springDeck = createDeck({ withTitleSlide: false, stage }); springDeck.defaults.transition = "none"; springDeck.slides = [springSlide];
+const springHost = document.createElement("div") as unknown as HTMLElement;
+const player = createPlayer(springHost, springDeck, { ...opts, reducedMotion: true });
+const wrapper = springHost.querySelector('[data-el-id="box"]') as HTMLElement;
+const layers = Array.from(wrapper.children) as HTMLElement[];
+const samples = Array.from({ length: 60 }, (_, i) => i / 59);
+let peakX = 0, layersStable = true, bounded = true, countBounded = true, countExact = true, rawText = true, sawLanding = false;
+const countCurve = resolveCurve({ curve: { kind: "spring", bounce: .8 } });
+for (const raw of samples) {
+  player.seek(0, 1, raw * 1000);
+  const dx = /translate\(([-\d.]+)px/.exec(wrapper.style.transform ?? "");
+  peakX = Math.max(peakX, parseFloat(wrapper.style.left) + Number(dx?.[1] ?? 0));
+  layersStable &&= layers.length === 3 && layers.every((layer, i) => (layer.style.visibility !== "hidden") === (raw <= 0 ? i === 0 : raw >= 1 ? i === 2 : i === 1));
+  bounded &&= Number(wrapper.style.opacity) >= .2 && Number(wrapper.style.opacity) <= .8;
+  if (raw > 0 && raw < 1) {
+    const fill = layers[1].querySelector("path")!.getAttribute("fill")!;
+    bounded &&= /^#[0-9a-f]{6}$/i.test(fill);
+  }
+  const count = Number(springHost.querySelector('[data-el-id="count"] tspan')!.textContent!.replace("%", ""));
+  countBounded &&= count >= 0 && count <= 100;
+  countExact &&= count === Number((100 * countCurve.clamped(raw)).toFixed(0));
+  const exact = springHost.querySelector('[data-el-id="exact-count"] tspan')!.textContent;
+  rawText &&= raw === 1 ? exact === "000100%" : exact !== "000100%";
+  sawLanding ||= raw < 1 && count === 100;
+}
+assert(peakX >= 605, `spring transform overshoots the 400→600 box (peak ${peakX.toFixed(3)})`);
+assert(layersStable, "60 raw samples keep A/M/B visibility tied only to raw endpoints");
+assert(bounded, "spring opacity stays between .2 and .8 and outline colours stay in gamut");
+assert(countBounded && sawLanding && countExact, "spring(.8) countUp reaches 100 before settling and never exceeds its target");
+assert(rawText, "countUp restores authored endpoint formatting only at raw=1");
+player.seek(0, 1, 310); player.seek(0, 1, 1000);
+assert(wrapper.style.left === "600px" && wrapper.style.width === "80px" && wrapper.style.transform === "", "static seek(1) after overshoot restores the exact end box");
+player.destroy();
+
+// Native WAAPI and sampled frames share the same resolved spring. The fadeRise
+// spec contains transform AND opacity, so its opacity must use the clamp channel.
+const { build } = await import("esbuild");
+const { readFile } = await import("node:fs/promises");
+const { dirname } = await import("node:path");
+const { launch } = await import("./lib/driver.mjs");
+const bundle = await build({ stdin: { contents: `
+  import { createPlayer } from './src/lib/slide/player/player';
+  import { FLUX_DARK } from './src/lib/slide/theme';
+  window.springPlayer = (host, deck) => createPlayer(host, deck, { theme: FLUX_DARK, reducedMotion: false });
+`, resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, format: "iife", platform: "browser", plugins: [{ name: "observe-countup-input", setup(build) {
+  build.onLoad({ filter: /player[\\/]countup\.ts$/ }, async ({ path }) => {
+    const source = await readFile(path, "utf8"), boundary = /return \(t, raw = t\) => (.*);/;
+    assert(boundary.test(source), "countUp observer binds the real formatter");
+    return { contents: source.replace(boundary, 'return (t, raw = t) => { (globalThis as any).__countProgress?.push(t); return $1; };'), loader: "ts", resolveDir: dirname(path) };
+  });
+} }] });
+const { browser, page } = await launch();
+try {
+  await page.setContent('<html><body><div id="host"></div></body></html>');
+  await page.addScriptTag({ content: bundle.outputFiles[0].text });
+  const native = await page.evaluate(`(deck => {
+    let clock = 0, callback;
+    const original = { now: performance.now.bind(performance), raf: window.requestAnimationFrame, cancel: window.cancelAnimationFrame };
+    Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
+    window.requestAnimationFrame = cb => { callback = cb; return 1; }; window.cancelAnimationFrame = () => { callback = undefined; };
+    window.__countProgress = [];
+    const player = window.springPlayer(document.getElementById("host"), deck);
+    const fade = document.querySelector('[data-el-id="fade"] .sl-effects');
+    const rise = document.querySelector('[data-el-id="rise"] .sl-effects');
+    const frames = [];
+    try {
+      for (let i = 0; i < 60; i++) player.seek(0, 1, 1000 * i / 59);
+      for (let i = 1; i <= 20; i++) {
+        const raw = i / 21;
+        player.seek(0, 1, raw * 1000);
+        const seek = Number(fade.style.opacity);
+        player.play({ slide: 0, fromBeat: 1, toBeat: 1 }); clock += raw * 1000; callback(clock);
+        frames.push({ raw, native: Number(getComputedStyle(fade).opacity), sampled: Number(rise.style.opacity), seek,
+          easing: fade.getAnimations()[0]?.effect?.getTiming().easing ?? "", transform: rise.style.transform, paintedX: document.querySelector('[data-el-id="plain"] rect').getBoundingClientRect().left - document.getElementById("host").getBoundingClientRect().left });
+        player.pause();
+      }
+    } finally { player.destroy(); Object.defineProperty(performance, "now", { configurable: true, value: original.now }); window.requestAnimationFrame = original.raf; window.cancelAnimationFrame = original.cancel; }
+    return { frames, counts: window.__countProgress };
+  })(${JSON.stringify(springDeck)})`) as { frames: { raw: number; native: number; sampled: number; seek: number; easing: string; transform: string; paintedX: number }[]; counts: number[] };
+  assert(native.counts.length >= 60 && native.counts.every(t => t >= 0 && t <= 1), "real-player countUp formatter receives only [0,1] under spring(.8)");
+  const ease = resolveCurve({ curve: spring });
+  assert(native.frames.every(f => f.easing.startsWith("linear(")), "native WAAPI receives the spring linear() easing");
+  const error = Math.max(...native.frames.map(f => Math.max(Math.abs(f.native - f.sampled), Math.abs(f.native - f.seek), Math.abs(f.native - ease.clamped(f.raw)))));
+  assert(error <= .005, `native and sampled spring frames agree within 0.5% at 20 times (max ${error})`);
+  assert(native.frames.every(f => Math.abs(f.paintedX - (400 + 200 * ease.fn(f.raw))) < .001), "painted same-kind content follows the overshooting wrapper without cancelling its motion");
+  assert(native.frames.some(f => /translateY\(([-\d.]+)px/.test(f.transform) && Number(/translateY\(([-\d.]+)(?:px)?/.exec(f.transform)![1]) < 0), "mixed keyframes extrapolate transform while clamping opacity");
+} finally { await browser.close(); }
+
 console.log("\nALL SLIDE-PLAYER (P2) TESTS PASSED");
