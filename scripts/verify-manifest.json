@@ -868,6 +868,15 @@
       ]
     },
     {
+      "glob": "src/main.ts",
+      "run": [
+        "tier:pure",
+        "verify-startup.mjs",
+        "verify-inbox-gui.mjs",
+        "verify-background-run-gui.mjs"
+      ]
+    },
+    {
       "glob": "{scripts/lib/m4GhostFixture.ts,scripts/fixtures/m4-ghost-disappear-pre-m3.json}",
       "run": [
         "verify-slide-ghost-structure.ts"

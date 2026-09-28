@@ -2,7 +2,7 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { launch, gotoApp, clickMode, waitFor, APP_URL, realErrors, shot } from './lib/driver.mjs';
+import { launch, clickMode, waitFor, APP_URL, realErrors, shot } from './lib/driver.mjs';
 import { harness } from './lib/harness.mjs';
 import { TestProcessScope } from './lib/testProcess.mjs';
 import { tsxCli } from './lib/tsxRun.mjs';
@@ -28,7 +28,50 @@ const event = async e => page.evaluate(async ({ root, e }) => {
 let popup;
 try {
   const f = await inboxFixture(path.join(temp, 'project'));
-  await gotoApp(page, { url: APP_URL + '?fixture=demo' });
+  // Hold the demo bridge module to exercise cold startup independently of Vite's
+  // cache/load. Electron installs its preload before mounting any shell consumer.
+  await page.evaluateOnNewDocument(() => {
+    window.__backgroundStartup = { probes: 0, subscriptions: 0 };
+    let bridge;
+    Object.defineProperty(window, 'fig', { configurable: true, get: () => bridge, set(value) {
+      bridge = value;
+      const capabilities = bridge.runnerCapabilities, subscribe = bridge.onRunnerEvent;
+      bridge.runnerCapabilities = function (...args) {
+        window.__backgroundStartup.probes++;
+        return capabilities.apply(this, args);
+      };
+      bridge.onRunnerEvent = function (...args) {
+        window.__backgroundStartup.subscriptions++;
+        return subscribe.apply(this, args);
+      };
+    } });
+  });
+  let holdFixture;
+  const heldFixture = new Promise(resolve => { holdFixture = resolve; });
+  await page.setRequestInterception(true);
+  const intercept = request => {
+    if (new URL(request.url()).pathname === '/src/lib/project/memBridge.ts') holdFixture(request);
+    else void request.continue();
+  };
+  page.on('request', intercept);
+  const navigation = page.goto(APP_URL + '?fixture=demo', { waitUntil: 'networkidle0' });
+  const request = await heldFixture;
+  try {
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    const mountedEarly = !!await page.$('.wordmark');
+    h.ok(!mountedEarly, 'shell waits for the fixture bridge before mounting capability consumers');
+    // On the old bootstrap, let the real idle-prefetched consumer finish its first
+    // probe before releasing the bridge. No forced refresh repairs the cached [].
+    if (mountedEarly) await waitFor(page, () => !!window.__fluxRefreshBackground, null, { label: 'early background consumer' });
+  } finally { await request.continue(); }
+  await navigation;
+  page.off('request', intercept); await page.setRequestInterception(false);
+  await waitFor(page, () => !!window.__fluxInbox && !!window.__fluxRefreshBackground, null, { label: 'initial background consumer' });
+  const initialBackground = await page.evaluate(async () => {
+    const state = await import('/src/shell/inbox/backgroundState.ts');
+    return { ...window.__backgroundStartup, available: window.__flux.get(state.backgroundAvailable), drivers: window.__flux.get(state.backgroundDrivers) };
+  });
+  h.eq(initialBackground, { probes: 1, subscriptions: 1, available: true, drivers: ['claude', 'codex'] }, 'first capability probe discovers installed CLIs and subscribes to runner events without a refresh');
   await mountInboxFixture(page, root, await projectFiles(f.root));
   await page.evaluate(() => window.__inboxOpenStart = performance.now());
   await page.click('.inbox-button'); await page.waitForSelector('[data-inbox-row]');

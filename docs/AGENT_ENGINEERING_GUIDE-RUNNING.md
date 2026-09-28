@@ -114,8 +114,8 @@ capabilities as the GUI, through these surfaces:
   `shell/inbox/backgroundState.ts`. `BackgroundRun`/`BackgroundStop` mount in Inbox
   and Sessions; the approval modal is shell-lazy. Annotation saves start routed tasks,
   and saved human replies resume or restart them, queuing replies during active turns.
-  F2 owns the annotation route UI: consume `backgroundAvailable` there and replace
-  its retired unconditional background-route save block when integrating F2/F5.
+  The annotation route UI consumes `backgroundAvailable` and starts the selected
+  background driver after saving the routed note.
   Gates: `verify-background-run`, `verify-runner-drivers`, `verify-mcp-readonly`,
   `verify-ipc-contract` (pure), `verify-background-run-gui` (UI).
 
@@ -1401,7 +1401,7 @@ Persistence invariants (all machine-checked — do not weaken):
     picture/context. Withdraw never pretends the work was resolved. Status chips and
     toasts name the agent; needs-input opens its replies. `RecipientList.svelte` and the
     pure `agentRouting.ts` order Inbox, Any, watching sessions, then selectable muted
-    non-watchers. The `backgroundAvailable` store defaults false and reserves F5's slot.
+    non-watchers, then New background agent when `backgroundAvailable` reports an installed driver.
     Inbox Assign/Unassign/Release use the shared ledger builders; `assign.route` supports
     Inbox/Any/background as well as named assignments, including comment overlays.
     Reassigning/unassigning held work revokes its former holder; explicit assignment back
@@ -2052,6 +2052,13 @@ Run it through the hermetic runner; never validate a migration on real projects.
 
 **Agent tools, launchers and processes:**
 
+- The dev fixture must install `window.fig` before mounting Shell, matching Electron's
+  preload order. Shell idle-prefetch mounts Annotate even on Home; starting it before
+  the async fixture import finishes makes the initial capability probe cache `[]` for
+  five minutes and loses the one-time runner-event subscription. `main.ts` awaits
+  fixture installation before mount, not a timeout or a second capability probe.
+  `verify-inbox-gui` holds the fixture module request and pins the first probe and
+  subscription. Larger import graphs can expose this ordering bug without throwing.
 - Tool output can lose its middle as well as its end. Keep the connect brief ≤10,000
   characters, with every section marker and the final sentinel; use `read_pack` chunks
   for the bundle and verify proof codes instead of assuming a long response arrived intact.
@@ -8292,3 +8299,15 @@ Electron/startup/bundle qualification remains the orchestrator's responsibility.
 are distinct catalog policies. Keep a swap's admission on private beats so a refused shared
 op cannot publish partial changes. Compare mapped gates per tier: the runner's `--changed`
 adds all mapped tiers, including native gates a worker must delegate.
+
+  dynamic controls/errors grow. M4 has this packet-owned placement bug; the QA gate
+  now exposes it and the proposed ResizeObserver fix is pending orchestrator approval.
+
+### 2026-09-28 14:48 UTC — Inbox first-probe readiness (Codex, av2/X2)
+**Work:** Traced the missing background recipient to the dev fixture mounting Shell before
+its bridge arrived: no provider call or rejection, an empty capability cache, and a missed
+runner-event subscription. Demo startup now awaits fixture installation before mount, matching
+Electron's preload order. The Inbox gate holds the real fixture module request and pins the
+first probe/subscription without refreshing; old startup fails both new checks and the two
+existing recipient checks (86/90), while the fix passes 90/90. Promoted the startup contract
+into §9 and corrected the completed background-routing integration notes in §1/§4.
