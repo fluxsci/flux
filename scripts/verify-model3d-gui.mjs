@@ -82,6 +82,14 @@ try {
   await page.evaluate(id => { const F = window.__flux; F.fig.activeFigureId.set('m3d-main'); F.fig.selection.set(new Set([id])); F.fig.viewport.set({ panX: 35, panY: 55, zoom: .95 }); }, setup.id); await settled();
   await page.screenshot({ path: out + '/edited-model.png' });
 
+  h.section('furniture double-click selects the part, like 2D plot parts');
+  const cbar = await page.$eval(`[data-editor-element-id="${setup.id}"] [data-model3d-furniture="over"] [data-role="colorbar"]`, n => { const t = n.querySelector('text') ?? n, r = t.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, id: n.getAttribute('data-part-id') }; });
+  await page.mouse.click(cbar.x, cbar.y, { count: 2, delay: 80 });
+  await waitFor(page, pid => window.__flux.get(window.__flux.fig.partSelection)?.partId === pid, cbar.id, { label: 'double-click selects the colorbar part' });
+  h.ok(!(await page.$('[data-model3d-orbit]')), 'double-clicking furniture does not start orbit');
+  h.eq(await page.$eval('.model3d-properties h4', n => n.textContent.trim().startsWith('3D view')), true, 'Inspector uses the 3D view section heading');
+  await page.evaluate(id => { const F = window.__flux; F.fig.partSelection.set(null); F.fig.selection.set(new Set([id])); }, setup.id);
+
   h.section('zoom proxy and residency');
   await waitFor(page, () => { const i = document.querySelector('.zoom-proxy'); return !!i?.complete && i.naturalWidth > 0 && !i.classList.contains('live'); }, null, { timeout: 20000, label: 'decoded zoom proxy' });
   results.proxy = await page.evaluate(id => {
@@ -153,6 +161,8 @@ try {
     const { scene3dGeneration } = await import('/src/lib/model3d/store.ts');
     window.__m3dTest.availability = window.fig.model3dAvailability;
     window.fig.model3dAvailability = async () => ({ disabled: true });
+    // A same-root reload deliberately keeps the worker; a lost GPU is a reset.
+    window.__fluxModel3d.reset();
     scene3dGeneration.update(n => n + 1);
   });
   await waitFor(page, () => !!document.querySelector('[data-model3d-poster]') && window.__fluxModel3d.stats().contexts === 0, null, { label: 'cached poster survives disabled GPU' });

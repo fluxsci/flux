@@ -128,4 +128,11 @@ mergePartOverride(a,'__proto__',{hidden:null});h.ok(!Object.hasOwn(a.overrides!,
 const strangeAsset={...asset,model:{...asset.model,partNames:['__proto__']}};a.overrides={};const plainKey=posterKey(a,strangeAsset,undefined,{w:200,h:200});
 mergePartOverride(a,'__proto__',{fill:'#aabbcc'});h.ok(posterKey(a,strangeAsset,undefined,{w:200,h:200})!==plainKey,'plain prototype-named mesh override affects poster key');
 h.eq(resolveScene3dPartStyle(undefined,a.overrides,'__proto__'),{fill:'#aabbcc'},'plain prototype-named part resolves own override');
+{ // Furniture rows name their role first ("Scale bar · 0.5 µm"), not bare text.
+ const bar=JSON.parse(await (await import('node:fs/promises')).readFile(new URL('./fixtures/model3d/fluxplot/scalebar.fluxplot.json',import.meta.url),'utf8'));
+ const flat=(n:{label:string,children:any[]}):string[]=>[n.label,...n.children.flatMap(flat)];
+ const labels=flat(buildModel3dTree(bar));
+ h.ok(labels.includes('Scale bar · 0.5 µm'),'scale bar row is labelled by role and text');
+ h.ok(labels.includes('mesh'),'mesh rows keep their own label');
+}
 await h.done();

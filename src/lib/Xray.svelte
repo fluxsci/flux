@@ -733,7 +733,7 @@
               {#if commonCount && !q && ri === 0}
                 <div class="section">Common parts <span class="scount">shared by all {common[0]?.elementIds?.length ?? 0}</span></div>
               {:else if commonCount && !q && ri === commonCount}
-                <div class="section">Objects</div>
+                <div class="section">{rootPlots($project, root).some(e => e.type === "model3d") ? "Objects" : "Plots"}</div>
               {/if}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
@@ -805,7 +805,7 @@
 {/if}
 
 <style>
-  .model-controls { padding: 0 10px 12px; }
+  .model-controls { padding: 0 0 8px; }
   /* Radiograph, flat: a near-black tube field with phosphor accents and mono
      type — always dark by nature (the --xr-* ramp, never the theme-scoped
      --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a

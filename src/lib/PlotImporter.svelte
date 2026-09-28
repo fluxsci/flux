@@ -757,7 +757,7 @@
         <svg class="mag" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
         <input bind:this={inputEl} bind:value={search} class="search-in" aria-label="Search plots" placeholder={searchHint} spellcheck="false" on:input={() => { index = 0; status = ""; }} />
         {#if search}<button class="clear-search" on:click={() => { search = ""; index = 0; focusInput(); }} aria-label="Clear search">×</button>{/if}
-        {#if allowModels}<button class="models-filter" class:chosen={modelsOnly} aria-label="Show only 3D models" aria-pressed={modelsOnly} on:click={() => { modelsOnly = !modelsOnly; index = 0; resetScroll(); }}><Model3dIcon /> 3D</button>{/if}
+        {#if allowModels}<button class="models-filter" class:chosen={modelsOnly} aria-label="Show only 3D models" title="Show only 3D models" aria-pressed={modelsOnly} on:click={() => { modelsOnly = !modelsOnly; index = 0; resetScroll(); }}><Model3dIcon /> 3D</button>{/if}
       </div>
       <div class="viewbar">
         <button class="tree-toggle" class:chosen={sidebar} aria-label="Toggle folder sidebar" aria-expanded={sidebar} on:click={() => { sidebar = !sidebar; rememberView(); }}>Folders</button>
@@ -790,14 +790,14 @@
                 {#if viewMode === "gallery"}
                   <span class="tile-preview">
                     {#if r.kind === "file" && r.abs}<GalleryPreview path={r.abs} {previews} />
-                    {#if r.model3d}<Model3dChip path={r.abs!} {previews} tile />{/if}
+                    {#if r.model3d}<Model3dChip path={r.abs!} {previews} initial={r.semantic} tile />{/if}
                     {:else}<svg class="folder-icon" viewBox="0 0 48 40" aria-hidden="true"><path d="M4 10V6h15l5 5h20v23H4Z"/>{#if r.kind === "up"}<path d="m18 23 6-6 6 6m-6-6v13"/>{/if}</svg><span class="folder-caption">{r.kind === "up" ? "Parent folder" : "Folder"}</span>{/if}
                   </span>
                 {/if}
                 <span class="row-meta">
                   <span class="ic">{#if r.model3d && !selected}<Model3dIcon />{:else}{selected ? "✓" : r.kind === "dir" ? "↳" : r.kind === "up" ? "↩" : r.video ? "▶"  : r.semantic ? "◆" : "◇"}{/if}</span>
                   <span class="names"><span class="nm">{r.kind === "file" ? r.name.replace(/\.(svg|png|glb|mp4|mov)$/i, "") : r.name}</span>{#if r.hint}<span class="rel">{r.hint}</span>{:else if (q || similarTo) && r.where}<span class="rel" data-where>{r.where}</span>{/if}</span>
-                  {#if r.model3d}<Model3dChip path={r.abs!} {previews} />
+                  {#if r.model3d}<Model3dChip path={r.abs!} {previews} initial={r.semantic} />
                   {:else if r.kind === "file" && r.semantic}<span class="badge">semantic</span>{/if}
                   {#if r.snip}<span class="badge">snip</span>{/if}
                   {#if r.video}<span class="badge">video</span>{/if}
@@ -931,6 +931,8 @@
   .picked .ic { color:var(--c-accent); }
   .badge { margin-left:auto; padding:0 4px; border:1px solid var(--c-line-strong); border-radius:var(--r-ui); font:600 9px/14px var(--font-mono); text-transform:uppercase; letter-spacing:.06em; color:var(--c-tx-muted); }
   .gallery .badge { display:none; }
+  /* One 3D mark per tile: the tile-corner chip; the caption keeps its glyph. */
+  .gallery :global(.model-chip:not(.tile)) { display:none; }
   .pick-mark { position:absolute; right:10px; top:10px; width:16px; height:16px; background:var(--c-accent); color:var(--c-on-accent); border-radius:var(--r-ui); text-align:center; font:600 11px/16px var(--font-mono); }
   .gallery.without-labels .row:not(.folder) .row-meta { display:none; }
   .empty { display:flex; flex-direction:column; gap:6px; padding:60px 20px; text-align:center; color:var(--c-tx-muted); font-size:12px; }

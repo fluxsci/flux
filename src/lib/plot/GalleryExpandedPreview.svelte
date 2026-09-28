@@ -102,7 +102,7 @@
     }
     const target = event.target as HTMLElement;
     if (target.matches("input,textarea,select") || target.isContentEditable || event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.key.toLowerCase() === "d") { event.preventDefault(); switchTab(tab === "preview" ? "dissections" : "preview"); return; }
+    if (event.key.toLowerCase() === "d" && !model3d) { event.preventDefault(); switchTab(tab === "preview" ? "dissections" : "preview"); return; }
     if (target.tagName === "VIDEO") return; // native playback controls own arrows and Space
     if (tab === "preview") {
       if (event.key === "ArrowLeft" && onPrevious) { event.preventDefault(); onPrevious(); }
@@ -145,7 +145,8 @@
   </header>
   <nav aria-label="Preview views">
     <button class:chosen={tab === "preview"} aria-pressed={tab === "preview"} use:nativeClick={() => switchTab("preview")}>Preview</button>
-    <button class:chosen={tab === "dissections"} aria-pressed={tab === "dissections"} aria-label="Dissections" disabled={!key} title="Show companion material (D)" use:nativeClick={() => switchTab("dissections")}>Dissections{listing ? ` (${listing.total})` : ""}<kbd>D</kbd></button>
+    <!-- Dissections are plot companions; a 3D model has none, so no dead tab. -->
+    {#if !model3d}<button class:chosen={tab === "dissections"} aria-pressed={tab === "dissections"} aria-label="Dissections" disabled={!key} title="Show companion material (D)" use:nativeClick={() => switchTab("dissections")}>Dissections{listing ? ` (${listing.total})` : ""}<kbd>D</kbd></button>{/if}
     <span class="grow"></span>
     {#if showingImage}<button aria-label="Zoom out" use:nativeClick={() => detail?.zoomBy(.8)}>−</button><button aria-label="Fit preview" use:nativeClick={() => detail?.resetZoom()}>Fit</button><button aria-label="Zoom in" use:nativeClick={() => detail?.zoomBy(1.25)}>+</button>{/if}
     {#if tab === "preview" && (onPrevious || onNext)}<button aria-label="Previous preview" disabled={!onPrevious} use:nativeClick={onPrevious}>←</button><button aria-label="Next preview" disabled={!onNext} use:nativeClick={onNext}>→</button>{/if}

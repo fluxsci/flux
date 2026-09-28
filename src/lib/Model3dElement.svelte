@@ -2,7 +2,7 @@
   import { modelPreviews, modelOrbitIssues, retireModelPreview } from './model3d/orbitSession';
   import { tick, untrack } from 'svelte';
   import { project, embeddedProjectRoot, projectDir, viewport } from './store';
-  import { scene3dManifests, scene3dGeneration, model3dPosterRevision } from './model3d/store';
+  import { scene3dManifests, model3dPosterRevision } from './model3d/store';
   import { furnitureLayout } from './model3d/furnitureLayout';
   import { furnitureSvg } from './model3d/furniture';
   import { orbitPose } from './model3d/orbit';
@@ -18,10 +18,24 @@
   $effect(() => { if ($modelPreviews[element.id]?.phase !== 'active') furniture = pose ? furnitureSvg(manifest, element, pose, layout) : { under: '', over: '' }; });
   const surface = $derived({ kind: 'editor' as const, onscreen: { w: layout.viewport.width * $viewport.zoom, h: layout.viewport.height * $viewport.zoom }, dpr: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1 });
   const key = $derived(asset?.model && asset.sha256 ? posterKey(element, asset, manifest, posterPixels(layout.viewport, surface)) : 'missing');
-  const ownerKey = $derived(`${$embeddedProjectRoot ?? $projectDir ?? ''}:${$scene3dGeneration}:${asset?.id}:${asset?.sha256}`);
+  // Root + asset identity only: a same-root reload keeps the displayed poster
+  // until its (content-addressed) successor is ready — never a placeholder flash.
+  const ownerKey = $derived(`${$embeddedProjectRoot ?? $projectDir ?? ''}:${asset?.id}:${asset?.sha256}`);
   let contextLost = $state(false);
-  let url = $state(''), displayedKey = $state(''), reason = $state('Preparing 3D preview');
+  const PREPARING = 'Preparing 3D preview';
+  let url = $state(''), displayedKey = $state(''), reason = $state(PREPARING);
   const shortReason = $derived(reason.length > 70 ? reason.slice(0, 67) + '…' : reason);
+  // Loading is a sub-second navigation cost (Nielsen: no feedback needed): show
+  // only a hairline frame, and the labelled tile after 1 s or on a real problem.
+  const preparing = $derived(!url && reason === PREPARING);
+  let slow = $state(false);
+  $effect(() => {
+    if (!preparing) { slow = false; return; }
+    const timer = setTimeout(() => { slow = true; }, 1000);
+    return () => clearTimeout(timer);
+  });
+  // Placeholder text is set in screen points so it stays legible at any zoom.
+  const textScale = $derived(1 / Math.max(0.05, $viewport.zoom));
   const displayed = { owner: '' };
 
   // Snapshot invalidation includes unavailable/missing transitions as well as
@@ -77,13 +91,18 @@
 <g data-model3d-furniture="under">{@html furniture.under}</g>
 {#if url}
   <image data-model3d-poster data-model3d-key={displayedKey} x={layout.viewport.x} y={layout.viewport.y} width={layout.viewport.width} height={layout.viewport.height} preserveAspectRatio="none" href={url} />
+{:else if preparing && !slow}
+  <rect data-model3d-placeholder data-model3d-preparing x={layout.viewport.x} y={layout.viewport.y} width={layout.viewport.width} height={layout.viewport.height} fill="none" stroke="#B7B5AC" stroke-width={0.75 * textScale} stroke-dasharray={`${3 * textScale} ${3 * textScale}`} aria-label={`${element.name ?? asset?.name ?? '3D model'}: ${reason}`} />
 {:else}
+  {@const cx = layout.viewport.x + layout.viewport.width / 2}
+  {@const cy = layout.viewport.y + layout.viewport.height / 2}
+  {@const fit = Math.min(textScale, layout.viewport.height / 60, layout.viewport.width / 140)}
   <g data-model3d-placeholder role="img" aria-label={`${element.name ?? asset?.name ?? '3D model'}: ${reason}`}>
     <title>{reason}</title>
-    <rect x={layout.viewport.x} y={layout.viewport.y} width={layout.viewport.width} height={layout.viewport.height} fill="#F2F0E5" stroke="#B7B5AC" stroke-width="0.75" />
-    <text x={layout.viewport.x + layout.viewport.width / 2} y={layout.viewport.y + layout.viewport.height / 2 - 12} text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#6F6E69">◈ 3D</text>
-    <text x={layout.viewport.x + layout.viewport.width / 2} y={layout.viewport.y + layout.viewport.height / 2 + 5} text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="#6F6E69">{element.name ?? asset?.name ?? '3D model'}</text>
-    <text x={layout.viewport.x + layout.viewport.width / 2} y={layout.viewport.y + layout.viewport.height / 2 + 20} text-anchor="middle" font-family="Inter, sans-serif" font-size="8" fill="#6F6E69">{shortReason}</text>
+    <rect x={layout.viewport.x} y={layout.viewport.y} width={layout.viewport.width} height={layout.viewport.height} fill="#F2F0E5" stroke="#B7B5AC" stroke-width={0.75 * textScale} />
+    <text x={cx} y={cy - 12 * fit} text-anchor="middle" font-family="Inter, sans-serif" font-size={14 * fit} fill={preparing ? '#6F6E69' : '#BC5215'}>{preparing ? '◈ 3D' : '⚠ 3D'}</text>
+    <text x={cx} y={cy + 5 * fit} text-anchor="middle" font-family="Inter, sans-serif" font-size={11 * fit} fill="#403E3C">{element.name ?? asset?.name ?? '3D model'}</text>
+    <text x={cx} y={cy + 20 * fit} text-anchor="middle" font-family="Inter, sans-serif" font-size={10 * fit} fill="#6F6E69">{shortReason}</text>
   </g>
 {/if}
 <g data-model3d-furniture="over">{@html furniture.over}</g>

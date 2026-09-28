@@ -38,7 +38,24 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
   let inline: ReturnType<typeof createInlineHost> | undefined, view: ReturnType<ReturnType<typeof createInlineHost>['view']> | undefined;
   const getView = () => ({ azimuth: element.orbitAzimuth, elevation: element.orbitElevation, roll: element.orbitRoll ?? 0, zoom: element.orbitZoom, panX: element.orbitPanX ?? 0, panY: element.orbitPanY ?? 0, projection: element.orbitProjection, fov: element.orbitFov, ...(element.modelStates ? { states: { ...element.modelStates } } : {}) });
   const number = (n: number) => Number(n.toFixed(3));
-  const code = () => `view=dict(azimuth=${number(element.orbitAzimuth)}, elevation=${number(element.orbitElevation)}, zoom=${number(element.orbitZoom)}${element.orbitRoll ? `, roll=${number(element.orbitRoll)}` : ''}${element.orbitPanX ? `, panX=${number(element.orbitPanX)}` : ''}${element.orbitPanY ? `, panY=${number(element.orbitPanY)}` : ''}${element.orbitProjection === 'perspective' ? `, projection="perspective", fov=${number(element.orbitFov)}` : ''}${Object.values(element.modelStates ?? {}).some((v) => v !== 0) ? `, states={${Object.entries(element.modelStates ?? {}).map(([k,v]) => `${JSON.stringify(k)}: ${number(v)}`).join(', ')}}` : ''})`;
+  /** A complete call that pastes straight back into Python: `sc.view(...)`
+   *  (fluxplot's Scene3D.view accepts these keywords; sequences use frame=N). */
+  const frameOf = () => {
+    if (!payload.manifest?.sequence || !names.length) return null;
+    const states = element.modelStates ?? {}, frame = names.reduce((sum, name, i) => sum + (states[name] ?? 0) * (i + 1), 0), expected = statesAtFrame(names, frame);
+    return names.every(name => Math.abs((states[name] ?? 0) - (expected[name] ?? 0)) < 1e-6) ? number(frame) : null;
+  };
+  const code = () => {
+    const args = [`azimuth=${number(element.orbitAzimuth)}`, `elevation=${number(element.orbitElevation)}`, `zoom=${number(element.orbitZoom)}`];
+    if (element.orbitRoll) args.push(`roll=${number(element.orbitRoll)}`);
+    if (element.orbitPanX) args.push(`panX=${number(element.orbitPanX)}`);
+    if (element.orbitPanY) args.push(`panY=${number(element.orbitPanY)}`);
+    if (element.orbitProjection === 'perspective') args.push(`projection="perspective"`, `fov=${number(element.orbitFov)}`);
+    const frame = frameOf(), weights = Object.entries(element.modelStates ?? {}).filter(([, v]) => v !== 0);
+    if (frame !== null && frame > 0) args.push(`frame=${frame}`);
+    else if (frame === null && weights.length) args.push(`states={${weights.map(([k, v]) => `${JSON.stringify(k)}: ${number(v)}`).join(', ')}}`);
+    return `sc.view(${args.join(', ')})`;
+  };
   function paint() {
     if (disposed || !view) return;
     width = Math.max(1, Math.round(stage.clientWidth || authoredWidth)); height = Math.max(1, Math.round(width * authoredHeight / authoredWidth));
@@ -71,7 +88,7 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
     syncSequenceControl(); paint();
   }
   button('Home', () => { element = { ...element, ...homeView(undefined, payload.manifest), modelStates: payload.manifest?.view?.states ?? {} }; setView({}); });
-  button('Copy view', () => { readout.value = code(); readout.focus(); readout.select(); void doc.defaultView?.navigator.clipboard?.writeText(readout.value).then(() => { status.textContent = 'View copied.'; }, () => { status.textContent = 'Select and copy the view code.'; }); });
+  button('Copy view', () => { readout.value = code(); readout.focus(); readout.select(); void doc.defaultView?.navigator.clipboard?.writeText(readout.value).then(() => { status.textContent = 'Copied. Paste into your notebook (rename sc to your scene variable).'; }, () => { status.textContent = 'Select and copy the view code.'; }); });
   controls.append(readout);
   viewSelect.addEventListener('change', () => { if (viewSelect.value === 'view') return; element = { ...element, ...axisView(viewSelect.value as AxisView, element.orbitAzimuth) }; paint(); viewSelect.value = 'view'; });
   const names = payload.manifest?.states?.map((s) => s.name) ?? [];
@@ -95,7 +112,12 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
   }, { signal: cleanup.signal });
   const stop = () => { drag = undefined; };
   stage.addEventListener('pointerup', stop, { signal: cleanup.signal }); stage.addEventListener('pointercancel', stop, { signal: cleanup.signal });
-  stage.addEventListener('wheel', (event) => { event.preventDefault(); const steps = wheel.steps({ deltaY: event.deltaY, deltaMode: event.deltaMode, time: performance.now() }); if (steps) setView({ zoom: element.orbitZoom * 1.1 ** steps }); }, { passive: false, signal: cleanup.signal });
+  // Scrolling a notebook past a model must scroll the page. The wheel zooms
+  // only once the view is active (clicked/focused) or with Ctrl/⌘ held.
+  stage.addEventListener('wheel', (event) => {
+    if (!(event.ctrlKey || event.metaKey || doc.activeElement === stage)) return;
+    event.preventDefault(); const steps = wheel.steps({ deltaY: event.deltaY, deltaMode: event.deltaMode, time: performance.now() }); if (steps) setView({ zoom: element.orbitZoom * 1.1 ** steps });
+  }, { passive: false, signal: cleanup.signal });
   stage.addEventListener('keydown', (event) => {
     const views: Record<string, AxisView> = { '1': 'front', '2': 'back', '3': 'right', '4': 'left', '5': 'top', '6': 'bottom' };
     if (views[event.key]) { event.preventDefault(); element = { ...element, ...axisView(views[event.key], element.orbitAzimuth) }; paint(); }
@@ -111,7 +133,7 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
     const bytes = typeof payload.glb === 'string' ? Uint8Array.from(atob(payload.glb.replace(/^data:.*?;base64,/, '')), (c) => c.charCodeAt(0)).buffer : payload.glb;
     inline = createInlineHost({ document: doc, sourceKey: id, modelBytes: () => bytes, manifest: () => payload.manifest });
     await inline.ready([assetId], [{ assetId, w: width, h: height, element, manifest: payload.manifest }]);
-    if (!disposed) { view = inline.view(canvas); paint(); available = true; previous.forEach((node) => node.parentNode === host && node.remove()); container.style.visibility = 'visible'; status.textContent = 'Drag to orbit · Shift drag to pan · Alt drag to roll · 1–6: axis views · Home: reset'; }
+    if (!disposed) { view = inline.view(canvas); paint(); available = true; previous.forEach((node) => node.parentNode === host && node.remove()); container.style.visibility = 'visible'; status.textContent = 'Drag to orbit · Shift drag to pan · Alt drag to roll · click then scroll (or Ctrl/⌘+scroll) to zoom · 1–6: axis views · Home: reset'; }
   } catch (error) {
     inline?.dispose(); inline = undefined; cleanup.abort(); observer.disconnect(); resize.disconnect();
     if (!disposed) { container.style.visibility = 'visible'; if (previous.length) { container.remove(); host.title = `Interactive 3D unavailable: ${error instanceof Error ? error.message : String(error)}`; } stage.replaceChildren(); if (payload.fallback) { const image = doc.createElement('img'); image.src = payload.fallback; image.alt = 'Static 3D preview'; image.style.maxWidth = '100%'; stage.append(image); } status.textContent = `Interactive 3D unavailable: ${error instanceof Error ? error.message : String(error)}. Use show(static=True) for a still image.`; }

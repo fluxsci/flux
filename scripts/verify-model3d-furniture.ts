@@ -66,4 +66,15 @@ for(const projection of ['orthographic','perspective'] as const)for(const azimut
 h.ok(true,'56 small-box camera/projection/roll cases keep axis labels on distinct outlines with perpendicular outward ticks');
 const movedTitle=furnitureSvg(m,{...el,overrides:{'axes.y.label':{dx:3,dy:4}}},pose,layout).underNodes.find(n=>n.partId==='axes.y.label')!.children![0];
 h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'part translation preserves readable axis title orientation');
+// A hidden part leaves the legend entirely (no orphan label) and the rest reflow.
+{
+ const named:Scene3dManifest=JSON.parse(await readFile(new URL('named-parts.fluxplot.json',root),'utf8'));
+ const entries=named.parts!.find(p=>p.role==='legend')!.entries!, hiddenId=entries[0];
+ const labelsOf=(overrides:Record<string,{hidden?:boolean}>)=>{const e={...el,overrides},l=furnitureLayout(named,e,e.overrides);return furnitureSvg(named,e,orbitPose(e,info.bounds,l.viewport),l).overNodes.find(n=>n.partId==='legend')?.children?.filter(n=>n.key.startsWith('legend-label-'))??[];};
+ const shown=labelsOf({}),hidden=labelsOf({[hiddenId]:{hidden:true}});
+ h.eq(shown.length,entries.length,'legend lists every visible part');
+ h.eq(hidden.length,entries.length-1,'hiding a part removes its legend row');
+ h.ok(!hidden.some(n=>n.text===(named.parts!.find(p=>p.id===hiddenId)!.label??hiddenId)),'no orphan label for the hidden part');
+ h.eq(Number(hidden[0]?.attrs.y),Number(shown[0]?.attrs.y),'remaining legend rows reflow into the freed slot');
+}
 await h.done();

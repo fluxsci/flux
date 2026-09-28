@@ -2,6 +2,19 @@
 import type { Model3dInfo, Scene3dManifest } from './types';
 import type { XrayNode } from '../plot/tree';
 import { buildScene3dPartIndex } from './parts';
+/** Furniture rows name what they ARE before what they say: a bare "1 µm" or a
+ *  "Height" next to the field "height" is ambiguous in a part tree. */
+const ROLE_NOUN: Record<string, string> = {
+  scalebar: 'Scale bar', colorbar: 'Colorbar', legend: 'Legend', title: 'Title', subtitle: 'Subtitle',
+  'axis-title': 'Axis title', 'tick-label': 'Tick labels', tick: 'Ticks', gridline: 'Gridlines', pane: 'Panes', axis: 'Axis',
+  'surface-field': 'Field', 'surface-missing': 'Missing values',
+};
+function partLabel(part: ReturnType<typeof buildScene3dPartIndex>[string]): string {
+  const own = part.label ?? (typeof part.field === 'object' ? part.field.label : undefined) ?? part.text;
+  const noun = ROLE_NOUN[part.role];
+  if (!noun) return own ?? part.id;
+  return own && own !== noun ? `${noun} · ${own}` : noun;
+}
 export function buildModel3dTree(manifest?: Scene3dManifest, info?: Pick<Model3dInfo, 'partNames'>): XrayNode {
   const root: XrayNode = { id: '@model', role: 'model3d', label: '3D model', isGroup: true, targets: [], children: [] };
   if (!manifest) {
@@ -9,7 +22,7 @@ export function buildModel3dTree(manifest?: Scene3dManifest, info?: Pick<Model3d
     root.targets = root.children.map(n => n.id); return root;
   }
   const index = buildScene3dPartIndex(manifest), nodes = new Map<string, XrayNode>();
-  for (const part of Object.values(index)) nodes.set(part.id, { id: part.id, role: part.role, label: part.label ?? (typeof part.field === 'object' ? part.field.label : undefined) ?? part.text ?? part.id, isGroup: false, targets: part.synthetic ? [] : [part.id], children: [] });
+  for (const part of Object.values(index)) nodes.set(part.id, { id: part.id, role: part.role, label: partLabel(part), isGroup: false, targets: part.synthetic ? [] : [part.id], children: [] });
   for (const part of Object.values(index)) {
     const node = nodes.get(part.id)!;
     const parent = part.parent ? nodes.get(part.parent) : root;

@@ -2,9 +2,8 @@
 import { get } from 'svelte/store';
 import { project, embeddedProjectRoot, projectDir } from '../store';
 import { fileBridge, joinPath } from '../project/types';
-import { storedAssetPath } from '../project/assetPath';
 import { bytesToDataUrl } from '../assets';
-import { scene3dGeneration, scene3dManifests } from './store';
+import { scene3dManifests } from './store';
 import { furnitureLayout } from './furnitureLayout';
 import { posterKey, posterPath, posterPixels, isModelPosterPrunable, type PosterSurface } from './poster';
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from './types';
@@ -37,14 +36,18 @@ function waitForJob<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 let context: Context | undefined;
 export function model3dAppScope() { return scope(); }
-function scope() { return `${get(embeddedProjectRoot) ?? get(projectDir) ?? ''}\0${get(embeddedProjectRoot) ? 'fig/' : ''}\0${get(scene3dGeneration)}`; }
+// Scoped by project root and prefix only. Posters are content-addressed (the
+// key covers the GLB hash and every render input) and asset files are
+// immutable per id, so a same-root figure reload must NOT tear down the worker
+// (which would re-read, re-hash and re-parse every GLB and flash every poster).
+function scope() { return `${get(embeddedProjectRoot) ?? get(projectDir) ?? ''}\0${get(embeddedProjectRoot) ? 'fig/' : ''}`; }
 function abort() { return new DOMException('3D project changed or view closed', 'AbortError'); }
 function check(source: ModelPosterSource) { checkModelSource(source); }
 function disposeContext() {
   if (!context) return;
   const owner = context; context = undefined; owner.controller.abort(); releaseModelSource(owner.source);
 }
-for (const store of [embeddedProjectRoot, projectDir, scene3dGeneration]) store.subscribe(() => { if (context && context.source.scope !== scope()) disposeContext(); });
+for (const store of [embeddedProjectRoot, projectDir]) store.subscribe(() => { if (context && context.source.scope !== scope()) disposeContext(); });
 function current() {
   if (context?.source.scope === scope()) return context;
   disposeContext();
@@ -189,4 +192,7 @@ export async function pruneModelPosters(root: string, isCurrent: () => boolean =
   }
 }
 export function model3dAppStats() { return { ...(modelSourceRegistryStats() ?? { contexts: 0, retained: 0, residentBytes: 0, loads: 0, renders: 0, queued: 0, active: false }), posters: cache.size, pendingPosters: pending.size, scope: context?.source.scope ?? null }; }
-if (import.meta.env?.DEV) (window as unknown as { __fluxModel3d: { stats: typeof model3dAppStats } }).__fluxModel3d = { stats: model3dAppStats };
+/** Dev/test only: drop the worker so the next use re-probes WebGL availability
+ *  (what a real GPU loss or a new project does; a same-root reload does not). */
+export function resetModel3dServiceForTest() { disposeContext(); }
+if (import.meta.env?.DEV) (window as unknown as { __fluxModel3d: { stats: typeof model3dAppStats; reset: () => void } }).__fluxModel3d = { stats: model3dAppStats, reset: resetModel3dServiceForTest };
