@@ -1,3 +1,4 @@
+import { modelDefaultStates } from './stateDefaults';
 import type { Model3dElement, Model3dAsset, ModelBounds, Scene3dManifest, Vec3, OrbitProjection } from './types';
 
 const rad = Math.PI / 180;
@@ -53,15 +54,16 @@ export function axisView(name: AxisView, current=0): Pick<OrbitProps,'orbitAzimu
   const pair=views[name]; if(!pair) throw new Error(`Unknown 3D axis view: ${name}`);
   return {orbitAzimuth:nearestEquivalent(pair[0],current),orbitElevation:pair[1],orbitRoll:0};
 }
-export function homeView(_asset?: Model3dAsset | null, manifest?: Scene3dManifest | null): OrbitProps & {modelStates?:Record<string,number>} {
+export function homeView(asset?: Model3dAsset | null, manifest?: Scene3dManifest | null): OrbitProps & {modelStates?:Record<string,number>} {
   const v=manifest?.view;
+  const states=modelDefaultStates(manifest??undefined,asset?.model.states??Object.keys(v?.states??{}));
   return {orbitAzimuth:v?.azimuth??30,orbitElevation:v?.elevation??20,orbitRoll:v?.roll??0,orbitZoom:v?.zoom??.9,
     orbitPanX:v?.panX??0,orbitPanY:v?.panY??0,orbitProjection:v?.projection??'orthographic',orbitFov:v?.fov??30,
-    ...(v?.states?{modelStates:{...v.states}}:{})};
+    ...(Object.keys(states).length?{modelStates:states}:{})};
 }
 /** Frame zero is the base; frame 1..N selects target 0..N-1. */
 export function statesAtFrame(names: readonly string[], frame: number): Record<string,number> {
-  const f=clamp(finite(frame,0),0,names.length), lo=Math.floor(f), hi=Math.ceil(f), out:Record<string,number>={};
+  const f=clamp(finite(frame,0),0,names.length), lo=Math.floor(f), hi=Math.ceil(f), out:Record<string,number>=Object.create(null);
   if(lo===hi){if(lo>0) out[names[lo-1]]=1;} else {if(lo>0) out[names[lo-1]]=hi-f; if(hi>0) out[names[hi-1]]=f-lo;}
   return out;
 }

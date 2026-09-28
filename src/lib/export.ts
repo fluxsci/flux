@@ -7,6 +7,7 @@ import { elementPaints, paintDefsSvg } from "./color/gradient";
 import { buildRenderTree, effectiveHidden, membersDeep, type RenderNode } from "./groups";
 import { lineH, blockLayout, letterSpacing, type LaidOutLine } from "./text";
 import { resolvedRunStyle, scriptMetrics, type TextSegment } from "./textRuns";
+import { model3dStaticSvg, type Model3dSvgContext } from './model3d/static';
 
 // stroke-dasharray attribute (or nothing) — mirrors the canvas dashAttr.
 function dashA(e: { dash?: number[] }): string {
@@ -130,10 +131,11 @@ export function elementToSvg(
   assetUrl: (id: string) => string | undefined,
   plotMarkup?: (e: Element) => string | undefined,
   assetSize?: AssetSizeFn,
+  model3d?: Model3dSvgContext,
 ): string {
   switch (e.type) {
     case "model3d":
-      throw new Error("3D export requires a prepared model poster");
+      return rot(e, `<g${op(e)}>${model3dStaticSvg(e, assetUrl, model3d)}</g>`);
     case "video":
       return elementToSvg({ ...e, type: "image", assetId: e.posterAssetId }, assetUrl, plotMarkup, assetSize);
     case "plot": {
@@ -298,6 +300,7 @@ export function figureToSvg(
      *  falls back to the full figure (a live embed must show SOMETHING when
      *  the group is later deleted in figure mode). */
     groupId?: string;
+    model3d?: Model3dSvgContext;
   },
 ): string {
   if (fig.background != null && typeof fig.background !== 'string') throw new Error(`Invalid figure background: ${fig.id}`);
@@ -310,7 +313,7 @@ export function figureToSvg(
       // just the walk's group skip) also covers stragglers/dangling ids the
       // tree renders LOOSE outside their (hidden) group's wrapper.
       if (effectiveHidden(fig, n.el)) return "";
-      const markup = elementToSvg(n.el, assetUrl, plotMarkup, assetSize);
+      const markup = elementToSvg(n.el, assetUrl, plotMarkup, assetSize, opts?.model3d);
       // Per-element wrapper id: makes every member individually addressable
       // from slides (Track part "el:<elementId>" — same grammar family as the
       // group wrappers). Plot PARTS inside keep their own <elId>__<partId> ids.

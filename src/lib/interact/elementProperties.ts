@@ -1,12 +1,17 @@
+import { get } from 'svelte/store';
+import { project as projectStore } from '../store';
+import { scene3dManifests } from '../model3d/store';
+import { modelFrame, setModelFrame } from '../model3d/semanticOps';
+import { MODEL_VIEW_NUMBERS, setModelView, type ModelViewNumber } from '../model3d/viewOps';
 import type { Element, Project } from '../types';
 import { setBoxDim, setElementStyle, detachOnManualEdit, supportsBoxDim } from '../ops';
 import { plotHasContentScaleTargets } from '../plot/store';
 
-export type NumericProperty = 'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity' | 'strokeWidth' | 'fontSize' | 'lineHeight' | 'letterSpacing' | 'paragraphSpacing' | 'cornerRadius' | 'contentScale';
+export type NumericProperty = 'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity' | 'strokeWidth' | 'fontSize' | 'lineHeight' | 'letterSpacing' | 'paragraphSpacing' | 'cornerRadius' | 'contentScale' | ModelViewNumber | 'modelFrame';
 export interface NumericDescriptor {
   /** `key` is the property menu's hotkey — LEFT-HAND keys only (1–6, q w e r t, a d g, z x c v b;
    *  f and s are the menu's own): the right hand stays on the wheel. */
-  label: string; shortLabel: string; key: string; group: string; step: number; min?: number; max?: number;
+  label: string; shortLabel: string; key: string; group: string; step: number; factor?: number; min?: number; max?: number;
   /** A comfortable upper bound for wheel/track editing on unbounded-above
    *  properties (typing past it still works); with `min`, it defines the
    *  range the property menu's track shows. */
@@ -17,6 +22,18 @@ export interface NumericDescriptor {
 }
 const box = (e: Element, axis: 'width' | 'height') => supportsBoxDim(e.type) && axis in e ? e[axis] : undefined;
 export const numericProperties: Record<NumericProperty, NumericDescriptor> = {
+  modelFrame: { label: 'Frame', shortLabel: 'Frame', key: '2', group: 'Shape', step: 1, min: 0, softMax: 40, read: e => {
+    if (e.type !== 'model3d' || !get(scene3dManifests)[e.assetId]?.sequence) return undefined;
+    const names = get(projectStore).assets.find(a => a.id === e.assetId)?.model?.states ?? [];
+    return names.length ? modelFrame(e.modelStates, names) ?? 0 : undefined;
+  } },
+  orbitAzimuth: { label: 'Azimuth°', shortLabel: 'Azimuth°', key: 'q', group: '3D view', step: 5, softMin: -180, softMax: 180, read: e => e.type === 'model3d' ? e.orbitAzimuth ?? 0 : undefined },
+  orbitElevation: { label: 'Elevation°', shortLabel: 'Elevation°', key: 't', group: '3D view', step: 5, min: -90, max: 90, read: e => e.type === 'model3d' ? e.orbitElevation ?? 0 : undefined },
+  orbitRoll: { label: 'Roll°', shortLabel: 'Roll°', key: 'g', group: '3D view', step: 5, softMin: -180, softMax: 180, read: e => e.type === 'model3d' ? e.orbitRoll ?? 0 : undefined },
+  orbitZoom: { label: 'Zoom×', shortLabel: 'Zoom×', key: 'v', group: '3D view', step: 1, factor: 1.1, min: 0.02, max: 50, read: e => e.type === 'model3d' ? e.orbitZoom ?? 1 : undefined },
+  orbitPanX: { label: 'Pan X', shortLabel: 'Pan X', key: 'b', group: '3D view', step: 0.05, softMin: -2, softMax: 2, read: e => e.type === 'model3d' ? e.orbitPanX ?? 0 : undefined },
+  orbitPanY: { label: 'Pan Y', shortLabel: 'Pan Y', key: 'c', group: '3D view', step: 0.05, softMin: -2, softMax: 2, read: e => e.type === 'model3d' ? e.orbitPanY ?? 0 : undefined },
+  orbitFov: { label: 'FOV°', shortLabel: 'FOV°', key: 'd', group: '3D view', step: 5, min: 5, max: 120, read: e => e.type === 'model3d' && e.orbitProjection === 'perspective' ? e.orbitFov ?? 0 : undefined },
   x: { label: 'x position', shortLabel: 'X', key: 'x', group: 'Geometry', step: 1, read: e => e.x },
   y: { label: 'y position', shortLabel: 'Y', key: 'z', group: 'Geometry', step: 1, read: e => e.y },
   width: { label: 'width', shortLabel: 'W', key: 'w', group: 'Geometry', step: 1, min: 1, read: e => box(e, 'width') },
@@ -39,14 +56,19 @@ export const numericProperties: Record<NumericProperty, NumericDescriptor> = {
 };
 export function propertyValue(elements: Element[], property: NumericProperty) {
   const values = elements.map(numericProperties[property].read).filter((v): v is number => v !== undefined);
-  return { value: values[0] ?? 0, mixed: values.some(v => v !== values[0]), count: values.length };
+  return { value: values[0] ?? 0, mixed: values.some(v => v !== values[0]) || property === 'modelFrame' && elements.some(e => e.type === 'model3d' && modelFrame(e.modelStates, get(projectStore).assets.find(a => a.id === e.assetId)?.model?.states ?? []) === null), count: values.length };
 }
 /** Shared applicability, precision, physical units and named-style detachment. */
 export function setNumericProperty(project: Project, element: Element, property: NumericProperty, value: number, base?: { w: number; h: number }) {
   const descriptor = numericProperties[property];
-  if (!Number.isFinite(value) || descriptor.read(element) === undefined) return;
+  if (!Number.isFinite(value) || (property === 'modelFrame' ? element.type !== 'model3d' : descriptor.read(element) === undefined)) return;
   value = Math.max(descriptor.min ?? -Infinity, Math.min(descriptor.max ?? Infinity, value));
-  if (property === 'width' || property === 'height') setBoxDim(element, property === 'width' ? 'w' : 'h', value, base);
+  if (property === 'modelFrame' && element.type === 'model3d') {
+    const names = project.assets.find(a => a.id === element.assetId)?.model?.states ?? [];
+    setModelFrame(project, [element.id], names, value);
+  }
+  else if ((MODEL_VIEW_NUMBERS as readonly string[]).includes(property)) setModelView(project, [element.id], { [property]: value });
+  else if (property === 'width' || property === 'height') setBoxDim(element, property === 'width' ? 'w' : 'h', value, base);
   else if (property === 'cornerRadius') setElementStyle(project, [element.id], { cornerRadius: value });
   else if (property === 'fontSize' || property === 'lineHeight') {
     if (element.type !== 'text') return;
@@ -63,5 +85,5 @@ export function setNumericProperty(project: Project, element: Element, property:
     if (element.type !== 'plot') return;
     if (Math.abs(value - 1) < 1e-9) delete element.contentScale; // 1 is the absence of a factor (Inspector reset parity)
     else element.contentScale = value;
-  } else element[property] = value;
+  } else if (property === 'x' || property === 'y' || property === 'rotation' || property === 'opacity') element[property] = value;
 }

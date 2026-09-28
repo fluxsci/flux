@@ -14,6 +14,10 @@
 
 import { get } from "svelte/store";
 import type { Element, PartOverride, Project, SemanticPlotElement, TextAlign, TextStyle, TextVAlign } from "../types";
+import type { Model3dElement, Scene3dManifest } from "../model3d/types";
+import { setModelView } from "../model3d/viewOps";
+import { buildScene3dPartIndex, scene3dPartTargets } from "../model3d/scene3d";
+import { semanticPartIndex } from "../plot/partStyle";
 import type { FluxPlotManifest } from "../plot/types";
 import type { PartSelection } from "../store";
 import { project, mutate, drawStyle, xrayOpen, xrayRoot } from "../store";
@@ -45,6 +49,7 @@ export interface Field {
   options?: FieldOption[];
   target?: "fill" | "stroke";
   step?: number;
+  factor?: number;
   min?: number;
   max?: number;
   /** Ends of the wheel/track range when `min`/`max` are open-ended. */
@@ -52,6 +57,7 @@ export interface Field {
   softMin?: number;
   mixed?: boolean;
   count?: number;
+  hint?: string;
 }
 
 export interface MenuGroup {
@@ -107,12 +113,12 @@ function resolveStyle(p: Project, lib: TextStyle[], v: string): { st: TextStyle;
 }
 
 /** Resolve the editable plot element behind each selected part. */
-function resolveParts(p: Project, parts: PartSelection[]): { el: SemanticPlotElement; partId: string }[] {
-  const out: { el: SemanticPlotElement; partId: string }[] = [];
+function resolveParts(p: Project, parts: PartSelection[]): { el: SemanticPlotElement | Model3dElement; partId: string }[] {
+  const out: { el: SemanticPlotElement | Model3dElement; partId: string }[] = [];
   for (const ps of parts) {
     for (const f of p.figures)
       for (const e of selectionTargets(f, new Set([ps.elementId]), { editable: true }))
-        if (e.id === ps.elementId && e.type === "plot") out.push({ el: e, partId: ps.partId });
+        if (e.id === ps.elementId && (e.type === "plot" || e.type === "model3d")) out.push({ el: e, partId: ps.partId });
   }
   return out;
 }
@@ -126,15 +132,17 @@ export function buildPartFields(
   parts: PartSelection[],
   manifests: Record<string, FluxPlotManifest>,
   lib: TextStyle[],
+  models: Record<string, Scene3dManifest> = {},
 ): Field[] {
   const resolved = resolveParts(p, parts);
   const primary = resolved[0];
   if (!primary) return [];
   const { el, partId } = primary;
-  const manifest = manifests[el.assetId];
+  const manifestFor = (e: SemanticPlotElement | Model3dElement) => e.type === "model3d" ? models[e.assetId] : manifests[e.assetId];
+  const manifest = manifestFor(el);
   const kind = partKind(manifest, partId, partNode(el, partId));
   const read = () => readPartStyle(el, partId, manifest);
-  const readAll = () => resolved.map((r) => readPartStyle(r.el, r.partId, manifests[r.el.assetId]));
+  const readAll = () => resolved.map((r) => readPartStyle(r.el, r.partId, manifestFor(r.el)));
   const patch = (q: PartOverride) =>
     mutate((proj) => {
       for (const r of resolved) ops.setPartOverride(proj, r.el.id, r.partId, q);
@@ -144,7 +152,14 @@ export function buildPartFields(
     return vs.some((v) => v !== vs[0]);
   };
   const F: Field[] = [];
-  const G = "Plot part";
+  const G = el.type === "model3d" ? "3D part" : "Plot part";
+  const info = semanticPartIndex(manifest)[partId];
+  const mesh = el.type === "model3d" && (!manifest || Boolean(info && "node" in info && info.node));
+  const needsSource = [...new Set(resolved.filter(({el,partId}) => {
+    if (el.type !== 'model3d' || el.modelColors === 'source') return false;
+    const source = models[el.assetId]; if (!source) return true;
+    const index = buildScene3dPartIndex(source); return scene3dPartTargets(index,partId).some(id => Boolean(index[id]?.node));
+  }).map(({el}) => el.id))];
   const n = resolved.length;
   const pnum = (key: string, label: string, prop: string, step = 1, clamp?: (n: number) => number, range?: { min?: number; max?: number; softMax?: number }) =>
     F.push({
@@ -170,7 +185,7 @@ export function buildPartFields(
   const color = (key: string, label: string, target: "fill" | "stroke") =>
     // The palette picker retargets to the parts itself (colors.applyColor
     // routes through applyPartStyle while parts are selected) — apply is a no-op.
-    F.push({ key, label, group: G, kind: "color", target, count: n, get: () => String(read()[target] ?? "#000000"), apply: () => {} });
+    !(target === "fill" && needsSource.length) && F.push({ key, label, group: G, kind: "color", target, count: n, get: () => String(read()[target] ?? "#000000"), apply: () => {} });
   const visible = () =>
     F.push({
       key: "v",
@@ -181,12 +196,13 @@ export function buildPartFields(
       get: () => !read().hidden,
       apply: () => {
         // All-shown → hide all; any hidden → show all (the Layers rule).
-        const anyHidden = resolved.some((r) => Boolean(r.el.overrides?.[r.partId]?.hidden));
+        const anyHidden = readAll().some(style => style.hidden);
         patch({ hidden: !anyHidden });
       },
     });
 
-  if (kind === "container") visible();
+  if (needsSource.length) F.push({key:'c',label:'Use source colours',group:G,kind:'action',hint:'Part colours use Source mode.',count:needsSource.length,get:()=>true,apply:()=>mutate(p=>setModelView(p,needsSource,{modelColors:'source'}))});
+  if (kind === "container") { visible(); if (el.type === "model3d") color("c", "part colour", "fill"); }
   if (kind === "text") {
     // Part font size is in PLOT UNITS (the SVG's own user units), not pt.
     pnum("e", "size", "fontSize", 0.5, (x) => Math.max(0.5, x), { min: 0.5, softMax: 40 });
@@ -248,17 +264,20 @@ export function buildPartFields(
         if (r) mutate(p => applyTextStyleToParts(p, resolved.map(part => ({ elementId: part.el.id, partId: part.partId })), r.st));
       },
     });
+    if (el.type === "model3d" && ["colorbar", "scalebar", "legend"].includes(info?.role ?? "")) { color("g", "stroke colour", "stroke"); pnum("d", "stroke width", "strokeWidth", .25, x => Math.max(0, x), { min: 0, softMax: 12 }); }
   } else if (kind === "line") {
     color("g", "stroke colour", "stroke");
     pnum("d", "stroke width", "strokeWidth", 0.25, (x) => Math.max(0, x), { min: 0, softMax: 12 });
   } else if (kind === "shape") {
     color("c", "fill colour", "fill");
-    color("g", "stroke colour", "stroke");
-    pnum("d", "stroke width", "strokeWidth", 0.25, (x) => Math.max(0, x), { min: 0, softMax: 12 });
+    if (!mesh) { color("g", "stroke colour", "stroke");
+    pnum("d", "stroke width", "strokeWidth", 0.25, (x) => Math.max(0, x), { min: 0, softMax: 12 }); }
   }
   pnum("a", "opacity", "opacity", 0.05, (x) => Math.min(1, Math.max(0, x)), { min: 0, max: 1 });
-  pnum("x", "dx (plot units)", "dx", 1);
-  pnum("z", "dy (plot units)", "dy", 1);
+  if (!mesh && (el.type !== "model3d" || kind !== "container")) {
+    pnum("x", el.type === "model3d" ? "dx (px)" : "dx (plot units)", "dx", 1);
+    pnum("z", el.type === "model3d" ? "dy (px)" : "dy (plot units)", "dy", 1);
+  }
   if (kind !== "container") visible();
   return F;
 }
@@ -305,6 +324,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       group: d.group,
       kind: "number",
       step: d.step,
+      factor: d.factor,
       min: d.min,
       max: d.max,
       softMax: d.softMax,
@@ -349,6 +369,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
   }
   property("rotation");
   property("opacity");
+  for (const name of ["orbitAzimuth", "orbitElevation", "orbitRoll", "orbitZoom", "orbitPanX", "orbitPanY", "orbitFov", "modelFrame"] as const) property(name);
   property("contentScale"); // plots only (read() is undefined elsewhere → the row does not render)
 
   // Reset crop: an action for cropped image/plot elements — one commit
@@ -584,8 +605,9 @@ export function buildMenuFields(
   parts: PartSelection[],
   manifests: Record<string, FluxPlotManifest>,
   lib: TextStyle[],
+  models: Record<string, Scene3dManifest> = {},
 ): Field[] {
-  const fields = parts.length ? buildPartFields(p, parts, manifests, lib) : buildElementFields(p, sel, lib);
+  const fields = parts.length ? buildPartFields(p, parts, manifests, lib, models) : buildElementFields(p, sel, lib);
   // A fluxplot with colour-scaled fields (heatmap / contour): its colormap is
   // picked in the X-ray's Color scales (every collection fluxplot ships), so the
   // menu offers the door — one selected plot, `c`, the X-ray opens rooted on it.

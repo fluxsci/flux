@@ -104,8 +104,8 @@ export function applyTextStyleToParts(p: Project, parts: readonly { elementId: I
   const elements = new Map(p.figures.flatMap(f => f.elements.map(e => [e.id, e] as const)));
   for (const part of parts) {
     const element = elements.get(part.elementId);
-    if (!element || element.type !== "plot") throw new Error(`Plot not found: ${part.elementId}`);
-    const k = plotPxPerUnit(element.assetId);
+    if (!element || (element.type !== "plot" && element.type !== "model3d")) throw new Error(`Semantic element not found: ${part.elementId}`);
+    const k = element.type === "model3d" ? 1 : plotPxPerUnit(element.assetId);
     ops.setPartOverride(p, part.elementId, part.partId, {
       fontFamily: st.fontFamily, fontWeight: st.fontWeight, fontStyle: st.fontStyle,
       textDecoration: st.underline ? "underline" : "none", fontSize: st.fontSize / (k || 1),

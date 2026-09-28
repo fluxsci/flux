@@ -2044,6 +2044,65 @@ function validate10(data, { instancePath = "", parentData, parentDataProperty, r
   return errors === 0;
 }
 
+// src/lib/model3d/parts.ts
+var scene3dSeriesId = (series) => `@series:${series}`;
+var scene3dAxesId = (axis) => axis ? `@axes:${axis}` : "@axes";
+var scene3dFieldId = (field) => `@field:${field}`;
+function buildScene3dPartIndex(manifest) {
+  const index = /* @__PURE__ */ Object.create(null);
+  for (const part of manifest.parts ?? []) {
+    if (part.id.startsWith("@")) throw new Error(`Reserved 3D part id ${part.id}`);
+    index[part.id] = { ...part, kind: part.kind ?? (part.node ? typeof part.field === "object" ? "field" : part.id.endsWith(".missing") ? "missing" : "mesh" : "furniture") };
+  }
+  const group = (id, label, role, parent) => {
+    index[id] ??= { id, label, role, kind: "furniture", synthetic: true, ...parent ? { parent } : {} };
+    return id;
+  };
+  const series = (name) => group(scene3dSeriesId(name), name, "series");
+  const axes = (axis) => group(scene3dAxesId(axis), `${axis.toUpperCase()} axis`, "axis-group", group(scene3dAxesId(), "Axes", "axes-group"));
+  for (const part of Object.values(index)) if (typeof part.field === "object" && !part.parent) {
+    part.parent = group(scene3dFieldId(part.id), part.field.label ?? part.label ?? part.id, "field-group", part.series ? series(part.series) : void 0);
+  }
+  for (const part of Object.values(index)) {
+    if (part.synthetic || part.parent) continue;
+    const field = typeof part.field === "string" ? index[part.field] : void 0;
+    if (field && field.parent === scene3dFieldId(field.id)) part.parent = field.parent;
+    else if (!part.node && /^axes\.[xyz]\./.test(part.id)) part.parent = axes(part.id.split(".")[1]);
+    else if (part.series) part.parent = series(part.series);
+  }
+  return index;
+}
+function scene3dPartLineage(index, id) {
+  const out = [], seen = /* @__PURE__ */ new Set();
+  let part = Object.hasOwn(index, id) ? index[id] : void 0;
+  while (part) {
+    if (seen.has(part.id)) throw new Error(`Cyclic 3D part parents at ${part.id}`);
+    seen.add(part.id);
+    out.push(part);
+    part = part.parent && Object.hasOwn(index, part.parent) ? index[part.parent] : void 0;
+  }
+  return out.reverse();
+}
+function scene3dPartTargets(index, id) {
+  if (!Object.hasOwn(index, id)) return [id];
+  const children = /* @__PURE__ */ new Map();
+  for (const part of Object.values(index)) if (part.parent) {
+    const siblings = children.get(part.parent);
+    if (siblings) siblings.push(part.id);
+    else children.set(part.parent, [part.id]);
+  }
+  const out = [], queue = [id], seen = /* @__PURE__ */ new Set();
+  while (queue.length) {
+    const current = queue.pop();
+    if (seen.has(current)) throw new Error(`Cyclic 3D part parents at ${current}`);
+    seen.add(current);
+    const part = index[current], nested = children.get(current);
+    if (!part.synthetic && (part.node || !nested?.length)) out.push(current);
+    if (nested) for (let i = nested.length - 1; i >= 0; i--) queue.push(nested[i]);
+  }
+  return out;
+}
+
 // src/lib/model3d/scene3d.ts
 var isScene3d = (value) => !!value && typeof value === "object" && value.spec === "fluxplot/scene3d";
 function parseScene3d(input) {
@@ -2093,11 +2152,6 @@ function parseScene3d(input) {
   if (data.order?.some((id) => !ids.has(id))) return { issue: "Unknown part in scene3d order" };
   return data;
 }
-function buildScene3dPartIndex(manifest) {
-  const index = /* @__PURE__ */ Object.create(null);
-  for (const p of manifest.parts ?? []) index[p.id] = { ...p, kind: p.kind ?? (p.node ? typeof p.field === "object" ? "field" : p.id.endsWith(".missing") ? "missing" : "mesh" : "furniture") };
-  return index;
-}
 var scene3dPartIndex = buildScene3dPartIndex;
 function scene3dFields(manifest) {
   const fields = /* @__PURE__ */ Object.create(null);
@@ -2109,17 +2163,11 @@ function scene3dStateIssues(manifest, info) {
   return (manifest.states ?? []).filter((s) => !names.has(s.name)).map((s) => `Manifest shape state ${s.name} is absent from the GLB; GLB state names are used`);
 }
 function resolveScene3dPartStyle(manifest, overrides, id, opts = {}) {
-  const index = manifest ? buildScene3dPartIndex(manifest) : {}, lineage = [], seen = /* @__PURE__ */ new Set();
-  let p = index[id];
-  while (p && !seen.has(p.id)) {
-    seen.add(p.id);
-    lineage.unshift(p);
-    p = p.parent ? index[p.parent] : void 0;
-  }
-  if (!lineage.length) return { ...overrides?.[id] };
+  const index = opts.index ?? (manifest ? buildScene3dPartIndex(manifest) : /* @__PURE__ */ Object.create(null)), lineage = scene3dPartLineage(index, id);
+  if (!lineage.length) return { ...overrides && Object.hasOwn(overrides, id) ? overrides[id] : {} };
   let result = {}, opacity = 1, hidden = false, sourceColor;
   for (const part of lineage) {
-    const o = overrides?.[part.id] ?? {};
+    const o = overrides && Object.hasOwn(overrides, part.id) ? overrides[part.id] : {};
     sourceColor = part.color ?? sourceColor;
     result = { ...result, ...o };
     opacity *= o.opacity ?? part.opacity ?? 1;
@@ -2135,7 +2183,12 @@ export {
   isScene3d,
   parseScene3d,
   resolveScene3dPartStyle,
+  scene3dAxesId,
+  scene3dFieldId,
   scene3dFields,
   scene3dPartIndex,
+  scene3dPartLineage,
+  scene3dPartTargets,
+  scene3dSeriesId,
   scene3dStateIssues
 };

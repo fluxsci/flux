@@ -1,4 +1,4 @@
-import { findColormap, colormapStops } from '../color/collections';
+import { findColormap, colormapStops } from '../color/colormaps';
 import type { Scene3dField, ModelFieldOverride } from './types';
 export const srgbToLinear=(x:number)=>x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4);
 export function rgba(color:string):[number,number,number,number]{
@@ -19,7 +19,7 @@ export function buildLut(stops:Array<[number,string]>,size=256,linear=true):Floa
 }
 /** COLOR_0 values supplied to three are linear RGB. _VALID keeps real zero valid. */
 export function mapValues(values:ArrayLike<number>,field:Scene3dField,override?:ModelFieldOverride,valid?:ArrayLike<number>):Float32Array{
- const range=override?.range??field.range;if(!range.every(Number.isFinite)||range[1]<range[0]||(override?.range&&range[1]===range[0]))throw new Error('Field range must be finite and nondecreasing; an override must increase');
+ const range=override?.range??field.range;if(!range.every(Number.isFinite)||range[1]<range[0])throw new Error('Field range must be finite and nondecreasing');
  if(valid&&valid.length!==values.length)throw new Error('_VALID length differs from _VALUE');
  const lut=buildLut(resolvedColormap(field,override)),out=new Float32Array(values.length*3),missing=rgba(field.missingColor??'#D8D8D8').slice(0,3).map(srgbToLinear),scale=range[1]===range[0]?0:255/(range[1]-range[0]);
  for(let i=0;i<values.length;i++){if(!Number.isFinite(values[i])||(valid&&valid[i]===0)){out[i*3]=missing[0];out[i*3+1]=missing[1];out[i*3+2]=missing[2];}else{const at=Math.max(0,Math.min(255,Math.round((values[i]-range[0])*scale)))*4;out[i*3]=lut[at];out[i*3+1]=lut[at+1];out[i*3+2]=lut[at+2];}}

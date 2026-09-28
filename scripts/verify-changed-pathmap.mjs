@@ -31,6 +31,14 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
+  ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "tier:pure"]],
+  ["scripts/perf/input-probe-policy.cjs", ["verify-input-probe-policy.cjs", "tier:pure"]],
+  ["scripts/lib/model3dScaleFixture.mjs", ["group:model3d-scale"]],
+  ["src/lib/model3d/sourceBridge.ts", ["group:model3d-source"]],
+  ["src/lib/model3d/source.ts", ["group:model3d-source"]],
+  ["electron/model3dSource.cjs", ["group:model3d-source"]],
+  ["scripts/lib/model3dNativeEntry.cjs", ["verify-model3d-electron.cjs", "verify-model3d-smoke-electron.cjs", "tier:pure"]],
+  ["scripts/fixtures/model3d/native/neuron.glb", ["group:model3d"]],
   ["src/lib/Model3dElement.svelte", ["group:model3d", "group:model3d-gui"]],
   ["src/lib/model3d/posterStore.ts", ["group:model3d", "group:model3d-gui"]],
   ["src/lib/plot/Model3dChip.svelte", ["group:model3d", "group:model3d-gui"]],

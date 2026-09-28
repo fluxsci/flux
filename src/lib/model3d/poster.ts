@@ -6,9 +6,9 @@ export const RENDERER_VERSION='m3d-r1';
 const round=(n:number,p:number)=>Math.round(n/p)*p;
 const sig=(n:number)=>Number(n.toPrecision(5));
 export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number}):string{
- const index=manifest?buildScene3dPartIndex(manifest):{},parts:Record<string,unknown>={},fields:Record<string,unknown>={},states:Record<string,number>={};
+ const index:ReturnType<typeof buildScene3dPartIndex>=manifest?buildScene3dPartIndex(manifest):Object.create(null),parts:Record<string,unknown>=Object.create(null),fields:Record<string,unknown>=Object.create(null),states:Record<string,number>=Object.create(null);
  for(const id of manifest?Object.values(index).filter(p=>p.node).map(p=>p.id):asset.model.partNames){
-  const override=resolveScene3dPartStyle(manifest,el.overrides,id),entry:Record<string,unknown>={};
+  const override=resolveScene3dPartStyle(manifest,el.overrides,id,{index}),entry:Record<string,unknown>={};
   for(const k of ['fill','opacity','hidden'] as const)if(override[k]!=null)entry[k]=k==='fill'?String(override[k]).toLowerCase():override[k];
   if(Object.keys(entry).length)parts[id]=entry;
  }
@@ -32,6 +32,10 @@ export function posterPixels(viewport:{width:number;height:number},surface:Poste
 }
 export const posterPath=(key:string)=>{if(!/^m3d-[\da-f]{14}$/.test(key))throw new Error('Invalid model poster key');return `fig/renders/model3d/${key}.png`;};
 export const posterRef=(key:string)=>`m3dposter:${key}`;
+/** Shared GUI/Node cache GC policy: current views and recent history survive. */
+export function isModelPosterPrunable(name:string,mtimeMs:number,live:ReadonlySet<string>,now=Date.now()):boolean {
+ return /^m3d-[\da-f]{14}\.png$/.test(name)&&Number.isFinite(mtimeMs)&&mtimeMs<now-14*86400_000&&!live.has(name.slice(0,-4));
+}
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]!));
 export function modelPlaceholder(name:string,box:Rect):string{return `<g data-model3d-placeholder="true"><rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="#F2F0E5" stroke="#B7B5AC" stroke-width="0.75"/><text x="${box.x+box.width/2}" y="${box.y+box.height/2-4}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#6F6E69">3D</text><text x="${box.x+box.width/2}" y="${box.y+box.height/2+14}" text-anchor="middle" font-family="sans-serif" font-size="10" fill="#6F6E69">${esc(name)}</text></g>`;}
 export const modelPosterWarning=(name:string)=>`3D model "${name}": poster not rendered — open the project in Flux or run flux render-model-posters`;

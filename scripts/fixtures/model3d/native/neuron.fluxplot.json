@@ -1,0 +1,132 @@
+{
+  "axes": {
+    "kind": "none"
+  },
+  "bounds": {
+    "max": [
+      2.520388111213753,
+      2.07594850518114,
+      2.020038996553919
+    ],
+    "min": [
+      -2.1289705539061745,
+      -3.7128064823425015,
+      -2.02003899655392
+    ]
+  },
+  "build": {
+    "generator": "fluxplot 0.1.0"
+  },
+  "glb": "neuron.glb",
+  "glbSha256": "78f676f09acb4eee03a885b07323c003def7a16ccc4ee760ea13a4d9f2e2ada4",
+  "layout": {
+    "legend": "right",
+    "title": "top"
+  },
+  "lighting": "studio",
+  "order": [
+    "neuron.soma",
+    "neuron.axon",
+    "neuron.dendrites",
+    "scalebar",
+    "title",
+    "legend"
+  ],
+  "parts": [
+    {
+      "color": "#d14d41",
+      "id": "neuron.soma",
+      "kind": "mesh",
+      "label": "soma",
+      "node": "neuron.soma",
+      "role": "mesh",
+      "series": "neuron"
+    },
+    {
+      "color": "#4385be",
+      "id": "neuron.axon",
+      "kind": "mesh",
+      "label": "axon",
+      "node": "neuron.axon",
+      "role": "mesh",
+      "series": "neuron"
+    },
+    {
+      "color": "#3aa99f",
+      "id": "neuron.dendrites",
+      "kind": "mesh",
+      "label": "dendrites",
+      "node": "neuron.dendrites",
+      "role": "mesh",
+      "series": "neuron"
+    },
+    {
+      "id": "scalebar",
+      "kind": "furniture",
+      "label": "1 µm",
+      "length": 1.0,
+      "role": "scalebar"
+    },
+    {
+      "id": "title",
+      "kind": "furniture",
+      "role": "title",
+      "text": "Neuron-like mesh"
+    },
+    {
+      "entries": [
+        "neuron.soma",
+        "neuron.axon",
+        "neuron.dendrites"
+      ],
+      "id": "legend",
+      "kind": "furniture",
+      "role": "legend"
+    }
+  ],
+  "plotType": "scene3d",
+  "schemaVersion": "0.1.0",
+  "size": {
+    "height": 3.0,
+    "unit": "in",
+    "width": 3.5
+  },
+  "spec": "fluxplot/scene3d",
+  "style": {
+    "font": "Arial",
+    "fontSizePt": 6.0,
+    "ink": "#100f0f",
+    "lineWidthPt": 1.2,
+    "muted": "#100f0f",
+    "titleSizePt": 6.0
+  },
+  "toWorld": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "units": "µm",
+  "view": {
+    "azimuth": 30.0,
+    "elevation": 20.0,
+    "fov": 30.0,
+    "panX": 0.0,
+    "panY": 0.0,
+    "projection": "orthographic",
+    "roll": 0.0,
+    "zoom": 0.9
+  }
+}

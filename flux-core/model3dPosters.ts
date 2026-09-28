@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { atomicWrite, fsyncDir } from "./fsx";
+import { publishModelFile } from "./model3dFile";
 import type { RenderSpec } from "../src/lib/model3d/types";
 
 const KEY = /^m3d-[a-f0-9]{14}$/;
@@ -21,6 +22,8 @@ export interface PosterBatchResult {
 }
 export interface PosterBatchOptions {
   outDir: string;
+  /** Project-cache publication must retain this root confinement across awaits. */
+  publicationRoot?: string;
   modelBytes: (assetId: string, signal?: AbortSignal) => Promise<Uint8Array> | Uint8Array;
   signal?: AbortSignal;
   onProgress?: (progress: PosterProgress) => void;
@@ -193,14 +196,15 @@ async function runModelPosterBatch(requests: readonly PosterRequest[], options: 
         throw new Error("3D poster output failed validation");
       return bytes;
     }));
-    await fs.mkdir(options.outDir, { recursive: true });
+    if (!options.publicationRoot) await fs.mkdir(options.outDir, { recursive: true });
     for (let i = 0; i < requests.length; i++) {
       cancelled();
       const destination = path.join(options.outDir, `${requests[i].key}.png`);
-      await atomicWrite(destination, images[i]);
+      if (options.publicationRoot) await publishModelFile(options.publicationRoot, destination, images[i]);
+      else await atomicWrite(destination, images[i]);
       results.push({ ...result.results[i], path: destination });
     }
-    await fsyncDir(options.outDir);
+    if (!options.publicationRoot) await fsyncDir(options.outDir);
     return { ...result, results, spawnMs, totalMs: performance.now() - t0 };
   } finally { await fs.rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 }

@@ -18,6 +18,12 @@
   // Change) straight onto the timeline. Regenerate stays, gated on a
   // recipe-backed plot root. Always dark — an x-ray screen by nature — but flat:
   // no scanlines, no glow, no boot flicker; it opens beside the selection.
+  import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
+  import type { Model3dElement } from "./model3d/types";
+  import { scene3dManifests, scene3dRecipes, scene3dGeneration } from "./model3d/store";
+  import { updateModelFromSource, modelSourceOwnerEpoch } from "./model3d/sourceBridge";
+  import { modelSourceIdentity } from "./model3d/source";
+  import { resolveScene3dPartStyle } from "./model3d/scene3d";
   import ColorScaleControls from "./plot/ColorScaleControls.svelte";
   import { validateIncomingPlot } from "./plot/contract";
   import { get } from "svelte/store";
@@ -55,16 +61,16 @@
   // below gates the DOM but not $: blocks, so a closed X-ray never pays a
   // rebuild on every commit.
   $: root = $xrayRoot;
-  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests) : null;
+  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests, $scene3dManifests) : null;
   // A multi-plot root's SHARED parts (one row hides a part everywhere).
-  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests) : [];
-  function rootPlots(p: typeof $project, r: XrayTarget | null): SemanticPlotElement[] {
+  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!]))) : [];
+  function rootPlots(p: typeof $project, r: XrayTarget | null): (SemanticPlotElement | Model3dElement)[] {
     if (!r || r.kind !== "elements") return [];
     const f = p.figures.find((ff) => ff.id === r.figId);
     if (!f) return [];
     return r.elementIds
       .map((id) => f.elements.find((e) => e.id === id))
-      .filter((e): e is SemanticPlotElement => !!e && e.type === "plot");
+      .filter((e): e is SemanticPlotElement | Model3dElement => !!e && (e.type === "plot" || e.type === "model3d"));
   }
 
   // Parents of the current root (double-click re-root pushes; Backspace pops).
@@ -79,34 +85,40 @@
     return el && el.type === "plot" ? (el as SemanticPlotElement) : null;
   })();
 
+  $: rootModel = root?.kind === 'element' ? $project.figures.find(f => f.id === root?.figId)?.elements.find((e): e is Model3dElement => e.id === (root?.kind === 'element' ? root.elementId : '') && e.type === 'model3d') : undefined;
+
   // Regenerate: re-run the plot's recipe and hot-swap the result in place,
   // preserving the id-keyed overrides. Gated behind this explicit action (never
   // auto-runs user code) AND on a recipe-backed plot root.
-  $: recipe = (rootPlot ? $plotRecipes[rootPlot.assetId] : undefined) as
+  $: recipe = (rootModel ? $scene3dRecipes[rootModel.assetId] : rootPlot ? $plotRecipes[rootPlot.assetId] : undefined) as
     | { params?: Record<string, unknown>; lastRun?: string }
     | undefined;
-  $: recipePath = rootPlot?.source?.recipePath;
+  $: recipePath = (rootModel ?? rootPlot)?.source?.recipePath;
   $: projRoot = $embeddedProjectRoot ?? $projectDir;
-  $: srcLabel = rootPlot?.source?.svgPath ? toProjectRelativeSource(projRoot, rootPlot.source.svgPath) : "";
+  $: sourcePath = rootModel?.source?.glbPath ?? rootPlot?.source?.svgPath;
+  $: srcLabel = sourcePath ? toProjectRelativeSource(projRoot, sourcePath) : "";
   let regenJobId = "";
   let regenBusy = false;
   let regenMsg = "";
   async function regenerate(parameters: Record<string, unknown> = recipe?.params ?? {}) {
     const fb = fileBridge();
     if (regenBusy) return;
-    if (!rootPlot || !recipePath || !fb?.runRecipe) {
+    const rootElement = rootModel ?? rootPlot;
+    if (!rootElement || !recipePath || !fb?.runRecipe) {
       regenMsg = "no recipe";
       return;
     }
     // Re-rooting is allowed while the recipe runs. Pin its owner before any
     // await so its result can never replace the newly inspected plot.
-    const target = { id: rootPlot.id, assetId: rootPlot.assetId, figId: root!.figId, recipePath, projRoot };
-    const owner = get(project);
+    const target = { id: rootElement.id, assetId: rootElement.assetId, kind: rootElement.type, identity: rootElement.type === "model3d" ? modelSourceIdentity(rootElement) : null, figId: root!.figId, recipePath, projRoot };
+    const owner = get(project), sourceEpoch = modelSourceOwnerEpoch(), sourceGeneration = get(scene3dGeneration);
     const ownsTarget = () => {
+      if (target.kind === "model3d" && (modelSourceOwnerEpoch() !== sourceEpoch || get(scene3dGeneration) !== sourceGeneration)) return false;
       if (get(project) !== owner || (get(embeddedProjectRoot) ?? get(projectDir)) !== target.projRoot) return false;
       const el = owner.figures.find((f) => f.id === target.figId)?.elements.find((e) => e.id === target.id);
-      return el?.type === "plot" && el.assetId === target.assetId && el.source?.recipePath === target.recipePath;
+      return (el?.type === "plot" || el?.type === "model3d") && el.type === target.kind && el.assetId === target.assetId && el.source?.recipePath === target.recipePath && (el.type !== "model3d" || modelSourceIdentity(el) === target.identity);
     };
+    let completed = false;
     regenBusy = true;
     regenJobId = crypto.randomUUID();
     regenMsg = "";
@@ -115,7 +127,7 @@
       // runRecipe reads the file and resolves the recipe's `cwd` from its
       // dirname — it needs a real absolute path.
       let recipeAbs = "";
-      for (const c of plotSourceCandidates(target.projRoot, target.recipePath)) {
+      for (const c of plotSourceCandidates(target.projRoot, target.recipePath, rootElement.source)) {
         if (await fb.exists(c)) {
           recipeAbs = c;
           break;
@@ -132,6 +144,10 @@
         if (res.code !== 0) {
           const why = String(res.stderr ?? "").trim();
           regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
+        } else if (target.kind === 'model3d') {
+          if (!res.glbPath) throw new Error('The recipe did not produce a GLB output');
+          await updateModelFromSource(target.id, { sourcePath: res.glbPath, manifestPath: res.manifestPath ?? undefined, recipePath: recipeAbs, isCurrent: ownsTarget });
+          completed = true; regenMsg = 'regenerated ✓';
         } else if (res.svgText && res.manifestText) {
           await validateIncomingPlot(res.svgText, res.manifestText);
           if (!ownsTarget()) return;
@@ -149,7 +165,7 @@
     } finally {
       regenBusy = false;
       regenJobId = "";
-      if (rootPlot?.id !== target.id || !ownsTarget()) regenMsg = "";
+      if ((rootModel ?? rootPlot)?.id !== target.id || (!completed && !ownsTarget())) regenMsg = "";
     }
   }
 
@@ -480,7 +496,7 @@
         // member (Show hidden off) must neither change nor reverse this action.
         const hidden = elementIds.every((id) => {
           const el = fig?.elements.find((e) => e.id === id);
-          return el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
+          return el?.type === "model3d" ? !!resolveScene3dPartStyle(get(scene3dManifests)[el.assetId], el.overrides, n.partId!).hidden : el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
         });
         return { ...n, elementIds, hidden };
       });
@@ -561,7 +577,11 @@
   }
 
   function onWin(e: KeyboardEvent) {
-    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if (e.defaultPrevented || yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    // Embedded field/Shape controls own typing, native slider keys and their
+    // picker shortcuts. Tree Ctrl+A/Backspace must never steal numeric edits.
+    if (target?.matches('input, textarea, select') || target?.isContentEditable || target?.closest('.model-controls')) return;
     // The property menu (opened ON TOP by Show Properties) owns the keyboard
     // while it is up — everything here yields until it closes.
     if (!$xrayOpen || $fluxFigMenuOpen || mode !== "tree") return;
@@ -675,7 +695,7 @@
             {/each}
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
-          {#if rootPlot && recipePath}
+          {#if (rootPlot || (rootModel && !rootModel.source?.frozen)) && recipePath}
             {#if regenBusy}<button class="regen" title="Cancel the running recipe (24 hour maximum)" on:click={() => fileBridge()?.cancelRecipe?.(regenJobId)}>Cancel run</button>{/if}
             <button class="regen" on:click={() => regenerate()} disabled={regenBusy} title={recipePath}>
               {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}
@@ -708,11 +728,12 @@
               <ColorScaleControls assetId={rootPlot.assetId} manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
                 on:regenerate={(event) => regenerate(event.detail)} />
             {/if}
+            {#if rootModel}<div class="model-controls"><Model3dSemantics element={rootModel}/></div>{/if}
             {#each rows as r, ri (r.node.id)}
               {#if commonCount && !q && ri === 0}
                 <div class="section">Common parts <span class="scount">shared by all {common[0]?.elementIds?.length ?? 0}</span></div>
               {:else if commonCount && !q && ri === commonCount}
-                <div class="section">Plots</div>
+                <div class="section">Objects</div>
               {/if}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
@@ -784,6 +805,7 @@
 {/if}
 
 <style>
+  .model-controls { padding: 0 10px 12px; }
   /* Radiograph, flat: a near-black tube field with phosphor accents and mono
      type — always dark by nature (the --xr-* ramp, never the theme-scoped
      --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a

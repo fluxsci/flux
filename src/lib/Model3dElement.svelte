@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modelPreviews, modelOrbitIssues, retireModelPreview } from './model3d/orbitSession';
   import { tick, untrack } from 'svelte';
   import { project, embeddedProjectRoot, projectDir, viewport } from './store';
   import { scene3dManifests, scene3dGeneration, model3dPosterRevision } from './model3d/store';
@@ -13,10 +14,12 @@
   const manifest = $derived($scene3dManifests[element.assetId]);
   const layout = $derived(furnitureLayout(manifest, element, element.overrides));
   const pose = $derived(asset?.model ? orbitPose(element, asset.model.bounds, layout.viewport) : null);
-  const furniture = $derived(pose ? furnitureSvg(manifest, element, pose, layout) : { under: '', over: '' });
+  let furniture = $state({ under: '', over: '' });
+  $effect(() => { if ($modelPreviews[element.id]?.phase !== 'active') furniture = pose ? furnitureSvg(manifest, element, pose, layout) : { under: '', over: '' }; });
   const surface = $derived({ kind: 'editor' as const, onscreen: { w: layout.viewport.width * $viewport.zoom, h: layout.viewport.height * $viewport.zoom }, dpr: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1 });
   const key = $derived(asset?.model && asset.sha256 ? posterKey(element, asset, manifest, posterPixels(layout.viewport, surface)) : 'missing');
   const ownerKey = $derived(`${$embeddedProjectRoot ?? $projectDir ?? ''}:${$scene3dGeneration}:${asset?.id}:${asset?.sha256}`);
+  let contextLost = $state(false);
   let url = $state(''), displayedKey = $state(''), reason = $state('Preparing 3D preview');
   const shortReason = $derived(reason.length > 70 ? reason.slice(0, 67) + '…' : reason);
   const displayed = { owner: '' };
@@ -35,26 +38,36 @@
     ownerKey;
     if (!asset?.model || !asset.sha256) return;
     const requested = asset;
-    let closed = false, retained: { release(): void } | undefined;
+    let closed = false, retained: { release(): void } | undefined, unsubscribe: (() => void) | undefined;
     void import('./model3d/posterStore').then(api => {
       if (closed) return;
       const handle = api.retainModel3d(requested); retained = handle;
-      void handle.ready.catch(error => { if (!closed && error?.name !== 'AbortError') reason = String(error?.message ?? error); });
+      void handle.ready.then(loaded => {
+        if (closed) return;
+        unsubscribe = loaded.service.subscribeContext(lost => {
+          if (closed) return;
+          contextLost = lost;
+          modelOrbitIssues.update(old => { const next = { ...old }; if (lost) next[element.id] = '3D context interrupted; waiting for recovery'; else delete next[element.id]; return next; });
+        });
+      }).catch(error => { if (!closed && error?.name !== 'AbortError') { reason = String(error?.message ?? error); modelOrbitIssues.update(old => ({ ...old, [element.id]: reason })); } });
     });
-    return () => { closed = true; retained?.release(); };
+    return () => { closed = true; unsubscribe?.(); retained?.release(); };
   });
   $effect(() => {
     const requestedKey = key; ownerKey;
+    const preview = $modelPreviews[element.id];
+    if (preview?.phase === 'active' || contextLost) return;
     if (displayed.owner !== ownerKey) { displayed.owner = ownerKey; url = ''; }
     if (!asset?.model || !asset.sha256) { reason = '3D model file missing'; return; }
     const request = untrack(() => ({ element: structuredClone(element), asset: structuredClone(asset!), manifest: manifest ? structuredClone(manifest) : undefined, surface }));
     const abort = new AbortController();
     const publish = (value: string) => {
-      if (abort.signal.aborted || value === url) return;
+      if (abort.signal.aborted) return;
       url = value; displayedKey = requestedKey; reason = '';
+      void tick().then(() => { if (!abort.signal.aborted && preview?.phase === 'settled') retireModelPreview(element.id); });
     };
     void import('./model3d/posterStore').then(api => api.modelPosterUrl(request, { signal: abort.signal, onPreview: publish })).then(publish).catch(error => {
-      if (!abort.signal.aborted && error?.name !== 'AbortError') { reason = String(error?.message ?? error); url = ''; }
+      if (!abort.signal.aborted && error?.name !== 'AbortError') { reason = String(error?.message ?? error); url = ''; if (preview?.phase === 'settled') retireModelPreview(element.id); }
     });
     return () => abort.abort();
   });

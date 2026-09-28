@@ -207,6 +207,14 @@ usage: flux <verb> [root] [args] [--flags]
                                        (subfolders = named groups; no arg = every
                                        plot that has a dissection folder)
 
+ Figure 3D models:
+  add-model <figureId> <source.glb> [--x n --y n --width n --height n --name N --view '<json>']   import an immutable mesh copy + semantic sidecars
+  set-model-view <elementId> [--figure id --preset front|back|right|left|top|bottom|home --azimuth n --elevation n --zoom n --colors source|uniform --state name=weight … | --frame n]   edit a saved Figure model view
+  set-model-field <elementId> <fieldId> [--cmap name --min n --max n | --reset]   remap a 3D value field
+  restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden true]   alias of restyle; plot or 3D semantic parts
+  model-info <source.glb> [--morph-with other.glb]   read-only stats, semantics and topology inspection
+  render-model-posters [--figure id --prune]   batch-render saved Figure model posters into the project cache
+
  Slides (Flux Slide — figure-first animated talks):
   decks [--root R]                     list the project's slide decks (JSON)
   new-deck [--title T] [--theme T] [--root R]   create a new slide deck
@@ -372,18 +380,20 @@ async function dispatch(
         );
       // WS-12: headless-edited text renders unwrapped — warn loudly, render anyway.
       for (const w of await core.textLayoutProbe(root(), { figureId: figId })) console.error(`⚠ ${w}`);
+      const modelWarnings: string[] = [];
       if (flags.png) {
-        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2);
+        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2, { model3dPolicy: 'project', warnings: modelWarnings });
         const out = String(flags.out ?? `${figId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const svg = await core.renderFigureSvg(root(), figId);
+        const svg = await core.renderFigureSvg(root(), figId, { model3dPolicy: 'project', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
       }
+      for (const warning of modelWarnings) console.error(`⚠ ${warning}`);
       break;
     }
     case "view": {
@@ -407,13 +417,14 @@ async function dispatch(
       // frames) that per-figure renders can never show.
       const cid = _[0] || undefined;
       for (const w of await core.textLayoutProbe(R(), { canvasId: cid })) console.error(`⚠ ${w}`); // WS-12
+      const modelWarnings: string[] = [];
       if (flags.png) {
-        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1);
+        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1, { model3dPolicy: 'project', warnings: modelWarnings });
         const out = String(flags.out ?? `${canvasId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid);
+        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid, { model3dPolicy: 'project', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
@@ -422,6 +433,7 @@ async function dispatch(
           console.error(`✓ rendered canvas ${canvasId}`);
         }
       }
+      for (const warning of modelWarnings) console.error(`⚠ ${warning}`);
       break;
     }
     case "render-figures": {

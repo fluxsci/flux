@@ -33,6 +33,8 @@ export interface Model3dImportResult extends Model3dImportData {
 export interface Model3dImportRequest {
   root: string;
   sourcePath: string;
+  manifestPath?: string;
+  recipePath?: string;
   target: Model3dImportTarget;
 }
 export interface Model3dImportOwnership {

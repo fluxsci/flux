@@ -8,6 +8,7 @@
 import { z } from "zod";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
+import { MODEL3D_VERBS } from './model3dVerbs';
 import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
 import { text } from "./registry";
 import { renderLogEntries } from "../src/lib/project/contextTemplates";
@@ -409,15 +410,17 @@ export const VERBS: VerbDef[] = [
     scope: "project",
     core: true,
     cli: "restyle",
+    aliases: ['restyle-part'],
     cliRoot: "flags",
     summary:
-      "Restyle a semantic-plot part or series by its stable id (e.g. 'control.line' or the group 'control'). Writes an override that survives regeneration. Omit elementId if the figure has a single plot panel.",
+      "Restyle a semantic plot or 3D part/group by its stable id. Writes an override that survives regeneration. Omit elementId if the figure has one semantic panel. 3D mesh fills are visible in Source colors mode.",
     // WS-6.1: the FULL PartOverride surface (the CLI exposed these all along —
     // same core.setPartOverride underneath; the 5-prop schema was drift).
     params: {
       figureId: z.string(),
       partId: z.string(),
       elementId: z.string().optional(),
+      noPoster: z.boolean().optional(),
       stroke: z.string().optional(),
       fill: z.string().optional(),
       color: z.string().optional(),
@@ -436,6 +439,7 @@ export const VERBS: VerbDef[] = [
       { kind: "pos", at: 0, into: "figureId", required: true },
       { kind: "pos", at: 1, into: "partId", required: true },
       { kind: "flag", at: "element", into: "elementId" },
+      { kind: "flag", at: "no-poster", into: "noPoster", as: "boolean" },
       { kind: "flag", at: "stroke", into: "stroke" },
       { kind: "flag", at: "fill", into: "fill" },
       { kind: "flag", at: "color", into: "color" },
@@ -449,10 +453,10 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "hidden", into: "hidden", const: true },
     ],
     handler: (ctx, a) =>
-      core.setPartOverride(ctx.root, s(a.figureId), s(a.partId), pick(a, [...PART_KEYS]), a.elementId as string | undefined),
+      core.setPartOverride(ctx.root, s(a.figureId), s(a.partId), pick(a, [...PART_KEYS]), a.elementId as string | undefined, { noPoster: a.noPoster as boolean | undefined }),
     render: {
-      human: (r, a) => ({ err: `✓ restyled ${a.partId} on ${(r as { elementId: string }).elementId}` }),
-      mcp: (r, a) => text(`restyled ${a.partId} on ${(r as { elementId: string }).elementId}`),
+      human: (r, a) => ({ err: `✓ restyled ${a.partId} on ${(r as { elementId: string }).elementId}${(r as { warnings?: string[] }).warnings?.length ? "\n" + (r as { warnings: string[] }).warnings.join("\n") : ""}` }),
+      mcp: (r, a) => text(`restyled ${a.partId} on ${(r as { elementId: string }).elementId}${(r as { warnings?: string[] }).warnings?.length ? "\n" + (r as { warnings: string[] }).warnings.join("\n") : ""}`),
     },
   },
   {
@@ -2474,19 +2478,19 @@ export const VERBS: VerbDef[] = [
       }),
     render: {
       human: (r) => {
-        const c = r as { code: number; svgPath: string; stderr: string };
+        const c = r as { code: number; svgPath: string; glbPath?: string; stderr: string };
         return {
-          err: `✓ recipe exited ${c.code}; wrote ${c.svgPath}` + (c.stderr.trim() ? `\n${c.stderr.trim()}` : ""),
+          err: `✓ recipe exited ${c.code}; wrote ${c.glbPath ?? c.svgPath}` + (c.stderr.trim() ? `\n${c.stderr.trim()}` : ""),
           exit: c.code !== 0 ? c.code : undefined,
         };
       },
       mcp: (r) => {
-        const c = r as { code: number; svgPath: string; stderr: string };
+        const c = r as { code: number; svgPath: string; glbPath?: string; stderr: string };
         // WS-6.1: nonzero exit = the plot did NOT regenerate — report it as an
         // error (the old success-shaped "recipe exited 1" was invisible to agents).
         if (c.code !== 0)
           return { isError: true, content: [{ type: "text", text: `recipe exited ${c.code}\n${String(c.stderr ?? "").slice(-2000)}` }] };
-        return text(`recipe exited ${c.code}; wrote ${c.svgPath}`);
+        return text(`recipe exited ${c.code}; wrote ${c.glbPath ?? c.svgPath}`);
       },
     },
   },
@@ -3555,5 +3559,8 @@ export const VERBS: VerbDef[] = [
       mcp:(r,a)=>{const v=r as Awaited<ReturnType<typeof core.searchFulltext>>;return text(!v.hits.length?`No stored PDF text matches "${a.query}" (scanned ${v.scanned}).${v.missingText.length?` ${v.missingText.length} PDF(s) have no extracted text yet — get_paper_text extracts on demand.`:''}`:`${v.hits.length} paper(s) match "${a.query}" (scanned ${v.scanned} in ${v.elapsedMs}ms${v.truncated?'; hit limit':''}):\n`+v.hits.map(h=>`@${h.key} (${h.count})\n`+h.snippets.map(s=>`  p${s.page}: ${s.text}`).join('\n')).join('\n'));},
     },
   },
+
+  // Figure-side 3D commands; Slides additions land after animation-v2.
+  ...MODEL3D_VERBS,
 
 ];

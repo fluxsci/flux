@@ -48,6 +48,7 @@
   export let tracks: TrackCascadeAdapter | null = null;
 
   const ELEMENT_LABELS: Record<ElementCascadeProp, string> = {
+    orbitAzimuth: "Azimuth (°)", orbitElevation: "Elevation (°)", orbitRoll: "Roll (°)", orbitZoom: "Zoom (×)", orbitPanX: "Pan X", orbitPanY: "Pan Y", orbitFov: "FOV (°)",
     x: "X",
     y: "Y",
     rotation: "Rotation (°)",
@@ -69,6 +70,7 @@
     "stagger.perMs": "Stagger per-item (ms)",
   };
   const STEP: Partial<Record<string, number>> = {
+    orbitAzimuth: 5, orbitElevation: 5, orbitRoll: 5, orbitZoom: .1, orbitPanX: .05, orbitPanY: .05, orbitFov: 5,
     opacity: 0.05,
     strokeWidth: 0.5,
     fontSize: 0.5,

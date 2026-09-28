@@ -139,7 +139,7 @@ ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orb
   orbitPanX: { type: "number" }, orbitPanY: { type: "number" },
   orbitProjection: { enum: ["orthographic", "perspective"] }, orbitFov: { type: "number", exclusiveMinimum: 0, exclusiveMaximum: 180 },
   modelColors: { enum: ["uniform", "source"] }, modelLighting: { enum: ["studio", "unlit"] },
-  overrides: OVERRIDES, modelStates: { type: "object", additionalProperties: { type: "number", minimum: 0, maximum: 1 } },
+  overrides: OVERRIDES, modelStates: { type: "object", additionalProperties: { type: "number" } },
   fields: { type: "object", additionalProperties: { type: "object", properties: { cmap: { type: "string" }, range: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } } } } },
   source: { type: "object", required: ["glbPath"], properties: { glbPath: { type: "string" }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, manifestPath: { type: "string" }, recipePath: { type: "string" }, external: { type: "boolean" }, frozen: { type: "boolean" } } },
   manifestRef: { type: "object", required: ["specVersion"], properties: { specVersion: { type: "string" }, hash: { type: "string" } } },

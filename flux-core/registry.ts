@@ -53,6 +53,8 @@ export interface CliArgSpec {
   /** positional index (kind:"pos") or flag name (kind:"flag", without --). */
   at?: number | string;
   required?: boolean;
+  /** Only declared value flags may repeat (e.g. --state a=.5 --state b=.2). */
+  repeat?: boolean;
   /** Coercions (CLI side only — MCP args arrive typed):
    *  string   String(raw) — a bare flag becomes "true" (matches String(flags.x))
    *  trim     String(raw).trim(); an all-space value counts as missing
@@ -76,7 +78,8 @@ export interface CliArgSpec {
     | "path"
     | "joined"
     | "ptToPx"
-    | "fileText";
+    | "fileText"
+    | "keyValueNumbers";
   /** Fixed value when the flag is PRESENT (--no-label → label:false,
    *  --hide → hidden:true) — presence-selected values `as` can't express. */
   const?: unknown;
@@ -208,6 +211,16 @@ async function coerce(spec: CliArgSpec, raw: unknown): Promise<unknown> {
       return raw === true ? undefined : Number(raw) * (4 / 3);
     case "fileText":
       return await fs.readFile(String(raw), "utf8");
+    case "keyValueNumbers": {
+      const values: Record<string, number> = Object.create(null);
+      for (const item of Array.isArray(raw) ? raw : [raw]) {
+        const text = String(item), at = text.lastIndexOf('='), name = text.slice(0, at).trim(), value = text.slice(at + 1).trim();
+        if (at < 1 || !name || !value || !Number.isFinite(Number(value))) throw new ValidationError(`Expected name=finite-number, received ${text}`);
+        if (Object.hasOwn(values, name)) throw new ValidationError(`Repeated shape state ${name}`);
+        values[name] = Number(value);
+      }
+      return values;
+    }
     default: {
       const exhaustive: never = spec.as;
       throw new ValidationError(`Unsupported CLI coercion: ${String(exhaustive)}`);
@@ -467,14 +480,14 @@ export function registerMcpVerbs(
 
 /** Declaration-driven flag grammar. Values beginning '-' are valid values;
  * booleans never steal the next positional. '--' ends option parsing. */
-export function parseCliFlags(verb: string | undefined, argv: string[]): { _: string[]; flags: Record<string, string | boolean> } {
+export function parseCliFlags(verb: string | undefined, argv: string[]): { _: string[]; flags: Record<string, string | boolean | string[]> } {
   const definition = verb ? byCli.get(verb) : undefined;
   const specs = definition?.cliArgs.filter(s => s.kind === 'flag') ?? [];
-  const declared = new Map<string, Pick<CliArgSpec, "as" | "const">>(specs.map(s => [String(s.at), s]));
+  const declared = new Map<string, Pick<CliArgSpec, "as" | "const" | "repeat">>(specs.map(s => [String(s.at), s]));
   for (const [flag, o] of Object.entries(definition?.cliOnlyFlags ?? {})) declared.set(flag, o.value ? {} : { as: "boolean" });
   const rest = definition?.cliArgs.some(s => s.kind === 'flagRest');
   const legacyBooleans = new Set(['png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
-  const flags: Record<string, string | boolean> = {}, pos: string[] = [];
+  const flags: Record<string, string | boolean | string[]> = {}, pos: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') { pos.push(...argv.slice(i + 1)); break; }
@@ -484,13 +497,19 @@ export function parseCliFlags(verb: string | undefined, argv: string[]): { _: st
     if (!key || ['__proto__', 'constructor', 'prototype'].includes(key)) throw new ValidationError('Invalid option name');
     const spec = declared.get(key);
     if (definition && !spec && !['root','help'].includes(key) && !rest) throw new ValidationError(`${verb}: unknown flag --${key}`);
-    if (Object.hasOwn(flags, key)) throw new ValidationError(`${verb}: repeated flag --${key}`);
+    if (Object.hasOwn(flags, key) && !spec?.repeat) throw new ValidationError(`${verb}: repeated flag --${key}`);
     const boolean = spec ? spec.as === 'boolean' || spec.const !== undefined : legacyBooleans.has(key);
-    if (equal >= 0) { flags[key] = arg.slice(equal + 1); continue; }
+    const put = (value: string | boolean) => {
+      if (spec?.repeat) {
+        if (boolean || typeof value !== 'string') throw new ValidationError(`${verb}: repeated flag --${key} requires a value`);
+        const values = (flags[key] ??= []) as string[]; values.push(value);
+      } else flags[key] = value;
+    };
+    if (equal >= 0) { put(arg.slice(equal + 1)); continue; }
     if (boolean) {
       const next = argv[i + 1];
-      if (next === 'true' || next === 'false') { flags[key] = next; i++; } else flags[key] = true;
-    } else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) flags[key] = argv[++i];
+      if (next === 'true' || next === 'false') { put(next); i++; } else put(true);
+    } else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) put(argv[++i]);
     else throw new ValidationError(`${verb}: --${key} requires a value`);
   }
   return { _: pos, flags };
@@ -499,7 +518,7 @@ export function registryHelp(verb?: string): string {
   const definitions = verb ? [byCli.get(verb)].filter((v): v is VerbDef => !!v) : VERBS;
   return definitions.map(v => {
     const args = v.cliArgs.filter(s => s.kind !== 'flagRest').map(s => s.kind === 'flag'
-      ? `[--${s.at}${s.as === 'boolean' || s.const !== undefined ? '' : ' <value>'}]`
+      ? `[--${s.at}${s.as === 'boolean' || s.const !== undefined ? '' : ' <value>'}${s.repeat ? '…' : ''}]`
       : `<${s.into}${s.kind === 'rest' ? '…' : ''}>`).join(' ');
     const cliOnly = Object.entries(v.cliOnlyFlags ?? {}).map(([f, o]) => `\n      --${f}${o.value ? ' <value>' : ''}: ${o.help}`).join('');
     return `  ${v.cli} ${v.cliRoot === 'flags' ? '' : '[root] '}${args} [--root R]\n      ${v.summary}${v.aliases?.length ? ` (aliases: ${v.aliases.join(', ')})` : ''}${cliOnly}`;

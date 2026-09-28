@@ -1,6 +1,9 @@
 import type { PartOverride } from '../types';
 import { validateScene3d } from './scene3dValidator.gen.mjs';
 import type { Scene3dManifest, Scene3dPart, Scene3dField, Model3dInfo } from './types';
+import { buildScene3dPartIndex, scene3dPartLineage, type Scene3dPartIndex } from './parts';
+export { buildScene3dPartIndex, scene3dPartTargets, scene3dPartLineage, scene3dSeriesId, scene3dAxesId, scene3dFieldId } from './parts';
+export type { IndexedScene3dPart, Scene3dPartIndex } from './parts';
 export type { Scene3dManifest, Scene3dPart, Scene3dField } from './types';
 export interface Scene3dIssue { issue:string }
 export const isScene3d = (value:unknown): value is Scene3dManifest => !!value && typeof value==='object' && (value as {spec?:unknown}).spec==='fluxplot/scene3d';
@@ -30,12 +33,6 @@ export function parseScene3d(input:unknown): Scene3dManifest|Scene3dIssue {
   if(data.order?.some(id=>!ids.has(id)))return {issue:'Unknown part in scene3d order'};
   return data;
 }
-export interface IndexedScene3dPart extends Scene3dPart {kind:'mesh'|'field'|'missing'|'furniture'}
-export function buildScene3dPartIndex(manifest:Scene3dManifest):Record<string,IndexedScene3dPart>{
-  const index:Record<string,IndexedScene3dPart>=Object.create(null);
-  for(const p of manifest.parts??[])index[p.id]={...p,kind:p.kind??(p.node?(typeof p.field==='object'?'field':p.id.endsWith('.missing')?'missing':'mesh'):'furniture')};
-  return index;
-}
 export const scene3dPartIndex=buildScene3dPartIndex;
 export function scene3dFields(manifest?:Scene3dManifest|null):Record<string,Scene3dField>{
  const fields:Record<string,Scene3dField>=Object.create(null);for(const p of manifest?.parts??[])if(typeof p.field==='object')fields[p.id]=p.field;return fields;
@@ -47,12 +44,11 @@ export function scene3dStateIssues(manifest:Scene3dManifest,info:Model3dInfo):st
 
 /** Shared semantic cascade. Ancestor opacity multiplies; hiding an ancestor hides its subtree.
  * A local hidden:false restores a source-hidden part but cannot unhide its hidden parent. */
-export function resolveScene3dPartStyle(manifest:Scene3dManifest|null|undefined,overrides:Record<string,PartOverride>|undefined,id:string,opts:{sourceColors?:boolean}={}):PartOverride {
- const index=manifest?buildScene3dPartIndex(manifest):{},lineage:Scene3dPart[]=[],seen=new Set<string>();let p=index[id];
- while(p&&!seen.has(p.id)){seen.add(p.id);lineage.unshift(p);p=p.parent?index[p.parent]:undefined!;}
- if(!lineage.length)return {...overrides?.[id]};
+export function resolveScene3dPartStyle(manifest:Scene3dManifest|null|undefined,overrides:Record<string,PartOverride>|undefined,id:string,opts:{sourceColors?:boolean;index?:Scene3dPartIndex}={}):PartOverride {
+ const index=opts.index??(manifest?buildScene3dPartIndex(manifest):Object.create(null)),lineage=scene3dPartLineage(index,id);
+ if(!lineage.length)return {...(overrides&&Object.hasOwn(overrides,id)?overrides[id]:{})};
  let result:PartOverride={},opacity=1,hidden=false,sourceColor:string|undefined;
- for(const part of lineage){const o=overrides?.[part.id]??{};sourceColor=part.color??sourceColor;result={...result,...o};opacity*=o.opacity??part.opacity??1;hidden ||= o.hidden??part.hidden??false;}
+ for(const part of lineage){const o=overrides&&Object.hasOwn(overrides,part.id)?overrides[part.id]:{};sourceColor=part.color??sourceColor;result={...result,...o};opacity*=o.opacity??part.opacity??1;hidden ||= o.hidden??part.hidden??false;}
  if(result.fill==null&&opts.sourceColors!==false&&sourceColor)result.fill=sourceColor;
  result.opacity=opacity;result.hidden=hidden;
  return result;

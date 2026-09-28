@@ -11,6 +11,7 @@ import type { InclusionPlan } from "./budget";
 import type { ConnectFacts } from "./facts";
 import { createHash } from "node:crypto";
 import { renderCanvasSvg, renderFigureSvg, rasterizeSvgToPng } from "../render";
+import { modelPosterAvailabilitySignature } from "../model3dPosterCache";
 import { buildInfo } from "../buildInfo";
 import { ensureDom } from "../render";
 import { gatherSlidePayload } from "../../src/lib/slide/payload";
@@ -160,21 +161,23 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
   await fs.mkdir(dir, { recursive: true });
   const cacheDir = path.join(path.dirname(path.dirname(packDir)), "_render-cache");
   await fs.mkdir(cacheDir, { recursive: true }).catch(() => {});
-  const assets = await assetSignature(root);
+  const assets = `${await assetSignature(root)}:${await modelPosterAvailabilitySignature(root)}`;
   let hits = 0, misses = 0;
   const names = new Map(p.figures.map((f) => [f.id, f.displayName]));
   // One line per distinct failure (a damaged figure model fails every render the same way).
   const failures = new Map<string, string[]>();
   let index = 0;
-  const one = async (label: string, file: string, svg: () => Promise<string>, maxEdge: number, key: Promise<string | null>) => {
+  const one = async (label: string, file: string, svg: (warnings: string[]) => Promise<string>, maxEdge: number, key: Promise<string | null>) => {
     try {
       const code = imageCode(facts.packId, index);
       const k = await key;
       let base: { png: Buffer; width: number; height: number } | null = null;
+      const modelWarnings: string[] = [];
       if (k) {
         try {
-          const meta = JSON.parse(await fs.readFile(path.join(cacheDir, `${k}.json`), "utf8")) as { width: number; height: number };
+          const meta = JSON.parse(await fs.readFile(path.join(cacheDir, `${k}.json`), "utf8")) as { width: number; height: number; warnings?: string[] };
           base = { png: await fs.readFile(path.join(cacheDir, `${k}.png`)), ...meta };
+          modelWarnings.push(...meta.warnings ?? []);
           const now = new Date();
           await fs.utimes(path.join(cacheDir, `${k}.png`), now, now).catch(() => {});
           hits++;
@@ -183,7 +186,7 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
         }
       }
       if (!base) {
-        const raw = await svg();
+        const raw = await svg(modelWarnings);
         const width = outWidth(raw, maxEdge);
         const size = svgSize(raw);
         const height = size ? Math.max(1, Math.round((width * size.h) / Math.max(1e-9, size.w))) : width;
@@ -191,9 +194,10 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
         misses++;
         if (k) {
           await fs.writeFile(path.join(cacheDir, `${k}.png`), base.png).catch(() => {});
-          await fs.writeFile(path.join(cacheDir, `${k}.json`), JSON.stringify({ width: base.width, height: base.height })).catch(() => {});
+          await fs.writeFile(path.join(cacheDir, `${k}.json`), JSON.stringify({ width: base.width, height: base.height, warnings: modelWarnings })).catch(() => {});
         }
       }
+      problems.push(...modelWarnings);
       const png = await stampPng(base.png, base.width, base.height, code);
       const abs = path.join(dir, file);
       await fs.writeFile(abs, png);
@@ -208,11 +212,11 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
   for (const c of p.canvases) {
     if (!c.figureIds.length) continue;
     const members = c.figureIds.map((id) => `${id} "${names.get(id) ?? id}"`).join(", ");
-    await one(`canvas "${c.name}": ${members}`, `canvas-${++n}.png`, async () => (await renderCanvasSvg(root, c.id)).svg, CANVAS_MAX_EDGE, renderKey(root, "canvas", c.id, c.id, CANVAS_MAX_EDGE, assets));
+    await one(`canvas "${c.name}": ${members}`, `canvas-${++n}.png`, async warnings => (await renderCanvasSvg(root, c.id, { model3dPolicy: 'collect', warnings })).svg, CANVAS_MAX_EDGE, renderKey(root, "canvas", c.id, c.id, CANVAS_MAX_EDGE, assets));
   }
   if (plan.figureImages === "canvases+figures") {
     for (const f of p.figures.filter((x) => !x.empty))
-      await one(`${f.id} "${f.displayName}"`, `figure-${safe(f.id)}.png`, () => renderFigureSvg(root, f.id), FIGURE_MAX_EDGE, renderKey(root, "figure", f.id, f.canvasId, FIGURE_MAX_EDGE, assets));
+      await one(`${f.id} "${f.displayName}"`, `figure-${safe(f.id)}.png`, warnings => renderFigureSvg(root, f.id, { model3dPolicy: 'collect', warnings }), FIGURE_MAX_EDGE, renderKey(root, "figure", f.id, f.canvasId, FIGURE_MAX_EDGE, assets));
   }
   if (plan.deckSheets) {
     for (const d of p.decks) {
@@ -233,7 +237,7 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
   if (misses) await trimCache(cacheDir);
   for (const [msg, labels] of failures)
     problems.push(`could not render ${labels.length === 1 ? labels[0] : `${labels.length} images (${labels.slice(0, 3).join(", ")}${labels.length > 3 ? ", …" : ""})`}: ${msg}`);
-  return { images: out, problems, cache: { hits, misses } };
+  return { images: out, problems: [...new Set(problems)], cache: { hits, misses } };
 }
 
 /**

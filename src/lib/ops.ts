@@ -1,3 +1,4 @@
+import type { Model3dElement } from './model3d/types';
 // ---------------------------------------------------------------------------
 // Flux ops — the one pure mutation core.
 //
@@ -15,6 +16,9 @@
 // (types, ids, geometry, captions, layout). Importing store.ts/colors.ts/svelte
 // here would re-introduce the GUI coupling this module exists to remove.
 // ---------------------------------------------------------------------------
+
+export { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates, modelStateWeight } from './model3d/semanticOps';
+export type { ModelFieldPatch } from './model3d/semanticOps';
 
 import type {
   Project,
@@ -814,7 +818,10 @@ export function cascadeElements(p: Project, figId: Id, ids: Id[], spec: CascadeS
         const rec = e as unknown as Record<string, unknown>;
         const cur = prop === "opacity" ? ((e.opacity ?? 1) as number) : ((rec[prop] ?? 0) as number);
         const target = clampElementValue(prop, cascadeValue(cur, eff, step));
-        if (target !== cur) setElementStyle(p, [e.id], { [prop]: target });
+        if (target !== cur) {
+          if (prop.startsWith("orbit")) setModelView(p, [e.id], { [prop]: target });
+          else setElementStyle(p, [e.id], { [prop]: target });
+        }
       }
     }
   });
@@ -1656,19 +1663,19 @@ export function setCrop(p: Project, id: Id, crop: CropRect | null): boolean {
  *  part's id-keyed override; a null/undefined value DELETES that key; an
  *  override left empty is removed entirely. */
 export function mergePartOverride(
-  el: SemanticPlotElement,
+  el: SemanticPlotElement | Model3dElement,
   partId: string,
   patch: Record<string, string | number | boolean | null | undefined>,
 ): void {
-  const cur = { ...(el.overrides?.[partId] ?? {}) } as Record<string, string | number | boolean>;
+  const cur = { ...(el.overrides && Object.hasOwn(el.overrides, partId) ? el.overrides[partId] : {}) } as Record<string, string | number | boolean>;
   for (const [k, v] of Object.entries(patch)) {
     if (v == null) delete cur[k];
     else cur[k] = v;
   }
-  el.overrides = { ...(el.overrides ?? {}) };
-  if (Object.keys(cur).length === 0) delete el.overrides[partId];
-  else el.overrides[partId] = cur as PartOverride;
-  if (Object.keys(el.overrides).length === 0) delete el.overrides;
+  const overrides: Record<string, PartOverride> = Object.assign(Object.create(null), el.overrides);
+  if (Object.keys(cur).length === 0) delete overrides[partId];
+  else overrides[partId] = cur as PartOverride;
+  if (Object.keys(overrides).length === 0) delete el.overrides; else el.overrides = overrides;
 }
 
 /** Write a per-part override onto a semantic plot, keyed by stable semantic id
@@ -1677,7 +1684,7 @@ export function mergePartOverride(
 export function setPartOverride(p: Project, elementId: Id, partId: string, patch: PartOverride): void {
   for (const f of p.figures)
     for (const e of f.elements) {
-      if (e.id !== elementId || e.type !== "plot") continue;
+      if (e.id !== elementId || (e.type !== "plot" && e.type !== "model3d")) continue;
       mergePartOverride(e, partId, patch);
     }
 }
@@ -1923,7 +1930,7 @@ export function panelForLabel(label: Element, anchors: Element[], tol = 48): Ele
 export function ensurePanelLabels(p: Project, figId: Id): { created: number } {
   const f = figById(p, figId);
   if (!f) return { created: 0 };
-  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
+  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image" || e.type === "model3d");
   if (anchors.length < 2) return { created: 0 }; // single-panel figures aren't lettered
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   const marked = new Set<Id>();
@@ -1948,7 +1955,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   if (!labels.length) return { changed: false, letters: [] };
   if (labels.length > 26) throw new Error("Automatic panel lettering supports up to 26 panels (a–z). Keep your existing labels or split this figure.");
-  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
+  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image" || e.type === "model3d");
   const rowSpan = (e: Element): { top: number; bottom: number; x: number } => {
     const lb = elementBBox(e);
     const a = panelForLabel(e, anchors);
@@ -2002,3 +2009,6 @@ export function resizeFigureFrame(p: Project, id: Id, box: { x: number; y: numbe
   if (!figure) throw new Error(`Figure not found: ${id}`);
   resizeFrame(figure, box);
 }
+
+import { setModelView } from './model3d/viewOps';
+export { setModelView };

@@ -35,7 +35,9 @@
     libraryOnly,
   } from "./textStyles";
   import { plotManifests, plotHasContentScaleTargets } from "./plot/store";
-  import { buildPartIndex } from "./plot/parse";
+  import { semanticPartIndex } from "./plot/partStyle";
+  import { scene3dManifests } from "./model3d/store";
+  import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
   import { partBreadcrumb } from "./plot/partStyle";
   import { fluxFigMenuOpen } from "./settings";
   import { nameForHex } from "./colors";
@@ -46,6 +48,7 @@
   import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
   import ColorPicker from "./ColorPicker.svelte";
+  import Model3dInspector from "./model3d/Model3dInspector.svelte";
   import ColorField from "./ColorField.svelte";
   import NumberField from "./NumberField.svelte";
   import { commitDeckLive } from "./slide/store";
@@ -190,34 +193,35 @@
     const ps = $partSelection;
     if (!ps) return null;
     for (const f of $project.figures)
-      for (const e of f.elements) if (e.id === ps.elementId && e.type === "plot") return e;
+      for (const e of f.elements) if (e.id === ps.elementId && (e.type === "plot" || e.type === "model3d")) return e;
     return null;
   })();
   $: partInfo = (() => {
     const ps = $partSelection;
-    if (!ps || !plotEl || plotEl.type !== "plot") return null;
-    const idx = buildPartIndex($plotManifests[plotEl.assetId]);
+    if (!ps || !plotEl) return null;
+    const idx = semanticPartIndex(plotEl.type === "model3d" ? $scene3dManifests[plotEl.assetId] : $plotManifests[plotEl.assetId]);
     return idx[ps.partId] ?? { id: ps.partId, role: "part" };
   })();
   // Display label: the extended part index's human label, a composed
   // role · series · #index for data entries, the raw id last.
   $: partLabel = partInfo
     ? (partInfo.label ??
-      ([partInfo.role, partInfo.series, partInfo.index !== undefined ? `#${partInfo.index}` : null]
+      ([partInfo.role, partInfo.series, "index" in partInfo && partInfo.index !== undefined ? `#${partInfo.index}` : null]
         .filter(Boolean)
         .join(" · ") ||
         partInfo.id))
     : "";
   // Hierarchy breadcrumb (parts-tree root → this part); empty without a tree.
   $: partCrumb =
-    plotEl && plotEl.type === "plot" && $partSelection
-      ? partBreadcrumb($plotManifests[plotEl.assetId], $partSelection.partId).join(" › ")
+    plotEl && $partSelection
+      ? partBreadcrumb(plotEl.type === "model3d" ? $scene3dManifests[plotEl.assetId] : $plotManifests[plotEl.assetId], $partSelection.partId).join(" › ")
       : "";
   // The part FIELDS — the same list the property menu shows (one field model,
   // interact/propertyMenu.ts), applied to every selected part. The letter on
   // each row is its hotkey in the menu (F).
-  $: partFields = partInfo ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles) : [];
+  $: partFields = partInfo ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles, $scene3dManifests) : [];
   $: partCount = $partSelections.length;
+  $: partFieldId = partInfo && "field" in partInfo ? typeof partInfo.field === "object" ? partInfo.id : partInfo.field : undefined;
   function runField(f: Field, v: string | number | boolean) {
     const s = editSession();
     s.run(() => f.apply(v));
@@ -491,15 +495,17 @@
        to every picked part (five series, or the x-axis of four plots). -->
   {#if partInfo}
     <section class="part">
-      <h4>Plot part{partCount > 1 ? `s · ${partCount}` : ""}</h4>
+      <h4>{plotEl?.type === "model3d" ? "3D" : "Plot"} part{partCount > 1 ? `s · ${partCount}` : ""}</h4>
       <div class="secbody">
         <div class="part-id">{partLabel}{#if partCount > 1}<span class="more">+{partCount - 1} more</span>{/if}</div>
         {#if partCrumb}
           <p class="crumb">{partCrumb}</p>
         {/if}
-        {#if partInfo.x !== undefined && partInfo.y !== undefined}
+        {#if plotEl?.type === "model3d" && partFieldId}<Model3dSemantics element={plotEl} fieldId={partFieldId} showShape={false}/>{/if}
+        {#if "x" in partInfo && "y" in partInfo && partInfo.x !== undefined && partInfo.y !== undefined}
           <p class="note">data: x = {partInfo.x}, y = {partInfo.y}</p>
         {/if}
+        {#if partFields.some(f => f.hint)}<p class="note">{partFields.find(f => f.hint)?.hint}</p>{/if}
         <div class="pfields">
           {#each partFields as f (f.key)}
             {@const range = fieldRange(f)}
@@ -713,6 +719,8 @@
       </div>
     </section>
   {/if}
+
+  {#if single?.type === "model3d"}<Model3dInspector element={single} readOnly={selectionReadOnly} />{/if}
 
   {#if slideMode && single?.type === "video"}
     {@const videoAsset = $project.assets.find(asset => asset.id === single.assetId)}

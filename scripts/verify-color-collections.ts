@@ -6,6 +6,11 @@ import {
   COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS, COLORMAP_TYPES, findColormap, qualifiedName, colormapGradient,
   colormapColorAt, colormapsByType, paletteGroups, availablePaletteCollections, nextId,
 } from "../src/lib/color/collections";
+import { findColormap as findPure, colormapStops } from '../src/lib/color/colormaps';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 function assert(cond: unknown, msg: string) { if (!cond) throw new Error("FAIL: " + msg); console.log("  ok:", msg); }
 const HEX = /^#[0-9a-f]{6}$/;
@@ -60,3 +65,21 @@ assert(paletteGroups("brewer").length === 35 && paletteGroups("project", { color
 assert(availablePaletteCollections(null).map((c) => c.id).join() === "flexoki,brewer,tol" && availablePaletteCollections({ colorGroups: [{ name: "mine", swatches: [] }] }).at(-1)?.id === "project", "the project's own palette joins the list when it exists");
 assert(nextId(["a", "b", "c"], "c") === "a" && nextId(["a", "b", "c"], "a", -1) === "c" && nextId(["a", "b"], "zzz") === "a", "nextId wraps both ways and starts over from an unknown current");
 console.log("VERIFY-COLOR-COLLECTIONS PASS");
+
+// Every renderer lookup shares exact source map objects/stops with the UI,
+// including reverse/qualified/bare names; only UI collections own provenance.
+for (const c of COLORMAP_COLLECTIONS) for (const m of c.maps) for (const suffix of ['', '_r']) {
+  const name = `${c.id}.${m.name}${suffix}`, pure = findPure(name)!, ui = findColormap(name)!;
+  if (pure.map !== ui.map || pure.reversed !== ui.reversed || JSON.stringify(colormapStops(pure.map,pure.reversed)) !== JSON.stringify(colormapStops(ui.map,ui.reversed))) throw Error(`lookup mismatch ${name}`);
+  if ('url' in pure.collection || 'license' in pure.collection || 'description' in pure.collection) throw Error('renderer imported UI provenance');
+}
+assert(true, 'all 223 maps and reverses have identical renderer/UI lookup semantics');
+const scratch = mkdtempSync(path.join(tmpdir(),'flux-colormaps-generate-'));
+try {
+  const definitions=path.join(scratch,'src/fluxplot/definitions');mkdirSync(definitions,{recursive:true});
+  writeFileSync(path.join(definitions,'colormaps.json'),JSON.stringify({schema:'fluxplot.colormaps/1',collections:COLORMAP_COLLECTIONS}));
+  writeFileSync(path.join(definitions,'palettes.json'),JSON.stringify({schema:'fluxplot.palettes/1',collections:PALETTE_COLLECTIONS}));
+  execFileSync(process.execPath,['scripts/gen-color-collections.mjs','--check'],{cwd:process.cwd(),env:{...process.env,FLUXPLOT_DIR:scratch},stdio:'pipe'});
+  assert(!/https?:/.test(readFileSync('src/lib/color/colormaps.gen.ts','utf8')), 'generated pure lookup has no website metadata');
+  assert(true,'both generated outputs reproduce from equivalent normalized definitions without a Python checkout');
+} finally { rmSync(scratch,{recursive:true,force:true}); }

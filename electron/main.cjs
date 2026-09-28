@@ -1375,7 +1375,7 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = requir
   const recipeText = await require("./recipeJob.cjs").readRecipeText(recipePath);
   const recipe = JSON.parse(recipeText);
   const dir = path.dirname(recipePath);
-  const { recipeInvocation, completedRecipe } = await import("../src/lib/plot/recipeContract.mjs");
+  const { recipeInvocation, completedRecipe, recipeOutput } = await import("../src/lib/plot/recipeContract.mjs");
   const { params: merged, args } = recipeInvocation(recipe, params);
   const invocation = { executable: recipe.command, argv: args, cwd: path.resolve(dir, recipe.cwd || "."),
     envDelta: { FLUX_PARAMS: JSON.stringify(merged), ...(recipe.plot ? { FLUXPLOT_ONLY: recipe.plot } : {}) } };
@@ -1401,22 +1401,31 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = requir
     await atomicWriteMain(recipePath, JSON.stringify(updatedRecipe, null, 2) + "\n");
     await require("./recipeJob.cjs").discardRecipeSnapshot(snapshot);
   }
-  const outAbs = res.code === 0 && res.status === "exited" && updatedRecipe.output ? path.resolve(dir, updatedRecipe.output) : null;
+  const output = recipeOutput(updatedRecipe);
+  const outAbs = res.code === 0 && res.status === "exited" && output.path ? path.resolve(dir, output.path) : null;
   if (outAbs) fsGuard(outAbs, e.sender.id); // W12: contain the plot output read to allowed roots
   let svgText = null;
+  let glbPath = null;
   let manifestText = null;
   if (outAbs && fs.existsSync(outAbs)) {
     noteWrite(outAbs);
-    if ((await fs.promises.stat(outAbs)).size > 64 * 1024 * 1024) throw new Error("Recipe SVG exceeds 64 MiB");
-    svgText = await fs.promises.readFile(outAbs, "utf8");
-    const manAbs = outAbs.replace(/\.svg$/, ".fluxplot.json");
+    if (output.kind === "glb") {
+      const stat = await fs.promises.stat(outAbs);
+      if (!stat.isFile() || stat.size > 200 * 1024 * 1024) throw new Error("Recipe GLB must be a regular file below 200 MiB");
+      glbPath = outAbs;
+    } else {
+      if ((await fs.promises.stat(outAbs)).size > 64 * 1024 * 1024) throw new Error("Recipe SVG exceeds 64 MiB");
+      svgText = await fs.promises.readFile(outAbs, "utf8");
+    }
+    const manAbs = path.resolve(dir, output.manifest);
+    fsGuard(manAbs, e.sender.id);
     if (fs.existsSync(manAbs)) {
       noteWrite(manAbs);
       if ((await fs.promises.stat(manAbs)).size > 32 * 1024 * 1024) throw new Error("Recipe manifest exceeds 32 MiB");
       manifestText = await fs.promises.readFile(manAbs, "utf8");
     }
   }
-  return { ...res, svgText, manifestText, recipeText: JSON.stringify(updatedRecipe) };
+  return { ...res, glbPath, manifestPath: glbPath ? path.resolve(dir, output.manifest) : null, svgText, manifestText, recipeText: JSON.stringify(updatedRecipe) };
   });
 });
 
