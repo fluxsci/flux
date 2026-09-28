@@ -19,6 +19,7 @@ const checks = [], errors = [], metrics = {};
 const js = code => win.webContents.executeJavaScript(code, true);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const p95 = values => [...values].sort((a, b) => a - b)[Math.ceil(values.length * .95) - 1];
+const { orbitFrameQualification, HOUSE_FRAME_BUDGET_MS } = require('./model3dNativeScaleBudget.cjs');
 function check(ok, label) { checks.push({ ok: !!ok, label }); console.log('PROBE ' + JSON.stringify(checks.at(-1))); if (!ok) throw Error(label); }
 async function qualified() {
   if (!win.isFocused() || !win.isVisible() || !await js("document.visibilityState==='visible'&&document.hasFocus()")) throw Error('Native scale window lost focus/visibility; cohort is unqualified');
@@ -228,12 +229,27 @@ async function orbit() {
   check(changed > 100, 'real trusted orbit changes mesh pixels');
   check(inputs.length >= 200 && frames.length >= 90 && boundaries.length >= 90, 'sustained orbit has a substantial delivered and published cohort');
   check(inputs.every(e=>e.visible==='visible'&&e.focused) && frames.every(f=>f.visible==='visible'&&f.focused), 'all measured native inputs and publications remain focused and visible');
-  check(metrics.orbit.rawP95FrameMs <= 16.7, 'raw orbit observed frame-gap p95 is at most 16.7 ms');
+  // Review R1 (owner sign-off): the house 17 ms p95 budget plus a dropped-frame
+  // bound against the idle vsync control recorded earlier in this same run.
+  // See model3dNativeScaleBudget.cjs for the 59.97 Hz evidence.
+  const budget = metrics.orbit.frameBudget = orbitFrameQualification({ steadyGaps: steady, idleGaps: metrics.idleControl.gaps });
+  check(budget.p95Ok, `raw orbit observed frame-gap p95 ${budget.p95Ms.toFixed(3)} ms is within the ${HOUSE_FRAME_BUDGET_MS} ms house frame budget`);
+  check(budget.droppedOk, `at most ${budget.allowedDropped} of ${budget.steadyGaps} steady gaps exceed 1.5 x idle vsync (${budget.droppedThresholdMs.toFixed(3)} ms); observed ${budget.dropped}`);
   check(metrics.orbit.publicationP95 <= 100 && metrics.orbit.nextFrameP95 <= 100, 'matching bitmap/furniture publication and next frame meet 100 ms input budget');
+}
+// Idle vsync control for the frame budget: the display's own refresh gap,
+// measured by a plain rAF loop after the zero-animation-at-rest checks and
+// before any measured input, in the same focused window.
+async function idleControl() {
+  await qualified();
+  const gaps = await js(`new Promise(resolve=>{const gaps=[];let last,frames=0;const step=t=>{if(last!==undefined)gaps.push(t-last);last=t;if(++frames<=120)requestAnimationFrame(step);else resolve(gaps)};requestAnimationFrame(step)})`);
+  await qualified();
+  metrics.idleControl = { frames: gaps.length, gaps, p95: p95(gaps) };
+  check(gaps.length >= 100, 'idle vsync control recorded before measured orbit input');
 }
 async function main() {
   await fs.mkdir(out, { recursive: true }); await boot(); await structureAndIdle();
-  if (captureBaseline) await captureImageBaseline(); else await orbit();
+  if (captureBaseline) await captureImageBaseline(); else { await idleControl(); await orbit(); }
   const observed=await js("window.__nativeScale.workers.filter(w=>w.url.includes('model3d.worker')).length");
   check(observed===1, 'only one model worker was constructed throughout the run');
   const session = await probe.connect(); check(await probe.workerCount() === 1 && (await probe.state(session)).contexts === 1, 'orbit retains the same one-worker one-context topology'); probe.detach();

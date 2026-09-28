@@ -94,6 +94,10 @@ module.exports = async function createModel3dProbe({ win, js, wait, wheel, mouse
     const image=await win.webContents.capturePage(); fs.writeFileSync(path.join(out,'s8-'+label.replace(/[^a-z0-9]+/gi,'-')+'.png'),image.toPNG());
   }
   async function finish() {
+    // Idle vsync control for the S8 budget (review R2): the page's own refresh
+    // gap after every measured phase, in the same window and run.
+    const idleGaps=await js("new Promise(resolve=>{const gaps=[];let last,frames=0;const step=t=>{if(last!==undefined)gaps.push(t-last);last=t;if(++frames<=120)requestAnimationFrame(step);else resolve(gaps)};requestAnimationFrame(step)})");
+    report.idleControl={frames:idleGaps.length,gaps:idleGaps};
     report.modelWorkers=await js("window.__model3dS8.workers.filter(w=>w.url.includes('model3d.worker'))"); persist();
     if (report.modelWorkers.length!==(variant==='model'?1:0)) throw Error('S8 worker lifetime differs from the expected model/image variant');
     if (variant==='model') { const session=await context.connect(); report.contextAfter=await context.state(session); if (await context.workerCount()!==1||report.contextAfter?.contexts!==1) throw Error('S8 replaced its worker/context'); }

@@ -1,6 +1,6 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {compareCohorts,qualificationSamples}=require('./lib/model3dS8Metrics.cjs');
+const {compareCohorts,qualificationSamples,cohortIdleVsyncMs}=require('./lib/model3dS8Metrics.cjs');
 async function main(){
   const {harness}=await import('./lib/harness.mjs'),{TestProcessScope}=await import('./lib/testProcess.mjs');
   const {fetchPublicS8Fixture,verifyPublicS8Fixture}=await import('./lib/model3dS8PublicFixture.mjs');
@@ -29,7 +29,7 @@ async function main(){
     const capture=JSON.parse(await fs.readFile(path.join(out,'capture/receipt.json'),'utf8'));
     h.ok(capture.ok&&capture.metrics.baseline.captures.length===4,'production worker meshes and furniture produce four matched raster controls');
     for(const [variant,root]of[['model',model],['image',image]])await run('scripts/lib/model3dS8RenderFixture.ts',[root,variant],'render-'+variant);
-    const cohorts=[];
+    const cohorts=[],idleControls=[];
     for(const [i,variant]of['model','image','image','model'].entries()){
       const cohortOut=path.join(out,`${i}-${variant}`),root=variant==='model'?model:image;
       await run('scripts/perf/input-probe.cjs',[root,'--surface=both','--scenarios=base','--phases=hover,panSmall,zoom,typing','--ozone=x11','--qualify',`--model3d-s8=${variant}`,`--out=${cohortOut}`],'probe-'+i,{nodeArgs:[],deadlineMs:240000});
@@ -43,11 +43,12 @@ async function main(){
       }
       const structure=JSON.parse(await fs.readFile(path.join(cohortOut,'model3d-s8.json'),'utf8'));
       h.ok(structure.modelWorkers.length===(variant==='model'?1:0),`${variant} cohort${i} has the expected actual worker topology`);
+      h.ok(structure.idleControl?.gaps?.length>=100,`${variant} cohort${i} recorded an idle vsync control`);idleControls.push(structure.idleControl);
       cohorts.push({variant,samples});
     }
-    const comparison=compareCohorts(cohorts);
-    await fs.writeFile(path.join(out,'receipt.json'),JSON.stringify({ok:Object.values(comparison).every(c=>c.ok),comparison,cohorts,metric:'Existing input-probe rAF gap p95 for Figure hover/panSmall/zoom; key to double-rAF p95 for Paper typing. ABBA pooled raw cohorts; production throttling preserved; no minimum tolerance floor. The probe has its existing continuous measurement loop, unlike the separate native orbit gate.'},null,2));
-    for(const[phase,row]of Object.entries(comparison))h.ok(row.ok,`${phase} p95 regression stays at most10% (${row.modelP95}/${row.imageP95}ms)`);
+    const idleVsyncMs=cohortIdleVsyncMs(idleControls),comparison=compareCohorts(cohorts,{idleVsyncMs});
+    await fs.writeFile(path.join(out,'receipt.json'),JSON.stringify({ok:Object.values(comparison).every(c=>c.ok),idleVsyncMs,comparison,cohorts,metric:'Existing input-probe rAF gap p95 for Figure hover/panSmall/zoom; key to double-rAF p95 for Paper typing. ABBA pooled raw cohorts; production throttling preserved; budget max(image*1.1, image + one idle vsync) with the vsync from the pooled idle controls of this run. The probe has its existing continuous measurement loop, unlike the separate native orbit gate.'},null,2));
+    for(const[phase,row]of Object.entries(comparison))h.ok(row.ok,`${phase} p95 stays within max(10%, one idle vsync) of the image baseline (${row.modelP95}/${row.imageP95}ms, budget ${row.budgetMs.toFixed(3)}ms)`);
   }catch(error){h.fail(String(error.stack||error));}
   finally{await scope.dispose();await fs.rm(scratch,{recursive:true,force:true,maxRetries:5});}
   await h.done();
