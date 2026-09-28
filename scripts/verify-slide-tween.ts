@@ -14,6 +14,7 @@ import {
   applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
   contentPlan, foldPreState,
 } from "../src/lib/slide/tween";
+import { compileSlide } from "../src/lib/slide/compile";
 import { resampleNodes, nodesToPath, pathD } from "../src/lib/path";
 import type { Element as FigElement, RectElement, TextElement, PathElement, VectorNode } from "../src/lib/types";
 
@@ -418,6 +419,12 @@ function build(slide: Slide) {
   const slide: Slide = { id: "handoff-static", elements: [rect({ id: "source" }), { id: "dest", type: "plot", assetId: "axes", x: 300, y: 100, width: 200, height: 200, rotation: 0 }], beats: [
     { id: "base", tracks: [] }, { id: "flight", tracks: [{ id: "handoff", target: "source", preset: "transform", duration: 600, to: { state: {}, become: { mode: "handoff", ref: { element: "dest", parts: ["axis.x.spine", "axis.y.spine"] } } } }] },
   ] };
+  const unvalidated = compileSlide(slide, stage);
+  assert(unvalidated.handoffs.length === 1 && unvalidated.handoffs[0].destination[0].partIds?.join() === "axis.x.spine,axis.y.spine", "manifest-less compile retains both literal destination spine ids in one hand-off");
+  const missingSpine = structuredClone(slide);
+  missingSpine.beats[1].tracks[0].to!.become!.ref.parts = ["axis.y.spine"];
+  const validated = compileSlide(missingSpine, stage, { plotManifest: () => ({ spec: "fluxplot", schemaVersion: "0.2.0", size: { width: 100, height: 100, unit: "px" }, series: [], parts: { id: "plot", role: "figure", children: [{ id: "axis.x.spine", role: "spine" }] } } as any) });
+  assert(validated.handoffs.length === 0 && validated.issues.some(issue => /Destination parts not found/.test(issue.reason)), "a manifest that lacks axis.y.spine still refuses that destination");
   const host = document.createElement("div") as unknown as HTMLElement;
   for (const beat of [0, 1, 0]) {
     const rendered = renderStaticAt(host, slide, stage, beat, { theme: FLUX_DARK, plotRoot: () => root as unknown as Element });

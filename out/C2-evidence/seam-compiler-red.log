@@ -1,0 +1,34 @@
+Running 1 scripts; evidence /home/driessen2/flux/.claude/worktrees/av2-C2/test-results/runs/2026-09-28T01-26-20-016Z-16
+  ✗ verify-slide-handoff-browser.ts: failed (1.4s)
+✓ 100 actual marker groups use the glyph driver with no pair paths
+✓ every marker moves toward its landing and stays opaque before raw .85
+✓ cloning preserves marker alpha exactly once
+✓ glyph opacity fades only during the final 15 percent
+✓ glyph landing reveals the curve and hides every clone
+✓ whole plot pairs only the spine chain; other parts fade late as leftovers
+✓ differing plot colours stay valid RGB at 1ms (#4169e1cc → rgba(65, 105, 225, 0.8))
+✓ differing plot colours stay valid RGB at 100ms (#586ad4cc → rgba(88, 106, 212, 0.8))
+✓ differing plot colours stay valid RGB at 250ms (#7469c1cc → rgba(116, 105, 193, 0.8))
+✓ differing plot colours stay valid RGB at 500ms (#9c63a1cc → rgba(156, 99, 161, 0.8))
+✓ differing plot colours stay valid RGB at 750ms (#c0557fcc → rgba(192, 85, 127, 0.8))
+✓ differing plot colours stay valid RGB at 999ms (#e13958cc → rgba(225, 57, 88, 0.8))
+✓ both authored arrowheads survive an open-to-closed flight
+✓ open-to-closed arrowheads fade without leaving stroke gaps
+✓ a future reverse hand-off does not hide the initial source
+✓ a future reverse hand-off preserves the preceding landing
+✓ a second hand-off can land back on the original source
+✓ reverse-seeking the chain restores its exact initial visibility
+✓ a projected cropped destination retains its stage-space clip throughout the flight
+✓ the exported player creates NO visible flight paths for a compiler-refused overlapping landing
+✓ only the compiler-accepted flight owns a controller layer
+✓ renderStaticAt retains hidden-before/visible-after destination parts after disposal
+✓ renderStaticAt retains source visibility in both directions
+✓ static hosts release all flight children
+✓ overshooting eased values never trigger a discrete layer swap
+✓ dispose restores all prior inline visibility and releases flight children
+✓ exported and static hosts have no browser errors or CSP violations
+##VERIFY## {"script":"verify-slide-handoff-browser","ok":false,"checks":43,"failed":1,"ms":960}
+verify-slide-handoff-browser: FAIL (1/43 checks failed)
+✗ the player consumes the compiler's hand-off record type without a second detection path
+
+0/1 passed; 1 failed/blocked/flaky. Evidence: /home/driessen2/flux/.claude/worktrees/av2-C2/test-results/runs/2026-09-28T01-26-20-016Z-16

@@ -7869,3 +7869,16 @@ The E1 writer moves ticks on the changed data axis: parity preserves spines and 
 ticks, and projects changed-axis ticks rather than freezing them. Core OKLab colors remain
 valid hex/RGBA strings; the browser gate checks CSS validity and computed rgb/rgba values.
 No commits, main-checkout/config writes, native, bundle-tier or startup-tier runs.
+
+### 2026-09-28 01:30 UTC — C1/C2 integration QA (Codex, av2/C2)
+**Work:** Kept literal hand-off part ids when a static host has no manifest, while
+retaining manifest-backed validation. Removed the provisional player inventory;
+`CompiledSlide.handoffs` and its record type are now authoritative. Added compile
+and exported-player pins, including a refused overlapping landing. Changes remain
+uncommitted for the orchestrator.
+**Learnings:** The approved dock context patch is present, but an idle warm can lose
+the race to first seek. Instrumented 40-point data-flight preparation cost 134.4 ms
+on that cold path (planning 5.7 ms, DOM build/insertion 1.4 ms); warm cache hits
+seek in 13.8–15.3 ms. The unchanged 100 ms first-seek gate still fails. Qualification
+stopped at this worker-level preparation/scheduling decision, per the packet.
+Temporary instrumentation was removed; no budget was changed.

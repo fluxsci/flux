@@ -12,7 +12,7 @@ import { smoothstep, cubicBezierFn } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
 import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
-import { targetPartIds, hasPartBinding, trackKey, trackRef, resolveTargetLeaves, type ResolvedTarget } from "../targets";
+import { targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
 import { get } from "svelte/store";
 import { plotDom, plotManifests } from "../../plot/store";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
@@ -25,7 +25,7 @@ import { createHandoff, type HandoffController } from "./handoff";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
-import type { Deck, Slide, Track, StageSize, DeckTheme, BecomeSpec } from "../types";
+import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
 
 export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
   animStyles?: Deck["animStyles"];
@@ -39,7 +39,7 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
 
 export { resolveEasing, resolveEasingFn } from "../easing";
 import { resolveEasing, resolveEasingFn } from "../easing";
-import { compileSlide, type AnimationIssue } from "../compile";
+import { compileSlide, type CompiledSlide, type AnimationIssue } from "../compile";
 import { staggerRanks } from "../stagger";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
@@ -125,23 +125,7 @@ interface Spec {
 // player must share ONE fold. Re-exported for existing consumers/gates.
 export { transformPreState } from "../tween";
 
-// C1 supplies this inventory on CompiledSlide. Until that packet is integrated,
-// derive exactly the same concrete bindings from the same pre-frame resolver.
-interface HandoffRecord { trackId?: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec }
-function handoffsFor(slide: Slide, compiled: ReturnType<typeof compileSlide>, manifest: (id: string) => FluxPlotManifest | undefined): HandoffRecord[] {
-  const supplied = (compiled as typeof compiled & { handoffs?: HandoffRecord[] }).handoffs;
-  if (supplied) return supplied;
-  const out: HandoffRecord[] = [];
-  slide.beats.forEach((beat, bi) => {
-    for (const track of beat.tracks) {
-      const spec = track.to?.become;
-      if (track.disabled || track.keyframes || track.preset !== "transform" || spec?.mode !== "handoff") continue;
-      const frame = compiled.sample(bi, track.start ?? 0), scope = { elements: frame.elements, groups: slide.groups };
-      out.push({ trackId: track.id, beat: bi, spec, source: resolveTargetLeaves(trackRef(track), scope, manifest), destination: resolveTargetLeaves(spec.ref, scope, manifest) });
-    }
-  });
-  return out;
-}
+type HandoffRecord = CompiledSlide["handoffs"][number];
 const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
@@ -159,7 +143,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   const contentRoots = new Map<string, HTMLElement>();
   const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
   const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups };
-  const handoffs = handoffsFor(slide, compiled, manifest);
+  const handoffs: HandoffRecord[] = compiled.handoffs;
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent

@@ -5,6 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { createDeck, addSlide, addElement, addBeat, setTransform } from "../src/lib/slide/ops";
+import { compileSlide } from "../src/lib/slide/compile";
 import { exportDeckHtml } from "../src/lib/slide/export/exportDeck";
 import type { Track, TargetRef, BecomeSpec, Slide } from "../src/lib/slide/types";
 import type { SemanticPlotElement } from "../src/lib/types";
@@ -64,6 +65,16 @@ try {
   const cropped = add("crop"); addElement(deck, cropped.id, pathEl("source"));
   addElement(deck, cropped.id, plot("dest", "sine", 520, { height: 108, crop: { x: 20, y: 10, width: 160, height: 60 }, view: { x: { domain: [2,4] } } }));
   handoff(cropped, "source", { element: "dest", parts: ["2hz.line"] });
+
+  const refused = add("refused-overlap");
+  addElement(deck, refused.id, pathEl("source")); addElement(deck, refused.id, plot("dest", "box"));
+  addElement(deck, refused.id, { ...pathEl("refused-source"), y: 300 });
+  const accepted = handoff(refused, "source", { element: "dest", parts: spines });
+  refused.beats[1].tracks.push({ ...structuredClone(accepted), id: "refused-flight", target: "refused-source", start: 1500 });
+  const refusedPlan = compileSlide(refused, deck.stage, { plotManifest: id => plots[id]?.manifest });
+  h.ok(refusedPlan.issues.some(issue => issue.trackId === "refused-flight" && /already lands/.test(issue.reason)) && refusedPlan.handoffs.length === 1, "the compiler excludes a second overlapping landing even with a later start");
+  const playerSource = await fs.readFile(new URL("../src/lib/slide/player/player.ts", import.meta.url), "utf8");
+  h.ok(!/function handoffsFor\b|interface HandoffRecord\b/.test(playerSource) && /type HandoffRecord = CompiledSlide\["handoffs"\]\[number\]/.test(playerSource), "the player consumes the compiler's hand-off record type without a second detection path");
 
   const file = path.join(tmp, "handoff.html"); await fs.writeFile(file, (await exportDeckHtml({ deck, plots })).html);
   const launched = await launch(); browser = launched.browser; const page = launched.page;
@@ -147,6 +158,10 @@ try {
     const clip = flight.querySelector("clipPath"), rect = clip?.querySelector("rect"), path = flight.querySelector(".sl-handoff-path");
     return rect?.getAttribute("x") === "520" && rect?.getAttribute("width") === "360" && path?.parentElement?.getAttribute("clip-path") === `url(#${clip?.id})`;
   }), "a projected cropped destination retains its stage-space clip throughout the flight");
+  await seek(9, 2000);
+  state = await inspect();
+  h.ok(state.count === 0 && state.visibleFlight === 0 && await page.$eval('[data-el-id="refused-source"]', el => getComputedStyle(el).visibility === "visible"), "the exported player creates NO visible flight paths for a compiler-refused overlapping landing");
+  h.eq(await page.$$eval(".sl-handoff", nodes => nodes.length), 1, "only the compiler-accepted flight owns a controller layer");
   await seek(5, 500);
 
   await page.screenshot({ path: path.join(process.cwd(), "test-results", "slide-handoff-colour.png") });

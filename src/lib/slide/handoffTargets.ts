@@ -1,5 +1,5 @@
-/** Hand-off validation over canonical identities. Ordinary part bindings retain
- * dangling literal ids; Become needs proof that its landing leaves exist. */
+/** Hand-off validation over canonical identities. Validate literal parts when
+ * a manifest is available; static/embed hosts may only have SVG roots. */
 import type { FluxPlotManifest } from "../plot/types";
 import { buildPartIndex } from "../plot/parse";
 import type { Slide, TargetRef, Track } from "./types";
@@ -17,7 +17,7 @@ export function handoffTargetResolver(slide: Slide, manifestFor: (assetId: strin
     // whose appearance may currently hide or retype either side of the flight.
     return resolveTargetLeaves(ref, slide, () => manifest).flatMap(target => {
       if (target.partIds === null) return [target];
-      const partIds = target.partIds.filter(id => ids?.has(id));
+      const partIds = ids ? target.partIds.filter(id => ids.has(id)) : target.partIds;
       return partIds.length ? [{ ...target, partIds }] : [];
     });
   };
