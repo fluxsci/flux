@@ -32,7 +32,12 @@ const POINT = { type: "object", required: ["x", "y"], properties: { x: { type: "
 const CROP = { type: "object", required: ["x", "y", "width", "height"], properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } };
 const GRADIENT = { type: ["object", "null"], required: ["map", "axis", "stops"], properties: { map: { type: "string" }, axis: { enum: ["x", "y"] }, stops: { type: "array", items: { type: "string" } }, discrete: { type: "boolean" } } };
 const COLOR_GROUPS = { type: "array", items: { type: "object", required: ["name", "swatches"], properties: { name: { type: "string" }, swatches: { type: "array", items: { type: "object", required: ["name", "hex"], properties: { name: { type: "string" }, hex: { type: "string" } } } } } } };
-const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: { ...Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }])), fill: { type: "string" }, hidden: { type: "boolean" } } } };
+const OVERRIDE_NUMBERS = Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }]));
+// 2D plot overrides keep their pre-3D leniency (only the numeric keys are
+// typed) so no existing 2D project starts failing the load gate.
+const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: OVERRIDE_NUMBERS } };
+// 3D parts are new, so their overrides are typed from the start.
+const MODEL_OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: { ...OVERRIDE_NUMBERS, fill: { type: "string" }, hidden: { type: "boolean" } } } };
 const GEO_REQ = ["id", "type", "x", "y", "width", "height", "rotation"];
 const GEO_PROPS = {
   id: { type: "string" },
@@ -139,7 +144,7 @@ ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orb
   orbitPanX: { type: "number" }, orbitPanY: { type: "number" },
   orbitProjection: { enum: ["orthographic", "perspective"] }, orbitFov: { type: "number", exclusiveMinimum: 0, exclusiveMaximum: 180 },
   modelColors: { enum: ["uniform", "source"] }, modelLighting: { enum: ["studio", "unlit"] },
-  overrides: OVERRIDES, modelStates: { type: "object", additionalProperties: { type: "number" } },
+  overrides: MODEL_OVERRIDES, modelStates: { type: "object", additionalProperties: { type: "number" } },
   fields: { type: "object", additionalProperties: { type: "object", properties: { cmap: { type: "string" }, range: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } } } } },
   source: { type: "object", required: ["glbPath"], properties: { glbPath: { type: "string" }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, manifestPath: { type: "string" }, recipePath: { type: "string" }, external: { type: "boolean" }, frozen: { type: "boolean" } } },
   manifestRef: { type: "object", required: ["specVersion"], properties: { specVersion: { type: "string" }, hash: { type: "string" } } },
