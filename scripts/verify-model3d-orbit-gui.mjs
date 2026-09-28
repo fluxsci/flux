@@ -23,7 +23,7 @@ try {
     await F.lifecycle.flushById('figure');
     await window.fig.writeFile(`${root}/plots/orbit.glb`, Uint8Array.from(atob(fixture.bytes), c => c.charCodeAt(0)));
     await window.fig.writeText(`${root}/plots/orbit.fluxplot.json`, fixture.manifest);
-    F.fig.commit(p => { for (const f of p.figures) f.y += 600; p.figures.push({ ...p.figures[0], id: 'orbit-figure', name: 'Orbit acceptance', x: 0, y: 0, width: 620, height: 450, elements: [] }); });
+    F.fig.commit(p => { for (const f of p.figures) f.y += 600; p.figures.push({ ...p.figures[0], id: 'orbit-figure', referenceKey: 'fig-orbit-acceptance', name: 'Orbit acceptance', number: p.figures.length + 1, x: 0, y: 0, width: 620, height: 450, elements: [], groups: {}, captions: {} }); });
     F.fig.activeFigureId.set('orbit-figure'); F.fig.selectedFrameId.set(null); F.fig.viewport.set({ panX: 45, panY: 65, zoom: 1 });
     await F.io.importPlotsFromPaths([`${root}/plots/orbit.glb`]);
     F.fig.resetHistory();
@@ -150,6 +150,8 @@ try {
   await page.evaluate(async id=>{const F=window.__flux;const {setModelStates}=await import('/src/lib/model3d/semanticOps.ts');F.fig.commit(p=>setModelStates(p,[id],{inflated:.4}));},shapeId);
   const home=await page.$('.model3d-properties .axes button:last-child');await home.click();await gone();
   h.eq((await shapeState()).modelStates,{inflated:1.25},'Inspector Home ignores absent source targets and preserves finite default weights');
+  await page.evaluate(() => window.__flux.lifecycle.flushById('figure'));
+  h.ok(!await page.$('.figure-mode .toolbar .save-error'), 'valid distinct figure identity saves without Retry status');
   await page.screenshot({path:out+'/shape-inspector.png'});
   await writeFile(out+'/frames.json',JSON.stringify(await page.evaluate(()=>window.__orbitFrames),null,2));
   h.eq(errors, [], 'no renderer errors'); h.eq(realErrors(page), [], 'clean browser console');
