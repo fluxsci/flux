@@ -4,7 +4,7 @@ import type { PlotView } from "../types";
 import type { FluxPlotManifest, FluxPlotSeries } from "./types";
 import { partDomId } from "./parse";
 import { axisFit, blendFit, guideAxes, guideData, pairVertices, projectWith, sampleSeries,
-  seriesAxes, seriesTweenable, viewFits, type Fit, type Fits, type MorphPoint } from "./project";
+  seriesAxes, seriesVertices, seriesTweenable, viewFits, lerpData, type Fit, type Fits, type MorphPoint } from "./project";
 
 interface Field { value: string | null; written: boolean }
 interface Pristine {
@@ -29,12 +29,12 @@ function record(node: Element): Pristine {
   if (!rec.active) { rec.active = true; rec.hadStyle = node.hasAttribute("style"); }
   return rec;
 }
-function attr(node: Element, name: string, value: string): void {
+function attr(node: Element, name: string, value: string | null): void {
   const rec = record(node);
   let field = rec.attrs.get(name);
   if (!field) { field = { value: null, written: false }; rec.attrs.set(name, field); }
   if (!field.written) { field.value = node.getAttribute(name); field.written = true; }
-  node.setAttribute(name, value);
+  if (value === null) node.removeAttribute(name); else node.setAttribute(name, value);
 }
 function style(node: Element, name: string, value: string): void {
   const rec = record(node), st = (node as SVGElement).style;
@@ -70,6 +70,14 @@ export function writeSeriesLine(path: Element, vertices: readonly MorphPoint[]):
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) { previous = -2; continue; }
     d += `${d ? " " : ""}${p.index === previous + 1 ? "L" : "M"}${p.x.toFixed(6)} ${p.y.toFixed(6)}`;
     previous = p.index;
+  }
+  attr(path, "d", d);
+}
+function writeSeriesRuns(path: Element, runs: MorphPoint[][]): void {
+  let d = "";
+  for (const run of runs) for (let i = 0; i < run.length; i++) {
+    const p = run[i];
+    d += `${d ? " " : ""}${i ? "L" : "M"}${p.x.toFixed(6)} ${p.y.toFixed(6)}`;
   }
   attr(path, "d", d);
 }
@@ -109,10 +117,12 @@ interface SeriesBinding {
   pairs: ReturnType<typeof pairVertices>;
   vertices: MorphPoint[];
   line: Element | null;
+  topology?: { a: MorphPoint[]; b: MorphPoint[]; common: MorphPoint[][];
+    outgoing: Element; incoming: Element; paint: string[]; aRuns: MorphPoint[][]; bRuns: MorphPoint[][] };
   markers: { node: Element; vertex: number; ox: number; oy: number; ex: number; ey: number }[];
 }
 interface GuideBinding {
-  node: Element; panel: Panel; axis: "x" | "y"; value: number;
+  node: Element; panel: Panel; axis: "x" | "y"; value: number; endValue: number;
   origin: number; end: number; delta: { dx?: number; dy?: number };
 }
 interface Projection {
@@ -123,6 +133,7 @@ interface CachedProjection { manifest: FluxPlotManifest; view: PlotView | undefi
 const plans = new WeakMap<Element, CachedProjection[]>();
 
 function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefined, elId: string, opts?: PlotViewOptions): Projection {
+  if (!manifest.axes?.length || !manifest.series?.length || opts?.toManifest && (!opts.toManifest.axes?.length || !opts.toManifest.series?.length)) return { series: [], guides: [], panels: [], interpolated: false };
   const nodes = roots.get(root) ?? new Set<Element>(); roots.set(root, nodes);
   const index = new Map<string, Element>();
   // One lookup per leaf, including unusual punctuation in semantic IDs.
@@ -162,24 +173,51 @@ function bind(root: Element, manifest: FluxPlotManifest, view: PlotView | undefi
     if (line) { nodes.add(line); reserve(line, ["d"], []); }
     const byIndex = new Map(pairs.map((p, i) => [p.a.index, i]));
     const markers: SeriesBinding["markers"] = [];
-    for (const p of a.points ?? []) {
+    const aPoints = new Map((a.points ?? []).map(p => [p.svgId, p]));
+    const bPoints = new Map((b?.points ?? []).map(p => [p.svgId, p]));
+    for (const p of new Map([...aPoints, ...bPoints]).values()) {
       const node = q(p.svgId), vertex = byIndex.get(p.index);
       if (!node || vertex === undefined) continue;
       reserve(node, node.tagName.toLowerCase() === "circle" ? ["cx", "cy"] : [], node.tagName.toLowerCase() === "circle" ? [] : ["translate"]);
-      const end = pairs[vertex].b;
-      markers.push({ node, vertex, ox: projectWith(panel.rawA.x, p.x), oy: projectWith(panel.rawA.y, p.y),
+      const start = aPoints.get(p.svgId) ?? p, end = bPoints.get(p.svgId) ?? start;
+      const rawStart = aPoints.has(p.svgId) ? panel.rawA : panel.rawB;
+      markers.push({ node, vertex, ox: projectWith(rawStart.x, start.x), oy: projectWith(rawStart.y, start.y),
         ex: projectWith(panel.rawB.x, end.x), ey: projectWith(panel.rawB.y, end.y) });
     }
-    series.push({ panel, pairs, vertices: pairs.map(p => ({ ...p.a })), line, markers });
+    const binding: SeriesBinding = { panel, pairs, vertices: pairs.map(p => ({ ...p.a })), line, markers };
+    if (line && b) {
+      const av = seriesVertices(a), bv = seriesVertices(b);
+      if (av.length !== bv.length || av.some((p, i) => p.index !== bv[i]?.index)) {
+        const values = new Map(binding.vertices.map(p => [p.index, p]));
+        const edges = (vs: MorphPoint[]) => new Set(vs.slice(1).filter((p, i) => p.index === vs[i].index + 1).map(p => p.index));
+        const ae = edges(av), be = edges(bv);
+        const runs = (ends: number[]) => ends.map(i => [values.get(i - 1)!, values.get(i)!]);
+        const target = b.svg?.line && opts?.targetRoot ? Array.from(opts.targetRoot.querySelectorAll("[id]")).find(n => n.getAttribute("id") === b.svg!.line) : null;
+        const targetPath = target?.tagName.toLowerCase() === "path" ? target : target?.querySelector("path");
+        const paint = [...new Set([...Array.from(line.attributes), ...Array.from(targetPath?.attributes ?? [])].map(a => a.name))].filter(n => !["id", "d"].includes(n));
+        const clone = () => {
+          const node = line.cloneNode(false) as Element;
+          node.removeAttribute("id"); node.setAttribute("data-projection-residue", "");
+          line.parentNode!.insertBefore(node, line.nextSibling);
+          reserve(node, ["d", ...paint], ["opacity"]); nodes.add(node);
+          (node as SVGElement).style.opacity = "0";
+          return node;
+        };
+        binding.topology = { a: av.map(p => values.get(p.index)!), b: bv.map(p => values.get(p.index)!), paint,
+          common: runs([...ae].filter(i => be.has(i))), aRuns: runs([...ae].filter(i => !be.has(i))), bRuns: runs([...be].filter(i => !ae.has(i))),
+          outgoing: clone(), incoming: clone() };
+      }
+    }
+    series.push(binding);
   }
   const guides: GuideBinding[] = [];
   const data = guideData(manifest, opts?.sourceRoot ?? root, opts?.sourceRoot ? "" : elId);
   const targetData = opts?.targetRoot ? guideData(opts.toManifest ?? manifest, opts.targetRoot) : data;
-  for (const [leaf, g] of data) {
+  for (const [leaf, g] of new Map([...targetData, ...data])) {
     const axes = guideAxes(manifest, leaf), panel = panels.get(axes?.panelId), node = q(leaf);
     if (!axes || !panel || !node) continue;
     reserve(node, ["transform"], ["opacity"]);
-    guides.push({ node, panel, axis: g.axis, value: g.value, origin: projectWith(panel.rawA[g.axis], g.value),
+    guides.push({ node, panel, axis: g.axis, value: g.value, endValue: targetData.get(leaf)?.value ?? g.value, origin: projectWith((data.has(leaf) ? panel.rawA : panel.rawB)[g.axis], g.value),
       end: projectWith(panel.rawB[g.axis], targetData.get(leaf)?.value ?? g.value), delta: g.axis === "x" ? { dx: 0 } : { dy: 0 } });
   }
   return { series, guides, panels: [...panels.values()], interpolated: opts?.geometryInterpolated ?? false };
@@ -206,7 +244,21 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
   for (const s of plan.series) {
     sampleSeries(s.pairs, s.panel.from, s.panel.to, t, s.vertices, s.panel.fits);
     if (s.line) {
-      writeSeriesLine(s.line, s.vertices);
+      const topology = s.topology;
+      if (!topology) writeSeriesLine(s.line, s.vertices);
+      else {
+        if (t <= 0) writeSeriesLine(s.line, topology.a);
+        else if (t >= 1) writeSeriesLine(s.line, topology.b);
+        else writeSeriesRuns(s.line, topology.common);
+        writeSeriesRuns(topology.outgoing, topology.aRuns); writeSeriesRuns(topology.incoming, topology.bRuns);
+        for (const name of topology.paint) {
+          const value = s.line.getAttribute(name);
+          attr(topology.outgoing, name, value); attr(topology.incoming, name, value);
+        }
+        const opacity = Number((s.line as SVGElement).style.opacity || s.line.getAttribute("opacity") || 1);
+        style(topology.outgoing, "opacity", String(t <= 0 || t >= 1 ? 0 : opacity * Math.max(0, 1 - t / .4)));
+        style(topology.incoming, "opacity", String(t <= 0 || t >= 1 ? 0 : opacity * Math.max(0, (t - .6) / .4)));
+      }
       if (t > 0 && opts) {
         // A completed drawOn window must not truncate the new, longer line.
         (s.line as SVGElement).style.removeProperty("stroke-dasharray");
@@ -224,7 +276,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
     const p = g.panel, fit = p.fits[g.axis], raw = p.rawA[g.axis];
     // Unchanged guides keep their original bytes, including ticks at the edge.
     if (fit.m === raw.m && fit.c === raw.c && fit.log === raw.log && fit.linear === undefined && (!plan.interpolated || g.origin === g.end)) continue;
-    const pixel = projectWith(fit, g.value);
+    const pixel = projectWith(fit, lerpData(g.value, g.endValue, t, p.from[g.axis].log && p.to[g.axis].log));
     const a = g.axis === "x" ? p.xRange : p.yRange, b = g.axis === "x" ? p.xEndRange : p.yEndRange;
     const edge0 = a[0] + (b[0] - a[0]) * t, edge1 = a[1] + (b[1] - a[1]) * t;
     const lo = Math.min(edge0, edge1), hi = Math.max(edge0, edge1);

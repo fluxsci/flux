@@ -45,6 +45,7 @@
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
   import { fileBridge } from "./project/types";
+  import { focusAxisView } from "./plot/axisViewState";
   import { fluxFigMenuOpen } from "./settings";
   import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
   import { xrayAnimate, xrayBecomeSource, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
@@ -502,6 +503,15 @@
     toggleHiddenRows(selectedIds.has(n.id) && pickedRows.length > 1 ? pickedRows : [n]);
   }
 
+  function axisFor(row: XRow | null): "x" | "y" | null {
+    if (row?.kind !== "part" || row.role !== "axis" || !row.elementId || rowBlocked(row, $editorSelectionExclusions)) return null;
+    return /(?:^|\.)axis\.(x|y)$/.exec(row.partId ?? "")?.[1] as "x" | "y" | undefined ?? null;
+  }
+  function showAxisView(row: XRow | null) {
+    const axis = axisFor(row);
+    if (axis && row?.elementId) { focusAxisView(row.elementId, axis); close(); }
+  }
+
   // --- Animate selected (slide mode only) ------------------------------------------------
   $: canAnimate = !!$xrayAnimate;
   type AnimateOption = { kind: XrayAnimateKind; label: string; key: string; hint: string };
@@ -611,6 +621,7 @@
       if (pickedRows.length || selRow) animMenu = true;
       return;
     }
+    if (lk === "v" && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
     if (k === "Enter") {
       e.preventDefault();
       if (mod) reRoot(selRow);
@@ -772,6 +783,7 @@
           <div class="actions">
             {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become this <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
+            {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
             <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (a)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
               Animate selected <span class="hk">a</span>
             </button>

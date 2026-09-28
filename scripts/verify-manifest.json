@@ -326,7 +326,9 @@
       "verify-slide-resolve.ts",
       "verify-slide-curves.ts",
       "verify-slide-handoff-browser.ts",
-      "verify-slide-camera.ts"
+      "verify-slide-camera.ts",
+      "verify-plot-binding.ts",
+      "verify-plot-view-verb.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -466,7 +468,8 @@
       "verify-ai-monitor-gui.mjs",
       "verify-inbox-gui.mjs",
       "verify-ask-gui.mjs",
-      "verify-background-run-gui.mjs"
+      "verify-background-run-gui.mjs",
+      "verify-plot-view-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -877,6 +880,45 @@
         "group:inline-slides",
         "group:slide-stash",
         "group:slide-clips"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/viewControls.ts",
+      "run": [
+        "verify-plot-view-verb.ts",
+        "verify-plot-view-gui.mjs",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/AxisView.svelte",
+      "run": [
+        "verify-plot-view-gui.mjs",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/player/render.ts",
+      "run": [
+        "verify-plot-binding.ts",
+        "tier:pure",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
@@ -1584,7 +1626,8 @@
       "glob": "src/lib/{store.ts,ops.ts,Xray.svelte,XrayNode.svelte}",
       "run": [
         "group:slide-stash",
-        "tier:pure"
+        "tier:pure",
+        "verify-plot-view-gui.mjs"
       ]
     },
     {
@@ -2212,7 +2255,8 @@
         "verify-figure-controls-gui.mjs",
         "verify-menu.mjs",
         "verify-panel-label-menu.mjs",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "verify-plot-view-gui.mjs"
       ]
     },
     {
@@ -7964,6 +8008,35 @@
       "coverage": "behavior"
     },
     "verify-slide-camera.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-binding.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-verb.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

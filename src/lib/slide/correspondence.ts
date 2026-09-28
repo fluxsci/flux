@@ -7,7 +7,7 @@ import type { StageOutline, OutlineOwner, OutlinePaint } from "./stageOutline";
 import { nodesExtent, reverseNodes, segPoint, segLength, splitSeg, type PathSeg } from "../path";
 import { lerpColor, prepareColorLerp } from "../color/interp";
 import { lerpDash } from "./tween";
-import { axisFit, projectWith } from "./player/morph";
+import { axisFit, projectWith } from "../plot/project";
 import {
   arcStations, boundaryParams, parameterize, pointAt, openRing, morphIsClosed,
   planOutlines, sampleNodes, type RingStrategy, type Outline,

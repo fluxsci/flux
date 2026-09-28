@@ -38,9 +38,9 @@ import { elementBBox, dashAttr } from "../../geometry";
 import { pathRender } from "../../path";
 import { lerpElement, overshootBox, contentPlan, type ContentPlan } from "../tween";
 import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type ElementMorphPlan } from "../outline";
-import { hasTweenableSeries, seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
+import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
-import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -84,10 +84,6 @@ export function createTransform(
   const manifestA = pre.type === "plot" ? manifest(pre.assetId) : undefined;
   const manifestB = end.type === "plot" ? manifest(end.assetId) : undefined;
   const assetChange = isPlot && pre.assetId !== end.assetId;
-  if (assetChange && !hasTweenableSeries(manifestA, manifestB)) {
-    plan.mode = "crossfade";
-    plan.contentDirty = true;
-  }
   // an image whose picture changes crossfades (a stepped href would pop)
   if (pre.type === "image" && end.type === "image" && pre.assetId !== end.assetId) {
     plan.mode = "crossfade";
@@ -125,7 +121,7 @@ export function createTransform(
   // --- plot half: one projection writer for new data, a new view, or both --
   const sourceRoot = pre.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(pre.assetId) : plotDom.get(pre.assetId)) : undefined;
   const targetRoot = end.type === "plot" ? (ctx.plotRoot ? ctx.plotRoot(end.assetId) : plotDom.get(end.assetId)) : undefined;
-  const project = isPlot && !!manifestA && plan.mode !== "crossfade" &&
+  const project = isPlot &&
     (assetChange || plan.contentDirty && (!!pre.view || !!end.view));
   // The complete binding supplies pristine asset geometry and paint. It must
   // not bake endpoint compensation or views: those belong to this frame's
@@ -137,16 +133,15 @@ export function createTransform(
   // A custom/legacy manifest may carry no series: nothing to project, never a throw.
   const bSeries = new Map(manifestB?.series?.map(s => [s.id, s]));
   const dataSeries = manifestA?.series?.filter(a => !assetChange || !!manifestB && seriesTweenable(a, bSeries.get(a.id), seriesAxes(manifestA, a), bSeries.has(a.id) ? seriesAxes(manifestB, bSeries.get(a.id)!) : undefined)) ?? [];
-  const plotUpdate = project ? compileStaticContent(contentHost,
+  const plotUpdate = project ? compilePlotContent(contentHost,
     neutralPlot(pre as SemanticPlotElement, sourceRoot), neutralPlot(end as SemanticPlotElement, targetRoot), ctx, {
       circles: new Set(dataSeries.flatMap(s => (s.points ?? []).map(p => partDomId(pre.id, p.svgId)))),
       lines: new Set(dataSeries.flatMap(s => s.svg?.line ? [partDomId(pre.id, s.svg.line)] : [])),
     }) : null;
-  // Id-keyed binding (E4) owns partial SVG topology; until then a structural
-  // mismatch still uses the existing complete crossfade.
+  // Only unaddressable (raster/id-less) plots need a whole-content crossfade.
   if (project && !plotUpdate) plan.mode = "crossfade";
   if (project) plan.contentDirty = true;
-  const projectionOptions: PlotViewOptions | undefined = project ? {
+  const projectionOptions: PlotViewOptions | undefined = project && manifestA ? {
     t: 0, from: viewFits(manifestA!, (pre as SemanticPlotElement).view) ?? undefined,
     to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
     fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
@@ -165,8 +160,8 @@ export function createTransform(
   })();
   const plotSvg = isPlot ? contentHost.querySelector("svg") : null;
   const ghostOpacity = plotSvg ? compileGhostPartOpacity(plotSvg, pre, ctx) : undefined;
-  const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
   if (plotSvg && projectionOptions) preparePlotView(plotSvg, manifestA, (end as SemanticPlotElement).view, pre.id, projectionOptions);
+  const ptTrueBindings = plotSvg ? compilePtTrueBindings(plotSvg) : undefined;
 
   // --- crossfade layers (built lazily on the first seek that needs them) ----
   let faded = false;

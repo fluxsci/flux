@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
+import type { PlotViewFields } from "../src/lib/plot/viewControls";
 import type { PairPolicy, PresetName } from "../src/lib/slide/types";
 import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
 import type { VerbDef, CliArgSpec } from "./registry";
@@ -2999,12 +3000,43 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "set_plot_view", scope: "project", cli: "set-plot-view", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points and existing guides re-project; filled marks and reference lines stay put; no new ticks are generated.",
+    params: {
+      target: z.string(), elementId: z.string(), beatId: z.string().optional(),
+      xMin: z.number().finite().optional(), xMax: z.number().finite().optional(),
+      yMin: z.number().finite().optional(), yMax: z.number().finite().optional(),
+      xScale: z.enum(["linear", "log"]).optional(), yScale: z.enum(["linear", "log"]).optional(), reset: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "x-min", into: "xMin", as: "number" },
+      { kind: "flag", at: "x-max", into: "xMax", as: "number" },
+      { kind: "flag", at: "y-min", into: "yMin", as: "number" },
+      { kind: "flag", at: "y-max", into: "yMax", as: "number" },
+      { kind: "flag", at: "x-scale", into: "xScale" },
+      { kind: "flag", at: "y-scale", into: "yScale" },
+      { kind: "flag", at: "reset", into: "reset", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const { target, elementId, ...fields } = a;
+      return core.setPlotViewVerb(ctx.root, s(target), s(elementId), fields as PlotViewFields & { beatId?: string });
+    },
+    render: {
+      human: (r) => ({ out: JSON.stringify(r) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_transform",
     scope: "project",
     cli: "set-transform",
     cliRoot: "flags",
     summary:
-      "Add or update THE transform track for an element on a beat (max one per element per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` adds the data-morph half (same-structure plot; explicit source paths are persisted automatically). Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+      "Add or update THE transform track for an element on a beat (max one per element per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade; explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3332,7 +3364,7 @@ export const VERBS: VerbDef[] = [
     cli: "become",
     cliRoot: "flags",
     summary:
-      "Become another object or plot parts at a build step. Loose drawn destinations default to consume: their evaluated endpoint replaces the source and they are deleted. Plots, images and part sets default to handoff: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot source, asset instead replaces content in the same frame; incompatible data crossfades and requires force.",
+      "Become another object or plot parts at a build step. Loose drawn destinations default to consume: their evaluated endpoint replaces the source and they are deleted. Plots, images and part sets default to handoff: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot source, asset instead replaces content in the same frame; a pair without shared tweenable data requires force; semantic parts still bind locally, while ID-less plots crossfade.",
     params: {
       deckId: z.string(),
       slideId: z.string(),

@@ -63,6 +63,11 @@ for (const mutate of [
   (m: FluxPlotManifest) => { m.series[0].capabilities = { dataMorph: false }; },
   (m: FluxPlotManifest) => { m.series[0].rasterized = true; },
 ]) { const changed = structuredClone(B.manifest); mutate(changed); assert(!seriesTweenable(A.manifest.series[0], changed.series[0], seriesAxes(A.manifest, A.manifest.series[0]), seriesAxes(changed, changed.series[0])), "the affected series refuses unsupported geometry"); assert(hasTweenableSeries(A.manifest, changed), "an unaffected panel still offers a tweenable series"); }
+const nullDatum = structuredClone(B.manifest); nullDatum.series[0].data!.y[1] = null;
+for (const series of A.manifest.series) {
+  const other = nullDatum.series.find(s => s.id === series.id)!;
+  assert(seriesTweenable(series, other, seriesAxes(A.manifest, series), seriesAxes(nullDatum, other)), "a null datum removes a vertex, not the series' shared tweenable subset");
+}
 const field = await load("fields");
 assert(!hasTweenableSeries(field.manifest, field.manifest), "field changes use complete transitions");
 assert.equal(field.manifest.guides!.filter((g) => g.role === "colorbar").length, 2);

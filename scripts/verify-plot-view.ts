@@ -275,4 +275,15 @@ const bareBeat = addBeat(bareDeck, bareSlide.id)!;
 setTransform(bareDeck, bareSlide.id, bareBeat.id, "bare", { state: { x: 300, width: 300, height: 300 }, duration: 1000, easing: "linear" });
 const bareRun = noThrow(() => { const p = createPlayer(host, bareDeck, { theme: FLUX_DARK, reducedMotion: true, plotManifest: () => bare }); p.seek(0, 1, 500); p.destroy(); });
 h.ok(!("error" in bareRun), `a frame Change of a series-less plot plays through the real player (${JSON.stringify(bareRun)})`);
+h.section("incomplete custom manifests are diagnosed, never thrown");
+for (const key of ["axes", "series"] as const) {
+  const missing = structuredClone(sine.manifest); delete (missing as Partial<FluxPlotManifest>)[key];
+  const r = sine.root(), bytes = r.toString();
+  preparePlotView(r, missing, zoom, ""); applyPlotView(r, missing, zoom, "");
+  h.eq(r.toString(), bytes, `missing ${key} leaves SVG intact`);
+  h.ok(plotViewIssues(missing, zoom).includes("This plot has no axes/series to view."), `missing ${key} has a diagnostic`);
+  preparePlotView(r, sine.manifest, zoom, "", { toManifest: missing });
+  applyPlotView(r, sine.manifest, zoom, "", { toManifest: missing });
+  h.eq(r.toString(), bytes, `missing target ${key} leaves SVG intact`);
+}
 await h.done();

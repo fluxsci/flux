@@ -24,11 +24,11 @@ import { applyPlotView, preparePlotView } from "../../plot/projectDom";
 import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
-import { prefixIds, applyOverrides, partDomId } from "../../plot/parse";
+import { prefixIds, applyOverrides, partDomId, partIdFromDom } from "../../plot/parse";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
-import { lerpColor } from "../../color/interp";
+import { prepareColorLerp } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
 import { themeCssVars } from "../theme";
 
@@ -197,6 +197,200 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
   return true;
 }
 
+type DataGeometry = { circles: ReadonlySet<string>; lines: ReadonlySet<string> };
+
+/** Shared attribute compiler for structural shapes and semantic plot parts. */
+function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) {
+  const writes: ((t: number) => void)[] = [];
+  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  function sampler(name: string, a: string | null, b: string | null): (t: number) => string | null {
+    if (a === b) return () => a;
+    if (a !== null && b !== null) {
+      if (["fill", "stroke", "color", "stop-color", "flood-color"].includes(name)) return prepareColorLerp(a, b);
+      // References, colours and arbitrary strings are discrete. Only equal
+      // numeric templates (including path commands) can interpolate safely.
+      if (!a.includes("#") && !b.includes("#") && !name.startsWith("data-") && !name.endsWith("href") && a.replace(numbers, "~") === b.replace(numbers, "~")) {
+        const an = (a.match(numbers) ?? []).map(Number), bn = (b.match(numbers) ?? []).map(Number);
+        const pieces = b.split(numbers);
+        if (an.length && an.length === bn.length) return t => {
+          if (t <= 0) return a; if (t >= 1) return b;
+          let value = pieces[0];
+          for (let i = 0; i < an.length; i++) value += String(an[i] + (bn[i] - an[i]) * t) + pieces[i + 1];
+          return value;
+        };
+      }
+    }
+    return t => t < .5 ? a : b;
+  }
+  return {
+    bind(node: Element, a: Element, b: Element, lineGeometry = false) {
+      const id = a.getAttribute("id") ?? "";
+      const ownsLine = lineGeometry || !!dataGeometry?.lines.has(id);
+      const ownsCircle = a.tagName.toLowerCase() === "circle" && !!dataGeometry?.circles.has(id);
+      for (const name of new Set([...Array.from(a.attributes), ...Array.from(b.attributes)].map(x => x.name))) {
+        if (name === "id" || name === "viewBox" && kind !== "plot" || ownsLine && name === "d" || ownsCircle && (name === "cx" || name === "cy")) continue;
+        if (name === "style") {
+          const as = (a as SVGElement).style, bs = (b as SVGElement).style, ns = (node as SVGElement).style;
+          for (const prop of new Set([...Array.from(as), ...Array.from(bs)])) {
+            const av = as.getPropertyValue(prop) || null, bv = bs.getPropertyValue(prop) || null;
+            const sample = sampler(prop, av, bv);
+            writes.push(t => { const v = sample(t); if (v === null) ns.removeProperty(prop); else ns.setProperty(prop, v); });
+          }
+        } else {
+          const sample = sampler(name, a.getAttribute(name), b.getAttribute(name));
+          writes.push(t => { const v = sample(t); if (v === null) node.removeAttribute(name); else if (node.getAttribute(name) !== v) node.setAttribute(name, v); });
+        }
+      }
+      if (!a.children.length && !b.children.length && a.textContent !== b.textContent) {
+        const av = a.textContent ?? "", bv = b.textContent ?? "";
+        writes.push(t => { node.textContent = t < .5 ? av : bv; });
+      }
+    },
+    update(t: number) { for (const write of writes) write(t); },
+  };
+}
+
+let plotResidueId = 0;
+
+/** Match plot content by semantic identity; topology changes fade locally.
+ * All clones and bindings are built here. Playback only writes attributes. */
+export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: DataGeometry): ((el: FigElement, t: number) => void) | null {
+  const from = document.createElement("div"), to = document.createElement("div");
+  fillContent(from, pre, ctx); fillContent(to, end, ctx);
+  const a = from.firstElementChild, b = to.firstElementChild, live = w.firstElementChild;
+  const index = (root: Element | null) => {
+    const map = new Map<string, Element>();
+    if (root) for (const node of [root, ...Array.from(root.querySelectorAll("[id]"))]) {
+      const id = partIdFromDom(node.getAttribute("id") ?? "", pre.id);
+      if (id !== null) map.set(id, node);
+    }
+    return map;
+  };
+  const ai = index(a), bi = index(b), li = index(live);
+  if (!ai.size && !bi.size) return null;
+  const bindings = contentBindings("plot", dataGeometry);
+  const fades: { node: Element; opacity: string | null; style: string; display: string; entering: boolean; hidden: boolean }[] = [];
+  const fade = (node: Element, entering: boolean, source = node) => {
+    fades.push({ node, opacity: source.getAttribute("opacity"), style: (source as SVGElement).style.getPropertyValue("opacity") || "", display: (source as SVGElement).style.getPropertyValue("display") || "", entering, hidden: entering });
+    // Hide before the first seek without turning the authored opacity into
+    // zero when later appearance tracks compile their baseline.
+    if (entering) (node as SVGElement).style.display = "none";
+  };
+  const update = (_el: FigElement, t: number) => {
+    bindings.update(t);
+    for (const f of fades) {
+      const weight = f.entering ? Math.max(0, Math.min(1, (t - .6) / .4)) : Math.max(0, Math.min(1, 1 - t / .4));
+      const st = (f.node as SVGElement).style;
+      if (f.hidden) {
+        if (f.display) st.display = f.display; else st.removeProperty("display");
+        f.hidden = false;
+      }
+      if (weight === 1) {
+        if (f.opacity === null) f.node.removeAttribute("opacity"); else f.node.setAttribute("opacity", f.opacity);
+        if (f.style) st.opacity = f.style; else st.removeProperty("opacity");
+      } else {
+        const value = String(Number(f.style || f.opacity || 1) * weight);
+        f.node.setAttribute("opacity", value); st.opacity = value;
+      }
+    }
+  };
+  // An unloaded/raster endpoint has no semantic partners. Keep it as one
+  // unmatched layer, using the same endpoint fade windows as unmatched parts.
+  if (!a || !b || !live || a.tagName !== b.tagName) {
+    const outgoing = document.createElement("div"), incoming = document.createElement("div");
+    outgoing.style.cssText = incoming.style.cssText = "position:absolute;inset:0";
+    while (w.firstChild) outgoing.appendChild(w.firstChild);
+    while (to.firstChild) incoming.appendChild(to.firstChild);
+    w.append(outgoing, incoming); fade(outgoing, false); fade(incoming, true);
+    return update;
+  }
+  const idOf = (node: Element) => partIdFromDom(node.getAttribute("id") ?? "", pre.id);
+  const anonymous = (node: Element) => Array.from(node.children).filter(child => idOf(child) === null && !child.hasAttribute("data-projection-residue") && !child.hasAttribute("data-plot-residue"));
+  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  const same = (x: Element, y: Element, line = false): boolean => {
+    if (x.tagName !== y.tagName) return false;
+    const ownsLine = line || !!dataGeometry?.lines.has(x.getAttribute("id") ?? "");
+    if (!ownsLine && x.tagName.toLowerCase() === "path" &&
+      (x.getAttribute("d") ?? "").replace(numbers, "~") !== (y.getAttribute("d") ?? "").replace(numbers, "~")) return false;
+    const xc = anonymous(x), yc = anonymous(y);
+    return xc.length === yc.length && xc.every((child, i) => same(child, yc[i], ownsLine));
+  };
+  const covered = new Set<string>();
+  function local(node: Element, x: Element, y: Element, line = false) {
+    if (node !== live && !same(x, y, line) && (idOf(x) !== null || !x.querySelector("[id]") && !y.querySelector("[id]"))) {
+      const next = y.cloneNode(true) as Element;
+      node.parentNode!.insertBefore(next, node.nextSibling);
+      // Keep the destination's canonical ids for later tracks. The outgoing
+      // copy has its own reference namespace, never duplicate document ids.
+      prefixIds(node, `${pre.id}-residue-${plotResidueId++}`);
+      node.setAttribute("data-plot-residue", "");
+      for (const [id, replacement] of index(next)) { li.set(id, replacement); covered.add(id); }
+      for (const id of index(x).keys()) covered.add(id);
+      fade(node, false, x); fade(next, true, y);
+      return;
+    }
+    const ownsLine = line || !!dataGeometry?.lines.has(x.getAttribute("id") ?? "");
+    bindings.bind(node, x, y, ownsLine);
+    const xc = anonymous(x), yc = anonymous(y), nc = anonymous(node);
+    for (let i = 0; i < Math.max(xc.length, yc.length); i++) {
+      if (xc[i] && yc[i] && nc[i]) local(nc[i], xc[i], yc[i], ownsLine);
+      else if (xc[i] && nc[i]) fade(nc[i], false);
+      else if (yc[i]) {
+        const next = yc[i].cloneNode(true) as Element; node.appendChild(next);
+        for (const [id, child] of index(next)) { li.set(id, child); covered.add(id); }
+        fade(next, true);
+      }
+    }
+  }
+  // Anonymous scaffolding is bound without descending into named parts.
+  local(live, a, b);
+  for (const [id, x] of ai) {
+    if (covered.has(id)) continue;
+    const y = bi.get(id), node = li.get(id);
+    if (y && node) local(node, x, y);
+    else if (!y && node) {
+      // A missing subtree fades once, not once per nested semantic leaf.
+      let parent = x.parentElement, nested = false;
+      while (parent && parent !== a) { const key = idOf(parent); if (key !== null && !bi.has(key)) { nested = true; break; } parent = parent.parentElement; }
+      if (!nested) fade(node, false);
+    }
+  }
+  for (const [id, y] of bi) if (!ai.has(id) && !covered.has(id)) {
+    let ancestor = y.parentElement, nested = false;
+    while (ancestor && ancestor !== b) { const key = idOf(ancestor); if (key !== null && !ai.has(key)) { nested = true; break; } ancestor = ancestor.parentElement; }
+    const retained = li.get(id);
+    if (retained) {
+      // A later B→A can revive a node retained by A→B. The player resets
+      // controllers outside-in, so these writes must restore endpoint paint.
+      local(retained, y, y);
+      if (!nested) fade(retained, true, y);
+      continue;
+    }
+    if (nested) continue;
+    // B-only subtrees install in endpoint order beneath the matching parent.
+    let parent = y.parentElement;
+    const path: Element[] = [];
+    while (parent && parent !== b && idOf(parent) === null) { path.push(parent); parent = parent.parentElement; }
+    const foundParent = parent === b || !parent ? live : li.get(idOf(parent)!);
+    if (!foundParent) continue; // the B-only ancestor installs the entire subtree
+    let dest: Element = foundParent;
+    for (const anon of path.reverse()) {
+      const sourceParent = anon.parentElement!;
+      const slot = anonymous(sourceParent).indexOf(anon);
+      let next: Element | undefined = anonymous(dest)[slot];
+      if (!next) { next = anon.cloneNode(false) as Element; dest.appendChild(next); }
+      dest = next;
+    }
+    let sibling = y.nextElementSibling, before: Element | null = null;
+    while (sibling) { const key = idOf(sibling); const candidate = key === null ? undefined : li.get(key); if (candidate?.parentNode === dest) { before = candidate; break; } sibling = sibling.nextElementSibling; }
+    const next = y.cloneNode(true) as Element;
+    dest.insertBefore(next, before);
+    for (const [key, node] of index(next)) li.set(key, node);
+    fade(next, true);
+  }
+  return update;
+}
+
 /** Compile the serializer's two endpoints into stable attribute bindings.
  * Normal shape transforms never serialize/parse SVG during playback. A
  * topology change returns null so the caller can crossfade complete layers. */
@@ -261,38 +455,11 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
   const liveSvg = w.firstElementChild;
   const aSvg = from.firstElementChild, bSvg = to.firstElementChild;
   if (!liveSvg || !aSvg || !bSvg) return null;
-  const bindings: { node: Element; name: string; sample: (t: number) => string | null }[] = [];
-  const texts: { node: Element; a: string; b: string }[] = [];
-  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  const bindings = contentBindings(pre.type, dataGeometry);
   const bind = (node: Element, a: Element, b: Element, lineGeometry = false): boolean => {
     if (node.tagName !== a.tagName || a.tagName !== b.tagName || node.children.length !== a.children.length || a.children.length !== b.children.length) return false;
-    const names = new Set([...Array.from(a.attributes), ...Array.from(b.attributes)].map((x) => x.name));
-    const id = a.getAttribute("id") ?? "";
-    const ownsLine = lineGeometry || !!dataGeometry?.lines.has(id);
-    const ownsCircle = a.tagName.toLowerCase() === "circle" && !!dataGeometry?.circles.has(id);
-    for (const name of names) {
-      if (name === "id" || name === "viewBox" && pre.type !== "plot") continue;
-      if (ownsLine && name === "d" || ownsCircle && (name === "cx" || name === "cy")) continue;
-      const av = a.getAttribute(name), bv = b.getAttribute(name);
-      // Earlier box-only motion can leave content in its original SVG frame.
-      // A later content Change moves the viewBox to its own pre-state, so even
-      // an endpoint-constant shaft/shape attribute must bind if the live node
-      // still holds the old frame's value. Never replace those shared nodes.
-      if (av === bv && node.getAttribute(name) === av) continue;
-      let sample: (t: number) => string | null = (t) => t < .5 ? av : bv;
-      // Equal endpoints are a constant: write it back verbatim. Re-stringifying
-      // its "numbers" is lossy (a hex colour's digit-e-digit run: #4169e1 → #41690).
-      if (av === bv) sample = () => av;
-      else if (av !== null && bv !== null) {
-        if (name === "fill" || name === "stroke") sample = (t) => lerpColor(av, bv, t);
-        else {
-          const an = (av.match(numbers) ?? []).map(Number), bn = (bv.match(numbers) ?? []).map(Number);
-          if (an.length && an.length === bn.length) sample = (t) => { let i = 0; return bv.replace(numbers, () => String(an[i] + (bn[i] - an[i++]) * t)); };
-        }
-      }
-      bindings.push({ node, name, sample });
-    }
-    if (!a.children.length && a.textContent !== b.textContent) texts.push({ node, a: a.textContent ?? "", b: b.textContent ?? "" });
+    const ownsLine = lineGeometry || !!dataGeometry?.lines.has(a.getAttribute("id") ?? "");
+    bindings.bind(node, a, b, ownsLine);
     for (let i = 0; i < a.children.length; i++) if (!bind(node.children[i], a.children[i], b.children[i], ownsLine)) return false;
     return true;
   };
@@ -303,15 +470,10 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
       const bb = elementBBox({ ...el, rotation: 0 });
       liveSvg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
     }
-    for (const binding of bindings) {
-      const value = binding.sample(t);
-      if (value === null) binding.node.removeAttribute(binding.name);
-      else if (binding.node.getAttribute(binding.name) !== value) binding.node.setAttribute(binding.name, value);
-    }
+    bindings.update(t);
     // The path tween owns its resampled geometry; interpolating raw d strings
     // would pair unrelated commands when the node count changed.
     if (path && el.type === "path") path.setAttribute("d", el.d);
-    for (const text of texts) text.node.textContent = t < .5 ? text.a : text.b;
   };
 }
 

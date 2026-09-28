@@ -48,11 +48,11 @@ const actualCases = [
   ["src/lib/plot/GalleryTree.svelte", ["group:plot-gallery", "tier:pure"]],
   ["src/lib/plot/galleryNames.ts", ["group:plot-gallery", "tier:pure"]],
   ["src/lib/dissect/DissectGrid.svelte", ["verify-dissections.ts", "verify-dissect-gui.mjs", "verify-gallery-workflow.mjs", "tier:pure"]],
-  ["src/lib/store.ts", ["group:slide-stash", "tier:pure"]],
+  ["src/lib/store.ts", ["group:slide-stash", "tier:pure", "verify-plot-view-gui.mjs"]],
   // 2026-09-25: ops.ts has its own first-match rule (the headless ops gate + the real cross-figure drag).
   ["src/lib/ops.ts", ["verify-ops.ts", "verify-cross-figure-drag.mjs", "verify-color-field.mjs", "group:slide-stash", "tier:pure"]],
-  ["src/lib/XrayNode.svelte", ["group:slide-stash", "tier:pure"]],
-  ["src/lib/Xray.svelte", ["group:slide-stash", "tier:pure"]],
+  ["src/lib/XrayNode.svelte", ["group:slide-stash", "tier:pure", "verify-plot-view-gui.mjs"]],
+  ["src/lib/Xray.svelte", ["group:slide-stash", "tier:pure", "verify-plot-view-gui.mjs"]],
   ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure", "verify-cross-figure-drag.mjs"]],
   ["scripts/lib/slideStashNativeEntry.cjs", ["group:slide-stash"]],
   // 2026-09-15: the crosshair cursor family owns Canvas.svelte first (its own pathMap entry).
@@ -60,6 +60,10 @@ const actualCases = [
   // 2026-09-16: the compositor drive and the zoom proxy ride the same entry as the canvas they move.
   ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
   ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
+  // E2 adds view authoring and semantic content binding without dropping inherited gates.
+  ["src/lib/plot/viewControls.ts", ["verify-plot-view-verb.ts", "verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/plot/AxisView.svelte", ["verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/slide/player/render.ts", ["verify-plot-binding.ts", "tier:pure", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   // Animation v2 E1: the projection kernel left slide/player/morph.ts for plot/. Its exact entry keeps
   // the superseded src/lib/plot/** set AND the slide-player set its old home selected.
   ["src/lib/plot/project.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],

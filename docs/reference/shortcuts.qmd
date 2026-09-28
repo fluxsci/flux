@@ -117,6 +117,8 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | Shortcut | Action |
 |---|---|
 | **F** | Property menu, beside the selection (each row shows its own **left-hand** key; the key arms the row, then the **mouse wheel** — anywhere on screen — or **↑/↓** adjusts a number, an expanded choice takes **w/a/s/d**, **1–9** or the wheel, a colour opens the palette — hover previews, click applies; **Space**/**Enter** applies, **Escape** reverts; **s** searches) |
+| **v** / **b** in a plot’s F-menu | x view / y view (follow the displayed key if crop controls occupy **v**) |
+| **v** on an X-ray axis row | Axis view… — focus that axis in the Inspector |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** / **Shift+Alt+G** | Open the Plot gallery / open it pinned |

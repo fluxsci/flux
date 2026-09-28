@@ -953,8 +953,20 @@ Persistence invariants (all machine-checked — do not weaken):
   transform driver. Bind guide data before overrides or from a pristine source root;
   restore pt-true, then projection, before the next frame. The driver binds neutral asset
   geometry (no endpoint view/compensation), then applies this frame's overrides, projection
-  and compensation. Per-panel fits and vertex buffers are prepared once. The old
-  `player/morph.ts` is a temporary re-export shim, including `axisFit` for existing consumers.
+  and compensation. Per-panel fits and vertex buffers are prepared once. Import math directly
+  from `plot/project.ts`; the old `player/morph.ts` shim is removed. `compilePlotContent`
+  binds semantic IDs, fades unmatched parts over the first/last 40%, and crossfades anonymous
+  topology changes locally. Keep appended nodes display-hidden until their first seek, so
+  appearance compilation reads authored opacity. `applyAt` runs content controllers before
+  keyframed appearances, independent of story order; content paint must not erase an entrance.
+  Only ID-less plots retain the whole-content fallback. Union
+  vertex indices preserve missing-data gaps; unmatched markers and line edges fade.
+  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu;
+  `plot/viewControls.ts` normalizes data-unit fields for both GUI and `set-plot-view`.
+  Nullable live NumberFields own an editSession, with preview, one undo and Escape rollback.
+  X-ray axis-row `v` focuses the corresponding Inspector row. The verb writes through
+  `ops.setPlotView`; its deck beat form resolves the endpoint then writes `setTransform`.
+  Missing axes/series diagnose instead of throwing; keep both read and writer guards.
   `becomeTransform` (ops.ts; CLI/MCP `become`) has two completion modes. Consume diffs the
   source pre-state against the destination, writes the endpoint, deletes the target and GCs
   groups in one Undo; `to.become` records provenance. Plot/image or part-set destinations
@@ -3011,13 +3023,12 @@ outside this PNG packaging change.
   plot transform's `overrides` diff. Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
-- **Plot data views (Animation v2 E1–E3):** `view` renders in all five plot hosts and
-  tweens through the transform driver. Filled marks remain unchanged; no new ticks are
-  generated. Non-positive log data refuses that series with a compiler issue. Axis view
-  UI/verbs and regenerated ticks are later packets. Per-series eligibility now accepts a
-  shared tweenable subset, but structural SVG mismatches still crossfade until E4 replaces
-  the structural `compileStaticContent` binding. Do not confuse eligibility with complete
-  partial-transition support.
+- **Plot data views (Animation v2 E1–E6):** `view` renders in all five plot hosts and
+  tweens through the transform driver. Axis view controls and `set-plot-view` author the same
+  shared prop; semantic binding preserves shared series across regenerated tick/point counts.
+  Filled and non-series marks remain unchanged; no new ticks are generated. Existing ticks
+  fade in the outer 4%, including exactly on new limits. Non-positive log data refuses that
+  series with a compiler issue. True regeneration/re-ticking remains a fluxplot follow-up.
 - **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
   `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
   reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
@@ -8087,3 +8098,37 @@ hand-offs. Each change was shown red, then green.
 **Learnings:** Parallel packets told to add the same helper will both add it, and git merges
 the two `export` lines silently: grep flux-core/index.ts for duplicate names after every rebase.
 Label and choice lists drift the same way — census them like presets and easings.
+
+### 2026-09-28 03:50 UTC — Partial plot binding and Axis view authoring (Codex, av2/E2)
+
+`compilePlotContent` matches semantic IDs, uses the shared attribute compiler, and fades
+unmatched parts or local anonymous topology instead of complete plots. Union vertex indices
+retain null-data gaps; unmatched markers and line edges fade through the projection writer.
+Forward/reverse asset chains retain canonical IDs. Mixed raster/SVG endpoints fade as
+unmatched layers. Appearance baselines retain authored opacity, and `applyAt` now runs
+content controllers before appearance frames (existing timeline/browser assertions pin this).
+
+The lazy Axis view block serves Inspector and F-menu (x `v`, y `b`, next free key if crop
+already owns `v`); X-ray axis `v` focuses its Inspector row. NumberField's opt-in nullable
+live mode previews through editSession and preserves small data-unit values (12 significant
+digits, domain-sized steps). Residue namespaces stay unique across local crossfade chains.
+The shared field normalizer feeds `ops.setPlotView`
+in both GUI and `set-plot-view`/`set_plot_view`; deck beat edits resolve the prior endpoint
+and write `state.view`. Missing axes/series diagnose instead of throwing. Removed the old
+morph shim and corrected imports/docs. Figure, slide, shortcuts and stock manual are updated;
+generated context and MCP inventory are regenerated, never hand-edited.
+
+New hermetic gates: plot-binding (semantic subsets, topology, unequal vertices, null gaps,
+reverse seek, raster fallback); plot-view-gui (canvas/export/undo, F-menu, X-ray, After-step
+capture and real ruler seek); plot-view-verb (real CLI/MCP and shared-op byte parity). Each
+was demonstrated red with the old driver/registry or disabled setter, then green. Existing
+timeline, export-transform, Figure controls and surface assertions remain intact; the
+changed-pathmap gate now pins the additional coverage. Full receipts are in this worker's
+report and test-results/runs. Startup/bundle/Electron/native gates remain orchestrator-owned.
+
+Validation: check (932 files) and check:headless are 0 errors/0 warnings; production and CLI
+builds pass. A full pure cohort passed 325/325; the final cohort passed 323/325 with two
+machine-wide EMFILE watcher failures, both passing serial retries. Final Axis view GUI is
+23/23; binding is 93/93; verb parity is 10/10. F-menu surface, Figure controls, X-ray theme,
+registry, docs, offline export and timeline gates pass. The final GUI run used Vite polling
+to avoid the same watcher limit. No gate was loosened; no commits were made by this worker.

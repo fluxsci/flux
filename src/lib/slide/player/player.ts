@@ -457,8 +457,10 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     return later && (spec.beatIndex < later.beatIndex || spec.beatIndex === later.beatIndex && spec.delay < later.delay);
   };
   const activeNatives = new Set<Spec>();
+  // Content writes establish this frame's paint before part appearances
+  // factor it, even when the appearance precedes a Change in story order.
   for (const group of plan.nodes) {
-    const { node, keyframed, properties, controllers, flights, glides } = group;
+    const { controllers } = group;
     if (controllers.length) {
       let selected = -1;
       for (let i = 0; i < controllers.length; i++) if (progressAt(controllers[i], beat, time) >= 0) selected = i;
@@ -474,6 +476,9 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
         spec.morph!.seek(spec.ease.fn(p), p);
       } else controllers[0].morph!.seek(0, 0);
     }
+  }
+  for (const group of plan.nodes) {
+    const { node, keyframed, properties, flights, glides } = group;
     if (!keyframed.length) continue;
     clearAnimStyles(node, properties);
     const base = keyframed[0].baseStyle;

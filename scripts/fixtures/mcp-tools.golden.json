@@ -135,6 +135,7 @@
   "set_manuscript",
   "set_part_style",
   "set_part_visibility",
+  "set_plot_view",
   "set_slide",
   "set_style",
   "set_text_run_color",

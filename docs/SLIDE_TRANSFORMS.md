@@ -38,10 +38,11 @@ Evidence from the code as it stood before this branch:
 3. A **consume** Become whose target is *another placed plot* ("axes and all") writes the same content half
    plus the geometry/style half the target already carries (`x, y, width, height, rotation,
    crop, contentScale, overrides`) — again the ordinary `to.state` patch.
-4. Playback for both is the existing plot branch of the transform driver: a structurally
-   compatible pair (`morphCompatible`) tweens data in data space through blended axis fits
-   while matching SVG attributes (axes, ticks, labels) bind and interpolate; an incompatible
-   pair crossfades the complete plots while the frame still tweens.
+4. Playback for both is the plot branch of the transform driver. `seriesTweenable` checks
+   each shared series; `hasTweenableSeries` reports whether any can tween. Matched series
+   project through blended axis fits while SVG attributes bind by semantic ID. Unmatched
+   parts and vertices fade; anonymous topology changes crossfade only their containing part.
+   Only an SVG without semantic IDs uses a whole-plot crossfade. The frame still tweens.
 
 Conclusion: **fully subsumed.** There is no residual behavior a "data morph" would have that a
 plot-to-plot Become does not, so no fourth way exists. Concretely, this branch:

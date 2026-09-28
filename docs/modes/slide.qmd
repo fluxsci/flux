@@ -335,9 +335,32 @@ positive data; an unsupported series keeps its original geometry and the animati
 Bars, boxes, violins and filled areas keep their original geometry in this version. Zooming out
 does not generate extra ticks; regenerate the plot to obtain a newly laid-out set of guides.
 
-The model and playback support data views now; the Axis view controls are a separate upcoming
-addition. Asset Becomes and Changes of a data view use the same projection, so one Change may
-combine new data, axis limits and movement.
+Select a plot and use **Axis view** in the Object inspector, or **x view** / **y view** in
+its **F** menu. Enter limits in data units; empty fields use the generated limits shown as
+placeholders. Choose **linear** or **log**, or **Reset** both axes. At **After step N** the
+edit becomes a Change on that step, with one undo per edit. Scrubbing previews the axis glide.
+X-ray's axis-row **v · Axis view…** focuses the matching Inspector row.
+
+Ticks exactly on a new limit fade to zero (the outer 4% rule). Non-series marks, such as a
+dashed reference line, stay put. For multi-panel plots the same view applies to each panel;
+placeholders show the first panel's limits.
+
+Asset Becomes and Changes of a data view use the same projection, so one Change may combine
+new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
+the first 40% and added parts fade in during the last 40%. A local SVG structure change fades
+that part. An SVG without semantic IDs uses a whole-plot crossfade.
+
+The CLI/MCP twin is **set-plot-view** / **set_plot_view**:
+
+```sh
+flux set-plot-view figure1 plot1 --x-min 0 --x-max 10
+flux set-plot-view talk/slide1 plot1 --y-min 1 --y-max 100 --y-scale log --beat beat2
+flux set-plot-view talk/slide1 plot1 --reset --beat beat3
+```
+
+The figure form saves the view on the object. A deck/slide target without `--beat` edits the
+Design object; with `--beat`, it writes a Change's `state.view` at that step, preserving other
+changed properties and inheriting earlier limits. `--reset` restores the generated axes.
 
 ## Cascading tracks
 

@@ -129,7 +129,11 @@ export function hasTweenableSeries(a?: FluxPlotManifest, b?: FluxPlotManifest): 
 /** Prepared once; sampleSeries writes into reusable storage on the frame path. */
 export function pairVertices(a: FluxPlotSeries, b: FluxPlotSeries | null): { a: MorphPoint; b: MorphPoint }[] {
   const bv = new Map((b ? seriesVertices(b) : []).map(p => [p.index, p]));
-  return seriesVertices(a).map(p => ({ a: p, b: bv.get(p.index) ?? p }));
+  const av = new Map(seriesVertices(a).map(p => [p.index, p]));
+  return [...new Set([...av.keys(), ...bv.keys()])].sort((a, b) => a - b).map(index => {
+    const from = av.get(index), to = bv.get(index);
+    return { a: from ?? to!, b: to ?? from! };
+  });
 }
 export function sampleSeries(pairs: ReturnType<typeof pairVertices>, from: Fits, to: Fits, t: number, out: MorphPoint[], fits: Fits): void {
   blendFit(from.x, to.x, t, fits.x); blendFit(from.y, to.y, t, fits.y);
@@ -182,6 +186,7 @@ export function guideData(manifest: FluxPlotManifest, root: Element, elId = ""):
 /** Refuse invalid log projections per series, never emit NaN SVG geometry. */
 export function plotViewIssues(manifest: FluxPlotManifest | undefined, view: PlotView | undefined): string[] {
   if (!manifest || !view) return [];
+  if (!manifest.axes?.length || !manifest.series?.length) return ["This plot has no axes/series to view."];
   const issues: string[] = [];
   for (const axes of manifest.axes) if (!viewFits(manifest, view, axes.panelId)) issues.push("Plot view has unusable axes or an invalid domain (log domains must be positive).");
   let filled = false;

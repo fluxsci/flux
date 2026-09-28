@@ -422,7 +422,7 @@ export interface SemanticPlotElement extends ElementBase {
   contentScale?: number;
   // The plot's DATA VIEW (animation v2): show the plot as if its axes had these
   // limits/scales — a data-space crop. Rendered by pure re-projection through
-  // the manifest's axis fits (plot/view.ts) in every engine; absent = the
+  // the manifest's axis fits (plot/project.ts) in every engine; absent = the
   // generated view (so untouched files stay byte-identical). An ordinary
   // element prop: a slide Change of it is the data-space transform.
   view?: PlotView;

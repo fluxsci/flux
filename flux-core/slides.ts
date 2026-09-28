@@ -31,7 +31,7 @@ import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
-import { loadFigModel } from "./model";
+import { loadFigModel, mutateFigModel } from "./model";
 import { syncFigureAssets } from "./figures";
 import { planSourceUpdates, writeSourceUpdates, hasCompleteSvgStructure } from "../src/lib/plot/sourceSync";
 import { svgIntrinsicSize } from "../src/lib/plot/svgGeometry";
@@ -52,7 +52,10 @@ import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
 import type { ProjectManifest } from "../src/lib/project/types";
 import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
-import type { Asset } from "../src/lib/types";
+import { setPlotView } from "../src/lib/ops";
+import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
+import { plotViewIssues } from "../src/lib/plot/project";
+import type { Asset, Project, SemanticPlotElement } from "../src/lib/types";
 
 // POSIX, not the platform: these are PROJECT-RELATIVE paths, and one of them
 // (the derived `svgPath`) is PERSISTED into deck.json. `path.join` on Windows
@@ -391,6 +394,45 @@ export async function addGhostTransform(
     const result = slideOps.addGhostTransform(deck, slideId, beatId, sourceId, opts);
     if (!result) throw new Error(`Ghost transform needs an existing source and a build step: ${sourceId} on ${beatId}`);
     return result;
+  });
+}
+
+/** Shared figure/slide view authoring; a beat edits its resolved endpoint. */
+export async function setPlotViewVerb(root: string, target: string, elementId: string, fields: PlotViewFields & { beatId?: string }): Promise<{ view: SemanticPlotElement["view"] | null; trackId?: string; issues: string[] }> {
+  const { beatId, ...viewFields } = fields;
+  const apply = async (project: Project, el: SemanticPlotElement, deckId?: string) => {
+    const manifest = await readPlotManifest(root, el, deckId);
+    try { setPlotView(project, el.id, plotViewPatch(el.view, manifest, viewFields), manifest?.axes?.[0]); }
+    catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
+    return { view: el.view ?? null, issues: plotViewIssues(manifest, el.view) };
+  };
+  const parts = target.split("/");
+  if (parts.length === 1) {
+    if (beatId) throw new ValidationError("--beat requires a deckId/slideId target.");
+    return mutateFigModel(root, "set_plot_view", async ({ project }) => {
+      const figure = project.figures.find(f => f.id === target);
+      if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+      const el = figure.elements.find(e => e.id === elementId);
+      if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+      return apply(project, el);
+    });
+  }
+  if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+  const [deckId, slideId] = parts;
+  return mutateDeck(root, deckId, "set_plot_view", async deck => {
+    const slide = mustSlide(deck, slideId);
+    let el = slide.elements.find(e => e.id === elementId);
+    if (beatId) {
+      const bi = slide.beats.findIndex(b => b.id === beatId);
+      if (bi < 1) throw new ValidationError("Choose an existing build step after Design.");
+      el = (await compileDeckSlide(root, deck, slideId)).sample(bi).elements.find(e => e.id === elementId);
+    }
+    if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId} in ${target}`);
+    const result = await apply({ figures: [{ elements: [el] }] } as Project, el, deckId);
+    if (!beatId) return result;
+    const track = slideOps.setTransform(deck, slideId, beatId, elementId, { state: { view: result.view } });
+    if (!track) throw new ValidationError(`Could not set a view on ${elementId}.`);
+    return { ...result, trackId: track.id };
   });
 }
 

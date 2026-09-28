@@ -147,6 +147,7 @@ export {
   appearFrom,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
+  setPlotViewVerb,
   addGhostTransform,
   groupTracksVerb,
   ungroupTracksVerb,
@@ -166,5 +167,7 @@ export {
 export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";
 export type { Fit, Fits, MorphPoint } from "../src/lib/plot/project";
 export { applyPlotView } from "../src/lib/plot/projectDom";
+export { plotViewPatch } from "../src/lib/plot/viewControls";
+export type { PlotViewFields } from "../src/lib/plot/viewControls";
 export { setPlotView } from "../src/lib/ops";
 export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolve";

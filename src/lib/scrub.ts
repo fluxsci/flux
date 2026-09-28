@@ -8,6 +8,7 @@ export interface ScrubParams {
   onEnd?: () => void;
   onCancel?: () => void;
   step?: number;
+  round?: (value: number) => number;
   min?: number | null;
   max?: number | null;
   disabled?: boolean;
@@ -47,7 +48,7 @@ export function scrub(node: HTMLElement, params: ScrubParams) {
     let value = startVal + Math.round(dx) * step;
     if (p.min != null) value = Math.max(p.min, value);
     if (p.max != null) value = Math.min(p.max, value);
-    value = +value.toFixed(precisionOf(step));
+    value = p.round ? p.round(value) : +value.toFixed(precisionOf(step));
     if (value === lastVal) return;
     if (!began) { p.onStart?.(); began = true; }
     lastVal = value;

@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Track } from "../types";
-import type { MorphController } from "./morph";
+import type { MorphController } from "../../plot/project";
 import type { TargetNode } from "./presets";
 
 interface CountUpParams {

@@ -55,6 +55,9 @@ flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--p
 flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 
+flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
+     [--x-scale linear|log --y-scale linear|log --reset] [--beat beatId]            # (set_plot_view) data view, or a Change at a deck beat
+
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
 flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state]
      [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
@@ -145,7 +148,8 @@ beat — chain across beats) authored three ways:
   exactly the same source-owned hand-off record from the destination side.
   `--asset <assetId>` is the separate whole-plot content form (`to.assetId` + source paths):
   the frame stays, shared line/point series tween in data space, and incompatible plots require
-  `--force` to crossfade. It accepts no hand-off/part flags. All routes write a transform track.
+  `--force` when none can tween; parts still bind by semantic ID, with local residual fades.
+  It accepts no hand-off/part flags. All routes write a transform track.
 
 ```
 flux set-transform talk s1 b2 el_rect --state '{"x": 420, "width": 220, "stroke": "#d14d41"}' --duration 700
@@ -157,6 +161,14 @@ flux become talk s1 b2 el_plot --asset growthB                            # the 
 ```
 
 **Camera** is its own small family: `--target @camera --preset camera --to-x --to-y --to-zoom`.
+
+**Axis view** is an ordinary plot prop in Figure, Slide, Paper and export. `set-plot-view`
+patches limits/scales; omitted fields inherit. A figure target writes the object; a
+`deck/slide` target with `--beat` writes `state.view` on that step's Change and preserves
+other state. Without `--beat`, it edits Design. `--reset` clears the view (at a step this
+writes `view:null`). The Inspector and F-menu expose the same controls. Log limits and data
+must be positive. Lines, points and existing guides project; filled/non-series marks stay
+put. Ticks fade in the outer 4%, including new limits; zoom-out does not invent ticks.
 
 **Ghost transforms** create ordinary independent result Elements with a birth Change track
 (`ghostFrom` names the source; `target` names the result; `to.state` is its destination patch).
