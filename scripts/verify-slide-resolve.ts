@@ -320,6 +320,24 @@ try {
   h.ok(!(await core.loadDeck(root, "cli")).slides[0].beats[2].tracks[0].styleId, "beat filter leaves other beat unlinked");
   h.eq(run("animate-like", "cli", "s", "--from", "a", "--to", "outside").status, 0, "unfiltered animate-like retains slide-wide scope");
   h.ok(!!(await core.loadDeck(root, "cli")).slides[0].beats[2].tracks[0].styleId, "unfiltered call links other beat");
+  // QA-M3: the headless move reads the source beat's plot manifests (flux-core
+  // moveTrack → manifestFor), so a detached anchor keeps the semantic stagger tail.
+  const plotDeck = ops.createDeck({ id: "cli-plot", withTitleSlide: false });
+  const plotSlide = ops.addSlide(plotDeck, { id: "s" });
+  ops.addSlideText(plotDeck, "s", { text: "Follower", x: 0, y: 0, width: 100, height: 30 });
+  plotSlide.elements.push({ type: "plot", id: "plot1", x: 100, y: 100, width: 300, height: 200, rotation: 0, assetId: "scatter" } as never);
+  ops.addBeat(plotDeck, "s", { id: "b" })!.tracks = [
+    { id: "leader", target: "plot1", part: "points", preset: "fade", start: 50, duration: 100, stagger: { perMs: 30 } },
+    { id: "follower", target: plotSlide.elements[0].id, preset: "fade", start: 7, anchor: { trackId: "leader", edge: "end", offsetMs: 10 } },
+  ];
+  ops.addBeat(plotDeck, "s", { id: "b2" });
+  await core.saveDeck(root, plotDeck);
+  await fs.mkdir(path.join(root, "slides", "cli-plot", "assets"), { recursive: true });
+  await fs.writeFile(path.join(root, "slides", "cli-plot", "assets", "scatter.fluxplot.json"), JSON.stringify(manifest));
+  const plotMove = run("move-track", "cli-plot", "s", "follower", "b2");
+  h.eq(plotMove.status, 0, `CLI cross-beat move-track: ${plotMove.stderr}`);
+  const movedFollower = (await core.loadDeck(root, "cli-plot")).slides[0].beats[2].tracks[0];
+  h.eq([movedFollower.id, movedFollower.start, movedFollower.anchor], ["follower", 220, undefined], "REAL CLI cross-beat move detaches the anchor at its resolved start, incl. the plot's semantic stagger tail (50 + 100 + 2×30 + 10)");
 
 } finally { await fs.rm(root, { recursive: true, force: true }); }
 await h.done();
