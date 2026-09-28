@@ -37,3 +37,16 @@ Independent n1 final4/4 PASS18-19-30-808Z-2, sourceChanged=false,
 digest3ad3895f…: new14/zoom11/modelGUI41/pathmap. Product, test, manifest, guide
 and actual quiet/active-proxy screenshots independently approved. Root owns
 native S8 requalification after integration; no native performance pass claimed here.
+
+Late independent n1 review found the new pointer branch omitted the reactive
+scheduler's no-modelPreviews guard. Actual Orbit drag/release then ordinaryhover
+reproduced52extraquiettimers and1idleattempt (worker renders unchanged9→9),
+registered red control18-24-39-067Z-2 failed2/17 as expected. Receipt+screenshot
+retained preview-guard-before. The same preview predicate is now on the pointer
+branch; final author/independent groups pending for this narrow follow-up.
+
+Follow-up author4/4 PASS18-25-26-668Z-2, check0/0 and headlessPASS.
+Independent expanded17/17 PASS18-26-42-204Z-2, sourceChanged=false,
+digest0f5063d…:51trustedOrbit hover moves, timers130→130,idles3→3,
+SVG3→3,renders9→9. Actual active-preview screenshot independently inspected;
+changed az22/elevation24, clear mesh/furniture. n1 approves follow-up source/tests.

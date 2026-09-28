@@ -46,7 +46,13 @@ try {
   await waitFor(page, id => window.__flux.get(window.__flux.fig.selection).has(id), id, { label: 'real selected model' });
   await ready(); const initial = await proxy();
   await page.evaluate(() => {
-    const state = window.__snapshotQuiet = { svgs: [], urls: new Set(), rasters: [], moves: [], idles: [], hold: false, held: false, release: null };
+    const state = window.__snapshotQuiet = { svgs: [], urls: new Set(), rasters: [], moves: [], idles: [], quietTimers: [], frames: [], hold: false, held: false, release: null };
+    const timeout = window.setTimeout;
+    window.setTimeout = function(callback, delay, ...args) {
+      const id = Reflect.apply(timeout, this, [callback, delay, ...args]);
+      if (delay === 1500) state.quietTimers.push({ id, time: performance.now() });
+      return id;
+    };
     const idle = window.requestIdleCallback;
     window.requestIdleCallback = function(callback, options) {
       const id = Reflect.apply(idle, this, [callback, options]);
@@ -72,7 +78,8 @@ try {
         await new Promise(resolve => { state.release = () => { state.hold = false; state.held = false; state.release = null; resolve(); }; });
       }
     };
-    document.querySelector('.canvas-host').addEventListener('pointermove', e => state.moves.push({ time: performance.now(), trusted: e.isTrusted, promoted: document.querySelector('.scene').style.willChange }), true);
+    document.addEventListener('flux-model3d-frame', event => state.frames.push(event.detail), true);
+    document.querySelector('.canvas-host').addEventListener('pointermove', e => state.moves.push({ time: performance.now(), trusted: e.isTrusted, orbit: !!e.target.closest('[data-model3d-orbit]'), promoted: document.querySelector('.scene').style.willChange }), true);
   });
   result.validHoverMoves = await hover(1700);
   h.eq(await proxy(), initial, 'pure hover preserves an existing valid bitmap');
@@ -123,7 +130,23 @@ try {
   await page.screenshot({ path: out + '/zoom-proxy.png' });
   await waitFor(page, () => !document.querySelector('.zoom-proxy')?.classList.contains('live'), null, { label: 'zoom returns to sharp live scene' });
   await page.screenshot({ path: out + '/quiet-scene.png' });
-  h.eq(realErrors(page), [], 'clean console through hover, cancellation and zoom');
+  await page.click('.model3d-properties .heading button');
+  await waitFor(page, () => !!document.querySelector('[data-model3d-orbit].ready'), null, { label: 'actual Orbit button starts a painted preview', timeout: 30000 });
+  const beforeDrag = await page.evaluate(() => window.__snapshotQuiet.frames.length);
+  p = await point(); await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + 20, p.y + 10, { steps: 4 }); await page.mouse.up();
+  await waitFor(page, count => window.__snapshotQuiet.frames.length > count && window.__snapshotQuiet.frames.at(-1)?.fullResolution === true, beforeDrag, { label: 'changed Orbit view has a full-resolution release frame', timeout: 30000 });
+  const beforeOrbit = await page.evaluate(() => ({ timers: window.__snapshotQuiet.quietTimers.length, idles: window.__snapshotQuiet.idles.length, svgs: window.__snapshotQuiet.svgs.length, renders: window.__fluxModel3d.stats().renders, moves: window.__snapshotQuiet.moves.length }));
+  result.orbitHoverMoves = await hover(1700);
+  // Observe the unchanged 1500ms scheduling window after real ordinary hover.
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 1700)));
+  result.orbit = await page.evaluate(before => ({ before, timers: window.__snapshotQuiet.quietTimers.length, idles: window.__snapshotQuiet.idles.length, svgs: window.__snapshotQuiet.svgs.length, renders: window.__fluxModel3d.stats().renders, moves: window.__snapshotQuiet.moves.slice(before.moves) }), beforeOrbit);
+  h.ok(result.orbit.moves.length > 20 && result.orbit.moves.every(move => move.trusted && move.orbit), 'ordinary trusted hover reaches the active Orbit overlay');
+  h.eq(result.orbit.timers, beforeOrbit.timers, 'active previews never schedule optional snapshot quiet timers');
+  h.eq({ idles: result.orbit.idles, svgs: result.orbit.svgs, renders: result.orbit.renders }, { idles: beforeOrbit.idles, svgs: beforeOrbit.svgs, renders: beforeOrbit.renders }, 'resting Orbit hover has no snapshot or render heartbeat');
+  await page.screenshot({ path: out + '/orbit-hover.png' });
+  await page.keyboard.press('Enter');
+  await waitFor(page, () => !document.querySelector('[data-model3d-live]'), null, { label: 'changed Orbit view settles to its decoded poster', timeout: 30000 });
+  h.eq(realErrors(page), [], 'clean console through hover, cancellation, zoom and Orbit');
 } catch (error) {
   result.failureState = await page.evaluate(() => {
     const F = window.__flux, state = window.__snapshotQuiet;

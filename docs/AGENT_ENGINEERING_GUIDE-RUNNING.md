@@ -8188,3 +8188,13 @@ are unforced. Diagnostic traces confirmed correct scheduling, rather than a lost
 content key; the diagnostic instrumentation is absent from production. Author group
 4/4 passed (18-18-08), with svelte-check 0/0 and headless types passing.
 Independent group4/4 also passed (18-19-30), sourceChanged=false; actual quiet and active-proxy screenshots were reviewed. Native S8 closure remains separate.
+
+A follow-up review found pointer scheduling also needs the existing no-model-preview
+predicate. Without it, ordinary hover during active Orbit schedules repeated idle
+attempts even though takeSnapshot refuses the preview. The real-input regression
+now changes camera by dragging, waits for the full-resolution release frame, then
+observes trusted ordinary hover and a quiet interval. Before correction it caught
+52 extra quiet timers and one idle registration with zero mesh renders. Pointer and
+reactive scheduling now share the same preview exclusion; no callback heartbeat is
+needed while a preview remains active.
+Author focused4/4 and independent expanded17/17 passed (18-25-26 / 18-26-42), with unchanged timer, idle, SVG and render counts during51 trusted Orbit hover moves. Type checks remain0/0 and headless clean.

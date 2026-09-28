@@ -2375,7 +2375,7 @@
     // Hover is interaction too: a pending SVG snapshot can parse/raster for
     // tens of milliseconds. Keep that work behind the same quiet interval,
     // without promoting the live scene or invalidating an existing bitmap.
-    if (snapWanted && paneActive && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
+    if (snapWanted && !Object.keys($modelPreviews).length && paneActive && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
     // Ruler-guide drag (modal — no Gesture).
     if (guideDrag) {
       onGuideDragMove(e);
