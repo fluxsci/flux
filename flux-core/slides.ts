@@ -30,7 +30,6 @@ import { exportRecoveryIO, confinedRecoveryPath } from "./recovery";
 import { SCHEMAS } from "./schemas";
 import { preparePlot, buildPartIndex } from "../src/lib/plot/parse";
 import * as slideOps from "../src/lib/slide/ops";
-import { compileSlide } from "../src/lib/slide/compile";
 import type { TrackCascadeSpec } from "../src/lib/cascade";
 import { loadFigModel } from "./model";
 import { syncFigureAssets } from "./figures";
@@ -832,7 +831,8 @@ async function compileBecomeSlide(root: string, deck: Deck, slide: Slide) {
       ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
     } }));
   }
-  return compileSlide(slide, deck.stage, { plotManifest: id => manifests.get(id) });
+  // Linked styles (F1) decide the timing the Become checks against; a style-less compile would misplace births.
+  return compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => manifests.get(id) });
 }
 
 export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled"> & {
