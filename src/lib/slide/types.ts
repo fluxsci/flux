@@ -282,6 +282,8 @@ export interface TrackTarget {
   x?: number;
   y?: number;
   zoom?: number;
+  /** Camera path: absent = geometric Zoom (pole); Fly zooms out for long pans. */
+  path?: "pole" | "fly";
   /** Become (0.6): the destination and completion mode. A hand-off carries no
    *  `state` (the destination's own geometry is the end); a consume keeps
    *  `state` exactly as before and records the ref for provenance. */

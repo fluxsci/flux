@@ -33,6 +33,20 @@ slideOps.addSlideText(good, good.slides[0].id, { text: "hi", x: 10, y: 10 });
 assert(DECK_SCHEMA_VERSION === "0.6.0", "the animation-v2 format is 0.6.0 (0.x minor = the breaking slot)");
 assert(validateDeckFile(good).length === 0, "a createDeck() deck validates against the bundled schema");
 
+// Camera paths are additive; unknown paths must never silently become Zoom.
+{
+  const deck = structuredClone(good), slide = deck.slides[0];
+  const beat = slideOps.addBeat(deck, slide.id)!;
+  for (const path of [undefined, "pole", "fly"] as const) {
+    beat.tracks = [{ target: "@camera", preset: "camera", to: { x: 200, y: 100, zoom: 2, ...(path ? { path } : {}) } }];
+    assert(validateDeckFile(deck).length === 0, `camera path ${path ?? "absent"} validates without a version bump`);
+  }
+  for (const path of ["linear", "Fly", 3, null, {}]) {
+    (beat.tracks[0].to as Record<string, unknown>).path = path;
+    assert(validateDeckFile(deck).length > 0, `garbage camera path ${JSON.stringify(path)} is refused`);
+  }
+}
+
 // --- 0.2.0–0.5.0 → 0.6.0: valid input, migrated at the chokepoint -----------------------
 {
   for (const version of ["0.2.0", "0.3.0", "0.4.0", "0.5.0"]) {

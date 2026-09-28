@@ -16,6 +16,7 @@
   import { objectLabel } from "./ghostEditing";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
+  import { flyDuration, type CameraPath } from "../../../../lib/slide/camera";
   import { hasTweenableSeries } from "../../../../lib/plot/project";
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Influence, Deck, BecomeSpec } from "../../../../lib/slide/types";
@@ -171,6 +172,35 @@
   const anyGhost = $derived(selTracks.some(t => !!t.ghostFrom));
   const anyMedia = $derived(selTracks.some(t => familyOf(t) === "media"));
   const allMedia = $derived(selTracks.length > 0 && selTracks.every(t => familyOf(t) === "media"));
+  const allCamera = $derived(selTracks.length > 0 && selTracks.every(t => t.preset === "camera"));
+  const flySuggestions = $derived.by(() => {
+    const values = new Map<string, number>(), deck = $deckOverlay;
+    if (!allCamera || !deck || !selTracks.some(t => t.to?.path === "fly")) return values;
+    const plan = compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => $plotManifests[id] });
+    for (const track of selTracks) {
+      if (!track.id || track.to?.path !== "fly") continue;
+      const bi = plan.resolvedSlide.beats.findIndex(b => b.tracks.some(t => t.id === track.id));
+      const resolved = plan.resolvedSlide.beats[bi]?.tracks.find(t => t.id === track.id);
+      const from = plan.sample(bi, resolved?.start ?? 0).camera ?? { x: deck.stage.width / 2, y: deck.stage.height / 2, zoom: 1 };
+      const to = { x: track.to.x ?? from.x, y: track.to.y ?? from.y, zoom: track.to.zoom ?? from.zoom };
+      values.set(track.id, Math.max(1, Math.round(1000 * flyDuration(from, to, deck.stage))));
+    }
+    return values;
+  });
+  const flySuggestion = $derived(curTrack?.id ? flySuggestions.get(curTrack.id) : undefined);
+  function cameraPath(path: CameraPath) {
+    withSelectedTracks(t => {
+      if (t.preset !== "camera") return;
+      if (path === "fly") t.to = { ...t.to, path };
+      else if (t.to) delete t.to.path;
+    });
+  }
+  function applyFlyDuration() {
+    const suggestions = flySuggestions;
+    commitDeckLive(d => {
+      for (const [id, duration] of suggestions) setTrack(d, slide.id, id, { duration });
+    });
+  }
   const groupLabel = $derived.by(() => {
     if (!curTrack?.groupId) return null;
     for (const b of slide.beats) {
@@ -545,6 +575,22 @@
     {/if}
 
     {@render overrideRow("preset")}
+    {#if allCamera}
+      <div class="f">
+        <span class="fl">Path</span>
+        <div class="seg" role="group" aria-label="Camera path">
+          <button class="sg" class:on={!mixed(t => t.to?.path ?? "pole") && curTrack.to?.path !== "fly"}
+            aria-pressed={!mixed(t => t.to?.path ?? "pole") && curTrack.to?.path !== "fly"} onclick={() => cameraPath("pole")}>Zoom</button>
+          <button class="sg" class:on={!mixed(t => t.to?.path ?? "pole") && curTrack.to?.path === "fly"}
+            aria-pressed={!mixed(t => t.to?.path ?? "pole") && curTrack.to?.path === "fly"} onclick={() => cameraPath("fly")}>Fly</button>
+        </div>
+      </div>
+      {#if flySuggestion !== undefined}
+        <button class="camera-duration" data-camera-duration={flySuggestion} onclick={applyFlyDuration}
+          title="Apply the suggested Fly duration to the selected camera tracks">suggested {flySuggestion} ms <span>Apply</span></button>
+      {/if}
+    {/if}
+
     <div class="start-row">
       {#if anchored}
         <div class="anchor-description">{#if sameAnchor}after {anchorTrack ? anchorName(anchorTrack) : "missing effect"} {rawTrack!.anchor!.edge} {mixed(t => t.anchor?.offsetMs ?? 0) ? "+ mixed offset" : `${(rawTrack!.anchor!.offsetMs ?? 0) < 0 ? "−" : "+"} ${Math.abs(rawTrack!.anchor!.offsetMs ?? 0)} ms`}{:else}Mixed timing anchors{/if}</div>
@@ -719,6 +765,9 @@
   }
   .hint, .note { color: var(--c-tx-muted); font-size: 11px; line-height: 1.5; }
   .note b { color: var(--c-tx-2); font-weight: 600; }
+  .camera-duration { display: flex; justify-content: space-between; align-items: center; min-height: 24px; padding: 3px 6px; font: 11px var(--font-mono); color: var(--c-tx-muted); background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: var(--cursor-cross-hover); }
+  .camera-duration span { font-family: var(--font-ui); color: var(--c-tx-2); }
+  .camera-duration:hover { border-color: var(--c-tx-muted); }
   .target-warning { color: var(--c-warning); font-size: 11px; line-height: 1.5; }
 
   .hd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 20px; }

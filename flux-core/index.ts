@@ -107,6 +107,7 @@ export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from 
 export { becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
 export { autoAnimateExcept } from "../src/lib/slide/autobuild";
 export { compileSlide, type CompiledSlide, type CompileOptions } from "../src/lib/slide/compile";
+export { sampleCamera, flyDuration, type CameraPose, type CameraPath } from "../src/lib/slide/camera";
 export {
   loadDeck,
   saveDeck,

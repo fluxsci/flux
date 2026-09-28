@@ -162,6 +162,7 @@ The established shared cores — extend these, don't duplicate them:
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; shell easing-token census) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar and catalog) | `src/lib/slide/curves.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots) |
+| Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -2460,6 +2461,17 @@ on each target architecture before release. PDF snip/text native dependencies re
 outside this PNG packaging change.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
+
+- **T7 retired: camera poses and transform strings must share one geometric path.**
+  Linear interpolation of centre/zoom and of translate/scale disagree between endpoints.
+  Both readers now use `slide/camera.ts`: pole/log zoom by default for every deck,
+  optional `to.path: "fly"` for van Wijk–Nuij. The player builds 24 uniform transform
+  keyframes, rebuilding all of them from live FROM before play and restoring their
+  compiled FROM before random seek. Replacing only frame zero breaks the path.
+  `flyDuration` is natural S in seconds; the UI converts to ms and uses `setTrack`.
+  Gate `verify-slide-camera` pins the old 23.58 px disagreement and new sub-0.5 px
+  compiler/player agreement. M2 supplies unclamped easing/segment extrapolation;
+  retain the camera's M2 hook until the integration replaces `ct.ease(raw)` with `.fn`.
 
 - **Resolve animation styles and anchors before reading tracks.** Pass `animStyles` to
   `compileSlide`/`evaluateSlideState`; the player binds `compiled.cues`, and
@@ -7966,3 +7978,13 @@ Become GUI 20 and autobuild 34 checks pass; old UI/old helper and deliberately r
 arguments fail, both type checks are 0/0, docs/path-map/build pass, and changes remain uncommitted.
 **Learnings:** Promoted the shared helper and inspector/geometry contracts to §4. Verification
 server polling worked around the host's exhausted file-watcher quota without product changes.
+
+### 2026-09-28 03:33 UTC — Geometric camera paths (Codex, av2/M5)
+**Work:** Added the shared Zoom/pole and Fly sampler, 24-frame camera preset, live-FROM
+rebasing and deterministic seek restoration. Added the Path toggle and undoable suggested
+Fly duration, additive schema validation and release note; 207 camera checks, all 54 pure
+slide gates, the 15-gate transform group, both scale fixtures and both type checks passed.
+The old readers fail 132 camera checks; the old UI and schema fail their new assertions.
+**Learnings:** Promoted T7's retirement into §9. Camera rebasing must invalidate cached
+segment samplers and release their native bindings; replacing frame zero alone is insufficient.
+M2 still owns unclamped easing and segment extrapolation at the explicitly marked seam.

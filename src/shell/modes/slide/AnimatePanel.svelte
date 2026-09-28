@@ -241,6 +241,7 @@
     if (idx > 0) activeBeat.set(idx);
   }
   function addCameraMove(kind: "zoom" | "reset") {
+    // The geometric Zoom path is the default; keep `to.path` absent on disk.
     const d0 = deck;
     if (!d0 || !slide) return;
     const st = d0.stage;

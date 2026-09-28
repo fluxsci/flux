@@ -294,9 +294,21 @@ existing transform somewhere else.
 Preview sizes, spacing and names are adjustable, and **Pin open** keeps the gallery in a
 separate window for repeated insertion onto the active slide.
 
+### Camera: Zoom vs Fly
+
 **Zoom** adds a camera move toward the selected object; **Reset** pulls back to the full slide.
 When plot parts are drilled, **Zoom** frames their combined outline instead of the whole plot.
 After-step editing uses the same camera mapping, so selection, dragging, and highlights stay aligned.
+
+Select a camera track in the Animator to choose **Path: Zoom | Fly**. **Zoom** is the default:
+the view expands or contracts about a fixed point, at a constant proportional zoom rate before
+easing. With no zoom change, it pans in a straight line. **Fly** pulls back for a long pan,
+travels, then moves in toward the destination. Its **suggested … ms** hint shows a duration
+based on the distance and zoom change; click **Apply** to use it. You can still edit duration
+and easing yourself.
+
+Release note: existing zooming camera tracks now use the geometric Zoom path. Their mid-flight
+frames change; their start and end views are identical. There is no legacy-path switch.
 
 ### Data-space transforms
 

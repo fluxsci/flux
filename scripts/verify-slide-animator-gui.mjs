@@ -461,6 +461,48 @@ try {
   const { verifyDestinations } = await import("./lib/animatorDestinationChecks.mjs");
   await verifyDestinations(page, ok);
 
+  // Camera authoring uses the actual Zoom action, path toggle and duration op.
+  await page.evaluate(() => window.__flux.fig.selectOnly("anim-rect"));
+  await page.click('.animator button[title="Camera: zoom in to the selected element"]');
+  const cameraId = await page.evaluate(() => {
+    const f = window.__flux, s = f.get(f.slide.deckOverlay).slides.find(s => s.id === f.get(f.fig.activeFigureId));
+    const t = s.beats.at(-1).tracks.find(t => t.preset === "camera");
+    f.slide.selTrackIds.set([t.id]);
+    return t.id;
+  });
+  const cameraTrack = () => page.evaluate(id => {
+    const f = window.__flux;
+    return f.get(f.slide.deckOverlay).slides.flatMap(s => s.beats.flatMap(b => b.tracks)).find(t => t.id === id);
+  }, cameraId);
+  const initialCamera = await cameraTrack();
+  ok(!Object.hasOwn(initialCamera.to, "path"), "new Zoom tracks store the default path as absence");
+  await waitFor(page, () => !!document.querySelector('[aria-label="Camera path"]'), null, { timeout: 3000, label: "camera path toggle" });
+  ok(await page.$eval('[aria-label="Camera path"] button:first-child', b => b.getAttribute("aria-pressed") === "true"), "camera Path defaults to Zoom");
+  await page.click('[aria-label="Camera path"] button:last-child');
+  await waitFor(page, () => !!document.querySelector('[data-camera-duration]'), null, { timeout: 3000, label: "Fly suggestion" });
+  ok((await cameraTrack()).to.path === "fly", "Path Fly writes to.path through the authoring transaction");
+  const suggestion = await page.$eval('[data-camera-duration]', b => Number(b.dataset.cameraDuration));
+  ok(Number.isInteger(suggestion) && suggestion > 0 && suggestion !== initialCamera.duration, "Fly displays a computed suggested duration in ms");
+  const expectedSuggestion = await page.evaluate(async id => {
+    const { flyDuration } = await import("/src/lib/slide/camera.ts");
+    const f = window.__flux, deck = f.slide.currentDeck();
+    const slide = deck.slides.find(s => s.id === f.get(f.fig.activeFigureId));
+    const track = slide.beats.flatMap(b => b.tracks).find(t => t.id === id);
+    return Math.round(1000 * flyDuration(slide.camera ?? { x: deck.stage.width / 2, y: deck.stage.height / 2, zoom: 1 }, track.to, deck.stage));
+  }, cameraId);
+  ok(suggestion === expectedSuggestion, "Fly hint matches the public geometric duration sampler");
+  await page.screenshot({ path: "test-results/slide-camera-fly.png" });
+  await page.click('[data-camera-duration]');
+  await waitFor(page, ms => Number(document.querySelector('.props input[data-fld="d"]')?.value) === ms, suggestion, { timeout: 3000, label: "suggested duration applied" });
+  ok((await cameraTrack()).duration === suggestion, "Apply suggestion sets the real track duration");
+  await page.keyboard.down("Control"); await page.keyboard.press("KeyZ"); await page.keyboard.up("Control");
+  await waitFor(page, ms => Number(document.querySelector('.props input[data-fld="d"]')?.value) === ms, initialCamera.duration, { timeout: 3000, label: "duration undo" });
+  ok((await cameraTrack()).to.path === "fly", "duration applies as one Undo, preserving Fly");
+  await page.click('[aria-label="Camera path"] button:first-child');
+  await waitFor(page, () => !document.querySelector('[data-camera-duration]'), null, { timeout: 3000, label: "Zoom hides Fly suggestion" });
+  const resetCamera = await cameraTrack();
+  ok(!Object.hasOwn(resetCamera.to, "path") && resetCamera.to.x === initialCamera.to.x && resetCamera.to.zoom === initialCamera.to.zoom, "Zoom deletes path and preserves the endpoint");
+
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

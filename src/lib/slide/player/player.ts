@@ -108,9 +108,8 @@ interface Spec {
    *  nodes (fade acts on the part's <g>, drawOn drills to its path). */
   key: string;
   prep?: () => void;
-  /** A `camera` track: its FROM keyframe must be re-read from the live layer at
-   *  PLAY time (not this build time) so chained moves start from the current pose. */
-  camera?: boolean;
+  /** Rebuild all camera frames from live FROM at play time, or restore on seek. */
+  refreshCamera?: (transform?: string) => boolean;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
   /** Time-easing sampler for a morph (honours the track's influence/easing). */
@@ -262,12 +261,9 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots);
       if (!nodes.length) continue;
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
-      const nodeAnims = preset(nodes, track, ctx);
-      if (track.preset === "camera") {
-        const previous = compiled.sample(bi - 1).camera;
-        const cameraSlide = { ...slide, camera: previous };
-        for (const na of nodeAnims) na.keyframes[0] = { transform: baseCameraTransform(cameraSlide, stage) || "translate(0px, 0px) scale(1)" };
-      }
+      const nodeAnims = preset(nodes, track, track.preset === "camera" ? {
+        ...ctx, cameraFrom: compiled.sample(bi, ct.start).camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 },
+      } : ctx);
       const n = nodes.length;
       const perMs = track.stagger?.perMs ?? 0;
       const from = track.stagger?.from ?? "start";
@@ -284,7 +280,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           enter: na.enter,
           key,
           prep: na.prep,
-          camera: track.preset === "camera",
+          refreshCamera: na.refreshCamera,
           trackId: track.id,
           preset: track.preset,
         });
@@ -647,6 +643,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     bi = Math.max(0, Math.min(beats() - 1, to));
     selectRun(from, bi);
+    // Camera keyframes remain ordinary transform flights. Rebase once before
+    // binding, never during sampling; later moves start at the preceding end.
+    let cameraFrom = cameraLayer.style.transform, cameraChanged = false;
+    for (const spec of (runSpecs ?? specs).filter(s => s.refreshCamera && s.beatIndex === bi).sort((a, b) => a.delay - b.delay)) {
+      cameraChanged = spec.refreshCamera!(cameraFrom) || cameraChanged;
+      cameraFrom = String(spec.keyframes.at(-1)!.transform);
+    }
+    if (cameraChanged) { disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); }
     duration = Math.max(0, ...durations.slice(from, bi + 1));
     time = 0;
     playing = true;
@@ -663,6 +667,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     bi = Math.max(0, Math.min(beats() - 1, beat));
     const from = Math.max(0, Math.min(bi, fromBeat));
     selectRun(from, bi);
+    let cameraChanged = false;
+    for (const spec of specs) if (spec.refreshCamera) cameraChanged = spec.refreshCamera() || cameraChanged;
+    if (cameraChanged) { disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); }
     duration = Math.max(0, ...durations.slice(from, bi + 1)); time = Math.max(0, Math.min(duration, ms));
     if (sampleMedia) media?.seek(bi, ms, from);
     paint(); emit("change");

@@ -15,12 +15,14 @@ import type { Track, DeckTheme, StageSize } from "../types";
 import { PRESET_CATALOG, isEnterPreset, isExitPreset } from "../presetCatalog";
 import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
+import { sampleCamera, type CameraPose } from "../camera";
 
 export type TargetNode = HTMLElement | SVGElement;
 
 export interface PresetCtx {
   theme: DeckTheme;
   stage: StageSize;
+  cameraFrom?: CameraPose;
 }
 
 /** One node's animation within a track. `enter` marks an intro (the node is
@@ -33,6 +35,8 @@ export interface NodeAnim {
   index: number;
   enter: boolean;
   prep?: () => void;
+  /** Rebuild camera frames at play start; no argument restores the compiled FROM. */
+  refreshCamera?: (transform?: string) => boolean;
 }
 
 export type Preset = (nodes: TargetNode[], track: Track, ctx: PresetCtx) => NodeAnim[];
@@ -334,17 +338,31 @@ export const PRESETS: Record<string, Preset> = {
 
   // --- the stage camera (target = the camera layer) ------------------------
   camera: (nodes, t, ctx) => {
-    const zoom = num(t.to?.zoom, 1);
-    const cx = num(t.to?.x, ctx.stage.width / 2);
-    const cy = num(t.to?.y, ctx.stage.height / 2);
-    const { x: tx, y: ty } = editorCameraTransform({ x: cx, y: cy, zoom }, ctx.stage);
-    return each(nodes, (node, index) => ({
-      node, index, enter: false,
-      keyframes: [
-        { transform: (node as HTMLElement).style.transform || "translate(0,0) scale(1)" },
-        { transform: `translate(${tx}px, ${ty}px) scale(${zoom})` },
-      ],
-    }));
+    const poseOf = (transform = ""): CameraPose => {
+      const n = transform.match(/-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)?.map(Number);
+      const zoom = n?.[2] ?? 1;
+      return { x: (ctx.stage.width / 2 - (n?.[0] ?? 0)) / zoom, y: (ctx.stage.height / 2 - (n?.[1] ?? 0)) / zoom, zoom };
+    };
+    return each(nodes, (node, index) => {
+      const initial = ctx.cameraFrom ?? poseOf(node.style.transform);
+      const to = { x: num(t.to?.x, initial.x), y: num(t.to?.y, initial.y), zoom: num(t.to?.zoom, initial.zoom) };
+      const keyframes: Keyframe[] = Array.from({ length: 24 }, (_, i) => ({ offset: i / 23 }));
+      const pose = { ...initial };
+      let last: CameraPose | undefined;
+      const refreshCamera = (transform?: string) => {
+        const from = transform === undefined ? initial : poseOf(transform);
+        if (last && from.x === last.x && from.y === last.y && from.zoom === last.zoom) return false;
+        last = from;
+        for (let i = 0; i < keyframes.length; i++) {
+          sampleCamera(from, to, i / 23, ctx.stage, t.to?.path, pose);
+          const { x, y, zoom } = editorCameraTransform(pose, ctx.stage);
+          keyframes[i].transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+        }
+        return true;
+      };
+      refreshCamera();
+      return { node, index, enter: false, keyframes, refreshCamera };
+    });
   },
 
   // `stagger` = apply a child preset (default fadeRise) over the node set; the

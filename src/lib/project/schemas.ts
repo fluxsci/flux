@@ -520,7 +520,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
                         stagger: { type: "object" },
                         // 0.3.0: `to.state` carries a transform's sparse patch
-                        to: { type: "object" },
+                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
                         styleId: { type: "string" }, // 0.6: deck AnimStyle ref

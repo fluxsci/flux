@@ -136,6 +136,35 @@ channels, `clamped` to opacity/colour/trim/data/view/morph channels, and **raw p
 to every discrete visibility/reveal/endpoint decision. M1 adds the type only; schema,
 validators and authoring writes belong to M3. The curve UI and user docs belong to M4.
 
+### Camera paths (Animation v2 M5)
+
+`slide/camera.ts` exports the one `sampleCamera(a, b, u, stage, path, out?)` used by the
+compiler and player; `out` reuses a pose without allocations. A pose is a world centre
+`c = (x,y)` and positive zoom `z`. The screen transform is `T(p) = z·p + τ`, where
+`τ = (W/2,H/2) − c·z`. For the default `pole` path, `k = z1/z0`,
+`p* = (τ1 − k·τ0)/(1 − k)`, `z(u) = z0·k^u` and
+`τ(u) = p* + k^u·(τ0 − p*)`. The sampler evaluates the equivalent `expm1` form for
+numerical stability and recovers `c(u) = ((W/2,H/2) − τ(u))/z(u)`. With
+`|ln k| < 1e-4`, centres pan linearly. Endpoint poses are exact; eased `u` outside
+0–1 extrapolates geometrically, retaining positive zoom.
+
+`to.path: "fly"` opts into van Wijk–Nuij in `(centre, W/zoom)` space with ρ = √2.
+The near-zero-distance branch interpolates log width. `flyDuration` returns the
+nonnegative natural length S in seconds at unit speed; the Inspector displays
+`round(1000·S)` ms (at least 1 ms) and applies it through `setTrack`. Zoom writes no
+`path` field; explicit `"pole"` is also valid. The additive field needs no version bump.
+
+The player emits 24 uniformly spaced transform keyframes and applies the timing curve to
+time. It rebuilds all frames from the live camera at play start, then restores compiled
+FROM poses on random seek. Transform flight promotion/demotion is unchanged. M2 owns
+unclamped time easing and first/last-segment extrapolation; M5's compiler call retains
+the explicit M2 handoff comment until that integration. `verify-slide-camera` drives
+both the exported compiler and `createPlayer`, including chained/reverse seeks and the
+T7 fixture that differed by 23.58 px on the old code.
+
+Release note: the default path changes for every deck, including existing zooming tracks;
+mid-flight frames change while endpoints stay identical. No legacy switch is provided.
+
 ## 4. Rendering: morphing between kinds
 
 `lerpElement(pre, end, t)` for two different kinds (or a path whose closedness changes) returns a

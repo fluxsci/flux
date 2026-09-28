@@ -16,6 +16,7 @@ import { handoffTargetResolver, handoffTargetsOverlap } from "./handoffTargets";
 import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
+import { sampleCamera } from "./camera";
 export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
 
@@ -222,7 +223,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       }
       if (preset === "camera") {
         const from = camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 };
-        camera = { x: from.x + (Number(track.to?.x ?? from.x) - from.x) * t, y: from.y + (Number(track.to?.y ?? from.y) - from.y) * t, zoom: from.zoom + (Number(track.to?.zoom ?? from.zoom) - from.zoom) * t };
+        const to = { x: track.to?.x ?? from.x, y: track.to?.y ?? from.y, zoom: track.to?.zoom ?? from.zoom };
+        // M2: pass `ease.fn(raw)` here (overshoot allowed; zoom is geometric).
+        camera = sampleCamera(from, to, t, stage, track.to?.path, from);
         continue;
       }
       for (const [i, key] of targetsFor(ct).entries()) {

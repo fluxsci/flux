@@ -325,7 +325,8 @@
       "verify-plot-view.ts",
       "verify-slide-resolve.ts",
       "verify-slide-curves.ts",
-      "verify-slide-handoff-browser.ts"
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-camera.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -786,7 +787,8 @@
       "verify-slide-animator-gui.mjs",
       "verify-v020-paper-contracts.ts",
       "verify-v020-morph-startup.mjs",
-      "verify-slide-handoff-browser.ts"
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-camera.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -856,6 +858,22 @@
       "run": [
         "verify-slide-animator-gui.mjs",
         "verify-slide-authoring-gui.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/camera.ts",
+      "run": [
+        "verify-slide-camera.ts",
+        "verify-slide-animator-gui.mjs",
+        "verify-scale-slide.mjs",
+        "verify-scale-slide-dense.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:slide-clips"
       ]
     },
     {
@@ -7932,6 +7950,15 @@
       "coverage": "behavior"
     },
     "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-camera.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
