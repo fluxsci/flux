@@ -54,8 +54,10 @@ window.fluxModel3dPosterReady = (async () => {
       if (!Number.isInteger(index) || !payload.requests[index]) throw new Error("Invalid poster request index");
       const t0 = performance.now();
       core.render(payload.requests[index].spec);
+      if (gl.isContextLost()) throw new Error("3D poster context was lost");
       const t1 = performance.now();
       const png = canvas.toDataURL("image/png").slice("data:image/png;base64,".length);
+      if (gl.isContextLost()) throw new Error("3D poster context was lost during readback");
       return { png, metrics: { renderMs: t1 - t0, encodeMs: performance.now() - t1 } };
     },
     dispose() { core.dispose(); }
