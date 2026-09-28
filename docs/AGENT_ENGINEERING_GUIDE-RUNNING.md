@@ -144,7 +144,7 @@ The established shared cores — extend these, don't duplicate them:
 | Scene3d generator/consumer contract | `model3d/scene3d.ts`, `scene3d.schema.json`, Python scene3d manifest/writer | `verify-model3d-scene3d.ts` and public-library/oracle fixture receipts |
 | 3D camera, fields, shape weights and effective semantic parts | `model3d/viewOps.ts`, `semanticOps.ts`, `parts.ts` | `verify-model3d-{view-ops,semantics}.ts`, `verify-model3d-{orbit,xray}-gui.mjs` |
 | 3D file/live agent command policy | `model3d/commandOps.ts`, shared view/semantic ops and source-bound metadata readers | `verify-model3d-verbs.ts`, `verify-model3d-verbs-gui.mjs`, `verify-model3d-verbs-electron.cjs` |
-| Static 3D Figure/Paper composition | `model3d/static.ts` with explicit poster inputs; browser/Node IO adapters | `verify-model3d-{export,headless}`, `verify-paper-render-overrides.ts` |
+| Static 3D Figure/Paper composition | `model3d/static.ts` with explicit poster inputs; browser/Node IO adapters | `verify-model3d-headless.ts` (Paper/Node byte parity), `verify-model3d-export.mjs` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
@@ -364,65 +364,30 @@ Persistence invariants (all machine-checked — do not weaken):
   Reserved `__fluxplot__` controls travel only in FLUX_PARAMS, and successful reruns retain the
   freshly emitted provenance sidecar. Gates: `verify-fluxplot03.ts`,
   `verify-fluxplot-recipe-ipc.ts`, `verify-fluxplot03-gui.mjs`, plus source-sync and slide gates.
-- **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` by `spec` before
-  the 2D SVG reader: `fluxplot/scene3d` uses its own `0.1.0` schema and the byte-identical
-  generator fixtures in `scripts/fixtures/model3d/fluxplot/`. Unknown/invalid metadata
-  degrades to a plain mesh with a warning. Manifest checksums describe original GLB bytes;
-  asset checksums describe prepared bytes. Preparation never welds or reorders vertices.
-  Topology hashes use logical uint32 little-endian indices, independent of storage width.
-  Scientific missing values use finite float32 `_VALUE` and optional uint8 `_VALID` with
-  four-byte vertex stride; glTF floating accessors cannot contain NaN or infinity.
-  `fluxplot-library/` adds fixtures generated through the public Python API beside the
-  independent frozen contract oracle. Both are receipt-checked in the scene3d gate.
-  v1 accepts triangle meshes; point/line primitives fail with an actionable explanation.
-  Preparation strips skin bindings and warns that stored mesh geometry is shown: retaining
-  default joint transforms would invalidate the shared bounds. Bake skeletal poses first.
-  Shape weights are finite and stored unclamped; only UI controls use the 0–1 range.
-  Sequence Frame is derived from GLB target order, never persisted separately. Unknown
-  source target names warn and are excluded from import/Home defaults; explicit edits
-  validate all names before mutating. Effective series/field/axis containers use reserved
-  IDs and never rewrite the source sidecar.
-- **3D persistence remains metadata-only.** GLB bytes never enter `assetData`, image data URLs,
-  or text-generation journals. `figfiles.ts` writes canvas/index format 0.2 only for 3D content;
-  no-3D save bytes remain pinned to the pre-P1 receipt. `elementAssetRefs` separates images,
-  models, video media, sidecars and derived posters; collection must retain video and its poster.
-  `model3d/persistence.ts` localizes optional metadata failures to warnings without deleting raw
-  sidecars. Native copies preflight all sidecars strictly before publishing any asset; use the
-  authorized project root plus `sourcePrefix` (`fig`, `slides/<id>`), never an unauthorized
-  nested root. `verifiedCopy.cjs` keeps the original, publishes exclusively, verifies hashes,
-  retries Windows sharing races and rechecks ownership on every publication attempt.
-  Standalone saves capture owner/root/data before waiting in a serialized publication queue;
-  otherwise a delayed old native write can overwrite a newer successful save. Failed batches
-  do not poison the queue. Save As preserves stored GLB paths and refuses root adoption after
-  later edits; same-root saves leave later edits dirty. Editing never waits for the queue.
-  `source.sha256` records original source bytes; `Asset.sha256` always describes prepared bytes.
-  Metadata reopen uses `model3d/sourceBinding.ts` to gather every referring element's original
-  receipt before parsing sidecars. Conflicting receipts or a mismatched manifest checksum warn
-  and keep metadata inactive while preserving raw text; no receipt keeps legacy behavior.
-  Never compare a source manifest with the prepared asset checksum. Use the same binding-aware
-  metadata reader in GUI, read-only views, Node resolvers and native-copy preparation.
-  The canonical `scripts/gen-validators.mjs` owns project/scene3d validators and the standalone
-  native semantic bundle. Do not hand-edit its outputs. Deck 3D schema/conversion activation
-  and content-track source ownership remain deferred to P4 after animation-v2 integration.
-- **3D import has explicit native ownership.** Shared `model3d/importData.ts` prepares
-  data; `electron/model3dImport.cjs` owns bounded reads and exclusive native publication.
-  Generated `importData.native.gen.mjs` must ship and unpack beside the native helper.
-  The preload derives dropped paths from actual Chromium Files, never renderer path
-  strings. Each import receipt is window/root/generation-bound. Adoption and cancellation
-  are mutually exclusive: after cancellation begins, even partial cleanup failure must
-  never restore adoption. Retry cleanup instead. Saved or unreadable document ownership
-  prevents deletion. A valid-receipt adoption attempt consumes cleanup authority even
-  when a late project-generation check rejects it; synchronous placement may already
-  reference those files. The registered import gate and real native File probes pin this.
-- **3D source replacement is explicit and immutable.** `model3d/source.ts` owns the
-  pure update; `sourceBridge.ts` owns Figure status and captured-owner orchestration.
-  `source.sha256` is the original GLB receipt, distinct from the prepared asset hash.
-  Native idle stat-gated streaming hashes compare it and the raw source/stored manifest
-  bytes; watchers only publish status. Update appends a fresh asset, keeps old Undo files,
-  preserves view/look and surviving semantic IDs/states, and warns for changed bounds.
-  Linked GLB/JSON grants are exact read/watch capabilities, never recipe execution grants.
-  Recipe output dispatch is shared by Node and Electron; `outputs.glb` stays a path across
-  IPC and applies the same owner-checked update. See [source details](model3d/SOURCE.md).
+- **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
+  2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
+  `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
+  with a warning. Preparation never welds or reorders vertices (morph correspondence and
+  topology hashes depend on it), and shape weights are stored unclamped. v1 accepts triangle
+  meshes only. The contract itself lives in fluxplot's `docs/SCENE3D_CONTRACT.md`.
+- **3D persistence is metadata-only.** GLB bytes never enter `assetData`, data URLs or
+  journals. `figfiles.ts` stamps format 0.2 only when 3D content exists; no-3D save bytes are
+  pinned by `verify-figfiles-parity.ts`. `source.sha256` is the ORIGINAL file's receipt and
+  `Asset.sha256` the prepared bytes'; never compare a manifest with the prepared hash. Every
+  metadata read (GUI, read-only views, Node, native copy) goes through
+  `model3d/sourceBinding.ts`, which keeps a mismatched sidecar inactive but preserved.
+  Standalone saves capture owner/root/data before entering a serialized publication queue, so
+  a delayed older write cannot overwrite a newer save. Validators come only from
+  `scripts/gen-validators.mjs`. Decks refuse `model3d` until Stage 2.
+- **3D import has explicit native ownership.** `model3d/importData.ts` prepares;
+  `electron/model3dImport.cjs` owns bounded reads and exclusive publication. Import receipts
+  are window/root/generation-bound, and adoption and cancellation are mutually exclusive.
+  Dropped paths come from real Chromium Files, never renderer strings. See
+  [the import boundary](model3d/IMPORT.md).
+- **3D source replacement is explicit and immutable.** Watchers only publish **Source
+  changed**; **Update from source** appends a new asset in one Undo step and keeps the old
+  file. Linked-file grants are exact read/watch capabilities, never recipe execution grants.
+  See [linked sources](model3d/SOURCE.md).
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -543,61 +508,37 @@ Persistence invariants (all machine-checked — do not weaken):
   classifier has the same fallback; linked-source exact-file watches remain independent.
   Content-addressed `fig/renders/model3d/m3d-*.png` posters are an explicit subsystem-lease
   exception: every writer publishes a complete image atomically for the same view key.
-  They do not travel with git. Explicit read-only image requests may render into the
-  machine cache; connect/collect never renders or writes project posters. The dedicated
-  poster worker boots before editor/config initialization, owns scratch state, enforces a
-  resource allowlist plus exact script hashes, and awaits process exit before cleanup.
-  Its deadline/cancellation must include byte-provider reads, not only native rendering.
+  Read-only image requests render only into the machine cache; connect/collect never
+  renders or writes posters. Worker contract: [3D poster worker](model3d/POSTER_WORKER.md).
 
 ## 4. Renderer architecture notes
 
-- **3D rendering is lazy and shared.** `renderCore.ts` is hosted by the one-worker service
-  or the document-wide inline host. The editor imports neither three nor the worker eagerly.
-  Mesh pixels and pure vector furniture share orbit math; the notebook IIFE is built from
-  those same modules, with one canonical renderer version in `poster.ts`. Independently
-  embedded viewer bundles share a document context and scope model IDs by source. Destroying
-  an output releases its host even inside notebook shadow roots. Figure placements and
-  Project/Global gallery previews share one lazy, root-and-load-generation-owned service.
-  The scene contains decoded data-URL mesh posters plus explicit vector furniture, so zoom
-  proxy snapshots include the mesh; poster publication increments the scene revision.
-  Mounted placements retain assets, culled placements release them, and shared poster jobs
-  cancel when their last subscriber leaves. A matching physical cache remains usable with
-  WebGL disabled; an unmatched failed view uses a selectable named placeholder. List chips
-  validate bounded scene3d JSON without reading GLB; worker previews apply original-byte
-  checks and can downgrade rejected metadata. Figure import receipts are consumed on
-  synchronous placement; late/canceled destinations discard only their uncommitted receipt.
-  Standalone open/Save As registers a changed native root and GLB imports await registration;
-  same-root saves do not reset grants. Rootless Toolbar GLB import reopens the picker after
-  Save because native root adoption clears earlier approvals. Preserve project/figure/tenant
-  ownership across lazy module loads, registration and picker awaits.
-  **Orbit and control previews** use one ordinary edit session and an overlay with mesh
-  bitmap transfer plus keyed vector-furniture attribute updates. Escape restores the visit
-  baseline; Enter, handoff or leaving the model finishes. An intervening discrete edit ends
-  orbit instead of opening another checkpoint. Keep the scene visible until the first live
-  frame, then retain the final overlay until a decoded matching poster publishes. Suspend
-  static poster work and zoom proxies during active previews. Context interruption retains
-  the last frame; recovery requests the latest state. No resting frame loop is permitted.
-  `flux-model3d-frame` records host publication, not physical scanout; native input gates
-  separately observe paint frames and qualify window visibility and the actual GPU.
-  **Paper and export ownership** is explicit: immutable `ModelPosterSource` inputs share
-  one document service, with owner-counted retains including gallery previews. Never borrow
-  the active Figure store for a saved Paper figure. Cancel stale preview reloads and keep
-  the previous decoded image until its replacement is ready. Node poster policies are
-  `project` (materialization), `image` (machine cache only) and `collect` (cold, no worker or
-  cache writes). Validate actual GLB size/confinement at read time and cached PNG dimensions
-  and contents. Named fallback warnings must survive Connect image-cache hits.
-  **Pure colormap lookup** imports `color/colormaps.ts`; picker provenance metadata stays
-  in `color/collections.ts`. Their generated files come from one generator. This preserves
-  offline static rendering without pulling collection website URLs into the runtime.
-  **Figure PDF size** is normalized by lazy native `figurePdf.cjs` after Chromium printing:
-  exact MediaBox/CropBox and a top-edge-preserving translation, never content scaling.
-  Document printing bypasses this correction. `group:figure-pdf-size` pins vector positions,
-  raster pixels, fractional physical dimensions and packaged dependency closure.
-  Slide activation remains deferred until the animation-v2 rebase; see the active 3D ledger.
-  Current native/notebook qualification is summarized in [Native 3D acceptance](model3d/NATIVE_ACCEPTANCE.md)
-  and its dated receipts. Earlier session entries record the status at their own checkpoints;
-  an old "native unrun" note is not the current status. Keep functional, notebook and
-  performance results separate, and never round a raw failed frame budget into a pass.
+- **3D rendering is lazy and shared.** One WebGL2 `renderCore.ts` serves the per-window worker
+  service, the inline host, the notebook viewer and the native poster page, with one WebGL
+  context per document; the editor imports neither three nor the worker eagerly. Placements
+  draw decoded data-URL mesh posters plus vector furniture inside the scene SVG, so the zoom
+  proxy sees the mesh, and poster publication bumps the scene revision. Mounted placements
+  retain assets, culled ones release them. A matching cached poster works with WebGL
+  disabled; otherwise show the selectable named placeholder. There is no resting frame loop.
+  Preserve project/figure/tenant ownership across lazy loads, registration and picker awaits.
+  **Orbit and control previews** use one ordinary edit session: Escape restores the visit
+  baseline; Enter, handoff or leaving the model finishes; an intervening discrete edit ends
+  orbit. Keep the scene visible until the first live frame and the last overlay until a
+  matching decoded poster publishes; suspend static poster work and zoom proxies meanwhile.
+  `flux-model3d-frame` marks host publication, not physical scanout.
+  **Paper and export** take immutable `ModelPosterSource` inputs; never borrow the active
+  Figure store for a saved Paper figure. Node poster policies are `project`
+  (materialization), `image` (machine cache only) and `collect` (cold: no worker, no writes).
+  Rendering imports the pure `color/colormaps.ts` lookup, never the picker's
+  `color/collections.ts`, whose provenance URLs would leak into offline exports.
+  Contributor notes (not part of the user-docs site): `docs/model3d/` — `RUNTIME.md`,
+  `FIGURE_SCENE.md`, `IMPORT.md`, `SOURCE.md`, `SEMANTICS.md`, `POSTER_WORKER.md` and
+  `NATIVE_ACCEPTANCE.md` (how to run the native cohorts and what each proves).
+- **Figure PDF export sets the exact page size.** Chromium's print path rounds custom paper
+  sizes (a 600×450 px figure printed as 450×337.92 pt), so figure-only PDFs are normalized
+  afterwards by the lazily loaded `electron/figurePdf.cjs`: exact MediaBox/CropBox and a
+  top-edge-preserving translation, never content scaling. Document printing bypasses it.
+  Gate: `group:figure-pdf-size`.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
@@ -1737,13 +1678,15 @@ within budget. Update these measurements when the corresponding workflow is chan
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
 production qualification. Its historical display summaries stay rounded to 0.1 ms;
-qualification receipts also retain unrounded `rawTimings` arrays. S8 comparisons use
-only those raw arrays and reject older rounded-only receipts. Pass `--qualify --ozone=x11` for the qualified native
-variant: it preserves product throttling, requires a nonzero display and continuously
-visible/focused window, and retains raw focus observations if a phase fails. The
-measurement RAF loop remains part of this probe and must be disclosed separately
-from publication-driven native Orbit frame measurements. Use only disposable
-projects and scratch HOME/XDG; `verify-input-probe-policy.cjs` gates this distinction.
+qualification receipts also retain unrounded `rawTimings` arrays. Budget comparisons (the
+3D model-versus-image S8 cohort in `verify-model3d-s8.cjs`) use only those raw arrays and
+reject rounded-only receipts: rounding can turn a just-failing sample into a pass. Pass
+`--qualify --ozone=x11` for the qualified native variant: it preserves product throttling,
+requires a nonzero display and a continuously visible, focused window, and retains raw focus
+observations if a phase fails. The measurement RAF loop remains part of this probe and must
+be disclosed separately from publication-driven native Orbit frame measurements. Use only
+disposable projects and scratch HOME/XDG; `verify-input-probe-policy.cjs` gates this
+distinction.
 
 ## 7. The verification system (how you prove your work)
 
@@ -1875,7 +1818,9 @@ MCP resolves those inputs against its project default; CLI resolves them against
 Project tools receive an optional `project` override and require project.json before recovery.
 `core: true` exposes a verb in the compact default toolset; full tools and schema-validated
 `flux_verb` dispatch use the same registry. `flux_verbs` supplies the discoverable schemas. Both surfaces are
-generated. Then `REGEN_GOLDEN=1` the parity gate (tools/help goldens change — quote the diff),
+generated. Leave specialized verbs out of `core`: the compact `tools/list` has a fixed 20 KB
+budget (`verify-mcp-launcher.ts`, `verify-live-view.ts`; five 3D schemas pushed it to 23.9 KB),
+and `flux_verbs` + `flux_verb` keep them discoverable and callable. Then `REGEN_GOLDEN=1` the parity gate (tools/help goldens change — quote the diff),
 and run `verify-registry-parity` + `verify-f1-mcp` + `verify-w11-verbs`. Errors: throw the typed
 taxonomy (`flux-core/errors.ts`) — Locked→CLI exit 75, ExternalToolError carries exitCode+log,
 everything is `isError` on MCP. Free text or file-shaped non-root positionals require
@@ -1972,7 +1917,9 @@ from this guide): pages are `.qmd`, enumerated by `docs/_quarto.yml`'s sidebar; 
 (the index.qmd voice — plain language, UI things called by their UI names, no internal jargon);
 per-page frontmatter is `title` + `subtitle` ONLY (toc/numbering/theme are centralized in
 `_quarto.yml`); real relative links between pages; shortcuts **bold**, written Ctrl-style with
-the one macOS ⌘ note in index.qmd; per-page Troubleshooting sections; and **never restate
+the one macOS ⌘ note in index.qmd (chords too: **Shift+drag**, **Ctrl+wheel**); a heading
+that starts with a digit needs an explicit id (`# 3D models {#3d-models}`), because pandoc
+drops leading digits from generated ids and the gate strips anchors before checking links; per-page Troubleshooting sections; and **never restate
 gated reference content** — the CLI verb tables live in `resources/flux-context/CLI-REFERENCE.md`
 (registry-parity-gated), so user docs link there instead of copying. A new page = the file +
 a sidebar entry in `_quarto.yml` (the gate fails on orphans, broken links, frontmatter drift,
@@ -2009,9 +1956,7 @@ Run it through the hermetic runner; never validate a migration on real projects.
 - GPU devices can be hidden by an execution sandbox while available on the host. A
   software-only run is not a hardware pass: native 3D gates must report their actual WebGL
   renderer. Use authorized host execution with scratch HOME/XDG for hardware qualification;
-  `--ozone-platform=x11` is a real argv. The dedicated poster's headless path removes DISPLAY
-  and explicitly selects ANGLE SwiftShader, without `--disable-gpu`.
-
+  `--ozone-platform=x11` is a real argv (see the 3D traps below for the poster worker).
 - Tool output can lose its middle as well as its end. Keep the connect brief ≤10,000
   characters, with every section marker and the final sentinel; use `read_pack` chunks
   for the bundle and verify proof codes instead of assuming a long response arrived intact.
@@ -2103,6 +2048,8 @@ Run it through the hermetic runner; never validate a migration on real projects.
   binding. (This collided with a pan-quantizer variable and cost a 4× regression.)
 - Key memos on object **identity** (e.g. a rect object), not its fields — field-keying re-runs
   per frame under pan.
+- A `<details>` inside a control that rerenders mid-gesture must bind its `open` state, or
+  the rerender collapses it under the pointer (the 3D Shape sequence block did).
 
 **Derived model fields (figure families):** since 2026-08-04 a figure's `name` is DERIVED from
 family identity — every load runs `applyFamilyNumbers`, which rewrites `name` from
@@ -2136,6 +2083,14 @@ days (probe geometry like `width` instead).
   a best-of-N or larger overhead allowance must not silently replace that threshold.
   Keep machine/runtime evidence with failures before considering a separately reviewed
   change to a responsiveness budget.
+- **Exact SVG goldens do not establish visual quality.** A furniture layout passed its goldens
+  while a colorbar title overlapped its top tick; inspect the real expanded preview as well as
+  small contact sheets before accepting generated artwork.
+- Headless Chromium may defer a no-timeout `requestIdleCallback` until another frame. A gate
+  that waits for idle work must supply that frame deliberately, and say so in the gate.
+- Chokidar readiness for existing roots says nothing about a directory created later: `addDir`
+  fires before that subtree is scanned and attached. A test observer needs its own readiness
+  barrier on the new subtree before the first write into it (`verify-model3d-cache-watch.cjs`).
 
 **CI browsers and external tools:**
 
@@ -2875,54 +2830,34 @@ outside this PNG packaging change.
   `ColorPicker.svelte`; `verify-no-native-color-input.ts` (pure, structural) and
   `verify-color-field.mjs` (ui) gate it.
 
-### 3D model traps (Flux 3D T1–T39)
-
-These constraints also apply when extending the Figure implementation into Slides.
-Stage 1 gates cover Figure, Paper and notebook paths. Slide-specific gates named
-below become release requirements with Stage 2; their listing is not a claim that
-those paths are already implemented or verified.
+**3D models (Figure; T-numbers refer to the trap list in the 3D plan):**
 
 | # | Trap | Mitigation / gate |
 | --- | --- | --- |
-| T1 | Electron 43 `--disable-gpu` or headless ozone → **no WebGL** (M3) | `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader` in the workers and under `SOFTGPU`; poster fallback; `verify-model3d-electron` SOFTGPU run |
-| T2 | 16-context cap per page (M5) | one context per document; `stats().contexts ≤ 1` in the render and GUI gates; embeds dispose offscreen |
-| T3 | Reusing a canvas for a second renderer loses the context (M9) | one renderer per canvas lifetime; dispose + `forceContextLoss`; render gate |
-| T4 | SwiftShader is slow on big meshes (M8) | adaptive interactive resolution; `GLB_LIMITS`; `max_faces` in fluxplot |
-| T5 | glTF default material is metallic → black (M14) | Flux-owned materials, metalness 0; the render gate checks mean luminance |
-| T6 | trimesh GLBs have no normals (M13) | `computeVertexNormals` at load; the fluxplot writer emits normals |
-| T7 | `connect-src` blocks `fetch(data:/blob:)` in the app and in decks | `parse(ArrayBuffer)` only; textures stripped; LUTs in code; the deck browser gate records CSP violations = 0 |
-| T8 | The capture boot decodes every `payload.assets` value as an image | GLB lives only in `payload.models`; `verify-model3d-slide` |
-| T9 | The zoom proxy can't see WebGL, foreignObject or `blob:` | the scene holds data-URL posters + SVG only; `verify-model3d-gui` zoom-proxy pixels |
-| T10 | Resize preview mounts a second `ElementView` | no WebGL in `Element.svelte`, ever |
-| T11 | `compileStaticContent`/crossfade call `fillContent` 2–3× | model-live `contentPlan` classification; the tween gate asserts one view per element |
-| T12 | Silent kind coercions (glb → svg/png) | fixed at every site; round-trip assertions in `verify-model3d-persistence` |
-| T13 | Collectors keyed on `'assetId' in e` | `elementAssetRefs` everywhere; headless gate "never GLB-as-PNG" |
-| T14 | `assetData` is resident base64 and journals hold base64 | GLB never enters either; `verify-model3d-import` asserts `assetData` has no glb |
-| T15 | One-sided numeric lerp defaults to 0 | required orbit props; the constructor gate |
-| T16 | Azimuth via `lerpRot` → a full turn does nothing | linear unwrapped; tween gate |
-| T17 | `camera` / `@camera` / `view` names are taken | `orbit*` prefix |
-| T18 | Worker-only deps discovered mid-run → Vite full reload | `optimizeDeps.include`; `verify-dev-prebundle` |
-| T19 | Connect diffs the project tree | read-only paths never write posters to the project; `verify-connect` with a 3D fixture |
-| T20 | GPU vs SwiftShader pixel differences (M11) | tolerance comparisons; engine-parity gates share one poster file |
-| T21 | Electron gates need `--ozone-platform=x11` argv (existing trap) | all electron gates; the poster-worker gate uses headless on purpose |
-| T22 | PDF static print runs with JavaScript disabled | posters mandatory; vector furniture; the export gate |
-| T23 | A native `<input type=color>` segfaults on Wayland | `ColorField.svelte` only |
-| T24 | Capture must be deterministic | synchronous render in `seek`; `preserveDrawingBuffer`; `readyMedia` awaits models; the video gate compares frame k with `seek(k)` |
-| T25 | `planFigSave` stamps versions unconditionally | conditional 0.2.0 stamping; the parity gate pins byte-identity without 3D |
-| T26 | `fig/renders/` is gitignored, so posters don't travel | by design (derived); the GUI and worker regenerate; documented in the user docs |
-| T27 | three.js ≥ r163 is WebGL2-only | availability = WebGL2 context creation |
-| T28 | A scene3d manifest reaching the 2D plot contract (same `.fluxplot.json` suffix) | dispatch on `spec` everywhere; `verify-model3d-scene3d` |
-| T29 | Furniture drifting from the WebGL projection | one `orbit.project`; ≤ 0.5 px parity in the browser gate |
-| T30 | Text measured at render time makes engines disagree | anchor-only layout; the furniture gate asserts no measurement calls; byte parity in `verify-paper-render-overrides` |
-| T31 | Notebook outputs ballooning with full-resolution GLBs | `preview_max_faces`; size warning; the save stays full resolution |
-| T32 | A notebook frontend that doesn't run scripts | a mixed HTML/PNG bundle supports no-script browsers; untrusted VS Code may suppress the entire bundle, so use `sc.show(static=True)` explicitly (N1) |
-| T33 | Transparent mesh parts sort wrongly | `depthWrite:false` for opacity < 1 and draw transparent parts last; documented limitation for interpenetrating transparent parts |
-| T34 | The hand-off player clones DOM nodes for raster pairs, and a cloned `<canvas>` carries no pixels | model3d supplies `renderCore.snapshot` bitmaps to the flight; the morph-browser gate asserts non-blank flights |
-| T35 | Welding, deduplicating, reordering or independently decimating vertices destroys morph correspondence | `prepareGlb` never touches vertex order; fluxplot drops only unreferenced vertices, and `share_topology_with` replays decimation; fingerprint gates on both sides |
-| T36 | A morph whose last frame isn't the destination's own render makes a visible pop at the handover | lerp bounds (`c`, `R`) with the orbit props; the morph-browser gate compares t = 1 against B's own render |
-| T37 | Up to 32 ghost copies × stage-sized canvases blow memory | backing stores only while born and visible; the morph-browser gate checks that hidden copies hold none |
-| T38 | Framing from base bounds lets an animated shape state leave the frame | `bounds` = union of base and each individual state at weight 1; combined/extrapolated weights may exceed this stable frame; registered `verify-model3d-core.ts` and `verify-model3d-glb.ts` + render gate |
-| T39 | Shape states multiply GLB size (24 B/vertex/state) | fluxplot size warning + `max_faces` replay across states; `GLB_LIMITS` still apply to the whole file |
+| T1 | Electron with `--disable-gpu` or headless ozone has no WebGL | the poster worker selects ANGLE SwiftShader explicitly and never passes `--disable-gpu`; `verify-model3d-electron.cjs` runs a `SOFTGPU` scenario |
+| T2, T3, T10 | Chromium caps live WebGL contexts per page, and reusing a canvas for a second renderer loses its context | one context per document and one renderer per canvas lifetime (`dispose` + `forceContextLoss`); `Element.svelte` never hosts WebGL, because resize previews mount a second view; `verify-model3d-gui.mjs` asserts the context count, `verify-model3d-render-browser.ts` loss and restore |
+| T7 | CSP `connect-src` blocks `fetch(data:/blob:)` | parse GLBs from an `ArrayBuffer` only; `verify-model3d-poster-worker.cjs` renders under `connect-src 'none'` |
+| T9 | The zoom proxy can't see WebGL, `foreignObject` or `blob:` | the scene holds data-URL posters and SVG only; `verify-model3d-gui.mjs` checks mesh pixels in the proxy |
+| T12–T14 | A GLB silently coerced to an image kind, collectors keyed on `'assetId' in e`, base64 GLBs in `assetData` or journals | `elementAssetRefs` everywhere, no GLB-as-PNG MIME fallback, GLB never in `assetData`; `verify-model3d-persistence.ts`, `verify-model3d-gui.mjs` |
+| T19 | Connect diffs the project tree | read-only paths never write posters; `verify-model3d-verbs.ts` runs Connect with unreadable GLBs and asserts no project or cache writes |
+| T20 | GPU and SwiftShader pixels differ | tolerance comparisons (worker/inline parity in `verify-model3d-render-browser.ts`); engine-parity checks share one poster file (`verify-model3d-headless.ts`) |
+| T22 | PDF printing runs with JavaScript disabled | posters are mandatory and furniture is vector; `verify-model3d-electron.cjs` checks the native PDF's vector labels and mesh pixels |
+| T25 | `planFigSave` stamps versions unconditionally | stamp 0.2 only with 3D content; `verify-figfiles-parity.ts` pins no-3D bytes, `verify-model3d-persistence.ts` the 3D stamps |
+| T28 | A scene3d manifest reaches the 2D plot reader (same `.fluxplot.json` suffix) | dispatch on `spec` everywhere; `verify-model3d-scene3d.ts` |
+| T29 | Furniture drifts from the WebGL projection | one `orbit.project`; ≤0.5 px marker agreement in `verify-model3d-render-browser.ts` |
+| T30 | Text measured at render time makes engines disagree | anchor-only layout; `verify-model3d-furniture.ts` asserts no DOM or text measurement, `verify-model3d-headless.ts` Paper/Node byte parity |
+| T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
+| T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
+
+- Names that come from user files (GLB nodes, shape targets) can be `constructor` or
+  `__proto__`: keep them in own-key/null-prototype maps and escape them reversibly before Zod
+  validation.
+- Trusted VS Code Jupyter/QMD outputs run scripts, but untrusted VS Code suppresses the whole
+  mixed HTML/PNG output instead of falling back to its PNG; docs must offer
+  `sc.show(static=True)`.
+- A destination preflight does not hold across later awaits. Generators that create a tree
+  (`scripts/create-model3d-demo.ts`) build in an owned staging directory and publish the
+  finished tree atomically after a final check.
 
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
@@ -2931,8 +2866,8 @@ those paths are already implemented or verified.
   modelling, 3D-anchored annotations, VR/AR and live PPTX 3D. Compose depth-related
   parts inside one fluxplot scene; separate Figure elements do not share a depth
   buffer. Different-topology meshes crossfade; no inferred correspondence is
-  attempted. Animation integration waits for the animation-v2 main merge and its
-  matching gates; a listed future gate is not evidence of completed support.
+  attempted. Slides/animation integration is Stage 2 of the 3D plan and waits for the
+  animation-v2 merge; until then decks refuse `model3d` elements.
 
 - **Agent registration:** automatic setup supports Claude Code and Codex. Other
   vendors receive the MCP spec and launcher instructions; automatic integration
