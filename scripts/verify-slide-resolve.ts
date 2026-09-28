@@ -7,9 +7,11 @@ import { spawnSync } from "node:child_process";
 import { harness } from "./lib/harness.mjs";
 import * as ops from "../src/lib/slide/ops";
 import { resolveTrack, resolveBeat, resolveStart, slideAnimStyles } from "../src/lib/slide/resolve";
-import { compileSlide, trackDuration } from "../src/lib/slide/compile";
+import { compileSlide } from "../src/lib/slide/compile";
 import { trackEndMs, beatEndMs } from "../src/shell/modes/slide/animator/shared";
 import { videoEventsForPlan } from "../src/lib/slide/mediaTimeline";
+import { staggerSpan } from "../src/lib/slide/stagger";
+import { resolveEasing } from "../src/lib/slide/easing";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import { validateDeckFile } from "../src/lib/project/validate";
 import type { Track, Beat } from "../src/lib/slide/types";
@@ -28,10 +30,36 @@ const inherited: Track = { id: "a", target: x, styleId: style.id };
 h.eq(resolveTrack(inherited, deck).duration, 300, "absent duration inherits");
 h.eq(resolveTrack({ ...inherited, duration: 80 }, deck).duration, 80, "present duration overrides the style");
 h.eq(resolveTrack({ ...inherited, start: 0 }, deck).start, 0, "zero is an explicit override");
-const suppressed = resolveTrack({ ...inherited, stagger: null, duration: null } as unknown as Track, deck);
-h.ok(!Object.hasOwn(suppressed, "stagger") && !Object.hasOwn(suppressed, "duration"), "explicit null suppresses and is deleted after merging");
-h.eq(trackDuration(suppressed), 320, "suppressed duration uses the preset default");
-h.eq(suppressed.styleId, style.id, "resolved tracks retain their link");
+// No explicit null on disk (orchestrator decision, F1 integration): an absent field inherits, and
+// "none though the style has one" is written with the sentinels the Animator already writes.
+const sentinelDeck = ops.createDeck({ id: "sentinel-styles", withTitleSlide: false });
+const eased = ops.addAnimStyle(sentinelDeck, { name: "Eased", family: "appearance", track: { preset: "writeOn", params: { direction: "rtl" }, influence: { in: 60, out: 40 }, stagger: { perMs: 25 }, easing: "enter" } }, "eased");
+const easedTrack: Track = { id: "e", target: x, preset: "writeOn", styleId: eased.id };
+h.eq(resolveTrack({ ...easedTrack, stagger: { perMs: 0 } }, sentinelDeck).stagger, { perMs: 0 }, "sentinel stagger {perMs:0} overrides the style's stagger");
+h.eq(staggerSpan(resolveTrack({ ...easedTrack, stagger: { perMs: 0 } }, sentinelDeck), 5), 0, "the stagger sentinel resolves to no stagger tail");
+const flat = resolveTrack({ ...easedTrack, influence: { in: 0, out: 0 } }, sentinelDeck);
+h.eq(flat.influence, { in: 0, out: 0 }, "sentinel influence {in:0,out:0} overrides the style's velocity profile");
+h.eq(resolveEasing(flat.easing, flat.influence), resolveEasing("enter"), "the influence sentinel resolves to the inherited easing token");
+h.eq(resolveTrack({ ...easedTrack, params: {} }, sentinelDeck).params, {}, "sentinel params {} overrides the style's params");
+h.eq(resolveTrack(easedTrack, sentinelDeck).influence, { in: 60, out: 40 }, "without a sentinel the style's profile is inherited");
+const nulls = resolveTrack({ ...easedTrack, stagger: null, influence: null, params: null, duration: null } as unknown as Track, sentinelDeck);
+h.ok(isDeepStrictEqual([nulls.stagger, nulls.influence, nulls.params], [{ perMs: 25 }, { in: 60, out: 40 }, { direction: "rtl" }]) && !Object.hasOwn(nulls, "duration"), "null is not an override: the field inherits (or stays absent)");
+const undefinedKey = resolveTrack({ ...easedTrack, influence: undefined }, sentinelDeck);
+h.eq(undefinedKey.influence, { in: 60, out: 40 }, "an undefined own key inherits, as it does after a JSON round trip");
+h.eq(resolveTrack(inherited, deck).styleId, style.id, "resolved tracks retain their link");
+{
+  const disk = ops.createDeck({ id: "sentinels", withTitleSlide: false });
+  const diskSlide = ops.addSlide(disk, { id: "s" });
+  const el = ops.addSlideText(disk, "s", { text: "t", x: 0, y: 0, width: 100, height: 30 })!;
+  const diskBeat = ops.addBeat(disk, "s", { id: "b" })!;
+  ops.addAnimStyle(disk, structuredClone({ name: "Eased", family: eased.family, track: eased.track }), "eased");
+  diskBeat.tracks = [{ id: "t1", target: el, preset: "writeOn", styleId: "eased", stagger: { perMs: 0 }, influence: { in: 0, out: 0 }, params: {} }];
+  h.eq(validateDeckFile(JSON.parse(JSON.stringify(disk))), [], "a linked track carrying all three sentinels validates as saved");
+  const withNull = JSON.parse(JSON.stringify(disk));
+  withNull.slides[0].beats[1].tracks[0].stagger = null;
+  h.ok(validateDeckFile(withNull).length > 0, "an explicit null on disk is refused by the deck schema");
+  h.eq(diskSlide.beats[1].tracks.length, 1, "sentinel fixture stays one track");
+}
 h.eq(resolveTrack({ target: x, styleId: "missing", duration: 12 }, deck), { target: x, styleId: "missing", duration: 12 }, "missing style resolves to the track alone");
 h.ok(core.resolveTrack === resolveTrack && core.resolveBeat === resolveBeat && core.resolveStart === resolveStart, "headless re-exports the exact pure resolver");
 

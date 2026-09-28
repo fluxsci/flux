@@ -10,12 +10,24 @@ export type ManifestFor = (target: string) => FluxPlotManifest | undefined;
 export interface TimingIssue { trackId?: string; target: string; reason: string }
 export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "stagger"] as const;
 
-/** A present own field wins, including null (explicitly suppress inheritance).
+/** Style fields under the track's own: a field PRESENT on the track wins, an
+ * absent one inherits. Present means a value: `undefined` and `null` are
+ * absent (JSON drops `undefined` and the deck schema refuses `null`, so memory
+ * and disk agree; there is no explicit-null override). "None though the style
+ * has one" is written with the sentinels the Animator already writes, which
+ * are ordinary present values: `stagger: { perMs: 0 }` (no stagger),
+ * `influence: { in: 0, out: 0 }` (no velocity profile; the easing token
+ * applies) and `params: {}` (no params).
  * The returned value is a read view; callers must never mutate its nested data. */
 export function resolveTrack(track: Track, deck: StyleContext): Track {
-  const style = deck.animStyles?.find(s => s.id === track.styleId);
-  const result = { ...style?.track, ...track };
-  for (const key of ANIM_STYLE_FIELDS) if (result[key] == null) delete result[key];
+  const style = track.styleId == null ? undefined : deck.animStyles?.find(s => s.id === track.styleId);
+  const result: Track = { ...track }, fields = result as unknown as Record<string, unknown>;
+  for (const key of ANIM_STYLE_FIELDS) {
+    if (fields[key] != null) continue;
+    const inherited = style?.track[key];
+    if (inherited == null) delete fields[key];
+    else fields[key] = inherited;
+  }
   return result;
 }
 

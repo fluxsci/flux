@@ -2406,9 +2406,11 @@ outside this PNG packaging change.
 - **Resolve animation styles and anchors before reading tracks.** Pass `animStyles` to
   `compileSlide`/`evaluateSlideState`; the player binds `compiled.cues`, and
   `compiled.resolvedSlide` includes disabled/dangling tracks for inspection. Pure authoring
-  readers use `resolveTrack`/`resolveBeat` with deck styles and target manifests. Resolve
-  authored tracks once: resolving a normalized explicit-null override against the style again
-  would reintroduce the suppressed field. Snapshot saves carry `slideAnimStyles`; cloned
+  readers use `resolveTrack`/`resolveBeat` with deck styles and target manifests. A field
+  present on the track overrides the style; `undefined`/`null` are absent and inherit (there is
+  no explicit-null override, and the schema refuses `null`). "None though the style has one" is a
+  sentinel the Animator already writes: `stagger: {perMs: 0}`, `influence: {in: 0, out: 0}`,
+  `params: {}`. Resolution is idempotent. Snapshot saves carry `slideAnimStyles`; cloned
   tracks remap timing anchors beside ghost IDs. `trackDuration` remains exported by compile
   but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
