@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {harness} from './lib/harness.mjs';
+import {model3dFixtures,cubePositions,cubeIndices} from './gen-model3d-fixtures.mjs';
+import {GlbError,GLB_LIMITS,parseGlb,inspectGlb,prepareGlb,writeGlb} from '../src/lib/model3d/glbCore.mjs';
+const h=harness('verify-model3d-glb'),fixtures=model3dFixtures();
+function rejects(bytes:Uint8Array,label:string){try{inspectGlb(bytes);h.fail(label);}catch(e){h.ok(e instanceof GlbError,label+' refuses as GlbError');}}
+for(const [name,bytes]of Object.entries(fixtures))assert.deepEqual(await readFile(new URL(`./fixtures/model3d/${name}`,import.meta.url)),Buffer.from(bytes),`fixture reproducibility ${name}`);h.ok(true,'all native fixtures reproduce byte-identically');
+const cube=fixtures['cube.glb'];h.eq(inspectGlb(cube).triangles,12,'cube triangles');h.eq(inspectGlb(cube).hasNormals,false,'missing normals accepted');h.eq(inspectGlb(fixtures['blob5k-colors.glb']).hasColors,true,'vertex colors detected');h.eq(inspectGlb(fixtures['quantized.glb']).bounds,{min:[-1,-1,-1],max:[1,1,1]},'normalized quantized bounds');
+for(const name of ['cube.glb','blob5k-colors.glb','two-part.glb','quantized.glb','textured.glb','states.glb','field-valid.glb']){const first=prepareGlb(fixtures[name]);assert.deepEqual(prepareGlb(first.bytes).bytes,first.bytes);h.ok(true,`${name} prepare idempotent`);}
+const textured=prepareGlb(fixtures['textured.glb']),tj=parseGlb(textured.bytes).json;h.ok(!tj.images&&!tj.textures&&!tj.samplers&&!tj.animations&&!tj.materials[0].pbrMetallicRoughness.baseColorTexture,'textures and animations stripped');h.ok(textured.info.warnings.includes('textures are ignored'),'texture stripping warns');
+const field=parseGlb(prepareGlb(fixtures['field-valid.glb']).bytes).json;h.ok('_VALUE'in field.meshes[0].primitives[0].attributes&&'_VALID'in field.meshes[0].primitives[0].attributes,'raw values and validity mask kept');h.eq(inspectGlb(fixtures['states.glb']).states,['inflated','offset'],'named states kept');h.eq(inspectGlb(fixtures['states.glb']).bounds,{min:[-1.5,-1.5,-1.5],max:[3,1.5,1.5]},'bounds cover base and each state');
+const part={positions:cubePositions,indices:cubeIndices,name:'cube'};
+const moved=writeGlb({parts:[{...part,matrix:[0,2,0,0,-3,0,0,0,0,0,4,0,10,20,30,1]}]});h.eq(inspectGlb(moved).bounds,{min:[7,18,26],max:[13,22,34]},'world matrix bounds');
+const multi=writeGlb({parts:[part,{...part,positions:cubePositions.map(v=>v*5)}],modify(j){j.scenes=[{nodes:[0]},{nodes:[1]}];j.scene=1;}});h.eq(inspectGlb(multi).bounds,{min:[-5,-5,-5],max:[5,5,5]},'only default scene contributes bounds');
+rejects(fixtures['draco-flag.glb'],'Draco');rejects(writeGlb({parts:[part],modify(j){j.extensionsUsed=['EXT_meshopt_compression'];}}),'meshopt');rejects(fixtures['gltf-json.gltf'],'plain glTF');rejects(writeGlb({parts:[part],modify(j){j.extensionsRequired=['UNKNOWN'];}}),'unknown required extension');
+for(const cut of [0,1,11,12,13,cube.length-1])rejects(cube.slice(0,cut),`truncation at ${cut}`);
+const badLength=cube.slice();new DataView(badLength.buffer).setUint32(12,0xfffffffc,true);rejects(badLength,'huge JSON chunk length');const extra=new Uint8Array(cube.length+4);extra.set(cube);rejects(extra,'trailing garbage');
+rejects(writeGlb({parts:[part],modify(j){j.accessors[0].count=Number.MAX_SAFE_INTEGER;}}),'huge accessor');rejects(writeGlb({parts:[part],modify(j){j.nodes[0].children=[0];}}),'cyclic hierarchy');rejects(writeGlb({parts:[part],modify(j){j.bufferViews[0].byteOffset=0xfffffff0;}}),'out of range buffer view');rejects(writeGlb({parts:[part],modify(_j,b){new DataView(b.buffer).setFloat32(0,NaN,true);}}),'NaN geometry');rejects(writeGlb({parts:[part],modify(j){j.meshes[0].primitives[0].attributes.POSITION=999;}}),'missing accessor');
+const bytes=new Uint8Array(GLB_LIMITS.maxBytes+1);rejects(bytes,'size limit before header read');
+const u16=inspectGlb(writeGlb({parts:[part]})),u32=inspectGlb(writeGlb({parts:[{...part,indexType:5125}]}));h.eq(u16.topology,u32.topology,'logical topology hash ignores index storage width');
+const reordered=inspectGlb(writeGlb({parts:[{...part,indices:[...cubeIndices].reverse()}]}));h.ok(u16.topology.key!==reordered.topology.key,'face order changes fingerprint');
+// A sparse replacement and interleaved POSITION are read in bounded scalar accesses.
+const sparse=writeGlb({parts:[part],modify(j){j.accessors[0].sparse={count:1,indices:{bufferView:1,byteOffset:0,componentType:5123},values:{bufferView:0,byteOffset:12}};}});h.ok(Number.isFinite(inspectGlb(sparse).bounds.max[0]),'valid sparse POSITION loads');
+const opposing=writeGlb({parts:[{name:'opposing',positions:[-2,0,0,2,0,0,0,1,0],indices:[0,1,2],states:{flip:[4,0,0,-4,0,0,0,0,0]}}]});h.eq(inspectGlb(opposing).bounds,{min:[-2,0,0],max:[2,1,0]},'shape bounds use correlated vertex sums, not independent extrema');
+const repeated=writeGlb({parts:[{positions:Array(3000).fill(0),mode:0}],modify(j){j.meshes[0].primitives[0].targets=Array.from({length:100000},()=>({POSITION:0}));}});rejects(repeated,'reused points and morph accessors bounded by aggregate work limit');
+await h.done();

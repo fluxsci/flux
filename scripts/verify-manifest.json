@@ -317,7 +317,12 @@
       "verify-no-retired-agent-layer.ts",
       "verify-connect-e2e.ts",
       "verify-agent-routing.ts",
-      "verify-background-run.ts"
+      "verify-background-run.ts",
+      "verify-model3d-glb.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-model3d-morph.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -828,10 +833,29 @@
       "verify-plot-gallery.mjs",
       "verify-caption-postscript.ts",
       "verify-figure-meta-refinements.mjs"
+    ],
+    "model3d": [
+      "verify-model3d-glb.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-model3d-morph.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "src/lib/model3d/**",
+      "run": [
+        "group:model3d"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/model3d/**",
+      "run": [
+        "group:model3d"
+      ]
+    },
     {
       "glob": "scripts/lib/retiredAgentScan.ts",
       "run": [
@@ -7661,6 +7685,51 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-glb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-core.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-scene3d.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-furniture.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-morph.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

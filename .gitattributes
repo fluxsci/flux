@@ -9,3 +9,6 @@
 # detects it as binary, but a signed archive silently corrupted by EOL conversion would be
 # a miserable thing to diagnose, so say it outright.
 *.xpi binary
+
+# Binary mesh fixtures and project assets
+*.glb binary
