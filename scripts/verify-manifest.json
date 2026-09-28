@@ -325,7 +325,8 @@
       "verify-model3d-morph.ts",
       "verify-model3d-render-browser.ts",
       "verify-model3d-persistence.ts",
-      "verify-model3d-import.ts"
+      "verify-model3d-import.ts",
+      "verify-model3d-semantics.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -849,7 +850,8 @@
       "verify-model3d-render-browser.ts",
       "verify-model3d-persistence.ts",
       "verify-model3d-import.ts",
-      "verify-model3d-gui.mjs"
+      "verify-model3d-gui.mjs",
+      "verify-model3d-semantics.ts"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -873,6 +875,13 @@
     "model3d-gui": [
       "verify-model3d-gui.mjs",
       "verify-lazy-load-gui.mjs"
+    ],
+    "model3d-semantics": [
+      "verify-model3d-semantics.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-xray-tree.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -7833,6 +7842,15 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-semantics.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

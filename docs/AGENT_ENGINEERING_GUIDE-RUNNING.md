@@ -7789,3 +7789,13 @@ review covers subscriber cancellation and same-root reload disposal. Final gate 
 source-review signoffs and screenshot paths are recorded in `notes/model3d-scene/PROGRESS.md`.
 **Learning:** A successful physical poster must remain the fallback when an editor-resolution
 render fails. Clear an older mismatched view only on final failure; keep it during preparation.
+
+### 2026-09-28 08:12 UTC — Flux 3D semantic mutation core (Codex, model3d-semantics)
+**Work:** Added pure field/shape/frame operations for shared Inspector, CLI and live
+commands. Field edits activate source colors while preserving explicit part fills.
+Equal ranges keep the same colormap-zero normalization as Python/source fields.
+Shape names and sequence order come from stored GLB metadata; frame is derived and
+custom combinations remain explicit. Registered semantics gate pins atomic refusal,
+prototype-safe field keys, resets, state bounds and sequence mapping. Root reviewed
+this first checkpoint before UI wiring. First headless invocation needed the standard
+slide-embed generator in the fresh worktree; generated output was not hand-edited.

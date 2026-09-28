@@ -16,6 +16,9 @@
 // here would re-introduce the GUI coupling this module exists to remove.
 // ---------------------------------------------------------------------------
 
+export { setModelField, setModelStates, setModelFrame, modelFrame } from './model3d/semanticOps';
+export type { ModelFieldPatch } from './model3d/semanticOps';
+
 import type {
   Project,
   Figure,

@@ -1,0 +1,9 @@
+# Flux 3D P3S semantics
+
+2026-09-28 08:10 UTC — author core, branch model3d-semantics fromdf8088f with reviewed token fix78a4603. P2EXIT authorized by root after integration3d215f8 gates324/324pure,11/11model3d, startup/check/headless/build. Own1452; rootorbit1451; coordinate1443 renderer.
+
+Early pure checkpoint: semanticOps.ts defines setModelField, setModelStates, setModelFrame and derived modelFrame; ops.ts re-exports. Field edits activate source colors, retain explicit part fills, support member/full resets and finite ordered including equal ranges. Equal ranges map colormap0 exactly like source/Python. Shape weights finite/clamped0..1, zero omitted, known GLB names only; batch validated before writes. Frame names checked against stored GLB order and never persisted; nonadjacent/unknown weights reportCustom. Registered verify-model3d-semantics PASS1/1 at08-10-36-167Z-2. Root independent review pending.
+
+Approved next: effective part index with reserved @series:/@axes: synthetic containers; preserve explicit source parents and source format. Batch render/furniture/poster loops pass prebuilt index, avoid quadratic rebuilds. Puretree/partstyle adapters, Model3dSemantics fields/Shape UI, Xray and narrow Inspector/Fmenu/keyboard part paths, renderer pixel and real UI tests. Root owns orbitSession/Overlay/basicInspector/viewOps/NumericProperty and live furniture DOM, shared-file merges mechanical. No StageB edits.
+
+08:12UTC checkpoint review: root approved pure core subject to inherited-key hardening; fields now use null-prototype record + own-key reads, tested constructor/__proto__. Manifest JSON Unicode churn removed. GatePASS1/1 at08-12-00-098Z-2. Headless first run lacked standard generated slide embed assets; running checked-in generator and retry, not a product error. This checkpoint is otherwise frozen for root consumer integration.
