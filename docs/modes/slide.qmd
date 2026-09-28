@@ -285,7 +285,8 @@ auto, by position, by order, by data, or tile; **Reveal** chooses flip or draw.
 **↔ Swap direction** reverses the hand-off, including plot parts, in one Undo.
 For whole loose objects, **Consume instead** asks for a second click before removing the
 destination. **Auto-animate the rest…** builds the destination plot's remaining parts after
-the hand-off. **Become an object…** picks a different destination for this effect.
+the hand-off; like the toast, it appears only for a hand-off to some of the plot's parts.
+**Become an object…** picks a different destination for this effect.
 
 With a whole plot as the source, **From gallery…** keeps its frame and changes its content
 to another project plot. **Data from gallery…** and **Keep own data** in the Animation

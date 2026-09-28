@@ -39,7 +39,7 @@
     editDestination, setEditDestination, editAfterBeat, registerSlideEditAdapter, slideCanvasPresentation,
   } from "../../../lib/slide/store";
   import { familyOf } from "../../../lib/slide/family";
-  import { hasPartBinding, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
+  import { hasPartBinding, isWholeElementRef, resolveTargetLeaves, sameRef, trackRef, PAIR_POLICIES } from "../../../lib/slide/targets";
   import { autoAnimateExcept } from "../../../lib/slide/autobuild";
   import { buildPartTree } from "../../../lib/plot/tree";
   import { partBreadcrumb } from "../../../lib/plot/partStyle";
@@ -1169,7 +1169,8 @@
       enterEndpointEdit([result.trackId], "t2"); inspectorTab = "animation";
       if (result.ref) {
         const plot = s.elements.find(e => e.id === dest.element), beatId = s.beats[pick.beatIndex].id, deckId = activeDeckId;
-        const canAuto = plot?.type === "plot" && !dest.group && !s.beats.some(b => b.tracks.some(t => t.target === plot.id && familyOf(t) === "appearance"));
+        // A whole-plot hand-off reveals every part already: nothing is left to build.
+        const canAuto = plot?.type === "plot" && !dest.group && !isWholeElementRef(dest) && !s.beats.some(b => b.tracks.some(t => t.target === plot.id && familyOf(t) === "appearance"));
         const leaves = compiled.resolveTarget(dest, pick.beatIndex).flatMap(t => t.partIds ?? (plot?.type === "plot" ? buildPartTree(get(plotManifests)[plot.assetId])?.targets ?? [] : []));
         pushToast("success", `‹${refLabel(source)}› hands off to ‹${refLabel(dest)}›`, {ttl: canAuto ? 10000 : 3500, ...(canAuto ? {action: {label: "Auto-animate the rest…", run: () => {
           if (activeDeckId !== deckId || $activeFigureId !== s.id) return;

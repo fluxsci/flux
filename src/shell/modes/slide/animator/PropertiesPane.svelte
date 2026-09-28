@@ -297,7 +297,8 @@
   $effect(() => { void handoff; consumeArmed = false; });
   const destinationEl = $derived(handoff ? slide.elements.find(e => e.id === handoff.ref.element) : undefined);
   const canConsume = $derived(!!handoff && !!curTrack && isWholeElementRef(handoff.ref) && isWholeElementRef(trackRef(curTrack)) && !!destinationEl && !destinationEl.groupId);
-  const canAutoAnimate = $derived(destinationEl?.type === "plot" && !handoff?.ref.group && !!$plotManifests[destinationEl.assetId] && !slide.beats.some(b => b.tracks.some(t => t.target === destinationEl.id && familyOf(t) === "appearance")));
+  // A whole-plot hand-off reveals every part already: nothing is left to build.
+  const canAutoAnimate = $derived(destinationEl?.type === "plot" && !!handoff && !handoff.ref.group && !isWholeElementRef(handoff.ref) && !!$plotManifests[destinationEl.assetId] && !slide.beats.some(b => b.tracks.some(t => t.target === destinationEl.id && familyOf(t) === "appearance")));
   function reverseHandoff(d: Deck, id: string) {
     const s = d.slides.find(s => s.id === slide.id)!;
     const b = s.beats.find(b => b.tracks.some(t => t.id === id))!;

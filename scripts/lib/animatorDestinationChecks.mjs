@@ -65,11 +65,16 @@ export async function verifyDestinations(page,ok) {
   await page.click('[aria-label="Undo"]');await paint(page);
   ok(JSON.stringify(await read(page))===styledBefore,'ONE undo restores the exact styled hand-off, followers and group');
   await page.click('[aria-label="Undo"]');await paint(page);await select(page,ids.tid);
+  ok(await page.$eval('.dest',e=>e.textContent.includes('Auto-animate the rest…')),'a part hand-off offers Auto-animate the rest…');
   await click(page,'.dest button','Auto-animate the rest…');
   s=await read(page);
   const built=s.beats.flatMap((b,i)=>b.tracks.filter(t=>t.generatedBy==='auto-reveal').map(t=>({t,i})));
   ok(built.length===2&&built.every(({t,i})=>i>1&&t.target==='d2-plot'&&['box.2','box.3'].includes(t.part)),'Auto-animate rest builds only boxes, after the landing step');
   ok(!await page.$eval('.dest',e=>e.textContent.includes('Auto-animate the rest…')),'rest action disappears once the plot has appearance tracks');
+  await page.click('[aria-label="Undo"]');await paint(page);
+  // A whole-plot hand-off already reveals every part: nothing is left to build.
+  await page.evaluate(()=>{const f=window.__flux;f.slide.commitDeckLive(d=>{const s=d.slides.find(s=>s.id===f.get(f.fig.activeFigureId));f.slideOps.becomeTransform(d,s.id,s.beats[1].id,'d2-path',{element:'d2-plot'},{mode:'handoff'});});});await paint(page);await select(page,ids.tid);
+  ok(JSON.stringify(track(await read(page)).to.become.ref)==='{"element":"d2-plot"}'&&!!await page.$('.dest')&&!await page.$eval('.dest',e=>e.textContent.includes('Auto-animate the rest…')),'a whole-plot hand-off offers no Auto-animate the rest…');
   await page.click('[aria-label="Undo"]');await paint(page);
   // Whole-object hand-off → the inline, two-click consume path.
   await page.evaluate(()=>{const f=window.__flux;f.slide.commitDeckLive(d=>{const s=d.slides.find(s=>s.id===f.get(f.fig.activeFigureId));f.slideOps.becomeTransform(d,s.id,s.beats[1].id,'d2-path',{element:'d2-ellipse'},{mode:'handoff'});});});await paint(page);await select(page,ids.tid);

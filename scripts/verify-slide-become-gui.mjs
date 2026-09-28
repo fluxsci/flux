@@ -152,9 +152,11 @@ try{
   await page.screenshot({path:'test-results/slide-become-two-spines.png'});
   await page.keyboard.press('Enter');await paint();state=await read();
   check(JSON.stringify(handoff(state)?.to.become.ref)==='{"element":"bh-plot","parts":["axis.x.spine","axis.y.spine"]}','Enter commits one hand-off ref containing both spines');
+  check(await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].reverse().find(el=>el.textContent.includes('hands off to')&&el.textContent.toLowerCase().includes('x axis spine + 1'));return !!toast&&[...toast.querySelectorAll('button')].some(b=>b.textContent.includes('Auto-animate the rest'));}),'a part hand-off toast offers Auto-animate the rest…');
   const pairBytes=JSON.stringify(state.slide);
   await seed();await openTransform('Become…');await clickObject('bh-plot');state=await read();
   check(JSON.stringify(handoff(state)?.to.become.ref)==='{"element":"bh-plot"}'&&state.slide.elements.some(e=>e.id==='bh-plot'),'plain plot click hands off to the whole plot and retains it');
+  check(await page.evaluate(()=>{const toast=[...document.querySelectorAll('.toast')].reverse().find(el=>/hands off to ‹Plot 1›/.test(el.textContent));return !!toast&&![...toast.querySelectorAll('button')].some(el=>el.textContent.includes('Auto-animate the rest'));}),'a whole-plot hand-off toast offers no Auto-animate the rest… (nothing is left to build)');
   await seed();await pickPart('peaches.box');await openTransform('Become…');await clickObject('bh-rect');state=await read();
   check(handoff(state)?.target==='bh-plot'&&JSON.stringify(handoff(state)?.parts??[handoff(state)?.part])==='["peaches.box"]'&&handoff(state)?.to.become.ref.element==='bh-rect','a drilled box is the source of a part-level hand-off to a rect');
   await clickText('.props .dacts button','Become an object…');await clickObject('bh-rect2');state=await read();
