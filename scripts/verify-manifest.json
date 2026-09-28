@@ -848,6 +848,34 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "scripts/lib/animatorCurveChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs"
+      ]
+    },
+    {
+      "glob": "{src/shell/modes/slide/animator/CurveField.svelte,src/shell/modes/slide/animator/BeatRail.svelte,src/shell/modes/slide/animator/trackActions.ts,src/shell/modes/slide/animator/cascadeTracks.ts,src/lib/cascade.ts,src/lib/CascadePopover.svelte}",
+      "run": [
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-no-retired-agent-layer.ts",
+        "group:slide-transforms",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-cascade-gui.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs",
+        "verify-scale-slide.mjs",
+        "verify-scale-slide-dense.mjs"
+      ]
+    },
+    {
       "glob": "scripts/lib/animatorDestinationChecks.mjs",
       "run": [
         "verify-slide-animator-gui.mjs"
@@ -1608,7 +1636,13 @@
         "verify-correspondence.ts",
         "verify-v020-morph-cache.ts",
         "verify-v020-morph-startup.mjs",
-        "verify-no-retired-agent-layer.ts"
+        "verify-no-retired-agent-layer.ts",
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-cascade.ts",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs"
       ]
     },
     {

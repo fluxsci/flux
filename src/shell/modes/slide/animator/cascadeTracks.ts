@@ -32,7 +32,7 @@ export const trackCascadeAdapter: TrackCascadeAdapter = {
     const s = d && slideById(d, sess.sid);
     const all = s?.beats.flatMap((b) => b.tracks).filter((t) => t.id && sess.ids.includes(t.id)).map(t => resolveTrack(t, d!)) ?? [];
     const applies = Object.fromEntries(
-      TRACK_CASCADE_PROPS.map((p) => [p, all.filter(t => (p === "start" || familyOf(t) !== "media") && (p !== "stagger.perMs" || t.stagger)).length]),
+      TRACK_CASCADE_PROPS.map((p) => [p, all.filter(t => (p === "start" || familyOf(t) !== "media") && (p !== "stagger.perMs" || t.stagger) && (p !== "curve.bounce" || t.curve?.kind === "spring")).length]),
     ) as Record<TrackCascadeProp, number>;
     return { total: all.length, applies };
   },

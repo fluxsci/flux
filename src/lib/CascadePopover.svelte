@@ -66,6 +66,7 @@
     duration: "Duration (ms)",
     "influence.in": "Ease-in influence (%)",
     "influence.out": "Ease-out influence (%)",
+    "curve.bounce": "Spring bounce",
     "stagger.perMs": "Stagger per-item (ms)",
   };
   const STEP: Partial<Record<string, number>> = {
@@ -78,6 +79,7 @@
     "stagger.perMs": 25,
     "influence.in": 5,
     "influence.out": 5,
+    "curve.bounce": 0.05,
   };
 
   // Non-reactive session box (guide §9: $: blocks must not read+reassign the

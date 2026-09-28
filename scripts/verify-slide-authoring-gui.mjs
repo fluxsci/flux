@@ -110,6 +110,8 @@ try{
   await verifyTimingAnchors(page,check);
   const {verifyResolvedReaders}=await import('./lib/animatorReaderChecks.mjs');
   await verifyResolvedReaders(page,check);
+  const {verifyCopyTiming}=await import('./lib/animatorCurveChecks.mjs');
+  await verifyCopyTiming(page,check);
   check(realErrors(page).length===0,'console remains clean: '+realErrors(page).join('; '));
   await page.screenshot({path:'test-results/slide-authoring-overhaul.png',fullPage:true});
   console.log(`##VERIFY## ${JSON.stringify({name:'slide-authoring-gui',passed,failed:0})}`);

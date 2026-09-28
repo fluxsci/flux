@@ -94,13 +94,54 @@ The **Animation** inspector edits the selected effects' target, part, effect, st
 easing, stagger, and relevant specialized controls. Mixed timing values are blank until you set
 one shared value. Choose a new target or part to repair a missing binding. An issue banner identifies
 missing targets, unmatched parts, unsupported effects, or conflicting overlapping effects; click an
-issue to inspect its track. Custom influence is under **Custom easing**; selecting a named easing
-returns control to that curve. **Library** holds reusable presets and multi-track templates.
+issue to inspect its track. The **Easing** field shows the timing curve and opens its editor.
+**Library** holds reusable presets and multi-track templates.
 
 Keyboard commands belong to the focused surface. In the animation dock or inspector, **Delete**
 removes effects, arrows navigate steps/lanes, **Alt+left/right** retimes starts, and
 **Alt+Shift+left/right** adjusts durations. On the canvas, Delete removes objects and arrows move
 them. Inputs retain normal text editing; **Ctrl/Cmd+Z** undoes one edit or gesture.
+
+## Easing and springs
+
+Select an effect and click **Easing**, or press **E** while the Animator has focus.
+The field shows the curve, when the motion first arrives at 90% of its travel, and when it
+settles. A faint curve inside each timeline bar shows the same timing; springs also have an
+arrival tick.
+
+![The Easing field shows arrival and settle times.](../images/animation-curve-field.png)
+
+Choose a tile from **Ease**, **Overshoot**, **Spring**, or **Discrete**. Hover a tile for one
+preview pass; reduced motion keeps that preview still. Focus a group and press **1–9** to
+choose within it. **Bouncy** is a spring with overshoot and a settling tail. Adjust
+**Bounce** to change its character and **Velocity** to change its starting speed.
+
+![Bouncy, its spring graph, and the spacing chart.](../images/animation-curve-spring.png)
+
+**Keep arrival** starts checked. It adjusts each selected effect's duration to preserve its
+arrival time as you change the curve, within 150–4000 ms. A 600 ms Smooth move becomes about
+1418 ms with Bouncy: the motion arrives at the same time and the bar grows to hold the settling
+tail. Turn Keep arrival off to keep the bar's duration instead. A follower anchored to the bar's
+end waits until settling finishes.
+
+The graph's handles edit a custom bezier. Arrow keys move a focused handle by 0.01;
+**Shift+arrow** moves it by 0.1. The numeric fields let you enter exact values. Existing
+influence curves keep their handles horizontal; dragging vertically converts them to a free
+bezier. The spacing chart shows 13 positions at equal times: close dots mean slower motion.
+
+**Ctrl+V** in the editor accepts names such as `bouncy`, or strings such as
+`spring(0.35, v=2)`, `cubic-bezier(.2,1.4,.4,1)` and `steps(8)`. **Copy** copies the current curve.
+Invalid text shows an error without changing the effect. Different selected curves show
+**Mixed**; choosing a curve applies to all selected effects as one edit. **Enter**, **Done**,
+or clicking outside commits; **Esc** restores the opening curve and duration.
+
+**Data never overshoots.** Box movement and camera motion can spring past their destinations;
+data values, count-up text, plot views, opacity and reveals stay within their valid range.
+**PowerPoint uses Morph's own ease**; Flux's curve is retained in Flux playback and HTML exports.
+
+Right-click a timeline bar and choose **Copy timing**, then select other effects and choose
+**Paste timing**. This copies duration, curve and stagger together as one undoable edit.
+It leaves their targets, start times and linked style identities in place.
 
 ## Animation styles
 
@@ -369,7 +410,8 @@ changed properties and inheriting earlier limits. `--reset` restores the generat
 
 Select several tracks and press **Ctrl+Shift+C**: the same [cascade](figure.qmd#cascade)
 popover, over animation — stagger **start**, **duration**, **per-item stagger**, or easing
-**influence** in even steps across the selection. Five drawOns starting 120 ms apart is one
+**influence** or **Spring bounce** in even steps across the selection. Spring bounce skips
+non-spring effects, which do not consume a step. Five drawOns starting 120 ms apart is one
 gesture, not arithmetic.
 
 # Presenting

@@ -116,11 +116,11 @@ export async function verifyLinkedStyles(page, ok) {
   ok(template.slots[0].track.duration===1200&&template.slots[0].track.start===200,'saved template slots capture resolved linked timing');await page.click('.animlib .x');
   // Off is an explicit override; reset returns to inheritance (including params).
   await page.evaluate(tid=>{const f=window.__flux;f.slide.commitDeckLive(d=>f.slideOps.setAnimStyle(d,'f2-style',{track:{preset:'writeOn',stagger:{perMs:45},influence:{in:50,out:60},params:{direction:'rtl'}}}));f.slide.selTrackIds.set([tid]);},tids[1]);await paint(page);
-  await field(page,'.props [data-fld="g"]',0);await page.click('.props .advanced summary');await clickText(page,'.props .ichip','ease');
+  await field(page,'.props [data-fld="g"]',0);await page.click('.props [data-fld="e"]');await page.click('.curve-popover [data-curve="linear"]');await page.keyboard.press('Enter');
   await page.evaluate(()=>{const s=[...document.querySelectorAll('.props select')].find(s=>[...s.options].some(o=>o.value==='rtl'));s.value='ltr';s.dispatchEvent(new Event('change',{bubbles:true}));});await paint(page);state=await read(page);
-  let t=state.tracks.find(t=>t.id===tids[1]);ok(t.stagger?.perMs===0&&t.influence?.in===0&&t.influence?.out===0&&JSON.stringify(t.params)==='{}','off edits write stagger/influence/params sentinels on linked tracks');
-  for(const key of ['stagger','influence','params'])await page.click(`[aria-label="Use style ${key}"]`);await paint(page);state=await read(page);t=state.tracks.find(t=>t.id===tids[1]);
-  ok(['stagger','influence','params'].every(k=>!Object.hasOwn(t,k))&&Number(await page.$eval('.props [data-fld="g"]',e=>e.value))===45,'use style removes sentinel overrides and the inherited controls return');
+  let t=state.tracks.find(t=>t.id===tids[1]);ok(t.stagger?.perMs===0&&t.easing==='linear'&&!t.influence&&!t.curve&&JSON.stringify(t.params)==='{}','off edits write stagger/params sentinels and an explicit linear timing override on linked tracks');
+  for(const key of ['stagger','curve','params'])await page.click(`[aria-label="Use style ${key}"]`);await paint(page);state=await read(page);t=state.tracks.find(t=>t.id===tids[1]);
+  ok(['stagger','curve','influence','easing','params'].every(k=>!Object.hasOwn(t,k))&&Number(await page.$eval('.props [data-fld="g"]',e=>e.value))===45,'use style removes sentinel overrides and the inherited controls return');
   // Keep 40 linked lanes live while the real style field changes.
   await page.evaluate(target=>{const f=window.__flux,sid=f.get(f.fig.activeFigureId);f.slide.commitDeckLive(d=>{const b=f.slideOps.slideById(d,sid).beats[f.get(f.slide.activeBeat)];for(let i=0;i<39;i++){const t=f.slideOps.appendAnimation(d,sid,b.id,{target,preset:'fade'});f.slideOps.linkTrackStyle(d,sid,t.id,'f2-style');}});},targets[1]);await paint(page);
   await styleAction(page,'Edit style…');

@@ -29,7 +29,7 @@ export const ELEMENT_CASCADE_PROPS = [
 ] as const;
 export type ElementCascadeProp = (typeof ELEMENT_CASCADE_PROPS)[number];
 
-export const TRACK_CASCADE_PROPS = ["start", "duration", "influence.in", "influence.out", "stagger.perMs"] as const;
+export const TRACK_CASCADE_PROPS = ["start", "duration", "influence.in", "influence.out", "curve.bounce", "stagger.perMs"] as const;
 export type TrackCascadeProp = (typeof TRACK_CASCADE_PROPS)[number];
 
 export type CascadeMode = "add" | "mul";
@@ -222,6 +222,8 @@ export function clampTrackValue(prop: TrackCascadeProp, v: number): number {
     case "influence.in":
     case "influence.out":
       return Math.min(100, Math.max(0, v));
+    case "curve.bounce":
+      return Math.min(0.8, Math.max(-0.5, v));
   }
 }
 

@@ -510,6 +510,9 @@ try {
   await page.keyboard.press("Escape");
   await waitForGone(page, ".fluxFigMenu");
 
+  const { verifyCurveSurface } = await import("./lib/animatorCurveChecks.mjs");
+  await verifyCurveSurface(page, ok);
+
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

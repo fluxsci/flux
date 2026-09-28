@@ -161,7 +161,7 @@ The established shared cores — extend these, don't duplicate them:
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
 | Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
-| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists |
+| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts`, `verify-slide-easing.ts` (legacy snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists; `animator/CurveField.svelte` is the UI consumer, covered by `verify-slide-animator-gui.mjs`, authoring/cascade GUI and both surface gates |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
@@ -890,6 +890,19 @@ Persistence invariants (all machine-checked — do not weaken):
   the player's out-of-range camera frames call the preset's exact `transformAt(u)`
   rather than extrapolating its 24 keyframes. `staggerDelay` owns delays in
   playback, compilation and span calculation; no second per-item formula belongs there.
+  `Track.curve` is an optional tagged bezier/spring/steps record in the 0.6.0 schema,
+  shared by ordinary tracks, ghost births and animation styles. Grammar inputs clamp;
+  disk validation refuses invalid shapes/ranges. Authoring uses `setTrackCurve` or
+  the timing patch ops, which clear competing easing/influence fields. Player channel
+  plumbing remains M2's independent packet.
+  `animator/CurveField.svelte` edits that one timing field: catalog/graph/clipboard
+  previews share an owned edit session, with keep-arrival duration changes in the same
+  checkpoint. A nested `mutate` lets `commitDeckLive` join the field's checkpoint;
+  a standalone `commit` would start a new undo entry for every input. Escape restores
+  curve, duration and prior redo state. The rail reuses its bounded 24-sample path cache;
+  only a hovered tile schedules a finite preview, respecting reduced motion.
+  Copy/Paste timing materializes duration, curve and stagger, without linking styles.
+  The cascade's `curve.bounce` property ranks only resolved spring tracks.
   Legacy move/scale/rotate remain
   appearance-family compatibility effects, excluded from the editable preset list.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
@@ -8183,3 +8196,13 @@ stagger tail (flux-core supplies `manifestFor`). Checked by hand through the CLI
 so a curve-only track plays the family default. The Animator's easing `<select>` and
 influence fields assign fields directly and leave an own `curve` in place; route them through
 `setTrackCurve` when CurveField replaces them (M4), before curves become audible.
+
+### 2026-09-28 04:37 UTC — Animation v2 easing UI (Codex, `av2/M4`)
+**Work:** Added CurveField catalog/graph/spacing controls, keep-arrival timing, clipboard grammar,
+owned preview/cancel history, cached rail sparklines, spring-bounce cascade and timing copy/paste.
+Extended the real Animator, authoring, cascade and surface gates; captured the user-doc screenshots.
+Updated the ghost-selection gate's retired easing-select assertion to require the curve button.
+**Learnings:** Curve edits must nest the deck operation inside the owned mutation to preserve
+one Undo and cancellation's prior redo state. Idle animation probes wait for autosave's dirty
+indicator transition before their 500 ms census; otherwise a finite save transition is mistaken
+for resting motion. Both contracts are now covered by the Animator gate.

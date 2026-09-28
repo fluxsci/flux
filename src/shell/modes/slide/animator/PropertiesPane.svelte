@@ -19,14 +19,16 @@
   import { flyDuration, type CameraPath } from "../../../../lib/slide/camera";
   import { hasTweenableSeries } from "../../../../lib/plot/project";
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
-  import type { Slide, Track, PresetName, Stagger, Influence, Deck, BecomeSpec } from "../../../../lib/slide/types";
-  import { PRESET_COLOR, EDIT_PRESETS, EASINGS, INFLUENCE_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
-  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation } from "../../../../lib/slide/ops";
+  import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
+  import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
+  import { clearTransformContent, linkTrackStyle, styleFromTrack, setAnimStyle, setTrackCurve, setTrack, setTrackAnchor, becomeTransform, removeTracks, setAnimation } from "../../../../lib/slide/ops";
   import { trackRef, targetPartIds, sameRef, isWholeElementRef, PAIR_POLICIES } from "../../../../lib/slide/targets";
   import { targetOutlines } from "../../../../lib/slide/targetGeometry";
   import { autoAnimateExcept } from "../../../../lib/slide/autobuild";
   import { buildPartTree, resolveTargets } from "../../../../lib/plot/tree";
   import { withSelectedTracks, deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled } from "./trackActions";
+  import CurveField, { type CurveEdit } from "./CurveField.svelte";
+  import { resolveCurve } from "../../../../lib/slide/curves";
   import { openTrackCascade } from "./cascadeTracks";
   import { makeAnimPreset } from "../../../../lib/slide/animTemplates";
   import { saveAnimPreset } from "../../../../lib/slide/animPresets";
@@ -217,7 +219,7 @@
   const anyMixed = $derived(
     selTracks.length > 1 &&
       (mixed((t) => t.preset) || mixed((t) => trackDuration(t)) || mixed((t) => t.start ?? 0) ||
-        mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => t.easing ?? "standard")),
+        mixed((t) => t.stagger?.perMs ?? 0) || mixed((t) => resolveCurve(t, familyOf(t)).key)),
   );
 
   const patchTrack = (p: Partial<Track>) => {
@@ -240,18 +242,25 @@
       t.stagger = { perMs: resolved.stagger?.perMs ?? 40, ...resolved.stagger, ...p } as Stagger;
     });
   }
-  function setInfluence(p: Partial<Influence>) {
-    editFields((t, resolved) => {
-      const next = { in: 0, out: 0, ...resolved.influence, ...p } as Influence;
-      if (next.in <= 0 && next.out <= 0) t.influence = t.styleId ? { in: 0, out: 0 } : undefined;
-      else t.influence = { in: Math.max(0, Math.min(100, next.in)), out: Math.max(0, Math.min(100, next.out)) };
+  function changeCurve(value: CurveEdit, keepArrival: boolean) {
+    const patch = typeof value === "object" && "influence" in value ? { influence: value.influence } : { curve: value };
+    const next = resolveCurve("influence" in patch ? { influence: patch.influence } : typeof patch.curve === "string" ? { easing: patch.curve } : { curve: patch.curve });
+    const durationFor = (t: Track) => Math.max(150, Math.min(4000, trackDuration(t) * resolveCurve(t, familyOf(t)).arrival / next.arrival));
+    if (editingStyle && curTrack) {
+      const id = editingStyle.id, duration = durationFor(curTrack);
+      const stylePatch: Partial<Track> = typeof value === "string" ? { easing: value } : "influence" in value ? { influence: value.influence } : { curve: value };
+      commitDeckLive(d => setAnimStyle(d, id, { track: { ...stylePatch, ...(keepArrival ? { duration } : {}) } }));
+    } else withSelectedTracks((t, resolved, d, sid) => {
+      if (!t.id || familyOf(t) === "media") return;
+      const duration = durationFor(resolved);
+      if ("influence" in patch) setTrack(d, sid, t.id, patch);
+      else setTrackCurve(d, sid, t.id, patch.curve);
+      if (keepArrival) setTrack(d, sid, t.id, { duration });
     });
   }
-  function applyInfluencePreset(p: { in: number; out: number }) {
-    editFields((t) => { t.influence = p.in <= 0 && p.out <= 0 && !t.styleId ? undefined : { in: p.in, out: p.out }; });
+  function resetCurve() {
+    withSelectedTracks((t, _resolved, d, sid) => { if (t.id) setTrackCurve(d, sid, t.id, null); });
   }
-  const inflActive = (p: { in: number; out: number }) =>
-    !!curTrack && (curTrack.influence ? curTrack.influence.in === p.in && curTrack.influence.out === p.out : p.in === 0 && p.out === 0);
 
   // t1|t2 segment (single transform selection): drives the endpoint checkout
   const epActive = $derived.by(() => {
@@ -701,26 +710,12 @@
       </div>
     {/if}
     {#if isTrim || isWipe}{@render overrideRow("params")}{/if}
-    {#if !anyMedia}<label class="f">easing<kbd class="kc" title="shortcut: e">e</kbd>
-      <select data-fld="e" value={curTrack.easing ?? (curFamily === "transform" ? "smooth" : "standard")} onchange={(e) => patchTrack({ easing: e.currentTarget.value as Track["easing"], influence: undefined })}>
-        {#each EASINGS as ee (ee)}<option value={ee}>{ee}</option>{/each}
-      </select>
-    </label>
-    {@render overrideRow("easing")}
-    <details class="advanced"><summary>Custom easing {curTrack.influence ? "· active" : ""}</summary>
-    <div class="f infl" title="Velocity profile. When active, this replaces the named easing above.">
-      <span class="fl">influence</span>
-      <span class="unit">
-        <input data-fld="o" type="number" min="0" max="100" step="5" value={curTrack.influence?.out ?? 0} onchange={(e) => setInfluence({ out: +e.currentTarget.value })} /><small>out<kbd class="kc" title="shortcut: o">o</kbd></small>
-        <input type="number" min="0" max="100" step="5" value={curTrack.influence?.in ?? 0} onchange={(e) => setInfluence({ in: +e.currentTarget.value })} /><small>in</small>
-      </span>
-      <span class="ipresets">
-        {#each INFLUENCE_PRESETS as p (p.name)}
-          <button class="ichip" class:on={inflActive(p)} title={`out ${p.out} · in ${p.in}`} onclick={() => applyInfluencePreset(p)}>{p.name}</button>
-        {/each}
-      </span>
-    </div>
-    </details>{@render overrideRow("influence")}{/if}
+    {#if !anyMedia}
+      <CurveField tracks={editingStyle ? [curTrack] : selTracks} contextKey={`${slide.id}:${$selTrackIds.join(",")}:${editingStyleId ?? ""}`} onChange={changeCurve} />
+      {#if ["easing", "influence", "curve"].some(k => overridden(k as StyleField))}
+        <div class="override-row" data-override="curve"><span class="mx">override</span><button aria-label="Use style curve" onclick={resetCurve}>↺ use style</button></div>
+      {/if}
+    {/if}
 
     {#if selTracks.length === 1 && !anyMedia}
       {#if savingPreset}
@@ -810,21 +805,18 @@
   .f select { max-width: 175px; min-width: 90px; }
   .f input { width: 56px; }
   .f input[data-fld="t"], .f input[data-fld="d"], .f input[data-fld="g"] { width: 68px; }
-  .infl { flex-wrap: wrap; }
-  .infl input { width: 46px; }
 
   /* buttons: square, hairline, flat; toggled = accent tint + accent border */
-  .pick-morph, .dirb, .ichip, .mini, .psave button, .saveas, .del, .dclear, .dx, .sg, .sg2, .pb {
+  .pick-morph, .dirb, .mini, .psave button, .saveas, .del, .dclear, .dx, .sg, .sg2, .pb {
     font: 12px var(--font-ui); line-height: 1; color: var(--c-tx-2); background: transparent;
     border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); cursor: var(--cursor-cross-hover);
   }
   .pick-morph, .psave button, .saveas, .del { height: 24px; padding: 3px 8px; }
   .pick-morph { text-align: left; }
   .pick-morph:disabled { opacity: .5; cursor: var(--cursor-cross); }
-  .pick-morph:hover, .psave button:hover, .mini:hover, .dirb:hover, .ichip:hover, .pb:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
-  .dirb, .ichip { height: 20px; padding: 0 6px; font-size: 11px; }
-  .dirb.on, .ichip.on, .pb.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
-  .ipresets { display: flex; gap: 2px; flex-wrap: wrap; }
+  .pick-morph:hover, .psave button:hover, .mini:hover, .dirb:hover, .pb:hover { border-color: var(--c-tx-muted); color: var(--c-tx-hi); }
+  .dirb { height: 20px; padding: 0 6px; font-size: 11px; }
+  .dirb.on, .pb.on { background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
 
   /* joined segments: shared 1px borders, outer radius only */
   .seg, .seg2 { display: flex; gap: 0; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); overflow: hidden; }
@@ -866,8 +858,6 @@
     margin-left: 4px; border-radius: var(--r-ui); vertical-align: middle;
     font: 600 11px var(--font-mono); color: var(--c-accent); background: var(--c-accent-tint);
   }
-  .advanced { border-top: 1px solid var(--c-line); padding-top: 6px; }
-  .advanced summary { cursor: var(--cursor-cross-hover); color: var(--c-tx-2); margin-bottom: 6px; }
 
   .saveas { text-align: center; background: var(--c-accent-tint); border-color: var(--c-accent); color: var(--c-tx-hi); }
   .saveas:hover { border-color: var(--c-accent-bright); }

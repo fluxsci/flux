@@ -259,6 +259,29 @@ try {
   await page.keyboard.press("Escape");
   await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed" });
 
+  // M4: spring bounce is ranked only over applicable tracks.
+  const { seedCurves } = await import('./lib/animatorCurveChecks.mjs');
+  const springIds = await seedCurves(page);
+  await page.evaluate(ids => {
+    const f = window.__flux, sid = f.get(f.fig.activeFigureId);
+    f.slide.commitDeckLive(d => { for (const id of ids) f.slideOps.setTrackCurve(d, sid, id, { kind: 'spring', bounce: .2 }); });
+    f.slide.selTrackIds.set(ids); document.querySelector('.animator').focus();
+  }, springIds);
+  await chord(); await waitFor(page, () => !!document.querySelector('.cascade-pop'), null, { label: 'spring cascade open' });
+  const hasBounce = await page.evaluate(() => !!document.querySelector('.cascade-pop option[value="curve.bounce"]'));
+  assert(hasBounce, 'M4: cascade exposes Spring bounce');
+  if (hasBounce) {
+    await page.select('.cascade-pop select.prop', 'curve.bounce');
+    await page.click('.cascade-pop .chk.ff input');
+    await setNum('.cascade-pop input.delta', .1);
+    await page.keyboard.press('Enter'); await waitForFrame(page);
+    const values = await page.evaluate(ids => {
+      const f = window.__flux, s = f.slide.currentDeck().slides.find(s => s.id === f.get(f.fig.activeFigureId));
+      return ids.map(id => s.beats[1].tracks.find(t => t.id === id).curve.bounce);
+    }, springIds);
+    assert(values.every((v, i) => Math.abs(v - (.2 + i * .1)) < 1e-8), `M4: three spring tracks cascade bounce .2/.3/.4 (${values})`);
+  } else await page.keyboard.press('Escape');
+
   const errs = realErrors(page);
   assert(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

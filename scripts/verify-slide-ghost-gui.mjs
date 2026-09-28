@@ -94,7 +94,7 @@ try{
   check(state.tracks.length===4&&state.slide.beats.flatMap(b=>b.tracks).find(t=>t.id===state.tracks.at(-1)).preset==='fadeOut','mixed group replay retains three births and the original exit as the primary effect');
   check(!(await page.$('.props [aria-label="Animation target"]'))&&!(await page.$('.props [aria-label="Animation plot part"]'))&&!(await page.$('.props select[data-fld="p"]'))&&!!await page.$('.ghost-mixed-note'),'mixed ghost selection hides retarget, part and effect controls with an explanation');
   await page.$eval('.props input[data-fld="d"]',el=>{el.value='900';el.dispatchEvent(new Event('change',{bubbles:true}));});await paint();state=await read();
-  check(state.slide.beats.find(b=>b.id===disappearingStep.id).tracks.every(t=>t.duration===900)&&!!await page.$('.props select[data-fld="e"]'),'shared timing still updates every selected birth and exit, with easing available');
+  check(state.slide.beats.find(b=>b.id===disappearingStep.id).tracks.every(t=>t.duration===900)&&!!await page.$('.props button.curve-trigger[data-fld="e"]'),'shared timing still updates every selected birth and exit, with the curve editor available');
   await page.click('[aria-label="Undo"]');await paint();
   await page.evaluate(async()=>{const {withSelectedTracks}=await import('/src/shell/modes/slide/animator/trackActions.ts');withSelectedTracks(t=>{if(t.ghostFrom){t.target='ghost-source';t.preset='fade';t.part='invalid';t.selector={role:'point'};}t.duration=700;});});await paint();state=await read();
   const protectedTracks=state.slide.beats.find(b=>b.id===disappearingStep.id).tracks;

@@ -1408,7 +1408,7 @@ export function cascadeTracks(
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!resolveTrack(t, deck).stagger : true));
+  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!resolveTrack(t, deck).stagger : spec.property === "curve.bounce" ? resolveTrack(t, deck).curve?.kind === "spring" : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
@@ -1435,6 +1435,12 @@ export function cascadeTracks(
         inf[side] = clampTrackValue(spec.property, cascadeValue(inf[side], spec, step));
         // Both zero ⇒ no velocity profile at all (PropertiesPane parity).
         patchTimingCurve(t, { influence: !inf.in && !inf.out && !t.styleId ? null : inf });
+        break;
+      }
+      case "curve.bounce": {
+        if (b0.curve?.kind === "spring") setTrackCurve(deck, slideId, t.id!, {
+          ...b0.curve, bounce: clampTrackValue("curve.bounce", cascadeValue(b0.curve.bounce, spec, step)),
+        });
         break;
       }
       case "stagger.perMs": {

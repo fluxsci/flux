@@ -14,8 +14,10 @@
   import type { FluxPlotManifest } from "../../../../lib/plot/types";
   import { PRESET_COLOR, chipLabel, trackFanout, beatEndMs, snapMs, isDanglingTrack, trackKindLabel, minorTicks } from "./shared";
   import { hoverTrackId, timelinePxPerMs } from "./animatorState";
-  import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat } from "./trackActions";
+  import { deleteSelectedTracks, duplicateSelectedTracks, toggleSelectedDisabled, moveSelectedToBeat, copySelectedTiming, pasteSelectedTiming, canPasteTiming } from "./trackActions";
   import { openTrackCascade } from "./cascadeTracks";
+  import { resolveCurve } from "../../../../lib/slide/curves";
+  import { curvePath } from "./CurveField.svelte";
   import TimelineMenu, { type MenuItem } from "./TimelineMenu.svelte";
 
   let { slide, plotTags, manifestFor, onFocusDock, onPreviewFrom, onSeek, time = 0, playing = false }: {
@@ -108,6 +110,8 @@
     if(!$selTrackIds.includes(t.id))chooseTrack(t);
     menu={x:e.clientX,y:e.clientY,items:[
       {label:"Animate like…",action:animateLike},
+      {label:"Copy timing",action:copySelectedTiming,disabled:familyOf(t)==="media"},
+      {label:"Paste timing",action:pasteSelectedTiming,disabled:!canPasteTiming()||familyOf(t)==="media"},
       {label:"Duplicate effects",action:duplicateSelectedTracks},{label:"Enable / disable",action:toggleSelectedDisabled},
       {label:"Group effects",action:groupSelection},{label:"Ungroup effects",action:ungroupSelection},
       ...($selTrackIds.length>1?[{label:"Cascade timing…",action:openTrackCascade}]:[]),
@@ -409,6 +413,13 @@
             <div class="time-cell">
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div class="trk" class:tx class:sel={!!t.id&&highlightedIds.has(t.id)} style={`left:${drawStart(t)}px;width:${drawWidth(t)}px`} title={`${fmt(t.start??0)} → ${fmt((t.start??0)+trackDuration(t))} · drag to retime; vertical drag reorders; drag onto a step to move (Alt copies)`} onpointerdown={e=>down(e,t,"start")}>
+                {#if familyOf(t)!=="media"}
+                  {@const curve = resolveCurve(t, familyOf(t))}
+                  <svg class="curve-sparkline" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+                    <path d={curvePath(curve)} />
+                    {#if t.curve?.kind === "spring"}<path class="arrival-tick" d={`M${curve.arrival},0 V.25`} />{/if}
+                  </svg>
+                {/if}
                 {#if tail(t)>0}<span class="tail" style={`width:${tail(t)}px`}></span>{/if}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <span class="start-edge" title="Ctrl/⌘-drag to follow another effect’s start or end" onpointerdown={e=>down(e,t,"start",true)}></span>
@@ -554,6 +565,9 @@
     position: absolute; top: 6px; height: 18px; min-width: 6px; box-sizing: border-box; cursor: grab; user-select: none;
     border: 1px solid var(--pc); background: color-mix(in oklab, var(--pc) 22%, var(--c-bg)); border-radius: var(--r-0);
   }
+  .curve-sparkline { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; color: var(--pc); opacity: .55; }
+  .curve-sparkline path { fill: none; stroke: currentColor; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+  .curve-sparkline .arrival-tick { stroke-width: 1.5px; }
   .trk.sel { outline: 1px solid var(--c-tx-hi); outline-offset: 0; }
   .trk.tx { background: color-mix(in oklab, var(--pc) 12%, var(--c-bg)); }
   .bar-time { display: block; overflow: hidden; white-space: nowrap; padding: 0 5px; font: 10px/16px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c-tx); }

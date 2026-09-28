@@ -6,10 +6,11 @@ import { trackDuration } from "../../../../lib/slide/compile";
 import { get } from "svelte/store";
 import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../../lib/slide/store";
 import { activeFigureId, selection, partSelection } from "../../../../lib/store";
-import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks } from "../../../../lib/slide/ops";
-import type { Track } from "../../../../lib/slide/types";
+import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks, setTrack, setTrackCurve } from "../../../../lib/slide/ops";
+import type { Deck, Track } from "../../../../lib/slide/types";
 import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
+import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
 
 function ctx(): { sid: string; ids: string[] } | null {
   const sid = get(activeFigureId); // slide id === projected figure id
@@ -18,7 +19,7 @@ function ctx(): { sid: string; ids: string[] } | null {
 }
 
 /** Mutate EVERY selected track in one commit (bulk edit). */
-export function withSelectedTracks(fn: (t: Track, resolved: Track) => void, coalesce?: string): void {
+export function withSelectedTracks(fn: (t: Track, resolved: Track, deck: Deck, slideId: string) => void, coalesce?: string): void {
   const c = ctx();
   if (!c) return;
   commitDeckLive((d) => {
@@ -27,11 +28,37 @@ export function withSelectedTracks(fn: (t: Track, resolved: Track) => void, coal
       // A birth owns a result identity and must remain a whole-object Change.
       // Bulk property callbacks may share timing, never rewire that ownership.
       const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
-      fn(t, resolveTrack(t, d));
+      fn(t, resolveTrack(t, d), d, c.sid);
       if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
-      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
+      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; delete t.curve; }
     }
   }, coalesce ? { coalesce } : undefined);
+}
+
+type TimingCopy = Pick<Track, "duration" | "curve" | "easing" | "influence" | "stagger">;
+let copiedTiming: TimingCopy | null = null;
+export function canPasteTiming(): boolean { return copiedTiming !== null; }
+
+/** Copy the resolved HOW, so a paste does not depend on the source's style. */
+export function copySelectedTiming(): void {
+  const c = ctx(), d = get(deckOverlay);
+  const t = c && d && slideById(d, c.sid)?.beats.flatMap(b => b.tracks).find(t => t.id === c.ids.at(-1));
+  if (!t || !d || familyOf(t) === "media") return;
+  const r = resolveTrack(t, d);
+  copiedTiming = structuredClone({ duration: trackDuration(r), curve: r.curve, influence: r.influence && (r.influence.in > 0 || r.influence.out > 0) ? r.influence : undefined,
+    easing: r.easing ?? defaultEasingFor(r.preset), stagger: r.stagger });
+}
+
+export function pasteSelectedTiming(): void {
+  if (!copiedTiming) return;
+  const timing = copiedTiming;
+  withSelectedTracks((t, _resolved, d, sid) => {
+    if (!t.id || familyOf(t) === "media") return;
+    setTrack(d, sid, t.id, { duration: timing.duration });
+    if (timing.influence && !timing.curve) setTrack(d, sid, t.id, { influence: timing.influence });
+    else setTrackCurve(d, sid, t.id, timing.curve ?? timing.easing ?? null);
+    t.stagger = timing.stagger ? structuredClone(timing.stagger) : t.styleId ? { perMs: 0 } : undefined;
+  });
 }
 
 export function deleteSelectedTracks(): void {
