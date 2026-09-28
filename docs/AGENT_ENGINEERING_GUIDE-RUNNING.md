@@ -159,12 +159,9 @@ The established shared cores — extend these, don't duplicate them:
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
-| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity) |
-| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; shell easing-token census) |
+| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar and catalog) | `src/lib/slide/curves.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots) |
-
-| Animation preset facts (family, phase, labels, colours, wrapper props, durations, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; shell easing-token census) |
-| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
@@ -2592,6 +2589,10 @@ outside this PNG packaging change.
   Slide toolbar's zoom button (first in DOM order) and the expanded gallery preview's; the old
   preview header happened to overlap the toolbar button, so the unscoped click worked by
   accident. Scope gate selectors to the surface under test.
+- **Window key listeners can receive non-Element targets.** Shell command dispatch and
+  its browser gates dispatch on `window`; guard `event.target instanceof Element` before
+  calling `closest`. Escape cancellation must still work for those dispatched events
+  (`verify-slide-animator-gui`, `verify-annotation-surface-gui`).
 - **Svelte 5 delegation hides keydown owners, and window listeners run in mount order.**
   `onkeydown` on elements is delegated to one root listener, so `getEventListeners(el)` shows
   nothing on the element; `<svelte:window on:keydown>` handlers fire in mount order
@@ -7933,3 +7934,17 @@ are not qualification evidence. Their detached children required temporary paren
 stop guards, subsequently restored byte-for-byte; both verification servers were stopped.
 Promoted the selector union trap above. No commits, native gate execution, real project or
 user config changes.
+
+### 2026-09-28 03:21 UTC — F2 integration table seam (Codex, `av2/F2`)
+**Work:** Consolidated the preset and linked-style rows duplicated by the M1/F2 rebase,
+retaining both packets' facts and verification references. Added a docs gate assertion
+that fails on duplicate shared-core domains; demonstrated red on the rebased table
+and green after consolidation. Product behavior is unchanged.
+**Learnings:** Merge shared-core table rows by domain, retaining the union of facts
+and gates; appending both variants breaks the table and creates competing references.
+
+### 2026-09-28 03:29 UTC — F2 window-key integration seam (Codex, `av2/F2`)
+**Work:** Guarded Animate like's global key listener against non-Element event targets.
+The existing annotation gate exposed `target.closest is not a function`; a focused
+Animator assertion also failed when window-dispatched Escape could not cancel a pick.
+**Learnings:** Promoted the window-target contract into the keyboard traps above.

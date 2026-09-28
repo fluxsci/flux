@@ -1052,10 +1052,10 @@
   });
   function likeKey(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e) || !focused || presentOpen) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("input,textarea,select,[contenteditable=true]")) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target?.closest("input,textarea,select,[contenteditable=true]")) return;
     if (e.key === "Escape" && likePick) { e.preventDefault(); e.stopImmediatePropagation(); likePick = null; }
-    else if (e.key === "6" && !e.ctrlKey && !e.metaKey && !e.altKey && get(xrayOpen) && target.closest(".xray")) {
+    else if (e.key === "6" && !e.ctrlKey && !e.metaKey && !e.altKey && get(xrayOpen) && target?.closest(".xray")) {
       e.preventDefault(); e.stopImmediatePropagation(); startLike(true); xrayOpen.set(false);
     }
   }

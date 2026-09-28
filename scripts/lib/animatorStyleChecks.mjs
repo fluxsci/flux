@@ -93,6 +93,13 @@ export async function verifyLinkedStyles(page, ok) {
   await page.keyboard.press('6');await paint(page);
   ok(!!await page.$('[aria-label="Animate like pick"]')&&!await page.$('.xray'),'X-ray 6 arms Animate like from its real object selection');
   await page.keyboard.press('Escape');await paint(page);ok(!await page.$('[aria-label="Animate like pick"]'),'Escape cancels Animate like');
+  // Shell command dispatch can target window instead of a DOM element.
+  await select(page,[tids[1]]);
+  await page.click(`.lane-row[data-track-id="${tids[1]}"] .trk`,{button:'right'});
+  await clickText(page,'[role=menu] button','Animate like…');
+  await page.evaluate(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
+  await paint(page);
+  ok(!await page.$('[aria-label="Animate like pick"]'),'window-dispatched Escape cancels Animate like without assuming an Element target');
   // A linked effect saved into the global library must capture inherited fields.
   await select(page,[tids[1]]);await page.click('.props .saveas');await page.type('.props .psave input','Linked library reveal');await clickText(page,'.props .psave button','Save');
   await waitFor(page,()=>JSON.parse(localStorage.getItem('flux.presets.animations')||'[]').some(p=>p.payload.name==='Linked library reveal'),null,{label:'linked preset saved'});
