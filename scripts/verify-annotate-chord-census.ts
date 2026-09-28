@@ -10,6 +10,7 @@ const exemptions: Record<string, string> = {
   'src/shell/modes/figure/FigureMode.svelte:handleKey': 'Delegates to lib/keyboard.ts:handleKey, whose guard is checked below.',
 };
 const local: Record<string, string> = {
+  'src/lib/model3d/notebookViewer.ts:stage': 'Standalone notebook viewer stage; local axis/Home keys, deliberately no Flux app keymap.',
   'src/shell/agent/askChord.ts:input': 'Ask bootstrap textarea owns Enter before its lazy surface is loaded.',
   'src/lib/plot/GalleryExpandedPreview.svelte:node': 'Local preview root, beneath the modal.',
   'src/lib/ui/modalFocus.ts:node': 'Local focus trap on its own modal.',

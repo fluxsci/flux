@@ -25,7 +25,7 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
   const under = svg(), over = svg(), canvas = doc.createElement('canvas'); canvas.style.position = 'absolute';
   stage.append(under, canvas, over);
   const controls = doc.createElement('div'); controls.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;border-top:1px solid var(--vscode-panel-border,#e5e7eb)';
-  const controlStyle = 'font:inherit;color:inherit;background:var(--vscode-button-secondaryBackground,#f2f4f7);border:1px solid var(--vscode-button-border,#cbd2dc);border-radius:5px;padding:5px 9px;cursor:pointer';
+  const controlStyle = 'font:inherit;color:inherit;background:var(--vscode-button-secondaryBackground,#f2f4f7);border:1px solid var(--vscode-button-border,#cbd2dc);border-radius:5px;padding:5px 9px';
   const button = (label: string, action: () => void) => { const node = doc.createElement('button'); node.type = 'button'; node.style.cssText = controlStyle; node.textContent = label; node.addEventListener('click', action); controls.append(node); return node; };
   const viewSelect = doc.createElement('select'); viewSelect.setAttribute('aria-label', 'Axis view'); viewSelect.style.cssText = controlStyle;
   for (const view of ['View', 'Front', 'Back', 'Right', 'Left', 'Top', 'Bottom']) { const option = doc.createElement('option'); option.value = view.toLowerCase(); option.textContent = view; viewSelect.append(option); }
@@ -52,12 +52,23 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
     readout.value = code();
   }
   const stateInputs = new Map<string, { input: HTMLInputElement; value: HTMLOutputElement }>();
+  let sequenceControl: { input: HTMLInputElement; value: HTMLOutputElement } | undefined;
+  function syncSequenceControl() {
+    if (!sequenceControl) return;
+    const states = element.modelStates ?? {}, frame = names.reduce((sum, name, i) => sum + (states[name] ?? 0) * (i + 1), 0);
+    const expected = statesAtFrame(names, frame);
+    const exact = frame >= 0 && frame <= names.length && names.every((name) => Math.abs((states[name] ?? 0) - (expected[name] ?? 0)) < 1e-6);
+    sequenceControl.input.value = String(exact ? frame : 0);
+    sequenceControl.value.textContent = exact ? String(number(frame)) : 'Custom';
+    sequenceControl.input.setAttribute('aria-valuetext', exact ? String(number(frame)) : 'Custom state weights');
+    sequenceControl.input.title = exact ? '' : 'Current weights do not describe one frame. Move the slider to choose a frame.';
+  }
   function setView(patch: Partial<ReturnType<typeof getView>>) {
     const fields = { azimuth: 'orbitAzimuth', elevation: 'orbitElevation', roll: 'orbitRoll', zoom: 'orbitZoom', panX: 'orbitPanX', panY: 'orbitPanY', projection: 'orbitProjection', fov: 'orbitFov', states: 'modelStates' } as const;
     for (const [key, value] of Object.entries(patch)) if (key in fields) (element as unknown as Record<string, unknown>)[fields[key as keyof typeof fields]] = value;
     element.orbitElevation = clamp(element.orbitElevation, -90, 90); element.orbitZoom = clamp(element.orbitZoom, 0.02, 50);
     for (const [name, control] of stateInputs) { control.input.value = String(element.modelStates?.[name] ?? 0); control.value.textContent = String(number(element.modelStates?.[name] ?? 0)); }
-    paint();
+    syncSequenceControl(); paint();
   }
   button('Home', () => { element = { ...element, ...homeView(undefined, payload.manifest), modelStates: payload.manifest?.view?.states ?? {} }; setView({}); });
   button('Copy view', () => { readout.value = code(); readout.focus(); readout.select(); void doc.defaultView?.navigator.clipboard?.writeText(readout.value).then(() => { status.textContent = 'View copied.'; }, () => { status.textContent = 'Select and copy the view code.'; }); });
@@ -70,8 +81,9 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
     input.style.cssText = 'width:100%;accent-color:var(--vscode-focusBorder,#4385be)'; const value = doc.createElement('output'); value.style.cssText = 'font-variant-numeric:tabular-nums;text-align:right'; value.textContent = String(number(initial));
     input.addEventListener('input', () => { value.textContent = String(number(input.valueAsNumber)); change(input.valueAsNumber); }); row.append(name, input, value); container.insertBefore(row, status); return { input, value };
   }
-  if (payload.manifest?.sequence && names.length) slider('Frame', names.length, 0, (frame) => setView({ states: statesAtFrame(names, frame) }));
+  if (payload.manifest?.sequence && names.length) sequenceControl = slider('Frame', names.length, 0, (frame) => setView({ states: statesAtFrame(names, frame) }));
   else for (const state of payload.manifest?.states ?? []) stateInputs.set(state.name, slider(state.label ?? state.name, 1, element.modelStates?.[state.name] ?? 0, (weight) => setView({ states: { ...element.modelStates, [state.name]: weight } })));
+  syncSequenceControl();
   let drag: { x: number; y: number; mode: 'orbit' | 'pan' | 'roll'; pointer: number } | undefined;
   stage.addEventListener('pointerdown', (event) => { if (event.button !== 0) return; stage.focus(); stage.setPointerCapture(event.pointerId); drag = { x: event.clientX, y: event.clientY, mode: event.shiftKey ? 'pan' : event.altKey ? 'roll' : 'orbit', pointer: event.pointerId }; event.preventDefault(); }, { signal: cleanup.signal });
   stage.addEventListener('pointermove', (event) => {
