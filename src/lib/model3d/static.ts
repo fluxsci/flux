@@ -6,6 +6,7 @@ import { furnitureLayout } from './furnitureLayout';
 import { furnitureSvg } from './furniture';
 import { orbitPose } from './orbit';
 import { framingBounds } from './framing';
+import { partDomId } from '../plot/parse';
 import { modelPlaceholder, posterKey, posterPixels, posterRef, type PosterSurface } from './poster';
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from './types';
 
@@ -59,7 +60,7 @@ export function collectModelPosters(figures: readonly Figure[], context: Model3d
 }
 export function model3dStaticSvg(element: Model3dElement, assetUrl: (id: string) => string | undefined, context?: Model3dSvgContext): string {
   const manifest = context?.manifestOf(element), asset = context?.assetOf(element);
-  const frame = context?.namespace ? { ...element, id: `${context.namespace}__${element.id}` } : element;
+  const frame = context?.namespace ? { ...element, id: partDomId(context.namespace, element.id) } : element;
   const layout = furnitureLayout(manifest, frame, frame.overrides);
   const furniture = furnitureSvg(manifest, frame, orbitPose(frame, framingBounds(asset?.model.bounds ?? manifest?.bounds ?? { min: [-1, -1, -1], max: [1, 1, 1] }, manifest), layout.viewport), layout);
   const ref = context?.posterIdOf(element), url = ref ? assetUrl(ref) : undefined, box = layout.viewport;

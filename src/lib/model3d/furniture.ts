@@ -8,6 +8,7 @@ import { resolvedColormap } from './colormap';
 import { niceTicks,tickLabel } from './ticks';
 import { transformPoint } from './glbCore.mjs';
 import { axesBoxLimits } from './framing';
+import { partDomId } from '../plot/parse';
 export interface FurnitureNode {tag:'g'|'text'|'line'|'path'|'rect'|'defs'|'linearGradient'|'stop';key:string;partId?:string;attrs:Record<string,string|number>;text?:string;children?:FurnitureNode[]}
 export interface FurnitureSvg {under:string;over:string;underNodes:FurnitureNode[];overNodes:FurnitureNode[]}
 const ID=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
@@ -15,7 +16,7 @@ const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;
 const num=(n:number)=>String(Number(n.toFixed(6))||0);
 const sourceFont=(font:string)=>font.includes(',')||/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace)$/i.test(font)?font:`${font}, sans-serif`;
 export function serializeFurniture(nodes:readonly FurnitureNode[]):string{return nodes.map(n=>`<${n.tag}${Object.entries(n.attrs).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>` ${k}="${esc(typeof v==='number'?num(v):v)}"`).join('')}>${n.text!=null?esc(n.text):''}${n.children?serializeFurniture(n.children):''}</${n.tag}>`).join('');}
-export const furniturePartDomId=(elementId:string,partId:string)=>`${elementId}__${partId}`;
+
 /** Attribute-node descriptions support all live hosts; the serializer is shared by static engines. */
 export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3dElement,pose:OrbitPose,layout:FurnitureLayout):Pick<FurnitureSvg, "underNodes"|"overNodes"> {
  if(!manifest)return {underNodes:[],overNodes:[]};
@@ -81,7 +82,7 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
   // The triad owns the bottom-left corner, so a scale bar beside it right-aligns (fluxplot's still matches).
   const x0=manifest.axes?.kind==='triad'?slot.x+slot.width-length:slot.x;
   line(over,part.id,'scale-line',{x:x0,y:slot.y},{x:x0+length,y:slot.y},{'stroke-width':Math.max(lw,1.5)});text(over,part.id,'scale-label',x0+length/2,slot.y-fs*.7,part.label??`${tickLabel(part.length)}${manifest.units?' '+manifest.units:''}`);}
- for(const slot of layout.colorbars){const part=parts[slot.partId],fieldId=typeof part?.field==='string'?part.field:'',field=fields[fieldId];if(!field)continue;const o=el.fields?.[fieldId],range=o?.range??field.range,stops=resolvedColormap(field,o),id=`${el.id}__${part.id}__gradient`;
+ for(const slot of layout.colorbars){const part=parts[slot.partId],fieldId=typeof part?.field==='string'?part.field:'',field=fields[fieldId];if(!field)continue;const o=el.fields?.[fieldId],range=o?.range??field.range,stops=resolvedColormap(field,o),id=partDomId(partDomId(el.id,part.id),'gradient');
   over.push({tag:'defs',key:id,attrs:{},children:[{tag:'linearGradient',key:id+'-gradient',attrs:{id,x1:'0%',x2:'0%',y1:'100%',y2:'0%'},children:stops.map(([v,color],i)=>({tag:'stop',key:`stop-${i}`,attrs:{offset:`${v*100}%`,'stop-color':color}}))}]});
   add(over,part.id,'rect','colorbar',{x:slot.x,y:slot.y,width:slot.width,height:slot.height,fill:`url(#${id})`,stroke:muted,'stroke-width':lw});
   const labelSize=override(part.id).fontSize??fs;
@@ -90,7 +91,7 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
  }
  for(const slot of layout.legends){const part=parts[slot.partId];(part?.entries??[]).filter(id=>parts[id]&&!override(id).hidden).forEach((id,i)=>{/* hidden parts leave the legend and the rest reflow */const entry=parts[id];const y=slot.y+i*layout.lineHeight,o=override(id);add(over,part.id,'rect',`legend-swatch-${i}`,{x:slot.x,y:y-fs*.7,width:fs,height:fs,fill:o.fill??entry.color??el.fill,opacity:o.opacity??entry.opacity??1});text(over,part.id,`legend-label-${i}`,slot.x+fs*1.5,y+fs*.2,entry.label??id,{'text-anchor':'start'});});}
  if(layout.title){const slot=layout.title,part=parts[slot.partId];text(over,slot.partId,'title',slot.x+slot.width/2,slot.y+slot.height*.7,part?.text??part?.label??'',{'font-size':(style.titleSizePt??8)*4/3});}
- function group(nodes:FurnitureNode[]):FurnitureNode[]{const grouped:FurnitureNode[]=[],byPart=new Map<string,FurnitureNode>();for(const node of nodes){if(!node.partId){grouped.push(node);continue;}let g=byPart.get(node.partId);if(!g){g={tag:'g',key:node.partId,partId:node.partId,attrs:{id:furniturePartDomId(el.id,node.partId),'data-part-id':node.partId,'data-role':parts[node.partId]?.role??'axis'},children:[]};byPart.set(node.partId,g);grouped.push(g);}g.children!.push(node);}return grouped;}
+ function group(nodes:FurnitureNode[]):FurnitureNode[]{const grouped:FurnitureNode[]=[],byPart=new Map<string,FurnitureNode>();for(const node of nodes){if(!node.partId){grouped.push(node);continue;}let g=byPart.get(node.partId);if(!g){g={tag:'g',key:node.partId,partId:node.partId,attrs:{id:partDomId(el.id,node.partId),'data-part-id':node.partId,'data-role':parts[node.partId]?.role??'axis'},children:[]};byPart.set(node.partId,g);grouped.push(g);}g.children!.push(node);}return grouped;}
  const underNodes=group(under),overNodes=group(over);return {underNodes,overNodes};
 }
 
