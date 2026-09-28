@@ -7745,7 +7745,8 @@
       "runtime": "node-electron",
       "prerequisites": [
         "file:dist/flux-model3d-runtime.js",
-        "display"
+        "display",
+        "chrome"
       ],
       "isolation": "scratch",
       "externalNetwork": false,

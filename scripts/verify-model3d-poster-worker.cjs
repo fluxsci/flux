@@ -44,6 +44,31 @@ async function main(h) {
       assert.deepEqual(await fs.readFile(repeat.results[0].path), a, "same renderer/state/size deterministically reproduce the PNG");
       metrics.push({ platform, repeat: true, ...repeat, results: repeat.results.map(({ path: _path, ...item }) => item) });
     }
+    // Fresh browser rendering makes parity evidence independent of stale artifacts.
+    const { launch, errors } = await import("./lib/driver.mjs");
+    const { browser, page } = await launch({ width: 320, height: 240 });
+    try {
+      const runtime = await fs.readFile(path.join(repo, "dist/flux-model3d-runtime.js"), "utf8");
+      await page.setContent(modelPosterHtml(runtime, requests, { plain: bytes.toString("base64") }));
+      const response = await page.evaluate(async () => { await window.fluxModel3dPosterReady; return window.fluxModel3dPoster.render(0); });
+      const browserBytes = Buffer.from(response.png, "base64"), reference = await pixels(browserBytes);
+      const comparisons = {};
+      for (const platform of process.platform === "linux" ? ["headless", "x11"] : ["native"]) {
+        const nativeBytes = await fs.readFile(path.join(artifacts, `${platform}-0.png`)), actual = await pixels(nativeBytes);
+        let sum = 0, changed = 0, max = 0;
+        for (let i = 0; i < actual.length; i += 4) {
+          let pixelMax = 0;
+          for (let c = 0; c < 4; c++) { const delta = Math.abs(reference[i + c] - actual[i + c]); sum += delta; pixelMax = Math.max(pixelMax, delta); max = Math.max(max, delta); }
+          if (pixelMax > 2) changed++;
+        }
+        const parity = comparisons[platform] = { mean: sum / actual.length, changedRatio: changed / (actual.length / 4), max };
+        assert.ok(parity.mean < .5 && parity.changedRatio < .005, `${platform} browser/native pixel parity ${JSON.stringify(parity)}`);
+        h.ok(true, `fresh browser/${platform} parity (mean ${parity.mean}, changed ${parity.changedRatio})`);
+      }
+      assert.deepEqual(errors(page), []);
+      await fs.writeFile(path.join(artifacts, "browser-reference.png"), browserBytes);
+      await fs.writeFile(path.join(artifacts, "browser-parity.json"), JSON.stringify(comparisons, null, 2) + "\n");
+    } finally { await browser.close(); }
     const controller = new AbortController(); controller.abort();
     await assert.rejects(renderModelPosterBatch(requests, { outDir: path.join(scratch, "cancelled"), modelBytes, signal: controller.signal }), /cancelled/);
     assert.equal(await fs.stat(path.join(scratch, "cancelled")).catch(() => null), null);
