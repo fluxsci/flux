@@ -8,7 +8,8 @@
 import { z } from "zod";
 import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
 import type { PlotViewFields } from "../src/lib/plot/viewControls";
-import type { PairPolicy, PresetName } from "../src/lib/slide/types";
+import { EASING_TOKENS, CURVE_CATALOG, parseCurve } from "../src/lib/slide/curves";
+import type { EasingToken, PairPolicy, Track, PresetName } from "../src/lib/slide/types";
 import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
 import type { VerbDef, CliArgSpec } from "./registry";
 import { INBOX_VERBS } from "./inboxVerbs";
@@ -29,6 +30,18 @@ const pick = (a: Record<string, unknown>, keys: string[]): Record<string, never>
   for (const k of keys) if (a[k] !== undefined) p[k] = a[k];
   return p as Record<string, never>;
 };
+
+const CURVE_GRAMMAR = `Curve: spring(0.35), spring(0.35, v=2), spring(k=170, c=26, m=1), bezier(x1,y1,x2,y2) or cubic-bezier(x1,y1,x2,y2), steps(n[,start|end]); catalog names: ${CURVE_CATALOG.map(c => c.id).join(", ")}`;
+/** Parse before any IO. A curve argument takes precedence over legacy fields. */
+function timingCurveArgs(a: Record<string, unknown>): Pick<Track, "curve" | "influence" | "easing"> {
+  if (a.curve !== undefined) {
+    const curve = parseCurve(a.curve as string);
+    if (curve === null) throw new ValidationError(`Invalid curve ${JSON.stringify(a.curve)}. ${CURVE_GRAMMAR}`);
+    return typeof curve === "string" ? { easing: curve } : { curve };
+  }
+  if (a.influence !== undefined) return { influence: a.influence as Track["influence"] };
+  return a.easing !== undefined ? { easing: a.easing as EasingToken } : {};
+}
 
 const s = (v: unknown): string => v as string;
 const sArr = (v: unknown): string[] => v as string[];
@@ -2938,18 +2951,21 @@ export const VERBS: VerbDef[] = [
       name: z.string().min(1).optional(), family: z.enum(["appearance", "transform", "media"]).optional(),
       preset: z.enum(Object.keys(PRESET_CATALOG) as [PresetName, ...PresetName[]]).optional(),
       duration: z.number().nonnegative().optional(), start: z.number().nonnegative().optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      curve: z.string().describe(CURVE_GRAMMAR).optional(),
+      params: z.record(z.unknown()).optional(),
+      influence: z.object({ in: z.number().min(0).max(100), out: z.number().min(0).max(100) }).optional(),
       stagger: z.object({ perMs: z.number().nonnegative(), by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges"]).optional() }).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "action", required: true }, { kind: "pos", at: 1, into: "deckId", required: true }, { kind: "pos", at: 2, into: "id" },
-      ...["name", "family", "preset", "easing"].map(at => ({ kind: "flag" as const, at, into: at })),
+      ...["name", "family", "preset", "easing", "curve"].map(at => ({ kind: "flag" as const, at, into: at })),
       ...["duration", "start"].map(at => ({ kind: "flag" as const, at, into: at, as: "number" as const })),
-      { kind: "flag", at: "stagger", into: "stagger", as: "json" },
+      ...["params", "influence", "stagger"].map(at => ({ kind: "flag" as const, at, into: at, as: "json" as const })),
     ],
     handler: (ctx, a) => core.animStyleVerb(ctx.root, s(a.deckId), a.action as "create", {
       id: a.id as string | undefined, name: a.name as string | undefined, family: a.family as "appearance" | undefined,
-      track: pick(a, ["preset", "duration", "start", "easing", "stagger"]),
+      track: { ...pick(a, ["preset", "duration", "start", "params", "stagger"]), ...timingCurveArgs(a) },
     }),
     render: {
       human: (r) => ({ out: JSON.stringify(r) }),
@@ -2958,13 +2974,14 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "animate_like", scope: "project", cli: "animate-like", cliRoot: "flags",
-    summary: "Link target effects to the source effect's deck style, creating a Like <object label> style and linking the source when needed. Reports each incompatible family or missing target without changing it.",
-    params: { deckId: z.string().min(1), slideId: z.string().min(1), from: z.string().min(1), to: z.array(z.string().min(1)).min(1) },
+    summary: "Link target effects to the source effect's deck style, creating a Like <object label> style and linking the source when needed. An optional beatId filters source and targets to one beat; otherwise links slide-wide. Reports each incompatible family or missing target without changing it.",
+    params: { deckId: z.string().min(1), slideId: z.string().min(1), from: z.string().min(1), to: z.array(z.string().min(1)).min(1), beatId: z.string().min(1).optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
       { kind: "flag", at: "from", into: "from", required: true }, { kind: "flag", at: "to", into: "to", as: "csv", required: true },
     ],
-    handler: (ctx, a) => core.animateLikeVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.from), sArr(a.to)),
+    handler: (ctx, a) => core.animateLikeVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.from), sArr(a.to), a.beatId as string | undefined),
     render: { human: r => ({ out: JSON.stringify(r) }), mcp: r => text(JSON.stringify(r)) },
   },
   {
@@ -2974,17 +2991,19 @@ export const VERBS: VerbDef[] = [
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
       styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
       start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      curve: z.string().describe(CURVE_GRAMMAR).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
       { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
       { kind: "flag", at: "anchor", into: "anchor" }, { kind: "flag", at: "no-anchor", into: "noAnchor", as: "boolean" },
       { kind: "flag", at: "start", into: "start", as: "number" }, { kind: "flag", at: "duration", into: "duration", as: "number" }, { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "curve", into: "curve" },
     ],
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
-      const patch: Parameters<typeof core.setTrackVerb>[4] = pick(a, ["start", "duration", "easing"]);
+      const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
       if (a.noStyle) patch.styleId = null; else if (a.styleId !== undefined) patch.styleId = s(a.styleId);
       if (a.noAnchor) patch.anchor = null;
       else if (a.anchor !== undefined) {
@@ -3046,7 +3065,8 @@ export const VERBS: VerbDef[] = [
       replaceState: z.boolean().optional(),
       start: z.number().optional(),
       duration: z.number().optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      curve: z.string().describe(CURVE_GRAMMAR).optional(),
       toAssetId: z.string().optional(),
     },
     cliArgs: [
@@ -3059,6 +3079,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "curve", into: "curve" },
       { kind: "flag", at: "to-asset", into: "toAssetId" },
     ],
     handler: (ctx, a) =>
@@ -3067,7 +3088,7 @@ export const VERBS: VerbDef[] = [
         ...(a.replaceState ? { replaceState: true } : {}),
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
-        ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+        ...timingCurveArgs(a),
         ...(a.toAssetId != null ? { toAssetId: s(a.toAssetId) } : {}),
       }),
     render: {
@@ -3090,7 +3111,7 @@ export const VERBS: VerbDef[] = [
       original: z.enum(["stay", "disappear", "transform"]).optional(),
       states: z.array(z.record(z.any())).optional(), originalState: z.record(z.any()).optional(),
       start: z.number().min(0).optional(), duration: z.number().min(0).optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -3379,7 +3400,7 @@ export const VERBS: VerbDef[] = [
       reveal: z.enum(["flip", "draw"]).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       force: z.boolean().optional(),
     },
     cliArgs: [
@@ -3439,7 +3460,7 @@ export const VERBS: VerbDef[] = [
       reveal: z.enum(["flip", "draw"]).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },

@@ -104,7 +104,7 @@ export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GL
 export { planHandoff } from "../src/lib/slide/handoffPlan";
 export { targetOutlines, elementStageOutlines, partStageOutlines, plotStageMapping, type GeometryCtx } from "../src/lib/slide/targetGeometry";
 export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
-export { becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
+export { setTrackCurve, becomeTransform, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
 export { autoAnimateExcept } from "../src/lib/slide/autobuild";
 export { overshootBox } from "../src/lib/slide/tween";
 export { staggerDelay } from "../src/lib/slide/stagger";

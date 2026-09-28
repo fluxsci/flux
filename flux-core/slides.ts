@@ -450,9 +450,8 @@ export async function setTransformTrack(
     replaceState?: boolean;
     start?: number;
     duration?: number;
-    easing?: import("../src/lib/slide/types").EasingToken;
     toAssetId?: string;
-  } = {},
+  } & slideOps.TimingCurvePatch = {},
 ): Promise<{ trackId: string }> {
   return mutateDeck(root, deckId, "set_transform", async (deck) => {
     mustSlide(deck, slideId);
@@ -463,7 +462,9 @@ export async function setTransformTrack(
       ...(opts.replaceState ? { replaceState: true } : {}),
       ...(opts.start != null ? { start: opts.start } : {}),
       ...(opts.duration != null ? { duration: opts.duration } : {}),
-      ...(opts.easing != null ? { easing: opts.easing } : {}),
+      ...(opts.easing !== undefined ? { easing: opts.easing } : {}),
+      ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
+      ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
       ...(opts.toAssetId != null ? { toAssetId: opts.toAssetId } : {}),
       ...paths,
     });
@@ -540,10 +541,10 @@ export async function animStyleVerb(root: string, deckId: string, action: "creat
   });
 }
 
-export async function animateLikeVerb(root: string, deckId: string, slideId: string, from: string, to: string[]) {
+export async function animateLikeVerb(root: string, deckId: string, slideId: string, from: string, to: string[], beatId?: string) {
   return mutateDeck(root, deckId, "animate_like", deck => {
     mustSlide(deck, slideId);
-    return slideOps.animateLike(deck, slideId, from, to);
+    return slideOps.animateLike(deck, slideId, from, to, beatId);
   });
 }
 
@@ -692,9 +693,15 @@ export async function moveTrack(
   toBeatId: string,
   at?: number,
 ): Promise<void> {
-  await mutateDeck(root, deckId, "move_track", (deck) => {
-    mustSlide(deck, slideId);
-    const ok = slideOps.moveTrackToBeat(deck, slideId, trackId, toBeatId, at);
+  await mutateDeck(root, deckId, "move_track", async (deck) => {
+    const slide = mustSlide(deck, slideId);
+    const context = await slideCompileOptions(root, deck, slideId);
+    const compiled = compileSlide(slide, deck.stage, context);
+    const found = slideOps.findTrack(deck, trackId), bi = found ? slide.beats.indexOf(found.beat) : -1;
+    const ok = slideOps.moveTrackToBeat(deck, slideId, trackId, toBeatId, at, target => {
+      const el = compiled.preState(target, bi);
+      return el?.type === "plot" ? context.plotManifest(el.assetId) : undefined;
+    });
     if (!ok) throw new Error(`track ${trackId} or beat ${toBeatId} not found on ${slideId}`);
   });
 }

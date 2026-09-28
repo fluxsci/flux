@@ -57,6 +57,30 @@ plot-to-plot Become does not, so no fourth way exists. Concretely, this branch:
 
 ## 3. Model semantics
 
+Timing lives on the track (and in `AnimStyle.track` / `PresetTrack`). Deck 0.6.0 accepts
+an optional `curve` record without another version bump:
+
+```ts
+curve?:
+  | { kind: "bezier"; p: [number, number, number, number] }
+  | { kind: "spring"; bounce: number; velocity?: number }
+  | { kind: "steps"; n: number; jump?: "start" | "end" };
+```
+
+Bezier x handles are 0–1 and y handles −1–2; bounce is −0.5–0.8; steps are integers
+1–60 with end as the default jump. The disk validator refuses malformed or out-of-range
+specs; `parseCurve` clamps grammar inputs. Catalog names are authoring sugar: Bouncy writes
+`{kind:"spring",bounce:0.35}`, so catalog renaming cannot change saved playback.
+
+`curve`, `influence` and `easing` are **one logical field**. If a track owns any of the
+three, it inherits none of the three from its style; other style fields still inherit.
+Old records that contain several use curve > influence > easing > preset default.
+Field edits clear the other representations. `setTrackCurve(..., null)` deletes all
+three, restoring inheritance/defaults. Style detach, animation templates and portable
+slide presets copy the resolved curve. CLI/MCP `set-track`, `set-transform` and
+`anim-style create|set` parse the same grammar through `parseCurve`.
+
+
 - `to.state` may now carry `type`. `tween.applyState` treats a type change as a **retype**: the
   result keeps the element's identity/base props (`id, name, groupId, locked, hidden, lockAspect,
   x, y, width, height, rotation, flipX, flipY, opacity`) and takes every other property from the

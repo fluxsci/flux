@@ -88,6 +88,40 @@ assert(validateDeckFile(good).length === 0, "a createDeck() deck validates again
   assert(validateDeckFile(badView).length > 0, "a view domain that is not a pair → rejected");
 }
 
+// Timing specs share the same disk contract on ordinary, ghost and style tracks.
+{
+  const shapes = [
+    { kind: "bezier", p: [0.34, 1.56, 0.64, 1] },
+    { kind: "spring", bounce: 0.35 },
+    { kind: "spring", bounce: -0.5, velocity: 2 },
+    { kind: "steps", n: 8 },
+    { kind: "steps", n: 1, jump: "start" },
+  ];
+  const malformed = [
+    { kind: "spring", bounce: "x" }, { kind: "bezier", p: [0.1, 0, 1] },
+    { kind: "unknown" }, { kind: "spring", bounce: 0.81 },
+    { kind: "spring", bounce: -0.51 }, { kind: "spring", bounce: 0.3, velocity: "x" },
+    { kind: "bezier", p: [-0.1, 0, 1, 1] }, { kind: "bezier", p: [0, -1.1, 1, 1] },
+    { kind: "bezier", p: [0, 0, 1.1, 1] }, { kind: "bezier", p: [0, 0, 1, 2.1] },
+    { kind: "steps", n: 0 }, { kind: "steps", n: 61 }, { kind: "steps", n: 1.5 },
+    { kind: "steps", n: 2, jump: "middle" }, null,
+  ];
+  const failures: string[] = [];
+  for (const host of ["track", "ghost", "style"]) for (const [valid, curves] of [[true, shapes], [false, malformed]] as const) {
+    for (const curve of curves) {
+      const d = structuredClone(good), slide = d.slides[0];
+      const beat = slideOps.addBeat(d, slide.id)!;
+      const track = { target: slide.elements[0].id, preset: "transform", curve };
+      if (host === "style") (d as any).animStyles = [{ id: "curve-style", name: "Curve", family: "transform", track }];
+      else beat.tracks.push({ ...track, ...(host === "ghost" ? { ghostFrom: "source" } : {}) } as any);
+      const pass = (validateDeckFile(JSON.parse(JSON.stringify(d))).length === 0) === valid;
+      const message = `${host}: ${JSON.stringify(curve)} ${valid ? "validates" : "is refused"}`;
+      if (pass) console.log("  ok:", message); else failures.push(message);
+    }
+  }
+  assert(!failures.length, `curve schema contracts (${failures.length} failures): ${failures.join("; ")}`);
+}
+
 // --- malformed decks are rejected -----------------------------------------------
 {
   const noStage = structuredClone(good) as unknown as Record<string, unknown>;

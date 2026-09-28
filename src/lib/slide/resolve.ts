@@ -18,9 +18,9 @@ export type StyleContext = Pick<Deck, "animStyles">;
 export type ManifestFor = (target: string) => FluxPlotManifest | undefined;
 export interface TimingIssue { trackId?: string; target: string; reason: string }
 /** Every field an `AnimStyle.track` carries (materialize/detach copies all of them). */
-export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "stagger"] as const;
+export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "curve", "stagger"] as const;
 /** The style fields a linked track inherits by resolution: all but `preset` (see the header). */
-export const INHERITED_STYLE_FIELDS = ["params", "start", "duration", "easing", "influence", "stagger"] as const;
+export const INHERITED_STYLE_FIELDS = ["params", "start", "duration", "easing", "influence", "curve", "stagger"] as const;
 
 /** Style fields under the track's own: a field PRESENT on the track wins, an
  * absent one inherits (`preset` never does; see the header). Present means a
@@ -30,15 +30,18 @@ export const INHERITED_STYLE_FIELDS = ["params", "start", "duration", "easing", 
  * has one" is written with the sentinels the Animator already writes, which
  * are ordinary present values: `stagger: { perMs: 0 }` (no stagger),
  * `influence: { in: 0, out: 0 }` (no velocity profile; the easing token
- * applies) and `params: {}` (no params).
+ * falls back to the preset default) and `params: {}` (no params).
+ * Easing, influence and curve form one group: any own value overrides the
+ * entire style group, so a token can replace a style's spring.
  * The returned value is a read view; callers must never mutate its nested data. */
 export function resolveTrack(track: Track, deck: StyleContext): Track {
   const style = track.styleId == null ? undefined : deck.animStyles?.find(s => s.id === track.styleId);
   const result: Track = { ...track }, fields = result as unknown as Record<string, unknown>;
   if (result.preset == null) delete result.preset;
+  const ownCurve = track.curve != null || track.influence != null || track.easing != null;
   for (const key of INHERITED_STYLE_FIELDS) {
     if (fields[key] != null) continue;
-    const inherited = style?.track[key];
+    const inherited = ownCurve && (key === "curve" || key === "influence" || key === "easing") ? undefined : style?.track[key];
     if (inherited == null) delete fields[key];
     else fields[key] = inherited;
   }

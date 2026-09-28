@@ -80,7 +80,7 @@ export interface AnimStyle {
   id: Id;
   name: string;
   family: "appearance" | "transform" | "media";
-  track: Pick<Track, "preset" | "params" | "start" | "duration" | "easing" | "influence" | "stagger">;
+  track: Pick<Track, "preset" | "params" | "start" | "duration" | "easing" | "influence" | "curve" | "stagger">;
 }
 
 export interface Deck {
@@ -356,7 +356,8 @@ export interface Track {
   /** After Effects-style velocity profile, 0–100% each. Overrides `easing`
    *  when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
   influence?: Influence;
-  /** Timing spec, overriding influence/easing. Schema/validators land in M3. */
+  /** Timing spec, overriding influence/easing. These three fields inherit as
+   *  one group: any own value suppresses the style's whole timing curve. */
   curve?: Curve;
   stagger?: Stagger;
   /** transform/camera/move destination. */

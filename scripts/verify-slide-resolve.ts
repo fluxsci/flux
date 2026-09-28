@@ -15,6 +15,7 @@ import { resolveEasing } from "../src/lib/slide/easing";
 import { familyOf } from "../src/lib/slide/family";
 import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
 import { validateDeckFile } from "../src/lib/project/validate";
+import { presetTrackOf, makeAnimPreset, deriveTemplateSlots, applyTemplate } from "../src/lib/slide/animTemplates";
 import type { Track, Beat } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import * as core from "../flux-core/index";
@@ -41,7 +42,7 @@ h.eq(resolveTrack({ ...easedTrack, stagger: { perMs: 0 } }, sentinelDeck).stagge
 h.eq(staggerSpan(resolveTrack({ ...easedTrack, stagger: { perMs: 0 } }, sentinelDeck), 5), 0, "the stagger sentinel resolves to no stagger tail");
 const flat = resolveTrack({ ...easedTrack, influence: { in: 0, out: 0 } }, sentinelDeck);
 h.eq(flat.influence, { in: 0, out: 0 }, "sentinel influence {in:0,out:0} overrides the style's velocity profile");
-h.eq(resolveEasing(flat.easing, flat.influence), resolveEasing("enter"), "the influence sentinel resolves to the inherited easing token");
+h.eq(resolveEasing(flat.easing, flat.influence), resolveEasing(undefined), "an influence sentinel overrides the whole timing group, including the style easing");
 h.eq(resolveTrack({ ...easedTrack, params: {} }, sentinelDeck).params, {}, "sentinel params {} overrides the style's params");
 h.eq(resolveTrack(easedTrack, sentinelDeck).influence, { in: 60, out: 40 }, "without a sentinel the style's profile is inherited");
 const nulls = resolveTrack({ ...easedTrack, stagger: null, influence: null, params: null, duration: null } as unknown as Track, sentinelDeck);
@@ -64,6 +65,53 @@ h.eq(resolveTrack(inherited, deck).styleId, style.id, "resolved tracks retain th
 }
 h.eq(resolveTrack({ target: x, styleId: "missing", duration: 12 }, deck), { target: x, styleId: "missing", duration: 12 }, "missing style resolves to the track alone");
 h.ok(core.resolveTrack === resolveTrack && core.resolveBeat === resolveBeat && core.resolveStart === resolveStart, "headless re-exports the exact pure resolver");
+
+h.section("timing curve is one inherited field");
+{
+  // Old files may carry several representations. Read precedence is unchanged;
+  // ANY own representation suppresses the entire style group, including sentinels.
+  const cd = ops.createDeck({ withTitleSlide: false });
+  const cs = ops.addAnimStyle(cd, { name: "Spring", family: "transform", track: { preset: "transform", curve: { kind: "spring", bounce: 0.35 }, influence: { in: 50, out: 50 }, easing: "enter", duration: 700 } });
+  const base: Track = { target: x, preset: "transform", styleId: cs.id };
+  const group = (t: Track) => [t.curve, t.influence, t.easing];
+  const own = [{ easing: "linear" }, { influence: { in: 0, out: 0 } }, { curve: { kind: "steps", n: 4 } }] as Partial<Track>[];
+  h.eq(group(resolveTrack(base, cd)), group(cs.track as Track), "absent timing group inherits all legacy/spec fields");
+  for (const patch of own) {
+    const raw = { ...base, ...patch }, resolved = resolveTrack(raw, cd);
+    h.eq(group(resolved), group(raw), `own ${Object.keys(patch)[0]} blocks all style timing fields`);
+    h.eq(resolved.duration, 700, "timing override still inherits independent duration");
+    h.eq(resolveTrack(resolved, cd), resolved, "timing group resolution is idempotent");
+  }
+  h.eq(group(resolveTrack({ ...base, curve: undefined, influence: null, easing: null } as any, cd)), group(cs.track as Track), "null/undefined timing fields inherit together");
+  const saved = presetTrackOf(resolveTrack(base, cd));
+  h.eq(saved.curve, cs.track.curve, "presetTrackOf retains the curve");
+  h.ok(saved.curve !== cs.track.curve, "presetTrackOf deep-copies the curve");
+  h.eq(makeAnimPreset("Spring", resolveTrack(base, cd)).track.curve, cs.track.curve, "animation preset carries curve");
+  const ctx = { elements: slide.elements, manifestFor: () => undefined };
+  const slots = deriveTemplateSlots([resolveTrack(base, cd)], ctx).slots;
+  h.eq(slots[0].track.curve, cs.track.curve, "derived template carries curve");
+  h.eq(applyTemplate({ fluxPreset: 1, kind: "animTemplate", name: "Spring", slots }, { kind: "elements", ids: [x] }, ctx).tracks[0].curve, cs.track.curve, "template application retains curve");
+  const cb = ops.addBeat(cd, ops.addSlide(cd, { id: "s" }).id)!;
+  cb.tracks = [{ ...base, id: "t" }];
+  ops.setAnimStyle(cd, cs.id, { track: { easing: "linear" } });
+  h.eq(group(cs.track as Track), [undefined, undefined, "linear"], "editing style easing clears its other representations");
+  ops.setAnimStyle(cd, cs.id, { track: { curve: { kind: "spring", bounce: 0.2 } } });
+  h.eq(group(cs.track as Track), [{ kind: "spring", bounce: 0.2 }, undefined, undefined], "editing style curve clears legacy fields");
+  ops.linkTrackStyle(cd, "s", "t", null);
+  h.eq(cb.tracks[0].curve, { kind: "spring", bounce: 0.2 }, "detaching style materializes its curve");
+  const snap = { fluxPreset: 1 as const, kind: "slide" as const, name: "Curve snapshot", savedAt: "", stage: cd.stage, slide: cd.slides[0], animStyles: slideAnimStyles(cd.slides[0], cd) };
+  const dest = ops.createDeck({ withTitleSlide: false });
+  ops.insertSlideSnapshot(dest, snap);
+  h.eq(dest.slides[0].beats[1].tracks[0].curve, cb.tracks[0].curve, "slide preset insertion retains detached curve");
+  const md = ops.createDeck({ withTitleSlide: false });
+  let refused = "";
+  try { ops.addAnimStyle(md, { name: "Bad", family: "media", track: { preset: "videoStart", stagger: { perMs: 10 } } }); } catch (e) { refused = String(e); }
+  h.ok(/media.*stagger|stagger.*media/i.test(refused) && !md.animStyles?.length, "media style creation refuses stagger without mutation");
+  const ms = ops.addAnimStyle(md, { name: "Clip", family: "media", track: { preset: "videoStart" } });
+  refused = "";
+  try { ops.setAnimStyle(md, ms.id, { track: { stagger: { perMs: 0 } } }); } catch (e) { refused = String(e); }
+  h.ok(/media.*stagger|stagger.*media/i.test(refused) && !ms.track.stagger, "media style edits refuse even zero stagger without mutation");
+}
 
 h.section("anchors and invalid graphs");
 const a: Track = { id: "a", target: x, start: 50, duration: 100, easing: "linear", preset: "fade" };
@@ -229,5 +277,49 @@ try {
   const final = await core.loadDeck(root, "cli");
   h.ok(final.slides[0].beats[1].tracks.every(t => !t.styleId && t.duration === 900), "delete persists detached effective duration");
   h.eq(final.slides[0].beats[1].tracks[1].start, 910, "anchor detach preserves the last resolved start");
+  h.eq(run("set-track", "cli", "s", "a", "--curve", "spring(0.35)").status, 0, "CLI accepts spring grammar");
+  let curveDisk = JSON.parse(await fs.readFile(file, "utf8"));
+  h.eq(curveDisk.slides[0].beats[1].tracks[0].curve, { kind: "spring", bounce: 0.35 }, "REAL CLI persists spring spec on disk");
+  h.eq(validateDeckFile(curveDisk), [], "CLI spring deck passes the generated validator");
+  const curveBytes = await fs.readFile(file, "utf8"), badCurve = run("set-track", "cli", "s", "a", "--curve", "garbage");
+  h.ok(badCurve.status !== 0 && /spring\(.*bezier\(.*steps\(/s.test(badCurve.stderr) && /bouncy/.test(badCurve.stderr), "invalid CLI curve lists grammar and catalog names");
+  h.eq(await fs.readFile(file, "utf8"), curveBytes, "invalid curve leaves saved bytes intact");
+  h.eq(run("set-track", "cli", "s", "a", "--curve", "linear").status, 0, "CLI curve grammar accepts legacy token");
+  curveDisk = JSON.parse(await fs.readFile(file, "utf8"));
+  h.ok(curveDisk.slides[0].beats[1].tracks[0].easing === "linear" && !curveDisk.slides[0].beats[1].tracks[0].curve, "CLI token replaces spring instead of hiding behind it");
+  const setTx = run("set-transform", "cli", "s", "b", cliSlide.elements[0].id, "--state", '{"x":100}', "--curve", "bouncy");
+  h.eq(setTx.status, 0, `CLI transform accepts catalog curve: ${setTx.stderr}`);
+  const transformedDisk = JSON.parse(await fs.readFile(file, "utf8")).slides[0].beats[1].tracks.find((t: Track) => t.preset === "transform");
+  h.eq(transformedDisk?.curve, { kind: "spring", bounce: 0.35 }, "CLI transform persists the catalog spec");
+  h.ok(transformedDisk && !transformedDisk.easing && !transformedDisk.influence, "CLI transform clears its default timing representation");
+  const paramsOnly = run("anim-style", "create", "cli", "--name", "Parameters", "--family", "appearance", "--preset", "fade", "--params", '{"amount":0.25}');
+  h.eq(paramsOnly.status, 0, `CLI style params: ${paramsOnly.stderr}`);
+  if (paramsOnly.status === 0) h.eq(JSON.parse(paramsOnly.stdout)[0].track.params, { amount: 0.25 }, "CLI params survive on style");
+  const influenceOnly = run("anim-style", "create", "cli", "--name", "Influence", "--family", "appearance", "--preset", "fade", "--influence", '{"in":30,"out":40}');
+  h.eq(influenceOnly.status, 0, `CLI style influence: ${influenceOnly.stderr}`);
+  if (influenceOnly.status === 0) h.eq(JSON.parse(influenceOnly.stdout)[0].track.influence, { in: 30, out: 40 }, "CLI influence survives on style");
+  const curvedStyle = run("anim-style", "create", "cli", "--name", "Curved", "--family", "appearance", "--preset", "fade", "--curve", "steps(8)", "--params", '{"amount":0.5}');
+  h.eq(curvedStyle.status, 0, `CLI style accepts curve and params: ${curvedStyle.stderr}`);
+  if (curvedStyle.status === 0) {
+    const st = JSON.parse(curvedStyle.stdout)[0];
+    h.eq([st.track.curve, st.track.params], [{ kind: "steps", n: 8 }, { amount: 0.5 }], "style stores curve spec and params");
+    const styleSet = run("anim-style", "set", "cli", st.id, "--influence", '{"in":30,"out":40}');
+    h.eq(styleSet.status, 0, "CLI style accepts influence JSON");
+    if (styleSet.status === 0) h.eq([JSON.parse(styleSet.stdout)[0].track.curve, JSON.parse(styleSet.stdout)[0].track.influence], [undefined, { in: 30, out: 40 }], "CLI influence clears style curve");
+    h.eq(run("anim-style", "set", "cli", st.id, "--curve", "gentle").status, 0, "CLI style set accepts curve grammar");
+    const styledDisk = JSON.parse(await fs.readFile(file, "utf8")).animStyles.find((s: { id: string }) => s.id === st.id).track;
+    h.eq([styledDisk.curve, styledDisk.influence, styledDisk.easing], [{ kind: "bezier", p: [0.37, 0, 0.63, 1] }, undefined, undefined], "CLI style set persists only the new timing spec");
+  }
+  curveDisk = await core.loadDeck(root, "cli");
+  const extra = ops.addBeat(curveDisk, "s", { id: "extra" })!;
+  extra.tracks = [{ id: "outside", target: cliSlide.elements[0].id, preset: "fade" }];
+  await core.saveDeck(root, curveDisk);
+  const filtered = run("animate-like", "cli", "s", "--beat", "b", "--from", "a", "--to", "b,outside");
+  h.eq(filtered.status, 0, `CLI animate-like beat filter: ${filtered.stderr}`);
+  if (filtered.status === 0) h.eq(JSON.parse(filtered.stdout).linked, ["b"], "CLI beat filter links only tracks in requested beat");
+  h.ok(!(await core.loadDeck(root, "cli")).slides[0].beats[2].tracks[0].styleId, "beat filter leaves other beat unlinked");
+  h.eq(run("animate-like", "cli", "s", "--from", "a", "--to", "outside").status, 0, "unfiltered animate-like retains slide-wide scope");
+  h.ok(!!(await core.loadDeck(root, "cli")).slides[0].beats[2].tracks[0].styleId, "unfiltered call links other beat");
+
 } finally { await fs.rm(root, { recursive: true, force: true }); }
 await h.done();

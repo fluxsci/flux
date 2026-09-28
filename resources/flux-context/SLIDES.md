@@ -59,7 +59,7 @@ flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min
      [--x-scale linear|log --y-scale linear|log --reset] [--beat beatId]            # (set_plot_view) data view, or a Change at a deck beat
 
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
-flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state]
+flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
      [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
@@ -75,13 +75,13 @@ flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]    
 
 # linked deck styles + relative timing
 flux anim-style create <deck> --name L --family appearance|transform|media --preset P
-     [--duration ms --start ms --easing e --stagger '{"perMs":30}'] # (anim_style)
-flux anim-style set <deck> <styleId> [--name L --preset P --duration ms --start ms --easing e]
+     [--duration ms --start ms --curve grammar --params json --influence json --stagger '{"perMs":30}'] # (anim_style)
+flux anim-style set <deck> <styleId> [--name L --preset P --duration ms --start ms --curve grammar --params json --influence json]
 flux anim-style delete <deck> <styleId>                         # detach linked effects, preserving their settings
 flux anim-style list <deck>
-flux animate-like <deck> <slideId> --from t1 --to t2,t3          # (animate_like) share the source style; family mismatches reported
+flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (animate_like) share the source style; family mismatches reported
 flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
-     [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --easing e] # (set_track)
+     [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -120,7 +120,7 @@ to place multiple appearance effects on the same object in one step.
   both ends, or draw only its top half. Only STROKE-rendered shapes self-draw (a filled shape
   fades — dash windows hide strokes alone). Defaults reproduce the classic full draw.
 - `writeOn`/`wipeOut` take `params.direction: ltr|rtl|ttb|btt`.
-- Timing knobs on every track: `start`, `duration`, `easing`
+- Timing knobs on every track: `start`, `duration`, `curve`, `easing`
   (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
   profile), `stagger` ({perMs, by: index|x|y, from: start|end|center|edges}).
 
@@ -230,6 +230,29 @@ Track groups (`Beat.groups[]` + `Track.groupId`) are presentational animator lan
 never change playback. Collapse state persists in the deck (you can read the authoring
 layout).
 
+**Timing curves:** `set-track`, `set-transform` and `anim-style create|set` accept
+`--curve '<grammar>'` (MCP: `curve` string). The grammar is:
+
+- `standard`, `smooth`, `enter`, `exit`, `linear` — the existing easing tokens.
+- `gentle`, `overshoot`, `anticipate`, `anticipate + overshoot`, `settle`, `snappy`,
+  `bouncy`, `playful`, `steps`, `hold` — catalog names, stored as concrete specs.
+- `spring(0.35)`, `spring(0.35, v=2)` or `spring(k=170, c=26, m=1)`.
+- `bezier(0.34,1.56,0.64,1)` or `cubic-bezier(0.34,1.56,0.64,1)`.
+- `steps(8)` or `steps(1,start)`; omitted jump means end.
+
+Input values are clamped: bezier x handles 0–1, y handles −1–2, spring bounce
+−0.5–0.8, steps a whole number 1–60. Decks store `curve:{kind:"spring",bounce:0.35}`,
+`{kind:"bezier",p:[x1,y1,x2,y2]}` or `{kind:"steps",n:8,jump?:"start"|"end"}`.
+Spring velocity is optional; m/k/c are input sugar, never stored. The bar's duration is
+the settle time. PowerPoint uses Morph's own easing.
+
+`curve`, `influence` and `easing` are one logical timing field. Any own value blocks
+all three from a linked style. Editing one clears the other two; `--curve` wins when
+combined with legacy options. `--easing` remains available for the five tokens.
+In the pure ops, `setTrackCurve(deck, slideId, trackId, null)` clears all three to
+inherit the style or use the preset default. No field changes on existing files;
+legacy records with several representations still read curve > influence > easing > default.
+
 **Linked reuse:** `deck.animStyles` carries named HOW definitions. An own track field wins;
 an absent field inherits. Linking removes own HOW fields except `preset`, which always stays on
 the track: linking writes the style's preset (same family only), and `anim-style set --preset`
@@ -237,14 +260,18 @@ rewrites it on every linked track. "None though the style has one" is `stagger:{
 `influence:{in:0,out:0}` or `params:{}` on the track (never `null`). Detaching or deleting a style
 materializes the resolved settings; bindings and transform endpoints stay on each track.
 `animate-like` links the source and targets to a shared style (creating `Like <label>` when
-needed), refusing incompatible families per target. Portable slide snapshots carry referenced
+needed), refusing incompatible families per target. `--beat <beatId>` requires the source
+and limits targets to that beat; omitted, it links across the slide. `anim-style` also accepts
+`--params` and `--influence` as JSON; media styles refuse stagger. Portable slide snapshots carry referenced
 styles; insertion merges by name and family.
 
 **Follow timing:** `anchor:{trackId,edge:"start"|"end",offsetMs?}` follows a same-step effect.
 End includes duration and the stagger tail. Cycles and missing targets produce compiler issues
 and fall back to the stored start. The setter refuses invalid anchors before saving.
 `set-track --start` moves an anchor's offset; `--no-anchor` preserves its resolved start.
-A start cascade edits offsets, and a duration cascade writes a local style override.
+Moving or copying a track to another beat detaches its anchor and keeps the resolved start;
+same-beat operations keep the anchor. A start cascade edits offsets, and a duration cascade
+writes a local style override.
 
 **Reuse:** presets (one track's settings) live at `<FluxConfig>/presets/animations/`,
 templates (bundles with role/type matchers) at `<FluxConfig>/presets/anim-templates/`.

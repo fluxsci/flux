@@ -159,9 +159,9 @@ The established shared cores — extend these, don't duplicate them:
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
 | N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
-| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; shell easing-token census) |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
 | Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
-| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar and catalog) | `src/lib/slide/curves.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots) |
+| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts` (public core + flux-core export identity), `verify-slide-easing.ts` (pre-M1 byte snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
 | Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
@@ -880,7 +880,10 @@ Persistence invariants (all machine-checked — do not weaken):
   New CSS `linear()` approximation
   measures vertical error at fixed time (perpendicular distance underestimates steep
   springs). Endpoint guards need a continuity probe to catch a missing spring residual.
-  The type-only `Track.curve` seam awaits M3 validation. M2 binds one `ResolvedCurve`
+  `Track.curve` is an optional tagged bezier/spring/steps record in the 0.6.0 schema,
+  shared by ordinary tracks, ghost births and animation styles. Grammar inputs clamp;
+  disk validation refuses invalid shapes/ranges. Authoring uses `setTrackCurve` or
+  the timing patch ops, which clear competing easing/influence fields. M2 binds one `ResolvedCurve`
   per compiled track/spec: box channels extrapolate `fn`, other channels use `clamped`,
   and controllers receive `seek(u, raw)` for raw-keyed phase decisions. The camera is a
   box-class channel: compiler and player both take `fn` through `slide/camera.ts`, and
@@ -2544,7 +2547,10 @@ outside this PNG packaging change.
   `compiled.resolvedSlide` includes disabled/dangling tracks for inspection. Pure authoring
   readers use `resolveTrack`/`resolveBeat` with deck styles and target manifests. A field
   present on the track overrides the style; `undefined`/`null` are absent and inherit (there is
-  no explicit-null override, and the schema refuses `null`). "None though the style has one" is a
+  no explicit-null override, and the schema refuses `null`). The three timing fields
+  (`curve`, `influence`, `easing`) inherit as ONE group: any own value blocks the style's
+  entire group. Setting one clears the others; `setTrackCurve(..., null)` clears all
+  three to inherit/default. "None though the style has one" is a
   sentinel the Animator already writes: `stagger: {perMs: 0}`, `influence: {in: 0, out: 0}`,
   `params: {}`. Resolution is idempotent. **`preset` never resolves from a style:** it defines
   the family, and `familyOf(track)` (family law, `tracksMatch`, ghost births, media checks) reads
@@ -2558,8 +2564,10 @@ outside this PNG packaging change.
   instead, preserving the family-defining own field. Style edits send sparse patches: resending
   an unchanged preset would overwrite those local preset overrides. Static hosts pass the same style context,
   and thumbnail invalidation includes only the styles that slide references.
-  Snapshot saves carry `slideAnimStyles`; cloned
-  tracks remap timing anchors beside ghost IDs. `trackDuration` remains exported by compile
+  Snapshot saves carry `slideAnimStyles` and curve specs; cloned
+  beats/slides remap timing anchors beside ghost IDs. Moving/copying a track across
+  beats detaches its anchor to the source beat's resolved start (pass `manifestFor`
+  for semantic stagger tails); a same-beat edit keeps it. Media styles refuse stagger. `trackDuration` remains exported by compile
   but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
   reproduced chained plot morphs restarting from the base asset, text crossfades retaining
@@ -8152,3 +8160,13 @@ unchanged-value skip. Compiler/`become --asset` wording is "has no counterpart a
 **Learnings:** Test rest frames against the endpoint's own static render in both directions
 (`verify-plot-binding`); fixture ids in a pure gate that bypass `preparePlot` hide id stamping.
 
+### 2026-09-28 03:34 UTC — Animation v2 curve authoring and persistence (Codex, av2/M3)
+**Work:** Added the optional tagged curve schema, whole-group style inheritance and curve edits,
+curve-bearing templates and transform/ghost/Become options, catalog easing defaults, CLI grammar,
+beat-filtered Animate like, media-style stagger refusal and cross-beat anchor detachment.
+Updated model/manual docs and generated validators/manual. The slide suite passes 53/53;
+new model/ops/CLI assertions fail on the pre-M3 tree. The all-source easing census deliberately
+reports the pending F2 `animator/shared.ts` literal on this base; that file remains F2-owned.
+**Learnings:** The canonical schema/generator live in `src/lib/project`, with flux-core re-export
+shims. Cross-beat anchor detachment needs the source beat's manifests for semantic stagger tails;
+the pure ops accept `manifestFor` and headless move supplies it. Promoted both contracts to the body.

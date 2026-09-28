@@ -24,7 +24,7 @@ import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
 import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
 import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
-import { isExitPreset } from "./presetCatalog";
+import { defaultEasingFor, isExitPreset } from "./presetCatalog";
 import { compileSlide, trackDuration } from "./compile";
 import { diffState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
@@ -43,6 +43,8 @@ import {
   type StageSize,
   type Camera,
   type TransitionKind,
+  type Curve,
+  type EasingToken,
   type Influence,
   type Stagger,
   type TargetRef,
@@ -108,7 +110,7 @@ export function createDeck(opts: CreateDeckOpts = {}): Deck {
     modified: now,
     stage: opts.stage ?? { ...DEFAULT_STAGE },
     theme: opts.theme ?? DEFAULT_THEME_ID,
-    defaults: { transition: "fade", buildEasing: "smooth", advance: "click" },
+    defaults: { transition: "fade", buildEasing: defaultEasingFor("transform"), advance: "click" },
     palette: [],
     colorGroups: structuredClone(FLEXOKI),
     textStyles: presentationTextStyles(opts.theme ?? DEFAULT_THEME_ID, opts.stage?.height ?? DEFAULT_STAGE.height),
@@ -715,7 +717,35 @@ export function findTrack(deck: Deck, trackId: Id): { slide: Slide; beat: Beat; 
 // resolution (slide/resolve.ts header).
 export interface TrackEditResult { ok: boolean; reason?: string }
 
+/** The three on-disk representations are one authoring field. For a patch
+ * carrying several, preserve the resolver's precedence (curve > influence > token).
+ * Undefined means no edit; null clears the group and restores inheritance. */
+export interface TimingCurvePatch {
+  curve?: Curve | EasingToken | null;
+  influence?: Influence | null;
+  easing?: EasingToken | null;
+}
+function patchTimingCurve(track: Pick<Track, "curve" | "influence" | "easing">, patch: TimingCurvePatch): void {
+  const { curve, influence, easing } = patch;
+  if (curve === undefined && influence === undefined && easing === undefined) return;
+  delete track.curve; delete track.influence; delete track.easing;
+  if (curve !== undefined) {
+    if (typeof curve === "string") track.easing = curve;
+    else if (curve !== null) track.curve = structuredClone(curve);
+  } else if (influence !== undefined) {
+    if (influence !== null) track.influence = { ...influence };
+  } else if (easing != null) track.easing = easing;
+}
+
+export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve | EasingToken | null): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  patchTimingCurve(found.track, { curve });
+  return { ok: true };
+}
+
 function styleValid(style: Omit<AnimStyle, "id">): void {
+  if (style.family === "media" && style.track.stagger != null) throw new Error("Media animation styles cannot use stagger");
   if (!style.name.trim()) throw new Error("Animation style needs a name");
   if (familyOf(style.track) !== style.family) throw new Error("Style preset and family must agree");
 }
@@ -732,6 +762,7 @@ export function setAnimStyle(deck: Deck, id: Id, patch: Partial<Omit<AnimStyle, 
   const style = deck.animStyles?.find(s => s.id === id);
   if (!style) return false;
   const next = { ...style, ...structuredClone(patch), track: { ...style.track, ...structuredClone(patch.track) } };
+  if (patch.track) patchTimingCurve(next.track, patch.track);
   styleValid(next);
   const linked = deck.slides.flatMap(s => s.beats.flatMap(b => b.tracks.filter(t => t.styleId === id)));
   if (next.family !== style.family && linked.length)
@@ -783,15 +814,19 @@ export function styleFromTrack(deck: Deck, slideId: Id, trackId: Id, name: strin
   return style;
 }
 
-export function animateLike(deck: Deck, slideId: Id, fromTrackId: Id, toTrackIds: Id[]): { styleId?: Id; linked: Id[]; refused: { trackId: Id; reason: string }[] } {
+export function animateLike(deck: Deck, slideId: Id, fromTrackId: Id, toTrackIds: Id[], beatId?: Id): { styleId?: Id; linked: Id[]; refused: { trackId: Id; reason: string }[] } {
   const source = findTrack(deck, fromTrackId);
   const refused: { trackId: Id; reason: string }[] = [], linked: Id[] = [];
   if (!source || source.slide.id !== slideId) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Source track not found on this slide" })) };
+  if (beatId !== undefined && source.beat.id !== beatId) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Source track not found in the selected beat" })) };
   const el = source.slide.elements.find(e => e.id === source.track.target);
   const label = el?.name || (el?.type === "text" ? el.text.split("\n")[0].slice(0, 60) : el?.type) || source.track.target;
   const style = deck.animStyles?.find(s => s.id === source.track.styleId) ?? styleFromTrack(deck, slideId, fromTrackId, `Like ${label}`);
   if (!style) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Camera tracks cannot share animation styles" })) };
   for (const trackId of new Set(toTrackIds)) {
+    if (beatId !== undefined && !source.beat.tracks.some(t => t.id === trackId)) {
+      refused.push({ trackId, reason: "Target track not found in the selected beat" }); continue;
+    }
     const result = linkTrackStyle(deck, slideId, trackId, style.id);
     if (result.ok) linked.push(trackId); else refused.push({ trackId, reason: result.reason! });
   }
@@ -815,8 +850,8 @@ export function setTrackAnchor(deck: Deck, slideId: Id, trackId: Id, anchor: Tra
 /** Generic timing edits share linked-style and anchored-start semantics. */
 export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
   styleId?: Id | null; anchor?: Track["anchor"] | null;
-  start?: number; duration?: number; easing?: Track["easing"];
-}, manifestFor: ManifestFor = () => undefined): TrackEditResult {
+  start?: number; duration?: number;
+} & TimingCurvePatch, manifestFor: ManifestFor = () => undefined): TrackEditResult {
   const found = findTrack(deck, trackId);
   if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
   const saved = structuredClone(found.track);
@@ -843,15 +878,16 @@ export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
       found.track.anchor.offsetMs = (found.track.anchor.offsetMs ?? 0) + value - current;
     } else found.track[key] = value;
   }
-  if (patch.easing !== undefined) found.track.easing = patch.easing;
+  patchTimingCurve(found.track, patch);
   return { ok: true };
 }
 
 /** Move a track into another beat on the same slide (drag a chip across
  *  columns). `at` places it at a lane index (default: append). Timing (start/
  *  duration/stagger) travels untouched; a beat-local group membership is
- *  dropped on a CROSS-beat move (groups live per beat). */
-export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number): boolean {
+ *  dropped on a CROSS-beat move (groups live per beat). An anchor detaches
+ *  to its resolved start before leaving the source beat. */
+export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number, manifestFor: ManifestFor = () => undefined): boolean {
   const s = slideById(deck, slideId);
   if (!s) return false;
   const to = beatById(s, toBeatId);
@@ -862,6 +898,10 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
     const candidate = b.tracks[i];
     if (to === s.beats[0]) return false;
     if (["transform", "media"].includes(familyOf(candidate)) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate))) return false;
+    if (b !== to && candidate.anchor) {
+      candidate.start = resolveStart(candidate, b, deck, manifestFor).start;
+      delete candidate.anchor;
+    }
     const [t] = b.tracks.splice(i, 1);
     if (b.id !== to.id && t.groupId) delete t.groupId;
     // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
@@ -876,7 +916,7 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
 /** Deep-copy a track, in place by default or directly into another beat. The
  * destination is checked before mutation: a cross-step Change copy must not
  * temporarily create the forbidden second Change in its source step. */
-export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: Id, at?: number): Id | null {
+export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: Id, at?: number, manifestFor: ManifestFor = () => undefined): Id | null {
   const s = slideById(deck, slideId);
   if (!s) return null;
   for (const b of s.beats) {
@@ -887,6 +927,10 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
     if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(b.tracks[i])) && to.tracks.some(t => tracksMatch(t, b.tracks[i]))) return null;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
+    if (to !== b && copy.anchor) {
+      copy.start = resolveStart(b.tracks[i], b, deck, manifestFor).start;
+      delete copy.anchor;
+    }
     if (copy.ghostFrom) {
       const { idRemap, groupRemap } = cloneBirthResults(s, [copy]);
       copy.target = idRemap.get(copy.target) ?? copy.target;
@@ -945,11 +989,10 @@ export function removeTracks(deck: Deck, slideId: Id, trackIds: Id[]): void {
   }
 }
 
-export interface GhostTransformOptions {
+export interface GhostTransformOptions extends TimingCurvePatch {
   count?: number;
   original?: "stay" | "disappear" | "transform";
   duration?: number;
-  easing?: import("./types").EasingToken;
   start?: number;
   /** Independent sparse destinations, in copy order. */
   states?: Record<string, unknown>[];
@@ -997,8 +1040,9 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     delete (copy as unknown as Record<string, unknown>).panelLabel;
     slide.elements.push(copy);
     const track: Track = { id: newId("track"), target: copy.id, ghostFrom: sourceId, preset: "transform", groupId,
-      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0,
+      duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("transform"), start: opts.start ?? 0,
       to: { state: structuredClone(opts.states?.[i] ?? {}) } };
+    patchTimingCurve(track, opts);
     beat.tracks.push(track); out.elementIds.push(copy.id); out.trackIds.push(track.id!);
   }
   beat.groups = [...(beat.groups ?? []), { id: groupId, label: `Ghosts of ${label}` }];
@@ -1006,15 +1050,18 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     const previous = changes[0];
     const track = setTransform(deck, slideId, beatId, sourceId, {
       ...(opts.originalState ? { state: opts.originalState } : {}),
-      ...(!previous ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
+      ...(!previous ? { duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("transform"), start: opts.start ?? 0,
+        ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
+        ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
+      } : {}),
     })!;
     delete track.disabled;
     if (!previous) track.groupId = groupId;
     out.originalTrackId = track.id;
   } else if (original === "disappear") {
     const track = exits[0] ?? { id: newId("track"), target: sourceId, preset: "fadeOut" as const,
-      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
-    if (!exits.length) beat.tracks.push(track);
+      duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("fadeOut"), start: opts.start ?? 0, groupId };
+    if (!exits.length) { patchTimingCurve(track, opts); beat.tracks.push(track); }
     out.originalTrackId = track.id;
   }
   return out;
@@ -1128,15 +1175,13 @@ export function setTransform(
     replaceState?: boolean;
     start?: number;
     duration?: number;
-    easing?: import("./types").EasingToken;
-    influence?: import("./types").Influence;
     /** content half: the asset the element's content becomes (+ explicit
      *  source paths; `source` carries the full bundle of a placed plot). */
     toAssetId?: Id;
     svgPath?: string;
     manifestPath?: string;
     source?: SemanticPlotElement["source"] | null;
-  } = {},
+  } & TimingCurvePatch = {},
 ): Track | null {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
@@ -1144,7 +1189,7 @@ export function setTransform(
   const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
   let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
   if (!t) {
-    t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
+    t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: defaultEasingFor("transform"), to: { state: {} } };
     if (opts.ref?.parts?.length) {
       if (opts.ref.parts.length === 1) t.part = opts.ref.parts[0];
       else t.parts = [...opts.ref.parts];
@@ -1178,8 +1223,7 @@ export function setTransform(
   if (opts.manifestPath != null) t.to.manifestPath = opts.manifestPath;
   if (opts.start != null) t.start = opts.start;
   if (opts.duration != null) t.duration = opts.duration;
-  if (opts.easing != null) t.easing = opts.easing;
-  if (opts.influence != null) t.influence = opts.influence;
+  patchTimingCurve(t, opts);
   return t;
 }
 
@@ -1189,13 +1233,12 @@ export function clearTransformContent(track: Track): void {
   for (const key of ["assetId", "svgPath", "manifestPath", "recipePath", "frozen", "external", "become"]) delete track.to[key];
 }
 
-export interface BecomeOptions {
+export interface BecomeOptions extends TimingCurvePatch {
   mode?: BecomeSpec["mode"];
   pair?: BecomeSpec["pair"];
   reveal?: BecomeSpec["reveal"];
   start?: number;
   duration?: number;
-  easing?: import("./types").EasingToken;
   /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
   compiled?: ReturnType<typeof compileSlide>;
 }
@@ -1233,9 +1276,11 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   const mode = opts.mode ?? (isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
   const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
   const timing = {
-    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
+    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? defaultEasingFor("transform"), start: opts.start ?? 0 } : {}),
     ...(opts.duration != null ? { duration: opts.duration } : {}),
-    ...(opts.easing != null ? { easing: opts.easing } : {}),
+    ...(opts.easing !== undefined ? { easing: opts.easing } : {}),
+    ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
+    ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
     ...(opts.start != null ? { start: opts.start } : {}),
   };
   if (mode === "handoff") {
@@ -1300,6 +1345,8 @@ export function appearFrom(deck: Deck, slideId: Id, beatId: Id, dest: TargetRef,
 
 /** The cascade-editable timing fields of one track at session start. */
 export interface TrackCascadeBaseline {
+  curve?: Curve;
+  easing?: EasingToken;
   anchor?: Track["anchor"];
   start?: number;
   duration?: number;
@@ -1343,6 +1390,8 @@ export function cascadeTracks(
         anchor: t.anchor ? { ...t.anchor } : undefined,
         start: t.start,
         duration: t.duration,
+        curve: t.curve ? structuredClone(t.curve) : undefined,
+        easing: t.easing,
         influence: t.influence ? { ...t.influence } : undefined,
         stagger: t.stagger ? { ...t.stagger } : undefined,
       });
@@ -1352,6 +1401,8 @@ export function cascadeTracks(
     else t.start = b0.start;
     if (b0.duration === undefined) delete t.duration;
     else t.duration = b0.duration;
+    if (b0.curve === undefined) delete t.curve; else t.curve = structuredClone(b0.curve);
+    if (b0.easing === undefined) delete t.easing; else t.easing = b0.easing;
     if (b0.influence === undefined) delete t.influence;
     else t.influence = { ...b0.influence };
     if (b0.stagger === undefined) delete t.stagger;
@@ -1383,8 +1434,7 @@ export function cascadeTracks(
         const inf: Influence = { in: b0.influence?.in ?? 0, out: b0.influence?.out ?? 0 };
         inf[side] = clampTrackValue(spec.property, cascadeValue(inf[side], spec, step));
         // Both zero ⇒ no velocity profile at all (PropertiesPane parity).
-        if (!inf.in && !inf.out && !t.styleId) delete t.influence;
-        else t.influence = inf;
+        patchTimingCurve(t, { influence: !inf.in && !inf.out && !t.styleId ? null : inf });
         break;
       }
       case "stagger.perMs": {

@@ -7,6 +7,8 @@
 // strict on the load-bearing fields (ids, types, required structure) — which is
 // exactly what catches an agent's malformed write.
 
+import { EASING_TOKENS } from "../slide/curves";
+
 const draft = "http://json-schema.org/draft-07/schema#";
 
 // ---------------------------------------------------------------------------
@@ -18,6 +20,27 @@ const draft = "http://json-schema.org/draft-07/schema#";
 // null corruption. additionalProperties stays permissive so hand-authored
 // agent files with extra keys keep loading.
 // ---------------------------------------------------------------------------
+
+// Optional on every track, including ghost births and reusable style tracks.
+const CURVE = { oneOf: [
+  { type: "object", required: ["kind", "p"], additionalProperties: false, properties: {
+    kind: { const: "bezier" }, p: { type: "array", minItems: 4, maxItems: 4, items: [
+      { type: "number", minimum: 0, maximum: 1 }, { type: "number", minimum: -1, maximum: 2 },
+      { type: "number", minimum: 0, maximum: 1 }, { type: "number", minimum: -1, maximum: 2 },
+    ] },
+  } },
+  { type: "object", required: ["kind", "bounce"], additionalProperties: false, properties: {
+    kind: { const: "spring" }, bounce: { type: "number", minimum: -0.5, maximum: 0.8 }, velocity: { type: "number" },
+  } },
+  { type: "object", required: ["kind", "n"], additionalProperties: false, properties: {
+    kind: { const: "steps" }, n: { type: "integer", minimum: 1, maximum: 60 }, jump: { enum: ["start", "end"] },
+  } },
+] };
+const TIMING_CURVE_PROPS = {
+  easing: { type: "string", enum: EASING_TOKENS },
+  influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
+  curve: CURVE,
+};
 
 const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 // Per-range text formatting (textRuns.ts). Lenient like every other element
@@ -458,7 +481,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
             id: { type: "string" },
             name: { type: "string" },
             family: { enum: ["appearance", "transform", "media"] },
-            track: { type: "object" },
+            track: { type: "object", properties: TIMING_CURVE_PROPS },
           },
         },
       },
@@ -516,8 +539,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         params: { type: "object" },
                         start: { type: "number" },
                         duration: { type: "number" },
-                        easing: { type: "string" },
-                        influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
+                        ...TIMING_CURVE_PROPS,
                         stagger: { type: "object" },
                         // 0.3.0: `to.state` carries a transform's sparse patch
                         to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },

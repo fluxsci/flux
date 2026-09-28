@@ -143,12 +143,18 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `set-video-settings <deck> <s> <el> --muted true --loop false` | `set_video_settings` | set clip audio/loop options |
 | `add-beat <deck> <s> [--label L]` · `set-animation <deck> <s> <beat> --target E [--preset P …]` | `add_beat` · `set_animation` | build timeline + appearance tracks (drawOn/writeOn/fades, trim windows) |
 | `set-plot-view <figureId\|deckId/slideId> <elementId> [--x-min N --x-max N --y-min N --y-max N --x-scale linear\|log --y-scale linear\|log --reset] [--beat ID]` | `set_plot_view` | save a data-unit axis view; a deck beat writes a Change, reset restores generated axes |
-| `set-transform <deck> <s> <beat> --target E […]` · `apply-anim-template <deck> <s>` · `group-tracks` / `ungroup-tracks` | `set_transform` · `apply_anim_template` · `group_tracks` / `ungroup_tracks` | TRANSFORM tracks (element tweens to a changed version of itself; plot data-morphs) / role-matched templates / animator lanes |
-| `anim-style create <deck> --name L --family F --preset P` · `anim-style set/delete <deck> <id>` · `anim-style list <deck>` | `anim_style` | deck-level linked effect settings; deletion preserves linked tracks' resolved settings |
-| `animate-like <deck> <s> --from t1 --to t2,t3` · `set-track <deck> <s> <t> [--style id\|--no-style] [--anchor t1:end:0\|--no-anchor] [--start ms --duration ms --easing e]` | `animate_like` · `set_track` | link effects by family; follow same-step timing; resolved start is reported with an anchored marker |
+| `set-transform <deck> <s> <beat> E [--curve grammar] […]` · `apply-anim-template <deck> <s>` · `group-tracks` / `ungroup-tracks` | `set_transform` · `apply_anim_template` · `group_tracks` / `ungroup_tracks` | TRANSFORM tracks (element tweens to a changed version of itself; plot data-morphs) / role-matched templates / animator lanes |
+| `anim-style create <deck> --name L --family F --preset P [--curve grammar --params json --influence json]` · `anim-style set <deck> <id> [--curve grammar --params json --influence json]` · `anim-style delete <deck> <id>` · `anim-style list <deck>` | `anim_style` | deck-level linked effect settings; deletion preserves linked tracks' resolved settings |
+| `animate-like <deck> <s> --from t1 --to t2,t3 [--beat beatId]` · `set-track <deck> <s> <t> [--style id\|--no-style] [--anchor t1:end:0\|--no-anchor] [--start ms --duration ms --curve grammar]` | `animate_like` · `set_track` | link effects by family; follow same-step timing; resolved start is reported with an anchored marker |
 | `ghost-transform <deck> <s> <beat> <source> [--count 3 --original stay\|disappear\|transform --states '<json array>']` | `ghost_transform` | create independent copies that begin at the source's prior-step state and transform to separate destinations; returns copy/track IDs for later edits |
 | `validate-deck [deck]` · `export-deck <deck> [--out F]` | `validate_deck` · `export_deck` | schema-check / export one offline `.html` |
 | `export-slide-video <deck> <slide> [--out F]` | `export_slide_video` | single-slide MP4; `--step-delay`, `--start-hold`, `--end-hold` in milliseconds; `--height 720\|1080\|2160`, `--fps 30\|60` |
+
+`--curve` accepts the grammar and catalog names in [SLIDES.md](SLIDES.md):
+`spring(0.35[, v=2])`, `spring(k=170,c=26,m=1)`, `bezier(x1,y1,x2,y2)` /
+`cubic-bezier(...)`, `steps(n[,start|end])`, or `standard`, `smooth`, `enter`, `exit`,
+`linear`, `gentle`, `overshoot`, `anticipate`, `anticipate + overshoot`, `settle`,
+`snappy`, `bouncy`, `playful`, `steps`, `hold`. Legacy `--easing` remains supported.
 
 ## MCP server (richer: typed verbs + inline figure PNGs)
 
