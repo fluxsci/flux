@@ -7673,3 +7673,15 @@ persistence, Figure and Slide wiring remain in the active `notes/flux_3d/LEDGER.
 **Learnings:** Promoted contract separation, original/prepared checksum distinction, finite
 missing-value channels, atomic derived-cache exception, whole-batch cancellation and sandbox
 GPU qualification into the body. The ledger retains detailed review findings and measurements.
+
+### 2026-09-28 06:48 UTC — Flux 3D P0 renderer closure (Codex, model3d)
+**Work:** Integrated the shared worker/inline renderer and generated notebook runtime,
+independent contract and public-Python fixture cohorts, plus isolated native poster rendering.
+Full pure tier322/322, model3d group7/7, check0/0, headless/build/prebundle/startup pass;
+startup remains605.1KB within800KB. Native x11 positively identifies NVIDIA; headless uses
+SwiftShader. Measurements and separate software/hardware artifacts live in the 3D ledger
+and `test-results/model3d/`. No product Figure/Slide wiring is implied by this seam closure.
+**Learnings:** Actual trusted VS Code Jupyter/QMD outputs execute scripts. Untrusted VS Code
+suppresses a mixed HTML/PNG output rather than selecting its PNG alternative; explicit
+static output is required there. Shared hosts must survive independently embedded bundle
+copies and shadow-root removal. Fixed sequence controls to reflect authored weights/Home.
