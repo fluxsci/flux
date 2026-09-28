@@ -2843,6 +2843,55 @@ outside this PNG packaging change.
   `ColorPicker.svelte`; `verify-no-native-color-input.ts` (pure, structural) and
   `verify-color-field.mjs` (ui) gate it.
 
+### 3D model traps (Flux 3D T1–T39)
+
+These constraints also apply when extending the Figure implementation into Slides.
+Stage 1 gates cover Figure, Paper and notebook paths. Slide-specific gates named
+below become release requirements with Stage 2; their listing is not a claim that
+those paths are already implemented or verified.
+
+| # | Trap | Mitigation / gate |
+| --- | --- | --- |
+| T1 | Electron 43 `--disable-gpu` or headless ozone → **no WebGL** (M3) | `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader` in the workers and under `SOFTGPU`; poster fallback; `verify-model3d-electron` SOFTGPU run |
+| T2 | 16-context cap per page (M5) | one context per document; `stats().contexts ≤ 1` in the render and GUI gates; embeds dispose offscreen |
+| T3 | Reusing a canvas for a second renderer loses the context (M9) | one renderer per canvas lifetime; dispose + `forceContextLoss`; render gate |
+| T4 | SwiftShader is slow on big meshes (M8) | adaptive interactive resolution; `GLB_LIMITS`; `max_faces` in fluxplot |
+| T5 | glTF default material is metallic → black (M14) | Flux-owned materials, metalness 0; the render gate checks mean luminance |
+| T6 | trimesh GLBs have no normals (M13) | `computeVertexNormals` at load; the fluxplot writer emits normals |
+| T7 | `connect-src` blocks `fetch(data:/blob:)` in the app and in decks | `parse(ArrayBuffer)` only; textures stripped; LUTs in code; the deck browser gate records CSP violations = 0 |
+| T8 | The capture boot decodes every `payload.assets` value as an image | GLB lives only in `payload.models`; `verify-model3d-slide` |
+| T9 | The zoom proxy can't see WebGL, foreignObject or `blob:` | the scene holds data-URL posters + SVG only; `verify-model3d-gui` zoom-proxy pixels |
+| T10 | Resize preview mounts a second `ElementView` | no WebGL in `Element.svelte`, ever |
+| T11 | `compileStaticContent`/crossfade call `fillContent` 2–3× | model-live `contentPlan` classification; the tween gate asserts one view per element |
+| T12 | Silent kind coercions (glb → svg/png) | fixed at every site; round-trip assertions in `verify-model3d-persistence` |
+| T13 | Collectors keyed on `'assetId' in e` | `elementAssetRefs` everywhere; headless gate "never GLB-as-PNG" |
+| T14 | `assetData` is resident base64 and journals hold base64 | GLB never enters either; `verify-model3d-import` asserts `assetData` has no glb |
+| T15 | One-sided numeric lerp defaults to 0 | required orbit props; the constructor gate |
+| T16 | Azimuth via `lerpRot` → a full turn does nothing | linear unwrapped; tween gate |
+| T17 | `camera` / `@camera` / `view` names are taken | `orbit*` prefix |
+| T18 | Worker-only deps discovered mid-run → Vite full reload | `optimizeDeps.include`; `verify-dev-prebundle` |
+| T19 | Connect diffs the project tree | read-only paths never write posters to the project; `verify-connect` with a 3D fixture |
+| T20 | GPU vs SwiftShader pixel differences (M11) | tolerance comparisons; engine-parity gates share one poster file |
+| T21 | Electron gates need `--ozone-platform=x11` argv (existing trap) | all electron gates; the poster-worker gate uses headless on purpose |
+| T22 | PDF static print runs with JavaScript disabled | posters mandatory; vector furniture; the export gate |
+| T23 | A native `<input type=color>` segfaults on Wayland | `ColorField.svelte` only |
+| T24 | Capture must be deterministic | synchronous render in `seek`; `preserveDrawingBuffer`; `readyMedia` awaits models; the video gate compares frame k with `seek(k)` |
+| T25 | `planFigSave` stamps versions unconditionally | conditional 0.2.0 stamping; the parity gate pins byte-identity without 3D |
+| T26 | `fig/renders/` is gitignored, so posters don't travel | by design (derived); the GUI and worker regenerate; documented in the user docs |
+| T27 | three.js ≥ r163 is WebGL2-only | availability = WebGL2 context creation |
+| T28 | A scene3d manifest reaching the 2D plot contract (same `.fluxplot.json` suffix) | dispatch on `spec` everywhere; `verify-model3d-scene3d` |
+| T29 | Furniture drifting from the WebGL projection | one `orbit.project`; ≤ 0.5 px parity in the browser gate |
+| T30 | Text measured at render time makes engines disagree | anchor-only layout; the furniture gate asserts no measurement calls; byte parity in `verify-paper-render-overrides` |
+| T31 | Notebook outputs ballooning with full-resolution GLBs | `preview_max_faces`; size warning; the save stays full resolution |
+| T32 | A notebook frontend that doesn't run scripts | a mixed HTML/PNG bundle supports no-script browsers; untrusted VS Code may suppress the entire bundle, so use `sc.show(static=True)` explicitly (N1) |
+| T33 | Transparent mesh parts sort wrongly | `depthWrite:false` for opacity < 1 and draw transparent parts last; documented limitation for interpenetrating transparent parts |
+| T34 | The hand-off player clones DOM nodes for raster pairs, and a cloned `<canvas>` carries no pixels | model3d supplies `renderCore.snapshot` bitmaps to the flight; the morph-browser gate asserts non-blank flights |
+| T35 | Welding, deduplicating, reordering or independently decimating vertices destroys morph correspondence | `prepareGlb` never touches vertex order; fluxplot drops only unreferenced vertices, and `share_topology_with` replays decimation; fingerprint gates on both sides |
+| T36 | A morph whose last frame isn't the destination's own render makes a visible pop at the handover | lerp bounds (`c`, `R`) with the orbit props; the morph-browser gate compares t = 1 against B's own render |
+| T37 | Up to 32 ghost copies × stage-sized canvases blow memory | backing stores only while born and visible; the morph-browser gate checks that hidden copies hold none |
+| T38 | Framing from base bounds lets an animated shape state leave the frame | `bounds` = union of base and each individual state at weight 1; combined/extrapolated weights may exceed this stable frame; registered `verify-model3d-core.ts` and `verify-model3d-glb.ts` + render gate |
+| T39 | Shape states multiply GLB size (24 B/vertex/state) | fluxplot size warning + `max_faces` replay across states; `GLB_LIMITS` still apply to the whole file |
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
 
 - **Agent registration:** automatic setup supports Claude Code and Codex. Other
@@ -7877,3 +7926,5 @@ The gate also exercises one-undo orbit, redo, one-event modifier handoff, axis/H
 
 ### 2026-09-28 14:28 UTC — Figure 3D user documentation (Codex, model3d-docs)
 **Work:** Documented mesh/fluxplot import, camera interaction, semantic fields and shapes, vector furniture exports, and notebook fallback behavior. The folder reference now includes GLB bundles, derived model posters and the previously omitted reserved `_videos` directory. Independent review checked the descriptions against the implemented controls and Python API; `verify-docs` passed.
+
+2026-09-28 14:46 UTC — Promoted Flux 3D traps T1–T39 into the guide body, with the measured N1 correction: untrusted VS Code may suppress both members of a mixed HTML/PNG output; explicit static output is the supported fallback. Stage 2 gate obligations remain marked as pending.
