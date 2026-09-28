@@ -7799,3 +7799,7 @@ custom combinations remain explicit. Registered semantics gate pins atomic refus
 prototype-safe field keys, resets, state bounds and sequence mapping. Root reviewed
 this first checkpoint before UI wiring. First headless invocation needed the standard
 slide-embed generator in the fresh worktree; generated output was not hand-edited.
+
+### 2026-09-28 08:25 UTC — Flux 3D explicit sources and static Figure exports
+
+The browser poster service now multiplexes immutable `ModelPosterSource` owners through one document worker. `retainModel3d(asset, {source})` preserves its ready/service/assetId/release API; `appModel3dService` counts gallery byte-backed retains too, so retiring Paper cannot dispose a gallery-only worker. Source reads validate prepared SHA; cache reads decode and require exact requested pixel dimensions. Source/cache awaits settle canceled subscribers immediately and never publish late. Static model SVG uses a shared pure projector (under-furniture, PNG mesh, over-furniture), and Figure exports capture metadata/source before awaiting and prepare final raster pixels or 600-DPI SVG/PDF before the save dialog. The new registered `verify-model3d-export.mjs` gate passed 17 checks; independent lifecycle probes closed missing-name, gallery ownership, and blocked-IO cancellation findings. Paper/headless integration continues separately.

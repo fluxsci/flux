@@ -1,3 +1,6 @@
+import { captureAppModelPosterSource, cachedModelPosterUrl } from './model3d/posterStore';
+import { model3dSvgContext, type Model3dSvgContext } from './model3d/static';
+import type { PosterSurface } from './model3d/poster';
 import { collectModel3dSourceBindings } from './model3d/sourceBinding';
 import { scene3dManifests, scene3dRecipes, scene3dGeneration, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
@@ -834,9 +837,21 @@ export function ensureFigurePlots(fig: Figure): void {
 
 /** Serialize a figure to standalone SVG markup with plots inlined (exported
  *  for the lazy-residency gates; every GUI export path funnels through here). */
-export function buildFigureSvg(fig: Figure): string {
-  const data = get(assetData), manifests = get(plotManifests);
-  const p = get(project);
+interface FigureRenderInputs { data: Record<string, string>; manifests: Record<string, FluxPlotManifest>; assets: Asset[]; models: Record<string, Scene3dManifest>; model3d?: Model3dSvgContext }
+function captureFigureInputs(): FigureRenderInputs {
+  return { data: { ...get(assetData) }, manifests: structuredClone(get(plotManifests)), assets: structuredClone(get(project).assets), models: structuredClone(get(scene3dManifests)) };
+}
+export function buildFigureSvg(fig: Figure, captured?: FigureRenderInputs): string {
+  const inputs = captured ?? captureFigureInputs(), { data, manifests } = inputs;
+  const p = { assets: inputs.assets } as Project;
+  const models = inputs.model3d ?? model3dSvgContext(inputs.assets, inputs.models);
+  if (!captured) {
+    const source = captureAppModelPosterSource();
+    for (const element of fig.elements) if (element.type === 'model3d') {
+      const asset = models.assetOf(element), ref = models.posterIdOf(element);
+      if (asset && ref) { const url = cachedModelPosterUrl({ element, asset, manifest: models.manifestOf(element) }, { source }); if (url) data[ref] = url; }
+    }
+  }
   const markup = new Map<string,string>();
   for (const el of fig.elements) {
     if (el.type !== "plot" && el.type !== "image" && el.type !== "video") continue;
@@ -849,10 +864,9 @@ export function buildFigureSvg(fig: Figure): string {
       markup.set(el.id,svg);
     }
   }
-  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined);
+  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined, { model3d: models });
 }
 
-const buildSvg = buildFigureSvg;
 
 // 3.2: save one paper's highlights/notes as a Markdown digest via the OS save dialog.
 // Callers pass the already-loaded annotations + entry metadata (reader/library both have them).
@@ -881,14 +895,22 @@ interface FigureExportJob {
 }
 /** Resolve plot DOM, asset bytes and overrides before the first async boundary.
  * A later editor/source change cannot alter a job waiting in an OS dialog. */
-function captureFigureExport(fig: Figure, transparent = false): FigureExportJob {
-  return Object.freeze({ svg: buildSvg(transparent ? { ...fig, background: "transparent" } : fig),
-    name: fig.name, width: fig.width, height: fig.height,
-    background: transparent ? null : fig.background && fig.background !== "transparent" ? fig.background : "#ffffff" });
+async function captureFigureExport(fig: Figure, transparent = false, surface: PosterSurface = 'svg', signal?: AbortSignal): Promise<FigureExportJob> {
+  const figure = structuredClone(transparent ? { ...fig, background: 'transparent' } : fig);
+  const inputs = captureFigureInputs(), source = captureAppModelPosterSource();
+  if (figure.elements.some(element => element.type === 'model3d')) {
+    const { ensureModelPosters } = await import('./model3d/exportPosters');
+    const prepared = await ensureModelPosters([figure], inputs.assets, inputs.models, surface, source, { signal });
+    Object.assign(inputs.data, prepared.urls); inputs.model3d = prepared.context;
+    for (const warning of prepared.warnings) pushToast('info', warning);
+  }
+  signal?.throwIfAborted();
+  return Object.freeze({ svg: buildFigureSvg(figure, inputs), name: figure.name, width: figure.width, height: figure.height,
+    background: transparent ? null : figure.background && figure.background !== 'transparent' ? figure.background : '#ffffff' });
 }
 export async function exportFigureSvg(fig: Figure) {
   try {
-    const job = captureFigureExport(fig);
+    const job = await captureFigureExport(fig);
     const path = await window.fig.save(`${job.name}.svg`, [{ name: "SVG", extensions: ["svg"] }]);
     if (!path) return;
     await window.fig.writeText(path, job.svg);
@@ -945,7 +967,7 @@ async function renderExportJob(job: FigureExportJob, pxWidth: number, pxHeight: 
 // Quick PNG export (⌘K) — a plain pixel multiple, no physical sizing.
 export async function exportFigurePng(fig: Figure, scale = 4, signal?: AbortSignal) {
   try {
-    const job = captureFigureExport(fig);
+    const job = await captureFigureExport(fig, false, { kind: 'raster', dpi: scale * 96 }, signal);
     const path = await window.fig.save(`${job.name}.png`, [{ name: "PNG", extensions: ["png"] }]);
     if (!path) return;
     await window.fig.writeFile(path, await renderExportJob(job, job.width * scale, job.height * scale, "png", undefined, signal));
@@ -966,16 +988,16 @@ export interface JournalExportOpts {
 // that column width. TIFF (uncompressed baseline) is the format most journals require. This
 // half produces the bytes (pure of any dialog/disk) so it's browser-testable directly.
 export async function renderFigureBytes(fig: Figure, opts: JournalExportOpts): Promise<Uint8Array> {
-  const job = captureFigureExport(fig, !!opts.transparent);
-  const plan = planExport(job.width, job.height, opts.mm, opts.dpi);
+  const plan = planExport(fig.width, fig.height, opts.mm, opts.dpi);
+  const job = await captureFigureExport(fig, !!opts.transparent, { kind: 'raster', dpi: 96 * plan.pxWidth / fig.width }, opts.signal);
   return renderExportJob(job, plan.pxWidth, plan.pxHeight, opts.format, opts.dpi, opts.signal);
 }
 
 export async function exportFigureJournal(fig: Figure, opts: JournalExportOpts) {
   const { format: ext, dpi } = opts;
   try {
-    const job = captureFigureExport(fig, !!opts.transparent);
-    const plan = planExport(job.width, job.height, opts.mm, dpi);
+    const plan = planExport(fig.width, fig.height, opts.mm, dpi);
+    const job = await captureFigureExport(fig, !!opts.transparent, { kind: 'raster', dpi: 96 * plan.pxWidth / fig.width }, opts.signal);
     const path = await window.fig.save(`${job.name}.${ext}`, [{ name: ext.toUpperCase(), extensions: [ext] }]);
     if (!path) return;
     const bytes = await renderExportJob(job, plan.pxWidth, plan.pxHeight, ext, dpi, opts.signal);
@@ -986,7 +1008,7 @@ export async function exportFigureJournal(fig: Figure, opts: JournalExportOpts) 
 
 export async function exportFigurePdf(fig: Figure) {
   try {
-    const job = captureFigureExport(fig);
+    const job = await captureFigureExport(fig, false, 'pdf');
     const path = await window.fig.save(`${job.name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
     if (!path) return;
     if (!window.fig.exportPdf) throw new Error("PDF export is unavailable in this build.");
