@@ -77,4 +77,11 @@ h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'pa
  h.ok(!hidden.some(n=>n.text===(named.parts!.find(p=>p.id===hiddenId)!.label??hiddenId)),'no orphan label for the hidden part');
  h.eq(Number(hidden[0]?.attrs.y),Number(shown[0]?.attrs.y),'remaining legend rows reflow into the freed slot');
 }
+{ // With a triad in the bottom-left corner the scale bar moves right, so they never overlap.
+ const bar:Scene3dManifest=JSON.parse(await readFile(new URL('scalebar.fluxplot.json',root),'utf8'));
+ const barAt=(mf:Scene3dManifest)=>{const l=furnitureLayout(mf,el),s=furnitureSvg(mf,el,orbitPose(el,info.bounds,l.viewport),l);const n=s.overNodes.find(x=>x.partId==='scalebar')?.children?.find(c=>c.key==='scale-line');return {x1:Number(n?.attrs.x1),x2:Number(n?.attrs.x2),mid:l.viewport.x+l.viewport.width/2};};
+ const plain=barAt(bar),withTriad=barAt({...bar,axes:{kind:'triad'}});
+ h.ok(plain.x1<plain.mid,'scale bar sits bottom-left without a triad');
+ h.ok(withTriad.x1>withTriad.mid&&withTriad.x2>withTriad.x1,'scale bar right-aligns beside a triad');
+}
 await h.done();
