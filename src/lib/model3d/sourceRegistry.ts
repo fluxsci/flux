@@ -122,4 +122,4 @@ export function disposeModelSourceRegistry() {
   epoch++; renderer?.dispose(); renderer = undefined; loading = undefined; providers.clear();
 }
 export const modelSourceRegistryStats = () => renderer?.stats();
-if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeModelSourceRegistry);
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('pagehide', disposeModelSourceRegistry);
