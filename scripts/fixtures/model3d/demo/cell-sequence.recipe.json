@@ -1,0 +1,14 @@
+{
+  "env": null,
+  "generatedAt": "2026-09-28T16:22:01Z",
+  "inputs": [],
+  "outputs": {
+    "glb": "cell-sequence.glb",
+    "manifest": "cell-sequence.fluxplot.json"
+  },
+  "params": {},
+  "plot": "cell-sequence",
+  "schemaVersion": "0.3.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

@@ -1,0 +1,14 @@
+{
+  "env": null,
+  "generatedAt": "2026-09-28T16:22:01Z",
+  "inputs": [],
+  "outputs": {
+    "glb": "cortex-inflated.glb",
+    "manifest": "cortex-inflated.fluxplot.json"
+  },
+  "params": {},
+  "plot": "cortex-inflated",
+  "schemaVersion": "0.3.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

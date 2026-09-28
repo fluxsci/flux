@@ -333,7 +333,8 @@
       "verify-model3d-source.ts",
       "verify-model3d-fluxplot.ts",
       "verify-model3d-verbs.ts",
-      "verify-model3d-s8-policy.cjs"
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-demo.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -888,7 +889,8 @@
       "verify-model3d-verbs-electron.cjs",
       "verify-scale-model3d-electron.cjs",
       "verify-model3d-s8-policy.cjs",
-      "verify-model3d-s8.cjs"
+      "verify-model3d-s8.cjs",
+      "verify-model3d-demo.ts"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -1017,6 +1019,10 @@
     ],
     "model3d-s8-policy": [
       "verify-model3d-s8-policy.cjs"
+    ],
+    "model3d-demo": [
+      "verify-model3d-demo.ts",
+      "verify-model3d-scene3d.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -1081,6 +1087,12 @@
       "glob": "src/lib/model3d/source*",
       "run": [
         "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "scripts/{create-model3d-demo,gen-model3d-demo-fixtures,lib/model3dDemo}.ts",
+      "run": [
+        "group:model3d-demo"
       ]
     },
     {
@@ -8283,6 +8295,15 @@
       "isolation": "scratch",
       "timeoutMs": 1200000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-demo.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

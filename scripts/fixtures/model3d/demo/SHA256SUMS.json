@@ -1,0 +1,21 @@
+{
+  "scene3d_demo.py": "12a158cd241d6d08bff1561bade079c71884e6776d32e2fc063393b4fb716dec",
+  "neuron.glb": "78f676f09acb4eee03a885b07323c003def7a16ccc4ee760ea13a4d9f2e2ada4",
+  "neuron.fluxplot.json": "8bbfd0e04a894f54056bd4ca4956cea46afd3f4f31aa839e14ba1fd92b2f3a96",
+  "neuron.recipe.json": "0e2226a5681f13ceddc6e564e98317e5ccf95c6dd729be0a8030f64a2cc3bdf6",
+  "cortex-states.glb": "d334b6bd0d5c2c81ad31d4de774a0c07bc8f47588663e0ad7d960d6e1a1c476b",
+  "cortex-states.fluxplot.json": "1c1eabff3674865a81aaeff60388acb55d050bae699aefd4cb59b44adeb523d6",
+  "cortex-states.recipe.json": "bd19ce77900d58b31bb821b17f7b638bec3f033a2606704b35c80fc855bdc89b",
+  "continuous-field.glb": "0143516c9ea50fc598e24704f9723fd87a2a9a7a3aa63b3049ca3182eb6db3c0",
+  "continuous-field.fluxplot.json": "45a6a5e7bb0be3d2d33974096e48c060a9935267d8ca1be992101605c31e524e",
+  "continuous-field.recipe.json": "23a6b0ddc07b0e040b3a03900db43935966be86c609190d010f3408c6894d3c5",
+  "cortex-pial.glb": "f89e7f089e77dfcbc119db459012c3b29271cf96ebff3f0165681cf486a19a03",
+  "cortex-pial.fluxplot.json": "69f2fb122310117efe76044e299d45f1e66e8a67ed5815374b512e896d052c02",
+  "cortex-pial.recipe.json": "92d62a2140500527ac16c682894ed12d409a70c00296acf0c8d5e8ef432794b6",
+  "cortex-inflated.glb": "29873bf9ce29d8f4e377f4d1a5e28c2ef69769cd90bd9d5b323894fc9bf2ea5d",
+  "cortex-inflated.fluxplot.json": "a6e2b073fb4b0f56f0d62765de83e7409859635aed2a4b3111e9dbd5a7a528d8",
+  "cortex-inflated.recipe.json": "aed19fb6069e6fe36ee378663f5686d2385c750590dfa09a5e8f5cc91f67d670",
+  "cell-sequence.glb": "dd6638f8778d962b5cd6986a63265128562d7d2b5fb473b6377bad38b2c636e0",
+  "cell-sequence.fluxplot.json": "772a05f08258a43d934244ea22c5e71a1e2711e279ef9e9a3e9b0b56e971df90",
+  "cell-sequence.recipe.json": "4bee378cf66a75abe946c733c742dd9493d8012c862bf3e0d669f738d1bcf4d1"
+}
