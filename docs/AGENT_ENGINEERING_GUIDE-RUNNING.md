@@ -8009,3 +8009,15 @@ Production CLI gate passed63checks at15-55-17-827Z-2, including metadata publica
 P5a independent review corrections (16:10 UTC): pruning reloads the saved Figure census after rendering so a concurrent save cannot make its old cached view look unreferenced. Binary/project-poster publication now uses publishModelFile: original alias and resolved parent identity, exclusive regular temporary inode, confinement checks before writing and around publish, and retry-time own-inode cleanup. Native poster batches receive publicationRoot for project policy and defer directory creation to that guarded publisher. The public directory-substitution reproduction now leaves no outside file; registered cases cover GLB/poster substitution, create-only collision, escaped-parent directory creation and cleanup replacement. These are application IO guards across asynchronous boundaries, not OS filesystem transactions against arbitrary concurrent renames.
 
 Final P5a independent qualification: corrected command group7/7 (69 checks), actual live GUI18/18 and production native CLI7/7 passed16:12–16:13UTC, all sourceChanged=false; check0/0 and headless clean. Reviewer inspected final mesh/furniture PNGs and verified two real headless worker spawns plus zero warm-cache spawns. Parent integration still runs the complete pure/affected suites.
+
+
+### 2026-09-28 16:22 UTC — Keep 3D MCP schemas discoverable within the compact budget
+
+Combined P5 integration exposed five full 3D schemas in the default core toolset,
+raising tools/list to23,933bytes and failing the unchanged20KB gates. The new verbs
+now follow ordinary specialized-tool policy: dedicated names in the full toolset,
+complete schemas through flux_verbs, and identical validated execution through
+flux_verb in the compact toolset. The real MCP launcher gate now checks all five
+names, schema discovery, and real GLB model_info parity between compact meta dispatch
+and the dedicated full tool. Both launcher and live-view budget gates pass after the
+correction; no budget was raised and no 3D agent operation was removed.

@@ -23,7 +23,7 @@ const targetArgs: CliArgSpec[] = [{ kind: 'pos', at: 0, into: 'target', required
 
 export const MODEL3D_VERBS: VerbDef[] = [
   {
-    name: 'add_model', cli: 'add-model', cliRoot: 'flags', scope: 'project', core: true,
+    name: 'add_model', cli: 'add-model', cliRoot: 'flags', scope: 'project',
     summary: 'Import a triangle GLB into a Figure with scene3d metadata, physical size and source provenance. Returns element/asset ids, semantic parts, warnings and a derived poster.',
     params: { figureId: z.string(), sourcePath: z.string(), name: z.string().optional(), noPoster: z.boolean().optional(),
       box: z.object({ x: finite().optional(), y: finite().optional(), width: finite().positive().optional(), height: finite().positive().optional() }).optional(), view: z.object(viewParams).optional() },
@@ -34,7 +34,7 @@ export const MODEL3D_VERBS: VerbDef[] = [
     handler: (ctx, a) => addModel(ctx.root, String(a.figureId), String(a.sourcePath), { box: a.box as NonNullable<Parameters<typeof addModel>[3]>['box'], view: a.view as ModelViewCommand | undefined, name: a.name as string | undefined, noPoster: a.noPoster as boolean | undefined }),
   },
   {
-    name: 'set_model_view', cli: 'set-model-view', cliRoot: 'flags', scope: 'project', core: true,
+    name: 'set_model_view', cli: 'set-model-view', cliRoot: 'flags', scope: 'project',
     summary: 'Edit a Figure model camera, lighting, source/uniform colors or named shape weights. Preset is applied first; explicit values patch it. --state name=weight repeats; finite stored weights may extrapolate. Frame requires a sequence. Slide targets await the Slides integration.',
     params: { ...targetParams, ...viewParams },
     cliArgs: [...targetArgs,
@@ -45,7 +45,7 @@ export const MODEL3D_VERBS: VerbDef[] = [
     handler: (ctx, a) => setModelViewCommand(ctx.root, target(a), a as ModelViewCommand),
   },
   {
-    name: 'set_model_field', cli: 'set-model-field', cliRoot: 'flags', scope: 'project', core: true,
+    name: 'set_model_field', cli: 'set-model-field', cliRoot: 'flags', scope: 'project',
     summary: 'Remap an addressable 3D value field with a colormap/range, or reset its overrides. Activates source colors and preserves explicit part fills. Other fields remain unchanged.',
     params: { ...targetParams, field: z.string(), cmap: z.string().optional(), min: finite().optional(), max: finite().optional(), reset: z.boolean().optional() },
     cliArgs: [...targetArgs, { kind: 'pos', at: 1, into: 'field', required: true }, { kind: 'flag', at: 'cmap', into: 'cmap' },
@@ -53,14 +53,14 @@ export const MODEL3D_VERBS: VerbDef[] = [
     handler: (ctx, a) => setModelFieldCommand(ctx.root, target(a), a as unknown as ModelFieldCommand),
   },
   {
-    name: 'model_info', cli: 'model-info', cliRoot: 'flags', scope: 'file', core: true, readOnly: true,
+    name: 'model_info', cli: 'model-info', cliRoot: 'flags', scope: 'file', readOnly: true,
     summary: 'Inspect a GLB without importing or rendering: geometry limits, bounds, semantic parts/fields, named shapes, topology, warnings or a refusal reason. --morph-with compares ordered topology with another GLB.',
     params: { path: z.string(), morphWith: z.string().optional() }, pathParams: { path: 'path', morphWith: 'path' },
     cliArgs: [{ kind: 'pos', at: 0, into: 'path', required: true }, { kind: 'flag', at: 'morph-with', into: 'morphWith' }],
     handler: (_ctx, a) => modelInfo(String(a.path), { morphWith: a.morphWith as string | undefined }),
   },
   {
-    name: 'render_model_posters', cli: 'render-model-posters', cliRoot: 'flags', scope: 'project', core: true,
+    name: 'render_model_posters', cli: 'render-model-posters', cliRoot: 'flags', scope: 'project',
     summary: 'Render saved Figure model views into the project poster cache using a batched native worker. Optional figure filter; prune removes only unreferenced posters older than 14 days. Ordinary Connect reads never render or write these caches.',
     params: { figureId: z.string().optional(), deckId: z.string().optional(), prune: z.boolean().optional() },
     cliArgs: [{ kind: 'flag', at: 'figure', into: 'figureId' }, { kind: 'flag', at: 'prune', into: 'prune', as: 'boolean' }],

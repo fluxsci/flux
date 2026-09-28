@@ -27,6 +27,12 @@ try {
   await full.initialize();
   const fullNames = (await full.request('tools/list')).result.tools.map(t => t.name);
   h.ok(names.every(n => fullNames.includes(n)) && fullNames.length > names.length, 'CLI full override contains every core tool and the full surface');
+  const modelNames = ['add_model', 'set_model_view', 'set_model_field', 'model_info', 'render_model_posters'];
+  h.ok(modelNames.every(n => fullNames.includes(n) && !names.includes(n)), '3D verbs remain available in full tools without expanding the compact core schemas');
+  const modelDefinition = JSON.parse((await core.call('flux_verbs', { query: 'model_info' })).content[0].text);
+  h.ok(modelDefinition[0]?.name === 'model_info' && modelDefinition[0].inputSchema.properties.morphWith, 'compact MCP discovers the complete 3D inspection schema');
+  const modelPath = path.resolve(import.meta.dirname, 'fixtures/model3d/native/neuron.glb');
+  h.eq(await core.call('flux_verb', { verb: 'model_info', args: { path: modelPath } }), await full.call('model_info', { path: modelPath }), 'compact MCP 3D inspection has the same real GLB result as the full dedicated tool');
   await full.call('connect', { target: root });
   for (const [verb, args] of [
     ['list_project', {}], ['list_documents', {}], ['get_manuscript', {}], ['config_paths', {}],
