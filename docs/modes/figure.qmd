@@ -136,17 +136,24 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   big, never silently rescaled. If an import is larger than its figure frame, a toast says so:
   **Ctrl+Shift+I** brings the selection inside the frame (moving it, never resizing it).
 
-# 3D models and 3D fluxplots
+# 3D models and 3D fluxplots {#3d-models}
 
-Import a **GLB** mesh through **Import**, drag it into a saved project, or pick its **3D**
-tile in the gallery. Flux keeps a project copy, so sharing the project does not depend on
-the original file. A plain GLB supplies geometry and colours. A **3D fluxplot** also supplies
+Import a **GLB** mesh through **Import**, drag it onto the canvas, or pick its **3D** tile in
+the gallery. Flux keeps a project copy, so sharing the project does not depend on the
+original file. A plain GLB supplies geometry and colours. A **3D fluxplot** also supplies
 named parts, physical size, axes, labels, value fields and optional shapes through the
-matching `.fluxplot.json` file. Keep that file beside the GLB when importing.
-An invalid, newer or mismatched manifest produces a warning and leaves the geometry
-available as a plain mesh.
+matching `.fluxplot.json` file. Keep that file beside the GLB when importing. An invalid,
+newer or mismatched manifest produces a warning and leaves the geometry available as a
+plain mesh.
 
-In Python, start a scene, add your mesh and save it into `plots/`:
+3D models need a saved project. In a project you have not saved yet, importing a GLB first
+asks you to save it; then the file picker opens again, so pick the files a second time.
+Cancelling that second picker keeps the saved project. Dragged-in files need no second
+pick. If preparing a model takes more than a second, a notice names the files still being
+imported, and the placed box shows “Preparing 3D preview” until its image is ready.
+
+In Python, start a scene, add your mesh and save it into `plots/`. This needs a fluxplot
+version with 3D support (`fp.scene3d`), which is not in a fluxplot release yet.
 
 ```python
 import fluxplot as fp
@@ -164,39 +171,51 @@ Use **Copy view**, apply its dictionary with `sc.view(**view)`, then save to mak
 angle the scene's Home view. For a static output, use `sc.show(static=True)`.
 
 After rerunning Python, **Source changed** appears in the Inspector and as a dot in
-Layers. Choose **Update from source** to accept the new geometry and metadata. Your
-box, camera and look stay in place; restyles and field settings remain for surviving
-part IDs, and shape weights remain for surviving names. Flux warns when parts disappear
-or bounds move substantially. **Undo** restores the previous stored model. Source
-changes never replace the model automatically. A missing original file leaves the saved
-copy available. For a recipe-backed model, **Regenerate** in X-ray reruns the recipe
+Layers, together with **Update from source**. Choose it to accept the new geometry and
+metadata. Your box, camera and look stay in place; restyles and field settings remain for
+surviving part IDs, and shape weights remain for surviving names. Flux warns when parts
+disappear or bounds move substantially. **Undo** restores the previous stored model.
+Source changes never replace the model automatically. A missing original file leaves the
+saved copy available. For a recipe-backed model, **Regenerate** in X-ray reruns the recipe
 with its parameters and applies the same update after it succeeds.
 
-**Double-click the model**, or choose **Orbit** in the Inspector, to turn it:
+**Double-click the mesh**, or choose **Orbit** in the Inspector, to turn it. While you
+orbit, the button reads **Done** and a hint over the model lists the keys:
 
-| Input | Action |
+| Shortcut | Action |
 |---|---|
-| Drag | Orbit around the model |
-| Shift-drag | Pan within the model's box |
-| Alt-drag | Roll the camera |
-| Wheel | Zoom the model |
-| 1–6 | Front, back, right, left, top, bottom |
-| 0 | Home view and saved shape weights |
-| P | Switch orthographic / perspective |
-| Enter | Finish; one Undo restores the previous view |
-| Escape | Cancel the whole orbit visit |
+| **Drag** | Orbit around the model |
+| **Shift+drag** | Pan within the model's box |
+| **Alt+drag** | Roll the camera |
+| **Wheel** | Zoom the model |
+| **←** **→** **↑** **↓** | Turn the view in 5° steps (**Shift** for 15°) |
+| **1**–**6** | The six axis views, as on the Inspector's view buttons |
+| **0** | Home view and saved shape weights |
+| **P** | Switch orthographic / perspective |
+| **Enter** | Finish, like **Done**; one **Undo** restores the previous view |
+| **Esc** | Cancel the whole orbit visit |
 
-Clicking outside the model also finishes. **Space-drag** and **Ctrl-wheel** return to
-canvas navigation. The Inspector offers the same camera controls, plus **Colours** and
-**Lighting**. **Source** keeps the mesh's colours; **Uniform** uses one colour for the mesh.
+Clicking outside the model also finishes. **Space+drag** and **Ctrl+wheel** return to
+canvas navigation. Double-clicking a label, colorbar, legend or scale bar selects that part
+instead, as with a 2D plot's parts.
+
+The Inspector's **3D model** panel is grouped into sections:
+
+- **3D view**: **Orbit**, the camera numbers, the view buttons **Front**, **Back**,
+  **Left**, **Right**, **Top**, **Bottom** and **Home** (each shows its key), and
+  **Projection** (**Ortho** or **Persp**).
+- **Appearance**: **Colours** is **From file** (the mesh's own colours) or **Uniform** (one
+  **Model colour**, shown only for Uniform); **Lighting** is **Studio** or **Unlit**.
+- **Value fields** and **Shape**, when the model has them (see below).
+
 Resizing the box reframes the model while labels keep their physical type size. A physical
 scale bar is shown only in orthographic view.
 
 Use **Alt+R** for the model's **X-ray**. Named mesh parts can be recoloured, hidden or made
-transparent; labels can be restyled independently. Mesh-part colours use **Source** mode.
-For a continuous value field, change its colormap and **Min / Max** in the value-field
-controls: the mesh and colorbar update together, without rerunning Python. A part colour
-overrides its value field; **Reset part colour** restores field colouring.
+transparent; labels can be restyled independently. Mesh-part colours show while **Colours**
+is **From file**. For a continuous value field, change its colormap and **Min / Max** under
+**Value fields**: the mesh and colorbar update together, without rerunning Python. A part
+colour overrides its value field; **Reset part colour** restores field colouring.
 
 If the GLB has named shape states, **Shape** offers live weights from 0 to 1. A sequence
 instead starts with a **Frame** control: 0 is the base, 1 onwards are the saved shapes,

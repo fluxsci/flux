@@ -48,9 +48,7 @@ Run the registered GUI gate against an isolated server through `FLUX_URL`:
 node scripts/run-verifies.mjs --group model3d-gui
 ```
 
-Use scratch HOME/XDG directories and `FLUX_NO_MIGRATE=1`. Scene screenshots and the JSON
-receipt are under `test-results/model3d/scene/`. Native import and metadata-only persistence
+Use scratch HOME/XDG directories and `FLUX_NO_MIGRATE=1`. Native import and metadata-only persistence
 have separate registered `model3d-import` and `model3d-persistence` groups.
 The `model3d-import-progress` group holds import transport to verify delayed feedback,
-concurrent requests and cleanup through picker, gallery and File-drop paths. Its artifacts
-are under `test-results/model3d/import-progress/`.
+concurrent requests and cleanup through picker, gallery and File-drop paths.

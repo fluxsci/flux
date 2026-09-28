@@ -42,4 +42,3 @@ Run `node scripts/run-verifies.mjs --group model3d-source` with scratch HOME/XDG
 `FLUX_NO_MIGRATE=1`; set `FLUX_URL` to the isolated server. This includes actual native
 read/watch guards, streaming hash races, real recipe child-process dispatch, public
 fluxplot fixtures, and Figure source/update/Undo/reopen/Regenerate interactions.
-Screenshots are written under `test-results/model3d/source/`.

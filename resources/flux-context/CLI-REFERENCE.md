@@ -135,22 +135,14 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 |---|---|---|
 | `add-model <figureId> <source.glb> [--x n --y n --width n --height n --name N --view '<json>']` | `add_model` | Copy a GLB and optional raw sidecars into the figure; returns element/asset IDs, parts, warnings and a poster result. |
 | `set-model-view <elementId> [--figure id --preset front\|back\|right\|left\|top\|bottom\|home --azimuth n --elevation n --roll n --zoom n --pan-x n --pan-y n --projection orthographic\|perspective --fov n --colors source\|uniform --color c --lighting studio\|unlit]` | `set_model_view` | Patch the saved model view. Explicit properties apply after the preset. Repeat `--state name=weight`, or use `--frame n` for a sequence; these forms are exclusive. |
-| `set-model-field <elementId> <fieldId> [--cmap name --min n --max n \| --reset]` | `set_model_field` | Remap an accepted value field, activating Source colors; explicit part fills survive. Equal limits are valid and map to colormap zero. |
+| `set-model-field <elementId> <fieldId> [--cmap name --min n --max n \| --reset]` | `set_model_field` | Remap a value field's colormap and range (switches the model to source colours; explicit part fills survive). `--reset` drops the remapping. |
 | `restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden true]` | `restyle_part` | Alias of `restyle`, using the same stable mesh/furniture/group IDs. |
 | `model-info <source.glb> [--morph-with other.glb]` | `model_info` | Read-only file inspection: stats, bounds, topology, names, fields, warnings/refusal and optional morph compatibility; no project required. |
 | `render-model-posters [--figure id --prune]` | `render_model_posters` | Batch-render saved Figure views into the project cache. Pruning protects every live figure view and all entries younger than 14 days. |
 
-Live `dispatch_command` accepts `set_model_view` and `set_model_field` with these
-camelCase parameters and `target` (or the current selection). They use the same
-pure mutations and one Undo step in either resident editor tenancy. The file
-verbs currently refuse deck/slide selectors; 3D deck persistence is a later phase.
-Figure model mutations attempt a matching project poster after saving; use
-`--no-poster` on import/view/field/restyle to defer this derived work. A poster
-failure is a warning on a successful edit.
-
-Repeated flags remain errors except the explicitly repeatable `--state` flag;
-duplicate state names, unknown shapes and nonfinite weights are errors. A zero
-weight removes one state; finite negative or above-one weights are retained.
+Live `dispatch_command` also takes `set_model_view` and `set_model_field` (camelCase
+parameters, `target` or the current selection) as one Undo step. Posters, `--no-poster`,
+`--state` rules and the deck refusal: `PROJECT-AND-FIGURES.md` → "3D model panels".
 
 ### Slides (Flux Slide — see `SLIDES.md`)
 

@@ -160,9 +160,16 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
 
 ## 3D fluxplots
 
-Use `fp.scene3d`, `fp.mesh3d` and `fp.surface3d` for triangle meshes. This is a
-first-class fluxplot: named parts, saved view, values and physical typography
-travel with the mesh. Lines and points are outside this 3D surface.
+**Requires fluxplot with scene3d support** (`fp.scene3d`, `fp.mesh3d`, `fp.surface3d`,
+`fp.can_morph`). Today that is only the unreleased fluxplot branch `scene3d`; it will ship
+as the next fluxplot release. Check before writing a 3D script:
+`python -c 'import fluxplot as fp; print(hasattr(fp, "scene3d"))'`. If it prints `False`,
+tell the user and ask before changing their fluxplot install. Flux still imports any
+triangle-mesh GLB from other tools, as a plain mesh without named parts or furniture.
+
+With scene3d support, a triangle mesh is a first-class fluxplot: named parts, saved
+view, values and physical typography travel with the mesh. Lines and points are outside
+this 3D surface.
 
 ```python
 import fluxplot as fp
@@ -210,12 +217,11 @@ correspondence. Named parts are simplified separately; collapse mapping is
 replayed on all states and the paired mesh. Keep inputs below Flux's 200 MiB and
 2 million triangle import limits; `model-info` reports violations with guidance.
 
-Notebook display bundles a self-contained interactive viewer and PNG. Trusted
-VS Code Jupyter and QMD Notebook execute it. Drag orbits, wheel zooms, axis keys
-choose views, Home resets, and Copy view produces Python view arguments.
-`sc.show(static=True)` explicitly requests a still. Untrusted VS Code can select
-blocked HTML from mixed HTML/PNG output without falling back automatically;
-choose the PNG representation or emit the static form before sharing. HTML
-frontends that disable scripts retain an inline PNG. This does not require a
-network service. A static preview may differ around intersecting transparent
-geometry; the saved mesh retains the full geometry and semantic data.
+Notebook display bundles a self-contained interactive viewer (no network service)
+and a PNG. Notebook frontends that run scripts in HTML outputs (e.g. trusted VS Code
+or Jupyter notebooks) show the viewer: drag orbits, wheel zooms, axis keys choose
+views, Home resets, and Copy view produces Python view arguments. Frontends that
+disable scripts show the inline PNG. Untrusted VS Code can suppress the whole mixed
+HTML/PNG output instead of falling back to the PNG; `sc.show(static=True)` emits only
+the still, so use it before sharing. A static preview may differ around intersecting
+transparent geometry; the saved mesh keeps the full geometry and semantic data.

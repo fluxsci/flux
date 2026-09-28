@@ -39,7 +39,6 @@ so callers can retain posters or show the shared placeholder.
 The registered `verify-model3d-poster-worker.cjs` gate qualifies real headless and
 x11 rendering, transparent pixel coverage, different views, repeat determinism, fresh browser/native pixel parity,
 cancellation before and during work, stalled byte reads, deadline termination,
-job path guards, exact CSP hashes, and actual native request blocking. Evidence
-is written under `test-results/model3d/poster-worker/`. Its metrics distinguish
+job path guards, exact CSP hashes, and actual native request blocking. Its metrics distinguish
 spawn-to-ready time, runtime preparation, render CPU submission, and PNG encoding
 including GPU readback; submission time is not an isolated shader-compile metric.

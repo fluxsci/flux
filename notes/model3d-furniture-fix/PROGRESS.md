@@ -1,5 +1,0 @@
-# P2 colorbar spacing follow-up
-
-Based on integration1f96773 in isolated model3d-furniture-fix. Root's final expanded-gallery screenshot found Height/top-tick overlap. Baseline separation increased from0.65 to1.35 times effective font size; extra top margin keeps the title inside its original top margin. Explicit font overrides use their actual size; resize never scales authored type. Mesh viewport and mesh-only cached poster pixels unchanged, so renderer stamp staysm3d-r1; standalone viewer must be regenerated and Python bundle resynced because its furniture code changes.
-
-Gate: scratchHOME/XDG FLUX_NO_MIGRATE=1 Node22 `node scripts/run-verifies.mjs --only model3d-furniture`, PASS1/1 at test-results/runs/2026-09-28T07-47-39-837Z-2. `npm run check`:0errors0warnings. Goldens regenerated only via `node --import tsx scripts/gen-model3d-furniture-goldens.mjs`. Actual Chromium contact sheet: test-results/model3d/furniture-review/furniture-contact.png. Parent independent review pending before commit; author scene must cherry-pick, rebuild, recapture expanded preview, and rerun final UI group.
