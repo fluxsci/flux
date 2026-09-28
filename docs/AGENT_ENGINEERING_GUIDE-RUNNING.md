@@ -870,7 +870,11 @@ Persistence invariants (all machine-checked — do not weaken):
   recommendation policy stays in `autobuild.ts`. `defaultEasing` preserves smooth
   transforms, standard appearances/countUp/camera and unused linear media timing.
   `slide/curves.ts` owns the cached timing resolver, grammar and catalog; compatibility
-  wrappers retain legacy CSS and sampled values. New CSS `linear()` approximation
+  wrappers retain legacy CSS and the 1,001-point sampled snapshots byte for byte; off the
+  grid the legacy functions overshot 1 by roundoff near t = 1, and the wrapper
+  (`resolveEasingFn` = the clamped curve) deliberately returns exactly 1 there while the raw
+  `fn` keeps the old bytes (decided 2026-09-27; pinned in `verify-slide-easing.ts`).
+  New CSS `linear()` approximation
   measures vertical error at fixed time (perpendicular distance underestimates steep
   springs). Endpoint guards need a continuity probe to catch a missing spring residual.
   The type-only `Track.curve` seam awaits M3 validation and M2 channel plumbing.
@@ -7779,3 +7783,12 @@ and the production build pass; model validation and player channel plumbing rema
 - Promoted vertical-error CSS simplification and endpoint-continuity checks into §4.
 - Heap measurements isolate warmed call sites; the unchanged Bézier solver's numeric boxing
   is the baseline, while the new spring/step samplers add no per-frame heap growth.
+
+### 2026-09-28 00:47 UTC — M1 integration QA (Codex, `av2/M1`)
+**Work:** Qualified committed 829d95a with 321 pure, 34 mapped UI/UI-extra and 13 mapped
+scale gates, both type checks and the production build. Independently executed the old easing
+module and repeated both required fault controls. Added uncommitted near-endpoint assertions:
+four failed because the compatibility wrapper clips legacy roundoff. The orchestrator decided
+the contract (wrapper = clamped curve, raw `fn` keeps the bytes) and rewrote the assertions to
+pin it. No product logic changed.
+**Learnings:** Promoted near-endpoint floating-point parity probes into the curve guidance above.

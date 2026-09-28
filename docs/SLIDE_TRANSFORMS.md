@@ -83,8 +83,11 @@ plot-to-plot Become does not, so no fourth way exists. Concretely, this branch:
 `slide/curves.ts` is the pure timing core shared with flux-core. A track may carry
 `curve: {kind:"bezier", p:[x1,y1,x2,y2]}`, `{kind:"spring", bounce, velocity?}`, or
 `{kind:"steps", n, jump?}`. Resolution is `curve` → active `influence` → `easing` →
-`presetCatalog.defaultEasing`; the five legacy tokens and influence CSS/samples retain
-exactly their old values. Catalog names are input sugar: store the spec, never its label.
+`presetCatalog.defaultEasing`; legacy CSS and the 1,001-point token/influence snapshots
+match their old values byte for byte. Off that grid the legacy functions overshot 1 by
+floating-point roundoff near t = 1; the compatibility wrapper `resolveEasingFn` is the CLAMPED
+curve and returns exactly 1 there (a clamp channel never exceeds 1 — the channel law), while
+the raw `fn` keeps the old bytes. Catalog names are input sugar: store the spec, never its label.
 Springs fit the bar's settle time (energy tolerance 0.005), with exact endpoints and a
 reported first 90% arrival. Bounce clamps to [−0.5, 0.8]; bezier handles clamp x to [0, 1]
 and y to [−1, 2]; steps clamp to 1–60. Jump-start keeps the authored t=0 endpoint, then

@@ -162,4 +162,25 @@ h.ok(resolveEasing === direct.resolveEasing && resolveEasingFn === direct.resolv
 h.eq(EASING_TOKENS.slice().sort(), Object.keys(LEGACY_TOKENS).sort(), "the token union keeps exactly the five historical names");
 const typedTokens: readonly EasingToken[] = EASING_TOKENS;
 h.eq(typedTokens.length, 5, "EasingToken derives from the runtime list");
+// Captured independently from 04f37e3 (also identical at baseline ffb511b): off the 1,001-point grid the
+// legacy JS functions overshot 1 by floating-point roundoff near t=1. CONTRACT (orchestrator decision,
+// 2026-09-27): the raw shared sampler `fn` keeps those bytes; the compatibility wrapper `resolveEasingFn`
+// is the CLAMPED curve (channel law §1.4: a clamp channel never exceeds 1), so it returns exactly 1 there
+// and differs from legacy only by roundoff (≤ 1e-12). CSS strings stay byte-identical (asserted above).
+h.section("near-endpoint legacy bytes: raw fn keeps them, the wrapper clamps them");
+for (const [token, t, legacy] of [
+  ["smooth", 0.999999, 1.0000000000000018],
+  ["enter", 0.99999999999999, 1.0000000000000002],
+] as const) {
+  h.eq(resolveCurve({ easing: token }).fn(t), legacy, `${token} at ${t}: raw shared sampler preserves old bytes`);
+  h.eq(resolveEasingFn(token)(t), 1, `${token} at ${t}: compatibility wrapper clamps the roundoff overshoot to exactly 1`);
+  h.eq(resolveEasingFn(token, { in: 0, out: 0 })(t), 1, `${token} at ${t}: inactive influence takes the same clamped path`);
+  h.ok(Math.abs(resolveEasingFn(token)(t) - legacy) <= 1e-12, `${token} at ${t}: wrapper differs from legacy only by roundoff`);
+}
+for (const token of EASING_TOKENS) {
+  let maxV = -Infinity, minV = Infinity;
+  const f = resolveEasingFn(token);
+  for (let i = 0; i <= 100000; i++) { const v = f(i / 100000); if (v > maxV) maxV = v; if (v < minV) minV = v; }
+  h.ok(maxV <= 1 && minV >= 0, `${token}: the compatibility wrapper never leaves [0,1] (100,001 probes; max ${maxV}, min ${minV})`);
+}
 await h.done();
