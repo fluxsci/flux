@@ -18,6 +18,7 @@
 //        [--ozone=headless|wayland|x11] [--scenarios=base,nocursor,elconst,syscross] [--trace] [--frames] [--grim] [--out=<dir>]
 //        [--maximize] [--assert-no-flicker] (use with --phases=zoomDeep --frames)
 //        [--qualify] preserve production background throttling and fail on unusable display/focus loss
+//        [--model3d-s8=model|image] qualified public-example fixture assertions
 //
 // The project is COPIED to a scratch dir (nothing of the user's is touched);
 // HOME/XDG are isolated (no single-instance clash with a running Flux); the
@@ -49,7 +50,7 @@ if (!process.versions.electron) {
   for (const d of ['home', 'xdg']) fs.mkdirSync(path.join(scratch, d), { recursive: true });
   fs.mkdirSync(out, { recursive: true });
   const env = { ...process.env, HOME: path.join(scratch, 'home'), XDG_CONFIG_HOME: path.join(scratch, 'xdg'), APPDATA: path.join(scratch, 'appdata'), FLUX_NO_MIGRATE: '1',
-    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0' };
+    PROBE_PROJECT: project, PROBE_OUT: out, PROBE_SCENARIOS: opt('scenarios', 'base'), PROBE_SURFACE: opt('surface', 'figure'), PROBE_PHASES: opt('phases', ''), PROBE_TRACE: args.includes('--trace') ? '1' : '0', PROBE_FRAMES: args.includes('--frames') ? '1' : '0', PROBE_MAXIMIZE: args.includes('--maximize') ? '1' : '0', PROBE_QUALIFY: args.includes('--qualify') ? '1' : '0', PROBE_MODEL3D_S8: opt('model3d-s8', '') };
   delete env.VITE_DEV_SERVER_URL; delete env.ELECTRON_RUN_AS_NODE;
   const electronArgs = [__filename, project];
   if (process.platform === 'linux') electronArgs.push('--no-sandbox', `--ozone-platform=${ozone}`);
@@ -115,7 +116,8 @@ process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = '1';
 const { app, BrowserWindow, contentTracing, screen } = require('electron');
 const { configureWindow, assertWindow } = require('./input-probe-policy.cjs');
 const qualify = process.env.PROBE_QUALIFY === '1';
-let qualificationPolicy;
+let qualificationPolicy, model3dProbe;
+if (process.env.PROBE_MODEL3D_S8 && !qualify) throw Error('S8 requires --qualify');
 const out = process.env.PROBE_OUT;
 const scenarios = (process.env.PROBE_SCENARIOS || 'base').split(',').filter(Boolean);
 const doTrace = process.env.PROBE_TRACE === '1';
@@ -160,7 +162,7 @@ window.addEventListener('scroll',()=>{p.scrolls++},{capture:true,passive:true});
 window.addEventListener('keydown',(e)=>{p.keys++;const t0=e.timeStamp;requestAnimationFrame(()=>requestAnimationFrame(()=>p.keyPaint.push(performance.now()-t0)))},true);
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.longtasks.push(Math.round(e.duration))}).observe({type:'longtask'})}catch{}
 try{new PerformanceObserver(l=>{for(const e of l.getEntries())p.evts.push({n:e.name,d:Math.round(e.duration),proc:Math.round(e.processingEnd-e.processingStart)})}).observe({type:'event',durationThreshold:16})}catch{}
-p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
+p.start=()=>{cancelAnimationFrame(p.raf);p.running=true;p.qualification=[qualificationState()];p.frames=[];p.moves=0;p.downs=0;p.wheels=0;p.scrolls=0;p.keys=0;p.downPaint=[];p.keyPaint=[];p.longtasks=[];p.evts=[];const loop=t=>{if(!p.running)return;p.frames.push(t);window.__model3dS8?.sample(t);p.raf=requestAnimationFrame(loop)};p.raf=requestAnimationFrame(loop)};
 p.stop=()=>{p.qualification.push(qualificationState());p.running=false;cancelAnimationFrame(p.raf);p.raf=0;const gaps=[];for(let i=1;i<p.frames.length;i++)gaps.push(+(p.frames[i]-p.frames[i-1]).toFixed(1));return {qualification:p.qualification,frames:p.frames.length,gaps,moves:p.moves,downs:p.downs,wheels:p.wheels,scrolls:p.scrolls,keys:p.keys,downPaint:p.downPaint.map(x=>+x.toFixed(1)),keyPaint:p.keyPaint.map(x=>+x.toFixed(1)),longtasks:p.longtasks,evts:p.evts}};
 return 'installed'})()`;
 
@@ -186,6 +188,7 @@ async function setScenario(name) {
   await sleep(350);
 }
 async function measure(label, run, traceName) {
+  await model3dProbe?.beforePhase(label);
   if (qualify) assertWindow(win, [await js("({visible:document.visibilityState,focused:document.hasFocus()})")]);
   await js('window.__p.start()'); cpuSnapshot(); const m0 = await cdpMetrics(); const t0 = Date.now(); cursorLog = []; phaseT0 = t0;
   if (traceName) await contentTracing.startRecording({ included_categories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'blink', 'blink.user_timing', 'cc', 'input', 'ui', 'viz', 'gpu', 'toplevel', 'latencyInfo', 'benchmark', ...(process.env.PROBE_INVALIDATION === '1' ? ['disabled-by-default-devtools.timeline.invalidationTracking', 'disabled-by-default-blink.invalidation'] : [])], excluded_categories: ['*'] });
@@ -198,6 +201,7 @@ async function measure(label, run, traceName) {
     fs.writeFileSync(path.join(out, `qualification-${label.replace(/[^a-z0-9]+/gi,'-')}.json`), JSON.stringify({policy:qualificationPolicy,observations:r.qualification,raw:r},null,2));
     assertWindow(win, r.qualification);
   }
+  await model3dProbe?.afterPhase(label, r);
   // compress the cursor sequence: kind:imageHash × count @ ms since phase start
   const seq = []; for (const c of cursorLog) { const k = c.type + (c.h ? ':' + c.h : ''); if (!seq.length || seq.at(-1).k !== k) seq.push({ k, n: 1, t: c.t }); else seq.at(-1).n++; }
   const res = { label, wallMs, cpu, cdp: cdpDelta(m0, m1), frames: r.frames, gap: stats(r.gaps), gapsOver25: r.gaps.filter((g) => g > 25).length, moves: r.moves, downs: r.downs, wheels: r.wheels, scrolls: r.scrolls, keys: r.keys, downPaint: stats(r.downPaint), keyPaint: stats(r.keyPaint), longtasks: r.longtasks,
@@ -302,7 +306,12 @@ async function measureFrames(label, region, run, traceName) {
 
 async function main() {
   win = await wait(() => BrowserWindow.getAllWindows()[0], 'window');
-  win.setSize(1600, 1000); win.setAlwaysOnTop(true); win.show(); win.focus();
+  if(qualify){
+    const displays=screen.getAllDisplays(),primary=screen.getPrimaryDisplay();
+    fs.writeFileSync(path.join(out,'runtime-preflight.json'),JSON.stringify({displays,primary},null,2));
+    win.setBounds(require('../lib/nativeWindowQualification.cjs').qualifiedNativeBounds(displays,primary,1600,1000));
+  }else win.setSize(1600,1000);
+  win.setAlwaysOnTop(true); win.show(); win.focus();
   if (process.env.PROBE_MAXIMIZE === '1') { win.maximize(); await wait(() => win.isMaximized(), 'maximized native window'); }
   qualificationPolicy = configureWindow({ qualify, win, displays: screen.getAllDisplays() });
   win.webContents.on('cursor-changed', (_e, type, image) => { let h = null; try { if (image && !image.isEmpty()) h = crypto.createHash('md5').update(image.toBitmap()).digest('hex').slice(0, 6); } catch {} cursorLog.push({ t: Date.now() - phaseT0, type, h }); });
@@ -312,10 +321,12 @@ async function main() {
   log('gpu', app.getGPUFeatureStatus());
   fs.writeFileSync(path.join(out, 'runtime.json'), JSON.stringify({ versions: process.versions, gpu: app.getGPUFeatureStatus(), qualification: qualificationPolicy, displays: screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})), viewport: await js('({width:innerWidth,height:innerHeight,dpr:devicePixelRatio})'), switches: process.argv.filter(a => a.startsWith('--')) }, null, 2));
   await js(INSTR);
+  if (process.env.PROBE_MODEL3D_S8) model3dProbe = await require('./input-probe-model3d.cjs')({ win, js, wait, wheel, mouse, sleep, out, variant: process.env.PROBE_MODEL3D_S8, project: process.env.PROBE_PROJECT });
   if (surface === 'paper' || surface === 'both') await paperPhases();
   if (surface === 'figure' || surface === 'both') await figurePhases();
   if (surface === 'all') { await paperPhases(); await figurePhases(); }
   if (surface === 'slide' || surface === 'all') await figurePhases('slide');
+  await model3dProbe?.finish();
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 1));
   log('done', { out });
   app.exit(0);
@@ -361,9 +372,10 @@ async function figurePhases(mode = 'figure') {
   if (mode === 'figure') { await wait(() => js("!!document.querySelector('.figrow .item')"), 'figure rows'); await js("document.querySelector('.figrow .item').click()"); }
   await wait(() => js(`document.querySelectorAll('${modeRoot} [data-editor-element-id]').length>0`), 'elements mounted');
   let last = -1; for (let i = 0; i < 60; i++) { const n = await js(`document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length`); if (n === last) break; last = n; await sleep(400); } // lazy parse settles
+  if (mode === 'figure') await model3dProbe?.prepareFigure();
   log('dom', await js(`({mode:'${mode}',elements:document.querySelectorAll('${modeRoot} [data-editor-element-id]').length,plotNodes:document.querySelectorAll('${modeRoot} [data-editor-element-id] svg *').length,total:document.getElementsByTagName('*').length,dpr:devicePixelRatio,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches})`));
   const geo = await js(`(()=>{const root=document.querySelector('${modeRoot}');const h=document.querySelector('${modeRoot} .canvas-host').getBoundingClientRect();
-    const plots=[...root.querySelectorAll('[data-editor-element-id]')].filter(n=>n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
+    const plots=[...root.querySelectorAll('[data-editor-element-id]')].filter(n=>window.__model3dS8 ? window.__model3dS8.ids.includes(n.dataset.editorElementId) : n.querySelector('svg')).map(n=>{const r=n.getBoundingClientRect();return {id:n.dataset.editorElementId,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),w:Math.round(r.width),h:Math.round(r.height)}}).filter(p=>p.w>20&&p.h>20&&p.x>h.left+40&&p.x<h.right-40&&p.y>h.top+40&&p.y<h.bottom-40);
     let empty=null;for(let y=h.bottom-30;y>h.top+40&&!empty;y-=20){for(let x=h.right-30;x>h.left+40;x-=20){const el=document.elementFromPoint(x,y);if(el&&el.closest('.canvas-host')&&!el.closest('[data-editor-element-id],.figure-titlebar,.ruler,.overlay-svg')){empty={x,y};break}}}
     return {host:{l:Math.round(h.left),t:Math.round(h.top),r:Math.round(h.right),b:Math.round(h.bottom)},plots:plots.slice(0,4),nplots:plots.length,empty}})()`);
   log('geo', geo);
@@ -395,7 +407,7 @@ async function figurePhases(mode = 'figure') {
     // 5d. three idle seconds after an edit + undo: whatever lands here (autosave, journal, deferred work) is a hitch the user gets for free
     if (wantPhase('idle')) R.idle = await measure(`${mode}:${sc}:idle`, async () => { await sleep(3000); }, tr('idle'));
     await click(geo.empty.x, geo.empty.y, 10); await sleep(300);
-    const cx = Math.round((geo.host.l + geo.host.r) / 2), cy = Math.round((geo.host.t + geo.host.b) / 2);
+    const cx = model3dProbe ? A.x : Math.round((geo.host.l + geo.host.r) / 2), cy = model3dProbe ? A.y : Math.round((geo.host.t + geo.host.b) / 2);
     mouse({ type: 'mouseMove', x: cx, y: cy }); await sleep(200);
     // 5b. small trackpad pan that stays inside the active figure (no cull change): the steady-state per-frame pan cost
     if (wantPhase('panSmall')) R.panSmall = await measure(`${mode}:${sc}:panSmall`, async () => { for (let k = 0; k < 3; k++) { for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, 25); await sleep(8); } await sleep(120); for (let i = 0; i < 12; i++) { wheel(cx, cy, 0, -25); await sleep(8); } await sleep(120); } await sleep(300); }, tr('panSmall'));

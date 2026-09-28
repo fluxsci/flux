@@ -332,7 +332,8 @@
       "verify-input-probe-policy.cjs",
       "verify-model3d-source.ts",
       "verify-model3d-fluxplot.ts",
-      "verify-model3d-verbs.ts"
+      "verify-model3d-verbs.ts",
+      "verify-model3d-s8-policy.cjs"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -558,7 +559,8 @@
       "verify-library-20k.mjs",
       "verify-scale-annotate-hover.mjs",
       "verify-scale-inbox.mjs",
-      "verify-scale-model3d.mjs"
+      "verify-scale-model3d.mjs",
+      "verify-model3d-s8.cjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
@@ -602,7 +604,8 @@
       "verify-figure-pdf-size.cjs",
       "verify-model3d-electron.cjs",
       "verify-model3d-smoke-electron.cjs",
-      "verify-model3d-verbs-electron.cjs"
+      "verify-model3d-verbs-electron.cjs",
+      "verify-scale-model3d-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -882,7 +885,10 @@
       "verify-model3d-smoke-electron.cjs",
       "verify-model3d-verbs.ts",
       "verify-model3d-verbs-gui.mjs",
-      "verify-model3d-verbs-electron.cjs"
+      "verify-model3d-verbs-electron.cjs",
+      "verify-scale-model3d-electron.cjs",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -962,7 +968,11 @@
       "verify-model3d-smoke-electron.cjs"
     ],
     "model3d-scale": [
-      "verify-scale-model3d.mjs"
+      "verify-scale-model3d.mjs",
+      "verify-scale-model3d-electron.cjs",
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
     ],
     "model3d-native-policy": [
       "verify-input-probe-policy.cjs"
@@ -994,15 +1004,57 @@
     ],
     "model3d-verbs-gui": [
       "verify-model3d-verbs-gui.mjs"
+    ],
+    "model3d-native-scale": [
+      "verify-scale-model3d-electron.cjs",
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
+    ],
+    "model3d-s8": [
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
+    ],
+    "model3d-s8-policy": [
+      "verify-model3d-s8-policy.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
+      "glob": "scripts/lib/model3dS8*",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/perf/input-probe-model3d.cjs",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/model3d/s8-public-tree.json",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "scripts/lib/nativeWindowQualification.cjs",
       "run": [
         "group:model3d-native",
         "verify-input-probe-policy.cjs",
+        "group:model3d-native-scale",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dNativeScale*",
+      "run": [
+        "group:model3d-native-scale",
         "tier:pure"
       ]
     },
@@ -8124,8 +8176,8 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 30000,
-      "exclusive": false,
-      "coverage": "behavior"
+      "coverage": "behavior",
+      "exclusive": false
     },
     "verify-model3d-source.ts": {
       "runtime": "tsx",
@@ -8197,6 +8249,39 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-model3d-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-s8-policy.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-s8.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": true,
+      "isolation": "scratch",
+      "timeoutMs": 1200000,
       "exclusive": true,
       "coverage": "behavior"
     }

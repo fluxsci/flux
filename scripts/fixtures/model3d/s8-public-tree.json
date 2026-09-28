@@ -1,0 +1,2222 @@
+{
+  "repo": "https://github.com/fluxsci/fluxsci.github.io",
+  "commit": "0f5546baa27617c22eeb112b4ca46407516508e1",
+  "tree": "b1dba6eebe3889e84a090b09d3840f5e4b6abb3c",
+  "prefix": "examples/neural-populations",
+  "files": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "gitBlob": "57fe6e0ac518be3bac6b2aa5744ce20598e139a3",
+      "bytes": 3450
+    },
+    {
+      "path": "AGENTS.md",
+      "mode": "100644",
+      "gitBlob": "6cf720511ce9d262621197a12b6fa3affdec58dd",
+      "bytes": 801
+    },
+    {
+      "path": "Context/NOTEBOOK.md",
+      "mode": "100644",
+      "gitBlob": "29634eb18bb29996f240500352fd7793aa25441d",
+      "bytes": 3162
+    },
+    {
+      "path": "Context/Project/MISSION.qmd",
+      "mode": "100644",
+      "gitBlob": "2e9617e7b050d2763b89f691850f5e726fc846bc",
+      "bytes": 863
+    },
+    {
+      "path": "Context/RULES.md",
+      "mode": "100644",
+      "gitBlob": "4c345b7543736b873368ecbec95bc1a348d54a5b",
+      "bytes": 590
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "gitBlob": "8974a00a928236c4e96ac44a31fe041999a88166",
+      "bytes": 2914
+    },
+    {
+      "path": "data/README.md",
+      "mode": "100644",
+      "gitBlob": "0c1ff9d6a075fe149ff9b67d35c0f050906051e7",
+      "bytes": 1238
+    },
+    {
+      "path": "data/allen/README.md",
+      "mode": "100644",
+      "gitBlob": "7c3cc0a1bdc374eeca2ef378f81a38364b8636d4",
+      "bytes": 5827
+    },
+    {
+      "path": "data/allen/ccf-2017-315.obj",
+      "mode": "100644",
+      "gitBlob": "48ef141adaa96fe6a52435e3dda5dd316477ad36",
+      "bytes": 4319423
+    },
+    {
+      "path": "data/allen/ccf-2017-385.obj",
+      "mode": "100644",
+      "gitBlob": "be93dec0d7f2ff7d8b101d6a09960045d85a8141",
+      "bytes": 442204
+    },
+    {
+      "path": "data/allen/ccf-2017-409.obj",
+      "mode": "100644",
+      "gitBlob": "428a8942008079a0780a0691eb8ca461ec5a8021",
+      "bytes": 132966
+    },
+    {
+      "path": "data/allen/ccf-2017-997.obj",
+      "mode": "100644",
+      "gitBlob": "784233c9169f7762e21a303bea4f3cb286dfc423",
+      "bytes": 6825611
+    },
+    {
+      "path": "data/allen/cell-464198958.swc",
+      "mode": "100644",
+      "gitBlob": "43d4c26135fefdcc5bc79b35dd02804fe39157fc",
+      "bytes": 57028
+    },
+    {
+      "path": "data/allen/cell-464212183.swc",
+      "mode": "100644",
+      "gitBlob": "95805e6229a7972423d4ad4a316b41b89e5e4db1",
+      "bytes": 114591
+    },
+    {
+      "path": "data/allen/cell-480114344.swc",
+      "mode": "100644",
+      "gitBlob": "511d511a4fbc907b752bc49c245ca047067383b9",
+      "bytes": 177665
+    },
+    {
+      "path": "data/allen/cell-metrics.csv",
+      "mode": "100644",
+      "gitBlob": "88ea68c9f1d099d7a19140f330cd8ab331fd0562",
+      "bytes": 13987
+    },
+    {
+      "path": "data/allen/experiment-metadata.json",
+      "mode": "100644",
+      "gitBlob": "72a5390d9f7975da7a0799a81e2f1c56ac8db94d",
+      "bytes": 4151
+    },
+    {
+      "path": "data/allen/morphology-metadata.json",
+      "mode": "100644",
+      "gitBlob": "bf33b159e28a58df3664ad2316fb165b23607319",
+      "bytes": 18248
+    },
+    {
+      "path": "data/allen/provenance.json",
+      "mode": "100644",
+      "gitBlob": "6917c75da020b3643fb4f24ddc0da002ff470000",
+      "bytes": 6549
+    },
+    {
+      "path": "data/allen/responses.json",
+      "mode": "100644",
+      "gitBlob": "9ac96126ea5d0521ec0c86e8c3aa06eddad8bbdf",
+      "bytes": 320196
+    },
+    {
+      "path": "data/allen/sources.bib",
+      "mode": "100644",
+      "gitBlob": "4eb247a749ef36a2fa580f8bcd76a9caa399b0b2",
+      "bytes": 1133
+    },
+    {
+      "path": "data/allen/traces.json",
+      "mode": "100644",
+      "gitBlob": "ff03efeb71c22b3571f9e516fea066a8a2257076",
+      "bytes": 1298700
+    },
+    {
+      "path": "data/allen/trials.json",
+      "mode": "100644",
+      "gitBlob": "a17c3e8706da76792b421f1307aa397221f75cae",
+      "bytes": 943153
+    },
+    {
+      "path": "exports/advanced-previews/13-population-trajectories.pdf",
+      "mode": "100644",
+      "gitBlob": "84a31254b43a99ee0c4830a5c1f30beb28393d87",
+      "bytes": 37340
+    },
+    {
+      "path": "exports/advanced-previews/13-population-trajectories.png",
+      "mode": "100644",
+      "gitBlob": "deb39fb28c3cc1aa71a4f38cdff9a095e0837951",
+      "bytes": 196126
+    },
+    {
+      "path": "exports/advanced-previews/14-response-geometry-01hz.pdf",
+      "mode": "100644",
+      "gitBlob": "421606469de5e053c1678f8089028ddfc029e12f",
+      "bytes": 24874
+    },
+    {
+      "path": "exports/advanced-previews/14-response-geometry-01hz.png",
+      "mode": "100644",
+      "gitBlob": "d072ee8c9076ab9c348c6addbf3f61e10490ae3c",
+      "bytes": 137190
+    },
+    {
+      "path": "exports/advanced-previews/14-response-geometry-04hz.pdf",
+      "mode": "100644",
+      "gitBlob": "68cbca743bfadb1fc1f8be1f01cd70592f278058",
+      "bytes": 24849
+    },
+    {
+      "path": "exports/advanced-previews/14-response-geometry-04hz.png",
+      "mode": "100644",
+      "gitBlob": "44805a0ac6ea04e7a5f9b35bf061278321285aec",
+      "bytes": 134359
+    },
+    {
+      "path": "exports/advanced-previews/14-response-geometry-15hz.pdf",
+      "mode": "100644",
+      "gitBlob": "646eabc0abb3a7f9afc331272c3bb59f3e4227eb",
+      "bytes": 24832
+    },
+    {
+      "path": "exports/advanced-previews/14-response-geometry-15hz.png",
+      "mode": "100644",
+      "gitBlob": "e3e107a5fedfd1edf6ce1348abdb2ccebce33285",
+      "bytes": 133662
+    },
+    {
+      "path": "exports/advanced-previews/15-population-response-atlas.pdf",
+      "mode": "100644",
+      "gitBlob": "9017b0e88aaba8d9d4969bee9ca290a39997dab6",
+      "bytes": 298695
+    },
+    {
+      "path": "exports/advanced-previews/15-population-response-atlas.png",
+      "mode": "100644",
+      "gitBlob": "20e943fce2d2d14df9a176808853617f952dd2b8",
+      "bytes": 456112
+    },
+    {
+      "path": "exports/advanced-previews/16-tuning-landscape-1hz.pdf",
+      "mode": "100644",
+      "gitBlob": "2e250efc5277872c037dd156caf5390ec4e0cf3a",
+      "bytes": 20134
+    },
+    {
+      "path": "exports/advanced-previews/16-tuning-landscape-1hz.png",
+      "mode": "100644",
+      "gitBlob": "9882d73a618bb86973b052f9996e16a1e812b976",
+      "bytes": 84722
+    },
+    {
+      "path": "exports/advanced-previews/16-tuning-landscape-2hz.pdf",
+      "mode": "100644",
+      "gitBlob": "a1e1e5c7ebb553314dcedb7be1f29d16f62c2f95",
+      "bytes": 20079
+    },
+    {
+      "path": "exports/advanced-previews/16-tuning-landscape-2hz.png",
+      "mode": "100644",
+      "gitBlob": "66a5ad7d6dadfdd0a4b8ac0961593dda81c77d32",
+      "bytes": 82803
+    },
+    {
+      "path": "exports/advanced-previews/16-tuning-landscape-4hz.pdf",
+      "mode": "100644",
+      "gitBlob": "83a52b24f222078996f738ed88f5dcf156faaa39",
+      "bytes": 20020
+    },
+    {
+      "path": "exports/advanced-previews/16-tuning-landscape-4hz.png",
+      "mode": "100644",
+      "gitBlob": "4bd1b135416d1920544565ca48d258a6dd053f56",
+      "bytes": 81892
+    },
+    {
+      "path": "exports/advanced-previews/17-trial-response-raincloud.pdf",
+      "mode": "100644",
+      "gitBlob": "0b8d93416d63d967b2c39f65a0cd4d2cfe770b33",
+      "bytes": 39250
+    },
+    {
+      "path": "exports/advanced-previews/17-trial-response-raincloud.png",
+      "mode": "100644",
+      "gitBlob": "b67ab4bbe95357b1124fc81fe75e51e1baae5cea",
+      "bytes": 78436
+    },
+    {
+      "path": "exports/advanced-previews/18-joint-tuning-surface.pdf",
+      "mode": "100644",
+      "gitBlob": "92fd9b7a7a9003c0a9336b63dc57868bbe952b9a",
+      "bytes": 116376
+    },
+    {
+      "path": "exports/advanced-previews/18-joint-tuning-surface.png",
+      "mode": "100644",
+      "gitBlob": "8410498d87e505c651f92c878b15b214319358fd",
+      "bytes": 330779
+    },
+    {
+      "path": "exports/advanced-previews/19-response-architecture.pdf",
+      "mode": "100644",
+      "gitBlob": "f8aaa87719444a7195aeb83694d1865a7b238893",
+      "bytes": 85475
+    },
+    {
+      "path": "exports/advanced-previews/19-response-architecture.png",
+      "mode": "100644",
+      "gitBlob": "6b5d045e4ef8c54041ba7e70d0435d55c628945c",
+      "bytes": 525755
+    },
+    {
+      "path": "exports/advanced-previews/20-dendritic-arbor.pdf",
+      "mode": "100644",
+      "gitBlob": "fe6332d104bf8856ae5513d114a8cab1775ad9a7",
+      "bytes": 106628
+    },
+    {
+      "path": "exports/advanced-previews/20-dendritic-arbor.png",
+      "mode": "100644",
+      "gitBlob": "6d0f304695c5696d0516f20e10269cd5381ad80e",
+      "bytes": 123535
+    },
+    {
+      "path": "exports/advanced-previews/licenses/Flux-MIT.txt",
+      "mode": "100644",
+      "gitBlob": "eb695ff9e64b1f4445cd08870b6fd94b24e44a41",
+      "bytes": 1070
+    },
+    {
+      "path": "exports/advanced-previews/licenses/esm-env-LICENSE.txt",
+      "mode": "100644",
+      "gitBlob": "124fd2cab2eedaefcf6b32fabc9346f036953128",
+      "bytes": 1063
+    },
+    {
+      "path": "exports/advanced-previews/licenses/svelte-LICENSE.txt",
+      "mode": "100644",
+      "gitBlob": "f872adf738de278e2345516eb1cea30d5451914e",
+      "bytes": 1126
+    },
+    {
+      "path": "exports/advanced-previews/native-morph.html",
+      "mode": "100644",
+      "gitBlob": "a6691941f4cddb891f74b52343103467d06c765c",
+      "bytes": 853210
+    },
+    {
+      "path": "exports/advanced-previews/overview.pdf",
+      "mode": "100644",
+      "gitBlob": "b93eef7f2be3607a972dc694faf4a04901f29510",
+      "bytes": 1838356
+    },
+    {
+      "path": "exports/advanced-previews/overview.png",
+      "mode": "100644",
+      "gitBlob": "0392b62a20792e7d81507b50e5728ca44b7aab42",
+      "bytes": 1127686
+    },
+    {
+      "path": "exports/flagship-previews/21-brain-anatomy.png",
+      "mode": "100644",
+      "gitBlob": "afeddf52b510cef7378923338d817d60c60a9944",
+      "bytes": 392050
+    },
+    {
+      "path": "exports/flagship-previews/22-neuron-reconstructions.png",
+      "mode": "100644",
+      "gitBlob": "87d4e899585b61f9a04c4066316230c2fb4b4881",
+      "bytes": 159521
+    },
+    {
+      "path": "exports/flagship-previews/23-population-atlas.png",
+      "mode": "100644",
+      "gitBlob": "e6d524498b44c9c5e5896411c906f43b8ebbbe72",
+      "bytes": 496179
+    },
+    {
+      "path": "exports/flagship-previews/24-example-cells.png",
+      "mode": "100644",
+      "gitBlob": "2eb0db3385fe5167f2d83ec6dcecedb54f4844e9",
+      "bytes": 163818
+    },
+    {
+      "path": "exports/flagship-previews/25-population-trajectories.png",
+      "mode": "100644",
+      "gitBlob": "1c29ecfbba434e642867be0071a3e2548e70c31f",
+      "bytes": 183172
+    },
+    {
+      "path": "exports/flagship-previews/26-similarity-matrix.png",
+      "mode": "100644",
+      "gitBlob": "d34108944c2aad6146aea85a509afb0c7f8ab770",
+      "bytes": 112503
+    },
+    {
+      "path": "exports/flagship-previews/27-similarity-network.png",
+      "mode": "100644",
+      "gitBlob": "d9f87ef2013fbce5d34a922442c2813c6e798421",
+      "bytes": 304432
+    },
+    {
+      "path": "exports/flagship-previews/28-response-geometry.png",
+      "mode": "100644",
+      "gitBlob": "e5f53f90bf086f782cc216d0bcc48cc699b34f6f",
+      "bytes": 105655
+    },
+    {
+      "path": "exports/flagship-previews/29-direction-key.png",
+      "mode": "100644",
+      "gitBlob": "0a7a79045f98b969e6e818d59df10376041cd20d",
+      "bytes": 16100
+    },
+    {
+      "path": "exports/flagship-previews/30-selectivity.png",
+      "mode": "100644",
+      "gitBlob": "8d49ddec1d7204e86184ad7907ed7f88dbe6f7f1",
+      "bytes": 81243
+    },
+    {
+      "path": "exports/flagship-previews/31-frequency-tuning.png",
+      "mode": "100644",
+      "gitBlob": "842c8bddc1c491b09f76479b383f9062aa830db0",
+      "bytes": 68725
+    },
+    {
+      "path": "exports/flagship-previews/32-preferred-directions.png",
+      "mode": "100644",
+      "gitBlob": "5afb08677205fa9875174283ed630c8c7301d9ab",
+      "bytes": 52907
+    },
+    {
+      "path": "exports/flagship-previews/33-frequency-selectivity.png",
+      "mode": "100644",
+      "gitBlob": "c0628c69b1b4cc48c3da761491f34b4d051255db",
+      "bytes": 154942
+    },
+    {
+      "path": "exports/manuscript.pdf",
+      "mode": "100644",
+      "gitBlob": "f4f677c931d584a0c1e5ba1198338fd09a70fc1d",
+      "bytes": 2377914
+    },
+    {
+      "path": "exports/plot-previews/01-brain-regions.png",
+      "mode": "100644",
+      "gitBlob": "d23dfeb7a662cf441c48d71f96c00a2af8e27a28",
+      "bytes": 51609
+    },
+    {
+      "path": "exports/plot-previews/02-neuron-morphology.png",
+      "mode": "100644",
+      "gitBlob": "a7a4f892205b1621fe28fff0c635f4e2a5cd4c75",
+      "bytes": 32773
+    },
+    {
+      "path": "exports/plot-previews/03-response-heatmap.png",
+      "mode": "100644",
+      "gitBlob": "858218b893d75e4b6c165006e48bb895ff47bd2e",
+      "bytes": 55230
+    },
+    {
+      "path": "exports/plot-previews/04-tuning-curves.png",
+      "mode": "100644",
+      "gitBlob": "34f921cd2988e685b8be9f3324d8482d97c772fa",
+      "bytes": 36352
+    },
+    {
+      "path": "exports/plot-previews/05-response-network.png",
+      "mode": "100644",
+      "gitBlob": "b6187dc5d2fa8248b8476ba73e8153c8d193f81f",
+      "bytes": 51118
+    },
+    {
+      "path": "exports/plot-previews/06-selectivity-distribution.png",
+      "mode": "100644",
+      "gitBlob": "b54506db550974a959037ff7a15f4e50981b71d4",
+      "bytes": 33842
+    },
+    {
+      "path": "exports/plot-previews/07-paired-responses.png",
+      "mode": "100644",
+      "gitBlob": "24cc78f8a872f3909ddcd44dbea565b210f5ddf1",
+      "bytes": 91043
+    },
+    {
+      "path": "exports/plot-previews/08-population-pca.png",
+      "mode": "100644",
+      "gitBlob": "043b70618116bd079788de0572f119fe68b0c84c",
+      "bytes": 35703
+    },
+    {
+      "path": "exports/plot-previews/09-response-correlation.png",
+      "mode": "100644",
+      "gitBlob": "794c8a6c66bb338cc727f18aa0d57924c27b2a83",
+      "bytes": 82461
+    },
+    {
+      "path": "exports/plot-previews/10-response-traces.png",
+      "mode": "100644",
+      "gitBlob": "45e0cb30ed559fdbd7294f8c019f75a86c8b8eac",
+      "bytes": 54103
+    },
+    {
+      "path": "exports/plot-previews/11-frequency-selectivity.png",
+      "mode": "100644",
+      "gitBlob": "3cd19145f6be57ff6f17467f247e0d73d2102707",
+      "bytes": 65192
+    },
+    {
+      "path": "exports/plot-previews/12-variance-spectrum.png",
+      "mode": "100644",
+      "gitBlob": "d041bfc3e6ed14f44e486c4aba41cf8d6b1e7877",
+      "bytes": 30198
+    },
+    {
+      "path": "fig/assets/01-brain-regions.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "729bd0f56877be880fdfc20d9ad72db3bc21f0e3",
+      "bytes": 7577
+    },
+    {
+      "path": "fig/assets/01-brain-regions.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c7d4b3cee973d247db6bb91b14f481cede6c587f",
+      "bytes": 1269
+    },
+    {
+      "path": "fig/assets/01-brain-regions.svg",
+      "mode": "100644",
+      "gitBlob": "9c4abedb046982499052252658e6ccc281cce63a",
+      "bytes": 163311
+    },
+    {
+      "path": "fig/assets/02-neuron-morphology.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b8f48521e7514f41aeec538f5fbf98d54bc19409",
+      "bytes": 11564
+    },
+    {
+      "path": "fig/assets/02-neuron-morphology.recipe.json",
+      "mode": "100644",
+      "gitBlob": "0f6b869ffe49678dd1f6262532bef9c163c3d9eb",
+      "bytes": 1289
+    },
+    {
+      "path": "fig/assets/02-neuron-morphology.svg",
+      "mode": "100644",
+      "gitBlob": "ac0a52f5ea5e29aa1682fa51a8176b87518b42ca",
+      "bytes": 59275
+    },
+    {
+      "path": "fig/assets/03-response-heatmap.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "083bc005fc38fc4a75c55de35d61c92c05c4c988",
+      "bytes": 200416
+    },
+    {
+      "path": "fig/assets/03-response-heatmap.recipe.json",
+      "mode": "100644",
+      "gitBlob": "0257939390515040ad40495133f3f22f616c7659",
+      "bytes": 1060
+    },
+    {
+      "path": "fig/assets/03-response-heatmap.svg",
+      "mode": "100644",
+      "gitBlob": "f9200636b9c3e09ff0cc2eb5639bf277bcfec71e",
+      "bytes": 55728
+    },
+    {
+      "path": "fig/assets/04-tuning-curves.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "cff2ce5c069b14f540e1d6cbfde1c2187237965c",
+      "bytes": 22986
+    },
+    {
+      "path": "fig/assets/04-tuning-curves.recipe.json",
+      "mode": "100644",
+      "gitBlob": "47f9b985ec78f2b4500badb5d8921b5d4c35f08b",
+      "bytes": 894
+    },
+    {
+      "path": "fig/assets/04-tuning-curves.svg",
+      "mode": "100644",
+      "gitBlob": "bb1d87c4adafbc35812d373b08ada5aef4515175",
+      "bytes": 28700
+    },
+    {
+      "path": "fig/assets/05-response-network.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "fcc544bcfae69f56ae0cd0d6bf66e77211d96863",
+      "bytes": 18386
+    },
+    {
+      "path": "fig/assets/05-response-network.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1af4824729cee89a03dc783349dba91ad63dbf95",
+      "bytes": 906
+    },
+    {
+      "path": "fig/assets/05-response-network.svg",
+      "mode": "100644",
+      "gitBlob": "2e23a6158de6c788a4c99b41853c2a20c986ff5e",
+      "bytes": 153361
+    },
+    {
+      "path": "fig/assets/06-selectivity-distribution.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b5d6c49aa03258cb0b343624011900606c1dbb9a",
+      "bytes": 53021
+    },
+    {
+      "path": "fig/assets/06-selectivity-distribution.recipe.json",
+      "mode": "100644",
+      "gitBlob": "a16cd7e0cbcb5295606a62146db81c8a10f8e84b",
+      "bytes": 938
+    },
+    {
+      "path": "fig/assets/06-selectivity-distribution.svg",
+      "mode": "100644",
+      "gitBlob": "8501458feeb6729d13490aee007b4ff94615b429",
+      "bytes": 20816
+    },
+    {
+      "path": "fig/assets/07-paired-responses.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "d89af7a80628f50c9030bec051c5ce75f4279f7d",
+      "bytes": 91729
+    },
+    {
+      "path": "fig/assets/07-paired-responses.recipe.json",
+      "mode": "100644",
+      "gitBlob": "a6b2bfb1bb7c6b3fae53b5528e8fdd40a4f9e5cb",
+      "bytes": 906
+    },
+    {
+      "path": "fig/assets/07-paired-responses.svg",
+      "mode": "100644",
+      "gitBlob": "d2696cdf3ae402b019096cee2546165ca755cbd7",
+      "bytes": 127808
+    },
+    {
+      "path": "fig/assets/08-population-pca.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "9b2a549f2738eaf3019667bdb0a5f3d5d0c93779",
+      "bytes": 59842
+    },
+    {
+      "path": "fig/assets/08-population-pca.recipe.json",
+      "mode": "100644",
+      "gitBlob": "97679d6e9b22a92d6ed696fbda56c12f90a76fd9",
+      "bytes": 898
+    },
+    {
+      "path": "fig/assets/08-population-pca.svg",
+      "mode": "100644",
+      "gitBlob": "39bdaa318a7e68690b443e293618665c7f6eae29",
+      "bytes": 69271
+    },
+    {
+      "path": "fig/assets/09-response-correlation.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "ffb3c49044e5d893ed04dc66f6d8e53a3ea692e5",
+      "bytes": 464258
+    },
+    {
+      "path": "fig/assets/09-response-correlation.recipe.json",
+      "mode": "100644",
+      "gitBlob": "045a13d0f928a6ef7ac832cd1c9ea2d7a41da18a",
+      "bytes": 1079
+    },
+    {
+      "path": "fig/assets/09-response-correlation.svg",
+      "mode": "100644",
+      "gitBlob": "630a72741c505cd7aa742433cf85c20203677358",
+      "bytes": 100568
+    },
+    {
+      "path": "fig/assets/10-response-traces.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "89064963a4fdb1eb8f1adf89ce8c135f5ac4917b",
+      "bytes": 30220
+    },
+    {
+      "path": "fig/assets/10-response-traces.recipe.json",
+      "mode": "100644",
+      "gitBlob": "a641082e9e43dd4eafbeb4a525ab828fa62d5f85",
+      "bytes": 1084
+    },
+    {
+      "path": "fig/assets/10-response-traces.svg",
+      "mode": "100644",
+      "gitBlob": "1e30bf9d502f468894ec558e7b2ac8dde7f6e4fe",
+      "bytes": 18828
+    },
+    {
+      "path": "fig/assets/11-frequency-selectivity.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "ccadf79ddebbdbd902acb5decc52aed458c9cda6",
+      "bytes": 254626
+    },
+    {
+      "path": "fig/assets/11-frequency-selectivity.recipe.json",
+      "mode": "100644",
+      "gitBlob": "0cfe4d491343498a661e2a8b967a88ea5390d213",
+      "bytes": 926
+    },
+    {
+      "path": "fig/assets/11-frequency-selectivity.svg",
+      "mode": "100644",
+      "gitBlob": "f5541d40fcb100ec3e18d476cede06b005eed786",
+      "bytes": 283219
+    },
+    {
+      "path": "fig/assets/12-variance-spectrum.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "343f33b0ae36ed62c1e2a01ec4fd611280458f91",
+      "bytes": 20250
+    },
+    {
+      "path": "fig/assets/12-variance-spectrum.recipe.json",
+      "mode": "100644",
+      "gitBlob": "bc3311b2e5056007938854637757001a09035962",
+      "bytes": 910
+    },
+    {
+      "path": "fig/assets/12-variance-spectrum.svg",
+      "mode": "100644",
+      "gitBlob": "1da501b39a26d8b033f8f0a2c7c76277e11d6d46",
+      "bytes": 21063
+    },
+    {
+      "path": "fig/assets/asset_mu1xnvbabe30.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "10b10c087d156e25e7f8ee2b8ab24a6b7eecb4da",
+      "bytes": 30673
+    },
+    {
+      "path": "fig/assets/asset_mu1xnvbabe30.recipe.json",
+      "mode": "100644",
+      "gitBlob": "f08c08f71870739c4551144975544f36b2c9e63c",
+      "bytes": 1752
+    },
+    {
+      "path": "fig/assets/asset_mu1xnvbabe30.svg",
+      "mode": "100644",
+      "gitBlob": "8646e4b3b3a97c780ebc87bd953a4ae1adb9c5d8",
+      "bytes": 1428043
+    },
+    {
+      "path": "fig/assets/asset_mu1xnvrjdr9h.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "4e27430cc54b021b46872d75c2b224fd1aae9136",
+      "bytes": 40852
+    },
+    {
+      "path": "fig/assets/asset_mu1xnvrjdr9h.recipe.json",
+      "mode": "100644",
+      "gitBlob": "adcc16507bc1ac8cc10d87c7fdaf57cf1b5e9e30",
+      "bytes": 1614
+    },
+    {
+      "path": "fig/assets/asset_mu1xnvrjdr9h.svg",
+      "mode": "100644",
+      "gitBlob": "8e93e6637971cc6a6d6e2e7e18fd50c06b71c6a5",
+      "bytes": 184237
+    },
+    {
+      "path": "fig/assets/asset_mu1xnw7z5kuf.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "15208820d56644200deec81cd9f8b9791ee35483",
+      "bytes": 230354
+    },
+    {
+      "path": "fig/assets/asset_mu1xnw7z5kuf.recipe.json",
+      "mode": "100644",
+      "gitBlob": "64c8153057247c7d7d96de661afd6b57a563580a",
+      "bytes": 1542
+    },
+    {
+      "path": "fig/assets/asset_mu1xnw7z5kuf.svg",
+      "mode": "100644",
+      "gitBlob": "eb402eb568741c7a9242457ee3d22d19f8c7f76c",
+      "bytes": 616279
+    },
+    {
+      "path": "fig/assets/asset_mu1xnwojao9p.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "d13af5fd63088f95a166d4eb72c2555b718034ca",
+      "bytes": 389584
+    },
+    {
+      "path": "fig/assets/asset_mu1xnwojao9p.recipe.json",
+      "mode": "100644",
+      "gitBlob": "6a7fb22c92c76248d2b132b75933c285c8e6431b",
+      "bytes": 1335
+    },
+    {
+      "path": "fig/assets/asset_mu1xnwojao9p.svg",
+      "mode": "100644",
+      "gitBlob": "38c25f4ff1992f22c95caeff16278f0d7a9b047d",
+      "bytes": 185042
+    },
+    {
+      "path": "fig/assets/asset_mu1xnx4rrda.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "0b5eb7237e4a7788e3dc3bb91017cccd3faa7b85",
+      "bytes": 181804
+    },
+    {
+      "path": "fig/assets/asset_mu1xnx4rrda.recipe.json",
+      "mode": "100644",
+      "gitBlob": "af38a5541fcf7a6900d7e2f67ed88fc305c90491",
+      "bytes": 1238
+    },
+    {
+      "path": "fig/assets/asset_mu1xnx4rrda.svg",
+      "mode": "100644",
+      "gitBlob": "60178ebbdb53042917fb7dca4727ad5613ba8cd5",
+      "bytes": 84052
+    },
+    {
+      "path": "fig/assets/asset_mu1xnxld511q.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "3563887ac6e36edfd9f62094884820bc0d877ab2",
+      "bytes": 21230
+    },
+    {
+      "path": "fig/assets/asset_mu1xnxld511q.recipe.json",
+      "mode": "100644",
+      "gitBlob": "acd085f190808d5be900b3bf6a54d516d61ee01e",
+      "bytes": 1323
+    },
+    {
+      "path": "fig/assets/asset_mu1xnxld511q.svg",
+      "mode": "100644",
+      "gitBlob": "7b6e32a120b4708ffe5de18d4ad74a21dfbd50bf",
+      "bytes": 127867
+    },
+    {
+      "path": "fig/assets/asset_mu1xny22j9vh.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "4b811ada5460b8fbd941b6a18c7f2d40eb51a224",
+      "bytes": 28040
+    },
+    {
+      "path": "fig/assets/asset_mu1xny22j9vh.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c5134b11ef4e6d9d50f6f29d447cc7b0eae13c7d",
+      "bytes": 1173
+    },
+    {
+      "path": "fig/assets/asset_mu1xny22j9vh.svg",
+      "mode": "100644",
+      "gitBlob": "74c4b34db449c9a125d9bee439b0a2d1c75a1b5e",
+      "bytes": 210035
+    },
+    {
+      "path": "fig/assets/asset_mu1xnyifal55.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "f2521f06dbd67983a90953cd59e0ebc2bfe3e34c",
+      "bytes": 59480
+    },
+    {
+      "path": "fig/assets/asset_mu1xnyifal55.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1f8caa451d988c2afed87bb7328e772017464434",
+      "bytes": 1169
+    },
+    {
+      "path": "fig/assets/asset_mu1xnyifal55.svg",
+      "mode": "100644",
+      "gitBlob": "c3213588fec6cde5c65c8dd27b3df6de1851a09a",
+      "bytes": 119605
+    },
+    {
+      "path": "fig/assets/asset_mu1xnyyx6gm6.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b6b1369610fe92d9ffed1742dc1475c1ed5f5a7d",
+      "bytes": 42088
+    },
+    {
+      "path": "fig/assets/asset_mu1xnyyx6gm6.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c4b5a611ea8c8f2564f7dd59f6fc979222939328",
+      "bytes": 1145
+    },
+    {
+      "path": "fig/assets/asset_mu1xnyyx6gm6.svg",
+      "mode": "100644",
+      "gitBlob": "fda00bd9af88f640021c2b784625463c2c3d9582",
+      "bytes": 119893
+    },
+    {
+      "path": "fig/assets/asset_mu1xnzfpevvt.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "d8529a411f0485194cde65d1b5070e1824a20061",
+      "bytes": 17146
+    },
+    {
+      "path": "fig/assets/asset_mu1xnzfpevvt.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c60171547644b6dacf0017ed2948d91761a27016",
+      "bytes": 1165
+    },
+    {
+      "path": "fig/assets/asset_mu1xnzfpevvt.svg",
+      "mode": "100644",
+      "gitBlob": "c872f70ea7db629e16b111a23cbbc30063efa796",
+      "bytes": 14803
+    },
+    {
+      "path": "fig/assets/asset_mu1xnzwxi7bx.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "6cb45b2d416d5607bc9ae77c0020ccd049eb9ecb",
+      "bytes": 9974
+    },
+    {
+      "path": "fig/assets/asset_mu1xnzwxi7bx.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4f9af82c2d934ae56dea9b704b3df043a1c8a58d",
+      "bytes": 1181
+    },
+    {
+      "path": "fig/assets/asset_mu1xnzwxi7bx.svg",
+      "mode": "100644",
+      "gitBlob": "3238c63154cd7a31de70e6a3c59abfebf5c53c05",
+      "bytes": 18350
+    },
+    {
+      "path": "fig/assets/asset_mu1xo0dh6eql.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b90a57ca2e699f9953ea19801f2776baa74354a9",
+      "bytes": 8344
+    },
+    {
+      "path": "fig/assets/asset_mu1xo0dh6eql.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4b499e59f94e102afd9d9e5b1422e8b4012dbbc7",
+      "bytes": 1153
+    },
+    {
+      "path": "fig/assets/asset_mu1xo0dh6eql.svg",
+      "mode": "100644",
+      "gitBlob": "f75a874b4561a6b594330e5f991a076febcf332f",
+      "bytes": 13109
+    },
+    {
+      "path": "fig/assets/asset_mu1xsv6z86pc.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "689fff780fb105d6453a5c3118d23dc57ec9cf2f",
+      "bytes": 55167
+    },
+    {
+      "path": "fig/assets/asset_mu1xsv6z86pc.recipe.json",
+      "mode": "100644",
+      "gitBlob": "ef5dabb84933c94ecf3a355240918129ff839a6a",
+      "bytes": 1067
+    },
+    {
+      "path": "fig/assets/asset_mu1xsv6z86pc.svg",
+      "mode": "100644",
+      "gitBlob": "b3c36546d2fa7156d59b422b70432a40b6573ae0",
+      "bytes": 99834
+    },
+    {
+      "path": "fig/assets/asset_mu1xsvogem7f.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "8dd3e0bd059c7e3d8ba160f2dca1516214af5257",
+      "bytes": 55285
+    },
+    {
+      "path": "fig/assets/asset_mu1xsvogem7f.recipe.json",
+      "mode": "100644",
+      "gitBlob": "edf6bd7d56eb25fc3222f2fd1d1c9e148e97fb3a",
+      "bytes": 1067
+    },
+    {
+      "path": "fig/assets/asset_mu1xsvogem7f.svg",
+      "mode": "100644",
+      "gitBlob": "73ad3b87de3f50bc03fddd8e4718e30dd07a0d6c",
+      "bytes": 99903
+    },
+    {
+      "path": "fig/assets/asset_mu1xsvwgbyp1.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "2319e44b79664b880963f19c736667fcc8f6ca00",
+      "bytes": 55272
+    },
+    {
+      "path": "fig/assets/asset_mu1xsvwgbyp1.recipe.json",
+      "mode": "100644",
+      "gitBlob": "7e48b1b299a28f6135002b80797363d3b571d423",
+      "bytes": 1067
+    },
+    {
+      "path": "fig/assets/asset_mu1xsvwgbyp1.svg",
+      "mode": "100644",
+      "gitBlob": "d48ed49da49d65a7e076917a435366c9eb2a50a6",
+      "bytes": 99896
+    },
+    {
+      "path": "fig/assets/asset_mu1xsw5bf5jf.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "6dc0cda12b06b6bcf4e744f65b51299ce8b99829",
+      "bytes": 7609
+    },
+    {
+      "path": "fig/assets/asset_mu1xsw5bf5jf.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1c7575a7abce66f14dc6dab52b060aaac49e7cbe",
+      "bytes": 1047
+    },
+    {
+      "path": "fig/assets/asset_mu1xsw5bf5jf.svg",
+      "mode": "100644",
+      "gitBlob": "9561c86fe67c389bf9c3102dc9c5a0e107e46cb9",
+      "bytes": 752924
+    },
+    {
+      "path": "fig/assets/asset_mu1xswmowmy.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b90a57ca2e699f9953ea19801f2776baa74354a9",
+      "bytes": 8344
+    },
+    {
+      "path": "fig/assets/asset_mu1xswmowmy.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4b499e59f94e102afd9d9e5b1422e8b4012dbbc7",
+      "bytes": 1153
+    },
+    {
+      "path": "fig/assets/asset_mu1xswmowmy.svg",
+      "mode": "100644",
+      "gitBlob": "f75a874b4561a6b594330e5f991a076febcf332f",
+      "bytes": 13109
+    },
+    {
+      "path": "fig/assets/asset_mu1xswv499hk.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "c71f35bacd3dfcd2adf23fda99ba76f96f862845",
+      "bytes": 77021
+    },
+    {
+      "path": "fig/assets/asset_mu1xswv499hk.recipe.json",
+      "mode": "100644",
+      "gitBlob": "153a4e0a1787aa7bc77dc874b24277a70750c12c",
+      "bytes": 1077
+    },
+    {
+      "path": "fig/assets/asset_mu1xswv499hk.svg",
+      "mode": "100644",
+      "gitBlob": "2a5bbcc8b587d5a5a901d965ee97b4d9774dce41",
+      "bytes": 36133
+    },
+    {
+      "path": "fig/assets/asset_mu1xsxc59c4z.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "7f0c0b7f21604f0335ffe75eae748f5c8e6c3b39",
+      "bytes": 13706
+    },
+    {
+      "path": "fig/assets/asset_mu1xsxc59c4z.recipe.json",
+      "mode": "100644",
+      "gitBlob": "cd8cd6cd657de84327aedf3ff96920ca3f8d2a46",
+      "bytes": 1077
+    },
+    {
+      "path": "fig/assets/asset_mu1xsxc59c4z.svg",
+      "mode": "100644",
+      "gitBlob": "2c9d3ca090c3ec64c9cf1ea5e4cfd1ecbf07e61f",
+      "bytes": 416963
+    },
+    {
+      "path": "fig/assets/asset_mu1xsxui6ft3.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "0f81d216048bb424e9e3121b0dc27c06f4312568",
+      "bytes": 172381
+    },
+    {
+      "path": "fig/assets/asset_mu1xsxui6ft3.recipe.json",
+      "mode": "100644",
+      "gitBlob": "856987809ccd7026cebf168880fdd229e4cc7720",
+      "bytes": 1274
+    },
+    {
+      "path": "fig/assets/asset_mu1xsxui6ft3.svg",
+      "mode": "100644",
+      "gitBlob": "c69901b27713370181642aed1d69419373fde917",
+      "bytes": 160056
+    },
+    {
+      "path": "fig/assets/asset_mu1xsybs14d4.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "05a3ae3a015734441fc1f9af61afba79ab98fff3",
+      "bytes": 255611
+    },
+    {
+      "path": "fig/assets/asset_mu1xsybs14d4.recipe.json",
+      "mode": "100644",
+      "gitBlob": "eee9b9c3a18bcd6b67ffa8b3536c4aefc8747932",
+      "bytes": 927
+    },
+    {
+      "path": "fig/assets/asset_mu1xsybs14d4.svg",
+      "mode": "100644",
+      "gitBlob": "f5541d40fcb100ec3e18d476cede06b005eed786",
+      "bytes": 283219
+    },
+    {
+      "path": "fig/assets/asset_mu1xudcuifqk.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "689fff780fb105d6453a5c3118d23dc57ec9cf2f",
+      "bytes": 55167
+    },
+    {
+      "path": "fig/assets/asset_mu1xudcuifqk.recipe.json",
+      "mode": "100644",
+      "gitBlob": "ef5dabb84933c94ecf3a355240918129ff839a6a",
+      "bytes": 1067
+    },
+    {
+      "path": "fig/assets/asset_mu1xudcuifqk.svg",
+      "mode": "100644",
+      "gitBlob": "b3c36546d2fa7156d59b422b70432a40b6573ae0",
+      "bytes": 99834
+    },
+    {
+      "path": "fig/assets/asset_mu1xudu4hdj8.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "8dd3e0bd059c7e3d8ba160f2dca1516214af5257",
+      "bytes": 55285
+    },
+    {
+      "path": "fig/assets/asset_mu1xudu4hdj8.recipe.json",
+      "mode": "100644",
+      "gitBlob": "edf6bd7d56eb25fc3222f2fd1d1c9e148e97fb3a",
+      "bytes": 1067
+    },
+    {
+      "path": "fig/assets/asset_mu1xudu4hdj8.svg",
+      "mode": "100644",
+      "gitBlob": "73ad3b87de3f50bc03fddd8e4718e30dd07a0d6c",
+      "bytes": 99903
+    },
+    {
+      "path": "fig/assets/asset_mu1xue2cbwog.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "2319e44b79664b880963f19c736667fcc8f6ca00",
+      "bytes": 55272
+    },
+    {
+      "path": "fig/assets/asset_mu1xue2cbwog.recipe.json",
+      "mode": "100644",
+      "gitBlob": "7e48b1b299a28f6135002b80797363d3b571d423",
+      "bytes": 1067
+    },
+    {
+      "path": "fig/assets/asset_mu1xue2cbwog.svg",
+      "mode": "100644",
+      "gitBlob": "d48ed49da49d65a7e076917a435366c9eb2a50a6",
+      "bytes": 99896
+    },
+    {
+      "path": "fig/assets/asset_mu1xueajexpl.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "6dc0cda12b06b6bcf4e744f65b51299ce8b99829",
+      "bytes": 7609
+    },
+    {
+      "path": "fig/assets/asset_mu1xueajexpl.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1c7575a7abce66f14dc6dab52b060aaac49e7cbe",
+      "bytes": 1047
+    },
+    {
+      "path": "fig/assets/asset_mu1xueajexpl.svg",
+      "mode": "100644",
+      "gitBlob": "9561c86fe67c389bf9c3102dc9c5a0e107e46cb9",
+      "bytes": 752924
+    },
+    {
+      "path": "fig/assets/asset_mu1xues5e3u9.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b90a57ca2e699f9953ea19801f2776baa74354a9",
+      "bytes": 8344
+    },
+    {
+      "path": "fig/assets/asset_mu1xues5e3u9.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4b499e59f94e102afd9d9e5b1422e8b4012dbbc7",
+      "bytes": 1153
+    },
+    {
+      "path": "fig/assets/asset_mu1xues5e3u9.svg",
+      "mode": "100644",
+      "gitBlob": "f75a874b4561a6b594330e5f991a076febcf332f",
+      "bytes": 13109
+    },
+    {
+      "path": "fig/assets/asset_mu1xuf0hgdxq.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "c71f35bacd3dfcd2adf23fda99ba76f96f862845",
+      "bytes": 77021
+    },
+    {
+      "path": "fig/assets/asset_mu1xuf0hgdxq.recipe.json",
+      "mode": "100644",
+      "gitBlob": "153a4e0a1787aa7bc77dc874b24277a70750c12c",
+      "bytes": 1077
+    },
+    {
+      "path": "fig/assets/asset_mu1xuf0hgdxq.svg",
+      "mode": "100644",
+      "gitBlob": "2a5bbcc8b587d5a5a901d965ee97b4d9774dce41",
+      "bytes": 36133
+    },
+    {
+      "path": "fig/assets/asset_mu1xufi4azmj.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "7f0c0b7f21604f0335ffe75eae748f5c8e6c3b39",
+      "bytes": 13706
+    },
+    {
+      "path": "fig/assets/asset_mu1xufi4azmj.recipe.json",
+      "mode": "100644",
+      "gitBlob": "cd8cd6cd657de84327aedf3ff96920ca3f8d2a46",
+      "bytes": 1077
+    },
+    {
+      "path": "fig/assets/asset_mu1xufi4azmj.svg",
+      "mode": "100644",
+      "gitBlob": "2c9d3ca090c3ec64c9cf1ea5e4cfd1ecbf07e61f",
+      "bytes": 416963
+    },
+    {
+      "path": "fig/assets/asset_mu1xufzhcbg.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "0f81d216048bb424e9e3121b0dc27c06f4312568",
+      "bytes": 172381
+    },
+    {
+      "path": "fig/assets/asset_mu1xufzhcbg.recipe.json",
+      "mode": "100644",
+      "gitBlob": "856987809ccd7026cebf168880fdd229e4cc7720",
+      "bytes": 1274
+    },
+    {
+      "path": "fig/assets/asset_mu1xufzhcbg.svg",
+      "mode": "100644",
+      "gitBlob": "c69901b27713370181642aed1d69419373fde917",
+      "bytes": 160056
+    },
+    {
+      "path": "fig/assets/asset_mu1xuggyc7i7.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "53b929ab072d0d8c940fc8df0214a05bb6fc7582",
+      "bytes": 255595
+    },
+    {
+      "path": "fig/assets/asset_mu1xuggyc7i7.recipe.json",
+      "mode": "100644",
+      "gitBlob": "754096e0836912c9095673e3ab65ffdde33d4dbf",
+      "bytes": 1185
+    },
+    {
+      "path": "fig/assets/asset_mu1xuggyc7i7.svg",
+      "mode": "100644",
+      "gitBlob": "0e1712350165ce6f993c8c6279110e1d56c05aac",
+      "bytes": 284180
+    },
+    {
+      "path": "fig/canvases/canvas-1.json",
+      "mode": "100644",
+      "gitBlob": "aea1220a46d5e7fc039a083d2eef1efe852d0101",
+      "bytes": 22865
+    },
+    {
+      "path": "fig/canvases/canvas_mu1vwcyuwae6_3.json",
+      "mode": "100644",
+      "gitBlob": "d8244b2dc067a4472279a8c9505c87433ad1ff8c",
+      "bytes": 110
+    },
+    {
+      "path": "fig/captions/fig-neural-populations.md",
+      "mode": "100644",
+      "gitBlob": "ff62c2e4f05fe4056d5259427c5edeb1233a8004",
+      "bytes": 1588
+    },
+    {
+      "path": "fig/captions/fig-neural-structure.md",
+      "mode": "100644",
+      "gitBlob": "516b026a12dfc4876473a5ff1209cd27c6e9552f",
+      "bytes": 849
+    },
+    {
+      "path": "fig/captions/fig_mu1vwcyuwae6_4.md",
+      "mode": "100644",
+      "gitBlob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "bytes": 0
+    },
+    {
+      "path": "fig/index.json",
+      "mode": "100644",
+      "gitBlob": "87f117db0953fa2ea6d26d7737f48e00874a02b6",
+      "bytes": 12693
+    },
+    {
+      "path": "fig/renders/fig-neural-populations.svg",
+      "mode": "100644",
+      "gitBlob": "003882308da90d74327bc247e10572532583fcfc",
+      "bytes": 3426582
+    },
+    {
+      "path": "fig/renders/fig-neural-structure.svg",
+      "mode": "100644",
+      "gitBlob": "d2d3066d7d64fa2ac0b1fd4b0bff7561d69b7612",
+      "bytes": 3046157
+    },
+    {
+      "path": "paper/_quarto.yml",
+      "mode": "100644",
+      "gitBlob": "a16b2e49df90d6652c1757090bec9aa3fbdb0ed9",
+      "bytes": 105
+    },
+    {
+      "path": "paper/manuscript.qmd",
+      "mode": "100644",
+      "gitBlob": "4aace0d5e6fb915ba3db897c312746c11db24f63",
+      "bytes": 2990
+    },
+    {
+      "path": "paper/methods.qmd",
+      "mode": "100644",
+      "gitBlob": "f51f8d8df65fa67689cd583f99c4110122c47db9",
+      "bytes": 2929
+    },
+    {
+      "path": "paper/presentation.qmd",
+      "mode": "100644",
+      "gitBlob": "9e21d2293c090fa3f31d47ddcfef6b6b1b88bd13",
+      "bytes": 799
+    },
+    {
+      "path": "plots/01-brain-regions.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "0682f02fb18f3debdfa0362ae8d54e7e982fdb80",
+      "bytes": 7602
+    },
+    {
+      "path": "plots/01-brain-regions.recipe.json",
+      "mode": "100644",
+      "gitBlob": "025ed882864dfc6b2c79577d57316ddbc968cd49",
+      "bytes": 1270
+    },
+    {
+      "path": "plots/01-brain-regions.svg",
+      "mode": "100644",
+      "gitBlob": "9c4abedb046982499052252658e6ccc281cce63a",
+      "bytes": 163311
+    },
+    {
+      "path": "plots/02-neuron-morphology.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "a8acb49b29a26c76efaa10b3242c4845631028be",
+      "bytes": 11607
+    },
+    {
+      "path": "plots/02-neuron-morphology.recipe.json",
+      "mode": "100644",
+      "gitBlob": "5d8ba2da2111217f3f3600aa3bd8b4eec7611a06",
+      "bytes": 1290
+    },
+    {
+      "path": "plots/02-neuron-morphology.svg",
+      "mode": "100644",
+      "gitBlob": "ac0a52f5ea5e29aa1682fa51a8176b87518b42ca",
+      "bytes": 59275
+    },
+    {
+      "path": "plots/03-response-heatmap.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "bd3b62d5613f3f776e547d0af79bebede833480e",
+      "bytes": 200461
+    },
+    {
+      "path": "plots/03-response-heatmap.recipe.json",
+      "mode": "100644",
+      "gitBlob": "9fe8a0a86ac16e18c4d412d14285c36bc300a1f9",
+      "bytes": 1061
+    },
+    {
+      "path": "plots/03-response-heatmap.svg",
+      "mode": "100644",
+      "gitBlob": "f9200636b9c3e09ff0cc2eb5639bf277bcfec71e",
+      "bytes": 55728
+    },
+    {
+      "path": "plots/04-tuning-curves.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "ad025b4a4232b7d4c7746a59c5dd5987532529c2",
+      "bytes": 23131
+    },
+    {
+      "path": "plots/04-tuning-curves.recipe.json",
+      "mode": "100644",
+      "gitBlob": "15c99bff9c11d03871dbab011e44902fdd4602dc",
+      "bytes": 895
+    },
+    {
+      "path": "plots/04-tuning-curves.svg",
+      "mode": "100644",
+      "gitBlob": "bb1d87c4adafbc35812d373b08ada5aef4515175",
+      "bytes": 28700
+    },
+    {
+      "path": "plots/05-response-network.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "aa410a0c5d334eb5a3759db88e0be86fafb0acbd",
+      "bytes": 18399
+    },
+    {
+      "path": "plots/05-response-network.recipe.json",
+      "mode": "100644",
+      "gitBlob": "dc2c512813cdec6dfecf8be0da8cbfaf165ba49d",
+      "bytes": 907
+    },
+    {
+      "path": "plots/05-response-network.svg",
+      "mode": "100644",
+      "gitBlob": "2e23a6158de6c788a4c99b41853c2a20c986ff5e",
+      "bytes": 153361
+    },
+    {
+      "path": "plots/06-selectivity-distribution.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "02a7357de4f1a52f2e8b66d83ee9c12e1f4b9ebd",
+      "bytes": 53144
+    },
+    {
+      "path": "plots/06-selectivity-distribution.recipe.json",
+      "mode": "100644",
+      "gitBlob": "e342beb01684077b1a7f51c8171769a174e44869",
+      "bytes": 939
+    },
+    {
+      "path": "plots/06-selectivity-distribution.svg",
+      "mode": "100644",
+      "gitBlob": "8501458feeb6729d13490aee007b4ff94615b429",
+      "bytes": 20816
+    },
+    {
+      "path": "plots/07-paired-responses.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "afe1d3c8d72ee323cae2f206e8c5b9858f0689e6",
+      "bytes": 91764
+    },
+    {
+      "path": "plots/07-paired-responses.recipe.json",
+      "mode": "100644",
+      "gitBlob": "f38665e88cd91379e06b32688304ee7bb97be08c",
+      "bytes": 907
+    },
+    {
+      "path": "plots/07-paired-responses.svg",
+      "mode": "100644",
+      "gitBlob": "d2696cdf3ae402b019096cee2546165ca755cbd7",
+      "bytes": 127808
+    },
+    {
+      "path": "plots/08-population-pca.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "7395358b2032826535ad9d298f5224d36fe01621",
+      "bytes": 59857
+    },
+    {
+      "path": "plots/08-population-pca.recipe.json",
+      "mode": "100644",
+      "gitBlob": "a36bd7a3afc86d688b916c6871fb7d8245cb34a6",
+      "bytes": 899
+    },
+    {
+      "path": "plots/08-population-pca.svg",
+      "mode": "100644",
+      "gitBlob": "39bdaa318a7e68690b443e293618665c7f6eae29",
+      "bytes": 69271
+    },
+    {
+      "path": "plots/09-response-correlation.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "4b3f54ba4c69c0f31e038ab53af73a7f82a04da9",
+      "bytes": 464591
+    },
+    {
+      "path": "plots/09-response-correlation.recipe.json",
+      "mode": "100644",
+      "gitBlob": "acbaf5db540847286d5136507c720f4479a08a8c",
+      "bytes": 1084
+    },
+    {
+      "path": "plots/09-response-correlation.svg",
+      "mode": "100644",
+      "gitBlob": "630a72741c505cd7aa742433cf85c20203677358",
+      "bytes": 100568
+    },
+    {
+      "path": "plots/10-response-traces.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "445ed37ff0913c5643e9fecc02ed432eb15913fd",
+      "bytes": 31203
+    },
+    {
+      "path": "plots/10-response-traces.recipe.json",
+      "mode": "100644",
+      "gitBlob": "03eb9bab5413f1c5e21b44051c35b557e70df52f",
+      "bytes": 1085
+    },
+    {
+      "path": "plots/10-response-traces.svg",
+      "mode": "100644",
+      "gitBlob": "1e30bf9d502f468894ec558e7b2ac8dde7f6e4fe",
+      "bytes": 18828
+    },
+    {
+      "path": "plots/11-frequency-selectivity.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "05a3ae3a015734441fc1f9af61afba79ab98fff3",
+      "bytes": 255611
+    },
+    {
+      "path": "plots/11-frequency-selectivity.recipe.json",
+      "mode": "100644",
+      "gitBlob": "eee9b9c3a18bcd6b67ffa8b3536c4aefc8747932",
+      "bytes": 927
+    },
+    {
+      "path": "plots/11-frequency-selectivity.svg",
+      "mode": "100644",
+      "gitBlob": "f5541d40fcb100ec3e18d476cede06b005eed786",
+      "bytes": 283219
+    },
+    {
+      "path": "plots/12-variance-spectrum.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "98b9874b46195bba6343c48aad2b5d7e0cd70477",
+      "bytes": 20389
+    },
+    {
+      "path": "plots/12-variance-spectrum.recipe.json",
+      "mode": "100644",
+      "gitBlob": "5e141c4613b79946a63b2ef2860e95cf13968f9e",
+      "bytes": 911
+    },
+    {
+      "path": "plots/12-variance-spectrum.svg",
+      "mode": "100644",
+      "gitBlob": "1da501b39a26d8b033f8f0a2c7c76277e11d6d46",
+      "bytes": 21063
+    },
+    {
+      "path": "plots/advanced/13-population-trajectories.analysis.json",
+      "mode": "100644",
+      "gitBlob": "8ec4e9884495f1f9c0ffb5f887800048f60621fe",
+      "bytes": 122466
+    },
+    {
+      "path": "plots/advanced/13-population-trajectories.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "2b9f0ab1091993d542bd898d5791b66e414c4334",
+      "bytes": 53818
+    },
+    {
+      "path": "plots/advanced/13-population-trajectories.notes.json",
+      "mode": "100644",
+      "gitBlob": "35a60cfdfe3d0d5a439acb44ecd22a0451e979a5",
+      "bytes": 1448
+    },
+    {
+      "path": "plots/advanced/13-population-trajectories.recipe.json",
+      "mode": "100644",
+      "gitBlob": "2b22ff64ffacb8a6e99c723a2a1c6e81329973c0",
+      "bytes": 1069
+    },
+    {
+      "path": "plots/advanced/13-population-trajectories.svg",
+      "mode": "100644",
+      "gitBlob": "c29031e7bf45f6e8685f7377158938e218978104",
+      "bytes": 83086
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-01hz.analysis.json",
+      "mode": "100644",
+      "gitBlob": "242d855d9082263fd03566137e36eabc23c3f953",
+      "bytes": 60625
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-01hz.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "689fff780fb105d6453a5c3118d23dc57ec9cf2f",
+      "bytes": 55167
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-01hz.notes.json",
+      "mode": "100644",
+      "gitBlob": "410154da85ad9b6d9c3a7860e5a88bcf825b8466",
+      "bytes": 1429
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-01hz.recipe.json",
+      "mode": "100644",
+      "gitBlob": "ef5dabb84933c94ecf3a355240918129ff839a6a",
+      "bytes": 1067
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-01hz.svg",
+      "mode": "100644",
+      "gitBlob": "b3c36546d2fa7156d59b422b70432a40b6573ae0",
+      "bytes": 99834
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-04hz.analysis.json",
+      "mode": "100644",
+      "gitBlob": "242d855d9082263fd03566137e36eabc23c3f953",
+      "bytes": 60625
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-04hz.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "8dd3e0bd059c7e3d8ba160f2dca1516214af5257",
+      "bytes": 55285
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-04hz.notes.json",
+      "mode": "100644",
+      "gitBlob": "31e3ea4a47b0c11aa5a15eb008de9d7b3ae6b2c7",
+      "bytes": 1429
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-04hz.recipe.json",
+      "mode": "100644",
+      "gitBlob": "edf6bd7d56eb25fc3222f2fd1d1c9e148e97fb3a",
+      "bytes": 1067
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-04hz.svg",
+      "mode": "100644",
+      "gitBlob": "73ad3b87de3f50bc03fddd8e4718e30dd07a0d6c",
+      "bytes": 99903
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-15hz.analysis.json",
+      "mode": "100644",
+      "gitBlob": "242d855d9082263fd03566137e36eabc23c3f953",
+      "bytes": 60625
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-15hz.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "2319e44b79664b880963f19c736667fcc8f6ca00",
+      "bytes": 55272
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-15hz.notes.json",
+      "mode": "100644",
+      "gitBlob": "9deb9e6cdf5ed9c1e8832605f9f041eb95c7ac78",
+      "bytes": 1431
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-15hz.recipe.json",
+      "mode": "100644",
+      "gitBlob": "7e48b1b299a28f6135002b80797363d3b571d423",
+      "bytes": 1067
+    },
+    {
+      "path": "plots/advanced/14-response-geometry-15hz.svg",
+      "mode": "100644",
+      "gitBlob": "d48ed49da49d65a7e076917a435366c9eb2a50a6",
+      "bytes": 99896
+    },
+    {
+      "path": "plots/advanced/15-population-response-atlas.analysis.json",
+      "mode": "100644",
+      "gitBlob": "5fbcf2ee23914571a946d19f5774638dc21a504e",
+      "bytes": 16315
+    },
+    {
+      "path": "plots/advanced/15-population-response-atlas.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "d3c43113b3723ad6f7567087450d78e3b15b9231",
+      "bytes": 18432
+    },
+    {
+      "path": "plots/advanced/15-population-response-atlas.notes.json",
+      "mode": "100644",
+      "gitBlob": "bcc5368c28f5911c2f0d17c99d2105ce58ba19f7",
+      "bytes": 1674
+    },
+    {
+      "path": "plots/advanced/15-population-response-atlas.recipe.json",
+      "mode": "100644",
+      "gitBlob": "958767624f2d89d6a91aeb31bc2d3143fde2d823",
+      "bytes": 1261
+    },
+    {
+      "path": "plots/advanced/15-population-response-atlas.svg",
+      "mode": "100644",
+      "gitBlob": "a93ca002c45ae0384b2d51de4f382cfab046452d",
+      "bytes": 448202
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-1hz.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "29ba5675bd3d5553ba2d41455dfa83b20fb7d5f8",
+      "bytes": 76953
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-1hz.recipe.json",
+      "mode": "100644",
+      "gitBlob": "e639e05966d56ecb6787c25555d252f9e2ceed02",
+      "bytes": 1077
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-1hz.svg",
+      "mode": "100644",
+      "gitBlob": "c7012b012ef478e9ba2f799d8f8087b95bd80c54",
+      "bytes": 36430
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-2hz.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "c71f35bacd3dfcd2adf23fda99ba76f96f862845",
+      "bytes": 77021
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-2hz.recipe.json",
+      "mode": "100644",
+      "gitBlob": "153a4e0a1787aa7bc77dc874b24277a70750c12c",
+      "bytes": 1077
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-2hz.svg",
+      "mode": "100644",
+      "gitBlob": "2a5bbcc8b587d5a5a901d965ee97b4d9774dce41",
+      "bytes": 36133
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-4hz.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "5116679ffede9d14721d8618153d81a7ca8271c5",
+      "bytes": 77000
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-4hz.recipe.json",
+      "mode": "100644",
+      "gitBlob": "da43b5aebe94cf47b3c626af1aa45d1a4ed65b94",
+      "bytes": 1077
+    },
+    {
+      "path": "plots/advanced/16-tuning-landscape-4hz.svg",
+      "mode": "100644",
+      "gitBlob": "302ea1029ae2cfd72952824302111f1c61eecfd7",
+      "bytes": 35901
+    },
+    {
+      "path": "plots/advanced/17-trial-response-raincloud.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "0f81d216048bb424e9e3121b0dc27c06f4312568",
+      "bytes": 172381
+    },
+    {
+      "path": "plots/advanced/17-trial-response-raincloud.recipe.json",
+      "mode": "100644",
+      "gitBlob": "856987809ccd7026cebf168880fdd229e4cc7720",
+      "bytes": 1274
+    },
+    {
+      "path": "plots/advanced/17-trial-response-raincloud.svg",
+      "mode": "100644",
+      "gitBlob": "c69901b27713370181642aed1d69419373fde917",
+      "bytes": 160056
+    },
+    {
+      "path": "plots/advanced/18-joint-tuning-surface.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "7f0c0b7f21604f0335ffe75eae748f5c8e6c3b39",
+      "bytes": 13706
+    },
+    {
+      "path": "plots/advanced/18-joint-tuning-surface.recipe.json",
+      "mode": "100644",
+      "gitBlob": "cd8cd6cd657de84327aedf3ff96920ca3f8d2a46",
+      "bytes": 1077
+    },
+    {
+      "path": "plots/advanced/18-joint-tuning-surface.svg",
+      "mode": "100644",
+      "gitBlob": "2c9d3ca090c3ec64c9cf1ea5e4cfd1ecbf07e61f",
+      "bytes": 416963
+    },
+    {
+      "path": "plots/advanced/19-response-architecture.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b0cd09bb1a77fe38797ce4ec7fabf5fbc5674b95",
+      "bytes": 28079
+    },
+    {
+      "path": "plots/advanced/19-response-architecture.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1cc7ea0fefec014f6fd683354202079a8ce4a17d",
+      "bytes": 1067
+    },
+    {
+      "path": "plots/advanced/19-response-architecture.svg",
+      "mode": "100644",
+      "gitBlob": "f9644282a1ed398b3a03faf0a2955261daaa385c",
+      "bytes": 211774
+    },
+    {
+      "path": "plots/advanced/20-dendritic-arbor.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "6dc0cda12b06b6bcf4e744f65b51299ce8b99829",
+      "bytes": 7609
+    },
+    {
+      "path": "plots/advanced/20-dendritic-arbor.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1c7575a7abce66f14dc6dab52b060aaac49e7cbe",
+      "bytes": 1047
+    },
+    {
+      "path": "plots/advanced/20-dendritic-arbor.svg",
+      "mode": "100644",
+      "gitBlob": "9561c86fe67c389bf9c3102dc9c5a0e107e46cb9",
+      "bytes": 752924
+    },
+    {
+      "path": "plots/advanced/DATA-MORPH.md",
+      "mode": "100644",
+      "gitBlob": "73e9cc068848ad327951994432b7e30676b72863",
+      "bytes": 4621
+    },
+    {
+      "path": "plots/advanced/README.md",
+      "mode": "100644",
+      "gitBlob": "0ba2c6d53e86a7d9f39ea3cbfcd75f3b932f06b9",
+      "bytes": 8628
+    },
+    {
+      "path": "plots/advanced/architecture-inventory.json",
+      "mode": "100644",
+      "gitBlob": "0329c3a948081aa7b2eb4181d1ab8a0220c1b389",
+      "bytes": 1583
+    },
+    {
+      "path": "plots/advanced/tuning-inventory.json",
+      "mode": "100644",
+      "gitBlob": "6c081ca24c1afca43337b37b61668fc1a475aa28",
+      "bytes": 15592
+    },
+    {
+      "path": "plots/analysis-summary.json",
+      "mode": "100644",
+      "gitBlob": "7fa530bcde5de043b7bdd6883f09d415bf364d63",
+      "bytes": 889
+    },
+    {
+      "path": "plots/flagship/21-brain-anatomy.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "2d99365ea6712201983d31d13553033e89cf4909",
+      "bytes": 30764
+    },
+    {
+      "path": "plots/flagship/21-brain-anatomy.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c575fabb07d242685699f7b216c35487c3631113",
+      "bytes": 1753
+    },
+    {
+      "path": "plots/flagship/21-brain-anatomy.svg",
+      "mode": "100644",
+      "gitBlob": "8646e4b3b3a97c780ebc87bd953a4ae1adb9c5d8",
+      "bytes": 1428043
+    },
+    {
+      "path": "plots/flagship/22-neuron-reconstructions.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "6518ee56fbe4e46fa2be3b439b7eb80a61093738",
+      "bytes": 41725
+    },
+    {
+      "path": "plots/flagship/22-neuron-reconstructions.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4c858f874ab600d0377e0cad86264ef33724b313",
+      "bytes": 1615
+    },
+    {
+      "path": "plots/flagship/22-neuron-reconstructions.svg",
+      "mode": "100644",
+      "gitBlob": "8e93e6637971cc6a6d6e2e7e18fd50c06b71c6a5",
+      "bytes": 184237
+    },
+    {
+      "path": "plots/flagship/23-population-atlas.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "fcf9163517a4b57cc992ceb463d01ade0ea8d639",
+      "bytes": 230695
+    },
+    {
+      "path": "plots/flagship/23-population-atlas.recipe.json",
+      "mode": "100644",
+      "gitBlob": "50291bc45bffc6755dfabe06af572410e9e66577",
+      "bytes": 1547
+    },
+    {
+      "path": "plots/flagship/23-population-atlas.svg",
+      "mode": "100644",
+      "gitBlob": "eb402eb568741c7a9242457ee3d22d19f8c7f76c",
+      "bytes": 616279
+    },
+    {
+      "path": "plots/flagship/24-example-cells.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "d13af5fd63088f95a166d4eb72c2555b718034ca",
+      "bytes": 389584
+    },
+    {
+      "path": "plots/flagship/24-example-cells.recipe.json",
+      "mode": "100644",
+      "gitBlob": "6a7fb22c92c76248d2b132b75933c285c8e6431b",
+      "bytes": 1335
+    },
+    {
+      "path": "plots/flagship/24-example-cells.svg",
+      "mode": "100644",
+      "gitBlob": "38c25f4ff1992f22c95caeff16278f0d7a9b047d",
+      "bytes": 185042
+    },
+    {
+      "path": "plots/flagship/25-population-trajectories.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "63736038ca0617cd503ed8e4a895bfedf5f02c35",
+      "bytes": 181821
+    },
+    {
+      "path": "plots/flagship/25-population-trajectories.recipe.json",
+      "mode": "100644",
+      "gitBlob": "b79c48f0b054d570327a429708cdf388298991b0",
+      "bytes": 1239
+    },
+    {
+      "path": "plots/flagship/25-population-trajectories.svg",
+      "mode": "100644",
+      "gitBlob": "60178ebbdb53042917fb7dca4727ad5613ba8cd5",
+      "bytes": 84052
+    },
+    {
+      "path": "plots/flagship/26-similarity-matrix.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "3563887ac6e36edfd9f62094884820bc0d877ab2",
+      "bytes": 21230
+    },
+    {
+      "path": "plots/flagship/26-similarity-matrix.recipe.json",
+      "mode": "100644",
+      "gitBlob": "acd085f190808d5be900b3bf6a54d516d61ee01e",
+      "bytes": 1323
+    },
+    {
+      "path": "plots/flagship/26-similarity-matrix.svg",
+      "mode": "100644",
+      "gitBlob": "7b6e32a120b4708ffe5de18d4ad74a21dfbd50bf",
+      "bytes": 127867
+    },
+    {
+      "path": "plots/flagship/27-similarity-network.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "4b811ada5460b8fbd941b6a18c7f2d40eb51a224",
+      "bytes": 28040
+    },
+    {
+      "path": "plots/flagship/27-similarity-network.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c5134b11ef4e6d9d50f6f29d447cc7b0eae13c7d",
+      "bytes": 1173
+    },
+    {
+      "path": "plots/flagship/27-similarity-network.svg",
+      "mode": "100644",
+      "gitBlob": "74c4b34db449c9a125d9bee439b0a2d1c75a1b5e",
+      "bytes": 210035
+    },
+    {
+      "path": "plots/flagship/28-response-geometry.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "f2521f06dbd67983a90953cd59e0ebc2bfe3e34c",
+      "bytes": 59480
+    },
+    {
+      "path": "plots/flagship/28-response-geometry.recipe.json",
+      "mode": "100644",
+      "gitBlob": "1f8caa451d988c2afed87bb7328e772017464434",
+      "bytes": 1169
+    },
+    {
+      "path": "plots/flagship/28-response-geometry.svg",
+      "mode": "100644",
+      "gitBlob": "c3213588fec6cde5c65c8dd27b3df6de1851a09a",
+      "bytes": 119605
+    },
+    {
+      "path": "plots/flagship/29-direction-key.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b90a57ca2e699f9953ea19801f2776baa74354a9",
+      "bytes": 8344
+    },
+    {
+      "path": "plots/flagship/29-direction-key.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4b499e59f94e102afd9d9e5b1422e8b4012dbbc7",
+      "bytes": 1153
+    },
+    {
+      "path": "plots/flagship/29-direction-key.svg",
+      "mode": "100644",
+      "gitBlob": "f75a874b4561a6b594330e5f991a076febcf332f",
+      "bytes": 13109
+    },
+    {
+      "path": "plots/flagship/30-selectivity.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "b6b1369610fe92d9ffed1742dc1475c1ed5f5a7d",
+      "bytes": 42088
+    },
+    {
+      "path": "plots/flagship/30-selectivity.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c4b5a611ea8c8f2564f7dd59f6fc979222939328",
+      "bytes": 1145
+    },
+    {
+      "path": "plots/flagship/30-selectivity.svg",
+      "mode": "100644",
+      "gitBlob": "fda00bd9af88f640021c2b784625463c2c3d9582",
+      "bytes": 119893
+    },
+    {
+      "path": "plots/flagship/31-frequency-tuning.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "d8529a411f0485194cde65d1b5070e1824a20061",
+      "bytes": 17146
+    },
+    {
+      "path": "plots/flagship/31-frequency-tuning.recipe.json",
+      "mode": "100644",
+      "gitBlob": "c60171547644b6dacf0017ed2948d91761a27016",
+      "bytes": 1165
+    },
+    {
+      "path": "plots/flagship/31-frequency-tuning.svg",
+      "mode": "100644",
+      "gitBlob": "c872f70ea7db629e16b111a23cbbc30063efa796",
+      "bytes": 14803
+    },
+    {
+      "path": "plots/flagship/32-preferred-directions.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "6cb45b2d416d5607bc9ae77c0020ccd049eb9ecb",
+      "bytes": 9974
+    },
+    {
+      "path": "plots/flagship/32-preferred-directions.recipe.json",
+      "mode": "100644",
+      "gitBlob": "4f9af82c2d934ae56dea9b704b3df043a1c8a58d",
+      "bytes": 1181
+    },
+    {
+      "path": "plots/flagship/32-preferred-directions.svg",
+      "mode": "100644",
+      "gitBlob": "3238c63154cd7a31de70e6a3c59abfebf5c53c05",
+      "bytes": 18350
+    },
+    {
+      "path": "plots/flagship/33-frequency-selectivity.fluxplot.json",
+      "mode": "100644",
+      "gitBlob": "53b929ab072d0d8c940fc8df0214a05bb6fc7582",
+      "bytes": 255595
+    },
+    {
+      "path": "plots/flagship/33-frequency-selectivity.recipe.json",
+      "mode": "100644",
+      "gitBlob": "754096e0836912c9095673e3ab65ffdde33d4dbf",
+      "bytes": 1185
+    },
+    {
+      "path": "plots/flagship/33-frequency-selectivity.svg",
+      "mode": "100644",
+      "gitBlob": "0e1712350165ce6f993c8c6279110e1d56c05aac",
+      "bytes": 284180
+    },
+    {
+      "path": "plots/flagship/inventory.json",
+      "mode": "100644",
+      "gitBlob": "b540cad193763ab374a49516289bba31e3d275b7",
+      "bytes": 24094
+    },
+    {
+      "path": "plots/inventory.json",
+      "mode": "100644",
+      "gitBlob": "406ec42d3b3df2993a920f5a5ab69adf6888379f",
+      "bytes": 15311
+    },
+    {
+      "path": "project.json",
+      "mode": "100644",
+      "gitBlob": "12ac8286fb2705403173e728ca15a4254de9352e",
+      "bytes": 1831
+    },
+    {
+      "path": "references/library.bib",
+      "mode": "100644",
+      "gitBlob": "d6d349bd692d3cb3bff0bf896b22dbbdee8f3d7a",
+      "bytes": 3000
+    },
+    {
+      "path": "scripts/advanced-morph-pairs.json",
+      "mode": "100644",
+      "gitBlob": "80a64a60079dde9808b40b6c6ea0c9ab6d782547",
+      "bytes": 471
+    },
+    {
+      "path": "scripts/advanced/architecture.py",
+      "mode": "100644",
+      "gitBlob": "17bdbf07f0765fa7bcd5fb0afcd65be4659f2bf4",
+      "bytes": 10128
+    },
+    {
+      "path": "scripts/advanced/compose-flagship.sh",
+      "mode": "100755",
+      "gitBlob": "19b87a7a9b93f8d9c96bcf33422b64bf1c48547d",
+      "bytes": 3909
+    },
+    {
+      "path": "scripts/advanced/compose-structure.sh",
+      "mode": "100755",
+      "gitBlob": "47315acd175b3c1c8a3a34fe6836889b81edeb7c",
+      "bytes": 2940
+    },
+    {
+      "path": "scripts/advanced/flagship.py",
+      "mode": "100644",
+      "gitBlob": "ab56e93acab907a180af109c17901a044b06e3fb",
+      "bytes": 67743
+    },
+    {
+      "path": "scripts/advanced/generate.py",
+      "mode": "100644",
+      "gitBlob": "fa6fe8773d11196357944a9ce36868c9684b9376",
+      "bytes": 590
+    },
+    {
+      "path": "scripts/advanced/morph_identity.py",
+      "mode": "100644",
+      "gitBlob": "d8ca5a8edc35e0781cfe600a56e2065fb8b13ce7",
+      "bytes": 3286
+    },
+    {
+      "path": "scripts/advanced/population.py",
+      "mode": "100644",
+      "gitBlob": "d5042972ccb3238cc642f3c424fe914f102f302d",
+      "bytes": 21794
+    },
+    {
+      "path": "scripts/advanced/preview.py",
+      "mode": "100644",
+      "gitBlob": "b914f79c4200b648da02894f42408db9dcfe45f6",
+      "bytes": 1685
+    },
+    {
+      "path": "scripts/advanced/pyproject.toml",
+      "mode": "100644",
+      "gitBlob": "7765c37ae52820ea27934446f2c8b756bef7bff7",
+      "bytes": 273
+    },
+    {
+      "path": "scripts/advanced/tuning.py",
+      "mode": "100644",
+      "gitBlob": "c2a2509580cf5728188a41780430dbcdaf6e15e6",
+      "bytes": 17671
+    },
+    {
+      "path": "scripts/advanced/uv.lock",
+      "mode": "100644",
+      "gitBlob": "dbbe8f948fcd568791fadbbf8b2f59162d4e7b9b",
+      "bytes": 258460
+    },
+    {
+      "path": "scripts/fetch-data.py",
+      "mode": "100644",
+      "gitBlob": "d57422dd788dafe86239b793e74ea44d834b06ec",
+      "bytes": 7241
+    },
+    {
+      "path": "scripts/generate-plots.py",
+      "mode": "100644",
+      "gitBlob": "47e15edc82a4697de66714dd96f92db9726380e8",
+      "bytes": 30270
+    },
+    {
+      "path": "scripts/requirements-data.txt",
+      "mode": "100644",
+      "gitBlob": "232e30e4948ee51cd3ea6ee144a419539cc63b2f",
+      "bytes": 129
+    },
+    {
+      "path": "scripts/requirements-plots.txt",
+      "mode": "100644",
+      "gitBlob": "9398e4e2fe113bcb961be7f384f2a6d6f23b97e2",
+      "bytes": 216
+    },
+    {
+      "path": "scripts/verify-advanced-morph.mjs",
+      "mode": "100644",
+      "gitBlob": "d88043a1edd6e99f816b49c40c369496e591abd7",
+      "bytes": 14361
+    },
+    {
+      "path": "slides/neural-populations/deck.json",
+      "mode": "100644",
+      "gitBlob": "de43647a7ef69b3802afeba10af23b6f8d35c667",
+      "bytes": 33520
+    },
+    {
+      "path": "slides/neural-populations/renders/anatomy-step-0.svg",
+      "mode": "100644",
+      "gitBlob": "d74092971d9b595e0da67d459cbc1f9605335807",
+      "bytes": 240964
+    },
+    {
+      "path": "slides/neural-populations/renders/population-step-0.svg",
+      "mode": "100644",
+      "gitBlob": "2024359b9ad4ddea35c02ab296d3067f4cbcb0f9",
+      "bytes": 223525
+    },
+    {
+      "path": "slides/neural-populations/renders/results-step-0.svg",
+      "mode": "100644",
+      "gitBlob": "8bca9624ab1570b065ba0cdc1a1c161dbe181d98",
+      "bytes": 322340
+    },
+    {
+      "path": "slides/neural-populations/renders/tuning-step-0.svg",
+      "mode": "100644",
+      "gitBlob": "7dccbacedf56f9dc12dfefbf3d9706ded75a31e9",
+      "bytes": 123296
+    }
+  ]
+}
