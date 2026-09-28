@@ -1,9 +1,10 @@
 import { canonical,cyrb53,hex14 } from './hash';
-import { clamp,normalizeAzimuth } from './orbit';
+import { boundsSphere,clamp,normalizeAzimuth } from './orbit';
+import { framingBounds } from './framing';
 import { buildScene3dPartIndex,scene3dFields,resolveScene3dPartStyle } from './scene3d';
 import { resolvedColormap } from './colormap';
 import type { Model3dAsset,Model3dElement,Scene3dManifest,Rect } from './types';
-export const RENDERER_VERSION='m3d-r3';
+export const RENDERER_VERSION='m3d-r4';
 const round=(n:number,p:number)=>Math.round(n/p)*p;
 const sig=(n:number)=>Number(n.toPrecision(5));
 export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number}):string{
@@ -20,7 +21,8 @@ export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dM
   try{stops=resolvedColormap(f,o);}catch{stops=null;}
   fields[id]={cmap:o?.cmap??f.cmap.name,range:o?.range??f.range,stops,missing:f.missingColor??'#D8D8D8'};
  }
- const radius=asset.model.bounds?.radius,framing=typeof radius==='number'&&Number.isFinite(radius)?Number(radius.toPrecision(9)):null;
+ // The sphere the camera frames: tight radius, legacy half-diagonal, or grown to hold box axes.
+ const sphere=boundsSphere(framingBounds(asset.model.bounds,manifest)),framing=[...sphere.center,sphere.radius].map(v=>Number(v.toPrecision(9)));
  for(const [k,v]of Object.entries(el.modelStates??{}))if(v!==0)states[k]=sig(v);
  return 'm3d-'+hex14(cyrb53(canonical({v:RENDERER_VERSION,glb:asset.sha256,az:round(normalizeAzimuth(el.orbitAzimuth),.001),el:round(clamp(el.orbitElevation,-90,90),.001),roll:round(normalizeAzimuth(el.orbitRoll??0),.001),z:sig(clamp(el.orbitZoom,.02,50)),px:round(el.orbitPanX??0,.0001),py:round(el.orbitPanY??0,.0001),proj:el.orbitProjection,fov:el.orbitProjection==='perspective'?round(el.orbitFov,.001):null,fill:el.fill.toLowerCase(),colors:el.modelColors??'uniform',lighting:el.modelLighting??'studio',parts,fields,states,order:manifest?.order??null,framing,w:px.w,h:px.h})));
 }

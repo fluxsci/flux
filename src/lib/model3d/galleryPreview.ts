@@ -7,6 +7,7 @@ import { parseModel3dImportMetadata, sha256ModelBytes, makeImportedModel3dElemen
 import { furnitureLayout } from './furnitureLayout';
 import { furnitureSvg } from './furniture';
 import { orbitPose } from './orbit';
+import { framingBounds } from './framing';
 import type { Model3dAsset } from './types';
 const cache = new Map<string, { url: string; semantic: boolean; warnings: string[] }>();
 export async function model3dGalleryPreview(path: string, edge = 256, signal?: AbortSignal) {
@@ -48,7 +49,7 @@ export async function model3dGalleryPreview(path: string, edge = 256, signal?: A
     const blob = await active.service.renderPng({ assetId: id, w, h, element, manifest: metadata.manifest }, { lane: 'idle', key: `gallery:${key}`, signal }); check();
     if (!active.isCurrent()) throw new DOMException('Project changed', 'AbortError');
     const mesh = bytesToDataUrl(new Uint8Array(await blob.arrayBuffer()), 'image/png');
-    const furniture = furnitureSvg(metadata.manifest, element, orbitPose(element, info.bounds, layout.viewport), layout);
+    const furniture = furnitureSvg(metadata.manifest, element, orbitPose(element, framingBounds(info.bounds, metadata.manifest), layout.viewport), layout);
     const viewport = layout.viewport;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(element.width * scale)}" height="${Math.round(element.height * scale)}" viewBox="0 0 ${element.width} ${element.height}">${furniture.under}<image x="${viewport.x}" y="${viewport.y}" width="${viewport.width}" height="${viewport.height}" preserveAspectRatio="none" href="${mesh}"/>${furniture.over}</svg>`;
     const result = { url: bytesToDataUrl(new TextEncoder().encode(svg), 'image/svg+xml'), semantic: !!metadata.manifest, warnings: metadata.warnings };

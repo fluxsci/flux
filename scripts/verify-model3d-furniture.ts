@@ -6,15 +6,16 @@ import{furnitureLayout}from'../src/lib/model3d/furnitureLayout';
 import{furnitureSvg}from'../src/lib/model3d/furniture';
 import{niceTicks}from'../src/lib/model3d/ticks';
 import{orbitPose,axisView,pixelsPerUnit,project}from'../src/lib/model3d/orbit';
+import{framingBounds}from'../src/lib/model3d/framing';
 import{makeModel3dElement}from'../src/lib/model3d/make';
 import{inspectGlb}from'../src/lib/model3d/glbCore.mjs';
 import type{Scene3dManifest,Model3dAsset}from'../src/lib/model3d/types';
 const h=harness('verify-model3d-furniture'),root=new URL('./fixtures/model3d/fluxplot/',import.meta.url);
 const golden=JSON.parse(await readFile(new URL('./fixtures/model3d/furniture-golden.json',import.meta.url),'utf8'));assert.deepEqual(await furnitureGoldens(),golden);h.eq(Object.keys(golden).length,33,'11 fixtures ×3 views match exact layout/SVG goldens');
 const m:Scene3dManifest=JSON.parse(await readFile(new URL('box-axes.fluxplot.json',root),'utf8')),info=inspectGlb(await readFile(new URL('box-axes.glb',root))),asset:Model3dAsset={id:'a',name:'box.glb',kind:'glb',path:'assets/a.glb',naturalWidth:336,naturalHeight:288,sha256:'0'.repeat(64),bytes:4000,model:info},el=makeModel3dElement(asset,{manifest:m,id:'test'});
-const layout=furnitureLayout(m,el),pose=orbitPose(el,info.bounds,layout.viewport),front=furnitureSvg(m,el,pose,layout),back=furnitureSvg(m,{...el,...axisView('back')},orbitPose({...el,...axisView('back')},info.bounds,layout.viewport),layout);
+const layout=furnitureLayout(m,el),pose=orbitPose(el,framingBounds(info.bounds,m),layout.viewport),front=furnitureSvg(m,el,pose,layout),back=furnitureSvg(m,{...el,...axisView('back')},orbitPose({...el,...axisView('back')},framingBounds(info.bounds,m),layout.viewport),layout);
 h.ok(front.under.includes('<text')&&front.under.includes('x (µm)'),'axes use vector text');h.ok(front.under!==back.under,'panes and projected ticks follow view');h.ok(!/NaN|Infinity/.test(front.under),'all projected coordinates finite');h.ok(front.under.includes('test__axes.x.ticks'),'semantic part ids namespaced');
-const cardinal={...el,...axisView('front')},cardinalSvg=furnitureSvg(m,cardinal,orbitPose(cardinal,info.bounds,layout.viewport),layout);h.ok(!cardinalSvg.underNodes.some(n=>n.partId==='axes.z.ticks'||n.partId==='axes.z.label'),'collapsed depth axis hides coincident ticks and labels');
+const cardinal={...el,...axisView('front')},cardinalSvg=furnitureSvg(m,cardinal,orbitPose(cardinal,framingBounds(info.bounds,m),layout.viewport),layout);h.ok(!cardinalSvg.underNodes.some(n=>n.partId==='axes.z.ticks'||n.partId==='axes.z.label'),'collapsed depth axis hides coincident ticks and labels');
 const rotated:Scene3dManifest={...m,toWorld:[1,0,0,0,0,0,-1,0,0,1,0,0,0,0,0,1],bounds:{min:[1,3,-7],max:[2,5,-4]},axes:{kind:'box'}},explicit:Scene3dManifest={...rotated,axes:{kind:'box',x:{lim:[1,2]},y:{lim:[4,7]},z:{lim:[3,5]}}};h.eq(furnitureSvg(rotated,el,pose,layout).under,furnitureSvg(explicit,el,pose,layout).under,'absent data limits inverse-rotate world bounds once');
 const constant:Scene3dManifest={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'constant.glb',parts:[{id:'field',role:'surface-field',node:'field',field:{cmap:{name:'constant',stops:[[0,'#000000'],[1,'#FFFFFF']]},range:[2,2],ticks:[2],label:'Constant'}},{id:'bar',role:'colorbar',field:'field'}]};const cl=furnitureLayout(constant,el),cs=furnitureSvg(constant,el,pose,cl);h.ok(cs.over.includes('>2</text>')&&!/NaN|Infinity/.test(cs.over),'constant colorbar has finite centered tick');h.ok(Number(cs.overNodes.find(n=>n.partId==='bar')!.children!.find(n=>n.key==='cbar-title')!.attrs.y)>=cl.fontSize,'colorbar title baseline leaves a full font size above it');
 const larger=furnitureLayout(m,{width:el.width*2,height:el.height*2});h.eq(larger.fontSize,layout.fontSize,'resize keeps physical font size');h.ok(larger.viewport.width>layout.viewport.width,'resize expands3D viewport');
@@ -30,7 +31,7 @@ for(const size of [9.333333333333332,21])for(const scale of [.5,1,3]){
  h.ok([title,...labels].every(n=>n.attrs['font-size']===size),`colorbar physical font unchanged at ${scale}× box / ${size}px font`);
 }
 h.ok(front.under.includes('font-family="Inter, sans-serif"'),'standalone house font has intentional sans fallback');h.ok(furnitureSvg(m,{...el,overrides:{'axes.x.label':{fontFamily:'Georgia'}}},pose,layout).under.includes('font-family="Georgia"'),'explicit font override remains verbatim');
-const sm:Scene3dManifest=JSON.parse(await readFile(new URL('scalebar.fluxplot.json',root),'utf8')),se=makeModel3dElement(asset,{manifest:sm,id:'scale'}),sl=furnitureLayout(sm,se),sp=orbitPose(se,info.bounds,sl.viewport),ss=furnitureSvg(sm,se,sp,sl);const scaleGroup=ss.overNodes.find(n=>n.partId==='scalebar'),bar=scaleGroup?.children?.find(n=>n.tag==='line');h.ok(!!bar,'scale bar rendered');h.ok(Math.abs(Number(bar?.attrs.x2)-Number(bar?.attrs.x1)-(sm.parts!.find(p=>p.id==='scalebar')!.length!*pixelsPerUnit(sp,sl.viewport)!))<1e-9,'scale bar exact data-unit projection');h.ok(!furnitureSvg(sm,se,{...sp,projection:'perspective'},sl).over.includes('scale-line'),'perspective hides exact scale bar');
+const sm:Scene3dManifest=JSON.parse(await readFile(new URL('scalebar.fluxplot.json',root),'utf8')),se=makeModel3dElement(asset,{manifest:sm,id:'scale'}),sl=furnitureLayout(sm,se),sp=orbitPose(se,framingBounds(info.bounds,sm),sl.viewport),ss=furnitureSvg(sm,se,sp,sl);const scaleGroup=ss.overNodes.find(n=>n.partId==='scalebar'),bar=scaleGroup?.children?.find(n=>n.tag==='line');h.ok(!!bar,'scale bar rendered');h.ok(Math.abs(Number(bar?.attrs.x2)-Number(bar?.attrs.x1)-(sm.parts!.find(p=>p.id==='scalebar')!.length!*pixelsPerUnit(sp,sl.viewport)!))<1e-9,'scale bar exact data-unit projection');h.ok(!furnitureSvg(sm,se,{...sp,projection:'perspective'},sl).over.includes('scale-line'),'perspective hides exact scale bar');
 const hidden={...sm,parts:sm.parts!.map(p=>p.id==='scalebar'?{...p,hidden:true}:p)};h.eq(furnitureLayout(hidden,se,{'scalebar':{hidden:false}}).scalebars.length,1,'explicit show overrides source-hidden');
 h.eq(niceTicks(-1,1),[-1,-.5,0,.5,1],'nice tick oracle');h.eq(niceTicks(1.21,3.82),[1.5,2,2.5,3,3.5],'data range tick oracle');
 for(const name of ['furniture.ts','furnitureLayout.ts','ticks.ts'])h.ok(!/getBoundingClientRect|measureText|document\.|window\./.test(await readFile(new URL(`../src/lib/model3d/${name}`,import.meta.url),'utf8')),`${name} no DOM/text measurement`);
@@ -48,7 +49,7 @@ for(const zoom of [faceZoom,faceZoom+1,50]) { const view={...closeView,orbitZoom
 // outline, ticks point perpendicular/outward, and cardinal axes stay distinct.
 for(const projection of ['orthographic','perspective'] as const)for(const azimuth of [0,30,90,150,210,270,330])for(const elevation of [-20,20])for(const roll of [0,35]){
  const view={...el,width:220,height:210,orbitAzimuth:azimuth,orbitElevation:elevation,orbitRoll:roll,orbitProjection:projection};
- const l=furnitureLayout(m,view),p=orbitPose(view,info.bounds,l.viewport),svg=furnitureSvg(m,view,p,l);
+ const l=furnitureLayout(m,view),p=orbitPose(view,framingBounds(info.bounds,m),l.viewport),svg=furnitureSvg(m,view,p,l);
  const corners=Array.from({length:8},(_,mask)=>project([0,1,2].map(i=>(mask>>i)&1?1:-1) as [number,number,number],p,l.viewport));
  const lines=svg.underNodes.filter(n=>n.partId?.endsWith('.axis')).flatMap(n=>n.children??[]);
  for(const line of lines){
@@ -70,7 +71,7 @@ h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'pa
 {
  const named:Scene3dManifest=JSON.parse(await readFile(new URL('named-parts.fluxplot.json',root),'utf8'));
  const entries=named.parts!.find(p=>p.role==='legend')!.entries!, hiddenId=entries[0];
- const labelsOf=(overrides:Record<string,{hidden?:boolean}>)=>{const e={...el,overrides},l=furnitureLayout(named,e,e.overrides);return furnitureSvg(named,e,orbitPose(e,info.bounds,l.viewport),l).overNodes.find(n=>n.partId==='legend')?.children?.filter(n=>n.key.startsWith('legend-label-'))??[];};
+ const labelsOf=(overrides:Record<string,{hidden?:boolean}>)=>{const e={...el,overrides},l=furnitureLayout(named,e,e.overrides);return furnitureSvg(named,e,orbitPose(e,framingBounds(info.bounds,named),l.viewport),l).overNodes.find(n=>n.partId==='legend')?.children?.filter(n=>n.key.startsWith('legend-label-'))??[];};
  const shown=labelsOf({}),hidden=labelsOf({[hiddenId]:{hidden:true}});
  h.eq(shown.length,entries.length,'legend lists every visible part');
  h.eq(hidden.length,entries.length-1,'hiding a part removes its legend row');
@@ -79,9 +80,22 @@ h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'pa
 }
 { // With a triad in the bottom-left corner the scale bar moves right, so they never overlap.
  const bar:Scene3dManifest=JSON.parse(await readFile(new URL('scalebar.fluxplot.json',root),'utf8'));
- const barAt=(mf:Scene3dManifest)=>{const l=furnitureLayout(mf,el),s=furnitureSvg(mf,el,orbitPose(el,info.bounds,l.viewport),l);const n=s.overNodes.find(x=>x.partId==='scalebar')?.children?.find(c=>c.key==='scale-line');return {x1:Number(n?.attrs.x1),x2:Number(n?.attrs.x2),mid:l.viewport.x+l.viewport.width/2};};
+ const barAt=(mf:Scene3dManifest)=>{const l=furnitureLayout(mf,el),s=furnitureSvg(mf,el,orbitPose(el,framingBounds(info.bounds,mf),l.viewport),l);const n=s.overNodes.find(x=>x.partId==='scalebar')?.children?.find(c=>c.key==='scale-line');return {x1:Number(n?.attrs.x1),x2:Number(n?.attrs.x2),mid:l.viewport.x+l.viewport.width/2};};
  const plain=barAt(bar),withTriad=barAt({...bar,axes:{kind:'triad'}});
  h.ok(plain.x1<plain.mid,'scale bar sits bottom-left without a triad');
  h.ok(withTriad.x1>withTriad.mid&&withTriad.x2>withTriad.x1,'scale bar right-aligns beside a triad');
+}
+{ // Box axes are part of the figure: the default view frames the whole axes box,
+  // not just the mesh's tight sphere (box corners sit up to √3 R out).
+ const sphere={min:[-1,-1,-1],max:[1,1,1],radius:1} as const,wide:Scene3dManifest={...m,axes:{...m.axes!,x:{...m.axes!.x!,lim:[-3,3]}}};
+ h.eq(framingBounds(sphere,{...m,axes:undefined}),sphere,'a bare mesh keeps its tight framing');
+ h.eq(framingBounds(sphere,{...m,axes:{kind:'triad'}}),sphere,'a triad does not widen the framing');
+ const inside=(mf:Scene3dManifest,b:typeof sphere|ReturnType<typeof framingBounds>)=>{let worst=Infinity;for(const azimuth of [0,30,45,90,135,210,300])for(const elevation of [-35,20,60])for(const projection of ['orthographic','perspective'] as const){
+  const view={...el,orbitAzimuth:azimuth,orbitElevation:elevation,orbitProjection:projection},l=furnitureLayout(mf,view),p=orbitPose(view,b,l.viewport);
+  for(let mask=0;mask<8;mask++){const lim=['x','y','z'].map(k=>mf.axes![k as 'x'].lim!),q=project(lim.map((v,i)=>v[(mask>>i)&1]) as [number,number,number],p,l.viewport);const v=l.viewport,x0=v.x??0,y0=v.y??0;worst=Math.min(worst,q.x-x0,q.y-y0,x0+v.width-q.x,y0+v.height-q.y);}
+ }return worst;};
+ h.ok(inside(m,sphere)<0,'control: the tight sphere alone crops the axes box');
+ h.ok(inside(m,framingBounds(sphere,m))>0,'box axes stay inside the frame at the default zoom, every view');
+ h.ok(inside(wide,framingBounds(sphere,wide))>0,'axis limits wider than the mesh are framed too');
 }
 await h.done();

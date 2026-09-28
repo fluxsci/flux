@@ -11,6 +11,7 @@
   import { furnitureNodes } from './furniture';
   import { paintFurniture } from './furnitureDom';
   import { orbitPose, axisView, homeView, type AxisView } from './orbit';
+  import { framingBounds } from './framing';
   import { WheelStepper, wheelDelta, wheelMultiplier } from '../interact/wheelLaw';
   import type { Model3dAsset, Model3dElement } from './types';
 
@@ -109,7 +110,7 @@
     const pending = residency, state = preview, final = fullRevision;
     if (!pending || !canvas || !under || !over || !asset || !state || contextLost) return;
     const snapshot = structuredClone(element), metadata = manifest ? structuredClone(manifest) : undefined;
-    const bounds = structuredClone(asset.model.bounds);
+    const bounds = framingBounds(structuredClone(asset.model.bounds), metadata);
     const scale = zoom * Math.min(devicePixelRatio || 1, 2);
     const currentLayout = furnitureLayout(metadata, snapshot, snapshot.overrides);
     const pose = orbitPose(snapshot, bounds, currentLayout.viewport);

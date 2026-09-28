@@ -7,6 +7,7 @@ import { buildScene3dPartIndex,scene3dFields,resolveScene3dPartStyle } from './s
 import { resolvedColormap } from './colormap';
 import { niceTicks,tickLabel } from './ticks';
 import { transformPoint } from './glbCore.mjs';
+import { axesBoxLimits } from './framing';
 export interface FurnitureNode {tag:'g'|'text'|'line'|'path'|'rect'|'defs'|'linearGradient'|'stop';key:string;partId?:string;attrs:Record<string,string|number>;text?:string;children?:FurnitureNode[]}
 export interface FurnitureSvg {under:string;over:string;underNodes:FurnitureNode[];overNodes:FurnitureNode[]}
 const ID=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];
@@ -33,11 +34,7 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
  const world=(p:Vec3)=>transformPoint(toWorld,p);
  const screen=(p:Vec3)=>project(world(p),pose,layout.viewport);
  if(manifest.axes?.kind==='box'){
-  // Bounds are world coordinates; axis limits are data coordinates. A proper
-  // rotation's inverse is its transpose (exact for all signed-axis writers).
-  const dataBounds={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};
-  for(let mask=0;mask<8;mask++){const p=[0,1,2].map(i=>manifest.bounds?((mask>>i)&1?manifest.bounds.max[i]:manifest.bounds.min[i]):((mask>>i)&1?1:-1));for(let i=0;i<3;i++){const v=toWorld[i*4]*p[0]+toWorld[i*4+1]*p[1]+toWorld[i*4+2]*p[2];dataBounds.min[i]=Math.min(dataBounds.min[i],v);dataBounds.max[i]=Math.max(dataBounds.max[i],v);}}
-  const labels=['x','y','z'] as const,axes=labels.map(k=>manifest.axes?.[k]),limits=axes.map((a,i)=>a?.lim??[dataBounds.min[i],dataBounds.max[i]]);
+  const labels=['x','y','z'] as const,axes=labels.map(k=>manifest.axes?.[k]),limits=axesBoxLimits(manifest);
   const center=limits.map(v=>(v[0]+v[1])/2) as Vec3;
   const dirs=labels.map((_,axis)=>{const v=[0,0,0] as Vec3;v[axis]=1;const end=world(v),origin=world([0,0,0]);return end.map((n,i)=>n-origin[i]) as Vec3;});
   const back=dirs.map(d=>d.reduce((sum,n,i)=>sum+n*pose.direction[i],0)>=0?0:1);

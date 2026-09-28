@@ -6,6 +6,7 @@
   import { furnitureLayout } from './model3d/furnitureLayout';
   import { furnitureSvg } from './model3d/furniture';
   import { orbitPose } from './model3d/orbit';
+  import { framingBounds } from './model3d/framing';
   import { posterKey, posterPixels } from './model3d/poster';
   import type { Model3dAsset, Model3dElement } from './model3d/types';
 
@@ -13,7 +14,7 @@
   const asset = $derived($project.assets.find(a => a.id === element.assetId && a.kind === 'glb') as Model3dAsset | undefined);
   const manifest = $derived($scene3dManifests[element.assetId]);
   const layout = $derived(furnitureLayout(manifest, element, element.overrides));
-  const pose = $derived(asset?.model ? orbitPose(element, asset.model.bounds, layout.viewport) : null);
+  const pose = $derived(asset?.model ? orbitPose(element, framingBounds(asset.model.bounds, manifest), layout.viewport) : null);
   let furniture = $state({ under: '', over: '' });
   $effect(() => { if ($modelPreviews[element.id]?.phase !== 'active') furniture = pose ? furnitureSvg(manifest, element, pose, layout) : { under: '', over: '' }; });
   const surface = $derived({ kind: 'editor' as const, onscreen: { w: layout.viewport.width * $viewport.zoom, h: layout.viewport.height * $viewport.zoom }, dpr: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1 });

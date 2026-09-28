@@ -8,6 +8,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { prepareGlb } from './glbCore.mjs';
 import { orbitPose, boundsSphere, type OrbitPose } from './orbit';
+import { framingBounds } from './framing';
 import { mapValues } from './colormap';
 import { buildScene3dPartIndex, scene3dPartLineage, type Scene3dPartIndex, resolveScene3dPartStyle } from './scene3d';
 import { RENDERER_VERSION } from './poster';
@@ -264,13 +265,13 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     const w = Math.round(spec.w), h = Math.round(spec.h);
     if (!Number.isFinite(w + h) || w < 1 || h < 1 || w > 16384 || h > 16384) throw new Error('Invalid 3D render dimensions');
     const source = assets.get(spec.assetId); if (!source) throw new Error(`3D asset not loaded: ${spec.assetId}`);
-    let group: Group, bounds = source.stats.bounds, element = spec.element;
+    let group: Group, bounds = framingBounds(source.stats.bounds, spec.manifest), element = spec.element;
     const t = clamp01(spec.morph?.t ?? 0);
     if (spec.morph && t > 0) {
       const target = assets.get(spec.morph.to); if (!target) throw new Error(`3D morph destination not loaded: ${spec.morph.to}`);
-      if (t === 1) { element = spec.morph.toElement ?? element; style(target, element, spec.morph.toManifest ?? spec.manifest); group = target.group; bounds = target.stats.bounds; }
+      if (t === 1) { element = spec.morph.toElement ?? element; style(target, element, spec.morph.toManifest ?? spec.manifest); group = target.group; bounds = framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest); }
       else {
-        const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, target.stats.bounds, t);
+        const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest), t);
         for (const part of pair.parts) {
           part.mesh.morphTargetInfluences![0] = t;
           const material = part.mesh.material;

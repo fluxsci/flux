@@ -5,6 +5,7 @@ import { prepareModel3dImport, makeImportedModel3dElement } from '../src/lib/mod
 import { furnitureLayout } from '../src/lib/model3d/furnitureLayout';
 import { furnitureSvg } from '../src/lib/model3d/furniture';
 import { orbitPose } from '../src/lib/model3d/orbit';
+import { framingBounds } from '../src/lib/model3d/framing';
 import { resolveScene3dPartStyle } from '../src/lib/model3d/scene3d';
 import { buildScene3dPartIndex } from '../src/lib/model3d/parts';
 const h=harness('verify-model3d-fluxplot');
@@ -20,7 +21,7 @@ for(const file of (await readdir(directory)).filter(name=>name.endsWith('.fluxpl
  const index=buildScene3dPartIndex(manifest),meshes=Object.values(index).filter(p=>p.node);
  if(meshes.length>1)multipart++;
  for(const part of meshes){ h.ok(info.partNames.includes(part.node!),`${file}: stable semantic ID binds a stored mesh`);if(part.color)h.eq(resolveScene3dPartStyle(manifest,undefined,part.id).fill,part.color,`${file}: source part color survives import`);if(typeof part.field==='object'){fields++;h.ok(info.hasValues,`${file}: continuous metadata maps stored raw values`);} }
- const layout=furnitureLayout(manifest,element),svg=furnitureSvg(manifest,element,orbitPose(element,info.bounds,layout.viewport),layout);
+ const layout=furnitureLayout(manifest,element),svg=furnitureSvg(manifest,element,orbitPose(element,framingBounds(info.bounds,manifest),layout.viewport),layout);
  h.ok(!/(?:NaN|Infinity)/.test(svg.under+svg.over),`${file}: composed vector furniture is finite`);
  if(svg.under||svg.over)furniture++;
  if(info.states.length){states++;h.eq(info.states,manifest.states?.map(state=>state.name),`${file}: shape/sequence order comes from saved GLB`);}

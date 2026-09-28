@@ -5,6 +5,7 @@ import { xmlEscape } from '../xml';
 import { furnitureLayout } from './furnitureLayout';
 import { furnitureSvg } from './furniture';
 import { orbitPose } from './orbit';
+import { framingBounds } from './framing';
 import { modelPlaceholder, posterKey, posterPixels, posterRef, type PosterSurface } from './poster';
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from './types';
 
@@ -60,7 +61,7 @@ export function model3dStaticSvg(element: Model3dElement, assetUrl: (id: string)
   const manifest = context?.manifestOf(element), asset = context?.assetOf(element);
   const frame = context?.namespace ? { ...element, id: `${context.namespace}__${element.id}` } : element;
   const layout = furnitureLayout(manifest, frame, frame.overrides);
-  const furniture = furnitureSvg(manifest, frame, orbitPose(frame, asset?.model.bounds ?? manifest?.bounds ?? { min: [-1, -1, -1], max: [1, 1, 1] }, layout.viewport), layout);
+  const furniture = furnitureSvg(manifest, frame, orbitPose(frame, framingBounds(asset?.model.bounds ?? manifest?.bounds ?? { min: [-1, -1, -1], max: [1, 1, 1] }, manifest), layout.viewport), layout);
   const ref = context?.posterIdOf(element), url = ref ? assetUrl(ref) : undefined, box = layout.viewport;
   const mesh = url?.startsWith('data:image/png;')
     ? `<image data-model3d-poster="true" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" preserveAspectRatio="none" href="${xmlEscape(url)}"/>`
