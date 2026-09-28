@@ -219,8 +219,9 @@ replayed on all states and the paired mesh. Keep inputs below Flux's 200 MiB and
 
 Notebook display bundles a self-contained interactive viewer (no network service)
 and a PNG. Notebook frontends that run scripts in HTML outputs (e.g. trusted VS Code
-or Jupyter notebooks) show the viewer: drag orbits, wheel zooms, axis keys choose
-views, Home resets, and Copy view produces Python view arguments. Frontends that
+or Jupyter notebooks) show the viewer: drag orbits, wheel zooms once the view is clicked
+(or with Ctrl/Cmd; otherwise the notebook scrolls), axis keys choose views, Home resets,
+and Copy view produces a pasteable `sc.view(...)` call (`frame=N` for sequences). Frontends that
 disable scripts show the inline PNG. Untrusted VS Code can suppress the whole mixed
 HTML/PNG output instead of falling back to the PNG; `sc.show(static=True)` emits only
 the still, so use it before sharing. A static preview may differ around intersecting

@@ -150,7 +150,8 @@ plain mesh.
 asks you to save it; then the file picker opens again, so pick the files a second time.
 Cancelling that second picker keeps the saved project. Dragged-in files need no second
 pick. If preparing a model takes more than a second, a notice names the files still being
-imported, and the placed box shows “Preparing 3D preview” until its image is ready.
+imported. A placed model shows a dashed outline while its image is prepared, and
+“Preparing 3D preview” only if that takes longer than a second.
 
 In Python, start a scene, add your mesh and save it into `plots/`. This needs a fluxplot
 version with 3D support (`fp.scene3d`), which is not in a fluxplot release yet.
@@ -167,8 +168,9 @@ fp.save(sc, "plots/neuron")
 
 `figsize` is in inches; `up` describes your data coordinates. The gallery inserts that
 physical size. In a trusted notebook, displaying `sc` opens the interactive viewer.
-Use **Copy view**, apply its dictionary with `sc.view(**view)`, then save to make that
-angle the scene's Home view. For a static output, use `sc.show(static=True)`.
+Use **Copy view** and paste the `sc.view(...)` line it produces into your code, then save to
+make that angle the scene's Home view. In the viewer, click the model (or hold **Ctrl**) before
+scrolling to zoom; otherwise scrolling moves the notebook as usual. For a static output, use `sc.show(static=True)`.
 
 After rerunning Python, **Source changed** appears in the Inspector and as a dot in
 Layers, together with **Update from source**. Choose it to accept the new geometry and
@@ -202,7 +204,7 @@ instead, as with a 2D plot's parts.
 The Inspector's **3D model** panel is grouped into sections:
 
 - **3D view**: **Orbit**, the camera numbers, the view buttons **Front**, **Back**,
-  **Left**, **Right**, **Top**, **Bottom** and **Home** (each shows its key), and
+  **Right**, **Left**, **Top**, **Bottom** and **Home** (each shows its key), and
   **Projection** (**Ortho** or **Persp**).
 - **Appearance**: **Colours** is **From file** (the mesh's own colours) or **Uniform** (one
   **Model colour**, shown only for Uniform); **Lighting** is **Studio** or **Unlit**.
