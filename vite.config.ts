@@ -75,7 +75,7 @@ export default defineConfig({
   // "dependency optimized: …"). Listing them here makes the cold crawl complete, so the dev
   // server never re-optimizes mid-run. verify-dev-prebundle.ts (pure) finds every worker entry
   // (`new Worker(new URL(…))` targets and `?worker` imports) and pins their imports into this list.
-  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"] },
+  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs", "three", "three/examples/jsm/loaders/GLTFLoader.js"] },
 
   clearScreen: false,
 

@@ -19,7 +19,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/build-extension.mjs && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
+    "build": "vite build && node scripts/gen-model3d-viewer.mjs && node scripts/build-extension.mjs && tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "build:cli": "tsx scripts/gen-export-assets.ts && node scripts/build-cli.mjs",
     "fetch:correction-runtime": "node scripts/fetch-correction-runtime.mjs",
     "preview": "vite preview",
@@ -46,7 +46,8 @@
     "precheck": "node scripts/gen-slide-embed-assets.mjs",
     "fetch:video-encoder": "node scripts/fetch-video-encoder.mjs",
     "check:headless": "tsc --project tsconfig.headless.json",
-    "build:docs": "node scripts/build-docs.mjs"
+    "build:docs": "node scripts/build-docs.mjs",
+    "build:model3d": "node scripts/gen-model3d-viewer.mjs"
   },
   "dependencies": {
     "@citation-js/core": "^0.7.21",
@@ -82,7 +83,8 @@
     "markdown-it-bracketed-spans": "^1.0.1",
     "markdown-it-deflist": "^3.0.1",
     "markdown-it-footnote": "^4.0.0",
-    "pdfjs-dist": "^6.1.200"
+    "pdfjs-dist": "^6.1.200",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
@@ -91,6 +93,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",
+    "@types/three": "0.185.0",
     "concurrently": "^9.1.0",
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
