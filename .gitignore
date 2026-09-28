@@ -59,3 +59,6 @@ scratch-*/
 # Rebuilt by gen-slide-embed-assets before dev/check/build.
 .generated/
 electron/slideEmbedCsp.gen.cjs
+
+# Cross-repository scene3d contract fixtures are versioned.
+!scripts/fixtures/model3d/fluxplot/
