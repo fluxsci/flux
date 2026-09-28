@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { waitFor } from "./driver.mjs";
 
 const paint = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -12,6 +12,11 @@ const change = async (page, selector, value) => {
 };
 
 export async function verifyMotion(page, ok) {
+  // Dismiss the preceding gate's intentional error toast before motion screenshots.
+  for (const dismiss of await page.$$('.toasts button.t-x')) await dismiss.click();
+  const shots = "notes/flux_animation_v2/workers/out/shots/M6";
+  mkdirSync(shots, { recursive: true });
+  const shot = name => page.screenshot({ path: `${shots}/${name}.png` });
   const ids = await page.evaluate(async () => {
     const f = window.__flux;
     const parts = Array.from({ length: 7 }, (_, i) => ({ id: `m6-point-${i}`, role: "point" }));
@@ -36,6 +41,7 @@ export async function verifyMotion(page, ok) {
   await paint(page);
   await page.click(`.lane-row[data-track-id="${ids.wave}"] .track-label`);
   await waitFor(page, () => !!document.querySelector('[aria-label="Stagger mode"]'), null, { timeout: 3000, label: "stagger mode" });
+  await shot("qa-01-each");
   await page.click('[aria-label="Stagger mode"] button:last-child'); await paint(page);
   let t = await read(page, ids.wave);
   ok(t.stagger.totalMs === 240 && !Object.hasOwn(t.stagger, "perMs"), "Total preserves the existing span and clears Each");
@@ -60,9 +66,11 @@ export async function verifyMotion(page, ok) {
     return compileSlide(s, d.stage, { plotManifest: asset => f.get(f.plot.plotManifests)[asset] }).cues[1].tracks.find(t => t.track.id === id).ranks;
   }, ids.wave);
   const priorOrder = await order();
+  await shot("qa-03-random-default-seed");
   await page.click('[aria-label="Reshuffle stagger"]'); await paint(page);
   t = await read(page, ids.wave);
   ok(Number.isInteger(t.stagger.seed) && JSON.stringify(await order()) !== JSON.stringify(priorOrder), "Random reshuffle changes the real compiled order");
+  await shot("qa-04-reshuffled");
   await page.click('[aria-label="Undo"]'); await paint(page);
   ok(JSON.stringify(await read(page, ids.wave)) === JSON.stringify(before) && JSON.stringify(await order()) === JSON.stringify(priorOrder), "one Undo restores the exact Random order and implicit seed");
   await change(page, '[aria-label="Stagger seed"]', "4294967295");
@@ -77,6 +85,7 @@ export async function verifyMotion(page, ok) {
   await page.click('[aria-label="Stagger mode"] button:first-child'); await paint(page);
   t = await read(page, ids.wave);
   ok(Math.abs(t.stagger.perMs - 800 / 6) < 1e-9 && !Object.hasOwn(t.stagger, "totalMs") && t.stagger.curve === "enter", "Each derives delay, clears Total, and retains distribution");
+  await shot("qa-06-each-restored");
 
   await page.click(`.lane-row[data-track-id="${ids.move}"] .track-label`); await paint(page);
   const oldPath = await page.$eval('.arc-preview path', p => p.getAttribute("d"));
@@ -93,4 +102,67 @@ export async function verifyMotion(page, ok) {
   }), "scrubbing the lane to 500ms displays the real player's arc apex");
   await page.screenshot({ path: "notes/flux_animation_v2/workers/out/shots/M6/arc-inspector.png" });
   await page.click('.preview-stop'); await paint(page);
+
+  // F2 library Apply must carry M6's saved HOW field through setTransform.
+  // Saving alone is insufficient: the transform branch forwards fields explicitly.
+  await page.click('.props .saveas');
+  await page.type('.props .psave input', 'M6 Arc preset');
+  await page.click('.props .psave button');
+  await waitFor(page, () => JSON.parse(localStorage.getItem('flux.presets.animations') || '[]').some(p => p.payload.name === 'M6 Arc preset'), null, { label: 'Arc preset saved' });
+  ok(await page.evaluate(() => JSON.parse(localStorage.getItem('flux.presets.animations')).find(p => p.payload.name === 'M6 Arc preset').payload.track.arc === .5), 'Save as preset retains the authored Arc value');
+  const targetId = await page.evaluate(sid => {
+    const f = window.__flux;
+    let tid;
+    f.slide.commitDeckLive(d => {
+      const s = f.slideOps.slideById(d, sid);
+      s.elements.push({ id: 'm6-preset-target', type: 'rect', x: 400, y: 250, width: 60, height: 60, rotation: 0, fill: '#4385be', stroke: 'none', strokeWidth: 0, cornerRadius: 0 });
+      tid = f.slideOps.setTransform(d, sid, s.beats[1].id, 'm6-preset-target', { state: { x: 500 }, duration: 600, arc: -.25 }).id;
+    });
+    f.fig.selectOnly('m6-preset-target');
+    return tid;
+  }, ids.sid);
+  await paint(page);
+  const targetBefore = await read(page, targetId);
+  await page.evaluate(() => [...document.querySelectorAll('.animator .bar button')].find(b => /Library/.test(b.textContent || '')).click());
+  await waitFor(page, () => !!document.querySelector('.animlib .apply'), null, { label: 'Arc preset library' });
+  await shot('qa-07-arc-preset-library');
+  const buttons = await page.$$('.animlib .apply');
+  for (const button of buttons) if (await button.evaluate(b => b.textContent.includes('M6 Arc preset'))) { await button.click(); break; }
+  await paint(page);
+  const applied = await read(page, targetId);
+  ok(applied.arc === .5 && applied.duration === 1000 && applied.to.state.x === 500, 'library Apply copies Arc while preserving the destination geometry');
+  await shot('qa-08-arc-preset-applied');
+  await page.click('[aria-label="Undo"]'); await paint(page);
+  ok(JSON.stringify(await read(page, targetId)) === JSON.stringify(targetBefore), 'one Undo restores the pre-preset Arc and timing');
+  // Mixed selection: the new cascade fields target only their eligible lanes.
+  const cascadeBefore = [await read(page, ids.wave), await read(page, ids.move)];
+  const openCascade = async () => {
+    await page.evaluate(ids => { document.activeElement?.blur(); window.__flux.slide.selTrackIds.set(ids); }, [ids.wave, ids.move]);
+    await paint(page);
+    await page.keyboard.down('Control'); await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyC');
+    await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+    await waitFor(page, () => !!document.querySelector('.cascade-pop'), null, { label: 'M6 mixed track cascade' });
+  };
+  const delta = async value => {
+    await page.$eval('.cascade-pop input.delta', (el, value) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, String(value));
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, value);
+    await paint(page);
+  };
+  await openCascade();
+  await page.select('.cascade-pop select.prop', 'arc'); await delta(.1);
+  ok(Math.abs((await read(page, ids.move)).arc - .6) < 1e-9 && JSON.stringify(await read(page, ids.wave)) === JSON.stringify(cascadeBefore[0]), 'real Arc cascade changes only the eligible transform');
+  await shot('qa-09-cascade-arc');
+  await page.keyboard.press('Escape'); await paint(page);
+  ok(JSON.stringify(await read(page, ids.move)) === JSON.stringify(cascadeBefore[1]), 'Escape restores the exact pre-cascade Arc');
+  await openCascade();
+  await page.select('.cascade-pop select.prop', 'stagger.totalMs'); await delta(50);
+  t = await read(page, ids.wave);
+  ok(t.stagger.totalMs === 50 && !Object.hasOwn(t.stagger, 'perMs') && JSON.stringify(await read(page, ids.move)) === JSON.stringify(cascadeBefore[1]), 'real Total cascade writes Total only and preserves the ineligible transform');
+  await shot('qa-10-cascade-total');
+  await page.keyboard.press('Escape'); await paint(page);
+  ok(JSON.stringify(await read(page, ids.wave)) === JSON.stringify(cascadeBefore[0]), 'Escape restores the exact pre-cascade Each stagger');
+
 }

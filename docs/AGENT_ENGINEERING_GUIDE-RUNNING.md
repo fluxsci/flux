@@ -165,7 +165,7 @@ The established shared cores — extend these, don't duplicate them:
 | Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
 | Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
 | Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
-| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
+| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts`; `verify-slide-animator-gui.mjs` pins saved Arc through the library's real Apply and Undo paths. Transform preset application forwards HOW fields explicitly into `setTransform`; extending the saved payload alone does not extend this reader. |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
 | Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
@@ -942,7 +942,10 @@ Persistence invariants (all machine-checked — do not weaken):
   4K and source-free packaged startup. Evidence is in `test-results/slide-video/`.
   Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
   standalone browser export; single-effect interpolation is not sufficient evidence. Compiled
-  static-content bindings must also restore attributes constant within a later track when
+  static-content bindings use eased progress for numeric interpolation and raw progress
+  for discrete attributes/text. Thread both channels through the transform driver; the real
+  player gate pins one line-cap switch over 60 non-monotone samples. Bindings must also
+  restore attributes constant within a later track when
   live content differs from that track's pre-state. A translated/rotated arrow followed by a
   stroke-width Change gates this through real browser shaft/head alignment, not just boxes.
   **Ghost transforms (0.4):** result objects are ordinary canonical Elements with fresh IDs;
@@ -8252,3 +8255,11 @@ so both segment selection and interpolation must use raw progress. SVG paint bin
 need the same raw argument through `prepareColorLerp`; the compiler and outline sampler
 thread it too. The integration includes f6c88ba's render/transform callback plumbing
 as the prerequisite for this fix; its Library and additional QA changes remain pending.
+
+### 2026-09-28 06:23 UTC — M6 preset integration QA (Codex, `av2/M6`)
+**Work:** Found that a saved Arc survived in the preset payload but disappeared when the existing library applied a transform preset. Forwarded it through `setTransform` and pinned real Save, Apply and one-step Undo in the animator gate (125/126 before the fix, 126/126 after). Added screenshots for Each/Total and Random/reshuffle/Undo. The conflicting arc-apex requirements remain an orchestrator decision; no motion formula was changed.
+**Learnings:** Extended the preset row in §2 to cover the explicit GUI reader as well as the reusable payload.
+
+### 2026-09-28 06:35 UTC — M6 raw SVG binding integration QA (Codex, `av2/M6`)
+**Work:** Forwarded raw progress through the shared static/plot content bindings. E2's attribute cache had retained eased midpoint switching after M6 corrected the model. Added compiler/player and real Chromium regressions: the old binding switches line caps three times across 60 non-monotone samples; the corrected binding switches once. Added a maxRank scan detector (15 negative assertions when the old per-frame scan is restored), and real mixed-selection Arc/Total cascade coverage/screenshots.
+**Learnings:** Model interpolation passing does not prove painted attributes follow the same channel; verify both through exported createPlayer. Named-color fallback still reads eased progress in the packet's own tween logic and is escalated, along with the conflicting arc-apex requirement.

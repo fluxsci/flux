@@ -81,6 +81,13 @@ for (const from of ["start", "end", "center", "edges", "random"] as const) {
     const deck = createDeck({ withTitleSlide: false, stage }); deck.defaults.transition = "none"; deck.slides = [slide];
     const host = document.createElement("div") as unknown as HTMLElement;
     const player = createPlayer(host, deck, opts);
+    // Sampling indexes ranks, but must not rescan them for maxRank per part/frame.
+    const originalRanks = ct.ranks;
+    let rankScans = 0;
+    ct.ranks = new Proxy(originalRanks, { get(target, key, receiver) {
+      if (key === Symbol.iterator) rankScans++;
+      return Reflect.get(target, key, receiver);
+    } });
     let parity = true;
     for (const time of [0, 75, 230, 515, 829, 930, 1030, 400, 0]) {
       player.seek(0, 1, time);
@@ -91,6 +98,7 @@ for (const from of ["start", "end", "center", "edges", "random"] as const) {
       }
     }
     h.ok(parity, `${from}/${seed}: real player forward/reverse seeks agree with compiler`);
+    h.ok(rankScans === 0 && ct.maxRank === Math.max(...originalRanks), `${from}/${seed}: sample uses the cached maxRank without rescanning ranks`);
     player.destroy();
   }
 }

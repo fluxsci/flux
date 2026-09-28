@@ -371,6 +371,24 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   }
 }
 
+// Integration regression: M6 raw discrete state must reach E2's attribute bindings.
+{
+  const line = { id: "raw-cap", type: "line" as const, x: 100, y: 100, width: 200, height: 20, rotation: 0, x1: 0, y1: 0, x2: 200, y2: 20, stroke: "#222222", strokeWidth: 3, arrowStart: false, arrowEnd: false, cap: "butt" as const };
+  const slide: Slide = { id: "raw-content", elements: [line], beats: [{ id: "base", tracks: [] }, { id: "motion", tracks: [
+    { id: "raw-cap", target: line.id, preset: "transform", duration: 1000, curve: { kind: "bezier", p: [.3, 2, .7, -1] }, to: { state: { cap: "round" } } },
+  ] }] };
+  const d = createDeck({ withTitleSlide: false, stage }); d.defaults.transition = "none"; d.slides = [slide];
+  const mount = document.createElement("div") as unknown as HTMLElement;
+  const p = createPlayer(mount, d, { ...opts, reducedMotion: true }), c = compileSlide(slide, stage);
+  const frames = Array.from({ length: 60 }, (_, i) => {
+    const raw = i / 59; p.seek(0, 1, raw * 1000);
+    return { raw, model: (c.sample(1, raw * 1000).elements[0] as any).cap, painted: mount.querySelector('line')?.getAttribute('stroke-linecap') };
+  });
+  p.destroy();
+  const flips = frames.slice(1).filter((f, i) => f.painted !== frames[i].painted).length;
+  check(flips === 1 && frames.every(f => f.painted === f.model), `painted discrete cap agrees with raw compiler state, one flip (observed ${flips})`);
+}
+
 console.log(`\nSLIDE TIMELINE: PASS (${h.checks} assertions)`);
 
 await h.done();
