@@ -118,4 +118,36 @@ live.player.seek(0, 1, 500);
 h.ok(error(compiled.sample(1, 500).camera!, livePose(live.host)) < .5, "random seek restores canonical camera path after a live play");
 live.player.destroy();
 h.eq(callbacks.size, 0, "no animation callbacks after teardown");
+
+h.section("a camera rebase at play start keeps hand-off controllers alive");
+// Integration seam (M5 over C2): rebasing camera frames drops cached samplers
+// and native bindings only. A hand-off controller disposed here removes its
+// flight layer and visibility claims for the rest of the slide.
+{
+  const { addSlide, addElement, addBeat, setTransform } = await import("../src/lib/slide/ops");
+  const deck = createDeck({ stage, withTitleSlide: false });
+  const withFlight = addSlide(deck, { id: "flight", layout: "blank" });
+  const pathEl = (id: string, x: number) => ({ id, type: "path" as const, x, y: 60, width: 180, height: 120, rotation: 0, d: "M0 120 L90 0 L180 120", closed: false, fill: "none", stroke: "#4169e1", strokeWidth: 4, nodes: [{ x: 0, y: 120, type: "corner" as const }, { x: 90, y: 0, type: "corner" as const }, { x: 180, y: 120, type: "corner" as const }] });
+  addElement(deck, withFlight.id, pathEl("source", 40)); addElement(deck, withFlight.id, pathEl("dest", 400));
+  const beat = addBeat(deck, withFlight.id, { id: "flight-beat" })!;
+  setTransform(deck, withFlight.id, beat.id, "source", { state: {}, duration: 1000, easing: "linear" });
+  beat.tracks.find(t => t.target === "source")!.to!.become = { mode: "handoff", ref: { element: "dest" } };
+  beat.tracks.push({ id: "flight-cam", target: "@camera", preset: "camera", to: b, duration: 1000, easing: "linear" });
+  h.eq(compileSlide(withFlight, stage).handoffs.length, 1, "fixture: the compiler accepts the hand-off beside the camera move");
+  const host = document.createElement("div") as unknown as HTMLElement;
+  deck.slides = [withFlight];
+  const player = createPlayer(host, deck, { ...opts, reducedMotion: false });
+  const dest = () => (host.querySelector('[data-el-id="dest"]') as HTMLElement).style.visibility;
+  h.eq([host.querySelectorAll(".sl-flight .sl-handoff").length, dest()], [1, "hidden"], "before play: one hand-off layer, destination hidden");
+  (host.querySelector(".sl-camera") as HTMLElement).style.transform = `translate(${320 - changed.x * changed.zoom}px, ${180 - changed.y * changed.zoom}px) scale(${changed.zoom})`;
+  player.goTo(0, 1, { animate: true });
+  h.ok(error(changed, livePose(host)) < 1e-8, "the camera rebased from the live pose (the seam's trigger)");
+  h.eq(host.querySelectorAll(".sl-flight .sl-handoff").length, 1, "the hand-off's flight layer survives the camera rebase");
+  h.eq(dest(), "hidden", "the destination stays hidden at the hand-off's start (its visibility claim survives)");
+  callbacks.clear();
+  player.seek(0, 1, 0);
+  h.ok(error(compileSlide(withFlight, stage).sample(1, 0).camera!, livePose(host)) < 1e-8, "a random seek after the live play restores the compiled FROM (second trigger)");
+  h.eq([host.querySelectorAll(".sl-flight .sl-handoff").length, dest()], [1, "hidden"], "the restoring seek keeps the hand-off layer and its hidden destination");
+  player.destroy();
+}
 await h.done();

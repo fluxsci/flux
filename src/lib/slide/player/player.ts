@@ -650,7 +650,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
       cameraChanged = spec.refreshCamera!(cameraFrom) || cameraChanged;
       cameraFrom = String(spec.keyframes.at(-1)!.transform);
     }
-    if (cameraChanged) { disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); }
+    // Samplers and natives only: hand-off controllers own flight layers and
+    // visibility claims that must outlive a camera rebase.
+    if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
     duration = Math.max(0, ...durations.slice(from, bi + 1));
     time = 0;
     playing = true;
@@ -669,7 +671,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     selectRun(from, bi);
     let cameraChanged = false;
     for (const spec of specs) if (spec.refreshCamera) cameraChanged = spec.refreshCamera() || cameraChanged;
-    if (cameraChanged) { disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); }
+    if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
     duration = Math.max(0, ...durations.slice(from, bi + 1)); time = Math.max(0, Math.min(duration, ms));
     if (sampleMedia) media?.seek(bi, ms, from);
     paint(); emit("change");
