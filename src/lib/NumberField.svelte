@@ -11,6 +11,7 @@
   import { activeFigureId, selection, partSelections, embeddedProjectRoot } from "./store";
   import { storeTenant } from "./tenancy";
   import { evalExpr, fmtNum } from "./num";
+  import { numericStep } from "./interact/numericStep";
   import { scrub } from "./scrub";
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta, wheelMultiplier } from "./interact/wheelLaw";
@@ -18,6 +19,8 @@
   export let value: number;
   export let label = "";
   export let step = 1;
+  /** Optional ratio per step (zoom uses 1.1). */
+  export let factor: number | undefined = undefined;
   export let min: number | null = null;
   export let max: number | null = null;
   export let title = "";
@@ -63,7 +66,7 @@
     } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
       const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
-      const v = clamp(+(value + (e.key === "ArrowUp" ? 1 : -1) * step * mult).toFixed(6));
+      const v = clamp(numericStep(value, (e.key === "ArrowUp" ? 1 : -1) * mult, step, factor));
       if (v !== value) dispatch("commit", v);
     }
   }
@@ -97,7 +100,7 @@
       scrubBaseline = value;
       dispatch("scrubStart");
     }
-    const v = clamp(+(value + steps * step * mult).toFixed(6));
+    const v = clamp(numericStep(value, steps * mult, step, factor));
     if (v !== value) (history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v));
     // The gesture ends when the wheel rests: one undo entry per roll.
     if (wheelTimer) clearTimeout(wheelTimer);
@@ -113,7 +116,7 @@
   {#if label}
     <span
       class="lb"
-      use:scrub={{ get: () => value, step, min, max, disabled, owner: targetKey,
+      use:scrub={{ get: () => value, step, factor, min, max, disabled, owner: targetKey,
         onStart: () => { scrubBaseline = value; dispatch('scrubStart'); },
         onStep: (v) => history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
         onEnd: session.finish,

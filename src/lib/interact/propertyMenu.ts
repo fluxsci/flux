@@ -45,6 +45,7 @@ export interface Field {
   options?: FieldOption[];
   target?: "fill" | "stroke";
   step?: number;
+  factor?: number;
   min?: number;
   max?: number;
   /** Ends of the wheel/track range when `min`/`max` are open-ended. */
@@ -305,6 +306,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       group: d.group,
       kind: "number",
       step: d.step,
+      factor: d.factor,
       min: d.min,
       max: d.max,
       softMax: d.softMax,
@@ -349,6 +351,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
   }
   property("rotation");
   property("opacity");
+  for (const name of ["orbitAzimuth", "orbitElevation", "orbitRoll", "orbitZoom", "orbitPanX", "orbitPanY", "orbitFov", "modelFrame"] as const) property(name);
   property("contentScale"); // plots only (read() is undefined elsewhere → the row does not render)
 
   // Reset crop: an action for cropped image/plot elements — one commit

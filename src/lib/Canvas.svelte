@@ -2,6 +2,11 @@
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   import { canvasAnnotationTargets } from "./bridge/canvasTargets";
+  import OrbitOverlay from "./model3d/OrbitOverlay.svelte";
+  import { modelOrbit, modelPreviews, paintedModelPreviews, modelOrbitBlocked, beginModelOrbit, finishModelOrbit, clearModelPreviews, modelEditorOwner } from "./model3d/orbitSession";
+  import { scene3dGeneration } from "./model3d/store";
+  import { storeTenantState } from "./tenancy";
+  import { embeddedProjectRoot, projectDir } from "./store";
   import { editSession } from "./interact/editSession";
   const textEdits = editSession();
   import { transientSceneTransforms } from "./interact/sceneTransforms";
@@ -411,6 +416,14 @@
   // notify. Reactivation re-runs them (paneActive is a dep) and the rev-keyed
   // memos recompute exactly the figures whose revisions moved while hidden.
   export let paneActive = true;
+  $: modelOwner = modelEditorOwner({ tenant: $storeTenantState, root: $embeddedProjectRoot ?? $projectDir, figure: $activeFigureId, generation: $scene3dGeneration });
+  let previousModelOwner = "";
+  $: if (previousModelOwner !== modelOwner) {
+    finishModelOrbit(); clearModelPreviews(); previousModelOwner = modelOwner;
+  }
+  $: if ($modelOrbit && (!paneActive || $modelOrbit.owner !== modelOwner || $modelOrbitBlocked || !$selection.has($modelOrbit.id) || absentPresentationIds.has($modelOrbit.id) || !["select", "scale"].includes($activeTool))) finishModelOrbit();
+  $: modelOverlayItems = paneActive ? canvasFigures.flatMap(fig => (visibleByFig.get(fig.id) ?? []).filter(el => el.type === "model3d" && $modelPreviews[el.id] && !absentPresentationIds.has(el.id)).map(el => ({ fig, el }))) : [];
+  onDestroy(() => { finishModelOrbit(); clearModelPreviews(); });
 
   // Slide-migration: `frame` mode (slide editing). The canvas shows ONLY the
   // active figure (one slide, its frame = the deck's stage), on a darker
@@ -831,7 +844,7 @@
   let snapIdle: number | null = null;
   $: {
     void sceneKey; // Changes while snapWanted is already true still invalidate in-flight work.
-    if (snapWanted && paneActive && sceneSvgEl && hostW > 0 && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
+    if (snapWanted && !Object.keys($modelPreviews).length && paneActive && sceneSvgEl && hostW > 0 && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
     else cancelSnapshot();
   }
   function cancelSnapshot() {
@@ -862,7 +875,7 @@
     snapScheduled = false;
     if (snapshotDestroyed || !paneActive || gen !== snapGen) return;
     if (!sceneSvgEl || hostW <= 0 || hostH <= 0) return;
-    if (sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
+    if (Object.keys($modelPreviews).length || sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
       scheduleSnapshot(); // still moving — try again once quiet
       return;
     }
@@ -936,7 +949,7 @@
     if (prev) URL.revokeObjectURL(prev.url);
   }
   function beginZoomProxy() {
-    if (!zoomSnap || proxyActive) return;
+    if (!zoomSnap || proxyActive || Object.keys($modelPreviews).length) return;
     if (zoomSnap.sceneKey !== sceneKey || !sceneBox ||
       !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH })) return;
     proxyActive = true;
@@ -947,6 +960,7 @@
   // Bounds/content may change DURING a burst too (zoom out, pan, Undo, a
   // source refresh, slide navigation). Never hide fresh content behind a
   // stale or cropped image. Abort in the same flush as the new viewport.
+  $: if (proxyActive && Object.keys($modelPreviews).length) endZoomProxy();
   $: if (proxyActive && zoomSnap && (!paneActive || zoomSnap.sceneKey !== sceneKey ||
     !sceneBox || !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH }))) endZoomProxy();
   function endZoomProxy() {
@@ -1003,6 +1017,7 @@
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    finishModelOrbit();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
     const px = e.clientX - r.left;
@@ -2908,7 +2923,7 @@
   // --- keyboard (space-pan, pen finish; global shortcuts live in keyboard.ts) ---
   function onKeyDown(e: KeyboardEvent) {
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
-    if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.animator, [data-command-scope="animation"]'))) return;
+    if (e.defaultPrevented || (e.target instanceof HTMLElement && (e.target.closest('.animator, [data-command-scope="animation"]') || (get(modelOrbit) && e.target.closest('[data-command-scope="model3d-orbit"]'))))) return;
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
@@ -3090,6 +3105,10 @@
       selection.set(expandGroups($project, new Set([el.id]), unit.groupId));
       partSelection.set(null);
       return true;
+    }
+    if (el.type === "model3d" && unit.groupId === null && !e.shiftKey && !e.altKey) {
+      e.stopPropagation();
+      return beginModelOrbit(el.id);
     }
     if (el.type === "text" && unit.groupId === null) {
       e.stopPropagation();
@@ -3907,7 +3926,7 @@
                   use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
                   style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
-                  class:editing-hidden={editingId === el.id && !editingInfo?.showsRuns}
+                  class:editing-hidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
                   use:sceneTransforms.register={el.id}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
@@ -4444,6 +4463,11 @@
       }}
     ></textarea>
   {/if}
+  {#each modelOverlayItems as item (item.el.id)}
+    {#if item.el.type === "model3d"}
+      <OrbitOverlay element={item.el} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (item.fig.x + item.el.x) * $viewport.zoom} top={$viewport.panY + (item.fig.y + item.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
+    {/if}
+  {/each}
 </div>
 
 <style>

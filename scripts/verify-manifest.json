@@ -326,7 +326,8 @@
       "verify-model3d-render-browser.ts",
       "verify-model3d-persistence.ts",
       "verify-model3d-import.ts",
-      "verify-model3d-semantics.ts"
+      "verify-model3d-semantics.ts",
+      "verify-model3d-view-ops.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -468,7 +469,8 @@
       "verify-ask-gui.mjs",
       "verify-background-run-gui.mjs",
       "verify-model3d-gui.mjs",
-      "verify-model3d-export.mjs"
+      "verify-model3d-export.mjs",
+      "verify-model3d-orbit-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -853,7 +855,9 @@
       "verify-model3d-import.ts",
       "verify-model3d-gui.mjs",
       "verify-model3d-semantics.ts",
-      "verify-model3d-export.mjs"
+      "verify-model3d-export.mjs",
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-view-ops.ts"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -890,6 +894,10 @@
       "verify-model3d-gui.mjs",
       "verify-figure-export.ts",
       "verify-figure-export-gui.mjs"
+    ],
+    "model3d-orbit": [
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-view-ops.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -7870,6 +7878,26 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-orbit-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-view-ops.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     }
   }

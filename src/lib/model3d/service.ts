@@ -29,6 +29,7 @@ export function createModel3dService(options: ServiceOptions) {
   const interactive = new Map<string, Job>(), idle = new Map<string, Job>(), residents = new Map<string, Resident>();
   const scales = new Map<string, number>();
   const lifetime = new AbortController();
+  const contextListeners = new Set<(lost: boolean) => void>();
   const maxBytes = options.maxResidentBytes ?? 768 * 1024 * 1024;
   function ensureWorker() {
     if (disposed) throw new Error('3D service disposed');
@@ -38,7 +39,11 @@ export function createModel3dService(options: ServiceOptions) {
       const message = event.data;
       if (message.stats) status = message.stats;
       if (typeof message.ms === 'number') lastTiming = { ms: message.ms, renderMs: message.renderMs, encodeMs: message.encodeMs };
-      if (message.type === 'lost') { status = { ...status, lost: true }; return; }
+      if (message.type === 'lost' || message.type === 'restored') {
+        status = { ...status, lost: message.type === 'lost' };
+        for (const listener of contextListeners) listener(status.lost);
+        return;
+      }
       const request = pending.get(message.reqId);
       if (!request) { message.bitmap?.close(); return; }
       pending.delete(message.reqId); clearTimeout(request.timer);
@@ -162,10 +167,10 @@ export function createModel3dService(options: ServiceOptions) {
     const error = abortError('3D service disposed');
     for (const job of [...interactive.values(), ...idle.values(), ...(active ? [active] : [])]) rejectJob(job, error);
     for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
-    pending.clear(); interactive.clear(); idle.clear(); residents.clear(); worker?.terminate(); worker = undefined;
+    pending.clear(); interactive.clear(); idle.clear(); residents.clear(); contextListeners.clear(); worker?.terminate(); worker = undefined;
     status = { ...status, contexts: 0, residentBytes: 0, assets: 0, morphPairs: 0 };
   }
-  return { available, retain, release, renderBitmap: (spec: RenderSpec, opts?: RenderOptions) => enqueue(spec, 'bitmap', opts) as Promise<ImageBitmap>, renderPng: (spec: RenderSpec, opts?: RenderOptions) => enqueue(spec, 'png', opts) as Promise<Blob>, stats: () => ({ ...status, lastTiming: { ...lastTiming }, scales: Object.fromEntries(scales), retained: [...residents.values()].filter((r) => r.refs > 0).length, queued: interactive.size + idle.size, active: !!active }), dispose };
+  return { available, retain, release, subscribeContext(listener: (lost: boolean) => void) { contextListeners.add(listener); listener(status.lost); return () => { contextListeners.delete(listener); }; }, renderBitmap: (spec: RenderSpec, opts?: RenderOptions) => enqueue(spec, 'bitmap', opts) as Promise<ImageBitmap>, renderPng: (spec: RenderSpec, opts?: RenderOptions) => enqueue(spec, 'png', opts) as Promise<Blob>, stats: () => ({ ...status, lastTiming: { ...lastTiming }, scales: Object.fromEntries(scales), retained: [...residents.values()].filter((r) => r.refs > 0).length, queued: interactive.size + idle.size, active: !!active }), dispose };
 }
 export type Model3dService = ReturnType<typeof createModel3dService>;
 let shared: Model3dService | undefined;

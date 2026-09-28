@@ -16,8 +16,8 @@ const sourceFont=(font:string)=>font.includes(',')||/^(serif|sans-serif|monospac
 export function serializeFurniture(nodes:readonly FurnitureNode[]):string{return nodes.map(n=>`<${n.tag}${Object.entries(n.attrs).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>` ${k}="${esc(typeof v==='number'?num(v):v)}"`).join('')}>${n.text!=null?esc(n.text):''}${n.children?serializeFurniture(n.children):''}</${n.tag}>`).join('');}
 export const furniturePartDomId=(elementId:string,partId:string)=>`${elementId}__${partId}`;
 /** Attribute-node descriptions support all live hosts; the serializer is shared by static engines. */
-export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dElement,pose:OrbitPose,layout:FurnitureLayout):FurnitureSvg {
- if(!manifest)return {under:'',over:'',underNodes:[],overNodes:[]};
+export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3dElement,pose:OrbitPose,layout:FurnitureLayout):Pick<FurnitureSvg, "underNodes"|"overNodes"> {
+ if(!manifest)return {underNodes:[],overNodes:[]};
  const under:FurnitureNode[]=[],over:FurnitureNode[]=[],parts=buildScene3dPartIndex(manifest),fields=scene3dFields(manifest),style=manifest.style??{},ink=style.ink??'#100F0F',muted=style.muted??'#6F6E69',fs=layout.fontSize,lw=(style.lineWidthPt??.6)*4/3,toWorld=manifest.toWorld??ID;
  const override=(id:string):PartOverride=>resolveScene3dPartStyle(manifest,el.overrides,id);
  const add=(layer:FurnitureNode[],id:string,tag:FurnitureNode['tag'],key:string,attrs:Record<string,string|number>,text?:string,children?:FurnitureNode[])=>{
@@ -75,5 +75,10 @@ export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dE
  for(const slot of layout.legends){const part=parts[slot.partId];(part?.entries??[]).forEach((id,i)=>{const entry=parts[id];if(!entry)return;const y=slot.y+i*layout.lineHeight,o=override(id);add(over,part.id,'rect',`legend-swatch-${i}`,{x:slot.x,y:y-fs*.7,width:fs,height:fs,fill:o.fill??entry.color??el.fill,opacity:o.hidden?0:o.opacity??entry.opacity??1});text(over,part.id,`legend-label-${i}`,slot.x+fs*1.5,y+fs*.2,entry.label??id,{'text-anchor':'start'});});}
  if(layout.title){const slot=layout.title,part=parts[slot.partId];text(over,slot.partId,'title',slot.x+slot.width/2,slot.y+slot.height*.7,part?.text??part?.label??'',{'font-size':(style.titleSizePt??8)*4/3});}
  function group(nodes:FurnitureNode[]):FurnitureNode[]{const grouped:FurnitureNode[]=[],byPart=new Map<string,FurnitureNode>();for(const node of nodes){if(!node.partId){grouped.push(node);continue;}let g=byPart.get(node.partId);if(!g){g={tag:'g',key:node.partId,partId:node.partId,attrs:{id:furniturePartDomId(el.id,node.partId),'data-part-id':node.partId,'data-role':parts[node.partId]?.role??'axis'},children:[]};byPart.set(node.partId,g);grouped.push(g);}g.children!.push(node);}return grouped;}
- const underNodes=group(under),overNodes=group(over);return {under:serializeFurniture(underNodes),over:serializeFurniture(overNodes),underNodes,overNodes};
+ const underNodes=group(under),overNodes=group(over);return {underNodes,overNodes};
+}
+
+export function furnitureSvg(manifest:Scene3dManifest|null|undefined,el:Model3dElement,pose:OrbitPose,layout:FurnitureLayout):FurnitureSvg {
+ const nodes=furnitureNodes(manifest,el,pose,layout);
+ return {...nodes,under:serializeFurniture(nodes.underNodes),over:serializeFurniture(nodes.overNodes)};
 }

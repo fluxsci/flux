@@ -1,4 +1,5 @@
 import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+import { numericStep } from "./interact/numericStep";
 /** Numeric label drag. Pointer mechanics only: the owner supplies its editing
  * transaction (or edits a local tool parameter without touching history). */
 export interface ScrubParams {
@@ -8,6 +9,7 @@ export interface ScrubParams {
   onEnd?: () => void;
   onCancel?: () => void;
   step?: number;
+  factor?: number;
   min?: number | null;
   max?: number | null;
   disabled?: boolean;
@@ -44,10 +46,10 @@ export function scrub(node: HTMLElement, params: ScrubParams) {
     const dx = e.clientX - startX;
     if (!began && Math.abs(dx) < 2) return;
     const step = (p.step ?? 1) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
-    let value = startVal + Math.round(dx) * step;
+    let value = numericStep(startVal, Math.round(dx) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1), p.step ?? 1, p.factor);
     if (p.min != null) value = Math.max(p.min, value);
     if (p.max != null) value = Math.min(p.max, value);
-    value = +value.toFixed(precisionOf(step));
+    value = +value.toFixed(p.factor ? 6 : precisionOf(step));
     if (value === lastVal) return;
     if (!began) { p.onStart?.(); began = true; }
     lastVal = value;

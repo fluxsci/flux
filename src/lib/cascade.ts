@@ -26,6 +26,7 @@ export const ELEMENT_CASCADE_PROPS = [
   "fill",
   "stroke",
   "color",
+  "orbitAzimuth", "orbitElevation", "orbitRoll", "orbitZoom", "orbitPanX", "orbitPanY", "orbitFov",
 ] as const;
 export type ElementCascadeProp = (typeof ELEMENT_CASCADE_PROPS)[number];
 
@@ -146,7 +147,7 @@ const STROKED = new Set(["line", "rect", "ellipse", "path"]);
  *  or a line's endpoints, so a W/H edit would desync the rendered geometry from
  *  its box. This is the ONE source of truth — the cascade, the Inspector W/H
  *  fields, and the FluxFig-menu W/H keys all gate on `supportsBoxDim`. */
-const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "video", "text"]);
+const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "video", "text", "model3d"]);
 export function supportsBoxDim(type: string): boolean {
   return BOX_DIM.has(type);
 }
@@ -159,6 +160,8 @@ export function isColorProp(prop: ElementCascadeProp): prop is "fill" | "stroke"
  *  apply to the accepting members only — f-menu union-by-presence semantics.) */
 export function memberAccepts(e: Element, prop: ElementCascadeProp): boolean {
   switch (prop) {
+    case "orbitAzimuth": case "orbitElevation": case "orbitRoll": case "orbitZoom": case "orbitPanX": case "orbitPanY": case "orbitFov":
+      return e.type === "model3d";
     case "x":
     case "y":
     case "rotation":
@@ -193,6 +196,9 @@ export function unitAccepts(u: CascadeUnit, prop: ElementCascadeProp): boolean {
 /** Post-math clamp per property (model units). */
 export function clampElementValue(prop: ElementCascadeProp, v: number): number {
   switch (prop) {
+    case "orbitElevation": return Math.max(-90, Math.min(90, v));
+    case "orbitZoom": return Math.max(.02, Math.min(50, v));
+    case "orbitFov": return Math.max(5, Math.min(120, v));
     case "opacity":
       return Math.min(1, Math.max(0, v));
     case "strokeWidth":

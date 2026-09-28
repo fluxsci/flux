@@ -71,6 +71,7 @@ import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
+import { modelOrbit } from "./model3d/orbitSession";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -757,7 +758,7 @@ export function handleKey(e: KeyboardEvent) {
   // were registered in a different order. Never also nudge/delete the canvas.
   if (e.defaultPrevented) return;
   const owner = e.target instanceof HTMLElement ? e.target : null;
-  if (owner?.closest('.animator, [data-command-scope="animation"]')) return;
+  if (owner?.closest('.animator, [data-command-scope="animation"]') || (get(modelOrbit) && owner?.closest('[data-command-scope="model3d-orbit"]'))) return;
   if (owner?.tagName === "SELECT") return;
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
   // Figure-Meta Name tab / Dissect viewer own all keys while open.

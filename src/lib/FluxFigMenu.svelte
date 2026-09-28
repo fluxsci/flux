@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { numericStep, numericFraction } from "./interact/numericStep";
   import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 
   // The property menu — `f` (2026-09-15 surface redesign). The main way
@@ -305,9 +306,8 @@
 
   // --- numeric stepping: keys + wheel ------------------------------------------------
   function stepValue(f: Field, steps: number, mult = 1) {
-    const step = (f.step ?? 1) * mult;
     const cur = f.mixed && draft === "" ? Number(f.get()) : (evalExpr(draft) ?? Number(f.get()));
-    let v = (Number.isFinite(cur) ? cur : 0) + steps * step;
+    let v = numericStep(Number.isFinite(cur) ? cur : 0, steps * mult, f.step ?? 1, f.factor);
     if (f.min != null) v = Math.max(f.min, v);
     if (f.max != null) v = Math.min(f.max, v);
     v = +v.toFixed(6);
@@ -375,6 +375,7 @@
 
   // --- keyboard ---------------------------------------------------------------------------
   function onWin(e: KeyboardEvent) {
+    if (e.target instanceof HTMLElement && e.target.closest('[data-command-scope="model3d-orbit"]')) return;
     if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || !$fluxFigMenuOpen) return;
     const t = e.target as HTMLElement | null;
@@ -454,7 +455,7 @@
     const r = fieldRange(f);
     if (!r) return 0;
     const v = Number(f.get());
-    return Math.max(0, Math.min(100, ((v - r.min) / (r.max - r.min)) * 100));
+    return numericFraction(v, r.min, r.max, f.factor) * 100;
   };
 </script>
 
@@ -523,7 +524,7 @@
                     <div class="fhead">
                     <span class="hk">{f.key}</span>
                     {#if f.kind === "number"}
-                      <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
+                      <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, factor: f.factor, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
                     {:else}
                       <span class="label">{f.label}</span>
                     {/if}

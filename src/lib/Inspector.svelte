@@ -46,6 +46,7 @@
   import { dissectionsRevision } from "../shell/scholar/revisions";
   import ColorPalette from "./ColorPalette.svelte";
   import ColorPicker from "./ColorPicker.svelte";
+  import Model3dInspector from "./model3d/Model3dInspector.svelte";
   import ColorField from "./ColorField.svelte";
   import NumberField from "./NumberField.svelte";
   import { commitDeckLive } from "./slide/store";
@@ -713,6 +714,8 @@
       </div>
     </section>
   {/if}
+
+  {#if single?.type === "model3d"}<Model3dInspector element={single} readOnly={selectionReadOnly} />{/if}
 
   {#if slideMode && single?.type === "video"}
     {@const videoAsset = $project.assets.find(asset => asset.id === single.assetId)}

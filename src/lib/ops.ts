@@ -817,7 +817,10 @@ export function cascadeElements(p: Project, figId: Id, ids: Id[], spec: CascadeS
         const rec = e as unknown as Record<string, unknown>;
         const cur = prop === "opacity" ? ((e.opacity ?? 1) as number) : ((rec[prop] ?? 0) as number);
         const target = clampElementValue(prop, cascadeValue(cur, eff, step));
-        if (target !== cur) setElementStyle(p, [e.id], { [prop]: target });
+        if (target !== cur) {
+          if (prop.startsWith("orbit")) setModelView(p, [e.id], { [prop]: target });
+          else setElementStyle(p, [e.id], { [prop]: target });
+        }
       }
     }
   });
@@ -1926,7 +1929,7 @@ export function panelForLabel(label: Element, anchors: Element[], tol = 48): Ele
 export function ensurePanelLabels(p: Project, figId: Id): { created: number } {
   const f = figById(p, figId);
   if (!f) return { created: 0 };
-  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
+  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image" || e.type === "model3d");
   if (anchors.length < 2) return { created: 0 }; // single-panel figures aren't lettered
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   const marked = new Set<Id>();
@@ -1951,7 +1954,7 @@ export function autoLetterPanels(p: Project, figId: Id): { changed: boolean; let
   const labels = f.elements.filter((e) => e.type === "text" && e.panelLabel);
   if (!labels.length) return { changed: false, letters: [] };
   if (labels.length > 26) throw new Error("Automatic panel lettering supports up to 26 panels (a–z). Keep your existing labels or split this figure.");
-  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image");
+  const anchors = f.elements.filter((e) => e.type === "plot" || e.type === "image" || e.type === "model3d");
   const rowSpan = (e: Element): { top: number; bottom: number; x: number } => {
     const lb = elementBBox(e);
     const a = panelForLabel(e, anchors);
@@ -2005,3 +2008,6 @@ export function resizeFigureFrame(p: Project, id: Id, box: { x: number; y: numbe
   if (!figure) throw new Error(`Figure not found: ${id}`);
   resizeFrame(figure, box);
 }
+
+import { setModelView } from './model3d/viewOps';
+export { setModelView };
