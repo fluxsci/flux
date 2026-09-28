@@ -216,6 +216,12 @@ for (const [label, patch] of [["view Change", { state: { view: zoom } }], ["data
   h.ok(styles.every(s => /(^|;)\s*stroke:\s*#4169e1\s*(;|$)/.test(s)), `${label}: the line keeps its authored stroke colour mid-flight (${styles[1]})`);
   painter.destroy();
 }
+h.section("one SVG transform reader");
+// B1 landed plot/svgMatrix.ts as the shared SVG affine reader (targetGeometry uses it).
+// Guide recovery must read ancestor transforms through it, not a second parser.
+const projectSource = readFileSync(new URL("../src/lib/plot/project.ts", import.meta.url), "utf8");
+h.ok(/from "\.\/svgMatrix"/.test(projectSource) && /transformToAncestor\(/.test(projectSource) && !/skew[XY]/i.test(projectSource),
+  "plot/project.ts reads guide ancestor transforms through plot/svgMatrix (no second transform parser)");
 h.section("manifests without series keep the base behaviour");
 // A custom/legacy manifest may carry no series or axes (verify-v020-slide-paint's
 // compound-hole plot). The retired morphCompatible answered false for it; the

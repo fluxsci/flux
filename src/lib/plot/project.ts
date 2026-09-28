@@ -3,6 +3,7 @@
 import type { PlotView } from "../types";
 import type { FluxPlotManifest, FluxPlotAxis, FluxPlotSeries } from "./types";
 import { partDomId } from "./parse";
+import { applyToPoint, transformToAncestor } from "./svgMatrix";
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export interface Fit {
@@ -150,23 +151,8 @@ function guidePixel(node: Element, root: Element, axis: "x" | "y"): number | nul
   const pt = tag === "path" ? nums(drawable.getAttribute("d") ?? "").slice(0, 2) :
     [parseFloat(drawable.getAttribute(tag === "line" ? "x1" : "x") ?? "0"), parseFloat(drawable.getAttribute(tag === "line" ? "y1" : "y") ?? "0")];
   if (pt.length !== 2) return null;
-  let [x, y] = pt;
-  for (let el: Element | null = drawable; el && el !== root; el = el.parentElement) {
-    const transforms = [...(el.getAttribute("transform") ?? "").matchAll(/([a-z]+)\s*\(([^)]*)\)/gi)];
-    for (let i = transforms.length - 1; i >= 0; i--) {
-      const name = transforms[i][1], v = nums(transforms[i][2]);
-      if (name === "translate") { x += v[0]; y += v[1] ?? 0; }
-      else if (name === "scale") { x *= v[0]; y *= v[1] ?? v[0]; }
-      else if (name === "matrix") { const nx = v[0] * x + v[2] * y + v[4]; y = v[1] * x + v[3] * y + v[5]; x = nx; }
-      else if (name === "rotate") {
-        const r = v[0] * Math.PI / 180, cx = v[1] ?? 0, cy = v[2] ?? 0;
-        const nx = cx + (x - cx) * Math.cos(r) - (y - cy) * Math.sin(r);
-        y = cy + (x - cx) * Math.sin(r) + (y - cy) * Math.cos(r); x = nx;
-      } else if (name === "skewX") x += y * Math.tan(v[0] * Math.PI / 180);
-      else if (name === "skewY") y += x * Math.tan(v[0] * Math.PI / 180);
-      else return null;
-    }
-  }
+  // Node-local → root user space through the shared SVG affine reader.
+  const { x, y } = applyToPoint({ x: pt[0], y: pt[1] }, transformToAncestor(drawable, root));
   return Number.isFinite(axis === "x" ? x : y) ? (axis === "x" ? x : y) : null;
 }
 export function guideAxes(manifest: FluxPlotManifest, leaf: string): SeriesAxes | undefined {
