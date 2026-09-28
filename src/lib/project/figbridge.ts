@@ -354,7 +354,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
       if (!a.path) throw new Error(`Cannot save GLB ${a.id}: native import has not completed`);
       const rel = storedAssetPath(`${SUB}/${a.path}`);
       const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
-      if (!await fig.exists(path)) throw new Error(`Cannot save missing GLB ${a.id}`);
+      if (!await fig.exists(path)) throw new Error(`Cannot save: 3D model file ${rel} is missing. Restore it, or delete the 3D model that uses it`);
       if (isAssetDirty(a.id)) for (const [path, text] of scene3dSidecarWrites(`${SUB}/assets`, a.id, { manifest: models[a.id], recipe: modelRecipes[a.id] })) stagedAssets.set(path, text);
       continue;
     }

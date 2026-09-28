@@ -135,6 +135,8 @@ named states; a sequence also has a derived Frame control.
 `restyle-part` is an alias of `restyle`; both address 2D plot and 3D mesh/furniture
 parts. Mesh part fills show only with source colours (`--colors source`; the
 Inspector calls it **From file**); `--colors uniform` uses the whole element's fill.
+A mesh fill on a uniform model therefore switches it to source colours in the same
+edit (CLI, MCP, live bridge and the GUI palette alike), so the fill shows.
 Field edits switch to source colours and keep explicit part fills, which can
 intentionally hide a value map on that part. `--reset` on `set-model-field` removes
 that field's remapping only.

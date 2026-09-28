@@ -121,16 +121,33 @@ export function modelPartAffectsMesh(asset: Model3dAsset, manifest: Scene3dManif
   return scene3dPartTargets(index, partId).some(id => Object.hasOwn(index, id) && !!index[id].node);
 }
 
-/** The one model3d part-restyle op for CLI/MCP, the live bridge and the GUI.
- * Validates the part, writes the override, and when a mesh fill lands on a
- * model in Uniform colours (which ignore part fills) switches that model to
- * Source colours in the same edit, so the fill is visible. */
-export function applyModelPartStyle(project: Project, elementId: string, partId: string, patch: PartOverride, manifest: Scene3dManifest | undefined): { switchedToSource: boolean } {
+/** The one model3d part-restyle rule for CLI/MCP, the live bridge and the GUI.
+ * Writes the override, and when a mesh fill lands on a model in Uniform colours
+ * (which ignore part fills) switches that model to Source colours in the same
+ * edit, so the fill is visible. The GUI calls this directly: its parts come from
+ * the model's own tree, so there is nothing to validate. */
+export function styleModelPart(project: Project, elementId: string, partId: string, patch: PartOverride, manifest: Scene3dManifest | undefined): { switchedToSource: boolean } {
   const element = commandModels(project, [elementId])[0];
   const asset = project.assets.find(asset => asset.id === element.assetId) as Model3dAsset;
-  assertModelPart(element, asset, manifest, partId);
-  const switchedToSource = typeof patch.fill === 'string' && !!patch.fill && element.modelColors !== 'source' && modelPartAffectsMesh(asset, manifest, partId);
+  const switchedToSource = typeof patch.fill === 'string' && !!patch.fill && patch.fill !== 'none' && element.modelColors !== 'source' && modelPartAffectsMesh(asset, manifest, partId);
   setPartOverride(project, elementId, partId, patch);
   if (switchedToSource) element.modelColors = 'source';
   return { switchedToSource };
+}
+/** GUI entry for any semantic element's part: a 3D model gets styleModelPart;
+ * a plot, or a model whose asset record is gone, just writes the override.
+ * `models`: live scene3d manifests by asset id. True when colours switched. */
+export function stylePart(project: Project, elementId: string, partId: string, patch: PartOverride, models: Readonly<Record<string, Scene3dManifest>>): boolean {
+  const element = project.figures.flatMap(figure => figure.elements).find(element => element.id === elementId);
+  if (element?.type === 'model3d' && project.assets.some(asset => asset.id === element.assetId && asset.kind === 'glb' && asset.model)) {
+    return styleModelPart(project, elementId, partId, patch, models[element.assetId]).switchedToSource;
+  }
+  setPartOverride(project, elementId, partId, patch);
+  return false;
+}
+/** CLI/MCP and bridge entry: validates the part id first. */
+export function applyModelPartStyle(project: Project, elementId: string, partId: string, patch: PartOverride, manifest: Scene3dManifest | undefined): { switchedToSource: boolean } {
+  const element = commandModels(project, [elementId])[0];
+  assertModelPart(element, project.assets.find(asset => asset.id === element.assetId) as Model3dAsset, manifest, partId);
+  return styleModelPart(project, elementId, partId, patch, manifest);
 }

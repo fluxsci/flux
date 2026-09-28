@@ -509,7 +509,9 @@ Persistence invariants (all machine-checked — do not weaken):
   Content-addressed `fig/renders/model3d/m3d-*.png` posters are an explicit subsystem-lease
   exception: every writer publishes a complete image atomically for the same view key.
   Read-only image requests render only into the machine cache; connect/collect never
-  renders or writes posters. Worker contract: [3D poster worker](model3d/POSTER_WORKER.md).
+  renders or writes posters. `render-model-posters --prune` also bounds that machine cache
+  (14 days, then least-recently-used down to 1 GiB; `planMachinePosterPrune`).
+  Worker contract: [3D poster worker](model3d/POSTER_WORKER.md).
 
 ## 4. Renderer architecture notes
 
@@ -1737,7 +1739,9 @@ that isn't in the manifest doesn't exist.** Tiers:
   `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
   registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
   check defeats the verification contract.
-  `group:paper-gate` is the paper editor's regression suite. Use
+  `group:paper-gate` is the paper editor's regression suite. `group:model3d` is the 3D suite;
+  `group:model3d-pure` and `group:model3d-ui` are its pure and dev-server slices, and the
+  native S8 cohort (`verify-model3d-s8.cjs`) and eight-model scale gate need a quiet display. Use
   `node scripts/run-verifies.mjs --list` for current tier/group counts and membership. For parallel
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
@@ -2848,6 +2852,8 @@ outside this PNG packaging change.
 | T30 | Text measured at render time makes engines disagree | anchor-only layout; `verify-model3d-furniture.ts` asserts no DOM or text measurement, `verify-model3d-headless.ts` Paper/Node byte parity |
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
+| — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
+| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
   `__proto__`: keep them in own-key/null-prototype maps and escape them reversibly before Zod

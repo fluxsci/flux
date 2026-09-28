@@ -211,11 +211,13 @@ The Inspector's **3D model** panel is grouped into sections:
 - **Value fields** and **Shape**, when the model has them (see below).
 
 Resizing the box reframes the model while labels keep their physical type size. A physical
-scale bar is shown only in orthographic view.
+scale bar is shown only in orthographic view. The default view fits the model snugly; with
+box axes it fits the whole axes box, so ticks and labels stay inside the frame.
 
 Use **Alt+R** for the model's **X-ray**. Named mesh parts can be recoloured, hidden or made
 transparent; labels can be restyled independently. Mesh-part colours show while **Colours**
-is **From file**. For a continuous value field, change its colormap and **Min / Max** under
+is **From file**, so painting a mesh part on a Uniform model switches it to From file (one
+undo, with a notice). For a continuous value field, change its colormap and **Min / Max** under
 **Value fields**: the mesh and colorbar update together, without rerunning Python. A part
 colour overrides its value field; **Reset part colour** restores field colouring.
 
@@ -525,7 +527,8 @@ its resolution. PDF pages use the figure’s physical dimensions.
 | An import landed huge / outside the frame | True-size import of a large plot → **Ctrl+Shift+I** to bring it inside, then resize deliberately |
 | Restyles vanished after regenerating | The plot's series names changed in the script → keep `series=` names stable ([why](../concepts/semantic-plots.qmd)) |
 | I see a grey 3D tile | Read the message inside it. Restore a missing GLB, or enable graphics support if rendering is unavailable. Saved posters can still display when a new render cannot be made. |
-| Orbit is greyed out | The Inspector explains why: the model is missing, rendering is unavailable, or another editing mode owns the interaction. Resolve that condition, then choose Orbit again. |
+| Orbit won't start | A notice says why: the model is locked or hidden (unlock or show it), its file is missing, rendering is unavailable, or another editing mode owns the interaction. Resolve that condition, then choose Orbit again. |
+| Saving says a 3D model file is missing | The model's GLB was moved or deleted from the project's `fig/assets/` folder. Put the named file back, or delete that 3D model; the rest of the figure is untouched. |
 | The labels look different in the notebook | The interactive viewer uses browser fonts; the PNG fallback uses Python's font renderer. Install the same font in both environments. Placement and point sizes remain explicit. |
 | An untrusted notebook output is blank | VS Code can suppress an entire mixed HTML/PNG output. Trust the notebook if appropriate, or execute `sc.show(static=True)` to request only the PNG. |
 | "These figures changed on disk" banner | Another tool or agent edited them → **Reload theirs** or **Overwrite with mine** — nothing is lost silently |

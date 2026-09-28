@@ -16,6 +16,8 @@ import { get } from "svelte/store";
 import type { Element, PartOverride, Project, SemanticPlotElement, TextAlign, TextStyle, TextVAlign } from "../types";
 import type { Model3dElement, Scene3dManifest } from "../model3d/types";
 import { setModelView } from "../model3d/viewOps";
+import { stylePart } from "../model3d/commandOps";
+import { announceSourceColors } from "../colors";
 import { buildScene3dPartIndex, scene3dPartTargets } from "../model3d/scene3d";
 import { semanticPartIndex } from "../plot/partStyle";
 import type { FluxPlotManifest } from "../plot/types";
@@ -143,10 +145,13 @@ export function buildPartFields(
   const kind = partKind(manifest, partId, partNode(el, partId));
   const read = () => readPartStyle(el, partId, manifest);
   const readAll = () => resolved.map((r) => readPartStyle(r.el, r.partId, manifestFor(r.el)));
-  const patch = (q: PartOverride) =>
+  const patch = (q: PartOverride) => {
+    let switched = false;
     mutate((proj) => {
-      for (const r of resolved) ops.setPartOverride(proj, r.el.id, r.partId, q);
+      for (const r of resolved) switched = stylePart(proj, r.el.id, r.partId, q, models) || switched;
     });
+    if (switched) announceSourceColors();
+  };
   const mixedOn = (prop: string) => {
     const vs = readAll().map((s) => s[prop]);
     return vs.some((v) => v !== vs[0]);
@@ -201,7 +206,7 @@ export function buildPartFields(
       },
     });
 
-  if (needsSource.length) F.push({key:'c',label:'Use source colours',group:G,kind:'action',hint:'Part colours use Source mode.',count:needsSource.length,get:()=>true,apply:()=>mutate(p=>setModelView(p,needsSource,{modelColors:'source'}))});
+  if (needsSource.length) F.push({key:'c',label:'Use file colours',group:G,kind:'action',hint:'Part colours show when Colours is From file.',count:needsSource.length,get:()=>true,apply:()=>mutate(p=>setModelView(p,needsSource,{modelColors:'source'}))});
   if (kind === "container") { visible(); if (el.type === "model3d") color("c", "part colour", "fill"); }
   if (kind === "text") {
     // Part font size is in PLOT UNITS (the SVG's own user units), not pt.
