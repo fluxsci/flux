@@ -169,6 +169,11 @@ export interface RunnerStart {
   firstMessage: string; images?: RunnerImage[]; resume?: string;
 }
 export interface FileBridge {
+  importModel3d?(request: import('../model3d/importData').Model3dImportRequest): Promise<import('../model3d/importData').Model3dImportResult>;
+  importDroppedModel3d?(file: File, request: Omit<import('../model3d/importData').Model3dImportRequest, 'sourcePath'>): Promise<import('../model3d/importData').Model3dImportResult>;
+  adoptModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
+  discardModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
+  model3dAvailability?(): Promise<{ disabled: boolean }>;
   runnerCapabilities?(): Promise<RunnerCapability[]>;
   runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
   runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;

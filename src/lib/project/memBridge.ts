@@ -12,6 +12,7 @@
 
 import { scaffoldProject } from "./scaffold";
 import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
+import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership } from '../model3d/importData';
 
 const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
@@ -55,6 +56,8 @@ export function createMemBridge(): FileBridge & {
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
+  let watchedRoot: string | null | undefined, watchGeneration = 0;
+  const modelImports = new Map<string, { root: string; generation: number; state: 'pending' | 'canceled'; result: Model3dImportResult; paths: string[] }>();
 
   const addDir = (p: string) => {
     let cur = norm(p);
@@ -66,7 +69,66 @@ export function createMemBridge(): FileBridge & {
   };
   const ensureParent = (p: string) => addDir(parentOf(p));
 
+  async function importMemModel(request: Model3dImportRequest, dropped?: File): Promise<Model3dImportResult> {
+    const root = norm(request.root), generation = watchGeneration;
+    const assertOwner = () => {
+      if (!root || (watchedRoot !== undefined && watchedRoot !== root) || generation !== watchGeneration) throw new Error('The project changed while importing the model');
+    };
+    assertOwner();
+    if (request.target?.kind !== 'figure') throw new Error('3D import requires a Figure target');
+    const documentBytes = files.get(`${root}/project.json`);
+    if (!documentBytes) throw new Error('Save the project before importing a 3D model');
+    const document = JSON.parse(dec.decode(documentBytes));
+    const prefix = typeof document.schemaVersion === 'string' ? 'fig' : document.version === 2 && Array.isArray(document.figures) ? '' : null;
+    if (prefix === null) throw new Error('Unrecognized Figure project format');
+    const sourcePath = norm(request.sourcePath);
+    if (!/\.glb$/i.test(dropped?.name ?? sourcePath)) throw new Error('Choose a binary .glb model file');
+    if (dropped && dropped.size > 200 * 1024 * 1024) throw new Error('GLB exceeds 200 MiB');
+    const bytes = dropped ? new Uint8Array(await dropped.arrayBuffer()) : files.get(sourcePath);
+    if (!bytes) throw new Error(`Missing GLB source ${sourcePath}`);
+    const manifestPath = sourcePath.replace(/\.glb$/i, '.fluxplot.json');
+    const recipePath = sourcePath.replace(/\.glb$/i, '.recipe.json');
+    const manifestText = !dropped && files.has(manifestPath) ? dec.decode(files.get(manifestPath)) : undefined;
+    const recipeText = !dropped && files.has(recipePath) ? dec.decode(files.get(recipePath)) : undefined;
+    const { prepareModel3dImport } = await import('../model3d/importData');
+    const prepared = await prepareModel3dImport({ bytes, assetId: `model-${crypto.randomUUID()}`, name: dropped?.name ?? baseOf(sourcePath), manifestText, recipeText });
+    assertOwner();
+    const result: Model3dImportResult = { ...prepared.data, receipt: crypto.randomUUID(), assetPrefix: prefix,
+      source: { glbPath: sourcePath, ...(manifestText !== undefined ? { manifestPath } : {}), ...(recipeText !== undefined ? { recipePath } : {}), ...(dropped ? { frozen: true } : {}) } };
+    const directory = joinPath(root, prefix, 'assets'), paths: string[] = [];
+    const entries: [string, Uint8Array][] = [[`${directory}/${result.asset.id}.glb`, prepared.bytes]];
+    if (result.raw?.manifest !== undefined) entries.push([`${directory}/${result.asset.id}.fluxplot.json`, enc.encode(result.raw.manifest)]);
+    if (result.raw?.recipe !== undefined) entries.push([`${directory}/${result.asset.id}.recipe.json`, enc.encode(result.raw.recipe)]);
+    for (const [file] of entries) if (files.has(file)) throw new Error('Model import destination already exists');
+    for (const [file, content] of entries) { ensureParent(file); files.set(file, content); paths.push(file); }
+    modelImports.set(result.receipt, { root, generation, state: 'pending', result, paths });
+    return result;
+  }
+  function ownedModel(request: Model3dImportOwnership) {
+    const item = modelImports.get(request.receipt);
+    if (!item || item.root !== norm(request.root) || request.target?.kind !== 'figure' || item.result.asset.id !== request.assetId) throw new Error('Unknown or already adopted model import receipt');
+    return item;
+  }
+
   return {
+    importModel3d: request => importMemModel(request),
+    importDroppedModel3d: (file, request) => importMemModel({ ...request, sourcePath: file.name }, file),
+    async adoptModel3d(request) {
+      const item = ownedModel(request);
+      if (item.state !== 'pending') throw new Error('This model import was canceled and cannot be adopted');
+      modelImports.delete(request.receipt);
+      if ((watchedRoot !== undefined && watchedRoot !== item.root) || watchGeneration !== item.generation) throw new Error('The project changed before adopting the model; its files were retained');
+    },
+    async discardModel3d(request) {
+      const item = ownedModel(request);
+      item.state = 'canceled';
+      const docPath = joinPath(item.root, item.result.assetPrefix, item.result.assetPrefix ? 'index.json' : 'project.json');
+      const savedBytes = files.get(docPath);
+      if (savedBytes && JSON.parse(dec.decode(savedBytes)).assets?.some((a: { id: string }) => a.id === request.assetId)) throw new Error('This model is already saved in the project');
+      for (const file of item.paths) files.delete(file);
+      modelImports.delete(request.receipt);
+    },
+    async model3dAvailability() { return { disabled: false }; },
     _runnerCalls: runnerCalls,
     _emitRunnerEvent: emitRunner,
     _setRunnerCapabilities: (caps) => { runnerCaps = caps; },
@@ -116,7 +178,9 @@ export function createMemBridge(): FileBridge & {
       const blob = await c.convertToBlob({ type: "image/png" });
       return { png: new Uint8Array(await blob.arrayBuffer()), width: w, height: h };
     },
-    watchRoot() {
+    watchRoot(root) {
+      const next = root === null ? null : norm(root);
+      if (next !== watchedRoot) { watchedRoot = next; watchGeneration++; }
       return true;
     },
     onFsChanged(cb) {

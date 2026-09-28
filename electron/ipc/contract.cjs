@@ -181,6 +181,11 @@ const CHANNELS = [
   { channel: "slides:cancelVideoImport", kind: "invoke", scope: "spawn" },
   { channel: "slides:discardVideoImport", kind: "invoke", scope: "write" },
   { channel: "slides:videoImportProgress", kind: "push", scope: "read" },
+  { channel: "model3d:import", kind: "invoke", scope: "write" },
+  { channel: "model3d:importDropped", kind: "invoke", scope: "write" },
+  { channel: "model3d:adopt", kind: "invoke", scope: "write" },
+  { channel: "model3d:discard", kind: "invoke", scope: "write" },
+  { channel: "model3d:availability", kind: "invoke", scope: "read" },
   // --- text styles (machine-global library) --------------------------------------------
   { channel: "textstyles:get", kind: "invoke", scope: "read" },
   { channel: "textstyles:set", kind: "invoke", scope: "write" },

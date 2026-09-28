@@ -345,6 +345,9 @@ if (process.env.NOSANDBOX === "1") {
 }
 if (process.env.SOFTGPU === "1") {
   app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("enable-unsafe-swiftshader");
+  app.commandLine.appendSwitch("use-gl", "angle");
+  app.commandLine.appendSwitch("use-angle", "swiftshader");
 }
 // TILEMEM=<mb> raises the compositor's GPU memory budget (tile memory), e.g.
 // TILEMEM=1024. Diagnostic escape hatch ONLY — deliberately NOT a default:
@@ -1433,6 +1436,8 @@ app.on("will-quit", () => slideVideoCore.cancelAll());
 const videoMediaCore = require("./ipc/videoMedia.cjs").createVideoMediaCore({ app, protocol, rootFor, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 videoMediaCore.registerHandlers(ipcMain);
 app.on("will-quit", () => videoMediaCore.cancelAll());
+const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard, noteWrite });
+model3dCore.registerHandlers(ipcMain);
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`

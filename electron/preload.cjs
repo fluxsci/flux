@@ -1,8 +1,19 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 // Exposed to the renderer as `window.fig`. The renderer never touches Node
 // directly; all filesystem / dialog / export work happens in the main process.
 contextBridge.exposeInMainWorld("fig", {
+  importModel3d: (request) => ipcRenderer.invoke("model3d:import", request),
+  importDroppedModel3d: (file, request) => {
+    // A constructed File has no native path. Callers cannot substitute an
+    // arbitrary disk path for a user-dropped/picked Chromium File capability.
+    const sourcePath = webUtils.getPathForFile(file);
+    if (!sourcePath) return Promise.reject(new Error("Drop a GLB file from your file manager"));
+    return ipcRenderer.invoke("model3d:importDropped", { root: request.root, target: request.target, sourcePath });
+  },
+  adoptModel3d: (request) => ipcRenderer.invoke("model3d:adopt", request),
+  discardModel3d: (request) => ipcRenderer.invoke("model3d:discard", request),
+  model3dAvailability: () => ipcRenderer.invoke("model3d:availability"),
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),
   save: (defaultPath, filters) => ipcRenderer.invoke("dlg:save", { defaultPath, filters }),

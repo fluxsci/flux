@@ -395,6 +395,16 @@ Persistence invariants (all machine-checked — do not weaken):
   The canonical `scripts/gen-validators.mjs` owns project/scene3d validators and the standalone
   native semantic bundle. Do not hand-edit its outputs. Deck 3D schema/conversion activation
   and content-track source ownership remain deferred to P4 after animation-v2 integration.
+- **3D import has explicit native ownership.** Shared `model3d/importData.ts` prepares
+  data; `electron/model3dImport.cjs` owns bounded reads and exclusive native publication.
+  Generated `importData.native.gen.mjs` must ship and unpack beside the native helper.
+  The preload derives dropped paths from actual Chromium Files, never renderer path
+  strings. Each import receipt is window/root/generation-bound. Adoption and cancellation
+  are mutually exclusive: after cancellation begins, even partial cleanup failure must
+  never restore adoption. Retry cleanup instead. Saved or unreadable document ownership
+  prevents deletion. A valid-receipt adoption attempt consumes cleanup authority even
+  when a late project-generation check rejects it; synchronous placement may already
+  reference those files. The registered import gate and real native File probes pin this.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -7733,3 +7743,14 @@ standalone Save As/reopen. Exact final gate receipts and independent approvals l
 `notes/model3d-bindings/PROGRESS.md`.
 **Learning:** A preserved rejected sidecar must pass the original binding policy on every
 resolution path, not just at import; prepared-byte checksums cannot establish source identity.
+
+### 2026-09-28 07:34 UTC — Flux 3D native import boundary (Codex, model3d-import)
+**Work:** Added shared import/preview metadata policy, bounded native GLB publication,
+Figure import IPC, actual dropped-File preload transport, receipt adoption/cancellation,
+memory-bridge parity, generated native bundle packaging and software-renderer switches.
+Registered import gates cover byte receipts, physical defaults, malformed/large input,
+source confinement, ownership and cancellation. Independent native review reproduced
+and pinned project A/B/A, discard/adopt and partially failed cleanup races.
+**Learnings:** Original-byte metadata binding must also run on reopen; retaining raw
+ignored metadata alone can silently reactivate it. That shared loader correction is
+a separate reviewed P2 stream. App scene/GUI qualification remains at the P2 phase exit.
