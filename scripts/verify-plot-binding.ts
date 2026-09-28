@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { DOMParser, parseHTML } from 'linkedom';
 import { harness } from './lib/harness.mjs';
-import { preparePlot } from '../src/lib/plot/parse';
+import { preparePlot, buildPartIndex } from '../src/lib/plot/parse';
 import { createTransform } from '../src/lib/slide/player/transform';
 import { compilePlotContent, fillContent } from '../src/lib/slide/player/render';
 import { BUILTIN_THEMES } from '../src/lib/slide/theme';
@@ -126,4 +126,72 @@ h.ok(Math.abs(opacity(mixed.querySelector('svg')!.parentElement)-.5)<1e-6,'seman
 mixedDriver.seek(0);h.eq(opacity(mixed.querySelector('svg')!.parentElement),0,'mixed endpoint reversal hides destination');
 const noIds = { theme: DEFAULT_THEME, plotRoot: () => tiny('<svg><path d="M 0 0 L 1 1"/></svg>') };
 h.eq(compilePlotContent(mount(noIds as typeof ctx), pre, end, noIds), null, 'id-less SVG retains complete crossfade fallback');
+
+// At rest the frame IS the endpoint, in both directions: every semantic part
+// the endpoint's own static render paints is painted, exactly once. Positional
+// ids (stamped n<k>, matplotlib ytick_N/text_N/patch_N) shift between these
+// regenerated assets: panels-a's large-panel ticks sit in ytick_6…10, panels-b's
+// in ytick_4…6, so a positional pairing hides or doubles them.
+const effective = (node: Element, root: Element) => {
+  let o = 1;
+  for (let n: Element | null = node; n && n !== root; n = n.parentElement) {
+    const st = (n as SVGElement).style;
+    if (st?.display === 'none') return 0;
+    o *= Number(st?.opacity || n.getAttribute('opacity') || 1);
+  }
+  return o;
+};
+const painted = (el: SemanticPlotElement, m: FluxPlotManifest) => {
+  const still = document.createElement('div'); fillContent(still, el, ctx);
+  return Object.keys(buildPartIndex(m)).filter(id => !/^n\d+$/.test(id)).filter(id => {
+    const node = still.querySelector(`[id="p__${id}"]`); return !!node && effective(node, still) > .999;
+  });
+};
+const unpainted = (host: Element, ids: string[]) => ids.filter(id => {
+  const nodes = host.querySelectorAll(`[id="p__${id}"]`);
+  return nodes.length !== 1 || effective(nodes[0], host) < .999;
+});
+for (const [from, to, fromM, toM, label] of [[pre, end, A.manifest, B.manifest, 'panels-a → b'], [end, pre, B.manifest, A.manifest, 'panels-b → a']] as const) {
+  const host = document.createElement('div'); fillContent(host, from, ctx);
+  const driver = createTransform(host, from, to, ctx);
+  const source = painted(from, fromM), target = painted(to, toM);
+  h.ok(source.length > 40 && target.length > 40, `${label}: ${source.length} source / ${target.length} destination semantic parts under test`);
+  for (const t of [1, .5, 0, 1]) {
+    driver.seek(t);
+    if (t === 1) h.eq(unpainted(host, target), [], `${label}: at t = 1 every destination part is painted exactly once`);
+    if (t === 0) h.eq(unpainted(host, source), [], `${label}: at t = 0 every source part is painted exactly once`);
+    if (t === .5) {
+      const line = host.querySelector('[id="p__panel.small.control.line"]');
+      h.eq(line?.querySelectorAll('path').length, 1, `${label}: the shared line keeps one path mid-flight`);
+      h.ok(!!line && effective(line.querySelector('path')!, host) > .999, `${label}: the shared line stays painted mid-flight`);
+      h.eq(host.querySelectorAll('[data-plot-residue]').length, 0, `${label}: no part crossfades as a stranger`);
+    }
+  }
+}
+
+// The shared attribute compiler: a static frame performs no DOM writes.
+// Counted on the updater the transform driver calls, with every attribute and
+// style write in the document instrumented.
+const counted = { n: 0 };
+const elementProto = Object.getPrototypeOf(Object.getPrototypeOf(document.createElementNS('http://www.w3.org/2000/svg', 'path')));
+const styleProto = Object.getPrototypeOf((document.createElement('div') as HTMLElement).style);
+const hooks: [object, string][] = [];
+for (const [proto, names] of [[elementProto, ['setAttribute', 'removeAttribute']], [styleProto, ['setProperty', 'removeProperty']]] as const) {
+  for (const name of names) {
+    let owner: any = proto; while (owner && !Object.prototype.hasOwnProperty.call(owner, name)) owner = Object.getPrototypeOf(owner);
+    if (!owner) continue;
+    const original = owner[name];
+    owner[name] = function (this: unknown, ...args: unknown[]) { counted.n++; return original.apply(this, args); };
+    hooks.push([owner, name]); (owner as any)[`__orig_${name}`] = original;
+  }
+}
+const writesDuring = (fn: () => void) => { const before = counted.n; fn(); return counted.n - before; };
+const still = mount(), stillUpdate = compilePlotContent(still, pre, { ...pre }, ctx)!;
+h.ok(!!stillUpdate, 'identical endpoints compile an updater');
+h.eq(writesDuring(() => { stillUpdate(pre, .3); stillUpdate(pre, .7); }), 0, 'identical endpoints: frames write nothing (endpoint-constant values compile to no binding)');
+const moving = mount(), movingUpdate = compilePlotContent(moving, pre, end, ctx)!;
+movingUpdate(end, .5);
+h.eq(writesDuring(() => movingUpdate(end, .5)), 0, 'panels-a → b: repeating a frame writes nothing');
+h.ok(writesDuring(() => movingUpdate(end, .55)) > 0, 'panels-a → b: a new frame still writes');
+for (const [owner, name] of hooks) (owner as any)[name] = (owner as any)[`__orig_${name}`];
 await h.done();

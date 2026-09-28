@@ -133,7 +133,7 @@ for (const s of pa.manifest.series) {
 h.ok(listMorphCandidates(pa.manifest, [{ assetId: "b", manifest: pb.manifest }])[0].compatible, "candidate picker accepts at least one shared tweenable series");
 const partially = structuredClone(pb.manifest); partially.series[0].capabilities = { dataMorph: false };
 const diagnostics = compileSlide({ id: "s", elements: [el], beats: [{ id: "base", tracks: [] }, { id: "change", tracks: [{ id: "t", target: "p", preset: "transform", to: { assetId: "b" } }] }] }, undefined, { plotManifest: id => id === "sine" ? pa.manifest : partially }).issues;
-h.ok(diagnostics.some(i => i.reason.includes(`Series ‹${partially.series[0].id}›`) && i.reason.includes("crossfades")), "compiler reports incompatible series individually");
+h.ok(diagnostics.some(i => i.reason.includes(`Series ‹${partially.series[0].id}›`) && i.reason.includes("tweenable counterpart and fades")), "compiler reports incompatible series individually");
 const sampled = projectSeries(sine.manifest.series[0], null, sourceFits, fits, .5);
 near(sampled[0].x, projectWith(blendFit(sourceFits.x, fits.x, .5), v.x), "view-only sample equals blended fit");
 h.section("canvas view invalidation and authored dashes");

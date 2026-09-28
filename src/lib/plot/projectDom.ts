@@ -105,6 +105,12 @@ export interface PlotViewOptions {
   targetRoot?: Element;
   /** The static binding writes the original A→B marker/guide geometry first. */
   geometryInterpolated?: boolean;
+  /** Raw (un-eased) progress; defaults to `t`. */
+  raw?: number;
+  /** The content becomes another asset. At rest the frame IS an endpoint's own
+   *  render (raw ≤ 0 with no start view, raw ≥ 1 with no end view), so its
+   *  guides keep their own opacity: no edge fade. */
+  assetChange?: boolean;
 }
 interface Panel {
   from: Fits; to: Fits; rawA: Fits; rawB: Fits;
@@ -272,6 +278,8 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
         marker.oy + (plan.interpolated ? (marker.ey - marker.oy) * t : 0));
     }
   }
+  const progress = opts?.raw ?? t;
+  const atRest = !!opts?.assetChange && (progress >= 1 && !view || progress <= 0 && !opts.fromView);
   for (const g of plan.guides) {
     const p = g.panel, fit = p.fits[g.axis], raw = p.rawA[g.axis];
     // Unchanged guides keep their original bytes, including ticks at the edge.
@@ -280,7 +288,7 @@ export function applyPlotView(root: Element, manifest: FluxPlotManifest | undefi
     const a = g.axis === "x" ? p.xRange : p.yRange, b = g.axis === "x" ? p.xEndRange : p.yEndRange;
     const edge0 = a[0] + (b[0] - a[0]) * t, edge1 = a[1] + (b[1] - a[1]) * t;
     const lo = Math.min(edge0, edge1), hi = Math.max(edge0, edge1);
-    const fade = Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
+    const fade = atRest ? 1 : Number.isFinite(pixel) ? Math.max(0, Math.min(1, (pixel - lo) / ((hi - lo) * .04), (hi - pixel) / ((hi - lo) * .04))) : 0;
     g.delta[g.axis === "x" ? "dx" : "dy"] = Number.isFinite(pixel) ? pixel - (g.origin + (plan.interpolated ? (g.end - g.origin) * t : 0)) : 0;
     writeGuide(g.node, g.delta, fade);
   }

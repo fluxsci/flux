@@ -145,7 +145,7 @@ export function createTransform(
     t: 0, from: viewFits(manifestA!, (pre as SemanticPlotElement).view) ?? undefined,
     to: viewFits(manifestB ?? manifestA!, (end as SemanticPlotElement).view) ?? undefined,
     fromView: (pre as SemanticPlotElement).view, toManifest: manifestB,
-    sourceRoot, targetRoot, geometryInterpolated: true,
+    sourceRoot, targetRoot, geometryInterpolated: true, assetChange,
     ...(assetChange ? { series: (a: import("../../plot/types").FluxPlotSeries) => bSeries.get(a.id) ?? null } : {}),
   } : undefined;
   const intrinsic = (() => {
@@ -360,7 +360,7 @@ export function createTransform(
         applyOverrides(inst, p.overrides, p.id, (ctx.plotManifest ? ctx.plotManifest(p.assetId) : get(plotManifests)[p.assetId]));
         ghostOpacity?.(p);
         if (projectionOptions) {
-          projectionOptions.t = t;
+          projectionOptions.t = t; projectionOptions.raw = raw;
           applyPlotView(inst, manifestA, (end as SemanticPlotElement).view, p.id, projectionOptions);
         } else applyPlotView(inst, manifestA, p.view, p.id);
         if (intrinsic) {

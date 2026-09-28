@@ -71,7 +71,7 @@ flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>      
      [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
      [--start ms --duration ms --easing e]
 flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]          # data-only: keep the frame, replace the plot content
-     [--start ms --duration ms --easing e]                                         # compatible data tweens; otherwise force permits crossfade
+     [--start ms --duration ms --easing e]                                         # shared series tween; with none, force authors it (series fade)
 
 # linked deck styles + relative timing
 flux anim-style create <deck> --name L --family appearance|transform|media --preset P

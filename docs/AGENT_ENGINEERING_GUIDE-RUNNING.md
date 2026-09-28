@@ -956,7 +956,15 @@ Persistence invariants (all machine-checked — do not weaken):
   and compensation. Per-panel fits and vertex buffers are prepared once. Import math directly
   from `plot/project.ts`; the old `player/morph.ts` shim is removed. `compilePlotContent`
   binds semantic IDs, fades unmatched parts over the first/last 40%, and crossfades anonymous
-  topology changes locally. Keep appended nodes display-hidden until their first seek, so
+  topology changes locally. Positional ids are not identities: derive.ts stamps (`n<k>`) and
+  matplotlib counters (`ytick_7`, `text_1`, `patch_2`; a manifest-named one stays semantic)
+  bind structurally, and a wrapper holding semantic parts is keyed by its first semantic
+  descendant (A's `ytick_7` pairs with B's `ytick_5` through `…axis.y.tick.2`). A source-only
+  wrapper that still holds shared parts stays; a destination copy never repaints parts the
+  source already shows. At rest an asset change IS the endpoint's own render (no guide edge
+  fade at raw ≤ 0 / ≥ 1 without a view), and the shared attribute compiler compiles
+  endpoint-constant values to nothing and compares before every write — a repeated frame
+  writes nothing (`verify-plot-binding` counts it). Keep appended nodes display-hidden until their first seek, so
   appearance compilation reads authored opacity. `applyAt` runs content controllers before
   keyframed appearances, independent of story order; content paint must not erase an entrance.
   Only ID-less plots retain the whole-content fallback. Union
@@ -8132,3 +8140,15 @@ machine-wide EMFILE watcher failures, both passing serial retries. Final Axis vi
 23/23; binding is 93/93; verb parity is 10/10. F-menu surface, Figure controls, X-ray theme,
 registry, docs, offline export and timeline gates pass. The final GUI run used Vite polling
 to avoid the same watcher limit. No gate was loosened; no commits were made by this worker.
+
+### 2026-09-28 05:40 UTC — E2 integration: positional ids, rest frames, write-free static frames (Claude QA, `av2/E2`)
+**Work:** A real-UI probe of panels-a → b showed E4 pairing nodes by positional ids: stamped
+`n<k>` and matplotlib's `ytick_N` shift when a regenerated plot has fewer ticks, so the shared
+line crossfaded against a stranger and 8/52 destination parts stayed hidden at rest. Binding
+now ignores positional ids, keys wrappers by their semantic descendants, keeps a source-only
+wrapper that holds shared parts, strips shared parts from destination copies, and skips the
+guide edge fade on an asset change's rest frames. The attribute compiler regained its
+unchanged-value skip. Compiler/`become --asset` wording is "has no counterpart and fades".
+**Learnings:** Test rest frames against the endpoint's own static render in both directions
+(`verify-plot-binding`); fixture ids in a pure gate that bypass `preparePlot` hide id stamping.
+

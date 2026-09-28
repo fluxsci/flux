@@ -25,6 +25,7 @@ import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
 import { prefixIds, applyOverrides, partDomId, partIdFromDom } from "../../plot/parse";
+import { isDerivedManifest } from "../../plot/derive";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
@@ -199,7 +200,10 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
 
 type DataGeometry = { circles: ReadonlySet<string>; lines: ReadonlySet<string> };
 
-/** Shared attribute compiler for structural shapes and semantic plot parts. */
+/** Shared attribute compiler for structural shapes and semantic plot parts.
+ * A binding exists only where a frame can change something: a value equal at
+ * both endpoints that the live node already holds compiles to nothing, and
+ * every write compares first, so a static frame performs no DOM writes. */
 function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) {
   const writes: ((t: number) => void)[] = [];
   const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
@@ -223,7 +227,9 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
     return t => t < .5 ? a : b;
   }
   return {
-    bind(node: Element, a: Element, b: Element, lineGeometry = false) {
+    /** `force` also binds endpoint-constant values: a node a later chained
+     *  Change revives must be rewritten after earlier controllers reset it. */
+    bind(node: Element, a: Element, b: Element, lineGeometry = false, force = false) {
       const id = a.getAttribute("id") ?? "";
       const ownsLine = lineGeometry || !!dataGeometry?.lines.has(id);
       const ownsCircle = a.tagName.toLowerCase() === "circle" && !!dataGeometry?.circles.has(id);
@@ -233,17 +239,32 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
           const as = (a as SVGElement).style, bs = (b as SVGElement).style, ns = (node as SVGElement).style;
           for (const prop of new Set([...Array.from(as), ...Array.from(bs)])) {
             const av = as.getPropertyValue(prop) || null, bv = bs.getPropertyValue(prop) || null;
+            if (!force && av === bv && (ns.getPropertyValue(prop) || null) === av) continue;
             const sample = sampler(prop, av, bv);
-            writes.push(t => { const v = sample(t); if (v === null) ns.removeProperty(prop); else ns.setProperty(prop, v); });
+            writes.push(t => {
+              const v = sample(t);
+              if (v === null) { if (ns.getPropertyValue(prop)) ns.removeProperty(prop); }
+              else if (ns.getPropertyValue(prop) !== v) ns.setProperty(prop, v);
+            });
           }
         } else {
-          const sample = sampler(name, a.getAttribute(name), b.getAttribute(name));
-          writes.push(t => { const v = sample(t); if (v === null) node.removeAttribute(name); else if (node.getAttribute(name) !== v) node.setAttribute(name, v); });
+          const av = a.getAttribute(name), bv = b.getAttribute(name);
+          // Earlier box-only motion can leave content in its original SVG frame.
+          // A later content Change moves the viewBox to its own pre-state, so even
+          // an endpoint-constant shaft/shape attribute must bind if the live node
+          // still holds the old frame's value. Never replace those shared nodes.
+          if (!force && av === bv && node.getAttribute(name) === av) continue;
+          const sample = sampler(name, av, bv);
+          writes.push(t => {
+            const v = sample(t);
+            if (v === null) { if (node.hasAttribute(name)) node.removeAttribute(name); }
+            else if (node.getAttribute(name) !== v) node.setAttribute(name, v);
+          });
         }
       }
-      if (!a.children.length && !b.children.length && a.textContent !== b.textContent) {
+      if (!a.children.length && !b.children.length && (force || a.textContent !== b.textContent || node.textContent !== a.textContent)) {
         const av = a.textContent ?? "", bv = b.textContent ?? "";
-        writes.push(t => { node.textContent = t < .5 ? av : bv; });
+        writes.push(t => { const v = t < .5 ? av : bv; if (node.textContent !== v) node.textContent = v; });
       }
     },
     update(t: number) { for (const write of writes) write(t); },
@@ -251,17 +272,31 @@ function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) 
 }
 
 let plotResidueId = 0;
-// plot/derive.ts stampIds gives id-less structure DFS-position ids (`n<k>`) so
-// the X-ray can address it. They are positional, not semantic: a regenerated
+// Positional ids are not identities. plot/derive.ts stampIds gives id-less
+// structure DFS-position ids (`n<k>`), and matplotlib numbers artists with
+// global counters (`ytick_7`, `text_1`, `patch_2`, `line2d_3` …). A regenerated
 // asset with one tick fewer renumbers every later node, so binding by them
-// pairs strangers (the shared series line would crossfade against a tick label).
-// Stamped nodes are anonymous here and bind structurally inside their nearest
-// semantic ancestor.
-const STAMPED_ID = /^n\d+$/;
-const semanticPartId = (node: Element, elId: string): string | null => {
-  const id = partIdFromDom(node.getAttribute("id") ?? "", elId);
-  return id === null || STAMPED_ID.test(id) ? null : id;
-};
+// pairs strangers. They bind structurally — a wrapper holding semantic parts is
+// keyed by its first semantic descendant (A's ytick_7 and B's ytick_5 pair
+// through panel.large.axis.y.tick.2). A `<kind>_<N>` id a real manifest names
+// stays semantic; a stamp never does.
+const STAMPED_ID = /^n\d+$/, COUNTER_ID = /^[A-Za-z][A-Za-z0-9]*_\d+$/;
+function manifestNames(m: import("../../plot/types").FluxPlotManifest | undefined, into: Set<string>): void {
+  if (!m || isDerivedManifest(m)) return;
+  const walk = (n: import("../../plot/types").PartNode | undefined) => {
+    // The orphan-defense group lists whatever the generator left unnamed.
+    if (!n || n.groupRole === "unclassified") return;
+    const own = n.id ?? n.ref; if (own) into.add(own);
+    for (const member of n.members ?? []) into.add(member);
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(m.parts as import("../../plot/types").PartNode | undefined);
+  for (const s of m.series ?? []) {
+    if (s.svg?.line) into.add(s.svg.line);
+    if (s.svg?.points) into.add(s.svg.points);
+    for (const p of s.points ?? []) into.add(p.svgId);
+  }
+}
 
 /** Match plot content by semantic identity; topology changes fade locally.
  * All clones and bindings are built here. Playback only writes attributes. */
@@ -269,11 +304,34 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
   const from = document.createElement("div"), to = document.createElement("div");
   fillContent(from, pre, ctx); fillContent(to, end, ctx);
   const a = from.firstElementChild, b = to.firstElementChild, live = w.firstElementChild;
-  const index = (root: Element | null) => {
+  const manifestOf = (el: FigElement) => el.type !== "plot" ? undefined : ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
+  const named = new Set<string>();
+  manifestNames(manifestOf(pre), named); manifestNames(manifestOf(end), named);
+  const semanticId = (node: Element): string | null => {
+    const id = partIdFromDom(node.getAttribute("id") ?? "", pre.id);
+    return id === null || STAMPED_ID.test(id) || COUNTER_ID.test(id) && !named.has(id) ? null : id;
+  };
+  const residue = (node: Element) => node.hasAttribute("data-plot-residue") || node.hasAttribute("data-projection-residue");
+  // key: a semantic id, or `@<depth>:<first semantic descendant>` for a wrapper
+  // that holds one; anonymous nodes (neither) have no key and bind by position.
+  const keyOf = new Map<Element, string>();
+  const index = (root: Element | null, keyRoot = false) => {
     const map = new Map<string, Element>();
-    if (root) for (const node of [root, ...Array.from(root.querySelectorAll("[id]"))]) {
-      const id = semanticPartId(node, pre.id);
-      if (id !== null) map.set(id, node);
+    if (!root) return map;
+    const walk = (node: Element): [string, number] | null => {
+      if (residue(node)) return null;
+      const own = semanticId(node);
+      let first: [string, number] | null = null;
+      for (const child of Array.from(node.children)) { const found = walk(child); if (found && !first) first = [found[0], found[1] + 1]; }
+      const key = own ?? (first && (keyRoot || node !== root) ? `@${first[1]}:${first[0]}` : null);
+      if (key !== null) keyOf.set(node, key); else keyOf.delete(node);
+      return own !== null ? [own, 0] : first;
+    };
+    walk(root);
+    // Document order, parents first: installs find their parent and siblings.
+    for (const node of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      const key = keyOf.get(node);
+      if (key !== undefined && !map.has(key) && !residue(node)) map.set(key, node);
     }
     return map;
   };
@@ -296,12 +354,15 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
         if (f.display) st.display = f.display; else st.removeProperty("display");
         f.hidden = false;
       }
+      // Compare first: a repeated frame writes nothing.
       if (weight === 1) {
-        if (f.opacity === null) f.node.removeAttribute("opacity"); else f.node.setAttribute("opacity", f.opacity);
-        if (f.style) st.opacity = f.style; else st.removeProperty("opacity");
+        if (f.opacity === null) { if (f.node.hasAttribute("opacity")) f.node.removeAttribute("opacity"); }
+        else if (f.node.getAttribute("opacity") !== f.opacity) f.node.setAttribute("opacity", f.opacity);
+        if (f.style) { if (st.opacity !== f.style) st.opacity = f.style; } else if (st.opacity) st.removeProperty("opacity");
       } else {
         const value = String(Number(f.style || f.opacity || 1) * weight);
-        f.node.setAttribute("opacity", value); st.opacity = value;
+        if (f.node.getAttribute("opacity") !== value) f.node.setAttribute("opacity", value);
+        if (st.opacity !== value) st.opacity = value;
       }
     }
   };
@@ -315,8 +376,7 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     w.append(outgoing, incoming); fade(outgoing, false); fade(incoming, true);
     return update;
   }
-  const idOf = (node: Element) => semanticPartId(node, pre.id);
-  const anonymous = (node: Element) => Array.from(node.children).filter(child => idOf(child) === null && !child.hasAttribute("data-projection-residue") && !child.hasAttribute("data-plot-residue"));
+  const anonymous = (node: Element) => Array.from(node.children).filter(child => !keyOf.has(child) && !residue(child));
   const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
   const same = (x: Element, y: Element, line = false): boolean => {
     if (x.tagName !== y.tagName) return false;
@@ -326,78 +386,99 @@ export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElem
     const xc = anonymous(x), yc = anonymous(y);
     return xc.length === yc.length && xc.every((child, i) => same(child, yc[i], ownsLine));
   };
+  // A destination copy never repaints parts the live source already shows
+  // (bound in place to the destination's values) — except those `keep` owns.
+  const withoutShared = (copy: Element, keep = new Set<string>()) => {
+    const keys = index(copy, true);
+    for (const [key, node] of keys) if (node !== copy && ai.has(key) && !keep.has(key) && copy.contains(node)) node.remove();
+    return new Map([...keys].filter(([, node]) => node === copy || copy.contains(node)));
+  };
   const covered = new Set<string>();
-  function local(node: Element, x: Element, y: Element, line = false) {
-    if (node !== live && !same(x, y, line) && (idOf(x) !== null || !x.querySelector("[id]") && !y.querySelector("[id]"))) {
-      const next = y.cloneNode(true) as Element;
-      node.parentNode!.insertBefore(next, node.nextSibling);
+  function local(node: Element, x: Element, y: Element, line = false, force = false) {
+    if (node !== live && !same(x, y, line)) {
+      const xKeys = index(x, true), replacement = y.cloneNode(true) as Element;
+      const next = withoutShared(replacement, new Set(xKeys.keys()));
+      node.parentNode!.insertBefore(replacement, node.nextSibling);
       // Keep the destination's canonical ids for later tracks. The outgoing
       // copy has its own reference namespace, never duplicate document ids.
       prefixIds(node, `${pre.id}-residue-${plotResidueId++}`);
       node.setAttribute("data-plot-residue", "");
-      for (const [id, replacement] of index(next)) { li.set(id, replacement); covered.add(id); }
-      for (const id of index(x).keys()) covered.add(id);
-      fade(node, false, x); fade(next, true, y);
+      for (const [key, n] of next) { li.set(key, n); covered.add(key); }
+      for (const key of xKeys.keys()) covered.add(key);
+      fade(node, false, x); fade(replacement, true, y);
       return;
     }
     const ownsLine = line || !!dataGeometry?.lines.has(x.getAttribute("id") ?? "");
-    bindings.bind(node, x, y, ownsLine);
+    bindings.bind(node, x, y, ownsLine, force);
     const xc = anonymous(x), yc = anonymous(y), nc = anonymous(node);
     for (let i = 0; i < Math.max(xc.length, yc.length); i++) {
-      if (xc[i] && yc[i] && nc[i]) local(nc[i], xc[i], yc[i], ownsLine);
+      if (xc[i] && yc[i] && nc[i]) local(nc[i], xc[i], yc[i], ownsLine, force);
       else if (xc[i] && nc[i]) fade(nc[i], false);
       else if (yc[i]) {
         const next = yc[i].cloneNode(true) as Element; node.appendChild(next);
-        for (const [id, child] of index(next)) { li.set(id, child); covered.add(id); }
         fade(next, true);
       }
     }
   }
   // Anonymous scaffolding is bound without descending into named parts.
   local(live, a, b);
-  for (const [id, x] of ai) {
-    if (covered.has(id)) continue;
-    const y = bi.get(id), node = li.get(id);
-    if (y && node) local(node, x, y);
-    else if (!y && node) {
-      // A missing subtree fades once, not once per nested semantic leaf.
-      let parent = x.parentElement, nested = false;
-      while (parent && parent !== a) { const key = idOf(parent); if (key !== null && !bi.has(key)) { nested = true; break; } parent = parent.parentElement; }
-      if (!nested) fade(node, false);
+  // A source-only part that still holds parts the destination shares stays;
+  // only its own anonymous content fades (its shared descendants bind below).
+  const keeps = new Map<Element, boolean>();
+  const holdsShared = (x: Element) => {
+    let held = keeps.get(x);
+    if (held === undefined) { held = Array.from(x.querySelectorAll("*")).some(d => bi.has(keyOf.get(d) ?? "\u0000")); keeps.set(x, held); }
+    return held;
+  };
+  // A missing subtree fades once, at its outermost semantic parts: a wrapper
+  // (keyed only through its descendants) is transparent, and its own anonymous
+  // content fades beside them. `source` supplies the authored opacity.
+  const fadeParts = (node: Element, entering: boolean, source: Element, tree: Map<string, Element>) => {
+    const key = keyOf.get(node);
+    if (key === undefined || !key.startsWith("@")) { fade(node, entering, source); return; }
+    const sourceAnonymous = anonymous(source);
+    anonymous(node).forEach((child, i) => fade(child, entering, sourceAnonymous[i] ?? child));
+    for (const child of Array.from(node.children)) {
+      const k = keyOf.get(child);
+      if (k !== undefined && !residue(child)) fadeParts(child, entering, tree.get(k) ?? child, tree);
     }
+  };
+  for (const [key, x] of ai) {
+    if (covered.has(key)) continue;
+    const y = bi.get(key), node = li.get(key);
+    if (!node) continue;
+    if (y) { local(node, x, y); continue; }
+    if (holdsShared(x)) { anonymous(node).forEach((child, i) => fade(child, false, anonymous(x)[i] ?? child)); continue; }
+    let parent = x.parentElement, nested = false;
+    while (parent && parent !== a) { const k = keyOf.get(parent); if (k !== undefined && !bi.has(k) && !holdsShared(parent)) { nested = true; break; } parent = parent.parentElement; }
+    if (!nested) fadeParts(node, false, x, ai);
   }
-  for (const [id, y] of bi) if (!ai.has(id) && !covered.has(id)) {
-    let ancestor = y.parentElement, nested = false;
-    while (ancestor && ancestor !== b) { const key = idOf(ancestor); if (key !== null && !ai.has(key)) { nested = true; break; } ancestor = ancestor.parentElement; }
-    const retained = li.get(id);
+  const fresh = new Set<Element>();
+  for (const [key, y] of bi) if (!ai.has(key) && !covered.has(key)) {
+    // Every ancestor of a keyed node is keyed; a destination-only parent
+    // installs this node with its own subtree.
+    const parent = y.parentElement;
+    const parentKey = parent && parent !== b ? keyOf.get(parent) : undefined;
+    const nested = parentKey !== undefined && !ai.has(parentKey);
+    const retained = li.get(key);
+    if (retained && fresh.has(retained)) continue; // installed with its parent just now
     if (retained) {
       // A later B→A can revive a node retained by A→B. The player resets
       // controllers outside-in, so these writes must restore endpoint paint.
-      local(retained, y, y);
-      if (!nested) fade(retained, true, y);
+      local(retained, y, y, false, true);
+      if (!nested) fadeParts(retained, true, y, bi);
       continue;
     }
     if (nested) continue;
-    // B-only subtrees install in endpoint order beneath the matching parent.
-    let parent = y.parentElement;
-    const path: Element[] = [];
-    while (parent && parent !== b && idOf(parent) === null) { path.push(parent); parent = parent.parentElement; }
-    const foundParent = parent === b || !parent ? live : li.get(idOf(parent)!);
-    if (!foundParent) continue; // the B-only ancestor installs the entire subtree
-    let dest: Element = foundParent;
-    for (const anon of path.reverse()) {
-      const sourceParent = anon.parentElement!;
-      const slot = anonymous(sourceParent).indexOf(anon);
-      let next: Element | undefined = anonymous(dest)[slot];
-      if (!next) { next = anon.cloneNode(false) as Element; dest.appendChild(next); }
-      dest = next;
-    }
+    const dest = parentKey === undefined ? live : li.get(parentKey);
+    if (!dest) continue; // the destination-only ancestor installs the entire subtree
     let sibling = y.nextElementSibling, before: Element | null = null;
-    while (sibling) { const key = idOf(sibling); const candidate = key === null ? undefined : li.get(key); if (candidate?.parentNode === dest) { before = candidate; break; } sibling = sibling.nextElementSibling; }
+    while (sibling) { const k = keyOf.get(sibling); const candidate = k === undefined ? undefined : li.get(k); if (candidate?.parentNode === dest) { before = candidate; break; } sibling = sibling.nextElementSibling; }
     const next = y.cloneNode(true) as Element;
+    for (const [k, node] of withoutShared(next)) { li.set(k, node); fresh.add(node); }
+    li.set(key, next);
     dest.insertBefore(next, before);
-    for (const [key, node] of index(next)) li.set(key, node);
-    fade(next, true);
+    fadeParts(next, true, next, new Map());
   }
   return update;
 }

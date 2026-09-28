@@ -94,6 +94,6 @@ try {
 assert(/Math\.max\(0, (slide|cur)\.beats\.length - 1\)/.test(slideThumb), "SLD-7: the filmstrip freezes thumbnails at the last beat");
 const plotSlide = { id: "morph", elements: [{ id: "plot", type: "plot", assetId: "a", x: 0, y: 0, width: 100, height: 100, rotation: 0 }], beats: [{ id: "cue", tracks: [{ target: "plot", preset: "transform", to: { assetId: "b" } }] }] };
 const compiled = compileSlide(plotSlide as never, stage, { plotManifest: (id) => M([S(id, true, true)]) });
-assert(compiled.issues.some((i) => /crossfades the complete/.test(i.reason)) && compiled.cues[0].tracks.length === 1, "SLD-8: incompatible plot structures use an explicit complete-crossfade diagnostic");
+assert(["a", "b"].every((id) => compiled.issues.some((i) => i.reason === `Series ‹${id}› has no counterpart and fades.`)) && compiled.cues[0].tracks.length === 1, "SLD-8: a plot pair without shared series names each series that fades (plan §3.7; no whole-plot crossfade)");
 
 console.log("\nP4 SLIDE VERIFY: PASS");

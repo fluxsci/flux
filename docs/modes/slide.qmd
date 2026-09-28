@@ -291,7 +291,8 @@ the hand-off; like the toast, it appears only for a hand-off to some of the plot
 With a whole plot as the source, **From gallery…** keeps its frame and changes its content
 to another project plot. **Data from gallery…** and **Keep own data** in the Animation
 inspector edit or remove that content target. Shared supported series tween in data space;
-unsupported matches crossfade. A Become at a step with an existing Change replaces that
+a series without a tweenable counterpart fades on its own, and only an SVG without semantic
+IDs crossfades as a whole. A Become at a step with an existing Change replaces that
 same target's endpoint; a ghost can Become something at its birth step.
 
 From the command line or an agent, `become` can name destination parts with `--part` and
@@ -348,7 +349,9 @@ placeholders show the first panel's limits.
 Asset Becomes and Changes of a data view use the same projection, so one Change may combine
 new data, axis limits and movement. Shared semantic parts tween; removed parts fade out in
 the first 40% and added parts fade in during the last 40%. A local SVG structure change fades
-that part. An SVG without semantic IDs uses a whole-plot crossfade.
+that part. An SVG without semantic IDs uses a whole-plot crossfade. Matching ignores positional
+ids (matplotlib's numbered `ytick_7`-style ids and Flux's stamped ones), so a tick keeps its
+identity when a regenerated plot renumbers them, and the last frame is the new plot exactly.
 
 The CLI/MCP twin is **set-plot-view** / **set_plot_view**:
 
@@ -498,7 +501,7 @@ not delete the source. HTML exports retain manual playback; PDF and Word show st
 | Symptom | Cause → fix |
 |---|---|
 | The animation chords do nothing | The animator is closed → open it with **Animate ⏱** first |
-| A plot Become crossfades instead of morphing its data | Continuous data motion requires shared series ids, supported data and matching axis scales. Different SVG structures still crossfade until partial part binding is available. |
+| A plot Become fades a series instead of morphing its data | Continuous data motion requires shared series ids, supported data and matching axis scales. A series without a tweenable counterpart fades on its own (the Animation inspector lists it); only an SVG without semantic IDs crossfades as a whole. |
 | An animation issue appears | Select the issue to inspect the effect, then retarget missing objects/parts or adjust overlapping timing |
 | "Couldn't open that deck — its file may be missing or corrupt." appears while an agent edits the deck | An older Flux mistook a reload overtaken by the agent’s next edit for a bad file → update Flux; the deck on disk is intact, so reopening it shows the agent’s version |
 | Present shows placeholder "Title / Subtitle" text | The slide was created with a starter layout → delete the starters, or use the *blank* layout when composing by hand |

@@ -6,7 +6,7 @@ import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./t
 import { lerpElement, overshootBox, transformEndState, transformPreState } from "./tween";
 import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
-import { hasTweenableSeries, seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
+import { seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
 import { staggerRanks, staggerSpan, staggerDelay } from "./stagger";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
@@ -87,13 +87,13 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const pre = transformPreState(slide, track.target, bi);
         if (pre?.type === "plot") {
           const a = opts.plotManifest(pre.assetId), b = opts.plotManifest(track.to.assetId);
-          if (a && b) {
-            if (!hasTweenableSeries(a, b)) issues.push({ trackId: track.id, target: track.target, reason: "Plot structures differ; no shared tweenable series. This transform crossfades the complete source and destination." });
-            else for (const id of new Set([...a.series.map(s => s.id), ...b.series.map(s => s.id)])) {
-              const sa = a.series.find(s => s.id === id), sb = b.series.find(s => s.id === id);
-              if (!sa || !seriesTweenable(sa, sb, seriesAxes(a, sa), sb ? seriesAxes(b, sb) : undefined))
-                issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no tweenable counterpart and crossfades.` });
-            }
+          // Plan §3.7: shared semantic parts bind and tween; a series without a
+          // (tweenable) counterpart fades on its own — never a whole-plot crossfade.
+          if (a && b) for (const id of new Set([...(a.series ?? []).map(s => s.id), ...(b.series ?? []).map(s => s.id)])) {
+            const sa = a.series?.find(s => s.id === id), sb = b.series?.find(s => s.id === id);
+            if (!sa || !sb) issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no counterpart and fades.` });
+            else if (!seriesTweenable(sa, sb, seriesAxes(a, sa), seriesAxes(b, sb)))
+              issues.push({ trackId: track.id, target: track.target, reason: `Series ‹${id}› has no tweenable counterpart and fades.` });
           }
         }
       }

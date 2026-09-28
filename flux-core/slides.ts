@@ -909,7 +909,7 @@ export async function become(
     if (!opts.force) {
       const A = await readPlotManifest(root, found.el);
       const B = await readPlotManifest(root, { assetId });
-      if (!hasTweenableSeries(A, B)) throw new Error(`become ${found.el.assetId} → ${assetId}: structurally incompatible (no shared tweenable series) — playback would crossfade. Pass force to author anyway.`);
+      if (!hasTweenableSeries(A, B)) throw new Error(`become ${found.el.assetId} → ${assetId}: no shared tweenable series — every series has no counterpart and fades. Pass force to author anyway.`);
     }
     const paths = await resolveAssetSource(root, assetId);
     const t = slideOps.setTransform(deck, slideId, beatId, sourceId, {
