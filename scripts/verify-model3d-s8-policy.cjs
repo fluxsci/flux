@@ -1,6 +1,8 @@
 'use strict';
 const fs=require('node:fs/promises'),assert=require('node:assert/strict'),os=require('node:os'),path=require('node:path');
-const {compareCohorts}=require('./lib/model3dS8Metrics.cjs');
+const vm=require('node:vm');
+const {compareCohorts,qualificationSamples}=require('./lib/model3dS8Metrics.cjs');
+const {s8CaptureRect,verifyS8RasterReplacement}=require('./lib/model3dS8Baseline.cjs');
 const {s8BoxesVisible,s8InteractionEvidence}=require('./perf/input-probe-model3d.cjs');
 async function main(){
   const {harness}=await import('./lib/harness.mjs'),{SOURCE,publicTreeHash,verifyPublicS8Fixture}=await import('./lib/model3dS8PublicFixture.mjs');
@@ -27,6 +29,42 @@ async function main(){
     h.eq(receiptReads,0,'symlinked receipt is refused before reading outside its root');
   }finally{fs.readFile=readFile;await fs.rm(tmp,{recursive:true,force:true});}
 
+  // Execute the renderer instrumentation used by the real native probe. Drive
+  // its actual rAF loop and double-rAF key listener, then consume the same
+  // qualification adapter as S8; rounded public summaries remain unchanged.
+  const probeSource=await fs.readFile(new URL('./perf/input-probe.cjs','file://'+__filename),'utf8');
+  const instrument=probeSource.match(/const INSTR = `([\s\S]*?)`;/)?.[1];
+  assert.ok(instrument,'native renderer instrumentation found');
+  function probeTiming(step){
+    let now=0,next=0;const callbacks=new Map(),listeners=new Map();
+    const window={addEventListener:(name,fn)=>listeners.set(name,fn)};
+    const context=vm.createContext({window,document:{visibilityState:'visible',hasFocus:()=>true},performance:{now:()=>now},requestAnimationFrame:fn=>{callbacks.set(++next,fn);return next},cancelAnimationFrame:id=>callbacks.delete(id),PerformanceObserver:class{observe(){}}});
+    vm.runInContext(instrument,context,{timeout:1000});window.__p.start();
+    const frame=t=>{now=t;const ready=[...callbacks.values()];callbacks.clear();for(const callback of ready)callback(t)};
+    frame(0);
+    for(let i=0;i<25;i++){listeners.get('keydown')({timeStamp:now});frame(now+step);frame(now+step)}
+    return window.__p.stop();
+  }
+  const preciseImage=probeTiming(10.001),preciseModel=probeTiming(11.0012);
+  h.ok(preciseImage.gaps.every(x=>x===10)&&preciseModel.gaps.every(x=>x===11)&&preciseImage.keyPaint.every(x=>x===20)&&preciseModel.keyPaint.every(x=>x===22),'legacy one-decimal probe summaries remain compatible');
+  const asCohort=(variant,raw)=>({variant,samples:Object.fromEntries(['hover','panSmall','zoom','typing'].map(phase=>[phase,qualificationSamples(raw,phase)]))});
+  const exactComparison=compareCohorts([asCohort('model',preciseModel),asCohort('image',preciseImage),asCohort('image',preciseImage),asCohort('model',preciseModel)]);
+  h.ok(Object.values(exactComparison).every(row=>!row.ok&&row.ratio>1.1),'actual native instrumentation through S8 rejects a just-over10% regression hidden by displayed rounding');
+  assert.throws(()=>qualificationSamples({gaps:[10],keyPaint:[20]},'hover'),/samples/);
+  h.ok(true,'older rounded-only qualification receipts cannot silently pass as raw timing');
+  const captureView={clip:{x:100,y:80,right:800,bottom:600,width:700,height:520},box:{x:120.2,y:100.4,right:220.4,bottom:180.6,width:100.2,height:80.2},hit:true};
+  h.eq(s8CaptureRect(captureView),{x:120,y:100,width:101,height:81},'S8 captures the complete visible model bounds');
+  for(const alter of[v=>{v.box.x=80},v=>{v.box.right=801},v=>{v.hit=false}]){const bad=structuredClone(captureView);alter(bad);assert.throws(()=>s8CaptureRect(bad),/visible and hittable/)}
+  h.ok(true,'a model behind a sidebar, clipped by canvas or covered by an overlay cannot become the baseline');
+  const originals=[{id:'plot-original',type:'plot',width:500,path:'unchanged.svg'},{id:'text-original',type:'text',text:'All original artwork stays'}];
+  const captures=Array.from({length:4},(_,i)=>({elementId:'s8-'+i,assetId:'asset-'+i,pixelSize:{width:440,height:420}}));
+  const modelElements=captures.map((c,i)=>({id:c.elementId,type:'model3d',assetId:c.assetId,x:i*240,y:940,width:220,height:210,rotation:0,orbitAzimuth:30}));
+  const before={index:{schemaVersion:'fixture',assets:[{id:'original-svg',kind:'svg'}]},canvas:{id:'public',figures:[{id:'target',width:1440,height:1160,elements:[...originals,...modelElements]},{id:'other-public-figure',elements:[{id:'untouched'}]}]}};
+  const after=structuredClone(before);after.canvas.figures[0].elements=after.canvas.figures[0].elements.map(n=>n.type!=='model3d'?n:{id:n.id,type:'image',assetId:n.assetId+'-flat',x:n.x,y:n.y,width:n.width,height:n.height,rotation:n.rotation});
+  after.index.assets.push(...captures.map(c=>({id:c.assetId+'-flat',kind:'png',path:'assets/'+c.assetId+'-flat.png',naturalWidth:c.pixelSize.width,naturalHeight:c.pixelSize.height})));
+  h.eq(verifyS8RasterReplacement(before,after,'target',captures),{figuresIdenticalExceptFourRasterReplacements:true,preservedOriginalElements:2,preservedOtherFigures:1,replacements:4},'baseline verifies original artwork, other figures and four exact placement geometries');
+  for(const alter of[a=>{a.canvas.figures[0].elements[0].width++},a=>{a.canvas.figures[0].elements[2].x++},a=>{a.canvas.figures[1].elements=[]},a=>{a.index.assets[0].id='changed'}]){const bad=structuredClone(after);alter(bad);assert.throws(()=>verifyS8RasterReplacement(before,bad,'target',captures))}
+  h.ok(true,'changed original artwork, new placement geometry, sibling figures or original assets invalidate the comparison');
   const baseline={variant:'image',samples:{hover:[10,10],panSmall:[10,10],zoom:[10,10],typing:[10,10]}};
   const model={variant:'model',samples:{hover:[11,11],panSmall:[11,11],zoom:[11,11],typing:[11,11]}};
   h.ok(Object.values(compareCohorts([model,baseline,baseline,model])).every(r=>r.ok),'exact10% regression passes without an absolute timing floor');

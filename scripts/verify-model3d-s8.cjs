@@ -1,6 +1,6 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {compareCohorts}=require('./lib/model3dS8Metrics.cjs');
+const {compareCohorts,qualificationSamples}=require('./lib/model3dS8Metrics.cjs');
 async function main(){
   const {harness}=await import('./lib/harness.mjs'),{TestProcessScope}=await import('./lib/testProcess.mjs');
   const {fetchPublicS8Fixture,verifyPublicS8Fixture}=await import('./lib/model3dS8PublicFixture.mjs');
@@ -38,7 +38,7 @@ async function main(){
       for(const phase of['hover','panSmall','zoom','typing']){
         const label=phase==='typing'?'paper-typing':`figure-base-${phase}`;
         const raw=JSON.parse(await fs.readFile(path.join(cohortOut,`qualification-${label}.json`),'utf8')).raw;
-        samples[phase]=phase==='typing'?raw.keyPaint:raw.gaps;
+        samples[phase]=qualificationSamples(raw,phase);
         h.ok(phase==='typing'?result.paper.typing.keys>=25:result.figure.base[phase].frames>=20,`${variant} cohort${i} ${phase} has delivered input and measured frames`);
       }
       const structure=JSON.parse(await fs.readFile(path.join(cohortOut,'model3d-s8.json'),'utf8'));

@@ -1733,7 +1733,9 @@ within budget. Update these measurements when the corresponding workflow is chan
 
 The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
 background throttling and schedules measurement RAF callbacks. Such a run is not
-production qualification. Pass `--qualify --ozone=x11` for the qualified native
+production qualification. Its historical display summaries stay rounded to 0.1 ms;
+qualification receipts also retain unrounded `rawTimings` arrays. S8 comparisons use
+only those raw arrays and reject older rounded-only receipts. Pass `--qualify --ozone=x11` for the qualified native
 variant: it preserves product throttling, requires a nonzero display and continuously
 visible/focused window, and retains raw focus observations if a phase fails. The
 measurement RAF loop remains part of this probe and must be disclosed separately
@@ -8101,3 +8103,22 @@ while the production policy opens no cache descriptors and emits only the subseq
 canonical/source edits. No Paper readiness delay, idle rule or performance budget was
 changed. Focused source/policy gates precede integration; affected Paper and native S8
 qualification remain separate checks on the combined production build.
+
+### 2026-09-28 17:12 UTC — Preserve native S8 qualification precision
+
+The existing input probe rounded frame/paint samples before its qualification receipt,
+so a just-over-10% regression could look exactly10% after rounding. Legacy displayed
+fields remain unchanged; qualification now also retains unrounded frame gaps and
+pointer/key paint samples. S8 consumes those through a fail-closed adapter. The pure
+S8 policy gate executes the actual renderer instrumentation in an isolated VM with
+simulated rAF/key delivery, then runs the same receipt adapter and ABBA comparison:
+10.001ms versus11.0012ms fails despite display summaries10.0/11.0. No performance
+threshold, input cadence, runtime flag or product code changed.
+
+Matched raster controls now require each captured model to be fully inside the actual
+canvas clip and own the center hit, preventing sidebar/overlay pixels from masquerading
+as its baseline. A pure before/after oracle verifies every original element, sibling
+figure and original asset, and only four model-to-image replacements at identical
+geometry; the receipt no longer hardcodes that preservation claim. Pure policy checks
+pin covered/clipped captures and changed artwork/placement failures. Native S8 remains
+unqualified until the full comparison runs; these are harness corrections only.

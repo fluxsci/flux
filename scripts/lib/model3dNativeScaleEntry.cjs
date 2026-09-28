@@ -144,18 +144,28 @@ async function structureAndIdle() {
   await screenshot(captureBaseline ? 'public-example-four-models' : 'eight-models');
 }
 async function captureImageBaseline() {
+  const {s8CaptureRect,verifyS8RasterReplacement}=require('./model3dS8Baseline.cjs');
   const fixture = JSON.parse(await fs.readFile(path.join(root, 's8-fixture-receipt.json'), 'utf8'));
   const images = [];
   for (const model of fixture.additions) {
-    const rect = await js(`(()=>{const n=document.querySelector('[data-editor-element-id="${model.elementId}"]');const r=n?.getBoundingClientRect();if(!r||r.x<0||r.y<0||r.right>innerWidth||r.bottom>innerHeight)throw Error('S8 model is outside the visible fixture');return{x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)}})()`);
+    const visibility = await js(`(()=>{
+      const host=document.querySelector('.figure-mode .canvas-host'),h=host?.getBoundingClientRect();
+      const n=document.querySelector('.figure-mode [data-editor-element-id="${model.elementId}"]'),r=n?.getBoundingClientRect();
+      if(!host||!h||!n||!r)return{};
+      const clip={x:Math.max(0,h.x+host.clientLeft),y:Math.max(0,h.y+host.clientTop),right:Math.min(innerWidth,h.x+host.clientLeft+host.clientWidth),bottom:Math.min(innerHeight,h.y+host.clientTop+host.clientHeight)};
+      clip.width=clip.right-clip.x;clip.height=clip.bottom-clip.y;
+      return{clip,box:{x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height},hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};
+    })()`);
+    const rect=s8CaptureRect(visibility);
     const image = await screenshot(model.elementId, rect);
-    images.push({ ...model, png: image.toPNG(), pixelSize: image.getSize() });
+    images.push({ ...model, visibility, rect, png: image.toPNG(), pixelSize: image.getSize() });
     const pixels=image.toBitmap();let colored=0;for(let i=0;i<pixels.length;i+=4)if(Math.max(pixels[i],pixels[i+1],pixels[i+2])-Math.min(pixels[i],pixels[i+1],pixels[i+2])>30)colored++;
     check(colored>100,`S8 ${model.elementId} capture contains actual colored mesh pixels`);
   }
   await fs.cp(root, captureBaseline, { recursive: true });
   const indexPath = path.join(captureBaseline, 'fig/index.json'), index = JSON.parse(await fs.readFile(indexPath, 'utf8'));
   const canvasPath = path.join(captureBaseline, 'fig/canvases', fixture.canvasId + '.json'), canvas = JSON.parse(await fs.readFile(canvasPath, 'utf8'));
+  const before=structuredClone({index,canvas});
   const figure = canvas.figures.find(f => f.id === fixture.figureId);
   for (const image of images) {
     const assetId = image.assetId + '-flat', assetPath = `assets/${assetId}.png`;
@@ -165,8 +175,9 @@ async function captureImageBaseline() {
     if (original?.type !== 'model3d') throw Error('S8 original model missing');
     figure.elements[n] = { id: original.id, type: 'image', assetId, x: original.x, y: original.y, width: original.width, height: original.height, rotation: original.rotation };
   }
+  const preservation=verifyS8RasterReplacement(before,{index,canvas},fixture.figureId,images);
   await fs.writeFile(canvasPath, JSON.stringify(canvas, null, 2)); await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
-  metrics.baseline = { path: captureBaseline, figuresIdenticalExceptFourRasterReplacements: true, captures: images.map(({png,...rest})=>({...rest,bytes:png.length})) };
+  metrics.baseline = { path: captureBaseline, ...preservation, captures: images.map(({png,...rest})=>({...rest,bytes:png.length})) };
   check(images.length === 4, 'exact public example has four visible model placements and four matched raster replacements');
 }
 async function orbit() {
