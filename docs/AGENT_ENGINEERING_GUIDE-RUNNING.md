@@ -140,6 +140,7 @@ The established shared cores — extend these, don't duplicate them:
 | Model mutations (all figure edits) | `src/lib/ops.ts` (+ `editing.ts`, `geometry.ts`) | `verify-ops.ts`, `verify-fig-order.ts`, figenh parity suite |
 | Pointer-gesture math (resize/snap/handles) | `src/lib/interact/` | `verify-interact-core.ts` |
 | Load-gate validation (parse → migrate → validate) | `src/lib/project/validate.ts` (+ generated `validators.gen.js`) | `verify-loadgate.ts` |
+| 3D geometry, orbit, topology, poster keys and vector furniture | `src/lib/model3d/` pure cores (`glbCore.mjs` also serves Electron main) | `verify-model3d-{glb,core,scene3d,furniture,morph}.ts` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
@@ -359,6 +360,14 @@ Persistence invariants (all machine-checked — do not weaken):
   Reserved `__fluxplot__` controls travel only in FLUX_PARAMS, and successful reruns retain the
   freshly emitted provenance sidecar. Gates: `verify-fluxplot03.ts`,
   `verify-fluxplot-recipe-ipc.ts`, `verify-fluxplot03-gui.mjs`, plus source-sync and slide gates.
+- **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` by `spec` before
+  the 2D SVG reader: `fluxplot/scene3d` uses its own `0.1.0` schema and the byte-identical
+  generator fixtures in `scripts/fixtures/model3d/fluxplot/`. Unknown/invalid metadata
+  degrades to a plain mesh with a warning. Manifest checksums describe original GLB bytes;
+  asset checksums describe prepared bytes. Preparation never welds or reorders vertices.
+  Topology hashes use logical uint32 little-endian indices, independent of storage width.
+  Scientific missing values use finite float32 `_VALUE` and optional uint8 `_VALID` with
+  four-byte vertex stride; glTF floating accessors cannot contain NaN or infinity.
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -474,6 +483,13 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
+  Content-addressed `fig/renders/model3d/m3d-*.png` posters are an explicit subsystem-lease
+  exception: every writer publishes a complete image atomically for the same view key.
+  They do not travel with git. Explicit read-only image requests may render into the
+  machine cache; connect/collect never renders or writes project posters. The dedicated
+  poster worker boots before editor/config initialization, owns scratch state, enforces a
+  resource allowlist plus exact script hashes, and awaits process exit before cleanup.
+  Its deadline/cancellation must include byte-provider reads, not only native rendering.
 
 ## 4. Renderer architecture notes
 
@@ -1867,6 +1883,12 @@ Run it through the hermetic runner; never validate a migration on real projects.
 ## 9. Known traps (each of these cost real time)
 
 **Agent tools, launchers and processes:**
+
+- GPU devices can be hidden by an execution sandbox while available on the host. A
+  software-only run is not a hardware pass: native 3D gates must report their actual WebGL
+  renderer. Use authorized host execution with scratch HOME/XDG for hardware qualification;
+  `--ozone-platform=x11` is a real argv. The dedicated poster's headless path removes DISPLAY
+  and explicitly selects ANGLE SwiftShader, without `--disable-gpu`.
 
 - Tool output can lose its middle as well as its end. Keep the connect brief ≤10,000
   characters, with every section marker and the final sentinel; use `read_pack` chunks
@@ -7627,3 +7649,12 @@ out-of-tree Reads, Codex approval mode; tsx child of the test launcher; Electron
 private-display mode; `$effect` early returns; stale `dist/`; tool-output truncation; variadic
 flags; child-process exit handlers). Entries from 2026-07-19 to 2026-09-26 describe the retired
 principal/worker workflow. They are history, not current guidance.
+
+### 2026-09-28 06:31 UTC — Flux 3D pure cores and poster process (Codex, model3d)
+**Work:** Integrated independently reviewed geometry/orbit/semantics/furniture cores and the
+isolated batched poster worker. Focused pure gates, Svelte/headless checks, software and NVIDIA
+native poster gates pass; browser/native pixel parity is pinned. These are P0 seams; product
+persistence, Figure and Slide wiring remain in the active `notes/flux_3d/LEDGER.md` plan.
+**Learnings:** Promoted contract separation, original/prepared checksum distinction, finite
+missing-value channels, atomic derived-cache exception, whole-batch cancellation and sandbox
+GPU qualification into the body. The ledger retains detailed review findings and measurements.
