@@ -1,5 +1,5 @@
 {
-  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation \u2014 a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) \u2014 this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) \u2014 the tier exists for pathMap's electron/** mapping. Execution metadata is authoritative and independent of selectors. Every attempt receives scratch HOME/config/cache/library; blocked and flaky are not passes. Native no-sandbox is explicit test-only FLUX_ELECTRON_NO_SANDBOX=1. Network tests require FLUX_ALLOW_TEST_NETWORK=1.",
+  "$doc": "Tier manifest for scripts/run-verifies.mjs. Tiers: pure = hermetic Node/tsx (no external network, no dev server, no real ~/FluxLib mutation — a script that writes to FluxLib redirects HOME/XDG_CONFIG_HOME into a scratch dir before flux-core loads AND passes an explicit libPath; verify-hermetic-fluxlib.ts enforces the libPath half) — this is the `npm test` gate; net = hits external APIs (opt-in); ui = curated stable browser suite against the dev server on :1420 (runner spawns one if absent); ui-extra = the full browser sweep (slow; pre-release / polish audits); bundle+startup = need `npm run build` first; electron = need a real Electron run (manual). Groups name cross-tier sets (paper-gate = the paper editor regression suite). New verify scripts MUST be added here to join the gate. presence = the source-shape/regex subset (main-process + build config that headless drivers cannot exercise); these scripts ALSO live in pure (their gate home) — the tier exists for pathMap's electron/** mapping. Execution metadata is authoritative and independent of selectors. Every attempt receives scratch HOME/config/cache/library; blocked and flaky are not passes. Native no-sandbox is explicit test-only FLUX_ELECTRON_NO_SANDBOX=1. Network tests require FLUX_ALLOW_TEST_NETWORK=1.",
   "tiers": {
     "pure": [
       "verify-an-bridge.ts",
@@ -318,6 +318,18 @@
       "verify-connect-e2e.ts",
       "verify-agent-routing.ts",
       "verify-background-run.ts",
+      "verify-preset-catalog.ts",
+      "verify-correspondence.ts",
+      "verify-target-geometry.ts",
+      "verify-target-geometry-browser.ts",
+      "verify-plot-view.ts",
+      "verify-slide-resolve.ts",
+      "verify-slide-curves.ts",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-camera.ts",
+      "verify-plot-binding.ts",
+      "verify-plot-view-verb.ts",
+      "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
       "verify-model3d-scene3d.ts",
@@ -477,6 +489,7 @@
       "verify-inbox-gui.mjs",
       "verify-ask-gui.mjs",
       "verify-background-run-gui.mjs",
+      "verify-plot-view-gui.mjs",
       "verify-model3d-gui.mjs",
       "verify-model3d-export.mjs",
       "verify-model3d-orbit-gui.mjs",
@@ -812,7 +825,11 @@
       "verify-slide-import-gui.mjs",
       "verify-slide-animator-gui.mjs",
       "verify-v020-paper-contracts.ts",
-      "verify-v020-morph-startup.mjs"
+      "verify-v020-morph-startup.mjs",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-camera.ts",
+      "verify-slide-player.ts",
+      "verify-slide-stagger.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -1082,156 +1099,308 @@
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
     {
-      "glob": "electron/projectWatchPaths.cjs",
+      "glob": "src/lib/slide/stagger.ts",
       "run": [
-        "group:model3d-cache-watch",
-        "tier:presence"
+        "verify-slide-stagger.ts",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {
-      "glob": "scripts/lib/model3dS8*",
+      "glob": "scripts/lib/animatorMotionChecks.mjs",
       "run": [
-        "group:model3d-s8",
-        "tier:pure"
+        "verify-slide-animator-gui.mjs"
       ]
     },
     {
-      "glob": "scripts/perf/input-probe-model3d.cjs",
+      "glob": "src/main.ts",
       "run": [
-        "group:model3d-s8",
-        "tier:pure"
+        "tier:pure",
+        "verify-startup.mjs",
+        "verify-inbox-gui.mjs",
+        "verify-background-run-gui.mjs"
       ]
     },
     {
-      "glob": "scripts/fixtures/model3d/s8-public-tree.json",
+      "glob": "{scripts/lib/m4GhostFixture.ts,scripts/fixtures/m4-ghost-disappear-pre-m3.json}",
       "run": [
-        "group:model3d-s8",
-        "tier:pure"
+        "verify-slide-ghost-structure.ts"
       ]
     },
     {
-      "glob": "scripts/lib/nativeWindowQualification.cjs",
+      "glob": "scripts/lib/animatorCurveChecks.mjs",
       "run": [
-        "group:model3d-native",
-        "verify-input-probe-policy.cjs",
-        "group:model3d-native-scale",
-        "tier:pure"
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs"
       ]
     },
     {
-      "glob": "scripts/lib/model3dNativeScale*",
+      "glob": "{src/shell/modes/slide/animator/CurveField.svelte,src/shell/modes/slide/animator/BeatRail.svelte,src/shell/modes/slide/animator/trackActions.ts,src/shell/modes/slide/animator/cascadeTracks.ts,src/lib/cascade.ts,src/lib/CascadePopover.svelte}",
       "run": [
-        "group:model3d-native-scale",
-        "tier:pure"
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-no-retired-agent-layer.ts",
+        "group:slide-transforms",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-cascade-gui.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs",
+        "verify-scale-slide.mjs",
+        "verify-scale-slide-dense.mjs"
       ]
     },
     {
-      "glob": "scripts/perf/input-probe-policy.cjs",
+      "glob": "scripts/lib/animatorDestinationChecks.mjs",
       "run": [
-        "verify-input-probe-policy.cjs",
-        "tier:pure"
+        "verify-slide-animator-gui.mjs"
       ]
     },
     {
-      "glob": "scripts/lib/model3dScaleFixture.mjs",
+      "glob": "scripts/lib/animatorReaderChecks.mjs",
       "run": [
-        "group:model3d-scale"
+        "verify-slide-authoring-gui.mjs"
       ]
     },
     {
-      "glob": "electron/model3dSource.cjs",
+      "glob": "scripts/lib/animatorStyleChecks.mjs",
       "run": [
-        "group:model3d-source"
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs"
       ]
     },
     {
-      "glob": "src/lib/model3d/source*",
+      "glob": "src/lib/slide/camera.ts",
       "run": [
-        "group:model3d-source"
+        "verify-slide-camera.ts",
+        "verify-slide-animator-gui.mjs",
+        "verify-scale-slide.mjs",
+        "verify-scale-slide-dense.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:slide-clips"
       ]
     },
     {
-      "glob": "scripts/{create-model3d-demo,gen-model3d-demo-fixtures,lib/model3dDemo}.ts",
+      "glob": "src/lib/plot/viewControls.ts",
       "run": [
-        "group:model3d-demo"
+        "verify-plot-view-verb.ts",
+        "verify-plot-view-gui.mjs",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
       ]
     },
     {
-      "glob": "flux-core/model3d{,File,Verbs}.ts",
+      "glob": "src/lib/plot/AxisView.svelte",
       "run": [
-        "group:model3d-verbs",
-        "group:model3d-verbs-native",
-        "group:model3d-verbs-gui",
-        "tier:pure"
+        "verify-plot-view-gui.mjs",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
       ]
     },
     {
-      "glob": "src/lib/model3d/commandOps.ts",
+      "glob": "src/lib/slide/player/render.ts",
       "run": [
-        "group:model3d",
-        "group:model3d-xray",
-        "group:model3d-verbs",
-        "group:model3d-verbs-gui"
-      ]
-    },
-    {
-      "glob": "scripts/lib/model3dNative*",
-      "run": [
-        "verify-model3d-electron.cjs",
-        "verify-model3d-smoke-electron.cjs",
-        "tier:pure"
-      ]
-    },
-    {
-      "glob": "{electron/figurePdf.cjs,electron/ipc/staticPrint.cjs}",
-      "run": [
-        "group:figure-pdf-size"
-      ]
-    },
-    {
-      "glob": "electron/model3d*.cjs",
-      "run": [
-        "group:model3d",
+        "verify-plot-binding.ts",
+        "tier:pure",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
         "verify-ipc-contract.ts"
       ]
     },
     {
-      "$why": "The Figure model host, root-owned posters and gallery metadata are behavioral UI boundaries; keep pure model coverage alongside the real scene gate.",
-      "glob": "{src/lib/Model3dElement.svelte,src/lib/model3d/{posterStore,galleryPreview,import}.ts,src/lib/plot/Model3d*.svelte}",
+      "glob": "src/lib/slide/resolve.ts",
       "run": [
-        "group:model3d",
-        "group:model3d-gui"
+        "verify-slide-resolve.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {
-      "$why": "Renderer, worker and inline-host modules decide poster/export pixels, so they keep the full 3D group including the native poster and scale gates.",
-      "glob": "src/lib/model3d/{renderCore,service,serviceHost,inlineHost,notebookViewer,model3d.worker}.ts",
+      "glob": "src/lib/slide/curves.ts",
       "run": [
-        "group:model3d",
-        "group:model3d-xray"
+        "verify-slide-curves.ts",
+        "verify-slide-easing.ts",
+        "verify-preset-catalog.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
       ]
     },
     {
-      "$why": "App-state/UI modules and components keep their existing full mapping.",
-      "glob": "{src/lib/model3d/{store,orbitSession,exportPosters,furnitureDom,importProgress}.ts,src/lib/model3d/*.svelte}",
+      "glob": "src/lib/slide/handoffPlan.ts",
       "run": [
-        "group:model3d",
-        "group:model3d-xray"
+        "verify-slide-handoff-browser.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
-      "$why": "The remaining src/lib/model3d modules are pure cores: their pure and headless-browser gates, never the electron/network/scale gates (review R5).",
-      "glob": "src/lib/model3d/**",
+      "glob": "src/lib/slide/player/handoff.ts",
       "run": [
-        "group:model3d-pure",
-        "group:model3d-ui",
-        "group:model3d-xray"
+        "verify-slide-handoff-browser.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
-      "glob": "scripts/fixtures/model3d/**",
+      "glob": "src/lib/slide/player/presets.ts",
       "run": [
-        "group:model3d"
+        "verify-preset-catalog.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/presetCatalog.ts",
+      "run": [
+        "verify-preset-catalog.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/correspondence.ts",
+      "run": [
+        "verify-correspondence.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/paint.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/svgMatrix.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/targetGeometry.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/projectDom.ts",
+      "run": [
+        "verify-plot-view.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/project.ts",
+      "run": [
+        "verify-plot-view.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
       ]
     },
     {
@@ -1491,7 +1660,7 @@
       ]
     },
     {
-      "$why": "A dependency the start-up crawl misses is optimized on first use and every open page is reloaded \u2014 under the ui tier that reload lands on whatever gate is running (the 2026-09-26 plot-gallery popup close). The gate runs the real cold crawl and pins every worker-only import into optimizeDeps.include.",
+      "$why": "A dependency the start-up crawl misses is optimized on first use and every open page is reloaded — under the ui tier that reload lands on whatever gate is running (the 2026-09-26 plot-gallery popup close). The gate runs the real cold crawl and pins every worker-only import into optimizeDeps.include.",
       "glob": "vite.config.ts",
       "run": [
         "verify-dev-prebundle.ts",
@@ -1499,7 +1668,7 @@
       ]
     },
     {
-      "$why": "2026-09-18 text arrangement \u2014 text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
+      "$why": "2026-09-18 text arrangement — text.ts blockLayout is the ONE source for how a text element's lines sit in their box (align incl. justify, valign, line height, paragraph spacing, tracking); export.ts serializes it for BOTH engines and the slide player binds the same spans, so a change here must clear the pure contract, the live surfaces and the slide/export parity gates.",
       "glob": "{src/lib/text.ts,src/lib/export.ts,src/lib/textRuns.ts}",
       "run": [
         "verify-text-arrange.ts",
@@ -1740,10 +1909,25 @@
       ]
     },
     {
+      "glob": "scripts/fixtures/correspondence-cold.json",
+      "run": [
+        "verify-correspondence.ts"
+      ]
+    },
+    {
       "glob": "{src/lib/slide/outline.ts,src/lib/slide/tween.ts,src/lib/slide/player/transform.ts,src/lib/slide/ops.ts,src/shell/modes/slide/AnimatePanel.svelte,src/shell/modes/slide/animator/PropertiesPane.svelte,src/shell/modes/slide/animator/TimelineMenu.svelte}",
       "run": [
         "group:slide-transforms",
-        "verify-no-retired-agent-layer.ts"
+        "verify-correspondence.ts",
+        "verify-v020-morph-cache.ts",
+        "verify-v020-morph-startup.mjs",
+        "verify-no-retired-agent-layer.ts",
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-cascade.ts",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs"
       ]
     },
     {
@@ -1761,7 +1945,8 @@
       "glob": "src/lib/{store.ts,ops.ts,Xray.svelte,XrayNode.svelte}",
       "run": [
         "group:slide-stash",
-        "tier:pure"
+        "tier:pure",
+        "verify-plot-view-gui.mjs"
       ]
     },
     {
@@ -1801,7 +1986,7 @@
       ]
     },
     {
-      "$why": "2026-09-16 colour collections \u2014 fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
+      "$why": "2026-09-16 colour collections — fluxplot's colormap + palette definitions bundled by gen-color-collections.mjs; the pickers (palette tabs, the colormap picker, the X-ray colour scales) read them.",
       "glob": "{src/lib/color/**,src/lib/ColormapPicker.svelte,src/lib/ColorPicker.svelte,src/lib/plot/ColorScaleControls.svelte,scripts/gen-color-collections.mjs}",
       "run": [
         "verify-colorpicker-narrow.mjs",
@@ -1832,7 +2017,7 @@
       ]
     },
     {
-      "$why": "2026-09-25 the editor zoom range lives in ONE module \u2014 the wheel (Canvas.svelte) and the toolbar buttons clamp through it; the raster gate proves the deep-zoom path.",
+      "$why": "2026-09-25 the editor zoom range lives in ONE module — the wheel (Canvas.svelte) and the toolbar buttons clamp through it; the raster gate proves the deep-zoom path.",
       "glob": "{src/lib/interact/zoomLimits.ts,src/lib/Toolbar.svelte}",
       "run": [
         "verify-zoom-limits.ts",
@@ -1841,7 +2026,7 @@
       ]
     },
     {
-      "$why": "2026-09-15 the crosshair cursor family \u2014 Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
+      "$why": "2026-09-15 the crosshair cursor family — Canvas.svelte switches the hardware cursors by state, styles/cursors.css holds them, app.css declares the app-wide policy (no pointer hand anywhere).",
       "glob": "{src/styles/cursors.css,src/app.css,src/lib/Canvas.svelte,src/lib/interact/compositorDrive.ts,src/lib/interact/zoomProxy.ts}",
       "run": [
         "verify-cursor-policy.ts",
@@ -1907,7 +2092,7 @@
       ]
     },
     {
-      "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here \u2014 a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
+      "$comment": "verify-extension-build.ts covers the same sources but reads extension/dist, so it needs `npm run build` first and is deliberately NOT listed here — a --changed sweep must not demand a build the caller never asked for. CI runs it in the bundle tier, after the build.",
       "glob": "{extension/**,scripts/build-extension.mjs,scripts/sign-extension.mjs,scripts/lib/extensionVersion.mjs}",
       "run": [
         "verify-extension.ts",
@@ -2002,7 +2187,7 @@
       ]
     },
     {
-      "$why": "tokens.css owns the `:root, .ts-scaled` type scale \u2014 Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
+      "$why": "tokens.css owns the `:root, .ts-scaled` type scale — Paper's per-panel text size is a no-op if that selector list or the calc(px * var(--ts-scale)) shape is edited away, and nothing else would notice.",
       "glob": "src/styles/tokens.css",
       "run": [
         "verify-paper-textscale.ts",
@@ -2130,7 +2315,7 @@
       ]
     },
     {
-      "$why": "2026-09-15 Snapshot & annotate \u2014 the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay \u2192 popover \u2192 ledger); the IPC contract pins the win:capture channel.",
+      "$why": "2026-09-15 Snapshot & annotate — the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay → popover → ledger); the IPC contract pins the win:capture channel.",
       "glob": "{src/shell/agent/**,src/lib/project/annotations.ts,src/lib/project/annotationCapture.ts}",
       "run": [
         "verify-feedback-snapshot.ts",
@@ -2373,7 +2558,7 @@
       ]
     },
     {
-      "$why": "2026-09-15 surface redesign \u2014 the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
+      "$why": "2026-09-15 surface redesign — the property menu, the X-ray (multi-select, multi-plot roots, Animate selected), the shared anchoring law and the shared animate core have their own gates; the old pathMap had no entry for FluxFigMenu at all.",
       "glob": "{src/lib/FluxFigMenu.svelte,src/lib/ColorPicker.svelte,src/lib/NumberField.svelte,src/lib/Xray.svelte,src/lib/xray/**,src/lib/ui/anchor.ts,src/lib/interact/propertyMenu.ts,src/lib/interact/wheelLaw.ts,src/lib/interact/elementProperties.ts,src/lib/slide/animateSelection.ts,src/lib/Inspector.svelte}",
       "run": [
         "verify-colorpicker-narrow.mjs",
@@ -2395,6 +2580,7 @@
         "verify-menu.mjs",
         "verify-panel-label-menu.mjs",
         "verify-no-retired-agent-layer.ts",
+        "verify-plot-view-gui.mjs",
         "group:model3d-xray"
       ]
     },
@@ -2451,6 +2637,159 @@
       "glob": "{README.md,docs/**/*.qmd,docs/for_agents/**,resources/{flux-context,agent-skills}/**,src/**/*.svelte,src/shell/command/*.ts}",
       "run": [
         "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "glob": "electron/projectWatchPaths.cjs",
+      "run": [
+        "group:model3d-cache-watch",
+        "tier:presence"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dS8*",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/perf/input-probe-model3d.cjs",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/model3d/s8-public-tree.json",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/nativeWindowQualification.cjs",
+      "run": [
+        "group:model3d-native",
+        "verify-input-probe-policy.cjs",
+        "group:model3d-native-scale",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dNativeScale*",
+      "run": [
+        "group:model3d-native-scale",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/perf/input-probe-policy.cjs",
+      "run": [
+        "verify-input-probe-policy.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dScaleFixture.mjs",
+      "run": [
+        "group:model3d-scale"
+      ]
+    },
+    {
+      "glob": "electron/model3dSource.cjs",
+      "run": [
+        "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "src/lib/model3d/source*",
+      "run": [
+        "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "scripts/{create-model3d-demo,gen-model3d-demo-fixtures,lib/model3dDemo}.ts",
+      "run": [
+        "group:model3d-demo"
+      ]
+    },
+    {
+      "glob": "flux-core/model3d{,File,Verbs}.ts",
+      "run": [
+        "group:model3d-verbs",
+        "group:model3d-verbs-native",
+        "group:model3d-verbs-gui",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/model3d/commandOps.ts",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray",
+        "group:model3d-verbs",
+        "group:model3d-verbs-gui"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dNative*",
+      "run": [
+        "verify-model3d-electron.cjs",
+        "verify-model3d-smoke-electron.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{electron/figurePdf.cjs,electron/ipc/staticPrint.cjs}",
+      "run": [
+        "group:figure-pdf-size"
+      ]
+    },
+    {
+      "glob": "electron/model3d*.cjs",
+      "run": [
+        "group:model3d",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "$why": "The Figure model host, root-owned posters and gallery metadata are behavioral UI boundaries; keep pure model coverage alongside the real scene gate.",
+      "glob": "{src/lib/Model3dElement.svelte,src/lib/model3d/{posterStore,galleryPreview,import}.ts,src/lib/plot/Model3d*.svelte}",
+      "run": [
+        "group:model3d",
+        "group:model3d-gui"
+      ]
+    },
+    {
+      "$why": "Renderer, worker and inline-host modules decide poster/export pixels, so they keep the full 3D group including the native poster and scale gates.",
+      "glob": "src/lib/model3d/{renderCore,service,serviceHost,inlineHost,notebookViewer,model3d.worker}.ts",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "$why": "App-state/UI modules and components keep their existing full mapping.",
+      "glob": "{src/lib/model3d/{store,orbitSession,exportPosters,furnitureDom,importProgress}.ts,src/lib/model3d/*.svelte}",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "$why": "The remaining src/lib/model3d modules are pure cores: their pure and headless-browser gates, never the electron/network/scale gates (review R5).",
+      "glob": "src/lib/model3d/**",
+      "run": [
+        "group:model3d-pure",
+        "group:model3d-ui",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/model3d/**",
+      "run": [
+        "group:model3d"
       ]
     }
   ],
@@ -5969,7 +6308,9 @@
     },
     "verify-slide-player.ts": {
       "runtime": "tsx",
-      "prerequisites": [],
+      "prerequisites": [
+        "chrome"
+      ],
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
@@ -8070,6 +8411,125 @@
       "isolation": "scratch",
       "timeoutMs": 180000,
       "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-preset-catalog.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-correspondence.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-target-geometry.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-target-geometry-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-resolve.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-curves.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-camera.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-binding.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-verb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-stagger.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
       "coverage": "behavior"
     },
     "verify-model3d-glb.ts": {

@@ -211,20 +211,26 @@ function declaredStrokeProps(el: Element): { width: number | null; dash: string 
   };
 }
 
-/** Counter-scale pt-true content inside an inlined plot instance. Runs on the
- *  per-placement CLONE, after applyOverrides, before insertion/serialization. */
-export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: PtTrueBindings): void {
-  const { w: nW, h: nH } = o.intrinsic ?? svgIntrinsicPx(inst);
-  if (!nW || !nH) return;
+/** The renderer and stage geometry share the same bounded compensation. Without
+ *  an intrinsic size there is no known physical scale to compensate. */
+export function ptTrueFactors(o: CompensateOpts): { fx: number; fy: number; fs: number } {
+  const { w: nW, h: nH } = o.intrinsic ?? { w: 0, h: 0 };
+  if (!nW || !nH) return { fx: 1, fy: 1, fs: 1 };
   const visW = o.crop?.width ?? nW;
   const visH = o.crop?.height ?? nH;
   const cs = o.contentScale ?? 1;
   const clamp = (v: number) => Math.min(100, Math.max(0.01, v));
   const fx = clamp((visW / Math.max(o.elW, 0.01)) * cs);
   const fy = clamp((visH / Math.max(o.elH, 0.01)) * cs);
+  return { fx, fy, fs: Math.sqrt(fx * fy) };
+}
+
+/** Counter-scale pt-true content inside an inlined plot instance. Runs on the
+ *  per-placement CLONE, after applyOverrides, before insertion/serialization. */
+export function compensatePtTrue(inst: Element, o: CompensateOpts, bindings?: PtTrueBindings): void {
+  const { fx, fy, fs } = ptTrueFactors({ ...o, intrinsic: o.intrinsic ?? svgIntrinsicPx(inst) });
   if (near(fx, 1) && near(fy, 1)) return; // true size → output untouched
   compensated.add(inst); // restorable (see restorePtTrue)
-  const fs = Math.sqrt(fx * fy); // scalar stroke factor (exact under uniform resize)
 
   const prependAnchored = (el: Element, ax: number, ay: number) => {
     const C =

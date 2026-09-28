@@ -133,6 +133,40 @@ try {
   assert(/stale .*slide-export-assets\.json/.test(stderr), "tampered sidecar hash → stale warning logged");
   assert(/BYTES:\d+/.test(stdout), "export still succeeds via fresh compute");
 
+  // A view survives persistence/gather and both static slide export renderers.
+  const { renderSlidePosterSvg } = await import("../src/lib/slide/embedRender");
+  const { renderSlide } = await import("../src/lib/slide/player/render");
+  const { preparePlot } = await import("../src/lib/plot/parse");
+  const { FLUX_DARK } = await import("../src/lib/slide/theme");
+  const { viewFits, projectWith } = await import("../src/lib/plot/project");
+  const { ensureDom } = await import("../flux-core/render"); await ensureDom();
+  const { parseHTML } = await import("linkedom");
+  Object.assign(globalThis, { document: parseHTML("<html><body></body></html>").document });
+  const lineText = await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.svg", import.meta.url), "utf8");
+  const lineManifest = JSON.parse(await fs.readFile(new URL("./fixtures/plots/mpl_sine_waves_FLUXPLOT.fluxplot.json", import.meta.url), "utf8"));
+  await fs.writeFile(path.join(root, "plots", "sine.svg"), lineText);
+  await fs.writeFile(path.join(root, "plots", "sine.fluxplot.json"), JSON.stringify(lineManifest));
+  const viewDeck = slideOps.createDeck({ id: "view-parity", withTitleSlide: false });
+  const viewSlide = slideOps.addSlide(viewDeck, { layout: "blank" });
+  slideOps.addPlotToSlide(viewDeck, viewSlide.id, { assetId: "sine", x: 20, y: 30, width: 480, height: 144 });
+  const plotRoot = preparePlot(lineText, lineManifest).root!;
+  for (const view of [undefined, { x: { domain: [2, 4] as [number, number] } }]) {
+    const currentSlide = viewDeck.slides[0];
+    const lineEl = currentSlide.elements[0] as import("../src/lib/types").SemanticPlotElement;
+    if (view) lineEl.view = view; else delete lineEl.view;
+    await slides.saveDeck(root, viewDeck);
+    const gathered = await slides.gatherDeckPayload(root, viewDeck.id);
+    assert(JSON.stringify((gathered.payload.deck.slides[0].elements[0] as typeof lineEl).view) === JSON.stringify(view), "saved view survives gather unchanged");
+    const svg = renderSlidePosterSvg(gathered.payload);
+    const poster = new DOMParser().parseFromString(svg, "image/svg+xml");
+    const host = document.createElement("div");
+    renderSlide(host, currentSlide, viewDeck.stage, { theme: FLUX_DARK, plotRoot: () => plotRoot, plotManifest: () => lineManifest });
+    const selector = `[id="${lineEl.id}__2hz.line"] path`;
+    const d = host.querySelector(selector)!.getAttribute("d")!;
+    assert(d === poster.querySelector(selector)!.getAttribute("d"), `player/poster geometry parity with view=${!!view}`);
+    if (view) assert(Math.abs(Number(d.match(/M([-\d.]+)/)![1]) - projectWith(viewFits(lineManifest, view)!.x, lineManifest.series[0].data.x[0])) < 1e-5, "slide poster bakes the requested view");
+  }
+
   console.log("\nSLIDE EXPORT PARITY (WS1) TESTS PASSED");
 } finally {
   await fs.rm(root, { recursive: true, force: true });

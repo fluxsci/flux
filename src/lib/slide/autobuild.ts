@@ -25,11 +25,14 @@ import { familyOf } from "./family";
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, setAnimation, setPartVisibility, findElement } from "./ops";
-import { morphCompatible } from "./player/morph";
-import type { Beat, Track, PresetName, Deck } from "./types";
+import { hasTweenableSeries } from "../plot/project";
+import type { Beat, Track, PresetName, Deck, Slide, TargetRef } from "./types";
 import type { Element } from "../types";
 import type { Id } from "../types";
 import { newId } from "../ids";
+import { presetDef } from "./presetCatalog";
+import { isHandoff, resolveTargetLeaves, targetPartIds, isWholeElementRef } from "./targets";
+import { resolveBeat } from "./resolve";
 
 // manifest animation name → player preset name
 const ANIM_TO_PRESET: Record<string, PresetName> = {
@@ -64,10 +67,6 @@ const PHASE: Record<string, number> = {
   legend: 3, "legend-entry": 3, "legend-swatch": 3, "legend-label": 3, annotation: 3, overlay: 3,
 };
 const PHASE_LABELS = ["Axes", "Gridlines", "Data", "Legend & annotations"];
-
-const DEFAULT_DUR: Partial<Record<PresetName, number>> = {
-  fade: 300, drawOn: 600, stagger: 240, growBaseline: 500, writeOn: 500, popIn: 300, fadeRise: 320,
-};
 
 /** The reveal preset for a role, honouring the plot's authored animation but
  *  refusing nonsense (draw-on a text label) and routing points to a stagger. */
@@ -135,7 +134,7 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
       part: node.id,
       role: node.role,
       preset,
-      durationMs: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400,
+      durationMs: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400,
       staggerMs: cfg?.staggerMs,
       nLeaves: node.targets.length,
     });
@@ -157,7 +156,8 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
   const beats: Beat[] = [];
   phases.forEach((tracks, ph) => {
     if (!tracks.length) return;
-    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt) => ({ ...planToTrack(pt, elId, ph, tracks), generatedBy: "auto-reveal" as const })) });
+    const ids = tracks.map(() => newId("track"));
+    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
   });
   return beats;
 }
@@ -165,15 +165,15 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
 /** One plan entry → a Track. In the Data phase, points stagger left→right by x
  *  and the geometry (line/area) starts partway through that stagger so it
  *  resolves "just as the points finish" — the user's exact scatter beat. */
-function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[]): Track {
-  const track: Track = { id: newId("track"), target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
+function planToTrack(pt: PlanTrack, elId: string, phase: number, peers: PlanTrack[], ids: string[], index: number): Track {
+  const track: Track = { id: ids[index], target: elId, part: pt.part, preset: pt.preset, duration: pt.durationMs, start: 0 };
   if (pt.preset === "stagger") {
     track.stagger = { perMs: pt.staggerMs ?? 40, by: "x", from: "start" };
     track.params = { child: "fade" }; // points FADE in (staggered) — cleaner than rise for a scatter
   }
   if (phase === 2 && pt.preset !== "stagger") {
     const pts = peers.find((p) => p.preset === "stagger");
-    if (pts) track.start = Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40));
+    if (pts) track.anchor = { trackId: ids[peers.indexOf(pts)], edge: "start", offsetMs: Math.round(0.5 * pts.nLeaves * (pts.staggerMs ?? 40)) };
   }
   return track;
 }
@@ -199,7 +199,7 @@ export function suggestTrack(manifest: FluxPlotManifest | undefined, elId: strin
   const anim = presets[role]?.animation ?? presets[highLevelKey(role)]?.animation;
   const preset = presetForRole(role, anim);
   const cfg = presets[role] ?? presets[highLevelKey(role)];
-  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? DEFAULT_DUR[preset] ?? 400, start: 0 };
+  const track: Track = { id: newId("track"), target: elId, part, preset, duration: cfg?.durationMs ?? presetDef(preset).autoBuildDurationMs ?? 400, start: 0 };
   if (preset === "stagger") {
     track.stagger = { perMs: cfg?.staggerMs ?? 40, by: "x", from: "start" };
     track.params = { child: "fade" };
@@ -310,7 +310,7 @@ export function listMorphCandidates(
   manifestA: FluxPlotManifest | undefined,
   candidates: { assetId: Id; manifest: FluxPlotManifest | undefined }[],
 ): { assetId: Id; compatible: boolean }[] {
-  return candidates.map((c) => ({ assetId: c.assetId, compatible: morphCompatible(manifestA, c.manifest) }));
+  return candidates.map((c) => ({ assetId: c.assetId, compatible: hasTweenableSeries(manifestA, c.manifest) }));
 }
 
 /** The phase-order rank of a beat: the resting beat sorts first, auto phase beats
@@ -381,4 +381,73 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
   //    produces and no other element fills) — never the resting or a manual beat.
   slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length > 0 || b.generatedBy !== "auto-reveal");
   return auto.length;
+}
+
+/** Shared eligibility for the inspector and the post-Become toast. */
+export function canAutoAnimateRest(slide: Slide, ref: TargetRef, manifest: FluxPlotManifest | undefined): boolean {
+  const plot = slide.elements.find(e => e.id === ref.element);
+  return plot?.type === "plot" && !!manifest && !ref.group && !isWholeElementRef(ref)
+    && !slide.beats.some(b => b.tracks.some(t => t.target === plot.id && familyOf(t) === "appearance"));
+}
+
+/** Build the plot's remaining leaves after its hand-off, preserving manual
+ * tracks and other plots' shared build phases. A partially excluded group
+ * becomes an explicit part set so none of its remaining leaves are lost.
+ * Anchors are beat-local: an effect anchored across a generated reveal that is
+ * excluded or moves behind the landing keeps its effective start, and a
+ * rebuilt phase never reuses a beat id an authored effect still holds. */
+export function autoAnimateExcept(deck: Deck, slideId: Id, plotId: Id, manifest: FluxPlotManifest | undefined, exceptLeaves: readonly string[]): number {
+  const slide = slideById(deck, slideId);
+  if (!slide) return 0;
+  const manifestFor = (id: Id) => id === plotId ? manifest : undefined;
+  const starts = new Map(slide.beats.flatMap(b => resolveBeat(b, deck, manifestFor).tracks.map(t => [t.id, t.start ?? 0] as const)));
+  const moved = new Set(slide.beats.flatMap(b => b.tracks.filter(t => t.target === plotId && t.generatedBy === "auto-reveal").map(t => t.id)));
+  if (!applyAutoAnimation(deck, slideId, plotId, manifest)) return 0;
+  const except = new Set(exceptLeaves);
+  const generated: Beat[] = [];
+  for (const beat of slide.beats) {
+    const resolved = resolveBeat(beat, deck, manifestFor).tracks;
+    const kept: Track[] = [];
+    for (const track of beat.tracks) {
+      if (track.target !== plotId || track.generatedBy !== "auto-reveal") continue;
+      moved.add(track.id);
+      if (!starts.has(track.id)) starts.set(track.id, resolved.find(t => t.id === track.id)?.start ?? 0);
+      const leaves = targetPartIds(track, manifest), rest = leaves.filter(id => !except.has(id));
+      if (!rest.length) continue;
+      if (rest.length !== leaves.length) { delete track.part; delete track.selector; track.parts = rest; }
+      kept.push(track);
+    }
+    const keptIds = new Set(kept.map(t => t.id));
+    for (const track of kept) if (track.anchor && !keptIds.has(track.anchor.trackId)) {
+      track.start = resolved.find(t => t.id === track.id)?.start ?? 0;
+      delete track.anchor;
+    }
+    beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal" || keptIds.has(t.id));
+    if (kept.length) generated.push({ ...beat, id: `auto-rest-${plotId}-${beat.autoPhase}`, autoTarget: plotId, tracks: kept, groups: undefined });
+  }
+  const landing = slide.beats.findLast(b => b.tracks.some(t => !t.disabled && isHandoff(t) &&
+    resolveTargetLeaves(t.to.become.ref, slide, manifestFor).some(r => r.elementId === plotId)));
+  if (landing) {
+    // Global auto phases precede manual steps. Move only this plot's generated
+    // tracks behind its landing, leaving every other phase participant in place.
+    for (const beat of slide.beats) beat.tracks = beat.tracks.filter(t => t.target !== plotId || t.generatedBy !== "auto-reveal");
+  }
+  slide.beats = slide.beats.filter((b, i) => i === 0 || b.tracks.length || b.generatedBy !== "auto-reveal");
+  if (landing) {
+    const ids = new Set(slide.beats.map(b => b.id));
+    for (const phase of generated) {
+      const base = phase.id;
+      for (let n = 2; ids.has(phase.id); n++) phase.id = `${base}-${n}`;
+      ids.add(phase.id);
+    }
+    slide.beats.splice(slide.beats.indexOf(landing) + 1, 0, ...generated);
+  }
+  for (const beat of slide.beats) {
+    const ids = new Set(beat.tracks.map(t => t.id));
+    for (const track of beat.tracks) if (track.anchor && !ids.has(track.anchor.trackId) && (moved.has(track.id) || moved.has(track.anchor.trackId))) {
+      track.start = starts.get(track.id) ?? track.start ?? 0;
+      delete track.anchor;
+    }
+  }
+  return generated.length;
 }

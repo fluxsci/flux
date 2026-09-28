@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Track } from "../types";
-import type { MorphController } from "./morph";
+import type { MorphController } from "../../plot/project";
 import type { TargetNode } from "./presets";
 
 interface CountUpParams {
@@ -26,7 +26,7 @@ interface CountUpParams {
 /** Build a countUp driver over ONE node (a text box, a block, or any element
  *  whose textContent carries the number). seek(0) shows `from`; seek(1) restores
  *  the authored final text exactly. */
-export function countUpText(original: string, track: Track): (t: number) => string {
+export function countUpText(original: string, track: Track): (t: number, raw?: number) => string {
   const m = original.match(/-?\d[\d,]*\.?\d*/);
   const parsed = m ? Number(m[0].replace(/,/g, "")) : NaN;
   const p = (track.params ?? {}) as CountUpParams;
@@ -46,11 +46,11 @@ export function countUpText(original: string, track: Track): (t: number) => stri
     return prefix + s + suffix;
   };
 
-  // t=1 restores authored text verbatim (no rounding drift in the rest state).
-  return (t) => t >= 1 && m && p.to == null ? original : fmt(from + (to - from) * Math.max(0, Math.min(1, t)));
+  // raw=1 restores authored text verbatim (no rounding drift in the rest state).
+  return (t, raw = t) => raw >= 1 && m && p.to == null ? original : fmt(from + (to - from) * Math.max(0, Math.min(1, t)));
 }
 
 export function createCountUp(node: TargetNode, track: Track): MorphController {
   const sample = countUpText(node.textContent ?? "", track);
-  return { seek(t) { node.textContent = sample(t); } };
+  return { seek(u, raw = Math.max(0, Math.min(1, u))) { node.textContent = sample(Math.max(0, Math.min(1, u)), raw); } };
 }

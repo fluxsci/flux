@@ -9,8 +9,9 @@
 
 import type { FluxPlotManifest, PartNode } from "./types";
 import type { SemanticPlotElement, PartOverride } from "../types";
-import { drawablesUnder, buildPartIndex } from "./parse";
+import { drawablesUnder, buildPartIndex, partDomId, partIdFromDom } from "./parse";
 import { inferRole, labelForPart } from "./tree";
+import { parseStyleAttr } from "./paint";
 import { plotDom } from "./store";
 
 import type { Model3dElement, Scene3dManifest } from '../model3d/types';
@@ -52,20 +53,6 @@ const KNOWN_KINDS = new Set<string>(["text", "line", "shape", "container"]);
 // (the plot would otherwise be un-draggable by its own background / frame).
 const SCAFFOLD_ROLES = new Set(["figure", "plot-area", "panel", "background", "axis"]);
 
-// --- tiny inline-style reader (linkedom-safe; mirrors derive.ts semantics) ---
-function parseStyleAttr(s: string | null | undefined): Map<string, string> {
-  const m = new Map<string, string>();
-  if (!s) return m;
-  for (const decl of s.split(";")) {
-    const i = decl.indexOf(":");
-    if (i < 0) continue;
-    const k = decl.slice(0, i).trim().toLowerCase();
-    const v = decl.slice(i + 1).trim();
-    if (k) m.set(k, v);
-  }
-  return m;
-}
-
 function q(s: string): string {
   return s.replace(/"/g, '\\"');
 }
@@ -90,7 +77,7 @@ function findPartNode(manifest: FluxPlotManifest | undefined, partId: string): P
  *  per placement), else the pristine cached DOM's node (headless fallback). */
 export function partNode(el: SemanticElement, partId: string): Element | null {
   if (typeof document !== "undefined") {
-    const live = document.getElementById(`${el.id}__${partId}`);
+    const live = document.getElementById(partDomId(el.id, partId));
     if (live) return live as unknown as Element;
   }
   if (el.type === "model3d") return null;
@@ -156,14 +143,13 @@ export function resolvePartId(
   elementId: string,
   index?: ReturnType<typeof buildPartIndex>,
 ): string | null {
-  const p = elementId + "__";
   const idx = index ?? buildPartIndex(manifest);
   let nearest: string | null = null;
   let el: Element | null = node;
   while (el) {
     const id = el.getAttribute?.("id");
-    if (id && id.startsWith(p)) {
-      const sem = id.slice(p.length);
+    const sem = id ? partIdFromDom(id, elementId) : null;
+    if (sem !== null) {
       if (nearest == null) nearest = sem;
       if (idx[sem]) return sem;
     }

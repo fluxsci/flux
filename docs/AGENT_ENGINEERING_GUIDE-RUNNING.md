@@ -114,8 +114,8 @@ capabilities as the GUI, through these surfaces:
   `shell/inbox/backgroundState.ts`. `BackgroundRun`/`BackgroundStop` mount in Inbox
   and Sessions; the approval modal is shell-lazy. Annotation saves start routed tasks,
   and saved human replies resume or restart them, queuing replies during active turns.
-  F2 owns the annotation route UI: consume `backgroundAvailable` there and replace
-  its retired unconditional background-route save block when integrating F2/F5.
+  The annotation route UI consumes `backgroundAvailable` and starts the selected
+  background driver after saving the routed note.
   Gates: `verify-background-run`, `verify-runner-drivers`, `verify-mcp-readonly`,
   `verify-ipc-contract` (pure), `verify-background-run-gui` (UI).
 
@@ -159,11 +159,21 @@ The established shared cores — extend these, don't duplicate them:
 | Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
+| Semantic targets, hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
+| Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
+| N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
-| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
+| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
+| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts`, `verify-slide-easing.ts` (legacy snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists; `animator/CurveField.svelte` is the UI consumer, covered by `verify-slide-animator-gui.mjs`, authoring/cascade GUI and both surface gates |
+| Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
+| Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
+| Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
+| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts`; `verify-slide-animator-gui.mjs` pins saved Arc through the library's real Apply and Undo paths. Transform preset application forwards HOW fields explicitly into `setTransform`; extending the saved payload alone does not extend this reader. |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
+| Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
@@ -186,13 +196,16 @@ missing standard files heal on open via contextHeal.ts / `flux context-init`, on
 `project.json` exists; project-root `AGENTS.md` is a passive flux-connect pointer and
 `CLAUDE.md` imports it with `@AGENTS.md`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json` (0.5.0: shared figure editor elements plus slide-only video
+`slides/<deckId>/deck.json` (0.6.0: shared figure editor elements plus slide-only video
 and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
-FAMILIES — appearances, media commands, and transforms (`to.state` = a sparse t2 patch folded
-left-to-right across beats; `Beat.groups` = collapsible animator lanes);
+FAMILIES — appearances, media commands, camera and transforms (`to.state` = a sparse t2 patch
+folded left-to-right across beats; `to.become` = Consume provenance or live hand-off refs);
+plot `view` stores axis domains/scales, `curve` stores timing, `animStyles` plus track
+`styleId`/`anchor` link settings and timing, `stagger.totalMs/curve/seed` distribute starts,
+`arc` bends box motion, camera `to.path` selects Zoom/Fly, and `Beat.groups` holds collapsible lanes;
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
-plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4` decks migrate via a
-pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old players
+plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4/0.5` decks migrate via a
+version stamp at the normalizeDeck chokepoint (which also normalizes legacy morphs and drops unknown easing strings before validation); `0.4` adds ghost births so old players
 refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
 `references/library.bib` (the project's *cited subset*),
@@ -355,7 +368,7 @@ Persistence invariants (all machine-checked — do not weaken):
   validates incoming SVG/manifest pairs and checks their original-byte checksum before legacy
   coordinate repair. Existing stored projects retain their legacy reader; never bulk-regenerate
   user outputs. New series carry `panelId`, exact nullable data, a component inventory and explicit
-  `capabilities.dataMorph`; `slide/player/morph.ts` resolves the owning axes and preserves line
+  `capabilities.dataMorph`; `plot/project.ts` resolves the owning axes and preserves line
   gaps. Unsupported transforms/projections/raster parts use complete transitions. Match these
   changes with `~/fluxplot`'s versioned generator and shared fixtures in `scripts/fixtures/fluxplot03`.
   X-Ray color controls regenerate source fields and their keys, preserving authored overrides.
@@ -922,6 +935,49 @@ Persistence invariants (all machine-checked — do not weaken):
   scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
+  Preset facts live in the pure `slide/presetCatalog.ts`; compiler, player metadata,
+  family law and Animator lists derive from it. `defaultDurationMs` is the omitted-track
+  timing default; `autoBuildDurationMs` preserves the separate plot-build recommendation
+  (for example, fade is 320 ms in playback and 300 ms in autobuild). Role/element
+  recommendation policy stays in `autobuild.ts`. `defaultEasing` preserves smooth
+  transforms, standard appearances/countUp/camera and unused linear media timing.
+  `defaultTimingFor` writes authoring defaults from the same catalog; explicit camera
+  commands retain their 900 ms/Smooth policy while omitted playback stays 320 ms/Standard.
+  Automatic beat delays use `timing.beatDelayMs` in Present, video and PowerPoint.
+  `slide/curves.ts` owns the cached timing resolver, grammar and catalog; compatibility
+  wrappers retain legacy CSS and the 1,001-point sampled snapshots byte for byte; off the
+  grid the legacy functions overshot 1 by roundoff near t = 1, and the wrapper
+  (`resolveEasingFn` = the clamped curve) deliberately returns exactly 1 there while the raw
+  `fn` keeps the old bytes (decided 2026-09-27; pinned in `verify-slide-easing.ts`).
+  New CSS `linear()` approximation
+  measures vertical error at fixed time (perpendicular distance underestimates steep
+  springs). Endpoint guards need a continuity probe to catch a missing spring residual.
+  `Track.curve` is an optional tagged bezier/spring/steps record in the 0.6.0 schema,
+  shared by ordinary tracks, ghost births and animation styles. Grammar inputs clamp;
+  disk validation refuses invalid shapes/ranges. Authoring uses `setTrackCurve` or
+  the timing patch ops, which clear competing easing/influence fields. M2 binds one `ResolvedCurve`
+  per compiled track/spec: box channels extrapolate `fn`, other channels use `clamped`,
+  and controllers receive `seek(u, raw)` for raw-keyed phase decisions. The camera is a
+  box-class channel: compiler and player both take `fn` through `slide/camera.ts`, and
+  the player's out-of-range camera frames call the preset's exact `transformAt(u)`
+  rather than extrapolating its 24 keyframes. `staggerDelay` owns delays in
+  playback, compilation and span calculation; no second per-item formula belongs there.
+  Stagger Each/Total modes, distribution curves and seeded random order share
+  `stagger.ts`. The distribution uses a compact `CurveField` writing `stagger.curve`
+  through authoring ops; it never changes the effect duration or timing curve.
+  `arcBox` changes only box x/y; an arc of ±1 offsets the quadratic control by half
+  the travel distance and its midpoint apex by one quarter. Non-interpolable
+  keyframe values, including named-color fallbacks, select endpoints by raw progress.
+  `animator/CurveField.svelte` edits that one timing field: catalog/graph/clipboard
+  previews share an owned edit session, with keep-arrival duration changes in the same
+  checkpoint. A nested `mutate` lets `commitDeckLive` join the field's checkpoint;
+  a standalone `commit` would start a new undo entry for every input. Escape restores
+  curve, duration and prior redo state. The rail reuses its bounded 24-sample path cache;
+  only a hovered tile schedules a finite preview, respecting reduced motion.
+  Copy/Paste timing materializes duration, curve and stagger, without linking styles.
+  The cascade's `curve.bounce` property ranks only resolved spring tracks.
+  Legacy move/scale/rotate remain
+  appearance-family compatibility effects, excluded from the editable preset list.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
   the shared constructor and `ops.ts` the independent zero-duration media commands.
   `electron/videoMedia.cjs` prepares H.264/AAC MP4 + PNG poster, called by both IPC and
@@ -957,7 +1013,10 @@ Persistence invariants (all machine-checked — do not weaken):
   4K and source-free packaged startup. Evidence is in `test-results/slide-video/`.
   Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
   standalone browser export; single-effect interpolation is not sufficient evidence. Compiled
-  static-content bindings must also restore attributes constant within a later track when
+  static-content bindings use eased progress for numeric interpolation and raw progress
+  for discrete attributes/text. Thread both channels through the transform driver; the real
+  player gate pins one line-cap switch over 60 non-monotone samples. Bindings must also
+  restore attributes constant within a later track when
   live content differs from that track's pre-state. A translated/rotated arrow followed by a
   stroke-width Change gates this through real browser shaft/head alignment, not just boxes.
   **Ghost transforms (0.4):** result objects are ordinary canonical Elements with fresh IDs;
@@ -980,10 +1039,60 @@ Persistence invariants (all machine-checked — do not weaken):
   the same `preset:"transform"` track: `to.state` is the property half and, for plot/image,
   `to.assetId` the content half — the old `morph` preset and "Data morph" are gone, a data
   morph IS a Become whose target shares the source's box (`migrateDeck` folds legacy records).
-  `becomeTransform` (ops.ts; CLI/MCP `become`) diffs the source's step pre-state against the
-  target (`diffState` is retype-aware: type + every non-base prop), writes the track, consumes
-  the target and gc's groups as ONE op (one Undo restores both); it refuses the Design step,
-  self, videos, ghost copies and unborn sources. The retype law: `applyState` with
+  Plot data-space math lives in `plot/project.ts`; `projectDom.applyPlotView` is the ONE
+  writer for both `view` Changes and asset Becomes (including simultaneous view changes).
+  The five preparation hosts are mount, fillPlot, figure export, inlineMarkup and the
+  transform driver. Bind guide data before overrides or from a pristine source root;
+  restore pt-true, then projection, before the next frame. The driver binds neutral asset
+  geometry (no endpoint view/compensation), then applies this frame's overrides, projection
+  and compensation. Per-panel fits and vertex buffers are prepared once. Import math directly
+  from `plot/project.ts`; the old `player/morph.ts` shim is removed. `compilePlotContent`
+  binds semantic IDs, fades unmatched parts over the first/last 40%, and crossfades anonymous
+  topology changes locally. Positional ids are not identities: derive.ts stamps (`n<k>`) and
+  matplotlib counters (`ytick_7`, `text_1`, `patch_2`; a manifest-named one stays semantic)
+  bind structurally, and a wrapper holding semantic parts is keyed by its first semantic
+  descendant (A's `ytick_7` pairs with B's `ytick_5` through `…axis.y.tick.2`). A source-only
+  wrapper that still holds shared parts stays; a destination copy never repaints parts the
+  source already shows. At rest an asset change IS the endpoint's own render (no guide edge
+  fade at raw ≤ 0 / ≥ 1 without a view), and the shared attribute compiler compiles
+  endpoint-constant values to nothing and compares before every write — a repeated frame
+  writes nothing (`verify-plot-binding` counts it). Keep appended nodes display-hidden until their first seek, so
+  appearance compilation reads authored opacity. `applyAt` runs content controllers before
+  keyframed appearances, independent of story order; content paint must not erase an entrance.
+  Only ID-less plots retain the whole-content fallback. Union
+  vertex indices preserve missing-data gaps; unmatched markers and line edges fade.
+  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu;
+  `plot/viewControls.ts` normalizes data-unit fields for both GUI and `set-plot-view`.
+  Nullable live NumberFields own an editSession, with preview, one undo and Escape rollback.
+  X-ray axis-row `v` focuses the corresponding Inspector row. The verb writes through
+  `ops.setPlotView`; its deck beat form resolves the endpoint then writes `setTransform`.
+  Missing axes/series diagnose instead of throwing; keep both read and writer guards.
+  `becomeTransform` (ops.ts; CLI/MCP `become`) has two completion modes. Consume diffs the
+  source pre-state against the destination, writes the endpoint, deletes the target and GCs
+  groups in one Undo; `to.become` records provenance. Plot/image or part-set destinations
+  default to hand-off: `to.become={ref,mode:"handoff",pair,reveal}`, `to.state={}`, both model
+  identities retained. Part sources keep their plot's props; the full ref keys the family law.
+  The Animation inspector's Destination controls edit that same record through
+  `becomeTransform`. `swapBecome` reverses source/destination refs atomically, with the
+  pane making one `commitDeckLive` transaction and `swap-become`/`swap_become` using the
+  same op. It keeps style/timing and rebinds followers; group destinations and
+  ghost births cannot be reversed there. Consume uses inline two-click confirmation for
+  whole loose targets. `autoAnimateExcept` shares the auto-build core, excludes landing
+  leaves (including partial groups), and places the remaining plot phases after the
+  landing without moving other plots' tracks. Animator labels use semantic part labels;
+  camera Zoom unions drilled parts' `targetOutlines` boxes with the usual 0.82 padding.
+  `appearFrom` / `appear-from` writes the same record from the destination side. The compiler
+  publishes resolved `handoffs`, hides destination keys before landing, hides both sides
+  mid-flight and leaves the source hidden afterwards. Later entrances may reveal it again;
+  emphasis changes opacity without resurrecting hidden sides. Authoring and diagnostics share
+  `handoffTargets.ts`'s manifest-membership and overlap checks. Canonical refs resolve with
+  effective step manifests, never sampled appearance. When retaining an existing source's
+  timing, birth admission must compare its resolved start (styles/anchors included), not the
+  raw track's start. Read `compiled.resolvedSlide` so disabled tracks being re-enabled keep
+  their effective timing too. Copy/preset/embed remaps retain element
+  and group destination identity; deleted destinations remain dangling and diagnosed. PPTX
+  phase ownership includes destinations so a later landing cannot leak into an earlier phase.
+  The retype law: `applyState` with
   `state.type` keeps only BASE_PROPS and completes the new kind's required props
   (`completeRetyped`). Cross-kind flights run the OUTLINE MORPH (`slide/outline.ts`, pure):
   `elementOutline` renders any drawn kind (rect + fillets, ellipse as 4 KAPPA arcs, line,
@@ -992,8 +1101,32 @@ Persistence invariants (all machine-checked — do not weaken):
   seams/winding, and chooses `inflate` (the ring side is FILLED: the stroke doubles back on
   itself as a degenerate ring that swells into the shape — no wedge) or `cut` (a stroke-only
   ring opens where it is nearest both of the stroke's ends and unrolls into it);
-  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke and
-  the driver draws three layers — A the original nodes (t=0), M one live `<path>` written
+  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke through the shared
+  `sampleNodes` node loop. Animation v2's `correspondence.ts` merges stage outlines and
+  pairs spatial/order/data/tile sets through that same 1↔1 planner. Pair arrays remain in
+  unit coordinates for exact compatibility; the sampler applies their stage bboxes.
+  Seam searches prepare the invariant source stations once, reusing them for every
+  destination offset/direction. Keep full resolution and arithmetic order: the 40-point
+  cold hand-off's seam search cost 122.7 ms (6.1 ms after hoisting),
+  while splitting/allocation cost only 2.6 ms. Idle warming is optional; first preview
+  and seek must also meet 100 ms when input arrives before the warm callback.
+  Call `CorrespondencePlan.prepare()` in the warm hook before sampling (unprepared sampling
+  refuses instead of planning on the frame path), and retain its output array to reuse all
+  geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
+  `owner.members` are the reveal inventory. Large marker sets expose glyph landing points;
+  text/raster pairs expose crossfade boxes without a path plan. The core does not mount the
+  hand-off flight layer. The player's `handoff.ts` owns one retained drawing group per
+  controller inside `renderSlide`'s last camera child, `svg.sl-flight`. `handoffPlan.ts`
+  prepares the same correspondence for playback and optional-context dock warming.
+  Whole-plot defaults pair the merged spines and leave the other parts to fade in;
+  cropped plots discard wholly outside outlines and clip the retained flight drawing.
+  Visibility uses reversible inline `visibility` leases, so chains and reverse seeks
+  compose with opacity presets; disposal restores prior values. A static host bakes
+  sampled visibility before disposal. `seek(eased, raw?)` uses raw progress for phase
+  changes and the glyph's final-15-percent fade, clamping only data interpolation.
+  Marker flights write SVG transform attributes, never per-marker CSS transforms.
+  The existing element driver draws three layers — A the original
+  nodes (t=0), M one live `<path>` written
   per frame with no serialization, B the end markup from the ONE serializer (t=1, later
   tracks bind here). Heads that only one side draws fade (`fixedHeadOpacity`/`arrowFade`);
   the body is never trimmed under a fading head. **The placement law (render.ts):** a
@@ -1028,6 +1161,30 @@ Persistence invariants (all machine-checked — do not weaken):
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
+  The animation-v2 geometry bridge (`slide/targetGeometry.ts`, exported by flux-core)
+  supplies `StageOutline` rings/chains in stage px for compiled element states and
+  pristine `preparePlot` roots. It shares `elementPaint`, SVG matrices, multi-subpath
+  parsing, `readPaint` and `ptTrueFactors`; glyph markers can be paths OR groups.
+  Flips precede rotation about the box centre, matching the renderer's CSS list.
+  Roots/manifests must be immutable: regeneration replaces their identity and releases
+  weak geometry caches. Pass the owning slide's registry as `GeometryCtx.groups` for
+  nested group refs (`SlideFrame` does not carry it). `bbox` is the TRUE curve extent
+  (`nodesExtent`), never the control hull or stroke overhang: it is the box `refitPath`
+  gives a path element, the frame `planElementMorph` plans in, and the box
+  `correspondence.ts` derives for merged chains/pieces, so a 1↔1 pair planned through the
+  bridge reproduces today's Become exactly. Part `paint.strokeWidth`/`dash` are STAGE px:
+  declared × `fs` × sqrt(sx·sy) (the outer viewBox→box scale), i.e. declared × contentScale
+  × px-per-user-unit at any box size (4/3 for a matplotlib pt viewBox), pinned against the
+  live computed stroke × screen-CTM scale. Text is a box-only crossfade target: explicit
+  SVG bounds/textLength are used when present; otherwise its anchor is retained without
+  guessing glyph metrics. The hand-off clone renderer measures text once with live
+  `getBBox()`. Plot `view` data uses the shared projection kernel before stage mapping;
+  spines remain fixed while guides follow the DOM writer's data coordinates/fading.
+  `plotStageMapping` factors that same viewBox/crop/flip/placement mapping for axis
+  fits used by data pairing. A rotated plot cannot supply a stage-axis-aligned fit:
+  correspondence falls back to spatial/tile pairing, preserving visible geometry.
+  Gates: `verify-target-geometry` (linkedom plus core parity) and
+  `verify-target-geometry-browser` (real renderSlide/Chrome CTM, pure tier).
 - **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
   **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
   `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
@@ -1224,10 +1381,25 @@ Persistence invariants (all machine-checked — do not weaken):
     open ONE x-ray rooted at `{kind:"elements"}`: `commonPartRows` lists parts whose id AND
     role agree across every plot (`common:<partId>` rows fan out to all of them), then each
     plot's tree. Slide registers `xrayAnimate` (`xray/animateHook.ts`) so **Animate selected**
-    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
+    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
     Reopening follows the full plot selection even when a primary drilled part exists.
+    Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
+    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
+    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
+    Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
+    `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
+    Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
+    or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
+    compiler's future hand-off destination visibility while ordinary appearances stay editable.
+    Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
+    Auto-animate the rest (post-pick toast and Destination row) calls the ONE
+    `autoAnimateExcept`: it narrows partial containers, places the remaining phases after the
+    plot's last enabled hand-off, keeps anchored effective starts and never reuses a beat id an
+    authored effect holds; both surfaces offer it only for part refs (a whole-plot hand-off
+    already reveals every part). Pick bar, X-ray header, toast, lane and Destination row name a
+    ref through `animator/shared.ts refLabel`; every Pair choice renders `targets.ts PAIR_POLICIES`.
     Common-row actions filter each member through Show hidden exclusions, and animation
     batches deduplicate exact element/part targets. Keyboard navigation reveals its active
     row. Regeneration pins the original project/plot before awaits; re-rooting cannot redirect
@@ -1293,7 +1465,7 @@ Persistence invariants (all machine-checked — do not weaken):
     picture/context. Withdraw never pretends the work was resolved. Status chips and
     toasts name the agent; needs-input opens its replies. `RecipientList.svelte` and the
     pure `agentRouting.ts` order Inbox, Any, watching sessions, then selectable muted
-    non-watchers. The `backgroundAvailable` store defaults false and reserves F5's slot.
+    non-watchers, then New background agent when `backgroundAvailable` reports an installed driver.
     Inbox Assign/Unassign/Release use the shared ledger builders; `assign.route` supports
     Inbox/Any/background as well as named assignments, including comment overlays.
     Reassigning/unassigning held work revokes its former holder; explicit assignment back
@@ -1735,10 +1907,22 @@ that isn't in the manifest doesn't exist.** Tiers:
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
-- `--changed` maps `git diff` paths through the manifest's `pathMap`;
+- `--changed` maps `git diff` paths through the manifest's `pathMap` and **unions** those
+  scripts with explicit `--tier` selections; `--tier pure` or `--tier ui` does not filter the
+  changed set. A constrained worker must intersect the mapped names with its permitted tiers
+  and invoke those registered gates explicitly. Always set the worker's `FLUX_URL`, even for
+  a changed run nominally requesting pure, since its mapped set may require a server;
   `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
   registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
   check defeats the verification contract.
+  The mapped scripts are ADDED to `--tier`/`--group`, not intersected with them. If a worker
+  may run only certain tiers, resolve the map first and run its allowed filenames with
+  `--tier <tier> --only <filename>`; `--changed --tier ui` can also select native gates.
+  When launching through a shell, `exec env ... node scripts/run-verifies.mjs ...`
+  keeps interrupts attached to the runner. A stopped shell is not proof that its runner
+  children stopped: confirm the final summary before starting another cohort.
+  An exact-path entry must retain the regression groups of the broader entry it supersedes:
+  pathMap uses the first matching entry, not the union of all matching entries.
   `group:paper-gate` is the paper editor's regression suite. `group:model3d` is the 3D suite;
   `group:model3d-pure` and `group:model3d-ui` are its pure and dev-server slices, and the
   native S8 cohort (`verify-model3d-s8.cjs`) and eight-model scale gate need a quiet display. Use
@@ -1961,6 +2145,13 @@ Run it through the hermetic runner; never validate a migration on real projects.
   software-only run is not a hardware pass: native 3D gates must report their actual WebGL
   renderer. Use authorized host execution with scratch HOME/XDG for hardware qualification;
   `--ozone-platform=x11` is a real argv (see the 3D traps below for the poster worker).
+- The dev fixture must install `window.fig` before mounting Shell, matching Electron's
+  preload order. Shell idle-prefetch mounts Annotate even on Home; starting it before
+  the async fixture import finishes makes the initial capability probe cache `[]` for
+  five minutes and loses the one-time runner-event subscription. `main.ts` awaits
+  fixture installation before mount, not a timeout or a second capability probe.
+  `verify-inbox-gui` holds the fixture module request and pins the first probe and
+  subscription. Larger import graphs can expose this ordering bug without throwing.
 - Tool output can lose its middle as well as its end. Keep the connect brief ≤10,000
   characters, with every section marker and the final sentinel; use `read_pack` chunks
   for the bundle and verify proof codes instead of assuming a long response arrived intact.
@@ -2458,6 +2649,64 @@ outside this PNG packaging change.
 
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
+- **T7 retired: camera poses and transform strings must share one geometric path.**
+  Linear interpolation of centre/zoom and of translate/scale disagree between endpoints.
+  Both readers now use `slide/camera.ts`: pole/log zoom by default for every deck,
+  optional `to.path: "fly"` for van Wijk–Nuij. The player builds 24 uniform transform
+  keyframes, rebuilding all of them from live FROM before play and restoring their
+  compiled FROM before random seek. Replacing only frame zero breaks the path.
+  `flyDuration` is natural S in seconds; the UI converts to ms and uses `setTrack`.
+  Gate `verify-slide-camera` pins the old 23.58 px disagreement and new sub-0.5 px
+  compiler/player agreement. Both readers take the unclamped curve (M2 × M5
+  integration). A spring's overshoot leaves the keyframed 0–1 range, and linear
+  extrapolation of the last transform segment is NOT the geometric path: 9.1 px off
+  the compiler for spring(0.5) 1→2, and a negative `scale()` for spring(0.8) 1→0.05.
+  Out-of-range frames therefore sample the preset's `transformAt(u)` (the same
+  `sampleCamera`); the gate pins both failures.
+
+- **Retired easing traps T1–T4 (Animation v2 M2):** T1 rebuilt JS easing from CSS and
+  treated every `linear()` as smoothstep; specs now retain `ResolvedCurve`, with
+  per-property `fn`/`clamped` selection and `css` only for native effects. T2 clamped
+  the physical motion away; keyframe box segments extrapolate, and `overshootBox`
+  extends only position/size/rotation/contentScale after the bounded content tween.
+  T3 flipped A/M/B on eased crossings; controllers now receive `(u, raw)` and use
+  raw for visibility, compositor settlement and endpoint formatting. T4's hand-off
+  reveal and final-15-percent glyph fade already use raw; real-player spring gates
+  pin that seam while correspondence/glyph coordinates stay clamped. Static calls
+  pass both endpoints explicitly. See `docs/SLIDE_TRANSFORMS.md`'s channel table.
+  Two browser-only consequences: a unitless zero in a transform keyframe must retain
+  the other endpoint's CSS unit during interpolation, and inner content/viewBox must
+  use the clamped state—an extrapolated viewBox would cancel the wrapper's overshoot.
+
+- **Resolve animation styles and anchors before reading tracks.** Pass `animStyles` to
+  `compileSlide`/`evaluateSlideState`; the player binds `compiled.cues`, and
+  `compiled.resolvedSlide` includes disabled/dangling tracks for inspection. Pure authoring
+  readers use `resolveTrack`/`resolveBeat` with deck styles and target manifests. A field
+  present on the track overrides the style; `undefined`/`null` are absent and inherit (there is
+  no explicit-null override, and the schema refuses `null`). The three timing fields
+  (`curve`, `influence`, `easing`) inherit as ONE group: any own value blocks the style's
+  entire group. Setting one clears the others; `setTrackCurve(..., null)` clears all
+  three to inherit/default. "None though the style has one" is a
+  sentinel the Animator already writes: `stagger: {perMs: 0}` and `params: {}`. The disk also accepts
+  `influence: {in: 0, out: 0}`, but CurveField/cascade zeroing uses
+  `setTrackCurve(..., null)` to restore inheritance/defaults. Resolution is idempotent. **`preset` never resolves from a style:** it defines
+  the family, and `familyOf(track)` (family law, `tracksMatch`, ghost births, media checks) reads
+  the raw track, so a linked track always keeps its own `preset` (a ghost birth keeps
+  `transform` and passes the schema's `ghostFrom → preset` rule). It is the one style field that
+  propagates by write: `linkTrackStyle` writes a same-family style's preset once (another family
+  is refused) and `setAnimStyle(…, {track: {preset}})` rewrites every linked track's preset.
+  The Animator resolves drag-preview copies through `resolveBeat`, so followers move before
+  commit; a plain drag uses `setTrack` with `anchor: null` and the resolved absolute start.
+  Inherited-field resets delete the local key; resetting a preset copies the style's preset
+  instead, preserving the family-defining own field. Style edits send sparse patches: resending
+  an unchanged preset would overwrite those local preset overrides. Static hosts pass the same style context,
+  and thumbnail invalidation includes only the styles that slide references.
+  Snapshot saves carry `slideAnimStyles` and curve specs; cloned
+  beats/slides remap timing anchors beside ghost IDs. Moving/copying a track across
+  beats detaches its anchor to the source beat's resolved start (pass `manifestFor`
+  for semantic stagger tails); moving a leader also detaches its direct followers
+  at their resolved starts before removing it. A same-beat edit keeps anchors. Media styles refuse stagger. `trackDuration` remains exported by compile
+  but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
   reproduced chained plot morphs restarting from the base asset, text crossfades retaining
   a future layer after reverse seek, and ordinary fades clearing authored rotation/opacity,
@@ -2484,7 +2733,7 @@ outside this PNG packaging change.
   multiply stroke styles) — any code path that re-runs them per frame COMPOUNDS (glyphs shrink
   a notch per beat nav, explode to a gray wall during playback). The contract: capture pristine
   per-field records first (WeakMap in compensate.ts), and every seek runs
-  `restorePtTrue → viewBox/crop → applyOverrides → compensatePtTrue` — exactly a fresh mount,
+  `restorePtTrue → restoreProjection → viewBox/crop → applyOverrides → applyPlotView → compensatePtTrue` — exactly a fresh mount,
   idempotent at any t (transform.ts).
 - **Never animate the wrapper's layout box** (left/top/width/height): the svg child's painted
   origin pixel-snaps to whole STAGE px — sub-pixel writes paint nothing, then jump a full px at
@@ -2572,6 +2821,10 @@ outside this PNG packaging change.
   Slide toolbar's zoom button (first in DOM order) and the expanded gallery preview's; the old
   preview header happened to overlap the toolbar button, so the unscoped click worked by
   accident. Scope gate selectors to the surface under test.
+- **Window key listeners can receive non-Element targets.** Shell command dispatch and
+  its browser gates dispatch on `window`; guard `event.target instanceof Element` before
+  calling `closest`. Escape cancellation must still work for those dispatched events
+  (`verify-slide-animator-gui`, `verify-annotation-surface-gui`).
 - **Svelte 5 delegation hides keydown owners, and window listeners run in mount order.**
   `onkeydown` on elements is delegated to one root listener, so `getEventListeners(el)` shows
   nothing on the element; `<svelte:window on:keydown>` handlers fire in mount order
@@ -2958,11 +3211,17 @@ outside this PNG packaging change.
   is the one static-hiding mechanism) — `setPartVisibility` remains as the
   headless/back-compat op + verb only; don't resurrect a GUI tri-state.
   Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
-  preserve them and test reset/default semantics (September 20 review PS-06). Per-part transform
-  tracks remain deferred (part styling changes ride the plot transform's
-  `overrides` diff). Character-level text morph is the flagged Phase-8
+  preserve them and test reset/default semantics (September 20 review PS-06). Part-set
+  transforms now support hand-off Become; part styling Changes continue to ride the whole
+  plot transform's `overrides` diff. Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
+- **Plot data views (Animation v2 E1–E6):** `view` renders in all five plot hosts and
+  tweens through the transform driver. Axis view controls and `set-plot-view` author the same
+  shared prop; semantic binding preserves shared series across regenerated tick/point counts.
+  Filled and non-series marks remain unchanged; no new ticks are generated. Existing ticks
+  fade in the outer 4%, including exactly on new limits. Non-positive log data refuses that
+  series with a compiler issue. True regeneration/re-ticking remains a fluxplot follow-up.
 - **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
   `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
   reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
@@ -7769,6 +8028,431 @@ out-of-tree Reads, Codex approval mode; tsx child of the test launcher; Electron
 private-display mode; `$effect` early returns; stale `dist/`; tool-output truncation; variadic
 flags; child-process exit handlers). Entries from 2026-07-19 to 2026-09-26 describe the retired
 principal/worker workflow. They are history, not current guidance.
+
+### 2026-09-27 22:52 UTC — Animation v2 preset catalog (Codex, `av2/A1`)
+**Work:** Consolidated preset facts into the pure shared catalog and derived the compiler,
+player metadata, family law, Animator and autobuild views, with flux-core re-exports.
+The 300-check base snapshot gate passes and detects a changed colour; the requested slide,
+animation, X-ray, transform and trim cohorts, both GUI gates on :1423, and both type checks pass.
+**Learnings:**
+- Playback and autobuild had different duration defaults; both are now explicit in the catalog
+  to preserve behavior (promoted to §4).
+- Exact-path manifest entries must retain prior regression groups (promoted to §7).
+- Corrected §3's stale deck version/migration range to match the base's existing 0.6.0 seams.
+
+### 2026-09-27 22:59 UTC — Animation v2 stage geometry bridge (Codex, av2/B1)
+**Work:** Added the pure target-to-stage outline bridge, shared SVG matrices/paint/subpath parsing/pt-true factors, and flux-core exports. New linkedom/core-parity and real-renderSlide Chrome gates pass (59 and 32 checks); both fail with the base path reader and with the crop-origin subtraction removed. Required slide/outline/compensate/plot/figenh regressions, both type checks and CLI build pass.
+**Learnings:**
+- Prepared scatter glyphs can be paths themselves, not just wrappers. The bridge handles both and retains their translate anchors during compensation.
+- Promoted the immutable-root cache contract, group-registry context seam, and text/control-polygon bounds to §4. The 60-point selector measured 0.724 ms warm p95 on this host.
+
+### 2026-09-27 23:00 UTC — Animation v2 correspondence core (Codex, `av2/B2`)
+**Work:** Added pure N↔M planning and buffered sampling over StageOutline, including merged chains,
+data/length tiling, leftovers, lazy 1↔1 plans and glyph landing points. The new public-path gate
+passes 125 checks and fails on the base code and both merge/midpoint fault controls; all 51 pure
+slide gates pass. User and transform docs now describe pairing and the warm/sampling seam.
+**Learnings:**
+- Keep pair chains in the existing planner's unit coordinates to preserve exact array compatibility;
+  stage placement belongs in the shared sampler. Promoted this contract into §4.
+- A bounded batch memo retains warmed large plans beyond the 256-entry individual-pair cache;
+  snapshot inputs on a miss so later producer edits cannot mutate a retained plan.
+
+### 2026-09-27 23:15 UTC — Animation v2 plot projection and data views (Codex, av2/E1)
+**Work:** Extracted the data-space kernel into `plot/project.ts` and the one bound attribute
+writer into `plot/projectDom.ts`. All five hosts render `view`; the transform driver combines
+asset data, view, frame changes and ghost flights through the same writer. Added copy-on-write
+`setPlotView`, view interpolation, per-series eligibility/diagnostics, core exports and user docs.
+The old morph module is a compatibility re-export; no separate morph driver remains.
+**Verification:** Final hermetic pure tier 317/317; plot-view 54 checks, ghost runtime 36,
+paper-render-overrides 21 and exported Become browser 24. All three requested UI gates
+(transform, beat-display, slide-editor) passed on isolated port 1424. Svelte check: 921 files,
+0 errors/0 warnings; headless check and production build passed. No `import-is-undefined`;
+build reports the unrelated `zoteroFields` ineffective-dynamic-import warning. New gate
+negative proofs: old HEAD canvas mount fails 2/54, disabled domain substitution fails 4/54,
+disabled projection restoration fails 7/54; restored implementation passes 54/54.
+**Learnings:** Bind neutral asset geometry so endpoint compensation/view are never baked
+twice; recover guides from pristine source roots for chained transitions. Apply ghost part
+opacity before projection edge fading. Keep unchanged-view movement on the box-only path.
+E4 still owns id-keyed residual fades/topology changes; Axis view UI/verbs remain later
+packets. Native, bundle and startup qualification belong to the orchestrator. Integrated in Animation v2; no user config, main checkout or external ledger was modified.
+
+### 2026-09-27 23:45 UTC — Animation v2 linked styles and timing anchors (Codex, `av2/F1`)
+**Work:** Added pure style/anchor resolution, shared authoring ops, portable style snapshots,
+compiled-cue playback/media timing, and registry-backed CLI/MCP verbs. Resolver negative proofs
+catch precedence corruption and the base compiler's missing integration; the preset census now
+covers the headless verb enum. Updated the body with the resolution boundary and inspection rule.
+**Learnings:**
+- A fixture with DOM nodes but no model targets bypassed compiler validation; exit coverage now
+  supplies real model targets while retaining its playback assertions.
+- The packet's schema/Svelte boundary left explicit-null persistence, linked-ghost persistence and
+  the Svelte readers open. Integration (orchestrator decision) settled the first two without a
+  schema change: no explicit null (the Animator's sentinels override a style) and `preset` always
+  stays on the track (it propagates by write). The Svelte readers (lanes, inspector, library,
+  thumbnails, present, video dialog) are packet F2's.
+
+### 2026-09-28 00:09 UTC — Animation v2 curves core (Codex, `av2/M1`)
+**Work:** Added the shared spring/bezier/steps resolver, grammar, catalog, readout and preset
+default easing. The compatibility wrappers retain pre-M1 CSS and 1,001-point byte snapshots;
+the new 330-check public-path gate passes and detects the absent base module, removed residual
+spread and 400-sample CSS faults. All 52 pure slide gates, 349 preset checks, both type checks
+and the production build pass; model validation and player channel plumbing remain M3/M2.
+**Learnings:**
+- Promoted vertical-error CSS simplification and endpoint-continuity checks into §4.
+- Heap measurements isolate warmed call sites; the unchanged Bézier solver's numeric boxing
+  is the baseline, while the new spring/step samplers add no per-frame heap growth.
+
+### 2026-09-28 00:47 UTC — M1 integration QA (Codex, `av2/M1`)
+**Work:** Qualified committed 829d95a with 321 pure, 34 mapped UI/UI-extra and 13 mapped
+scale gates, both type checks and the production build. Independently executed the old easing
+module and repeated both required fault controls. Added near-endpoint assertions:
+four failed because the compatibility wrapper clips legacy roundoff. The orchestrator decided
+the contract (wrapper = clamped curve, raw `fn` keeps the bytes) and rewrote the assertions to
+pin it. No product logic changed.
+**Learnings:** Promoted near-endpoint floating-point parity probes into the curve guidance above.
+
+### 2026-09-28 01:07 UTC — Hand-off Become model and headless twins (Codex, av2/C1)
+**Work:** Added consume/hand-off authoring, destination-side Appear from, manifest-aware
+validation, compiled flight resolutions and persistent presentation states. Remapped live
+destinations across duplicates, presets and embeds; included them in PPTX phase ownership;
+updated headless verbs, generated manual/golden and model/user docs. Extended existing ops,
+timeline, PPTX and real-canvas gates; targeted reversions prove baseline, overlap, namespace
+and export assertions fail without their corresponding fixes.
+**Learnings:**
+- Promoted canonical target resolution, hidden-state composition and destination phase
+  ownership into the guide body. Runtime flights consume `CompiledSlide.handoffs` (C2).
+- Canvas SVG assertions must scope to `data-editor-element-id`: filmstrip copies may share
+  semantic ids and are not evidence of editor presentation.
+
+### 2026-09-28 01:18 UTC — Animation v2 hand-off runtime (Codex, av2/C2)
+**Work:** Added the camera-local flight SVG, pure hand-off planning adapter, retained path/
+text/raster/glyph driver, reversible visibility leases, raw-progress phase control, draw
+reveals and static-host disposal. Player consumes C1's optional compiled inventory with a
+local resolver fallback until integration. Geometry now shares plot view projection and a
+factored cropped/flipped user-to-stage mapping; rotated data fits fall back to spatial/tile.
+Dense glyphs clone each owner once, normalize directly on the copied marker, and prepare
+while detached so clone writes cannot invalidate subsequent source layout reads.
+**Verification:** Hermetic pure slide 52/52, transform 1/1, Become 2/2, ghost 4/4. New exported
+hand-off browser gate 39/39; old player fails 13/17 reached checks, and disabling the active
+destination-hidden write fails 3/39. Geometry pure 72/72 and browser 71/71; old geometry
+fails 2/71 (projected curve/tick placement). All three requested UI gates passed on :1422.
+Dense 1,200-marker flight passes at 16.8 ms p95 (71 distinct frames, zero pair paths), after
+removing redundant SVG nesting following a 33.4 ms failure. Final check: 928 files, 0 errors/
+0 warnings; headless check and production build pass, with no import-is-undefined warning.
+**Not merge-ready:** The extended cold-preview UI gate fails its first-seek budget at
+171.1 ms (limit 100). The existing SlideMode dock caller supplies no plot geometry to
+warmSlideMorphs. C2 forbids Svelte edits and C1 owns core exports/user docs; the requested
+caller exception had no response at hand-off. `/tmp/av2-C2-integration.patch` contains the
+unapplied caller change and exports for plotStageMapping/planHandoff; its performance effect
+is not verified. C1 must integrate its inventory/baseline and update docs/modes/slide.qmd.
+The E1 writer moves ticks on the changed data axis: parity preserves spines and orthogonal
+ticks, and projects changed-axis ticks rather than freezing them. Core OKLab colors remain
+valid hex/RGBA strings; the browser gate checks CSS validity and computed rgb/rgba values.
+No commits, main-checkout/config writes, native, bundle-tier or startup-tier runs.
+
+### 2026-09-28 01:30 UTC — C1/C2 integration QA (Codex, av2/C2)
+**Work:** Kept literal hand-off part ids when a static host has no manifest, while
+retaining manifest-backed validation. Removed the provisional player inventory;
+`CompiledSlide.handoffs` and its record type are now authoritative. Added compile
+and exported-player pins, including a refused overlapping landing. These changes are integrated in Animation v2.
+**Learnings:** The approved dock context patch is present, but an idle warm can lose
+the race to first seek. Instrumented 40-point data-flight preparation cost 134.4 ms
+on that cold path (planning 5.7 ms, DOM build/insertion 1.4 ms); warm cache hits
+seek in 13.8–15.3 ms. The unchanged 100 ms first-seek gate still fails. Qualification
+stopped at this worker-level preparation/scheduling decision, per the packet.
+Temporary instrumentation was removed; no budget was changed.
+
+### 2026-09-28 01:42 UTC — Animation v2 style and timing UI (Codex, `av2/F2`)
+**Work:** Resolved all Animator timing readers and drag previews; added family-scoped style
+link/save/edit/detach, field overrides/resets, Animate like via bar menu/X-ray 6, timing anchor
+magnet gestures and offset controls, and linked library application. Static thumbnails,
+presenter previews and video estimates now receive deck styles. Easing choices derive from
+M1's shared tokens. Updated slide documentation with captured UI states.
+**Learnings:** Preset reset must copy rather than delete the own field; off overrides use
+F1's sentinels while reset removes them. The real F1 probe is reused inside the authoring gate;
+separate old-file controls detect missing inspector/pick/library and static/video context.
+The 40-linked-lane field-to-paint check stays within 100 ms and verifies next-frame propagation.
+X-ray tests wait for its real keyboard focus, not merely its DOM mount. M1 dependency files
+were supplied by the orchestrator; D1 still generalizes the two small pick states, and M4 owns
+the easing field replacement. Final verification: 322/322 pure, 17/17 UI gates mapped from
+this packet's paths, 72/72 slide sweep, 64 Animator checks, 49 authoring checks, 307 catalog
+checks, and both scale fixtures. 40 linked lanes: 26.3 ms input-to-paint p95; normal/dense
+Animator edits: 16.8/17.0 ms p95; idle rAF = 0. Check/headless: 0 errors/0 warnings. Build
+passed without undefined imports (existing Zotero dynamic-import warning remains).
+The requested `--changed --tier` commands widened across tiers and were interrupted; they
+are not qualification evidence. Their detached children required temporary parent-signal
+stop guards, subsequently restored byte-for-byte; both verification servers were stopped.
+Promoted the selector union trap above. No commits, native gate execution, real project or
+user config changes.
+
+### 2026-09-28 01:44 UTC — C1 integration QA (Codex, av2/C1)
+**Work:** Pinned the headless linked-style birth check with a real-handler red/green proof.
+Found and fixed a second F1/C1 seam: replacing an existing source transform validated its raw
+start instead of its retained effective timing. Added style/anchor/disabled-source cases,
+part-set family-law and CLI refusal checks, and raw-progress sampler probes; repeated the
+worker's baseline, overlap, embed-remap and PPTX fault controls. Qualification evidence and
+the ordinary-entrance versus ghost-birth contract question are recorded in the QA report.
+**Learnings:** Promoted resolved source timing and disabled-track inspection into the body.
+
+### 2026-09-28 03:21 UTC — F2 integration table seam (Codex, `av2/F2`)
+**Work:** Consolidated the preset and linked-style rows duplicated by the M1/F2 rebase,
+retaining both packets' facts and verification references. Added a docs gate assertion
+that fails on duplicate shared-core domains; demonstrated red on the rebased table
+and green after consolidation. Product behavior is unchanged.
+**Learnings:** Merge shared-core table rows by domain, retaining the union of facts
+and gates; appending both variants breaks the table and creates competing references.
+
+### 2026-09-28 03:23 UTC — Hand-off cold preparation (Codex, av2/C2P)
+**Work:** Profiled the real 40-point cold preview, then hoisted invariant source stations
+out of the seam candidate loop. Preparation fell from 130.4 to 14.0 ms; the unchanged
+startup gate passed three consecutive runs. Reverting the planner restores the first-seek
+failure (169.1 ms). Frozen old-planner pairs retain exact arrays and zero sampled deviation;
+a wrong-station fault fails their new geometry checks. No sampling reduction, lifecycle
+change, budget change or frame-path edit was needed. Integrated on animation-v2.
+**Learnings:** The dominant work was repeated source arc inversion during alignment,
+not parameterization or node allocation. Promoted the measured contract to §4.
+
+### 2026-09-28 03:29 UTC — F2 window-key integration seam (Codex, `av2/F2`)
+**Work:** Guarded Animate like's global key listener against non-Element event targets.
+The existing annotation gate exposed `target.closest is not a function`; a focused
+Animator assertion also failed when window-dispatched Escape could not cancel a pick.
+**Learnings:** Promoted the window-target contract into the keyboard traps above.
+
+### 2026-09-28 03:33 UTC — Geometric camera paths (Codex, av2/M5)
+**Work:** Added the shared Zoom/pole and Fly sampler, 24-frame camera preset, live-FROM
+rebasing and deterministic seek restoration. Added the Path toggle and undoable suggested
+Fly duration, additive schema validation and release note; 207 camera checks, all 54 pure
+slide gates, the 15-gate transform group, both scale fixtures and both type checks passed.
+The old readers fail 132 camera checks; the old UI and schema fail their new assertions.
+**Learnings:** Promoted T7's retirement into §9. Camera rebasing must invalidate cached
+segment samplers and release their native bindings; replacing frame zero alone is insufficient.
+M2 still owns unclamped easing and segment extrapolation at the explicitly marked seam.
+
+### 2026-09-28 03:34 UTC — Animation v2 curve authoring and persistence (Codex, av2/M3)
+**Work:** Added the optional tagged curve schema, whole-group style inheritance and curve edits,
+curve-bearing templates and transform/ghost/Become options, catalog easing defaults, CLI grammar,
+beat-filtered Animate like, media-style stagger refusal and cross-beat anchor detachment.
+Updated model/manual docs and generated validators/manual. The slide suite passes 53/53;
+new model/ops/CLI assertions fail on the pre-M3 tree. The all-source easing census deliberately
+reports the pending F2 `animator/shared.ts` literal on this base; that file remains F2-owned.
+**Learnings:** The canonical schema/generator live in `src/lib/project`, with flux-core re-export
+shims. Cross-beat anchor detachment needs the source beat's manifests for semantic stagger tails;
+the pure ops accept `manifestFor` and headless move supplies it. Promoted both contracts to the body.
+
+### 2026-09-28 03:50 UTC — Hand-off picking and destination-side authoring (Codex, `av2/D1`)
+**Work:** Unified Become, Appear from and Animate like picking; added canvas part accumulation,
+Pair, X-ray 5/b and destination highlights. Added the shared Auto-animate the rest helper,
+Design destination visibility, the parts-only Ghost policy fix, user docs and real-path gates.
+Integrated on animation-v2 with D2’s Destination/Swap controls.
+**Learnings:** Promoted pick ownership and the view-only Canvas/Design seams into §4. Shift was
+previously a deliberate deep-select exclusion; the pick surface needs an explicit override
+without changing Figure drag behavior. Generated remainder phases must follow the landing,
+and partially excluded containers must keep their other leaves.
+**Validation:** Pure slide 54/54; UI slide 20/20; final Become 42 checks, Ghost 39,
+X-ray multi 35, autobuild 36. Transform, beat display, surface/theme, docs, chord census
+and shell gates pass; check/check:headless are 0 errors/0 warnings. Old-file and disabled-
+behavior runs prove the new assertions red, then green. Build passes with one unrelated
+`zoteroFields` ineffective dynamic-import warning, no undefined imports. Native/bundle/startup
+tiers remain the orchestrator's gates.
+
+### 2026-09-28 03:50 UTC — Partial plot binding and Axis view authoring (Codex, av2/E2)
+
+`compilePlotContent` matches semantic IDs, uses the shared attribute compiler, and fades
+unmatched parts or local anonymous topology instead of complete plots. Union vertex indices
+retain null-data gaps; unmatched markers and line edges fade through the projection writer.
+Forward/reverse asset chains retain canonical IDs. Mixed raster/SVG endpoints fade as
+unmatched layers. Appearance baselines retain authored opacity, and `applyAt` now runs
+content controllers before appearance frames (existing timeline/browser assertions pin this).
+
+The lazy Axis view block serves Inspector and F-menu (x `v`, y `b`, next free key if crop
+already owns `v`); X-ray axis `v` focuses its Inspector row. NumberField's opt-in nullable
+live mode previews through editSession and preserves small data-unit values (12 significant
+digits, domain-sized steps). Residue namespaces stay unique across local crossfade chains.
+The shared field normalizer feeds `ops.setPlotView`
+in both GUI and `set-plot-view`/`set_plot_view`; deck beat edits resolve the prior endpoint
+and write `state.view`. Missing axes/series diagnose instead of throwing. Removed the old
+morph shim and corrected imports/docs. Figure, slide, shortcuts and stock manual are updated;
+generated context and MCP inventory are regenerated, never hand-edited.
+
+New hermetic gates: plot-binding (semantic subsets, topology, unequal vertices, null gaps,
+reverse seek, raster fallback); plot-view-gui (canvas/export/undo, F-menu, X-ray, After-step
+capture and real ruler seek); plot-view-verb (real CLI/MCP and shared-op byte parity). Each
+was demonstrated red with the old driver/registry or disabled setter, then green. Existing
+timeline, export-transform, Figure controls and surface assertions remain intact; the
+changed-pathmap gate now pins the additional coverage. Full receipts are in this worker's
+report and test-results/runs. Startup/bundle/Electron/native gates remain orchestrator-owned.
+
+Validation: check (932 files) and check:headless are 0 errors/0 warnings; production and CLI
+builds pass. A full pure cohort passed 325/325; the final cohort passed 323/325 with two
+machine-wide EMFILE watcher failures, both passing serial retries. Final Axis view GUI is
+23/23; binding is 93/93; verb parity is 10/10. F-menu surface, Figure controls, X-ray theme,
+registry, docs, offline export and timeline gates pass. The final GUI run used Vite polling
+to avoid the same watcher limit. No gate was loosened; no commits were made by this worker.
+
+### 2026-09-28 03:51 UTC — Animation v2 Destination inspector (Codex, `av2/D2`)
+**Work:** Added hand-off Destination controls, atomic reversal with style/anchor preservation,
+inline consume confirmation, semantic lane labels and camera framing of drilled parts.
+Added/exported `autoAnimateExcept` because the D1 helper was absent on this base; its remaining
+phases follow the landing and preserve manual/other-plot tracks. Animator 102, Transform GUI 31,
+Become GUI 20 and autobuild 34 checks pass; old UI/old helper and deliberately reversed Swap
+arguments fail, both type checks are 0/0, docs/path-map/build pass, and the packet is integrated on animation-v2.
+**Learnings:** Promoted the shared helper and inspector/geometry contracts to §4. Verification
+server polling worked around the host's exhausted file-watcher quota without product changes.
+
+### 2026-09-28 04:05 UTC — Animation v2 curve plumbing (Codex, av2/M2)
+**Work:** Player specs and compiled tracks now share `ResolvedCurve`; box channels
+extrapolate while content/data channels clamp, controller phases read raw progress,
+and `staggerDelay` owns the three delay calculations. Real-player/compiler/export
+gates pin spring overshoot, native/sample agreement and clamped data inputs with
+old-code and injected-fault negative proofs; isolated pure 324/324, transforms 16/16,
+both checks 0/0 and build passed without undefined imports. The first scale cohort
+passed 13/13, but isolated dense glyph timing later failed at 33.3 ms p95 on BOTH M2
+and a base control; inbox GUI's two background-agent availability failures also
+reproduce at base, while watcher and pinned-caption failures passed isolated retries.
+**Learnings:**
+- Promoted T1–T4, inner-content/viewBox cancellation and unitless-zero interpolation
+  traps to §9, the channel seam to §2/§4, and additive `--changed` selection to §7;
+  compiler camera zoom remains clamped until M5.
+- An interrupted shell left overbroad runners alive in this session, including one
+  at the default :1420 port; no native attempts ran. Exclude those cohorts and confirm
+  runner completion before qualifying isolated scale measurements (§7).
+
+### 2026-09-28 04:37 UTC — Animation v2 easing UI (Codex, `av2/M4`)
+**Work:** Added CurveField catalog/graph/spacing controls, keep-arrival timing, clipboard grammar,
+owned preview/cancel history, cached rail sparklines, spring-bounce cascade and timing copy/paste.
+Extended the real Animator, authoring, cascade and surface gates; captured the user-doc screenshots.
+Updated the ghost-selection gate's retired easing-select assertion to require the curve button.
+**Learnings:** Curve edits must nest the deck operation inside the owned mutation to preserve
+one Undo and cancellation's prior redo state. Idle animation probes wait for autosave's dirty
+indicator transition before their 500 ms census; otherwise a finite save transition is mistaken
+for resting motion. Both contracts are now covered by the Animator gate.
+
+### 2026-09-28 04:45 UTC — M2 × M5 camera reconciliation (Claude Opus 5.5, QA `av2/M2`)
+**Work:** Reconciled the compiler's camera to the unclamped curve (`sampleCamera(…, ct.ease.fn(raw), …)`)
+and removed both packets' placeholder comments. The requested spring parity check was red:
+the player extrapolated the last of its 24 camera keyframes linearly (9.1048 px from the
+compiler for spring(0.5) 1→2; played zoom −0.034 for spring(0.8) 1→0.05). Out-of-range camera
+frames now sample the preset's exact `transformAt(u)`; max deviation 0.1243 px (the in-range
+keyframe residual). `verify-slide-camera` pins overshoot, positivity, parity and landing.
+**Learnings:** A keyframed approximation that is exact in 0–1 is not exact outside it; any
+spec whose path is non-linear in its keyframe values needs its own sampler for overshoot.
+
+### 2026-09-28 04:45 UTC — M3 integration QA (Claude, av2/M3)
+**Work:** Rebased M3 over C2P, F2 and D2. F2 and M3 each brought an easing-token census to
+`verify-preset-catalog.ts`; they are now one (M3's scope `src/**` + `flux-core/**`, F2's
+any-three-distinct-tokens threshold, plus `EASINGS === EASING_TOKENS` identity). Added a
+REAL-CLI pin: a cross-beat `move-track` of an anchored follower keeps the leader's plot
+stagger tail (flux-core supplies `manifestFor`). Checked by hand through the CLI:
+`set-track --curve "spring(0.35)"` persists the spec, clears easing/influence and validates;
+`--curve garbage` prints the grammar; `animate-like --beat`; media styles refuse stagger.
+**Learnings:** Until M2 lands, the player ignores `curve` (it reads `easing`/`influence`),
+so a curve-only track plays the family default. The Animator's easing `<select>` and
+influence fields assign fields directly and leave an own `curve` in place; route them through
+`setTrackCurve` when CurveField replaces them (M4), before curves become audible.
+
+### 2026-09-28 05:20 UTC — D1 integration: one helper, one label, one pair list (Claude QA, `av2/D1`)
+**Work:** Rebased D1 over D2, M5 and M2. Reconciled the two `autoAnimateExcept`s into D2's
+landed function plus D1's landing, anchor and beat-id behaviour; removed the duplicate flux-core
+export the rebase auto-merged. Added `PAIR_POLICIES`, replacing four literal pair lists. The
+pick UI now uses D2's shared `refLabel`, and Auto-animate the rest is hidden for whole-plot
+hand-offs. Each change was shown red, then green.
+**Learnings:** Parallel packets told to add the same helper will both add it, and git merges
+the two `export` lines silently: grep flux-core/index.ts for duplicate names after every rebase.
+Label and choice lists drift the same way — census them like presets and easings.
+
+### 2026-09-28 05:36 UTC — Total stagger and box arcs (Codex, av2/M6)
+**Work:** Added shared Total/distributed/seeded-random stagger, box arcs, authoring/CLI/style
+and cascade support, schema validation, and real player/inspector regressions. M2's discrete
+property flips now use raw progress and compiled tracks retain maxRank. The new stagger gate
+and all seven extended gates fail at e9eb26e; focused pure slide and Animator runs pass.
+**Learnings:** Promoted the motion core to §2. Expanded children of a single stagger track
+must never supersede one another in playback. The arc driver restores the content frame
+after applying its wrapper box; the painted-content gate catches viewBox cancellation. A quadratic control offset of half the move
+length produces a quarter-length apex, which the geometry gate pins; Total normalizes
+symmetric ranks without changing legacy Each arithmetic. M4 mounts CurveField at the marked
+inspector slot; M3 owns the separate Track.curve schema.
+
+### 2026-09-28 05:40 UTC — E2 integration: positional ids, rest frames, write-free static frames (Claude QA, `av2/E2`)
+**Work:** A real-UI probe of panels-a → b showed E4 pairing nodes by positional ids: stamped
+`n<k>` and matplotlib's `ytick_N` shift when a regenerated plot has fewer ticks, so the shared
+line crossfaded against a stranger and 8/52 destination parts stayed hidden at rest. Binding
+now ignores positional ids, keys wrappers by their semantic descendants, keeps a source-only
+wrapper that holds shared parts, strips shared parts from destination copies, and skips the
+guide edge fade on an asset change's rest frames. The attribute compiler regained its
+unchanged-value skip. Compiler/`become --asset` wording is "has no counterpart and fades".
+**Learnings:** Test rest frames against the endpoint's own static render in both directions
+(`verify-plot-binding`); fixture ids in a pure gate that bypass `preparePlot` hide id stamping.
+
+### 2026-09-28 06:23 UTC — M6 preset integration QA (Codex, `av2/M6`)
+**Work:** Found that a saved Arc survived in the preset payload but disappeared when the existing library applied a transform preset. Forwarded it through `setTransform` and pinned real Save, Apply and one-step Undo in the animator gate (125/126 before the fix, 126/126 after). Added screenshots for Each/Total and Random/reshuffle/Undo. The conflicting arc-apex requirements remain an orchestrator decision; no motion formula was changed.
+**Learnings:** Extended the preset row in §2 to cover the explicit GUI reader as well as the reusable payload.
+
+### 2026-09-28 06:35 UTC — M6 raw SVG binding integration QA (Codex, `av2/M6`)
+**Work:** Forwarded raw progress through the shared static/plot content bindings. E2's attribute cache had retained eased midpoint switching after M6 corrected the model. Added compiler/player and real Chromium regressions: the old binding switches line caps three times across 60 non-monotone samples; the corrected binding switches once. Added a maxRank scan detector (15 negative assertions when the old per-frame scan is restored), and real mixed-selection Arc/Total cascade coverage/screenshots.
+**Learnings:** Model interpolation passing does not prove painted attributes follow the same channel; verify both through exported createPlayer. Named-color fallback still reads eased progress in the packet's own tween logic and is escalated, along with the conflicting arc-apex requirement.
+
+### 2026-09-28 06:47 UTC — M4 integration seams and red-first QA (Codex, `av2/M4`)
+**Work:** Applied the orchestrator's M3 decisions alongside M4: unknown easing migration,
+pre-M3 ghost disappearance bytes, curve-preserving Library apply, pane/cascade reset parity,
+manifest-aware GUI moves/copies, and follower detachment. Added real-pane pins (including
+keep-arrival after a linked reset), a generated pre-M3 ghost fixture, and a duration-width pin.
+Integrated on animation-v2 at `91dc34a`, including the approved ResizeObserver fix.
+QA evidence lives in the worktree and `/tmp/flux-m4-qa`; Electron qualification belongs to the orchestrator.
+**Learnings:**
+- Keep-arrival must measure the resolved curve after the authoring op: clearing a local
+  override can restore a linked spring, so the input patch is not the resulting curve.
+- The ghost original's disappearance uses an authored `smooth`, independent of the
+  ordinary fadeOut default. Its full normalized deck bytes are pinned to pre-M3 `fa47852`.
+- Read popup bounds before screenshotting, and use `captureBeyondViewport: false`.
+  Capturing outside the viewport can fire resize placement and mask clipping after
+  dynamic controls/errors grow. The QA gate exposes this placement bug; the approved
+  ResizeObserver fix landed with M4 at `91dc34a`.
+
+### 2026-09-28 14:33 UTC — M6 integration over M3/M4 (Codex, av2-M6)
+**Work:** Resolved the M6 worker conflicts by retaining timing-curve group inheritance,
+anchor/follower detachment, camera paths and plot-view verbs alongside stagger modes,
+seeded distribution, arcs and cascades. Regenerated validators/manual, mounted the compact
+stagger CurveField, widened uint32 seeds, and added a raw-progress named-color regression.
+**Learnings:** Non-conflicting imports and test harnesses can duplicate during this merge;
+inspect them after resolving blocks. A non-numeric keyframe fallback is a discrete channel,
+so both segment selection and interpolation must use raw progress. SVG paint bindings
+need the same raw argument through `prepareColorLerp`; the compiler and outline sampler
+thread it too. The integration includes f6c88ba's render/transform callback plumbing
+as the prerequisite for this fix; its Library and additional QA changes remain pending.
+
+### 2026-09-28 15:29 UTC — Animation v2 coherence close (Codex, av2/X1)
+**Work:** Centralized part IDs, semantic labels, authoring timing, hand-off detection,
+Auto-animate eligibility, beat delay and deck-aware compile options. Extracted atomic
+`swapBecome` with CLI/MCP twins, retaining style/curve/anchor/group fields and one Undo.
+Aligned UI/help/manual vocabulary and the Slide/Figure/shortcut/transform docs with 0.6.0;
+regenerated the manual and MCP golden, removed dead influence choices and the O shortcut,
+and ordered only the Animation v2 log entries. M6 had already removed the duplicate curve
+paragraph and stale M2 deferral.
+**Verification:** Pure 328/328; slide selection 76/76; mapped UI 77/78, UI-extra 5/5,
+scale 13/13 and presence 11/11. All 67 non-electron Paper gates passed. Both type checks
+are 0 errors/0 warnings; build and build:cli passed (the unrelated zoteroFields dynamic-import
+warning remains). Old-code controls fail for ID/naming/default/label drift, the missing swap
+op/verb and deck-local manifest omission; current gates pass. The one mapped UI failure is
+`verify-inbox-gui`: the background recipient is missing in two of 88 checks, identically on
+base `9822a62` with all X1 product sources reverted. No Inbox code or gate was changed.
+Electron/startup/bundle qualification remains the orchestrator's responsibility. Evidence:
+`test-results/runs/2026-09-28T15-06-51-490Z-3` (pure),
+`test-results/runs/2026-09-28T15-07-33-328Z-3` (slides), and `/tmp/flux-x1/qualification.json`.
+**Learnings:** Camera authoring (900 ms/smooth) and omitted playback timing (320 ms/standard)
+are distinct catalog policies. Keep a swap's admission on private beats so a refused shared
+op cannot publish partial changes. Compare mapped gates per tier: the runner's `--changed`
+adds all mapped tiers, including native gates a worker must delegate.
+
+  dynamic controls/errors grow. M4 has this packet-owned placement bug; the QA gate
+  now exposes it and the proposed ResizeObserver fix is pending orchestrator approval.
+
+### 2026-09-28 14:48 UTC — Inbox first-probe readiness (Codex, av2/X2)
+**Work:** Traced the missing background recipient to the dev fixture mounting Shell before
+its bridge arrived: no provider call or rejection, an empty capability cache, and a missed
+runner-event subscription. Demo startup now awaits fixture installation before mount, matching
+Electron's preload order. The Inbox gate holds the real fixture module request and pins the
+first probe/subscription without refreshing; old startup fails both new checks and the two
+existing recipient checks (86/90), while the fix passes 90/90. Promoted the startup contract
+into §9 and corrected the completed background-routing integration notes in §1/§4.
 
 ### 2026-09-28 — Flux 3D Stage 1: GLB models and 3D fluxplots in Figure (GPT6-Astra (Codex), `model3d`)
 **Work:** Built Stage 1 of the 3D plan: GLB and scene3d import, metadata-only persistence, one

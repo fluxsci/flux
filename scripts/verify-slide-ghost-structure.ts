@@ -2,6 +2,7 @@
 // must preserve that ownership without introducing hidden asset dependencies.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { ghostDisappearBytes } from "./lib/m4GhostFixture";
 import * as ops from "../src/lib/slide/ops";
 import * as figureOps from "../src/lib/ops";
 import { deckToProject, projectIntoDeck, slideAssetIds } from "../src/lib/slide/deckProject";
@@ -16,6 +17,8 @@ import type { Asset, Element, Project } from "../src/lib/types";
 
 let checks = 0;
 const eq = (a: unknown, b: unknown, label: string) => { assert.deepEqual(a, b, label); checks++; console.log("  ok:", label); };
+eq(ghostDisappearBytes(ops) === readFileSync(new URL("./fixtures/m4-ghost-disappear-pre-m3.json", import.meta.url), "utf8"), true,
+  "D2: ghost-birth deck is byte-identical to pre-M3 fa47852 (generated ids and dates normalized)");
 const fixture = () => {
   const d = ops.createDeck({ id: "ghost-structure", withTitleSlide: false });
   const s = ops.addSlide(d, { layout: "blank", name: "Ghosts" });

@@ -26,6 +26,16 @@ const ok = (c: unknown, m: string) => h.ok(!!c, m);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const docsDir = path.join(repoRoot, "docs");
 
+// A rebase must consolidate shared-core rows, retaining both packets' gates.
+const guide = fs.readFileSync(path.join(docsDir, "AGENT_ENGINEERING_GUIDE-RUNNING.md"), "utf8");
+const twinEngine = guide.split("## 2. The Twin-Engine Rule")[1]?.split("\n## 3.")[0] ?? "";
+const domains = [...twinEngine.matchAll(/^\| ([^|]+) \|/gm)]
+  .map(m => m[1].trim().replace(/\s*\(.*$/, ""))
+  .filter(name => name !== "Domain" && !/^-+$/.test(name));
+ok(domains.length > 0, "the engineering guide lists its shared-core domains");
+h.eq(domains.filter((name, i) => domains.indexOf(name) !== i), [],
+  "the twin-engine table has one authoritative row per shared-core domain");
+
 // --- enumerate the corpus ---------------------------------------------------
 // for_agents/ is agent-facing runbooks, deliberately outside the rendered site —
 // walked separately below, not part of the page corpus.

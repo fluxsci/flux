@@ -4,7 +4,7 @@ import { plotSourceCandidates } from "../plot/source";
 import { danglingTrackTargets, normalizeDeck } from "./ops";
 import { validateDeckFile } from "../project/validate";
 import { isNewerSchema } from "../project/types";
-import { DECK_SCHEMA_VERSION, type Deck } from "./types";
+import { DECK_SCHEMA_VERSION, type Deck, type Track } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
 import type { ExportPayload } from "./export/runtime";
 import { slideAssetIds } from "./deckProject";
@@ -215,12 +215,31 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
 export async function gatherSlidePayload(root: string, deck: Deck, slideId: string, io: SlidePayloadIO) {
   const slide = deck.slides.find(s => s.id === slideId);
   if (!slide) throw new Error("Slide is no longer in this deck");
-  // Disabled births still own their unborn result identities.
-  const selectedSlide = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: b.tracks.filter(t => !t.disabled || !!t.ghostFrom) })) };
+  const selectedSlide = { ...slide, beats: slide.beats.map(b => ({ ...b, tracks: exportedTracks(b.tracks) })) };
   const ids = slideAssetIds(selectedSlide);
   const selected = { ...deck, slides: [selectedSlide], assets: deck.assets.filter(a => ids.has(a.id)) };
   const result = await gatherPayload(root, selected, io);
   return { ...result, payload: portablePayload(result.payload, { notes: false }) };
+}
+
+/** The tracks a per-slide payload carries: enabled tracks; disabled births (they still own their
+ *  unborn result identities); and every disabled track a kept track's timing anchor names,
+ *  directly or through a chain. Masking is non-destructive, so a follower keeps its start
+ *  (slide/resolve.ts). Such a track plays nothing, so it drops its endpoint (`to`) and never
+ *  makes an asset required. */
+function exportedTracks(tracks: Track[]): Track[] {
+  const byId = new Map(tracks.flatMap(t => t.id ? [[t.id, t] as const] : []));
+  const kept = new Set(tracks.filter(t => !t.disabled || !!t.ghostFrom));
+  const anchorOnly = new Set<Track>();
+  for (const pending = [...kept]; pending.length;) {
+    const named = byId.get(pending.pop()!.anchor?.trackId ?? "");
+    if (named && !kept.has(named)) { kept.add(named); anchorOnly.add(named); pending.push(named); }
+  }
+  return tracks.filter(t => kept.has(t)).map(t => {
+    if (!anchorOnly.has(t) || !t.to) return t;
+    const { to: _endpoint, ...timing } = t;
+    return timing;
+  });
 }
 
 /** One portable projection for full presenter decks and Paper occurrences. */

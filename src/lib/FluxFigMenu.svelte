@@ -260,7 +260,7 @@
     void tick().then(() => {
       if (!$fluxFigMenuOpen || activeKey !== f.key || (mode !== "field" && mode !== "option")) return;
       const el = inputs[f.key];
-      if (f.kind === "select") {
+      if (f.kind === "select" || f.kind === "axisView") {
         panelEl?.focus({ preventScroll: true });
         return;
       }
@@ -324,7 +324,7 @@
    *  wheel adjusts it wherever the mouse is — the canvas must not zoom. */
   function onWinWheel(e: WheelEvent) {
     if (yieldsToShellModal(e)) return;
-    if (!$fluxFigMenuOpen || !(mode === "field" || mode === "option") || !active) return;
+    if (!$fluxFigMenuOpen || !(mode === "field" || mode === "option") || !active || active.kind === "axisView") return;
     if (panelEl?.contains(e.target as Node)) return; // the panel's own handler (hover-arming) takes it
     e.preventDefault();
     e.stopPropagation();
@@ -347,7 +347,7 @@
         });
       }
     }
-    if (!f) return; // nothing armed under the pointer: let the body scroll
+    if (!f || f.kind === "axisView") return; // nothing armed under the pointer: let the body scroll
     e.preventDefault();
     e.stopPropagation();
     wheelField(e, f);
@@ -422,6 +422,9 @@
       }
       if (lk === "f") { e.preventDefault(); confirmField(); close(); }
       return;
+    }
+    if (active?.kind === "axisView" && !typing && (k === "Escape" || lk === "f")) {
+      e.preventDefault(); e.stopImmediatePropagation(); confirmField(); return;
     }
     // field / color / search modes: the focused control owns the keys.
   }
@@ -541,6 +544,12 @@
                         </button>
                       {:else if f.kind === "toggle"}
                         <button class="toggle" class:on={Boolean(f.get())} on:click={() => activate(f)}>{f.get() ? "on" : "off"}</button>
+                      {:else if f.kind === "axisView" && f.axisView}
+                        {#if armed}
+                          {#await import("./plot/AxisView.svelte") then module}
+                            <svelte:component this={module.default} {...f.axisView} autofocus />
+                          {/await}
+                        {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
                       {:else if f.kind === "action"}
                         <button class="actbtn" on:click={() => activate(f)}>run</button>
                       {:else if f.kind === "select"}

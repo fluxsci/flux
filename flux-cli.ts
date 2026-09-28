@@ -235,6 +235,9 @@ usage: flux <verb> [root] [args] [--flags]
   set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
   ghost-transform <deckId> <slideId> <beatId> <sourceId> [--count 3 --original stay|disappear|transform --states '<json array>' --original-state '<json patch>' --duration ms --start ms --easing e]   spawn independent copies from the source's current state
   become <deckId> <slideId> <beatId> <sourceId> (--target <elementId> | --asset <assetId>) [--start ms --duration ms --easing e --force]   the source turns into another object (consumed) or, for a plot, another project plot's data
+  anim-style <create|set|delete|list> <deckId> [styleId] [--name N --family F --preset P --start ms --duration ms --easing E --stagger JSON]   linked deck animation styles
+  animate-like <deckId> <slideId> --from <trackId> --to <trackId,…>   link effects to the source's style
+  set-track <deckId> <slideId> <trackId> [--style id|--no-style] [--anchor trackId:start|end[:offsetMs]|--no-anchor] [--start ms --duration ms --easing E]   timing and style overrides
   group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
   ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
   cascade-tracks <deckId> <slideId> <start|duration|influence.in|influence.out|stagger.perMs> t1,t2… [--delta n | --factor n] [--order timeline|list] [--reverse] [--first-fixed]   stepped timing delta across tracks (rank k gets value+delta·step)

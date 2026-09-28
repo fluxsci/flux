@@ -1,10 +1,11 @@
 import type { Deck } from "./types";
 import type { ExportPayload } from "./payload";
 import type { Figure } from "../types";
-import { preparePlot } from "../plot/parse";
+import { preparePlot, partIdFromDom } from "../plot/parse";
 import { buildPlotMarkup } from "../plot/inlineMarkup";
 import { figureToSvg } from "../export";
 import { compileSlide, type CompiledSlide } from "./compile";
+import { remapBecomeTarget } from "./handoffTargets";
 import { resolveTheme } from "./theme";
 import type { PlayerOpts } from "./player/player";
 
@@ -34,7 +35,11 @@ export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {
     const groups = new Map(Object.keys(slide.groups ?? {}).map(id => [id, `${prefix}-${id}`]));
     for (const e of slide.elements) { e.id = ids.get(e.id)!; if (e.groupId) e.groupId = groups.get(e.groupId) ?? e.groupId; }
     slide.groups = Object.fromEntries(Object.entries(slide.groups ?? {}).map(([id, g]) => [groups.get(id)!, { ...g, id: groups.get(id)!, ...(g.parentId ? { parentId: groups.get(g.parentId) ?? g.parentId } : {}) }]));
-    for (const b of slide.beats) for (const t of b.tracks) { t.target = ids.get(t.target) ?? t.target; if (t.ghostFrom) t.ghostFrom = ids.get(t.ghostFrom) ?? t.ghostFrom; }
+    for (const b of slide.beats) for (const t of b.tracks) {
+      t.target = ids.get(t.target) ?? t.target;
+      if (t.ghostFrom) t.ghostFrom = ids.get(t.ghostFrom) ?? t.ghostFrom;
+      remapBecomeTarget(t, ids, groups);
+    }
   }
   return copy;
 }
@@ -44,7 +49,7 @@ export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {
 export function compileSlideFor(payload: ExportPayload): CompiledSlide {
   const slide = payload.deck.slides[0];
   if (!slide) throw new Error("Cannot render an absent slide");
-  return compileSlide(slide, payload.deck.stage, { plotManifest: id => payload.plots?.[id]?.manifest });
+  return compileSlide(slide, payload.deck.stage, { animStyles: payload.deck.animStyles, plotManifest: id => payload.plots?.[id]?.manifest });
 }
 
 /** A slide evaluated at one build step, ready for any static writer: the
@@ -81,7 +86,7 @@ export function evaluateSlide(payload: ExportPayload, step = 0, timeMs = Infinit
     if (!parts) return markup;
     const root = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
     for (const node of Array.from(root.querySelectorAll("[id]"))) {
-      const key = node.id.startsWith(`${el.id}__`) ? node.id.slice(el.id.length + 2) : "";
+      const key = partIdFromDom(node.id, el.id) ?? "";
       const state = parts[key];
       if (!state) continue;
       const styled = node as SVGElement;

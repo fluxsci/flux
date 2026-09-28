@@ -128,7 +128,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       const inner = document.createElement("div");
       inner.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;`;
       nextScaled.appendChild(inner);
-      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
+      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, animStyles: deck.animStyles, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
       frame.appendChild(nextScaled);
       panel.appendChild(frame);
     }

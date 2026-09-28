@@ -32,6 +32,15 @@ for(let trial=0;trial<3;trial++){
     f.slideOps.addElement(d,first.id,el);f.slideOps.addElement(d,first.id,{id:'target'+i,type:'ellipse',x:120+i*280,y:160,width:220,height:130,rotation:0,fill:'#da702c',stroke:'#fff',strokeWidth:2});
     f.slideOps.becomeTransform(d,first.id,beat.id,el.id,'target'+i,{duration:1200,easing:'linear'});
    }
+   const points=Array.from({length:40},(_,i)=>({index:i,svgId:`warm.point.${i}`,x:i/8,y:20+10*Math.sin(i)}));
+   const axes=[{x:{scale:"linear",domain:[0,5],anchors:[{data:0,svg:0},{data:5,svg:180}]},y:{scale:"linear",domain:[0,100],anchors:[{data:0,svg:0},{data:100,svg:100}]}}];
+   f.plot.cachePlot("warm-points",`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100"><g id="warm.points">${points.map(p=>`<circle id="${p.svgId}" cx="${p.x*36}" cy="${p.y}" r="2" fill="#4169e1"/>`).join('')}</g></svg>`,{spec:"fluxplot",schemaVersion:"0.2.0",size:{width:200,height:100,unit:"px"},axes,series:[{id:"warm",roles:["point"],svg:{points:"warm.points"},points}]});
+   const xs=Array.from({length:41},(_,i)=>i/8),ys=xs.map(x=>40+15*Math.sin(x));
+   f.plot.cachePlot("warm-line",`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100"><path id="warm.line" d="${xs.map((x,i)=>`${i?'L':'M'}${x*36} ${ys[i]}`).join(' ')}" fill="none" stroke="#e13958" stroke-width="2"/></svg>`,{spec:"fluxplot",schemaVersion:"0.2.0",size:{width:200,height:100,unit:"px"},axes,series:[{id:"warm",roles:["line"],svg:{line:"warm.line"},data:{x:xs,y:ys}}]});
+   f.slideOps.addElement(d,first.id,{id:"warm-source",type:"plot",assetId:"warm-points",x:40,y:330,width:200,height:100,rotation:0});
+   f.slideOps.addElement(d,first.id,{id:"warm-dest",type:"plot",assetId:"warm-line",x:600,y:330,width:200,height:100,rotation:0});
+   f.slideOps.setTransform(d,first.id,beat.id,"warm-source",{ref:{element:"warm-source",parts:["warm.points"]},state:{},duration:1200,easing:"linear"});
+   beat.tracks.find(t=>t.target==="warm-source").to.become={mode:"handoff",ref:{element:"warm-dest",parts:["warm.line"]},pair:"data"};
    f.slide.loadDeckModel(d);window.__morphSaved=JSON.stringify(f.slide.currentDeck());
   });
   // Opening the animator is where the node correspondences get warmed, so the
@@ -43,9 +52,9 @@ for(let trial=0;trial<3;trial++){
    const previewMs=performance.now()-start;const ruler=document.querySelector('.animator .ruler'),r=ruler.getBoundingClientRect(),t=performance.now();ruler.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,clientX:r.x+r.width*.5,clientY:r.y+5}));window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0}));await new Promise(resolve=>requestAnimationFrame(resolve));
    const seekMs=performance.now()-t,geometry=[...document.querySelectorAll('.preview-host [data-el-id^="shape"] path')].map(e=>e.getAttribute('d'));
    const totalMs=performance.now()-window.__openedAt;
-   return {previewMs,seekMs,totalMs,geometry,saved:JSON.stringify(window.__flux.slide.currentDeck())===window.__morphSaved};
+   return {previewMs,seekMs,totalMs,geometry,handoffPaths:document.querySelectorAll(".preview-host .sl-handoff-path").length,saved:JSON.stringify(window.__flux.slide.currentDeck())===window.__morphSaved};
   });
-  assert.ok(timing.saved,'the cold path writes nothing to the deck');assert.ok(timing.geometry.length>=3,'three morphing shapes are on screen');assert.equal(realErrors(page).length,0,'clean browser console');evidence.push({trial,...timing});
+  assert.equal(timing.handoffPaths,40,'the first preview really plans and draws all 40 hand-off paths');assert.ok(timing.saved,'the cold path writes nothing to the deck');assert.ok(timing.geometry.length>=3,'three morphing shapes are on screen');assert.equal(realErrors(page).length,0,'clean browser console');evidence.push({trial,...timing});
   assert.ok(timing.previewMs<=100,`cold first preview ${timing.previewMs}ms <=100`);assert.ok(timing.seekMs<=100,`first seek ${timing.seekMs}ms <=100`);
   await page.screenshot({path:`${OUT}/v020-morph-${trial}.png`});
  }finally{await browser.close();}

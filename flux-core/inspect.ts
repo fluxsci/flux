@@ -6,7 +6,7 @@ import { buildPartIndex } from "../src/lib/plot/parse";
 import { trackDuration } from "../src/lib/slide/compile";
 import type { FluxPlotManifest, PartNode } from "../src/lib/plot/types";
 import { loadFigModel, projectAssetPath } from "./model";
-import { loadDeck } from "./slides";
+import { loadDeck, compileDeckSlide } from "./slides";
 import { loadLibrary } from "./fluxlib";
 import { readFulltext } from "./items";
 import { loadAnnotations } from "./annotate";
@@ -59,7 +59,8 @@ export async function inspectTarget(root: string, input: string | TargetRef): Pr
       const deck = await loadDeck(root, target.deckId), slide = deck.slides.find(s => s.id === target.slideId);
       if (!slide) throw new ValidationError(`slide not found: ${target.slideId}`);
       const summary = { id: slide.id, name: slide.name, index: deck.slides.indexOf(slide), deckId: deck.id, deckTitle: deck.title };
-      const beats = slide.beats.map((b, index) => ({ ...b, index, duration: Math.max(0, ...b.tracks.map(t => (t.start ?? 0) + trackDuration(t))) }));
+      const compiled = await compileDeckSlide(root, deck, slide.id);
+      const beats = slide.beats.map((b, index) => ({ ...b, index, duration: compiled.cues[index].duration, tracks: compiled.resolvedSlide.beats[index].tracks }));
       if (target.kind === "slide") return { ...result, slide: summary, beats, elements: slide.elements.map(e => ({ id: e.id, type: e.type, name: e.name })) };
       if (target.kind === "beat") {
         const beat = beats[target.beat];
@@ -68,7 +69,12 @@ export async function inspectTarget(root: string, input: string | TargetRef): Pr
       }
       for (const beat of beats) {
         const track = beat.tracks.find(t => t.id === target.trackId);
-        if (track) return { ...result, slide: summary, beat: { index: beat.index, label: beat.label }, track, timing: { start: track.start ?? 0, duration: trackDuration(track), end: (track.start ?? 0) + trackDuration(track) } };
+        if (!track) continue;
+        // The published shape stays {start, duration, end}; an anchored track adds `anchored`.
+        // A track the compiler skips (disabled, dangling target) still has a numeric end.
+        const start = track.start ?? 0, duration = trackDuration(track);
+        const end = compiled.cues[beat.index].tracks.find(t => t.track.id === track.id)?.end ?? start + duration;
+        return { ...result, slide: summary, beat: { index: beat.index, label: beat.label }, track, timing: { start, duration, end, ...(track.anchor ? { anchored: true } : {}) } };
       }
       throw new ValidationError(`track not found: ${target.trackId}`);
     }

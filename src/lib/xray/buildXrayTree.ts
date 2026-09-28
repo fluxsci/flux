@@ -27,8 +27,11 @@ import type { FluxPlotManifest } from "../plot/types";
 import type { Model3dElement, Scene3dManifest, Model3dInfo } from '../model3d/types';
 import { buildModel3dTree } from '../model3d/tree';
 import { buildScene3dPartIndex, type Scene3dPartIndex, resolveScene3dPartStyle } from '../model3d/scene3d';
+import { partDomId } from "../plot/parse";
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import { buildRenderTree, groupDefs, membersDeep, type RenderNode } from "../groups";
+
+export const partRowId = (elementId: string, partId: string): string => `part:${partDomId(elementId, partId)}`;
 
 /** What the X-ray is rooted on (store.xrayRoot). `elements` (2026-09-15) is
  *  a MULTI-PLOT root: several plots x-rayed together, each expanding under a
@@ -124,7 +127,7 @@ export function targetLabel(
 // --- part rows (manifest part tree, mapped under a plot element) ------------
 function partRow(el: SemanticElement, n: XrayNode, models: Models = {}, index?: Scene3dPartIndex): XRow {
   return {
-    id: `part:${el.id}__${n.id}`,
+    id: partRowId(el.id, n.id),
     kind: "part",
     label: n.label,
     role: n.role,

@@ -104,7 +104,7 @@ export function elementOutline(el: Element): Outline | null {
 
 interface Param { segs: PathSeg[]; lens: number[]; total: number }
 
-function parameterize(nodes: VectorNode[], closed: boolean): Param {
+export function parameterize(nodes: VectorNode[], closed: boolean): Param {
   const segs = segsFromNodes(nodes, closed);
   const lens = segs.map((s) => segLength(s, 24));
   return { segs, lens, total: lens.reduce((a, b) => a + b, 0) };
@@ -114,7 +114,7 @@ function parameterize(nodes: VectorNode[], closed: boolean): Param {
  *  per-plan station memo used to sit here to offset a slow arcT; with arcT
  *  allocation-free (below) the memo measured as noise on the cold path
  *  (verify-v020-morph-startup, 2026-09-24/25) and was removed. */
-function pointAt(p: Param, s: number): { x: number; y: number } {
+export function pointAt(p: Param, s: number): { x: number; y: number } {
   if (!p.segs.length) return { x: 0, y: 0 };
   let d = Math.max(0, Math.min(1, s)) * p.total;
   for (let i = 0; i < p.segs.length; i++) {
@@ -131,10 +131,10 @@ function pointAt(p: Param, s: number): { x: number; y: number } {
  *  two outlines split at one merged station list always get equal node counts. */
 const STATION_EPS = 1e-5;
 
-function mergeStations(stations: number[]): number[] {
+function mergeStations(stations: number[], eps = STATION_EPS): number[] {
   const sorted = stations.map((s) => Math.max(0, Math.min(1, s))).sort((a, b) => a - b);
   const out: number[] = [];
-  for (const s of sorted) if (!out.length || s - out[out.length - 1] > STATION_EPS) out.push(s);
+  for (const s of sorted) if (!out.length || s - out[out.length - 1] > eps) out.push(s);
   return out;
 }
 
@@ -189,7 +189,7 @@ export function arcT(seg: PathSeg, len: number, dist: number): number {
 
 /** The normalized arc-length parameter of every node boundary (closed rings:
  *  n boundaries at the seam and after each segment; open chains: n). */
-function boundaryParams(p: Param, closed: boolean): number[] {
+export function boundaryParams(p: Param, closed: boolean): number[] {
   const out = [0];
   let acc = 0;
   const n = closed ? p.segs.length - 1 : p.segs.length;
@@ -207,11 +207,21 @@ function boundaryParams(p: Param, closed: boolean): number[] {
  *  (de Casteljau cuts — the curve is unchanged). Closed rings return the ring
  *  nodes (the seam node once); open chains include both endpoints. */
 export function splitOutline(outline: Outline, stations: number[]): VectorNode[] {
+  return splitAtStations(outline, stations, STATION_EPS);
+}
+
+/** Tiling retains very close distinct stations (unlike correspondence's
+ *  near-boundary coalescing). Original corners and curve handles survive. */
+export function arcStations(outline: Outline, stations: number[]): VectorNode[] {
+  return splitAtStations(outline, stations, 1e-12);
+}
+
+function splitAtStations(outline: Outline, stations: number[], tolerance: number): VectorNode[] {
   const { nodes, closed } = outline;
   const p = parameterize(nodes, closed);
   if (!p.segs.length || p.total < 1e-9) return nodes.map(cp);
-  const wanted = mergeStations(stations);
-  const eps = STATION_EPS * p.total; // the station tolerance in arc-length units
+  const wanted = mergeStations(stations, tolerance);
+  const eps = tolerance * p.total; // the station tolerance in arc-length units
   const chains: PathSeg[] = [];
   let acc = 0, wi = 0;
   for (let i = 0; i < p.segs.length; i++) {
@@ -251,7 +261,7 @@ export function splitOutline(outline: Outline, stations: number[]): VectorNode[]
 
 /** Re-seam a ring so its node 0 sits at normalized arc length `s0` (splitting a
  *  segment there when needed), optionally reversing the traversal. */
-function reseam(outline: Outline, s0: number, reverse: boolean): Outline {
+export function reseam(outline: Outline, s0: number, reverse: boolean): Outline {
   let nodes = splitOutline(outline, [s0]);
   const p = parameterize(nodes, true);
   const params = boundaryParams(p, true);
@@ -271,7 +281,7 @@ function reseam(outline: Outline, s0: number, reverse: boolean): Outline {
 
 /** Open a ring at normalized arc length `c`: the chain runs from the cut around
  *  the ring back to the cut (its first and last nodes coincide). */
-function openRing(outline: Outline, c: number, reverse: boolean): Outline {
+export function openRing(outline: Outline, c: number, reverse: boolean): Outline {
   const ring = reseam(outline, c, reverse);
   const first = ring.nodes[0];
   const last: VectorNode = { x: first.x, y: first.y, type: "corner" };
@@ -295,7 +305,7 @@ function unit(nodes: VectorNode[], w: number, h: number): VectorNode[] {
 
 const CANDIDATES = 48; // seam / cut candidates around a ring
 
-function signedArea(p: Param, samples = 64): number {
+export function signedArea(p: Param, samples = 64): number {
   let area = 0;
   let prev = pointAt(p, 0);
   for (let i = 1; i <= samples; i++) {
@@ -313,14 +323,23 @@ function dist2(a: { x: number; y: number }, b: { x: number; y: number }): number
 
 /** Summed squared distance between two unit-frame outlines sampled at `m`
  *  stations, with B traversed from offset `s0` (forward or reversed). */
-function matchCost(a: Param, b: Param, s0: number, reverse: boolean, closed: boolean, m = 32): number {
-  let cost = 0;
-  for (let i = 0; i <= m; i++) {
-    const s = i / m;
-    const sb = closed ? ((reverse ? s0 - s : s0 + s) % 1 + 1) % 1 : reverse ? 1 - s : s;
-    cost += dist2(pointAt(a, s), pointAt(b, sb));
-  }
-  return cost;
+export function matchCost(a: Param, b: Param, s0: number, reverse: boolean, closed: boolean, m = 32): number {
+  return matchCostFromSamples(a, b, closed, m)(s0, reverse);
+}
+
+/** A's stations are identical for every candidate seam/direction. Prepare
+ *  them once per search; only B moves. Keep the station and sum order exact. */
+function matchCostFromSamples(a: Param, b: Param, closed: boolean, m = 32): (s0: number, reverse: boolean) => number {
+  const points = Array.from({ length: m + 1 }, (_, i) => pointAt(a, i / m));
+  return (s0, reverse) => {
+    let cost = 0;
+    for (let i = 0; i <= m; i++) {
+      const s = i / m;
+      const sb = closed ? ((reverse ? s0 - s : s0 + s) % 1 + 1) % 1 : reverse ? 1 - s : s;
+      cost += dist2(points[i], pointAt(b, sb));
+    }
+    return cost;
+  };
 }
 
 export interface OutlineMorphPlan {
@@ -344,7 +363,7 @@ export type RingStrategy = "cut" | "inflate";
 /** A stroke as a degenerate ring: out along the chain, back along it. Handles
  *  retrace exactly, so the ring's two turns are hairpins (round linejoins
  *  render them as the stroke's round caps). */
-function inflateChain(nodes: VectorNode[]): VectorNode[] {
+export function inflateChain(nodes: VectorNode[]): VectorNode[] {
   if (nodes.length < 2) return nodes.map(cp);
   const rev = reverseNodes(nodes); // [nk', …, n0']: hIn/hOut swapped
   const first = cp(nodes[0]), last = cp(nodes[nodes.length - 1]);
@@ -367,7 +386,7 @@ function inflateChain(nodes: VectorNode[]): VectorNode[] {
  *  every caller (`sampleElementMorph` builds fresh nodes), so they are shared,
  *  not copied. Bounded, oldest-out — a long editing session must not grow it
  *  without limit. */
-const CORRESPONDENCE_CACHE_MAX = 48;
+const CORRESPONDENCE_CACHE_MAX = 256;
 const correspondenceCache = new Map<string, { a: VectorNode[]; b: VectorNode[]; closed: boolean }>();
 
 function outlineKey(o: Outline, w: number, h: number): string {
@@ -406,17 +425,19 @@ function correspond(A: Outline, aw: number, ah: number, B: Outline, bw: number, 
     const pa = parameterize(ua.nodes, true), pb = parameterize(ub.nodes, true);
     const flip = Math.sign(signedArea(pa)) * Math.sign(signedArea(pb)) < 0;
     let best = { s0: 0, reverse: flip, cost: Infinity };
+    const costAt = matchCostFromSamples(pa, pb, true);
     const candidates = new Set<number>([...Array.from({ length: CANDIDATES }, (_, i) => i / CANDIDATES), ...boundaryParams(pb, true)]);
     for (const s0 of candidates) {
       for (const reverse of [flip, !flip]) {
-        const cost = matchCost(pa, pb, s0, reverse, true) + (reverse !== flip ? 1e-6 : 0);
+        const cost = costAt(s0, reverse) + (reverse !== flip ? 1e-6 : 0);
         if (cost < best.cost) best = { s0, reverse, cost };
       }
     }
     ub = reseam(ub, best.s0, best.reverse);
   } else if (!ua.closed && !ub.closed) {
     const pa = parameterize(ua.nodes, false), pb = parameterize(ub.nodes, false);
-    if (matchCost(pa, pb, 0, true, false) + 1e-9 < matchCost(pa, pb, 0, false, false)) ub = { nodes: reverseNodes(ub.nodes), closed: false };
+    const costAt = matchCostFromSamples(pa, pb, false);
+    if (costAt(0, true) + 1e-9 < costAt(0, false)) ub = { nodes: reverseNodes(ub.nodes), closed: false };
   } else {
     // one ring, one stroke: cut the ring where it is nearest BOTH ends of the
     // stroke, so the ring opens there and its two ends travel to the stroke's.
@@ -518,6 +539,7 @@ interface OutlineStyle {
 
 /** The paint of one side. Open strokes never fill (the serializer's own rule)
  *  and only open strokes carry caps/arrowheads. */
+export { styleOf as elementPaint };
 function styleOf(el: Element): OutlineStyle {
   const e = el as unknown as Record<string, unknown>;
   const open = el.type === "line" || (el.type === "path" && !el.closed);
@@ -598,20 +620,12 @@ export function arrowFade(plan: ElementMorphPlan, which: "start" | "end", t: num
 /** The synthetic PATH element at time t ∈ (0,1) — endpoints are the caller's
  *  business (they return the real elements verbatim). Identity/base props come
  *  from `end` (the state the element is becoming), box and style are lerped. */
-export function sampleElementMorph(plan: ElementMorphPlan, t: number): PathElement {
+export function sampleElementMorph(plan: ElementMorphPlan, t: number, raw = t): PathElement {
   const { pre, end, preBox, endBox, preStyle, endStyle } = plan;
   const w = lerp(preBox.w, endBox.w, t), h = lerp(preBox.h, endBox.h, t);
-  const nodes: VectorNode[] = new Array(plan.a.length);
-  for (let i = 0; i < plan.a.length; i++) {
-    const na = plan.a[i], nb = plan.b[i];
-    const node: VectorNode = { x: lerp(na.x, nb.x, t) * w, y: lerp(na.y, nb.y, t) * h, type: nb.type };
-    const hIn = handle(na.hIn, nb.hIn, t, w, h), hOut = handle(na.hOut, nb.hOut, t, w, h);
-    if (hIn) node.hIn = hIn;
-    if (hOut) node.hOut = hOut;
-    nodes[i] = node;
-  }
-  const fill = lerpColor(preStyle.fill, endStyle.fill, t);
-  const stroke = lerpColor(preStyle.stroke, endStyle.stroke, t);
+  const nodes = sampleNodes(plan.a, plan.b, t, w, h);
+  const fill = lerpColor(preStyle.fill, endStyle.fill, t, undefined, raw);
+  const stroke = lerpColor(preStyle.stroke, endStyle.stroke, t, undefined, raw);
   const out: PathElement = {
     type: "path",
     id: end.id,
@@ -656,9 +670,28 @@ export function sampleElementMorph(plan: ElementMorphPlan, t: number): PathEleme
   return out;
 }
 
-function handle(a: { dx: number; dy: number } | undefined, b: { dx: number; dy: number } | undefined, t: number, w: number, h: number) {
-  if (!a && !b) return undefined;
-  return { dx: lerp(a?.dx ?? 0, b?.dx ?? 0, t) * w, dy: lerp(a?.dy ?? 0, b?.dy ?? 0, t) * h };
+/** Sample aligned UNIT chains into a box. An output buffer keeps node and
+ *  handle identities stable; callers own placement of the box origin. */
+export function sampleNodes(a: VectorNode[], b: VectorNode[], t: number, w = 1, h = 1, out: VectorNode[] = []): VectorNode[] {
+  for (let i = 0; i < a.length; i++) {
+    const na = a[i], nb = b[i];
+    const node = out[i] ?? (out[i] = { x: 0, y: 0, type: nb.type });
+    node.x = lerp(na.x, nb.x, t) * w;
+    node.y = lerp(na.y, nb.y, t) * h;
+    node.type = nb.type;
+    if (na.hIn || nb.hIn) {
+      const v = node.hIn ?? (node.hIn = { dx: 0, dy: 0 });
+      v.dx = lerp(na.hIn?.dx ?? 0, nb.hIn?.dx ?? 0, t) * w;
+      v.dy = lerp(na.hIn?.dy ?? 0, nb.hIn?.dy ?? 0, t) * h;
+    } else delete node.hIn;
+    if (na.hOut || nb.hOut) {
+      const v = node.hOut ?? (node.hOut = { dx: 0, dy: 0 });
+      v.dx = lerp(na.hOut?.dx ?? 0, nb.hOut?.dx ?? 0, t) * w;
+      v.dy = lerp(na.hOut?.dy ?? 0, nb.hOut?.dy ?? 0, t) * h;
+    } else delete node.hOut;
+  }
+  out.length = a.length;
+  return out;
 }
 
 // A local twin of tween.lerpDash (tween imports this module; no cycle).

@@ -98,10 +98,10 @@ try {
   });
   await page.evaluate(()=>{if(!document.querySelector('.animator'))[...document.querySelectorAll('.deckbar button')].find(b=>/Animate/.test(b.textContent))?.click();});
   await sleep(150);
-  // Transform ▸ Become… arms the pick; a plot source offers the gallery as the data-only form
+  // Transform ▸ Become arms the pick; a plot source offers the gallery as the data-only form
   await page.evaluate(()=>[...document.querySelectorAll('.animator .actions button')].find(b=>b.textContent.trim()==='Transform ▾')?.click());
   await waitFor(page,()=>!!document.querySelector('.menu button[role="menuitem"]'),null,{timeout:3000,label:'transform menu'});
-  await page.evaluate(()=>[...document.querySelectorAll('.menu button[role="menuitem"]')].find(b=>b.textContent.trim().startsWith('Become…'))?.click());
+  await page.evaluate(()=>[...document.querySelectorAll('.menu button[role="menuitem"]')].find(b=>b.textContent.trim().startsWith('Become'))?.click());
   await waitFor(page,()=>!!document.querySelector('.become-bar'),null,{timeout:3000,label:'become pick armed'});
   ok(!!await page.$('.become-bar'),'Become arms a pick bar above the stage for the plot source');
   await page.evaluate(()=>[...document.querySelectorAll('.become-bar button')].find(b=>b.textContent.trim()==='From gallery…')?.click());

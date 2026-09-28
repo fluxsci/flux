@@ -12,6 +12,7 @@
 // of one plot, or the x-axis of four plots, edit as one. Reads come from the
 // primary part; `mixed` flags a value that differs across the set.
 
+import { AXIS_VIEW_KEYS } from "../plot/viewControls";
 import { get } from "svelte/store";
 import type { Element, PartOverride, Project, SemanticPlotElement, TextAlign, TextStyle, TextVAlign } from "../types";
 import type { Model3dElement, Scene3dManifest } from "../model3d/types";
@@ -35,7 +36,7 @@ import { fluxFigMenuOpen } from "../settings";
 import { getSnipMeta } from "../snipMeta";
 import { pushToast } from "../toast";
 
-export type FieldKind = "number" | "text" | "select" | "toggle" | "color" | "action";
+export type FieldKind = "number" | "text" | "select" | "toggle" | "color" | "action" | "axisView";
 export interface FieldOption {
   value: string;
   label: string;
@@ -50,6 +51,7 @@ export interface Field {
   apply: (v: string | number | boolean) => void;
   options?: FieldOption[];
   target?: "fill" | "stroke";
+  axisView?: { elementId: string; axis: "x" | "y" };
   step?: number;
   factor?: number;
   min?: number;
@@ -620,6 +622,13 @@ export function buildMenuFields(
     for (const f of p.figures) {
       const el = f.elements.find((e) => sel.has(e.id));
       if (!el) continue;
+      if (el.type === "plot" && manifests[el.assetId]?.axes?.length && manifests[el.assetId]?.series?.length) {
+        for (const axis of ["x", "y"] as const) {
+          const key = [AXIS_VIEW_KEYS[axis], ..."123456qwtadgvcbn"].find(k => !fields.some(f => f.key === k));
+          if (key) fields.push({ key, label: `${axis} view`, group: "Axis view", kind: "axisView",
+            axisView: { elementId: el.id, axis }, get: () => "Edit…", apply: () => {} });
+        }
+      }
       if (el.type === "plot" && manifests[el.assetId]?.series?.some((s) => s.field?.controlKey)) {
         fields.push({
           key: "c",

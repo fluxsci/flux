@@ -62,9 +62,9 @@ export function isNone(s: string): boolean {
 }
 
 /** Format: #rrggbb when opaque, #rrggbbaa otherwise (round-trips parseColor). */
+const hexChannel = (v: number) => Math.round(clamp255(v)).toString(16).padStart(2, "0");
 export function formatColor(c: RGBA): string {
-  const h = (v: number) => Math.round(clamp255(v)).toString(16).padStart(2, "0");
-  const base = `#${h(c.r)}${h(c.g)}${h(c.b)}`;
+  const base = `#${hexChannel(c.r)}${hexChannel(c.g)}${hexChannel(c.b)}`;
   if (c.a >= 1) return base;
   return base + Math.round(clamp01(c.a) * 255).toString(16).padStart(2, "0");
 }
@@ -94,16 +94,15 @@ function toOklab(c: RGBA): Lab {
   };
 }
 
-function fromOklab(c: Lab): RGBA {
+function fromOklab(c: Lab, out: RGBA = { r: 0, g: 0, b: 0, a: 0 }): RGBA {
   const l = (c.L + 0.3963377774 * c.a + 0.2158037573 * c.b) ** 3;
   const m = (c.L - 0.1055613458 * c.a - 0.0638541728 * c.b) ** 3;
   const s = (c.L - 0.0894841775 * c.a - 1.291485548 * c.b) ** 3;
-  return {
-    r: delin(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    g: delin(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    b: delin(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
-    a: c.alpha,
-  };
+  out.r = delin(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s);
+  out.g = delin(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s);
+  out.b = delin(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s);
+  out.a = c.alpha;
+  return out;
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -137,20 +136,39 @@ export function shiftOklch(s: string, d: OklchDelta, k: number): string | null {
  *  • both parseable → OKLab blend (+ linear alpha), formatted as hex
  *  • "none" ↔ color → the color with its alpha ramped from/to 0
  *  • both "none" → "none"
- *  • anything unparseable → step at t = 0.5 (predictable, never garbage)
- *  t ≤ 0 / ≥ 1 return the ORIGINAL strings verbatim (endpoint identity). */
-export function lerpColor(a: string, b: string, t: number): string {
-  if (t <= 0) return a;
-  if (t >= 1) return b;
+ *  • anything unparseable → step at raw = 0.5 (predictable, never garbage)
+ *  Continuous endpoints preserve their original strings; discrete fallbacks use raw
+ *  progress when supplied, even at an eased endpoint reached early. */
+export function lerpColor(a: string, b: string, t: number, prepared?: (t: number, raw?: number) => string, raw = t): string {
+  if (raw === t) { if (t <= 0) return a; if (t >= 1) return b; }
+  return (prepared ?? prepareColorLerp(a, b))(t, raw);
+}
+
+/** Parse/convert once for a flight. Sampling reuses the color scratch objects;
+ *  only the resulting CSS string is allocated on the frame path. */
+export function prepareColorLerp(a: string, b: string): (t: number, raw?: number) => string {
   const aNone = isNone(a), bNone = isNone(b);
-  if (aNone && bNone) return a;
+  if (aNone && bNone) return (t) => t >= 1 ? b : a;
   const ca = aNone ? null : parseColor(a);
   const cb = bNone ? null : parseColor(b);
-  if (aNone && cb) return formatColor({ ...cb, a: cb.a * t });
-  if (bNone && ca) return formatColor({ ...ca, a: ca.a * (1 - t) });
-  if (!ca || !cb) return t < 0.5 ? a : b;
+  if ((aNone && cb) || (bNone && ca)) {
+    const color = (cb ?? ca)!;
+    const out = { ...color };
+    return (t) => {
+      if (t <= 0) return a;
+      if (t >= 1) return b;
+      out.a = color.a * (aNone ? t : 1 - t);
+      return formatColor(out);
+    };
+  }
+  if (!ca || !cb) return (t, raw = t) => raw < 0.5 ? a : b;
   const la = toOklab(ca), lb = toOklab(cb);
-  return formatColor(
-    fromOklab({ L: lerp(la.L, lb.L, t), a: lerp(la.a, lb.a, t), b: lerp(la.b, lb.b, t), alpha: lerp(la.alpha, lb.alpha, t) }),
-  );
+  const lab = { ...la }, out = { ...ca };
+  return (t) => {
+    if (t <= 0) return a;
+    if (t >= 1) return b;
+    lab.L = lerp(la.L, lb.L, t); lab.a = lerp(la.a, lb.a, t);
+    lab.b = lerp(la.b, lb.b, t); lab.alpha = lerp(la.alpha, lb.alpha, t);
+    return formatColor(fromOklab(lab, out));
+  };
 }

@@ -19,6 +19,7 @@
 //   • the slide-to-slide transition (fade / slide / push) enters each slide.
 // Morph has one ease of its own, so a track's easing is not carried; a plot's
 // staggered parts cross-fade as one picture.
+import { beatDelayMs } from "../timing";
 import type { CompiledSlide } from "../compile";
 import { compileSlideFor, evaluateSlide, type EvaluatedSlide } from "../embedRender";
 import type { ExportPayload } from "../payload";
@@ -74,7 +75,7 @@ function runsOf(payload: ExportPayload): Run[] {
   const slide = payload.deck.slides[0], runs: Run[] = [];
   for (let from = 1; from < slide.beats.length;) {
     const to = cueEnd(slide, from), beat = slide.beats[from];
-    runs.push({ from, to, auto: beat.advance === "auto", autoDelayMs: Math.max(0, beat.autoDelayMs ?? 600) });
+    runs.push({ from, to, auto: beat.advance === "auto", autoDelayMs: beatDelayMs(beat) });
     from = to + 1;
   }
   return runs;
@@ -126,6 +127,8 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
     const owner = new Map<string, number>();
     for (const ct of compiled.cues.slice(run.from, run.to + 1).flatMap((c) => c.tracks))
       if (familyOf(ct.track) !== "media") owner.set(ct.track.target, Math.max(owner.get(ct.track.target) ?? 0, ct.beat));
+    for (const handoff of compiled.handoffs) if (handoff.beat >= run.from && handoff.beat <= run.to)
+      for (const dest of handoff.destination) owner.set(dest.elementId, Math.max(owner.get(dest.elementId) ?? 0, handoff.beat));
     const done = at(run.to);
     step++;
     for (const [i, phase] of phases.entries()) {

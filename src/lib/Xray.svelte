@@ -46,14 +46,15 @@
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
-  import { buildXrayTree, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { buildXrayTree, partRowId, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
   import { fileBridge } from "./project/types";
+  import { focusAxisView } from "./plot/axisViewState";
   import { fluxFigMenuOpen } from "./settings";
   import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
-  import { xrayAnimate, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
+  import { xrayAnimate, xrayBecomeSource, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
   import type { FluxPlotManifest } from "./plot/types";
 
   // --- the pinned root + its tree -----------------------------------------
@@ -263,7 +264,7 @@
     selectedIds = new Set();
     anchorId = null;
     if (parts.length && root && (root.kind === "element" || root.kind === "elements")) {
-      for (const ps of parts) revealRow(`part:${ps.elementId}__${ps.partId}`, true);
+      for (const ps of parts) revealRow(partRowId(ps.elementId, ps.partId), true);
     }
     requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
@@ -518,15 +519,28 @@
     toggleHiddenRows(selectedIds.has(n.id) && pickedRows.length > 1 ? pickedRows : [n]);
   }
 
+  function axisFor(row: XRow | null): "x" | "y" | null {
+    if (row?.kind !== "part" || row.role !== "axis" || !row.elementId || rowBlocked(row, $editorSelectionExclusions)) return null;
+    return /(?:^|\.)axis\.(x|y)$/.exec(row.partId ?? "")?.[1] as "x" | "y" | undefined ?? null;
+  }
+  function showAxisView(row: XRow | null) {
+    const axis = axisFor(row);
+    if (axis && row?.elementId) { focusAxisView(row.elementId, axis); close(); }
+  }
+
   // --- Animate selected (slide mode only) ------------------------------------------------
   $: canAnimate = !!$xrayAnimate;
-  const animOptions: { kind: XrayAnimateKind; label: string; key: string; hint: string }[] = [
+  type AnimateOption = { kind: XrayAnimateKind; label: string; key: string; hint: string };
+  $: animOptions = [
     { kind: "appear", label: "Appear", key: "1", hint: "entrance with each kind's default" },
     { kind: "emphasize", label: "Emphasize", key: "2", hint: "highlight" },
     { kind: "disappear", label: "Disappear", key: "3", hint: "exit" },
     { kind: "change", label: "Change", key: "4", hint: "transform — edit the object after this step" },
-  ];
-  function animateTargets(): XrayAnimateTarget[] {
+    { kind: "appear-from", label: "Appear from…", key: "5", hint: "Pick the object these rows come from" },
+    { kind: "animate-like", label: "Animate like…", key: "6", hint: "Pick another object's effect in this step" },
+    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows"}] : []),
+  ] as AnimateOption[];
+  function animateTargets(kind?: XrayAnimateKind): XrayAnimateTarget[] {
     const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
     const exclusions = get(editorSelectionExclusions);
     const out: XrayAnimateTarget[] = [];
@@ -536,12 +550,16 @@
       if (n.kind === "part" && n.elementId && n.partId) out.push({ elementId: n.elementId, partId: n.partId });
       else if (n.kind === "common" && n.partId) for (const id of n.elementIds ?? []) out.push({ elementId: id, partId: n.partId });
       else if (n.kind === "element" && n.elementId) out.push({ elementId: n.elementId });
-      else if (n.kind === "group" && n.groupId && fig) for (const m of membersDeep(fig, n.groupId)) out.push({ elementId: m.id });
+      else if (n.kind === "group" && n.groupId && fig) {
+        const members = membersDeep(fig, n.groupId);
+        if ((kind === "become-destination" || kind === "appear-from") && members.length) out.push({elementId: members[0].id, groupId: n.groupId});
+        else for (const m of members) out.push({elementId: m.id});
+      }
       else if (n.kind === "set") for (const c of n.children) if (c.elementId) out.push({ elementId: c.elementId });
     }
     const seen = new Set<string>();
     return out.filter((t) => {
-      const key = JSON.stringify([t.elementId, t.partId ?? ""]);
+      const key = JSON.stringify([t.elementId, t.partId ?? "", t.groupId ?? ""]);
       if (seen.has(key) || isEditorTargetExcluded(t.elementId, t.partId)) return false;
       seen.add(key);
       return true;
@@ -549,7 +567,7 @@
   }
   function animate(kind: XrayAnimateKind) {
     const handler = get(xrayAnimate);
-    const targets = animateTargets();
+    const targets = animateTargets(kind);
     animMenu = false;
     if (!handler || !targets.length) return;
     handler({ kind, targets });
@@ -588,6 +606,9 @@
     const k = e.key;
     const lk = k.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
+    if (lk === "b" && !mod && !e.altKey && $xrayBecomeSource && canAnimate) {
+      e.preventDefault(); e.stopImmediatePropagation(); animate("become-destination"); return;
+    }
     if (animMenu) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -620,6 +641,7 @@
       if (pickedRows.length || selRow) animMenu = true;
       return;
     }
+    if (lk === "v" && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
     if (k === "Enter") {
       e.preventDefault();
       if (mod) reRoot(selRow);
@@ -772,7 +794,7 @@
 
           {#if animMenu}
             <div class="animmenu" role="menu" aria-label="Animate selected">
-              <span class="am-ttl">Animate {animateTargets().length} {animateTargets().length === 1 ? "target" : "targets"}</span>
+              <span class="am-ttl">{#if $xrayBecomeSource}{$xrayBecomeSource} becomes… · {/if}Animate {animateTargets().length} {animateTargets().length === 1 ? "target" : "targets"}</span>
               {#each animOptions as o (o.kind)}
                 <button class="am" role="menuitem" title={o.hint} on:click={() => animate(o.kind)}><span class="hk">{o.key}</span>{o.label}</button>
               {/each}
@@ -780,7 +802,9 @@
             </div>
           {/if}
           <div class="actions">
+            {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
+            {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
             <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (a)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
               Animate selected <span class="hk">a</span>
             </button>

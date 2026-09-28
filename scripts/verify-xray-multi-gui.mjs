@@ -212,6 +212,8 @@ try {
   await page.keyboard.press("a");
   await sleep(150);
   ok(await page.evaluate(() => !!document.querySelector(".xray .animmenu")), "a opens the animate chooser");
+  ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('5') && e.textContent.includes('Appear from…'))), "X-ray always offers 5 Appear from in Slide mode");
+  ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become'))), "X-ray has no Become item while no Become is armed");
   await page.keyboard.press("1");
   await waitForGone(page, ".xray");
   ok(!(await page.$(".xray")), "choosing Appear closes the X-ray");
@@ -245,6 +247,26 @@ try {
   await waitForGone(page, '.xray');
   const afterDuplicate = await page.evaluate(() => window.__flux.slide.currentDeck().slides.flatMap((s) => s.beats.flatMap((b) => b.tracks)).length);
   ok(afterDuplicate - beforeDuplicate === 2, "common + individual rows add exactly two unique appearances");
+
+  await page.evaluate(() => window.__flux.fig.selectOnly('xm-s'));
+  await page.$eval('.canvas-host', el => {el.tabIndex=-1;el.focus();});
+  await page.keyboard.down('Control');await page.keyboard.down('Shift');await page.keyboard.press('KeyE');await page.keyboard.up('Shift');await page.keyboard.up('Control');
+  await waitFor(page, () => !!document.querySelector('.become-bar'));
+  const plotBox=await page.$eval('[data-editor-element-id="xm-t"]', el => {const r=el.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};});
+  await page.mouse.move(plotBox.x,plotBox.y);
+  await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
+  await waitFor(page, () => document.activeElement?.classList.contains('xray'));
+  await clickRow('part','X axis');await page.keyboard.press('a');
+  await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
+  ok(await page.$$eval('.xray .am', els => els.some(e => e.textContent.includes('b') && e.textContent.includes('Become'))), 'armed X-ray offers b Become');
+  ok(await page.$eval('.xray .am-ttl', el => el.textContent.includes('becomes…')), 'armed X-ray menu header names a waiting source');
+  await page.keyboard.press('Escape');await page.keyboard.press('Escape');await waitForGone(page,'.xray');await page.keyboard.press('Escape');
+  await page.evaluate(() => window.__flux.fig.selectOnly('xm-t'));
+  await page.keyboard.down('Alt');await page.keyboard.press('KeyR');await page.keyboard.up('Alt');
+  await waitFor(page, () => document.activeElement?.classList.contains('xray'));
+  await clickRow('part','X axis');await page.keyboard.press('a');
+  await waitFor(page, () => !!document.querySelector('.xray .animmenu'));
+  ok(await page.$$eval('.xray .am', els => !els.some(e => e.textContent.includes('Become')) && els.some(e => e.textContent.includes('Appear from…'))), 'cancelling removes b while preserving 5');
 
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);

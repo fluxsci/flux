@@ -24,6 +24,7 @@
 // project figures + overlay. One core, two engines, no drift.
 // ---------------------------------------------------------------------------
 
+import { isHandoff } from "./targets";
 import { writable, get } from "svelte/store";
 import type { Asset, Element, Id, Project } from "../types";
 import type { Deck, Slide, Track } from "./types";
@@ -424,12 +425,28 @@ export function refreshBeatDisplay(): void {
   // Evaluate from canonical content; appearance and camera stay transient.
   const canonical = composedSlide(sid);
   const frame = canonical && k > 0 ? evaluateSlideState(canonical, k, Infinity, {
-    stage: o.stage, plotManifest: id => get(plotManifests)[id],
+    stage: o.stage, animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id],
   }) : null;
   const evaluated = new Map(frame?.elements.map(e => [e.id, e]) ?? []);
-  slideCanvasPresentation.set(frame?.presentation ?? {elementStates:{},hiddenElementIds:[],partStates:{},
+  const designPresentation: SlideFrame["presentation"] = {elementStates:{},hiddenElementIds:[],partStates:{},
     unbornElementIds: canonical?.beats.flatMap(b => b.tracks.filter(t => t.ghostFrom).map(t => t.target)) ?? [],
-  });
+  };
+  // Design keeps ordinary appearances editable, but a hand-off's future
+  // destination must not appear beside its source before the landing.
+  if (!frame && canonical?.beats.some(b => b.tracks.some(t => isHandoff(t)))) {
+    const compiled = compileSlide(canonical, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
+    const initial = compiled.sample(0).presentation;
+    for (const handoff of compiled.handoffs) for (const target of handoff.destination) {
+      if (target.partIds) {
+        const states = initial.partStates[target.elementId];
+        for (const id of target.partIds) if (states?.[id]) (designPresentation.partStates[target.elementId] ??= {})[id] = states[id];
+      } else if (initial.hiddenElementIds.includes(target.elementId)) {
+        if (!designPresentation.hiddenElementIds.includes(target.elementId)) designPresentation.hiddenElementIds.push(target.elementId);
+        designPresentation.elementStates[target.elementId] = initial.elementStates[target.elementId];
+      }
+    }
+  }
+  slideCanvasPresentation.set(frame?.presentation ?? designPresentation);
   const wanted = new Set(k > 0 ? fig.elements.map(e=>e.id) : []);
 
   // 2. Elements leaving the display set restore their base; 3. elements in it
@@ -527,7 +544,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
         if (bi < 1 || unborn.has(el.id) || !diffState(previous, el)) continue;
-        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {plotManifest: id => get(plotManifests)[id]});
+        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
         const pre = compiled.preState(el.id, bi) ?? base;
         const patch = diffState(pre, el) ?? {};
         setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });

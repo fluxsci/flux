@@ -218,6 +218,75 @@ try {
   assert(post.offset === "" && post.dash === 0, "the drawn rest state restores the authored solid stroke without a temporary dash seam");
   assert(post.polyOpacity === "1", "the arrowhead pops in with the draw");
   assert(post.clip.includes("-20%"), `writeOn's resting clip keeps the overflow margin (descenders survive: ${post.clip})`);
+  // The portable runtime must carry M2 as well. This deck stays in memory until
+  // M3 adds curve validation; exportDeckHtml accepts the compiled payload directly.
+  const { exportDeckHtml } = await import("../src/lib/slide/export/exportDeck");
+  const springDeck = slideOps.createDeck({ withTitleSlide: false }); springDeck.defaults.transition = "none";
+  const springSlide = slideOps.addSlide(springDeck, { layout: "blank" });
+  slideOps.addElement(springDeck, springSlide.id, { type: "rect", id: "spring", x: 400, y: 100, width: 40, height: 40, rotation: 0, fill: "#ffffff", stroke: "none", strokeWidth: 0 });
+  const springBeat = slideOps.addBeat(springDeck, springSlide.id)!;
+  springBeat.tracks = [{ target: "spring", preset: "transform", duration: 1000, curve: { kind: "spring", bounce: .5 }, to: { state: { x: 600 } } }];
+  const springFile = path.join(root, "spring.html"); await fs.writeFile(springFile, (await exportDeckHtml({ deck: springDeck })).html);
+  await page2.goto(pathToFileURL(springFile).href); await page2.waitForFunction("!!window.fluxDeck?.seek");
+  const seekPeak = await page2.evaluate(() => {
+    let peak = 0;
+    for (let i = 0; i < 60; i++) {
+      (window as any).fluxDeck.seek(0, 1, 1000 * i / 59);
+      const box = document.querySelector('[data-el-id="spring"]') as HTMLElement;
+      const m = /translate\(([-\d.]+)px/.exec(box.style.transform);
+      peak = Math.max(peak, parseFloat(box.style.left) + Number(m?.[1] ?? 0));
+    }
+    return peak;
+  });
+  assert(seekPeak >= 605, `exported HTML seek overshoots 600px (peak ${seekPeak.toFixed(3)})`);
+  await page2.evaluate(`(() => {
+    window.__springX = [];
+    const collect = () => {
+      const box = document.querySelector('[data-el-id="spring"]');
+      const m = /translate\\(([-\\d.]+)px/.exec(box.style.transform);
+      window.__springX.push(parseFloat(box.style.left) + Number(m?.[1] ?? 0));
+      if (window.fluxDeck.state().playing) requestAnimationFrame(collect);
+    };
+    window.fluxDeck.play({slide:0,fromBeat:1,toBeat:1}); requestAnimationFrame(collect);
+  })()`);
+  await page2.waitForFunction("window.__springX.length > 2 && !window.fluxDeck.state().playing");
+  const playback = await page2.evaluate("({ peak: Math.max(...window.__springX), end: document.querySelector('[data-el-id=\"spring\"]').style.left })") as { peak: number; end: string };
+  assert(playback.peak >= 605 && playback.end === "600px", `exported HTML rAF overshoots and settles exactly (peak ${playback.peak.toFixed(3)})`);
+  // Regenerated plots keep shared series live despite changed tick topology.
+  const plots = slideOps.createDeck({ id: "partial", title: "Partial binding", withTitleSlide: false });
+  const ps = slideOps.addSlide(plots, { name: "Plots", layout: "blank" }).id;
+  await fs.mkdir(path.join(root, "plots"), { recursive: true });
+  for (const name of ["panels-a", "panels-b"]) {
+    for (const ext of ["svg", "fluxplot.json"]) await fs.copyFile(path.join(import.meta.dirname, `fixtures/fluxplot03/${name}.${ext}`), path.join(root, "plots", `${name}.${ext}`));
+  }
+  const plotId = slideOps.addElement(plots, ps, { id: "partial-plot", type: "plot", assetId: "panels-a", source: { svgPath: "plots/panels-a.svg", manifestPath: "plots/panels-a.fluxplot.json" }, x: 40, y: 40, width: 760, height: 400, rotation: 0 })!;
+  const change = slideOps.addBeat(plots, ps, { label: "Fewer ticks" })!;
+  slideOps.setTransform(plots, ps, change.id, plotId, { toAssetId: "panels-b", svgPath: "plots/panels-b.svg", manifestPath: "plots/panels-b.fluxplot.json", duration: 1000, easing: "linear" });
+  const back = slideOps.addBeat(plots, ps, { label: "More ticks" })!;
+  slideOps.setTransform(plots, ps, back.id, plotId, { toAssetId: "panels-a", svgPath: "plots/panels-a.svg", manifestPath: "plots/panels-a.fluxplot.json", duration: 1000, easing: "linear" });
+  await slides.saveDeck(root, plots);
+  const partial = await slides.exportDeck(root, "partial");
+  const page3 = await (browser as unknown as { newPage(): Promise<typeof page> }).newPage();
+  page3.on("pageerror", (e: Error) => pageErrors.push(String(e)));
+  await page3.goto(pathToFileURL(partial.path).href, { waitUntil: "load" });
+  await page3.waitForFunction("!!window.fluxDeck");
+  const samplePlot = async (beat: number, ms: number) => page3.evaluate(([beat, ms]) => {
+    (window as unknown as { fluxDeck: { seek(s: number, b: number, ms: number): void } }).fluxDeck.seek(0, beat, ms);
+    const root = document.querySelector('[data-el-id="partial-plot"]')!;
+    const ticks = [4, 5].map(i => { const node = root.querySelector(`[id="partial-plot__panel.small.axis.y.tick.${i}"]`)!; return { present: !!node, opacity: Number(getComputedStyle(node).opacity) }; });
+    return { ticks, count: root.querySelectorAll("svg").length, d: root.querySelector('[id="partial-plot__panel.small.control.line"] path')!.getAttribute("d") };
+  }, [beat, ms]);
+  const plotStart = await samplePlot(1, 0), plotMiddle = await samplePlot(1, 500), plotEnd = await samplePlot(1, 1000);
+  assert(plotMiddle.count === 1, "exported plot has one SVG, not complete crossfade layers");
+  assert(plotMiddle.d !== plotStart.d && plotMiddle.d !== plotEnd.d, "exported shared line tweens through different tick counts");
+  assert(plotMiddle.ticks.every(t => t.present && t.opacity === 0), "outgoing ticks remain bound but are hidden by the midpoint");
+  assert(plotEnd.ticks.every(t => t.opacity === 0), "only destination ticks paint at t=1");
+  const returnLate = await samplePlot(2, 800);
+  assert(returnLate.ticks.every(t => Math.abs(t.opacity - .5) < 1e-6), "chained incoming ticks fade over the final 40 percent");
+  const returnStart = await samplePlot(2, 0);
+  assert(returnStart.ticks.every(t => t.opacity === 0), "reverse seek hides incoming tick clones");
+  assert(pageErrors.length === 0, "exported partial plot player has no console errors");
+  await page3.close();
   await page2.close();
 } finally {
   await browser?.close().catch(() => {});

@@ -383,6 +383,25 @@ Pictures that have no text or lines, such as a PNG saved inside an SVG, have not
 content scale to change, so the Inspector says so instead of showing the field. Resize the
 box to make them bigger.
 
+## Axis view
+
+Select a plot with a manifest containing series and calibrated axes to edit **Axis view** in
+the Object inspector. The controls are unavailable without axes and series; an unsupported axis
+is disabled with its reason. Each supported axis has **min** and **max**
+in data units and a **linear/log** scale. An empty field uses the generated plot's limit,
+shown as its placeholder. **Reset** restores both generated axes. Typing or wheeling previews
+the change; finishing the edit makes one undo step, and **Escape** cancels it.
+
+The **F** menu offers **x view** (**v**) and **y view** (**b**); on cropped plots, follow the
+row's displayed key when **v** is already assigned. In X-ray, select an axis row and press
+**v** for **Axis view…** to focus that axis in the Inspector.
+
+Lines, points, ticks and gridlines re-project inside the existing plot frame; exports include
+the same view. Existing ticks fade in the outer 4% of the axis, including exactly at a new
+limit. No extra ticks are generated on zoom-out. Filled marks and non-series marks, such as
+a dashed reference line, stay put. A log view needs positive limits and positive data.
+For multi-panel plots the view applies to all panels; placeholders show the first panel.
+
 # Drawing
 
 The shape tools do what you expect; the **pen** (P) is placement-assisted: click to place

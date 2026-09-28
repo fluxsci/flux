@@ -1,0 +1,314 @@
+// Cross-object Become: one retained SVG drawing, no wrapper/layout animation.
+import type { BecomeSpec } from "../types";
+import type { StageOutline, OutlineOwner } from "../stageOutline";
+import type { CorrespondencePlan, CorrespondencePair, SampledPath } from "../correspondence";
+import { sampleCorrespondence } from "../correspondence";
+import type { MorphController } from "../../plot/project";
+import { prefixIds } from "../../plot/parse";
+import { pathD, pathRender } from "../../path";
+import { warmWhenIdle } from "./transform";
+
+const NS = "http://www.w3.org/2000/svg";
+const clamp01 = (u: number) => Math.max(0, Math.min(1, u));
+const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
+const set = (node: Element, name: string, value: string) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
+type Styled = HTMLElement | SVGElement;
+type Box = StageOutline["bbox"];
+let nextId = 0;
+
+interface VisibilityClaim { order: number; active: boolean; hidden: boolean; initial: boolean }
+interface VisibilityState { value: string; priority: string; claims: Set<VisibilityClaim> }
+const visibility = new WeakMap<Element, VisibilityState>();
+function paintVisibility(node: Styled, state: VisibilityState): void {
+  let winner: VisibilityClaim | undefined;
+  for (const claim of state.claims) {
+    if (!winner || claim.active && !winner.active || claim.active === winner.active &&
+      (claim.active ? claim.order > winner.order : claim.order < winner.order)) winner = claim;
+  }
+  const hidden = winner && (winner.active ? winner.hidden : winner.initial);
+  const value = hidden ? "hidden" : state.value, priority = hidden ? "" : state.priority;
+  if (node.style.getPropertyValue("visibility") !== value || (node.style.getPropertyPriority?.("visibility") ?? "") !== priority) {
+    if (value) node.style.setProperty("visibility", value, priority); else node.style.removeProperty("visibility");
+  }
+}
+function claimVisibility(node: Element, order: number, destination: boolean) {
+  let state = visibility.get(node);
+  if (!state) {
+    const style = (node as Styled).style;
+    state = { value: style.getPropertyValue("visibility"), priority: style.getPropertyPriority?.("visibility") ?? "", claims: new Set() };
+    visibility.set(node, state);
+  }
+  const claim: VisibilityClaim = { order, active: false, hidden: destination, initial: destination };
+  state.claims.add(claim);
+  return { node: node as Styled, state, claim };
+}
+
+export interface HandoffCtx {
+  /** Bound against each element's current content root, before later tracks. */
+  node(owner: OutlineOwner): Element | undefined;
+  targetRoot?: HTMLElement;
+  /** Story order (beat/start), for chains and reverse hand-offs sharing nodes. */
+  order?: number;
+  crop?(owner: OutlineOwner): { x: number; y: number; width: number; height: number; rotation: number } | undefined;
+}
+export interface HandoffOptions {
+  flight: SVGSVGElement;
+  sourceNodes: Element[];
+  destinationNodes: Element[];
+  plan: () => CorrespondencePlan;
+  spec: BecomeSpec;
+  ctx: HandoffCtx;
+}
+export interface HandoffController extends MorphController {
+  /** A later Appear releases the source's exit without affecting its target. */
+  releaseSource(): void;
+}
+interface Clone { node: SVGGElement; box: Box; opacity: number }
+interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean }
+interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[] }
+interface Crossfade { a?: Clone; b?: Clone; pair: CorrespondencePair; aBox: Box; bBox: Box }
+interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
+
+export function createHandoff(opts: HandoffOptions): HandoffController {
+  const { flight, ctx } = opts, id = `sl-handoff-${++nextId}`;
+  const order = ctx.order ?? nextId;
+  const sources = opts.sourceNodes.map(node => claimVisibility(node, order, false));
+  const destinations = opts.destinationNodes.map(node => claimVisibility(node, order, true));
+  const claims = [...sources, ...destinations];
+  const layer = document.createElementNS(NS, "g");
+  layer.setAttribute("class", "sl-handoff");
+  layer.setAttribute("data-handoff", id);
+  layer.setAttribute("visibility", "hidden");
+  flight.appendChild(layer);
+  let disposed = false, prepared = false, plan: CorrespondencePlan | undefined, sampled: CorrespondencePlan | undefined;
+  let lastPhase = -1;
+  const out: SampledPath[] = [], paths: PathDrawing[] = [], crosses: Crossfade[] = [], glyphs: Glyph[] = [];
+  const clips = new Map<string, string>();
+
+  function container(pair: CorrespondencePair): SVGElement {
+    const owner = pair.b?.owner ?? pair.a!.owner, crop = ctx.crop?.(owner);
+    if (!crop) return layer;
+    let clipId = clips.get(owner.elementId);
+    if (!clipId) {
+      clipId = `${id}-clip-${clips.size}`;
+      const clip = document.createElementNS(NS, "clipPath"), rect = document.createElementNS(NS, "rect");
+      clip.id = clipId; clip.setAttribute("clipPathUnits", "userSpaceOnUse");
+      for (const key of ["x", "y", "width", "height"] as const) rect.setAttribute(key, String(crop[key]));
+      if (crop.rotation) rect.setAttribute("transform", `rotate(${crop.rotation} ${crop.x + crop.width / 2} ${crop.y + crop.height / 2})`);
+      clip.appendChild(rect); layer.appendChild(clip); clips.set(owner.elementId, clipId);
+    }
+    const g = document.createElementNS(NS, "g"); g.setAttribute("clip-path", `url(#${clipId})`); layer.appendChild(g);
+    return g;
+  }
+
+  function clone(outline: StageOutline, parent: SVGElement, centered = false): Clone | undefined {
+    const bound = ctx.node(outline.owner);
+    const original = bound?.namespaceURI === NS ? bound as SVGGraphicsElement : bound?.querySelector<SVGGraphicsElement>("svg");
+    if (!original) return undefined;
+    const g = document.createElementNS(NS, "g"), content = document.createElementNS(NS, "g");
+    // Read layout once, before the first flight frame. Text anchors supplied by
+    // the pure bridge may have no size; the actual glyph run supplies its box.
+    const local = original.getBBox();
+    const matrix = flight.getScreenCTM()?.inverse().multiply(original.getScreenCTM()!);
+    if (!matrix) return undefined;
+    const points = [[local.x, local.y], [local.x + local.width, local.y], [local.x + local.width, local.y + local.height], [local.x, local.y + local.height]]
+      .map(([x, y]) => ({ x: matrix.a * x + matrix.c * y + matrix.e, y: matrix.b * x + matrix.d * y + matrix.f }));
+    const xs = points.map(p => p.x), ys = points.map(p => p.y);
+    const measured = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+    const box = outline.paint.text ? measured : outline.bbox;
+    // The outline's alpha includes the drawable and its ancestors. A clone
+    // already carries alpha inside the copied subtree; only its outside
+    // factor belongs on the flight group (otherwise .8 becomes .64).
+    let insideOpacity = 1;
+    if (outline.owner.partId) {
+      let node: Element | null = original.matches("path,circle,ellipse,rect,line,polyline,polygon,text,image") ? original : original.querySelector("path,circle,ellipse,rect,line,polyline,polygon,text,image");
+      while (node) {
+        const opacity = parseFloat(getComputedStyle(node).opacity);
+        if (Number.isFinite(opacity)) insideOpacity *= opacity;
+        if (node === original) break;
+        node = node.parentElement;
+      }
+    }
+    const copy = original.cloneNode(true) as SVGElement;
+    copy.removeAttribute("transform");
+    for (const property of ["visibility", "transform", "translate", "scale", "rotate"]) copy.style.removeProperty(property);
+    copy.removeAttribute("visibility");
+    // A root SVG's CTM already includes its viewBox. Move its children into a
+    // group rather than applying a second nested-viewport mapping.
+    if (original.tagName.toLowerCase() === "svg") {
+      for (const attr of Array.from(copy.attributes)) if (!["viewBox", "width", "height", "x", "y", "preserveAspectRatio", "style"].includes(attr.name)) content.setAttribute(attr.name, attr.value);
+      while (copy.firstChild) content.appendChild(copy.firstChild);
+    } else {
+      const root = original.ownerSVGElement;
+      for (const defs of Array.from(root?.querySelectorAll(":scope > defs") ?? [])) content.appendChild(defs.cloneNode(true));
+      content.appendChild(copy);
+      // Inherited font/paint otherwise disappears when a part leaves its SVG.
+      const style = getComputedStyle(original);
+      for (const prop of ["fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "font-family", "font-size", "font-weight", "font-style", "text-anchor", "letter-spacing"]) copy.style.setProperty(prop, style.getPropertyValue(prop));
+    }
+    const transform = `matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e - measured.x - (centered ? measured.w / 2 : 0)} ${matrix.f - measured.y - (centered ? measured.h / 2 : 0)})`;
+    if (centered && original.tagName.toLowerCase() !== "svg") {
+      // A glyph needs only its flying group and the original marker. Fold the
+      // normalization into the marker's attribute instead of two more groups.
+      copy.setAttribute("transform", transform);
+      while (content.firstChild) g.appendChild(content.firstChild);
+    } else { content.setAttribute("transform", transform); g.appendChild(content); }
+    prefixIds(g as unknown as SVGSVGElement, `${id}-clone-${nextId++}`);
+    parent.appendChild(g);
+    return { node: g, box: { ...box, w: measured.w || box.w, h: measured.h || box.h }, opacity: (outline.paint.opacity ?? 1) / (insideOpacity || 1) };
+  }
+
+  function ensure(): void {
+    if (prepared || disposed) return;
+    plan = opts.plan(); plan.prepare();
+    layer.setAttribute("data-driver", plan.driver);
+    // Allocate sampling/paint buffers in preparation, including when a first
+    // seek beats the idle warm. Every subsequent seek reuses them.
+    sampled = plan.driver === "path" ? plan : { ...plan, pairs: plan.pairs.filter(pair => !pair.a) };
+    sampleCorrespondence(sampled, 0, out);
+    const cloned = new Set<Element>();
+    const next = layer.nextSibling;
+    layer.remove(); // clone writes must not invalidate the next marker's layout read
+    try {
+      for (const pair of plan.pairs) {
+        if (plan.driver === "glyph" && pair.a) {
+          const bound = ctx.node(pair.a.owner);
+          if (!bound || cloned.has(bound)) continue;
+          cloned.add(bound);
+        }
+        const parent = container(pair);
+        if (plan.driver === "glyph" && pair.a) {
+          const c = clone(pair.a, parent, true);
+          if (!c) continue;
+          c.node.setAttribute("class", "sl-handoff-glyph");
+          const x = pair.a.bbox.x + pair.a.bbox.w / 2, y = pair.a.bbox.y + pair.a.bbox.h / 2;
+          const land = pair.landing ?? { x, y, scale: 1 };
+          glyphs.push({ node: c.node, x, y, dx: land.x - x, dy: land.y - y, scale: land.scale - 1, opacity: c.opacity });
+        } else if (pair.crossfade || pair.a?.paint.text || pair.b?.paint.text || pair.a?.paint.raster || pair.b?.paint.raster) {
+          const a = pair.a ? clone(pair.a, parent) : undefined, b = pair.b ? clone(pair.b, parent) : undefined;
+          const aBox = pair.a?.paint.text ? a?.box : pair.a?.bbox, bBox = pair.b?.paint.text ? b?.box : pair.b?.bbox;
+          crosses.push({ a, b, pair, aBox: aBox ?? bBox!, bBox: bBox ?? aBox! });
+        } else if (plan.driver === "path" || !pair.a) {
+          const node = document.createElementNS(NS, "path");
+          node.setAttribute("class", "sl-handoff-path"); node.setAttribute("stroke-linejoin", "round");
+          parent.appendChild(node);
+          const heads: SVGElement[] = [], fixed: FixedHead[] = [];
+          if (pair.a?.paint.arrowStart || pair.a?.paint.arrowEnd || pair.b?.paint.arrowStart || pair.b?.paint.arrowEnd) {
+            if (pair.plan?.closed) {
+              // An open arrow inflating into a ring keeps its authored head until
+              // it fades. The ring has no endpoint at which to synthesize one.
+              for (const side of [pair.a, pair.b]) {
+                if (!side || side.closed) continue;
+                const p = side.paint, geometry = pathRender({ ...p, d: "", nodes: side.nodes, closed: false });
+                for (const [filled, geometries] of [[true, geometry.polys], [false, geometry.vees]] as const) for (const points of geometries) {
+                  const head = document.createElementNS(NS, filled ? "polygon" : "polyline");
+                  head.setAttribute("fill", filled ? p.stroke : "none"); head.setAttribute("stroke", filled ? "none" : p.stroke);
+                  head.setAttribute("stroke-width", String(p.strokeWidth)); parent.appendChild(head);
+                  fixed.push({ node: head, side, start: side === pair.a, points: points.map(([x, y]) => [(x - side.bbox.x) / (side.bbox.w || 1), (y - side.bbox.y) / (side.bbox.h || 1)]) });
+                }
+              }
+            } else {
+              for (let i = 0; i < 4; i++) { const head = document.createElementNS(NS, i < 2 ? "polygon" : "polyline"); parent.appendChild(head); heads.push(head); }
+            }
+          }
+          paths.push({ node, pair, heads, fixed });
+        }
+      }
+      prepared = true;
+    } finally { flight.insertBefore(layer, next); }
+  }
+
+  function drawPath(drawing: PathDrawing, sample: SampledPath, u: number): void {
+    const { node, pair, heads, fixed } = drawing, p = sample.paint;
+    const d = pathD(sample.nodes, sample.closed);
+    if (!heads.length) set(node, "d", d);
+    set(node, "fill", p.fill); set(node, "stroke", p.stroke);
+    set(node, "stroke-width", String(p.strokeWidth)); set(node, "stroke-linecap", p.cap);
+    set(node, "stroke-dasharray", p.dash?.join(" ") || "none");
+    set(node, "opacity", String(sample.opacity * (p.opacity ?? 1)));
+    for (const head of fixed) {
+      const a = pair.a?.bbox ?? pair.b!.bbox, b = pair.b?.bbox ?? a;
+      const x = lerp(a.x, b.x, u), y = lerp(a.y, b.y, u), w = lerp(a.w, b.w, u), h = lerp(a.h, b.h, u);
+      let points = "";
+      for (const point of head.points) points += `${point[0] * w + x},${point[1] * h + y} `;
+      set(head.node, "points", points);
+      set(head.node, "opacity", String((head.start ? clamp01(1 - u / .4) : clamp01((u - .6) / .4)) * (head.side.paint.opacity ?? 1)));
+    }
+    if (!heads.length) return;
+    const body = { d, nodes: sample.nodes, closed: sample.closed,
+      strokeWidth: p.strokeWidth, arrowStart: pair.a?.paint.arrowStart && pair.b?.paint.arrowStart,
+      arrowEnd: pair.a?.paint.arrowEnd && pair.b?.paint.arrowEnd, arrowStyle: p.arrowStyle, arrowSize: p.arrowSize };
+    set(node, "d", pathRender(body).d);
+    const geometry = pathRender({ ...body,
+      strokeWidth: p.strokeWidth, arrowStart: pair.a?.paint.arrowStart || pair.b?.paint.arrowStart,
+      arrowEnd: pair.a?.paint.arrowEnd || pair.b?.paint.arrowEnd, arrowStyle: p.arrowStyle, arrowSize: p.arrowSize });
+    let index = 0;
+    for (const which of ["arrowEnd", "arrowStart"] as const) {
+      const a = !!pair.a?.paint[which], b = !!pair.b?.paint[which];
+      if (!a && !b) continue;
+      const opacity = (a && b ? 1 : a ? clamp01(1 - u / .4) : clamp01((u - .6) / .4)) * sample.opacity * (p.opacity ?? 1);
+      for (let kind = 0; kind < 2; kind++) {
+        const head = heads[index + kind * 2], points = (kind ? geometry.vees : geometry.polys)[index];
+        set(head, "points", points?.map(point => point.join(",")).join(" ") ?? "");
+        set(head, "fill", kind ? "none" : p.stroke); set(head, "stroke", kind ? p.stroke : "none");
+        set(head, "stroke-width", String(p.strokeWidth)); set(head, "opacity", String(opacity));
+      }
+      index++;
+    }
+  }
+
+  function seek(u: number, raw = clamp01(u)): void {
+    if (disposed) return;
+    const t = clamp01(u), phase = raw <= 0 ? 0 : raw >= 1 ? 2 : 1;
+    if (lastPhase !== phase) {
+      for (const entry of sources) { entry.claim.active = phase !== 0; entry.claim.hidden = phase !== 0; }
+      for (const entry of destinations) { entry.claim.active = phase !== 0; entry.claim.hidden = phase !== 2; }
+      for (const entry of claims) paintVisibility(entry.node, entry.state);
+      set(layer, "visibility", phase === 1 ? "visible" : "hidden");
+      lastPhase = phase;
+    }
+    if (phase !== 1) return;
+    ensure();
+    if (paths.length) {
+      sampleCorrespondence(sampled!, t, out);
+      let i = 0;
+      for (const drawing of paths) {
+        while (sampled!.pairs[i] !== drawing.pair) i++;
+        drawPath(drawing, out[i], t);
+      }
+    }
+    const fade = raw < .85 ? 1 : clamp01((1 - raw) / .15);
+    for (const glyph of glyphs) {
+      set(glyph.node, "transform", `translate(${glyph.x + glyph.dx * t} ${glyph.y + glyph.dy * t}) scale(${1 + glyph.scale * t})`);
+      set(glyph.node, "opacity", String(glyph.opacity * fade));
+    }
+    for (const cross of crosses) {
+      const a = cross.aBox, b = cross.bBox;
+      const x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t), w = lerp(a.w, b.w, t), h = lerp(a.h, b.h, t);
+      if (cross.a) {
+        set(cross.a.node, "transform", `translate(${x} ${y}) scale(${w / (cross.a.box.w || 1)} ${h / (cross.a.box.h || 1)})`);
+        set(cross.a.node, "opacity", String((cross.pair.b ? 1 - t : clamp01(1 - t / .4)) * cross.a.opacity));
+      }
+      if (cross.b) {
+        set(cross.b.node, "transform", `translate(${x} ${y}) scale(${w / (cross.b.box.w || 1)} ${h / (cross.b.box.h || 1)})`);
+        set(cross.b.node, "opacity", String((cross.pair.a ? t : clamp01((t - .6) / .4)) * cross.b.opacity));
+      }
+    }
+  }
+
+  warmWhenIdle(() => { if (!disposed && flight.isConnected) ensure(); });
+  return { seek, targetRoot: ctx.targetRoot,
+    releaseSource() {
+      for (const entry of sources) { entry.claim.hidden = false; paintVisibility(entry.node, entry.state); }
+      lastPhase = -1;
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true; layer.remove();
+      for (const entry of claims) {
+        entry.state.claims.delete(entry.claim); paintVisibility(entry.node, entry.state);
+        if (!entry.state.claims.size) visibility.delete(entry.node);
+      }
+    },
+  };
+}

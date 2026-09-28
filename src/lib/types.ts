@@ -424,6 +424,23 @@ export interface SemanticPlotElement extends ElementBase {
   // Geometric content scale persisted by the K/Scale tool. Plain resize keeps
   // text/strokes pt-true (plot/compensate.ts); K multiplies this instead.
   contentScale?: number;
+  // The plot's DATA VIEW (animation v2): show the plot as if its axes had these
+  // limits/scales — a data-space crop. Rendered by pure re-projection through
+  // the manifest's axis fits (plot/project.ts) in every engine; absent = the
+  // generated view (so untouched files stay byte-identical). An ordinary
+  // element prop: a slide Change of it is the data-space transform.
+  view?: PlotView;
+}
+
+/** One axis of a plot's data view. `domain` in data units (the manifest's
+ *  axis domain when absent); `scale` overrides the generated axis scale. */
+export interface PlotAxisView {
+  domain?: [number, number];
+  scale?: "linear" | "log";
+}
+export interface PlotView {
+  x?: PlotAxisView;
+  y?: PlotAxisView;
 }
 
 // A style override for one semantic part. Open-ended; each key maps to a

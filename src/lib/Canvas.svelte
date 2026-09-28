@@ -50,7 +50,7 @@
   import { perfCounters } from "./dev/perfCounters";
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
-  import { restorePlotClip } from "./plot/parse";
+  import { restorePlotClip, partDomId } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
@@ -124,25 +124,30 @@
   $: cameraClip = frame && presentation?.camera && presentation.stage
     ? `inset(${$baseViewport.panY}px ${hostW - $baseViewport.panX - presentation.stage.width * $baseViewport.zoom}px ${hostH - $baseViewport.panY - presentation.stage.height * $baseViewport.zoom}px ${$baseViewport.panX}px)`
     : undefined;
-  let presentationHighlight: { x: number; y: number; w: number; h: number } | null = null;
+  let presentationHighlights: { x: number; y: number; w: number; h: number }[] = [];
   const highlightWork = { generation: 0 };
   $: schedulePresentationHighlight(presentation?.highlight, $viewport, $globalRev, absentPresentationIds, stashedPresentationParts);
   async function schedulePresentationHighlight(target: EditorCanvasPresentation["highlight"], _viewport: unknown, _revision: number, absent: ReadonlySet<string>, stashedParts: ReadonlyMap<string, ReadonlySet<string>>) {
     const generation = ++highlightWork.generation;
-    if (!target || absent.has(target.elementId)) { presentationHighlight = null; return; }
+    if (!target) { presentationHighlights = []; return; }
     await tick();
     if (generation !== highlightWork.generation || !hostEl) return;
-    const parts = target.partIds?.filter(id => !stashedParts.get(target.elementId)?.has(id));
-    if (target.partIds?.length && !parts?.length) { presentationHighlight = null; return; }
-    const nodes = parts?.length && parts.length <= 256
-      ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(`${target.elementId}__${id}`)}"]`)).filter((n): n is globalThis.Element => !!n)
-      : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(target.elementId)}"]`)].filter((n): n is globalThis.Element => !!n);
-    const boxes = nodes.map((node) => node.getBoundingClientRect()).filter((b) => b.width || b.height);
-    if (!boxes.length) { presentationHighlight = null; return; }
+    const targets = "elementId" in target ? [target] : target;
     const host = hostEl.getBoundingClientRect();
-    const x = Math.min(...boxes.map((b) => b.left));
-    const y = Math.min(...boxes.map((b) => b.top));
-    presentationHighlight = { x: x - host.left - 3, y: y - host.top - 3, w: Math.max(...boxes.map((b) => b.right)) - x + 6, h: Math.max(...boxes.map((b) => b.bottom)) - y + 6 };
+    const boxes: typeof presentationHighlights = [];
+    for (const item of targets) {
+      if (absent.has(item.elementId)) continue;
+      const parts = item.partIds?.filter(id => !stashedParts.get(item.elementId)?.has(id));
+      if (item.partIds?.length && !parts?.length) continue;
+      const nodes = parts?.length && parts.length <= 256
+        ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(partDomId(item.elementId, id))}"]`))
+        : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(item.elementId)}"]`)];
+      for (const node of nodes) {
+        const r = node?.getBoundingClientRect();
+        if (r && (r.width || r.height)) boxes.push({ x: r.left - host.left - 3, y: r.top - host.top - 3, w: r.width + 6, h: r.height + 6 });
+      }
+    }
+    presentationHighlights = boxes;
   }
 
   const HS = 9; // on-screen handle size in px (constant)
@@ -1915,15 +1920,15 @@
     // plot can never accidentally grab a bar or a tick label. The one
     // plain-click exception (also Figma): the part that is ALREADY drilled
     // stays drilled, so a plain drag keeps moving the selected part. Shift
-    // keeps its add/toggle meaning and alt keeps duplicate-drag — both
-    // suppress deep-select. SCAFFOLD parts (figure/plot-area/background
+    // suppresses deep-select except in a destination pick, where it adds
+    // parts; alt keeps duplicate-drag. SCAFFOLD parts (figure/plot-area/background
     // patches/axis containers) never drill — a ctrl-click on a plot's
     // background selects the whole plot, like Figma's deep-click on a frame.
-    const deep = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+    const deep = (e.ctrlKey || e.metaKey) && (!e.shiftKey || presentation?.picking) && !e.altKey;
     if (el.type === "plot") {
       const ps = $partSelection;
       const plainSame =
-        !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
+        !presentation?.picking && !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
       let pid: string | null = null;
       if (deep || plainSame) {
         pid = partAtPoint(el, e);
@@ -1937,6 +1942,7 @@
         // The drill makes the plot ELEMENT the selection (deep pierces any
         // group; a continuation click never widens an existing selection).
         if (deep || !$selection.has(el.id)) selection.set(new Set([el.id]));
+        if (presentation?.picking) return;
         // Select tool → arm the part move; scale tool keeps whole-plot
         // semantics (falls through to a normal move of the plot).
         if ($activeTool === "select" && beginPartMove(e, fig, el.id, pid)) return;
@@ -1955,6 +1961,7 @@
     // Deep-click on a non-plot (or a plot's scaffold) selects the element
     // ITSELF — no group-unit expansion (Figma deep select).
     const grp = deep ? new Set([el.id]) : expandGroups($project, new Set([el.id]), scope);
+    if (presentation?.picking) { selection.set(grp); return; }
     // Shift has two meanings on an element: shift-CLICK toggles its selection,
     // but shift-DRAG constrains the move to one axis. We can't tell which at
     // pointer-down, so for an already-selected element we DEFER the toggle to
@@ -2040,7 +2047,7 @@
     if (!f || f.element.type !== "plot" || effLocked(f.element)) return null;
     const pid = partAtPoint(f.element, ev);
     if (!pid || isScaffoldPart($plotManifests[f.element.assetId], pid)) return null;
-    const node = document.getElementById(`${f.element.id}__${pid}`);
+    const node = document.getElementById(partDomId(f.element.id, pid));
     if (!node) return null;
     const r = node.getBoundingClientRect();
     const h = hostEl.getBoundingClientRect();
@@ -2054,7 +2061,7 @@
   function beginPartMove(e: PointerEvent, fig: Figure, elementId: string, partId: string): boolean {
     const found = findElement($project, elementId);
     if (!found || found.element.type !== "plot" || effHidden(found.element) || stashedPresentationParts.get(elementId)?.has(partId)) return false;
-    const node = document.getElementById(`${elementId}__${partId}`) as unknown as SVGGraphicsElement | null;
+    const node = document.getElementById(partDomId(elementId, partId)) as unknown as SVGGraphicsElement | null;
     if (!node || typeof node.getScreenCTM !== "function") return false;
     restorePlotClip(node);
     // The override translate is PREPENDED to the node's transform list, so it
@@ -2436,7 +2443,7 @@
     if (
       !gesture &&
       (e.ctrlKey || e.metaKey) &&
-      !e.shiftKey &&
+      (!e.shiftKey || presentation?.picking) &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
       !editPathId
@@ -3681,7 +3688,7 @@
     if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
     const ps=get(partSelection);
     if (!ps) return;
-    const node=hostEl.querySelector(`[id="${CSS.escape(`${ps.elementId}__${ps.partId}`)}"]`);
+    const node=hostEl.querySelector(`[id="${CSS.escape(partDomId(ps.elementId, ps.partId))}"]`);
     if (!node) {partWorldBox=null;return;}
     const r=node.getBoundingClientRect(),h=hostEl.getBoundingClientRect(),v=get(viewport);
     partWorldBox={x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom};
@@ -4019,9 +4026,9 @@
   </div>
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
-    {#if presentationHighlight}
-      <rect class="presentation-target" x={presentationHighlight.x} y={presentationHighlight.y} width={presentationHighlight.w} height={presentationHighlight.h} rx="3" />
-    {/if}
+    {#each presentationHighlights as box}
+      <rect class="presentation-target" x={box.x} y={box.y} width={box.w} height={box.h} rx="2" />
+    {/each}
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">

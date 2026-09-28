@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="180pt" height="108pt" viewBox="0 0 180 108" version="1.1" data-fluxplot="1" data-plot-type="plot">
+  <defs>
+    <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+  </defs>
+  <g id="figure" data-role="figure" data-kind="container">
+    <g id="patch_1">
+      <path d="M 0 108  L 180 108  L 180 0  L 0 0  z " style="fill: #ffffff"/>
+    </g>
+    <g id="plot-area" data-role="plot-area" data-kind="container">
+      <g id="patch_2">
+        <path d="M 30.972623 92.30728  L 176.99976 92.30728  L 176.99976 4.646865  L 30.972623 4.646865  z " style="fill: #ffffff"/>
+      </g>
+      <g id="axis.x" data-role="axis" data-axis="x" data-kind="container">
+        <g id="xtick_1">
+          <g id="axis.x.tick.0" data-role="tick" data-axis="x" data-index="0" data-kind="line">
+            <path d="M 0 0  L 0 4.5  " transform="translate(55.310479 92.30728)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.x.ticklabel.0" data-role="tick-label" data-axis="x" data-index="0" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #100f0f" x="55.310479" y="103.947416" transform="rotate(-0 55.310479 103.947416)">peaches</text>
+          </g>
+        </g>
+        <g id="xtick_2">
+          <g id="axis.x.tick.1" data-role="tick" data-axis="x" data-index="1" data-kind="line">
+            <path d="M 0 0  L 0 4.5  " transform="translate(103.986191 92.30728)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.x.ticklabel.1" data-role="tick-label" data-axis="x" data-index="1" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #100f0f" x="103.986191" y="103.947416" transform="rotate(-0 103.986191 103.947416)">oranges</text>
+          </g>
+        </g>
+        <g id="xtick_3">
+          <g id="axis.x.tick.2" data-role="tick" data-axis="x" data-index="2" data-kind="line">
+            <path d="M 0 0  L 0 4.5  " transform="translate(152.661904 92.30728)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.x.ticklabel.2" data-role="tick-label" data-axis="x" data-index="2" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #100f0f" x="152.661904" y="103.947416" transform="rotate(-0 152.661904 103.947416)">tomatoes</text>
+          </g>
+        </g>
+      </g>
+      <g id="axis.y" data-role="axis" data-axis="y" data-kind="container">
+        <g id="ytick_1">
+          <g id="axis.y.tick.1" data-role="tick" data-axis="y" data-index="1" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 84.859079)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.1" data-role="tick-label" data-axis="y" data-index="1" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="86.679147" transform="rotate(-0 22.972623 86.679147)">50</text>
+          </g>
+        </g>
+        <g id="ytick_2">
+          <g id="axis.y.tick.2" data-role="tick" data-axis="y" data-index="2" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 72.92382)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.2" data-role="tick-label" data-axis="y" data-index="2" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="74.743888" transform="rotate(-0 22.972623 74.743888)">75</text>
+          </g>
+        </g>
+        <g id="ytick_3">
+          <g id="axis.y.tick.3" data-role="tick" data-axis="y" data-index="3" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 60.988561)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.3" data-role="tick-label" data-axis="y" data-index="3" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="62.80863" transform="rotate(-0 22.972623 62.80863)">100</text>
+          </g>
+        </g>
+        <g id="ytick_4">
+          <g id="axis.y.tick.4" data-role="tick" data-axis="y" data-index="4" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 49.053303)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.4" data-role="tick-label" data-axis="y" data-index="4" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="50.873371" transform="rotate(-0 22.972623 50.873371)">125</text>
+          </g>
+        </g>
+        <g id="ytick_5">
+          <g id="axis.y.tick.5" data-role="tick" data-axis="y" data-index="5" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 37.118044)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.5" data-role="tick-label" data-axis="y" data-index="5" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="38.938113" transform="rotate(-0 22.972623 38.938113)">150</text>
+          </g>
+        </g>
+        <g id="ytick_6">
+          <g id="axis.y.tick.6" data-role="tick" data-axis="y" data-index="6" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 25.182786)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.6" data-role="tick-label" data-axis="y" data-index="6" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="27.002854" transform="rotate(-0 22.972623 27.002854)">175</text>
+          </g>
+        </g>
+        <g id="ytick_7">
+          <g id="axis.y.tick.7" data-role="tick" data-axis="y" data-index="7" data-kind="line">
+            <path d="M 0 0  L -4.5 0  " transform="translate(30.972623 13.247527)" style="stroke: #575653; fill: #575653"/>
+          </g>
+          <g id="axis.y.ticklabel.7" data-role="tick-label" data-axis="y" data-index="7" data-kind="text">
+            <text style="font-size: 5px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #100f0f" x="22.972623" y="15.067595" transform="rotate(-0 22.972623 15.067595)">200</text>
+          </g>
+        </g>
+        <g id="axis.y.title" data-role="axis-title" data-axis="y" data-kind="text">
+          <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #100f0f" x="7.368404" y="48.477072" transform="rotate(-90 7.368404 48.477072)">fruit weight (g)</text>
+        </g>
+      </g>
+      <g id="peaches.box" data-role="box" data-series="peaches" data-kind="shape">
+        <path d="M 48.009122 49.829638  L 62.611836 49.829638  L 62.611836 43.242751  L 48.009122 43.242751  L 48.009122 49.829638  z " clip-path="url(#p328ef5610d)" style="fill: #ffdab9; stroke: #000000; stroke-linejoin: miter"/>
+      </g>
+      <g id="peaches.whisker" data-role="whisker" data-series="peaches" data-kind="line">
+        <path d="M 55.310479 49.829638  L 55.310479 57.466625  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="peaches.whisker-2" data-role="whisker" data-series="peaches" data-kind="line">
+        <path d="M 55.310479 43.242751  L 55.310479 36.662585  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="peaches.cap" data-role="cap" data-series="peaches" data-kind="line">
+        <path d="M 51.659801 57.466625  L 58.961157 57.466625  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="peaches.cap-2" data-role="cap" data-series="peaches" data-kind="line">
+        <path d="M 51.659801 36.662585  L 58.961157 36.662585  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="peaches.flier" data-role="flier" data-series="peaches" data-kind="shape">
+        <defs>
+          <path id="m3b6264dc53" d="M 0 3  C 0.795609 3 1.55874 2.683901 2.12132 2.12132  C 2.683901 1.55874 3 0.795609 3 0  C 3 -0.795609 2.683901 -1.55874 2.12132 -2.12132  C 1.55874 -2.683901 0.795609 -3 0 -3  C -0.795609 -3 -1.55874 -2.683901 -2.12132 -2.12132  C -2.683901 -1.55874 -3 -0.795609 -3 0  C -3 0.795609 -2.683901 1.55874 -2.12132 2.12132  C -1.55874 2.683901 -0.795609 3 0 3  z " style="stroke: #808080"/>
+        </defs>
+        <g clip-path="url(#p328ef5610d)">
+          <use xlink:href="#m3b6264dc53" x="55.310479" y="61.570231" style="fill: #add8e6; stroke: #808080"/>
+        </g>
+      </g>
+      <g id="oranges.box" data-role="box" data-series="oranges" data-kind="shape">
+        <path d="M 96.684835 55.375219  L 111.287548 55.375219  L 111.287548 42.825417  L 96.684835 42.825417  L 96.684835 55.375219  z " clip-path="url(#p328ef5610d)" style="fill: #ffa500; stroke: #000000; stroke-linejoin: miter"/>
+      </g>
+      <g id="oranges.whisker" data-role="whisker" data-series="oranges" data-kind="line">
+        <path d="M 103.986191 55.375219  L 103.986191 71.269732  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="oranges.whisker-2" data-role="whisker" data-series="oranges" data-kind="line">
+        <path d="M 103.986191 42.825417  L 103.986191 31.549245  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="oranges.cap" data-role="cap" data-series="oranges" data-kind="line">
+        <path d="M 100.335513 71.269732  L 107.63687 71.269732  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="oranges.cap-2" data-role="cap" data-series="oranges" data-kind="line">
+        <path d="M 100.335513 31.549245  L 107.63687 31.549245  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="oranges.flier" data-role="flier" data-series="oranges" data-kind="shape">
+        <g clip-path="url(#p328ef5610d)">
+          <use xlink:href="#m3b6264dc53" x="103.986191" y="79.021545" style="fill: #add8e6; stroke: #808080"/>
+        </g>
+      </g>
+      <g id="tomatoes.box" data-role="box" data-series="tomatoes" data-kind="shape">
+        <path d="M 145.360547 57.803386  L 159.963261 57.803386  L 159.963261 40.943575  L 145.360547 40.943575  L 145.360547 57.803386  z " clip-path="url(#p328ef5610d)" style="fill: #ff6347; stroke: #000000; stroke-linejoin: miter"/>
+      </g>
+      <g id="tomatoes.whisker" data-role="whisker" data-series="tomatoes" data-kind="line">
+        <path d="M 152.661904 57.803386  L 152.661904 82.827637  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="tomatoes.whisker-2" data-role="whisker" data-series="tomatoes" data-kind="line">
+        <path d="M 152.661904 40.943575  L 152.661904 20.775863  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="tomatoes.cap" data-role="cap" data-series="tomatoes" data-kind="line">
+        <path d="M 149.011225 82.827637  L 156.312582 82.827637  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="tomatoes.cap-2" data-role="cap" data-series="tomatoes" data-kind="line">
+        <path d="M 149.011225 20.775863  L 156.312582 20.775863  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="tomatoes.flier" data-role="flier" data-series="tomatoes" data-kind="shape">
+        <g clip-path="url(#p328ef5610d)">
+          <use xlink:href="#m3b6264dc53" x="152.661904" y="84.54682" style="fill: #add8e6; stroke: #808080"/>
+          <use xlink:href="#m3b6264dc53" x="152.661904" y="88.322715" style="fill: #add8e6; stroke: #808080"/>
+        </g>
+      </g>
+      <g id="significance-bracket.0" data-role="significance-bracket" data-name="0" data-kind="line">
+        <path d="M 55.310479 10.860475  L 55.310479 8.631429  L 152.661904 8.631429  L 152.661904 10.860475  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-linecap: round"/>
+      </g>
+      <g id="peaches.median" data-role="median" data-series="peaches" data-kind="line">
+        <path d="M 48.009122 46.668731  L 62.611836 46.668731  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-width: 2"/>
+      </g>
+      <g id="oranges.median" data-role="median" data-series="oranges" data-kind="line">
+        <path d="M 96.684835 48.981283  L 111.287548 48.981283  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-width: 2"/>
+      </g>
+      <g id="tomatoes.median" data-role="median" data-series="tomatoes" data-kind="line">
+        <path d="M 145.360547 50.011451  L 159.963261 50.011451  " clip-path="url(#p328ef5610d)" style="fill: none; stroke: #000000; stroke-width: 2"/>
+      </g>
+      <g id="axis.y.spine" data-role="spine" data-axis="y" data-kind="line">
+        <path d="M 30.972623 92.30728  L 30.972623 4.646865  " style="fill: none; stroke: #575653; stroke-width: 1.2; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="axis.x.spine" data-role="spine" data-axis="x" data-kind="line">
+        <path d="M 30.972623 92.30728  L 176.99976 92.30728  " style="fill: none; stroke: #575653; stroke-width: 1.2; stroke-linejoin: miter; stroke-linecap: square"/>
+      </g>
+      <g id="significance-bracket.0.label" data-role="label" data-name="0" data-kind="text">
+        <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'Lato', 'Helvetica Neue', 'DejaVu Sans', sans-serif; text-anchor: middle; fill: #100f0f" x="103.986191" y="7.368734" transform="rotate(-0 103.986191 7.368734)">*</text>
+      </g>
+    </g>
+  </g>
+  <defs>
+    <clipPath id="p328ef5610d">
+      <rect x="30.972623" y="4.646865" width="146.027137" height="87.660415"/>
+    </clipPath>
+  </defs>
+</svg>

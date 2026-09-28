@@ -10,8 +10,8 @@ import type { FluxPlotManifest } from "../plot/types";
 import { slideById, addBeat, appendAnimation } from "./ops";
 import { suggestTrack, suggestElementTrack } from "./autobuild";
 import { familyOf } from "./family";
-import { semanticTargets, trackDuration } from "./compile";
-import { staggerSpan } from "./stagger";
+import { newId } from "../ids";
+import { trackKey } from "./targets";
 
 export interface AnimateTarget {
   elementId: string;
@@ -73,19 +73,13 @@ export function addAppearanceTracks(
       track.preset = "highlight";
       track.duration = 500;
     }
-    const prior = beat.tracks.filter(
-      (x) => x.target === el.id && (x.part ?? "") === (track.part ?? "") && familyOf(x) === "appearance",
-    );
-    track.start = prior.reduce(
-      (end, x) =>
-        Math.max(
-          end,
-          (x.start ?? 0) +
-            trackDuration(x) +
-            staggerSpan(x, semanticTargets(x, slide, { plotManifest: (id) => manifestOf(id) }).length),
-        ),
-      0,
-    );
+    const key = trackKey(track);
+    const prior = beat.tracks.filter((x) => trackKey(x) === key && familyOf(x) === "appearance");
+    const last = prior.at(-1);
+    if (last) {
+      last.id ??= newId("track");
+      track.anchor = { trackId: last.id, edge: "end" };
+    }
     const added = appendAnimation(deck, slideId, beat.id, track);
     if (added?.id) created.push(added.id);
   }

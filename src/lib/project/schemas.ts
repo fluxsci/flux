@@ -9,6 +9,8 @@ import scene3dSchema from "../model3d/scene3d.schema.json";
 // strict on the load-bearing fields (ids, types, required structure) — which is
 // exactly what catches an agent's malformed write.
 
+import { EASING_TOKENS } from "../slide/curves";
+
 const draft = "http://json-schema.org/draft-07/schema#";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +22,34 @@ const draft = "http://json-schema.org/draft-07/schema#";
 // null corruption. additionalProperties stays permissive so hand-authored
 // agent files with extra keys keep loading.
 // ---------------------------------------------------------------------------
+
+// Optional on every track, including ghost births and reusable style tracks.
+const CURVE = { oneOf: [
+  { type: "object", required: ["kind", "p"], additionalProperties: false, properties: {
+    kind: { const: "bezier" }, p: { type: "array", minItems: 4, maxItems: 4, items: [
+      { type: "number", minimum: 0, maximum: 1 }, { type: "number", minimum: -1, maximum: 2 },
+      { type: "number", minimum: 0, maximum: 1 }, { type: "number", minimum: -1, maximum: 2 },
+    ] },
+  } },
+  { type: "object", required: ["kind", "bounce"], additionalProperties: false, properties: {
+    kind: { const: "spring" }, bounce: { type: "number", minimum: -0.5, maximum: 0.8 }, velocity: { type: "number" },
+  } },
+  { type: "object", required: ["kind", "n"], additionalProperties: false, properties: {
+    kind: { const: "steps" }, n: { type: "integer", minimum: 1, maximum: 60 }, jump: { enum: ["start", "end"] },
+  } },
+] };
+const TIMING_CURVE_PROPS = {
+  easing: { type: "string", enum: EASING_TOKENS },
+  influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
+  curve: CURVE,
+};
+const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
+const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
+  perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
+  by: { enum: ["index", "x", "y"] }, from: { enum: ["start", "end", "center", "edges", "random"] },
+  seed: { type: "integer", minimum: 0, maximum: 4294967295 }, curve: STAGGER_CURVE,
+} };
+const ARC = { type: "number", minimum: -1, maximum: 1 };
 
 const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 // Per-range text formatting (textRuns.ts). Lenient like every other element
@@ -72,6 +102,11 @@ const ELEMENT_DEF = {
       contentScale: { type: "number" },
       source: { type: "object" },
       manifestRef: { type: "object" },
+      // animation v2: the data view (axis domain/scale crop), per axis
+      view: { type: "object", properties: Object.fromEntries(["x", "y"].map((axis) => [axis, {
+        type: "object",
+        properties: { domain: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, scale: { enum: ["linear", "log"] } },
+      }])) },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },
@@ -432,13 +467,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/deck.schema.json",
     title: "Flux Slide deck (slides/<id>/deck.json)",
     type: "object",
-    // 0.5 extends the shared figure scene with slide-only video. Figure
-    // schemas retain ELEMENT_DEF; only this deck definition adds the branch.
-    // 0.2–0.4 input migrates by stamp. Older apps refuse 0.5 before validation;
+    // 0.5 extends the shared figure scene with slide-only video; 0.6 (animation
+    // v2) adds part-set transform targets, the hand-off Become, animation
+    // styles, timing anchors and the plot data view. Figure schemas retain
+    // ELEMENT_DEF; only this deck definition adds the video branch.
+    // 0.2–0.5 input migrates by stamp. Older apps refuse 0.6 before validation;
     // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[2345]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[23456]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -478,6 +515,20 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         additionalProperties: {
           type: "object", required: ["width", "height"],
           properties: { width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 } },
+        },
+      },
+      // 0.6: linkable animation styles (Track.styleId → id)
+      animStyles: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "name", "family", "track"],
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            family: { enum: ["appearance", "transform", "media"] },
+            track: { type: "object", properties: { ...TIMING_CURVE_PROPS, stagger: STAGGER, arc: ARC } },
+          },
         },
       },
       slides: {
@@ -528,18 +579,25 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         target: { type: "string" },
                         ghostFrom: { type: "string", pattern: "[\\s\\S]" },
                         part: { type: "string" },
+                        parts: { type: "array", items: { type: "string" } }, // 0.6: several parts of one plot
                         selector: { type: "object" },
                         preset: { type: "string" },
                         params: { type: "object" },
                         start: { type: "number" },
                         duration: { type: "number" },
-                        easing: { type: "string" },
-                        influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
-                        stagger: { type: "object" },
+                        ...TIMING_CURVE_PROPS,
+                        stagger: STAGGER,
+                        arc: ARC,
                         // 0.3.0: `to.state` carries a transform's sparse patch
-                        to: { type: "object" },
+                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
+                        styleId: { type: "string" }, // 0.6: deck AnimStyle ref
+                        // 0.6: relative timing — start at another track's edge
+                        anchor: {
+                          type: "object", required: ["trackId", "edge"],
+                          properties: { trackId: { type: "string" }, edge: { enum: ["start", "end"] }, offsetMs: { type: "number" } },
+                        },
                       },
                       allOf: [{
                         if: { required: ["ghostFrom"] },

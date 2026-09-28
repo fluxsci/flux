@@ -10,6 +10,7 @@ export interface ScrubParams {
   onCancel?: () => void;
   step?: number;
   factor?: number;
+  round?: (value: number) => number;
   min?: number | null;
   max?: number | null;
   disabled?: boolean;
@@ -49,7 +50,7 @@ export function scrub(node: HTMLElement, params: ScrubParams) {
     let value = numericStep(startVal, Math.round(dx) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1), p.step ?? 1, p.factor);
     if (p.min != null) value = Math.max(p.min, value);
     if (p.max != null) value = Math.min(p.max, value);
-    value = +value.toFixed(p.factor ? 6 : precisionOf(step));
+    value = p.round ? p.round(value) : +value.toFixed(p.factor ? 6 : precisionOf(step));
     if (value === lastVal) return;
     if (!began) { p.onStart?.(); began = true; }
     lastVal = value;

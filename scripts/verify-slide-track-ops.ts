@@ -4,15 +4,20 @@
 // mask-disables-instead-of-deletes, setPartStyle, per-kind element tracks,
 // morph authoring + the shared compatibility gate.
 // Run: npx tsx scripts/verify-slide-track-ops.ts
+import { resolveTrack } from "../src/lib/slide/resolve";
+import * as core from "../flux-core/index";
 import * as ops from "../src/lib/slide/ops";
 import { suggestElementTrack, animateElement, animatePart, listMorphCandidates } from "../src/lib/slide/autobuild";
 import type { Track } from "../src/lib/slide/types";
 import type { Element as SlideElement } from "../src/lib/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
+import { familyOf } from "../src/lib/slide/family";
+import { targetPartIds, trackKey } from "../src/lib/slide/targets";
 
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-track-ops");
 function assert(cond: unknown, msg: string) {
-  if (!cond) throw new Error("FAIL: " + msg);
-  console.log("  ok:", msg);
+  if (!h.ok(cond, msg)) throw new Error("FAIL: " + msg);
 }
 
 const deck = ops.createDeck({ id: "t", title: "Track ops" });
@@ -128,6 +133,8 @@ const cands = listMorphCandidates(A, [
 assert(cands.find((x) => x.assetId === "b")!.compatible, "shared tweenable series → compatible");
 assert(!cands.find((x) => x.assetId === "c")!.compatible, "disjoint series ids → incompatible");
 assert(!cands.find((x) => x.assetId === "none")!.compatible, "missing manifest → incompatible");
+const partial = listMorphCandidates(A, [{ assetId: "partial", manifest: mkManifest([{ id: "control", n: 7 }, { id: "extra", n: 2 }]) }]);
+assert(partial[0].compatible, "additional series and points preserve a shared tweenable candidate (partial binding owns the residue)");
 // the data-only Become (once "set-morph"): the ONE transform track carries the content half
 assert(ops.setTransform(deck, sid, b2.id, plotId, { toAssetId: "demo/other", duration: 900 }), "setTransform authors the data-only Become on the beat");
 const morphT = b2.tracks.find((t) => t.preset === "transform" && t.target === plotId)!;
@@ -168,6 +175,48 @@ assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.
   const st2 = t1.to?.state as Record<string, unknown>;
   assert(st2.opacity === 0.5 && !("x" in st2), "replaceState swaps the whole patch");
   assert(beat.tracks.filter((t) => t.target === "el-2").length === 1, "setTransform never stacks a second transform");
+
+  // 0.6 (animation v2): the family law keys on the FULL target — element +
+  // sorted part ids + selector (targets.trackKey) — so a whole-plot transform
+  // and a one-box transform coexist, and the same part-set replaces itself.
+  const tp = ops.setTransform(d, s, beat.id, "plot-1", { state: { x: 5 } })!;
+  const tb = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["oranges.box"] }, state: {} })!;
+  assert(tp.id !== tb.id && beat.tracks.filter((t) => t.target === "plot-1" && t.preset === "transform").length === 2, "a whole-plot transform and a part-set transform COEXIST in one beat");
+  assert(tb.part === "oranges.box" && !tb.parts, "a single-part ref is written as `part`");
+  const tb2 = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["oranges.box"] }, state: { fill: "#f00" } })!;
+  assert(tb2.id === tb.id && beat.tracks.filter((t) => t.target === "plot-1" && t.preset === "transform").length === 2, "the same part-set finds THE existing transform (no stacking)");
+  const tm = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["axis.y.spine", "axis.x.spine"] }, state: {} })!;
+  assert(Array.isArray(tm.parts) && tm.parts.length === 2 && !tm.part, "a multi-part ref is written as `parts`");
+  const tm2 = ops.setTransform(d, s, beat.id, "plot-1", { ref: { parts: ["axis.x.spine", "axis.y.spine"] }, state: {} })!;
+  assert(tm2.id === tm.id, "part order does not change the target identity (sorted key)");
+  ops.setAnimation(d, s, beat.id, { target: "plot-1", parts: ["axis.x.spine", "axis.y.spine"], preset: "fade" });
+  ops.setAnimation(d, s, beat.id, { target: "plot-1", parts: ["axis.y.spine", "axis.x.spine"], preset: "drawOn" });
+  assert(beat.tracks.filter((t) => t.target === "plot-1" && familyOf(t) === "appearance").length === 1, "appearances on the same part-set replace within family, order-blind");
+  assert(beat.tracks.filter((t) => t.target === "plot-1" && t.preset === "transform").length === 3, "…and never touch the transforms");
+}
+
+// --- 0.6: the ONE part-binding resolver (part ∪ parts ∪ selector − except) ----
+{
+  const manifest = {
+    spec: "fluxplot/manifest", schemaVersion: "0.2.0", plotType: "line", svg: "p.svg", size: { width: 1, height: 1, unit: "px" },
+    axes: [], series: [
+      { id: "control", svg: { line: "control.line", points: "control.points" }, points: [{ index: 0, svgId: "control.point.0", x: 0, y: 0 }, { index: 1, svgId: "control.point.1", x: 1, y: 1 }] },
+      { id: "treat", svg: { line: "treat.line", points: "treat.points" }, points: [{ index: 0, svgId: "treat.point.0", x: 0, y: 0 }] },
+    ],
+    parts: { id: "figure", role: "figure", children: [{ id: "plot-area", role: "plot-area", children: [
+      { id: "axis.x", role: "axis", axis: "x", children: [{ ref: "axis.x.spine", role: "spine" }, { id: "axis.x.ticks", role: "group", groupRole: "tick", members: ["axis.x.tick.0", "axis.x.tick.1"] }] },
+    ] }] },
+  } as unknown as FluxPlotManifest;
+  const ids = (b: Parameters<typeof targetPartIds>[0]) => targetPartIds(b, manifest).join(",");
+  assert(ids({ part: "axis.x" }) === "axis.x.spine,axis.x.tick.0,axis.x.tick.1", "a container id expands to its leaves in tree order");
+  assert(ids({ part: "axis.x.spine", parts: ["axis.x.ticks", "axis.x.spine"] }) === "axis.x.spine,axis.x.tick.0,axis.x.tick.1", "part ∪ parts, deduplicated, authored order");
+  assert(ids({ selector: { role: "point" } }) === "control.point.0,treat.point.0,control.point.1", "a role selector lists LEAVES by datum index — never a series' points group as well (the old double-animation)");
+  assert(ids({ part: "control.points" }) === "control.point.0,control.point.1", "a points GROUP the parts tree does not describe still expands through the series table");
+  assert(ids({ selector: { role: "point", except: ["control.points"] } }) === "treat.point.0", "selector.except drops a group's leaves");
+  assert(ids({ selector: { series: "control", except: ["control.line"] } }) === "control.point.0,control.point.1", "except works on a leaf id too");
+  assert(ids({}) === "", "a whole-element binding names no parts");
+  assert(trackKey({ target: "p", parts: ["b", "a"] }) === trackKey({ target: "p", part: "a", parts: ["b"] }), "trackKey is order-blind and part/parts-blind");
+  assert(trackKey({ target: "p" }) !== trackKey({ target: "p", part: "a" }), "…but distinguishes whole element from a part");
 }
 
 // --- 0.3.0 track groups: lifecycle + contiguity + GC + duplication remap ------
@@ -215,4 +264,187 @@ assert(morphT.to?.assetId === "demo/other" && morphT.duration === 900 && morphT.
   }
 }
 
+const m3 = h;
+m3.section("one timing-curve field through the public ops");
+{
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "curves" });
+  const b = ops.addBeat(d, s.id, { id: "b" })!;
+  const t: Track = { id: "curve", target: "e", preset: "transform", duration: 700, to: { state: { x: 10 } } };
+  b.tracks = [t];
+  const seed = () => Object.assign(t, { curve: { kind: "spring", bounce: 0.35 }, easing: "enter", influence: { in: 50, out: 50 } });
+  const group = () => [t.curve, t.influence, t.easing];
+  seed();
+  const spec = { kind: "bezier" as const, p: [0.34, 1.56, 0.64, 1] as [number, number, number, number] };
+  m3.ok(!!ops.setTrackCurve?.(d, s.id, t.id!, spec)?.ok, "setTrackCurve is an exported authoring op");
+  m3.eq(group(), [spec, undefined, undefined], "setting a curve clears both legacy fields");
+  m3.ok(t.curve !== spec && (t.curve?.kind !== "bezier" || t.curve.p !== spec.p), "curve op owns nested curve data");
+  seed(); ops.setTrackCurve?.(d, s.id, t.id!, "linear");
+  m3.eq(group(), [undefined, undefined, "linear"], "setting a token clears spec and influence");
+  seed(); ops.setTrackCurve?.(d, s.id, t.id!, null);
+  m3.eq(group(), [undefined, undefined, undefined], "null deletes all timing fields");
+  m3.ok(!Object.hasOwn(t, "curve") && !Object.hasOwn(t, "easing") && !Object.hasOwn(t, "influence"), "clear leaves sparse disk fields");
+  m3.ok(typeof ops.setTrackCurve === "function" && core.setTrackCurve === ops.setTrackCurve, "flux-core re-exports the same curve op");
+  seed(); ops.setTrack(d, s.id, t.id!, { easing: "exit" });
+  m3.eq(group(), [undefined, undefined, "exit"], "generic track easing edit clears the group");
+  seed(); ops.setTrack(d, s.id, t.id!, { influence: { in: 0, out: 0 } });
+  m3.eq(group(), [undefined, { in: 0, out: 0 }, undefined], "generic influence edit clears spec and token, retaining zero sentinel");
+  seed(); ops.setTrack(d, s.id, t.id!, { curve: spec });
+  m3.eq(group(), [spec, undefined, undefined], "generic curve edit uses the same clearing law");
+  const saved = JSON.stringify(t);
+  m3.ok(!ops.setTrack(d, s.id, t.id!, { duration: -1, curve: null }).ok && JSON.stringify(t) === saved, "invalid timing patch preserves the existing group");
+  seed(); ops.setTransform(d, s.id, b.id, "e", { curve: spec });
+  m3.eq(group(), [spec, undefined, undefined], "transform curve edit clears the group");
+  seed(); ops.setTransform(d, s.id, b.id, "e", { easing: "linear" });
+  m3.eq(group(), [undefined, undefined, "linear"], "transform easing edit clears the group");
+  seed(); ops.setTransform(d, s.id, b.id, "e", { influence: { in: 40, out: 30 } });
+  m3.eq(group(), [undefined, { in: 40, out: 30 }, undefined], "transform influence edit clears the group");
+  seed();
+  const baseline = new Map();
+  ops.cascadeTracks(d, s.id, [t.id!], { property: "influence.in", delta: 10 }, baseline);
+  m3.eq(group(), [undefined, { in: 60, out: 50 }, undefined], "influence cascade clears curve and easing");
+  ops.cascadeTracks(d, s.id, [t.id!], { property: "duration", delta: 10 }, baseline);
+  m3.eq(group(), [{ kind: "spring", bounce: 0.35 }, { in: 50, out: 50 }, "enter"], "switching cascade property restores the entire authored timing group");
+  const st = ops.addAnimStyle(d, { name: "Linked", family: "transform", track: { preset: "transform", curve: { kind: "spring", bounce: 0.2 } } });
+  ops.linkTrackStyle(d, s.id, t.id!, st.id);
+  ops.setTrackCurve?.(d, s.id, t.id!, "linear");
+  ops.setTrackCurve?.(d, s.id, t.id!, null);
+  m3.eq(resolveTrack(t, d).curve, st.track.curve, "clearing group restores linked style inheritance");
+}
+m3.section("beat-local anchors detach at the source's resolved time");
+{
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "anchors" });
+  const b = ops.addBeat(d, s.id, { id: "b" })!, dest = ops.addBeat(d, s.id, { id: "dest" })!;
+  const st = ops.addAnimStyle(d, { name: "Timing", family: "appearance", track: { preset: "fade", start: 50, duration: 300 } });
+  const a: Track = { id: "leader", target: "a", preset: "fade", styleId: st.id };
+  const t: Track = { id: "follower", target: "b", preset: "fade", start: 7, anchor: { trackId: "leader", edge: "end", offsetMs: 20 } };
+  b.tracks = [a, t];
+  const local = ops.duplicateTrack(d, s.id, t.id!)!;
+  m3.eq(ops.findTrack(d, local)?.track.anchor, t.anchor, "same-beat copy retains its anchor");
+  ops.moveTrackToBeat(d, s.id, t.id!, b.id, 0);
+  m3.eq(t.anchor, { trackId: "leader", edge: "end", offsetMs: 20 }, "same-beat move retains anchor");
+  const remote = ops.duplicateTrack(d, s.id, t.id!, dest.id)!;
+  m3.eq([ops.findTrack(d, remote)?.track.start, ops.findTrack(d, remote)?.track.anchor], [370, undefined], "cross-beat copy detaches and materializes resolved start");
+  m3.eq(t.start, 7, "copy never retimes the source");
+  ops.moveTrackToBeat(d, s.id, t.id!, dest.id);
+  m3.eq([t.start, t.anchor], [370, undefined], "cross-beat move resolves before removing the anchor's source beat");
+  const before = JSON.stringify(d);
+  const filtered = ops.animateLike(d, s.id, a.id!, [local, remote], b.id);
+  m3.eq(filtered.linked, [local], "animateLike optional beat filters target links");
+  m3.ok(!ops.findTrack(d, remote)?.track.styleId, "animateLike keeps another beat's target untouched");
+  const after = JSON.stringify(d);
+  const wrongSource = ops.animateLike(d, s.id, remote, [local], b.id);
+  m3.ok(!wrongSource.linked.length && JSON.stringify(d) === after, "beat filter refuses a source outside the beat before creating a style");
+  m3.ok(before !== after, "beat-filter fixture exercises a real mutation");
+}
+m3.section("creation paths and semantic anchor tails");
+{
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "creation" });
+  const a = ops.addSlideText(d, s.id, { text: "A", x: 0, y: 0, width: 30, height: 20 })!;
+  const b = ops.addSlideText(d, s.id, { text: "B", x: 100, y: 0, width: 30, height: 20 })!;
+  const c = ops.addSlideText(d, s.id, { text: "C", x: 200, y: 0, width: 30, height: 20 })!;
+  const beat = ops.addBeat(d, s.id, { id: "b" })!;
+  const curve = { kind: "spring" as const, bounce: 0.35 };
+  const ghost = ops.addGhostTransform(d, s.id, beat.id, a, { count: 1, original: "transform", curve })!;
+  m3.eq(beat.tracks.map(t => t.curve), [curve, curve], "Ghost birth and original Change both carry curve opts");
+  m3.ok(beat.tracks.every(t => !t.easing && !t.influence), "Ghost curve opts clear default easing");
+  m3.ok(!!ghost.trackIds.length, "Ghost fixture uses real creation op");
+  const become = ops.becomeTransform(d, s.id, beat.id, b, c, { curve })!;
+  const track = ops.findTrack(d, become.trackId)!.track;
+  m3.eq([track.curve, track.easing], [curve, undefined], "Become opts carry curve through setTransform");
+  const dest = ops.addBeat(d, s.id, { id: "dest" })!;
+  const manifest = { parts: { id: "root", role: "figure", children: [{ id: "points", role: "points", children: [0, 1, 2].map(i => ({ id: `p${i}`, role: "point" })) }] } } as FluxPlotManifest;
+  const leader: Track = { id: "leader", target: "plot", part: "points", preset: "fade", start: 50, duration: 100, stagger: { perMs: 30 } };
+  const follower: Track = { id: "follower", target: a, preset: "fade", start: 7, anchor: { trackId: leader.id!, edge: "end", offsetMs: 10 } };
+  beat.tracks.push(leader, follower);
+  const copy = ops.duplicateTrack(d, s.id, follower.id!, dest.id, undefined, () => manifest)!;
+  m3.eq([ops.findTrack(d, copy)?.track.start, ops.findTrack(d, copy)?.track.anchor], [220, undefined], "cross-beat copy includes the resolved semantic stagger tail");
+  ops.moveTrackToBeat(d, s.id, follower.id!, dest.id, undefined, () => manifest);
+  m3.eq([follower.start, follower.anchor], [220, undefined], "cross-beat move includes the resolved semantic stagger tail");
+}
+m3.section("M3 integration D4/D5: reset parity and followers left behind");
+{
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "detach-followers" });
+  const b = ops.addBeat(d, s.id, { id: "source-beat" })!, dest = ops.addBeat(d, s.id, { id: "dest-beat" })!;
+  const manifest = { parts: { id: "root", role: "figure", children: [{ id: "points", role: "points", children: [0, 1, 2].map(i => ({ id: `p${i}`, role: "point" })) }] } } as FluxPlotManifest;
+  const leader: Track = { id: "leader", target: "plot", part: "points", preset: "fade", start: 50, duration: 100, stagger: { perMs: 30 } };
+  const follower: Track = { id: "follower", target: "b", preset: "fade", duration: 80, start: 7, anchor: { trackId: "leader", edge: "end", offsetMs: 10 } };
+  const chained: Track = { id: "chained", target: "c", preset: "fade", anchor: { trackId: "follower", edge: "end", offsetMs: 5 } };
+  const startFollower: Track = { id: "start-follower", target: "d", preset: "fade", anchor: { trackId: "leader", edge: "start", offsetMs: 15 } };
+  b.tracks = [leader, follower, chained, startFollower];
+  const mf = () => manifest;
+  const before = JSON.stringify(d);
+  m3.ok(!ops.moveTrackToBeat(d, s.id, leader.id!, s.beats[0].id, undefined, mf) && JSON.stringify(d) === before, "D5: refused move preserves follower anchors and bytes");
+  ops.moveTrackToBeat(d, s.id, leader.id!, b.id, 0, mf);
+  m3.ok(!!follower.anchor && !!startFollower.anchor, "D5: same-beat reorder retains follower anchors");
+  ops.moveTrackToBeat(d, s.id, leader.id!, dest.id, undefined, mf);
+  m3.eq([follower.start, follower.anchor, startFollower.start, startFollower.anchor], [220, undefined, 65, undefined], "D5: moving a leader detaches end/start followers at resolved times including stagger tails");
+  m3.eq(chained.anchor, { trackId: "follower", edge: "end", offsetMs: 5 }, "D5: downstream anchors remain attached to their still-local leader");
+  const { resolveStart } = await import("../src/lib/slide/resolve");
+  m3.eq(resolveStart(chained, b, d, mf).start, 305, "D5: downstream start remains unchanged after leader moves away");
+  for (const linked of [false, true]) {
+    const t = follower;
+    if (linked) {
+      const st = ops.addAnimStyle(d, { name: "Spring", family: "appearance", track: { preset: "fade", curve: { kind: "spring", bounce: .35 } } });
+      t.styleId = st.id;
+    }
+    t.easing = "enter"; t.influence = { in: 10, out: 0 };
+    const expected = structuredClone(d);
+    ops.setTrackCurve(expected, s.id, t.id!, null);
+    ops.cascadeTracks(d, s.id, [t.id!], { property: "influence.in", delta: -10 });
+    m3.ok(JSON.stringify(d) === JSON.stringify(expected), `D4: zero influence cascade equals setTrackCurve(null), linked=${linked}`);
+  }
+}
+m3.section("M3 integration D1: migrated easing through the exported player");
+{
+  const { parseHTML } = await import("linkedom");
+  const { document } = parseHTML("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = document;
+  const { createPlayer } = await import("../src/lib/slide/player/player");
+  const { FLUX_DARK } = await import("../src/lib/slide/theme");
+  const d = ops.createDeck({ withTitleSlide: false }), s = ops.addSlide(d, { id: "legacy-ease" });
+  const b = ops.addBeat(d, s.id, { id: "fade-beat" })!;
+  s.elements = [{ type: "rect", id: "box", x: 0, y: 0, width: 80, height: 60, rotation: 0, fill: "#ffffff", stroke: "none", strokeWidth: 0 }];
+  b.tracks = [{ id: "fade", target: "box", preset: "fade", duration: 1000, easing: "ease-in-out" as any }];
+  ops.migrateDeck(d);
+  m3.ok(!Object.hasOwn(b.tracks[0], "easing"), "D1: player input drops the unknown token");
+  const reference = structuredClone(d); reference.slides[0].beats[1].tracks[0].easing = "standard";
+  const hosts = [d, reference].map(() => document.createElement("div") as unknown as HTMLElement);
+  const players = [d, reference].map((deck, i) => createPlayer(hosts[i], deck, { theme: FLUX_DARK }));
+  const frames: string[][] = [[], []];
+  for (const t of [0, 100, 250, 500, 750, 1000, 400]) players.forEach((p, i) => {
+    p.seek(0, 1, t);
+    frames[i].push((hosts[i].querySelector('[data-el-id="box"] .sl-effects') as HTMLElement).style.opacity);
+  });
+  m3.eq(frames[0], frames[1], "D1: migrated deck plays standard through createPlayer, including reverse seek");
+  m3.ok(Number(frames[0][2]) > 0 && Number(frames[0][2]) < 1, "D1: comparison includes a real intermediate player frame");
+  players.forEach(p => p.destroy());
+}
+// M6 Each/Total writes clear the other field, retain distribution and roll back bad edits.
+{
+  const d = ops.createDeck(), slide = d.slides[0], beat = ops.addBeat(d, slide.id)!;
+  beat.tracks = [{ id: "wave", target: "plot", preset: "fade", stagger: { perMs: 20, curve: "enter", from: "random", seed: 3 } },
+    { id: "move", target: "box", preset: "transform", arc: .2 }];
+  const wave = beat.tracks[0];
+  assert(ops.setTrack(d, slide.id, "wave", { stagger: { totalMs: 800 } }).ok, "setTrack selects Total");
+  assert(wave.stagger?.totalMs === 800 && !Object.hasOwn(wave.stagger!, "perMs") && wave.stagger?.seed === 3 && wave.stagger.curve === "enter", "Total clears Each, retains distribution and seed");
+  ops.setTrack(d, slide.id, "wave", { stagger: { perMs: 50 } });
+  assert(wave.stagger?.perMs === 50 && !Object.hasOwn(wave.stagger!, "totalMs"), "Each clears Total");
+  const before = JSON.stringify(beat);
+  for (const patch of [{ stagger: { perMs: 5, totalMs: 20 } }, { stagger: { totalMs: -1 } }, { arc: 2 }, { stagger: { seed: 1.5 } }])
+    assert(!ops.setTrack(d, slide.id, "wave", patch).ok && JSON.stringify(beat) === before, "invalid motion edits refuse atomically");
+  const style = ops.addAnimStyle(d, { name: "Motion", family: "transform", track: { preset: "transform", arc: -.6 } });
+  ops.linkTrackStyle(d, slide.id, "move", style.id);
+  ops.setTrack(d, slide.id, "move", { arc: 0 });
+  const { resolveTrack } = await import("../src/lib/slide/resolve");
+  const { presetTrackOf } = await import("../src/lib/slide/animTemplates");
+  assert(presetTrackOf({ ...beat.tracks[1], arc: .7, stagger: { totalMs: 800, from: "random", seed: 5, curve: "enter" } }).arc === .7, "animation presets retain arc");
+  assert(resolveTrack(beat.tracks[1], d).arc === 0, "arc zero overrides an inherited curve");
+  ops.cascadeTracks(d, slide.id, ["wave", "move"], { property: "stagger.totalMs", delta: 200 });
+  assert(wave.stagger?.totalMs === 200 && wave.stagger.perMs === undefined, "Total cascade ranks stagger tracks and clears Each");
+  ops.cascadeTracks(d, slide.id, ["wave", "move"], { property: "arc", delta: 2 });
+  assert(beat.tracks[1].arc === 1 && wave.arc === undefined, "arc cascade ranks transforms only and clamps");
+}
+
 console.log("\nSLIDE TRACK-OPS (WS2 + 0.3.0 families/groups) TESTS PASSED");
+
+await h.done();

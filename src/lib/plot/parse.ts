@@ -29,6 +29,21 @@ function prefixOf(elementId: string): string {
   return elementId + SEP;
 }
 
+/** THE id of a plot part's node once the plot is inlined for element `elId`
+ *  (prefixIds rewrites `id="control.line"` to `id="<elId>__control.line"`).
+ *  Every consumer that addresses a mounted part — the player, the morph and
+ *  hand-off drivers, the canvas, the X-ray — builds ids here and nowhere else. */
+export function partDomId(elId: string, partId: string): string {
+  return prefixOf(elId) + partId;
+}
+
+/** Inverse of partDomId for a KNOWN element id; null when `domId` is not one
+ *  of that element's part ids. */
+export function partIdFromDom(domId: string, elId: string): string | null {
+  const p = prefixOf(elId);
+  return domId.startsWith(p) ? domId.slice(p.length) : null;
+}
+
 /** Rewrite every id and every internal id-reference under `root` with `prefix`,
  *  then scope the plot's <style> rules to `root` (see scopePlotStyles below). */
 export function prefixIds(root: Element, elementId: string): void {

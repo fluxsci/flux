@@ -11,6 +11,7 @@
   import { figureRev, globalRev } from "../../../lib/store";
   import { deckOverlay, composedSlide } from "../../../lib/slide/store";
   import { renderStaticAt } from "../../../lib/slide/player/player";
+  import { slideAnimStyles } from "../../../lib/slide/resolve";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { project } from "../../../lib/store";
@@ -50,7 +51,7 @@
     const slide = composedSlide(slideId);
     if (!slide) return;
     bg = slide.background ?? overlay.background ?? resolveTheme(overlay.theme).background;
-    const sig = `${JSON.stringify(slide)}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${JSON.stringify($plotGen)}`;
+    const sig = `${JSON.stringify(slide)}|${JSON.stringify(slideAnimStyles(slide, overlay))}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${JSON.stringify($plotGen)}`;
     if (sig === memo.sig) return;
     memo.sig = sig;
     // Trailing debounce: a burst of commits (nudge auto-repeat, scrub) pays ONE
@@ -68,6 +69,7 @@
         renderStaticAt(host, cur, stage, Math.max(0, cur.beats.length - 1), {
           theme: resolveTheme(ov.theme),
           deckBackground: ov.background,
+          animStyles: ov.animStyles,
           assetUrl: (id) => getAssetData(id),
           assetSize: (id) => assetDisplaySize(get(project), id),
           plotManifest: (id) => get(plotManifests)[id],

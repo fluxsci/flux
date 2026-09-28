@@ -7,24 +7,28 @@
 // seeks, previews, presentation, thumbnails, and HTML export share these rules.
 // ---------------------------------------------------------------------------
 
+import { beatDelayMs } from "../timing";
 import { DUR } from "../../motion/tokens";
-import { smoothstep, cubicBezierFn } from "../../motion/tokens";
 import { animate, prefersReducedMotion } from "../../motion/motion";
-import { buildPartIndex } from "../../plot/parse";
-import { resolveTargets } from "../../plot/tree";
+import { partDomId } from "../../plot/parse";
 import type { FluxPlotManifest } from "../../plot/types";
+import { isHandoff, targetPartIds, hasPartBinding, trackKey, type ResolvedTarget } from "../targets";
+import { get } from "svelte/store";
+import { plotDom, plotManifests } from "../../plot/store";
 import { renderSlide, fillContent, applyWrapperBox, promoteMovingWrapper, settleWrapper, armFlightMark, releaseFlightMark, type SlideRenderCtx, type RenderedSlide } from "./render";
 import { PRESETS, PRESET_WRAPPER_PROPS, type TargetNode, type PresetCtx } from "./presets";
-import { morphCompatible, type MorphController } from "./morph";
+import { KNOWN_PRESETS } from "../presetCatalog";
+import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
+import { createHandoff, type HandoffController } from "./handoff";
+import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
 import { editorCameraTransform } from "../../editorPresentation";
 import type { Deck, Slide, Track, StageSize, DeckTheme } from "../types";
 
-const SEP = "__"; // mirrors plot/parse prefixIds — plot part DOM id = `${elId}__${semanticId}`
-
 export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
+  animStyles?: Deck["animStyles"];
   theme: DeckTheme;
   /** assetId → its plot manifest (for role/series/index part targeting). */
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
@@ -34,9 +38,9 @@ export interface PlayerOpts extends Omit<SlideRenderCtx, "theme"> {
 }
 
 export { resolveEasing, resolveEasingFn } from "../easing";
-import { resolveEasing, resolveEasingFn } from "../easing";
-import { compileSlide, type AnimationIssue } from "../compile";
-import { staggerRanks } from "../stagger";
+import { resolveCurve, type ResolvedCurve } from "../curves";
+import { compileSlide, type CompiledSlide, type AnimationIssue } from "../compile";
+import { staggerRanks, staggerDelay, staggerSeed } from "../stagger";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
@@ -72,27 +76,16 @@ function resolveNodes(track: Track, slide: Slide, rendered: RenderedSlide, camer
   if (!wrap) return [];
   const content = contentRoots?.get(track.target) ?? wrap;
 
-  // a plot part OR a part-GROUP by parts-tree id: a leaf id → that one node; a
-  // group/container id (e.g. "axis.x", "series.main.point-group") → every leaf
-  // member, in tree order. This is the only path that reaches axis parts (spine/
-  // ticks/labels/gridlines live in the parts tree, not the series part-index).
-  if (track.part) {
-    const ids = resolveTargets(manifestFor(track.target, slide, opts, beatIndex), track.part);
+  // plot parts (a leaf id, a parts-tree group/container id → its leaf members
+  // in tree order, several ids, or a role/series/index selector) resolve through
+  // the ONE binding resolver the compiler uses (targets.targetPartIds) — a
+  // track can never animate one set and be inspected as another. This is the
+  // only path that reaches axis parts (spine/ticks/labels/gridlines live in the
+  // parts tree, not the series part-index).
+  if (hasPartBinding(track)) {
+    const ids = targetPartIds(track, manifestFor(track.target, slide, opts, beatIndex));
     return ids
-      .map((id) => content.querySelector<SVGElement>(`[id="${track.target}${SEP}${id}"]`))
-      .filter((n): n is SVGElement => !!n);
-  }
-
-  // a plot part-set by role / series / index
-  const sel = track.selector;
-  if (sel && (sel.role || sel.series || sel.index != null)) {
-    const idx = buildPartIndex(manifestFor(track.target, slide, opts, beatIndex));
-    const wantIdx = sel.index == null ? null : new Set(Array.isArray(sel.index) ? sel.index : [sel.index]);
-    const parts = Object.values(idx)
-      .filter((p) => (!sel.role || p.role === sel.role) && (!sel.series || p.series === sel.series) && (!wantIdx || (p.index != null && wantIdx.has(p.index))))
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-    return parts
-      .map((p) => content.querySelector<SVGElement>(`[id="${track.target}${SEP}${p.id}"]`))
+      .map((id) => content.querySelector<SVGElement>(`[id="${partDomId(track.target, id)}"]`))
       .filter((n): n is SVGElement => !!n);
   }
 
@@ -107,7 +100,7 @@ interface Spec {
   keyframes: Keyframe[];
   delay: number;
   duration: number;
-  easing: string;
+  ease: ResolvedCurve;
   enter: boolean;
   /** The authoring identity (target+part+selector) all of a track's node-specs
    *  share. The RE-BASELINE window is computed per key, not per node, because an
@@ -115,14 +108,16 @@ interface Spec {
    *  nodes (fade acts on the part's <g>, drawOn drills to its path). */
   key: string;
   prep?: () => void;
-  /** A `camera` track: its FROM keyframe must be re-read from the live layer at
-   *  PLAY time (not this build time) so chained moves start from the current pose. */
-  camera?: boolean;
+  /** Rebuild all camera frames from live FROM at play time, or restore on seek. */
+  refreshCamera?: (transform?: string) => boolean;
+  /** Exact transform for eased progress outside [0,1] (the camera's geometric path). */
+  transformAt?: (u: number) => string;
   /** Present only for `morph` tracks — a data-space driver instead of keyframes. */
   morph?: MorphController;
-  /** Time-easing sampler for a morph (honours the track's influence/easing). */
-  morphEase?: (t: number) => number;
+  handoff?: HandoffController;
   trackId?: string;
+  /** All expanded children share this compiled track, including id-less decks. */
+  owner?: Track;
   preset?: string;
   baseStyle?: Record<string, string>;
 }
@@ -130,6 +125,9 @@ interface Spec {
 // transformPreState moved to ../tween (pure) — the endpoint checkout and the
 // player must share ONE fold. Re-exported for existing consumers/gates.
 export { transformPreState } from "../tween";
+
+type HandoffRecord = CompiledSlide["handoffs"][number];
+const flightLayers = new WeakMap<Spec[], SVGSVGElement>();
 
 /** Flatten a slide's beats → timed per-node specs (the static-state + play substrate). */
 export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraLayer: HTMLElement, stage: StageSize, opts: PlayerOpts, compiled = compileSlide(slide, stage, opts)): Spec[] {
@@ -141,15 +139,18 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     if (!el || !wrap) continue;
     // One materialization per slide build. Later seeks retain these exact nodes.
     if (rendered.sourceSlide !== slide) { wrap.replaceChildren(); fillContent(wrap, el, opts); applyWrapperBox(wrap, el); }
-    specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, easing: "linear", enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
+    specs.push({ node: wrap, beatIndex: birth.enabled ? birth.beat : Number.MAX_SAFE_INTEGER, keyframes: [{ visibility: "hidden" }, { visibility: "visible" }], delay: birth.start, duration: 0, ease: resolveCurve({ easing: "linear" }), enter: true, key: `ghost:${birth.target}`, trackId: birth.track.id });
   }
   const contentRoots = new Map<string, HTMLElement>();
+  const manifest = opts.plotManifest ?? ((id: string) => get(plotManifests)[id]);
+  const geometry = { manifest, plotRoot: opts.plotRoot ?? ((id: string) => plotDom.get(id)), groups: slide.groups };
+  const handoffs: HandoffRecord[] = compiled.handoffs;
   const ctx: PresetCtx = { theme: opts.theme, stage };
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
   // position change or an authored rotation/translucency.
-  for (const beat of slide.beats) for (const track of beat.tracks) {
-    if (track.disabled || track.part || track.selector || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
+  for (const cue of compiled.cues) for (const { track } of cue.tracks) {
+    if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
     const wrap = rendered.elements.get(track.target) as (HTMLElement & { __slideEffects?: HTMLElement }) | undefined;
     if (!wrap?.firstElementChild || wrap.__slideEffects) continue;
     const effects = document.createElement("div");
@@ -159,12 +160,13 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     wrap.appendChild(effects);
     wrap.__slideEffects = effects;
   }
-  slide.beats.forEach((beat, bi) => {
-    for (const track of beat.tracks) {
+  compiled.cues.forEach((cue, bi) => {
+    for (const ct of cue.tracks) {
+      const track = ct.track;
       // A disabled track keeps its authored timing in the deck but is invisible
       // to play/static/export — the non-destructive Mask/Show substrate.
-      if (track.disabled || track.keyframes || isVideoCommand(track) || track.preset && !(track.preset in PRESETS) && !["transform", "countUp"].includes(track.preset)) continue;
-      const key = `${track.target}|${track.part ?? ""}|${JSON.stringify(track.selector ?? null)}`;
+      if (track.disabled || track.keyframes || isVideoCommand(track) || !KNOWN_PRESETS.has(track.preset ?? "fade")) continue;
+      const key = trackKey(track);
       // transform — the state tween (rework §4). Pre = fold of earlier
       // transforms; end = pre ⊕ to.state. Plots may ALSO carry a content
       // morph target (to.assetId) — one track, both halves.
@@ -172,28 +174,67 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
         const wrap = rendered.elements.get(track.target);
         const preEl = transformPreState(slide, track.target, bi);
         if (!wrap || !preEl) continue; // dangling target — tolerated no-op
-        const endEl = transformEndState(preEl, track);
-        let morphTo: { A: import("../../plot/types").FluxPlotManifest; B: import("../../plot/types").FluxPlotManifest } | undefined;
-        const el = slide.elements.find((e) => e.id === track.target);
-        if (el && el.type === "plot" && track.to?.assetId) {
-          const A = opts.plotManifest?.(preEl.type === "plot" ? preEl.assetId : el.assetId);
-          const B = opts.plotManifest?.(track.to.assetId);
-          if (A && B && morphCompatible(A, B)) morphTo = { A, B };
+        if (isHandoff(track)) {
+          const handoff = handoffs.find(h => h.trackId === track.id && h.beat === bi);
+          if (!handoff) continue;
+          const preFrame = compiled.sample(bi, track.start ?? 0);
+          const roots = new Map(contentRoots);
+          const rootFor = (id: string) => roots.get(id) ?? rendered.elements.get(id);
+          const nodesFor = (targets: ResolvedTarget[]): Element[] => targets.flatMap<Element>(target => {
+            const root = rootFor(target.elementId), wrapper = rendered.elements.get(target.elementId);
+            if (!root || !wrapper) return [];
+            return target.partIds === null ? [wrapper] : target.partIds.flatMap(id => {
+              const node = root.querySelector<SVGElement>(`[id="${partDomId(target.elementId, id).replace(/["\\]/g, "\\$&")}"]`);
+              return node ? [node] : [];
+            });
+          });
+          const sourceNodes = hasPartBinding(track) ? resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots) : [wrap];
+          const destinationNodes = nodesFor(handoff.destination);
+          if (!sourceNodes.length || !destinationNodes.length) continue;
+          const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
+            plan: () => planHandoff(track, preFrame, geometry),
+            ctx: {
+              order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
+              node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
+              crop: owner => {
+                const el = preFrame.elements.find(e => e.id === owner.elementId);
+                return el?.type === "plot" && el.crop ? el : undefined;
+              },
+            },
+          });
+          // The surviving content belongs to the destination identity. Never
+          // redirect later source tracks into that other element's DOM.
+          if (driver.targetRoot && handoff.destination.length === 1) contentRoots.set(handoff.destination[0].elementId, driver.targetRoot);
+          specs.push({ node: sourceNodes[0] as TargetNode, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
+            delay: ct.start, duration: ct.duration,
+            ease: ct.ease,
+            morph: driver, handoff: driver });
+          if (handoff.spec.reveal === "draw") {
+            const draw = { ...track, preset: "drawOn" as const, params: undefined };
+            for (const na of PRESETS.drawOn(destinationNodes as TargetNode[], draw, ctx)) specs.push({
+              node: na.node, beatIndex: bi, keyframes: na.keyframes, enter: na.enter,
+              key: `handoff-draw:${track.id}`, prep: na.prep, preset: "drawOn", trackId: track.id, owner: track,
+              delay: ct.start + ct.duration, duration: DUR.gentle,
+              ease: resolveCurve(draw),
+            });
+          }
+          continue;
         }
+        const endEl = transformEndState(preEl, track);
         const driver = createTransform(wrap, preEl, endEl, {
+          arc: track.arc,
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
           videoPlayback: opts.videoPlayback,
-          plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, morphTo, contentHost: contentRoots.get(track.target),
+          plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors,
         });
         if (driver.targetRoot) contentRoots.set(track.target, driver.targetRoot);
         specs.push({
-          node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
-          delay: track.start ?? 0, duration: track.duration ?? 600,
-          easing: resolveEasing(track.easing ?? "smooth", track.influence),
+          node: wrap, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
+          delay: ct.start, duration: ct.duration,
+          ease: ct.ease,
           morph: driver,
-          morphEase: resolveEasingFn(track.easing ?? "smooth", track.influence),
         });
         continue;
       }
@@ -203,18 +244,17 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       // the tween text doesn't flatten the rendered markup.
       if (track.preset === "countUp") {
         let node = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots)[0];
-        if (!track.part && !track.selector) node = contentRoots.get(track.target) ?? node;
+        if (!hasPartBinding(track)) node = contentRoots.get(track.target) ?? node;
         const leaves = Array.from((node as HTMLElement | undefined)?.querySelectorAll?.("tspan") ?? []);
         const textNode = leaves.find((n) => /\d/.test(n.textContent ?? "")) ?? leaves[0] ??
           (node as HTMLElement | undefined)?.querySelector?.("text");
         if (textNode) node = textNode as unknown as HTMLElement;
         if (node) {
           specs.push({
-            node, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id,
-            delay: track.start ?? 0, duration: track.duration ?? 800,
-            easing: resolveEasing(track.easing ?? "standard", track.influence),
+            node, beatIndex: bi, keyframes: [], enter: false, key, trackId: track.id, owner: track,
+            delay: ct.start, duration: ct.duration,
+            ease: ct.ease,
             morph: createCountUp(node, track),
-            morphEase: resolveEasingFn(track.easing ?? "standard", track.influence),
           });
         }
         continue;
@@ -222,30 +262,28 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const nodes = resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots);
       if (!nodes.length) continue;
       const preset = PRESETS[track.preset ?? "fade"] ?? PRESETS.fade;
-      const nodeAnims = preset(nodes, track, ctx);
-      if (track.preset === "camera") {
-        const previous = compileSlide(slide, stage, opts).sample(bi - 1).camera;
-        const cameraSlide = { ...slide, camera: previous };
-        for (const na of nodeAnims) na.keyframes[0] = { transform: baseCameraTransform(cameraSlide, stage) || "translate(0px, 0px) scale(1)" };
-      }
+      const nodeAnims = preset(nodes, track, track.preset === "camera" ? {
+        ...ctx, cameraFrom: compiled.sample(bi, ct.start).camera ?? { x: stage.width / 2, y: stage.height / 2, zoom: 1 },
+      } : ctx);
       const n = nodes.length;
-      const perMs = track.stagger?.perMs ?? 0;
       const from = track.stagger?.from ?? "start";
       const by = track.stagger?.by;
-      const ranks = perMs ? staggerRanks(n, from, by === "x" || by === "y" ? nodes.map((node) => spatialCoord(node, by)) : undefined) : [];
-      nodeAnims.forEach((na, i) => {
+      const ranks = track.stagger ? staggerRanks(n, from, by === "x" || by === "y" ? nodes.map((node) => spatialCoord(node, by)) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
+      const maxRank = Math.max(0, ...ranks);
+      nodeAnims.forEach((na) => {
         specs.push({
           node: na.node,
           beatIndex: bi,
           keyframes: na.keyframes,
-          delay: (track.start ?? 0) + (perMs ? ranks[na.index] * perMs : 0),
-          duration: track.duration ?? DUR.gentle,
-          easing: resolveEasing(track.easing, track.influence),
+          delay: ct.start + staggerDelay(track, ranks[na.index] ?? 0, maxRank),
+          duration: ct.duration,
+          ease: ct.ease,
           enter: na.enter,
           key,
           prep: na.prep,
-          camera: track.preset === "camera",
-          trackId: track.id,
+          refreshCamera: na.refreshCamera,
+          transformAt: na.transformAt,
+          trackId: track.id, owner: track,
           preset: track.preset,
         });
       });
@@ -263,6 +301,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       if (factor !== 1) spec.keyframes = spec.keyframes.map((frame) => "opacity" in frame ? { ...frame, opacity: Number(frame.opacity) * factor } : frame);
     }
   }
+  flightLayers.set(specs, rendered.flight);
   return specs;
 }
 
@@ -323,30 +362,49 @@ export function baseCameraTransform(slide: Slide, stage: StageSize): string {
 interface BoundNode { node: TargetNode; keyframed: Spec[]; properties: string[]; blockers: Map<Spec, Spec[]>; controllers: Spec[]; lastController: number; flights: Map<Spec, "translate" | "other">; glides: boolean }
 interface BoundPlan { nodes: BoundNode[]; natives: Map<Spec, Animation>; samplers: Map<Spec, (t: number) => Keyframe> }
 const bindings = new WeakMap<Spec[], BoundPlan>();
-function numericSampler(a: unknown, b: unknown): (t: number) => string | number {
-  if (typeof a === "number" && typeof b === "number") return (t) => a + (b - a) * t;
+function numericSampler(a: unknown, b: unknown): { sample: (t: number) => string | number; discrete: boolean } {
+  if (typeof a === "number" && typeof b === "number") return { sample: (t) => a + (b - a) * t, discrete: false };
   const sa = String(a ?? ""), sb = String(b ?? "");
-  const rx = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
-  const na = (sa.match(rx) ?? []).map(Number), nb = (sb.match(rx) ?? []).map(Number);
-  if (na.length && na.length === nb.length) return (t) => { let i = 0; return sb.replace(rx, () => String(na[i] + (nb[i] - na[i++]) * t)); };
-  return (t) => t < .5 ? sa : sb;
+  const rx = /(-?(?:\d*\.)?\d+(?:e[-+]?\d+)?)([a-z%]*)/gi;
+  const aParts = [...sa.matchAll(rx)], bParts = [...sb.matchAll(rx)];
+  const na = aParts.map(m => Number(m[1])), nb = bParts.map(m => Number(m[1]));
+  // A unitless zero endpoint still needs its other endpoint's unit in flight.
+  const units = bParts.map((m, i) => m[2] || aParts[i]?.[2] || "");
+  if (na.length && na.length === nb.length) return { sample: (t) => { let i = 0; return sb.replace(rx, () => String(na[i] + (nb[i] - na[i]) * t) + units[i++]); }, discrete: false };
+  return { sample: (t) => t < .5 ? sa : sb, discrete: true };
 }
 function frameSampler(spec: Spec): (t: number) => Keyframe {
   const frames = spec.keyframes;
-  const segments = frames.slice(1).map((frame, i) => ({
-    from: Number(frames[i].offset ?? i / (frames.length - 1)),
-    to: Number(frame.offset ?? (i + 1) / (frames.length - 1)),
-    props: Object.keys(frame).filter((p) => !["offset", "easing", "composite"].includes(p)).map((p) => [p, numericSampler((frames[i] as Record<string, unknown>)[p], (frame as Record<string, unknown>)[p])] as const),
-  }));
-  const coeff = spec.easing.match(/-?\d*\.?\d+/g)?.map(Number);
-  const ease = spec.easing === "linear" ? (t: number) => t : spec.easing.startsWith("linear(") ? smoothstep : coeff?.length === 4 ? cubicBezierFn(coeff as [number, number, number, number]) : smoothstep;
+  const properties = [...new Set(frames.flatMap(frame => Object.keys(frame).filter(p => !["offset", "easing", "composite"].includes(p))))];
+  const channels = properties.map(property => {
+    const points = frames.flatMap((frame, i) => property in frame
+      ? [{ at: Number(frame.offset ?? i / (frames.length - 1)), value: (frame as Record<string, unknown>)[property] }] : []);
+    const segments = points.slice(1).map((point, i) => ({ from: points[i].at, to: point.at, ...numericSampler(points[i].value, point.value) }));
+    return { property, box: property === "transform",
+      // Non-numeric values (including named colors) are discrete channels too.
+      discrete: property === "visibility" || property === "strokeLinecap" || property === "transformOrigin" || segments.some(s => s.discrete),
+      segments,
+      constant: points[0]?.value };
+  });
+  const frame: Record<string, unknown> = {};
   return (raw) => {
     if (raw <= 0) return frames[0];
     if (raw >= 1) return frames.at(-1)!;
-    const t = ease(raw);
-    const segment = segments.find((s) => t <= s.to) ?? segments.at(-1)!;
-    const u = Math.max(0, Math.min(1, (t - segment.from) / (segment.to - segment.from || 1)));
-    return Object.fromEntries(segment.props.map(([p, sample]) => [p, sample(u)]));
+    const u = spec.ease.fn(raw), t = spec.ease.clamped(raw);
+    for (const channel of channels) {
+      const progress = channel.discrete ? raw : channel.box ? u : t;
+      // Overshoot leaves the keyframed range: a spec that knows its exact path
+      // (the camera) samples it instead of extrapolating the last segment.
+      if (channel.box && spec.transformAt && (u < 0 || u > 1)) { frame[channel.property] = spec.transformAt(u); continue; }
+      const segments = channel.segments;
+      if (!segments.length) { frame[channel.property] = channel.constant; continue; }
+      let i = 0;
+      while (i < segments.length - 1 && progress > segments[i].to) i++;
+      const segment = segments[i];
+      const local = (progress - segment.from) / (segment.to - segment.from || 1);
+      frame[channel.property] = segment.sample(channel.box ? local : Math.max(0, Math.min(1, local)));
+    }
+    return frame as Keyframe;
   };
 }
 function boundPlan(specs: Spec[]): BoundPlan {
@@ -369,17 +427,22 @@ function boundPlan(specs: Spec[]): BoundPlan {
   // Materialize content layers in story order before a first random seek.
   // Otherwise seeking directly to a late text change could nest its layer
   // underneath an earlier change which is only materialized afterwards.
-  for (const group of plan.nodes) for (const controller of group.controllers) controller.morph!.seek(0);
+  for (const group of plan.nodes) for (const controller of group.controllers) controller.morph!.seek(0, 0);
   for (const spec of specs) if (spec.keyframes.length) plan.samplers.set(spec, frameSampler(spec));
   bindings.set(specs, plan);
   return plan;
 }
-export function disposeSlideAnims(specs: Spec[]): void {
+export function disposeSlideAnims(specs: Spec[], releaseControllers = true): void {
   const plan = bindings.get(specs);
   if (plan) {
     for (const animation of plan.natives.values()) { try { animation.cancel(); } catch { /* detached */ } }
     // a slide torn down mid-flight leaves no promoted node behind
     for (const group of plan.nodes) if (group.node.namespaceURI !== SVG_NS) releaseFlightMark(group.node as HTMLElement);
+  }
+  if (releaseControllers) {
+    for (const spec of specs) spec.morph?.dispose?.();
+    flightLayers.get(specs)?.replaceChildren();
+    flightLayers.delete(specs);
   }
   bindings.delete(specs);
 }
@@ -396,26 +459,31 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
   for (const spec of specs) if (spec.enter && progressAt(spec, beat, time) >= 0) rebase.set(spec.key, spec);
   const superseded = (spec: Spec) => {
     const later = rebase.get(spec.key);
-    return later && (spec.beatIndex < later.beatIndex || spec.beatIndex === later.beatIndex && spec.delay < later.delay);
+    return later && (!spec.owner || spec.owner !== later.owner) && (spec.beatIndex < later.beatIndex || spec.beatIndex === later.beatIndex && spec.delay < later.delay);
   };
   const activeNatives = new Set<Spec>();
+  // Content writes establish this frame's paint before part appearances
+  // factor it, even when the appearance precedes a Change in story order.
   for (const group of plan.nodes) {
-    const { node, keyframed, properties, controllers, flights, glides } = group;
+    const { controllers } = group;
     if (controllers.length) {
       let selected = -1;
       for (let i = 0; i < controllers.length; i++) if (progressAt(controllers[i], beat, time) >= 0) selected = i;
       if (selected !== group.lastController) {
         // Reset future crossfade layers outside-in before applying the past.
         // Their DOM is retained so inner-node animation bindings survive.
-        for (let i = controllers.length - 1; i >= 0; i--) controllers[i].morph!.seek(0);
-        for (let i = 0; i < selected; i++) controllers[i].morph!.seek(1);
+        for (let i = controllers.length - 1; i >= 0; i--) controllers[i].morph!.seek(0, 0);
+        for (let i = 0; i < selected; i++) controllers[i].morph!.seek(1, 1);
         group.lastController = selected;
       }
       if (selected >= 0) {
         const spec = controllers[selected], p = progressAt(spec, beat, time);
-        spec.morph!.seek((spec.morphEase ?? smoothstep)(Math.max(0, p)));
-      } else controllers[0].morph!.seek(0);
+        spec.morph!.seek(spec.ease.fn(p), p);
+      } else controllers[0].morph!.seek(0, 0);
     }
+  }
+  for (const group of plan.nodes) {
+    const { node, keyframed, properties, flights, glides } = group;
     if (!keyframed.length) continue;
     clearAnimStyles(node, properties);
     const base = keyframed[0].baseStyle;
@@ -446,7 +514,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
       if (native && p > 0 && p < 1 && typeof node.animate === "function" && !spec.keyframes.some((k) => "transform" in k) && !group.blockers.get(spec)?.some((later) => progressAt(later, beat, time) >= 0)) {
         let animation = plan.natives.get(spec);
         if (!animation) {
-          animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.easing, fill: "both" });
+          animation = node.animate(spec.keyframes, { duration: spec.duration, easing: spec.ease.css, fill: "both" });
           animation.pause();
           animation.finished.catch(() => {});
           plan.natives.set(spec, animation);
@@ -462,6 +530,7 @@ export function applyAt(specs: Spec[], beat: number, time = Infinity, native = f
     }
   }
   for (const [spec, animation] of plan.natives) if (!activeNatives.has(spec)) { animation.cancel(); plan.natives.delete(spec); }
+  for (const spec of specs) if (spec.handoff && superseded(spec)) spec.handoff.releaseSource();
 }
 export function applyStatic(specs: Spec[], beatIndex: number): void { applyAt(specs, beatIndex, Infinity); }
 
@@ -536,7 +605,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
-    const compiled = compileSlide(slide, stage, opts);
+    const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
@@ -545,7 +614,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
       emit("change");
-    });
+    }, compiled.cues.map(c => c.tracks.map(t => t.track)));
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);
@@ -557,7 +626,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function selectRun(from: number, to: number): void {
     const key = from < to ? `${si}:${from}:${to}` : "";
     if (key === runKey) return;
-    if (runSpecs) { disposeSlideAnims(runSpecs); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
+    if (runSpecs) { disposeSlideAnims(runSpecs, false); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
     runKey = key;
     runSpecs = from < to ? specs.map((s) => s.beatIndex >= from && s.beatIndex <= to ? { ...s, beatIndex: to } : s) : null;
   }
@@ -566,7 +635,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const next = deck.slides[si]?.beats[bi + 1];
     if (next?.advance === "auto") {
       const stamp = generation;
-      auto = setTimeout(() => { if (stamp === generation) nextCue(); }, Math.max(0, next.autoDelayMs ?? 600));
+      auto = setTimeout(() => { if (stamp === generation) nextCue(); }, beatDelayMs(next));
     }
   }
   function finish(): void {
@@ -600,6 +669,16 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     bi = Math.max(0, Math.min(beats() - 1, to));
     selectRun(from, bi);
+    // Camera keyframes remain ordinary transform flights. Rebase once before
+    // binding, never during sampling; later moves start at the preceding end.
+    let cameraFrom = cameraLayer.style.transform, cameraChanged = false;
+    for (const spec of (runSpecs ?? specs).filter(s => s.refreshCamera && s.beatIndex === bi).sort((a, b) => a.delay - b.delay)) {
+      cameraChanged = spec.refreshCamera!(cameraFrom) || cameraChanged;
+      cameraFrom = String(spec.keyframes.at(-1)!.transform);
+    }
+    // Samplers and natives only: hand-off controllers own flight layers and
+    // visibility claims that must outlive a camera rebase.
+    if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
     duration = Math.max(0, ...durations.slice(from, bi + 1));
     time = 0;
     playing = true;
@@ -616,6 +695,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     bi = Math.max(0, Math.min(beats() - 1, beat));
     const from = Math.max(0, Math.min(bi, fromBeat));
     selectRun(from, bi);
+    let cameraChanged = false;
+    for (const spec of specs) if (spec.refreshCamera) cameraChanged = spec.refreshCamera() || cameraChanged;
+    if (cameraChanged) { disposeSlideAnims(specs, false); if (runSpecs) disposeSlideAnims(runSpecs, false); }
     duration = Math.max(0, ...durations.slice(from, bi + 1)); time = Math.max(0, Math.min(duration, ms));
     if (sampleMedia) media?.seek(bi, ms, from);
     paint(); emit("change");
@@ -666,7 +748,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   if (deck.slides.length) goTo(0, 0);
@@ -687,6 +769,13 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
+  // Dispose owns restoration of live controllers. Bake the sampled visibility
+  // into a still before releasing those leases, just as keyframe styles remain.
+  const visibility = (specs.some(spec => spec.handoff) ? Array.from(camera.querySelectorAll<HTMLElement | SVGElement>("[style]")) : [])
+    .map(node => ({ node, value: node.style.getPropertyValue("visibility"), priority: node.style.getPropertyPriority?.("visibility") ?? "" }));
   disposeSlideAnims(specs); // a still: nothing armed or bound outlives it
+  for (const { node, value, priority } of visibility) {
+    if (value) node.style.setProperty("visibility", value, priority); else node.style.removeProperty("visibility");
+  }
   return rendered;
 }

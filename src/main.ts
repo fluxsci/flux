@@ -9,28 +9,34 @@ import Shell from "./shell/Shell.svelte";
 // production builds. See src/lib/dev/devHandle.ts and src/lib/project/memBridge.ts.
 if (import.meta.env.DEV) {
   void import("./lib/dev/devHandle").then((m) => m.installDevHandle());
-  // `?fixture=demo` backs window.fig with an in-memory project (manuscript with
-  // @fig/@cite, a figure with panels, a library.bib) so the full app runs on the
-  // dev server without Electron.
-  if (new URLSearchParams(location.search).has("fixture")) {
-    void (async () => {
-      const [{ installDemoFixture }, { openProjectAt }] = await Promise.all([
-        import("./lib/project/memBridge"),
-        import("./shell/shellStore"),
-      ]);
-      await openProjectAt(await installDemoFixture());
-    })();
-  }
 }
 
-const app = mount(Shell, {
-  target: document.getElementById("app")!,
-  intro: true,
-});
+function mountShell() {
+  const app = mount(Shell, {
+    target: document.getElementById("app")!,
+    intro: true,
+  });
 
-// Live agent context bridge (WS4): no-ops unless running under Electron with the
-// bridge preload. Lets an external agent read the live UI state and act on the
-// human's current selection. Dynamic import keeps it off the critical path.
-void import("./lib/bridge/install").then((m) => m.installBridge());
+  // Live agent context bridge (WS4): no-ops unless running under Electron with the
+  // bridge preload. Lets an external agent read the live UI state and act on the
+  // human's current selection. Dynamic import keeps it off the critical path.
+  void import("./lib/bridge/install").then((m) => m.installBridge());
+  return app;
+}
 
+async function mountDemo() {
+  const [{ installDemoFixture }, { openProjectAt }] = await Promise.all([
+    import("./lib/project/memBridge"),
+    import("./shell/shellStore"),
+  ]);
+  // Match Electron's preload order: shell consumers must see the bridge on their
+  // first mount, including capability probes and one-time event subscriptions.
+  const root = await installDemoFixture();
+  const app = mountShell();
+  await openProjectAt(root);
+  return app;
+}
+
+// `?fixture=demo` supplies the in-memory project only on the dev server.
+const app = import.meta.env.DEV && new URLSearchParams(location.search).has("fixture") ? mountDemo() : mountShell();
 export default app;
