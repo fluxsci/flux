@@ -27,7 +27,8 @@ export function parseGlb(input){
   if(chunks===0&&kind!==0x4e4f534a)fail('chunk','The first GLB chunk must be JSON.');
   if(kind===0x4e4f534a){if(json!==undefined)fail('chunk','Duplicate GLB JSON chunk.');try{json=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{fail('json','Invalid GLB JSON chunk.');}}
   else if(kind===0x004e4942){if(chunks!==1)fail('chunk','BIN must follow JSON and appear once.');bin=bytes;}
-  else fail('chunk','Unsupported GLB chunk type.');
+  // glTF 2.0: clients MUST ignore chunks of unknown type after the first two;
+  // prepare re-encodes only JSON and BIN, so ignored chunks are also stripped.
   chunks++;
  }
  if(!object(json)||json.asset?.version!=='2.0')fail('json','GLB must contain a glTF 2.0 object.');
@@ -54,7 +55,7 @@ function makeReader(json,bin){
   if(!integer(off)||off%size||stride<bytes||stride%size||(a.bufferView!=null&&!v))fail('accessor','Invalid accessor offset, view or stride.');
   const base=v?bufferSlice(a.bufferView,off,bytes,stride,a.count):0;
   if(base%size)fail('alignment','Accessor data is not component-aligned.');
-  if(!v&&!a.sparse)fail('accessor','Accessor without data or sparse values.');
+  // glTF 2.0: an accessor without bufferView is zero-initialized (get() reads 0).
   const componentOffset=c=>dim?Math.floor(c/dim)*colStride+(c%dim)*size:c*size;
   const normalize=value=>a.normalized&&a.componentType!==5126?Math.max(a.componentType===5120||a.componentType===5122?-1:0,value/divisor):value;
   let sparse;
