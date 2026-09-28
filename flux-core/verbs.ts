@@ -451,6 +451,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "italic", into: "fontStyle", const: "italic" },
       { kind: "flag", at: "no-italic", into: "fontStyle", const: "normal" },
       { kind: "flag", at: "hidden", into: "hidden", const: true },
+      { kind: "flag", at: "show", into: "hidden", const: false },
     ],
     handler: (ctx, a) =>
       core.setPartOverride(ctx.root, s(a.figureId), s(a.partId), pick(a, [...PART_KEYS]), a.elementId as string | undefined, { noPoster: a.noPoster as boolean | undefined }),

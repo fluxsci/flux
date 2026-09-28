@@ -240,6 +240,18 @@ function assign(out: Record<string, unknown>, into: string, value: unknown): voi
   nested[into.slice(dot + 1)] = value;
 }
 
+/** A const flag is a switch: bare or `true` means its constant. parseCliFlags
+ *  also consumes a following `false`, which must never silently mean `true`
+ *  (`--hidden false` used to hide). A boolean switch honours it as the
+ *  opposite value; any other switch refuses and names its opposite flag. */
+function constFlagValue(v: VerbDef, spec: CliArgSpec, raw: unknown): unknown {
+  if (raw === true || raw === "true") return spec.const;
+  const opposite = v.cliArgs.find((o) => o.kind === "flag" && o.into === spec.into && o.const !== undefined && o.const !== spec.const);
+  if ((raw === false || raw === "false") && typeof spec.const === "boolean") return !spec.const;
+  const hint = opposite ? `; use --${opposite.at} for the opposite` : "";
+  throw new ValidationError(`${v.cli}: --${spec.at} is a switch and takes no value (got ${JSON.stringify(raw)})${hint}`);
+}
+
 /** Extract + validate a registered verb's args from parsed CLI argv. */
 async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<string, unknown> }): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
@@ -260,7 +272,7 @@ async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<strin
     if (raw !== undefined) {
       if (supplied.has(spec.into)) throw new ValidationError(`${v.cli}: contradictory inputs for ${spec.into}`);
       supplied.add(spec.into);
-      raw = spec.const !== undefined ? spec.const : await coerce(spec, raw);
+      raw = spec.const !== undefined ? constFlagValue(v, spec, raw) : await coerce(spec, raw);
     }
     if (raw === undefined) {
       if (spec.default !== undefined) assign(out, spec.into, spec.default);

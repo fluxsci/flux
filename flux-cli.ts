@@ -72,7 +72,7 @@ usage: flux <verb> [root] [args] [--flags]
            [--stroke-width n] [--root R]   add a vector path from a node list
   edit-path <id> [--nodes '<json>'] [--closed|--open] [--root R]   replace a path's nodes
   restyle <figId> <partId> [--root R] [--element E] [--stroke c] [--fill c]
-          [--stroke-width n] [--opacity n] [--hidden]   restyle a plot part
+          [--stroke-width n] [--opacity n] [--hidden | --show]   restyle a plot part
   set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
             [--opacity n] [--color c] [--font-size n] [--font F] [--weight n]
             [--italic|--no-italic] [--underline|--no-underline]
@@ -211,7 +211,8 @@ usage: flux <verb> [root] [args] [--flags]
   add-model <figureId> <source.glb> [--x n --y n --width n --height n --name N --view '<json>']   import an immutable mesh copy + semantic sidecars
   set-model-view <elementId> [--figure id --preset front|back|right|left|top|bottom|home --azimuth n --elevation n --zoom n --colors source|uniform --state name=weight … | --frame n]   edit a saved Figure model view
   set-model-field <elementId> <fieldId> [--cmap name --min n --max n | --reset]   remap a 3D value field
-  restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden true]   alias of restyle; plot or 3D semantic parts
+  restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden | --show]   alias of restyle; plot or 3D semantic parts
+                                       (bare --hidden hides the part; --show unhides it)
   model-info <source.glb> [--morph-with other.glb]   read-only stats, semantics and topology inspection
   render-model-posters [--figure id --prune]   batch-render saved Figure model posters into the project cache
 

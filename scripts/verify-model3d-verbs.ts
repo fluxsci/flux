@@ -114,6 +114,16 @@ try {
   for (const args of [['set-model-field', field.elementId, 'height.field', '--min','3','--max','2'], ['set-model-view', model.id, '--frame','1','--state','inflated=.5'], ['set-model-view', model.id, '--state','ghost=1'], ['restyle', figureId, 'typo', '--element', field.elementId, '--fill','#f00']]) h.ok((await run([...args, '--root',root])).code !== 0, 'invalid built command returns failure: ' + args[0]);
   h.eq(JSON.stringify((await loadFigModel(root)).project), beforeInvalid, 'invalid built commands leave figure bytes semantically unchanged');
   const resetField = await cli(['set-model-field', field.elementId, 'height.field', '--root', root, '--reset']); h.ok(!resetField.element.fields, 'reset removes the field override');
+  // P2: a const switch never turns an explicit false into true.
+  const partHidden = async () => ((await loadFigModel(root)).project.figures.flatMap(f => f.elements).find(e => e.id === field.elementId) as typeof model).overrides?.['height.field']?.hidden;
+  await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden']); h.eq(await partHidden(), true, 'bare --hidden hides the part');
+  await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden', 'false']); h.eq(await partHidden(), false, '--hidden false shows the part instead of hiding it');
+  await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden']); await cli(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--show']); h.eq(await partHidden(), false, '--show is the documented unhide path');
+  const switchValue = await run(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--italic=false']);
+  h.ok(switchValue.code !== 0 && /--italic is a switch.*--no-italic/.test(switchValue.err), 'a non-boolean switch refuses an explicit value and names its opposite');
+  const contradictory = await run(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden', '--show']); h.ok(contradictory.code !== 0, '--hidden with --show is contradictory');
+  // P5: no always-failing slide selectors are advertised before the Slides phase.
+  for (const name of ['set_model_view', 'set_model_field', 'render_model_posters']) { const params = VERBS.find(v => v.name === name)!.params; h.ok(!('deckId' in params) && !('slideId' in params), `${name} advertises no deck/slide parameters`); }
   const {withLock}=await import('../flux-core/locks');
   await withLock(root,'project','gate-owned-document',async()=>{const cache=await core.renderModelPosters(root,{figureId});h.ok(cache.posters.length===3,'derived poster operation does not acquire a document writer lease');});
   const journalBeforeCancel=await fs.readFile(path.join(root,'.meta/journal.ndjson'),'utf8'),cancelled=new AbortController();cancelled.abort();
