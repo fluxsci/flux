@@ -1,3 +1,4 @@
+import { collectModel3dSourceBindings } from './model3d/sourceBinding';
 import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
 import { prepareModelCopy, publishModelCopy } from './model3d/copy';
@@ -579,6 +580,7 @@ function writeProjectTo(dir: string) {
   capturePersistenceGeneration();
   const generation=editGen.n;
   const owner=get(project), sourceRoot=get(projectDir), p=structuredClone(owner);
+  const modelBindings=collectModel3dSourceBindings(p.figures.flatMap(f=>f.elements));
   const models=structuredClone(get(scene3dManifests)), modelRecipes=structuredClone(get(scene3dRecipes));
   const data={...get(assetData)}, manifests=structuredClone(get(plotManifests)), recipes=structuredClone(get(plotRecipes));
   // Capture the requested snapshot before waiting. A project switch must never
@@ -592,7 +594,7 @@ function writeProjectTo(dir: string) {
     const modelCopies=new Map<string,Awaited<ReturnType<typeof prepareModelCopy>>>();
     for(const asset of p.assets) if(asset.kind==='glb') {
       if(!sourceRoot) throw new Error(`Cannot save GLB ${asset.id}: source project is unavailable`);
-      if(dir!==sourceRoot) modelCopies.set(asset.id,await prepareModelCopy(window.fig,sourceRoot,asset,dir,asset.path));
+      if(dir!==sourceRoot) modelCopies.set(asset.id,await prepareModelCopy(window.fig,sourceRoot,asset,dir,asset.path,{binding:modelBindings.get(asset.id)}));
       else {
         // Ordinary saves own the existing binary and preserve optional sidecars
         // in place. Only transfers require a lossless strict sidecar preflight.
@@ -701,12 +703,13 @@ export async function openProject() {
     const primedManifests: Record<string, FluxPlotManifest> = {};
     const primedRecipes: Record<string, unknown> = {};
     const primedModels: Record<string, Scene3dManifest> = {}, primedModelRecipes: Record<string, unknown> = {}, modelIssues: Record<string,string[]> = {};
+    const modelBindings=collectModel3dSourceBindings(p.figures.flatMap(f=>f.elements));
     for (const asset of p.assets) {
       if (!asset.path) continue;
       if (asset.kind === "mp4") throw new Error("Video assets are only supported in slide decks.");
       if (asset.kind === "glb") {
         if(!await window.fig.exists(joinPath(dir,asset.path))) throw new Error(`Missing GLB asset ${asset.id}`);
-        const sidecars=await readScene3dSidecars(window.fig,joinPath(dir,"assets"),asset.id);
+        const sidecars=await readScene3dSidecars(window.fig,joinPath(dir,"assets"),asset.id,{binding:modelBindings.get(asset.id)});
         if(sidecars.issues?.length) modelIssues[asset.id]=sidecars.issues;
         if(sidecars.manifest) primedModels[asset.id]=sidecars.manifest;
         if(sidecars.recipe!==undefined) primedModelRecipes[asset.id]=sidecars.recipe;

@@ -387,6 +387,11 @@ Persistence invariants (all machine-checked — do not weaken):
   do not poison the queue. Save As preserves stored GLB paths and refuses root adoption after
   later edits; same-root saves leave later edits dirty. Editing never waits for the queue.
   `source.sha256` records original source bytes; `Asset.sha256` always describes prepared bytes.
+  Metadata reopen uses `model3d/sourceBinding.ts` to gather every referring element's original
+  receipt before parsing sidecars. Conflicting receipts or a mismatched manifest checksum warn
+  and keep metadata inactive while preserving raw text; no receipt keeps legacy behavior.
+  Never compare a source manifest with the prepared asset checksum. Use the same binding-aware
+  metadata reader in GUI, read-only views, Node resolvers and native-copy preparation.
   The canonical `scripts/gen-validators.mjs` owns project/scene3d validators and the standalone
   native semantic bundle. Do not hand-edit its outputs. Deck 3D schema/conversion activation
   and content-track source ownership remain deferred to P4 after animation-v2 integration.
@@ -7716,3 +7721,15 @@ and exact commands are recorded in
 `notes/model3d-persistence/PROGRESS.md` and the orchestrator's Flux3D ledger before integration.
 **Learnings:** Promoted metadata-only persistence, optional/strict sidecar policy, original-byte
 receipts, source-prefix authorization, and ownership-aware Windows retries into the body.
+
+### 2026-09-28 07:31 UTC — Bind reopened 3D metadata to original bytes (Codex, model3d-bindings)
+**Work:** Added shared per-asset original receipt collection and metadata checks. GUI/read-only
+and standalone loaders, plus Save As copy preparation, keep a mismatched preserved sidecar
+inactive on reopen. Conflicting placements suppress metadata without inventing a new asset
+schema field; legacy no-receipt documents keep their existing behavior.
+**Verification:** The registered persistence gate covers original/prepared distinctions,
+multiple placements, mismatch/conflict raw preservation, GUI/Node resolver parity, and real
+standalone Save As/reopen. Exact final gate receipts and independent approvals live in
+`notes/model3d-bindings/PROGRESS.md`.
+**Learning:** A preserved rejected sidecar must pass the original binding policy on every
+resolution path, not just at import; prepared-byte checksums cannot establish source identity.

@@ -1,3 +1,4 @@
+import { collectModel3dSourceBindings } from '../model3d/sourceBinding';
 import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from '../model3d/store';
 import { readScene3dSidecars, scene3dSidecarWrites } from '../model3d/persistence';
 import type { Scene3dManifest } from '../model3d/types';
@@ -166,6 +167,7 @@ export async function loadFigInto(
   const modelIssues: Record<string,string[]> = Object.create(null);
   const primedModels: Record<string, Scene3dManifest> = Object.create(null);
   const primedModelRecipes: Record<string, unknown> = Object.create(null);
+  const modelBindings = collectModel3dSourceBindings(proj.figures.flatMap(f => f.elements));
   const pngs: [string, Uint8Array][] = [];
   for (const a of proj.assets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
@@ -174,7 +176,7 @@ export async function loadFigInto(
       const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
       if (a.kind === "glb") {
         if (!await fig.exists(assetPath)) throw new Error(`Missing GLB asset ${a.id}`);
-        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id);
+        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
         if (sidecars.issues?.length) modelIssues[a.id] = sidecars.issues;
         if (sidecars.manifest) primedModels[a.id] = sidecars.manifest;
         if (sidecars.recipe !== undefined) primedModelRecipes[a.id] = sidecars.recipe;
@@ -555,6 +557,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
   const assetData: Record<string, string> = {};
   const assetManifests: Record<string, FluxPlotManifest> = {};
   const model3dManifests: Record<string, Scene3dManifest> = {};
+  const modelBindings = collectModel3dSourceBindings(view.figures.flatMap(f => f.elements));
   const issues: { assetId: string; message: string }[] = [];
   for (const a of srcAssets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
@@ -564,7 +567,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
         const rel = storedAssetPath(`${SUB}/${a.path}`);
         const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
         if (!await fig.exists(path)) throw new Error(`Missing GLB asset ${a.id}`);
-        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id);
+        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
         for(const message of sidecars.issues??[]) issues.push({assetId:a.id,message});
         if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
         continue;

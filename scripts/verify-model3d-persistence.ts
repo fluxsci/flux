@@ -11,6 +11,7 @@ import { inspectGlb, writeGlb } from '../src/lib/model3d/glbCore.mjs';
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { elementAssetRefs, elementSourceAssetIds } from '../src/lib/model3d/refs';
 import { parseScene3d } from '../src/lib/model3d/scene3d';
+import { collectModel3dSourceBindings, scene3dSourceBindingIssue } from '../src/lib/model3d/sourceBinding';
 import { readScene3dSidecars, scene3dSidecarWrites } from '../src/lib/model3d/persistence';
 import { prepareModelCopy, publishModelCopy } from '../src/lib/model3d/copy';
 import { normalizeIndexAssets, planFigSave } from '../src/lib/project/figfiles';
@@ -224,6 +225,82 @@ try {
  releaseOwner();await Promise.all([oldOwnerSave,waitingOldSave]);
  h.eq(ownerWrites,1,'queued request refuses ownership change before writing another snapshot');h.ok(get(store.dirty),'old queued request cannot clear new project dirty state');
  h.ok(JSON.parse(await originalRead(path.join(legacyRoot,'project.json'))).name!=='Different project','queued old destination never receives newly opened project');bridge.writeText=originalWrite;
+ // Original-byte bindings survive save/reopen even when raw metadata was
+ // intentionally ignored at import. Prepared asset checksums are not provenance.
+ const sourceSha='a'.repeat(64),otherSha='b'.repeat(64);
+ const known={...element,source:{glbPath:'plots/original.glb',sha256:sourceSha}};
+ const same={...known,id:'same-source'},legacy={...element,id:'legacy-source'};
+ const conflicting={...known,id:'different-source',source:{...known.source,sha256:otherSha}};
+ const bindingOf=(elements:typeof model.figures[number]['elements'])=>collectModel3dSourceBindings(elements).get(asset.id);
+ const knownBinding=bindingOf([known,same]);
+ h.eq(knownBinding,{kind:'known',sha256:sourceSha},'multiple equal original receipts produce one asset binding');
+ h.eq(bindingOf([legacy,known]),knownBinding,'a known receipt binds legacy placements of the same asset');
+ h.eq(bindingOf([known,conflicting]),bindingOf([conflicting,known]),'conflicting receipts are independent of placement order');
+ h.eq(bindingOf([legacy]),undefined,'legacy assets never synthesize original provenance from prepared checksum');
+ const metadataDir=path.join(root,'binding-sidecars');await fs.mkdir(metadataDir,{recursive:true});
+ const metadataFile=path.join(metadataDir,'neuron.fluxplot.json');
+ const cases=[
+   {label:'equal receipts',refs:[known,same],digest:sourceSha,accepted:true},
+   {label:'known plus legacy',refs:[legacy,known],digest:sourceSha,accepted:true},
+   {label:'conflicting receipts',refs:[known,conflicting],digest:sourceSha,accepted:false},
+   {label:'legacy receipt absent',refs:[legacy],digest:otherSha,accepted:true},
+   {label:'original differs from prepared receipt',refs:[known],digest:sourceSha,accepted:true},
+   {label:'mismatched manifest receipt',refs:[known],digest:otherSha,accepted:false},
+   {label:'manifest receipt omitted',refs:[known],digest:undefined,accepted:true},
+   {label:'conflict suppresses hash-less manifest',refs:[known,conflicting],digest:undefined,accepted:false},
+ ];
+ h.ok(sourceSha!==asset.sha256,'binding fixture original checksum differs from prepared asset checksum');
+ for(const item of cases) {
+   const value={...manifest,...(item.digest?{glbSha256:item.digest}:{})};
+   const raw=JSON.stringify(value)+'\n';await fs.writeFile(metadataFile,raw);
+   const binding=bindingOf(item.refs);
+   const sidecars=await readScene3dSidecars(bridge,metadataDir,asset.id,{binding});
+   h.eq(!!sidecars.manifest,item.accepted,item.label+' uses the binding policy');
+   h.eq(sidecars.raw?.manifest,raw,item.label+' preserves exact raw sidecar');
+   h.eq(!!scene3dSourceBindingIssue(value,binding),!item.accepted,item.label+' agrees with shared import/Node policy');
+ }
+ const bindingModel=structuredClone(model);bindingModel.figures[1].elements=[known,same];
+ const bindingRoot=path.join(root,'binding-reopen'),bindingPlan=planFigSave(bindingModel,null);
+ const mismatchRaw=JSON.stringify({...manifest,glbSha256:otherSha})+'\n';
+ for(const entry of [...bindingPlan.canvases,...bindingPlan.captions,bindingPlan.index]) {
+   const target=path.join(bindingRoot,entry.path);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,entry.text);
+ }
+ await fs.copyFile(path.join(root,'project.json'),path.join(bindingRoot,'project.json'));
+ await fs.mkdir(path.join(bindingRoot,'fig/assets'),{recursive:true});
+ await fs.writeFile(path.join(bindingRoot,'fig/assets/neuron.glb'),bytes);
+ await fs.writeFile(path.join(bindingRoot,'fig/assets/neuron.fluxplot.json'),mismatchRaw);
+ await loadFigInto(bindingRoot,'Binding reopen');
+ h.ok(!get(scene3dManifests).neuron&&get(scene3dIssues).neuron.some(issue=>issue.includes('different GLB')),'GUI reopen keeps mismatched valid-version metadata inactive');
+ const boundView=await readFigSource(bindingRoot);
+ h.ok(!boundView.model3dManifests?.neuron&&boundView.issues?.some(issue=>issue.message.includes('different GLB')),'readFigSource uses identical original-byte binding');
+ const nodeProject=await core.loadFigModel(bindingRoot);
+ const nodeBinding=collectModel3dSourceBindings(nodeProject.project.figures.flatMap(f=>f.elements)).get(asset.id);
+ const nodeSidecars=await readScene3dSidecars({exists:p=>fs.access(p).then(()=>true,()=>false),readText:p=>fs.readFile(p,'utf8')},path.join(bindingRoot,'fig/assets'),asset.id,{binding:nodeBinding});
+ h.eq(nodeSidecars.manifest,boundView.model3dManifests?.neuron,'Node metadata resolver and GUI reject the same mismatched manifest');
+ h.eq(nodeSidecars.issues,get(scene3dIssues).neuron,'Node metadata resolver and GUI report identical binding issues');
+ markAssetDirty(asset.id);await saveFigFrom(bindingRoot);
+ h.eq(await fs.readFile(path.join(bindingRoot,'fig/assets/neuron.fluxplot.json'),'utf8'),mismatchRaw,'dirty GUI save preserves mismatched raw metadata');
+ const boundCopy=await prepareModelCopy(bridge,bindingRoot,asset,path.join(root,'bound-copy'),'assets/neuron.glb',{sourcePrefix:'fig',binding:nodeBinding});
+ h.ok(!boundCopy.sidecars.manifest&&boundCopy.sidecars.raw?.manifest===mismatchRaw,'native-copy preflight forwards source binding without dropping raw metadata');
+ const standaloneRoot=path.join(root,'binding-standalone'),standaloneDest=path.join(root,'binding-saveas');
+ await fs.mkdir(path.join(standaloneRoot,'assets'),{recursive:true});await fs.writeFile(path.join(standaloneRoot,'project.json'),JSON.stringify(bindingModel));
+ await fs.writeFile(path.join(standaloneRoot,'assets/neuron.glb'),bytes);await fs.writeFile(path.join(standaloneRoot,'assets/neuron.fluxplot.json'),mismatchRaw);
+ store.embeddedProjectRoot.set(null);bridge.openDirectory=async()=>standaloneRoot;
+ const publicIO=await import('../src/lib/io');await publicIO.openProject();
+ h.ok(!get(scene3dManifests).neuron&&!!get(scene3dIssues).neuron?.length,'standalone open binds metadata to original receipt');
+ bridge.save=async()=>standaloneDest;await publicIO.saveProjectAs();
+ h.eq(get(store.projectDir),standaloneDest,'binding-aware Save As transfers the complete stored mesh');
+ h.eq(await fs.readFile(path.join(standaloneDest,'assets/neuron.fluxplot.json'),'utf8'),mismatchRaw,'Save As preserves ignored mismatched raw sidecar');
+ bridge.openDirectory=async()=>standaloneDest;await publicIO.openProject();
+ h.ok(!get(scene3dManifests).neuron&&!!get(scene3dIssues).neuron?.length,'Save As reopen never reactivates mismatched raw sidecar');
+ const conflictModel=structuredClone(bindingModel);conflictModel.figures[0].elements=[known];conflictModel.figures[1].elements=[conflicting];
+ const conflictPlan=planFigSave(conflictModel,null);
+ for(const entry of [...conflictPlan.canvases,...conflictPlan.captions,conflictPlan.index])await fs.writeFile(path.join(bindingRoot,entry.path),entry.text);
+ await fs.writeFile(path.join(bindingRoot,'fig/assets/neuron.fluxplot.json'),JSON.stringify(manifest));
+ await loadFigInto(bindingRoot,'Conflicting receipts');
+ h.ok(!get(scene3dManifests).neuron&&get(scene3dIssues).neuron.some(issue=>issue.includes('Conflicting original')),'reopen combines all figures before rejecting conflicting provenance on hash-less metadata');
+ const conflictView=await readFigSource(bindingRoot);
+ h.ok(!conflictView.model3dManifests?.neuron&&conflictView.issues?.some(issue=>issue.message.includes('Conflicting original')),'read-only view also suppresses conflicting provenance across figures');
  const nativeText=await fs.readFile(new URL('../src/lib/model3d/scene3d.native.gen.mjs',import.meta.url),'utf8');
  h.ok(!/from ["'](?:three|ajv)|require\(|new Function\(/.test(nativeText),'native semantic bundle is standalone with no Three/Ajv runtime/eval');
  const native=await import(pathToFileURL(path.resolve('src/lib/model3d/scene3d.native.gen.mjs')).href);
