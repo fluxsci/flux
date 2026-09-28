@@ -7994,3 +7994,5 @@ store handle or substituted model IPC is used. The Python demo is copied from th
 isolated scene3d worktree and changed only inside scratch. See
 [run details](model3d/NATIVE_ACCEPTANCE.md). Source/registration checks are separate
 from native qualification: these new scenarios remain unrun while DISPLAY=:0 is0×0.
+
+2026-09-28 16:13 UTC — Qualified native test windows now share pure `qualifiedNativeBounds`: the actual primary work area must be positive and contained in its display, with ten-pixel margins. Requests are capped to that area; no virtual screen is invented. Callers preserve the display snapshot before this guard so capability failures remain reviewable. The registered native-policy pure gate pins1470×923, offset-monitor origins, invalid work areas and unchanged smaller requests. Product window defaults and timing thresholds remain unchanged.

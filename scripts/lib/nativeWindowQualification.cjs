@@ -6,4 +6,15 @@ function assertUsableDisplay(displays) {
 function assertFocusedWindow(win, observations) {
   if (!win.isVisible() || !win.isFocused() || !observations.length || observations.some(o => o.visible !== 'visible' || o.focused !== true)) throw unavailable('Input qualification lost its visible focused native window');
 }
-module.exports = { assertUsableDisplay, assertFocusedWindow };
+/** Qualified test windows fit the reported primary work area; never invent a display. */
+function qualifiedNativeBounds(displays, primary, requestedWidth, requestedHeight) {
+  assertUsableDisplay(displays);
+  const area = primary?.workArea, bounds = primary?.bounds;
+  const rectangle = r => r && ['x','y','width','height'].every(k=>Number.isFinite(r[k])) && r.width>0 && r.height>0;
+  if (!rectangle(area) || !rectangle(bounds) || area.width<=20 || area.height<=20 || area.x<bounds.x || area.y<bounds.y || area.x+area.width>bounds.x+bounds.width || area.y+area.height>bounds.y+bounds.height) throw unavailable('Native qualification requires a positive primary work area contained in its display');
+  if (![requestedWidth,requestedHeight].every(n=>Number.isFinite(n)&&n>=1)) throw new RangeError('Qualified native window dimensions must be finite and positive');
+  const result={x:Math.ceil(area.x+10),y:Math.ceil(area.y+10),width:Math.floor(Math.min(requestedWidth,area.width-20)),height:Math.floor(Math.min(requestedHeight,area.height-20))};
+  if(result.width<1||result.height<1)throw unavailable('Primary work area cannot contain a positive qualified window');
+  return result;
+}
+module.exports = { assertUsableDisplay, assertFocusedWindow, qualifiedNativeBounds };
