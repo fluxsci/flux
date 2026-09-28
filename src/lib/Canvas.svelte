@@ -3,7 +3,7 @@
 
   import { canvasAnnotationTargets } from "./bridge/canvasTargets";
   import OrbitOverlay from "./model3d/OrbitOverlay.svelte";
-  import { modelOrbit, modelPreviews, paintedModelPreviews, modelOrbitBlocked, beginModelOrbit, finishModelOrbit, clearModelPreviews, modelEditorOwner } from "./model3d/orbitSession";
+  import { modelOrbit, modelPreviews, paintedModelPreviews, modelOrbitBlocked, requestModelOrbit, finishModelOrbit, clearModelPreviews, modelEditorOwner } from "./model3d/orbitSession";
   import { scene3dGeneration } from "./model3d/store";
   import { storeTenantState } from "./tenancy";
   import { embeddedProjectRoot, projectDir } from "./store";
@@ -1943,6 +1943,12 @@
         beginMove(e, fig);
         return;
       }
+    } else if (el.type === "model3d" && deep && model3dPartAtPoint(el.id, e)) {
+      // The same one-shot deep select reaches a 3D fluxplot's furniture parts.
+      // It selects without dragging: 3D part offsets are edited numerically.
+      partSelection.set({ elementId: el.id, partId: model3dPartAtPoint(el.id, e)! });
+      selection.set(new Set([el.id]));
+      return;
     } else {
       partSelection.set(null);
     }
@@ -2012,6 +2018,17 @@
     if (!pid)
       pid = resolvePartId(man, document.elementFromPoint(ev.clientX, ev.clientY) as globalThis.Element | null, el.id);
     return pid && !stashedPresentationParts.get(el.id)?.has(pid) ? pid : null;
+  }
+
+  /** The 3D-fluxplot furniture part (label, legend, colorbar…) under the
+   *  pointer, or null over the mesh. Furniture groups carry `data-part-id`. */
+  function model3dPartAtPoint(elementId: string, ev: { target: EventTarget | null; clientX: number; clientY: number }): string | null {
+    const find = (node: globalThis.Element | null) => {
+      const part = node?.closest?.("[data-model3d-furniture] [data-part-id]");
+      return part && part.closest(`[data-editor-element-id="${CSS.escape(elementId)}"]`) ? part.getAttribute("data-part-id") : null;
+    };
+    const pid = find(ev.target as globalThis.Element | null) ?? find(document.elementFromPoint(ev.clientX, ev.clientY));
+    return pid && !stashedPresentationParts.get(elementId)?.has(pid) ? pid : null;
   }
 
   // Screen-px box of the deep-select target under the pointer (the hovered
@@ -3110,9 +3127,18 @@
       partSelection.set(null);
       return true;
     }
+    // A 3D fluxplot descends like a 2D one: double-clicking its furniture (a
+    // label, legend, colorbar, scale bar) selects that part; the mesh orbits.
     if (el.type === "model3d" && unit.groupId === null && !e.shiftKey && !e.altKey) {
       e.stopPropagation();
-      return beginModelOrbit(el.id);
+      const pid = model3dPartAtPoint(el.id, e);
+      if (pid) {
+        partSelection.set({ elementId: el.id, partId: pid });
+        if (!$selection.has(el.id)) selection.set(new Set([el.id]));
+        return true;
+      }
+      requestModelOrbit(el.id);
+      return true;
     }
     if (el.type === "text" && unit.groupId === null) {
       e.stopPropagation();

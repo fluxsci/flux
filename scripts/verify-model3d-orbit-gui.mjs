@@ -40,6 +40,8 @@ try {
     await waitFor(page, () => !!document.querySelector('[data-model3d-orbit].ready'), null, { timeout: 30000, label: 'real double click enters orbit' });
   };
   await enter(); h.ok(true, 'real double click enters orbit');
+  h.eq(await page.$eval('.model3d-properties [data-model3d-orbit-toggle]', n => n.textContent.trim()), 'Done', 'Inspector toggle reads Done while orbiting');
+  h.ok(await page.$eval('.model3d-hud', n => n.querySelectorAll('span').length === 2 && /Wheel zoom/.test(n.textContent) && /0 home/.test(n.textContent)), 'HUD lists wheel zoom, view keys, home and projection');
   const baseline = await state(), n = await frame();
   await page.evaluate(()=>{window.__axisNode=document.querySelector('[data-model3d-orbit] [data-part-id="axes.x.axis"] line');window.__axisBefore=window.__axisNode?.getAttribute('x1');window.__meshBefore=document.querySelector('[data-model3d-live]').toDataURL();}); let p = await center('[data-model3d-orbit]');
   await page.mouse.move(p.x, p.y); await page.mouse.down(); await page.mouse.move(p.x + 50, p.y + 25, { steps: 5 }); await page.mouse.up(); await painted(n);
@@ -54,6 +56,9 @@ try {
   await page.screenshot({ path: out + '/live-orbit.png' });
   await page.keyboard.press('Escape'); await gone();
   h.eq(await state(), baseline, 'Escape restores exact visit baseline');
+  await enter(); await page.click('.model3d-properties [data-model3d-orbit-toggle]'); await gone();
+  h.ok(await page.evaluate(async () => (await import('/src/lib/model3d/orbitSession.ts')).modelOrbit && !document.querySelector('[data-model3d-orbit]')), 'Inspector Done ends the visit instead of restarting it');
+  h.eq(await page.$eval('.model3d-properties [data-model3d-orbit-toggle]', n => n.textContent.trim()), 'Orbit', 'toggle returns to Orbit');
   await enter(); p = await center('[data-model3d-orbit]');
   let previous = await state(); await page.mouse.move(p.x,p.y); await page.mouse.wheel({ deltaY: -100 });
   await waitFor(page, before => window.__flux.figures().find(f => f.id === 'orbit-figure').elements[0].orbitZoom > before, previous.orbitZoom, { label: 'wheel zoom' });

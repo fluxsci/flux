@@ -23,7 +23,7 @@ module.exports=async function nativeSmoke(c){
   const after=await captureMesh('semantics-after');check(pixelDifference(before,after)>.005,'native recolor/hide visibly changes the neuron mesh');
   metrics.semantics={saved:await modelState(),changedPixelRatio:pixelDifference(before,after)};
   if(scenario==='source'){
-   const previousPoster=await poster();await click(modelSelector);await click('.model3d-properties button[title="Top view"]');await wait(async()=>(await modelState()).orbitElevation===90,'source-loop saved native top view');await changePoster(previousPoster);
+   const previousPoster=await poster();await click(modelSelector);await click('.model3d-properties button[data-axis="top"]');await wait(async()=>(await modelState()).orbitElevation===90,'source-loop saved native top view');await changePoster(previousPoster);
    const sourceViewPoster=await poster(),sourceBeforePixels=await captureMesh('source-before');
    const previous=await modelState(),retain=e=>Object.fromEntries(['x','y','width','height','rotation','orbitAzimuth','orbitElevation','orbitRoll','orbitZoom','orbitPanX','orbitPanY','orbitProjection','orbitFov','modelColors','modelLighting','fill','overrides','fields','modelStates'].map(k=>[k,e[k]]));
    const python=await require('./model3dNativePythonLoop.cjs')(root,artifacts);
@@ -54,7 +54,7 @@ module.exports=async function nativeSmoke(c){
  }else if(scenario==='paper'){
   const manifest=JSON.parse(await fs.readFile(path.join(root,'project.json'),'utf8'));
   const manuscript=path.join(root,manifest.manuscript.path),sourceBefore=await fs.readFile(manuscript);
-  const old=await poster();await click(modelSelector);await click('.model3d-properties button[title="Top view"]');await wait(async()=>(await modelState()).orbitElevation===90,'saved native top view');await changePoster(old);
+  const old=await poster();await click(modelSelector);await click('.model3d-properties button[data-axis="top"]');await wait(async()=>(await modelState()).orbitElevation===90,'saved native top view');await changePoster(old);
   const figurePoster=await poster();metrics.paper={saved:await modelState()};
   await click('button[aria-label=Paper]');await wait(()=>js("!!document.querySelector('.paper[data-paper-sources-ready=\"true\"] .flux-embed-art img')"),'native Paper figure embed');
   const svg=await wait(()=>js("(async()=>{const img=document.querySelector('.flux-embed-art img');if(!img?.complete||!img.naturalWidth)return null;const text=window.__nativeModelEvidence.svgSources?.get(img.src);return text?.includes('data-model3d-poster')&&text.includes('data:image/png;')&&!text.includes('data-model3d-placeholder')?text:null})()"),'decoded native Paper 3D embed');

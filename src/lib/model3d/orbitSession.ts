@@ -7,6 +7,7 @@ import { editPreview, editSession } from '../interact/editSession';
 import { selectionTargets } from '../interact/selectionTargets';
 import { scene3dGeneration } from './store';
 import { setModelView, type ModelViewPatch } from './viewOps';
+import { pushToast } from '../toast';
 
 export interface ModelPreview { phase: 'active' | 'settled'; time: number; revision: number; owner: symbol }
 export const modelPreviews = writable<Record<string, ModelPreview>>({});
@@ -49,10 +50,27 @@ export function finishModelOrbit(cancel = false) {
   if (session) (cancel ? session.cancel : session.finish)();
   modelOrbit.set(null);
 }
+/** Why orbit cannot start for this element right now, or null when it can.
+ *  The same checks `beginModelOrbit` makes, phrased for the person asking. */
+export function modelOrbitUnavailableReason(id: string): string | null {
+  if (get(modelOrbitBlocked)) return 'Finish choosing an animation target first';
+  const issue = get(modelOrbitIssues)[id];
+  if (issue) return issue;
+  const found = findElement(get(project), id);
+  if (!found || found.element.type !== 'model3d') return '3D model not found';
+  if (!selectionTargets(found.figure, new Set([id]), { editable: true }).length) return 'Unlock and show the model to orbit it';
+  return null;
+}
+/** Start orbiting, or say why not: a refused orbit must never be silent. */
+export function requestModelOrbit(id: string): boolean {
+  if (beginModelOrbit(id)) return true;
+  pushToast('info', 'Orbit is unavailable', { detail: modelOrbitUnavailableReason(id) ?? undefined });
+  return false;
+}
 export function beginModelOrbit(id: string): boolean {
-  if (get(modelOrbitBlocked) || get(modelOrbitIssues)[id]) return false;
+  if (modelOrbitUnavailableReason(id)) return false;
   const p = get(project), found = findElement(p, id);
-  if (!found || found.element.type !== 'model3d' || !selectionTargets(found.figure, new Set([id]), { editable: true }).length) return false;
+  if (!found || found.element.type !== 'model3d') return false;
   finishModelOrbit();
   selection.set(new Set([id]));
   originalProject = p;

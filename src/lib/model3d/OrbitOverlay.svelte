@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { yieldsToShellModal, isAnnotateChord } from '../../shell/agent/annotationVisibility';
   import { project } from '../store';
   import { scene3dManifests, scene3dGeneration } from './store';
@@ -32,6 +32,32 @@
   let space = false;
   const layout = $derived(furnitureLayout(manifest, element, element.overrides));
   const boxStyle = $derived(`left:${left}px;top:${top}px;width:${element.width * zoom}px;height:${element.height * zoom}px;transform:rotate(${element.rotation}deg) scale(${element.flipX ? -1 : 1},${element.flipY ? -1 : 1});opacity:${element.opacity ?? 1}`);
+  // The HUD reads the azimuth as a compass bearing; the stored value stays
+  // unwrapped so a Change of +360° still turns once.
+  const displayAzimuth = $derived((((Math.round(element.orbitAzimuth) % 360) + 360) % 360).toFixed(0));
+  const hudId = `model3d-hud-${Math.random().toString(36).slice(2)}`;
+  let hud = $state<HTMLDivElement | undefined>();
+  let host = $state({ w: Infinity, h: Infinity });
+  $effect(() => {
+    const parent = wrapper?.offsetParent as HTMLElement | null;
+    if (!parent) return;
+    const measure = () => { host = { w: parent.clientWidth, h: parent.clientHeight }; };
+    measure();
+    const observer = new ResizeObserver(measure); observer.observe(parent);
+    return () => observer.disconnect();
+  });
+  /** Below the element's ROTATED screen bounds, flipped above when there is no
+   *  room, and clamped inside the canvas so it never hides the handles. */
+  const hudStyle = $derived.by(() => {
+    const w = element.width * zoom, h = element.height * zoom, angle = element.rotation * Math.PI / 180;
+    const bw = Math.abs(w * Math.cos(angle)) + Math.abs(h * Math.sin(angle));
+    const bh = Math.abs(w * Math.sin(angle)) + Math.abs(h * Math.cos(angle));
+    const cx = left + w / 2, cy = top + h / 2, hudW = hud?.offsetWidth ?? 260, hudH = hud?.offsetHeight ?? 52, gap = 10;
+    let y = cy + bh / 2 + gap;
+    if (y + hudH > host.h - 4) y = Math.max(4, cy - bh / 2 - gap - hudH);
+    const x = Math.max(4, Math.min(cx - bw / 2, host.w - hudW - 4));
+    return `left:${x}px;top:${y}px`;
+  });
   const displayedLayout = $derived(paintedLayout ?? layout);
   const displayedElement = $derived(paintedElement ?? element);
   const meshStyle = $derived(`left:${(displayedLayout.viewport.x - displayedElement.x) * zoom}px;top:${(displayedLayout.viewport.y - displayedElement.y) * zoom}px;width:${displayedLayout.viewport.width * zoom}px;height:${displayedLayout.viewport.height * zoom}px`);
@@ -62,8 +88,22 @@
     if (interactive) finishModelOrbit();
     retireModelPreview(element.id);
   }
+  // Focus the orbit scope as soon as it opens (not after the first frame), so
+  // keys typed right after the double-click reach orbit rather than global
+  // shortcuts; hand focus back to where it came from when the visit ends.
+  let returnFocus: HTMLElement | null = null;
   $effect(() => {
-    if (interactive && ready && wrapper) void tick().then(() => { if (!closed && interactive) wrapper.focus({ preventScroll: true }); });
+    if (interactive && wrapper) {
+      untrack(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body && !wrapper.contains(active)) returnFocus = active;
+      });
+      void tick().then(() => { if (!closed && interactive) wrapper.focus({ preventScroll: true }); });
+    } else if (!interactive && wrapper && (document.activeElement === wrapper || document.activeElement === document.body)) {
+      const target = returnFocus;
+      returnFocus = null;
+      if (target?.isConnected) target.focus({ preventScroll: true });
+    }
   });
   $effect(() => {
     const pending = residency, state = preview, final = fullRevision;
@@ -142,12 +182,22 @@
     if (/^[1-6]$/.test(event.key)) applyModelOrbit(axisView(axes[Number(event.key)-1], element.orbitAzimuth), event.timeStamp);
     else if (event.key === '0') runModelOrbit(p => { const view = homeView(asset, manifest); setModelView(p, [element.id], view); setModelStates(p, [element.id], modelDefaultStates(manifest, asset?.model?.states ?? [])); }, event.timeStamp);
     else if (event.key.toLowerCase() === 'p') applyModelOrbit({ orbitProjection: element.orbitProjection === 'orthographic' ? 'perspective' : 'orthographic' }, event.timeStamp);
+    else if (event.key.startsWith('Arrow')) {
+      // Arrows step the view like a drag would: 5° per press, Shift ×3.
+      const step = event.shiftKey ? 15 : 5;
+      if (event.key === 'ArrowLeft') applyModelOrbit({ orbitAzimuth: element.orbitAzimuth + step }, event.timeStamp);
+      else if (event.key === 'ArrowRight') applyModelOrbit({ orbitAzimuth: element.orbitAzimuth - step }, event.timeStamp);
+      else if (event.key === 'ArrowUp') applyModelOrbit({ orbitElevation: Math.min(90, element.orbitElevation + step) }, event.timeStamp);
+      else if (event.key === 'ArrowDown') applyModelOrbit({ orbitElevation: Math.max(-90, element.orbitElevation - step) }, event.timeStamp);
+    }
     else if (event.key === 'Escape') finishModelOrbit(true);
     else if (event.key === 'Enter') finishModelOrbit();
     // Orbit owns unrecognized authoring keys too; no accidental canvas delete/nudge.
     event.preventDefault(); event.stopPropagation();
   }
-  function outside(event: PointerEvent) { if (interactive && wrapper && !wrapper.contains(event.target as Node)) finishModelOrbit(); }
+  // The Inspector's Orbit/Done toggle finishes the visit itself.
+  const isToggle = (target: EventTarget | null) => target instanceof Element && !!target.closest('[data-model3d-orbit-toggle]');
+  function outside(event: PointerEvent) { if (interactive && wrapper && !wrapper.contains(event.target as Node) && !isToggle(event.target)) finishModelOrbit(); }
   function outsideWheel(event: WheelEvent) { if (interactive && wrapper && !wrapper.contains(event.target as Node)) finishModelOrbit(); }
   onDestroy(() => { closed = true; requestRevision++; retained?.release(); if (wheelEnd) clearTimeout(wheelEnd); });
 </script>
@@ -157,7 +207,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div bind:this={wrapper} class="model3d-overlay" class:ready style={boxStyle} style:pointer-events={interactive ? 'auto' : 'none'}
   data-model3d-orbit={interactive ? element.id : undefined} data-model3d-preview={interactive ? undefined : element.id}
-  data-command-scope="model3d-orbit" role="application" aria-label="Orbit 3D model" tabindex={interactive ? 0 : -1}
+  data-command-scope="model3d-orbit" role="application" aria-label="Orbit 3D model" aria-describedby={interactive ? hudId : undefined} tabindex={interactive ? 0 : -1}
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onlostpointercapture={up}
   onkeydown={key} onkeyup={event => { if (event.key === ' ') space = false; }} onwheel={onWheel}>
   <svg bind:this={under} class="furniture" viewBox={`${displayedElement.x} ${displayedElement.y} ${displayedElement.width} ${displayedElement.height}`} aria-hidden="true"></svg>
@@ -165,18 +215,22 @@
   <svg bind:this={over} class="furniture" viewBox={`${displayedElement.x} ${displayedElement.y} ${displayedElement.width} ${displayedElement.height}`} aria-hidden="true"></svg>
 </div>
 {#if interactive}
-  <div class="model3d-hud" style={`left:${left}px;top:${top + element.height * zoom + 6}px`}>
-    az {element.orbitAzimuth.toFixed(0)}° · el {element.orbitElevation.toFixed(0)}° · ×{element.orbitZoom.toFixed(2)} · {element.orbitProjection === 'orthographic' ? 'ortho' : 'persp'}
-    <span>{contextLost ? '3D context interrupted; waiting for recovery' : 'Drag orbit · Shift pan · Alt roll · Enter done · Esc cancel'}</span>
+  <div bind:this={hud} id={hudId} class="model3d-hud" style={hudStyle}>
+    az {displayAzimuth}° · el {element.orbitElevation.toFixed(0)}° · ×{element.orbitZoom.toFixed(2)} · {element.orbitProjection === 'orthographic' ? 'ortho' : 'persp'}
+    {#if contextLost}<span>3D context interrupted; waiting for recovery</span>
+    {:else}<span>Drag orbit · Shift pan · Alt roll · Enter done · Esc cancel</span><span>Wheel zoom · 1–6 views · 0 home · P projection · arrows step</span>{/if}
   </div>
 {/if}
 <style>
-  .model3d-overlay { position: absolute; transform-origin: center; outline: none; touch-action: none; visibility: hidden; }
-  .model3d-overlay.ready { visibility: visible; }
+  /* The wrapper takes input from the moment orbit opens; its layers stay
+     transparent (the scene poster shows through) until the first live frame. */
+  .model3d-overlay { position: absolute; transform-origin: center; outline: none; touch-action: none; }
+  .model3d-overlay:not(.ready) > * { opacity: 0; }
   .model3d-overlay[data-model3d-orbit] { cursor: grab; }
   .model3d-overlay[data-model3d-orbit]:active { cursor: grabbing; }
   canvas { position: absolute; }
   .furniture { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
   .model3d-hud { position: absolute; pointer-events: none; font: 11px var(--font-mono); color: var(--c-tx); background: var(--c-bg); border: 1px solid var(--c-line); border-radius: var(--r-ui); padding: 5px 7px; white-space: nowrap; }
   .model3d-hud span { display: block; margin-top: 3px; color: var(--c-tx-muted); font: 10px var(--font-ui); }
+  .model3d-hud { z-index: 5; }
 </style>

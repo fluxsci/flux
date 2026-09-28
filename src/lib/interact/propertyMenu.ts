@@ -326,7 +326,7 @@ export function buildElementFields(p: Project, sel: Set<string>, lib: TextStyle[
       step: d.step,
       factor: d.factor,
       min: d.min,
-      max: d.max,
+      max: (() => { const limits = d.maxFor ? els.map(e => d.maxFor!(e)).filter((v): v is number => Number.isFinite(v)) : []; return limits.length ? Math.max(...limits) : d.max; })(),
       softMax: d.softMax,
       softMin: d.softMin,
       mixed: value.mixed,

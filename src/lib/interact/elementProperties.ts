@@ -18,11 +18,15 @@ export interface NumericDescriptor {
   softMax?: number;
   /** Lower end of that track for values that are not clamped below. */
   softMin?: number;
+  /** A per-element upper bound (e.g. a sequence's frame count); the menu uses
+   *  the largest over the selection in place of a static `max`. */
+  maxFor?(element: Element): number | undefined;
   read(element: Element): number | undefined;
 }
 const box = (e: Element, axis: 'width' | 'height') => supportsBoxDim(e.type) && axis in e ? e[axis] : undefined;
 export const numericProperties: Record<NumericProperty, NumericDescriptor> = {
-  modelFrame: { label: 'Frame', shortLabel: 'Frame', key: '2', group: 'Shape', step: 1, min: 0, softMax: 40, read: e => {
+  modelFrame: { label: 'Frame', shortLabel: 'Frame', key: '2', group: 'Shape', step: 1, min: 0,
+    maxFor: e => e.type === 'model3d' ? get(projectStore).assets.find(a => a.id === e.assetId)?.model?.states?.length : undefined, read: e => {
     if (e.type !== 'model3d' || !get(scene3dManifests)[e.assetId]?.sequence) return undefined;
     const names = get(projectStore).assets.find(a => a.id === e.assetId)?.model?.states ?? [];
     return names.length ? modelFrame(e.modelStates, names) ?? 0 : undefined;
