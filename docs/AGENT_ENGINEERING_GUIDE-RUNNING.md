@@ -391,7 +391,7 @@ Persistence invariants (all machine-checked — do not weaken):
   `model3d/sourceBinding.ts`, which keeps a mismatched sidecar inactive but preserved.
   Standalone saves capture owner/root/data before entering a serialized publication queue, so
   a delayed older write cannot overwrite a newer save. Validators come only from
-  `scripts/gen-validators.mjs`. Decks refuse `model3d` until Stage 2.
+  `scripts/gen-validators.mjs`. Deck schema 0.6 supports model placements and immutable deck-owned GLB assets; original and prepared hashes retain their distinct meanings.
 - **3D import has explicit native ownership.** `model3d/importData.ts` prepares;
   `electron/model3dImport.cjs` owns bounded reads and exclusive publication. Import receipts
   are window/root/generation-bound, and adoption and cancellation are mutually exclusive.
@@ -3141,8 +3141,9 @@ outside this PNG packaging change.
   modelling, 3D-anchored annotations, VR/AR and live PPTX 3D. Compose depth-related
   parts inside one fluxplot scene; separate Figure elements do not share a depth
   buffer. Different-topology meshes crossfade; no inferred correspondence is
-  attempted. Slides/animation integration is Stage 2 of the 3D plan and waits for the
-  animation-v2 merge; until then decks refuse `model3d` elements.
+  attempted. Slides support model camera/shape Changes, Turntable, semantic-part
+  appearances, Ghost and model transitions through the existing animation engine;
+  PDF/PPTX use documented mesh/furniture stills rather than live 3D.
 
 - **Agent registration:** automatic setup supports Claude Code and Codex. Other
   vendors receive the MCP spec and launcher instructions; automatic integration
@@ -8518,43 +8519,10 @@ clipping failures and blocked-before-launch behavior; native results remain sepa
 **Learnings:** Retain the clicked CodeMirror identity (promoted to §9); measure against the
 clipped canvas, including sidebars, and use native viewport navigation to frame the fixture.
 ### 2026-09-29 — 3D guide wrapping completion (`model3d-slides-furniture`)
-**Work:** Completed the preserved owner title-fit draft without shrinking or eliding
-scientific labels. Hard tokens and legend rows wrap; effective guide fonts and edited
-field ranges drive layout. Shared colorbar tick selection is used by layout/rendering.
-Guide height can move between slots, with explicit overflow and a Figure hover resize
-hint when full text cannot fit. Python static furniture mirrors source layout/ticks.
-**Evidence:** Registered `model3d-furniture` pure/browser gates check hard tokens,
-physical fonts, range edits, impossible boxes and actual browser text bounds. The
-Python static suite checks actual Matplotlib glyph bounds and absent-tick fallback;
-three source fixtures compare exact TS/Python viewport and guide geometry. The 20%
-advance reserve is deliberate: the old Arial-only estimate underestimated default
-DejaVu Sans by 8–18% in measured examples. Custom fonts remain estimates. Screenshots
-live under `test-results/model3d/furniture-fit/`; renderer/native performance is not
-claimed by these layout checks. No animation-v2 state/target behavior changed.
-Author final group2/2 (06-34-32-845Z-16), independent n1 group2/2
-(06-39-11-321Z-2), check0/0 and headless typecheck passed. Core independently approved
-the source. Python full340passed2skipped116warnings20.74s; independent static8/8 passed.
+**Work:** Completed the preserved title-fit draft with wrapping, effective fonts/ranges, shared tick selection and explicit overflow; Python static layout mirrors it, with independently checked glyph bounds and TS/Python geometry parity. **Learnings:** The measured DejaVu Sans advances need the documented 20% reserve over the old Arial estimate; custom fonts remain estimates, and layout checks do not qualify native frame timing.
 
 ### 2026-09-29 — P4e model transition foundation
-
-Model topology now participates in shared Become/Appear-from compilation and file
-commands. Compatible pairs report `morph:true`; incompatible pairs stay valid and
-report the first mesh mismatch plus the Python shared-topology remedy. Model
-destinations default to handoff, explicit consume retains destination content,
-all model channels and original source receipt, and future-only GLB references
-remain source owners. Whole model/video poster handoff is the sole video exception;
-video consume, unrelated video Become and video Ghost still refuse. The renderer
-accepts frozen morph endpoints so sampled fields/states do not rebuild geometry,
-and preserves uniform-to-vertex-color endpoints. Ghost/player flights and GUI
-content picking are a later P4e checkpoint, not claimed complete here.
-
-Author pure group4/4 passed07-09-43-409Z-2 (45 new public/pure checks), independent
-pure1/1 passed07-07-17-438Z-2, and independent render-browser1/1 passed07-01-17-214Z-2.
-Core independently reviewed authoring/file/source-owner logic; n1 reviewed renderer
-cache/color ownership. No native timing claim. Registry parity passed07-10-40-157Z-2; the tool-name
-golden regenerated identically because no verb was added. Current base has
-four known pending Player/native-target type errors supplied by parallel reviewed
-P4a checkpoints; this foundation introduces no additional type errors.
+**Work:** Added topology-aware model Become/Appear-from and file commands, frozen endpoint geometry/styles, source ownership for future content, and the narrow whole-model/video poster-handoff exception. **Learnings:** Preserve vertex correspondence and distinguish compatible morphs from valid crossfades; video Consume and Ghost remain unsupported, and renderer/UI qualification is recorded in the later checkpoints and 3D ledger.
 
 ### 2026-09-29 — Deck-owned 3D import receipts
 
@@ -8570,35 +8538,25 @@ P4a checkpoints; this foundation introduces no additional type errors.
 **Work:** Extended model view, field and poster commands to saved deck/slide targets through shared command policy, matched GUI placement defaults, and protected live deck posters during shared-cache pruning. **Learnings:** Sidecars remain in the owning document's canonical assets directory even when the GLB has a custom nested path; independent rebuilt CLI/MCP QA passes 110 checks, including local and external Figure-owned assets.
 
 ### 2026-09-29 07:36 UTC — 3D slide morph runtime checkpoint
-- Compatible model content changes and whole-object handoffs use frozen endpoint geometry/styles with the sampled camera; incompatible pairs share one WebGL context and a bounded premultiplied-alpha crossfade surface. Framing-sphere interpolation is shared with vector furniture. Semantic furniture keeps one canonical part parent across endpoint fades.
-- Cross-kind handoffs capture a real model bitmap and vector furniture, await the SVG image load before capture readiness, and release the bitmap/temporary canvas immediately; disposal revokes retained image URLs. Unborn, hidden, landed-flight and offscreen surfaces release canvas backing storage. A failed model load never activates surfaces on a later refresh.
-- Registered `verify-slide-model3d-morph-browser.ts`: 65 checks; author PASS `07-34-20-195Z-17`, independent core PASS `07-35-43-101Z-2` with frozen source. Existing player gate passed `07-23-29-274Z-17`; root reviewed frame/protocol/framing and core reviewed handoff/readiness. This is a checkpoint, not full P4e closure: content-gallery/pick controls, cross-kind consume at the discrete type flip, broad animation regressions and final native acceptance remain separate work.
+**Work:** Added single-context compatible vertex morphs and bounded live crossfades, sampled framing/camera, canonical semantic furniture, decoded cross-kind snapshots and prompt backing-store release. **Learnings:** A settled load is not necessarily successful, and capture readiness must await the actual SVG image load; independent browser pixel/lifetime checks pass, while native timing remains separate.
 
 ### 2026-09-29 07:44 UTC — Cross-kind model Consume lifetime
-- Model-to-shape and shape-to-model Consume now transfer the live backing store at the existing raw halfway type boundary. The fading non-owning endpoint uses a decoded model PNG plus vector furniture; reverse seeks reacquire the live view. The same cancellation-safe image helper serves cross-kind handoffs and closes temporary bitmap/canvas storage immediately after encoding.
-- Registered morph browser gate now passes 75 checks: independent core `07-41-40-081Z-2`, final author `07-43-53-808Z-17`; core also reviewed the final immediate-release ordering. Gallery/pick UI remains a separate checkpoint. No native timing claim.
+**Work:** Model/shape Consume transfers the live backing store at the raw halfway type boundary and uses a decoded mesh/furniture snapshot for the fading endpoint; reverse seeks reacquire it. Independent browser checks cover immediate bitmap/canvas release and cancellation, with exact receipts in the 3D ledger.
 
 ### 2026-09-29 — 3D review deck and captured video checks
 **Work:** Added the five-example scratch review deck and registered offline playback/capture and production1080p60 MP4 checks; independent QA passes eight browser checks,35 demo checks and all132 video frames. **Learnings:** Compare compressed output against a codec-matched reference (the encoder maps white255 to253), then separately require actual colored geometry, meaningful motion and continuous morph handover; this does not substitute for native interactive timing qualification.
 
 ### 2026-09-29 — Worker-backed 3D Paper slide embeds (Codex, model3d-slides-paper)
-**Work:** Connected visible Paper slide widgets to the shared worker service and portable HTML/Quarto to one conditional inline runtime with deduplicated GLBs. Registered pure and real-widget checks cover source lifetimes, pending shared loads, offscreen disposal, typing, and actual Quarto output played offline; native performance remains a separate qualification.
-**Learnings:** Live portable-payload asset paths are deliberately scrubbed; recover file ownership from the saved registry, not the serialized export copy. The Paper source-generation and per-occurrence lifetime rule is promoted above.
-**Validation:** Focused embed checks pass (31 pure, 19 GUI), including actual offline Quarto output. The full Paper sweep passed 69 behavioral scripts; its remaining native GUI-export script was blocked by the absent display prerequisite. The bundle tier passes 5/5, including real HTML compilation from an isolated packaged CLI and the unchanged <8 MiB core budget (7,835,359 bytes; previously 9,088,579 with inlined runtime JSON). Shared renderer regression passes 103 checks; type checks report 0 errors and 0 warnings. Native GPU frame budgets remain unqualified by these runs.
+**Work:** Connected visible Paper slide widgets to the shared worker service and portable HTML/Quarto to one conditional runtime with deduplicated GLBs; independent widget, offline output, typing and packaged CLI checks pass. **Learnings:** Recover live ownership from the saved registry rather than scrubbed export paths, and keep the 3D runtime in a separate generated asset to preserve the existing CLI bundle budget; full Paper/native receipts and measured bytes are in the 3D ledger.
 
 ### 2026-09-29 07:59 UTC — Model content picking and compatibility UI
-- Become and Appear-from picks show topology-aware Vertex morph/Crossfade feedback. The Destination controls open a 3D-filtered content gallery without creating a second placement; one history transaction stores the asset and original source receipt. Canceled or stale imports discard their unadopted receipt. Generic cross-kind Consume remains available, with video Consume excluded.
-- Independent n1 GUI/source review passed 20 checks at `07-51-12-761Z-2`; final wording preserves existing plot labels and names model content explicitly. Held import cancellation is exercised through MemBridge, not claimed as production Electron coverage. The author affected `slide-transforms`, `slide-ghosts`, `slide-model3d-morph` sweep passed 25/25 at `07-55-45-029Z-18` with `sourceChanged=false`, including old family/raw/handoff behavior and the final 75-check model runtime gate. Screenshots: `test-results/model3d/slides-morph-gui/`.
+**Work:** Added topology-aware Vertex morph/Crossfade feedback and a filtered Change-content gallery with one-Undo asset/source publication and stale-import cancellation. Independent real UI/pixel checks and affected animation regressions pass; MemBridge cancellation coverage is not a claim of production native timing.
 
 ### 2026-09-29 08:00 UTC — Generic model content command parity
-- `set_transform --to-asset` now uses the same metadata/source-receipt resolver as model Become. Known original GLB, manifest, recipe and SHA fields survive; bare targets clear previous provenance, and unknown model targets refuse before publishing. Sparse camera edits remain on the same Change. The shared registry summary documents this existing command extension, and Slides docs present shape-state weights before separate-file morphing.
-- Core source review and independent registered pure QA passed 49 checks at `07-54-19-117Z-2`; the final affected animation sweep passed 25/25 at `07-55-45-029Z-18`. Registry parity passed `07-59-18-740Z-16`, changed-pathmap passed `07-59-04-305Z-17`; Svelte check 0 errors/0 warnings and headless typecheck passed. No native execution is claimed by these file-command checks.
+**Work:** Routed `set_transform --to-asset` through the same metadata/source resolver as Become, preserving known provenance, clearing stale bare-target provenance and rejecting unknown targets before publication. Independent file-command tests, registry parity and the affected animation sweep pass; shape-state weights precede separate-file morphing in the user documentation.
 
 ### 2026-09-29 — Semantic model animation targets
 **Work:** Extended the existing target resolver and compiler with accepted scene3d metadata, reusing the same effective part hierarchy as X-ray. Mesh/furniture leaves, synthetic containers, exclusions and prior-content targets now share one pure resolution path; 28 new checks and the five-gate focused group passed independent QA, with renderer/UI opacity wiring continuing separately.
 
 ### 2026-09-29 — Flux 3D P4d semantic appearance channels
-
-**Work.** Added shared model-part appearance sampling across the player, static editor posters and saved Node compilation; canonical metadata resolves containers, exclusions, mixed mesh/furniture stagger and future content targets. Added real X-ray one-Undo/reopen and independent rendered-neighbor pixel gates, preserving authored alpha and Design bytes. Registered gates run through `--group slide-model3d-parts`; final receipts are recorded in the Flux3D ledger.
-
-**Learnings.** Vector furniture reconciliation must preserve the inline style layer owned by animation; a mesh-only target has no DOM node, so mixed furniture stagger must retain compiled semantic ranks. Node model manifests come from `deckModelDocument`, including source bindings and canonical asset-id sidecars, never guessed GLB-adjacent paths.
+**Work:** Added shared transient model-part appearance across the player, editor posters, Animator and saved Node compilation, with independent X-ray/Undo/reopen and rendered-neighbor gates. **Learnings:** Preserve furniture's animation-owned inline style and compiled semantic stagger ranks; resolve future model metadata through canonical asset-id sidecars and source bindings, without changing authored opacity or Design bytes.
