@@ -68,7 +68,8 @@
   <h4 class="heading">3D view<span class="grow"></span><button class="orbit" class:on={orbiting} data-model3d-orbit-toggle disabled={readOnly}
     title={orbiting ? 'Finish orbiting (Enter)' : unavailable || 'Orbit the model: drag to turn, Shift pan, Alt roll, wheel zoom'} onclick={toggleOrbit}>{orbiting ? 'Done' : 'Orbit'}</button></h4>
   <div class="secbody">
-    <p class="meta">{asset?.model?.triangles.toLocaleString() ?? '—'} triangles · {formatBytes(asset?.bytes ?? 0)}{manifest?.units ? ` · ${manifest.units}` : ''}</p>
+    <!-- A current source shows no chip; the state stays observable here. -->
+    <p class="meta" data-model3d-source-status={element.source?.glbPath && sourceStatus?.status === 'current' ? 'current' : undefined}>{asset?.model?.triangles.toLocaleString() ?? '—'} triangles · {formatBytes(asset?.bytes ?? 0)}{manifest?.units ? ` · ${manifest.units}` : ''}</p>
     {#if unavailable && !readOnly}<p class="note" data-model3d-orbit-unavailable>{unavailable}</p>{/if}
     {#if element.source?.glbPath && sourceStatus && sourceStatus.status !== 'current'}
       <div class="source-status" data-model3d-source-status={sourceStatus.status}>
