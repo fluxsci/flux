@@ -99,6 +99,19 @@ try {
     table.semanticCopy={...table.continuous,asset:{...table.continuous.asset,id:'semanticCopy'}};semanticB.assetId='semanticCopy';
     const sem=setup(semanticA,semanticB,'consume');await sem.player.readyMedia();sem.player.seek(0,1,500);await sem.player.captureMedia([],500);
     ok(stage.querySelectorAll('[id="semantic__height.colorbar"]').length===1,'morph furniture keeps one canonical semantic target across both fading endpoints');sem.player.destroy();
+    for(const reverse of [false,true]) {
+      const rect={id:'rect',type:'rect',x:390,y:60,width:250,height:220,rotation:0,opacity:1,fill:'#d14d41',stroke:'none',strokeWidth:0,cornerRadius:0};
+      const mesh=model('continuous','mesh'),source=reverse?rect:mesh,destination=reverse?mesh:rect;
+      const {player,slide}=setup(source,destination,'consume');await player.readyMedia();
+      ok(slide.elements.length===1,'cross-kind consume retains only the source identity');
+      for(const ms of [250,500,750,250]) {
+        player.seek(0,1,ms);await player.captureMedia([],ms);
+        const canvas=stage.querySelector<HTMLCanvasElement>('canvas[data-slide-model3d]')!;
+        const ownsModel=reverse?ms>=500:ms<500;
+        ok(ownsModel?count(canvas)>1000:canvas.width===0&&!!stage.querySelector('image[data-model-snapshot][href^="blob:"]'),`${reverse?'rect→model':'model→rect'} ${ms}ms keeps live backing only while owning the discrete kind`);
+      }
+      player.destroy();
+    }
     const deck=api.createDeck({withTitleSlide:false});deck.stage={width:960,height:640};deck.assets=Object.values(table).map((x:any)=>x.asset);
     const slide=api.addSlide(deck),source=model('morph-a','source',{width:180,height:160});slide.elements.push(source);const beat=api.addBeat(deck,slide.id);
     const ghosts=api.addGhostTransform(deck,slide.id,beat.id,source.id,{count:8,duration:1000,states:Array.from({length:8},(_,i)=>({x:10+(i%4)*230,y:220+Math.floor(i/4)*190,orbitAzimuth:i*43}))});
