@@ -3158,6 +3158,7 @@ outside this PNG packaging change.
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
 | — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
+| — | Box-axis tick labels pile up when the view looks almost straight down an axis (a ~15 px stub carrying "-1 0 1") | `furniture.ts` `tickLabelsCollide`: when any two of an axis's tick-label boxes (textMetrics width, one font size tall, a word space apart) overlap, its labels hide, and its title if longer than the stub; line, ticks and grid stay. A pure function of the pose, no hysteresis; fluxplot `_tick_labels_collide` mirrors it; `verify-model3d-furniture.ts` near-cardinal sweeps, `tests/test_scene3d_static.py` |
 | — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts`. The deck save judges only GLBs the slides still reference (`slideAssetIds`): asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
@@ -8655,3 +8656,16 @@ preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). 
 - Registry entries outlive their elements for Undo; a save or conversion preflight must
   judge references, not the registry (promoted to the §9 3D table).
 - The computed-to-stored path crossing (§9) also covers resolved CLI/MCP inputs (promoted).
+
+### 2026-09-29 — Near-cardinal axis labels + Figure key-to-paint regression (Claude Opus 5.5, `fu-furniture`)
+**Work:** Box axes seen almost end-on now hide colliding tick labels (and an over-long title)
+in Flux and the fluxplot still, one rule on both sides (72/72 swept views agree); goldens
+unchanged, since they hold only exact cardinal views. The native Figure polish gate (red since
+before origin/main ffb511b8) passes again: 85.6 / 118.1 → 38.6 / 47.5 ms p95.
+**Learnings:**
+- Promoted to §9 (Svelte 5 legacy): legacy each items holding objects always re-render, and a
+  store in a per-element `$:` subscribes every instance; ElementSlot is the scene's render gate.
+- A CPU profile symbolicated through the hidden production sourcemaps (`dist/assets/*.map`)
+  pointed straight at Svelte's flush; the Chrome trace alone only showed `FunctionCall`.
+- The native probe's p95 over 18 samples is the maximum, i.e. the first keystroke, which
+  also pays the undo snapshot.
