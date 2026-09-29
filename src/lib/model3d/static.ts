@@ -19,11 +19,13 @@ export interface Model3dSvgContext {
 export interface StaticModelPosterRequest {
   element: Model3dElement; asset: Model3dAsset; manifest?: Scene3dManifest;
   key: string; ref: string; w: number; h: number;
+  /** Transient mesh-part appearance factors (a sampled slide step). */
+  partOpacity?: Record<string, number>;
 }
-export function staticModelRequest(element: Model3dElement, asset: Model3dAsset, manifest: Scene3dManifest | undefined, surface: PosterSurface): StaticModelPosterRequest {
+export function staticModelRequest(element: Model3dElement, asset: Model3dAsset, manifest: Scene3dManifest | undefined, surface: PosterSurface, partOpacity?: Record<string, number>): StaticModelPosterRequest {
   const layout = furnitureLayout(manifest, element, element.overrides), px = posterPixels(layout.viewport, surface);
-  const key = posterKey(element, asset, manifest, px);
-  return { element, asset, manifest, key, ref: posterRef(key), ...px };
+  const key = posterKey(element, asset, manifest, px, partOpacity);
+  return { element, asset, manifest, key, ref: posterRef(key), ...px, ...(partOpacity ? { partOpacity } : {}) };
 }
 export function model3dSvgContext(assets: readonly Asset[], manifests: Record<string, Scene3dManifest>, surface: PosterSurface = 'figure', namespace?: string): Model3dSvgContext {
   const byId = new Map(assets.filter((asset): asset is Model3dAsset => asset.kind === 'glb' && !!asset.model && !!asset.sha256).map(asset => [asset.id, asset]));

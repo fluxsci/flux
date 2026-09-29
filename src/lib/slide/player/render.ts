@@ -58,7 +58,8 @@ export interface SlideRenderCtx {
   model3d?: Model3dHost;
   modelAsset?: (assetId: string) => Model3dAsset | undefined;
   modelManifest?: (assetId: string) => Scene3dManifest | undefined;
-  modelPoster?: (element: Model3dElement) => string | undefined;
+  /** A matching still, including a sampled step's mesh-part appearance. */
+  modelPoster?: (element: Model3dElement, partOpacity?: Record<string, number>) => string | undefined;
   /** Stage-to-CSS-pixel scale. Device pixel ratio is applied by the controller. */
   pixelScale?: number | (() => number);
   /** Derived ghost styling; never written into the figure/deck model. */

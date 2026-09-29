@@ -640,17 +640,21 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);
-    models?.flush(modelAppearance?.sample(bi, time).partStates);
+    // Mesh parts sample the same run as the re-based DOM specs (selectRun).
+    models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
     if (playing) media?.tick(time);
     emit("frame");
   }
   let runSpecs: Spec[] | null = null;
   let runKey = "";
+  /** First beat of the concurrent run ending at `bi` (a with-prev cue). */
+  let runFrom: number | undefined;
   function selectRun(from: number, to: number): void {
     const key = from < to ? `${si}:${from}:${to}` : "";
     if (key === runKey) return;
     if (runSpecs) { disposeSlideAnims(runSpecs, false); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
     runKey = key;
+    runFrom = from < to ? from : undefined;
     runSpecs = from < to ? specs.map((s) => s.beatIndex >= from && s.beatIndex <= to ? { ...s, beatIndex: to } : s) : null;
   }
   function scheduleAuto(): void {
@@ -801,7 +805,8 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
-  flushSlideModels(camera);
+  // Stills carry the step's mesh-part appearance too (bindings + poster keys).
+  flushSlideModels(camera, compiled.resolvedSlide.elements.some(el => el.type === "model3d") ? compiled.sample(beat).partStates : undefined);
   // Dispose owns restoration of live controllers. Bake the sampled visibility
   // into a still before releasing those leases, just as keyframe styles remain.
   const visibility = (specs.some(spec => spec.handoff) ? Array.from(camera.querySelectorAll<HTMLElement | SVGElement>("[style]")) : [])

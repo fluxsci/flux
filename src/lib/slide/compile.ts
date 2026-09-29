@@ -53,7 +53,11 @@ export interface CompiledSlide {
   handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec }[];
   /** Manifest-aware canonical resolution, shared with Become authoring. */
   resolveTarget(ref: TargetRef, beat: number): ResolvedTarget[];
-  sample(beat: number, timeMs?: number): SlideFrame;
+  /** The frame at `timeMs` into `beat`. Beats `fromBeat`..`beat` play as one
+   *  run (a with-prev presenter cue, a video cue): each is sampled at the same
+   *  `timeMs`, exactly as the player re-bases their DOM specs. Earlier beats
+   *  are complete. `fromBeat` defaults to `beat` (one beat at a time). */
+  sample(beat: number, timeMs?: number, fromBeat?: number): SlideFrame;
   preState(target: string, beat: number): Element | null;
   copySourceState(source: string, birthBeat: number): Element | null;
 }
@@ -159,7 +163,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec });
     flights.set(ct, { source: keysOf(source), destination: keysOf(destination) });
   }
-  function sample(beatIndex: number, timeMs = Infinity): SlideFrame {
+  function sample(beatIndex: number, timeMs = Infinity, fromBeat = beatIndex): SlideFrame {
     const elements = structuredClone(slide.elements);
     const byId = new Map(elements.map((e) => [e.id, e]));
     const appearance = new Map<string, PartFrame>();
@@ -198,10 +202,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     }
     for (const flight of flights.values()) for (const key of [...flight.source, ...flight.destination])
       handoffVisibility.set(key, appearance.get(key)?.visible ?? true);
+    const runStart = Math.min(fromBeat, beatIndex);
     for (let bi = 0; bi <= Math.min(beatIndex, cues.length - 1); bi++) for (const ct of cues[bi].tracks) {
       const track = ct.track, preset = track.preset ?? "fade";
       if (familyOf(track) === "media") continue;
-      const local = bi < beatIndex ? Infinity : timeMs;
+      const local = bi < runStart ? Infinity : timeMs;
       if (local < ct.start) continue;
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;
       const t = ct.ease.clamped(raw);
@@ -331,10 +336,10 @@ export function compileSlide(slide: Slide, stage: StageSize = { width: 640, heig
   const resolved = resolveGhosts(timed, (working, beat, factors) => compileOrdinarySlide(working, stage, opts, factors).sample(beat));
   const plain = compileOrdinarySlide(resolved.slide, stage, opts, resolved.partFactors);
   const issues = [...timingIssues, ...resolved.issues, ...plain.issues];
-  const sample = (beat: number, time = Infinity): SlideFrame => {
-    const frame = plain.sample(beat, time);
+  const sample = (beat: number, time = Infinity, fromBeat = beat): SlideFrame => {
+    const frame = plain.sample(beat, time, fromBeat), runStart = Math.min(fromBeat, beat);
     frame.issues = issues;
-    frame.presentation.unbornElementIds = resolved.births.filter(b => !b.enabled || beat < b.beat || beat === b.beat && time < b.start).map(b => b.target);
+    frame.presentation.unbornElementIds = resolved.births.filter(b => !b.enabled || beat < b.beat || b.beat >= runStart && time < b.start).map(b => b.target);
     return frame;
   };
   return { ...plain, issues, sample, resolvedSlide: resolved.slide, births: resolved.births, partFactors: resolved.partFactors,
