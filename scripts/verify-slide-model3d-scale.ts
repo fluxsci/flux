@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
 import { installSlideModelScaleProbe } from './lib/slideModel3dScaleProbe.mjs';
 import { harness } from './lib/harness.mjs';
 import { slideModel3dScaleFixture } from './lib/slideModel3dScaleFixture';
@@ -71,4 +74,51 @@ h.eq(observed[1].stamp, 117.123456799, 'actual installed observer retains unroun
 h.ok(!slideModelFrameMetrics(observed, ['a', 'b'], { minimumFrames: 2 }).withinBudget, 'actual observer-to-metrics path rejects just-over17ms');
 const cancelId = window.requestAnimationFrame(() => {}); window.cancelAnimationFrame(cancelId);
 h.eq(observer.progress().pending, 0, 'completed and cancelled application callbacks leave no false pending work');
+
+// Execute the actual native entry's finalizer with an unloaded or stalled
+// renderer. No Electron/browser process is created by these regression cases.
+const nativeEntry = await fs.readFile(new URL('./lib/slideModel3dNativeScaleEntry.cjs', import.meta.url), 'utf8');
+function finalizerProbe(ready: boolean) {
+  const writes: Array<{ name: string; value: any }> = [], calls: string[] = [], exits: number[] = [];
+  const stalled = () => new Promise(() => {});
+  const wc = { isDestroyed: () => false, executeJavaScript: () => { calls.push('js'); return stalled(); }, capturePage: () => { calls.push('capture'); return stalled(); } };
+  const app = { whenReady: stalled, exit: (code: number) => exits.push(code) };
+  const native = vm.runInNewContext(nativeEntry + '\n;({ finish, setup(w, ready) { win=w; rendererReady=ready; qualified=ready; runtime={ displaySnapshot:{displays:[]} }; } })', {
+    require: (name: string) => name === 'electron' ? { app } : name === 'node:path' ? path : name === 'node:fs/promises' ? {
+      mkdir: async () => {}, writeFile: async (name: string, value: string) => { calls.push('write'); writes.push({ name: path.basename(name), value: JSON.parse(value) }); },
+    } : {},
+    process: { env: { MODEL3D_NATIVE_SCRATCH: '/tmp/owned-scale', MODEL3D_NATIVE_ROOT: '/tmp/owned-scale/project', MODEL3D_NATIVE_ARTIFACTS: '/tmp/owned-scale/out', FLUX_PRIVATE_DISPLAY: '1' }, platform: 'linux', argv: ['--ozone-platform=x11'], stdin: { resume() {}, on() {} } },
+    console: { log() {}, error() {} },
+    // Accelerate only the test's diagnostic deadlines, never app timing.
+    setTimeout: (fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 20)), clearTimeout,
+  });
+  native.setup({ isDestroyed: () => false, webContents: wc }, ready);
+  return { native, writes, calls, exits };
+}
+const early = finalizerProbe(false);
+await early.native.finish(Object.assign(Error('zero display'), { code: 'NATIVE_DISPLAY_UNAVAILABLE' }));
+h.eq(early.calls, ['write'], 'early native display refusal writes its receipt without querying or capturing an unloaded renderer');
+h.eq([early.writes[0].value.status, early.writes[0].value.runtime.displaySnapshot.displays, early.exits], ['capability-blocked', [], [1]], 'early refusal preserves display evidence and exits nonzero');
+const hung = finalizerProbe(true), finishing = hung.native.finish(Error('renderer failure'));
+await new Promise(resolve => setTimeout(resolve, 0));
+h.eq(hung.calls.slice(0, 2), ['write', 'js'], 'failure receipt is durable before best-effort renderer diagnostics begin');
+await finishing;
+h.eq([hung.writes.at(-1)!.value.status, hung.writes.at(-1)!.value.diagnosticErrors.length, hung.exits], ['failed', 2, [1]], 'never-resolving renderer observation and capture are bounded and cannot strand native exit');
+await hung.native.finish(Error('duplicate failure'));
+h.eq(hung.exits, [1], 'duplicate failure notification cannot overwrite the original receipt or exit twice');
+const nativeWrapper = await fs.readFile(new URL('./verify-slide-model3d-scale-electron.cjs', import.meta.url), 'utf8');
+assert.equal(nativeWrapper.split('void main();').length, 2);
+const archivePriorReceipt = vm.runInNewContext(nativeWrapper.replace('void main();', 'archivePriorReceipt;'), {
+  require: (name: string) => name === 'node:fs/promises' ? fs : name === 'node:path' ? path : os, process,
+});
+const receiptScratch = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-slide-scale-receipt-'));
+try {
+  const previous = JSON.stringify({ ok: false, status: 'capability-blocked', errors: ['old display refusal'] });
+  await fs.writeFile(path.join(receiptScratch, 'receipt.json'), previous);
+  await archivePriorReceipt(receiptScratch);
+  await assert.rejects(fs.readFile(path.join(receiptScratch, 'receipt.json')), { code: 'ENOENT' });
+  h.ok(true, 'a new child failing before its receipt cannot inherit an earlier blocked classification');
+  const saved = (await fs.readdir(receiptScratch)).find(name => name.startsWith('receipt.previous-'))!;
+  h.eq(await fs.readFile(path.join(receiptScratch, saved), 'utf8'), previous, 'earlier native refusal evidence is archived without modification');
+} finally { await fs.rm(receiptScratch, { recursive: true, force: true }); }
 await h.done();

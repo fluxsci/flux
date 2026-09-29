@@ -8583,3 +8583,6 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Record actual demo source provenance
 **Work:** Live demo generation now reads the supplied fluxplot checkout's actual symbolic branch and exact commit, explicitly labeling detached HEAD. The registered demo gate exercises a scratch repository's named, renamed and detached source states; frozen fixture receipts remain unchanged.
+
+### 2026-09-29 — Preserve early native scale failure evidence
+**Work:** The native slide-scale harness writes its failure receipt before optional renderer diagnostics. An unloaded renderer is never queried; after readiness, observation and screenshot requests have bounded best-effort deadlines. The wrapper reports a nonzero display refusal as blocked, never passed. The actual entry finalizer is exercised in the pure gate with unloaded and permanently stalled renderer mocks. No input, focus, display or timing qualification changed; the earlier full-tier 180-second timeout remains a failed harness attempt.

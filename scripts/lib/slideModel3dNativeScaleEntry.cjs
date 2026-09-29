@@ -6,7 +6,7 @@ const scratch = process.env.MODEL3D_NATIVE_SCRATCH, root = process.env.MODEL3D_N
 if (!scratch || !root?.startsWith(scratch + path.sep) || !out) throw Error('Owned native scratch required');
 if (process.platform === 'linux' && (process.env.FLUX_PRIVATE_DISPLAY !== '1' || !process.argv.includes('--ozone-platform=x11'))) throw Error('Explicit private X11 required');
 require('../../electron/entry.cjs');
-let win, qualified = false, receipt = {}, runtime = {}, errors = [];
+let win, qualified = false, rendererReady = false, finishing = false, receipt = {}, runtime = {}, errors = [];
 const js = expression => win.webContents.executeJavaScript(expression, true);
 const evaluate = (fn, arg) => js(`(${fn.toString()})(${arg === undefined ? '' : JSON.stringify(arg)})`);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -43,6 +43,7 @@ async function main() {
   win.show(); win.setAlwaysOnTop(true); app.focus({ steal: true }); win.focus(); win.webContents.focus();
   await wait(async () => win.isVisible() && win.isFocused() && await js('document.hasFocus()'), 'initial native focus'); qualified = true;
   await wait(() => js("!!document.querySelector('button[aria-label=Slide]')&&!!document.querySelector('.cm-editor')"), 'production app initialized');
+  rendererReady = true;
   if (!app.getPath('userData').startsWith(scratch + path.sep)) throw Error('Real user state refused');
   if (!await js("location.protocol==='file:'&&!window.__flux&&!!window.fig")) throw Error('Actual production preload required');
   win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
@@ -59,15 +60,42 @@ async function main() {
   if (errors.length) throw Error('Production renderer errors: ' + errors.join('; '));
 }
 async function finish(error) {
+  if (finishing) return;
+  finishing = true;
+  const mayCapture = qualified && rendererReady;
   qualified = false;
   if (error) { errors.push(String(error.stack || error)); console.error(error); }
-  if (win && !win.isDestroyed()) {
-    receipt.lastObservation = await js('window.__slideModelScaleProbe?.read()').catch(() => null);
-    if (error) await fs.writeFile(path.join(out, 'failure.png'), (await win.webContents.capturePage()).toPNG()).catch(() => {});
+  const result = { ...receipt, ok: !error, status: error?.code === 'NATIVE_DISPLAY_UNAVAILABLE' ? 'capability-blocked' : error ? 'failed' : 'passed', errorCode: error?.code, runtime, errors };
+  const writeReceipt = () => fs.writeFile(path.join(out, 'receipt.json'), JSON.stringify(result, null, 2));
+  async function diagnostic(label, operation) {
+    let timer;
+    try {
+      return await Promise.race([Promise.resolve().then(operation), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Error(`${label} diagnostic timed out`)), 1000);
+      })]);
+    } catch (diagnosticError) {
+      (result.diagnosticErrors ??= []).push(String(diagnosticError));
+    } finally { clearTimeout(timer); }
   }
-  await fs.mkdir(out, { recursive: true });
-  await fs.writeFile(path.join(out, 'receipt.json'), JSON.stringify({ ...receipt, ok: !error, status: error?.code === 'NATIVE_DISPLAY_UNAVAILABLE' ? 'capability-blocked' : error ? 'failed' : 'passed', runtime, errors }, null, 2));
-  console.log('PROBE result=' + (error ? 'FAIL' : 'PASS')); app.exit(error ? 1 : 0);
+  try {
+    await fs.mkdir(out, { recursive: true });
+    // Qualification failures must survive even if no renderer has loaded, or a
+    // later renderer crash leaves executeJavaScript/capturePage pending forever.
+    await writeReceipt();
+    if (rendererReady && win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+      result.lastObservation = await diagnostic('renderer observation', () => js('window.__slideModelScaleProbe?.read()'));
+      if (error && mayCapture) await diagnostic('failure screenshot', async () => {
+        const image = await win.webContents.capturePage();
+        await fs.writeFile(path.join(out, 'failure.png'), image.toPNG());
+      });
+      await writeReceipt();
+    }
+  } catch (writeError) {
+    error ??= writeError;
+    console.error('Could not preserve native scale diagnostics:', writeError);
+  } finally {
+    console.log('PROBE result=' + (error ? 'FAIL' : 'PASS')); app.exit(error ? 1 : 0);
+  }
 }
 app.whenReady().then(main).then(() => finish(), finish);
 process.stdin.resume(); process.stdin.on('end', () => app.exit(1)); process.stdin.on('close', () => app.exit(1));
