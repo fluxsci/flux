@@ -13,3 +13,11 @@ Registered checks: `verify-model3d-deck-assets.ts` and `verify-model3d-slide-exp
 CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an already-resolved in-project absolute path becomes the same canonical relative path as direct input. Both lexical escapes and symlink escapes are refused before the native media importer runs.
 
 Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
+
+Paper slide widgets use the document's shared worker service with immutable file metadata; they do not inline GLB bytes or create main-thread WebGL contexts. Visible occurrences have independent playback. Removing or scrolling away one occurrence releases its host without invalidating another occurrence's pending load. Repository invalidation retires the captured source generation.
+
+Portable Paper HTML and Quarto exports explicitly gather model bytes, deduplicate them across all included slides, and inject one conditional model runtime. Two-dimensional documents carry no model runtime; their shared fonts/player asset file also excludes the separate model-runtime string. The same shared player keeps bitmap and vector furniture publication together. Static Word/PDF output continues to use the Design-state still.
+
+Packaged CLI/MCP Paper exports load the player and shared model runtime from `dist/slide-export-assets.json`. They do not need the source checkout, generated browser JSON, or esbuild at runtime. Rebuild Flux if an older sidecar lacks the Paper runtime.
+
+`group:model3d-embed` checks live metadata-only loading, source lifetimes, shared payloads/CSP, real Paper widget animation and typing, offscreen disposal, and actual Quarto HTML playback offline. Its screenshots and typing samples are under `test-results/model3d/embeds/`. Run `group:paper-gate` for the surrounding editor regressions. These browser checks do not qualify native GPU frame budgets.

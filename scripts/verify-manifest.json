@@ -357,7 +357,8 @@
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts",
       "verify-slide-model3d-morph-browser.ts",
-      "verify-model3d-slide-browser.ts"
+      "verify-model3d-slide-browser.ts",
+      "verify-model3d-embed.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -508,7 +509,8 @@
       "verify-model3d-import-progress-gui.mjs",
       "verify-model3d-snapshot-quiet.mjs",
       "verify-model3d-furniture-gui.mjs",
-      "verify-slide-model3d-gui.mjs"
+      "verify-slide-model3d-gui.mjs",
+      "verify-model3d-embed-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -720,7 +722,9 @@
       "verify-figure-reference-safety.ts",
       "verify-figure-metadata.mjs",
       "verify-caption-postscript.ts",
-      "verify-figure-meta-refinements.mjs"
+      "verify-figure-meta-refinements.mjs",
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -787,7 +791,9 @@
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
       "verify-slide-embed-lifecycle.mjs",
-      "verify-scale-paper-slide-embeds.mjs"
+      "verify-scale-paper-slide-embeds.mjs",
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
     ],
     "slide-video": [
       "verify-slide-video.ts",
@@ -939,7 +945,9 @@
       "verify-slide-model3d-morph.ts",
       "verify-slide-model3d-morph-browser.ts",
       "verify-model3d-slide-browser.ts",
-      "verify-model3d-video-electron.cjs"
+      "verify-model3d-video-electron.cjs",
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -1155,6 +1163,10 @@
       "verify-slide-model3d.ts",
       "verify-slide-track-ops.ts",
       "verify-slide-model3d-morph-browser.ts"
+    ],
+    "model3d-embed": [
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -9073,6 +9085,27 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-embed.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-embed-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server",
+        "quarto"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

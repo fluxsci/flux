@@ -1,15 +1,16 @@
 import type { Model3dService } from './service';
 import type { RenderSpec } from './renderCore';
 import type { Model3dElement, Scene3dManifest } from './types';
+export type ServiceHostBackend = Pick<Model3dService, 'retain' | 'release' | 'renderBitmap'>;
 let nextChannel = 0;
 /** Paper adapter: parse, compile and draw stay in the service worker. */
-export function createServiceHost(service: Model3dService, manifest?: (id: string) => Scene3dManifest | undefined) {
+export function createServiceHost(service: ServiceHostBackend, manifest?: (id: string) => Scene3dManifest | undefined) {
   const retained = new Set<string>(), views = new Set<ReturnType<typeof view>>();
   let disposed = false;
   const loads = new Map<string, Promise<unknown>>(), lifetime = new AbortController();
   const cancelled = new Promise<never>((_, reject) => lifetime.signal.addEventListener('abort', () => reject(new DOMException('3D service host disposed', 'AbortError')), { once: true }));
   void cancelled.catch(() => {});
-  async function ready(ids: string[]) {
+  async function ready(ids: string[], warm: RenderSpec[] = []) {
     if (disposed) throw new Error('3D service host disposed');
     await Promise.race([cancelled, Promise.all(ids.map((id) => {
       let load = loads.get(id);
@@ -20,6 +21,11 @@ export function createServiceHost(service: Model3dService, manifest?: (id: strin
       }
       return load;
     }))]);
+    if (disposed) throw new Error('3D service host disposed');
+    for (const spec of warm) {
+      const bitmap = await service.renderBitmap(spec, { lane: 'idle', signal: lifetime.signal, fullResolution: true });
+      bitmap.close();
+    }
     if (disposed) throw new Error('3D service host disposed');
   }
   function view(canvas: HTMLCanvasElement) {
@@ -35,12 +41,18 @@ export function createServiceHost(service: Model3dService, manifest?: (id: strin
           const bitmap = await service.renderBitmap({ assetId: element.assetId, element, w, h, manifest: manifest?.(element.assetId), ...extra }, { lane: 'interactive', channel, signal: abort.signal });
           try { if (disposed || released || current !== revision) return; if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; } context.clearRect(0, 0, w, h); context.drawImage(bitmap, 0, 0, w, h); }
           finally { bitmap.close(); }
-        } catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) throw error; }
+        } catch (error) {
+          // Superseded/disposed views cannot publish. A current source failure
+          // must reject so the player does not publish unmatched furniture.
+          if (error instanceof DOMException && error.name === 'AbortError' && (disposed || released || current !== revision)) return;
+          throw error;
+        }
       },
       dispose() { if (released) return; released = true; revision++; abort?.abort(); canvas.width = 0; canvas.height = 0; views.delete(handle); },
     };
     views.add(handle); return handle;
   }
   function dispose() { if (disposed) return; disposed = true; lifetime.abort(); loads.clear(); for (const handle of views) handle.dispose(); for (const id of retained) service.release(id); retained.clear(); }
-  return { ready, view, flightView: view, dispose };
+  return { ready, view, flightView: view, dispose, modelStats: (id: string) => loads.get(id) as ReturnType<Model3dService['retain']> | undefined,
+    snapshot: (spec: RenderSpec) => service.renderBitmap(spec, { lane: 'interactive', signal: lifetime.signal, fullResolution: true }) };
 }

@@ -15,6 +15,18 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Browser embeds lazy-load generated JSON. Packaged Node exports use the
+// existing sidecar instead; keep these ~1.3 MB strings off every verb's parser.
+const embedAssets = path.join(repoRoot, 'src/lib/slide/embedAssets.ts');
+const nodeEmbedAssets = {
+  name: 'node-slide-embed-assets',
+  setup(build) {
+    build.onResolve({ filter: /(?:^|\/)embedAssets(?:\.ts)?$/ }, args => {
+      const resolved = path.resolve(args.resolveDir, args.path.replace(/\.ts$/, '') + '.ts');
+      return resolved === embedAssets ? { path: path.join(repoRoot, 'flux-core/slideEmbedAssets.ts') } : undefined;
+    });
+  },
+};
 
 // Build identity baked into both bundles (flux-core/buildInfo.ts reads it via
 // the __FLUX_BUILD__ define): `flux version` / `flux config` then say exactly
@@ -74,6 +86,7 @@ for (const entry of Object.keys(OUT_NAME)) {
     target: "node20",
     outfile,
     external: EXTERNAL,
+    plugins: [nodeEmbedAssets],
     banner: { js: BANNER },
     define: { __FLUX_BUILD__: JSON.stringify(FLUX_BUILD) },
     legalComments: "none",

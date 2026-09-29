@@ -55,8 +55,8 @@ export default defineConfig({
   plugins: [svelte(), pdfjsAssets(), cspStrict(), {
     name: "flux-slide-embed-csp",
     transformIndexHtml(html) {
-      const { csp } = JSON.parse(fs.readFileSync(path.resolve(".generated/slide-embed-assets.json"), "utf8"));
-      return html.replace("script-src 'self'", `script-src 'self' ${csp}`);
+      const { csp, model3dCsp } = JSON.parse(fs.readFileSync(path.resolve(".generated/slide-embed-assets.json"), "utf8"));
+      return html.replace("script-src 'self'", `script-src 'self' ${csp} ${model3dCsp}`);
     },
   }],
 

@@ -1,13 +1,16 @@
 /** Offline enhancement host. No editor stores, presentation HUD, or global clicker keys. */
 import { mountSlideEmbed, type EmbedPlaybackState, type SlideEmbedPlayer } from "./embedPlayer";
 import type { ExportPayload } from "./payload";
-interface Data { live: boolean; documentKey: string; payloads: Record<string, ExportPayload>; occurrences: { id: string; source: string }[] }
+import { restoreEmbedModels, type SharedModelPayload } from './embedModels';
+import { payloadModelHost } from './export/model3dPayloadHost';
+interface Data { live: boolean; documentKey: string; models?: Record<string, string>; payloads: Record<string, SharedModelPayload>; occurrences: { id: string; source: string }[] }
 export function boot(): void {
   const node = document.getElementById("flux-slide-data");
   if (!node) return;
   const data = JSON.parse(node.textContent || "{}") as Data;
   const states: Record<string, EmbedPlaybackState & { source: string }> = {};
   const players = new Map<string, SlideEmbedPlayer>();
+  const payloads = new Map<string, ExportPayload>();
   let ready = !data.live || parent === window;
   const publish = () => { if (data.live && parent !== window) parent.postMessage({ fluxSlideStates: states, documentKey: data.documentKey }, "*"); };
   const visible = new Set<string>();
@@ -15,12 +18,16 @@ export function boot(): void {
     if (!ready || players.has(id)) return;
     const ref = data.occurrences.find(r => r.id === id), host = document.getElementById(id)?.querySelector<HTMLElement>(".flux-slide-live");
     if (!ref || !host) return;
+    let model3d: ReturnType<typeof payloadModelHost>;
     try {
-      const controller = mountSlideEmbed(host, data.payloads[ref.source], { state: states[id]?.source === ref.source ? states[id] : undefined,
+      let payload = payloads.get(ref.source);
+      if (!payload) { payload = restoreEmbedModels(data.payloads[ref.source], data.models ?? {}); payloads.set(ref.source, payload); }
+      model3d = payloadModelHost(payload, 'paper-document-models');
+      const controller = mountSlideEmbed(host, payload, { model3d, state: states[id]?.source === ref.source ? states[id] : undefined,
         onState: value => { states[id] = { ...value, source: ref.source }; publish(); } });
       players.set(id, controller);
       document.getElementById(id)?.classList.add("flux-slide-enhanced");
-    } catch (e) { const message = document.createElement("div"); message.className = "flux-slide-error"; message.textContent = `Slide unavailable: ${String(e)}`; host.replaceChildren(message); }
+    } catch (e) { model3d?.dispose(); const message = document.createElement("div"); message.className = "flux-slide-error"; message.textContent = `Slide unavailable: ${String(e)}`; host.replaceChildren(message); }
   };
   const observer = new IntersectionObserver(entries => {
     for (const entry of entries) {

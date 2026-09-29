@@ -764,6 +764,12 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+  Inline 3D slide widgets keep live repositories metadata-only (`modelData: "omit"`).
+  Each repository owns an immutable source generation; occurrences share worker bytes but
+  have independent service hosts. Closing one occurrence must not invalidate another's
+  pending load. Portable HTML/Quarto is the explicit byte boundary: one include-wide model
+  table and conditional renderer IIFE, with generated CSP hashes for both runtime scripts.
+  Keep the model runtime in a separate generated asset so fonts-only/2D consumers never fetch it.
   **Text size is REAL type, per panel** (2026-09-12): Paper's three panels (editor column,
   left sidebar, dynamic margin) each carry a `--ts-scale` and the `.ts-scaled` class; the
   status-bar slider (± buttons + a percentage readout that opens the scope popover) and
@@ -1743,7 +1749,10 @@ PDF/Word use step 0; the print window requires no script. Posters embed their fo
 
 Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
 runtime bytes and exact CSP hash are generated together; Vite and Electron consume that
-hash without adding unsafe script sources. The generated JSON is bundled into CLI/MCP;
+hash without adding unsafe script sources. Browser assets keep the optional model IIFE
+separate. CLI/MCP resolve `embedAssets.ts` to the Node adapter, reading the prebuilt
+`slide-export-assets.json` beside the packaged bundle; do not inline generated runtime
+strings into every verb. That sidecar contains the Paper player and reuses its model IIFE.
 Electron's generated hash module ships via `electron/**/*`. Quarto preparation shares one
 payload/runtime bundle over all includes and restores only unchanged temporary source bytes.
 Never overwrite an edit that arrived during export, or swallow a failed restoration.
@@ -8571,3 +8580,8 @@ P4a checkpoints; this foundation introduces no additional type errors.
 
 ### 2026-09-29 — 3D review deck and captured video checks
 **Work:** Added the five-example scratch review deck and registered offline playback/capture and production1080p60 MP4 checks; independent QA passes eight browser checks,35 demo checks and all132 video frames. **Learnings:** Compare compressed output against a codec-matched reference (the encoder maps white255 to253), then separately require actual colored geometry, meaningful motion and continuous morph handover; this does not substitute for native interactive timing qualification.
+
+### 2026-09-29 — Worker-backed 3D Paper slide embeds (Codex, model3d-slides-paper)
+**Work:** Connected visible Paper slide widgets to the shared worker service and portable HTML/Quarto to one conditional inline runtime with deduplicated GLBs. Registered pure and real-widget checks cover source lifetimes, pending shared loads, offscreen disposal, typing, and actual Quarto output played offline; native performance remains a separate qualification.
+**Learnings:** Live portable-payload asset paths are deliberately scrubbed; recover file ownership from the saved registry, not the serialized export copy. The Paper source-generation and per-occurrence lifetime rule is promoted above.
+**Validation:** Focused embed checks pass (31 pure, 19 GUI), including actual offline Quarto output. The full Paper sweep passed 69 behavioral scripts; its remaining native GUI-export script was blocked by the absent display prerequisite. The bundle tier passes 5/5, including real HTML compilation from an isolated packaged CLI and the unchanged <8 MiB core budget (7,835,359 bytes; previously 9,088,579 with inlined runtime JSON). Shared renderer regression passes 103 checks; type checks report 0 errors and 0 warnings. Native GPU frame budgets remain unqualified by these runs.

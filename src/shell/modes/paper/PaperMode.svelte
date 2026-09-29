@@ -118,6 +118,7 @@
   import FigurePicker from "./scholar/FigurePicker.svelte";
   import SlidePicker from "./scholar/SlidePicker.svelte";
   import { createSlideRepository, type SlideRepository } from "../../../lib/slide/embedRepository";
+  import { slideModelPosterIO } from "../../../lib/slide/model3dPosterIO";
   import { newSlideEmbed, planSlideInsertion, serializeSlideEmbed, parseSlideEmbed, type SlideEmbedRef } from "../../../lib/slide/embed";
   import { slideEmbeds, resetSlidePlayback } from "./science/slideEmbeds";
   import { requestOpenSlide } from "../../command/commandBus";
@@ -1443,7 +1444,7 @@
     const slideIO = fileBridge();
     if (pm && slideIO) {
       const root = pm.root;
-      slideRepo = createSlideRepository(root, { ...slideIO,
+      slideRepo = createSlideRepository(root, { ...slideIO, ...slideModelPosterIO(root, slideIO, { scope: `paper-slide-posters:${root}`, isCurrent: () => !disposed && pm?.root === root }), modelData: 'omit',
         ...(slideIO.videoMediaUrl ? { videoUrl: (path: string) => slideIO.videoMediaUrl!({ root, path: path.replace(/\\/g, "/").slice(root.replace(/\\/g, "/").replace(/\/$/, "").length + 1) }) } : {}),
         prepareDeck: async id => {
         const { prepareEmbeddedDeck } = await import("../../../lib/project/slideBridge");

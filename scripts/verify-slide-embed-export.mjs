@@ -22,9 +22,13 @@ try {
   let r=run(['--import','tsx','scripts/lib/slideEmbedFixture.ts',root]);
   if(r.status!==0)throw Error(r.stdout+'\n'+r.stderr);
   const rel='paper/nested/report.qmd', before=await fs.readFile(path.join(root,rel),'utf8'), incBefore=await fs.readFile(path.join(root,'paper/nested/detail.qmd'),'utf8');
+  // Run real HTML preparation/Quarto through the packaged layout, outside the
+  // checkout. No src/, generated JSON, or node_modules can rescue its adapter.
+  const packaged=path.join(scratch,'app.asar.unpacked','dist');await fs.mkdir(packaged,{recursive:true});
+  for(const file of ['flux-cli.mjs','flux-cli-core.mjs','slide-export-assets.json'])await fs.copyFile(path.join('dist',file),path.join(packaged,file));
   for(const format of ['html','docx','pdf']) {
-    r=run(['dist/flux-cli.mjs','compile','--root',root,'--doc',rel,'--to',format]);
-    h.ok(r.status===0,`built CLI compiles selected nested document to ${format}`);
+    r=run([format==='html'?path.join(packaged,'flux-cli.mjs'):'dist/flux-cli.mjs','compile','--root',root,'--doc',rel,'--to',format]);
+    h.ok(r.status===0,`${format==='html'?'isolated packaged':'built'} CLI compiles selected nested document to ${format}`);
     if(r.status!==0)throw Error(r.stdout+'\n'+r.stderr);
     h.ok(await fs.readFile(path.join(root,rel),'utf8')===before&&await fs.readFile(path.join(root,'paper/nested/detail.qmd'),'utf8')===incBefore,`${format} restores entry and include source bytes`);
   }

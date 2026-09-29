@@ -19,7 +19,7 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
     }
     eq(other: SlideWidget) { return this.entry.playback === other.entry.playback && JSON.stringify(this.entry.ref) === JSON.stringify(other.entry.ref) && this.entry.duplicate === other.entry.duplicate; }
     toDOM(view: EditorView) {
-      let current = this.entry, alive = true, visible = false, version = 0, controller: SlideEmbedPlayer | undefined, snapshot: SlideSnapshot | undefined;
+      let current = this.entry, alive = true, visible = false, version = 0, mounting = false, controller: SlideEmbedPlayer | undefined, snapshot: SlideSnapshot | undefined;
       const wrap = document.createElement("div"); wrap.className = "flux-slide-embed"; wrap.contentEditable = "false";
       const style = document.createElement("style"); style.textContent = SLIDE_EMBED_CSS; wrap.append(style);
       const content = document.createElement("div"); content.style.aspectRatio = String(current.playback.ratio ?? 16 / 9); wrap.append(content);
@@ -51,11 +51,25 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
         caption.textContent = `${current.duplicate ? "Duplicate slide anchor. " : ""}${current.ref.caption}`;
         view.requestMeasure();
       };
-      const mount = () => {
-        if (!snapshot || !visible || !alive || controller) return;
-        content.style.aspectRatio = "";
-        controller = mountSlideEmbed(content, snapshot.payload, { state: current.playback.value, onState: value => { current.playback.value = value; }, onOpen: () => onOpen(current.ref), onEscape: () => view.focus() });
-        view.requestMeasure();
+      const mount = async () => {
+        if (!snapshot || !visible || !alive || controller || mounting) return;
+        const captured = snapshot, ticket = version; mounting = true;
+        let model3d: import('../../../../lib/model3d/host').Model3dHost | undefined;
+        try {
+          if (captured.modelSource) {
+            const { createEmbedServiceHost } = await import('../../../../lib/slide/embedServiceHost');
+            if (!alive || !visible || ticket !== version || snapshot !== captured) return;
+            model3d = createEmbedServiceHost(captured);
+          }
+          if (!alive || !visible || ticket !== version || snapshot !== captured) { model3d?.dispose(); return; }
+          content.style.aspectRatio = "";
+          controller = mountSlideEmbed(content, captured.payload, { model3d, state: current.playback.value, onState: value => { current.playback.value = value; }, onOpen: () => onOpen(current.ref), onEscape: () => view.focus() });
+          if (model3d) content.dataset.model3dHost = 'service';
+          view.requestMeasure();
+        } catch (error) {
+          model3d?.dispose();
+          if (alive && ticket === version) content.title = `3D slide unavailable: ${String(error)}`;
+        } finally { mounting = false; if (alive && visible && snapshot !== captured) void mount(); }
       };
       const load = async () => {
         const ticket = ++version;
@@ -65,7 +79,7 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
           if (next !== snapshot) { controller?.pauseOffscreen(); controller?.destroy(); controller = undefined; snapshot = next; current.playback.ratio = next.payload.deck.stage.width / next.payload.deck.stage.height; }
           const poster = document.createElement("img"); poster.alt = current.ref.caption || "Slide preview"; poster.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(next.poster)}`; poster.style.cssText = "display:block;width:100%;height:auto";
           if (!controller) content.replaceChildren(poster);
-          update(current); mount();
+          update(current); void mount();
           if (next.warnings.length) content.title = next.warnings.join("\n");
           view.requestMeasure();
         } catch (e) {
@@ -78,7 +92,7 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
       const off = repository.subscribe(() => { void load(); });
       const observer = new IntersectionObserver(entries => {
         visible = entries[0]?.isIntersecting ?? false;
-        if (visible) { if (snapshot) mount(); else void load(); }
+        if (visible) { if (snapshot) void mount(); else void load(); }
         else if (controller) { controller.pauseOffscreen(); controller.destroy(); controller = undefined; if (snapshot) { const img = document.createElement("img"); img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(snapshot.poster)}`; img.style.width = "100%"; content.append(img); } }
       }, { root: view.scrollDOM, rootMargin: "200px" });
       observer.observe(wrap); update(current);

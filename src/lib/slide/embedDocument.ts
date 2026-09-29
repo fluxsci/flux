@@ -2,6 +2,8 @@ import { scanSlideEmbeds, embedKey } from "./embed";
 import type { SlideRepository } from "./embedRepository";
 import type { ExportPayload } from "./payload";
 import { SLIDE_EMBED_CSS } from "./embedPlayer";
+import { shareEmbedModels } from './embedModels';
+import { loadEmbedAssets, loadEmbedModelRuntime } from './embedAssets';
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 export interface SlideDocumentBundle { payloads: Record<string, ExportPayload>; occurrences: { id: string; source: string }[]; ids: Set<string>; count: number }
 export const slideDocumentBundle = (): SlideDocumentBundle => ({ payloads: {}, occurrences: [], ids: new Set(), count: 0 });
@@ -20,7 +22,8 @@ export async function prepareSlideDocument(src: string, repository: SlideReposit
     let art: string;
     try {
       if (!repository) throw new Error("Open the source project to render this slide");
-      const snapshot = opts.strict ? await repository.materialize(r, { portable: opts.interactive && !payloads[source] }) : await repository.load(r);
+      let snapshot = opts.strict ? await repository.materialize(r, { portable: opts.interactive && !payloads[source] }) : await repository.load(r);
+      if (opts.interactive && !payloads[source] && snapshot.modelSource) snapshot = await repository.materialize(r, { portable: true });
       if (!r.width) width = `${snapshot.payload.deck.stage.width}px`;
       const poster = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(snapshot.poster)}`;
       art = `<img class="flux-slide-poster" src="${esc(poster)}" alt="${esc(r.caption || snapshot.payload.deck.slides[0].name || "Slide")}" style="aspect-ratio:${snapshot.payload.deck.stage.width}/${snapshot.payload.deck.stage.height}"/>`;
@@ -38,11 +41,13 @@ export async function finishSlideDocument(bundle: SlideDocumentBundle, opts: Sli
   const { payloads, occurrences } = bundle;
   let tail = "", style = "";
   if (bundle.count) {
-    const assets = (await import("../../../.generated/slide-embed-assets.json")).default;
+    const assets = await loadEmbedAssets();
     style = `<style>${SLIDE_EMBED_CSS}.flux-slide-poster{display:block}.flux-slide-enhanced>.flux-slide-poster,.flux-slide-enhanced>.flux-slide-static-title{display:none}.flux-slide-static-title{font:12px system-ui,sans-serif;padding:7px 0}@media print{.flux-slide-live{display:none!important}.flux-slide-poster,.flux-slide-static-title{display:block!important}}</style><style>${assets.fonts}</style>`;
     if (opts.interactive && occurrences.length) {
-      const data = JSON.stringify({ live: !!opts.live, documentKey: opts.documentKey || "", payloads, occurrences }).replace(/</g, "\\u003c");
-      tail = `<script type="application/json" id="flux-slide-data">${data}</script><script>${assets.runtime}</script>`;
+      const shared = shareEmbedModels(payloads);
+      const modelRuntime = Object.keys(shared.models).length ? await loadEmbedModelRuntime() : "";
+      const data = JSON.stringify({ live: !!opts.live, documentKey: opts.documentKey || "", ...shared, occurrences }).replace(/</g, "\\u003c");
+      tail = `<script type="application/json" id="flux-slide-data">${data}</script>${modelRuntime ? `<script>${modelRuntime}</script>` : ''}<script>${assets.runtime}</script>`;
     }
   }
   return { style, tail };

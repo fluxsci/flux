@@ -3,13 +3,14 @@ import { staticModelRequest } from '../../model3d/static';
 import type { ExportPayload } from './runtime';
 import type { InlineHost, InlineHostOptions } from '../../model3d/inlineHost';
 import type { Model3dAsset, Model3dElement } from '../../model3d/types';
-export function payloadModelHost(payload: ExportPayload) {
+export function payloadModelHost(payload: ExportPayload, sourceKey?: string) {
   if (!Object.keys(payload.models ?? {}).length) return undefined;
   const runtime = (globalThis as unknown as { FluxModel3dRuntime?: { createInlineHost(options: InlineHostOptions): InlineHost } }).FluxModel3dRuntime;
   if (!runtime) return undefined;
   const bytes = new Map<string, ArrayBuffer>();
   try {
     return runtime.createInlineHost({
+      sourceKey,
       modelBytes: async id => {
         let buffer = bytes.get(id);
         if (!buffer) {
