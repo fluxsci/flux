@@ -1,3 +1,4 @@
+import { setModel3dDeckScope } from "../model3d/editorScope";
 // ---------------------------------------------------------------------------
 // Flux Slide — the GUI presentation-overlay store (slides-are-figures).
 //
@@ -658,6 +659,7 @@ export function selectSlide(slideId: Id): void {
 
 /** Clear the slide stores (true project close / tenancy handoff). */
 export function clearDeck(): void {
+  setModel3dDeckScope(null);
   checkoutBaselines.clear();
   endpointEdit.set(null);
   editDestination.set({kind:"design"});

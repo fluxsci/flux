@@ -18,6 +18,7 @@
 // ---------------------------------------------------------------------------
 
 import { get, writable } from "svelte/store";
+import { setModel3dDeckScope } from "./model3d/editorScope";
 export type StoreTenant = "figure" | "slide";
 
 // Read at save time, set in mode lifecycles; context observers also subscribe.
@@ -30,6 +31,7 @@ export function storeTenant(): StoreTenant {
 /** Claim the shared figure store for a mode. Call BEFORE loading content into
  *  it (FigureMode / SlideMode onMount, after evicting the other mode). */
 export function setStoreTenant(t: StoreTenant): void {
+  if (t !== "slide") setModel3dDeckScope(null);
   storeTenantState.set(t);
 }
 
