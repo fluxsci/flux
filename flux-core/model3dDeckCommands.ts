@@ -5,6 +5,7 @@ import { loadFigModel, safeJoin, exists } from './model';
 import { boundedModelFile } from './model3dFile';
 import { confinedRecoveryPath } from './recovery';
 import { deckToProject } from '../src/lib/slide/deckProject';
+import { resolveTrack } from '../src/lib/slide/resolve';
 import { deckModel3dBindings } from '../src/lib/slide/model3dBindings';
 import { collectModel3dSourceBindings, model3dBindingsFromReceipts } from '../src/lib/model3d/sourceBinding';
 import { readScene3dSidecars } from '../src/lib/model3d/persistence';
@@ -21,6 +22,9 @@ export async function deckModelDocument(root: string, deck: Deck) {
   const figureBindings = collectModel3dSourceBindings(figure.figures.flatMap(f => f.elements));
   const manifests: Record<string,Scene3dManifest|undefined> = {}, warnings: string[] = [];
   const used = new Set(project.figures.flatMap(f => f.elements).filter(e => e.type === 'model3d').map(e => e.assetId));
+  for(const slide of deck.slides)for(const beat of slide.beats)for(const raw of beat.tracks){
+    const track=resolveTrack(raw,deck);if(track.to?.assetId)used.add(track.to.assetId);
+  }
   for (const asset of assets) if (asset.kind === 'glb' && used.has(asset.id)) {
     const candidates=local.has(asset.id)?[bindings.get(asset.id)]:[bindings.get(asset.id),figureBindings.get(asset.id)];
     const binding=model3dBindingsFromReceipts(candidates.flatMap(b=>b?(b.kind==='known'?[b.sha256]:b.sha256s).map(sha256=>({assetId:asset.id,sha256})):[])).get(asset.id);
