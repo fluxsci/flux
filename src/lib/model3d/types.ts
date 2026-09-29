@@ -58,6 +58,8 @@ export interface Model3dRenderSpec {
   morph?: { to: string; t: number; pairs: Array<{nodeA: string; nodeB: string; primitiveA?: number; primitiveB?: number}>;
     /** Frozen endpoints own baked geometry/fields; element carries this frame's camera. */
     fromElement?: Model3dElement; toElement?: Model3dElement; toManifest?: Scene3dManifest };
+  /** Runtime-only content fallback; does not introduce an animation track kind. */
+  crossfade?: { to: string; t: number; fromElement: Model3dElement; toElement: Model3dElement; toManifest?: Scene3dManifest };
   states?: Record<string, number>;
 }
 export type RenderSpec = Model3dRenderSpec;

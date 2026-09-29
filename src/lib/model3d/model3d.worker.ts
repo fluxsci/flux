@@ -23,12 +23,12 @@ scope.onmessage = ({ data }) => {
       } else if (type === 'unload') {
         renderer.unload(data.assetId); scope.postMessage({ type: 'unloaded', reqId, stats: renderer.stats() });
       } else if (type === 'render') {
-        const start = performance.now(); renderer.render(data.spec); const renderMs = performance.now() - start;
+        const start = performance.now(); const output = renderer.frame(data.spec).canvas as OffscreenCanvas; const renderMs = performance.now() - start;
         if (data.format === 'png') {
-          const blob = await canvas.convertToBlob({ type: 'image/png' });
+          const blob = await output.convertToBlob({ type: 'image/png' });
           scope.postMessage({ type: 'rendered', reqId, blob, ms: performance.now() - start, renderMs, encodeMs: performance.now() - start - renderMs, stats: renderer.stats() });
         } else {
-          const bitmap = canvas.transferToImageBitmap();
+          const bitmap = output.transferToImageBitmap();
           scope.postMessage({ type: 'rendered', reqId, bitmap, ms: performance.now() - start, renderMs, encodeMs: performance.now() - start - renderMs, stats: renderer.stats() }, [bitmap]);
         }
       } else throw new Error(`Unknown 3D worker request: ${type}`);

@@ -7,8 +7,8 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { prepareGlb } from './glbCore.mjs';
-import { orbitPose, boundsSphere, type OrbitPose } from './orbit';
-import { framingBounds } from './framing';
+import { orbitPose, type OrbitPose } from './orbit';
+import { framingBounds, sphereLerpBounds } from './framing';
 import { mapValues } from './colormap';
 import { buildScene3dPartIndex, scene3dPartLineage, type Scene3dPartIndex, resolveScene3dPartStyle } from './scene3d';
 import { RENDERER_VERSION } from './poster';
@@ -32,6 +32,7 @@ interface Morph { group: Group; parts: MorphPart[]; ids: [string, string] }
 const liveCanvases = new WeakSet<object>();
 const rgb = (color: string) => /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
 const alpha = (color?: string) => color && /^#[0-9a-f]{8}$/i.test(color) ? parseInt(color.slice(7), 16) / 255 : undefined;
+const sampledView = (element: Model3dElement) => Object.fromEntries(['orbitAzimuth','orbitElevation','orbitRoll','orbitZoom','orbitPanX','orbitPanY','orbitProjection','orbitFov','modelLighting'].map(key => [key, element[key as keyof Model3dElement]]));
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const modelStates = (el: Model3dElement, override?: Record<string, number>) => override ?? el.modelStates ?? {};
 function materialsOf(material: Material | Material[]) { return Array.isArray(material) ? material : [material]; }
@@ -136,12 +137,6 @@ function compatible(a: Part, b: Part) {
   for (let i = 0; i < na; i++) if ((ga.index?.getX(i) ?? i) !== (gb.index?.getX(i) ?? i)) return false;
   return true;
 }
-function sphereLerpBounds(a: ModelBounds, b: ModelBounds, t: number): ModelBounds {
-  const sa = boundsSphere(a), sb = boundsSphere(b), r = sa.radius * (1 - t) + sb.radius * t;
-  const center = sa.center.map((v, i) => v * (1 - t) + sb.center[i] * t);
-  // A diagonal of this box has length 2r and `radius` is r: orbitPose recovers exactly the lerped sphere.
-  return { min: center.map((v) => v - r / Math.sqrt(3)) as [number, number, number], max: center.map((v) => v + r / Math.sqrt(3)) as [number, number, number], radius: r };
-}
 export function createRenderCore(canvas: Canvas, options: { onContextState?: (lost: boolean) => void } = {}) {
   if (liveCanvases.has(canvas)) throw new Error('A 3D canvas cannot own a second renderer');
   const context = canvas.getContext('webgl2', { antialias: true, alpha: true, preserveDrawingBuffer: true }) as WebGL2RenderingContext | null;
@@ -160,6 +155,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
   const assets = new Map<string, Loaded>(), inflight = new Map<string, Promise<LoadedModelStats>>(), morphs = new Map<string, Morph>();
   let disposed = false, lost = false, generation = 0, restores: Promise<void> = Promise.resolve();
   let loads = 0, renders = 0, lastWidth = 0, lastHeight = 0;
+  let blendCanvas: Canvas | undefined;
   function stats(): RenderCoreStats { return { contexts: disposed ? 0 : 1, residentBytes: [...assets.values()].reduce((sum, a) => sum + a.bytes.byteLength, 0), loads, renders, lost, assets: assets.size, morphPairs: morphs.size }; }
   function guard() { if (disposed) throw new Error('3D renderer disposed'); if (lost) throw new Error('3D WebGL context unavailable'); }
   /** Stored asset bounds, when the caller has them, govern framing: they are what
@@ -238,7 +234,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
         const pa = from[i], pb = to[i];
         if (pairedA.has(pa) || pairedB.has(pb)) throw new Error('Morph primitive is paired more than once');
         pairedA.add(pa); pairedB.add(pb); if (!compatible(pa, pb)) throw new Error(`Incompatible morph topology ${names.nodeA}`);
-        const ea = endpoint(pa, origin, spec.manifest, spec.morph!.fromElement ? undefined : spec.states), eb = endpoint(pb, destination, spec.morph!.toManifest ?? spec.manifest);
+        const ea = endpoint(pa, origin, spec.manifest, spec.morph!.fromElement ? undefined : spec.states), eb = endpoint(pb, destination, spec.morph!.toManifest ?? (spec.morph!.to === spec.assetId ? spec.manifest : undefined));
         const geometry = new BufferGeometry(); geometry.setIndex(pa.mesh.geometry.index?.clone() ?? null);
         geometry.setAttribute('position', ea.position); geometry.setAttribute('normal', ea.normal);
         geometry.morphAttributes.position = [eb.position]; geometry.morphAttributes.normal = [eb.normal];
@@ -273,9 +269,9 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     const t = clamp01(spec.morph?.t ?? 0);
     if (spec.morph && t > 0) {
       const target = assets.get(spec.morph.to); if (!target) throw new Error(`3D morph destination not loaded: ${spec.morph.to}`);
-      if (t === 1) { element = spec.morph.toElement ?? element; style(target, element, spec.morph.toManifest ?? spec.manifest); group = target.group; bounds = framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest); }
+      if (t === 1) { element = spec.morph.toElement ? { ...spec.morph.toElement, ...(spec.morph.fromElement ? sampledView(spec.element) : {}) } : element; style(target, element, spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined)); group = target.group; bounds = framingBounds(target.stats.bounds, spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined)); }
       else {
-        const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest), t);
+        const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, framingBounds(target.stats.bounds, spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined)), t);
         for (const part of pair.parts) {
           part.mesh.morphTargetInfluences![0] = t;
           const lighting = element.modelLighting ?? 'studio';
@@ -289,7 +285,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
           part.mesh.renderOrder = material.transparent ? 1_000_000 : 0;
         }
       }
-    } else { style(source, spec.morph?.fromElement ?? element, spec.manifest, spec.morph?.fromElement ? undefined : spec.states); group = source.group; }
+    } else { style(source, spec.morph?.fromElement ? { ...spec.morph.fromElement, modelLighting: element.modelLighting } : element, spec.manifest, spec.morph?.fromElement ? undefined : spec.states); group = source.group; }
     const pose = orbitPose(element, bounds, { width: w, height: h }), camera = cameraFor(pose, w, h);
     key.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), -2 * pose.radius).addScaledVector(new Vector3(...pose.up), 2 * pose.radius);
     fill.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), 2 * pose.radius).addScaledVector(new Vector3(...pose.up), -pose.radius);
@@ -297,6 +293,28 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     if (lastWidth !== w || lastHeight !== h) { renderer.setSize(w, h, false); lastWidth = w; lastHeight = h; }
     scene.add(group); try { renderer.render(scene, camera); renders++; } finally { scene.remove(group); }
     return { pose, renderer: context!.getParameter(context!.RENDERER) as string };
+  }
+  /** One shared WebGL context, two renders for an incompatible content pair.
+   * Premultiplied additive composition preserves alpha at overlapping surfaces. */
+  function frame(spec: RenderSpec) {
+    const cross = spec.crossfade;
+    if (!cross) { const info = render(spec); if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; } return { canvas, ...info }; }
+    const camera = sampledView(spec.element);
+    const t = clamp01(cross.t), { crossfade: _cross, morph: _morph, states: _states, ...base } = spec;
+    if (t === 0) { if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; } const info = render({ ...base, element: { ...cross.fromElement, ...camera } }); return { canvas, ...info }; }
+    if (t === 1) { if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; } const info = render({ ...base, assetId: cross.to, element: { ...cross.toElement, ...camera }, manifest: cross.toManifest }); return { canvas, ...info }; }
+    const a = { ...cross.fromElement, ...camera }, b = { ...cross.toElement, ...camera };
+    blendCanvas ??= 'ownerDocument' in canvas ? canvas.ownerDocument.createElement('canvas') : new OffscreenCanvas(1, 1);
+    const w = Math.round(spec.w), h = Math.round(spec.h);
+    render({ ...base, element: a });
+    if (blendCanvas.width !== w || blendCanvas.height !== h) { blendCanvas.width = w; blendCanvas.height = h; }
+    const blend = blendCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!blend) throw new Error('2D model crossfade is unavailable');
+    blend.clearRect(0, 0, w, h); blend.globalCompositeOperation = 'source-over'; blend.globalAlpha = 1 - t; blend.drawImage(canvas, 0, 0);
+    const info = render({ ...base, assetId: cross.to, element: b, manifest: cross.toManifest });
+    blend.globalCompositeOperation = 'lighter'; blend.globalAlpha = t; blend.drawImage(canvas, 0, 0);
+    blend.globalAlpha = 1; blend.globalCompositeOperation = 'source-over';
+    return { canvas: blendCanvas, ...info };
   }
   const onLost = (event: Event) => { event.preventDefault(); lost = true; options.onContextState?.(true); };
   const onRestored = () => {
@@ -312,7 +330,8 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     for (const asset of assets.values()) releaseLoaded(asset); assets.clear();
     canvas.removeEventListener('webglcontextlost', onLost); canvas.removeEventListener('webglcontextrestored', onRestored);
     renderer.dispose(); renderer.forceContextLoss(); canvas.width = 1; canvas.height = 1;
+    if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; }
   }
-  return { load, unload, render, snapshot: async (spec: RenderSpec) => { render(spec); return createImageBitmap(canvas); }, ready: () => restores, stats, dispose, canvas };
+  return { load, unload, render, frame, snapshot: async (spec: RenderSpec) => createImageBitmap(frame(spec).canvas), ready: () => restores, stats, dispose, canvas };
 }
 export type RenderCore = ReturnType<typeof createRenderCore>;

@@ -21,6 +21,7 @@ import { KNOWN_PRESETS } from "../presetCatalog";
 import type { MorphController } from "../../plot/project";
 import { createCountUp } from "./countup";
 import { createTransform } from "./transform";
+import { modelHandoffMedia } from "./model3dHandoff";
 import { createHandoff, type HandoffController } from "./handoff";
 import { planHandoff } from "../handoffPlan";
 import { transformEndState, transformPreState } from "../tween";
@@ -194,6 +195,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           if (!sourceNodes.length || !destinationNodes.length) continue;
           const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
             plan: () => planHandoff(track, preFrame, geometry),
+            media: !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null
+              ? modelHandoffMedia(preFrame.elements.find(e => e.id === track.target), preFrame.elements.find(e => e.id === handoff.destination[0].elementId), preFrame.elements, opts) : undefined,
             ctx: {
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
               node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
@@ -681,9 +684,9 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     const session = generation;
     // Parsing/upload is completed before starting the authored clock. A later
     // navigation/cancel owns a new generation and cannot start this old cue.
-    if (models && !models.isReady()) {
+    if (models && !models.isReady() || specs.some(spec => spec.handoff && !spec.handoff.isReady())) {
       const resumeReady = () => { if (session === generation) begin(from, to, instant); };
-      void models.ready().then(resumeReady, resumeReady);
+      void Promise.all([models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]).then(resumeReady, resumeReady);
       return;
     }
     bi = Math.max(0, Math.min(beats() - 1, to));
@@ -771,7 +774,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready()]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), models?.settled()]); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready(), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), ...specs.flatMap(spec => spec.handoff ? [spec.handoff.ready()] : [])]); await models?.settled(); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */

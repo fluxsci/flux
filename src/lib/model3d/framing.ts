@@ -1,4 +1,5 @@
 import type { ModelBounds, Scene3dManifest, Vec3 } from './types';
+import { boundsSphere } from './orbit';
 import { transformPoint } from './glbCore.mjs';
 
 const ID = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -34,4 +35,12 @@ export function framingBounds(bounds: ModelBounds, manifest: Scene3dManifest | n
   }
   // No `radius`: the union box's half-diagonal is what circumscribes the axes box.
   return { min, max };
+}
+
+/** Vertex morph cameras interpolate the endpoint framing spheres, including
+ * box-axis limits. Furniture and the renderer share this exact calculation. */
+export function sphereLerpBounds(a: ModelBounds, b: ModelBounds, t: number): ModelBounds {
+  const sa = boundsSphere(a), sb = boundsSphere(b), r = sa.radius * (1 - t) + sb.radius * t;
+  const center = sa.center.map((v, i) => v * (1 - t) + sb.center[i] * t);
+  return { min: center.map(v => v - r / Math.sqrt(3)) as Vec3, max: center.map(v => v + r / Math.sqrt(3)) as Vec3, radius: r };
 }

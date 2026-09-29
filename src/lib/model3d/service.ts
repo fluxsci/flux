@@ -119,7 +119,8 @@ export function createModel3dService(options: ServiceOptions) {
         const abort = () => reject(abortError());
         if (job.cancel.signal.aborted) return abort();
         job.cancel.signal.addEventListener('abort', abort, { once: true });
-        Promise.all([residents.get(job.spec.assetId)?.promise, job.spec.morph ? residents.get(job.spec.morph.to)?.promise : undefined]).then(() => resolve(), reject).finally(() => job.cancel.signal.removeEventListener('abort', abort));
+        const destination = job.spec.morph?.to ?? job.spec.crossfade?.to;
+        Promise.all([residents.get(job.spec.assetId)?.promise, destination ? residents.get(destination)?.promise : undefined]).then(() => resolve(), reject).finally(() => job.cancel.signal.removeEventListener('abort', abort));
       });
       if (job.stale || !job.waiters.size) return;
       const scale = job.interactive && !job.full ? scales.get(job.channel) ?? 1 : 1;

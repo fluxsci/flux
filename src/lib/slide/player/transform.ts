@@ -41,7 +41,7 @@ import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
-import { modelFieldEndpoints, setSlideModelFrame } from "./model3d";
+import { modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -328,7 +328,8 @@ export function createTransform(
     if (ctx.arc && el === content) { content.x = contentX; content.y = contentY; }
 
     if (plan.mode === "model-live" && content.type === "model3d") {
-      setSlideModelFrame(contentHost, content);
+      const sampled = pre.type === 'model3d' && end.type === 'model3d' ? modelContentFrame(pre, end, content, t, raw, ctx) : { element: content, extra: {} };
+      setSlideModelFrame(contentHost, sampled.element, sampled.extra);
       return;
     }
 
