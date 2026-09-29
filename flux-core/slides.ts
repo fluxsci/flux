@@ -459,9 +459,18 @@ export async function setTransformTrack(
   } & slideOps.TimingCurvePatch = {},
 ): Promise<{ trackId: string }> {
   return mutateDeck(root, deckId, "set_transform", async (deck) => {
-    mustSlide(deck, slideId);
-    // a content target needs explicit paths (resolvers must not guess)
-    const paths = opts.toAssetId ? await resolveAssetSource(root, opts.toAssetId) : {};
+    const slide = mustSlide(deck, slideId);
+    // Content targets retain their original receipt; prepared GLB hashes must
+    // never substitute for the source hash. Plot behavior is unchanged.
+    const bi = slide.beats.findIndex(beat => beat.id === beatId);
+    const effective = bi >= 0 ? transformPreState(slide, targetId, bi) : null;
+    let paths: Parameters<typeof slideOps.setTransform>[4] = {};
+    if (opts.toAssetId) {
+      if (effective?.type === "model3d") {
+        const { source } = await resolveModelContent(root, deck, slideId, opts.toAssetId);
+        paths = { source: source ?? null };
+      } else paths = await resolveAssetSource(root, opts.toAssetId);
+    }
     const t = slideOps.setTransform(deck, slideId, beatId, targetId, {
       ...(opts.state ? { state: opts.state } : {}),
       ...(opts.replaceState ? { replaceState: true } : {}),
@@ -886,6 +895,28 @@ async function resolveAssetSource(root: string, assetId: string): Promise<{ svgP
   return { ...(svgPath ? { svgPath } : {}), ...(manifestPath ? { manifestPath } : {}) };
 }
 
+/** Resolve a metadata-only content reference and a known original source
+ * receipt. Missing receipts clear prior content provenance rather than guessing. */
+async function resolveModelContent(root: string, deck: Deck, slideId: string, assetId: string) {
+  const options = await slideCompileOptions(root, deck, slideId), asset = options.modelAsset(assetId);
+  if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${assetId}`);
+  // Reuse a known original source receipt when a placement owns the target.
+  // A bare local asset is a valid reference, but must not inherit A's source.
+  let source: Model3dElement['source'];
+  for (const candidate of deck.slides) {
+    for (const element of candidate.elements) if (element.type === 'model3d' && element.assetId === assetId) source ??= element.source;
+    for (const [index, beat] of candidate.beats.entries()) for (const track of beat.tracks) if (!track.disabled && track.to?.assetId === assetId) {
+      const state = transformPreState(candidate, track.target, index + 1);
+      if (state?.type === 'model3d') source ??= (sourceAt(candidate, track.target, index + 1, state) as Model3dElement).source;
+    }
+  }
+  if (!source && !(deck.assets ?? []).some(a => a.id === assetId)) {
+    const saved = await loadFigModel(root);
+    source = saved.project.figures.flatMap(figure => figure.elements).find((element): element is Model3dElement => element.type === 'model3d' && element.assetId === assetId && !!element.source)?.source;
+  }
+  return { options, source };
+}
+
 async function compileBecomeSlide(root: string, deck: Deck, slide: Slide) {
   return compileSlide(slide, deck.stage, await slideCompileOptions(root, deck, slide.id));
 }
@@ -937,22 +968,7 @@ export async function become(
     const effective = bi >= 0 ? transformPreState(slide, sourceId, bi) : null;
     if (effective?.type === 'model3d') {
       if (bi < 1) throw new Error('Change content needs a build step after Design');
-      const options = await slideCompileOptions(root, deck, slideId), asset = options.modelAsset(assetId);
-      if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${assetId}`);
-      // Reuse a known original source receipt when a placement owns the target.
-      // A bare local asset is a valid reference, but must not inherit A's source.
-      let source: Model3dElement['source'];
-      for (const candidate of deck.slides) {
-        for (const element of candidate.elements) if (element.type === 'model3d' && element.assetId === assetId) source ??= element.source;
-        for (const [index, beat] of candidate.beats.entries()) for (const track of beat.tracks) if (!track.disabled && track.to?.assetId === assetId) {
-          const state = transformPreState(candidate, track.target, index + 1);
-          if (state?.type === 'model3d') source ??= (sourceAt(candidate, track.target, index + 1, state) as Model3dElement).source;
-        }
-      }
-      if (!source && !(deck.assets ?? []).some(a => a.id === assetId)) {
-        const saved = await loadFigModel(root);
-        source = saved.project.figures.flatMap(figure => figure.elements).find((element): element is Model3dElement => element.type === 'model3d' && element.assetId === assetId && !!element.source)?.source;
-      }
+      const { options, source } = await resolveModelContent(root, deck, slideId, assetId);
       const t = slideOps.setTransform(deck, slideId, beatId, sourceId, { toAssetId: assetId, source: source ?? null,
         ...(opts.duration != null ? { duration: opts.duration } : {}), ...(opts.start != null ? { start: opts.start } : {}),
         ...(opts.easing != null ? { easing: opts.easing } : {}) });

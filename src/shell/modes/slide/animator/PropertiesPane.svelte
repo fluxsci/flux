@@ -12,8 +12,9 @@
   // separated blocks, square controls, the preset colour only as a thin rail
   // on the header name (2026-09-15 surface redesign).
   import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, sealHistory, currentDeck, activeBeat } from "../../../../lib/slide/store";
-  import { selection, setPartSelections } from "../../../../lib/store";
-  import { transformPreState } from "../../../../lib/slide/tween";
+  import { project, selection, setPartSelections } from "../../../../lib/store";
+  import { modelPair, modelPairIssue } from "../../../../lib/slide/model3dMorph";
+  import { transformPreState, transformEndState } from "../../../../lib/slide/tween";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
   import { patchStagger as staggerPatch, staggerSpan, staggerRanks, staggerSeed, reshuffleSeed } from "../../../../lib/slide/stagger";
@@ -166,10 +167,10 @@
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
     }
-    const data = curTrack.to?.assetId ? (curTrack.to.svgPath?.split("/").pop() || curTrack.to.assetId) : null;
+    const data = curTrack.to?.assetId ? ((curTrack.to.glbPath??curTrack.to.svgPath)?.split("/").pop() || curTrack.to.assetId) : null;
     if (kind && data) return `Becomes a ${kind} showing ${data}`;
     if (kind) return `Becomes ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`;
-    if (data) return `Data becomes ${data}`;
+    if (data) return `${slide.elements.find(e=>e.id===curTrack.target)?.type === "model3d" ? "Model" : "Data"} becomes ${data}`;
     return curWay === "ghost" ? "Its own destination after this step" : "The object's own state after this step";
   });
   const anyGhost = $derived(selTracks.some(t => !!t.ghostFrom));
@@ -179,7 +180,7 @@
   const flySuggestions = $derived.by(() => {
     const values = new Map<string, number>(), deck = $deckOverlay;
     if (!allCamera || !deck || !selTracks.some(t => t.to?.path === "fly")) return values;
-    const plan = compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => $plotManifests[id] });
+    const plan = compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => $plotManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
     for (const track of selTracks) {
       if (!track.id || track.to?.path !== "fly") continue;
       const bi = plan.resolvedSlide.beats.findIndex(b => b.tracks.some(t => t.id === track.id));
@@ -339,14 +340,14 @@
     });
     refreshEndpointDisplay();
   }
-  const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id] });
+  const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
   function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode">>) {
     try {
       withCurTrack((t, d) => {
         const spec = t.to?.become, s = d.slides.find(s => s.id === slide.id);
         const b = s?.beats.find(b => b.tracks.includes(t));
         if (!spec || !s || !b) return;
-        becomeTransform(d, s.id, b.id, trackRef(t), spec.ref, { ...spec, ...patch, compiled: compile(d, s) });
+        becomeTransform(d, s.id, b.id, trackRef(t), spec.ref, { ...spec, ...patch, compiled: compile(d, s), modelAsset: id=>$project.assets.find(a=>a.id===id) });
       });
     } catch (e) { pushToast("error", String(e instanceof Error ? e.message : e)); }
     consumeArmed = false;
@@ -354,10 +355,10 @@
   let consumeArmed = $state(false);
   $effect(() => { void handoff; consumeArmed = false; });
   const destinationEl = $derived(handoff ? slide.elements.find(e => e.id === handoff.ref.element) : undefined);
-  const canConsume = $derived(!!handoff && !!curTrack && isWholeElementRef(handoff.ref) && isWholeElementRef(trackRef(curTrack)) && !!destinationEl && !destinationEl.groupId);
+  const canConsume = $derived(!!handoff && !!curTrack && isWholeElementRef(handoff.ref) && isWholeElementRef(trackRef(curTrack)) && !!destinationEl && !destinationEl.groupId && destinationEl.type!=="video" && slide.elements.find(e=>e.id===curTrack.target)?.type!=="video");
   // A whole-plot hand-off reveals every part already: nothing is left to build.
   const canAutoAnimate = $derived(!!handoff && canAutoAnimateRest(slide, handoff.ref, manifestFor(handoff.ref.element)));
-  const swapOptions = () => ({ plotManifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id) });
+  const swapOptions = () => ({ modelAsset: (id:string)=>$project.assets.find(a=>a.id===id), plotManifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id) });
   const swapReason = $derived.by(() => {
     void $plotGen;
     if (!handoff || !curTrack?.id || !$deckOverlay) return "";
@@ -429,6 +430,11 @@
     if (curTargetEl?.type !== "plot" || !curTrack?.to?.assetId) return null;
     const m = $plotManifests;
     return hasTweenableSeries(m[curTargetEl.assetId], m[curTrack.to.assetId]);
+  });
+  const modelContentPair = $derived.by(()=>{
+    if(!curTrack)return null;const a=transformPreState(slide,curTrack.target,curBeatIndex);
+    const b=handoff?transformPreState(slide,handoff.ref.element,curBeatIndex):a?transformEndState(a,curTrack):undefined;
+    return a?.type==="model3d"&&(handoff||curTrack.to?.assetId)?modelPair(a,b??undefined,{modelAsset:id=>$project.assets.find(asset=>asset.id===id)}):null;
   });
   function keepOwnContent() {
     withCurTrack((t) => clearTransformContent(t));
@@ -556,7 +562,7 @@
            ways to point it somewhere else (Become another object · plot data) -->
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
-        <div class="dv">{destinationLabel}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
+        <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge class:warn={!modelContentPair.ok} title={modelPairIssue(modelContentPair)??"Same topology: vertices morph continuously."}>· {modelContentPair.ok?"vertex morph":"crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
@@ -580,11 +586,11 @@
         {#if curTargetEl && curBeatIndex > 0}
           <div class="dacts">
             <button class="pick-morph" onclick={armBecome} title="Pick another object or plot parts on the slide (or draw one): this target becomes it at this step">Become</button>
-            {#if curTargetEl.type === "plot"}
-              <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)} title="Keep the frame; the plot's data becomes another project plot's">Data from gallery…</button>
+            {#if curTargetEl.type === "plot" || curTargetEl.type === "model3d"}
+              <button class="pick-morph" onclick={() => onChooseMorph?.(curTargetEl.id, curTrack?.id)} title="Keep the frame; choose the next content from the gallery">{curTargetEl.type==="model3d"?"Model from gallery…":"Data from gallery…"}</button>
             {/if}
             {#if curTrack.to?.assetId}
-              <button class="pick-morph" onclick={keepOwnContent} title="Drop the data target — the plot keeps its own content">Keep own data</button>
+              <button class="pick-morph" onclick={keepOwnContent} title="Drop the content target; keep this object’s own content">{curTargetEl.type==="plot"?"Keep own data":"Keep own content"}</button>
             {/if}
           </div>
         {/if}

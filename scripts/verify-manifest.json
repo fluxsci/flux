@@ -510,7 +510,8 @@
       "verify-model3d-snapshot-quiet.mjs",
       "verify-model3d-furniture-gui.mjs",
       "verify-slide-model3d-gui.mjs",
-      "verify-model3d-embed-gui.mjs"
+      "verify-model3d-embed-gui.mjs",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -947,7 +948,8 @@
       "verify-model3d-slide-browser.ts",
       "verify-model3d-video-electron.cjs",
       "verify-model3d-embed.ts",
-      "verify-model3d-embed-gui.mjs"
+      "verify-model3d-embed-gui.mjs",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -1155,14 +1157,16 @@
       "verify-slide-model3d-gui.mjs",
       "verify-slide-import-gui.mjs",
       "verify-slide-present-gui.mjs",
-      "verify-changed-pathmap.mjs"
+      "verify-changed-pathmap.mjs",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "slide-model3d-morph": [
       "verify-slide-model3d-morph.ts",
       "verify-model3d-morph.ts",
       "verify-slide-model3d.ts",
       "verify-slide-track-ops.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "model3d-embed": [
       "verify-model3d-embed.ts",
@@ -9106,6 +9110,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 150000,
       "exclusive": true,
       "coverage": "behavior"
     }

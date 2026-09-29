@@ -21,3 +21,37 @@ Portable Paper HTML and Quarto exports explicitly gather model bytes, deduplicat
 Packaged CLI/MCP Paper exports load the player and shared model runtime from `dist/slide-export-assets.json`. They do not need the source checkout, generated browser JSON, or esbuild at runtime. Rebuild Flux if an older sidecar lacks the Paper runtime.
 
 `group:model3d-embed` checks live metadata-only loading, source lifetimes, shared payloads/CSP, real Paper widget animation and typing, offscreen disposal, and actual Quarto HTML playback offline. Its screenshots and typing samples are under `test-results/model3d/embeds/`. Run `group:paper-gate` for the surrounding editor regressions. These browser checks do not qualify native GPU frame budgets.
+
+## Ghost and content changes
+
+For one object with named shape states, start with a **Change** of its Shape weights.
+Both shapes stay in one model file, and the weights interpolate through that step.
+Use Become or a gallery content change when the shapes are saved as separate assets.
+
+Select a 3D model in Animate, then use **Transform → Ghost** to create independent
+copies sharing its immutable mesh asset. Each copy can have its own camera, shape
+weights and style. Hidden, unborn and offscreen copies release their canvas backing
+storage; active copies share the renderer context and geometry buffers.
+
+**Transform → Become** and **Appear → Appear from** show **Vertex morph** when the
+picked models have corresponding topology. Otherwise they show **Crossfade**, with
+the first mismatch and the `share_topology_with` repair in the explanation. A model
+destination defaults to a handoff: both document objects remain, while source and
+destination visibility transfer during playback. **Consume instead** is an explicit
+one-step Undo action which removes the destination and keeps its content on the
+source identity. Model-to-shape and shape-to-model Consume remain supported; live
+model storage transfers at the raw halfway type change, while a decoded still
+completes the fading endpoint. Whole model/video poster handoffs are supported;
+video Consume and video Ghost remain unavailable.
+
+Use **Model from gallery…** in the animation Destination controls to change only the
+mesh content, without placing a second object. The gallery starts with its 3D filter
+selected. Canceling or changing the destination before import completes discards its
+unadopted receipt. Saved content targets preserve the original GLB source receipt;
+`become --asset` and `set-transform --to-asset` follow the same policy. A bare immutable
+asset without a known source clears the previous content's source fields.
+
+`node scripts/run-verifies.mjs --group slide-model3d-morph` exercises pure authoring,
+file commands, actual browser rendering and the editor UI. Browser receipt-cancellation
+checks use the memory bridge; they do not claim production Electron import coverage.
+Native MP4 qualification is recorded separately.
