@@ -8560,3 +8560,6 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Flux 3D P4d semantic appearance channels
 **Work:** Added shared transient model-part appearance across the player, editor posters, Animator and saved Node compilation, with independent X-ray/Undo/reopen and rendered-neighbor gates. **Learnings:** Preserve furniture's animation-owned inline style and compiled semantic stagger ranks; resolve future model metadata through canonical asset-id sidecars and source bindings, without changing authored opacity or Design bytes.
+
+### 2026-09-29 — Semantic dendrite demo step
+**Work:** Extended the five-slide scratch review deck with a step after the eight-second Turntable that fades in only the named dendrite mesh through the public animation operation. The registered demo gate checks accepted saved metadata, Design stashing, unchanged soma/axon visibility and exact half/end appearance states.

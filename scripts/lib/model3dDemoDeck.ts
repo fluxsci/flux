@@ -6,7 +6,7 @@ import { newSlideEmbed, serializeSlideEmbed } from '../../src/lib/slide/embed';
 export async function createModel3dDemoDeck(root: string) {
   const {deckId}=await core.createDeck(root,{id:'model3d-review',title:'Flux 3D · motion review',theme:'flux-light'});
   await mutateDeck(root,deckId,'demo_stage',deck=>{deck.slides=[];deck.stage={width:960,height:540};});
-  const examples:Record<string,{slideId:string;beatId:string;modelIds:string[]}>={};
+  const examples:Record<string,{slideId:string;beatId:string;modelIds:string[];appearanceBeatId?:string}>={};
   async function slide(name:string,stems:string[]) {
     const {slideId}=await core.addSlide(root,deckId,{name,layout:'blank'});
     await core.addTextToSlide(root,deckId,slideId,{text:name,x:45,y:25,width:850,height:55,fontSize:28});
@@ -20,7 +20,12 @@ export async function createModel3dDemoDeck(root: string) {
     examples[name]={slideId,beatId,modelIds};return examples[name];
   }
   const turn=await slide('Turntable',['neuron']);
-  await core.addSlideTurntable(root,deckId,turn.slideId,turn.beatId,turn.modelIds[0],{turns:1,durationMs:6000});
+  await core.addSlideTurntable(root,deckId,turn.slideId,turn.beatId,turn.modelIds[0],{turns:1,durationMs:8000});
+  const dendrites=await core.addBeat(root,deckId,turn.slideId,{label:'Dendrites appear'});
+  await core.setAnimation(root,deckId,turn.slideId,dendrites.beatId,{
+    id:'demo-dendrites-appear',target:turn.modelIds[0],part:'neuron.dendrites',preset:'fade',duration:1200,easing:'linear',
+  });
+  turn.appearanceBeatId=dendrites.beatId;
   const shape=await slide('Shape change',['cortex-states']);
   await mutateDeck(root,deckId,'demo_shape',deck=>{setTransform(deck,shape.slideId,shape.beatId,shape.modelIds[0],{state:{modelStates:{inflated:1,bent:.25}},duration:2200,curve:'smooth'});});
   const ghost=await slide('Ghost',['neuron']);

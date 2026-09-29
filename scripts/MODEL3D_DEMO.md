@@ -16,7 +16,7 @@ The project contains:
 - **Paper:** references to all three saved Figures.
 - **Plots:** six GLB/manifest/recipe triplets, hash receipts and the unchanged Python example.
 
-**Slides:** choose **Flux 3D · motion review**. Five slides demonstrate Turntable, Shape change, Ghost, crossfade Become and a same-topology vertex morph. Advance once from Design on each slide; each has one named motion step. The Paper also includes the Turntable slide as a live embed. `DEMO.json.deck.examples` records slide, step and model IDs.
+**Slides:** choose **Flux 3D · motion review**. Five slides demonstrate Turntable, Shape change, Ghost, crossfade Become and a same-topology vertex morph. Advance once from Design on each slide to play its motion. On Turntable, advance again to the next step, **Dendrites appear**: only dendrites fade in; soma and axon remain visible in Design and during the turn. The Paper also includes this slide as a live embed. `DEMO.json.deck.examples` records slide, step and model IDs, including Turntable's `appearanceBeatId`.
 
 ## Open with disposable state
 
