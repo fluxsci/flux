@@ -60,7 +60,7 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
     if (disposed || !view) return;
     width = Math.max(1, Math.round(stage.clientWidth || authoredWidth)); height = Math.max(1, Math.round(width * authoredHeight / authoredWidth));
     stage.style.height = `${height}px`; under.setAttribute('viewBox', `0 0 ${width} ${height}`); over.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    const layout = furnitureLayout(payload.manifest, { width, height }, element.overrides), rect = layout.viewport;
+    const layout = furnitureLayout(payload.manifest, { width, height, fields: element.fields }, element.overrides), rect = layout.viewport;
     const dpr = Math.min(2, doc.defaultView?.devicePixelRatio ?? 1);
     const w = Math.max(1, Math.round(rect.width * dpr)), h = Math.max(1, Math.round(rect.height * dpr));
     canvas.style.left = `${rect.x}px`; canvas.style.top = `${rect.y}px`; canvas.style.width = `${rect.width}px`; canvas.style.height = `${rect.height}px`;
@@ -108,7 +108,7 @@ export async function mount(host: HTMLElement, payload: NotebookPayload) {
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y; drag.x = event.clientX; drag.y = event.clientY;
     if (drag.mode === 'orbit') setView({ azimuth: element.orbitAzimuth - dx * 0.4, elevation: element.orbitElevation + dy * 0.4 });
     else if (drag.mode === 'roll') setView({ roll: (element.orbitRoll ?? 0) + dx * 0.4 });
-    else { const rect = furnitureLayout(payload.manifest, { width, height }, element.overrides).viewport, scale = 2 / (element.orbitZoom * Math.min(rect.width, rect.height)); setView({ panX: (element.orbitPanX ?? 0) - dx * scale, panY: (element.orbitPanY ?? 0) + dy * scale }); }
+    else { const rect = furnitureLayout(payload.manifest, { width, height, fields: element.fields }, element.overrides).viewport, scale = 2 / (element.orbitZoom * Math.min(rect.width, rect.height)); setView({ panX: (element.orbitPanX ?? 0) - dx * scale, panY: (element.orbitPanY ?? 0) + dy * scale }); }
   }, { signal: cleanup.signal });
   const stop = () => { drag = undefined; };
   stage.addEventListener('pointerup', stop, { signal: cleanup.signal }); stage.addEventListener('pointercancel', stop, { signal: cleanup.signal });

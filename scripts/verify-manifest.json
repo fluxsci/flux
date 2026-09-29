@@ -501,7 +501,8 @@
       "verify-model3d-source-gui.mjs",
       "verify-model3d-verbs-gui.mjs",
       "verify-model3d-import-progress-gui.mjs",
-      "verify-model3d-snapshot-quiet.mjs"
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-model3d-furniture-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -923,7 +924,8 @@
       "verify-model3d-deck-assets.ts",
       "verify-model3d-slide-export.ts",
       "verify-slide-model3d.ts",
-      "verify-project-media-paths.ts"
+      "verify-project-media-paths.ts",
+      "verify-model3d-furniture-gui.mjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -1111,6 +1113,10 @@
       "verify-slide-model3d.ts",
       "verify-slide-tween.ts",
       "verify-loadgate.ts"
+    ],
+    "model3d-furniture": [
+      "verify-model3d-furniture.ts",
+      "verify-model3d-furniture-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -8942,6 +8948,17 @@
       "isolation": "scratch",
       "externalNetwork": false,
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-furniture-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }
