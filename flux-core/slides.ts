@@ -1011,7 +1011,14 @@ export async function gatherDeckPayload(
     const used = slideAssetIds(slide);
     deck.assets = deck.assets.filter(asset => used.has(asset.id));
   }
-  const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), videoUrl: opts.videoUrl });
+  const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), videoUrl: opts.videoUrl,
+    modelPoster: async (request, relative) => {
+      const { resolveModelPosters } = await import("./model3dPosterCache");
+      const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, elements: [request.element] };
+      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "" });
+      sourceWarnings.push(...rendered.warnings);
+      const url = rendered.urls[request.ref]; if (!url) throw new Error("3D poster could not be rendered"); return url;
+    } });
   return { ...result, warnings: [...sourceWarnings, ...result.warnings] };
 }
 

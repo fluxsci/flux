@@ -208,7 +208,7 @@ let copySequence = 0;
  * files this operation created; existing files are never replaced or removed. */
 async function copyVideoAssets({ root, sourceDeckId, deckId, paths, checkCurrent = () => {} }) {
   if (!safeId(sourceDeckId) || !safeId(deckId) || sourceDeckId === deckId || !Array.isArray(paths) || !paths.length || paths.length > 10000
-    || paths.some(p => typeof p !== "string" || !/^assets\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.(?:mp4|png)$/i.test(p))) throw new Error("Invalid video asset copy request");
+    || paths.some(p => typeof p !== "string" || !/^assets\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*\.(?:mp4|png|glb|fluxplot\.json|recipe\.json)$/i.test(p))) throw new Error("Invalid video asset copy request");
   checkCurrent();
   const realRoot = await fsp.realpath(root), directory = path.join(realRoot, "slides", deckId, "assets");
   if (await projectFile(root, `slides/${deckId}/assets`) !== directory) throw new Error("Video copy destination was replaced");

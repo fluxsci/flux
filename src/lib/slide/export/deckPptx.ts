@@ -1,3 +1,5 @@
+import { model3dStaticSvg, model3dSvgContext } from "../../model3d/static";
+import { slideModelPosterIO } from "../model3dPosterIO";
 // Slide deck -> PowerPoint .pptx (2026-09-24, owner request: "export slides
 // in pptx too; vector images remain vector, so you can edit the single
 // elements").
@@ -313,6 +315,18 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
     case "plot": return plotXml(ctx, el);
     case "image": return (await rasterXml(ctx, el, el.assetId, el.crop)) ?? vectorFallbackXml(ctx, el);
     case "video": return rasterXml(ctx, el, el.posterAssetId, null);
+    case "model3d": {
+      const note = "3D animation exported as a still";
+      if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
+      const design = ctx.payload.deck.slides.flatMap(s => s.elements).find(e => e.id === el.id && e.type === "model3d");
+      const model = design?.type === "model3d" ? { ...design, width: el.width, height: el.height } : el;
+      const context = model3dSvgContext(ctx.payload.deck.assets, ctx.payload.modelManifests ?? {}, "slide");
+      context.posterIdOf = e => ctx.payload.modelPosters?.[e.id];
+      const svg = standaloneSvg(model3dStaticSvg(model, id => ctx.payload.assets?.[id], context), el.width, el.height);
+      const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * 2)), Math.max(1, Math.round(el.height * 2)));
+      const id = await ctx.media(`3d ${svg}`, async () => ({ bytes: png, ext: "png" }));
+      return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
+    }
     default: return vectorFallbackXml(ctx, el);
   }
 }
@@ -534,7 +548,7 @@ export const domMeasure: MeasureSvg = async (svg, width, height) => {
  *  poster frame, so the movie itself is never read. */
 export async function deckPptxDocument(root: string, deckId: string, io: import("../payload").SlidePayloadIO, rasterize: Rasterize, measure?: MeasureSvg, pages: PptxPages = "animated"): Promise<DeckPptxResult> {
   const { readEmbedDeck, gatherSlidePayload } = await import("../payload");
-  const staticIO = { ...io, videoUrl: async () => "" };
+  const staticIO = { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const };
   const deck = await readEmbedDeck(root, deckId, staticIO);
   const slides: DeckPptxSlide[] = [];
   const warnings: string[] = [];

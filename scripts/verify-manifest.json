@@ -348,7 +348,9 @@
       "verify-model3d-s8-policy.cjs",
       "verify-model3d-demo.ts",
       "verify-model3d-cache-watch.cjs",
-      "verify-model3d-import-progress.ts"
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-deck-assets.ts",
+      "verify-model3d-slide-export.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -915,7 +917,9 @@
       "verify-model3d-cache-watch.cjs",
       "verify-model3d-import-progress.ts",
       "verify-model3d-import-progress-gui.mjs",
-      "verify-model3d-snapshot-quiet.mjs"
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-model3d-deck-assets.ts",
+      "verify-model3d-slide-export.ts"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -933,7 +937,9 @@
       "verify-model3d-fluxplot.ts",
       "verify-model3d-verbs.ts",
       "verify-model3d-demo.ts",
-      "verify-model3d-import-progress.ts"
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-deck-assets.ts",
+      "verify-model3d-slide-export.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -8878,6 +8884,20 @@
       "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
+    },
+    "verify-model3d-deck-assets.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": false
+    },
+    "verify-model3d-slide-export.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": false
     }
   }
 }

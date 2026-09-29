@@ -1,3 +1,4 @@
+import { model3dSvgContext } from "../model3d/static";
 import type { Deck } from "./types";
 import type { ExportPayload } from "./payload";
 import type { Figure } from "../types";
@@ -105,7 +106,14 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
   const ev = evaluateSlide(payload, step);
   const fig: Figure = { id: `poster-${ev.slide.id}`, name: ev.slide.name ?? ev.slide.id, canvasId: "slide-poster", x: 0, y: 0,
     width: ev.stage.width, height: ev.stage.height, background: "transparent", elements: ev.elements, groups: ev.groups };
-  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id]);
+  const models = model3dSvgContext(payload.deck.assets, payload.modelManifests ?? {}, "slide");
+  // Static document exports intentionally use each model's Design-state mesh.
+  // Furniture uses that same state, while placement follows the evaluated step.
+  const design = new Map(ev.slide.elements.filter(el => el.type === "model3d").map(el => [el.id, el]));
+  fig.elements = fig.elements.map(el => el.type === "model3d" && design.has(el.id)
+    ? { ...design.get(el.id)!, x: el.x, y: el.y, width: el.width, height: el.height, rotation: el.rotation, opacity: el.opacity, hidden: el.hidden } : el);
+  models.posterIdOf = el => payload.modelPosters?.[el.id];
+  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id], { model3d: models });
   const { width: w, height: h } = ev.stage;
   const c = ev.camera, camera = c ? `translate(${w / 2} ${h / 2}) scale(${c.zoom}) translate(${-c.x} ${-c.y})` : "";
   const start = svg.indexOf(">") + 1, end = svg.lastIndexOf("</svg>");

@@ -20,6 +20,3 @@ export async function publishModelCopy(bridge:FileBridge,copy:PreparedModelCopy,
   await bridge.copyFileVerified(copy.source,copy.destination,copy.sha256);
   await assertOwner();
 }
-export function assertModel3dDeckConversionAvailable(elements:readonly {type:string}[]):void {
-  if(elements.some(e=>e.type==='model3d')) throw new Error('3D deck conversion is not available in this deck format yet');
-}
