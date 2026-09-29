@@ -98,4 +98,29 @@ h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'pa
  h.ok(inside(m,framingBounds(sphere,m))>0,'box axes stay inside the frame at the default zoom, every view');
  h.ok(inside(wide,framingBounds(sphere,wide))>0,'axis limits wider than the mesh are framed too');
 }
+{// Guide text fits: the colorbar/legend column grows to its text (≤40% of the box); longer titles wrap.
+ const{textWidth}=await import('../src/lib/model3d/textMetrics');
+ const bar=(label:string):Scene3dManifest=>({spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'x.glb',style:{fontSizePt:7},parts:[{id:'f',role:'surface-field',node:'f',field:{cmap:{name:'c',stops:[[0,'#000000'],[1,'#FFFFFF']]},range:[0,250],ticks:[0,100,200],label}},{id:'bar',role:'colorbar',field:'f'}]});
+ const box={width:230,height:307},fs=7*4/3;
+ const short=furnitureLayout(bar('mm'),box),long=furnitureLayout(bar('Path distance from soma (µm)'),box);
+ h.eq(short.viewport.width,box.width-Math.max(64,fs*9),'short titles keep the classic guide column');
+ const title=long.colorbar!,need=textWidth('Path distance from soma (µm)',fs);
+ h.ok(long.viewport.width<short.viewport.width,'a long colorbar title widens the guide column');
+ h.ok(box.width-long.viewport.width<=box.width*.4+1e-9,'the guide column never exceeds 40% of the box');
+ const lines=title.titleLines!;h.ok(lines.length>=1&&lines.join(' ')==='Path distance from soma (µm)','wrapped lines keep every word in order');
+ h.ok(lines.every(l=>title.x+textWidth(l,fs)<=box.width+1e-9),'every title line fits inside the box');
+ h.ok(need>box.width*.4?lines.length>1:lines.length===1,'titles wider than the capped column wrap, others stay on one line');
+ const narrow=furnitureLayout(bar('Path distance from soma (µm)'),{width:150,height:300});
+ h.ok(narrow.colorbar!.titleLines!.length>1&&narrow.colorbar!.y>short.colorbar!.y,'wrapping reserves room above the bar');
+ const el={id:'w',kind:'model3d',x:0,y:0,width:150,height:300,fill:'#cccccc',orbitAzimuth:0,orbitElevation:0,orbitZoom:1,orbitProjection:'orthographic',overrides:{}} as any;
+ const svg=furnitureSvg(bar('Path distance from soma (µm)'),el,orbitPose(el,{min:[0,0,0],max:[1,1,1]} as any,narrow.viewport),narrow);
+ const nodes=svg.overNodes.find(n=>n.partId==='bar')!.children!,titles=nodes.filter(n=>n.key.startsWith('cbar-title')),ticks=nodes.filter(n=>n.key.startsWith('cbar-label-'));
+ h.eq(titles.length,narrow.colorbar!.titleLines!.length,'one text node per wrapped title line');
+ h.ok(Math.max(...titles.map(n=>Number(n.attrs.y)))<Math.min(...ticks.map(n=>Number(n.attrs.y)))-fs,'the last title line clears the top tick');
+ h.ok(Math.min(...titles.map(n=>Number(n.attrs.y)))>=fs,'the first title line stays inside the top margin');
+ const legend:Scene3dManifest={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'x.glb',style:{fontSizePt:7},parts:[{id:'cortex.left',role:'mesh',label:'Left hemisphere, pial surface'},{id:'cortex.right',role:'mesh',label:'Right'},{id:'legend',role:'legend',entries:['cortex.left','cortex.right']}]};
+ const lg=furnitureLayout(legend,{width:400,height:300});
+ h.ok(lg.legend!.x+fs*1.5+textWidth('Left hemisphere, pial surface',fs)<=400,'legend labels fit inside the widened column');
+ h.eq(furnitureLayout(legend,{width:400,height:300},{'cortex.left':{hidden:true}}).viewport.width,400-Math.max(64,fs*9),'hidden legend entries stop widening the column');
+}
 await h.done();
