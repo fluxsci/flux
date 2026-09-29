@@ -38,7 +38,11 @@ picked models have corresponding topology. Otherwise they show **Crossfade**, wi
 the first mismatch and the `share_topology_with` repair in the explanation. Compilation
 raises an issue only when topology metadata is unavailable; an evaluated crossfade is a
 designed result. Mesh-part Become sources are refused, since WebGL leaves have no DOM to
-fly; furniture parts and whole models hand off, including within groups. A model
+fly; furniture parts and whole models hand off, including within groups. A Become into
+mesh parts has no outline to fly to, so it compiles as a `crossfade` hand-off: nothing
+flies, the source fades out in place while the parts fade in through the per-part opacity
+channel on the same curve (raw = 1 is the landing), and a model cannot become one of its
+own parts. A model
 destination defaults to a handoff: both document objects remain, while source and
 destination visibility transfer during playback. **Consume instead** is an explicit
 one-step Undo action which removes the destination and keeps its content on the

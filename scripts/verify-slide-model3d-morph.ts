@@ -131,6 +131,43 @@ h.eq(modelPair(scene().a, scene().b, {})?.ok, false, 'absent topology conservati
   h.ok(!compiled.handoffs.length && compiled.issues.some(issue => issue.trackId === 'part-flight' && issue.reason.includes('mesh')), 'Become from 3D mesh parts is refused with an actionable issue');
   beat.tracks[0].part = 'axes.x.label'; compiled = compileSlide(slide, deck.stage, opts);
   h.ok(compiled.handoffs.length === 1 && !compiled.issues.some(issue => issue.reason.includes('mesh')), 'model furniture parts still hand off');
+  h.ok(!compiled.handoffs[0].crossfade, 'a furniture-to-object Become keeps its flight');
+  // A mesh-part DESTINATION has no outline to fly to: the Become crossfades in
+  // place on the track's own curve, the source out and the mesh part in.
+  const other = { ...makeModel3dElement(assets[1], { id: 'other' }), x: 300 };
+  slide.elements.push(other);
+  const both = { ...deck, modelManifest: (id: string) => id === a.assetId || id === other.assetId ? manifest : undefined };
+  const into = (target: string, part?: string, id = 'mesh-in') => ({ id, target, ...(part ? { part } : {}), preset: 'transform', duration: 1000, easing: 'linear', to: { become: { mode: 'handoff', ref: { element: other.id, parts: ['cell.dendrites'] } } } } as Track);
+  const crossfades: Array<[string, string | undefined, string]> = [['rect', undefined, 'a 2D object'], [a.id, 'axes.x.label', "another model's labels"], [a.id, undefined, 'a whole model']];
+  for (const [from, part, label] of crossfades) {
+    beat.tracks = [into(from, part)];
+    compiled = compileSlide(slide, deck.stage, both);
+    const record = compiled.handoffs.find(handoff => handoff.trackId === 'mesh-in');
+    h.ok(record?.crossfade === true && !compiled.issues.some(issue => issue.trackId === 'mesh-in'), `Become from ${label} to a 3D mesh part is admitted as a crossfade`);
+    const sourceKey = (frame: ReturnType<typeof compiled.sample>) => part ? frame.partStates[from]?.[part] : frame.presentation.elementStates[from];
+    for (const [ms, fraction] of [[0, 0], [250, .25], [500, .5], [999, .999]] as const) {
+      const frame = compiled.sample(1, ms), mesh = frame.partStates[other.id]?.['cell.dendrites'], source = sourceKey(frame);
+      h.ok(!!mesh && Math.abs(mesh.opacity - fraction) < 1e-9 && mesh.visible === fraction > 0, `${label}: mesh part opacity ${fraction} at ${ms}ms`);
+      h.ok(!!source && Math.abs(source.opacity - (1 - fraction)) < 1e-9 && source.visible, `${label}: source opacity ${1 - fraction} at ${ms}ms, never hidden mid-flight`);
+    }
+    const landed = compiled.sample(1, 1000);
+    h.eq([landed.partStates[other.id]?.['cell.dendrites'], sourceKey(landed)], [{ opacity: 1, visible: true }, { opacity: 0, visible: false }], `${label}: raw = 1 is the landing (mesh at 1, source hidden)`);
+    h.eq(compiled.sample(0).partStates[other.id]?.['cell.dendrites'], { opacity: 0, visible: false }, `${label}: the destination mesh part is hidden before its Become`);
+  }
+  // A source an earlier step already hid stays hidden through the crossfade.
+  const hide = addBeat(deck, slide.id)!;
+  beat.tracks = [{ id: 'gone', target: 'rect', preset: 'fadeOut', duration: 300 } as Track];
+  hide.tracks = [into('rect')];
+  compiled = compileSlide(slide, deck.stage, both);
+  h.eq(compiled.sample(2, 500).presentation.elementStates.rect, { opacity: 0, visible: false }, 'a crossfade never re-shows an already hidden source');
+  h.eq(compiled.sample(2, 500).partStates[other.id]?.['cell.dendrites'], { opacity: .5, visible: true }, 'its mesh part still fades in');
+  beat.tracks = [{ id: 'self', target: other.id, preset: 'transform', duration: 600, to: { become: { mode: 'handoff', ref: { element: other.id, parts: ['cell.dendrites'] } } } } as Track];
+  hide.tracks = [];
+  compiled = compileSlide(slide, deck.stage, both);
+  h.ok(!compiled.handoffs.some(handoff => handoff.trackId === 'self') && compiled.issues.some(issue => issue.trackId === 'self' && issue.reason.includes('its own mesh parts')), 'a whole model becoming its own mesh part is refused in plain words');
+  const unchanged = JSON.stringify(deck);
+  try { becomeTransform(deck, slide.id, beat.id, other.id, { element: other.id, parts: ['cell.dendrites'] }, { compiled, modelAsset: id => deck.assets.find(asset => asset.id === id) }); h.fail('authoring a model into its own part is refused'); }
+  catch (error) { h.ok(String(error).includes('its own parts') && JSON.stringify(deck) === unchanged, 'authoring a whole model into its own part is refused without a write'); }
 }
 {
   const { deck, slide, beat, a, b } = scene(); deck.assets = [];

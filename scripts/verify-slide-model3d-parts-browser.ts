@@ -92,6 +92,62 @@ try {
     player.seek(0,2,1000);await player.captureMedia([],1000);let futurePixels=count();ok(futurePixels.blue===0&&futurePixels.teal>100,'rect→model Consume followed by part exit samples the future model appearance');
     player.seek(0,1,1000);await player.captureMedia([],1000);futurePixels=count();ok(futurePixels.blue>100&&futurePixels.teal>100,'reverse seek restores source alpha after the future-model factor returns to one');
     player.seek(0,2,500);await player.captureMedia([],500);
+    // A Become INTO a mesh part crossfades in place: no flight layer, clone or
+    // snapshot; the mesh part fades in on the part-opacity channel while the
+    // source (a 2D object, a whole model, another model's labels) fades out.
+    player.destroy();
+    const meshFrame = (f: number) => { const c = stage.querySelector<HTMLCanvasElement>('canvas[data-slide-model3d="M"]')!; view.render({ ...element, x: 0, y: 0, overrides: { 'cortex.left': { opacity: .6 * f, hidden: f === 0 } } }, c.width, c.height, { manifest: fixture.manifest }); return c.toDataURL() === reference.toDataURL(); };
+    const maxDiff = (a: string, b: string) => new Promise<number>(resolve => { const [ia, ib] = [new Image(), new Image()]; let n = 0; const done = () => { if (++n < 2) return; const w = ia.naturalWidth, h2 = ia.naturalHeight, c = document.createElement('canvas'); c.width = w; c.height = h2; const g = c.getContext('2d')!; g.drawImage(ia, 0, 0); const pa = g.getImageData(0, 0, w, h2).data; g.clearRect(0, 0, w, h2); g.drawImage(ib, 0, 0); const pb = g.getImageData(0, 0, w, h2).data; let m = 0; for (let k = 0; k < pa.length; k++) m = Math.max(m, Math.abs(pa[k] - pb[k])); resolve(m); }; ia.onload = ib.onload = done; ia.src = a; ib.src = b; });
+    const sources: Array<[string, string]> = [['R', 'a 2D object'], ['X', 'a whole model'], ['X__title', "another model's labels"]];
+    for (const [from, label] of sources) {
+      const cross = api.createDeck({ withTitleSlide: false }); cross.stage = deck.stage; cross.assets = deck.assets;
+      const c = api.addSlide(cross), labels = from === 'X__title';
+      c.elements = [structuredClone(element), { id: 'R', type: 'rect', x: 20, y: 300, width: 160, height: 110, rotation: 0, opacity: 1, fill: '#d14d41', stroke: 'none', strokeWidth: 0, cornerRadius: 0 },
+        { ...structuredClone(element), id: 'X', x: 480, y: 250, width: 220, height: 180, overrides: {} }];
+      api.addBeat(cross, c.id).tracks.push({ id: 'into-mesh', target: labels ? 'X' : from, ...(labels ? { part: 'title' } : {}), preset: 'transform', duration: 1000, easing: 'linear', to: { become: { mode: 'handoff', ref: { element: 'M', parts: ['cortex.left'] } } } });
+      player = api.createPlayer(stage, cross, { theme: api.FLUX_LIGHT, model3d: host, modelManifest: () => fixture.manifest, modelAsset: () => fixture.asset });
+      await player.readyMedia();
+      ok(!player.state().issues.some((issue: { trackId?: string }) => issue.trackId === 'into-mesh'), `${label} → mesh part: the Become is admitted`);
+      const canvases = stage.querySelectorAll('canvas').length, contexts = host.stats().contexts;
+      const sourceNode = () => labels ? stage.querySelector<SVGElement>('[id="X__title"]')! : stage.querySelector<HTMLElement>(`[data-el-id="${from}"] .sl-effects`) ?? stage.querySelector<HTMLElement>(`[data-el-id="${from}"]`)!;
+      const frames: Record<number, string> = {};
+      for (const ms of [0, 250, 500, 750, 999, 1000, 250, 500]) {
+        player.seek(0, 1, ms); await player.captureMedia([], ms);
+        const f = ms / 1000, node = sourceNode(), style = getComputedStyle(node), shown = style.visibility !== 'hidden' ? Number(style.opacity) : 0;
+        ok(meshFrame(f), `${label} → mesh part ${ms}ms: the mesh part renders at ${f} of its own appearance`);
+        ok(Math.abs(shown - (1 - f)) < 1e-6, `${label} → mesh part ${ms}ms: the source shows at ${1 - f} (saw ${shown})`);
+        const now = stage.querySelector<HTMLCanvasElement>('canvas[data-slide-model3d="M"]')!.toDataURL();
+        if (frames[ms]) ok(frames[ms] === now, `${label} → mesh part: reverse/random seek to ${ms}ms restores exact pixels`); frames[ms] = now;
+      }
+      ok(await maxDiff(frames[999], frames[1000]) <= 2, `${label} → mesh part: the landing frame continues the crossfade (no pop at raw = 1)`);
+      ok(!stage.querySelector('.sl-handoff') && !stage.querySelector('image[data-model-snapshot]') && stage.querySelectorAll('canvas').length === canvases && host.stats().contexts === contexts, `${label} → mesh part: no flight layer, snapshot or extra backing store`);
+      // Present plays the cue to its landing on the same sampler.
+      player.goTo(0, 0); player.next();
+      for (let i = 0; i < 400 && player.state().playing; i++) await new Promise(r => setTimeout(r, 10));
+      await player.captureMedia([], 1000);
+      ok(player.state().beat === 1 && meshFrame(1) && getComputedStyle(sourceNode()).opacity === '0', `${label} → mesh part: Present lands on the destination's own render with the source gone`);
+      player.destroy();
+      ok(!stage.querySelector('canvas'), `${label} → mesh part: destroying the player releases every canvas`);
+    }
+    { // Video capture samples a with-prev run on one clock: the crossfade and a concurrent part fade.
+      const run = api.createDeck({ withTitleSlide: false }); run.stage = deck.stage; run.assets = deck.assets;
+      const c = api.addSlide(run); c.elements = [structuredClone(element), { id: 'R', type: 'rect', x: 20, y: 300, width: 160, height: 110, rotation: 0, opacity: 1, fill: '#d14d41', stroke: 'none', strokeWidth: 0, cornerRadius: 0 }];
+      api.addBeat(run, c.id).tracks.push({ id: 'right-out', target: 'M', part: 'cortex.right', preset: 'fadeOut', duration: 1000, easing: 'linear' });
+      api.addBeat(run, c.id, { advance: 'with-prev' }).tracks.push({ id: 'into-mesh', target: 'R', preset: 'transform', duration: 1000, easing: 'linear', to: { become: { mode: 'handoff', ref: { element: 'M', parts: ['cortex.left'] } } } });
+      player = api.createPlayer(stage, run, { theme: api.FLUX_LIGHT, model3d: host, modelManifest: () => fixture.manifest, modelAsset: () => fixture.asset });
+      await player.readyMedia(); player.seek(0, 2, 500, 1); await player.captureMedia([], 500);
+      const canvas2 = stage.querySelector<HTMLCanvasElement>('canvas[data-slide-model3d="M"]')!;
+      view.render({ ...element, x: 0, y: 0, overrides: { 'cortex.left': { opacity: .3 }, 'cortex.right': { opacity: .5 } } }, canvas2.width, canvas2.height, { manifest: fixture.manifest });
+      ok(canvas2.toDataURL() === reference.toDataURL(), 'video-cue seek samples the crossfade and its with-prev part fade at the same time');
+      // Stills name the crossfade's step appearance.
+      const requests: any[] = [], still = document.createElement('div'); document.body.append(still);
+      const modelPoster = (_el: unknown, partOpacity?: Record<string, number>) => { requests.push(partOpacity); return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"/>'); };
+      for (const [beat, left] of [[0, 0], [2, 1]] as const) {
+        requests.length = 0; api.renderStaticAt(still, c, run.stage, beat, { theme: api.FLUX_LIGHT, modelManifest: () => fixture.manifest, modelAsset: () => fixture.asset, modelPoster });
+        ok((requests.at(-1)?.['cortex.left'] ?? 1) === left, `step ${beat} still of the crossfade requests the mesh part at ${left}`);
+      }
+      still.remove();
+    }
     (window as any).__partsDispose = () => { player.destroy(); view.dispose(); host.dispose(); };
     return { checks };
   }, fixture);

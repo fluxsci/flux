@@ -50,7 +50,12 @@ export interface CompiledSlide {
   partFactors: ResolvedGhosts["partFactors"];
   cues: { id: string; duration: number; tracks: CompiledTrack[] }[];
   issues: AnimationIssue[];
-  handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec }[];
+  /** `crossfade`: the destination includes 3D mesh parts, which draw in WebGL
+   *  and own no DOM outline to fly to. The Become then crossfades in place: the
+   *  source fades out while the destination fades in (mesh parts through the
+   *  model's per-part opacity, furniture parts through the DOM), on the track's
+   *  own curve, so the landing frame is the destination's own render. */
+  handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec; crossfade?: true }[];
   /** Manifest-aware canonical resolution, shared with Become authoring. */
   resolveTarget(ref: TargetRef, beat: number): ResolvedTarget[];
   /** The frame at `timeMs` into `beat`. Beats `fromBeat`..`beat` play as one
@@ -139,11 +144,12 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     return { id: beat.id, duration: Math.max(0, ...tracks.map((t) => t.end)), tracks: tracks.sort((a, b) => a.start - b.start) };
   });
   const handoffs: CompiledSlide["handoffs"] = [];
-  const flights = new Map<CompiledTrack, { source: string[]; destination: string[] }>();
+  const flights = new Map<CompiledTrack, { source: string[]; destination: string[]; crossfade: boolean }>();
   const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
   const births = ghostBirths(slide);
   // Mesh leaves draw in WebGL and own no DOM nodes, so no flight can carry
-  // them (furniture leaves are ordinary SVG and hand off normally).
+  // them (furniture leaves are ordinary SVG and hand off normally). A mesh
+  // source is refused; a mesh destination crossfades in place.
   const meshParts = (targets: ResolvedTarget[], beat: number) => targets.some(t => {
     if (!t.partIds?.length) return false;
     const el = transformPreState(slide, t.elementId, beat);
@@ -157,20 +163,23 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     const posterVideo = source.length === 1 && destination.length === 1 && source[0].partIds === null && destination[0].partIds === null
       && modelVideoHandoff(transformPreState(slide, source[0].elementId, ct.beat) ?? undefined, transformPreState(slide, destination[0].elementId, ct.beat) ?? undefined);
     const unborn = births.filter(b => !b.enabled || b.beat > ct.beat || b.beat === ct.beat && b.start > ct.start);
+    const crossfade = meshParts(destination, ct.beat);
     let reason = !slide.elements.some(e => e.id === spec.ref.element) ? "Destination parts not found. Retarget this Become."
       : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
       : !destination.length ? "Destination parts not found. Retarget this Become."
       : !source.length ? "Source parts not found. Retarget this Become."
       : meshParts(source, ct.beat) ? "3D mesh parts cannot hand off to another object. Use the whole model, or its labels and axes."
       : sameRef(trackRef(ct.track), spec.ref) ? "Choose a different object for the source to become."
+      // The whole source hides at landing, and its own parts with it.
+      : crossfade && source.some(s => s.partIds === null && destination.some(d => d.elementId === s.elementId)) ? "A 3D model cannot become one of its own mesh parts. Fade the part in with Appear instead."
       : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
       : !posterVideo && slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
       : "";
     if (!reason && handoffs.some(h => h.beat === ct.beat && handoffTargetsOverlap(destination, h.destination)))
       reason = "Another hand-off in this step already lands on these destination parts. Choose different parts or another step.";
     if (reason) { issues.push({ trackId: ct.track.id, target: ct.track.target, reason }); continue; }
-    handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec });
-    flights.set(ct, { source: keysOf(source), destination: keysOf(destination) });
+    handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec, ...(crossfade ? { crossfade: true as const } : {}) });
+    flights.set(ct, { source: keysOf(source), destination: keysOf(destination), crossfade });
   }
   function sample(beatIndex: number, timeMs = Infinity, fromBeat = beatIndex): SlideFrame {
     const elements = structuredClone(slide.elements);
@@ -222,7 +231,19 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       const el = byId.get(track.target);
       if (preset === "transform" && isHandoff(track)) {
         const flight = flights.get(ct);
-        if (flight) {
+        if (flight?.crossfade) {
+          // Complementary factors on the track's clamped curve: the player's
+          // source fade samples the same curve, and raw = 1 is the landing.
+          if (raw > 0) for (const key of flight.source) {
+            const prior = appearance.get(key) ?? { opacity: 1, visible: true }, visible = prior.visible && raw < 1;
+            const state = { opacity: visible ? prior.opacity * (1 - t) : 0, visible };
+            appearance.set(key, state); handoffVisibility.set(key, visible);
+          }
+          for (const key of flight.destination) {
+            const state = { opacity: raw >= 1 ? 1 : t, visible: raw >= 1 || t > 0 };
+            appearance.set(key, state); handoffVisibility.set(key, state.visible);
+          }
+        } else if (flight) {
           if (raw > 0) for (const key of flight.source) {
             appearance.set(key, { opacity: 0, visible: false }); handoffVisibility.set(key, false);
             if (raw < 1) inFlight.add(key);
@@ -306,6 +327,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   const preFrames = new Map<string, SlideFrame>();
   const ctx: GeometryCtx = { manifest: opts.plotManifest ?? (() => undefined), plotRoot: opts.plotRoot ?? (() => undefined), groups: slide.groups };
   for (const [ct, flight] of flights) {
+    if (flight.crossfade) continue; // no flight geometry to diagnose
     const ref = ct.track.to!.become!.ref;
     // Missing plot roots are unavailable geometry, not proof of a raster pair.
     if ([...flight.source, ...flight.destination].some(key => {
