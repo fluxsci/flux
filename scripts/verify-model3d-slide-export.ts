@@ -138,5 +138,16 @@ h.eq([designStill.orbitAzimuth,designStill.fill,designStill.modelStates,designSt
   const gonePayload=(await gatherPayload('/scratch',gone,{...io,modelData:'omit'})).payload;
   const goneFinal=await deckPptxBytes('Gone',[{payload:gonePayload}],raster,undefined,'final');
   h.ok(pages(goneFinal.bytes)[0].length===0&&goneFinal.warnings.includes(still),'a model no final page shows still reports the 3D still policy, as the PDF does');
+  // A popping entrance gets an invisible half-size twin on the page before. A
+  // model's still depends on its box, so the twin pictures the full-size still
+  // Morph lands on (its own size has no rendered poster) instead of a placeholder.
+  const pop=structuredClone(built);pop.slides[0].beats=[{id:'base',tracks:[]},{id:'pop',tracks:[{id:'pop-in',target:'moving',preset:'popIn',duration:300,params:{from:0.5}}]}] as any;
+  const popPayload=(await gatherPayload('/scratch',pop,{...io,modelData:'omit'})).payload;
+  const popped=await deckPptxBytes('Pop',[{payload:popPayload}],raster,undefined,'animated'),popZip=unzipSync(popped.bytes);
+  const media=(n:number)=>/Target="\.\.\/media\/([^"]+)"/.exec(strFromU8(popZip[`ppt/slides/_rels/slide${n}.xml.rels`]))?.[1];
+  const twinXml=strFromU8(popZip['ppt/slides/slide1.xml']);
+  h.eq(pages(popped.bytes),[[[90,67.5]],[[40,30]]],'pop twin sits at half size about the model centre on the page before');
+  h.ok(twinXml.includes('<a:alphaModFix amt="0"/>')&&media(1)!==undefined&&media(1)===media(2),'the invisible twin and the landed model share one still image');
+  h.ok(!popped.warnings.some(w=>w.includes('placeholder')),'a pop twin never falls back to a placeholder');
 }
 await h.done();

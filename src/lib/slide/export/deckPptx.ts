@@ -110,6 +110,8 @@ interface SlideContext {
   warnings: string[];
   /** 1-based number of the Flux slide this page comes from (for warnings). */
   source: number;
+  /** PptxPage.stills: the state a picture is drawn from, when not its frame's. */
+  stills: Map<string, Element> | undefined;
 }
 
 function xfrm(ctx: SlideContext, x: number, y: number, w: number, h: number, rotation = 0, flipH = false, flipV = false): string {
@@ -328,16 +330,18 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
       const slide = ctx.payload.deck.slides.find(s => s.elements.some(e => e.id === el.id)) ?? ctx.payload.deck.slides[0];
       // The still is composed at the origin of its own picture (the static
       // composition is laid out in stage coordinates); the picture frame
-      // carries the page's placement, so a model that only moves reuses one image.
-      const model = { ...staticModelElement(el, slide), x: 0, y: 0 } as typeof el;
+      // carries the page's placement, so a model that only moves reuses one
+      // image. A pop twin draws the still of the state it pops to or from.
+      const still = ctx.stills?.get(el.id) ?? el;
+      const model = { ...staticModelElement(still, slide), x: 0, y: 0 } as typeof el;
       const context = staticModelContext(ctx.payload);
       const composed = model3dStaticSvg(model, id => ctx.payload.assets?.[id], context);
       if (composed.includes("data-model3d-placeholder")) {
         const note = `Slide ${ctx.source}: 3D model "${el.name || el.id}" has no rendered still for this build state; showing a placeholder`;
         if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
       }
-      const svg = standaloneSvg(composed, el.width, el.height);
-      const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * 2)), Math.max(1, Math.round(el.height * 2)));
+      const svg = standaloneSvg(composed, still.width, still.height);
+      const png = await ctx.rasterize(svg, Math.max(1, Math.round(still.width * 2)), Math.max(1, Math.round(still.height * 2)));
       const id = await ctx.media(`3d ${svg}`, async () => ({ bytes: png, ext: "png" }));
       return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
     }
@@ -423,7 +427,7 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
     const relByName = new Map<string, string>();
     let shapeId = 1;
     const ctx: SlideContext = {
-      ev, payload, emu: emuBase * zoom, zoom, warnings, rasterize, measure: measureOnce, names: page.names, source,
+      ev, payload, emu: emuBase * zoom, zoom, warnings, rasterize, measure: measureOnce, names: page.names, source, stills: page.stills,
       map: (x, y) => cam
         ? { x: ((x - cam.x) * zoom + stage.width / 2) * emuBase, y: ((y - cam.y) * zoom + stage.height / 2) * emuBase }
         : { x: x * emuBase, y: y * emuBase },
