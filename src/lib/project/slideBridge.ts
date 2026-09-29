@@ -1,4 +1,4 @@
-import { collectModel3dSourceBindings } from "../model3d/sourceBinding";
+import { deckModel3dBindings } from "../slide/model3dBindings";
 import { readScene3dSidecars, scene3dSidecarWrites } from "../model3d/persistence";
 import { scene3dManifests, scene3dRecipes, primeScene3dSidecars, clearScene3dSidecars } from "../model3d/store";
 import { storedAssetPath } from "./assetPath";
@@ -257,7 +257,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     if (cachePlot(id, svg, manifest, recipe)) acceptedPlotCache.set(key, { svg, manifest: text, recipe: recipeText, dom: plotDom.get(id) });
   };
 
-  const bindings = collectModel3dSourceBindings(deck.slides.flatMap(slide => slide.elements));
+  const bindings = deckModel3dBindings(deck);
   const readModel = async (asset: Asset, prefix: string) => {
     const relative = storedAssetPath(`${prefix}/${asset.path}`);
     const file = fig.projectAssetPath ? await fig.projectAssetPath(root, relative) : joinPath(root, relative);

@@ -23,6 +23,9 @@ export interface ModelPosterResolveOptions {
   policy: ModelPosterPolicy;
   /** Asset paths are relative to this document prefix (Figure default). */
   assetPrefix?: string;
+  /** Already validated by a document-wide receipt resolver; own undefined
+   * entries deliberately keep mismatched/newer metadata inactive. */
+  manifests?: Readonly<Record<string, Scene3dManifest | undefined>>;
   surface?: PosterSurface;
   signal?: AbortSignal;
   /** Every saved placement participates in original-source binding. */
@@ -104,7 +107,9 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') missingFiles.set(asset.id, rel);
       else warnings.push(`3D model "${asset.name || asset.id}": ${error instanceof Error ? error.message : String(error)}`);
     }
-    const metadata = await readModelManifest(root, asset, bindings, options.signal, options.assetPrefix ?? "fig");
+    const metadata = options.manifests && Object.hasOwn(options.manifests, asset.id)
+      ? { manifest: options.manifests[asset.id], issues: [] }
+      : await readModelManifest(root, asset, bindings, options.signal, options.assetPrefix ?? "fig");
     if (metadata.manifest) manifests[asset.id] = metadata.manifest;
     warnings.push(...metadata.issues);
   }

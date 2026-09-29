@@ -1016,7 +1016,7 @@ export async function gatherDeckPayload(
     modelPoster: async (request, relative) => {
       const { resolveModelPosters } = await import("./model3dPosterCache");
       const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, background: "transparent", elements: [request.element] };
-      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "" });
+      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "", manifests: { [request.asset.id]: request.manifest } });
       sourceWarnings.push(...rendered.warnings);
       const url = rendered.urls[request.ref]; if (!url) throw new Error("3D poster could not be rendered"); return url;
     } });

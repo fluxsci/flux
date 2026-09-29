@@ -312,6 +312,41 @@ reported, never invented.
 - **P7 Look** — Flexoki dark, serif body (Gelasio), a single blue accent. 1–2 themes; make/reuse a
   custom theme rather than reaching for a library of presets. `ops.setTheme` / `setStageSize`.
 
+## 3D models
+
+Import a GLB or a 3D fluxplot saved by `Scene3D.save` with its sibling manifest:
+
+```sh
+flux add-slide-model <deck> <slideId> plots/neuron.glb --width 480 --height 360
+flux add-turntable <deck> <slideId> <beatId> <elementId> --turns 1 --duration 6000
+```
+
+Both commands return their created IDs. Model import also returns warnings in JSON/MCP;
+`--no-poster` skips the derived still. Input paths may be project-relative or absolute
+inside the project; escaping paths and symlinks are refused. The source stays intact,
+and the prepared GLB and sidecars are stored under the deck's `assets/` directory.
+Deck JSON and its undo journal contain metadata, never GLB bytes.
+
+Turntable writes a normal Change track with linear timing and an unwrapped azimuth.
+`--direction cw|ccw` chooses direction; `--start` offsets it within the step. Orbit zoom
+interpolates geometrically, while azimuth retains complete turns. Projection switches
+at the endpoint. Shape weights and field ranges can share the same Change.
+Use `animate-element ... --part <partId>` for a mesh or furniture part; part IDs come
+from the scene manifest, not a guessed DOM selector. Appearance timing does not change
+the model's geometry or its saved Design view.
+
+Ghost keeps an independent view of the same immutable mesh. Become uses vertex morphing
+for compatible topology and crossfades otherwise; inspect compatibility with
+`flux model-info <a.glb> --morph-with <b.glb>`. A hand-off keeps both objects; Consume
+replaces the source's content and removes the destination in one edit. A shape state
+changes geometry within the same asset and needs no second model.
+
+Portable HTML and MP4 carry the moving 3D scene. PDF and PPTX use the Design-view still
+with vector furniture where supported; they do not export an editable 3D object. Keep
+GLBs present when saving: a missing model produces an actionable refusal rather than
+an incomplete deck. Portable slide presets include model bytes explicitly for reuse
+across projects.
+
 ## Video clips
 
 `video` has ordinary element geometry plus `assetId`, `posterAssetId`, `durationMs`,

@@ -241,6 +241,52 @@ try {
   const inside = path.join(root, 'plots'); await fs.mkdir(inside, { recursive: true }); await fs.symlink(input('states'), path.join(inside, 'escape.glb'));
   await assert.rejects(core.addModel(root, partFigure.figureId, path.join(inside, 'escape.glb'), { noPoster: true }), /escapes the project/); h.ok(true, 'an in-project GLB symlink that resolves outside the project is refused');
 
+  // P5b: actual built transport normalizes project-contained absolute paths.
+  const slideDeck=await core.createDeck(root,{id:'models'}), slide=await core.addSlide(root,slideDeck.deckId,{name:'Models'});
+  const step=await core.addBeat(root,slideDeck.deckId,slide.slideId,{label:'Turn'});
+  await fs.copyFile(input('states'),path.join(root,'plots/states.glb'));
+  await fs.copyFile(path.join(inputs,'states.fluxplot.json'),path.join(root,'plots/states.fluxplot.json'));
+  const slideAdd=await run(['add-slide-model',slideDeck.deckId,slide.slideId,path.join(root,'plots/states.glb'),'--root',root,'--width','380','--no-poster']);
+  assert.equal(slideAdd.code,0,slideAdd.err);const slideModelId=slideAdd.out.trim();
+  const savedDeck=await core.loadDeck(root,slideDeck.deckId), slideModel=savedDeck.slides.find(s=>s.id===slide.slideId)!.elements.find(e=>e.id===slideModelId)!;
+  h.ok(slideModel?.type==='model3d'&&slideModel.width===380,'built add-slide-model imports in-project absolute paths into canonical deck');
+  if(slideModel.type!=='model3d')throw Error('Expected model');
+  const deckAsset=savedDeck.assets.find(a=>a.id===slideModel.assetId)!;
+  h.ok((await fs.stat(path.join(root,'slides/models',deckAsset.path))).size>0,'slide-owned immutable GLB exists outside JSON');
+  h.eq(slideModel.source?.glbPath,'plots/states.glb','slide model preserves relative original source receipt');
+  const turn=await run(['add-turntable',slideDeck.deckId,slide.slideId,step.beatId,slideModelId,'--root',root,'--turns','2','--direction','ccw','--duration','2400']);
+  assert.equal(turn.code,0,turn.err);
+  const track=(await core.loadDeck(root,slideDeck.deckId)).slides.find(s=>s.id===slide.slideId)!.beats.find(b=>b.id===step.beatId)!.tracks.find(t=>t.id===turn.out.trim())!;
+  h.ok(track?.to?.state?.orbitAzimuth===slideModel.orbitAzimuth+720&&track.duration===2400&&track.easing==='linear','built Turntable writes linear unwrapped ordinary Change');
+  const refused=await run(['add-slide-model',slideDeck.deckId,slide.slideId,input('states'),'--root',root,'--no-poster']);
+  h.ok(refused.code!==0,'built slide model import refuses an outside-project absolute source');
+  const linkRefused=await run(['add-slide-model',slideDeck.deckId,slide.slideId,path.join(root,'plots/escape.glb'),'--root',root,'--no-poster']);
+  h.ok(linkRefused.code!==0,'built slide model import refuses an escaping in-project symlink');
+
+  {
+  await fs.mkdir(path.join(root,'plots/_videos'),{recursive:true});
+  const moviePath=path.join(root,'plots/_videos/source.mp4');
+  await fs.copyFile(path.join(repo,'scripts/fixtures/slide-video-clips/moving-box.mp4'),moviePath);
+  const videoAdd=await run(['add-video',slideDeck.deckId,slide.slideId,moviePath,'--root',root,'--width','320']);
+  assert.equal(videoAdd.code,0,videoAdd.err);
+  h.ok((await core.loadDeck(root,slideDeck.deckId)).slides.find(s=>s.id===slide.slideId)!.elements.some(e=>e.id===videoAdd.out.trim()&&e.type==='video'),'built add-video shares project-absolute normalization with add-slide-model');
+  const {Client}=await import('@modelcontextprotocol/sdk/client/index.js');
+  const {StdioClientTransport}=await import('@modelcontextprotocol/sdk/client/stdio.js');
+  const mcp=new Client({name:'model3d-slide-gate',version:'1'});
+  const transport=new StdioClientTransport({command:process.execPath,args:[path.join(repo,'dist/flux-mcp.mjs'),root],cwd:root,env:{...process.env as Record<string,string>,FLUX_MCP_TOOLSET:'full',FLUX_NO_MIGRATE:'1'}});
+  try {
+    await mcp.connect(transport);
+    const added=await mcp.callTool({name:'add_slide_model',arguments:{deckId:slideDeck.deckId,slideId:slide.slideId,sourcePath:'plots/states.glb',noPoster:true}});
+    assert.ok(!added.isError,JSON.stringify(added));const value=JSON.parse((added.content as Array<{text:string}>)[0].text);
+    h.ok(value.elementId&&value.assetId&&Array.isArray(value.warnings),'built MCP adds a model through the same import boundary');
+    const turned=await mcp.callTool({name:'add_turntable',arguments:{deckId:slideDeck.deckId,slideId:slide.slideId,beatId:step.beatId,target:value.elementId,durationMs:1200}});
+    h.ok(!turned.isError&&JSON.parse((turned.content as Array<{text:string}>)[0].text).trackId,'built MCP adds a normal Turntable Change');
+    const denied=await mcp.callTool({name:'add_slide_model',arguments:{deckId:slideDeck.deckId,slideId:slide.slideId,sourcePath:input('states'),noPoster:true}});
+    h.ok(denied.isError,'MCP outside-project source refusal matches CLI');
+  } finally {await mcp.close();await transport.close();}
+
+  }
+
   // H1 through the built CLI: a placed GLB goes missing; read verbs degrade to
   // named placeholders and the figure stays repairable.
   const broken = (await loadFigModel(root)).project, brokenAsset = broken.assets.find(a => a.id === field.assetId)!;

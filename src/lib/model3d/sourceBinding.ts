@@ -11,12 +11,16 @@ export type Model3dSourceBinding =
  * whichever placement happened to load first. Asset.sha256 is deliberately not
  * accepted here because preparation can change the bytes. */
 export function collectModel3dSourceBindings(elements: Iterable<Element>): Map<string, Model3dSourceBinding> {
+  return model3dBindingsFromReceipts([...elements].flatMap(element =>
+    element.type === 'model3d' && element.source?.sha256 ? [{ assetId: element.assetId, sha256: element.source.sha256 }] : []));
+}
+/** Includes receipts carried only by later content-change tracks. */
+export function model3dBindingsFromReceipts(sources: Iterable<{ assetId: string; sha256: string }>): Map<string, Model3dSourceBinding> {
   const receipts = new Map<string, Set<string>>();
-  for (const element of elements) {
-    if (element.type !== 'model3d' || !element.source?.sha256) continue;
-    let hashes = receipts.get(element.assetId);
-    if (!hashes) receipts.set(element.assetId, hashes = new Set());
-    hashes.add(element.source.sha256);
+  for (const source of sources) {
+    let hashes = receipts.get(source.assetId);
+    if (!hashes) receipts.set(source.assetId, hashes = new Set());
+    hashes.add(source.sha256);
   }
   const bindings = new Map<string, Model3dSourceBinding>();
   for (const [assetId, hashes] of receipts) {
