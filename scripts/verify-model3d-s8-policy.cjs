@@ -4,10 +4,30 @@ const vm=require('node:vm');
 const {compareCohorts,qualificationSamples,cohortIdleVsyncMs}=require('./lib/model3dS8Metrics.cjs');
 const {orbitFrameQualification,idleVsyncMs}=require('./lib/model3dNativeScaleBudget.cjs');
 const {s8CaptureRect,verifyS8RasterReplacement}=require('./lib/model3dS8Baseline.cjs');
-const {s8BoxesVisible,s8InteractionEvidence}=require('./perf/input-probe-model3d.cjs');
+const {s8BoxesVisible,s8InteractionEvidence,focusedPaperContent}=require('./perf/input-probe-model3d.cjs');
+const {nativeScaleCentering}=require('./lib/model3dNativeScaleViewport.cjs');
 async function main(){
   const {harness}=await import('./lib/harness.mjs'),{SOURCE,publicTreeHash,verifyPublicS8Fixture}=await import('./lib/model3dS8PublicFixture.mjs');
   const h=harness('verify-model3d-s8-policy');
+  const {document}=require('linkedom').parseHTML('<html><body><div class="cm-content">Unrelated first editor</div><section class="paper"><div class="cm-content">Actual Paper prose</div></section><section class="paper"><div class="cm-content">Second Paper pane</div></section><input /></body></html>');
+  const editors=document.querySelectorAll('.cm-content'),paper=editors[1];
+  Object.defineProperty(document,'activeElement',{value:paper,writable:true});
+  const typingTarget=focusedPaperContent(document),beforeText=typingTarget.textContent;
+  paper.textContent+=' the quick brown fox jumps';
+  h.ok(typingTarget===paper&&typingTarget.textContent!==beforeText&&typingTarget.textContent.includes(' the quick brown fox jumps')&&editors[0].textContent==='Unrelated first editor','typing observes the native-focused Paper editor even when another CodeMirror precedes it');
+  document.activeElement=editors[2];
+  h.ok(focusedPaperContent(document)!==typingTarget,'a later pane switch cannot silently replace the retained typing target');
+  for(const other of [editors[0],document.querySelector('input'),null]){document.activeElement=other;assert.throws(()=>focusedPaperContent(document),/native-focused Paper/)}
+  document.activeElement=paper;paper.remove();assert.throws(()=>focusedPaperContent(document),/native-focused Paper/);
+  h.ok(true,'non-Paper focus, missing focus and a detached Paper editor cannot qualify typing');
+  const clippedGrid={clip:{x:201,y:72,right:1201,bottom:871},boxes:Array.from({length:8},(_,i)=>({x:432+i%4*230,y:337.5+Math.floor(i/4)*230,right:652+i%4*230,bottom:547.5+Math.floor(i/4)*230}))};
+  const centered=nativeScaleCentering(clippedGrid);
+  h.ok(centered.fits&&centered.dx===-186&&centered.dy===-86,'the actual1470x923 failure centers the unchanged100% eight-model grid with a native pan');
+  const afterPan={clip:clippedGrid.clip,boxes:clippedGrid.boxes.map(b=>({x:b.x+centered.dx,y:b.y+centered.dy,right:b.right+centered.dx,bottom:b.bottom+centered.dy}))};
+  h.ok(afterPan.boxes.every(b=>b.x>=213&&b.right<=1189&&b.y>=84&&b.bottom<=859)&&nativeScaleCentering(afterPan).dx===0&&nativeScaleCentering(afterPan).dy===0,'all eight unchanged model boxes fit inside the real canvas after centering');
+  h.eq(nativeScaleCentering({...clippedGrid,clip:{x:201,y:72,right:1001,bottom:871}}).fits,false,'a smaller actual canvas requires normal zoom-out rather than accepting a clipped model');
+  for(const bad of [{clip:null,boxes:clippedGrid.boxes},{clip:clippedGrid.clip,boxes:[]},{clip:clippedGrid.clip,boxes:[{x:NaN,y:0,right:1,bottom:1}]}])assert.throws(()=>nativeScaleCentering(bad),/finite positive/);
+  h.ok(true,'missing or nonfinite native model geometry fails closed');
   const inventory=JSON.parse(await fs.readFile(new URL('./fixtures/model3d/s8-public-tree.json','file://'+__filename),'utf8'));
   h.eq(publicTreeHash(inventory.files),SOURCE.tree,'published example inventory reconstructs the exact pinned Git tree');
   h.eq(inventory.files.length,369,'pinned public example includes all369 files');
@@ -86,7 +106,7 @@ async function main(){
   h.ok(Object.values(compareCohorts([twoRefresh,imageFrames,imageFrames,twoRefresh],{idleVsyncMs:vsync})).every(r=>!r.ok),'more than one idle vsync above the baseline still fails');
   h.eq(cohortIdleVsyncMs([{gaps:Array(60).fill(16.674)},{gaps:[...Array(59).fill(16.674),50]}]),16.674,'pooled idle controls give the display vsync (median, robust to a hitch)');
   assert.throws(()=>cohortIdleVsyncMs([{gaps:[16.7]}]),/at least 30/);h.ok(true,'a too-short idle control cannot qualify');
-  // Review R1 (owner sign-off): native orbit uses the 17 ms house budget plus a
+  // Review R1 (owner approved): native orbit uses the 17 ms house budget plus a
   // dropped-frame bound; the 59.97 Hz evidence would fail the old 16.7 ms rule.
   const idle=Array(120).fill(16.674),owner=[...Array(94).fill(16.674),...Array(6).fill(16.702)];
   const ownerBudget=orbitFrameQualification({steadyGaps:owner,idleGaps:idle});

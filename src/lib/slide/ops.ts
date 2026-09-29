@@ -289,6 +289,8 @@ export interface SlidePresetAssetEntry {
   /** A REAL fluxplot manifest/recipe riding along (derived manifests re-derive). */
   manifest?: unknown;
   recipe?: unknown;
+  /** Explicitly inactive raw 3D metadata is preserved, never activated by thumbnails. */
+  modelMetadataActive?: boolean;
 }
 export interface SlidePresetSnapshot {
   fluxPreset: 1;
@@ -301,6 +303,8 @@ export interface SlidePresetSnapshot {
    *  picker thumbnail only. slide.background stays sparse: a theme-following
    *  slide keeps following the TARGET deck's theme after insert. */
   thumbBackground?: string;
+  /** Derived Design mesh PNGs for portable picker thumbnails, keyed by element. */
+  modelPosters?: Record<string, string>;
   /** The slide verbatim (id/name ignored at insert; beats/tracks remapped). */
   slide: Slide;
   assets?: SlidePresetAssetEntry[];

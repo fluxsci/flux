@@ -21,6 +21,11 @@ import type { Scene3dManifest } from '../src/lib/model3d/types';
 export type ModelPosterPolicy = 'project' | 'image' | 'collect';
 export interface ModelPosterResolveOptions {
   policy: ModelPosterPolicy;
+  /** Asset paths are relative to this document prefix (Figure default). */
+  assetPrefix?: string;
+  /** Already validated by a document-wide receipt resolver; own undefined
+   * entries deliberately keep mismatched/newer metadata inactive. */
+  manifests?: Readonly<Record<string, Scene3dManifest | undefined>>;
   surface?: PosterSurface;
   signal?: AbortSignal;
   /** Every saved placement participates in original-source binding. */
@@ -68,11 +73,11 @@ async function cached(file: string, size: { w: number; h: number }, root?: strin
 }
 const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`;
 /** Metadata-only scene sidecar read, bound to every placement's original receipt. */
-async function readModelManifest(root: string, asset: Asset, bindings: ReturnType<typeof collectModel3dSourceBindings>, signal?: AbortSignal): Promise<{ manifest?: Scene3dManifest; issues: string[] }> {
+async function readModelManifest(root: string, asset: Asset, bindings: ReturnType<typeof collectModel3dSourceBindings>, signal?: AbortSignal, prefix = "fig"): Promise<{ manifest?: Scene3dManifest; issues: string[] }> {
   try {
     const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
       return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, signal)).toString('utf8');
-    } }, 'fig/assets', asset.id, { binding: bindings.get(asset.id) });
+    } }, path.posix.join(prefix, path.posix.dirname(asset.path)), asset.id, { binding: bindings.get(asset.id) });
     return { manifest: metadata.manifest, issues: metadata.issues ?? [] };
   } catch (error) {
     signal?.throwIfAborted();
@@ -93,7 +98,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
   if (!used.size) return { context: model3dSvgContext(assets, manifests, surface), urls, warnings, requests: [] as StaticModelPosterRequest[], manifests };
   for (const asset of assets) if (used.has(asset.id) && asset.kind === 'glb') {
     abort(options.signal);
-    const rel = `fig/${asset.path}`;
+    const rel = path.posix.join(options.assetPrefix ?? "fig", asset.path);
     try {
       // Metadata-only presence probe; symlink/escape problems are named per model.
       if (await exists(await projectAssetPath(root, rel))) paths.set(asset.id, safeJoin(root, rel));
@@ -102,7 +107,9 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') missingFiles.set(asset.id, rel);
       else warnings.push(`3D model "${asset.name || asset.id}": ${error instanceof Error ? error.message : String(error)}`);
     }
-    const metadata = await readModelManifest(root, asset, bindings, options.signal);
+    const metadata = options.manifests && Object.hasOwn(options.manifests, asset.id)
+      ? { manifest: options.manifests[asset.id], issues: [] }
+      : await readModelManifest(root, asset, bindings, options.signal, options.assetPrefix ?? "fig");
     if (metadata.manifest) manifests[asset.id] = metadata.manifest;
     warnings.push(...metadata.issues);
   }
@@ -140,7 +147,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       try {
         if (!Number.isFinite(request.asset.bytes) || request.asset.bytes <= 0 || request.asset.bytes > GLB_LIMITS.maxBytes) throw new Error('model byte limit prevents poster rendering');
         if (!actualSizes.has(request.asset.id)) {
-          const file = await projectAssetPath(root, `fig/${request.asset.path}`), stat = await fs.stat(file);
+          const file = await projectAssetPath(root, path.posix.join(options.assetPrefix ?? "fig", request.asset.path)), stat = await fs.stat(file);
           if (!stat.isFile() || stat.size <= 0 || stat.size > GLB_LIMITS.maxBytes) throw new Error('model byte limit prevents poster rendering');
           actualSizes.set(request.asset.id, stat.size);
         }

@@ -106,4 +106,4 @@
     <text x={cx} y={cy + 20 * fit} text-anchor="middle" font-family="Inter, sans-serif" font-size={10 * fit} fill="#6F6E69">{shortReason}</text>
   </g>
 {/if}
-<g data-model3d-furniture="over">{@html furniture.over}</g>
+<g data-model3d-furniture="over" data-model3d-guide-overflow={layout.overflow || undefined}>{#if layout.overflow}<title>Enlarge this 3D model box to fit its guide labels at the current font size.</title>{/if}{@html furniture.over}</g>

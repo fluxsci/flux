@@ -34,6 +34,15 @@ try {
   assert.deepEqual(await missingPrerequisites({...spec,prerequisites:['build']},scratch),['build (npm run build)']);
   assert.match((await missingPrerequisites({...spec,prerequisites:['release-arguments']},scratch))[0], /explicit release-stage arguments/);
   assert.deepEqual(await missingPrerequisites({...spec,prerequisites:['future-contract']},scratch),['unknown prerequisite: future-contract']);
+  const pythonSpec={...spec,prerequisites:['model3d-python']};
+  assert.ok((await missingPrerequisites(pythonSpec,scratch,{PATH:path.join(scratch,'empty')})).some(s=>s.includes('FLUXPLOT_ROOT')),'missing isolated Python worktree is blocked before native launch');
+  const fp=path.join(scratch,'fluxplot-worktree');
+  for(const dir of ['examples','src/fluxplot','.venv/'+(process.platform==='win32'?'Scripts':'bin')])await mkdir(path.join(fp,dir),{recursive:true});
+  for(const rel of ['.git','pyproject.toml','examples/scene3d_demo.py','src/fluxplot/scene3d.py','.venv/'+(process.platform==='win32'?'Scripts/python.exe':'bin/python')])await writeFile(path.join(fp,rel),'fixture');
+  const noUv=await missingPrerequisites(pythonSpec,scratch,{FLUXPLOT_ROOT:fp,PATH:path.join(scratch,'empty')});
+  assert.deepEqual(noUv,['uv executable (uv --version)'],'prepared worktree still requires the actual uv tool');
+  await rm(path.join(fp,'.git'));await mkdir(path.join(fp,'.git'));
+  assert.ok((await missingPrerequisites(pythonSpec,scratch,{FLUXPLOT_ROOT:fp,PATH:path.join(scratch,'empty')})).some(s=>s.includes('FLUXPLOT_ROOT')),'an ordinary checkout is not admitted as an isolated Python worktree');
   assert.match((await missingPrerequisites({...spec,prerequisites:['linux-color-portal']},scratch,{PATH:path.join(scratch,'empty')}))[0], /Linux system Python\/Gio and accessible dbus-run-session/, 'missing optional portal toolchain is blocked before a test attempt');
   assert.match((await missingPrerequisites({...spec,prerequisites:['wayland-color-portal']},scratch,{}))[0], /Linux Wayland desktop/, 'headless native portal validation is blocked before a test attempt');
   assert.ok((await missingPrerequisites({...spec,externalNetwork:true},scratch,{})).length);
@@ -78,7 +87,7 @@ try {
   // Exercise the real aggregate runner in an empty disposable Git repository.
   // Every implementation file is untracked: this is the exact old-evidence gap.
   const repo=path.join(scratch,'runner repository');await mkdir(path.join(repo,'scripts/lib'),{recursive:true});
-  for(const name of ['run-verifies.mjs','lib/verifyRuntime.mjs','lib/liveProxyFixture.cjs','lib/testProcess.mjs','lib/nodeCheck.mjs','lib/changedVerifies.mjs','lib/releasePolicy.mjs'])
+  for(const name of ['run-verifies.mjs','lib/verifyRuntime.mjs','lib/liveProxyFixture.cjs','lib/model3dPythonPrerequisite.cjs','lib/testProcess.mjs','lib/nodeCheck.mjs','lib/changedVerifies.mjs','lib/releasePolicy.mjs'])
     await copyFile(path.resolve('scripts',name),path.join(repo,'scripts',name));
   await writeFile(path.join(repo,'.gitignore'),'test-results/\n');
   await writeFile(path.join(repo,'untracked-source.ts'),'original implementation');
@@ -95,6 +104,12 @@ try {
   assert.equal(changed.sourceChanged,true);assert.notEqual(changed.sourceStart.digest,changed.sourceEnd.digest);assert.equal(changed.results[0].status,'passed');assert.equal(changed.passed,1);
   const launched=path.join(repo,'must-not-launch.txt');
   await writeFile(path.join(repo,'scripts/live.cjs'),`require('node:fs').writeFileSync(${JSON.stringify(launched)},'launched');`);
+  await writeFile(path.join(repo,'scripts/verify-manifest.json'),JSON.stringify({tiers:{pure:['live.cjs']},groups:{},execution:{'live.cjs':pythonSpec}}));
+  assert.throws(()=>execFileSync(process.execPath,['scripts/run-verifies.mjs'],{cwd:repo,env:{...process.env,FLUXPLOT_ROOT:''},stdio:'pipe'}));
+  const pythonBlocked=JSON.parse(await readFile(path.join(repo,'test-results/summary.json'),'utf8'));
+  assert.equal(pythonBlocked.results[0].status,'blocked');assert.deepEqual(pythonBlocked.results[0].attempts,[]);
+  assert.match(pythonBlocked.results[0].reason,/FLUXPLOT_ROOT/);
+  assert.equal(await readFile(launched).then(()=>true,()=>false),false,'aggregate Python prerequisite refusal never launches the native probe');
   await writeFile(path.join(repo,'scripts/verify-manifest.json'),JSON.stringify({tiers:{pure:['live.cjs']},groups:{},execution:{'live.cjs':liveSpec}}));
   for(const config of [
     {FLUX_ALLOW_TEST_NETWORK:'',FLUX_TEST_EZPROXY_PREFIX:''},

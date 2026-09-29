@@ -59,11 +59,13 @@
     return q ? entries.filter((e) => `${e.preset.name} ${e.rel}`.toLowerCase().includes(q)) : entries;
   });
 
-  function doInsert(entry: SlidePresetEntry) {
-    const nid = insertSlidePreset(entry, slideId);
+  async function doInsert(entry: SlidePresetEntry) {
+    try {
+    const nid = await insertSlidePreset(entry, slideId);
     if (nid) pushToast("info", `Inserted "${entry.preset.name}"`);
     else pushToast("error", "Couldn't insert the preset (no deck loaded)");
     onClose();
+    } catch (error) { pushToast("error", "Could not insert the preset", { detail: String(error) }); }
   }
   async function doSave() {
     if (!slideId || saving) return;

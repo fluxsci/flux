@@ -2287,6 +2287,9 @@ days (probe geometry like `width` instead).
   small contact sheets before accepting generated artwork.
 - Headless Chromium may defer a no-timeout `requestIdleCallback` until another frame. A gate
   that waits for idle work must supply that frame deliberately, and say so in the gate.
+- A page can contain several CodeMirror editors, including inactive panes. Native typing
+  qualification retains the Paper editor selected by the actual click and compares that same
+  editor before/after; the first `.cm-content` in document order is not a valid oracle.
 - Chokidar readiness for existing roots says nothing about a directory created later: `addDir`
   fires before that subtree is scanned and attached. A test observer needs its own readiness
   barrier on the new subtree before the first write into it (`verify-model3d-cache-watch.cjs`).
@@ -8498,6 +8501,30 @@ failed on the pre-merge bundle).
 ### 2026-09-29 — Add the shared 3D slide model and tween core (Codex, model3d-slides-core)
 **Work:** Enabled metadata-only GLB assets and model elements in the unpublished 0.6 deck schema, added unwrapped orbit/logarithmic zoom and signed shape/field interpolation, and exposed Turntable through the existing shared transform operation. The registered slide-model3d group passed the new model checks plus existing tween and generated-validator gates; live player, import and authoring integration remain in progress.
 **Learnings:** Fetched origin still publishes 0.5, so 3D joins local animation-v2 format 0.6; raw progress controls discrete switches even when an easing overshoots.
+### 2026-09-29 — Prepare remaining native 3D qualification (Codex, model3d-slides-native)
+**Work:** Corrected native harness editor identity and real-canvas framing, declared the isolated
+fluxplot/uv prerequisite before smoke launch, and documented the owner-approved R1/R2 raw
+frame budgets. Registered pure regressions cover the prior competing-editor and 1470×923
+clipping failures and blocked-before-launch behavior; native results remain separate receipts.
+**Learnings:** Retain the clicked CodeMirror identity (promoted to §9); measure against the
+clipped canvas, including sidebars, and use native viewport navigation to frame the fixture.
+### 2026-09-29 — 3D guide wrapping completion (`model3d-slides-furniture`)
+**Work:** Completed the preserved owner title-fit draft without shrinking or eliding
+scientific labels. Hard tokens and legend rows wrap; effective guide fonts and edited
+field ranges drive layout. Shared colorbar tick selection is used by layout/rendering.
+Guide height can move between slots, with explicit overflow and a Figure hover resize
+hint when full text cannot fit. Python static furniture mirrors source layout/ticks.
+**Evidence:** Registered `model3d-furniture` pure/browser gates check hard tokens,
+physical fonts, range edits, impossible boxes and actual browser text bounds. The
+Python static suite checks actual Matplotlib glyph bounds and absent-tick fallback;
+three source fixtures compare exact TS/Python viewport and guide geometry. The 20%
+advance reserve is deliberate: the old Arial-only estimate underestimated default
+DejaVu Sans by 8–18% in measured examples. Custom fonts remain estimates. Screenshots
+live under `test-results/model3d/furniture-fit/`; renderer/native performance is not
+claimed by these layout checks. No animation-v2 state/target behavior changed.
+Author final group2/2 (06-34-32-845Z-16), independent n1 group2/2
+(06-39-11-321Z-2), check0/0 and headless typecheck passed. Core independently approved
+the source. Python full340passed2skipped116warnings20.74s; independent static8/8 passed.
 
 ### 2026-09-29 — Deck-owned 3D import receipts
 

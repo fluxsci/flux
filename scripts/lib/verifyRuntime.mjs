@@ -7,6 +7,7 @@ import os from 'node:os';
 import { TestProcessScope, testElectronArgs } from './testProcess.mjs';
 const require = createRequire(import.meta.url);
 const { proxyConfigurationProblem } = require('./liveProxyFixture.cjs');
+const { model3dPythonWorktreeProblem } = require('./model3dPythonPrerequisite.cjs');
 export function executionSpec(manifest, name) {
   const s = manifest.execution?.[name];
   if (!s || !['node', 'tsx', 'electron', 'node-electron'].includes(s.runtime) || !Array.isArray(s.prerequisites) || s.isolation !== 'scratch' || typeof s.externalNetwork !== 'boolean' || typeof s.exclusive !== 'boolean')
@@ -126,6 +127,10 @@ export async function missingPrerequisites(spec, repo, env = process.env) {
       const problem=proxyConfigurationProblem(env);if(problem)missing.push(problem);
     } else if (p === 'quarto') {
       if (!runs('quarto', ['--version'])) missing.push('Quarto executable (quarto --version)');
+    } else if (p === 'model3d-python') {
+      const problem = model3dPythonWorktreeProblem(env.FLUXPLOT_ROOT);
+      if (problem) missing.push(problem);
+      if (!runs('uv', ['--version'])) missing.push('uv executable (uv --version)');
     } else if (p === 'chrome') {
       if (!runs(env.FLUX_CHROME || '/usr/bin/google-chrome', ['--version'])) missing.push('Chrome executable (FLUX_CHROME or /usr/bin/google-chrome)');
     } else if (p === 'latex') {

@@ -9,3 +9,9 @@ export function niceTicks(min:number,max:number,count=5):number[]{
  return out;
 }
 export function tickLabel(value:number):string {if(Object.is(value,-0)||value===0)return '0';const abs=Math.abs(value);return abs>=1e5||abs<1e-3?value.toExponential(2).replace(/\.0+(?=e)/,''):String(Number(value.toPrecision(6)));}
+
+/** The exact colorbar labels used by both its layout and renderer. */
+export function colorbarTicks(field:{range:readonly[number,number];ticks?:number[]},overrideRange?:readonly[number,number]):number[]{
+ const range=overrideRange??field.range;
+ return (overrideRange?niceTicks(...range):field.ticks??niceTicks(...range)).filter(value=>value>=range[0]&&value<=range[1]);
+}

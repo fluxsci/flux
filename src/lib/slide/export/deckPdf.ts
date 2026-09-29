@@ -1,3 +1,4 @@
+import { slideModelPosterIO } from "../model3dPosterIO";
 // Slide deck -> PDF (2026-09-24, owner request: "export slides in PDF format
 // besides HTML").
 //
@@ -50,13 +51,13 @@ export async function deckPdfDocument(
   plan: DeckPdfPages = "final",
 ): Promise<DeckPdfDocument> {
   // Static pages show a video's poster frame; never stream or inline the movie.
-  const staticIO: SlidePayloadIO = { ...io, videoUrl: async () => "" };
+  const staticIO: SlidePayloadIO = { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const };
   const deck = await readEmbedDeck(root, deckId, staticIO);
   if (!deck.slides.length) throw new Error("This deck has no slides to export");
   const fonts = (await import("../../../../.generated/slide-embed-assets.json")).default.fonts as string;
   const { width: w, height: h } = deck.stage;
   const pages: string[] = [];
-  const warnings: string[] = [];
+  const warnings: string[] = deck.slides.some(s => s.elements.some(e => e.type === "model3d")) ? ["3D animation exported as a still"] : [];
   for (const slide of deck.slides) {
     const result = await gatherSlidePayload(root, deck, slide.id, staticIO);
     for (const warning of result.warnings) if (!warnings.includes(warning)) warnings.push(warning);

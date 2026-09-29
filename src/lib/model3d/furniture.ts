@@ -5,7 +5,7 @@ import type { FurnitureLayout } from './furnitureLayout';
 import { project,pixelsPerUnit } from './orbit';
 import { buildScene3dPartIndex,scene3dFields,resolveScene3dPartStyle } from './scene3d';
 import { resolvedColormap } from './colormap';
-import { niceTicks,tickLabel } from './ticks';
+import { niceTicks,tickLabel,colorbarTicks } from './ticks';
 import { transformPoint } from './glbCore.mjs';
 import { axesBoxLimits } from './framing';
 import { partDomId } from '../plot/parse';
@@ -86,11 +86,14 @@ export function furnitureNodes(manifest:Scene3dManifest|null|undefined,el:Model3
   over.push({tag:'defs',key:id,attrs:{},children:[{tag:'linearGradient',key:id+'-gradient',attrs:{id,x1:'0%',x2:'0%',y1:'100%',y2:'0%'},children:stops.map(([v,color],i)=>({tag:'stop',key:`stop-${i}`,attrs:{offset:`${v*100}%`,'stop-color':color}}))}]});
   add(over,part.id,'rect','colorbar',{x:slot.x,y:slot.y,width:slot.width,height:slot.height,fill:`url(#${id})`,stroke:muted,'stroke-width':lw});
   const labelSize=override(part.id).fontSize??fs;
-  const ticks=o?.range?niceTicks(range[0],range[1]):field.ticks??niceTicks(range[0],range[1]);ticks.forEach((value,i)=>{if(value<range[0]||value>range[1])return;const y=slot.y+slot.height*(range[1]===range[0]?.5:1-(value-range[0])/(range[1]-range[0]));line(over,part.id,`cbar-tick-${i}`,{x:slot.x+slot.width,y},{x:slot.x+slot.width+3,y});text(over,part.id,`cbar-label-${i}`,slot.x+slot.width+6,y+labelSize*.3,tickLabel(value),{'text-anchor':'start'});});
+  const ticks=colorbarTicks(field,o?.range);ticks.forEach((value,i)=>{if(value<range[0]||value>range[1])return;const y=slot.y+slot.height*(range[1]===range[0]?.5:1-(value-range[0])/(range[1]-range[0]));line(over,part.id,`cbar-tick-${i}`,{x:slot.x+slot.width,y},{x:slot.x+slot.width+3,y});text(over,part.id,`cbar-label-${i}`,slot.x+slot.width+6,y+labelSize*.3,tickLabel(value),{'text-anchor':'start'});});
   // Wrapped title lines stack upward from the line just above the bar (see furnitureLayout).
   const titleLines=slot.titleLines??(field.label?[field.label]:[]);titleLines.forEach((line,i)=>text(over,part.id,i?`cbar-title-${i}`:'cbar-title',slot.x,slot.y-labelSize*(1.05+1.25*(titleLines.length-1-i)),line,{'text-anchor':'start'}));
  }
- for(const slot of layout.legends){const part=parts[slot.partId];(part?.entries??[]).filter(id=>parts[id]&&!override(id).hidden).forEach((id,i)=>{/* hidden parts leave the legend and the rest reflow */const entry=parts[id];const y=slot.y+i*layout.lineHeight,o=override(id);add(over,part.id,'rect',`legend-swatch-${i}`,{x:slot.x,y:y-fs*.7,width:fs,height:fs,fill:o.fill??entry.color??el.fill,opacity:o.opacity??entry.opacity??1});text(over,part.id,`legend-label-${i}`,slot.x+fs*1.5,y+fs*.2,entry.label??id,{'text-anchor':'start'});});}
+ for(const slot of layout.legends){const part=parts[slot.partId],size=override(part.id).fontSize??fs,rowHeight=Math.max(layout.lineHeight,size*1.4);
+  const rows=slot.legendRows??(part?.entries??[]).filter(id=>parts[id]&&!override(id).hidden).map((id,i)=>({id,lines:[parts[id].label??id],offset:i*rowHeight}));
+  rows.forEach(({id,lines,offset},i)=>{const entry=parts[id],y=slot.y+offset,o=override(id);add(over,part.id,'rect',`legend-swatch-${i}`,{x:slot.x,y:y-fs*.7,width:fs,height:fs,fill:o.fill??entry.color??el.fill,opacity:o.opacity??entry.opacity??1});lines.forEach((label,j)=>text(over,part.id,j?`legend-label-${i}-${j}`:`legend-label-${i}`,slot.x+fs*1.5,y+size*.2+j*rowHeight,label,{'text-anchor':'start'}));});
+ }
  if(layout.title){const slot=layout.title,part=parts[slot.partId];text(over,slot.partId,'title',slot.x+slot.width/2,slot.y+slot.height*.7,part?.text??part?.label??'',{'font-size':(style.titleSizePt??8)*4/3});}
  function group(nodes:FurnitureNode[]):FurnitureNode[]{const grouped:FurnitureNode[]=[],byPart=new Map<string,FurnitureNode>();for(const node of nodes){if(!node.partId){grouped.push(node);continue;}let g=byPart.get(node.partId);if(!g){g={tag:'g',key:node.partId,partId:node.partId,attrs:{id:partDomId(el.id,node.partId),'data-part-id':node.partId,'data-role':parts[node.partId]?.role??'axis'},children:[]};byPart.set(node.partId,g);grouped.push(g);}g.children!.push(node);}return grouped;}
  const underNodes=group(under),overNodes=group(over);return {underNodes,overNodes};

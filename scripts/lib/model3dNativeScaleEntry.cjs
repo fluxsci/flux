@@ -20,6 +20,7 @@ const js = code => win.webContents.executeJavaScript(code, true);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const p95 = values => [...values].sort((a, b) => a - b)[Math.ceil(values.length * .95) - 1];
 const { orbitFrameQualification, HOUSE_FRAME_BUDGET_MS } = require('./model3dNativeScaleBudget.cjs');
+const { nativeScaleCentering } = require('./model3dNativeScaleViewport.cjs');
 function check(ok, label) { checks.push({ ok: !!ok, label }); console.log('PROBE ' + JSON.stringify(checks.at(-1))); if (!ok) throw Error(label); }
 async function qualified() {
   if (!win.isFocused() || !win.isVisible() || !await js("document.visibilityState==='visible'&&document.hasFocus()")) throw Error('Native scale window lost focus/visibility; cohort is unqualified');
@@ -84,6 +85,17 @@ async function instrument() {
     };
   })()`);
 }
+async function canvasVisibility() {
+  return js(`(()=>{
+      const host=document.querySelector('.figure-mode .canvas-host'),h=host?.getBoundingClientRect();
+      if(!host||!h)return null;
+      const clip={x:Math.max(0,h.x+host.clientLeft),y:Math.max(0,h.y+host.clientTop),right:Math.min(innerWidth,h.x+host.clientLeft+host.clientWidth),bottom:Math.min(innerHeight,h.y+host.clientTop+host.clientHeight)};
+      const boxes=[...document.querySelectorAll('.figure-mode [data-editor-element-id^="scale-element-"]')].map(n=>{
+        const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+        return{id:n.dataset.editorElementId,x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(x,y))};
+      });return{clip,boxes};
+    })()`);
+}
 async function boot() {
   win = await wait(() => BrowserWindow.getAllWindows()[0], 'production BrowserWindow');
   metrics.displaySnapshot={displays:screen.getAllDisplays().map(d=>({bounds:d.bounds,workArea:d.workArea})),primary:screen.getPrimaryDisplay()};
@@ -102,17 +114,32 @@ async function boot() {
   if (!captureBaseline) {
     await click('.figure-mode .zoom button:last-child');
     await wait(()=>js("document.querySelector('.figure-mode .zoomval')?.textContent==='100%'"),'native toolbar100% fixture zoom');
-    metrics.canvasVisibility=await js(`(()=>{
-      const host=document.querySelector('.figure-mode .canvas-host'),h=host?.getBoundingClientRect();
-      if(!host||!h)return null;
-      const clip={x:Math.max(0,h.x+host.clientLeft),y:Math.max(0,h.y+host.clientTop),right:Math.min(innerWidth,h.x+host.clientLeft+host.clientWidth),bottom:Math.min(innerHeight,h.y+host.clientTop+host.clientHeight)};
-      const boxes=[...document.querySelectorAll('.figure-mode [data-editor-element-id^="scale-element-"]')].map(n=>{
-        const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
-        return{id:n.dataset.editorElementId,x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(x,y))};
-      });return{clip,boxes};
-    })()`);
+    const framing = [];
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const view = await canvasVisibility(), plan = nativeScaleCentering(view);
+      framing.push({ view, plan });
+      if (plan.fits) break;
+      await click('.figure-mode button[aria-label="Zoom out"]');
+      const width = view.boxes[0].width;
+      await wait(async()=>Math.abs((await canvasVisibility()).boxes[0].width-width)>1,'native toolbar zoom changes model size');
+      if (attempt===23) throw Error('Real canvas cannot frame the eight-model fixture');
+    }
+    let view = await canvasVisibility();
+    const center = { x:Math.round((view.clip.x+view.clip.right)/2), y:Math.round((view.clip.y+view.clip.bottom)/2) };
+    // Calibrate the actual native wheel sign, then undo that small pan before
+    // centering. This changes only the viewport, never fixture geometry/scale.
+    win.webContents.sendInputEvent({type:'mouseWheel',...center,deltaX:0,deltaY:8});
+    await wait(async()=>Math.abs((await canvasVisibility()).boxes[0].y-view.boxes[0].y)>1,'native pan delivery');
+    const sign = Math.sign((await canvasVisibility()).boxes[0].y-view.boxes[0].y);
+    win.webContents.sendInputEvent({type:'mouseWheel',...center,deltaX:0,deltaY:-8});
+    await wait(async()=>Math.abs((await canvasVisibility()).boxes[0].y-view.boxes[0].y)<1,'native pan calibration restored');
+    const plan = nativeScaleCentering(await canvasVisibility());
+    win.webContents.sendInputEvent({type:'mouseWheel',...center,deltaX:plan.dx/sign,deltaY:plan.dy/sign});
+    await wait(async()=>{const p=nativeScaleCentering(await canvasVisibility());return p.fits&&Math.abs(p.dx)<=1&&Math.abs(p.dy)<=1},'native fixture centered in the actual canvas');
+    metrics.framing={attempts:framing,wheelSign:sign,zoom:await js("document.querySelector('.figure-mode .zoomval')?.textContent")};
+    metrics.canvasVisibility=await canvasVisibility();
     const visible=metrics.canvasVisibility;
-    check(visible&&visible.clip.right>visible.clip.x&&visible.clip.bottom>visible.clip.y&&visible.boxes.length===expectedModels&&visible.boxes.every(r=>r.width>0&&r.height>0&&r.x>=visible.clip.x&&r.y>=visible.clip.y&&r.right<=visible.clip.right&&r.bottom<=visible.clip.bottom&&r.hit),'all eight model boxes are visible and hittable inside the canvas at100% fixture zoom');
+    check(visible&&visible.clip.right>visible.clip.x&&visible.clip.bottom>visible.clip.y&&visible.boxes.length===expectedModels&&visible.boxes.every(r=>r.width>0&&r.height>0&&r.x>=visible.clip.x&&r.y>=visible.clip.y&&r.right<=visible.clip.right&&r.bottom<=visible.clip.bottom&&r.hit),'all eight model boxes are visible and hittable inside the actual clipped canvas');
   }
   await wait(() => js(`document.querySelectorAll('.figure-mode [data-model3d-poster]').length===${expectedModels}`), 'all expected decoded model posters', 90000);
   await paint();
@@ -229,7 +256,7 @@ async function orbit() {
   check(changed > 100, 'real trusted orbit changes mesh pixels');
   check(inputs.length >= 200 && frames.length >= 90 && boundaries.length >= 90, 'sustained orbit has a substantial delivered and published cohort');
   check(inputs.every(e=>e.visible==='visible'&&e.focused) && frames.every(f=>f.visible==='visible'&&f.focused), 'all measured native inputs and publications remain focused and visible');
-  // Review R1 (owner sign-off): the house 17 ms p95 budget plus a dropped-frame
+  // Review R1 (owner approved in the Stage 2 prompt): the house 17 ms p95 budget plus a dropped-frame
   // bound against the idle vsync control recorded earlier in this same run.
   // See model3dNativeScaleBudget.cjs for the 59.97 Hz evidence.
   const budget = metrics.orbit.frameBudget = orbitFrameQualification({ steadyGaps: steady, idleGaps: metrics.idleControl.gaps });

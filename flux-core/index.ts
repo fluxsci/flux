@@ -178,3 +178,5 @@ export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolv
 export { beatDelayMs } from "../src/lib/slide/timing";
 export { isHandoff } from "../src/lib/slide/targets";
 export { canAutoAnimateRest } from "../src/lib/slide/autobuild";
+
+export { addSlideModel, addSlideTurntable } from "./slideModels";

@@ -108,6 +108,7 @@ if (process.env.FLUX_SLIDE_VIDEO_WORKER === "1") {
   (async () => {
     const job = JSON.parse(require("node:fs").readFileSync(process.env.FLUX_VIDEO_JOB, "utf8"));
     app.setPath("userData", path.join(path.dirname(job.html), "profile"));
+    app.commandLine.appendSwitch("enable-unsafe-swiftshader");
     app.commandLine.appendSwitch("force-color-profile", "srgb");
     app.commandLine.appendSwitch("disable-renderer-backgrounding");
     await Promise.race([app.whenReady(), new Promise((_resolve, reject) => setTimeout(() => reject(new Error("Video renderer did not start")), 20000))]);

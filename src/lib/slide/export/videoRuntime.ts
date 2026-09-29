@@ -1,3 +1,4 @@
+import { payloadModelHost, payloadModelContext } from "./model3dPayloadHost";
 import { createPlayer } from "../player/player";
 import { holdFlightLayers } from "../player/render";
 import { embedPlayerOptions, compileSlideFor } from "../embedRender";
@@ -26,7 +27,8 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
     const img = new Image(); img.src = url;
     await img.decode();
   }
-  const playerOptions = embedPlayerOptions(payload);
+  const modelHost = payloadModelHost(payload);
+  const playerOptions = { ...embedPlayerOptions(payload), ...payloadModelContext(payload), model3d: modelHost, pixelScale: scale };
   document.body.style.background = deck.slides[0].background ?? deck.background ?? playerOptions.theme.background;
   // Frames are captured with arbitrary wall time between them: hold every
   // flight layer so a moving element is ONE raster moved across frames, not a
@@ -38,8 +40,8 @@ export async function boot(payload: ExportPayload, input: Partial<SlideVideoOpti
   const plan = planSlideVideo(deck.slides[0], player.beatDurations(), options, timing);
   const mediaEvents = videoEventsForPlan(deck.slides[0], plan, timing);
   return {
-    info: { ...size, frames: plan.frameCount, durationMs: plan.frameCount * 1000 / plan.fps, fps: plan.fps, issues: player.state().issues, audio: videoAudioSegments(deck.slides[0], mediaEvents, plan.frameCount * 1000 / plan.fps) },
+    info: { ...size, frames: plan.frameCount, durationMs: plan.frameCount * 1000 / plan.fps, fps: plan.fps, issues: [...player.state().issues, ...(!modelHost && Object.keys(payload.models ?? {}).length ? [{ reason: "3D model rendered as a still" }] : [])], audio: videoAudioSegments(deck.slides[0], mediaEvents, plan.frameCount * 1000 / plan.fps) },
     async frame(index: number) { const at = videoFrame(plan, index); player.seek(0, at.beat, at.time, at.fromBeat, false); await player.captureMedia(mediaEvents, index * 1000 / plan.fps); },
-    destroy: () => player.destroy(),
+    destroy: () => { player.destroy(); modelHost?.dispose(); },
   };
 }

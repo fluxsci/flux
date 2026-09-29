@@ -12,6 +12,7 @@ module.exports = async function createModel3dProbe({ win, js, wait, wheel, mouse
   const report = { variant, fixture, phases: {}, modelWorkers: null, context: null };
   await js(`(()=>{
     const p=window.__model3dS8={ids:${JSON.stringify(ids)},workers:[],samples:[],inputs:[],measuring:false};
+    p.focusedPaperContent=${focusedPaperContent.toString()};
     p.geometry=()=>{
       const h=document.querySelector('.figure-mode .canvas-host')?.getBoundingClientRect();
       const f=document.querySelector('[data-annotation-figure="${fixture.figureId}"] .figure-bg')?.getBoundingClientRect();
@@ -66,7 +67,10 @@ module.exports = async function createModel3dProbe({ win, js, wait, wheel, mouse
     persist();
   }
   async function beforePhase(label) {
-    if(label==='paper:typing'){report.typingBefore=await js("document.querySelector('.cm-content').textContent");return;}
+    if(label==='paper:typing'){
+      report.typingBefore=await js("(()=>{const p=window.__model3dS8;p.typingTarget=p.focusedPaperContent(document);return p.typingTarget.textContent})()");
+      return;
+    }
     if (!label.startsWith('figure:')) return;
     const initial=await geometry();
     if (!s8BoxesVisible(initial,variant)) throw Error('All four S8 boxes must be visible before '+label);
@@ -86,7 +90,7 @@ module.exports = async function createModel3dProbe({ win, js, wait, wheel, mouse
       const minimum=label.endsWith(':hover')?['moves',35]:label.endsWith(':panSmall')?['wheels',72]:['wheels',20];
       if (raw[minimum[0]]<minimum[1]) throw Error('S8 native input delivery incomplete: '+label);
     } else if (label==='paper:typing') {
-      const text=await js("document.querySelector('.cm-content').textContent");
+      const text=await js("(()=>{const p=window.__model3dS8;if(!p.typingTarget?.isConnected||p.focusedPaperContent(document)!==p.typingTarget)throw Error('S8 Paper typing editor identity changed');return p.typingTarget.textContent})()");
       report.phases[label]={delivered:raw.keys,painted:raw.keyPaint.length,changed:text!==report.typingBefore,inserted:text.includes(' the quick brown fox jumps')};persist();
       if(!report.phases[label].changed||!report.phases[label].inserted)throw Error('S8 actual Paper text did not change');
       if (raw.keys<25 || raw.keyPaint.length<25) throw Error('S8 Paper typing was not delivered and painted');
@@ -131,3 +135,12 @@ function s8InteractionEvidence(phase, initial, samples){
   return {ok:states.includes('empty')&&states.includes('row')&&transitions>=10,transitions,rowFrames:states.filter(s=>s==='row').length,emptyFrames:states.filter(s=>s==='empty').length};
 }
 module.exports.s8InteractionEvidence=s8InteractionEvidence;
+
+/** The native prose click chooses the editor. Other CodeMirror instances (for
+ * example an inactive document or a code pane) are not the typing oracle. */
+function focusedPaperContent(doc) {
+  const content = doc.activeElement?.closest?.('.cm-content');
+  if (!content?.isConnected || !content.closest('.paper') || !content.contains(doc.activeElement)) throw Error('S8 typing needs the native-focused Paper editor');
+  return content;
+}
+module.exports.focusedPaperContent = focusedPaperContent;
