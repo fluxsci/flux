@@ -452,8 +452,8 @@ gesture, not arithmetic.
 **F5** presents from the start (**Shift+F5** from the current slide). Arrow keys and **Space**
 advance beats (**Shift+arrows** jump whole slides), a typed **number + Enter** jumps to a
 slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** toggles
-fullscreen, **R** resets the timer, **Escape** leaves. Click zones work too: left quarter
-back, elsewhere forward.
+fullscreen without leaving, **R** resets the timer, and one **Escape** leaves, even in
+fullscreen. Click zones work too: left quarter back, elsewhere forward.
 
 # 3D models
 

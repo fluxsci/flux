@@ -76,6 +76,27 @@ try {
   await sleep(400);
   ok(/1 \/ 2/.test((await state()).hud), "ArrowLeft steps back");
 
+  // One Esc leaves Present. In fullscreen Chromium spends Escape on leaving
+  // fullscreen and never delivers the key, so a fullscreen exit Present did not
+  // ask for closes it; F still toggles fullscreen without closing.
+  const fullscreen = () => page.evaluate(() => document.fullscreenElement?.classList.contains("present") === true);
+  if (!(await fullscreen())) await page.keyboard.press("f"); // a script click is no gesture; F is
+  await waitFor(page, () => document.fullscreenElement?.classList.contains("present") === true, null, { timeout: 5000, label: "Present fullscreen" });
+  await page.keyboard.press("f");
+  await waitFor(page, () => !document.fullscreenElement, null, { timeout: 5000, label: "F leaves fullscreen" });
+  await sleep(300); // observation window: a wrongful close would unmount within a frame
+  ok(!!(await page.$(".present")), "F leaves fullscreen without closing Present");
+  await page.keyboard.press("f");
+  await waitFor(page, () => document.fullscreenElement?.classList.contains("present") === true, null, { timeout: 5000, label: "F re-enters fullscreen" });
+  ok(true, "F re-enters fullscreen");
+  await page.evaluate(() => document.exitFullscreen()); // the browser's own exit, as Chromium does on Escape
+  await waitFor(page, () => !document.querySelector(".present") && !document.fullscreenElement, null, { timeout: 5000, label: "fullscreen exit closes Present" });
+  ok(true, "leaving fullscreen by the browser's Escape closes Present in one step");
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".deckbar button")].find((b) => /Present/.test(b.textContent || ""))?.click();
+  });
+  await waitFor(page, () => !!document.querySelector(".present"), null, { timeout: 6000, label: "present reopened" });
+
   await page.keyboard.press("Escape");
   await waitFor(page, () => !document.querySelector(".present"), null, { timeout: 5000, label: "present closed" });
   ok(true, "Escape exits present mode back to the editor");

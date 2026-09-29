@@ -84,13 +84,13 @@ export async function runSlideModelScaleCohort(ui, fixture, { hardware = false, 
     receipt.final = await state();
     check(receipt.final.stats.contexts === 1 && receipt.final.observedInlineContexts === 1 && receipt.final.stats.assets === 2 && receipt.final.stats.morphPairs === 1, 'nine independent views share two assets and one prepared morph pair without replacing the context');
     check(receipt.final.stats.residentBytes < 768 * 1024 * 1024, 'retained GLB bytes remain below the existing 768MiB budget');
+    // Present opens in HTML fullscreen, where Chromium spends Escape on leaving fullscreen
+    // without delivering the key; Present closes on that exit, so ONE Escape must do.
+    receipt.fullscreenBeforeEscape = await evaluate(() => document.fullscreenElement?.classList.contains('present') === true);
+    if (hardware) check(receipt.fullscreenBeforeEscape, 'native Present is in HTML fullscreen before its closing Escape');
     await ui.press('Escape');
-    // Present opens in HTML fullscreen, where Chromium spends the first Escape leaving
-    // fullscreen without delivering it; the second one reaches Present and closes it.
-    await ui.wait(async () => evaluate(() => !document.fullscreenElement), 'Present leaves fullscreen');
-    if (await evaluate(() => !!document.querySelector('.present'))) await ui.press('Escape');
-    await ui.wait(async () => evaluate(() => !document.querySelector('.present') && !document[Symbol.for('flux.model3d.inlineHost')]), 'Present disposes inline host');
-    check(true, 'closing Present disposes the actual inline pool');
+    await ui.wait(async () => evaluate(() => !document.querySelector('.present') && !document[Symbol.for('flux.model3d.inlineHost')] && !document.fullscreenElement), 'one Escape closes Present and disposes its inline host');
+    check(true, 'one Escape closes Present and disposes the actual inline pool');
     receipt.ok = true;
   } catch (error) { receipt.ok = false; receipt.error = String(error.stack || error); receipt.errorCode = error.code; }
   return receipt;

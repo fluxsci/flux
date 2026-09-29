@@ -2324,6 +2324,13 @@ days (probe geometry like `width` instead).
   actual tools before launching an isolated attempt. CI provisions Quarto for both the
   bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
   capable machines; never exit successfully merely because an export tool is unavailable.
+- **In HTML fullscreen, native Chromium spends Escape on leaving fullscreen and never
+  delivers the key** (Electron `sendInputEvent`, a real keyboard). Present therefore closes
+  on a `fullscreenchange` it did not request (its own F toggle and teardown set a flag),
+  unless a shell modal owns the keyboard. Puppeteer's CDP Escape in headless Chrome IS
+  delivered and leaves fullscreen alone, so browser gates simulate the native exit with
+  `document.exitFullscreen()` (`verify-slide-present-gui`); only the native slide-scale
+  gate presses the real key (2026-09-29).
 - **A dismissed toast is still in the DOM for its fade** (`Toasts.svelte`,
   `transition:fade` of `DUR.quick` = 200 ms). "Gone after one paint" fails every time;
   wait for the node to leave with a timeout well under the 3.5 s info expiry, so the check
@@ -8640,3 +8647,18 @@ preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). 
 - Registry entries outlive their elements for Undo; a save or conversion preflight must
   judge references, not the registry (promoted to the §9 3D table).
 - The computed-to-stored path crossing (§9) also covers resolved CLI/MCP inputs (promoted).
+
+### 2026-09-29 — 3D slide follow-ups: mesh-part crossfade, per-step stills, one-Escape Present (Claude Opus 5.5, `fu-slides`)
+**Work:** A Become into a 3D mesh part now crossfades in place; CLI, offline-HTML, PDF and
+PPTX model stills key and render each step's mesh-part visibility through the Node worker;
+one Escape leaves fullscreen Present. The native slide-scale gate twice missed only the
+morph-plus-eight-ghosts p95 (33 ms, machine shared with other agents' gates) before its
+Escape step; a deleted diagnostic copy of that harness then measured 16.8 ms for both
+segments and closed fullscreen Present with one Escape.
+**Learnings:**
+- Native fullscreen Escape never reaches the page (promoted to §9 CI browsers); a mesh
+  part owns no DOM outline, so a Become into it crossfades (promoted to the §9 T36 row).
+- A dev server that has hot-reloaded many modules failed `verify-model3d-source-gui`'s
+  idle watcher step; a restarted server passed. Restart it before judging such a failure.
+- Under heavy load `verify-fluxconfig` can fail: two concurrent `installLaunchers` in one
+  process share the `flux.tmp-<pid>` name and one rename hits ENOENT. Not fixed here.
