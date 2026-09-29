@@ -2084,23 +2084,28 @@ function scene3dPartLineage(index, id) {
   return out.reverse();
 }
 function scene3dPartTargets(index, id) {
-  if (!Object.hasOwn(index, id)) return [id];
+  return scene3dTargetResolver(index)(id);
+}
+function scene3dTargetResolver(index) {
   const children = /* @__PURE__ */ new Map();
   for (const part of Object.values(index)) if (part.parent) {
     const siblings = children.get(part.parent);
     if (siblings) siblings.push(part.id);
     else children.set(part.parent, [part.id]);
   }
-  const out = [], queue = [id], seen = /* @__PURE__ */ new Set();
-  while (queue.length) {
-    const current = queue.pop();
-    if (seen.has(current)) throw new Error(`Cyclic 3D part parents at ${current}`);
-    seen.add(current);
-    const part = index[current], nested = children.get(current);
-    if (!part.synthetic && (part.node || !nested?.length)) out.push(current);
-    if (nested) for (let i = nested.length - 1; i >= 0; i--) queue.push(nested[i]);
-  }
-  return out;
+  return (id) => {
+    if (!Object.hasOwn(index, id)) return [id];
+    const out = [], queue = [id], seen = /* @__PURE__ */ new Set();
+    while (queue.length) {
+      const current = queue.pop();
+      if (seen.has(current)) throw new Error(`Cyclic 3D part parents at ${current}`);
+      seen.add(current);
+      const part = index[current], nested = children.get(current);
+      if (!part.synthetic && (part.node || !nested?.length)) out.push(current);
+      if (nested) for (let i = nested.length - 1; i >= 0; i--) queue.push(nested[i]);
+    }
+    return out;
+  };
 }
 
 // src/lib/model3d/scene3d.ts
