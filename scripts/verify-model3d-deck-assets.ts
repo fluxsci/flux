@@ -75,6 +75,7 @@ const disk = {
 const store = await import('../src/lib/store');
 const assetStore = await import('../src/lib/assets');
 const { setStoreTenant } = await import('../src/lib/tenancy');
+const {model3dDeckScope,modelAssetPrefix}=await import('../src/lib/model3d/editorScope');
 const { loadDeckModel, currentDeck, commitDeckLive } = await import('../src/lib/slide/store');
 const { createDeck, addSlide } = await import('../src/lib/slide/ops');
 const { planFigSave } = await import('../src/lib/project/figfiles');
@@ -89,7 +90,7 @@ const figure = { id: 'figure', canvasId: 'canvas', name: 'Neuron figure', x: 0, 
 async function seed(figureModels = false, sidecar = unknownManifest) {
   beforeCopy = undefined; beforeRead = undefined; copies = 0; deckCopies = 0;
   await fs.rm(root, { recursive: true, force: true }); await fs.mkdir(root, { recursive: true });
-  store.embeddedProjectRoot.set(root); setStoreTenant('figure'); resetDeckBaselines(); clearScene3dSidecars(); assetStore.assetData.set({});
+  store.embeddedProjectRoot.set(root); setStoreTenant('figure'); assert.equal(get(model3dDeckScope),null); resetDeckBaselines(); clearScene3dSidecars(); assetStore.assetData.set({});
   const project = { version: 2 as const, name: 'Scientific fixture', canvases: [{ id: 'canvas', name: 'Canvas' }], figures: [{ ...structuredClone(figure), elements: figureModels ? [structuredClone(el)] : [] }], assets: figureModels ? [structuredClone(asset)] : [], palette: [] };
   const plan = planFigSave(project, null);
   for (const file of [...plan.canvases, ...plan.captions, plan.index]) await disk.writeText(path.join(root, file.path), file.text);
@@ -115,6 +116,7 @@ async function diskDeck(id = 'source-deck', sidecar = unknownManifest) {
 }
 try {
   await seed(); const d = await diskDeck(); setStoreTenant('slide'); await loadDeckInto(root, d.id);
+  h.eq(modelAssetPrefix(asset.id,get(model3dDeckScope)),`slides/${d.id}`,'owned deck load publishes local model prefix before editor consumers');
   h.eq(get(assetStore.assetData), {}, 'public deck open keeps GLB out of renderer assetData');
   h.ok(!get(scene3dManifests).neuron && !get(scene3dRecipes).neuron && get(scene3dIssues).neuron.length >= 2, 'newer manifest and invalid recipe remain inactive with diagnostics');
   commitDeckLive(value => { value.title = 'Saved title'; }); await saveDeckFrom(root);
@@ -136,6 +138,7 @@ try {
   h.eq(sent.assets?.length ?? 0, 0, 'saved Figure model remains an external by-id deck reference');
   h.eq(copies, 0, 'saved Figure by-id conversion never copies or reads GLB into renderer');
   setStoreTenant('slide'); await loadDeckInto(root, byId.deckId);
+  h.eq(modelAssetPrefix(asset.id,get(model3dDeckScope)),'','figure-derived model path stays project-relative in deck scope');
   h.eq(get(store.project).assets[0].path, 'fig/assets/neuron.glb', 'public deck reopen resolves canonical Figure-owned model path');
   await fs.rm(path.join(root, 'fig/assets/neuron.glb')); const byIdBefore = await fs.readFile(path.join(root, `slides/${byId.deckId}/deck.json`), 'utf8');
   let missingById: unknown; try { await saveDeckFrom(root); } catch (error) { missingById = error; }

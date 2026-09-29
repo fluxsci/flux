@@ -1,3 +1,4 @@
+import { setModel3dDeckScope } from "../model3d/editorScope";
 import { deckModel3dBindings } from "../slide/model3dBindings";
 import { readScene3dSidecars, scene3dSidecarWrites } from "../model3d/persistence";
 import { scene3dManifests, scene3dRecipes, primeScene3dSidecars, clearScene3dSidecars } from "../model3d/store";
@@ -514,6 +515,7 @@ export function refreshDeckSources(root: string): Promise<void> {
     if (sourceFingerprint(currentDeck()!) !== fingerprint || updates.some(u => isAssetDirty(u.assetId))) throw new ConflictError("Slide changed after persistence; saved source retained, reload to reconcile");
     const unchanged = editGen.n === generation;
     if (updates.length || resized) commitDeckLive(deck => { applyDeckSourceUpdates(deck, updates); reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
+    setModel3dDeckScope(candidate.id, resolved.external);
     resolved.publish();
     replaceResolvedDeckAssets(resolved.assets);
     const oldData = get(assetData), changedData = Object.fromEntries(Object.entries(resolved.data).filter(([id,url]) => !isAssetDirty(id) && oldData[id] !== url));
@@ -551,6 +553,7 @@ export async function loadDeckInto(root: string, deckId: string, opts: { isCurre
     if (evidence && await fileBridge()!.readText(evidence.path) !== evidence.text) throw new ConflictError("deck changed while opening");
     await assertOwned();
     if (!current()) return superseded();
+    setModel3dDeckScope(deck.id, resolved.external);
     clearPlots(); clearScene3dSidecars(); acceptedPlotCache.clear(); resolved.publish();
     if (evidence) deckBaseline.set(evidence.path,evidence.text);
     loadDeckModel(deck,resolved.assets,resolved.external);assetData.set(resolved.data);clearAllAssetsDirty();
@@ -654,6 +657,7 @@ async function loadDeckIntoStores(root: string, d: Deck): Promise<void> {
   const current = () => generation === deckLoadGeneration && tenant === storeTenant() && previousRoot === get(embeddedProjectRoot) && editingGeneration === editGen.edits;
   const resolved = await resolveDeckAssets(root, d, current, true);
   if (!current()) return;
+  setModel3dDeckScope(d.id, resolved.external);
   clearPlots(); clearScene3dSidecars(); acceptedPlotCache.clear(); resolved.publish();
   const evidence = deckReadEvidence.get(d); if (evidence) deckBaseline.set(evidence.path, evidence.text);
   loadDeckModel(d, resolved.assets, resolved.external);
