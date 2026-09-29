@@ -48,23 +48,36 @@ async function readBounded(file, limit, label, { validate = async () => {}, chec
 
 async function importLocation(root, target) {
   if (typeof root !== "string" || !path.isAbsolute(root) || !root || root.includes("\0")) throw new Error("Save the project before importing a 3D model");
-  if (target?.kind !== "figure" || Object.keys(target).some(k => k !== "kind")) throw new Error("3D import requires a Figure target; deck support is not available yet");
+  const slide = target?.kind === "slide";
+  if ((!slide && target?.kind !== "figure") || Object.keys(target).some(k => k !== "kind" && !(slide && k === "deckId"))) throw new Error("3D import requires a Figure or slide target");
+  if (slide && (typeof target.deckId !== "string" || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,180}$/.test(target.deckId) || ["__proto__", "constructor", "prototype"].includes(target.deckId))) throw new Error("Unsafe model deck id");
   const realRoot = await fsp.realpath(root);
   const projectFile = path.join(realRoot, "project.json");
   const projectReal = await fsp.realpath(projectFile);
   if (!contained(realRoot, projectReal)) throw new Error("Project metadata escapes its root");
   const project = JSON.parse((await readBounded(projectReal, 16 * 1024 * 1024, "Project metadata")).toString("utf8"));
-  const prefix = typeof project.schemaVersion === "string" ? "fig" : project.version === 2 && Array.isArray(project.figures) ? "" : null;
+  let prefix = typeof project.schemaVersion === "string" ? "fig" : project.version === 2 && Array.isArray(project.figures) ? "" : null;
   if (prefix === null) throw new Error("Unrecognized Figure project format");
+  let document = path.join(realRoot, prefix ? "fig/index.json" : "project.json");
+  if (slide) {
+    const relative = `slides/${target.deckId}/deck.json`;
+    if (typeof project.schemaVersion !== "string" || !project.slides?.some(d => d.id === target.deckId && d.path === relative)) throw new Error("The model destination deck is not registered in this project");
+    document = await fsp.realpath(path.join(realRoot, relative));
+    if (!contained(realRoot, document)) throw new Error("Model destination deck escapes the project");
+    const deck = JSON.parse((await readBounded(document, 16 * 1024 * 1024, "Deck metadata")).toString("utf8"));
+    if (deck.id !== target.deckId || !/^0\.[23456]\./.test(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error("The model destination deck cannot be edited by this Flux version");
+    prefix = `slides/${target.deckId}`;
+  }
   const assetDir = path.join(realRoot, prefix, "assets");
   // Validate every existing ancestor before creating directories. An assets or
   // fig symlink may stay inside this project, but cannot escape it.
-  for (const relative of prefix ? [prefix, `${prefix}/assets`] : ["assets"]) {
+  const ancestors = prefix ? prefix.split('/').map((_, i, parts) => parts.slice(0, i + 1).join('/')) : [];
+  for (const relative of [...ancestors, prefix ? `${prefix}/assets` : "assets"]) {
     const candidate = path.join(realRoot, relative);
     try { if (!contained(realRoot, await fsp.realpath(candidate))) throw new Error("Model asset directory escapes the project"); }
     catch (error) { if (error.code !== "ENOENT") throw error; }
   }
-  return { root: path.resolve(root), realRoot, prefix, assetDir, document: path.join(realRoot, prefix ? "fig/index.json" : "project.json") };
+  return { root: path.resolve(root), realRoot, prefix, assetDir, document, target: { ...target } };
 }
 
 async function assertDirectory(location) {
@@ -110,6 +123,13 @@ async function prepareModel3d({ root, target, sourcePath, manifestPath, recipePa
   await checkCurrent();
   if (typeof sourcePath !== "string" || !path.isAbsolute(sourcePath) || !/\.glb$/i.test(sourcePath) || sourcePath.includes("\0")) throw new Error("Choose a binary .glb model file");
   const location = await importLocation(root, target);
+  const checkDestination = async () => {
+    await checkCurrent();
+    if (target.kind === 'slide') {
+      const now = await importLocation(root, target);
+      if (now.realRoot !== location.realRoot || now.document !== location.document) throw new Error('The model destination deck changed');
+    }
+  };
   await readGuard(sourcePath);
   const sourceReal = await fsp.realpath(sourcePath);
   // In-project sources keep the same real containment guarantee as all project
@@ -151,7 +171,7 @@ async function prepareModel3d({ root, target, sourcePath, manifestPath, recipePa
     const entries = [[`${result.asset.id}.glb`, prepared.bytes]];
     if (result.raw?.manifest !== undefined) entries.push([`${result.asset.id}.fluxplot.json`, result.raw.manifest]);
     if (result.raw?.recipe !== undefined) entries.push([`${result.asset.id}.recipe.json`, result.raw.recipe]);
-    for (const [name, data] of entries) owned.files.push(await publishExclusive(location, name, data, checkCurrent));
+    for (const [name, data] of entries) owned.files.push(await publishExclusive(location, name, data, checkDestination));
     await checkCurrent();
     return owned;
   } catch (error) {

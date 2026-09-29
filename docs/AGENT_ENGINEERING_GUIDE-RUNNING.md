@@ -8525,3 +8525,7 @@ claimed by these layout checks. No animation-v2 state/target behavior changed.
 Author final group2/2 (06-34-32-845Z-16), independent n1 group2/2
 (06-39-11-321Z-2), check0/0 and headless typecheck passed. Core independently approved
 the source. Python full340passed2skipped116warnings20.74s; independent static8/8 passed.
+
+### 2026-09-29 — Deck-owned 3D import receipts
+
+**Work.** Extended the shared model import target to a registered slide deck. Native and memory paths publish immutable GLB/sidecars beneath that deck, revalidate the destination after awaited preparation, and scope adoption/cancellation to the exact deck receipt. The registered import gate passes, including independent review/QA of held-drop destination changes and real IPC cross-deck refusal; no desktop launch was needed for this policy checkpoint.

@@ -23,7 +23,8 @@ function createModel3dCore({ rootFor, generationFor = rootFor, fsReadGuard, note
   function receipt(e, request) {
     const item = prepared.get(request?.receipt);
     if (!item || item.owner !== owner(e) || item.root !== request?.root ||
-        request?.target?.kind !== "figure" || request?.assetId !== item.owned.result.asset.id) {
+        request?.target?.kind !== item.owned.location.target.kind ||
+        (request?.target?.kind === 'slide' && request.target.deckId !== item.owned.location.target.deckId) || request?.assetId !== item.owned.result.asset.id) {
       throw new Error("Unknown or already adopted model import receipt");
     }
     return item;

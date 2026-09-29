@@ -7,7 +7,7 @@ import { isUnderRoot, toProjectRelativeSource } from '../plot/source';
 import { scene3dSourceBindingIssue } from './sourceBinding';
 import type { Model3dAsset, Model3dInfo, Scene3dManifest } from './types';
 
-export type Model3dImportTarget = { kind: 'figure' };
+export type Model3dImportTarget = { kind: 'figure' } | { kind: 'slide'; deckId: string };
 export interface Model3dImportMetadata {
   manifest?: Scene3dManifest;
   recipe?: unknown;
@@ -28,7 +28,7 @@ export interface Model3dImportSource {
 export interface Model3dImportResult extends Model3dImportData {
   source: Model3dImportSource;
   receipt: string;
-  assetPrefix: '' | 'fig';
+  assetPrefix: string;
 }
 export interface Model3dImportRequest {
   root: string;
