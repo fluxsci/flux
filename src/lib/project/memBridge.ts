@@ -89,7 +89,7 @@ export function createMemBridge(): FileBridge & {
       if (typeof id !== 'string' || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,180}$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)) throw new Error('Unsafe model deck id');
       const relative = `slides/${id}/deck.json`;
       const currentBytes = files.get(`${root}/project.json`), currentDocument = currentBytes ? JSON.parse(dec.decode(currentBytes)) : undefined;
-      if (!currentDocument?.slides?.some((d: {id:string;path:string}) => d.id === id && d.path === relative)) throw new Error('The model destination deck is not registered in this project');
+      if (typeof currentDocument?.schemaVersion !== 'string' || !currentDocument.slides?.some((d: {id:string;path:string}) => d.id === id && d.path === relative)) throw new Error('The model destination deck is not registered in this project');
       documentPath = joinPath(root, relative);
       const saved = files.get(documentPath), deck = saved ? JSON.parse(dec.decode(saved)) : undefined;
       if (deck?.id !== id || !/^0\.[23456]\./.test(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error('The model destination deck cannot be edited by this Flux version');

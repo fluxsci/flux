@@ -84,6 +84,11 @@ await assert.rejects(() => mem.discardModel3d!(slideOwnership), /already saved/)
 h.ok(mem._files.has(`${root}/slides/${deckId}/${slideImport.asset.path}`), 'saved deck ownership protects imported GLB on cancellation');
 for (const badId of ['../fig', '__proto__', 'unregistered']) await assert.rejects(() => mem.importModel3d!({ ...request, target: { kind: 'slide', deckId: badId } }), /Unsafe|registered/);
 h.ok(true, 'memory slide import refuses unsafe and unregistered destinations');
+const registeredProject = mem._files.get(`${root}/project.json`)!;
+mem._files.set(`${root}/project.json`, enc.encode(JSON.stringify({ version: 2, figures: [], slides: [{ id: deckId, path: `slides/${deckId}/deck.json` }] })));
+await assert.rejects(() => mem.importModel3d!({ ...request, target }), /registered/);
+h.ok(true, 'standalone Figure JSON cannot forge a canonical deck registration');
+mem._files.set(`${root}/project.json`, registeredProject);
 for (const change of ['unregister', 'future'] as const) {
   const projectText = mem._files.get(`${root}/project.json`)!, deckText = mem._files.get(deckFile)!;
   let release!: () => void; const held = new Promise<void>(resolve => release = resolve);
