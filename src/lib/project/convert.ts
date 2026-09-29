@@ -174,7 +174,12 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
     const resolved = await resolveDeckAssets(root, deck, () => false, true);
     const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(elementSourceAssetIds), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
     for (const id of required) if (!resolved.data[id] && !resolved.assets.some(a => a.id === id && a.kind === "glb")) throw new Error(`Missing conversion target asset: ${id}`);
-    if (resolved.diagnostics.some(d => d.reason.startsWith("media asset") || d.reason.includes("unreadable"))) throw new Error("Conversion destination has unreadable assets");
+    // A GLB entry resolves as metadata even when its file is gone, so only the
+    // diagnostics say whether the destination can hold what the result needs:
+    // its current references plus the assets this conversion reuses. Entries
+    // kept only for Undo (an unreferenced missing PNG) never block, as before 3D.
+    const needed = new Set([...required, ...models.map(m => m.id), ...source.keys()]);
+    if (resolved.diagnostics.some(d => d.assetId !== undefined && needed.has(d.assetId) && (d.reason.startsWith("media asset") || d.reason.includes("unreadable")))) throw new Error("Conversion destination has unreadable assets");
     const writes: AssetWrite[] = [], modelCopies: PreparedModelCopy[] = [];
     const bindings = collectModel3dSourceBindings(captured.elements);
     for (const asset of models) {

@@ -201,6 +201,20 @@ try {
   beforeRead = async p => { if (p.endsWith('neuron.fluxplot.json')) throw Error('EACCES'); };
   await assert.rejects(sendSlideToCanvas(root, unreadable.slides[0], unreadable, 'canvas'), /cannot copy unreadable manifest/); beforeRead = undefined;
   await originalsUnchanged(beforeUnreadable); h.eq(copies, 0, 'whole-sidecar preflight refuses unreadable metadata before native publication');
+  // Send to deck judges only the destination assets the result needs: entries
+  // kept for Undo whose files are gone (an unused PNG, an unused GLB) never
+  // block, as before 3D; a missing GLB a destination slide still uses refuses.
+  await seed(true);
+  const kept = createDeck({ id: 'kept-deck', withTitleSlide: false }); addSlide(kept);
+  kept.assets = [{ id: 'kept-png', kind: 'png', name: 'Kept', path: 'assets/kept-png.png', naturalWidth: 4, naturalHeight: 4 } as never, { ...structuredClone(asset), id: 'kept-glb', path: 'assets/kept-glb.glb' }];
+  await writeDeckDirect(root, kept, { expectedText: null });
+  const into = await sendFigureToDeck(root, figure, kept.id), keptAfter = await readDeck(root, kept.id);
+  h.ok(into.deckId === kept.id && keptAfter!.slides.length === 2 && keptAfter!.assets.length === 2, 'unused missing PNG/GLB entries kept for Undo do not block Send to deck, and stay registered');
+  const inUse = createDeck({ id: 'in-use-deck', withTitleSlide: false }), usedSlide = addSlide(inUse);
+  inUse.assets = [{ ...structuredClone(asset), id: 'used-glb', path: 'assets/used-glb.glb' }]; usedSlide.elements.push({ ...structuredClone(el), id: 'used-view', assetId: 'used-glb' });
+  await writeDeckDirect(root, inUse, { expectedText: null }); const inUseBefore = await fs.readFile(path.join(root, 'slides/in-use-deck/deck.json'), 'utf8');
+  await assert.rejects(sendFigureToDeck(root, figure, inUse.id), /unreadable assets/);
+  h.eq(await fs.readFile(path.join(root, 'slides/in-use-deck/deck.json'), 'utf8'), inUseBefore, 'a missing GLB the destination still uses refuses Send to deck without writing');
   h.eq(deniedBinary, 0, 'all public model load/save/duplicate/conversion paths avoid renderer GLB reads and writes');
 } finally { beforeCopy = undefined; beforeRead = undefined; await fs.rm(root, { recursive: true, force: true }); }
 await h.done();
