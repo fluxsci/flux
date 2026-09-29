@@ -2287,6 +2287,9 @@ days (probe geometry like `width` instead).
   small contact sheets before accepting generated artwork.
 - Headless Chromium may defer a no-timeout `requestIdleCallback` until another frame. A gate
   that waits for idle work must supply that frame deliberately, and say so in the gate.
+- A page can contain several CodeMirror editors, including inactive panes. Native typing
+  qualification retains the Paper editor selected by the actual click and compares that same
+  editor before/after; the first `.cm-content` in document order is not a valid oracle.
 - Chokidar readiness for existing roots says nothing about a directory created later: `addDir`
   fires before that subtree is scanned and attached. A test observer needs its own readiness
   barrier on the new subtree before the first write into it (`verify-model3d-cache-watch.cjs`).
@@ -8498,3 +8501,10 @@ failed on the pre-merge bundle).
 ### 2026-09-29 — Add the shared 3D slide model and tween core (Codex, model3d-slides-core)
 **Work:** Enabled metadata-only GLB assets and model elements in the unpublished 0.6 deck schema, added unwrapped orbit/logarithmic zoom and signed shape/field interpolation, and exposed Turntable through the existing shared transform operation. The registered slide-model3d group passed the new model checks plus existing tween and generated-validator gates; live player, import and authoring integration remain in progress.
 **Learnings:** Fetched origin still publishes 0.5, so 3D joins local animation-v2 format 0.6; raw progress controls discrete switches even when an easing overshoots.
+### 2026-09-29 — Prepare remaining native 3D qualification (Codex, model3d-slides-native)
+**Work:** Corrected native harness editor identity and real-canvas framing, declared the isolated
+fluxplot/uv prerequisite before smoke launch, and documented the owner-approved R1/R2 raw
+frame budgets. Registered pure regressions cover the prior competing-editor and 1470×923
+clipping failures and blocked-before-launch behavior; native results remain separate receipts.
+**Learnings:** Retain the clicked CodeMirror identity (promoted to §9); measure against the
+clipped canvas, including sidebars, and use native viewport navigation to frame the fixture.

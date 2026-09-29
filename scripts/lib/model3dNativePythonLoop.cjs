@@ -4,8 +4,9 @@ const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 /** Rerun the reviewed fluxplot demo from an isolated worktree into this scratch
  * project, with one source colour changed. No owner checkout or user project. */
 module.exports=async function rerunNeuron(root,artifacts){
- const fpRoot=path.resolve(process.env.FLUXPLOT_ROOT||path.join(__dirname,'../../../scene3d'));
- if(!(await fs.stat(path.join(fpRoot,'.git')).catch(()=>null))?.isFile())throw Error('S6 requires FLUXPLOT_ROOT to name the isolated scene3d git worktree');
+ const problem=require('./model3dPythonPrerequisite.cjs').model3dPythonWorktreeProblem(process.env.FLUXPLOT_ROOT);
+ if(problem)throw Error('S6 prerequisite: '+problem);
+ const fpRoot=path.resolve(process.env.FLUXPLOT_ROOT);
  const source=await fs.readFile(path.join(fpRoot,'examples/scene3d_demo.py'),'utf8');
  const original="'soma':'#D14D41'";if(source.split(original).length!==2)throw Error('Update S6 explicit demo colour fixture: expected unique soma palette entry');
  const sourceFile=path.join(root,'plots/neuron.glb'),beforeSha256=sha(await fs.readFile(sourceFile));
