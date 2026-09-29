@@ -12,7 +12,7 @@ Registered checks: `verify-model3d-deck-assets.ts` and `verify-model3d-slide-exp
 
 CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an already-resolved in-project absolute path becomes the same canonical relative path as direct input. Platform separators become `/` there (a win32 input arrives as `C:\proj\…`), and so do root-relative paths handed to `boundedModelFile`; only NUL is refused on the raw input. A symlinked `--root` also accepts the realpath spelling of the same file (directories only are resolved). Both lexical escapes and symlink escapes are refused before the native media importer runs.
 
-Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
+Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` (optionally `--slide <slide>`) to render the slides' Design stills and every build step's still, with that step's part visibility, into the project cache; Connect sheets and command-line Paper renders read only cached stills, and `--prune` keeps all of them. Timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
 
 Paper slide widgets use the document's shared worker service with immutable file metadata; they do not inline GLB bytes or create main-thread WebGL contexts. Visible occurrences have independent playback. Removing or scrolling away one occurrence releases its host without invalidating another occurrence's pending load. Repository invalidation retires the captured source generation.
 
@@ -97,7 +97,9 @@ absent (the Node poster worker, the GUI poster service and the offline pre-ready
 all key and render the step's `partOpacity`). An identity consumed from a shape into 3D
 uses that evaluated model endpoint and its matching still. Cache-only readers (Connect
 sheets, CLI Paper renders) need the step's own still: the app persists it when it renders
-one, and `render-model-posters --deck` warms Design stills only.
+one, and `render-model-posters --deck` renders every step's still (`slideModelStills`,
+the enumeration payload gathering uses) and prunes none of them. Connect keys a model
+deck's sheet on the project poster cache's entries, so that render refreshes it.
 
 Slide scale checks use two distinct, compatible 250,000-triangle meshes and eight independently posed ghost copies. `verify-scale-slide.mjs` keeps the existing 2D budgets and adds real Present playback, changed-pixel checks, zero RAF/render calls during each measured rest window, shared pair/context counts and disposal. The observer records only application-owned RAF callbacks and actual mesh-canvas publication; it schedules no animation heartbeat.
 

@@ -1,6 +1,7 @@
 import { boundedModelFile } from "./model3dFile";
 import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
 import { partStatesFromOpacity } from "../src/lib/model3d/appearance";
+import { slideModelStills, type SlideModelStill } from "../src/lib/slide/staticModels";
 import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
@@ -62,7 +63,7 @@ import { setPlotView } from "../src/lib/ops";
 import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
 import { plotViewIssues } from "../src/lib/plot/project";
 import type { Asset, Project, SemanticPlotElement } from "../src/lib/types";
-import type { Model3dElement } from "../src/lib/model3d/types";
+import type { Model3dElement, Scene3dManifest } from "../src/lib/model3d/types";
 
 // POSIX, not the platform: these are PROJECT-RELATIVE paths, and one of them
 // (the derived `svgPath`) is PERSISTED into deck.json. `path.join` on Windows
@@ -524,15 +525,15 @@ export async function ungroupTracksVerb(
 }
 
 /** Read manifests for timing without rendering or refreshing source assets. */
-async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
+async function slideCompileOptions(root: string, deck: Deck, slideId: string, knownModelManifests?: Record<string, Scene3dManifest | undefined>) {
   const slide = mustSlide(deck, slideId);
   const manifests = new Map<string, FluxPlotManifest | undefined>();
   const modelAssets = new Map((await externalDeckAssetMetadata(root, deck)).map(asset => [asset.id, asset]));
   for (const asset of deck.assets ?? []) modelAssets.set(asset.id, asset);
   // The saved-deck adapter owns source-receipt binding and canonical sidecar
   // paths, including assets referenced only by future Change endpoints.
-  const modelManifests = [...modelAssets.values()].some(asset => asset.kind === 'glb')
-    ? (await (await import('./model3dDeckCommands')).deckModelDocument(root, deck)).manifests : {};
+  const modelManifests = knownModelManifests ?? ([...modelAssets.values()].some(asset => asset.kind === 'glb')
+    ? (await (await import('./model3dDeckCommands')).deckModelDocument(root, deck)).manifests : {});
   const add = async (el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } }) => {
     if (!manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
   };
@@ -547,6 +548,17 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
     } });
   }
   return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id] };
+}
+
+/** Every model still a saved deck's static frames picture (slideModelStills
+ * with this deck's compile options): what render-model-posters --deck renders
+ * and --prune keeps, so read-only payload gathering finds each step's still.
+ * `manifests` are the deck model document's accepted scene manifests. */
+export async function deckModelStills(root: string, deck: Deck, manifests: Record<string, Scene3dManifest | undefined>, slideId?: string) {
+  const stills: Array<SlideModelStill & { slideId: string }> = [];
+  for (const slide of deck.slides) if (!slideId || slide.id === slideId)
+    for (const still of slideModelStills(slide, deck.stage, await slideCompileOptions(root, deck, slide.id, manifests))) stills.push({ slideId: slide.id, ...still });
+  return stills;
 }
 
 export async function compileDeckSlide(root: string, deck: Deck, slideId: string) {

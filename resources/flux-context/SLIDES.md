@@ -404,4 +404,4 @@ The HTML export contains only referenced slides and their required assets, witho
 notes or local source paths. Deleting referenced slides fails unless `delete-slide --force`
 is explicit; inspect the listed documents before overriding.
 
-Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
+Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` (optionally `--slide <slide>`) to render the slides' Design stills and every build step's still, with that step's part visibility, into the project cache; Connect sheets and command-line Paper renders read only cached stills, and `--prune` keeps all of them. Timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.

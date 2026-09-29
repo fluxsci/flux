@@ -1,6 +1,5 @@
 import { validatedModelBytes } from "../model3d/portableBytes";
-import { compileSlide } from "./compile";
-import { staticModelElement, payloadModelCompileOptions } from "./staticModels";
+import { slideModelStills, payloadModelCompileOptions } from "./staticModels";
 import { deckModel3dBindings } from "./model3dBindings";
 import { readScene3dSidecars } from "../model3d/persistence";
 import { staticModelRequest, type StaticModelPosterRequest } from "../model3d/static";
@@ -218,22 +217,14 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   if (modelFiles.size) {
     const metadata = { ...deck, assets: [...new Map([...deck.assets, ...[...modelFiles.values()].map(row => row.asset)].map(a => [a.id, a])).values()] };
     const context = { deck: metadata, plots, modelManifests };
-    for (const slide of deck.slides) {
-      const compiled = compileSlide(slide, deck.stage, payloadModelCompileOptions(context));
-      for (let step = 0; step < Math.max(1, slide.beats.length); step++) {
-        const frame = compiled.sample(step);
-        for (const sampled of frame.elements) {
-          const el = staticModelElement(sampled, slide);
-          if (el.type !== 'model3d') continue;
-          const source = modelFiles.get(el.assetId); if (!source) continue;
-          const request = staticModelRequest(el, source.asset, modelManifests[el.assetId], 'slide', modelPartOpacity(frame.partStates[el.id]));
-          if (step === 0) modelPosters[el.id] = request.ref;
-          if (!assets[request.ref]) {
-            try { assets[request.ref] = io.modelPoster ? await io.modelPoster(request, source.relative)
-              : `data:image/png;base64,${base64(new Uint8Array(await io.readFile(underRoot(root, posterPath(request.key)))))}`; }
-            catch { warnings.push(`3D model "${el.name || el.id}": poster unavailable; open the model in Flux to render a still`); }
-          }
-        }
+    for (const slide of deck.slides) for (const { step, element: el, partStates } of slideModelStills(slide, deck.stage, payloadModelCompileOptions(context))) {
+      const source = modelFiles.get(el.assetId); if (!source) continue;
+      const request = staticModelRequest(el, source.asset, modelManifests[el.assetId], 'slide', modelPartOpacity(partStates));
+      if (step === 0) modelPosters[el.id] = request.ref;
+      if (!assets[request.ref]) {
+        try { assets[request.ref] = io.modelPoster ? await io.modelPoster(request, source.relative)
+          : `data:image/png;base64,${base64(new Uint8Array(await io.readFile(underRoot(root, posterPath(request.key)))))}`; }
+        catch { warnings.push(`3D model "${el.name || el.id}": poster unavailable; run render-model-posters --deck or open the model in Flux to render a still`); }
       }
     }
   }

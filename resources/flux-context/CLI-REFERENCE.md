@@ -138,7 +138,7 @@ Read relevant changes before acting. Refresh does not authorize new work or watc
 | `set-model-field <elementId> <fieldId> [--cmap name --min n --max n \| --reset]` | `set_model_field` | Remap a value field's colormap and range (switches the model to source colours; explicit part fills survive). `--reset` drops the remapping. |
 | `restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden \| --show]` | `restyle_part` | Alias of `restyle`, using the same stable mesh/furniture/group IDs. A mesh fill on a model in uniform colours switches it to source colours in the same edit, so the fill shows. |
 | `model-info <source.glb> [--morph-with other.glb]` | `model_info` | Read-only file inspection: stats, bounds, topology, names, fields, warnings/refusal and optional morph compatibility; no project required. Fails for a missing file or a path that is not `.glb`. |
-| `render-model-posters [--figure id --prune]` | `render_model_posters` | Batch-render saved Figure views into the project cache. Pruning protects every live figure view and all entries younger than 14 days, and also bounds the shared machine cache (14 days, then least-recently-used down to 1 GiB). |
+| `render-model-posters [--figure id \| --deck id --slide id] [--prune]` | `render_model_posters` | Batch-render saved Figure views, or a deck's Design stills and every build step's still, into the project cache. Pruning protects every live figure view and deck step still and all entries younger than 14 days, and also bounds the shared machine cache (14 days, then least-recently-used down to 1 GiB). |
 
 Live `dispatch_command` also takes `set_model_view` and `set_model_field` (camelCase
 parameters, `target` or the current selection) as one Undo step. Posters, `--no-poster`,

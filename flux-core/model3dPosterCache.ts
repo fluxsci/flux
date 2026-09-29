@@ -291,3 +291,11 @@ export async function modelPosterAvailabilitySignature(root: string): Promise<st
   }
   return createHash('sha256').update(parts.join('\n')).digest('hex');
 }
+/** Cold signature of the project poster cache's entries. A key names its
+ * content, so names suffice. Deck stills are not Figure live keys; Connect's
+ * model deck sheets follow this instead. Read-only: no mkdir, stat or time write. */
+export async function projectModelPosterSignature(root: string): Promise<string> {
+  const dir = safeJoin(root, 'fig/renders/model3d');
+  const names = await confinedRecoveryPath(root, dir).then(() => fs.readdir(dir), () => [] as string[]).catch(() => [] as string[]);
+  return createHash('sha256').update(names.filter(name => /^m3d-[\da-f]{14}\.png$/.test(name)).sort().join('\n')).digest('hex');
+}

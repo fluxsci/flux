@@ -1,7 +1,7 @@
 /** Figure-side 3D agent API. Geometry and edits use the same cores as the app. */
 import * as fs from 'node:fs/promises';
-import { mutateDeckModel, loadDeckModelDocument } from './model3dDeckCommands';
-import { listDecks } from './slides';
+import { mutateDeckModel, deckModelDocument } from './model3dDeckCommands';
+import { listDecks, loadDeck, deckModelStills } from './slides';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { boundedModelFile, publishModelFile } from './model3dFile';
@@ -19,7 +19,8 @@ import { buildModel3dTree } from '../src/lib/model3d/tree';
 import { scene3dFields } from '../src/lib/model3d/scene3d';
 import { morphCompatible, morphFixHint } from '../src/lib/model3d/morphPair';
 import { posterPath, isModelPosterPrunable } from '../src/lib/model3d/poster';
-import type { Project } from '../src/lib/types';
+import type { Figure, Project } from '../src/lib/types';
+import type { Deck } from '../src/lib/slide/types';
 import type { Model3dElement, Model3dAsset, Scene3dManifest } from '../src/lib/model3d/types';
 
 export interface ModelTarget { target: string; figureId?: string; deckId?: string; slideId?: string; noPoster?: boolean }
@@ -172,22 +173,50 @@ export async function setModelFieldCommand(root: string, target: ModelTarget, co
   return { ...result, ...poster, warnings: [...new Set([...result.warnings, ...poster.warnings])] };
 }
 
+/** A deck's poster inputs: each slide's Design placements (the editor's Design
+ * still) plus every build step's still (deckModelStills, the enumeration payload
+ * gathering uses). Step stills ride carrier figures, one per slide and step,
+ * with no groups and nothing hidden: the payload gathers a still for every
+ * sampled placement. Part states are keyed by the carrier element itself. */
+async function deckPosterInputs(root: string, deck: Deck, slideId?: string) {
+  const doc = await deckModelDocument(root, deck);
+  const design = slideId ? doc.project.figures.filter(figure => figure.id === slideId) : doc.project.figures;
+  const carriers = new Map<string, Figure>(), states = new Map<Model3dElement, Record<string, { opacity: number; visible: boolean }>>();
+  for (const still of await deckModelStills(root, deck, doc.manifests, slideId)) {
+    const owner = doc.project.figures.find(figure => figure.id === still.slideId);
+    if (!owner) continue;
+    let carrier = carriers.get(`${still.slideId}\0${still.step}`);
+    if (!carrier) {
+      const { groups: _groups, elements: _elements, ...frame } = owner;
+      carriers.set(`${still.slideId}\0${still.step}`, carrier = { ...frame, elements: [] });
+    }
+    const element: Model3dElement = { ...still.element, hidden: false };
+    carrier.elements.push(element);
+    if (still.partStates) states.set(element, still.partStates);
+  }
+  return { doc, design, figures: [...design, ...carriers.values()], partStates: (element: Model3dElement) => states.get(element) };
+}
+
 export async function renderModelPosters(root: string, options: { figureId?: string; deckId?: string; slideId?: string; prune?: boolean; signal?: AbortSignal } = {}) {
   if(options.deckId && options.figureId || options.slideId && !options.deckId) throw new Error('Use deckId with optional slideId, or figureId');
   // Derived, content-addressed cache writes are intentionally outside document
   // leases (PLAN4.5). A GPU job must not hold a figure writer hostage.
   const result = await (async () => {
-    const document = options.deckId ? await loadDeckModelDocument(root,options.deckId) : await loadFigModel(root);
-    const {project}=document;
+    // A deck renders its Design stills and every build step's still, so read-only
+    // readers (Connect sheets, CLI Paper renders) find each step's own picture.
+    const deck = options.deckId ? await deckPosterInputs(root, await loadDeck(root, options.deckId), options.slideId) : undefined;
+    const project = deck ? deck.doc.project : (await loadFigModel(root)).project;
     const filter=options.deckId?options.slideId:options.figureId;
-    const figures=filter?project.figures.filter(figure=>figure.id===filter):project.figures;
-    if(filter && !figures.length)throw new Error(`Model document page not found: ${filter}`);
-    if (options.figureId && !figures.length) throw new Error(`Figure not found: ${options.figureId}`);
-    const rendered = await resolveModelPosters(root, figures, project.assets, { policy: 'project', allFigures: project.figures, signal: options.signal, ...(options.deckId?{assetPrefix:'',surface:'slide' as const,manifests:(document as Awaited<ReturnType<typeof loadDeckModelDocument>>).manifests}:{}) });
-    if(options.deckId)rendered.warnings.push(...(document as Awaited<ReturnType<typeof loadDeckModelDocument>>).warnings);
-    const posters = [];
+    const design=deck ? deck.design : filter?project.figures.filter(figure=>figure.id===filter):project.figures;
+    if(filter && !design.length)throw new Error(`Model document page not found: ${filter}`);
+    const rendered = await resolveModelPosters(root, deck ? deck.figures : design, project.assets, { policy: 'project', allFigures: project.figures, signal: options.signal, ...(deck?{assetPrefix:'',surface:'slide' as const,manifests:deck.doc.manifests,partStates:deck.partStates}:{}) });
+    if(deck)rendered.warnings.push(...deck.doc.warnings);
+    const posters = [], listed = new Set<string>();
     for (const request of rendered.requests) {
       options.signal?.throwIfAborted();
+      // Steps that leave a placement unchanged share its still: report it once.
+      if (listed.has(`${request.element.id}\0${request.key}`)) continue;
+      listed.add(`${request.element.id}\0${request.key}`);
       const url = rendered.urls[request.ref], file = safeJoin(root, posterPath(request.key));
       const bytes = url?.startsWith('data:image/png;base64,') ? Buffer.from(url.slice('data:image/png;base64,'.length), 'base64') : undefined;
       const ready = !!bytes && validModelPosterPng(bytes, request);
@@ -216,9 +245,10 @@ export async function renderModelPosters(root: string, options: { figureId?: str
       // The project cache is shared by Figures and every deck. Never prune a
       // live slide still just because this command filtered another document.
       const decks = await listDecks(root).catch(error => { unreadable.push(`the deck registry (${error instanceof Error ? error.message : String(error)})`); return []; });
+      // Every build step's still of every deck is live, not only Design stills.
       for (const entry of decks) await protect(`deck ${entry.id}`, async () => {
-        const doc = await loadDeckModelDocument(root, entry.id);
-        return (await resolveModelPosters(root, doc.project.figures, doc.project.assets, { policy: 'collect', assetPrefix: '', surface: 'slide', manifests: doc.manifests, signal: options.signal })).requests;
+        const inputs = await deckPosterInputs(root, await loadDeck(root, entry.id));
+        return (await resolveModelPosters(root, inputs.figures, inputs.doc.project.assets, { policy: 'collect', assetPrefix: '', surface: 'slide', manifests: inputs.doc.manifests, partStates: inputs.partStates, signal: options.signal })).requests;
       });
       // A document that cannot be read (missing, newer or unparsable) has
       // unknown live posters, so the shared project cache is kept whole. The
