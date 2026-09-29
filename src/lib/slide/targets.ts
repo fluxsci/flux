@@ -14,6 +14,8 @@
 
 import type { Element, Figure, Id } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
+import type { Scene3dManifest } from "../model3d/types";
+import { modelPartTargets } from "./model3dTargets";
 import { buildPartIndex } from "../plot/parse";
 import { resolveTargets } from "../plot/tree";
 import { membersDeep } from "../groups";
@@ -97,6 +99,10 @@ export function isWholeElementRef(ref: TargetRef): boolean {
   return !ref.parts?.length && !(ref.selector && selectorIsSet(ref.selector)) && !ref.group;
 }
 
+function isScene3dManifest(manifest: FluxPlotManifest | Scene3dManifest | undefined): manifest is Scene3dManifest {
+  return manifest?.spec === 'fluxplot/scene3d';
+}
+
 /** The plot LEAF ids a track's part binding resolves to under a manifest:
  *  every `part`/`parts` id expanded through the parts tree (a container or
  *  group id → its current leaves, a leaf → itself), plus every part-index
@@ -106,8 +112,9 @@ export function isWholeElementRef(ref: TargetRef): boolean {
  *  both call, so a track can never animate one set and be inspected as another. */
 export function targetPartIds(
   binding: Pick<Track, "part" | "parts" | "selector">,
-  manifest: FluxPlotManifest | undefined,
+  manifest: FluxPlotManifest | Scene3dManifest | undefined,
 ): string[] {
+  if (isScene3dManifest(manifest)) return modelPartTargets(manifest).resolve(binding);
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (id: string) => { if (!seen.has(id)) { seen.add(id); out.push(id); } };
@@ -167,6 +174,7 @@ export function resolveTargetLeaves(
   ref: TargetRef,
   slide: Pick<Slide, "elements" | "groups">,
   manifestFor: (assetId: string) => FluxPlotManifest | undefined,
+  modelManifestFor?: (assetId: string) => Scene3dManifest | undefined,
 ): ResolvedTarget[] {
   const byId = new Map(slide.elements.map((e) => [e.id, e] as const));
   if (ref.group) {
@@ -176,7 +184,9 @@ export function resolveTargetLeaves(
   const el = byId.get(ref.element);
   if (!el) return [];
   if (isWholeElementRef(ref)) return [{ elementId: el.id, partIds: null }];
-  const manifest = el.type === "plot" ? manifestFor((el as Element & { assetId: string }).assetId) : undefined;
+  const manifest = el.type === "plot" ? manifestFor((el as Element & { assetId: string }).assetId)
+    : el.type === 'model3d' ? modelManifestFor?.(el.assetId) : undefined;
+  if (el.type === 'model3d' && !manifest) return [{ elementId: el.id, partIds: [] }];
   const partIds = targetPartIds({ parts: ref.parts, selector: ref.selector }, manifest);
   return [{ elementId: el.id, partIds }];
 }

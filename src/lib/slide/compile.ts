@@ -2,6 +2,7 @@
  * playback binds its targets once and samples only the active cue's properties. */
 import type { Element } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
+import type { Scene3dManifest } from "../model3d/types";
 import type { Slide, StageSize, Track, Camera, TargetRef, BecomeSpec } from "./types";
 import { lerpElement, overshootBox, arcBox, transformEndState, transformPreState } from "./tween";
 import { resolveCurve, type ResolvedCurve } from "./curves";
@@ -24,6 +25,7 @@ export { ghostTargetIds } from "./ghost";
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
 export interface CompileOptions extends StyleContext, ModelAssetLookup {
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
+  modelManifest?: (assetId: string) => Scene3dManifest | undefined;
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
 }
@@ -62,13 +64,15 @@ export interface CompiledSlide {
 export function semanticTargets(track: Track, slide: Slide, opts: CompileOptions, beatIndex = slide.beats.findIndex((b) => b.tracks.some((t) => t === track || !!track.id && t.id === track.id))): string[] {
   if (!hasPartBinding(track)) return [];
   const el = transformPreState(slide, track.target, Math.max(0, beatIndex));
-  const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
+  const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId)
+    : el?.type === 'model3d' ? opts.modelManifest?.(el.assetId) : undefined;
+  if (el?.type === 'model3d' && !manifest) return [];
   return targetPartIds(track, manifest);
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptions, partFactors: ResolvedGhosts["partFactors"] = {}): Pick<CompiledSlide, "cues" | "issues" | "sample" | "handoffs" | "resolveTarget"> {
   const issues: AnimationIssue[] = [];
-  const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined));
+  const resolveTarget = handoffTargetResolver(slide, opts.plotManifest ?? (() => undefined), opts.modelManifest);
   for (const el of slide.elements) if (el.type === "plot") {
     for (const reason of plotViewIssues(opts.plotManifest?.(el.assetId), el.view)) issues.push({ target: el.id, reason });
   }
@@ -109,7 +113,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
           issues.push({ trackId: track.id, target: track.target, reason });
       }
       const parts = semanticTargets(track, slide, opts, bi);
-      if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target, reason: "No matching plot parts. Retarget this effect." });
+      if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target, reason: "No matching semantic parts. Retarget this effect." });
       const start = Math.max(0, track.start ?? 0), duration = trackDuration(track);
       const el = transformPreState(slide, track.target, bi), manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
       const by = track.stagger?.by;
