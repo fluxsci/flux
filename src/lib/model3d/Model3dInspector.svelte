@@ -9,7 +9,7 @@
   import ColorField from '../ColorField.svelte';
   import Model3dSemantics from './Model3dSemantics.svelte';
   import { scene3dManifests, scene3dGeneration } from './store';
-  import { modelOrbit, modelOrbitBlocked, modelOrbitIssues, requestModelOrbit, finishModelOrbit } from './orbitSession';
+  import { modelOrbit, modelOrbitBlocked, modelOrbitIssues, requestModelOrbit, finishModelOrbit, modelOrbitBlockedReason } from './orbitSession';
   import { setModelView, type ModelViewNumber, type ModelViewPatch } from './viewOps';
   import { modelDefaultStates, setModelStates } from './semanticOps';
   import { axisView, homeView, type AxisView } from './orbit';
@@ -22,7 +22,7 @@
   // Only real problems are shown; preparing the worker is a sub-second navigation
   // cost that needs no message (and must not shift the layout on every mount).
   let availability = $state('');
-  const unavailable = $derived(readOnly ? 'This selection is read-only' : $modelOrbitBlocked ? 'Finish choosing an animation target first' : $modelOrbitIssues[element.id] ?? availability);
+  const unavailable = $derived(readOnly ? 'This selection is read-only' : $modelOrbitBlocked ? modelOrbitBlockedReason($modelOrbitBlocked) : $modelOrbitIssues[element.id] ?? availability);
   const numbers: Array<{ key: ModelViewNumber; label: string; step: number; min?: number; max?: number; factor?: number }> = [
     { key: 'orbitAzimuth', label: 'Azimuth°', step: 5 }, { key: 'orbitElevation', label: 'Elevation°', step: 5, min: -90, max: 90 },
     { key: 'orbitRoll', label: 'Roll°', step: 5 }, { key: 'orbitZoom', label: 'Zoom×', step: 1, factor: 1.1, min: .02, max: 50 },

@@ -522,12 +522,26 @@ export function placeIncoming(incoming: Incoming[], figId?: string) {
     (it) => it.el.x < 0 || it.el.y < 0 || it.el.x + it.el.width > fig.width || it.el.y + it.el.height > fig.height,
   );
   if (over.length) {
-    const one = over.length === 1 ? over[0].el : null;
-    pushToast("info", "Placed at true physical size — larger than the frame", {
-      detail: one
-        ? `${mm(one.width)} × ${mm(one.height)} mm vs frame ${mm(fig.width)} × ${mm(fig.height)} mm. Ctrl+Shift+I brings it inside the frame (unresized); or resize it here / regenerate the plot at the size it should print.`
-        : `${over.length} of ${incoming.length} imports exceed the ${mm(fig.width)} × ${mm(fig.height)} mm frame. Ctrl+Shift+I brings them inside the frame (unresized, may overlap); or resize them here / regenerate the plots at the size they should print.`,
-    });
+    // Slides have no print size to fix at the source; a slide is the "frame".
+    const slide = storeTenant() === "slide", frame = slide ? "slide" : "frame";
+    const frameMm = `${mm(fig.width)} × ${mm(fig.height)} mm`;
+    const tooBig = over.filter(it => it.el.width > fig.width || it.el.height > fig.height);
+    if (incoming.length === 1 || tooBig.length) {
+      // At least one import is itself larger than the frame.
+      const one = tooBig.length === 1 ? tooBig[0].el : null;
+      pushToast("info", `Placed at true physical size — larger than the ${frame}`, {
+        detail: one
+          ? `${mm(one.width)} × ${mm(one.height)} mm vs ${frame} ${frameMm}. Ctrl+Shift+I brings it inside the ${frame} (unresized); or resize it here${slide ? "" : " / regenerate the plot at the size it should print"}.`
+          : `${tooBig.length} of ${incoming.length} imports exceed the ${frameMm} ${frame}. Ctrl+Shift+I brings them inside the ${frame} (unresized, may overlap); or resize them here${slide ? "" : " / regenerate the plots at the size they should print"}.`,
+      });
+    } else {
+      // Each fits alone; the side-by-side arrangement is what overflows.
+      const kinds = new Set(incoming.map(it => it.asset.kind));
+      const noun = kinds.size > 1 ? "items" : ({ glb: "models", svg: "plots", mp4: "videos", png: "images" } as const)[[...kinds][0]];
+      pushToast("info", `These ${incoming.length} ${noun} don't fit side by side in the ${frame}`, {
+        detail: `Placed at true size; ${over.length} of ${incoming.length} ${over.length === 1 ? "extends" : "extend"} past the ${frameMm} ${frame}. Arrange or resize them — Ctrl+Shift+I brings them inside the ${frame} (unresized, may overlap)${slide ? "" : ", or regenerate the plots smaller"}.`,
+      });
+    }
   }
 
   commit((proj) => {

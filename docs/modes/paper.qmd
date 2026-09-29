@@ -240,6 +240,8 @@ Use **↗** to open the original in Slide mode, or **Replace…** to choose anot
 Each occurrence plays independently. Typing and scrolling retain its position; reopening
 a document starts again at step 0. Saved source edits appear in the block. If its deck or
 slide disappears, the block shows an unavailable message and retains its replacement control.
+If a slide with a 3D model cannot play here, the block keeps its still image and says
+**3D preview unavailable — showing a still** underneath; hover that line for the reason.
 Flux identifies the source by deck and slide IDs, so renaming or reordering it is safe.
 
 The editable source is an ordinary Quarto image with a generated SVG fallback:

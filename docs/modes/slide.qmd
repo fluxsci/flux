@@ -468,21 +468,26 @@ endpoint; the original view stays available. Picking a Become destination tempor
 blocks orbit and tells you why, so a drag cannot accidentally change both actions.
 
 Select a model and choose **Turntable** to add a full, constant-speed turn. It is an ordinary
-Change effect: edit its duration or combine it with a Shape change. Complete turns remain
-complete turns, even when the starting and ending views look identical. Zoom changes
-smoothly in proportion, and projection changes at the endpoint.
+Change effect: edit its duration or combine it with a Shape change. If the step already has a
+Change for that model, Turntable joins it and sets its timing to 6 seconds, linear, and Flux
+tells you when that re-times it. Complete turns remain complete turns, even when the starting
+and ending views look identical. Zoom changes smoothly in proportion, and projection changes
+at the endpoint.
 
 For a scene with shape states, use the **Shape** sliders or **Frame** scrubber at the desired
 editing destination. To reveal a named mesh or furniture part independently, select it in
 **X-ray** and use **Animate selected**. Orbit, shape, colors and part visibility travel with
 the slide and use the same playback in Present and portable HTML.
 
-**Ghost** creates independent views that share the same mesh. **Become** shows **morph**
-for a compatible pair and **crossfade** otherwise. A vertex morph needs matching mesh
-parts, triangle indices and vertex order; export both shapes together or use fluxplot's
-shared-topology workflow. Hand-off keeps both objects and reveals the destination at
-landing. Consume replaces the source's content and removes the destination in one undoable
-edit. Choose a gallery model through Change content to replace its mesh in the same frame.
+**Ghost** creates independent views that share the same mesh. While you pick a Become
+destination, the pick bar shows **Vertex morph** for a compatible pair and **Crossfade**
+otherwise, and the Animation inspector's Destination row repeats it; hover either for the
+reason. A vertex morph needs the same mesh structure: matching mesh pieces, triangles and
+vertex order. Export both shapes together or use fluxplot's shared-topology workflow.
+Hand-off keeps both objects and reveals the destination at landing. Consume replaces the
+source's content and removes the destination in one undoable edit. To replace a model's mesh
+in the same frame, choose **Model from gallery…** in the Animation inspector (or
+**From gallery…** on the pick bar); **Keep own content** drops that choice.
 
 HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**;
 PowerPoint does not contain an editable 3D object. If a GLB is missing, Flux shows a

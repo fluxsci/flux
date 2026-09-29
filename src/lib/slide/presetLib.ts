@@ -5,7 +5,7 @@ import { staticModelRequest, type Model3dSvgContext } from '../model3d/static';
 import { parseScene3d } from '../model3d/scene3d';
 import { scene3dSourceBindingIssue } from '../model3d/sourceBinding';
 import { deckModel3dBindings } from "./model3dBindings";
-import { pushToast } from "../toast";
+import { pushToast, errMsg } from "../toast";
 import { preparePresetModels } from "./model3dPresets";
 import { readScene3dSidecars } from "../model3d/persistence";
 import { cacheScene3dSidecars } from "../model3d/store";
@@ -80,7 +80,7 @@ export async function deleteSlidePreset(rel: string): Promise<boolean> {
 export async function saveSlidePreset(
   name: string,
   slideId: Id,
-): Promise<{ rel: string; missingAssets: Id[] } | null> {
+): Promise<{ rel: string; missingAssets: Id[]; previewIssues: string[] } | null> {
   const rel = presetRel(name);
   const deck = currentDeck();
   const slide = deck?.slides.find((s) => s.id === slideId);
@@ -136,6 +136,8 @@ export async function saveSlidePreset(
     assets.push(entry);
   }
   const modelPosters: Record<string, string> = {};
+  // Reported once by the caller's save toast, never one toast per model.
+  const previewIssues: string[] = [];
   for (const element of slide.elements) if (element.type === 'model3d' && !element.hidden) {
     const entry = assets.find(a => a.asset.id === element.assetId);
     if (!entry || entry.asset.kind !== 'glb') continue;
@@ -148,7 +150,7 @@ export async function saveSlidePreset(
       isCurrent: () => get(embeddedProjectRoot) === root && currentDeck()?.id === deck.id };
     // A missing/failed thumbnail must not make a reusable model disappear.
     try { modelPosters[element.id] = await modelPosterUrl({ ...request, surface: 'slide' }, { source }); }
-    catch (error) { pushToast('info', `3D preset preview unavailable: ${String(error)}`); }
+    catch (error) { const reason = errMsg(error); if (!previewIssues.includes(reason)) previewIssues.push(reason); }
   }
   const baseName = rel.replace(/\.json$/i, "").split("/").pop() || "slide";
   const snap: SlidePresetSnapshot = {
@@ -164,7 +166,7 @@ export async function saveSlidePreset(
     ...(assets.length ? { assets } : {}),
   };
   const ok = await fileBridge()?.writeSlideLibrary?.(rel, snap);
-  return ok ? { rel, missingAssets } : null;
+  return ok ? { rel, missingAssets, previewIssues } : null;
 }
 
 /** Insert a preset into the live deck after the given slide (or at the end),
@@ -209,7 +211,7 @@ export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: 
   // Publish installed bytes before yielding. Adoption must finish for every
   // receipt even when navigation replaces the destination during the await.
   try { await prepared.adopt(); } catch (error) {
-    if (current()) pushToast("error", "Preset inserted; model ownership could not be confirmed", { detail: String(error) });
+    if (current()) pushToast("error", "Preset inserted, but its 3D files could not be finalized", { detail: errMsg(error) });
   }
   if (current()) selectSlide(res.slideId);
   return res.slideId;
