@@ -8526,6 +8526,27 @@ Author final group2/2 (06-34-32-845Z-16), independent n1 group2/2
 (06-39-11-321Z-2), check0/0 and headless typecheck passed. Core independently approved
 the source. Python full340passed2skipped116warnings20.74s; independent static8/8 passed.
 
+### 2026-09-29 — P4e model transition foundation
+
+Model topology now participates in shared Become/Appear-from compilation and file
+commands. Compatible pairs report `morph:true`; incompatible pairs stay valid and
+report the first mesh mismatch plus the Python shared-topology remedy. Model
+destinations default to handoff, explicit consume retains destination content,
+all model channels and original source receipt, and future-only GLB references
+remain source owners. Whole model/video poster handoff is the sole video exception;
+video consume, unrelated video Become and video Ghost still refuse. The renderer
+accepts frozen morph endpoints so sampled fields/states do not rebuild geometry,
+and preserves uniform-to-vertex-color endpoints. Ghost/player flights and GUI
+content picking are a later P4e checkpoint, not claimed complete here.
+
+Author pure group4/4 passed07-09-43-409Z-2 (45 new public/pure checks), independent
+pure1/1 passed07-07-17-438Z-2, and independent render-browser1/1 passed07-01-17-214Z-2.
+Core independently reviewed authoring/file/source-owner logic; n1 reviewed renderer
+cache/color ownership. No native timing claim. Registry parity passed07-10-40-157Z-2; the tool-name
+golden regenerated identically because no verb was added. Current base has
+four known pending Player/native-target type errors supplied by parallel reviewed
+P4a checkpoints; this foundation introduces no additional type errors.
+
 ### 2026-09-29 — Deck-owned 3D import receipts
 
 **Work.** Extended the shared model import target to a registered slide deck. Native and memory paths publish immutable GLB/sidecars beneath that deck, revalidate the destination after awaited preparation, and scope adoption/cancellation to the exact deck receipt. The registered import gate passes, including independent review/QA of held-drop destination changes and real IPC cross-deck refusal; no desktop launch was needed for this policy checkpoint.
@@ -8538,3 +8559,8 @@ the source. Python full340passed2skipped116warnings20.74s; independent static8/8
 
 ### 2026-09-29 — Saved-deck 3D command parity
 **Work:** Extended model view, field and poster commands to saved deck/slide targets through shared command policy, matched GUI placement defaults, and protected live deck posters during shared-cache pruning. **Learnings:** Sidecars remain in the owning document's canonical assets directory even when the GLB has a custom nested path; independent rebuilt CLI/MCP QA passes 110 checks, including local and external Figure-owned assets.
+
+### 2026-09-29 07:36 UTC — 3D slide morph runtime checkpoint
+- Compatible model content changes and whole-object handoffs use frozen endpoint geometry/styles with the sampled camera; incompatible pairs share one WebGL context and a bounded premultiplied-alpha crossfade surface. Framing-sphere interpolation is shared with vector furniture. Semantic furniture keeps one canonical part parent across endpoint fades.
+- Cross-kind handoffs capture a real model bitmap and vector furniture, await the SVG image load before capture readiness, and release the bitmap/temporary canvas immediately; disposal revokes retained image URLs. Unborn, hidden, landed-flight and offscreen surfaces release canvas backing storage. A failed model load never activates surfaces on a later refresh.
+- Registered `verify-slide-model3d-morph-browser.ts`: 65 checks; author PASS `07-34-20-195Z-17`, independent core PASS `07-35-43-101Z-2` with frozen source. Existing player gate passed `07-23-29-274Z-17`; root reviewed frame/protocol/framing and core reviewed handoff/readiness. This is a checkpoint, not full P4e closure: content-gallery/pick controls, cross-kind consume at the discrete type flip, broad animation regressions and final native acceptance remain separate work.

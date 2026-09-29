@@ -117,6 +117,7 @@ try {
     ok(warmPlayer.state().playing && warmPlayer.state().time < 100, 'ready completion starts authored playback from its beginning'); warmPlayer.destroy();
     const bad = api.createPlayer(mount, deck, { ...opts, model3d: { ...asyncHost, ready: async () => { throw Error('GPU unavailable'); } } });
     let rejected = false; try { await bad.readyMedia(); } catch { rejected = true; }
+    const badViews=disposed;bad.refresh();ok(disposed===badViews&&!mount.querySelector('canvas[width]:not([width="0"])'),'failed readiness never activates model surfaces on later refresh');
     ok(rejected && bad.state().issues.some((i: any) => i.reason.includes('GPU unavailable')) && !!mount.querySelector('[data-slide-model-root] svg'), 'failed GPU load keeps fallback and refuses falsely successful captures'); bad.destroy();
     return checks;
   });

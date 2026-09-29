@@ -6,6 +6,7 @@ import type { Model3dElement } from "../model3d/types";
 // save them or apply their geometry to the real Figure project.
 import type { Figure, Project, SemanticPlotElement } from "../types";
 import type { Deck } from "../slide/types";
+import { transformPreState, transformEndState } from "../slide/tween";
 
 interface SourceOwnerIO {
   readText(path: string): Promise<string>;
@@ -64,10 +65,21 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
         elements.push(element); deckAssetIds.add(element.assetId);
       };
       for (const element of slide.elements ?? []) if (element.type === "plot" || element.type === "model3d") add(element);
-      // P4/D9: reconstruct GLB morph destinations here after adopting the
-      // merged animation TargetRef/content-track schema; P1 handles placements.
-      for (const beat of slide.beats ?? []) for (const track of beat.tracks ?? []) {
+      for (const [bi, beat] of (slide.beats ?? []).entries()) for (const track of beat.tracks ?? []) {
         const to = track.to;
+        if (track.preset === "transform" && to?.assetId && typeof to.glbPath === "string") {
+          const pre = transformPreState(slide, track.target, bi);
+          const end = pre && transformEndState(pre, track);
+          if (end?.type === "model3d") add({ ...end, id: `source:${track.id}`, source: {
+            glbPath: to.glbPath,
+            ...(typeof to.sha256 === "string" ? { sha256: to.sha256 } : {}),
+            ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
+            ...(typeof to.recipePath === "string" ? { recipePath: to.recipePath } : {}),
+            ...(typeof to.external === "boolean" ? { external: to.external } : {}),
+            ...(typeof to.frozen === "boolean" ? { frozen: to.frozen } : {}),
+          } });
+          continue;
+        }
         if (!to?.assetId || typeof to.svgPath !== "string") continue;
         const origin = slide.elements?.find((e) => e.id === track.target && e.type === "plot");
         if (origin?.type !== "plot") continue;

@@ -92,6 +92,23 @@ try {
   for(const [key,message] of [['orientation','front differs from right'],['lighting','studio differs from unlit'],['override','part override changes pixels'],['field','field remapping changes pixels'],['stateOne','shape state moves geometry'],['morphMoves','vertex morph moves geometry']] as const)h.ok(checks[key].changed>0.001,message);
   for(const [key,message] of [['periodic','azimuth 0 equals360'],['stateZero','state0 equals base'],['morphRepeat','morph deterministic'],['morphEnd','morph t1 equals destination'],['morphBegin','morph t0 equals source']] as const)h.eq(checks[key].changed,0,message);
   h.eq(checks.stats.contexts,1,'one render-core context');
+  const frozenMorph = await page.evaluate(() => {
+    const l=(window as any).lab, a=l.spec('states',{modelStates:{bent:0},modelLighting:'unlit'}), b={...a.element,modelStates:{bent:1}},
+      pairs=a.manifest.parts.filter((p:any)=>p.node).map((p:any)=>({nodeA:p.node,nodeB:p.node})),
+      morph={to:'states',t:.5,pairs,fromElement:a.element,toElement:b,toManifest:a.manifest};
+    const expected=l.render({...a,morph}).pixels, before=l.core.stats().morphPairs;
+    for(let i=0;i<16;i++)l.render({...a,element:{...a.element,orbitAzimuth:i*13,modelStates:{bent:i/16},fields:{dynamic:{range:[i,i+1]}}},morph:{...morph,t:(i+1)/18}});
+    const after=l.core.stats().morphPairs;
+    const sampled=l.render({...a,element:{...a.element,modelStates:{bent:.5},fields:{dynamic:{range:[8,9]}}},morph}).pixels;
+    const field=l.spec('continuous'), uniform={...field.element,modelColors:'uniform',fill:'#ff0000'},
+      fieldPairs=field.manifest.parts.filter((p:any)=>p.node).map((p:any)=>({nodeA:p.node,nodeB:p.node})),
+      fieldMorph={to:'continuous',t:.999999,pairs:fieldPairs,fromElement:uniform,toElement:field.element,toManifest:field.manifest};
+    const near=l.render({...field,morph:fieldMorph}).pixels, direct=l.render(field).pixels;
+    return {before,after,sampled:l.diff(expected,sampled),mixedEndpoint:l.diff(near,direct)};
+  });
+  h.eq(frozenMorph.after,frozenMorph.before,'changing sampled camera/fields/states reuses one frozen-endpoint morph pair');
+  h.eq(frozenMorph.sampled.changed,0,'shape endpoints are baked once rather than applying sampled states twice');
+  h.ok(frozenMorph.mixedEndpoint.mean<.1&&frozenMorph.mixedEndpoint.changed<.001,'uniform-to-field morph approaches the exact field-colored destination without a color pop');
   const edgeMeshes=await page.evaluate(()=>{const l=(window as any).lab;
     const alpha=l.render(l.spec('alpha',{}, {manifest:{parts:[{id:'mesh',node:'mesh',color:'#ff000080'}]}})).pixels;let maxAlpha=0;for(let i=3;i<alpha.length;i+=4)maxAlpha=Math.max(maxAlpha,alpha[i]);
     const field={cmap:{name:'test',stops:[[0,'#0000ff'],[1,'#ff0000']]},range:[0,1]},manifest={parts:[{id:'group',kind:'group'},{id:'left',node:'left',parent:'group',field},{id:'right',node:'right',parent:'group',field}]},spec=l.spec('instances',{orbitAzimuth:0,orbitElevation:0},{manifest}),base=l.render(spec).pixels,change=l.render({...spec,element:{...spec.element,fields:{right:{range:[2,3]}}}}).pixels;

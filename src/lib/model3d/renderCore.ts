@@ -7,8 +7,8 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { prepareGlb } from './glbCore.mjs';
-import { orbitPose, boundsSphere, type OrbitPose } from './orbit';
-import { framingBounds } from './framing';
+import { orbitPose, type OrbitPose } from './orbit';
+import { framingBounds, sphereLerpBounds } from './framing';
 import { mapValues } from './colormap';
 import { buildScene3dPartIndex, scene3dPartLineage, type Scene3dPartIndex, resolveScene3dPartStyle } from './scene3d';
 import { RENDERER_VERSION } from './poster';
@@ -27,11 +27,12 @@ interface Part {
   sourceColors?: Attribute; materials: Map<string, FluxMaterial>; colorKey?: string; vertexAlpha: boolean;
 }
 interface Loaded { bytes: ArrayBuffer; group: Group; parts: Part[]; stats: LoadedModelStats; storedBounds?: ModelBounds }
-interface MorphPart { mesh: Mesh<BufferGeometry, FluxMaterial>; a: Part; b: Part; colorA: string; colorB: string; opacityA: number; opacityB: number; hiddenA: boolean; hiddenB: boolean; vertexColors: boolean }
+interface MorphPart { mesh: Mesh<BufferGeometry, FluxMaterial>; materials: Map<string, FluxMaterial>; a: Part; b: Part; colorA: string; colorB: string; opacityA: number; opacityB: number; hiddenA: boolean; hiddenB: boolean; vertexColors: boolean }
 interface Morph { group: Group; parts: MorphPart[]; ids: [string, string] }
 const liveCanvases = new WeakSet<object>();
 const rgb = (color: string) => /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
 const alpha = (color?: string) => color && /^#[0-9a-f]{8}$/i.test(color) ? parseInt(color.slice(7), 16) / 255 : undefined;
+const sampledView = (element: Model3dElement) => Object.fromEntries(['orbitAzimuth','orbitElevation','orbitRoll','orbitZoom','orbitPanX','orbitPanY','orbitProjection','orbitFov','modelLighting'].map(key => [key, element[key as keyof Model3dElement]]));
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const modelStates = (el: Model3dElement, override?: Record<string, number>) => override ?? el.modelStates ?? {};
 function materialsOf(material: Material | Material[]) { return Array.isArray(material) ? material : [material]; }
@@ -39,6 +40,10 @@ function disposeGroup(group: Object3D) {
   const geometries = new Set<BufferGeometry>(), materials = new Set<Material>();
   group.traverse((object) => { if (object instanceof Mesh) { geometries.add(object.geometry); materialsOf(object.material).forEach((m) => materials.add(m)); } });
   geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); group.clear();
+}
+function disposeMorph(pair: Morph) {
+  for (const part of pair.parts) for (const material of part.materials.values()) if (material !== part.mesh.material) material.dispose();
+  disposeGroup(pair.group);
 }
 function makeMaterial(lighting: string): FluxMaterial {
   return lighting === 'unlit' ? new MeshBasicMaterial({ side: DoubleSide }) : new MeshStandardMaterial({ roughness: 0.55, metalness: 0, side: DoubleSide });
@@ -114,7 +119,7 @@ function effectiveAttribute(part: Part, name: 'position' | 'normal') {
   return new BufferAttribute(result, 3);
 }
 function effectiveColors(part: Part) {
-  const count = part.mesh.geometry.getAttribute('position').count, source = part.mesh.geometry.getAttribute('color');
+  const count = part.mesh.geometry.getAttribute('position').count, source = part.mesh.material.vertexColors ? part.mesh.geometry.getAttribute('color') : undefined;
   const out = new Float32Array(count * 4), color = part.mesh.material.color;
   for (let i = 0; i < count; i++) {
     out[i * 4] = (source?.getX(i) ?? 1) * color.r;
@@ -131,12 +136,6 @@ function compatible(a: Part, b: Part) {
   if (na !== nb) return false;
   for (let i = 0; i < na; i++) if ((ga.index?.getX(i) ?? i) !== (gb.index?.getX(i) ?? i)) return false;
   return true;
-}
-function sphereLerpBounds(a: ModelBounds, b: ModelBounds, t: number): ModelBounds {
-  const sa = boundsSphere(a), sb = boundsSphere(b), r = sa.radius * (1 - t) + sb.radius * t;
-  const center = sa.center.map((v, i) => v * (1 - t) + sb.center[i] * t);
-  // A diagonal of this box has length 2r and `radius` is r: orbitPose recovers exactly the lerped sphere.
-  return { min: center.map((v) => v - r / Math.sqrt(3)) as [number, number, number], max: center.map((v) => v + r / Math.sqrt(3)) as [number, number, number], radius: r };
 }
 export function createRenderCore(canvas: Canvas, options: { onContextState?: (lost: boolean) => void } = {}) {
   if (liveCanvases.has(canvas)) throw new Error('A 3D canvas cannot own a second renderer');
@@ -156,6 +155,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
   const assets = new Map<string, Loaded>(), inflight = new Map<string, Promise<LoadedModelStats>>(), morphs = new Map<string, Morph>();
   let disposed = false, lost = false, generation = 0, restores: Promise<void> = Promise.resolve();
   let loads = 0, renders = 0, lastWidth = 0, lastHeight = 0;
+  let blendCanvas: Canvas | undefined;
   function stats(): RenderCoreStats { return { contexts: disposed ? 0 : 1, residentBytes: [...assets.values()].reduce((sum, a) => sum + a.bytes.byteLength, 0), loads, renders, lost, assets: assets.size, morphPairs: morphs.size }; }
   function guard() { if (disposed) throw new Error('3D renderer disposed'); if (lost) throw new Error('3D WebGL context unavailable'); }
   /** Stored asset bounds, when the caller has them, govern framing: they are what
@@ -193,7 +193,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     return { bytes: data, group, parts, storedBounds, stats: { ...prepared.info, bounds, bytes: data.byteLength, parseMs: performance.now() - started } };
   }
   function dropMorphs(id?: string) {
-    for (const [key, pair] of morphs) if (!id || pair.ids.includes(id)) { disposeGroup(pair.group); morphs.delete(key); }
+    for (const [key, pair] of morphs) if (!id || pair.ids.includes(id)) { disposeMorph(pair); morphs.delete(key); }
   }
   function releaseLoaded(asset: Loaded) { for (const part of asset.parts) for (const material of part.materials.values()) material.dispose(); disposeGroup(asset.group); }
   function load(assetId: string, bytes: ArrayBuffer, storedBounds?: ModelBounds): Promise<LoadedModelStats> {
@@ -213,9 +213,9 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     for (const part of asset.parts) { stylePart(part, element, manifest, index); setStates(part, modelStates(element, states)); }
   }
   function getMorph(spec: RenderSpec, a: Loaded, b: Loaded): Morph {
-    const destination = spec.morph!.toElement ?? spec.element;
+    const origin = spec.morph!.fromElement ?? spec.element, destination = spec.morph!.toElement ?? spec.element;
     const appearance = (el: Model3dElement) => [el.fill, el.modelColors, el.modelLighting, el.overrides, el.fields, el.modelStates];
-    const cacheKey = JSON.stringify([spec.assetId, spec.morph!.to, spec.morph!.pairs, appearance(spec.element), appearance(destination), spec.states, spec.manifest, spec.morph!.toManifest]);
+    const cacheKey = JSON.stringify([spec.assetId, spec.morph!.to, spec.morph!.pairs, appearance(origin), appearance(destination), spec.morph!.fromElement ? undefined : spec.states, spec.manifest, spec.morph!.toManifest]);
     const old = morphs.get(cacheKey); if (old) return old;
     const indices = new Map<Scene3dManifest | undefined, SemanticIndex>();
     const endpoint = (part: Part, el: Model3dElement, manifest?: Scene3dManifest, states?: Record<string, number>) => {
@@ -234,22 +234,22 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
         const pa = from[i], pb = to[i];
         if (pairedA.has(pa) || pairedB.has(pb)) throw new Error('Morph primitive is paired more than once');
         pairedA.add(pa); pairedB.add(pb); if (!compatible(pa, pb)) throw new Error(`Incompatible morph topology ${names.nodeA}`);
-        const ea = endpoint(pa, spec.element, spec.manifest, spec.states), eb = endpoint(pb, destination, spec.morph!.toManifest ?? spec.manifest);
+        const ea = endpoint(pa, origin, spec.manifest, spec.morph!.fromElement ? undefined : spec.states), eb = endpoint(pb, destination, spec.morph!.toManifest ?? (spec.morph!.to === spec.assetId ? spec.manifest : undefined));
         const geometry = new BufferGeometry(); geometry.setIndex(pa.mesh.geometry.index?.clone() ?? null);
         geometry.setAttribute('position', ea.position); geometry.setAttribute('normal', ea.normal);
         geometry.morphAttributes.position = [eb.position]; geometry.morphAttributes.normal = [eb.normal];
         geometry.morphTargetsRelative = false;
-        const vertexColors = ea.vertexColors && eb.vertexColors;
+        const vertexColors = ea.vertexColors || eb.vertexColors;
         if (vertexColors) { geometry.setAttribute('color', ea.colors); geometry.morphAttributes.color = [eb.colors]; }
-        const material = makeMaterial(spec.element.modelLighting ?? 'studio'); material.vertexColors = vertexColors;
+        const lighting = origin.modelLighting ?? 'studio', material = makeMaterial(lighting); material.vertexColors = vertexColors;
         const mesh = new Mesh(geometry, material); mesh.frustumCulled = false; pair.group.add(mesh);
-        pair.parts.push({ mesh, a: pa, b: pb, colorA: ea.color, colorB: eb.color, opacityA: ea.opacity, opacityB: eb.opacity, hiddenA: ea.hidden, hiddenB: eb.hidden, vertexColors });
+        pair.parts.push({ mesh, materials: new Map([[lighting, material]]), a: pa, b: pb, colorA: ea.color, colorB: eb.color, opacityA: ea.opacity, opacityB: eb.opacity, hiddenA: ea.hidden, hiddenB: eb.hidden, vertexColors });
       }
     }
     if (pair.parts.length !== a.parts.length || pair.parts.length !== b.parts.length) throw new Error('Morph must pair every mesh primitive exactly once');
-    } catch (error) { disposeGroup(pair.group); throw error; }
+    } catch (error) { disposeMorph(pair); throw error; }
     // Bound transient flight caches; the active pair is inserted most recently.
-    if (morphs.size >= 8) { const [key, oldPair] = morphs.entries().next().value!; disposeGroup(oldPair.group); morphs.delete(key); }
+    if (morphs.size >= 8) { const [key, oldPair] = morphs.entries().next().value!; disposeMorph(oldPair); morphs.delete(key); }
     morphs.set(cacheKey, pair); return pair;
   }
   function cameraFor(pose: OrbitPose, w: number, h: number) {
@@ -269,12 +269,15 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     const t = clamp01(spec.morph?.t ?? 0);
     if (spec.morph && t > 0) {
       const target = assets.get(spec.morph.to); if (!target) throw new Error(`3D morph destination not loaded: ${spec.morph.to}`);
-      if (t === 1) { element = spec.morph.toElement ?? element; style(target, element, spec.morph.toManifest ?? spec.manifest); group = target.group; bounds = framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest); }
+      if (t === 1) { element = spec.morph.toElement ? { ...spec.morph.toElement, ...(spec.morph.fromElement ? sampledView(spec.element) : {}) } : element; style(target, element, spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined)); group = target.group; bounds = framingBounds(target.stats.bounds, spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined)); }
       else {
-        const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest), t);
+        const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, framingBounds(target.stats.bounds, spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined)), t);
         for (const part of pair.parts) {
           part.mesh.morphTargetInfluences![0] = t;
-          const material = part.mesh.material;
+          const lighting = element.modelLighting ?? 'studio';
+          let material = part.materials.get(lighting);
+          if (!material) { material = makeMaterial(lighting); material.vertexColors = part.vertexColors; part.materials.set(lighting, material); }
+          part.mesh.material = material;
           material.color.set(part.vertexColors ? '#ffffff' : lerpColor(part.colorA, part.colorB, t));
           material.opacity = part.opacityA * (1 - t) + part.opacityB * t;
           material.transparent = material.opacity < 1 || part.a.vertexAlpha || part.b.vertexAlpha; material.depthWrite = !material.transparent;
@@ -282,7 +285,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
           part.mesh.renderOrder = material.transparent ? 1_000_000 : 0;
         }
       }
-    } else { style(source, element, spec.manifest, spec.states); group = source.group; }
+    } else { style(source, spec.morph?.fromElement ? { ...spec.morph.fromElement, modelLighting: element.modelLighting } : element, spec.manifest, spec.morph?.fromElement ? undefined : spec.states); group = source.group; }
     const pose = orbitPose(element, bounds, { width: w, height: h }), camera = cameraFor(pose, w, h);
     key.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), -2 * pose.radius).addScaledVector(new Vector3(...pose.up), 2 * pose.radius);
     fill.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), 2 * pose.radius).addScaledVector(new Vector3(...pose.up), -pose.radius);
@@ -290,6 +293,28 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     if (lastWidth !== w || lastHeight !== h) { renderer.setSize(w, h, false); lastWidth = w; lastHeight = h; }
     scene.add(group); try { renderer.render(scene, camera); renders++; } finally { scene.remove(group); }
     return { pose, renderer: context!.getParameter(context!.RENDERER) as string };
+  }
+  /** One shared WebGL context, two renders for an incompatible content pair.
+   * Premultiplied additive composition preserves alpha at overlapping surfaces. */
+  function frame(spec: RenderSpec) {
+    const cross = spec.crossfade;
+    if (!cross) { const info = render(spec); if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; } return { canvas, ...info }; }
+    const camera = sampledView(spec.element);
+    const t = clamp01(cross.t), { crossfade: _cross, morph: _morph, states: _states, ...base } = spec;
+    if (t === 0) { if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; } const info = render({ ...base, element: { ...cross.fromElement, ...camera } }); return { canvas, ...info }; }
+    if (t === 1) { if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; } const info = render({ ...base, assetId: cross.to, element: { ...cross.toElement, ...camera }, manifest: cross.toManifest }); return { canvas, ...info }; }
+    const a = { ...cross.fromElement, ...camera }, b = { ...cross.toElement, ...camera };
+    blendCanvas ??= 'ownerDocument' in canvas ? canvas.ownerDocument.createElement('canvas') : new OffscreenCanvas(1, 1);
+    const w = Math.round(spec.w), h = Math.round(spec.h);
+    render({ ...base, element: a });
+    if (blendCanvas.width !== w || blendCanvas.height !== h) { blendCanvas.width = w; blendCanvas.height = h; }
+    const blend = blendCanvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!blend) throw new Error('2D model crossfade is unavailable');
+    blend.clearRect(0, 0, w, h); blend.globalCompositeOperation = 'source-over'; blend.globalAlpha = 1 - t; blend.drawImage(canvas, 0, 0);
+    const info = render({ ...base, assetId: cross.to, element: b, manifest: cross.toManifest });
+    blend.globalCompositeOperation = 'lighter'; blend.globalAlpha = t; blend.drawImage(canvas, 0, 0);
+    blend.globalAlpha = 1; blend.globalCompositeOperation = 'source-over';
+    return { canvas: blendCanvas, ...info };
   }
   const onLost = (event: Event) => { event.preventDefault(); lost = true; options.onContextState?.(true); };
   const onRestored = () => {
@@ -305,7 +330,8 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     for (const asset of assets.values()) releaseLoaded(asset); assets.clear();
     canvas.removeEventListener('webglcontextlost', onLost); canvas.removeEventListener('webglcontextrestored', onRestored);
     renderer.dispose(); renderer.forceContextLoss(); canvas.width = 1; canvas.height = 1;
+    if (blendCanvas) { blendCanvas.width = 0; blendCanvas.height = 0; }
   }
-  return { load, unload, render, snapshot: async (spec: RenderSpec) => { render(spec); return createImageBitmap(canvas); }, ready: () => restores, stats, dispose, canvas };
+  return { load, unload, render, frame, snapshot: async (spec: RenderSpec) => createImageBitmap(frame(spec).canvas), ready: () => restores, stats, dispose, canvas };
 }
 export type RenderCore = ReturnType<typeof createRenderCore>;

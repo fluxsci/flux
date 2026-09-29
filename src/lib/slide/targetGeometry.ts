@@ -53,7 +53,7 @@ export function elementStageOutlines(el: SceneElement): StageOutline[] {
   const b = elementBBox(el), outline = elementOutline(el);
   if (outline) return [stage(outline, compose(placement(el, false), translate(b.x, b.y)),
     { elementId: el.id }, { ...elementPaint(el), opacity: el.opacity ?? 1 })];
-  if (el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot") return [];
+  if (el.type !== "text" && el.type !== "image" && el.type !== "video" && el.type !== "plot" && el.type !== "model3d") return [];
   return [stage({ nodes: boxNodes(b), closed: true }, placement(el, true), { elementId: el.id }, {
     fill: el.type === "text" ? el.color : "none", stroke: "none", strokeWidth: 0, cap: "butt",
     opacity: el.opacity ?? 1, text: el.type === "text", raster: el.type !== "text",

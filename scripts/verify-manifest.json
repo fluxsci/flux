@@ -354,7 +354,9 @@
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
       "verify-model3d-slide-presets.ts",
-      "verify-slide-model3d-player.ts"
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -931,7 +933,9 @@
       "verify-model3d-furniture-gui.mjs",
       "verify-model3d-slide-presets.ts",
       "verify-slide-model3d-player.ts",
-      "verify-slide-model3d-gui.mjs"
+      "verify-slide-model3d-gui.mjs",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -954,7 +958,9 @@
       "verify-model3d-slide-export.ts",
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
-      "verify-slide-model3d-player.ts"
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -1122,7 +1128,9 @@
       "verify-slide-tween.ts",
       "verify-loadgate.ts",
       "verify-model3d-slide-presets.ts",
-      "verify-slide-model3d-player.ts"
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts"
     ],
     "model3d-furniture": [
       "verify-model3d-furniture.ts",
@@ -1133,6 +1141,13 @@
       "verify-slide-import-gui.mjs",
       "verify-slide-present-gui.mjs",
       "verify-changed-pathmap.mjs"
+    ],
+    "slide-model3d-morph": [
+      "verify-slide-model3d-morph.ts",
+      "verify-model3d-morph.ts",
+      "verify-slide-model3d.ts",
+      "verify-slide-track-ops.ts",
+      "verify-slide-model3d-morph-browser.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -9006,6 +9021,26 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 150000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": true,
       "coverage": "behavior"
     }

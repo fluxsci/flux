@@ -55,7 +55,11 @@ export interface Scene3dManifest {
 }
 export interface Model3dRenderSpec {
   assetId: string; w: number; h: number; element: Model3dElement; manifest?: Scene3dManifest;
-  morph?: { to: string; t: number; pairs: Array<{nodeA: string; nodeB: string; primitiveA?: number; primitiveB?: number}>; toElement?: Model3dElement; toManifest?: Scene3dManifest };
+  morph?: { to: string; t: number; pairs: Array<{nodeA: string; nodeB: string; primitiveA?: number; primitiveB?: number}>;
+    /** Frozen endpoints own baked geometry/fields; element carries this frame's camera. */
+    fromElement?: Model3dElement; toElement?: Model3dElement; toManifest?: Scene3dManifest };
+  /** Runtime-only content fallback; does not introduce an animation track kind. */
+  crossfade?: { to: string; t: number; fromElement: Model3dElement; toElement: Model3dElement; toManifest?: Scene3dManifest };
   states?: Record<string, number>;
 }
 export type RenderSpec = Model3dRenderSpec;

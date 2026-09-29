@@ -17,11 +17,12 @@ import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
 import { sampleCamera } from "./camera";
+import { modelPair, modelPairIssue, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
 export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
 
 export interface AnimationIssue { trackId?: string; target: string; reason: string }
-export interface CompileOptions extends StyleContext {
+export interface CompileOptions extends StyleContext, ModelAssetLookup {
   plotManifest?: (assetId: string) => FluxPlotManifest | undefined;
   /** Pristine prepared roots, when available, for outline diagnostics. */
   plotRoot?: GeometryCtx["plotRoot"];
@@ -100,6 +101,10 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       if (track.preset === "transform") {
         const pre = transformPreState(slide, track.target, bi);
         const end = pre ? transformEndState(pre, track) : undefined;
+        if (!isHandoff(track) && track.to?.assetId) {
+          const pair = modelPair(pre ?? undefined, end, opts), reason = pair && modelPairIssue(pair);
+          if (reason) issues.push({ trackId: track.id, target: track.target, reason });
+        }
         if (end?.type === "plot") for (const reason of plotViewIssues(opts.plotManifest?.(end.assetId), end.view))
           issues.push({ trackId: track.id, target: track.target, reason });
       }
@@ -131,6 +136,8 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     if (ct.track.preset !== "transform" || !isHandoff(ct.track)) continue;
     const spec = ct.track.to.become;
     const source = resolveTarget(trackRef(ct.track), ct.beat), destination = resolveTarget(spec.ref, ct.beat);
+    const posterVideo = source.length === 1 && destination.length === 1 && source[0].partIds === null && destination[0].partIds === null
+      && modelVideoHandoff(transformPreState(slide, source[0].elementId, ct.beat) ?? undefined, transformPreState(slide, destination[0].elementId, ct.beat) ?? undefined);
     const unborn = births.filter(b => !b.enabled || b.beat > ct.beat || b.beat === ct.beat && b.start > ct.start);
     let reason = !slide.elements.some(e => e.id === spec.ref.element) ? "Destination parts not found. Retarget this Become."
       : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
@@ -138,7 +145,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       : !source.length ? "Source parts not found. Retarget this Become."
       : sameRef(trackRef(ct.track), spec.ref) ? "Choose a different object for the source to become."
       : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
-      : slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
+      : !posterVideo && slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
       : "";
     if (!reason && handoffs.some(h => h.beat === ct.beat && handoffTargetsOverlap(destination, h.destination)))
       reason = "Another hand-off in this step already lands on these destination parts. Choose different parts or another step.";
@@ -288,6 +295,13 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     const key = `${ct.beat}:${ct.start}`;
     let frame = preFrames.get(key);
     if (!frame) { frame = sample(ct.beat, ct.start); preFrames.set(key, frame); }
+    const pair = flight.source.length === 1 && flight.destination.length === 1
+      ? modelPair(frame.elements.find(e => e.id === flight.source[0]), frame.elements.find(e => e.id === flight.destination[0]), opts) : undefined;
+    if (pair) {
+      const reason = modelPairIssue(pair);
+      if (reason) issues.push({ trackId: ct.track.id, target: ct.track.target, reason });
+      continue;
+    }
     const a = targetOutlines(trackRef(ct.track), frame, ctx), b = targetOutlines(ref, frame, ctx);
     if (a.length && b.length && a.every(o => o.paint.text || o.paint.raster) && b.every(o => o.paint.text || o.paint.raster))
       issues.push({ trackId: ct.track.id, target: ct.track.target, reason: "Neither side of this Become has an outline; it crossfades" });

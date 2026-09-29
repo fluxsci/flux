@@ -58,15 +58,24 @@ export interface HandoffOptions {
   plan: () => CorrespondencePlan;
   spec: BecomeSpec;
   ctx: HandoffCtx;
+  media?: HandoffMedia;
 }
 export interface HandoffController extends MorphController {
   /** A later Appear releases the source's exit without affecting its target. */
   releaseSource(): void;
+  isReady(): boolean;
+  ready(): Promise<void>;
 }
-interface Clone { node: SVGGElement; box: Box; opacity: number }
+export interface HandoffClone { node: SVGGElement; box: Box; opacity: number }
+export interface HandoffMedia {
+  mount?(parent: SVGElement): { seek(t: number, raw: number): void; dispose(): void };
+  clone?(outline: StageOutline, parent: SVGElement): HandoffClone | undefined;
+  ready(): Promise<void>;
+  dispose(): void;
+}
 interface FixedHead { node: SVGElement; points: number[][]; side: StageOutline; start: boolean }
 interface PathDrawing { node: SVGPathElement; pair: CorrespondencePair; heads: SVGElement[]; fixed: FixedHead[] }
-interface Crossfade { a?: Clone; b?: Clone; pair: CorrespondencePair; aBox: Box; bBox: Box }
+interface Crossfade { a?: HandoffClone; b?: HandoffClone; pair: CorrespondencePair; aBox: Box; bBox: Box }
 interface Glyph { node: SVGGElement; x: number; y: number; dx: number; dy: number; scale: number; opacity: number }
 
 export function createHandoff(opts: HandoffOptions): HandoffController {
@@ -80,6 +89,8 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
   layer.setAttribute("data-handoff", id);
   layer.setAttribute("visibility", "hidden");
   flight.appendChild(layer);
+  const custom = opts.media?.mount?.(layer);
+  let readyState = !opts.media, preparation: Promise<void> | undefined;
   let disposed = false, prepared = false, plan: CorrespondencePlan | undefined, sampled: CorrespondencePlan | undefined;
   let lastPhase = -1;
   const out: SampledPath[] = [], paths: PathDrawing[] = [], crosses: Crossfade[] = [], glyphs: Glyph[] = [];
@@ -101,7 +112,9 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     return g;
   }
 
-  function clone(outline: StageOutline, parent: SVGElement, centered = false): Clone | undefined {
+  function clone(outline: StageOutline, parent: SVGElement, centered = false): HandoffClone | undefined {
+    const mediaClone = opts.media?.clone?.(outline, parent);
+    if (mediaClone) return mediaClone;
     const bound = ctx.node(outline.owner);
     const original = bound?.namespaceURI === NS ? bound as SVGGraphicsElement : bound?.querySelector<SVGGraphicsElement>("svg");
     if (!original) return undefined;
@@ -160,6 +173,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
 
   function ensure(): void {
     if (prepared || disposed) return;
+    if (custom) { prepared = true; layer.setAttribute("data-driver", "model3d"); return; }
     plan = opts.plan(); plan.prepare();
     layer.setAttribute("data-driver", plan.driver);
     // Allocate sampling/paint buffers in preparation, including when a first
@@ -269,6 +283,7 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
     }
     if (phase !== 1) return;
     ensure();
+    if (custom) { custom.seek(t, raw); return; }
     if (paths.length) {
       sampleCorrespondence(sampled!, t, out);
       let i = 0;
@@ -298,13 +313,15 @@ export function createHandoff(opts: HandoffOptions): HandoffController {
 
   warmWhenIdle(() => { if (!disposed && flight.isConnected) ensure(); });
   return { seek, targetRoot: ctx.targetRoot,
+    isReady: () => readyState,
+    ready() { ensure(); return preparation ??= Promise.resolve(opts.media?.ready()).finally(() => { readyState = true; }); },
     releaseSource() {
       for (const entry of sources) { entry.claim.hidden = false; paintVisibility(entry.node, entry.state); }
       lastPhase = -1;
     },
     dispose() {
       if (disposed) return;
-      disposed = true; layer.remove();
+      disposed = true; custom?.dispose(); opts.media?.dispose(); layer.remove();
       for (const entry of claims) {
         entry.state.claims.delete(entry.claim); paintVisibility(entry.node, entry.state);
         if (!entry.state.claims.size) visibility.delete(entry.node);

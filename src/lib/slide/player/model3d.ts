@@ -3,14 +3,15 @@
 import type { Model3dRenderExtra, Model3dView } from '../../model3d/host';
 import type { Model3dElement, Model3dInfo, Model3dRenderSpec } from '../../model3d/types';
 import { furnitureLayout } from '../../model3d/furnitureLayout';
-import { furnitureNodes } from '../../model3d/furniture';
+import { furnitureNodes, type FurnitureNode } from '../../model3d/furniture';
 import { paintFurniture } from '../../model3d/furnitureDom';
 import { orbitPose } from '../../model3d/orbit';
-import { framingBounds } from '../../model3d/framing';
+import { framingBounds, sphereLerpBounds } from '../../model3d/framing';
 import { modelPlaceholder } from '../../model3d/poster';
 import { staticModelRequest } from '../../model3d/static';
 import { partDomId } from '../../plot/parse';
 import { scene3dFields } from '../../model3d/scene3d';
+import { modelPair } from '../model3dMorph';
 import { transformEndState, transformPreState } from '../tween';
 import type { Slide } from '../types';
 import type { SlideRenderCtx } from './render';
@@ -20,7 +21,7 @@ const bindings = new WeakMap<HTMLElement, SlideModelBinding>();
 const nodes = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[data-slide-model-root]')];
 function liveVisible(node: HTMLElement): boolean {
   for (let current: HTMLElement | null = node; current; current = current.parentElement) {
-    if (current.hidden || current.style.display === 'none' || current.style.visibility === 'hidden' || current.style.opacity === '0') return false;
+    if (current.hidden || current.style.display === 'none' || current.style.visibility === 'hidden' || current.style.opacity === '0' || current.getAttribute('visibility') === 'hidden' || current.getAttribute('display') === 'none' || current.getAttribute('opacity') === '0') return false;
   }
   return true;
 }
@@ -58,6 +59,15 @@ export function modelFieldEndpoints(a: Model3dElement, b: Model3dElement, ctx: S
   return [resolve(a), resolve(b)];
 }
 
+/** Content geometry/appearance stays frozen at both ends while the camera and
+ * box use the ordinary transform sampler. Discrete endpoint ownership uses raw. */
+export function modelContentFrame(a: Model3dElement, b: Model3dElement, sample: Model3dElement, t: number, raw: number, ctx: SlideRenderCtx): { element: Model3dElement; extra: Model3dRenderExtra } {
+  if (a.assetId === b.assetId || raw <= 0) return { element: raw <= 0 ? a : sample, extra: {} };
+  if (raw >= 1) return { element: b, extra: {} };
+  const pair = modelPair(a, b, ctx), common = { to: b.assetId, t, fromElement: a, toElement: b, toManifest: ctx.modelManifest?.(b.assetId) };
+  return { element: { ...sample, assetId: a.assetId }, extra: pair?.ok ? { morph: { ...common, pairs: pair.pairs } } : { crossfade: common } };
+}
+
 export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: SlideRenderCtx): SlideModelBinding {
   const root = document.createElement('div'); root.dataset.slideModelRoot = element.id;
   const sequence = Symbol.for('flux.model3d.slideViewSequence'), owner = document as unknown as Record<symbol, number>;
@@ -70,13 +80,46 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
   root.append(under, fallback, canvas, over); parent.append(root);
   let frame = element, extra: Model3dRenderExtra = {}, active = false, disposed = false;
   let view: Model3dView | undefined, info: Model3dInfo | undefined, key = '', pending = Promise.resolve(), revision = 0;
-  let failed: Error | undefined;
-  function decorate(forceFallback = false) {
+  let failed: Error | undefined, intersects = true;
+  const observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => {
+    const next = entries.at(-1)?.isIntersecting ?? false;
+    if (next !== intersects) { intersects = next; handle.flush(); }
+  }) : undefined;
+  observer?.observe(root);
+  function frameLayout() {
     const local = { ...frame, x: 0, y: 0 }, manifest = ctx.modelManifest?.(frame.assetId), asset = ctx.modelAsset?.(frame.assetId);
-    const layout = furnitureLayout(manifest, local, local.overrides), box = layout.viewport;
+    const pair = extra.morph ?? extra.crossfade, t = pair ? Math.max(0, Math.min(1, pair.t)) : 0;
+    const layout = furnitureLayout(manifest, local, local.overrides);
+    const bound = (id: string, man: typeof manifest) => framingBounds(ctx.modelAsset?.(id)?.model.bounds ?? (id === frame.assetId ? info?.bounds : undefined) ?? man?.bounds ?? { min: [-1, -1, -1], max: [1, 1, 1] }, man);
+    let box = layout.viewport, furniture: ReturnType<typeof furnitureNodes>;
+    if (pair && pair.fromElement && pair.toElement) {
+      const a = { ...pair.fromElement, x: 0, y: 0, width: frame.width, height: frame.height }, b = { ...pair.toElement, x: 0, y: 0, width: frame.width, height: frame.height };
+      const B = pair.toManifest, la = furnitureLayout(manifest, a, a.overrides), lb = furnitureLayout(B, b, b.overrides);
+      box = Object.fromEntries(Object.keys(la.viewport).map(key => [key, la.viewport[key as keyof typeof box] * (1 - t) + lb.viewport[key as keyof typeof box] * t])) as unknown as typeof box;
+      const ba = bound(a.assetId, manifest), bb = bound(b.assetId, B), blended = sphereLerpBounds(ba, bb, t);
+      const fa = furnitureNodes(manifest, { ...a, id: paintId + ':a' }, orbitPose(local, extra.morph ? blended : ba, box), { ...la, viewport: box });
+      const fb = furnitureNodes(B, { ...b, id: paintId + ':b' }, orbitPose(local, extra.morph ? blended : bb, box), { ...lb, viewport: box });
+      const blend = (A: FurnitureNode[], B: FurnitureNode[]): FurnitureNode[] => {
+        const result: FurnitureNode[] = [], parts = new Map<string, FurnitureNode>();
+        for (const [side, opacity, entries] of [['a', 1-t, A], ['b', t, B]] as const) for (const node of entries) {
+          if (opacity <= 0) continue;
+          const inner: FurnitureNode = { ...node, key: `${side}:${node.key}`, attrs: { ...node.attrs } };
+          if (node.partId) {
+            delete inner.attrs.id; delete inner.partId;
+            let group = parts.get(node.partId);
+            if (!group) { group = { tag: 'g', key: node.partId, partId: node.partId, attrs: { id: partDomId(frame.id, node.partId), 'data-part-id': node.partId, 'data-role': node.attrs['data-role'] }, children: [] }; parts.set(node.partId, group); result.push(group); }
+            group.children!.push({ tag: 'g', key: 'endpoint-' + side, attrs: { opacity }, children: [inner] });
+          } else result.push(inner);
+        }
+        return result;
+      };
+      furniture = { underNodes: blend(fa.underNodes, fb.underNodes), overNodes: blend(fa.overNodes, fb.overNodes) };
+    } else furniture = furnitureNodes(manifest, { ...local, id: paintId }, orbitPose(local, bound(frame.assetId, manifest), box), layout);
+    return { local, manifest, asset, box, furniture };
+  }
+  function decorate(forceFallback = false) {
+    const { local, manifest, asset, box, furniture } = frameLayout();
     for (const svg of [under, over, fallback]) svg.setAttribute('viewBox', `0 0 ${Math.max(1, frame.width)} ${Math.max(1, frame.height)}`);
-    const bounds = asset?.model.bounds ?? info?.bounds ?? manifest?.bounds ?? { min: [-1, -1, -1] as [number, number, number], max: [1, 1, 1] as [number, number, number] };
-    const furniture = furnitureNodes(manifest, { ...local, id: paintId }, orbitPose(local, framingBounds(bounds, manifest), box), layout);
     // Paint servers must be unique across stage, filmstrip and presenter views;
     // semantic groups retain canonical IDs for the existing animation resolver.
     for (const node of [...furniture.underNodes, ...furniture.overNodes]) if (node.partId) node.attrs.id = partDomId(frame.id, node.partId);
@@ -102,7 +145,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       if (disposed) return;
       // Hidden surfaces own no backing storage, even if this exact model view
       // was already rendered. Shared geometry remains the host's retained asset.
-      if (!liveVisible(root)) {
+      if (!intersects || !liveVisible(root)) {
         if (view) { revision++; view.dispose(); view = undefined; }
         canvas.width = 0; canvas.height = 0; canvas.style.display = 'none';
         fallback.style.display = 'block'; key = ''; failed = undefined; pending = Promise.resolve();
@@ -114,8 +157,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       const dpr = Math.max(1, window.devicePixelRatio || 1);
       const nextKey = JSON.stringify([renderInputs, extra, scale, dpr]);
       if (nextKey === key) return;
-      const local = { ...frame, x: 0, y: 0 }, manifest = ctx.modelManifest?.(frame.assetId);
-      const box = furnitureLayout(manifest, local, local.overrides).viewport;
+      const { local, manifest, box } = frameLayout();
       if (!ctx.model3d) { decorate(); key = nextKey; return; }
       if (!active) { decorate(); return; }
       const factor = Math.min(scale * dpr, 4096 / Math.max(box.width, box.height));
@@ -131,7 +173,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       } catch (error) { reject(error); }
     },
     async settled() { await pending; if (failed) throw failed; },
-    dispose() { if (disposed) return; disposed = true; revision++; view?.dispose(); canvas.width = 0; canvas.height = 0; bindings.delete(root); },
+    dispose() { if (disposed) return; disposed = true; revision++; observer?.disconnect(); view?.dispose(); canvas.width = 0; canvas.height = 0; bindings.delete(root); },
   };
   bindings.set(root, handle); decorate();
   return handle;
@@ -155,18 +197,29 @@ export function createModel3dController(root: HTMLElement, slide: Slide, ctx: Sl
     const end = transformEndState(pre, track); if (end.type === 'model3d') models.set(end.assetId, end);
   }
   const warm: Model3dRenderSpec[] = [...models.values()].map(element => ({ assetId: element.assetId, element, w: 32, h: 32, manifest: ctx.modelManifest?.(element.assetId) }));
+  for (const [bi, beat] of slide.beats.entries()) for (const track of beat.tracks) {
+    if (track.disabled) continue; const pre = transformPreState(slide, track.target, bi);
+    if (pre?.type !== 'model3d') continue; const end = transformEndState(pre, track);
+    if (end.type !== 'model3d' || end.assetId === pre.assetId) continue;
+    const frame = modelContentFrame(pre, end, pre, .5, .5, ctx);
+    warm.push({ assetId: pre.assetId, element: frame.element, w: 32, h: 32, manifest: ctx.modelManifest?.(pre.assetId), ...frame.extra });
+  }
   if (!ctx.model3d) for (const element of models.values()) onIssue(element.id, '3D model rendered as a still');
-  let warmed = !ctx.model3d || !models.size;
+  let warmed = !ctx.model3d || !models.size, succeeded = !ctx.model3d || !models.size;
+  const infos = new Map<string, Model3dInfo | undefined>(), activated = new WeakSet<SlideModelBinding>();
+  function flush() {
+    for (const node of nodes(root)) { const binding = bindings.get(node); if (!binding) continue;
+      if (succeeded && ctx.model3d && !activated.has(binding)) { binding.activate(infos.get(binding.element.assetId)); activated.add(binding); }
+      binding.flush();
+    }
+  }
   const ready = (ctx.model3d && models.size ? ctx.model3d.ready([...models.keys()], warm).then(async () => {
     if (disposed) return;
-    await Promise.all(nodes(root).map(async node => {
-      const binding = bindings.get(node); if (!binding) return;
-      const info = await ctx.model3d?.modelStats?.(binding.element.assetId); if (!disposed) binding.activate(info);
-    }));
-    if (!disposed) flushSlideModels(root);
+    await Promise.all([...models.keys()].map(async id => infos.set(id, await ctx.model3d?.modelStats?.(id))));
+    warmed = true; succeeded = true; if (!disposed) flush();
   }) : Promise.resolve()).finally(() => { warmed = true; });
   // Callers see readiness failures through readyMedia, never an unhandled task.
   void ready.catch(error => { if (!disposed) for (const element of models.values()) onIssue(element.id, `3D model rendered as a still: ${error instanceof Error ? error.message : String(error)}`); });
   async function settled() { await ready; await Promise.all(nodes(root).map(node => bindings.get(node)?.settled())); }
-  return { isReady: () => warmed, ready: settled, flush: () => flushSlideModels(root), settled, destroy() { if (disposed) return; disposed = true; for (const node of nodes(root)) bindings.get(node)?.dispose(); } };
+  return { isReady: () => warmed, ready: settled, flush, settled, destroy() { if (disposed) return; disposed = true; for (const node of nodes(root)) bindings.get(node)?.dispose(); } };
 }

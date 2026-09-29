@@ -57,6 +57,10 @@ function timingCurveArgs(a: Record<string, unknown>): Pick<Track, "curve" | "inf
 }
 
 const s = (v: unknown): string => v as string;
+const modelMorphSummary = (value: unknown): string => {
+  const result = value as { morph?: boolean; reason?: string };
+  return typeof result.morph === 'boolean' ? `; morph:${result.morph}${result.reason ? ` (${result.reason})` : ''}` : '';
+};
 const sArr = (v: unknown): string[] => v as string[];
 const n = (v: unknown): number => v as number;
 
@@ -3449,7 +3453,7 @@ export const VERBS: VerbDef[] = [
     cli: "become",
     cliRoot: "flags",
     summary:
-      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot source, asset instead replaces content in the same frame; a pair without shared tweenable data requires force; semantic parts still bind locally, while ID-less plots crossfade.",
+      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images, models and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot or model source, asset replaces content in the same frame. Plots without shared tweenable data require force. Model topology determines morph:true or a valid crossfade with morph:false and reason; shape states are simpler for one mesh with named shapes.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3501,9 +3505,9 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => ({
         out: (r as { trackId: string }).trackId,
-        err: `✓ ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})`,
+        err: `✓ ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})${modelMorphSummary(r)}`,
       }),
-      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})`),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})${modelMorphSummary(r)}`),
     },
   },
   {
@@ -3568,8 +3572,8 @@ export const VERBS: VerbDef[] = [
       ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
     }),
     render: {
-      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${a.dest} appears from ${a.from} (beat ${a.beatId})` }),
-      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.dest} appears from ${a.from} (beat ${a.beatId})`),
+      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${a.dest} appears from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}` }),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.dest} appears from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}`),
     },
   },
   {

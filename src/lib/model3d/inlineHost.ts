@@ -35,7 +35,7 @@ export function createInlineHost(options: InlineHostOptions) {
   const cancelled = new Promise<never>((_, reject) => lifetime.signal.addEventListener('abort', () => reject(new DOMException('3D inline host disposed', 'AbortError')), { once: true }));
   void cancelled.catch(() => {});
   const internal = (id: string) => prefix + id;
-  function translate(spec: RenderSpec): RenderSpec { return { ...spec, assetId: internal(spec.assetId), ...(spec.morph ? { morph: { ...spec.morph, to: internal(spec.morph.to) } } : {}) }; }
+  function translate(spec: RenderSpec): RenderSpec { return { ...spec, assetId: internal(spec.assetId), ...(spec.morph ? { morph: { ...spec.morph, to: internal(spec.morph.to) } } : {}), ...(spec.crossfade ? { crossfade: { ...spec.crossfade, to: internal(spec.crossfade.to) } } : {}) }; }
   async function ready(assetIds: string[], warm: RenderSpec[] = []) {
     if (disposed) throw new Error('3D inline host disposed');
     await pool.core.ready();
@@ -52,10 +52,10 @@ export function createInlineHost(options: InlineHostOptions) {
       if (disposed) return;
       const spec = warm.find((s) => s.assetId === id) ?? { assetId: id, w: 64, h: 64, element: defaultRenderElement(id, options.manifest?.(id)), manifest: options.manifest?.(id) };
       // Program compilation/upload happens before playback can call synchronous render.
-      pool.core.render(translate(spec.morph ? { ...spec, morph: undefined } : spec));
+      pool.core.frame(translate({ ...spec, morph: undefined, crossfade: undefined }));
     }))]);
     if (disposed) throw new Error('3D inline host disposed');
-    for (const spec of warm) pool.core.render(translate(spec));
+    for (const spec of warm) pool.core.frame(translate(spec));
   }
   function view(canvas: HTMLCanvasElement) {
     if (disposed) throw new Error('3D inline host disposed');
@@ -65,9 +65,10 @@ export function createInlineHost(options: InlineHostOptions) {
       render(element: Model3dElement, w: number, h: number, extra: Partial<Omit<RenderSpec, 'element' | 'w' | 'h' | 'assetId'>> = {}) {
         if (disposed || released) throw new Error('3D inline view disposed');
         const spec: RenderSpec = { assetId: element.assetId, element, w, h, manifest: options.manifest?.(element.assetId), ...extra };
-        const rendered = pool.core.render(translate(spec));
+        const rendered = pool.core.frame(translate(spec));
         if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-        context.clearRect(0, 0, w, h); context.drawImage(pool.canvas, 0, 0, w, h); return rendered;
+        context.clearRect(0, 0, w, h); context.drawImage(rendered.canvas, 0, 0, w, h);
+        return rendered;
       },
       dispose() { if (released) return; released = true; canvas.width = 0; canvas.height = 0; views.delete(handle); },
     };

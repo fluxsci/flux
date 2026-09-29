@@ -22,19 +22,25 @@ export function withGhostIdentity(source: Element, result: Element): Element {
   }
   return copy as unknown as Element;
 }
-/** A copied plot's asset and source paths must name the same accepted bundle. */
+/** A copied plot/model's asset and source paths name the same accepted bundle. */
 export function sourceAt(slide: Slide, sourceId: string, beforeBeat: number, sampled: Element): Element {
   const result = structuredClone(sampled);
-  if (result.type !== "plot") return result;
+  if (result.type !== "plot" && result.type !== "model3d") return result;
   for (let bi = 0; bi < Math.min(beforeBeat, slide.beats.length); bi++) for (const track of slide.beats[bi].tracks) {
     if (track.disabled || track.target !== sourceId || track.preset !== "transform" || !track.to?.assetId) continue;
     const to = track.to;
-    if (typeof to.svgPath === "string") result.source = {
-      svgPath: to.svgPath,
+    const common = {
       ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
       ...(typeof to.recipePath === "string" ? { recipePath: to.recipePath } : {}),
       ...(typeof to.external === "boolean" ? { external: to.external } : {}),
       ...(typeof to.frozen === "boolean" ? { frozen: to.frozen } : {}),
+    };
+    if (result.type === "model3d" && typeof to.glbPath === "string") result.source = {
+      glbPath: to.glbPath, ...common, ...(typeof to.sha256 === "string" ? { sha256: to.sha256 } : {}),
+    };
+    else if (result.type === "plot" && typeof to.svgPath === "string") result.source = {
+      svgPath: to.svgPath,
+      ...common,
     };
     else delete result.source;
   }
