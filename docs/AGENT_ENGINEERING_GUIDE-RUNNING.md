@@ -3115,6 +3115,7 @@ outside this PNG packaging change.
 | T19 | Connect diffs the project tree | read-only paths never write posters; `verify-model3d-verbs.ts` runs Connect with unreadable GLBs and asserts no project or cache writes |
 | T20 | GPU and SwiftShader pixels differ | tolerance comparisons (worker/inline parity in `verify-model3d-render-browser.ts`); engine-parity checks share one poster file (`verify-model3d-headless.ts`) |
 | T22 | PDF printing runs with JavaScript disabled | posters are mandatory and furniture is vector; `verify-model3d-electron.cjs` checks the native PDF's vector labels and mesh pixels |
+| T24 | Capture must be deterministic, but an IntersectionObserver flag lags layout: a model that flew in or was panned into view kept its poster on its first visible frame | the slide binding's `flush` confirms an offscreen flag against the root's client rect before releasing; `verify-slide-model3d-player.ts` |
 | T25 | `planFigSave` stamps versions unconditionally | stamp 0.2 only with 3D content; `verify-figfiles-parity.ts` pins no-3D bytes, `verify-model3d-persistence.ts` the 3D stamps |
 | T28 | A scene3d manifest reaches the 2D plot reader (same `.fluxplot.json` suffix) | dispatch on `spec` everywhere; `verify-model3d-scene3d.ts` |
 | T29 | Furniture drifts from the WebGL projection | one `orbit.project`; ≤0.5 px marker agreement in `verify-model3d-render-browser.ts` |

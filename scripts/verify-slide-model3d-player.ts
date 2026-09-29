@@ -15,7 +15,7 @@ const fixture = async (id: string) => {
 const fixtures = Object.fromEntries(await Promise.all(['continuous', 'states'].map(async id => [id, await fixture(id)])));
 const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'ts', contents: `
 export { createPlayer, renderStaticAt } from './src/lib/slide/player/player';
-export { modelBindingOf, modelFieldEndpoints } from './src/lib/slide/player/model3d';
+export { modelBindingOf, modelFieldEndpoints, rectInViewport } from './src/lib/slide/player/model3d';
 export { createInlineHost } from './src/lib/model3d/inlineHost';
 export { makeModel3dElement } from './src/lib/model3d/make';
 export { furnitureLayout } from './src/lib/model3d/furnitureLayout';
@@ -70,6 +70,14 @@ try {
     ok(retainedCanvas.width === 0 && retainedCanvas.height === 0, 'already-born hidden model releases its canvas backing store');
     wrap.style.visibility = ''; player.refresh(); await player.readyMedia();
     ok(retainedCanvas.width > 0 && retainedCanvas.toDataURL() === retainedPixels, 'revealed model reacquires a view with exact pixels');
+    // The observer reports asynchronously; a model flying back on screen must
+    // render in that same seek, not show its poster until the observer catches up (T24).
+    wrap.style.transform = 'translateX(4000px)';
+    for (let i = 0; i < 50 && retainedCanvas.width; i++) await new Promise(r => setTimeout(r, 10));
+    ok(retainedCanvas.width === 0, 'observer-reported offscreen model releases its backing store');
+    wrap.style.transform = ''; player.refresh();
+    ok(retainedCanvas.width > 0 && retainedCanvas.style.display === 'block' && retainedCanvas.toDataURL() === retainedPixels, 'model back on screen renders in the same synchronous seek, before the observer reports');
+    ok(api.rectInViewport({ left: -5, top: 0, right: 0, bottom: 5 }, 100, 100) && !api.rectInViewport({ left: 101, top: 0, right: 150, bottom: 5 }, 100, 100), 'layout check keeps the observer edge-inclusive semantics');
     const posters: Record<string, string> = { surface: canvas().toDataURL(), shape: canvas('shape').toDataURL() };
     const modelPoster = (element: any) => posters[element.id], still = document.getElementById('still')!;
     const staticCount = host.stats().renders;

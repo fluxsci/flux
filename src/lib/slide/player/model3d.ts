@@ -28,6 +28,11 @@ function liveVisible(node: HTMLElement): boolean {
   }
   return true;
 }
+/** Whether a client rect overlaps the layout viewport, with the observer's own
+ * edge semantics (an edge-adjacent or zero-area rect counts as intersecting). */
+export function rectInViewport(rect: { left: number; top: number; right: number; bottom: number }, width: number, height: number): boolean {
+  return rect.right >= 0 && rect.bottom >= 0 && rect.left <= width && rect.top <= height;
+}
 function svgLayer(): SVGSVGElement {
   const layer = document.createElementNS(SVG, 'svg');
   layer.setAttribute('width', '100%'); layer.setAttribute('height', '100%'); layer.setAttribute('preserveAspectRatio', 'none');
@@ -152,6 +157,12 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
     activate(modelInfo) { if (disposed) return; active = true; info = modelInfo; key = ''; },
     flush() {
       if (disposed) return;
+      // The observer reports asynchronously: a model that just flew in or was
+      // revealed by a camera pan can still be flagged offscreen. Confirm an
+      // offscreen flag against current layout, so a seek's output never depends
+      // on the previous frame (T24). Onscreen flags need no layout read; a root
+      // without a layout box (display:none, detached) stays offscreen.
+      if (!intersects && root.getClientRects().length && rectInViewport(root.getBoundingClientRect(), window.innerWidth, window.innerHeight)) intersects = true;
       // Hidden surfaces own no backing storage, even if this exact model view
       // was already rendered. Shared geometry remains the host's retained asset.
       if (!intersects || !liveVisible(root)) {
