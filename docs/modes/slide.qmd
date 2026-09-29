@@ -484,10 +484,11 @@ shared-topology workflow. Hand-off keeps both objects and reveals the destinatio
 landing. Consume replaces the source's content and removes the destination in one undoable
 edit. Choose a gallery model through Change content to replace its mesh in the same frame.
 
-HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**;
-PowerPoint does not contain an editable 3D object. If a GLB is missing, Flux shows a
-placeholder and refuses to save an incomplete deck: restore the named file or remove the
-model. A WebGL fallback is a still or placeholder with an issue, not a simulated animation.
+HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**,
+shown and placed where each build step leaves it; PowerPoint does not contain an editable 3D
+object. If a GLB is missing, Flux shows a placeholder and refuses to save an incomplete deck:
+restore the named file or remove the model. A WebGL fallback is a still or placeholder with an
+issue, not a simulated animation.
 
 Whole-slide presets explicitly embed model bytes for another project. Their picker uses a
 saved preview. Newer or mismatched metadata remains preserved and inactive. In the rare

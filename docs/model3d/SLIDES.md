@@ -4,7 +4,7 @@ Deck assets retain GLB metadata. The live deck loader reads scene sidecars separ
 
 Portable payloads carry raw base64 GLBs in `models`, scene metadata in `modelManifests`, and Design-state poster references in `modelPosters`. Image assets contain only image data. Content-change target models are collected even when not directly placed. HTML and MP4 include the separate model runtime only when needed; its source hash participates in export-asset freshness and CSP generation.
 
-PDF and PowerPoint use Design-state stills with furniture and report that 3D animation is exported as a still. Static payload gathering sets `modelData: "omit"` and prepares posters through a native or service-worker adapter. Ordinary deck saves never persist poster or GLB data URLs.
+PDF and PowerPoint use Design-state stills with furniture, shown and placed as each page's build step leaves the model (PowerPoint build pages included), and report that 3D animation is exported as a still whenever a slide carries a model. Static payload gathering sets `modelData: "omit"` and prepares posters through a native or service-worker adapter. Ordinary deck saves never persist poster or GLB data URLs.
 
 Slide presets are an explicit portable-byte boundary. Their GLBs are embedded when saving the preset and prepared through the native importer before insertion. A single deck mutation installs the resulting immutable asset metadata and slide; receipt adoption follows that mutation. Temporary preset bytes never become authoring asset data or save-journal entries.
 

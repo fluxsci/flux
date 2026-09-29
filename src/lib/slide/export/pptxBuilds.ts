@@ -106,11 +106,10 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
     const key = `${beat}@${time}`;
     let ev = cache.get(key);
     if (!ev) {
+      // Model elements keep their sampled box and visibility here: deckPptx
+      // pictures them through staticModelElement (Design mesh and furniture
+      // at the page's placement), the same still the PDF pages use.
       ev = evaluateSlide(payload, beat, time, compiled);
-      // PowerPoint has no mesh animation. Keep its model pictures at Design
-      // state on every build page, rather than implying a rendered 3D morph.
-      const models = new Map(evaluateSlide(payload, 0, Infinity, compiled).elements.filter(e => e.type === "model3d").map(e => [e.id, e]));
-      ev.elements = ev.elements.map(e => models.has(e.id) ? structuredClone(models.get(e.id)!) : e);
       cache.set(key, ev);
     }
     return ev;
