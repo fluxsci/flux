@@ -1750,7 +1750,7 @@ loads reset them. `embedDocumentRuntime.ts` supplies the compact, isolated HTML 
 The live preview's srcdoc serves 3D models by reference: `previewModelClient.ts` (in the document) asks `previewModelBridge.ts` (in PreviewPane) for worker frames, so no preview render carries GLB bytes or the model runtime; exports inline fresh bytes. `embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
 PDF/Word use step 0; the print window requires no script. Posters embed their fonts.
 
-Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
+Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this); a gate that reaches `deckPdf.ts` or `embedAssets.ts` runs it first itself, because a fresh checkout has no `.generated/`. Its
 runtime bytes and exact CSP hash are generated together; Vite and Electron consume that
 hash without adding unsafe script sources. Browser assets keep the optional model IIFE
 separate. CLI/MCP resolve `embedAssets.ts` to the Node adapter, reading the prebuilt
@@ -8638,3 +8638,10 @@ preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). 
 - Registry entries outlive their elements for Undo; a save or conversion preflight must
   judge references, not the registry (promoted to the §9 3D table).
 - The computed-to-stored path crossing (§9) also covers resolved CLI/MCP inputs (promoted).
+
+### 2026-09-29 — Figure missing-GLB save, bridged preview models, fresh-checkout gates (Claude Opus 5.5, `fu-figure`)
+**Work:** Deleting a placed model whose GLB is missing now unblocks the Figure save (the saved index drops a registration nothing uses; the store keeps it for Undo); the live Paper preview draws 3D models through the shared worker over a postMessage bridge instead of inlining GLB bytes; two deck-PDF gates generate their embed assets. Pure 360/360, model3d-ui, paper-gate (incl. its Electron member), inline-slides and the affected slide/figure browser gates pass on :1491.
+**Learnings:**
+- A srcdoc that serves content by reference must change when the reference's owner changes: the preview's bytes are identical after a repository invalidation, so without `modelRevision` Svelte never reloads the iframe and a deleted GLB keeps its last frames.
+- Keyboard chords owned by the window stop reaching it once a real click focuses a preview iframe; blur it before pressing (`verify-model3d-embed-gui`).
+- Gates reaching `deckPdf.ts`/`embedAssets.ts` generate `.generated/` themselves (promoted to §4 Inline slides).
