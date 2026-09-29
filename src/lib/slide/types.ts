@@ -21,7 +21,8 @@ import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../typ
 // The 0.x minor slot is breaking. 0.6 (animation v2) adds part-set transform
 // targets, the hand-off Become (`to.become`), deck animation styles and timing
 // anchors, and the plot data view — an older app would play a hand-off wrong,
-// so it must refuse. 0.2–0.5 migrate by a pure stamp without rewriting content.
+// so it must refuse. 3D models ship in this same unreleased minor. 0.2–0.5
+// migrate by a pure stamp without rewriting content.
 export const DECK_SCHEMA_VERSION = "0.6.0";
 export type { VideoElement } from "./mediaTypes";
 
@@ -282,6 +283,9 @@ export interface TrackTarget {
   /** Explicit PROJECT-relative source paths for the content target —
    *  authored with `assetId` so resolvers never guess. */
   svgPath?: string;
+  /** Original GLB source for a model content target (never prepared asset bytes). */
+  glbPath?: string;
+  sha256?: string;
   manifestPath?: string;
   /** camera: the pose to move to. */
   x?: number;

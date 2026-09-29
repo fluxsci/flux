@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { makeVideoElement } from "./mediaTypes";
+import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { gcGroups } from "../groups";
@@ -29,7 +30,7 @@ import { defaultEasingFor, defaultTimingFor, isExitPreset } from "./presetCatalo
 import { EASING_TOKENS } from "./curves";
 import { compileSlide, trackDuration, type CompileOptions } from "./compile";
 import { targetOutlines } from "./targetGeometry";
-import { diffState } from "./tween";
+import { diffState, transformPreState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
@@ -1205,8 +1206,9 @@ export function setTransform(
      *  source paths; `source` carries the full bundle of a placed plot). */
     toAssetId?: Id;
     svgPath?: string;
+    glbPath?: string;
     manifestPath?: string;
-    source?: SemanticPlotElement["source"] | null;
+    source?: SemanticPlotElement["source"] | Model3dElement["source"] | null;
   } & TimingCurvePatch = {},
 ): Track | null {
   if (opts.arc !== undefined && (!Number.isFinite(opts.arc) || opts.arc < -1 || opts.arc > 1)) throw new Error("Arc must be between -1 and 1");
@@ -1237,9 +1239,10 @@ export function setTransform(
   if (opts.toAssetId != null) { t.to.assetId = opts.toAssetId; delete t.to.become; }
   if (opts.source !== undefined) {
     // a placed plot's whole source bundle travels with the content target
-    for (const key of ["svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete t.to[key];
+    for (const key of ["svgPath", "glbPath", "sha256", "manifestPath", "recipePath", "frozen", "external"]) delete t.to[key];
     if (opts.source) {
-      t.to.svgPath = opts.source.svgPath;
+      if ("glbPath" in opts.source) { t.to.glbPath = opts.source.glbPath; if (opts.source.sha256) t.to.sha256 = opts.source.sha256; }
+      else t.to.svgPath = opts.source.svgPath;
       if (opts.source.manifestPath != null) t.to.manifestPath = opts.source.manifestPath;
       if (opts.source.recipePath != null) t.to.recipePath = opts.source.recipePath;
       if (opts.source.frozen != null) t.to.frozen = opts.source.frozen;
@@ -1247,6 +1250,7 @@ export function setTransform(
     }
   }
   if (opts.svgPath != null) t.to.svgPath = opts.svgPath;
+  if (opts.glbPath != null) t.to.glbPath = opts.glbPath;
   if (opts.manifestPath != null) t.to.manifestPath = opts.manifestPath;
   if (opts.start != null) t.start = opts.start;
   if (opts.duration != null) t.duration = opts.duration;
@@ -1255,10 +1259,24 @@ export function setTransform(
   return t;
 }
 
+/** Turntable is an ordinary linear transform; all authoring surfaces and agents
+ * share this operation, including replacement and previous-beat endpoint rules. */
+export function addTurntable(deck: Deck, opts: { slideId: Id; beatId: Id; target: Id; turns?: number; direction?: "cw" | "ccw"; durationMs?: number; start?: number }): Track | null {
+  const turns = opts.turns ?? 1, duration = opts.durationMs ?? 6000;
+  if (!Number.isFinite(turns) || turns <= 0 || !Number.isFinite(duration) || duration <= 0 || (opts.start !== undefined && (!Number.isFinite(opts.start) || opts.start < 0))) throw new Error("Turntable needs positive turns and duration, and a nonnegative start");
+  if (opts.direction !== undefined && opts.direction !== "cw" && opts.direction !== "ccw") throw new Error("Turntable direction must be cw or ccw");
+  const slide = slideById(deck, opts.slideId), bi = slide?.beats.findIndex(beat => beat.id === opts.beatId) ?? -1;
+  if (!slide || bi <= 0) return null;
+  const pre = transformPreState(slide, opts.target, bi);
+  if (pre?.type !== "model3d") return null;
+  return setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { orbitAzimuth: pre.orbitAzimuth + (opts.direction === "ccw" ? 1 : -1) * 360 * turns }, duration, start: opts.start ?? 0, curve: "linear" });
+}
+export const turntable = addTurntable;
+
 /** Drop the content half of a transform (the object keeps its own content). */
 export function clearTransformContent(track: Track): void {
   if (!track.to) return;
-  for (const key of ["assetId", "svgPath", "manifestPath", "recipePath", "frozen", "external", "become"]) delete track.to[key];
+  for (const key of ["assetId", "svgPath", "glbPath", "sha256", "manifestPath", "recipePath", "frozen", "external", "become"]) delete track.to[key];
 }
 
 export interface BecomeOptions extends TimingCurvePatch {

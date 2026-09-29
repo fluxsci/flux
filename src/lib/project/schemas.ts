@@ -170,8 +170,6 @@ const ELEMENT_DEF = {
     }),
   ],
 };
-// P1/D9: figure format 0.2 accepts 3D; deck 0.5 keeps its previous scene until P4.
-const DECK_ELEMENT_BRANCHES = [...ELEMENT_DEF.oneOf];
 ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orbitElevation", "orbitZoom", "orbitProjection", "orbitFov", "fill"], {
   assetId: { type: "string" }, fill: { type: "string" },
   orbitAzimuth: { type: "number" }, orbitElevation: { type: "number", minimum: -90, maximum: 90 },
@@ -496,10 +494,11 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: {
           type: "object",
           required: ["id", "kind", "path"],
+          ...GLB_ASSET_REQUIREMENTS,
           properties: {
             id: { type: "string" },
             name: { type: "string" },
-            kind: { type: "string", enum: ["png", "svg", "mp4"] },
+            kind: { type: "string", enum: ["png", "svg", "mp4", "glb"] },
             path: { type: "string" },
             naturalWidth: { type: "number" },
             naturalHeight: { type: "number" },
@@ -617,7 +616,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
       },
     },
     definitions: {
-      element: { oneOf: [...DECK_ELEMENT_BRANCHES, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
+      element: { oneOf: [...ELEMENT_DEF.oneOf, elementBranch("video", ["assetId", "posterAssetId", "durationMs"], {
         assetId: { type: "string", pattern: "[\\s\\S]" }, posterAssetId: { type: "string", pattern: "[\\s\\S]" },
         durationMs: { type: "number", exclusiveMinimum: 0 }, muted: { type: "boolean" }, loop: { type: "boolean" },
       })] },

@@ -8494,3 +8494,7 @@ Pure 347/347, ui 142/142, bundle 5/5 and startup pass; the electron tier was not
 **Learnings:** pathMap order under a structural merge (promoted to §7 next to first-match);
 MCP gates answer from `dist/`, so rebuild after a merge before judging them (`verify-inbox`
 failed on the pre-merge bundle).
+
+### 2026-09-29 — Add the shared 3D slide model and tween core (Codex, model3d-slides-core)
+**Work:** Enabled metadata-only GLB assets and model elements in the unpublished 0.6 deck schema, added unwrapped orbit/logarithmic zoom and signed shape/field interpolation, and exposed Turntable through the existing shared transform operation. The registered slide-model3d group passed the new model checks plus existing tween and generated-validator gates; live player, import and authoring integration remain in progress.
+**Learnings:** Fetched origin still publishes 0.5, so 3D joins local animation-v2 format 0.6; raw progress controls discrete switches even when an easing overshoots.

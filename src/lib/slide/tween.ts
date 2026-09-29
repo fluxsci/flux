@@ -27,6 +27,7 @@ import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outlin
 import { compileSlide } from "./compile";
 import { planHandoff } from "./handoffPlan";
 import type { GeometryCtx } from "./targetGeometry";
+import type { ModelFieldOverride } from "../model3d/types";
 
 // --- the property law --------------------------------------------------------
 
@@ -71,6 +72,11 @@ function completeRetyped(el: Record<string, unknown>): void {
       def("fontStyle", "normal"); def("align", "left"); def("color", "#000000"); def("sizing", "auto");
       break;
     case "plot": case "image": def("assetId", ""); break; // the content half (to.assetId) names the asset
+    case "model3d":
+      def("assetId", ""); def("orbitAzimuth", 30); def("orbitElevation", 20);
+      def("orbitZoom", 1); def("orbitProjection", "orthographic"); def("orbitFov", 30);
+      def("fill", "#4385be"); def("modelColors", "source"); def("modelLighting", "studio");
+      break;
   }
 }
 
@@ -80,6 +86,7 @@ const NUM_PROPS = new Set([
   "cornerRadius", "lineHeight", "letterSpacing", "paragraphSpacing",
   "x1", "y1", "x2", "y2", "contentScale",
   "arrowSize",
+  "orbitAzimuth", "orbitElevation", "orbitRoll", "orbitPanX", "orbitPanY", "orbitFov",
 ]);
 
 /** OKLab-lerp props. */
@@ -297,7 +304,7 @@ export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: nu
 
 // --- the content plan (what the driver renders) -------------------------------
 
-export type ContentMode = "tween" | "crossfade" | "morph";
+export type ContentMode = "tween" | "crossfade" | "morph" | "model-live";
 
 export interface ContentPlan {
   /** How the CONTENT layer animates ("tween": one re-rendered layer;
@@ -339,7 +346,8 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
   // (text, images, plots, video) crossfades while the box still tweens.
   if (outlineMorphable(pre, end)) mode = "morph";
   else if (pre.type !== end.type) mode = "crossfade";
-  return { mode, ...(textTween ? { textTween } : {}), contentDirty, geometryDirty };
+  else if (pre.type === "model3d" && end.type === "model3d") mode = "model-live";
+  return { mode, ...(textTween ? { textTween } : {}), contentDirty: mode === "model-live" ? false : contentDirty, geometryDirty };
 }
 
 // --- lerpElement --------------------------------------------------------------
@@ -398,6 +406,14 @@ export function lerpElement(pre: Element, end: Element, t: number, raw = t): Ele
       out[k] = lerpRot(Number(va ?? 0), Number(vb ?? 0), t);
     } else if (k === "opacity") {
       out[k] = lerp(Number(va ?? 1), Number(vb ?? 1), t);
+    } else if (k === "orbitZoom") {
+      out[k] = Math.exp(lerp(Math.log(Number(va ?? 1)), Math.log(Number(vb ?? 1)), t));
+    } else if (k === "fields") {
+      out[k] = lerpFields(va as Record<string, ModelFieldOverride> | undefined, vb as Record<string, ModelFieldOverride> | undefined, t, raw);
+      if (!Object.keys(out[k] as object).length) delete out[k];
+    } else if (k === "modelStates") {
+      out[k] = lerpStates(va as Record<string, number> | undefined, vb as Record<string, number> | undefined, t);
+      if (!Object.keys(out[k] as object).length) delete out[k];
     } else if (NUM_PROPS.has(k) && (typeof va === "number" || typeof vb === "number")) {
       const fa = typeof va === "number" ? va : k === "contentScale" ? 1 : 0;
       const fb = typeof vb === "number" ? vb : k === "contentScale" ? 1 : 0;
@@ -478,6 +494,31 @@ function lerpAcrossKinds(pre: Element, end: Element, t: number, raw: number): El
     out.y1 = sy > 0 ? 0 : h; out.y2 = sy > 0 ? h : 0;
   }
   return out as unknown as Element;
+}
+
+/** Named shape weights have an implicit zero at either missing endpoint.
+ * Signed/extrapolated authored weights stay intact; the UI alone clamps sliders. */
+export function lerpStates(a: Record<string, number> = {}, b: Record<string, number> = {}, t: number): Record<string, number> {
+  const out: Record<string, number> = Object.create(null);
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const value = lerp(Object.hasOwn(a, key) ? a[key] : 0, Object.hasOwn(b, key) ? b[key] : 0, t);
+    if (value !== 0) out[key] = value;
+  }
+  return out;
+}
+
+/** Continuous field limits interpolate; map identity switches on raw progress.
+ * An absent limit has no implicit data domain. Hosts resolve manifest defaults
+ * before sampling when an authored field override changes. */
+export function lerpFields(a: Record<string, ModelFieldOverride> = {}, b: Record<string, ModelFieldOverride> = {}, t: number, raw = t): Record<string, ModelFieldOverride> {
+  const out: Record<string, ModelFieldOverride> = Object.create(null);
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const left = Object.hasOwn(a, key) ? a[key] : undefined, right = Object.hasOwn(b, key) ? b[key] : undefined;
+    const range = left?.range && right?.range ? [lerp(left.range[0], right.range[0], t), lerp(left.range[1], right.range[1], t)] as [number, number] : step(left?.range, right?.range, raw);
+    const cmap = step(left?.cmap, right?.cmap, raw);
+    if (range || cmap !== undefined) out[key] = { ...(range ? { range: [...range] } : {}), ...(cmap !== undefined ? { cmap } : {}) };
+  }
+  return out;
 }
 
 /** Sparse views have no implicit numeric domain: absent ends step in the
@@ -585,7 +626,7 @@ export function transformPreState(slide: Slide, target: string, beatIndex: numbe
   const out = foldPreState(docEl, earlierTransformStates(slide.beats, target, beatIndex));
   // Content identity is a separate authored channel, but is still part of a
   // transform's effective source. A→B→C must start the second move at B.
-  if (out.type === "plot" || out.type === "image") {
+  if (out.type === "plot" || out.type === "image" || out.type === "model3d") {
     for (let i = 0; i < Math.min(beatIndex, slide.beats.length); i++) {
       for (const track of slide.beats[i].tracks) {
         if (!track.disabled && track.target === target && familyOf(track) === "transform" && track.to?.assetId) out.assetId = track.to.assetId;
@@ -600,7 +641,7 @@ export function transformPreState(slide: Slide, target: string, beatIndex: numbe
  *  compiler, the player and the endpoint checkout all call it. */
 export function transformEndState(pre: Element, track: { to?: { state?: Record<string, unknown>; assetId?: string } }): Element {
   const end = applyState(pre, track.to?.state);
-  if (track.to?.assetId && (end.type === "plot" || end.type === "image")) end.assetId = track.to.assetId;
+  if (track.to?.assetId && (end.type === "plot" || end.type === "image" || end.type === "model3d")) end.assetId = track.to.assetId;
   return end;
 }
 
