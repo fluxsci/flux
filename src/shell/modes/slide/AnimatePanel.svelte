@@ -36,7 +36,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop") => void;
+    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
@@ -61,6 +61,7 @@
 
   const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
   const sel = $derived([...$selection]);
+  const selectedModels = $derived(slide?.elements.filter(element => element.type === "model3d" && sel.includes(element.id)) ?? []);
   const selectedVideos = $derived(slide?.elements.filter(element => element.type === "video" && sel.includes(element.id)) ?? []);
   const manifests = $derived($plotManifests);
   const selPlot = $derived.by(() => {
@@ -316,6 +317,9 @@
         </span>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Highlight the selection">Emphasize</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
+        {#if selectedModels.length && selectedModels.length === sel.length && !$partSelections.length}
+          <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds — edit its Change track">Turntable</button>
+        {/if}
         {#if selectedVideos.length}
           <button class="b" onclick={() => onAction?.("videoStart")} title="Start the selected videos from their first frame at this step">Start video</button>
           <button class="b" onclick={() => onAction?.("videoPause")} title="Pause the selected videos at this step, keeping the current frame">Pause video</button>
