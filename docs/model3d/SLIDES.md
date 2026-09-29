@@ -1,6 +1,6 @@
 # 3D slide data and export adapters
 
-Deck assets retain GLB metadata. The live deck loader reads scene sidecars separately and never inserts GLB bytes into `assetData`. Figure-derived models stay referenced by ID; deck-to-Figure conversion uses verified native copies. Missing model files retain a placeholder on read and prevent a GUI save until restored or removed.
+Deck assets retain GLB metadata. The live deck loader reads scene sidecars separately and never inserts GLB bytes into `assetData`. Figure-derived models stay referenced by ID; deck-to-Figure conversion uses verified native copies. Missing model files retain a placeholder on read and prevent a GUI save until restored or removed. Save judges only the models the slides still use (`slideAssetIds`): a deleted model's GLB entry stays in the editor for Undo, and once its file is gone the saved registry stops naming it.
 
 Portable payloads carry raw base64 GLBs in `models`, scene metadata in `modelManifests`, and Design-state poster references in `modelPosters`. Image assets contain only image data. Content-change target models are collected even when not directly placed. HTML and MP4 include the separate model runtime only when needed; its source hash participates in export-asset freshness and CSP generation.
 

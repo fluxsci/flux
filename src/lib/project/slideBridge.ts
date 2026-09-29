@@ -1,5 +1,6 @@
 import { setModel3dDeckScope } from "../model3d/editorScope";
 import { deckModel3dBindings } from "../slide/model3dBindings";
+import { slideAssetIds } from "../slide/deckProject";
 import { readScene3dSidecars, scene3dSidecarWrites } from "../model3d/persistence";
 import { scene3dManifests, scene3dRecipes, primeScene3dSidecars, clearScene3dSidecars } from "../model3d/store";
 import { storedAssetPath } from "./assetPath";
@@ -579,7 +580,11 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
   const before = await fig.exists(abs) ? await fig.readText(abs) : null, baseline = deckBaseline.get(abs);
   if (!opts.force && baseline != null && before !== baseline) throw new ConflictError("deck changed on disk");
   const writes = new Map<string, GenerationWrite>();
-  for (const asset of get(figProject).assets) if (asset.kind === "glb" && externalAssetIds().has(asset.id)) {
+  // Only models the slides still use must exist on disk. A deleted model's GLB
+  // entry stays in the stores (Undo restores element and asset together), so
+  // judging every registered GLB kept Save blocked after the model was gone.
+  const referenced = new Set(d.slides.flatMap(slide => [...slideAssetIds(slide)]));
+  for (const asset of get(figProject).assets) if (asset.kind === "glb" && externalAssetIds().has(asset.id) && referenced.has(asset.id)) {
     const relative = storedAssetPath(asset.path);
     const missing = () => new Error(`Cannot save: 3D model file ${relative} is missing. Restore it, or delete the 3D model that uses it`);
     let file: string;
@@ -587,11 +592,15 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
     catch (error) { if ((error as { code?: string }).code === "ENOENT" || String(error).includes("ENOENT")) throw missing(); throw error; }
     if (!await fig.exists(file)) throw missing();
   }
+  const vanished = new Set<string>();
   for (const a of d.assets) {
     const url = data[a.id]; if (!a.path) a.path = `assets/${a.id}.${a.kind}`;
     const assetPath = `slides/${d.id}/${a.path}`, exists = await fig.exists(joinPath(root, assetPath));
     if (a.kind === "glb") {
-      if (!exists) throw new Error(`Cannot save: 3D model file ${assetPath} is missing. Restore it, or delete the 3D model that uses it`);
+      if (!exists && referenced.has(a.id)) throw new Error(`Cannot save: 3D model file ${assetPath} is missing. Restore it, or delete the 3D model that uses it`);
+      // Unused and gone: no deck can restore its bytes, so the saved registry
+      // stops naming it. An unused GLB still on disk stays, as 2D assets do.
+      if (!exists) { vanished.add(a.id); continue; }
       if (isAssetDirty(a.id)) for (const [path, text] of scene3dSidecarWrites(`slides/${d.id}/assets`, a.id, { manifest: models[a.id], recipe: modelRecipes[a.id] })) writes.set(path, text);
       continue;
     }
@@ -604,6 +613,7 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
     writes.set(sidecar + ".fluxplot.json", man && !isDerivedManifest(man) ? JSON.stringify(man,null,2) : null);
     writes.set(sidecar + ".recipe.json", man && !isDerivedManifest(man) && recipes[a.id] !== undefined ? JSON.stringify(recipes[a.id],null,2) : null);
   }
+  if (vanished.size) d.assets = d.assets.filter(a => !vanished.has(a.id));
   const assertOwned = async () => { await leaseOwned(); if (!owner()) throw new Error("Deck changed before save could publish"); };
   const published = await persistDeckCandidate(root, d, writes, assertOwned, before === null ? undefined : { path: abs, text: before });
   if (owner()) {
