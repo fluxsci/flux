@@ -523,7 +523,10 @@ Persistence invariants (all machine-checked — do not weaken):
   exception: every writer publishes a complete image atomically for the same view key.
   Read-only image requests render only into the machine cache; connect/collect never
   renders or writes posters. `render-model-posters --prune` also bounds that machine cache
-  (14 days, then least-recently-used down to 1 GiB; `planMachinePosterPrune`).
+  (14 days, then least-recently-used down to 1 GiB; `planMachinePosterPrune`). The project
+  cache is shared by Figures and every registered deck, so a document that cannot be read
+  (missing, newer, unparsable) leaves it unpruned with a named warning; the render still
+  completes and journals.
   Worker contract: [3D poster worker](model3d/POSTER_WORKER.md).
 
 ## 4. Renderer architecture notes

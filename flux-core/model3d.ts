@@ -204,23 +204,35 @@ export async function renderModelPosters(root: string, options: { figureId?: str
     if (options.prune) {
       // Rendering may outlive a save in another window/process. Protect the
       // current saved references, including views added during that render.
-      const current = (await loadFigModel(root)).project;
-      const all = await resolveModelPosters(root, current.figures, current.assets, { policy: 'collect', allFigures: current.figures, signal: options.signal });
-      const live = new Set(all.requests.map(request => request.key));
+      const live = new Set<string>(), unreadable: string[] = [];
+      const protect = async (label: string, collect: () => Promise<readonly { key: string }[]>) => {
+        try { for (const request of await collect()) live.add(request.key); }
+        catch (error) { options.signal?.throwIfAborted(); unreadable.push(`${label} (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`); }
+      };
+      await protect('Figures', async () => {
+        const current = (await loadFigModel(root)).project;
+        return (await resolveModelPosters(root, current.figures, current.assets, { policy: 'collect', allFigures: current.figures, signal: options.signal })).requests;
+      });
       // The project cache is shared by Figures and every deck. Never prune a
       // live slide still just because this command filtered another document.
-      for(const entry of await listDecks(root)){
-        const doc=await loadDeckModelDocument(root,entry.id);
-        const refs=await resolveModelPosters(root,doc.project.figures,doc.project.assets,{policy:'collect',assetPrefix:'',surface:'slide',manifests:doc.manifests,signal:options.signal});
-        for(const request of refs.requests)live.add(request.key);
-      }
-      const dir = safeJoin(root, 'fig/renders/model3d');
-      await confinedRecoveryPath(root, dir);
-      for (const name of await fs.readdir(dir).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return []; throw error; })) {
-        const file = safeJoin(dir, name); await confinedRecoveryPath(root, file);
-        const stat = await fs.lstat(file);
-        if (!stat.isFile() || !isModelPosterPrunable(name, stat.mtimeMs, live)) continue;
-        options.signal?.throwIfAborted(); await fs.rm(file); removed.push(name);
+      const decks = await listDecks(root).catch(error => { unreadable.push(`the deck registry (${error instanceof Error ? error.message : String(error)})`); return []; });
+      for (const entry of decks) await protect(`deck ${entry.id}`, async () => {
+        const doc = await loadDeckModelDocument(root, entry.id);
+        return (await resolveModelPosters(root, doc.project.figures, doc.project.assets, { policy: 'collect', assetPrefix: '', surface: 'slide', manifests: doc.manifests, signal: options.signal })).requests;
+      });
+      // A document that cannot be read (missing, newer or unparsable) has
+      // unknown live posters, so the shared project cache is kept whole. The
+      // posters above are rendered and journaled regardless.
+      if (unreadable.length) rendered.warnings.push(`3D poster cache fig/renders/model3d was not pruned: could not read ${unreadable.join('; ')}`);
+      else {
+        const dir = safeJoin(root, 'fig/renders/model3d');
+        await confinedRecoveryPath(root, dir);
+        for (const name of await fs.readdir(dir).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return []; throw error; })) {
+          const file = safeJoin(dir, name); await confinedRecoveryPath(root, file);
+          const stat = await fs.lstat(file);
+          if (!stat.isFile() || !isModelPosterPrunable(name, stat.mtimeMs, live)) continue;
+          options.signal?.throwIfAborted(); await fs.rm(file); removed.push(name);
+        }
       }
       // The shared machine cache (filled by read-only image requests) is bounded
       // by the same age rule plus a size cap; this project's live keys survive.
