@@ -1,3 +1,4 @@
+import { staticModelRequest } from '../../model3d/static';
 /** Lightweight adapter to the conditional 3D IIFE. No eager Three dependency. */
 import type { ExportPayload } from './runtime';
 import type { InlineHost, InlineHostOptions } from '../../model3d/inlineHost';
@@ -27,6 +28,13 @@ export function payloadModelContext(payload: ExportPayload) {
   return {
     modelAsset: (id: string) => payload.deck.assets.find((a): a is Model3dAsset => a.id === id && a.kind === 'glb'),
     modelManifest: (id: string) => payload.modelManifests?.[id],
-    modelPoster: (element: Model3dElement) => payload.assets?.[payload.modelPosters?.[element.id] ?? ''],
+    modelPoster: (element: Model3dElement) => {
+      const asset = payload.deck.assets.find((a): a is Model3dAsset => a.id === element.assetId && a.kind === 'glb');
+      if (!asset) return undefined;
+      // The payload carries Design stills. Never relabel that image as a later
+      // orbit, shape or content endpoint when live rendering is unavailable.
+      try { return payload.assets?.[staticModelRequest(element, asset, payload.modelManifests?.[element.assetId], 'slide').ref]; }
+      catch { return undefined; }
+    },
   };
 }

@@ -58,7 +58,7 @@ export function createMemBridge(): FileBridge & {
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
   let watchedRoot: string | null | undefined, watchGeneration = 0;
-  const modelImports = new Map<string, { root: string; generation: number; state: 'pending' | 'canceled'; result: Model3dImportResult; paths: string[] }>();
+  const modelImports = new Map<string, { root: string; generation: number; state: 'pending' | 'canceled'; target: Model3dImportRequest['target']; document: string; result: Model3dImportResult; paths: string[] }>();
 
   const addDir = (p: string) => {
     let cur = norm(p);
@@ -76,12 +76,26 @@ export function createMemBridge(): FileBridge & {
       if (!root || (watchedRoot !== undefined && watchedRoot !== root) || generation !== watchGeneration) throw new Error('The project changed while importing the model');
     };
     assertOwner();
-    if (request.target?.kind !== 'figure') throw new Error('3D import requires a Figure target');
+    if (!['figure', 'slide'].includes(request.target?.kind) || Object.keys(request.target).some(k => k !== 'kind' && !(request.target.kind === 'slide' && k === 'deckId'))) throw new Error('3D import requires a Figure or slide target');
     const documentBytes = files.get(`${root}/project.json`);
     if (!documentBytes) throw new Error('Save the project before importing a 3D model');
     const document = JSON.parse(dec.decode(documentBytes));
-    const prefix = typeof document.schemaVersion === 'string' ? 'fig' : document.version === 2 && Array.isArray(document.figures) ? '' : null;
+    let prefix = typeof document.schemaVersion === 'string' ? 'fig' : document.version === 2 && Array.isArray(document.figures) ? '' : null;
     if (prefix === null) throw new Error('Unrecognized Figure project format');
+    let documentPath = joinPath(root, prefix ? 'fig/index.json' : 'project.json');
+    const assertDestination = () => {
+      if (request.target.kind !== 'slide') return;
+      const id = request.target.deckId;
+      if (typeof id !== 'string' || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,180}$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)) throw new Error('Unsafe model deck id');
+      const relative = `slides/${id}/deck.json`;
+      const currentBytes = files.get(`${root}/project.json`), currentDocument = currentBytes ? JSON.parse(dec.decode(currentBytes)) : undefined;
+      if (typeof currentDocument?.schemaVersion !== 'string' || !currentDocument.slides?.some((d: {id:string;path:string}) => d.id === id && d.path === relative)) throw new Error('The model destination deck is not registered in this project');
+      documentPath = joinPath(root, relative);
+      const saved = files.get(documentPath), deck = saved ? JSON.parse(dec.decode(saved)) : undefined;
+      if (deck?.id !== id || !/^0\.[23456]\./.test(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error('The model destination deck cannot be edited by this Flux version');
+      prefix = `slides/${id}`;
+    }
+    assertDestination();
     const sourcePath = norm(request.sourcePath);
     if (!/\.glb$/i.test(dropped?.name ?? sourcePath)) throw new Error('Choose a binary .glb model file');
     if (dropped && dropped.size > GLB_LIMITS.maxBytes) throw new Error(`GLB exceeds ${GLB_LIMITS.maxBytes / 1024 / 1024} MiB`);
@@ -93,7 +107,7 @@ export function createMemBridge(): FileBridge & {
     const recipeText = !dropped && files.has(recipePath) ? dec.decode(files.get(recipePath)) : undefined;
     const { prepareModel3dImport } = await import('../model3d/importData');
     const prepared = await prepareModel3dImport({ bytes, assetId: `model-${crypto.randomUUID()}`, name: dropped?.name ?? baseOf(sourcePath), manifestText, recipeText });
-    assertOwner();
+    assertOwner(); assertDestination();
     const result: Model3dImportResult = { ...prepared.data, receipt: crypto.randomUUID(), assetPrefix: prefix,
       source: { glbPath: sourcePath, ...(manifestText !== undefined ? { manifestPath } : {}), ...(recipeText !== undefined ? { recipePath } : {}), ...(dropped ? { frozen: true } : {}) } };
     const directory = joinPath(root, prefix, 'assets'), paths: string[] = [];
@@ -102,12 +116,12 @@ export function createMemBridge(): FileBridge & {
     if (result.raw?.recipe !== undefined) entries.push([`${directory}/${result.asset.id}.recipe.json`, enc.encode(result.raw.recipe)]);
     for (const [file] of entries) if (files.has(file)) throw new Error('Model import destination already exists');
     for (const [file, content] of entries) { ensureParent(file); files.set(file, content); paths.push(file); }
-    modelImports.set(result.receipt, { root, generation, state: 'pending', result, paths });
+    modelImports.set(result.receipt, { root, generation, state: 'pending', target: structuredClone(request.target), document: documentPath, result, paths });
     return result;
   }
   function ownedModel(request: Model3dImportOwnership) {
     const item = modelImports.get(request.receipt);
-    if (!item || item.root !== norm(request.root) || request.target?.kind !== 'figure' || item.result.asset.id !== request.assetId) throw new Error('Unknown or already adopted model import receipt');
+    if (!item || item.root !== norm(request.root) || request.target?.kind !== item.target.kind || (request.target.kind === 'slide' && item.target.kind === 'slide' && request.target.deckId !== item.target.deckId) || item.result.asset.id !== request.assetId) throw new Error('Unknown or already adopted model import receipt');
     return item;
   }
 
@@ -123,7 +137,7 @@ export function createMemBridge(): FileBridge & {
     async discardModel3d(request) {
       const item = ownedModel(request);
       item.state = 'canceled';
-      const docPath = joinPath(item.root, item.result.assetPrefix, item.result.assetPrefix ? 'index.json' : 'project.json');
+      const docPath = item.document;
       const savedBytes = files.get(docPath);
       if (savedBytes && JSON.parse(dec.decode(savedBytes)).assets?.some((a: { id: string }) => a.id === request.assetId)) throw new Error('This model is already saved in the project');
       for (const file of item.paths) files.delete(file);

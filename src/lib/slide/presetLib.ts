@@ -1,4 +1,8 @@
-import { collectModel3dSourceBindings } from "../model3d/sourceBinding";
+import type { Model3dAsset } from '../model3d/types';
+import { staticModelRequest, type Model3dSvgContext } from '../model3d/static';
+import { parseScene3d } from '../model3d/scene3d';
+import { scene3dSourceBindingIssue } from '../model3d/sourceBinding';
+import { deckModel3dBindings } from "./model3dBindings";
 import { pushToast } from "../toast";
 import { preparePresetModels } from "./model3dPresets";
 import { readScene3dSidecars } from "../model3d/persistence";
@@ -82,7 +86,7 @@ export async function saveSlidePreset(
   const metadata = structuredClone(get(project).assets);
   const root = get(embeddedProjectRoot), bridge = fileBridge();
   const referenced = slideAssetIds(slide);
-  const bindings = collectModel3dSourceBindings(deck.slides.flatMap(s => s.elements));
+  const bindings = deckModel3dBindings(deck);
   const resident = new Map([...referenced].map(id => [id, getAssetData(id)]));
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);
@@ -117,6 +121,7 @@ export async function saveSlidePreset(
       if (recipes[aid] !== undefined) entry.recipe = recipes[aid];
     }
     if (modelSidecars) {
+      entry.modelMetadataActive = !!modelSidecars.manifest;
       // A portable preset's GLB is the prepared file, so its active sidecar
       // binds to those exact bytes. Inactive/newer raw metadata stays untouched.
       if (modelSidecars.manifest) entry.manifest = { ...modelSidecars.manifest, glbSha256: meta.sha256 };
@@ -126,6 +131,21 @@ export async function saveSlidePreset(
     }
     assets.push(entry);
   }
+  const modelPosters: Record<string, string> = {};
+  for (const element of slide.elements) if (element.type === 'model3d' && !element.hidden) {
+    const entry = assets.find(a => a.asset.id === element.assetId);
+    if (!entry || entry.asset.kind !== 'glb') continue;
+    const parsed = entry.manifest === undefined || entry.modelMetadataActive === false ? undefined : parseScene3d(typeof entry.manifest === 'string' ? entry.manifest : JSON.stringify(entry.manifest));
+    const manifest = parsed && !('issue' in parsed) ? parsed : undefined;
+    const request = staticModelRequest(element, entry.asset as Model3dAsset, manifest, 'slide');
+    const prefix = deck.assets.some(a => a.id === entry.asset.id) ? `slides/${deck.id}` : '';
+    const { modelPosterUrl } = await import('../model3d/posterStore');
+    const source = { root: root!, prefix, bridge: bridge ?? null, scope: `slide-preset:${root}:${deck.id}`,
+      isCurrent: () => get(embeddedProjectRoot) === root && currentDeck()?.id === deck.id };
+    // A missing/failed thumbnail must not make a reusable model disappear.
+    try { modelPosters[element.id] = await modelPosterUrl({ ...request, surface: 'slide' }, { source }); }
+    catch (error) { pushToast('info', `3D preset preview unavailable: ${String(error)}`); }
+  }
   const baseName = rel.replace(/\.json$/i, "").split("/").pop() || "slide";
   const snap: SlidePresetSnapshot = {
     fluxPreset: 1,
@@ -134,6 +154,7 @@ export async function saveSlidePreset(
     savedAt: new Date().toISOString(),
     stage: structuredClone(deck.stage),
     thumbBackground: slide.background ?? slideDefaultBackground(deck),
+    ...(Object.keys(modelPosters).length ? { modelPosters } : {}),
     slide: structuredClone(slide),
     animStyles: slideAnimStyles(slide, deck),
     ...(assets.length ? { assets } : {}),
@@ -190,10 +211,19 @@ export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: 
 export function slidePresetThumb(p: SlidePresetSnapshot): string {
   const dataById = new Map<Id, string>();
   for (const e of p.assets ?? []) dataById.set(e.asset.id, e.data);
+  const models = new Map((p.assets ?? []).filter(e => e.asset.kind === 'glb').map(e => [e.asset.id, e]));
+  const context: Model3dSvgContext = {
+    assetOf: el => { const asset = models.get(el.assetId)?.asset; return asset?.kind === 'glb' ? asset as Model3dAsset : undefined; },
+    manifestOf: el => { const entry = models.get(el.assetId), value = entry?.manifest; if (value === undefined || entry?.modelMetadataActive === false) return undefined;
+      const parsed = parseScene3d(typeof value === 'string' ? value : JSON.stringify(value));
+      return 'issue' in parsed || scene3dSourceBindingIssue(parsed, {kind:'known',sha256:entry!.asset.sha256!}) ? undefined : parsed; },
+    posterIdOf: el => { const id = `preset-model:${el.id}`; const png = p.modelPosters?.[el.id];
+      if (png?.startsWith('data:image/png;')) { dataById.set(id, png); return id; } return undefined; },
+  };
   const bg = p.slide.background ?? p.thumbBackground ?? "#100f0f";
   const body = p.slide.elements
     .filter((el) => !el.hidden)
-    .map((el) => elementToSvg(el, (id) => dataById.get(id)))
+    .map((el) => elementToSvg(el, (id) => dataById.get(id), undefined, undefined, context))
     .join("");
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${p.stage.width} ${p.stage.height}">` +

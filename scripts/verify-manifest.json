@@ -353,6 +353,8 @@
       "verify-model3d-slide-export.ts",
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts"
     ],
     "net": [
@@ -927,6 +929,8 @@
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
       "verify-model3d-furniture-gui.mjs",
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts"
     ],
     "model3d-pure": [
@@ -950,6 +954,7 @@
       "verify-model3d-slide-export.ts",
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
+      "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts"
     ],
     "model3d-ui": [
@@ -1116,6 +1121,8 @@
       "verify-slide-model3d.ts",
       "verify-slide-tween.ts",
       "verify-loadgate.ts",
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts"
     ],
     "model3d-furniture": [
@@ -8818,7 +8825,9 @@
     },
     "verify-model3d-verbs.ts": {
       "runtime": "tsx",
-      "prerequisites": [],
+      "prerequisites": [
+        "native-encoder"
+      ],
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
@@ -8964,6 +8973,25 @@
       "runtime": "node",
       "prerequisites": [
         "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-slide-presets.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-player.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
       ],
       "externalNetwork": false,
       "isolation": "scratch",

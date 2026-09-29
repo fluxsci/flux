@@ -153,6 +153,8 @@ parameters, `target` or the current selection) as one Undo step. Posters, `--no-
 | `reorder-slides <deck> --order a,b,c` · `set-slide <deck> <s> [--notes\|--camera-x/-y/-zoom\|--layout\|--background]` | `reorder_slides` · `set_slide` | reorder / patch a slide (notes, camera, …) |
 | `set-theme <deck> <theme>` | `set_deck_theme` | flux-dark\|flux-light\|flux-paper\|flux-midnight\|flux-slate\|flux-sepia\|flux-contrast |
 | `add-text <deck> <s> "…"` · `add-figure <deck> <s> <figId>` | `add_slide_text` · `add_slide_figure` | add content (add-figure COPIES a project figure in — panels stay addressable; slide text is the figure text element: no math/rich-text slide elements) |
+| `add-slide-model <deck> <s> <source.glb> [--x n --y n --width n --height n --name N --no-poster]` | `add_slide_model` | Import a project-owned GLB and sidecars; returns element/asset IDs and warnings. |
+| `add-turntable <deck> <s> <beat> <element> [--turns n --direction cw\|ccw --duration ms --start ms]` | `add_turntable` | Add a linear, unwrapped model orbit Change; defaults to one clockwise turn over 6000 ms. |
 | `add-video <deck> <s> plots/_videos/clip.mov` | `add_slide_video` | import MP4/MOV, preserving original; optional `--x`, `--y`, `--width`, `--height`, `--muted`, `--loop` |
 | `set-video-track <deck> <s> <beat> <el> start` | `set_video_track` | playback command (`start`, `pause`, `stop`), independent of appearance; `--start ms` offset, after Design |
 | `set-video-settings <deck> <s> <el> --muted true --loop false` | `set_video_settings` | set clip audio/loop options |

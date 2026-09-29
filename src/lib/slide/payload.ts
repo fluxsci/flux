@@ -1,5 +1,5 @@
+import { deckModel3dBindings } from "./model3dBindings";
 import { readScene3dSidecars } from "../model3d/persistence";
-import { collectModel3dSourceBindings } from "../model3d/sourceBinding";
 import { staticModelRequest, type StaticModelPosterRequest } from "../model3d/static";
 import { posterPath } from "../model3d/poster";
 import type { Model3dAsset, Scene3dManifest } from "../model3d/types";
@@ -61,7 +61,7 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   const models: Record<string, string> = {}, modelPosters: Record<string, string> = {};
   const modelManifests: Record<string, Scene3dManifest> = {};
   const modelFiles = new Map<string, { asset: Model3dAsset; relative: string }>();
-  const modelBindings = collectModel3dSourceBindings(deck.slides.flatMap(s => s.elements));
+  const modelBindings = deckModel3dBindings(deck);
   const assetSizes: Record<string, { width: number; height: number }> = {};
   const plots: Record<string, { svg: string; manifest: FluxPlotManifest }> = {};
   const warnings: string[] = [];

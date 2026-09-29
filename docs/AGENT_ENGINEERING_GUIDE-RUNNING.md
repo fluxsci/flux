@@ -8546,3 +8546,10 @@ cache/color ownership. No native timing claim. Registry parity passed07-10-40-15
 golden regenerated identically because no verb was added. Current base has
 four known pending Player/native-target type errors supplied by parallel reviewed
 P4a checkpoints; this foundation introduces no additional type errors.
+
+### 2026-09-29 — Deck-owned 3D import receipts
+
+**Work.** Extended the shared model import target to a registered slide deck. Native and memory paths publish immutable GLB/sidecars beneath that deck, revalidate the destination after awaited preparation, and scope adoption/cancellation to the exact deck receipt. The registered import gate passes, including independent review/QA of held-drop destination changes and real IPC cross-deck refusal; no desktop launch was needed for this policy checkpoint.
+
+### 2026-09-29 — Shared live 3D slide player
+**Work:** Added a lazy host contract and sampled mesh/vector bindings to the existing slide player, including warmup before playback, capture settlement, physical furniture, Design-poster fallbacks and hidden-view release. Independent registered browser QA passed 32 checks against real GLBs, with exact inline-render pixel parity, delayed bitmap/furniture publication, repeated seeks, namespace isolation and disposal; editor and Paper host wiring continue separately.
