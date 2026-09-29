@@ -47,6 +47,8 @@ import type { ExportPayload } from "../src/lib/slide/export/runtime";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { compileSlide, trackDuration } from "../src/lib/slide/compile";
 import { transformPreState } from "../src/lib/slide/tween";
+import { sourceAt } from "../src/lib/slide/ghost";
+import { modelBecomeResult } from "../src/lib/slide/model3dMorph";
 import { ValidationError } from "./errors";
 import type { Deck, Slide, Track, AnimStyle, TargetRef } from "../src/lib/slide/types";
 import { DECK_SCHEMA_VERSION } from "../src/lib/slide/types";
@@ -57,6 +59,7 @@ import { setPlotView } from "../src/lib/ops";
 import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
 import { plotViewIssues } from "../src/lib/plot/project";
 import type { Asset, Project, SemanticPlotElement } from "../src/lib/types";
+import type { Model3dElement } from "../src/lib/model3d/types";
 
 // POSIX, not the platform: these are PROJECT-RELATIVE paths, and one of them
 // (the derived `svgPath`) is PERSISTED into deck.json. `path.join` on Windows
@@ -512,6 +515,8 @@ export async function ungroupTracksVerb(
 async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
   const slide = mustSlide(deck, slideId);
   const manifests = new Map<string, FluxPlotManifest | undefined>();
+  const modelAssets = new Map((await externalDeckAssetMetadata(root, deck)).map(asset => [asset.id, asset]));
+  for (const asset of deck.assets ?? []) modelAssets.set(asset.id, asset);
   const add = async (el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } }) => {
     if (!manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
   };
@@ -520,12 +525,12 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
   for (let bi = 0; bi < slide.beats.length; bi++) for (const track of slide.beats[bi].tracks) {
     const el = transformPreState(slide, track.target, bi);
     if (el?.type === "plot") await add(el);
-    if (track.to?.assetId) await add({ assetId: track.to.assetId, source: {
+    if (track.to?.assetId && modelAssets.get(track.to.assetId)?.kind !== 'glb') await add({ assetId: track.to.assetId, source: {
       ...(typeof track.to.svgPath === "string" ? { svgPath: track.to.svgPath } : {}),
       ...(typeof track.to.manifestPath === "string" ? { manifestPath: track.to.manifestPath } : {}),
     } });
   }
-  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id) };
+  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id) };
 }
 
 export async function compileDeckSlide(root: string, deck: Deck, slideId: string) {
@@ -899,7 +904,7 @@ export async function swapBecomeVerb(root: string, deckId: string, slideId: stri
   });
 }
 
-export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled"> & {
+export type BecomeOptions = Omit<slideOps.BecomeOptions, "compiled" | "modelAsset"> & {
   targetId?: string; assetId?: string; parts?: string[]; sourceParts?: string[]; force?: boolean;
 };
 const partRef = (element: string, parts?: string[]): TargetRef => ({ element, ...(parts?.length ? { parts } : {}) });
@@ -913,20 +918,47 @@ export async function become(
   beatId: string,
   sourceId: string,
   opts: BecomeOptions = {},
-): Promise<{ trackId: string; targetId?: string; assetId?: string; ref?: TargetRef }> {
+): Promise<slideOps.BecomeResult & { assetId?: string }> {
   if (!!opts.targetId === !!opts.assetId) throw new Error("become needs exactly one of --target <elementId> or --asset <assetId>");
   if (opts.assetId && (opts.parts || opts.sourceParts || opts.mode || opts.pair || opts.reveal)) throw new Error("Parts, mode, pair and reveal require --target, rather than --asset.");
   return mutateDeck(root, deckId, "become", async (deck) => {
     const slide = mustSlide(deck, slideId);
     if (opts.targetId) {
+      const options = await slideCompileOptions(root, deck, slideId);
       const result = slideOps.becomeTransform(deck, slideId, beatId, partRef(sourceId, opts.sourceParts), partRef(opts.targetId, opts.parts), {
-        ...opts, compiled: await compileBecomeSlide(root, deck, slide),
+        ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
       });
       if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
-      return { trackId: result.trackId, ...(result.ref ? { ref: result.ref } : { targetId: result.targetId }) };
+      return result;
     }
     const assetId = opts.assetId!;
     const found = slideOps.findElement(deck, sourceId);
+    const bi = slide.beats.findIndex(beat => beat.id === beatId);
+    const effective = bi >= 0 ? transformPreState(slide, sourceId, bi) : null;
+    if (effective?.type === 'model3d') {
+      if (bi < 1) throw new Error('Change content needs a build step after Design');
+      const options = await slideCompileOptions(root, deck, slideId), asset = options.modelAsset(assetId);
+      if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${assetId}`);
+      // Reuse a known original source receipt when a placement owns the target.
+      // A bare local asset is a valid reference, but must not inherit A's source.
+      let source: Model3dElement['source'];
+      for (const candidate of deck.slides) {
+        for (const element of candidate.elements) if (element.type === 'model3d' && element.assetId === assetId) source ??= element.source;
+        for (const [index, beat] of candidate.beats.entries()) for (const track of beat.tracks) if (!track.disabled && track.to?.assetId === assetId) {
+          const state = transformPreState(candidate, track.target, index + 1);
+          if (state?.type === 'model3d') source ??= (sourceAt(candidate, track.target, index + 1, state) as Model3dElement).source;
+        }
+      }
+      if (!source && !(deck.assets ?? []).some(a => a.id === assetId)) {
+        const saved = await loadFigModel(root);
+        source = saved.project.figures.flatMap(figure => figure.elements).find((element): element is Model3dElement => element.type === 'model3d' && element.assetId === assetId && !!element.source)?.source;
+      }
+      const t = slideOps.setTransform(deck, slideId, beatId, sourceId, { toAssetId: assetId, source: source ?? null,
+        ...(opts.duration != null ? { duration: opts.duration } : {}), ...(opts.start != null ? { start: opts.start } : {}),
+        ...(opts.easing != null ? { easing: opts.easing } : {}) });
+      if (!t?.id) throw new Error(`beat not found: ${beatId} on ${slideId}`);
+      return { trackId: t.id, assetId, ...modelBecomeResult(effective, { ...effective, assetId }, options) };
+    }
     if (!found || found.el.type !== "plot") throw new Error(`plot element not found: ${sourceId} (the data-only form needs a plot source)`);
     if (!opts.force) {
       const A = await readPlotManifest(root, found.el);
@@ -950,8 +982,9 @@ export async function appearFrom(root: string, deckId: string, slideId: string, 
   opts: Omit<BecomeOptions, "targetId" | "assetId" | "force" | "mode"> = {}): Promise<slideOps.BecomeResult> {
   return mutateDeck(root, deckId, "appear_from", async deck => {
     const slide = mustSlide(deck, slideId);
+    const options = await slideCompileOptions(root, deck, slideId);
     const result = slideOps.appearFrom(deck, slideId, beatId, partRef(destId, opts.parts), partRef(sourceId, opts.sourceParts), {
-      ...opts, compiled: await compileBecomeSlide(root, deck, slide),
+      ...opts, modelAsset: options.modelAsset, compiled: compileSlide(slide, deck.stage, options),
     });
     if (!result) throw new Error(`beat not found: ${beatId} on ${slideId}`);
     return result;

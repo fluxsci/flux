@@ -35,6 +35,7 @@ import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
 import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
 import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
+import { modelBecomeResult, modelVideoHandoff } from "./model3dMorph";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
@@ -1280,6 +1281,8 @@ export function clearTransformContent(track: Track): void {
 }
 
 export interface BecomeOptions extends TimingCurvePatch {
+  /** Metadata for saved Figure-by-id models outside the deck-local asset list. */
+  modelAsset?: CompileOptions['modelAsset'];
   mode?: BecomeSpec["mode"];
   pair?: BecomeSpec["pair"];
   reveal?: BecomeSpec["reveal"];
@@ -1290,6 +1293,9 @@ export interface BecomeOptions extends TimingCurvePatch {
 }
 export interface BecomeResult {
   trackId: Id;
+  /** Model pairs report vertex morph compatibility; false is a valid crossfade. */
+  morph?: boolean;
+  reason?: string;
   /** The consumed target's id (it is no longer on the slide). */
   targetId?: Id;
   /** The endpoint patch written to the track. */
@@ -1315,11 +1321,12 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   const source = slide.elements.find((e) => e.id === sourceId), target = slide.elements.find((e) => e.id === targetId);
   if (!source) throw new Error("The source object is missing from this slide.");
   if (!target) throw new Error("The object to become is missing from this slide.");
-  if (source.type === "video" || target.type === "video") throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+  const posterVideo = isWholeElementRef(sourceRef) && isWholeElementRef(ref) && modelVideoHandoff(source, target);
+  if ((source.type === "video" || target.type === "video") && (!posterVideo || opts.mode === "consume")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
-  const compiled = opts.compiled ?? compileSlide(slide, deck.stage, deck);
-  const mode = opts.mode ?? (isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
+  const compiled = opts.compiled ?? compileSlide(slide, deck.stage, { ...deck, modelAsset: opts.modelAsset });
+  const mode = opts.mode ?? (!posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
   const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
   const timing = {
     ...(!existing ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0 } : {}),
@@ -1334,7 +1341,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     if (!destination.length) throw new Error("Destination parts not found. Retarget this Become.");
     if (!sources.length) throw new Error("Source parts not found. Retarget this Become.");
     const ids = new Set([...sources, ...destination].map(t => t.elementId));
-    if (slide.elements.some(e => ids.has(e.id) && e.type === "video")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+    if (!posterVideo && slide.elements.some(e => ids.has(e.id) && e.type === "video")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
     // Preserve the source's effective style/anchor timing when replacing its
     // endpoint. resolvedSlide retains disabled tracks, which Become re-enables.
     const resolvedExisting = existing && compiled.resolvedSlide.beats[bi]?.tracks.find(t => t.id === existing.id);
@@ -1350,7 +1357,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...timing })!;
     track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip" }, state: {} };
     delete track.disabled;
-    return { trackId: track.id!, ref: structuredClone(ref) };
+    return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
   }
   if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error("Consume requires whole objects, without parts or groups. Use hand-off instead.");
   if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
@@ -1366,10 +1373,10 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
     state, replaceState: true, ...timing,
   })!;
   delete track.disabled;
-  if (endEl.type === "plot" || endEl.type === "image") {
+  if (endEl.type === "plot" || endEl.type === "image" || endEl.type === "model3d") {
     track.to = track.to ?? {};
     track.to.assetId = endEl.assetId;
-    setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" ? endEl.source ?? null : null });
+    setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" || endEl.type === "model3d" ? endEl.source ?? null : null });
   } else clearTransformContent(track);
   track.to!.become = { ref: structuredClone(ref), mode: "consume" };
   // consume the target: its element, every effect on it, and its group slots
@@ -1381,7 +1388,7 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   }
   slide.elements = slide.elements.filter((e) => e.id !== targetId);
   gcGroups(slide as unknown as Figure);
-  return { trackId: track.id!, targetId, state };
+  return { trackId: track.id!, targetId, state, ...modelBecomeResult(pre, endEl, { ...deck, modelAsset: opts.modelAsset }) };
 }
 
 /** Destination-side authoring of exactly the same source-owned hand-off. */

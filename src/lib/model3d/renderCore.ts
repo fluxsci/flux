@@ -27,7 +27,7 @@ interface Part {
   sourceColors?: Attribute; materials: Map<string, FluxMaterial>; colorKey?: string; vertexAlpha: boolean;
 }
 interface Loaded { bytes: ArrayBuffer; group: Group; parts: Part[]; stats: LoadedModelStats; storedBounds?: ModelBounds }
-interface MorphPart { mesh: Mesh<BufferGeometry, FluxMaterial>; a: Part; b: Part; colorA: string; colorB: string; opacityA: number; opacityB: number; hiddenA: boolean; hiddenB: boolean; vertexColors: boolean }
+interface MorphPart { mesh: Mesh<BufferGeometry, FluxMaterial>; materials: Map<string, FluxMaterial>; a: Part; b: Part; colorA: string; colorB: string; opacityA: number; opacityB: number; hiddenA: boolean; hiddenB: boolean; vertexColors: boolean }
 interface Morph { group: Group; parts: MorphPart[]; ids: [string, string] }
 const liveCanvases = new WeakSet<object>();
 const rgb = (color: string) => /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : color;
@@ -39,6 +39,10 @@ function disposeGroup(group: Object3D) {
   const geometries = new Set<BufferGeometry>(), materials = new Set<Material>();
   group.traverse((object) => { if (object instanceof Mesh) { geometries.add(object.geometry); materialsOf(object.material).forEach((m) => materials.add(m)); } });
   geometries.forEach((g) => g.dispose()); materials.forEach((m) => m.dispose()); group.clear();
+}
+function disposeMorph(pair: Morph) {
+  for (const part of pair.parts) for (const material of part.materials.values()) if (material !== part.mesh.material) material.dispose();
+  disposeGroup(pair.group);
 }
 function makeMaterial(lighting: string): FluxMaterial {
   return lighting === 'unlit' ? new MeshBasicMaterial({ side: DoubleSide }) : new MeshStandardMaterial({ roughness: 0.55, metalness: 0, side: DoubleSide });
@@ -114,7 +118,7 @@ function effectiveAttribute(part: Part, name: 'position' | 'normal') {
   return new BufferAttribute(result, 3);
 }
 function effectiveColors(part: Part) {
-  const count = part.mesh.geometry.getAttribute('position').count, source = part.mesh.geometry.getAttribute('color');
+  const count = part.mesh.geometry.getAttribute('position').count, source = part.mesh.material.vertexColors ? part.mesh.geometry.getAttribute('color') : undefined;
   const out = new Float32Array(count * 4), color = part.mesh.material.color;
   for (let i = 0; i < count; i++) {
     out[i * 4] = (source?.getX(i) ?? 1) * color.r;
@@ -193,7 +197,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     return { bytes: data, group, parts, storedBounds, stats: { ...prepared.info, bounds, bytes: data.byteLength, parseMs: performance.now() - started } };
   }
   function dropMorphs(id?: string) {
-    for (const [key, pair] of morphs) if (!id || pair.ids.includes(id)) { disposeGroup(pair.group); morphs.delete(key); }
+    for (const [key, pair] of morphs) if (!id || pair.ids.includes(id)) { disposeMorph(pair); morphs.delete(key); }
   }
   function releaseLoaded(asset: Loaded) { for (const part of asset.parts) for (const material of part.materials.values()) material.dispose(); disposeGroup(asset.group); }
   function load(assetId: string, bytes: ArrayBuffer, storedBounds?: ModelBounds): Promise<LoadedModelStats> {
@@ -213,9 +217,9 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
     for (const part of asset.parts) { stylePart(part, element, manifest, index); setStates(part, modelStates(element, states)); }
   }
   function getMorph(spec: RenderSpec, a: Loaded, b: Loaded): Morph {
-    const destination = spec.morph!.toElement ?? spec.element;
+    const origin = spec.morph!.fromElement ?? spec.element, destination = spec.morph!.toElement ?? spec.element;
     const appearance = (el: Model3dElement) => [el.fill, el.modelColors, el.modelLighting, el.overrides, el.fields, el.modelStates];
-    const cacheKey = JSON.stringify([spec.assetId, spec.morph!.to, spec.morph!.pairs, appearance(spec.element), appearance(destination), spec.states, spec.manifest, spec.morph!.toManifest]);
+    const cacheKey = JSON.stringify([spec.assetId, spec.morph!.to, spec.morph!.pairs, appearance(origin), appearance(destination), spec.morph!.fromElement ? undefined : spec.states, spec.manifest, spec.morph!.toManifest]);
     const old = morphs.get(cacheKey); if (old) return old;
     const indices = new Map<Scene3dManifest | undefined, SemanticIndex>();
     const endpoint = (part: Part, el: Model3dElement, manifest?: Scene3dManifest, states?: Record<string, number>) => {
@@ -234,22 +238,22 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
         const pa = from[i], pb = to[i];
         if (pairedA.has(pa) || pairedB.has(pb)) throw new Error('Morph primitive is paired more than once');
         pairedA.add(pa); pairedB.add(pb); if (!compatible(pa, pb)) throw new Error(`Incompatible morph topology ${names.nodeA}`);
-        const ea = endpoint(pa, spec.element, spec.manifest, spec.states), eb = endpoint(pb, destination, spec.morph!.toManifest ?? spec.manifest);
+        const ea = endpoint(pa, origin, spec.manifest, spec.morph!.fromElement ? undefined : spec.states), eb = endpoint(pb, destination, spec.morph!.toManifest ?? spec.manifest);
         const geometry = new BufferGeometry(); geometry.setIndex(pa.mesh.geometry.index?.clone() ?? null);
         geometry.setAttribute('position', ea.position); geometry.setAttribute('normal', ea.normal);
         geometry.morphAttributes.position = [eb.position]; geometry.morphAttributes.normal = [eb.normal];
         geometry.morphTargetsRelative = false;
-        const vertexColors = ea.vertexColors && eb.vertexColors;
+        const vertexColors = ea.vertexColors || eb.vertexColors;
         if (vertexColors) { geometry.setAttribute('color', ea.colors); geometry.morphAttributes.color = [eb.colors]; }
-        const material = makeMaterial(spec.element.modelLighting ?? 'studio'); material.vertexColors = vertexColors;
+        const lighting = origin.modelLighting ?? 'studio', material = makeMaterial(lighting); material.vertexColors = vertexColors;
         const mesh = new Mesh(geometry, material); mesh.frustumCulled = false; pair.group.add(mesh);
-        pair.parts.push({ mesh, a: pa, b: pb, colorA: ea.color, colorB: eb.color, opacityA: ea.opacity, opacityB: eb.opacity, hiddenA: ea.hidden, hiddenB: eb.hidden, vertexColors });
+        pair.parts.push({ mesh, materials: new Map([[lighting, material]]), a: pa, b: pb, colorA: ea.color, colorB: eb.color, opacityA: ea.opacity, opacityB: eb.opacity, hiddenA: ea.hidden, hiddenB: eb.hidden, vertexColors });
       }
     }
     if (pair.parts.length !== a.parts.length || pair.parts.length !== b.parts.length) throw new Error('Morph must pair every mesh primitive exactly once');
-    } catch (error) { disposeGroup(pair.group); throw error; }
+    } catch (error) { disposeMorph(pair); throw error; }
     // Bound transient flight caches; the active pair is inserted most recently.
-    if (morphs.size >= 8) { const [key, oldPair] = morphs.entries().next().value!; disposeGroup(oldPair.group); morphs.delete(key); }
+    if (morphs.size >= 8) { const [key, oldPair] = morphs.entries().next().value!; disposeMorph(oldPair); morphs.delete(key); }
     morphs.set(cacheKey, pair); return pair;
   }
   function cameraFor(pose: OrbitPose, w: number, h: number) {
@@ -274,7 +278,10 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
         const pair = getMorph(spec, source, target); group = pair.group; bounds = sphereLerpBounds(bounds, framingBounds(target.stats.bounds, spec.morph.toManifest ?? spec.manifest), t);
         for (const part of pair.parts) {
           part.mesh.morphTargetInfluences![0] = t;
-          const material = part.mesh.material;
+          const lighting = element.modelLighting ?? 'studio';
+          let material = part.materials.get(lighting);
+          if (!material) { material = makeMaterial(lighting); material.vertexColors = part.vertexColors; part.materials.set(lighting, material); }
+          part.mesh.material = material;
           material.color.set(part.vertexColors ? '#ffffff' : lerpColor(part.colorA, part.colorB, t));
           material.opacity = part.opacityA * (1 - t) + part.opacityB * t;
           material.transparent = material.opacity < 1 || part.a.vertexAlpha || part.b.vertexAlpha; material.depthWrite = !material.transparent;
@@ -282,7 +289,7 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
           part.mesh.renderOrder = material.transparent ? 1_000_000 : 0;
         }
       }
-    } else { style(source, element, spec.manifest, spec.states); group = source.group; }
+    } else { style(source, spec.morph?.fromElement ?? element, spec.manifest, spec.morph?.fromElement ? undefined : spec.states); group = source.group; }
     const pose = orbitPose(element, bounds, { width: w, height: h }), camera = cameraFor(pose, w, h);
     key.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), -2 * pose.radius).addScaledVector(new Vector3(...pose.up), 2 * pose.radius);
     fill.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), 2 * pose.radius).addScaledVector(new Vector3(...pose.up), -pose.radius);

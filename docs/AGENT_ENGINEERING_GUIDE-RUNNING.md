@@ -8525,3 +8525,24 @@ claimed by these layout checks. No animation-v2 state/target behavior changed.
 Author final group2/2 (06-34-32-845Z-16), independent n1 group2/2
 (06-39-11-321Z-2), check0/0 and headless typecheck passed. Core independently approved
 the source. Python full340passed2skipped116warnings20.74s; independent static8/8 passed.
+
+### 2026-09-29 — P4e model transition foundation
+
+Model topology now participates in shared Become/Appear-from compilation and file
+commands. Compatible pairs report `morph:true`; incompatible pairs stay valid and
+report the first mesh mismatch plus the Python shared-topology remedy. Model
+destinations default to handoff, explicit consume retains destination content,
+all model channels and original source receipt, and future-only GLB references
+remain source owners. Whole model/video poster handoff is the sole video exception;
+video consume, unrelated video Become and video Ghost still refuse. The renderer
+accepts frozen morph endpoints so sampled fields/states do not rebuild geometry,
+and preserves uniform-to-vertex-color endpoints. Ghost/player flights and GUI
+content picking are a later P4e checkpoint, not claimed complete here.
+
+Author pure group4/4 passed07-09-43-409Z-2 (45 new public/pure checks), independent
+pure1/1 passed07-07-17-438Z-2, and independent render-browser1/1 passed07-01-17-214Z-2.
+Core independently reviewed authoring/file/source-owner logic; n1 reviewed renderer
+cache/color ownership. No native timing claim. Registry parity passed07-10-40-157Z-2; the tool-name
+golden regenerated identically because no verb was added. Current base has
+four known pending Player/native-target type errors supplied by parallel reviewed
+P4a checkpoints; this foundation introduces no additional type errors.
