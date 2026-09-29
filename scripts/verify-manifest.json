@@ -1553,7 +1553,16 @@
       "run": [
         "group:model3d-native",
         "verify-input-probe-policy.cjs",
+        "verify-slide-embed-electron.cjs",
         "group:model3d-native-scale",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/slideEmbedProbeEntry.cjs",
+      "run": [
+        "verify-slide-embed-electron.cjs",
+        "verify-input-probe-policy.cjs",
         "tier:pure"
       ]
     },

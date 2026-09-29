@@ -6,6 +6,17 @@ function assertUsableDisplay(displays) {
 function assertFocusedWindow(win, observations) {
   if (!win.isVisible() || !win.isFocused() || !observations.length || observations.some(o => o.visible !== 'visible' || o.focused !== true)) throw unavailable('Input qualification lost its visible focused native window');
 }
+/** Check the actual rounded native-input point, including clipping/overlays. */
+function assertNativePointerTarget(win, observation) {
+  assertFocusedWindow(win, [observation]);
+  const { point: p, rect: r, viewport: v } = observation;
+  if (!p || !r || !v || ![p.x,p.y,r.left,r.top,r.right,r.bottom,v.width,v.height].every(Number.isFinite) ||
+      r.right <= r.left || r.bottom <= r.top || p.x < r.left || p.x >= r.right || p.y < r.top || p.y >= r.bottom ||
+      p.x < 0 || p.y < 0 || p.x >= v.width || p.y >= v.height || observation.matches !== true || observation.disabled === true) {
+    const error = new Error('Native pointer target is clipped, covered, disabled, or outside the viewport');
+    error.code = 'NATIVE_TARGET_UNAVAILABLE'; throw error;
+  }
+}
 /** Qualified test windows fit the reported primary work area; never invent a display. */
 function qualifiedNativeBounds(displays, primary, requestedWidth, requestedHeight) {
   assertUsableDisplay(displays);
@@ -17,4 +28,4 @@ function qualifiedNativeBounds(displays, primary, requestedWidth, requestedHeigh
   if(result.width<1||result.height<1)throw unavailable('Primary work area cannot contain a positive qualified window');
   return result;
 }
-module.exports = { assertUsableDisplay, assertFocusedWindow, qualifiedNativeBounds };
+module.exports = { assertUsableDisplay, assertFocusedWindow, assertNativePointerTarget, qualifiedNativeBounds };

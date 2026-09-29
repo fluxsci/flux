@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { configureWindow, assertWindow } = require('./perf/input-probe-policy.cjs');
-const { assertUsableDisplay, qualifiedNativeBounds } = require('./lib/nativeWindowQualification.cjs');
+const { assertUsableDisplay, qualifiedNativeBounds, assertNativePointerTarget } = require('./lib/nativeWindowQualification.cjs');
 async function main() {
   const { harness } = await import('./lib/harness.mjs'); const h = harness('verify-input-probe-policy');
   const calls = [], win = { webContents: { setBackgroundThrottling: value=>calls.push(value) }, isVisible:()=>true, isFocused:()=>true };
@@ -17,6 +17,13 @@ async function main() {
   for(const observations of [[],[good,{visible:'hidden',focused:true},good],[good,{visible:'visible',focused:false},good]]) assert.throws(()=>assertWindow(win,observations),/visible focused/);
   h.ok(true,'empty or temporarily unfocused/hidden cohort fails even after recovery');
   assert.throws(()=>assertWindow({...win,isFocused:()=>false},[good]),/visible focused/); assert.throws(()=>assertWindow({...win,isVisible:()=>false},[good]),/visible focused/); h.ok(true,'native window state must agree with renderer observations');
+  const target={...good,point:{x:25,y:30},rect:{left:20,top:20,right:40,bottom:40},viewport:{width:100,height:100},matches:true,disabled:false};
+  assertNativePointerTarget(win,target);h.ok(true,'native pointer target accepts a visible hit-tested point');
+  for(const change of [{matches:false},{disabled:true},{point:{x:40,y:30}},{point:{x:25,y:100}},{rect:{left:20,top:20,right:20,bottom:40}},{point:{x:NaN,y:30}}]) assert.throws(()=>assertNativePointerTarget(win,{...target,...change}),error=>error.code==='NATIVE_TARGET_UNAVAILABLE');
+  h.ok(true,'covered, disabled, clipped, degenerate and nonfinite pointer targets refuse before input');
+  assert.throws(()=>assertNativePointerTarget({...win,isFocused:()=>false},target),error=>error.code==='NATIVE_DISPLAY_UNAVAILABLE');
+  assert.throws(()=>assertNativePointerTarget(win,{...target,focused:false}),error=>error.code==='NATIVE_DISPLAY_UNAVAILABLE');
+  h.ok(true,'native and renderer focus loss stay distinct from a target-layout failure');
   const primary={bounds:{x:0,y:0,width:1470,height:923},workArea:{x:0,y:0,width:1470,height:923}};
   h.eq(qualifiedNativeBounds([primary],primary,1440,1040),{x:10,y:10,width:1440,height:903},'native fixture is capped to the actual1470x923 display with ten-pixel margins');
   const offset={bounds:{x:-1920,y:0,width:1920,height:1080},workArea:{x:-1920,y:25,width:1920,height:1055}};

@@ -33,7 +33,8 @@ const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", impor
 const actualCases = [
   ["scripts/lib/model3dS8Fixture.ts", ["group:model3d-s8", "tier:pure"]],
   ["scripts/perf/input-probe-model3d.cjs", ["group:model3d-s8", "tier:pure"]],
-  ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "group:model3d-native-scale", "tier:pure"]],
+  ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "verify-slide-embed-electron.cjs", "group:model3d-native-scale", "tier:pure"]],
+  ["scripts/lib/slideEmbedProbeEntry.cjs", ["verify-slide-embed-electron.cjs", "verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/lib/model3dNativeScaleEntry.cjs", ["group:model3d-native-scale", "tier:pure"]],
   ["scripts/perf/input-probe-policy.cjs", ["verify-input-probe-policy.cjs", "tier:pure"]],
   ["scripts/lib/model3dScaleFixture.mjs", ["group:model3d-scale"]],
