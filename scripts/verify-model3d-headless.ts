@@ -184,6 +184,18 @@ try {
   const brokenWarnings: string[] = [], brokenCanvas = await core.renderCanvasSvg(root, 'canvas', { model3dPolicy: 'collect', warnings: brokenWarnings });
   h.ok(brokenCanvas.svg.includes('data-figure-error="broken"') && brokenWarnings.some(w => w.includes('figure "broken"')) && brokenCanvas.svg.includes('<svg x="520" y="0"'), 'one unrenderable figure becomes a named error frame; the rest of the canvas still renders');
 
+  // A custom nested GLB path keeps its sidecars in the canonical fig/assets
+  // (every GUI and Node reader looks there). The CLI/Connect poster path read
+  // the GLB's own folder instead: furniture/fields/states went missing and its
+  // poster keys disagreed with the app's.
+  h.eq([cache.modelSidecarDirectory('fig', 'assets/models/deep/x.glb'), cache.modelSidecarDirectory('slides/talk', 'assets/sub/x.glb'), cache.modelSidecarDirectory('', 'slides/talk/assets/sub/x.glb'), cache.modelSidecarDirectory('', 'fig/assets/models/x.glb')],
+    ['fig/assets', 'slides/talk/assets', 'slides/talk/assets', 'fig/assets'], 'sidecar folder is the owning document\'s assets folder, whatever the GLB nesting');
+  const nested: Model3dAsset = { ...asset, id: 'nested', path: 'assets/models/deep/nested.glb' }, nestedElement = { ...element, id: 'nested-view', assetId: 'nested' };
+  await fs.mkdir(path.join(root, 'fig/assets/models/deep'), { recursive: true }); await fs.writeFile(path.join(root, 'fig', nested.path), bytes);
+  await fs.writeFile(path.join(root, 'fig/assets/nested.fluxplot.json'), JSON.stringify(manifest));
+  const nestedResolved = await cache.resolveModelPosters(root, [{ ...figure, elements: [nestedElement] }], [nested], { policy: 'collect' });
+  h.eq(nestedResolved.manifests.nested, manifest, 'nested GLB: the poster path reads its canonical sidecar');
+  h.eq(nestedResolved.requests[0]?.key, staticModelRequest(nestedElement, nested, manifest, 'figure').key, 'nested GLB: CLI/Connect poster keys match the app composition');
   const aborted = new AbortController(); aborted.abort(); await assert.rejects(cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', signal: aborted.signal, renderBatch })); h.ok(true, 'canceled native resolve stops before work');
   await fs.mkdir('test-results/model3d/headless', { recursive: true }); await fs.writeFile('test-results/model3d/headless/figure.svg', svg);
 } finally { await fs.rm(scratch, { recursive: true, force: true }); }

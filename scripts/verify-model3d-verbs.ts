@@ -144,6 +144,21 @@ try {
   const originalOpen=mutableFs.open;let savedDuringRender=false;mutableFs.open=async(...args)=>{if(!savedDuringRender&&String(args[0])===path.join(root,`fig/assets/${raceAsset.id}.fluxplot.json`)){savedDuringRender=true;await core.setModelViewCommand(root,{target:model.id,noPoster:true},{azimuth:333});}return originalOpen(...args);};syncBuiltinESMExports();
   let raced:Awaited<ReturnType<typeof core.renderModelPosters>>;try{raced=await core.renderModelPosters(root,{figureId,prune:true});}finally{mutableFs.open=originalOpen;syncBuiltinESMExports();}
   h.ok(savedDuringRender&&!raced.removed.includes(path.basename(newlyReferenced))&&await fs.readFile(newlyReferenced,'utf8')==='old cache becoming live','prune refreshes saved references after render and protects a newly referenced old key');
+  // A registered deck that cannot be read (missing, newer or unparsable) used
+  // to fail the verb after rendering and skip its journal. Its live posters are
+  // unknown, so the shared cache is kept whole, with a warning naming it.
+  const registryFile=path.join(root,'project.json'),registryText=await fs.readFile(registryFile,'utf8'),brokenDir=path.join(root,'slides/broken-deck');
+  const stale='m3d-dddddddddddddd.png';await fs.writeFile(path.join(dir,stale),'old');await fs.utimes(path.join(dir,stale),ago,ago);
+  const journalLines=async()=>(await fs.readFile(path.join(root,'.meta/journal.ndjson'),'utf8')).trim().split('\n');
+  for(const [label,content] of [['missing',null],['newer',JSON.stringify({schemaVersion:'99.0.0',id:'broken-deck',slides:[]})],['unparsable','{not json']] as const){
+   const registry=JSON.parse(registryText);(registry.slides??=[]).push({id:'broken-deck',path:'slides/broken-deck/deck.json'});await fs.writeFile(registryFile,JSON.stringify(registry,null,2));
+   await fs.rm(brokenDir,{recursive:true,force:true});if(content!==null){await fs.mkdir(brokenDir,{recursive:true});await fs.writeFile(path.join(brokenDir,'deck.json'),content);}
+   const before=await journalLines(),kept=await core.renderModelPosters(root,{figureId,prune:true}),after=await journalLines();
+   h.ok(kept.posters.length===3&&!kept.removed.length&&kept.warnings.some(w=>w.includes('was not pruned')&&w.includes('deck broken-deck'))&&await fs.readFile(path.join(dir,stale),'utf8')==='old',`${label} registered deck: posters render and the shared cache is kept whole, with a named warning`);
+   h.ok(after.length===before.length+1&&JSON.parse(after.at(-1)!).action==='render_model_posters',`${label} registered deck: the completed render is journaled`);
+  }
+  await fs.writeFile(registryFile,registryText);await fs.rm(brokenDir,{recursive:true,force:true});
+  h.ok((await core.renderModelPosters(root,{figureId,prune:true})).removed.includes(stale),'once every document reads again, prune resumes');
 
   const journal = await fs.readFile(path.join(root,'.meta/journal.ndjson'),'utf8'); h.ok(!journal.includes((await fs.readFile(preparedFile)).toString('base64')), 'journal contains no GLB bytes');
   loaded = await loadFigModel(root); model = loaded.project.figures.find(f=>f.id===figureId)!.elements.find(e=>e.id===add.elementId) as typeof model;

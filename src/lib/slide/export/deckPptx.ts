@@ -108,6 +108,10 @@ interface SlideContext {
   rasterize: Rasterize;
   measure: MeasureSvg | undefined;
   warnings: string[];
+  /** 1-based number of the Flux slide this page comes from (for warnings). */
+  source: number;
+  /** PptxPage.stills: the state a picture is drawn from, when not its frame's. */
+  stills: Map<string, Element> | undefined;
 }
 
 function xfrm(ctx: SlideContext, x: number, y: number, w: number, h: number, rotation = 0, flipH = false, flipV = false): string {
@@ -304,6 +308,11 @@ async function rasterXml(ctx: SlideContext, el: Element, assetId: string, crop: 
   return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`, srcRect);
 }
 
+/** PowerPoint has no mesh animation: every model page is a still (Design mesh
+ *  and furniture at the page's sampled placement). Reported once per export
+ *  whenever a slide carries a model, even one no page shows. */
+const MODEL_STILL_NOTE = "3D animation exported as a still";
+
 async function elementXml(ctx: SlideContext, el: Element): Promise<string | null> {
   if (el.hidden) return null;
   const painted = "fillMap" in el && (el as { fillMap?: unknown }).fillMap || "strokeMap" in el && (el as { strokeMap?: unknown }).strokeMap;
@@ -317,13 +326,22 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
     case "image": return (await rasterXml(ctx, el, el.assetId, el.crop)) ?? vectorFallbackXml(ctx, el);
     case "video": return rasterXml(ctx, el, el.posterAssetId, null);
     case "model3d": {
-      const note = "3D animation exported as a still";
-      if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
+      if (!ctx.warnings.includes(MODEL_STILL_NOTE)) ctx.warnings.push(MODEL_STILL_NOTE);
       const slide = ctx.payload.deck.slides.find(s => s.elements.some(e => e.id === el.id)) ?? ctx.payload.deck.slides[0];
-      const model = staticModelElement(el, slide) as typeof el;
+      // The still is composed at the origin of its own picture (the static
+      // composition is laid out in stage coordinates); the picture frame
+      // carries the page's placement, so a model that only moves reuses one
+      // image. A pop twin draws the still of the state it pops to or from.
+      const still = ctx.stills?.get(el.id) ?? el;
+      const model = { ...staticModelElement(still, slide), x: 0, y: 0 } as typeof el;
       const context = staticModelContext(ctx.payload);
-      const svg = standaloneSvg(model3dStaticSvg(model, id => ctx.payload.assets?.[id], context), el.width, el.height);
-      const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * 2)), Math.max(1, Math.round(el.height * 2)));
+      const composed = model3dStaticSvg(model, id => ctx.payload.assets?.[id], context);
+      if (composed.includes("data-model3d-placeholder")) {
+        const note = `Slide ${ctx.source}: 3D model "${el.name || el.id}" has no rendered still for this build state; showing a placeholder`;
+        if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
+      }
+      const svg = standaloneSvg(composed, still.width, still.height);
+      const png = await ctx.rasterize(svg, Math.max(1, Math.round(still.width * 2)), Math.max(1, Math.round(still.height * 2)));
       const id = await ctx.media(`3d ${svg}`, async () => ({ bytes: png, ext: "png" }));
       return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
     }
@@ -391,6 +409,7 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
   });
 
   const plan: { page: PptxPage; payload: ExportPayload; source: number }[] = [];
+  if (slides.some((s) => (s.payload.deck.assets ?? []).some((a) => a.kind === "glb"))) warnings.push(MODEL_STILL_NOTE);
   for (const [i, s] of slides.entries()) {
     try {
       for (const page of pptxPages(s.payload, pages, i + 1)) plan.push({ page, payload: s.payload, source: i + 1 });
@@ -408,7 +427,7 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
     const relByName = new Map<string, string>();
     let shapeId = 1;
     const ctx: SlideContext = {
-      ev, payload, emu: emuBase * zoom, zoom, warnings, rasterize, measure: measureOnce, names: page.names,
+      ev, payload, emu: emuBase * zoom, zoom, warnings, rasterize, measure: measureOnce, names: page.names, source, stills: page.stills,
       map: (x, y) => cam
         ? { x: ((x - cam.x) * zoom + stage.width / 2) * emuBase, y: ((y - cam.y) * zoom + stage.height / 2) * emuBase }
         : { x: x * emuBase, y: y * emuBase },

@@ -491,10 +491,11 @@ destination in one undoable edit. To replace a model's mesh in the same frame, c
 **Model from gallery…** in the Animation inspector (or **From gallery…** on the pick bar);
 **Keep own content** drops that choice.
 
-HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**;
-PowerPoint does not contain an editable 3D object. If a GLB is missing, Flux shows a
-placeholder and refuses to save an incomplete deck: restore the named file or remove the
-model. A WebGL fallback is a still or placeholder with an issue, not a simulated animation.
+HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**,
+shown and placed where each build step leaves it; PowerPoint does not contain an editable 3D
+object. If a GLB is missing, Flux shows a placeholder and refuses to save an incomplete deck:
+restore the named file or remove the model. A WebGL fallback is a still or placeholder with an
+issue, not a simulated animation.
 
 Whole-slide presets explicitly embed model bytes for another project. Their picker uses a
 saved preview. Newer or mismatched metadata remains preserved and inactive. In the rare

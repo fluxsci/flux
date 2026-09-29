@@ -73,6 +73,7 @@ const disk = {
 (globalThis as any).window = { fig: disk };
 (globalThis as any).DOMParser = DOMParser;
 const store = await import('../src/lib/store');
+const ops = await import('../src/lib/ops');
 const assetStore = await import('../src/lib/assets');
 const { setStoreTenant } = await import('../src/lib/tenancy');
 const {model3dDeckScope,modelAssetPrefix}=await import('../src/lib/model3d/editorScope');
@@ -133,6 +134,21 @@ try {
   await assert.rejects(saveDeckFrom(root), /3D model file.*missing/); h.eq(await fs.readFile(path.join(root, `slides/${d.id}/deck.json`), 'utf8'), deckBefore, 'missing GLB refuses Save without changing deck bytes');
   const manifestBefore = await fs.readFile(path.join(root, 'project.json'), 'utf8'); await assert.rejects(duplicateDeckInProject(root, d.id));
   h.eq(await fs.readFile(path.join(root, 'project.json'), 'utf8'), manifestBefore, 'missing model refuses duplicate before registering a broken deck');
+  // "Delete the 3D model that uses it" must actually unblock Save: the GLB's
+  // registry entry outlives the element (Undo), so Save judges only models the
+  // slides still use, and stops naming a vanished, unused GLB.
+  const modelIds = () => get(store.project).figures.flatMap(f => f.elements.filter(e => e.type === 'model3d').map(e => e.id));
+  store.commit(p => ops.deleteElements(p, modelIds()));
+  await saveDeckFrom(root); const unblocked = await readDeck(root, d.id);
+  h.ok(unblocked!.slides.every(s => !s.elements.some(e => e.type === 'model3d')) && !unblocked!.assets.some(a => a.id === asset.id), 'deleting the model unblocks Save; the vanished unused GLB leaves the saved registry');
+  h.ok(get(store.project).assets.some(a => a.id === asset.id), 'the editor keeps the GLB entry for Undo');
+  store.undo(); h.eq(modelIds(), [el.id], 'Undo restores the model with its asset');
+  const afterUndo = await fs.readFile(path.join(root, `slides/${d.id}/deck.json`), 'utf8');
+  await assert.rejects(saveDeckFrom(root), /3D model file.*missing/); h.eq(await fs.readFile(path.join(root, `slides/${d.id}/deck.json`), 'utf8'), afterUndo, 'the restored model refuses Save again until its file returns');
+  await fs.writeFile(path.join(root, `slides/${d.id}/assets/neuron.glb`), bytes); await saveDeckFrom(root);
+  h.ok((await readDeck(root, d.id))!.assets.some(a => a.id === asset.id), 'restoring the file saves the model and its registry entry again');
+  store.commit(p => ops.deleteElements(p, modelIds())); await saveDeckFrom(root);
+  h.ok((await readDeck(root, d.id))!.assets.some(a => a.id === asset.id), 'an unused GLB still on disk stays registered, as unused 2D assets do');
 
   await seed(true); const byId = await sendFigureToDeck(root, figure, null); const sent = await readDeck(root, byId.deckId); assert.ok(sent);
   h.eq(sent.assets?.length ?? 0, 0, 'saved Figure model remains an external by-id deck reference');
@@ -144,6 +160,9 @@ try {
   let missingById: unknown; try { await saveDeckFrom(root); } catch (error) { missingById = error; }
   h.ok(/3D model file.*missing/.test(String(missingById)), 'missing by-id model reports the named restore-or-delete refusal');
   h.eq(await fs.readFile(path.join(root, `slides/${byId.deckId}/deck.json`), 'utf8'), byIdBefore, 'missing by-id model refuses Save too');
+  const byIdModels = get(store.project).figures.flatMap(f => f.elements.filter(e => e.type === 'model3d').map(e => e.id));
+  store.commit(p => ops.deleteElements(p, byIdModels)); await saveDeckFrom(root);
+  h.ok((await readDeck(root, byId.deckId))!.slides.every(s => !s.elements.some(e => e.type === 'model3d')), 'deleting the by-id model unblocks Save although its Figure-owned file stays missing');
 
   await seed(); await bundle('fig'); store.project.update(p => ({ ...p, assets: [structuredClone(asset)] }));
   const unsaved = await sendFigureToDeck(root, figure, null);
@@ -182,6 +201,20 @@ try {
   beforeRead = async p => { if (p.endsWith('neuron.fluxplot.json')) throw Error('EACCES'); };
   await assert.rejects(sendSlideToCanvas(root, unreadable.slides[0], unreadable, 'canvas'), /cannot copy unreadable manifest/); beforeRead = undefined;
   await originalsUnchanged(beforeUnreadable); h.eq(copies, 0, 'whole-sidecar preflight refuses unreadable metadata before native publication');
+  // Send to deck judges only the destination assets the result needs: entries
+  // kept for Undo whose files are gone (an unused PNG, an unused GLB) never
+  // block, as before 3D; a missing GLB a destination slide still uses refuses.
+  await seed(true);
+  const kept = createDeck({ id: 'kept-deck', withTitleSlide: false }); addSlide(kept);
+  kept.assets = [{ id: 'kept-png', kind: 'png', name: 'Kept', path: 'assets/kept-png.png', naturalWidth: 4, naturalHeight: 4 } as never, { ...structuredClone(asset), id: 'kept-glb', path: 'assets/kept-glb.glb' }];
+  await writeDeckDirect(root, kept, { expectedText: null });
+  const into = await sendFigureToDeck(root, figure, kept.id), keptAfter = await readDeck(root, kept.id);
+  h.ok(into.deckId === kept.id && keptAfter!.slides.length === 2 && keptAfter!.assets.length === 2, 'unused missing PNG/GLB entries kept for Undo do not block Send to deck, and stay registered');
+  const inUse = createDeck({ id: 'in-use-deck', withTitleSlide: false }), usedSlide = addSlide(inUse);
+  inUse.assets = [{ ...structuredClone(asset), id: 'used-glb', path: 'assets/used-glb.glb' }]; usedSlide.elements.push({ ...structuredClone(el), id: 'used-view', assetId: 'used-glb' });
+  await writeDeckDirect(root, inUse, { expectedText: null }); const inUseBefore = await fs.readFile(path.join(root, 'slides/in-use-deck/deck.json'), 'utf8');
+  await assert.rejects(sendFigureToDeck(root, figure, inUse.id), /unreadable assets/);
+  h.eq(await fs.readFile(path.join(root, 'slides/in-use-deck/deck.json'), 'utf8'), inUseBefore, 'a missing GLB the destination still uses refuses Send to deck without writing');
   h.eq(deniedBinary, 0, 'all public model load/save/duplicate/conversion paths avoid renderer GLB reads and writes');
 } finally { beforeCopy = undefined; beforeRead = undefined; await fs.rm(root, { recursive: true, force: true }); }
 await h.done();

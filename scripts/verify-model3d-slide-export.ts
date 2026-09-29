@@ -105,4 +105,49 @@ h.eq(renderSlidePosterSvg(partPayload,1),renderSlidePosterSvg(partPayload,0),'st
 const altered={...element,orbitAzimuth:99,fill:'#ff0000',width:240,height:180,modelStates:{inflated:1}};
 const designStill=staticModelElement(altered,deck.slides[0]) as typeof element;
 h.eq([designStill.orbitAzimuth,designStill.fill,designStill.modelStates,designStill.width],[element.orbitAzimuth,element.fill,element.modelStates,240],'original model keeps Design mesh/furniture appearance with sampled placement');
+// A model that fades in at step 1 and moves at step 2 is pictured at each
+// page's sampled visibility and placement (Design mesh) in PowerPoint, and
+// agrees with the PDF pages. PowerPoint used to picture every page at step 0,
+// so this model vanished from both the animated and the final package.
+{
+  const built=structuredClone(deck);built.assets=[asset];
+  built.slides[0].elements=[{...element,id:'moving',x:40,y:30,width:200,height:150}];
+  built.slides[0].beats=[{id:'base',tracks:[]},{id:'in',tracks:[{id:'enter',target:'moving',preset:'fade',duration:300}]},{id:'glide',tracks:[{id:'move',target:'moving',preset:'transform',duration:500,to:{state:{x:300}}}]}] as any;
+  const builtPayload=(await gatherPayload('/scratch',built,{...io,modelData:'omit'})).payload;
+  const emu=12192000/built.stage.width;
+  const pages=(bytes:Uint8Array)=>{const zip=unzipSync(bytes);return Object.keys(zip).filter(p=>/^ppt\/slides\/slide\d+\.xml$/.test(p)).sort((a,b)=>Number(/(\d+)\.xml$/.exec(a)![1])-Number(/(\d+)\.xml$/.exec(b)![1]))
+    .map(p=>[...strFromU8(zip[p]).matchAll(/<p:pic>.*?<a:off x="(-?\d+)" y="(-?\d+)"\/>.*?<\/p:pic>/g)].map(m=>[Number(m[1])/emu,Number(m[2])/emu]));};
+  const composedSvgs:string[]=[];const raster=async(svg:string)=>{composedSvgs.push(svg);return new Resvg(svg).render().asPng();};
+  const animated=await deckPptxBytes('Built',[{payload:builtPayload}],raster,undefined,'animated');
+  const still='3D animation exported as a still';
+  h.eq(pages(animated.bytes),[[],[[40,30]],[[300,30]]],'animated PowerPoint: absent at rest, pictured where step 1 shows it, then where step 2 moves it');
+  h.ok(animated.warnings.includes(still),'animated PowerPoint reports the 3D still policy');
+  h.eq(Object.keys(unzipSync(animated.bytes)).filter(p=>/^ppt\/media\/.*\.png$/.test(p)).length,1,'a model that only moves between pages shares one still image');
+  const fin=await deckPptxBytes('Built',[{payload:builtPayload}],raster,undefined,'final');
+  h.eq(pages(fin.bytes),[[[300,30]]],'final PowerPoint pictures the model at its last-step placement');
+  h.ok(fin.warnings.includes(still),'final PowerPoint reports the 3D still policy');
+  const imageBox=(svg:string)=>{const m=/<image data-model3d-poster="true" x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(svg);return m?m.slice(1).map(Number):null;};
+  const own=imageBox(composedSvgs[0]);
+  h.ok(!!own&&own[0]>=0&&own[1]>=0&&own[0]+own[2]<=200.5&&own[1]+own[3]<=150.5,`the rasterized still lies inside its own picture (${JSON.stringify(own)} in 200x150)`);
+  const diskIO={...io,readText:async(p:string)=>p.endsWith('project.json')?JSON.stringify({schemaVersion:'0.1.0',slides:[{id:built.id,path:'slides/deck/deck.json'}]}):p.endsWith('deck.json')?JSON.stringify(built):io.readText(p)};
+  const pdfSteps=await deckPdfDocument('/scratch',built.id,diskIO,'steps');
+  const pdfBoxes=pdfSteps.html.split('<div class="page">').slice(1).map(imageBox);
+  h.ok(pdfSteps.warnings.includes(still)&&pdfBoxes.length===3&&pdfBoxes[0]===null,'PDF steps: the model is absent at rest too');
+  h.eq(pdfBoxes.slice(1).map(b=>b&&[b[0],b[1]]),[[40+own![0],30+own![1]],[300+own![0],30+own![1]]],'PDF and PowerPoint place the same still at every build step');
+  const gone=structuredClone(built);gone.slides[0].beats=[{id:'base',tracks:[]},{id:'out',tracks:[{id:'leave',target:'moving',preset:'fadeOut',duration:300}]}] as any;
+  const gonePayload=(await gatherPayload('/scratch',gone,{...io,modelData:'omit'})).payload;
+  const goneFinal=await deckPptxBytes('Gone',[{payload:gonePayload}],raster,undefined,'final');
+  h.ok(pages(goneFinal.bytes)[0].length===0&&goneFinal.warnings.includes(still),'a model no final page shows still reports the 3D still policy, as the PDF does');
+  // A popping entrance gets an invisible half-size twin on the page before. A
+  // model's still depends on its box, so the twin pictures the full-size still
+  // Morph lands on (its own size has no rendered poster) instead of a placeholder.
+  const pop=structuredClone(built);pop.slides[0].beats=[{id:'base',tracks:[]},{id:'pop',tracks:[{id:'pop-in',target:'moving',preset:'popIn',duration:300,params:{from:0.5}}]}] as any;
+  const popPayload=(await gatherPayload('/scratch',pop,{...io,modelData:'omit'})).payload;
+  const popped=await deckPptxBytes('Pop',[{payload:popPayload}],raster,undefined,'animated'),popZip=unzipSync(popped.bytes);
+  const media=(n:number)=>/Target="\.\.\/media\/([^"]+)"/.exec(strFromU8(popZip[`ppt/slides/_rels/slide${n}.xml.rels`]))?.[1];
+  const twinXml=strFromU8(popZip['ppt/slides/slide1.xml']);
+  h.eq(pages(popped.bytes),[[[90,67.5]],[[40,30]]],'pop twin sits at half size about the model centre on the page before');
+  h.ok(twinXml.includes('<a:alphaModFix amt="0"/>')&&media(1)!==undefined&&media(1)===media(2),'the invisible twin and the landed model share one still image');
+  h.ok(!popped.warnings.some(w=>w.includes('placeholder')),'a pop twin never falls back to a placeholder');
+}
 await h.done();

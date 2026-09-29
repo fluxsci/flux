@@ -3,14 +3,17 @@ import * as fs from 'node:fs/promises';
 import { constants, type Stats } from 'node:fs';
 import path from 'node:path';
 import { projectAssetPath } from './model';
+import { projectRelativePath } from './projectSource';
 import { confinedRecoveryPath } from './recovery';
 import { tmpPathFor, fsyncDir } from './fsx';
 import { shareRetry } from '../electron/fsRetry.cjs';
 
 /** Bound allocation against the opened regular file, rechecking confinement
- * after open so a delayed provider cannot follow a substituted symlink. */
+ * after open so a delayed provider cannot follow a substituted symlink. With a
+ * root, `file` is judged as the portable stored path it spells ('/'-separated
+ * on every platform: path.relative returns backslashes on win32). */
 export async function boundedModelFile(file: string, limit: number, root?: string, signal?: AbortSignal): Promise<Buffer> {
-  const resolve = () => root ? projectAssetPath(root, path.relative(root, file)) : fs.realpath(file);
+  const resolve = () => root ? projectAssetPath(root, projectRelativePath(root, file)) : fs.realpath(file);
   signal?.throwIfAborted();
   const real = await resolve(), beforePath = await fs.lstat(real);
   if (!beforePath.isFile()) throw new Error('3D input must be a regular file');

@@ -40,6 +40,9 @@ export interface PptxPage {
   /** Shape names by element id ("!!…" on Morph chains), unique on the page. */
   names: Map<string, string>;
   label: string;
+  /** A picture drawn from another state than its frame: an invisible pop twin
+   *  of a 3D model shows, scaled into its frame, the still Morph lands on. */
+  stills?: Map<string, Element>;
 }
 
 const RISE = new Set(["fadeRise"]), POP_IN = new Set(["popIn"]), POP_OUT = new Set(["popOut"]);
@@ -106,11 +109,10 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
     const key = `${beat}@${time}`;
     let ev = cache.get(key);
     if (!ev) {
+      // Model elements keep their sampled box and visibility here: deckPptx
+      // pictures them through staticModelElement (Design mesh and furniture
+      // at the page's placement), the same still the PDF pages use.
       ev = evaluateSlide(payload, beat, time, compiled);
-      // PowerPoint has no mesh animation. Keep its model pictures at Design
-      // state on every build page, rather than implying a rendered 3D morph.
-      const models = new Map(evaluateSlide(payload, 0, Infinity, compiled).elements.filter(e => e.type === "model3d").map(e => [e.id, e]));
-      ev.elements = ev.elements.map(e => models.has(e.id) ? structuredClone(models.get(e.id)!) : e);
       cache.set(key, ev);
     }
     return ev;
@@ -170,8 +172,12 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
 function twins(before: PptxPage, after: PptxPage, tracks: CompiledSlide["cues"][number]["tracks"]): void {
   // A twin (opacity 0) placed by an earlier step is not "shown".
   const shown = (ev: EvaluatedSlide, id: string) => ev.elements.find((e) => e.id === id && !e.hidden && (e.opacity ?? 1) > 0);
-  const place = (page: PptxPage, twin: Element) => {
+  const place = (page: PptxPage, twin: Element, still?: Element) => {
     page.ev = { ...page.ev, elements: page.ev.elements.map((e) => e.id === twin.id ? twin : e) };
+    // A model's still depends on its box; a scaled twin pictures the full-size
+    // still (its own size has no rendered poster) so Morph pops one image.
+    if (still?.type === "model3d") (page.stills ??= new Map()).set(twin.id, still);
+    else page.stills?.delete(twin.id);
   };
   for (const ct of tracks) {
     const preset = ct.track.preset ?? "fade", id = ct.track.target;
@@ -183,10 +189,10 @@ function twins(before: PptxPage, after: PptxPage, tracks: CompiledSlide["cues"][
       const twin = RISE.has(preset)
         ? { ...structuredClone(end), y: end.y + Number(ct.track.params?.y ?? 14) }
         : scaledAboutCentre(end, Number(ct.track.params?.from ?? 0.9));
-      place(before, { ...twin, hidden: false, opacity: 0 } as Element);
+      place(before, { ...twin, hidden: false, opacity: 0 } as Element, POP_IN.has(preset) ? end : undefined);
     } else if (leaving && POP_OUT.has(preset)) {
       const start = shown(before.ev, id)!;
-      place(after, { ...scaledAboutCentre(start, Number(ct.track.params?.to ?? 0.92)), hidden: false, opacity: 0 } as Element);
+      place(after, { ...scaledAboutCentre(start, Number(ct.track.params?.to ?? 0.92)), hidden: false, opacity: 0 } as Element, start);
     }
   }
 }
