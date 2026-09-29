@@ -8568,3 +8568,6 @@ P4a checkpoints; this foundation introduces no additional type errors.
 ### 2026-09-29 07:44 UTC — Cross-kind model Consume lifetime
 - Model-to-shape and shape-to-model Consume now transfer the live backing store at the existing raw halfway type boundary. The fading non-owning endpoint uses a decoded model PNG plus vector furniture; reverse seeks reacquire the live view. The same cancellation-safe image helper serves cross-kind handoffs and closes temporary bitmap/canvas storage immediately after encoding.
 - Registered morph browser gate now passes 75 checks: independent core `07-41-40-081Z-2`, final author `07-43-53-808Z-17`; core also reviewed the final immediate-release ordering. Gallery/pick UI remains a separate checkpoint. No native timing claim.
+
+### 2026-09-29 — 3D review deck and captured video checks
+**Work:** Added the five-example scratch review deck and registered offline playback/capture and production1080p60 MP4 checks; independent QA passes eight browser checks,35 demo checks and all132 video frames. **Learnings:** Compare compressed output against a codec-matched reference (the encoder maps white255 to253), then separately require actual colored geometry, meaningful motion and continuous morph handover; this does not substitute for native interactive timing qualification.

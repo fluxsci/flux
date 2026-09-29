@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { buildScaffoldTree } from '../../src/lib/project/scaffoldTree';
 import { createDeck } from '../../src/lib/slide/ops';
+import { createModel3dDemoDeck } from './model3dDemoDeck';
 
 export const DEMO_STEMS = ['neuron', 'cortex-states', 'continuous-field', 'cortex-pial', 'cortex-inflated', 'cell-sequence'] as const;
 export const DEMO_INPUTS = path.resolve(import.meta.dirname, '../fixtures/model3d/demo');
@@ -122,8 +123,8 @@ export async function createModel3dDemo(input: string, options: DemoOptions = {}
 async function buildModel3dDemo(root: string, publishedRoot: string, options: DemoOptions) {
   const core = await import('../../flux-core/index');
   // Canonical scaffolding always includes a starter deck. Omit its persisted
-  // entries before first publication: Stage 1 deliberately has no deck.
-  const tree = buildScaffoldTree({ title: 'Flux 3D review demo' }, createDeck({ id: 'stage2-pending', title: 'Stage 2 pending' }));
+  // entries before first publication; the review deck is authored through core below.
+  const tree = buildScaffoldTree({ title: 'Flux 3D review demo' }, createDeck({ id: 'review-starter', title: 'Review starter' }));
   tree.manifest.slides = [];
   await fs.mkdir(root, { recursive: true });
   for (const directory of tree.dirs.filter(name => !name.startsWith('slides/'))) await fs.mkdir(path.join(root, directory), { recursive: true });
@@ -159,16 +160,17 @@ async function buildModel3dDemo(root: string, publishedRoot: string, options: De
   await core.setModelViewCommand(root, { target: models['cell-sequence'].elementId, noPoster: true }, { frame: 2.5 });
   await core.setModelFieldCommand(root, { target: models['continuous-field'].elementId, noPoster: true }, { field: 'height.field', cmap: 'viridis', min: -1, max: 1 });
   await core.setCaption(root, figures[0].id, 'A named neuron-like triangle mesh, a cortex with inflated/bent shape states, and a live continuous value field. All three come from the public fluxplot scene3d example.');
-  await core.setCaption(root, figures[1].id, 'Pial cortex (left) and inflated cortex (right) share indexed topology. Static comparison is available now; slide morph authoring awaits Stage 2.');
+  await core.setCaption(root, figures[1].id, 'Pial cortex (left) and inflated cortex (right) share indexed topology. The review deck morphs this corresponding pair with a shared-topology vertex flight.');
   await core.setCaption(root, figures[2].id, 'Eight ordered shape frames. The saved view is Frame 2.5, represented only by adjacent named weights.');
   const morph = await core.modelInfo(path.join(root, 'plots/cortex-pial.glb'), { morphWith: path.join(root, 'plots/cortex-inflated.glb') });
   if (!morph.ok || !('morph' in morph) || !morph.morph?.ok) throw new Error('Demo cortex pair lost morph correspondence');
+  const reviewDeck = await createModel3dDemoDeck(root);
   const posters = options.posters ? await core.renderModelPosters(root) : undefined;
   if (posters) for (const poster of posters.posters) if (poster.path) poster.path = path.join(publishedRoot, path.relative(root, poster.path));
-  await fs.writeFile(path.join(root, 'paper/notes.qmd'), '---\ntitle: Flux 3D review demo\nbibliography: ../references/library.bib\n---\n\n# Figure review\n\n@fig-model3d-overview shows the neuron, shape-state and continuous-field examples.\n\n@fig-model3d-morph contains the corresponding cortex pair.\n\n@fig-model3d-sequence contains the shape sequence.\n\nThe slide deck is pending Stage 2; this scratch project deliberately contains none.\n');
-  const receipt = { root: publishedRoot, inputs: JSON.parse(await fs.readFile(path.join(root, 'plots/PROVENANCE.json'), 'utf8')), figures: figures.map(f => f.id), models, morphCompatible: true, deck: 'PENDING_STAGE_2', posters: posters ?? null };
+  await fs.writeFile(path.join(root, 'paper/notes.qmd'), '---\ntitle: Flux 3D review demo\nbibliography: ../references/library.bib\n---\n\n# Figure review\n\n@fig-model3d-overview shows the neuron, shape-state and continuous-field examples.\n\n@fig-model3d-morph contains the corresponding cortex pair.\n\n@fig-model3d-sequence contains the shape sequence.\n\n# Motion review\n\n' + reviewDeck.embed + '\n');
+  const receipt = { root: publishedRoot, inputs: JSON.parse(await fs.readFile(path.join(root, 'plots/PROVENANCE.json'), 'utf8')), figures: figures.map(f => f.id), models, morphCompatible: true, deck: reviewDeck, posters: posters ?? null };
   await fs.writeFile(path.join(root, 'DEMO.json'), JSON.stringify(receipt, null, 2) + '\n');
-  await fs.writeFile(path.join(root, 'README.md'), `# Flux 3D scratch demo\n\nOpen this folder in the reviewed Flux build. Select Figure and the first overview. Double-click a mesh to orbit, use the Shape controls on cortex-states, and change the continuous-field range. The morph pair is in the second Figure.\n\nNo slide deck exists yet (Stage 2 pending). The generated source triplets and exact public Python example are in plots/. Recipes are valid, intentionally non-rerunnable descriptors from that example; rerun the copied script explicitly with an installed scene3d fluxplot environment. Source updates are explicit in Flux. See scripts/MODEL3D_DEMO.md in the Flux checkout for commands.\n\nDEMO.json records target IDs for agent commands. Cached posters are derived and may be regenerated.\n`);
+  await fs.writeFile(path.join(root, 'README.md'), `# Flux 3D scratch demo\n\nOpen this folder in the reviewed Flux build. Select Figure and the first overview. Double-click a mesh to orbit, use the Shape controls on cortex-states, and change the continuous-field range. The morph pair is in the second Figure.\n\nOpen Slides and choose Flux 3D · motion review. Its five slides cover Turntable, Shape change, Ghost, crossfade Become and vertex morph. Advance once from Design on each slide to play its motion; the Paper contains a Turntable embed. The generated source triplets and exact public Python example are in plots/. Recipes are valid, intentionally non-rerunnable descriptors from that example; rerun the copied script explicitly with an installed scene3d fluxplot environment. Source updates are explicit in Flux. See scripts/MODEL3D_DEMO.md in the Flux checkout for commands.\n\nDEMO.json records target IDs for agent commands. Cached posters are derived and may be regenerated.\n`);
   if (options.environment) await fs.writeFile(path.join(root, 'DEMO-ENV.json'), JSON.stringify({ environment: options.environment, HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, XDG_DATA_HOME: process.env.XDG_DATA_HOME, XDG_CACHE_HOME: process.env.XDG_CACHE_HOME, FLUX_NO_MIGRATE: '1' }, null, 2) + '\n');
   return receipt;
 }

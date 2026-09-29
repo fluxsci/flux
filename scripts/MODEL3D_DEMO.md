@@ -16,7 +16,7 @@ The project contains:
 - **Paper:** references to all three saved Figures.
 - **Plots:** six GLB/manifest/recipe triplets, hash receipts and the unchanged Python example.
 
-**Stage 2 is pending:** no slide deck or slide animation is created. Add the Turntable/Change/Ghost/morph review deck only after the animation-v2 prerequisite is met.
+**Slides:** choose **Flux 3D · motion review**. Five slides demonstrate Turntable, Shape change, Ghost, crossfade Become and a same-topology vertex morph. Advance once from Design on each slide; each has one named motion step. The Paper also includes the Turntable slide as a live embed. `DEMO.json.deck.examples` records slide, step and model IDs.
 
 ## Open with disposable state
 
@@ -33,7 +33,7 @@ child.on('exit', code => { process.exitCode = code ?? 1; });
 JS
 ```
 
-Open Figure 1, double-click the neuron, orbit and press Enter; one Undo should restore its prior camera. Change the cortex Shape slider and field range, then export PDF and TIFF600. Figure 2 supplies the later morph pair. `DEMO.json` records exact element/asset IDs for `set-model-view` and `restyle-part`; the source files remain in `plots/`.
+Open Figure 1, double-click the neuron, orbit and press Enter; one Undo should restore its prior camera. Change the cortex Shape slider and field range, then export PDF and TIFF600. Figure 2 supplies the corresponding pair used by the vertex-morph slide. `DEMO.json` records exact element/asset IDs for `set-model-view` and `restyle-part`; the source files remain in `plots/`.
 
 For the Python source loop, edit only the copied `plots/scene3d_demo.py` (for example the axon palette), then run it with the scene3d environment and `--out /tmp/flux-3d-review-demo/plots`. The example intentionally emits valid **non-rerunnable** recipe descriptors (`recipe=False`); use this explicit script command, not the recipe Run button. Flux's explicit Update from source should retain authored camera/style changes. For a notebook, import `neuron_scene` from that copied script and display its return value; use `scene.show(static=True)` for a PNG-only output when scripts are unavailable or the notebook is untrusted.
 

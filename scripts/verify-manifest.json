@@ -356,7 +356,8 @@
       "verify-model3d-slide-presets.ts",
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -633,7 +634,8 @@
       "verify-model3d-smoke-electron.cjs",
       "verify-model3d-verbs-electron.cjs",
       "verify-scale-model3d-electron.cjs",
-      "verify-model3d-s8.cjs"
+      "verify-model3d-s8.cjs",
+      "verify-model3d-video-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -935,7 +937,9 @@
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-gui.mjs",
       "verify-slide-model3d-morph.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts",
+      "verify-model3d-video-electron.cjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -960,7 +964,8 @@
       "verify-project-media-paths.ts",
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -1048,7 +1053,8 @@
     ],
     "model3d-native": [
       "verify-model3d-electron.cjs",
-      "verify-model3d-smoke-electron.cjs"
+      "verify-model3d-smoke-electron.cjs",
+      "verify-model3d-video-electron.cjs"
     ],
     "model3d-scale": [
       "verify-scale-model3d.mjs",
@@ -1130,7 +1136,8 @@
       "verify-model3d-slide-presets.ts",
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts"
     ],
     "model3d-furniture": [
       "verify-model3d-furniture.ts",
@@ -9041,6 +9048,31 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-slide-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-video-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display",
+        "native-encoder",
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
       "exclusive": true,
       "coverage": "behavior"
     }

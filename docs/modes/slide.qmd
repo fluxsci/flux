@@ -455,6 +455,45 @@ slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** togg
 fullscreen, **R** resets the timer, **Escape** leaves. Click zones work too: left quarter
 back, elsewhere forward.
 
+# 3D models
+
+Drop a binary **GLB** onto the slide, or import a **3D fluxplot** saved from Python.
+Keep its `.fluxplot.json` beside the GLB to retain named mesh parts, colorbars, legends,
+value fields and shape states. Models use the same **3D view** and **Appearance** controls
+as Figures. **From file** shows the mesh's colors; **Uniform** uses one chosen fill.
+
+Double-click a model to orbit. Enter accepts the view and Escape cancels it. In **Design**,
+this changes the original camera. In **Edit after step N**, it writes that step's Change
+endpoint; the original view stays available. Picking a Become destination temporarily
+blocks orbit and tells you why, so a drag cannot accidentally change both actions.
+
+Select a model and choose **Turntable** to add a full, constant-speed turn. It is an ordinary
+Change effect: edit its duration or combine it with a Shape change. Complete turns remain
+complete turns, even when the starting and ending views look identical. Zoom changes
+smoothly in proportion, and projection changes at the endpoint.
+
+For a scene with shape states, use the **Shape** sliders or **Frame** scrubber at the desired
+editing destination. To reveal a named mesh or furniture part independently, select it in
+**X-ray** and use **Animate selected**. Orbit, shape, colors and part visibility travel with
+the slide and use the same playback in Present and portable HTML.
+
+**Ghost** creates independent views that share the same mesh. **Become** shows **morph**
+for a compatible pair and **crossfade** otherwise. A vertex morph needs matching mesh
+parts, triangle indices and vertex order; export both shapes together or use fluxplot's
+shared-topology workflow. Hand-off keeps both objects and reveals the destination at
+landing. Consume replaces the source's content and removes the destination in one undoable
+edit. Choose a gallery model through Change content to replace its mesh in the same frame.
+
+HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**;
+PowerPoint does not contain an editable 3D object. If a GLB is missing, Flux shows a
+placeholder and refuses to save an incomplete deck: restore the named file or remove the
+model. A WebGL fallback is a still or placeholder with an issue, not a simulated animation.
+
+Whole-slide presets explicitly embed model bytes for another project. Their picker uses a
+saved preview. Newer or mismatched metadata remains preserved and inactive. In the rare
+case that importing prepared bytes would silently activate previously inactive metadata,
+insertion refuses and asks for a matching re-export; the saved preset stays unchanged.
+
 # Video clips
 
 Keep **`.mp4` and `.mov`** files in **`plots/_videos`**. Open **Plots & videos** in Slide mode (or press **Alt+G**),

@@ -46,7 +46,27 @@ try {
   h.ok(morphCompatible(infos.get('cortex-pial')!, infos.get('cortex-inflated')!).ok, 'cortex pair has actual matching topology');
   h.eq(models.find(e => e.id === receipt.models['continuous-field'].elementId)!.fields?.['height.field'], {cmap:'viridis',range:[-1,1]}, 'continuous field has an editable saved map and range');
   const manifest = JSON.parse(await fs.readFile(path.join(root, 'project.json'), 'utf8'));
-  h.eq(manifest.slides, [], 'Stage 1 demo registers no deck'); h.eq(await fs.readdir(path.join(root, 'slides')), [], 'Stage 1 demo writes no deck files');
+  h.ok(manifest.slides.some((d:any)=>d.id===receipt.deck.deckId),'review deck is registered in the canonical project');
+  const {loadDeck}=await import('../flux-core/slides');const deck=await loadDeck(root,receipt.deck.deckId);
+  h.eq(deck.slides.map(s=>s.name),['Turntable','Shape change','Ghost','Crossfade Become','Vertex morph'],'five focused motion examples reopen in order');
+  const {compileSlide}=await import('../src/lib/slide/compile');
+  const {resolveCurve}=await import('../src/lib/slide/curves');
+  const turn=deck.slides[0].beats[1].tracks[0];
+  h.ok(turn.easing==='linear'&&turn.duration===6000&&resolveCurve(turn).fn(.5)===.5,'review Turntable is a real linear six-second Change');
+  h.eq(deck.slides[1].beats[1].tracks[0].to?.state?.modelStates,{inflated:1,bent:.25},'shape example authors named weights');
+  h.eq(deck.slides[2].beats[1].tracks.filter(t=>t.ghostFrom).length,2,'ghost example has two independent births');
+  for(const slide of deck.slides.slice(3))h.ok(slide.beats[1].tracks.some(t=>t.to?.become?.mode==='handoff'),'Become example records a live hand-off');
+  for(const slide of deck.slides) {
+    const compiled=compileSlide(slide,deck.stage,{modelAsset:id=>deck.assets.find(a=>a.id===id&&a.kind==='glb') as any});
+    h.ok(!compiled.issues.some(i=>/missing|unsupported|not found/i.test(i.reason)),`review slide ${slide.name} compiles without missing targets/assets`);
+  }
+  for(const asset of deck.assets)if(asset.kind==='glb')assert.equal(createHash('sha256').update(await fs.readFile(path.join(root,'slides',deck.id,asset.path))).digest('hex'),asset.sha256);
+  h.ok(true,'every slide-owned model reopens with matching immutable bytes');
+  const {parseSlideEmbed}=await import('../src/lib/slide/embed');
+  const paperEmbed=parseSlideEmbed(receipt.deck.embed)!;
+  h.ok(paperEmbed?.deck===deck.id&&paperEmbed.slide===deck.slides[0].id&&(await fs.readFile(path.join(root,'paper/notes.qmd'),'utf8')).includes(receipt.deck.embed),'Paper embed binds the saved Turntable deck and slide');
+  const cross=compileSlide(deck.slides[3],deck.stage,{assets:deck.assets}),morph=compileSlide(deck.slides[4],deck.stage,{assets:deck.assets});
+  h.ok(cross.issues.some(i=>i.reason.includes('3D models crossfade:'))&&!morph.issues.some(i=>i.reason.includes('3D models crossfade:')),'actual topology compiles Crossfade Become as fallback and Vertex morph as compatible');
   h.ok((await fs.readFile(path.join(root, 'paper/notes.qmd'), 'utf8')).includes('@fig-model3d-overview'), 'Paper source references the saved model overview');
   const before = await fs.readFile(path.join(root, 'project.json'));
   await assert.rejects(createModel3dDemo(root), /not empty/); h.eq(await fs.readFile(path.join(root, 'project.json')), before, 'regeneration refuses an existing populated project without changing it');
