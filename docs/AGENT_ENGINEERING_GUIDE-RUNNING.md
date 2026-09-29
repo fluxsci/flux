@@ -8532,3 +8532,6 @@ the source. Python full340passed2skipped116warnings20.74s; independent static8/8
 
 ### 2026-09-29 — Shared live 3D slide player
 **Work:** Added a lazy host contract and sampled mesh/vector bindings to the existing slide player, including warmup before playback, capture settlement, physical furniture, Design-poster fallbacks and hidden-view release. Independent registered browser QA passed 32 checks against real GLBs, with exact inline-render pixel parity, delayed bitmap/furniture publication, repeated seeks, namespace isolation and disposal; editor and Paper host wiring continue separately.
+
+### 2026-09-29 — 3D authoring in Slides
+**Work:** Wired deck-scoped model import and shared editor posters, lazy inline preview/Present hosts, static filmstrip posters and the Turntable action into existing Slides controls. Registered GUI checks use real pointer Orbit on an After-step checkout, one-step history, pick-mode exclusion, import/save/reopen, actual mesh pixels, physical resize, disabled-GPU fallback and unchanged 2D content; pending thumbnail work retries after same-signature invalidation instead of leaving a stale still.

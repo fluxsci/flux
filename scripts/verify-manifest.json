@@ -504,7 +504,8 @@
       "verify-model3d-verbs-gui.mjs",
       "verify-model3d-import-progress-gui.mjs",
       "verify-model3d-snapshot-quiet.mjs",
-      "verify-model3d-furniture-gui.mjs"
+      "verify-model3d-furniture-gui.mjs",
+      "verify-slide-model3d-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -929,7 +930,8 @@
       "verify-project-media-paths.ts",
       "verify-model3d-furniture-gui.mjs",
       "verify-model3d-slide-presets.ts",
-      "verify-slide-model3d-player.ts"
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-gui.mjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -962,7 +964,8 @@
       "verify-model3d-source-gui.mjs",
       "verify-model3d-verbs-gui.mjs",
       "verify-model3d-import-progress-gui.mjs",
-      "verify-model3d-snapshot-quiet.mjs"
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-slide-model3d-gui.mjs"
     ],
     "model3d-persistence": [
       "verify-model3d-persistence.ts",
@@ -1124,6 +1127,12 @@
     "model3d-furniture": [
       "verify-model3d-furniture.ts",
       "verify-model3d-furniture-gui.mjs"
+    ],
+    "slide-model3d-gui": [
+      "verify-slide-model3d-gui.mjs",
+      "verify-slide-import-gui.mjs",
+      "verify-slide-present-gui.mjs",
+      "verify-changed-pathmap.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -8986,6 +8995,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 150000,
       "exclusive": true,
       "coverage": "behavior"
     }

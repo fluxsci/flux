@@ -13,6 +13,7 @@
   // on the header name (2026-09-15 surface redesign).
   import { deckOverlay, selTrackIds, endpointEdit, enterEndpointEdit, refreshEndpointDisplay, commitDeckLive, sealHistory, currentDeck, activeBeat } from "../../../../lib/slide/store";
   import { selection, setPartSelections } from "../../../../lib/store";
+  import { transformPreState } from "../../../../lib/slide/tween";
   import { familyOf } from "../../../../lib/slide/family";
   import { trackDuration, compileSlide } from "../../../../lib/slide/compile";
   import { patchStagger as staggerPatch, staggerSpan, staggerRanks, staggerSeed, reshuffleSeed } from "../../../../lib/slide/stagger";
@@ -315,6 +316,17 @@
     return st ? Object.keys(st) : [];
   });
 
+  function deltaLabel(key: string): string {
+    const labels: Record<string, string> = { orbitAzimuth: "azimuth", orbitElevation: "elevation", orbitRoll: "roll", orbitZoom: "zoom", orbitPanX: "pan x", orbitPanY: "pan y", orbitProjection: "projection", orbitFov: "field of view", modelLighting: "lighting", modelColors: "colours", fields: "fields", modelStates: "shape" };
+    const label = labels[key] ?? key;
+    if (!curTrack || !["orbitAzimuth", "orbitElevation", "orbitRoll"].includes(key)) return label;
+    const pre = transformPreState(slide, curTrack.target, curBeatIndex), end = curTrack.to?.state as Record<string, unknown> | undefined;
+    const from = pre && (pre as unknown as Record<string, unknown>)[key], to = end?.[key];
+    if (typeof to !== "number" || (typeof from !== "number" && key !== "orbitRoll")) return label;
+    const delta = Math.round((to - (typeof from === "number" ? from : 0)) * 100) / 100;
+    return `${label} ${delta > 0 ? "+" : ""}${delta}°`;
+  }
+
   // --- transform Δ management (drop a captured prop / clear t2 / morph row) --
   function withCurTrack(fn: (t: Track, d: Deck) => void) {
     const id = curTrack?.id;
@@ -535,7 +547,7 @@
         <div class="delta" title="The properties this transform changes at t₂ — ✕ drops one">
           <span class="dl">Δ</span>
           {#each changedProps as k (k)}
-            <span class="dchip">{k}<button class="dx" title={`Drop the ${k} change`} onclick={() => dropChangedProp(k)}>✕</button></span>
+            <span class="dchip">{deltaLabel(k)}<button class="dx" title={`Drop the ${k} change`} onclick={() => dropChangedProp(k)}>✕</button></span>
           {/each}
           <button class="dclear" title="Reset t₂ to equal t₁ (drop every change)" onclick={clearT2}>clear t₂</button>
         </div>
