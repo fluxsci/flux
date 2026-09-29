@@ -5,7 +5,7 @@
   import { deckOverlay, activeBeat, selTrackIds, commitDeckLive, sealHistory, endpointEdit, enterEndpointEdit } from "../../../../lib/slide/store";
   import { selection, partSelection } from "../../../../lib/store";
   import { trackDuration } from "../../../../lib/slide/compile";
-  import { resolveBeat } from "../../../../lib/slide/resolve";
+  import { resolveBeat, type ManifestFor } from "../../../../lib/slide/resolve";
   import { pushToast } from "../../../../lib/toast";
   import { staggerSpan } from "../../../../lib/slide/stagger";
   import { familyOf } from "../../../../lib/slide/family";
@@ -21,7 +21,7 @@
   import TimelineMenu, { type MenuItem } from "./TimelineMenu.svelte";
 
   let { slide, plotTags, manifestFor, onFocusDock, onPreviewFrom, onSeek, time = 0, playing = false }: {
-    slide: Slide; plotTags: Map<string,string>; manifestFor: (target:string)=>FluxPlotManifest|undefined;
+    slide: Slide; plotTags: Map<string,string>; manifestFor: ManifestFor;
     onFocusDock: ()=>void; onPreviewFrom?: (beat:number)=>void; onSeek?: (beat:number, time:number)=>void; time?:number; playing?:boolean;
   } = $props();
   const animateLike = getContext<() => void>("flux-animate-like");

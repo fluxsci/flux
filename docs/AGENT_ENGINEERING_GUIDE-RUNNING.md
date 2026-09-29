@@ -8596,3 +8596,9 @@ P4a checkpoints; this foundation introduces no additional type errors.
 
 ### 2026-09-29 — Semantic model animation targets
 **Work:** Extended the existing target resolver and compiler with accepted scene3d metadata, reusing the same effective part hierarchy as X-ray. Mesh/furniture leaves, synthetic containers, exclusions and prior-content targets now share one pure resolution path; 28 new checks and the five-gate focused group passed independent QA, with renderer/UI opacity wiring continuing separately.
+
+### 2026-09-29 — Flux 3D P4d semantic appearance channels
+
+**Work.** Added shared model-part appearance sampling across the player, static editor posters and saved Node compilation; canonical metadata resolves containers, exclusions, mixed mesh/furniture stagger and future content targets. Added real X-ray one-Undo/reopen and independent rendered-neighbor pixel gates, preserving authored alpha and Design bytes. Registered gates run through `--group slide-model3d-parts`; final receipts are recorded in the Flux3D ledger.
+
+**Learnings.** Vector furniture reconciliation must preserve the inline style layer owned by animation; a mesh-only target has no DOM node, so mixed furniture stagger must retain compiled semantic ranks. Node model manifests come from `deckModelDocument`, including source bindings and canonical asset-id sidecars, never guessed GLB-adjacent paths.

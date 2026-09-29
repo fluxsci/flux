@@ -13,6 +13,8 @@ import { staticModelRequest } from '../../model3d/static';
 import { partDomId } from '../../plot/parse';
 import { scene3dFields } from '../../model3d/scene3d';
 import { modelPair } from '../model3dMorph';
+import { modelPartOpacity } from '../../model3d/appearance';
+import type { SlideFrame } from '../compile';
 import { transformEndState, transformPreState } from '../tween';
 import type { Slide } from '../types';
 import type { SlideRenderCtx } from './render';
@@ -40,6 +42,7 @@ export interface SlideModelBinding {
   set(element: Model3dElement, extra?: Model3dRenderExtra): void;
   activate(info?: Model3dInfo): void;
   posterOnly(value: boolean): void;
+  setPartOpacity(value?: Record<string, number>): void;
   flush(): void;
   settled(): Promise<void>;
   dispose(): void;
@@ -80,7 +83,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
   // Do not allocate a view/backing store for an unborn or hidden model.
   canvas.width = 0; canvas.height = 0; canvas.style.cssText = 'position:absolute;display:none';
   root.append(under, fallback, canvas, over); parent.append(root);
-  let frame = element, extra: Model3dRenderExtra = {}, active = false, disposed = false;
+  let frame = element, extra: Model3dRenderExtra = {}, partOpacity: Record<string, number> | undefined, active = false, disposed = false;
   let view: Model3dView | undefined, info: Model3dInfo | undefined, key = '', pending = Promise.resolve(), revision = 0;
   let failed: Error | undefined, intersects = true, posterOnly = false;
   let snapshot: ReturnType<typeof modelSnapshotImage> | undefined;
@@ -143,6 +146,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
   const handle: SlideModelBinding = {
     root, canvas, element,
     set(next, renderExtra = {}) { frame = next; handle.element = next; extra = renderExtra; },
+    setPartOpacity(value) { partOpacity = value; },
     posterOnly(value) { if (posterOnly === value) return; posterOnly = value; revision++; snapshot?.cancel(); snapshot = undefined; key = ''; },
     activate(modelInfo) { if (disposed) return; active = true; info = modelInfo; key = ''; },
     flush() {
@@ -160,7 +164,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       const { x: _x, y: _y, rotation: _rotation, opacity: _opacity, flipX: _flipX, flipY: _flipY, ...renderInputs } = frame;
       const scale = Math.max(.01, typeof ctx.pixelScale === 'function' ? ctx.pixelScale() : ctx.pixelScale ?? 1);
       const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const nextKey = JSON.stringify([renderInputs, extra, scale, dpr, posterOnly]);
+      const nextKey = JSON.stringify([renderInputs, extra, partOpacity, scale, dpr, posterOnly]);
       if (nextKey === key) return;
       const { local, manifest, box } = frameLayout();
       if (!ctx.model3d) { decorate(); key = nextKey; return; }
@@ -176,14 +180,14 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
           const image = document.createElementNS(SVG, 'image'); for (const [name, value] of Object.entries(box)) image.setAttribute(name, String(value));
           image.setAttribute('preserveAspectRatio', 'none'); image.dataset.modelSnapshot = frame.id;
           // Keep the matching poster/placeholder until this snapshot is decoded.
-          fallback.append(image); snapshot?.cancel(); snapshot = modelSnapshotImage(image, ctx.model3d, { assetId: local.assetId, element: local, w, h, manifest, ...extra });
+          fallback.append(image); snapshot?.cancel(); snapshot = modelSnapshotImage(image, ctx.model3d, { assetId: local.assetId, element: local, w, h, manifest, ...extra, partOpacity });
           pending = snapshot.ready.then(() => { if (disposed || token !== revision) return; fallback.replaceChildren(image); failed = undefined; }, reject);
         }
         return;
       }
       try {
         view ??= ctx.model3d.view(canvas);
-        const result = view.render(local, w, h, { manifest, ...extra }); key = nextKey;
+        const result = view.render(local, w, h, { manifest, ...extra, partOpacity }); key = nextKey;
         if (result && typeof (result as Promise<unknown>).then === 'function') pending = Promise.resolve(result).then(publish, reject);
         else { publish(); pending = Promise.resolve(); }
       } catch (error) { reject(error); }
@@ -223,8 +227,11 @@ export function createModel3dController(root: HTMLElement, slide: Slide, ctx: Sl
   if (!ctx.model3d) for (const element of models.values()) onIssue(element.id, '3D model rendered as a still');
   let warmed = !ctx.model3d || !models.size, succeeded = !ctx.model3d || !models.size;
   const infos = new Map<string, Model3dInfo | undefined>(), activated = new WeakSet<SlideModelBinding>();
-  function flush() {
+  let appearance: SlideFrame['partStates'] = {};
+  function flush(partStates?: SlideFrame['partStates']) {
+    if (partStates) appearance = partStates;
     for (const node of nodes(root)) { const binding = bindings.get(node); if (!binding) continue;
+      binding.setPartOpacity(modelPartOpacity(appearance[binding.element.id]));
       if (succeeded && ctx.model3d && !activated.has(binding)) { binding.activate(infos.get(binding.element.assetId)); activated.add(binding); }
       binding.flush();
     }

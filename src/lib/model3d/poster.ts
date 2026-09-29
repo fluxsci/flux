@@ -7,12 +7,15 @@ import type { Model3dAsset,Model3dElement,Scene3dManifest,Rect } from './types';
 export const RENDERER_VERSION='m3d-r4';
 const round=(n:number,p:number)=>Math.round(n/p)*p;
 const sig=(n:number)=>Number(n.toPrecision(5));
-export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number}):string{
+export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dManifest|null|undefined,px:{w:number;h:number},partOpacity?:Record<string,number>):string{
  const index:ReturnType<typeof buildScene3dPartIndex>=manifest?buildScene3dPartIndex(manifest):Object.create(null),parts:Record<string,unknown>=Object.create(null),fields:Record<string,unknown>=Object.create(null),states:Record<string,number>=Object.create(null);
+ const appearance:Record<string,number>=Object.create(null);
  for(const id of manifest?Object.values(index).filter(p=>p.node).map(p=>p.id):asset.model.partNames){
   const override=resolveScene3dPartStyle(manifest,el.overrides,id,{index}),entry:Record<string,unknown>={};
   for(const k of ['fill','opacity','hidden'] as const)if(override[k]!=null)entry[k]=k==='fill'?String(override[k]).toLowerCase():override[k];
   if(Object.keys(entry).length)parts[id]=entry;
+  const factor=partOpacity&&Object.hasOwn(partOpacity,id)?partOpacity[id]:1;
+  if(Number.isFinite(factor)&&factor!==1)appearance[id]=clamp(factor,0,1);
  }
  // The key holds every render input: the stops the renderer resolves (a named
  // override's stops, not just its name), the transparent draw order and the framing radius.
@@ -24,7 +27,7 @@ export function posterKey(el:Model3dElement,asset:Model3dAsset,manifest:Scene3dM
  // The sphere the camera frames: tight radius, legacy half-diagonal, or grown to hold box axes.
  const sphere=boundsSphere(framingBounds(asset.model.bounds,manifest)),framing=[...sphere.center,sphere.radius].map(v=>Number(v.toPrecision(9)));
  for(const [k,v]of Object.entries(el.modelStates??{}))if(v!==0)states[k]=sig(v);
- return 'm3d-'+hex14(cyrb53(canonical({v:RENDERER_VERSION,glb:asset.sha256,az:round(normalizeAzimuth(el.orbitAzimuth),.001),el:round(clamp(el.orbitElevation,-90,90),.001),roll:round(normalizeAzimuth(el.orbitRoll??0),.001),z:sig(clamp(el.orbitZoom,.02,50)),px:round(el.orbitPanX??0,.0001),py:round(el.orbitPanY??0,.0001),proj:el.orbitProjection,fov:el.orbitProjection==='perspective'?round(el.orbitFov,.001):null,fill:el.fill.toLowerCase(),colors:el.modelColors??'uniform',lighting:el.modelLighting??'studio',parts,fields,states,order:manifest?.order??null,framing,w:px.w,h:px.h})));
+ return 'm3d-'+hex14(cyrb53(canonical({v:RENDERER_VERSION,glb:asset.sha256,az:round(normalizeAzimuth(el.orbitAzimuth),.001),el:round(clamp(el.orbitElevation,-90,90),.001),roll:round(normalizeAzimuth(el.orbitRoll??0),.001),z:sig(clamp(el.orbitZoom,.02,50)),px:round(el.orbitPanX??0,.0001),py:round(el.orbitPanY??0,.0001),proj:el.orbitProjection,fov:el.orbitProjection==='perspective'?round(el.orbitFov,.001):null,fill:el.fill.toLowerCase(),colors:el.modelColors??'uniform',lighting:el.modelLighting??'studio',parts,fields,states,...(Object.keys(appearance).length?{appearance}:{}),order:manifest?.order??null,framing,w:px.w,h:px.h})));
 }
 export type PosterSurface='figure'|'slide'|'thumbnail'|'pdf'|'svg'|{kind:'raster';dpi:number}|{kind:'editor';base?:'figure'|'slide';onscreen?:{w:number;h:number};dpr?:number};
 /** Input is already the furniture-subtracted viewport in canvas CSS px. */

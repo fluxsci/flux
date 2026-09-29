@@ -13,7 +13,7 @@ import { storeTenantState } from '../tenancy';
 export { type ModelPosterSource } from './sourceRegistry';
 import { checkModelSource, checkModelFile, ownedModel3dService, awaitModelSource, retainSourceModel, releaseModelSource, modelSourceRegistryStats, type ModelPosterSource } from './sourceRegistry';
 interface Context { source: ModelPosterSource; controller: AbortController }
-export interface PosterRequest { element: Model3dElement; asset: Model3dAsset; manifest?: Scene3dManifest; surface?: PosterSurface }
+export interface PosterRequest { element: Model3dElement; asset: Model3dAsset; manifest?: Scene3dManifest; surface?: PosterSurface; partOpacity?: Record<string, number> }
 const cache = new Map<string, string>();
 interface PosterWaiter { preview?: (url: string) => void }
 interface PosterJob { promise: Promise<string>; cancel: AbortController; waiters: Set<PosterWaiter> }
@@ -89,7 +89,7 @@ function requestKeys(request: PosterRequest) {
   const layout = furnitureLayout(manifest, element, element.overrides), px = posterPixels(layout.viewport, surface);
   const editor = typeof surface === 'object' && surface.kind === 'editor';
   const storedPx = posterPixels(layout.viewport, editor ? surface.base ?? 'figure' : surface === 'slide' ? 'slide' : 'figure');
-  return { px, key: posterKey(element, asset, manifest, px), storedPx, storedKey: posterKey(element, asset, manifest, storedPx), editor };
+  return { px, key: posterKey(element, asset, manifest, px, request.partOpacity), storedPx, storedKey: posterKey(element, asset, manifest, storedPx, request.partOpacity), editor };
 }
 /** Synchronous decoded-memory lookup for Paper's first paint. No IO or worker. */
 export function cachedModelPosterUrl(request: PosterRequest, options: { source?: ModelPosterSource } = {}) {
@@ -142,7 +142,7 @@ export async function modelPosterUrl(request: PosterRequest, options: ModelPoste
     try {
       const loaded = await waitForJob(retained.ready, job.cancel.signal); checkJob();
       const render = async (size: { w: number; h: number }, renderKey: string, persist: boolean) => {
-        const blob = await loaded.service.renderPng({ assetId: loaded.assetId, ...size, element, manifest }, { lane: 'idle', key: renderKey, signal: job.cancel.signal });
+        const blob = await loaded.service.renderPng({ assetId: loaded.assetId, ...size, element, manifest, partOpacity: request.partOpacity }, { lane: 'idle', key: renderKey, signal: job.cancel.signal });
         const url = await decodeModelPoster(await dataUrl(blob), size); checkJob();
         remember(`${source.scope}\0${renderKey}`, url);
         for (const subscriber of subscribers) subscriber({ root: source.root, scope: source.scope, key: renderKey });

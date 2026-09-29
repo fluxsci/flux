@@ -21,6 +21,8 @@
   import { influenceToBezier } from "../../../../lib/motion/tokens";
   import { flyDuration, type CameraPath } from "../../../../lib/slide/camera";
   import { hasTweenableSeries } from "../../../../lib/plot/project";
+  import { scene3dManifests } from "../../../../lib/model3d/store";
+  import { buildModel3dTree } from "../../../../lib/model3d/tree";
   import { plotManifests, plotDom, plotGen } from "../../../../lib/plot/store";
   import type { Slide, Track, PresetName, Stagger, Deck, BecomeSpec } from "../../../../lib/slide/types";
   import { PRESET_COLOR, EDIT_PRESETS, chipLabel, refLabel, presetLabel, transformWay, WAY_LABEL } from "./shared";
@@ -64,11 +66,12 @@
     return $selTrackIds.map((id) => all.find((t) => t.id === id)).filter((t): t is Track => !!t);
   });
   const deck: StyleContext = $derived($deckOverlay ?? {});
-  const manifestFor = (target: string) => {
-    const el = slide.elements.find(e => e.id === target);
-    return el && "assetId" in el ? $plotManifests[el.assetId] : undefined;
+  const manifestAt = (target: string, beat: number) => {
+    const el = transformPreState(slide, target, beat);
+    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? $plotManifests[el.assetId] : undefined;
   };
-  const resolvedBeats = $derived(slide.beats.map(b => resolveBeat(b, deck, manifestFor)));
+  const manifestFor = (target: string) => manifestAt(target, $activeBeat);
+  const resolvedBeats = $derived(slide.beats.map((b, index) => resolveBeat(b, deck, target => manifestAt(target, index))));
   const selTracks = $derived(rawSelTracks.map(t => resolvedBeats.flatMap(b => b.tracks).find(r => r.id === t.id)!));
   const rawTrack = $derived(rawSelTracks.at(-1) ?? null);
   const curBeatIndex = $derived(rawTrack ? slide.beats.findIndex(b => b.tracks.some(t => t.id === rawTrack.id)) : -1);
@@ -180,7 +183,7 @@
   const flySuggestions = $derived.by(() => {
     const values = new Map<string, number>(), deck = $deckOverlay;
     if (!allCamera || !deck || !selTracks.some(t => t.to?.path === "fly")) return values;
-    const plan = compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => $plotManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
+    const plan = compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => $plotManifests[id], modelManifest: id => $scene3dManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
     for (const track of selTracks) {
       if (!track.id || track.to?.path !== "fly") continue;
       const bi = plan.resolvedSlide.beats.findIndex(b => b.tracks.some(t => t.id === track.id));
@@ -340,7 +343,7 @@
     });
     refreshEndpointDisplay();
   }
-  const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
+  const compile = (d: Deck, s: Slide) => compileSlide(s, d.stage, { animStyles: d.animStyles, plotManifest: id => $plotManifests[id], modelManifest: id => $scene3dManifests[id], modelAsset: id=>$project.assets.find(a=>a.id===id) });
   function changeHandoff(patch: Partial<Pick<BecomeSpec, "pair" | "reveal" | "mode">>) {
     try {
       withCurTrack((t, d) => {
@@ -357,8 +360,8 @@
   const destinationEl = $derived(handoff ? slide.elements.find(e => e.id === handoff.ref.element) : undefined);
   const canConsume = $derived(!!handoff && !!curTrack && isWholeElementRef(handoff.ref) && isWholeElementRef(trackRef(curTrack)) && !!destinationEl && !destinationEl.groupId && destinationEl.type!=="video" && slide.elements.find(e=>e.id===curTrack.target)?.type!=="video");
   // A whole-plot hand-off reveals every part already: nothing is left to build.
-  const canAutoAnimate = $derived(!!handoff && canAutoAnimateRest(slide, handoff.ref, manifestFor(handoff.ref.element)));
-  const swapOptions = () => ({ modelAsset: (id:string)=>$project.assets.find(a=>a.id===id), plotManifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id) });
+  const canAutoAnimate = $derived(!!handoff && canAutoAnimateRest(slide, handoff.ref, destinationEl?.type === "plot" ? $plotManifests[destinationEl.assetId] : undefined));
+  const swapOptions = () => ({ modelAsset: (id:string)=>$project.assets.find(a=>a.id===id), modelManifest: (id:string)=>$scene3dManifests[id], plotManifest: (id: string) => $plotManifests[id], plotRoot: (id: string) => plotDom.get(id) });
   const swapReason = $derived.by(() => {
     void $plotGen;
     if (!handoff || !curTrack?.id || !$deckOverlay) return "";
@@ -407,16 +410,16 @@
     });
   }
   // morph-content row: other compatible plots on the slide (plot targets only)
-  const curTargetEl = $derived(curTrack ? slide.elements.find((e) => e.id === curTrack.target) : null);
+  const curTargetEl = $derived(curTrack ? transformPreState(slide, curTrack.target, curBeatIndex) : null);
   const targetParts = $derived.by(() => {
-    if (curTargetEl?.type !== "plot") return [] as string[];
-    const tree = buildPartTree($plotManifests[curTargetEl.assetId]);
+    if (curTargetEl?.type !== "plot" && curTargetEl?.type !== "model3d") return [] as string[];
+    const tree = curTargetEl.type === "model3d" ? ($scene3dManifests[curTargetEl.assetId] ? buildModel3dTree($scene3dManifests[curTargetEl.assetId]) : null) : buildPartTree($plotManifests[curTargetEl.assetId]);
     const out: string[] = [];
     const walk = (n: NonNullable<typeof tree>) => { out.push(n.id); n.children.forEach(walk); };
     if (tree) walk(tree);
     return out;
   });
-  const targetMissing = $derived(!!curTrack && !curTrack.target.startsWith("@") && (!curTargetEl || !!curTrack.part && curTargetEl.type === "plot" && !resolveTargets($plotManifests[curTargetEl.assetId], curTrack.part).length));
+  const targetMissing = $derived(!!curTrack && !curTrack.target.startsWith("@") && (!curTargetEl || !!curTrack.part && (curTargetEl.type === "plot" || curTargetEl.type === "model3d") && !targetPartIds(curTrack, manifestFor(curTargetEl.id)).length));
   function retarget(target: string) {
     if (!target || anyGhost) return;
     withSelectedTracks(t => { t.target = target; delete t.part; delete t.selector; });

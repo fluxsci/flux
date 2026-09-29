@@ -19,6 +19,8 @@
   import { selection, partSelection, partSelections } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
+  import { scene3dManifests } from "../../../lib/model3d/store";
+  import { transformPreState } from "../../../lib/slide/tween";
   import { plotManifests, plotDom } from "../../../lib/plot/store";
   import { compileSlide } from "../../../lib/slide/compile";
   import { targetOutlines } from "../../../lib/slide/targetGeometry";
@@ -89,8 +91,8 @@
     return m;
   });
   const manifestFor = (target: string) => {
-    const el = slide?.elements.find((e) => e.id === target);
-    return el && "assetId" in el ? manifests[(el as { assetId: string }).assetId] : undefined;
+    const el = slide ? transformPreState(slide, target, $activeBeat) : undefined;
+    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : undefined;
   };
 
   // --- keyboard cockpit ---------------------------------------------------------
@@ -271,7 +273,7 @@
     if (!el) return;
     let box = { x: el.x, y: el.y, w: el.width, h: el.height };
     if ($partSelections.length) {
-      const frame = compileSlide(slide, st, { animStyles: d0.animStyles, plotManifest: id => manifests[id] }).sample($activeBeat);
+      const frame = compileSlide(slide, st, { animStyles: d0.animStyles, modelManifest: id => $scene3dManifests[id], plotManifest: id => manifests[id] }).sample($activeBeat);
       const ctx = { manifest: (id: string) => manifests[id], plotRoot: (id: string) => plotDom.get(id), groups: slide.groups };
       const boxes = $partSelections.flatMap(p => targetOutlines({ element: p.elementId, parts: [p.partId] }, frame, ctx).map(o => o.bbox));
       if (!boxes.length) return;

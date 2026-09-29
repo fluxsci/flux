@@ -4,9 +4,10 @@
 import type { Slide, Track, PresetName, TargetRef } from "../../../../lib/slide/types";
 import type { Figure, Element } from "../../../../lib/types";
 import type { FluxPlotManifest, PartNode } from "../../../../lib/plot/types";
+import { buildModel3dTree } from "../../../../lib/model3d/tree";
 import { labelForPart } from "../../../../lib/plot/tree";
 import { elementLabel } from "../../../../lib/xray/buildXrayTree";
-import { isHandoff, trackRef, targetPartIds } from "../../../../lib/slide/targets";
+import { isHandoff, trackRef, targetPartIds, isScene3dManifest } from "../../../../lib/slide/targets";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
 import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
@@ -54,14 +55,17 @@ export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: Manif
   if (ref.group) return slide?.groups?.[ref.group]?.name || "Group";
   if (!el || !slide) return "missing";
   const manifest = manifestFor(el.id);
-  const manifests = el.type === "plot" && manifest ? { [el.assetId]: manifest } : {};
+  const manifests = el.type === "plot" && manifest && !isScene3dManifest(manifest) ? { [el.assetId]: manifest } : {};
   const tag = plotTags.get(el.id);
   const name = (tag ? `${tag} · ` : "") + elementLabel(slide as unknown as Figure, el as Element, manifests);
   const ids = ref.selector ? targetPartIds({ parts: ref.parts, selector: ref.selector }, manifest) : [...new Set(ref.parts ?? [])];
   if (!ids.length) return name;
   const nodes = new Map<string, PartNode>();
   const walk = (n: PartNode) => { if (n.id || n.ref) nodes.set((n.id ?? n.ref)!, n); n.children?.forEach(walk); };
-  if (manifest?.parts) walk(manifest.parts);
+  if (isScene3dManifest(manifest)) {
+    const queue = [buildModel3dTree(manifest)];
+    for (const node of queue) { nodes.set(node.id, { id: node.id, label: node.label }); queue.push(...node.children); }
+  } else if (manifest?.parts) walk(manifest.parts);
   const labels = ids.slice(0, ids.length > maxParts ? 1 : maxParts).map(id => {
     const node = nodes.get(id) ?? { id };
     const label = labelForPart(node);
@@ -89,13 +93,13 @@ export function isDanglingTrack(t: Track, slide: Slide | null): boolean {
 }
 
 /** How many targets a track fans out to (drives the stagger tail length). */
-export function trackFanout(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
-  if (slide && (t.part || t.parts?.length || t.selector)) return Math.max(1, semanticTargets(t,slide,{plotManifest:()=>manifest}).length);
+export function trackFanout(t: Track, slide: Slide | null, manifest: ReturnType<ManifestFor>): number {
+  if (slide && (t.part || t.parts?.length || t.selector)) return Math.max(1, semanticTargets(t, slide, {plotManifest: () => !isScene3dManifest(manifest) ? manifest : undefined, modelManifest: () => isScene3dManifest(manifest) ? manifest : undefined}).length);
   return 1;
 }
 
 /** A track's time footprint within its beat: [start, start+duration+staggerSpan]. */
-export function trackEndMs(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined, deck: StyleContext = {}, manifestFor: ManifestFor = () => manifest): number {
+export function trackEndMs(t: Track, slide: Slide | null, manifest: ReturnType<ManifestFor>, deck: StyleContext = {}, manifestFor: ManifestFor = () => manifest): number {
   const beat = slide?.beats.find(b => b.tracks.some(x => x === t || t.id != null && x.id === t.id));
   const start = beat ? resolveStart(t, beat, deck, manifestFor).start : resolveTrack(t, deck).start ?? 0;
   t = resolveTrack(t, deck);
@@ -105,7 +109,7 @@ export function trackEndMs(t: Track, slide: Slide | null, manifest: FluxPlotMani
 }
 
 /** The latest end time of any track on a beat (min 1ms so empty beats layout). */
-export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: (target: string) => FluxPlotManifest | undefined, deck: StyleContext = {}): number {
+export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: ManifestFor, deck: StyleContext = {}): number {
   let end = 0;
   const resolved = resolveBeat({ id: "", tracks }, deck, manifestFor).tracks;
   for (const t of resolved) if (!t.disabled) end = Math.max(end, (t.start ?? 0) + trackDuration(t) + staggerSpan(t, trackFanout(t, slide, manifestFor(t.target))));

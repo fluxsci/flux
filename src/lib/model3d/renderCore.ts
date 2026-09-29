@@ -60,6 +60,16 @@ function semanticIndex(manifest?: Scene3dManifest): SemanticIndex {
   for (const part of manifest?.parts ?? []) { if (part.node && !nodes.has(part.node)) nodes.set(part.node, part); if (!nodes.has(part.id)) nodes.set(part.id, part); }
   return { parts, nodes, order: new Map((manifest?.order ?? []).map((id, i) => [id, i])) };
 }
+function applyPartOpacity(mesh: Part['mesh'], id: string, values?: Record<string, number>) {
+  const value = values && Object.hasOwn(values, id) ? values[id] : 1;
+  const factor = Number.isFinite(value) ? clamp01(value) : 1;
+  if (factor === 1) return;
+  const material = mesh.material;
+  material.opacity *= factor;
+  if (!material.transparent) { material.transparent = true; material.needsUpdate = true; }
+  material.depthWrite = false; mesh.visible &&= factor > 0;
+  mesh.renderOrder = Math.max(mesh.renderOrder, 1_000_000);
+}
 /** The pure field mapper owns LUT/range/missing semantics; renderer owns GPU attributes. */
 function stylePart(part: Part, element: Model3dElement, manifest: Scene3dManifest | undefined, index: SemanticIndex) {
   const entry = index.nodes.get(part.node), id = entry?.id ?? part.node, override = resolveScene3dPartStyle(manifest, element.overrides ?? {}, id, { sourceColors: false, index: index.parts });
@@ -286,6 +296,17 @@ export function createRenderCore(canvas: Canvas, options: { onContextState?: (lo
         }
       }
     } else { style(source, spec.morph?.fromElement ? { ...spec.morph.fromElement, modelLighting: element.modelLighting } : element, spec.manifest, spec.morph?.fromElement ? undefined : spec.states); group = source.group; }
+    if (spec.partOpacity) {
+      const manifest = spec.morph && t === 1 ? spec.morph.toManifest ?? (spec.morph.to === spec.assetId ? spec.manifest : undefined) : spec.manifest;
+      const index = semanticIndex(manifest);
+      if (spec.morph && t > 0 && t < 1) {
+        const target = assets.get(spec.morph.to)!;
+        for (const part of getMorph(spec, source, target).parts) applyPartOpacity(part.mesh, index.nodes.get(part.a.node)?.id ?? part.a.node, spec.partOpacity);
+      } else {
+        const owner = spec.morph && t === 1 ? assets.get(spec.morph.to)! : source;
+        for (const part of owner.parts) applyPartOpacity(part.mesh, index.nodes.get(part.node)?.id ?? part.node, spec.partOpacity);
+      }
+    }
     const pose = orbitPose(element, bounds, { width: w, height: h }), camera = cameraFor(pose, w, h);
     key.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), -2 * pose.radius).addScaledVector(new Vector3(...pose.up), 2 * pose.radius);
     fill.position.copy(camera.position).addScaledVector(new Vector3(...pose.right), 2 * pose.radius).addScaledVector(new Vector3(...pose.up), -pose.radius);

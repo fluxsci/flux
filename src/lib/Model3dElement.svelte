@@ -10,7 +10,7 @@
   import { posterKey, posterPixels } from './model3d/poster';
   import type { Model3dAsset, Model3dElement } from './model3d/types';
 
-  let { element }: { element: Model3dElement } = $props();
+  let { element, partOpacity }: { element: Model3dElement; partOpacity?: Record<string, number> } = $props();
   const asset = $derived($project.assets.find(a => a.id === element.assetId && a.kind === 'glb') as Model3dAsset | undefined);
   const manifest = $derived($scene3dManifests[element.assetId]);
   const layout = $derived(furnitureLayout(manifest, element, element.overrides));
@@ -18,7 +18,7 @@
   let furniture = $state({ under: '', over: '' });
   $effect(() => { if ($modelPreviews[element.id]?.phase !== 'active') furniture = pose ? furnitureSvg(manifest, element, pose, layout) : { under: '', over: '' }; });
   const surface = $derived({ kind: 'editor' as const, onscreen: { w: layout.viewport.width * $viewport.zoom, h: layout.viewport.height * $viewport.zoom }, dpr: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1 });
-  const key = $derived(asset?.model && asset.sha256 ? posterKey(element, asset, manifest, posterPixels(layout.viewport, surface)) : 'missing');
+  const key = $derived(asset?.model && asset.sha256 ? posterKey(element, asset, manifest, posterPixels(layout.viewport, surface), partOpacity) : 'missing');
   // Root + asset identity only: a same-root reload keeps the displayed poster
   // until its (content-addressed) successor is ready — never a placeholder flash.
   const ownerKey = $derived(`${$embeddedProjectRoot ?? $projectDir ?? ''}:${asset?.id}:${asset?.sha256}`);
@@ -74,7 +74,7 @@
     if (preview?.phase === 'active' || contextLost) return;
     if (displayed.owner !== ownerKey) { displayed.owner = ownerKey; url = ''; }
     if (!asset?.model || !asset.sha256) { reason = '3D model file missing'; return; }
-    const request = untrack(() => ({ element: structuredClone(element), asset: structuredClone(asset!), manifest: manifest ? structuredClone(manifest) : undefined, surface }));
+    const request = untrack(() => ({ element: structuredClone(element), asset: structuredClone(asset!), manifest: manifest ? structuredClone(manifest) : undefined, surface, partOpacity: partOpacity ? { ...partOpacity } : undefined }));
     const abort = new AbortController();
     const publish = (value: string) => {
       if (abort.signal.aborted) return;

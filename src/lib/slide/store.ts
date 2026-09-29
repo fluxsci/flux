@@ -50,6 +50,7 @@ import { applyDeckSourceUpdates, reconcileDeckExternalAssetSizes } from "./sourc
 import { setTransform, removeTracks } from "./ops";
 import { compileSlide, evaluateSlideState, type SlideFrame } from "./compile";
 import { plotManifests } from "../plot/store";
+import { scene3dManifests } from '../model3d/store';
 import { diffState } from "./tween";
 import { applyTextLayout } from "../text";
 import { deckToProject, projectIntoDeck, DECK_CANVAS_ID, slideDefaultBackground } from "./deckProject";
@@ -426,7 +427,7 @@ export function refreshBeatDisplay(): void {
   // Evaluate from canonical content; appearance and camera stay transient.
   const canonical = composedSlide(sid);
   const frame = canonical && k > 0 ? evaluateSlideState(canonical, k, Infinity, {
-    stage: o.stage, animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id],
+    stage: o.stage, animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id], modelManifest: id => get(scene3dManifests)[id],
   }) : null;
   const evaluated = new Map(frame?.elements.map(e => [e.id, e]) ?? []);
   const designPresentation: SlideFrame["presentation"] = {elementStates:{},hiddenElementIds:[],partStates:{},
@@ -435,7 +436,7 @@ export function refreshBeatDisplay(): void {
   // Design keeps ordinary appearances editable, but a hand-off's future
   // destination must not appear beside its source before the landing.
   if (!frame && canonical?.beats.some(b => b.tracks.some(t => isHandoff(t)))) {
-    const compiled = compileSlide(canonical, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
+    const compiled = compileSlide(canonical, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id], modelManifest: id => get(scene3dManifests)[id]});
     const initial = compiled.sample(0).presentation;
     for (const handoff of compiled.handoffs) for (const target of handoff.destination) {
       if (target.partIds) {
@@ -545,7 +546,7 @@ export function registerSlideEditAdapter(onUserEdit?:()=>void): () => void {
         }
         if (previous.type === "plot" && el.type === "plot" && base.type === "plot" && previous.assetId !== el.assetId) base.assetId = el.assetId;
         if (bi < 1 || unborn.has(el.id) || !diffState(previous, el)) continue;
-        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id]});
+        compiled ??= compileSlide({ ...slide, elements: [...previousElements.values()].map(e => baselines.get(e.id) ?? e) }, o.stage, {animStyles: o.animStyles, plotManifest: id => get(plotManifests)[id], modelManifest: id => get(scene3dManifests)[id]});
         const pre = compiled.preState(el.id, bi) ?? base;
         const patch = diffState(pre, el) ?? {};
         setTransform(o, sid!, slide.beats[bi].id, el.id, { state: patch, replaceState: true });

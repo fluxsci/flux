@@ -526,6 +526,10 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
   const manifests = new Map<string, FluxPlotManifest | undefined>();
   const modelAssets = new Map((await externalDeckAssetMetadata(root, deck)).map(asset => [asset.id, asset]));
   for (const asset of deck.assets ?? []) modelAssets.set(asset.id, asset);
+  // The saved-deck adapter owns source-receipt binding and canonical sidecar
+  // paths, including assets referenced only by future Change endpoints.
+  const modelManifests = [...modelAssets.values()].some(asset => asset.kind === 'glb')
+    ? (await (await import('./model3dDeckCommands')).deckModelDocument(root, deck)).manifests : {};
   const add = async (el: { assetId: string; source?: { svgPath?: string; manifestPath?: string } }) => {
     if (!manifests.has(el.assetId)) manifests.set(el.assetId, await readPlotManifest(root, el, deck.id));
   };
@@ -539,7 +543,7 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string) {
       ...(typeof track.to.manifestPath === "string" ? { manifestPath: track.to.manifestPath } : {}),
     } });
   }
-  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id) };
+  return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id] };
 }
 
 export async function compileDeckSlide(root: string, deck: Deck, slideId: string) {
@@ -583,7 +587,7 @@ export async function setTrackVerb(root: string, deckId: string, slideId: string
     const bi = found.slide.beats.indexOf(found.beat);
     const result = slideOps.setTrack(deck, slideId, trackId, patch, target => {
       const el = compiled.preState(target, bi);
-      return el?.type === "plot" ? context.plotManifest(el.assetId) : undefined;
+      return el?.type === "plot" ? context.plotManifest(el.assetId) : el?.type === 'model3d' ? context.modelManifest(el.assetId) : undefined;
     });
     if (!result.ok) throw new ValidationError(result.reason!);
     const after = await compileDeckSlide(root, deck, slideId);
@@ -725,7 +729,7 @@ export async function moveTrack(
     const found = slideOps.findTrack(deck, trackId), bi = found ? slide.beats.indexOf(found.beat) : -1;
     const ok = slideOps.moveTrackToBeat(deck, slideId, trackId, toBeatId, at, target => {
       const el = compiled.preState(target, bi);
-      return el?.type === "plot" ? context.plotManifest(el.assetId) : undefined;
+      return el?.type === "plot" ? context.plotManifest(el.assetId) : el?.type === 'model3d' ? context.modelManifest(el.assetId) : undefined;
     });
     if (!ok) throw new Error(`track ${trackId} or beat ${toBeatId} not found on ${slideId}`);
   });

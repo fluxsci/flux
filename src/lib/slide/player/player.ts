@@ -62,10 +62,10 @@ function spatialCoord(node: TargetNode, axis: "x" | "y"): number | null {
 }
 
 /** The plot manifest backing a slide element (its assetId → manifest), or none. */
-function manifestFor(target: string, slide: Slide, opts: PlayerOpts, beatIndex = 0): FluxPlotManifest | undefined {
+function manifestFor(target: string, slide: Slide, opts: PlayerOpts, beatIndex = 0): FluxPlotManifest | import('../../model3d/types').Scene3dManifest | undefined {
   const el = transformPreState(slide, target, beatIndex);
   const assetId = el && "assetId" in el ? (el as { assetId: string }).assetId : undefined;
-  return assetId ? opts.plotManifest?.(assetId) : undefined;
+  return assetId ? el?.type === 'model3d' ? opts.modelManifest?.(assetId) : opts.plotManifest?.(assetId) : undefined;
 }
 
 /** A track → the DOM nodes it animates (whole element, a plot part, a plot
@@ -275,13 +275,17 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       const from = track.stagger?.from ?? "start";
       const by = track.stagger?.by;
       const ranks = track.stagger ? staggerRanks(n, from, by === "x" || by === "y" ? nodes.map((node) => spatialCoord(node, by)) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
-      const maxRank = Math.max(0, ...ranks);
+      // Mesh targets have no DOM nodes. Furniture in the same binding keeps
+      // its rank among ALL semantic leaves, exactly as the mesh sampler does.
+      const modelParts = hasPartBinding(track) && transformPreState(slide, track.target, bi)?.type === 'model3d';
+      const semanticRank = modelParts ? new Map(ct.parts.map((id, i) => [partDomId(track.target, id), ct.ranks[i]])) : undefined;
+      const maxRank = modelParts ? ct.maxRank : Math.max(0, ...ranks);
       nodeAnims.forEach((na) => {
         specs.push({
           node: na.node,
           beatIndex: bi,
           keyframes: na.keyframes,
-          delay: ct.start + staggerDelay(track, ranks[na.index] ?? 0, maxRank),
+          delay: ct.start + staggerDelay(track, semanticRank?.get(na.node.id) ?? ranks[na.index] ?? 0, maxRank),
           duration: ct.duration,
           ease: ct.ease,
           enter: na.enter,
@@ -593,6 +597,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
   let media: ReturnType<typeof createVideoController> | undefined;
   let models: ReturnType<typeof createModel3dController> | undefined;
+  let modelAppearance: CompiledSlide | undefined;
   let auto: ReturnType<typeof setTimeout> | undefined;
   let range: PlayRange | null = null;
   let transition: Animation | null = null;
@@ -611,11 +616,14 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     disposeSlideAnims(specs);
     media?.destroy(); media = undefined;
     models?.destroy(); models = undefined;
+    modelAppearance = undefined;
     si = index;
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
     const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
+    const modelIds = new Set(compiled.resolvedSlide.elements.filter(el => el.type === 'model3d').map(el => el.id));
+    if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))) modelAppearance = compiled;
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
@@ -632,7 +640,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);
-    models?.flush();
+    models?.flush(modelAppearance?.sample(bi, time).partStates);
     if (playing) media?.tick(time);
     emit("frame");
   }

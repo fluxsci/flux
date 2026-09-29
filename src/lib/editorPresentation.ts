@@ -1,5 +1,7 @@
 import type { Element, Viewport } from "./types";
 import type { FluxPlotManifest } from "./plot/types";
+import { buildModel3dTree } from "./model3d/tree";
+import type { Scene3dManifest } from "./model3d/types";
 import { buildPartTree, type XrayNode } from "./plot/tree";
 
 /** Optional presentation chrome supplied by an embedded editor. It never
@@ -32,6 +34,7 @@ export function editorStashedParts(
   presentation?: EditorCanvasPresentation | null,
   elements: readonly Element[] = [],
   manifests: Record<string, FluxPlotManifest> = {},
+  models: Record<string, Scene3dManifest> = {},
 ): Map<string, Set<string>> {
   const result = new Map<string, Set<string>>();
   if (!presentation || presentation.ghostHidden) return result;
@@ -45,8 +48,9 @@ export function editorStashedParts(
     const blocked = new Set(hidden);
     const element = elements.find(e => e.id === elementId);
     const manifest = element?.type === "plot" ? manifests[element.assetId] : undefined;
-    if (manifest) {
-      const root = buildPartTree(manifest);
+    const model = element?.type === "model3d" ? models[element.assetId] : undefined;
+    if (manifest || model) {
+      const root = model ? buildModel3dTree(model) : buildPartTree(manifest);
       const nodes = new Map<string, XrayNode>();
       const visit = (node: XrayNode) => { nodes.set(node.id, node); node.children.forEach(visit); };
       if (root) visit(root);

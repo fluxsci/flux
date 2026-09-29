@@ -8,7 +8,9 @@ export function paintFurniture(parent: SVGElement, nodes: readonly FurnitureNode
     if (element?.localName !== node.tag) { element?.remove(); element = undefined; }
     if (!element) element = document.createElementNS('http://www.w3.org/2000/svg', node.tag);
     existing.delete(node.key);
-    for (const attr of [...element.attributes]) if (attr.name !== 'data-furniture-key' && !(attr.name in node.attrs)) element.removeAttribute(attr.name);
+    // Furniture owns SVG attributes; editor/player appearance effects own the
+    // inline style layer. A mesh publication must not erase a sampled fade.
+    for (const attr of [...element.attributes]) if (attr.name !== 'data-furniture-key' && attr.name !== 'style' && !(attr.name in node.attrs)) element.removeAttribute(attr.name);
     element.setAttribute('data-furniture-key', node.key);
     for (const [key, value] of Object.entries(node.attrs)) if (element.getAttribute(key) !== String(value)) element.setAttribute(key, String(value));
     if (node.children) paintFurniture(element, node.children);

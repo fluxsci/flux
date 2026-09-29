@@ -321,7 +321,7 @@ export function compileSlide(slide: Slide, stage: StageSize = { width: 640, heig
   const timed = { ...slide, beats: slide.beats.map((beat, bi) => {
     const resolved = resolveBeat(beat, opts, target => {
       const el = transformPreState(slide, target, bi);
-      return el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
+      return el?.type === "plot" ? opts.plotManifest?.(el.assetId) : el?.type === 'model3d' ? opts.modelManifest?.(el.assetId) : undefined;
     });
     timingIssues.push(...resolved.issues);
     return { ...beat, tracks: resolved.tracks };

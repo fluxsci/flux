@@ -10,12 +10,13 @@
  * {preset}})` writes the new preset onto every linked track. */
 import type { Beat, Deck, Slide, Track } from "./types";
 import type { FluxPlotManifest } from "../plot/types";
+import type { Scene3dManifest } from "../model3d/types";
 import { targetPartIds } from "./targets";
 import { staggerSpan } from "./stagger";
 import { trackDuration } from "./timing";
 
 export type StyleContext = Pick<Deck, "animStyles">;
-export type ManifestFor = (target: string) => FluxPlotManifest | undefined;
+export type ManifestFor = (target: string) => FluxPlotManifest | Scene3dManifest | undefined;
 export interface TimingIssue { trackId?: string; target: string; reason: string }
 /** Every field an `AnimStyle.track` carries (materialize/detach copies all of them). */
 export const ANIM_STYLE_FIELDS = ["preset", "params", "start", "duration", "easing", "influence", "curve", "stagger", "arc"] as const;

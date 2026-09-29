@@ -61,6 +61,8 @@ export interface Model3dRenderSpec {
   /** Runtime-only content fallback; does not introduce an animation track kind. */
   crossfade?: { to: string; t: number; fromElement: Model3dElement; toElement: Model3dElement; toManifest?: Scene3dManifest };
   states?: Record<string, number>;
+  /** Transient animation factors, multiplied after authored/source alpha. */
+  partOpacity?: Record<string, number>;
 }
 export type RenderSpec = Model3dRenderSpec;
 export interface Rect { x: number; y: number; width: number; height: number }

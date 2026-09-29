@@ -4,7 +4,7 @@
   import { canvasAnnotationTargets } from "./bridge/canvasTargets";
   import OrbitOverlay from "./model3d/OrbitOverlay.svelte";
   import { modelOrbit, modelPreviews, paintedModelPreviews, modelOrbitBlocked, requestModelOrbit, finishModelOrbit, clearModelPreviews, modelEditorOwner } from "./model3d/orbitSession";
-  import { scene3dGeneration } from "./model3d/store";
+  import { scene3dGeneration, scene3dManifests } from "./model3d/store";
   import { storeTenantState } from "./tenancy";
   import { embeddedProjectRoot, projectDir } from "./store";
   import { editSession } from "./interact/editSession";
@@ -62,6 +62,7 @@
   import { onMount, tick, onDestroy } from "svelte";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
+  import { modelPartOpacity } from './model3d/appearance';
   import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
   import { remapRuns, normalizeRuns, elementFlags, rangeIsOn, rangeScript } from "./textRuns";
   import { publishTextRange, detachTextRange, registerLiveRangeToggle, typingStyle, type RangeStyle } from "./textEditRange";
@@ -118,7 +119,7 @@
   };
   $: presentationState.set(frame ? presentation : null);
   $: hiddenPresentationIds = new Set(presentation?.hiddenElementIds ?? []);
-  $: stashedPresentationParts = editorStashedParts(presentation, $project.figures.find(f => f.id === $activeFigureId)?.elements, $plotManifests);
+  $: stashedPresentationParts = editorStashedParts(presentation, $project.figures.find(f => f.id === $activeFigureId)?.elements, $plotManifests, $scene3dManifests);
   $: absentPresentationIds = new Set([...(presentation?.unbornElementIds ?? []), ...editorStashedElements(presentation)]);
   $: absentPresentationKey = [...absentPresentationIds].join("\0");
   $: cameraClip = frame && presentation?.camera && presentation.stage
@@ -3960,7 +3961,7 @@
                 <g
                   class="el"
                   data-editor-element-id={el.id}
-                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
+                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : el.type === 'model3d' ? $model3dPosterRevision : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
                   style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
                   class:editing-hidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
@@ -3979,9 +3980,9 @@
                        into the element's own slot — z-order + clipping intact,
                        model untouched until the single pointer-up commit. -->
                   {#if sceneOverride && sceneOverride.id === el.id}
-                    <ElementView element={sceneOverride.el} />
+                    <ElementView element={sceneOverride.el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {:else}
-                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} />
+                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {/if}
                 </g>
               {/each}

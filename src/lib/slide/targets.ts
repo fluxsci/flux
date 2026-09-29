@@ -99,7 +99,7 @@ export function isWholeElementRef(ref: TargetRef): boolean {
   return !ref.parts?.length && !(ref.selector && selectorIsSet(ref.selector)) && !ref.group;
 }
 
-function isScene3dManifest(manifest: FluxPlotManifest | Scene3dManifest | undefined): manifest is Scene3dManifest {
+export function isScene3dManifest(manifest: FluxPlotManifest | Scene3dManifest | undefined): manifest is Scene3dManifest {
   return manifest?.spec === 'fluxplot/scene3d';
 }
 

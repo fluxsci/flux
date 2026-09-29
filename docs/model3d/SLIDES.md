@@ -55,3 +55,26 @@ asset without a known source clears the previous content's source fields.
 file commands, actual browser rendering and the editor UI. Browser receipt-cancellation
 checks use the memory bridge; they do not claim production Electron import coverage.
 Native MP4 qualification is recorded separately.
+
+## Animate model parts
+
+Open a semantic 3D model in X-ray, select a mesh or furniture row, and use
+**Animate selected → Appear, Emphasize, or Disappear**. Each action creates ordinary
+animation tracks and one Undo entry. Series and other containers resolve to their
+named leaves. Mesh opacity multiplies its authored opacity; unselected meshes retain
+their colors and visibility. Labels, axes, legends and colorbars use the same timing
+through vector furniture. Mixed mesh/furniture stagger follows one semantic order.
+
+Design retains the saved model appearance. **Edit after step** shows the settled
+mesh and furniture animation state; **Show hidden** keeps hidden parts visible at
+quarter opacity for editing. Turn it off for the normal hidden result. Derived part
+opacity is never stored as model data. Playback, HTML and capture use the shared
+player; plain models without accepted scene3d metadata report missing semantic targets
+rather than inventing a part hierarchy. The Animator lists the accepted parts at each
+content-change pre-state. Saved Node commands read the same source-bound sidecars,
+including model assets referenced only by future Change tracks.
+
+`node scripts/run-verifies.mjs --group slide-model3d-parts` covers pure/container
+resolution, saved file commands, actual player pixels and the real X-ray authoring
+flow with Undo/Redo and reopen. Per-part mesh transparency retains the documented
+interpenetrating-transparent-surface limitation.

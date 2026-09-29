@@ -91,7 +91,7 @@
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
   import { modelPair, modelPairIssue } from "../../../lib/slide/model3dMorph";
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
-  import { scene3dGeneration } from "../../../lib/model3d/store";
+  import { scene3dGeneration, scene3dManifests } from "../../../lib/model3d/store";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -669,7 +669,7 @@
     if (idle) idle(run); else setTimeout(run, 0);
   });
 
-  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,plotManifest:id=>$plotManifests[id]}).issues : []);
+  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id]}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));
@@ -887,7 +887,7 @@
     const deck = currentDeck(), slide = deck?.slides.find(s => s.id === $activeFigureId);
     if (!deck || !slide) return;
     videoDialog = { deck, slideId: slide.id, root: pm.root,
-      durations: compileSlide(slide, deck.stage, { animStyles: deck.animStyles, plotManifest: id => get(plotManifests)[id] }).cues.map(c => c.duration) };
+      durations: compileSlide(slide, deck.stage, { animStyles: deck.animStyles, modelManifest: id => get(scene3dManifests)[id], plotManifest: id => get(plotManifests)[id] }).cues.map(c => c.duration) };
   }
   function exportVideo(options: SlideVideoOptions) {
     const picked = videoDialog; videoDialog = null;
@@ -1171,7 +1171,7 @@
     const dest = pick.kind === "appearFrom" ? pick.source : ref;
     pickState = null;
     try {
-      const compiled = compileSlide(s, stage, { animStyles: overlay?.animStyles, plotManifest: id => get(plotManifests)[id], modelAsset: id => get(project).assets.find(a=>a.id===id) });
+      const compiled = compileSlide(s, stage, { animStyles: overlay?.animStyles, modelManifest: id => get(scene3dManifests)[id], plotManifest: id => get(plotManifests)[id], modelAsset: id => get(project).assets.find(a=>a.id===id) });
       const result = commitDeckLive(d => {
         const beat = slideOps.slideById(d, s.id)?.beats[pick.beatIndex];
         if (!beat) throw new Error("The step no longer exists.");
@@ -1289,7 +1289,7 @@
     const request = ghostDialog, s = activeSlide;
     if (!request || !s) return;
     try {
-      const sourceSnapshot = compileSlide(s, stage, {animStyles: overlay?.animStyles, plotManifest: id => get(plotManifests)[id]}).copySourceState(request.sourceId, request.beatIndex);
+      const sourceSnapshot = compileSlide(s, stage, {animStyles: overlay?.animStyles, modelManifest: id => get(scene3dManifests)[id], plotManifest: id => get(plotManifests)[id]}).copySourceState(request.sourceId, request.beatIndex);
       if (!sourceSnapshot) throw new Error("The source is unavailable before this step.");
       const result = commitDeckLive(d => {
         const sl = slideOps.slideById(d, s.id)!;

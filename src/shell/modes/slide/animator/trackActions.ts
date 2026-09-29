@@ -11,13 +11,15 @@ import type { Deck, Track } from "../../../../lib/slide/types";
 import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
 import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
+import { scene3dManifests } from "../../../../lib/model3d/store";
+import { transformPreState } from "../../../../lib/slide/tween";
 import { plotManifests } from "../../../../lib/plot/store";
 
 function manifestForDeck(deck: Deck, sid: string) {
-  const slide = slideById(deck, sid), manifests = get(plotManifests);
+  const slide = slideById(deck, sid), manifests = get(plotManifests), models = get(scene3dManifests);
   return (target: string) => {
-    const el = slide?.elements.find(e => e.id === target);
-    return el && "assetId" in el ? manifests[el.assetId] : undefined;
+    const el = slide ? transformPreState(slide, target, get(activeBeat)) : undefined;
+    return el?.type === "model3d" ? models[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : undefined;
   };
 }
 
