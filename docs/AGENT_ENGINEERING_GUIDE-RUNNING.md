@@ -1849,7 +1849,12 @@ library first-keystroke 177ms (the 150ms debounce above). Figure was remeasured 
 the production harness gates actual key-to-paint at 31.9ms p95 for 1,600 mounted objects and
 34.8ms in the 5,000-object fixture (3,760 visible elements mounted, 47 Layers rows). Transient
 Figure drag measured 5.4ms p95 in the dev scale gate; dev commit tracing remains distinct from
-production latency. Figure and Paper were remeasured 2026-09-16 on the neural-populations
+production latency. By 2026-09-29 the native gate had regressed to 85.6 / 118.1ms p95
+(1,600 / 5,000; red on origin/main too): every edit re-rendered all 3,760 mounted elements
+and re-ran their project-store `$:` dependencies (the two Svelte-legacy traps in §9). With
+`ElementSlot` and branch-local store reads it reads 38.6 / 47.5ms p95 (1440×1000 window at
+DPR 2 on the 6144×3456 + 5120×2880 desktop; the gate sizes its own window, so the huge
+displays were not the cause). Figure and Paper were remeasured 2026-09-16 on the neural-populations
 example (21 plots, 14.8k mounted plot nodes, production bundle, `scripts/perf/input-probe.cjs`,
 Paper visited first then Figure): trackpad pan 50–110 ms of main-thread time per 1.6 s burst
 with zero long tasks (was 630 ms and 47% busy), hover sweep 55 ms (was 510), twelve rapid
@@ -2261,6 +2266,18 @@ Run it through the hermetic runner; never validate a migration on real projects.
   per frame under pan.
 - A `<details>` inside a control that rerenders mid-gesture must bind its `open` state, or
   the rerender collapses it under the pointer (the 3D Shape sequence block did).
+- **Per-element render cost is O(mounted) unless something gates it.** A legacy `{#each}` item
+  holding an object is "changed" every time its list is recomputed (`safe_not_equal` treats any
+  object as unequal, even itself), and the in-place model makes every figure-scoped edit
+  recompute its figure's list — so each keystroke re-rendered every mounted element.
+  `ElementSlot.svelte` (runes) is the scene's render boundary: it passes an element on only when
+  its identity or JSON content changed; `perfCounters.elementRenders` + `verify-scale-figure`
+  pin one render per one-element nudge. Keep new per-element rendering behind it.
+- **A store read in a per-element `$:` subscribes every instance.** `$: x = cond ? f($project) : null`
+  lists `$project` as a dependency even when `cond` is false, and `legacy_pre_effect_reset`
+  re-runs every `$:` dependency of the component when any of them changes: 3,760 elements ×
+  4 statements per project edit. Read the store inside the branch that needs it
+  (`{@const imgDisp = … $project …}` in Element/PlotElement).
 
 **Derived model fields (figure families):** since 2026-08-04 a figure's `name` is DERIVED from
 family identity — every load runs `applyFamilyNumbers`, which rewrites `name` from

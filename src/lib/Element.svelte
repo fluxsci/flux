@@ -16,11 +16,11 @@
 
   // solid colours, or url(#…) gradients when a colormap is set (color/gradient.ts)
   $: paints = elementPaints(element);
-  // Crop rendering for `<image>`-backed rasters (P5): the crop window lives in
-  // intrinsic content px (assetDisplaySize units), shown via a nested-svg
-  // viewport — viewBox = the window, the image drawn at full display size
-  // inside it. Falls back to the uncropped image when the asset is unsized.
-  $: imgDisp = element.type === "image" && element.crop ? assetDisplaySize($project, element.assetId) : null;
+  // Only a cropped image reads `$project` (its asset's display size), and it
+  // does so inside its own branch below. A `$:` statement here would subscribe
+  // EVERY mounted element to the project store: each edit would then re-run
+  // every element's reactive statements (legacy_pre_effect_reset re-reads all
+  // their dependencies), which is O(mounted objects) per keystroke.
   // FIG-2: rotate/flip about the element's true bbox centre. Lines/arrows carry
   // width/height 0 (their geometry is x1/y1→x2/y2), so `element.x + width/2` put the pivot on
   // endpoint 1 — a rotated/flipped line swung about its end, wrong on screen AND in export.
@@ -70,6 +70,11 @@
     {/if}
   {:else if element.type === "image"}
     {#if $assetData[element.assetId]}
+      <!-- Crop rendering for `<image>`-backed rasters (P5): the crop window lives in
+           intrinsic content px (assetDisplaySize units), shown via a nested-svg
+           viewport — viewBox = the window, the image drawn at full display size
+           inside it. Falls back to the uncropped image when the asset is unsized. -->
+      {@const imgDisp = element.crop ? assetDisplaySize($project, element.assetId) : null}
       {#if element.crop && imgDisp}
         <svg
           x={element.x}

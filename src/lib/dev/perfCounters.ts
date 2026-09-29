@@ -11,4 +11,7 @@ export const perfCounters = {
   effRecomputes: 0,
   /** Sidebar layer-row derives (cache misses). */
   rowsRecomputes: 0,
+  /** Scene elements passed on to their renderer by ElementSlot (mounts and
+   *  changed elements; an unchanged element costs a content compare only). */
+  elementRenders: 0,
 };
