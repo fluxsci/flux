@@ -183,8 +183,26 @@ try {
   await waitFor(page, () => document.querySelector('[data-model3d-placeholder]')?.textContent.includes('missing'), null, { label: 'missing GLB fallback' });
   h.ok(true, 'missing GLB displays explicit fallback despite existing disk poster');
   await page.screenshot({ path: out + '/missing-model.png' });
+  // Deleting the placeholder model in the app unblocks Save: the registry
+  // outlives the element for Undo, so the save must judge what still uses it.
+  const saveNow = () => page.evaluate(async () => { try { await window.__flux.bridge.saveFigFrom(window.__m3dTest.root); return ''; } catch (e) { return String(e?.message ?? e); } });
+  const savedIndex = assetId => page.evaluate(async assetId => { const F = window.__flux, root = window.__m3dTest.root; return { indexed: JSON.parse(await window.fig.readText(`${root}/fig/index.json`)).assets?.some(a => a.id === assetId) ?? false, registered: F.get(F.fig.project).assets.some(a => a.id === assetId), dirty: F.get(F.fig.dirty) }; }, assetId);
+  const refused = await saveNow();
+  h.ok(/^Cannot save: 3D model file .* is missing for element .* or delete the element$/.test(refused) && refused.includes(setup.id), 'save refuses while the placeholder model is placed');
+  point = await center(selector); await page.mouse.click(point.x, point.y);
+  await waitFor(page, id => window.__flux.get(window.__flux.fig.selection).has(id), setup.id, { label: 'pointer selects placeholder model' });
+  await page.keyboard.press('Delete');
+  await waitFor(page, id => !window.__flux.figures().some(f => f.elements.some(e => e.id === id)), setup.id, { label: 'Delete removes placeholder model' });
+  h.eq(await saveNow(), '', 'save succeeds once the missing model is deleted');
+  results.deletedSave = await savedIndex(setup.assetId);
+  h.ok(!results.deletedSave.indexed && results.deletedSave.registered && !results.deletedSave.dirty, 'saved index drops the dead GLB registration; the store keeps it for Undo');
+  await chord('z');
+  await waitFor(page, id => window.__flux.figures().some(f => f.elements.some(e => e.id === id)), setup.id, { label: 'one Undo restores the model' });
+  h.ok(/^Cannot save: 3D model file .* is missing/.test(await saveNow()), 'Undo restores the model and its save refusal');
   await page.evaluate(async () => { const { path, bytes } = window.__m3dTest.removed; await window.fig.writeFile(path, bytes); const { scene3dGeneration } = await import('/src/lib/model3d/store.ts'); scene3dGeneration.update(n => n + 1); });
   await waitFor(page, () => !!document.querySelector('[data-model3d-poster]'), null, { timeout: 45000, label: 'missing model restored' });
+  h.eq(await saveNow(), '', 'restoring the file saves again');
+  h.ok((await savedIndex(setup.assetId)).indexed, 'restored model re-registers its GLB in the saved index');
   results.cancel = await page.evaluate(async () => {
     const F = window.__flux, fb = window.fig, original = fb.importModel3d, originalDiscard = fb.discardModel3d, originalAdopt = fb.adoptModel3d;
     let discarded = 0, adopted = 0, receipt;

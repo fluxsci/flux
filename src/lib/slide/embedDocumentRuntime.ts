@@ -3,7 +3,12 @@ import { mountSlideEmbed, type EmbedPlaybackState, type SlideEmbedPlayer } from 
 import type { ExportPayload } from "./payload";
 import { restoreEmbedModels, type SharedModelPayload } from './embedModels';
 import { payloadModelHost } from './export/model3dPayloadHost';
-interface Data { live: boolean; documentKey: string; models?: Record<string, string>; payloads: Record<string, SharedModelPayload>; occurrences: { id: string; source: string }[] }
+import { previewModelHost } from './previewModelClient';
+import type { Model3dHost } from '../model3d/host';
+/** `modelBridge`: the live Paper preview carries model metadata only and draws
+ * through the parent's worker service (previewModelBridge.ts); exported
+ * documents inline their GLBs and render with the conditional model runtime. */
+interface Data { live: boolean; documentKey: string; modelBridge?: boolean; models?: Record<string, string>; payloads: Record<string, SharedModelPayload>; occurrences: { id: string; source: string }[] }
 export function boot(): void {
   const node = document.getElementById("flux-slide-data");
   if (!node) return;
@@ -18,14 +23,15 @@ export function boot(): void {
     if (!ready || players.has(id)) return;
     const ref = data.occurrences.find(r => r.id === id), host = document.getElementById(id)?.querySelector<HTMLElement>(".flux-slide-live");
     if (!ref || !host) return;
-    let model3d: ReturnType<typeof payloadModelHost>;
+    let model3d: Model3dHost | undefined;
     try {
       let payload = payloads.get(ref.source);
       if (!payload) { payload = restoreEmbedModels(data.payloads[ref.source], data.models ?? {}); payloads.set(ref.source, payload); }
-      model3d = payloadModelHost(payload, 'paper-document-models');
+      model3d = data.modelBridge && data.live ? previewModelHost(ref.source, payload) : payloadModelHost(payload, 'paper-document-models');
       const controller = mountSlideEmbed(host, payload, { model3d, state: states[id]?.source === ref.source ? states[id] : undefined,
         onState: value => { states[id] = { ...value, source: ref.source }; publish(); } });
       players.set(id, controller);
+      if (model3d && data.modelBridge) host.dataset.model3dHost = 'bridge';
       document.getElementById(id)?.classList.add("flux-slide-enhanced");
     } catch (e) { model3d?.dispose(); const message = document.createElement("div"); message.className = "flux-slide-error"; message.textContent = `Slide unavailable: ${String(e)}`; host.replaceChildren(message); }
   };

@@ -429,6 +429,9 @@ export interface RenderResult {
   full: string; // complete standalone HTML document
   inner: string; // just the manuscript content (for embedding)
   title: string;
+  /** Live-preview slides whose 3D models the host serves over the preview
+   *  model bridge (lib/slide/previewModelBridge.ts). */
+  bridgedSlides: string[];
 }
 
 // In-app preview only (opts.live): report scroll up to the host and accept a
@@ -529,5 +532,5 @@ export async function renderManuscript(
     title,
   )}</title><style>${journalCss}</style>${katexStyle}${slideDoc.style}</head><body class="${bodyClass}">${bodyInner}${slideDoc.tail}</body></html>`;
 
-  return { full, inner, title };
+  return { full, inner, title, bridgedSlides: slideDoc.bridged };
 }

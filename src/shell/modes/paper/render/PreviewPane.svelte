@@ -30,6 +30,21 @@
   let renderGeneration = 0;
 
   let error = $state("");
+  // Live-preview 3D models render through the shared worker service over a
+  // postMessage bridge (lib/slide/previewModelBridge.ts): the srcdoc carries
+  // metadata only, so an edit never re-serializes or re-parses GLB bytes.
+  type Bridge = import("../../../../lib/slide/previewModelBridge").PreviewModelBridge;
+  let bridge: Bridge | null = null, bridgeRepository: typeof slides = null, destroyed = false;
+  async function modelBridge(repository: NonNullable<typeof slides>): Promise<Bridge | null> {
+    if (bridge && bridgeRepository === repository) return bridge;
+    const { createPreviewModelBridge } = await import("../../../../lib/slide/previewModelBridge");
+    if (destroyed) return null;
+    if (bridge && bridgeRepository === repository) return bridge;
+    bridge?.dispose();
+    bridge = createPreviewModelBridge({ repository, frame: () => iframeEl?.contentWindow });
+    bridgeRepository = repository;
+    return bridge;
+  }
   async function render() {
     const generation = ++renderGeneration;
     if (previousDocument !== documentKey) { previousDocument = documentKey; slideStates = {}; lastScroll = 0; }
@@ -46,6 +61,9 @@
       }
       const r = await renderManuscript(expanded, { paginated, live: true, slides, documentKey });
       if (generation !== renderGeneration) return;
+      if (slides && r.bridgedSlides.length) (await modelBridge(slides))?.keep(r.bridgedSlides);
+      else bridge?.keep([]);
+      if (generation !== renderGeneration) return;
       html = r.full;
       error = "";
     } catch (e) {
@@ -57,7 +75,7 @@
     }
   }
 
-  onDestroy(() => { clearTimeout(timer); renderGeneration++; });
+  onDestroy(() => { clearTimeout(timer); renderGeneration++; destroyed = true; bridge?.dispose(); bridge = null; });
 
   // Debounced; never on the typing hot path.
   $effect(() => {

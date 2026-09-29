@@ -5,8 +5,11 @@ import { SLIDE_EMBED_CSS } from "./embedPlayer";
 import { shareEmbedModels } from './embedModels';
 import { loadEmbedAssets, loadEmbedModelRuntime } from './embedAssets';
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-export interface SlideDocumentBundle { payloads: Record<string, ExportPayload>; occurrences: { id: string; source: string }[]; ids: Set<string>; count: number }
-export const slideDocumentBundle = (): SlideDocumentBundle => ({ payloads: {}, occurrences: [], ids: new Set(), count: 0 });
+/** `bridged`: live-preview slides whose models render through the parent's
+ * worker service (previewModelBridge.ts) instead of inlined GLB bytes, with
+ * the repository revision that owns their file holds. */
+export interface SlideDocumentBundle { payloads: Record<string, ExportPayload>; occurrences: { id: string; source: string }[]; ids: Set<string>; count: number; bridged: Map<string, string> }
+export const slideDocumentBundle = (): SlideDocumentBundle => ({ payloads: {}, occurrences: [], ids: new Set(), count: 0, bridged: new Map() });
 export interface SlideDocumentOptions { interactive: boolean; live?: boolean; documentKey?: string; strict?: boolean; bundle?: SlideDocumentBundle; signal?: AbortSignal }
 export async function prepareSlideDocument(src: string, repository: SlideRepository | null | undefined, opts: SlideDocumentOptions) {
   const spans = scanSlideEmbeds(src), blocks: { token: string; html: string }[] = [];
@@ -23,9 +26,13 @@ export async function prepareSlideDocument(src: string, repository: SlideReposit
     try {
       if (!repository) throw new Error("Open the source project to render this slide");
       let snapshot = opts.strict ? await repository.materialize(r, { portable: opts.interactive && !payloads[source] }) : await repository.load(r);
-      // The live preview re-renders after every edit: reuse an unchanged
-      // slide's portable model bytes instead of re-reading and re-encoding them.
-      if (opts.interactive && !payloads[source] && snapshot.modelSource) snapshot = await repository.materialize(r, { portable: true, reusePortable: true });
+      // The live preview re-renders after every edit. Its models stay metadata
+      // (no GLB read, encode or re-parse per edit, and a deleted file is seen
+      // at the next invalidation); frames come from the parent's worker.
+      if (opts.interactive && !payloads[source] && snapshot.modelSource) {
+        if (opts.live && !opts.strict) bundle.bridged.set(source, snapshot.modelSource.revision);
+        else snapshot = await repository.materialize(r, { portable: true });
+      }
       if (!r.width) width = `${snapshot.payload.deck.stage.width}px`;
       const poster = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(snapshot.poster)}`;
       art = `<img class="flux-slide-poster" src="${esc(poster)}" alt="${esc(r.caption || snapshot.payload.deck.slides[0].name || "Slide")}" style="aspect-ratio:${snapshot.payload.deck.stage.width}/${snapshot.payload.deck.stage.height}"/>`;
@@ -37,7 +44,7 @@ export async function prepareSlideDocument(src: string, repository: SlideReposit
   for (let i = spans.length - 1; i >= 0; i--) text = text.slice(0, spans[i].from) + blocks[i].token + text.slice(spans[i].to);
   opts.signal?.throwIfAborted();
   const { style, tail } = opts.bundle ? { style: "", tail: "" } : await finishSlideDocument(bundle, opts);
-  return { text, blocks, style, tail };
+  return { text, blocks, style, tail, bridged: [...bundle.bridged.keys()] };
 }
 export async function finishSlideDocument(bundle: SlideDocumentBundle, opts: SlideDocumentOptions) {
   const { payloads, occurrences } = bundle;
@@ -48,7 +55,7 @@ export async function finishSlideDocument(bundle: SlideDocumentBundle, opts: Sli
     if (opts.interactive && occurrences.length) {
       const shared = shareEmbedModels(payloads);
       const modelRuntime = Object.keys(shared.models).length ? await loadEmbedModelRuntime() : "";
-      const data = JSON.stringify({ live: !!opts.live, documentKey: opts.documentKey || "", ...shared, occurrences }).replace(/</g, "\\u003c");
+      const data = JSON.stringify({ live: !!opts.live, documentKey: opts.documentKey || "", ...(bundle.bridged.size ? { modelBridge: true, modelRevision: [...new Set(bundle.bridged.values())].join(" ") } : {}), ...shared, occurrences }).replace(/</g, "\\u003c");
       tail = `<script type="application/json" id="flux-slide-data">${data}</script>${modelRuntime ? `<script>${modelRuntime}</script>` : ''}<script>${assets.runtime}</script>`;
     }
   }

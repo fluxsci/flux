@@ -2334,6 +2334,19 @@
       ]
     },
     {
+      "$why": "2026-09-29 the live Paper preview serves 3D models over a postMessage bridge to the shared worker; keeps the broader slide groups below plus paper-gate for PreviewPane.",
+      "glob": "{src/lib/slide/previewModel*.ts,src/lib/slide/embed{Document,DocumentRuntime,Repository,ServiceHost}.ts,src/shell/modes/paper/render/PreviewPane.svelte}",
+      "run": [
+        "group:model3d-embed",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:paper-gate"
+      ]
+    },
+    {
       "glob": "{src/lib/figureReferences.ts,src/lib/editorPresentation*.ts,src/lib/FigureCatalog.svelte,src/lib/FigureDeletionDialog.svelte,src/lib/project/figure*.ts,src/lib/project/sourceBridge.ts,src/lib/plot/sourceSync.ts,src/lib/slide/**,src/shell/modes/slide/**}",
       "run": [
         "group:figures-slides-overhaul",

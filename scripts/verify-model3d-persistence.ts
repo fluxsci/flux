@@ -188,7 +188,49 @@ try {
  // concern, and a missing placed one is a non-blocking asset issue (pinned in
  // verify-model3d-headless). This deck-owned file concerns no figure element.
  h.ok(snapshot.status==='complete'&&!snapshot.diagnostics.length&&!snapshot.assetIssues.length,'missing GLB placed by no figure element is not a figure snapshot issue');
- await loadFigInto(root,'Models');await assert.rejects(()=>saveFigFrom(root,{force:true}),/Missing GLB/i);h.ok(true,'missing GLB cannot be silently saved away');
+ await loadFigInto(root,'Models');h.ok(get(project).assets.some(a=>a.id===asset.id),'an unplaced missing GLB no longer locks the Figure load');
+ const deckOwnedIndex=await fs.readFile(path.join(root,'fig/index.json'),'utf8');
+ await assert.rejects(()=>saveFigFrom(root,{force:true}),/Missing GLB asset neuron: fig\/assets\/neuron\.glb is missing and a saved deck still uses it .*delete that 3D model from the deck/);h.ok(true,'missing GLB a saved deck still uses cannot be silently saved away');
+ h.eq(await fs.readFile(path.join(root,'fig/index.json'),'utf8'),deckOwnedIndex,'refused deck-owned save leaves the index unchanged');
+ // Once nothing uses it (the deck dropped its model), the dead registration
+ // leaves the saved index; the store keeps it so Undo can restore the model.
+ const retainedDeck=await fs.readFile(path.join(root,'slides/retain/deck.json'),'utf8');
+ await fs.writeFile(path.join(root,'slides/retain/deck.json'),'{ unreadable');await saveFigFrom(root);
+ h.ok(JSON.parse(await fs.readFile(path.join(root,'fig/index.json'),'utf8')).assets.some((a:{id:string})=>a.id===asset.id),'an unreadable deck keeps the missing registration (incomplete inspection never drops it)');
+ await fs.rm(path.join(root,'slides/retain/deck.json'));
+ await saveFigFrom(root);
+ h.ok(!JSON.parse(await fs.readFile(path.join(root,'fig/index.json'),'utf8')).assets?.some((a:{id:string})=>a.id===asset.id),'save drops a missing GLB nothing uses from fig/index.json');
+ h.ok(get(project).assets.some(a=>a.id===asset.id),'the in-memory store keeps the dead registration for Undo');
+ await write('slides/retain/deck.json',retainedDeck);
+ // A placed model whose GLB is missing: the load is complete (placeholder plus a
+ // clear issue), Save refuses only while the element exists, and deleting it in
+ // the app unblocks Save. Undo restores the element and the refusal.
+ {
+   const placedRoot=path.join(root,'placed-missing');await fs.cp(parityRoot,placedRoot,{recursive:true});
+   await fs.unlink(path.join(placedRoot,'fig/assets/neuron.glb'));
+   const {toasts}=await import('../src/lib/toast');toasts.set([]);
+   const editor=await import('../src/lib/store'),ops=await import('../src/lib/ops');
+   await loadFigInto(placedRoot,'Placed');
+   h.ok(get(project).figures[1].elements.some(e=>e.id===element.id),'a placed missing GLB still loads its figure and element');
+   h.ok(get(toasts).some(t=>t.msg==='A 3D model file is missing'&&t.detail?.includes('fig/assets/neuron.glb')&&t.detail.includes(element.id)),'the load names the missing file and its element without locking the subsystem');
+   const placedIndex=await fs.readFile(path.join(placedRoot,'fig/index.json'),'utf8');
+   await assert.rejects(()=>saveFigFrom(placedRoot),/Cannot save: 3D model file fig\/assets\/neuron\.glb is missing for element .*neuron-view.* restore fig\/assets\/neuron\.glb or delete the element/);
+   h.ok(true,'save refuses a placed missing GLB with the restore-or-delete repair');
+   h.eq(await fs.readFile(path.join(placedRoot,'fig/index.json'),'utf8'),placedIndex,'refused placed save leaves the index unchanged');
+   editor.commit(p=>{ops.deleteElements(p,[element.id]);});
+   await saveFigFrom(placedRoot);
+   const dropped=JSON.parse(await fs.readFile(path.join(placedRoot,'fig/index.json'),'utf8'));
+   h.ok(!dropped.assets?.some((a:{id:string})=>a.id===asset.id)&&!get(editor.dirty),'deleting the model in the app unblocks Save and drops the dead registration');
+   h.ok(get(project).assets.some(a=>a.id===asset.id),'deleted model keeps its asset in memory');
+   editor.undo();
+   h.ok(get(project).figures[1].elements.some(e=>e.id===element.id),'one Undo restores the model');
+   const afterDrop=await fs.readFile(path.join(placedRoot,'fig/index.json'),'utf8');
+   await assert.rejects(()=>saveFigFrom(placedRoot),/Cannot save: 3D model file fig\/assets\/neuron\.glb is missing/);
+   h.eq(await fs.readFile(path.join(placedRoot,'fig/index.json'),'utf8'),afterDrop,'Undo puts the refusal back until the file returns or the model is deleted');
+   await fs.copyFile(path.join(parityRoot,'fig/assets/neuron.glb'),path.join(placedRoot,'fig/assets/neuron.glb'));
+   await saveFigFrom(placedRoot);
+   h.ok(JSON.parse(await fs.readFile(path.join(placedRoot,'fig/index.json'),'utf8')).assets.some((a:{id:string})=>a.id===asset.id),'restoring the file saves the model and re-registers its GLB');
+ }
  const legacyRoot=path.join(root,'legacy'),saveAsRoot=path.join(root,'save-as');
  await fs.mkdir(path.join(legacyRoot,'assets'),{recursive:true});
  for(const id of ['neuron','second']){await fs.writeFile(path.join(legacyRoot,'assets',`${id}.glb`),bytes);await fs.writeFile(path.join(legacyRoot,'assets',`${id}.fluxplot.json`),JSON.stringify({...manifest,glb:`${id}.glb`}));}

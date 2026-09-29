@@ -1747,10 +1747,10 @@ occurrence namespace. Every beat requires an explicit advance; mid-flight Next s
 current beat. Do not change Present's default auto/with-prev behavior. Editor widgets retain
 transient beat IDs through prose edits, width changes and viewport disposal; full document
 loads reset them. `embedDocumentRuntime.ts` supplies the compact, isolated HTML host.
-`embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
+The live preview's srcdoc serves 3D models by reference: `previewModelClient.ts` (in the document) asks `previewModelBridge.ts` (in PreviewPane) for worker frames, so no preview render carries GLB bytes or the model runtime; exports inline fresh bytes. `embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
 PDF/Word use step 0; the print window requires no script. Posters embed their fonts.
 
-Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
+Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this); a gate that reaches `deckPdf.ts` or `embedAssets.ts` runs it first itself, because a fresh checkout has no `.generated/`. Its
 runtime bytes and exact CSP hash are generated together; Vite and Electron consume that
 hash without adding unsafe script sources. Browser assets keep the optional model IIFE
 separate. CLI/MCP resolve `embedAssets.ts` to the Node adapter, reading the prebuilt
@@ -3141,7 +3141,7 @@ outside this PNG packaging change.
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
 | — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
-| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts`. The deck save judges only GLBs the slides still reference (`slideAssetIds`): asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
+| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); `verify-model3d-verbs.ts`. The GUI Figure load never locks on one either (a placed one gets its placeholder and a toast); `figbridge.ts` `judgeMissingModels` refuses Save only while a current element places the GLB or a saved deck uses it (`readDeckAssetUses`), and drops an unused missing one from the SAVED index only; `verify-model3d-persistence.ts`, `verify-model3d-gui.mjs`. The deck save judges only GLBs the slides still reference (`slideAssetIds`). Both rules exist because asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
   `__proto__`: keep them in own-key/null-prototype maps and escape them reversibly before Zod
@@ -8638,3 +8638,10 @@ preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). 
 - Registry entries outlive their elements for Undo; a save or conversion preflight must
   judge references, not the registry (promoted to the §9 3D table).
 - The computed-to-stored path crossing (§9) also covers resolved CLI/MCP inputs (promoted).
+
+### 2026-09-29 — Figure missing-GLB save, bridged preview models, fresh-checkout gates (Claude Opus 5.5, `fu-figure`)
+**Work:** Deleting a placed model whose GLB is missing now unblocks the Figure save (the saved index drops a registration nothing uses; the store keeps it for Undo); the live Paper preview draws 3D models through the shared worker over a postMessage bridge instead of inlining GLB bytes; two deck-PDF gates generate their embed assets. Pure 360/360, model3d-ui, paper-gate (incl. its Electron member), inline-slides and the affected slide/figure browser gates pass on :1491.
+**Learnings:**
+- A srcdoc that serves content by reference must change when the reference's owner changes: the preview's bytes are identical after a repository invalidation, so without `modelRevision` Svelte never reloads the iframe and a deleted GLB keeps its last frames.
+- Keyboard chords owned by the window stop reaching it once a real click focuses a preview iframe; blur it before pressing (`verify-model3d-embed-gui`).
+- Gates reaching `deckPdf.ts`/`embedAssets.ts` generate `.generated/` themselves (promoted to §4 Inline slides).
