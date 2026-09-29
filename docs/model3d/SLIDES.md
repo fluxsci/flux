@@ -87,3 +87,9 @@ Static SVG/PDF/PowerPoint writers use the same complete model state for mesh and
 furniture. An original model keeps its Design appearance (including its visible
 parts); an identity consumed from a shape into 3D uses that evaluated model
 endpoint and its matching still. Placement follows the selected build step.
+
+Slide scale checks use two distinct, compatible 250,000-triangle meshes and eight independently posed ghost copies. `verify-scale-slide.mjs` keeps the existing 2D budgets and adds real Present playback, changed-pixel checks, zero RAF/render calls during each measured rest window, shared pair/context counts and disposal. The observer records only application-owned RAF callbacks and actual mesh-canvas publication; it schedules no animation heartbeat.
+
+`verify-slide-model3d-scale-electron.cjs` runs the same scenario through the production Electron/preload path with a canonical scratch project and delivered native keys. It requires positive hardware renderer identity and enabled WebGL2, a nonzero display, uninterrupted visible focus, at least 80 actual published frames per measured beat and raw p95 frame gaps ≤17ms. The first complete bitmap/furniture callback must finish within 100ms of the delivered cue, and the last publication must cover the full authored duration. No rounding, warmup trimming or software fallback can satisfy that gate. Run it via the registered runner with scratch HOME/XDG, `FLUX_NO_MIGRATE=1`, `FLUX_PRIVATE_DISPLAY=1 DISPLAY=:0` and the X11 Electron option. `group:model3d-slide-scale` combines the pure oracle, browser and native checks.
+
+Evidence lives under `test-results/model3d/slides-scale/{browser,native}`. Browser SwiftShader results qualify behavior and retain raw timings; they do not establish the GPU frame budget. A zero-sized display is recorded as a capability blocker, never a passing skip.

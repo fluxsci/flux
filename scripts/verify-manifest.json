@@ -360,7 +360,8 @@
       "verify-model3d-slide-browser.ts",
       "verify-model3d-embed.ts",
       "verify-slide-model3d-parts.ts",
-      "verify-slide-model3d-parts-browser.ts"
+      "verify-slide-model3d-parts-browser.ts",
+      "verify-slide-model3d-scale.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -641,7 +642,8 @@
       "verify-model3d-verbs-electron.cjs",
       "verify-scale-model3d-electron.cjs",
       "verify-model3d-s8.cjs",
-      "verify-model3d-video-electron.cjs"
+      "verify-model3d-video-electron.cjs",
+      "verify-slide-model3d-scale-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -955,7 +957,9 @@
       "verify-slide-model3d-morph-gui.mjs",
       "verify-slide-model3d-parts.ts",
       "verify-slide-model3d-parts-browser.ts",
-      "verify-slide-model3d-parts-gui.mjs"
+      "verify-slide-model3d-parts-gui.mjs",
+      "verify-slide-model3d-scale.ts",
+      "verify-slide-model3d-scale-electron.cjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -981,7 +985,8 @@
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-morph.ts",
       "verify-slide-model3d-morph-browser.ts",
-      "verify-model3d-slide-browser.ts"
+      "verify-model3d-slide-browser.ts",
+      "verify-slide-model3d-scale.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -1187,10 +1192,21 @@
       "verify-changed-pathmap.mjs",
       "verify-slide-model3d-parts-browser.ts",
       "verify-slide-model3d-parts-gui.mjs"
+    ],
+    "model3d-slide-scale": [
+      "verify-slide-model3d-scale.ts",
+      "verify-scale-slide.mjs",
+      "verify-slide-model3d-scale-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "scripts/lib/slideModel3d*Scale*",
+      "run": [
+        "group:model3d-slide-scale"
+      ]
+    },
     {
       "glob": "flux-core/projectSource.ts",
       "run": [
@@ -9168,6 +9184,27 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 150000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-scale.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-scale-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
       "exclusive": true,
       "coverage": "behavior"
     }

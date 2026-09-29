@@ -9,6 +9,7 @@
 // Writes test-results/scale-slide.json. Run: node scripts/verify-scale-slide.mjs
 import { mkdirSync, writeFileSync } from "node:fs";
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL, waitFor } from "./lib/driver.mjs";
+import { browserSlideModelScale } from './lib/slideModel3dScaleBrowser.mjs';
 
 let fails = 0;
 const ok = (c, msg, extra = "") => (c ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg + (extra ? ` — ${extra}` : ""))));
@@ -320,6 +321,11 @@ try {
   );
   console.log(`  … wrote test-results/scale-slide${dense ? "-dense" : ""}.json (switch p95 ${swP95.toFixed(1)}ms, edit p95 ${editP95.toFixed(1)}ms)`);
 
+  // Keep every existing 2D threshold above unchanged. The same immutable
+  // 250k-pair/eight-ghost cohort also runs in focused production Electron.
+  const models = await browserSlideModelScale(page);
+  for (const check of models.checks) ok(check.ok, check.label);
+  ok(models.ok, 'real model Present/orbit/morph/eight-ghost structural cohort', models.error);
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {
