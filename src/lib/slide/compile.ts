@@ -18,7 +18,7 @@ import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
 import { sampleCamera } from "./camera";
-import { modelPair, modelPairIssue, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
+import { modelPairDiagnostic, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
 export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
 
@@ -110,7 +110,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const pre = transformPreState(slide, track.target, bi);
         const end = pre ? transformEndState(pre, track) : undefined;
         if (!isHandoff(track) && track.to?.assetId) {
-          const pair = modelPair(pre ?? undefined, end, opts), reason = pair && modelPairIssue(pair);
+          const reason = modelPairDiagnostic(pre ?? undefined, end, opts);
           if (reason) issues.push({ trackId: track.id, target: track.target, reason });
         }
         if (end?.type === "plot") for (const reason of plotViewIssues(opts.plotManifest?.(end.assetId), end.view))
@@ -315,10 +315,10 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     const key = `${ct.beat}:${ct.start}`;
     let frame = preFrames.get(key);
     if (!frame) { frame = sample(ct.beat, ct.start); preFrames.set(key, frame); }
-    const pair = flight.source.length === 1 && flight.destination.length === 1
-      ? modelPair(frame.elements.find(e => e.id === flight.source[0]), frame.elements.find(e => e.id === flight.destination[0]), opts) : undefined;
-    if (pair) {
-      const reason = modelPairIssue(pair);
+    const [sourceEl, destinationEl] = flight.source.length === 1 && flight.destination.length === 1
+      ? [frame.elements.find(e => e.id === flight.source[0]), frame.elements.find(e => e.id === flight.destination[0])] : [];
+    if (sourceEl?.type === "model3d" && destinationEl?.type === "model3d") {
+      const reason = modelPairDiagnostic(sourceEl, destinationEl, opts);
       if (reason) issues.push({ trackId: ct.track.id, target: ct.track.target, reason });
       continue;
     }

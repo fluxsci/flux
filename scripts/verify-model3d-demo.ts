@@ -86,7 +86,12 @@ try {
   const paperEmbed=parseSlideEmbed(receipt.deck.embed)!;
   h.ok(paperEmbed?.deck===deck.id&&paperEmbed.slide===deck.slides[0].id&&(await fs.readFile(path.join(root,'paper/notes.qmd'),'utf8')).includes(receipt.deck.embed),'Paper embed binds the saved Turntable deck and slide');
   const cross=compileSlide(deck.slides[3],deck.stage,{assets:deck.assets}),morph=compileSlide(deck.slides[4],deck.stage,{assets:deck.assets});
-  h.ok(cross.issues.some(i=>i.reason.includes('3D models crossfade:'))&&!morph.issues.some(i=>i.reason.includes('3D models crossfade:')),'actual topology compiles Crossfade Become as fallback and Vertex morph as compatible');
+  // Owner policy: an evaluated incompatible pair is a designed crossfade (the
+  // Inspector explains it), never an issue the author cannot clear.
+  const {modelPair}=await import('../src/lib/slide/model3dMorph');
+  const becomePair=(slide:(typeof deck.slides)[number])=>{const track=slide.beats[1].tracks.find(t=>t.to?.become)!;return modelPair(slide.elements.find(e=>e.id===track.target),slide.elements.find(e=>e.id===track.to!.become!.ref.element),{assets:deck.assets});};
+  h.ok(becomePair(deck.slides[3])?.ok===false&&!cross.issues.length,'actual topology compiles the Crossfade Become as a designed crossfade with no issue');
+  h.ok(becomePair(deck.slides[4])?.ok===true&&!morph.issues.length,'actual topology compiles the Vertex morph Become as compatible');
   h.ok((await fs.readFile(path.join(root, 'paper/notes.qmd'), 'utf8')).includes('@fig-model3d-overview'), 'Paper source references the saved model overview');
   const before = await fs.readFile(path.join(root, 'project.json'));
   await assert.rejects(createModel3dDemo(root), /not empty/); h.eq(await fs.readFile(path.join(root, 'project.json')), before, 'regeneration refuses an existing populated project without changing it');

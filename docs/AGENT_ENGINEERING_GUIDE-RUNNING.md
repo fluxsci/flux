@@ -8587,3 +8587,15 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Preserve early native scale failure evidence
 **Work:** The native slide-scale harness writes its failure receipt before optional renderer diagnostics. An unloaded renderer is never queried; after readiness, observation and screenshot requests have bounded best-effort deadlines. The wrapper reports a nonzero display refusal as blocked, never passed. The actual entry finalizer is exercised in the pure gate with unloaded and permanently stalled renderer mocks. No input, focus, display or timing qualification changed; the earlier full-tier 180-second timeout remains a failed harness attempt.
+
+### 2026-09-29 — 3D slide runtime review fixes (Claude Opus 5.5, `m3s-fix-runtime`)
+**Work:** Fixed the Stage 2 runtime review findings: with-prev runs sample mesh parts
+concurrently, part/group hand-offs fly the model snapshot, the model/video poster pair flies
+the stored poster, editor issues evaluate model topology, evaluated crossfades raise no issue,
+offscreen observer flags are confirmed against layout, and stills carry mesh-part appearance.
+The reported empty filmstrip slot was a screenshot inside the 120 ms thumbnail debounce.
+**Learnings:**
+- The player re-bases a with-prev run's DOM specs onto its last beat; any pure sampler used
+  beside them must be told the run's first beat (`compile.sample(beat, t, fromBeat)`).
+- An IntersectionObserver flag is a frame late (promoted to §9 as T24).
+- A GUI gate that screenshots the filmstrip must wait for the debounced re-render first.

@@ -565,7 +565,7 @@
            ways to point it somewhere else (Become another object · plot data) -->
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
-        <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge class:warn={!modelContentPair.ok} title={modelPairIssue(modelContentPair)??"Same topology: vertices morph continuously."}>· {modelContentPair.ok?"vertex morph":"crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
+        <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge title={modelPairIssue(modelContentPair)??"Same topology: vertices morph continuously."}>· {modelContentPair.ok?"vertex morph":"crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>

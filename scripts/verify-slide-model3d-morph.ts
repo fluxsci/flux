@@ -56,10 +56,13 @@ function scene(target = 1) {
   const result = appearFrom(deck, slide.id, beat.id, { element: b.id }, a.id)!;
   h.eq(result.morph, false, 'incompatible Appear from remains a valid crossfade');
   h.ok(result.reason?.includes('dendrites') && result.reason.includes('vertices'), 'first mismatch identifies the mesh and vertex counts');
-  const issues = compileSlide(slide, deck.stage, deck).issues;
-  h.eq(issues.length, 1, 'incompatible handoff has one nonblocking issue');
-  h.ok(issues[0]?.reason.includes('share_topology_with') && issues[0]?.reason.includes('crossfade'), 'issue gives the shared-topology repair');
-  h.eq(compileSlide(slide, deck.stage, deck).handoffs.length, 1, 'compatibility warning does not reject playback');
+  // Owner policy: a warning the author can never clear is noise. An evaluated
+  // incompatible pair is a designed crossfade; the Inspector badge explains it.
+  h.eq(compileSlide(slide, deck.stage, deck).issues, [], 'evaluated incompatible handoff compiles as a crossfade without an issue');
+  const pair = modelPair(a, b, deck);
+  h.ok(pair?.ok === false && !!modelPairIssue(pair)?.includes('share_topology_with'), 'Inspector explanation keeps the shared-topology repair');
+  h.eq(compileSlide(slide, deck.stage, {}).issues.map(issue => issue.reason), [modelPairIssue(modelPair(a, b, {})!)], 'a pair without topology metadata remains a diagnostic');
+  h.eq(compileSlide(slide, deck.stage, deck).handoffs.length, 1, 'incompatible topology does not reject playback');
 }
 {
   const { deck, slide, beat, a, b } = scene();
@@ -76,7 +79,10 @@ function scene(target = 1) {
   const { deck, slide, beat, a, b } = scene(2);
   setTransform(deck, slide.id, beat.id, a.id, { toAssetId: b.assetId, source: b.source });
   const compiled = compileSlide(slide, deck.stage, { modelAsset: id => deck.assets?.find(asset => asset.id === id) });
-  h.ok(compiled.issues.some(issue => issue.reason.includes('dendrites') && issue.reason.includes('share_topology_with')), 'content-only Change uses the same compatibility diagnosis');
+  h.eq(compiled.issues, [], 'evaluated incompatible content-only Change compiles without an issue');
+  const end = transformEndState(a, beat.tracks[0]);
+  h.ok(modelPair(a, end, deck)?.ok === false, 'content-only Change uses the same compatibility evaluation (crossfade)');
+  h.eq(compileSlide(slide, deck.stage, {}).issues.map(issue => issue.reason), [modelPairIssue(modelPair(a, end, {})!)], 'content Change without topology metadata remains a diagnostic');
   h.eq((compiled.sample(1).elements[0] as Model3dElement).assetId, b.assetId, 'incompatible content still reaches its exact destination');
 }
 {
