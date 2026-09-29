@@ -32,26 +32,34 @@ export interface ProjectDependencies {
   complete: boolean;
 }
 const textCache = new Map<string, { signature: string; text: string }>();
+async function readCached(root: string, io: DependencyIO, rel: string): Promise<string> {
+  const path = underRoot(root, rel);
+  const stat = await io.stat?.(path);
+  const signature = stat ? `${stat.mtimeMs}:${stat.size}` : null;
+  const cached = textCache.get(path);
+  if (signature && cached?.signature === signature) return cached.text;
+  const text = await io.readText(path);
+  if (signature) {
+    if (textCache.size >= 1024) textCache.delete(textCache.keys().next().value!);
+    textCache.set(path, { signature, text });
+  }
+  return text;
+}
+const add = (map: Record<string, ProjectUsage[]>, id: string | undefined, use: ProjectUsage) => {
+  if (id) (map[id] ??= []).push(use);
+};
+/** One saved deck's asset uses: element placements (incl. posters) and Change destinations. */
+function addDeckAssetUses(byAsset: Record<string, ProjectUsage[]>, deckId: string, path: string, d: any): void {
+  for (const s of d?.slides ?? []) {
+    const use = { kind: "slide" as const, path, deckId, slideId: s.id, label: `${d.title || deckId} · ${s.name || s.id}` };
+    for (const e of s.elements ?? []) for (const id of elementSourceAssetIds(e)) add(byAsset, id, { ...use, elementId: e.id });
+    for (const beat of s.beats ?? []) for (const t of beat.tracks ?? []) add(byAsset, t.to?.assetId, { ...use, elementId: t.target?.elementId, trackId: t.id });
+  }
+}
 export async function readProjectDependencies(root: string, io: DependencyIO, liveDocuments: readonly { path: string; text: string }[] = []): Promise<ProjectDependencies> {
   const out: ProjectDependencies = { byDeck: {}, bySlide: {}, byFigure: {}, byAsset: {}, diagnostics: [], complete: true };
   const live = new Map(liveDocuments.map(d => [d.path.startsWith(root + "/") ? d.path.slice(root.length + 1) : d.path, d.text]));
-  const read = async (rel: string): Promise<string> => {
-    if (live.has(rel)) return live.get(rel)!;
-    const path = underRoot(root, rel);
-    const stat = await io.stat?.(path);
-    const signature = stat ? `${stat.mtimeMs}:${stat.size}` : null;
-    const cached = textCache.get(path);
-    if (signature && cached?.signature === signature) return cached.text;
-    const text = await io.readText(path);
-    if (signature) {
-      if (textCache.size >= 1024) textCache.delete(textCache.keys().next().value!);
-      textCache.set(path, { signature, text });
-    }
-    return text;
-  };
-  const add = (map: Record<string, ProjectUsage[]>, id: string | undefined, use: ProjectUsage) => {
-    if (id) (map[id] ??= []).push(use);
-  };
+  const read = async (rel: string): Promise<string> => live.has(rel) ? live.get(rel)! : readCached(root, io, rel);
   const readJson = async (rel: string): Promise<any> => {
     try { return JSON.parse(await read(rel)); }
     catch (e) { out.complete = false; out.diagnostics.push(`Could not inspect ${rel}: ${String(e)}`); return null; }
@@ -124,20 +132,43 @@ export async function readProjectDependencies(root: string, io: DependencyIO, li
       if (f) add(out.byFigure, f.id, { kind: "manuscript", path, figureId: f.id, label: path });
     }
   }
-  for (const [deckId, path] of decks) {
-    const d = await readJson(path);
-    for (const s of d?.slides ?? []) {
-      const use = { kind: "slide" as const, path, deckId, slideId: s.id, label: `${d.title || deckId} · ${s.name || s.id}` };
-      for (const e of s.elements ?? []) for (const id of elementSourceAssetIds(e)) add(out.byAsset, id, { ...use, elementId: e.id });
-      for (const beat of s.beats ?? []) for (const t of beat.tracks ?? []) add(out.byAsset, t.to?.assetId, { ...use, elementId: t.target?.elementId, trackId: t.id });
-    }
-  }
+  for (const [deckId, path] of decks) addDeckAssetUses(out.byAsset, deckId, path, await readJson(path));
   for (const uses of Object.values(out.byAsset)) {
     for (const f of uses.filter((u) => u.kind === "figure")) for (const s of uses.filter((u) => u.kind === "slide")) {
       const list = out.byFigure[f.figureId!] ??= [];
       if (!list.some((u) => u.path === s.path && u.slideId === s.slideId)) list.push(s);
     }
   }
+  return out;
+}
+
+/** Assets saved decks still use (placements, posters, Change destinations),
+ *  read from the manifest's decks and every deck.json under slides/ only — the
+ *  documents concern figure references, never assets. A Figure registration a
+ *  deck names must outlive its last Figure placement: the headless figure GC
+ *  (through `readProjectDependencies`, same collector) and the GUI save's
+ *  dead-GLB drop. `complete` is false when the manifest or a deck is unreadable;
+ *  incomplete inspection is never permission to drop a registration. */
+export async function readDeckAssetUses(root: string, io: DependencyIO): Promise<{ byAsset: Record<string, ProjectUsage[]>; complete: boolean; diagnostics: string[] }> {
+  const out = { byAsset: {} as Record<string, ProjectUsage[]>, complete: true, diagnostics: [] as string[] };
+  const readJson = async (rel: string): Promise<any> => {
+    try { return JSON.parse(await readCached(root, io, rel)); }
+    catch (e) { out.complete = false; out.diagnostics.push(`Could not inspect ${rel}: ${String(e)}`); return null; }
+  };
+  const manifest = await readJson("project.json");
+  const decks = new Map<string, string>((manifest?.slides ?? []).map((d: any) => [d.id, d.path || `slides/${d.id}/deck.json`]));
+  const walk = async (rel: string, depth = 0): Promise<void> => {
+    if (!io.readdir || depth > 20) return;
+    let entries: { name: string; dir: boolean }[];
+    try { entries = await io.readdir(`${root}/${rel}`); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith(".")) continue;
+      if (e.dir) await walk(`${rel}/${e.name}`, depth + 1);
+      else if (e.name === "deck.json" && rel.startsWith("slides/")) decks.set(rel.split("/")[1], `${rel}/${e.name}`);
+    }
+  };
+  await walk("slides");
+  for (const [deckId, path] of decks) addDeckAssetUses(out.byAsset, deckId, path, await readJson(path));
   return out;
 }
 
