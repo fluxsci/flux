@@ -8494,3 +8494,21 @@ Pure 347/347, ui 142/142, bundle 5/5 and startup pass; the electron tier was not
 **Learnings:** pathMap order under a structural merge (promoted to §7 next to first-match);
 MCP gates answer from `dist/`, so rebuild after a merge before judging them (`verify-inbox`
 failed on the pre-merge bundle).
+
+### 2026-09-29 — 3D guide wrapping completion (`model3d-slides-furniture`)
+**Work:** Completed the preserved owner title-fit draft without shrinking or eliding
+scientific labels. Hard tokens and legend rows wrap; effective guide fonts and edited
+field ranges drive layout. Shared colorbar tick selection is used by layout/rendering.
+Guide height can move between slots, with explicit overflow and a Figure hover resize
+hint when full text cannot fit. Python static furniture mirrors source layout/ticks.
+**Evidence:** Registered `model3d-furniture` pure/browser gates check hard tokens,
+physical fonts, range edits, impossible boxes and actual browser text bounds. The
+Python static suite checks actual Matplotlib glyph bounds and absent-tick fallback;
+three source fixtures compare exact TS/Python viewport and guide geometry. The 20%
+advance reserve is deliberate: the old Arial-only estimate underestimated default
+DejaVu Sans by 8–18% in measured examples. Custom fonts remain estimates. Screenshots
+live under `test-results/model3d/furniture-fit/`; renderer/native performance is not
+claimed by these layout checks. No animation-v2 state/target behavior changed.
+Author final group2/2 (06-34-32-845Z-16), independent n1 group2/2
+(06-39-11-321Z-2), check0/0 and headless typecheck passed. Core independently approved
+the source. Python full340passed2skipped116warnings20.74s; independent static8/8 passed.

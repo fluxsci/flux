@@ -34,7 +34,7 @@ h.ok(front.under.includes('font-family="Inter, sans-serif"'),'standalone house f
 const sm:Scene3dManifest=JSON.parse(await readFile(new URL('scalebar.fluxplot.json',root),'utf8')),se=makeModel3dElement(asset,{manifest:sm,id:'scale'}),sl=furnitureLayout(sm,se),sp=orbitPose(se,framingBounds(info.bounds,sm),sl.viewport),ss=furnitureSvg(sm,se,sp,sl);const scaleGroup=ss.overNodes.find(n=>n.partId==='scalebar'),bar=scaleGroup?.children?.find(n=>n.tag==='line');h.ok(!!bar,'scale bar rendered');h.ok(Math.abs(Number(bar?.attrs.x2)-Number(bar?.attrs.x1)-(sm.parts!.find(p=>p.id==='scalebar')!.length!*pixelsPerUnit(sp,sl.viewport)!))<1e-9,'scale bar exact data-unit projection');h.ok(!furnitureSvg(sm,se,{...sp,projection:'perspective'},sl).over.includes('scale-line'),'perspective hides exact scale bar');
 const hidden={...sm,parts:sm.parts!.map(p=>p.id==='scalebar'?{...p,hidden:true}:p)};h.eq(furnitureLayout(hidden,se,{'scalebar':{hidden:false}}).scalebars.length,1,'explicit show overrides source-hidden');
 h.eq(niceTicks(-1,1),[-1,-.5,0,.5,1],'nice tick oracle');h.eq(niceTicks(1.21,3.82),[1.5,2,2.5,3,3.5],'data range tick oracle');
-for(const name of ['furniture.ts','furnitureLayout.ts','ticks.ts'])h.ok(!/getBoundingClientRect|measureText|document\.|window\./.test(await readFile(new URL(`../src/lib/model3d/${name}`,import.meta.url),'utf8')),`${name} no DOM/text measurement`);
+for(const name of ['furniture.ts','furnitureLayout.ts','ticks.ts','textMetrics.ts'])h.ok(!/getBoundingClientRect|measureText|document\.|window\./.test(await readFile(new URL(`../src/lib/model3d/${name}`,import.meta.url),'utf8')),`${name} no DOM/text measurement`);
 const styled={...el,overrides:{'axes.x.label':{fill:'#FF0000',fontSize:21}}},s=furnitureSvg(m,styled,pose,layout);h.ok(s.under.includes('fill="#FF0000"')&&s.under.includes('font-size="21"'),'part text styling shares plot units');
 const cm=JSON.parse(await readFile(new URL('continuous.fluxplot.json',root),'utf8')) as Scene3dManifest;
 const ce={...el,overrides:{'height.colorbar':{fill:'#aa2244',fontSize:18}}},fl=furnitureLayout(cm,ce,ce.overrides),styledBar=furnitureSvg(cm,ce,pose,fl).overNodes.find(n=>n.partId==='height.colorbar')!;
@@ -120,7 +120,32 @@ h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'pa
  h.ok(Math.min(...titles.map(n=>Number(n.attrs.y)))>=fs,'the first title line stays inside the top margin');
  const legend:Scene3dManifest={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'x.glb',style:{fontSizePt:7},parts:[{id:'cortex.left',role:'mesh',label:'Left hemisphere, pial surface'},{id:'cortex.right',role:'mesh',label:'Right'},{id:'legend',role:'legend',entries:['cortex.left','cortex.right']}]};
  const lg=furnitureLayout(legend,{width:400,height:300});
- h.ok(lg.legend!.x+fs*1.5+textWidth('Left hemisphere, pial surface',fs)<=400,'legend labels fit inside the widened column');
+ h.ok(lg.legend!.legendRows![0].lines.every(line=>lg.legend!.x+fs*1.5+textWidth(line,fs)<=400),'legend lines fit inside the widened column');
  h.eq(furnitureLayout(legend,{width:400,height:300},{'cortex.left':{hidden:true}}).viewport.width,400-Math.max(64,fs*9),'hidden legend entries stop widening the column');
+}
+{// Completion regressions: hard tokens, effective fonts/ranges, and honest impossible layouts.
+ const {textWidth,wrapWords}=await import('../src/lib/model3d/textMetrics');
+ const token='LongUnbrokenScientificIdentifierαβγ';
+ const split=wrapWords(token,12,48);
+ h.eq(split.join(''),token,'hard wrapping preserves every Unicode code point');
+ h.ok(split.length>1&&split.every(line=>textWidth(line,12)<=48),'hard tokens fit the available line width');
+ const mf:Scene3dManifest={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'fit.glb',parts:[{id:'f',role:'surface-field',node:'f',field:{cmap:{name:'c',stops:[[0,'#000000'],[1,'#FFFFFF']]},range:[0,1],label:token}},{id:'bar',role:'colorbar',field:'f'},{id:'mesh',role:'mesh',label:token},{id:'legend',role:'legend',entries:['mesh']}]};
+ const element={...el,width:320,height:500,fields:{f:{range:[-99999,99999] as [number,number]}},overrides:{legend:{fontSize:18}}};
+ const l=furnitureLayout(mf,element,element.overrides),svg=furnitureSvg(mf,element,pose,l);
+ const row=l.legend!.legendRows![0];
+ h.eq(row.lines.join(''),token,'legend hard wrap preserves the complete label');
+ h.ok(row.lines.length>1&&row.lines.every(line=>l.legend!.x+l.fontSize*1.5+textWidth(line,18)<=320),'legend wrapping uses its effective physical font');
+ h.ok(!l.overflow,'sufficient guide height fits all rows');
+ const labels=svg.overNodes.find(n=>n.partId==='legend')!.children!.filter(n=>n.tag==='text');
+ h.eq(labels.map(n=>n.text),row.lines,'rendered legend uses the layout line breaks');
+ h.ok(labels.every(n=>n.attrs['font-size']===18),'legend wrapping preserves physical font size');
+ const onlyBar={...mf,parts:mf.parts!.filter(p=>p.id!=='legend')};
+ // Remove title-width pressure so this comparison measures effective ticks only.
+ const noTitle={...onlyBar,parts:onlyBar.parts!.map(p=>p.id==='f'?{...p,field:{...(p.field as any),label:''}}:p)};
+ h.ok(furnitureLayout(noTitle,{width:400,height:400,fields:{f:{range:[-99999,99999]}}},{bar:{fontSize:18}}).viewport.width<furnitureLayout(noTitle,{width:400,height:400},{bar:{fontSize:18}}).viewport.width,'edited field tick widths participate in layout');
+ const tiny=furnitureLayout(mf,{width:90,height:40},{legend:{fontSize:18}});
+ h.ok(tiny.overflow&&tiny.overflowParts.includes('legend'),'impossible boxes report overflow without shrinking or dropping text');
+ h.eq(tiny.legend!.legendRows![0].lines.join(''),token,'overflow still preserves the full scientific label');
+ h.ok(tiny.legend!.y>tiny.colorbar!.y+tiny.colorbar!.height,'overflowing guides do not overlap each other');
 }
 await h.done();

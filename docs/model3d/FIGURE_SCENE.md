@@ -52,3 +52,12 @@ Use scratch HOME/XDG directories and `FLUX_NO_MIGRATE=1`. Native import and meta
 have separate registered `model3d-import` and `model3d-persistence` groups.
 The `model3d-import-progress` group holds import transport to verify delayed feedback,
 concurrent requests and cleanup through picker, gallery and File-drop paths.
+
+Colorbar titles and legend labels wrap inside the guide column without changing their
+physical font size. Long identifiers split across lines without dropping characters.
+The column uses at most 40% of the placement box; edited field ranges and guide font
+sizes participate in its layout. Taller labels borrow unused vertical guide space.
+If the box is too small to fit the full text, enlarge it: the guide's hover text reports
+this condition. Text is retained, so an undersized box may show overflow. Widths use a
+shared conservative font estimate (Arial advances plus a 20% reserve, checked against
+common sans fonts including DejaVu Sans), not an exact guarantee for every custom font.
