@@ -93,6 +93,27 @@ try {
   h.ok(!empty.tail.includes(modelGenerated.runtime), '2D-only document carries no model runtime');
   const still = await prepareSlideDocument(ref('front'), repo, { interactive: false, strict: true });
   h.ok(!still.tail && still.blocks[0].html.includes('flux-slide-poster'), 'static Word/PDF route retains the step-zero poster without scripts');
+  // The live Paper preview (interactive, not strict) re-renders ~160 ms after
+  // every edit. It used to re-read, re-hash and base64-encode every GLB on each
+  // render; an unchanged slide now reuses its portable bytes, exports never do.
+  const previewRepo = createSlideRepository(root, io), preview = `${ref('front')}\n\n${ref('side')}`;
+  const render = () => prepareSlideDocument(preview, previewRepo, { interactive: true, live: true });
+  const dataOf = (tail: string) => JSON.parse(/id="flux-slide-data">(.*?)<\/script>/s.exec(tail)![1]);
+  const readsAtStart = binaryReads, reads = () => binaryReads - readsAtStart;
+  const firstPreview = await render(); h.eq(reads(), 2, 'first preview render gathers each model slide once');
+  for (let i = 0; i < 3; i++) await render();
+  const reused = await render();
+  h.eq(reads(), 2, 'repeated preview renders reuse the portable GLB bytes (no re-read, re-hash or re-encode)');
+  h.eq(reused.tail, firstPreview.tail, 'reused preview output is byte-identical to the gathered one');
+  h.eq(dataOf(reused.tail).models.neuron, bytes.toString('base64'), 'reused preview still carries the exact GLB bytes');
+  previewRepo.invalidate(); await render(); h.eq(reads(), 2, 'a repository invalidation with unchanged content keeps the cached bytes');
+  const turned = structuredClone(deck); (turned.slides[0].elements[0] as { orbitAzimuth: number }).orbitAzimuth += 30;
+  await io.writeText(`${root}/slides/models/deck.json`, JSON.stringify(turned)); previewRepo.invalidate();
+  const changedPreview = dataOf((await render()).tail), front = Object.values(changedPreview.payloads as Record<string, any>).find(p => p.deck.slides[0].id === 'front');
+  h.ok(reads() === 3 && front.deck.slides[0].elements[0].orbitAzimuth === turned.slides[0].elements[0].orbitAzimuth && changedPreview.models.neuron === bytes.toString('base64'), 'a changed slide gathers fresh portable bytes; the unchanged one is still reused');
+  const strictBefore = binaryReads; await prepareSlideDocument(preview, previewRepo, { interactive: true, strict: true });
+  h.eq(binaryReads - strictBefore, 2, 'strict exports gather and validate fresh GLB bytes every time');
+  previewRepo.dispose(); await io.writeText(`${root}/slides/models/deck.json`, JSON.stringify(deck));
   const entry = `${root}/paper/report.qmd`, include = `${root}/paper/detail.qmd`;
   const before = `# Results\n\n${ref('front')}\n\n{{< include detail.qmd >}}\n`, detail = `${ref('side')}\n`;
   await io.writeText(entry, before); await io.writeText(include, detail);

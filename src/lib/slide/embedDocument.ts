@@ -23,7 +23,9 @@ export async function prepareSlideDocument(src: string, repository: SlideReposit
     try {
       if (!repository) throw new Error("Open the source project to render this slide");
       let snapshot = opts.strict ? await repository.materialize(r, { portable: opts.interactive && !payloads[source] }) : await repository.load(r);
-      if (opts.interactive && !payloads[source] && snapshot.modelSource) snapshot = await repository.materialize(r, { portable: true });
+      // The live preview re-renders after every edit: reuse an unchanged
+      // slide's portable model bytes instead of re-reading and re-encoding them.
+      if (opts.interactive && !payloads[source] && snapshot.modelSource) snapshot = await repository.materialize(r, { portable: true, reusePortable: true });
       if (!r.width) width = `${snapshot.payload.deck.stage.width}px`;
       const poster = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(snapshot.poster)}`;
       art = `<img class="flux-slide-poster" src="${esc(poster)}" alt="${esc(r.caption || snapshot.payload.deck.slides[0].name || "Slide")}" style="aspect-ratio:${snapshot.payload.deck.stage.width}/${snapshot.payload.deck.stage.height}"/>`;
