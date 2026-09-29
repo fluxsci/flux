@@ -351,7 +351,8 @@
       "verify-model3d-import-progress.ts",
       "verify-model3d-deck-assets.ts",
       "verify-model3d-slide-export.ts",
-      "verify-slide-model3d.ts"
+      "verify-slide-model3d.ts",
+      "verify-project-media-paths.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -921,7 +922,8 @@
       "verify-model3d-snapshot-quiet.mjs",
       "verify-model3d-deck-assets.ts",
       "verify-model3d-slide-export.ts",
-      "verify-slide-model3d.ts"
+      "verify-slide-model3d.ts",
+      "verify-project-media-paths.ts"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -942,7 +944,8 @@
       "verify-model3d-import-progress.ts",
       "verify-model3d-deck-assets.ts",
       "verify-model3d-slide-export.ts",
-      "verify-slide-model3d.ts"
+      "verify-slide-model3d.ts",
+      "verify-project-media-paths.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -1112,6 +1115,14 @@
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "flux-core/projectSource.ts",
+      "run": [
+        "verify-project-media-paths.ts",
+        "verify-slide-video-media-electron.cjs",
+        "group:model3d"
+      ]
+    },
     {
       "glob": "src/lib/slide/stagger.ts",
       "run": [
@@ -8922,6 +8933,14 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-project-media-paths.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "isolation": "scratch",
+      "externalNetwork": false,
       "exclusive": false,
       "coverage": "behavior"
     }

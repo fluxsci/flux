@@ -578,8 +578,11 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
   const writes = new Map<string, GenerationWrite>();
   for (const asset of get(figProject).assets) if (asset.kind === "glb" && externalAssetIds().has(asset.id)) {
     const relative = storedAssetPath(asset.path);
-    const file = fig.projectAssetPath ? await fig.projectAssetPath(root, relative) : joinPath(root, relative);
-    if (!await fig.exists(file)) throw new Error(`Cannot save: 3D model file ${relative} is missing. Restore it, or delete the 3D model that uses it`);
+    const missing = () => new Error(`Cannot save: 3D model file ${relative} is missing. Restore it, or delete the 3D model that uses it`);
+    let file: string;
+    try { file = fig.projectAssetPath ? await fig.projectAssetPath(root, relative) : joinPath(root, relative); }
+    catch (error) { if ((error as { code?: string }).code === "ENOENT" || String(error).includes("ENOENT")) throw missing(); throw error; }
+    if (!await fig.exists(file)) throw missing();
   }
   for (const a of d.assets) {
     const url = data[a.id]; if (!a.path) a.path = `assets/${a.id}.${a.kind}`;

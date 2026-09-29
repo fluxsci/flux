@@ -1,3 +1,4 @@
+import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
 //
@@ -294,7 +295,7 @@ export async function addVideoToSlide(root: string, deckId: string, slideId: str
   onProgress?: (value: { phase: string; percent: number }) => void;
 }): Promise<{ elementId: string; assetId: string }> {
   mustSlide(await loadDeck(root, deckId), slideId);
-  const prepared = await prepareVideo({ root, deckId, sourcePath: opts.sourcePath, signal: opts.signal, onProgress: opts.onProgress });
+  const prepared = await prepareVideo({ root, deckId, sourcePath: await projectSourceRelativePath(root, opts.sourcePath), signal: opts.signal, onProgress: opts.onProgress });
   try {
     if (opts.signal?.aborted) throw new Error("Video import cancelled");
     return await mutateDeck(root, deckId, "add_slide_video", deck => {
@@ -1014,7 +1015,7 @@ export async function gatherDeckPayload(
   const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), videoUrl: opts.videoUrl,
     modelPoster: async (request, relative) => {
       const { resolveModelPosters } = await import("./model3dPosterCache");
-      const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, elements: [request.element] };
+      const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, background: "transparent", elements: [request.element] };
       const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "" });
       sourceWarnings.push(...rendered.warnings);
       const url = rendered.urls[request.ref]; if (!url) throw new Error("3D poster could not be rendered"); return url;

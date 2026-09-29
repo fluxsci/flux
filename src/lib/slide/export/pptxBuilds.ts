@@ -109,7 +109,7 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
       ev = evaluateSlide(payload, beat, time, compiled);
       // PowerPoint has no mesh animation. Keep its model pictures at Design
       // state on every build page, rather than implying a rendered 3D morph.
-      const models = new Map(slide.elements.filter(e => e.type === "model3d").map(e => [e.id, e]));
+      const models = new Map(evaluateSlide(payload, 0, Infinity, compiled).elements.filter(e => e.type === "model3d").map(e => [e.id, e]));
       ev.elements = ev.elements.map(e => models.has(e.id) ? structuredClone(models.get(e.id)!) : e);
       cache.set(key, ev);
     }
