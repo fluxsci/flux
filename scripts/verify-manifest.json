@@ -47,12 +47,9 @@
       "verify-crop-math.ts",
       "figenh-crop-parity.ts",
       "verify-fluxconfig.ts",
-      "verify-feedback.ts",
-      "verify-note.ts",
+      "verify-log.ts",
       "verify-context-scheme.ts",
       "verify-docs.ts",
-      "verify-dispatch.ts",
-      "verify-principal-pty.ts",
       "verify-line-arrow.ts",
       "verify-text-wrap.ts",
       "verify-compensate.ts",
@@ -194,7 +191,6 @@
       "verify-plot-source.ts",
       "verify-plot-style-scope.ts",
       "verify-plot-style-bake.ts",
-      "verify-sync-conflicts.ts",
       "verify-library-pdffilter.ts",
       "verify-figure-reference-identity.ts",
       "verify-figure-sources.ts",
@@ -236,7 +232,6 @@
       "verify-wheel-law.ts",
       "verify-zoom-limits.ts",
       "verify-feedback-snapshot.ts",
-      "verify-feedback-withdraw.ts",
       "verify-color-space.ts",
       "verify-cursor-policy.ts",
       "verify-color-collections.ts",
@@ -269,7 +264,6 @@
       "verify-v020-slide-persistence.ts",
       "verify-release-policy.mjs",
       "verify-runtime-assets.mjs",
-      "verify-terminal-ownership.cjs",
       "verify-v020-crash-recovery.ts",
       "verify-documentation-package.mjs",
       "verify-item-recovery.ts",
@@ -294,7 +288,80 @@
       "verify-text-arrange.ts",
       "verify-text-runs.ts",
       "verify-figure-metadata.ts",
-      "verify-caption-postscript.ts"
+      "verify-caption-postscript.ts",
+      "verify-agent-identity.ts",
+      "verify-oneoff-migration.ts",
+      "verify-annotation-core.ts",
+      "verify-connect-render.ts",
+      "verify-projects-registry.ts",
+      "verify-launcher.ts",
+      "verify-mcp-launcher.ts",
+      "verify-mcp-binding.ts",
+      "verify-reader-highlights.ts",
+      "verify-connect.ts",
+      "verify-connect-delta.ts",
+      "verify-connect-mcp.ts",
+      "verify-inbox.ts",
+      "verify-inbox-wait.ts",
+      "verify-presence.ts",
+      "verify-annotate-chord-census.ts",
+      "verify-context-stamp.ts",
+      "verify-agent-setup.ts",
+      "verify-connect-doctor.ts",
+      "verify-skill-template.ts",
+      "verify-command-rank.ts",
+      "verify-live-view.ts",
+      "verify-ai-monitor.ts",
+      "verify-runner-drivers.ts",
+      "verify-mcp-readonly.ts",
+      "verify-no-retired-agent-layer.ts",
+      "verify-connect-e2e.ts",
+      "verify-agent-routing.ts",
+      "verify-background-run.ts",
+      "verify-preset-catalog.ts",
+      "verify-correspondence.ts",
+      "verify-target-geometry.ts",
+      "verify-target-geometry-browser.ts",
+      "verify-plot-view.ts",
+      "verify-slide-resolve.ts",
+      "verify-slide-curves.ts",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-camera.ts",
+      "verify-plot-binding.ts",
+      "verify-plot-view-verb.ts",
+      "verify-slide-stagger.ts",
+      "verify-model3d-glb.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-model3d-morph.ts",
+      "verify-model3d-render-browser.ts",
+      "verify-model3d-persistence.ts",
+      "verify-model3d-import.ts",
+      "verify-model3d-semantics.ts",
+      "verify-model3d-view-ops.ts",
+      "verify-model3d-headless.ts",
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-model3d-verbs.ts",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-demo.ts",
+      "verify-model3d-cache-watch.cjs",
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-deck-assets.ts",
+      "verify-model3d-slide-export.ts",
+      "verify-slide-model3d.ts",
+      "verify-project-media-paths.ts",
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts",
+      "verify-model3d-embed.ts",
+      "verify-slide-model3d-parts.ts",
+      "verify-slide-model3d-parts-browser.ts",
+      "verify-slide-model3d-scale.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -303,7 +370,6 @@
     ],
     "ui": [
       "verify-context-gui.mjs",
-      "verify-annotate-gui.mjs",
       "verify-cursor-gui.mjs",
       "verify-figure-input-hygiene.mjs",
       "verify-zoom-proxy.mjs",
@@ -430,7 +496,26 @@
       "verify-text-blank-lines.mjs",
       "verify-metadata-save-safety.mjs",
       "verify-panel-label-menu.mjs",
-      "verify-figure-meta-refinements.mjs"
+      "verify-figure-meta-refinements.mjs",
+      "verify-annotation-surface-gui.mjs",
+      "verify-ai-monitor-gui.mjs",
+      "verify-inbox-gui.mjs",
+      "verify-ask-gui.mjs",
+      "verify-background-run-gui.mjs",
+      "verify-plot-view-gui.mjs",
+      "verify-model3d-gui.mjs",
+      "verify-model3d-export.mjs",
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-xray-gui.mjs",
+      "verify-model3d-source-gui.mjs",
+      "verify-model3d-verbs-gui.mjs",
+      "verify-model3d-import-progress-gui.mjs",
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-model3d-furniture-gui.mjs",
+      "verify-slide-model3d-gui.mjs",
+      "verify-model3d-embed-gui.mjs",
+      "verify-slide-model3d-morph-gui.mjs",
+      "verify-slide-model3d-parts-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -507,19 +592,22 @@
       "verify-scale-slide-dense.mjs",
       "verify-scale-paper-slide-embeds.mjs",
       "verify-fulltext-corpus.ts",
-      "verify-library-20k.mjs"
+      "verify-library-20k.mjs",
+      "verify-scale-annotate-hover.mjs",
+      "verify-scale-inbox.mjs",
+      "verify-scale-model3d.mjs"
     ],
     "bundle": [
       "verify-w13-cli.mjs",
       "verify-local-correction-bundle.mjs",
       "verify-extension-build.ts",
-      "verify-slide-embed-export.mjs"
+      "verify-slide-embed-export.mjs",
+      "verify-connect-hook.mjs"
     ],
     "startup": [
       "verify-startup.mjs"
     ],
     "electron": [
-      "verify-principal-electron.cjs",
       "verify-w6-flush.cjs",
       "verify-multiwindow.cjs",
       "verify-cellpress.cjs",
@@ -543,7 +631,19 @@
       "verify-v020-gui-export-recovery.cjs",
       "verify-eyedropper-portal.cjs",
       "verify-eyedropper-electron.cjs",
-      "verify-figure-metadata-electron.cjs"
+      "verify-figure-metadata-electron.cjs",
+      "verify-annotate-utility-electron.cjs",
+      "verify-live-view-electron.cjs",
+      "verify-ask-electron.cjs",
+      "verify-model3d-poster-worker.cjs",
+      "verify-figure-pdf-size.cjs",
+      "verify-model3d-electron.cjs",
+      "verify-model3d-smoke-electron.cjs",
+      "verify-model3d-verbs-electron.cjs",
+      "verify-scale-model3d-electron.cjs",
+      "verify-model3d-s8.cjs",
+      "verify-model3d-video-electron.cjs",
+      "verify-slide-model3d-scale-electron.cjs"
     ],
     "presence": [
       "verify-electron-no-undef.ts",
@@ -554,7 +654,9 @@
       "verify-update-check.ts",
       "verify-writer-latency.ts",
       "verify-crisp-source.ts",
-      "figenh-importer-parity.ts"
+      "figenh-importer-parity.ts",
+      "verify-annotate-chord-census.ts",
+      "verify-no-retired-agent-layer.ts"
     ]
   },
   "groups": {
@@ -626,7 +728,9 @@
       "verify-figure-reference-safety.ts",
       "verify-figure-metadata.mjs",
       "verify-caption-postscript.ts",
-      "verify-figure-meta-refinements.mjs"
+      "verify-figure-meta-refinements.mjs",
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
     ],
     "reader-gate": [
       "verify-r1-highlights.mjs",
@@ -650,7 +754,8 @@
       "verify-fulltext-refresh.ts",
       "verify-fulltext-progress-gui.mjs",
       "verify-reader-session.ts",
-      "verify-library-world-ownership.mjs"
+      "verify-library-world-ownership.mjs",
+      "verify-reader-highlights.ts"
     ],
     "figures-slides-overhaul": [
       "verify-figure-reference-identity.ts",
@@ -692,7 +797,9 @@
       "verify-slide-embed-core.ts",
       "verify-paper-slide-embeds.mjs",
       "verify-slide-embed-lifecycle.mjs",
-      "verify-scale-paper-slide-embeds.mjs"
+      "verify-scale-paper-slide-embeds.mjs",
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
     ],
     "slide-video": [
       "verify-slide-video.ts",
@@ -742,7 +849,11 @@
       "verify-slide-import-gui.mjs",
       "verify-slide-animator-gui.mjs",
       "verify-v020-paper-contracts.ts",
-      "verify-v020-morph-startup.mjs"
+      "verify-v020-morph-startup.mjs",
+      "verify-slide-handoff-browser.ts",
+      "verify-slide-camera.ts",
+      "verify-slide-player.ts",
+      "verify-slide-stagger.ts"
     ],
     "display-repair": [
       "verify-canvas-zoom-raster.mjs",
@@ -793,10 +904,1034 @@
       "verify-plot-gallery.mjs",
       "verify-caption-postscript.ts",
       "verify-figure-meta-refinements.mjs"
+    ],
+    "model3d": [
+      "verify-model3d-glb.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-model3d-morph.ts",
+      "verify-model3d-poster-worker.cjs",
+      "verify-model3d-render-browser.ts",
+      "verify-model3d-persistence.ts",
+      "verify-model3d-import.ts",
+      "verify-model3d-gui.mjs",
+      "verify-model3d-semantics.ts",
+      "verify-model3d-export.mjs",
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-view-ops.ts",
+      "verify-model3d-xray-gui.mjs",
+      "verify-model3d-headless.ts",
+      "verify-model3d-electron.cjs",
+      "verify-scale-model3d.mjs",
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-model3d-source-gui.mjs",
+      "verify-model3d-smoke-electron.cjs",
+      "verify-model3d-verbs.ts",
+      "verify-model3d-verbs-gui.mjs",
+      "verify-model3d-verbs-electron.cjs",
+      "verify-scale-model3d-electron.cjs",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs",
+      "verify-model3d-demo.ts",
+      "verify-model3d-cache-watch.cjs",
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-import-progress-gui.mjs",
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-model3d-deck-assets.ts",
+      "verify-model3d-slide-export.ts",
+      "verify-slide-model3d.ts",
+      "verify-project-media-paths.ts",
+      "verify-model3d-furniture-gui.mjs",
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-gui.mjs",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts",
+      "verify-model3d-video-electron.cjs",
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs",
+      "verify-slide-model3d-morph-gui.mjs",
+      "verify-slide-model3d-parts.ts",
+      "verify-slide-model3d-parts-browser.ts",
+      "verify-slide-model3d-parts-gui.mjs",
+      "verify-slide-model3d-scale.ts",
+      "verify-slide-model3d-scale-electron.cjs"
+    ],
+    "model3d-pure": [
+      "verify-model3d-glb.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-model3d-morph.ts",
+      "verify-model3d-render-browser.ts",
+      "verify-model3d-persistence.ts",
+      "verify-model3d-import.ts",
+      "verify-model3d-semantics.ts",
+      "verify-model3d-view-ops.ts",
+      "verify-model3d-headless.ts",
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-model3d-verbs.ts",
+      "verify-model3d-demo.ts",
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-deck-assets.ts",
+      "verify-model3d-slide-export.ts",
+      "verify-slide-model3d.ts",
+      "verify-project-media-paths.ts",
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts",
+      "verify-slide-model3d-scale.ts"
+    ],
+    "model3d-ui": [
+      "verify-model3d-gui.mjs",
+      "verify-model3d-export.mjs",
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-xray-gui.mjs",
+      "verify-model3d-source-gui.mjs",
+      "verify-model3d-verbs-gui.mjs",
+      "verify-model3d-import-progress-gui.mjs",
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-slide-model3d-gui.mjs"
+    ],
+    "model3d-persistence": [
+      "verify-model3d-persistence.ts",
+      "verify-loadgate.ts",
+      "verify-figfiles-parity.ts",
+      "verify-fwdguard.ts",
+      "verify-ipc-contract.ts",
+      "verify-deck-schema.ts",
+      "verify-v020-conversion.ts",
+      "verify-orphan-slide-sources.ts",
+      "verify-generation-confinement.ts",
+      "verify-render-manifest-confinement.ts"
+    ],
+    "model3d-import": [
+      "verify-model3d-import.ts",
+      "verify-ipc-contract.ts",
+      "verify-loadgate.ts",
+      "verify-changed-pathmap.mjs",
+      "verify-electron-no-undef.ts"
+    ],
+    "model3d-gui": [
+      "verify-model3d-gui.mjs",
+      "verify-lazy-load-gui.mjs"
+    ],
+    "model3d-semantics": [
+      "verify-model3d-semantics.ts",
+      "verify-model3d-core.ts",
+      "verify-model3d-scene3d.ts",
+      "verify-model3d-furniture.ts",
+      "verify-xray-tree.ts",
+      "figenh-13-partstyle.ts",
+      "figenh-14-partfields.ts",
+      "figenh-partprops-parity.ts",
+      "verify-xray-multi.ts"
+    ],
+    "model3d-export": [
+      "verify-model3d-export.mjs",
+      "verify-model3d-gui.mjs",
+      "verify-figure-export.ts",
+      "verify-figure-export-gui.mjs",
+      "verify-model3d-headless.ts"
+    ],
+    "model3d-orbit": [
+      "verify-model3d-orbit-gui.mjs",
+      "verify-model3d-view-ops.ts"
+    ],
+    "model3d-xray": [
+      "verify-model3d-xray-gui.mjs",
+      "verify-xray-multi-gui.mjs",
+      "figenh-14-partui.mjs"
+    ],
+    "model3d-export-headless": [
+      "verify-model3d-headless.ts",
+      "verify-paper-render-overrides.ts",
+      "verify-sync-render.ts",
+      "verify-render-manifest-confinement.ts",
+      "verify-figure-export.ts",
+      "verify-connect-delta.ts",
+      "verify-connect-doctor.ts",
+      "verify-connect-e2e.ts",
+      "verify-connect.ts",
+      "verify-connect-mcp.ts",
+      "verify-connect-render.ts"
+    ],
+    "figure-pdf-size": [
+      "verify-figure-pdf-size.cjs",
+      "verify-native-families.cjs",
+      "verify-electron-hardening.ts",
+      "verify-slide-pdf.ts"
+    ],
+    "model3d-offline-colors": [
+      "verify-color-collections.ts",
+      "verify-slide-headless-e2e.ts"
+    ],
+    "model3d-native": [
+      "verify-model3d-electron.cjs",
+      "verify-model3d-smoke-electron.cjs",
+      "verify-model3d-video-electron.cjs"
+    ],
+    "model3d-scale": [
+      "verify-scale-model3d.mjs",
+      "verify-scale-model3d-electron.cjs",
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
+    ],
+    "model3d-native-policy": [
+      "verify-input-probe-policy.cjs"
+    ],
+    "model3d-source": [
+      "verify-model3d-source.ts",
+      "verify-model3d-fluxplot.ts",
+      "verify-source-watch.ts",
+      "verify-fluxplot-recipe-ipc.ts",
+      "verify-f2-recipe.ts",
+      "verify-model3d-import.ts",
+      "verify-ipc-contract.ts",
+      "verify-model3d-source-gui.mjs"
+    ],
+    "model3d-native-smoke": [
+      "verify-model3d-smoke-electron.cjs"
+    ],
+    "model3d-verbs": [
+      "verify-model3d-verbs.ts",
+      "verify-registry-parity.ts",
+      "verify-f1-mcp.ts",
+      "verify-w11-verbs.ts",
+      "verify-context-scheme.ts",
+      "verify-model3d-headless.ts",
+      "verify-connect.ts"
+    ],
+    "model3d-verbs-native": [
+      "verify-model3d-verbs-electron.cjs"
+    ],
+    "model3d-verbs-gui": [
+      "verify-model3d-verbs-gui.mjs"
+    ],
+    "model3d-native-scale": [
+      "verify-scale-model3d-electron.cjs",
+      "verify-input-probe-policy.cjs",
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
+    ],
+    "model3d-s8": [
+      "verify-model3d-s8-policy.cjs",
+      "verify-model3d-s8.cjs"
+    ],
+    "model3d-s8-policy": [
+      "verify-model3d-s8-policy.cjs"
+    ],
+    "model3d-cache-watch": [
+      "verify-model3d-cache-watch.cjs",
+      "verify-source-watch.ts",
+      "verify-plots-folders.ts",
+      "verify-dissections.ts",
+      "verify-native-families.cjs",
+      "verify-electron-no-undef.ts"
+    ],
+    "model3d-demo": [
+      "verify-model3d-demo.ts",
+      "verify-model3d-scene3d.ts"
+    ],
+    "model3d-import-progress": [
+      "verify-model3d-import-progress.ts",
+      "verify-model3d-import-progress-gui.mjs"
+    ],
+    "model3d-snapshot-quiet": [
+      "verify-model3d-snapshot-quiet.mjs",
+      "verify-zoom-proxy.mjs",
+      "verify-model3d-gui.mjs",
+      "verify-changed-pathmap.mjs"
+    ],
+    "slide-model3d": [
+      "verify-slide-model3d.ts",
+      "verify-slide-tween.ts",
+      "verify-loadgate.ts",
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-model3d-slide-browser.ts",
+      "verify-slide-model3d-parts.ts"
+    ],
+    "model3d-furniture": [
+      "verify-model3d-furniture.ts",
+      "verify-model3d-furniture-gui.mjs"
+    ],
+    "slide-model3d-gui": [
+      "verify-slide-model3d-gui.mjs",
+      "verify-slide-import-gui.mjs",
+      "verify-slide-present-gui.mjs",
+      "verify-changed-pathmap.mjs",
+      "verify-slide-model3d-morph-gui.mjs"
+    ],
+    "slide-model3d-morph": [
+      "verify-slide-model3d-morph.ts",
+      "verify-model3d-morph.ts",
+      "verify-slide-model3d.ts",
+      "verify-slide-track-ops.ts",
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-slide-model3d-morph-gui.mjs"
+    ],
+    "model3d-embed": [
+      "verify-model3d-embed.ts",
+      "verify-model3d-embed-gui.mjs"
+    ],
+    "slide-model3d-parts": [
+      "verify-slide-model3d-parts.ts",
+      "verify-slide-model3d.ts",
+      "verify-slide-model3d-morph.ts",
+      "verify-model3d-semantics.ts",
+      "verify-changed-pathmap.mjs",
+      "verify-slide-model3d-parts-browser.ts",
+      "verify-slide-model3d-parts-gui.mjs"
+    ],
+    "model3d-slide-scale": [
+      "verify-slide-model3d-scale.ts",
+      "verify-scale-slide.mjs",
+      "verify-slide-model3d-scale-electron.cjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
   "pathMap": [
+    {
+      "glob": "scripts/lib/slideModel3d*Scale*",
+      "run": [
+        "group:model3d-slide-scale"
+      ]
+    },
+    {
+      "glob": "flux-core/projectSource.ts",
+      "run": [
+        "verify-project-media-paths.ts",
+        "verify-slide-video-media-electron.cjs",
+        "group:model3d"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/stagger.ts",
+      "run": [
+        "verify-slide-stagger.ts",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "scripts/lib/animatorMotionChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs"
+      ]
+    },
+    {
+      "glob": "src/main.ts",
+      "run": [
+        "tier:pure",
+        "verify-startup.mjs",
+        "verify-inbox-gui.mjs",
+        "verify-background-run-gui.mjs"
+      ]
+    },
+    {
+      "glob": "{scripts/lib/m4GhostFixture.ts,scripts/fixtures/m4-ghost-disappear-pre-m3.json}",
+      "run": [
+        "verify-slide-ghost-structure.ts"
+      ]
+    },
+    {
+      "glob": "scripts/lib/animatorCurveChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs"
+      ]
+    },
+    {
+      "glob": "{src/shell/modes/slide/animator/CurveField.svelte,src/shell/modes/slide/animator/BeatRail.svelte,src/shell/modes/slide/animator/trackActions.ts,src/shell/modes/slide/animator/cascadeTracks.ts,src/lib/cascade.ts,src/lib/CascadePopover.svelte}",
+      "run": [
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-no-retired-agent-layer.ts",
+        "group:slide-transforms",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-cascade-gui.mjs",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs",
+        "verify-scale-slide.mjs",
+        "verify-scale-slide-dense.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/lib/animatorDestinationChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/lib/animatorReaderChecks.mjs",
+      "run": [
+        "verify-slide-authoring-gui.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/lib/animatorStyleChecks.mjs",
+      "run": [
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/camera.ts",
+      "run": [
+        "verify-slide-camera.ts",
+        "verify-slide-animator-gui.mjs",
+        "verify-scale-slide.mjs",
+        "verify-scale-slide-dense.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "group:slide-clips"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/viewControls.ts",
+      "run": [
+        "verify-plot-view-verb.ts",
+        "verify-plot-view-gui.mjs",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/AxisView.svelte",
+      "run": [
+        "verify-plot-view-gui.mjs",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/player/render.ts",
+      "run": [
+        "verify-plot-binding.ts",
+        "tier:pure",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/resolve.ts",
+      "run": [
+        "verify-slide-resolve.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/curves.ts",
+      "run": [
+        "verify-slide-curves.ts",
+        "verify-slide-easing.ts",
+        "verify-preset-catalog.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/handoffPlan.ts",
+      "run": [
+        "verify-slide-handoff-browser.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/player/handoff.ts",
+      "run": [
+        "verify-slide-handoff-browser.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/player/presets.ts",
+      "run": [
+        "verify-preset-catalog.ts",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/presetCatalog.ts",
+      "run": [
+        "verify-preset-catalog.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/correspondence.ts",
+      "run": [
+        "verify-correspondence.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/paint.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/svgMatrix.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs"
+      ]
+    },
+    {
+      "glob": "src/lib/slide/targetGeometry.ts",
+      "run": [
+        "verify-target-geometry-browser.ts",
+        "verify-target-geometry.ts",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "tier:pure",
+        "group:inline-slides",
+        "group:slide-stash"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/projectDom.ts",
+      "run": [
+        "verify-plot-view.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/plot/project.ts",
+      "run": [
+        "verify-plot-view.ts",
+        "tier:pure",
+        "tier:scale",
+        "verify-lazy-save-safety.mjs",
+        "verify-lazy-load-gui.mjs",
+        "verify-lazy-export-overrides.mjs",
+        "verify-v020-morph-startup.mjs",
+        "group:slide-transforms",
+        "group:figures-slides-overhaul",
+        "group:slide-ghosts",
+        "group:inline-slides",
+        "group:slide-stash",
+        "verify-gallery-video-capability.ts",
+        "group:slide-clips",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "glob": "electron/projectWatchPaths.cjs",
+      "run": [
+        "group:model3d-cache-watch",
+        "tier:presence"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dS8*",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/perf/input-probe-model3d.cjs",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/model3d/s8-public-tree.json",
+      "run": [
+        "group:model3d-s8",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/nativeWindowQualification.cjs",
+      "run": [
+        "group:model3d-native",
+        "verify-input-probe-policy.cjs",
+        "verify-slide-embed-electron.cjs",
+        "group:model3d-native-scale",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/slideEmbedProbeEntry.cjs",
+      "run": [
+        "verify-slide-embed-electron.cjs",
+        "verify-input-probe-policy.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dPythonPrerequisite.cjs",
+      "run": [
+        "verify-runner-runtime.mjs",
+        "group:model3d-native-smoke",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dNativeScale*",
+      "run": [
+        "group:model3d-native-scale",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/perf/input-probe-policy.cjs",
+      "run": [
+        "verify-input-probe-policy.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dScaleFixture.mjs",
+      "run": [
+        "group:model3d-scale"
+      ]
+    },
+    {
+      "glob": "electron/model3dSource.cjs",
+      "run": [
+        "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "src/lib/model3d/source*",
+      "run": [
+        "group:model3d-source"
+      ]
+    },
+    {
+      "glob": "scripts/{create-model3d-demo,gen-model3d-demo-fixtures,lib/model3dDemo}.ts",
+      "run": [
+        "group:model3d-demo"
+      ]
+    },
+    {
+      "glob": "flux-core/model3d{,File,Verbs}.ts",
+      "run": [
+        "group:model3d-verbs",
+        "group:model3d-verbs-native",
+        "group:model3d-verbs-gui",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "src/lib/model3d/commandOps.ts",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray",
+        "group:model3d-verbs",
+        "group:model3d-verbs-gui"
+      ]
+    },
+    {
+      "glob": "scripts/lib/model3dNative*",
+      "run": [
+        "verify-model3d-electron.cjs",
+        "verify-model3d-smoke-electron.cjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{electron/figurePdf.cjs,electron/ipc/staticPrint.cjs}",
+      "run": [
+        "group:figure-pdf-size"
+      ]
+    },
+    {
+      "glob": "electron/model3d*.cjs",
+      "run": [
+        "group:model3d",
+        "verify-ipc-contract.ts"
+      ]
+    },
+    {
+      "$why": "The Figure model host, root-owned posters and gallery metadata are behavioral UI boundaries; keep pure model coverage alongside the real scene gate.",
+      "glob": "{src/lib/Model3dElement.svelte,src/lib/model3d/{posterStore,galleryPreview,import}.ts,src/lib/plot/Model3d*.svelte}",
+      "run": [
+        "group:model3d",
+        "group:model3d-gui"
+      ]
+    },
+    {
+      "$why": "Renderer, worker and inline-host modules decide poster/export pixels, so they keep the full 3D group including the native poster and scale gates.",
+      "glob": "src/lib/model3d/{renderCore,service,serviceHost,inlineHost,notebookViewer,model3d.worker}.ts",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "$why": "App-state/UI modules and components keep their existing full mapping.",
+      "glob": "{src/lib/model3d/{store,orbitSession,exportPosters,furnitureDom,importProgress}.ts,src/lib/model3d/*.svelte}",
+      "run": [
+        "group:model3d",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "$why": "The remaining src/lib/model3d modules are pure cores: their pure and headless-browser gates, never the electron/network/scale gates (review R5).",
+      "glob": "src/lib/model3d/**",
+      "run": [
+        "group:model3d-pure",
+        "group:model3d-ui",
+        "group:model3d-xray"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/model3d/**",
+      "run": [
+        "group:model3d"
+      ]
+    },
+    {
+      "glob": "scripts/lib/retiredAgentScan.ts",
+      "run": [
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "glob": "scripts/verify-{no-retired-agent-layer,connect-e2e}.ts",
+      "run": [
+        "self"
+      ]
+    },
+    {
+      "glob": "{src/lib/project/agentRouting.ts,src/shell/TitleBar.svelte}",
+      "run": [
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-annotation-surface-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-startup.mjs",
+        "verify-annotate-chord-census.ts",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-an-bridge.ts",
+        "verify-ipc-contract.ts",
+        "tier:pure",
+        "verify-shell-complete.mjs"
+      ]
+    },
+    {
+      "glob": "src/shell/command/{commands.ts,CommandPalette.svelte}",
+      "run": [
+        "verify-command-rank.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{electron/bridgeServer.cjs,electron/ipc/agent.cjs,flux-core/liveClient.ts,src/lib/bridge/liveView.ts,src/shell/TitleBar.svelte,scripts/lib/liveViewProbeEntry.cjs}",
+      "run": [
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-an-bridge.ts",
+        "verify-ipc-contract.ts",
+        "verify-startup.mjs",
+        "tier:pure",
+        "verify-shell-complete.mjs"
+      ]
+    },
+    {
+      "glob": "{src/shell/agent/AI*.svelte,src/shell/agent/ai*.ts,src/shell/agent/monitorComments.ts,src/lib/project/agentMonitor.ts,electron/ipc/agentSetup.cjs,public/ai-status.html}",
+      "run": [
+        "verify-ai-monitor.ts",
+        "verify-ai-monitor-gui.mjs",
+        "verify-ipc-contract.ts",
+        "verify-startup.mjs",
+        "tier:pure",
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-annotation-surface-gui.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/{lib/{runnerFixture.cjs,askElectronProbe.cjs},fixtures/runner/**}",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-electron.cjs",
+        "verify-background-run.ts"
+      ]
+    },
+    {
+      "glob": "electron/{agentRunner.cjs,runnerDrivers/**,ipc/runner.cjs}",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-electron.cjs",
+        "verify-ipc-contract.ts",
+        "verify-background-run.ts"
+      ]
+    },
+    {
+      "glob": "src/shell/agent/{askChord.ts,AskSurface.svelte,RunnerSettings.svelte}",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-gui.mjs",
+        "verify-annotate-chord-census.ts",
+        "verify-startup.mjs",
+        "verify-annotation-core.ts",
+        "verify-feedback-snapshot.ts",
+        "verify-context-stamp.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-context-gui.mjs",
+        "verify-scale-annotate-hover.mjs",
+        "verify-annotate-utility-electron.cjs",
+        "verify-ipc-contract.ts",
+        "verify-present-core.ts",
+        "tier:pure",
+        "verify-background-run.ts"
+      ]
+    },
+    {
+      "glob": "src/lib/project/ask.ts",
+      "run": [
+        "verify-runner-drivers.ts",
+        "verify-ask-gui.mjs",
+        "verify-background-run.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/{mcpServer.ts,registry.ts}",
+      "run": [
+        "verify-mcp-readonly.ts",
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-registry-parity.ts",
+        "verify-inbox.ts",
+        "verify-inbox-wait.ts",
+        "verify-presence.ts",
+        "verify-annotation-core.ts",
+        "verify-log.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "flux-core/connect/hook*.ts",
+      "run": [
+        "verify-connect-hook.mjs",
+        "tier:bundle",
+        "verify-connect-e2e.ts"
+      ]
+    },
+    {
+      "$why": "F1 Inbox owns the unified GUI, navigation and comment IO; shared-core changes retain headless parity coverage.",
+      "glob": "{src/shell/inbox/**,src/shell/navigation.ts,src/lib/project/commentBridge.ts,public/inbox.html,scripts/lib/inboxGuiFixture.mjs}",
+      "run": [
+        "verify-inbox.ts",
+        "verify-inbox-gui.mjs",
+        "verify-scale-inbox.mjs",
+        "verify-annotate-chord-census.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-annotate-utility-electron.cjs",
+        "verify-no-retired-agent-layer.ts",
+        "verify-agent-routing.ts",
+        "verify-ai-monitor-gui.mjs"
+      ]
+    },
+    {
+      "glob": "{flux-core/{annotate,references}.ts,src/lib/references/annotations.ts}",
+      "run": [
+        "verify-reader-highlights.ts",
+        "verify-canonical-reads.ts",
+        "verify-annotations-md.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "{flux-core/{annotations,inboxVerbs,inboxWait,inspect,presence,mcpServer,registry,comments}.ts,src/lib/project/{annotations,inbox,comments,presence,targets}.ts,scripts/{lib/inboxFixture.ts,fixtures/inbox-worker.mjs}}",
+      "run": [
+        "verify-inbox.ts",
+        "verify-inbox-wait.ts",
+        "verify-presence.ts",
+        "verify-annotation-core.ts",
+        "verify-registry-parity.ts",
+        "verify-mcp-binding.ts",
+        "verify-log.ts",
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-inbox-gui.mjs",
+        "verify-scale-inbox.mjs",
+        "verify-agent-routing.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-ai-monitor-gui.mjs"
+      ]
+    },
+    {
+      "glob": "electron/projectsRegistry.*",
+      "run": [
+        "verify-projects-registry.ts",
+        "verify-electron-no-undef.ts",
+        "verify-fluxconfig.ts"
+      ]
+    },
+    {
+      "glob": "{electron-builder.yml,flux-core/render.ts}",
+      "run": [
+        "tier:pure",
+        "verify-w13-cli.mjs"
+      ]
+    },
+    {
+      "$why": "W4b retires the two-stage Note/Snapshot UI and Ctrl+Shift+S. The unified surface gate replaces verify-annotate-gui and context-gui section 4; all other context assertions remain. This first-match entry prevents general project mappings from shadowing annotation/inbox/capture coverage.",
+      "glob": "{src/shell/agent/**,src/lib/project/{annotations,annotationCapture,inbox,presence,targets}.ts,src/lib/bridge/{contextStamp,targetResolvers,canvasTargets,readerTargets}.ts,src/shell/modes/paper/paperTargets.ts,src/shell/modes/slide/animator/annotationTargets.ts,scripts/lib/annotationFixture.mjs}",
+      "run": [
+        "verify-annotation-core.ts",
+        "verify-feedback-snapshot.ts",
+        "verify-context-stamp.ts",
+        "verify-annotate-chord-census.ts",
+        "verify-annotation-surface-gui.mjs",
+        "verify-context-gui.mjs",
+        "verify-scale-annotate-hover.mjs",
+        "verify-annotate-utility-electron.cjs",
+        "verify-ipc-contract.ts",
+        "verify-present-core.ts",
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-ask-gui.mjs",
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-startup.mjs"
+      ]
+    },
+    {
+      "glob": "scripts/lib/annotateUtilityProbeEntry.cjs",
+      "run": [
+        "verify-annotate-utility-electron.cjs"
+      ]
+    },
+    {
+      "glob": "flux-core/connect/**",
+      "run": [
+        "verify-connect-mcp.ts",
+        "verify-connect-delta.ts",
+        "verify-connect.ts",
+        "verify-connect-render.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/oneoff/**",
+      "run": [
+        "verify-oneoff-migration.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "flux-core/agentIdentity.ts",
+      "run": [
+        "verify-agent-identity.ts",
+        "tier:pure"
+      ]
+    },
     {
       "glob": "src/lib/figure/{metadata*,FigureMeta*.svelte,FigureIdentityForm.svelte}",
       "run": [
@@ -807,7 +1942,8 @@
         "verify-m11-m14.mjs",
         "group:paper-gate",
         "verify-metadata-save-safety.mjs",
-        "verify-figure-metadata-electron.cjs"
+        "verify-figure-metadata-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -849,7 +1985,8 @@
         "figenh-14-partui.mjs",
         "verify-figure-controls-gui.mjs",
         "verify-eyedropper-portal.cjs",
-        "verify-eyedropper-electron.cjs"
+        "verify-eyedropper-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -967,7 +2104,9 @@
       "glob": "{src/shell/lifecycle.ts,src/lib/bridge/install.ts,src/lib/tenancy.ts}",
       "run": [
         "verify-shell-owner-epochs.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
       ]
     },
     {
@@ -1002,7 +2141,8 @@
         "group:figures-slides-overhaul",
         "group:slide-ghosts",
         "group:inline-slides",
-        "group:slide-stash"
+        "group:slide-stash",
+        "group:model3d-persistence"
       ]
     },
     {
@@ -1056,9 +2196,25 @@
       ]
     },
     {
+      "glob": "scripts/fixtures/correspondence-cold.json",
+      "run": [
+        "verify-correspondence.ts"
+      ]
+    },
+    {
       "glob": "{src/lib/slide/outline.ts,src/lib/slide/tween.ts,src/lib/slide/player/transform.ts,src/lib/slide/ops.ts,src/shell/modes/slide/AnimatePanel.svelte,src/shell/modes/slide/animator/PropertiesPane.svelte,src/shell/modes/slide/animator/TimelineMenu.svelte}",
       "run": [
-        "group:slide-transforms"
+        "group:slide-transforms",
+        "verify-correspondence.ts",
+        "verify-v020-morph-cache.ts",
+        "verify-v020-morph-startup.mjs",
+        "verify-no-retired-agent-layer.ts",
+        "verify-slide-animator-gui.mjs",
+        "verify-slide-authoring-gui.mjs",
+        "verify-cascade-tracks-gui.mjs",
+        "verify-cascade.ts",
+        "verify-fmenu-surface.mjs",
+        "verify-xray-theme.mjs"
       ]
     },
     {
@@ -1076,7 +2232,8 @@
       "glob": "src/lib/{store.ts,ops.ts,Xray.svelte,XrayNode.svelte}",
       "run": [
         "group:slide-stash",
-        "tier:pure"
+        "tier:pure",
+        "verify-plot-view-gui.mjs"
       ]
     },
     {
@@ -1097,7 +2254,8 @@
       "glob": "{src/lib/slide/video*.ts,src/lib/slide/export/videoRuntime.ts,flux-core/slideVideo.ts,electron/entry.cjs,electron/slideVideoWorker.cjs,electron/ipc/slideVideo.cjs,src/shell/modes/slide/SlideVideoDialog.svelte,scripts/lib/slideVideo*,scripts/fetch-video-encoder.mjs,build/video-encoder.json}",
       "run": [
         "group:slide-video",
-        "verify-ipc-contract.ts"
+        "verify-ipc-contract.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1125,7 +2283,9 @@
         "verify-fmenu-surface.mjs",
         "verify-fluxplot03-gui.mjs",
         "figenh-14-partui.mjs",
-        "verify-figure-controls-gui.mjs"
+        "verify-figure-controls-gui.mjs",
+        "verify-no-retired-agent-layer.ts",
+        "group:model3d-offline-colors"
       ]
     },
     {
@@ -1139,7 +2299,8 @@
         "verify-scale-figure.mjs",
         "verify-crisp.mjs",
         "verify-vanilla-inline.mjs",
-        "verify-text-arrange-gui.mjs"
+        "verify-text-arrange-gui.mjs",
+        "group:model3d-gui"
       ]
     },
     {
@@ -1147,7 +2308,8 @@
       "glob": "{src/lib/interact/zoomLimits.ts,src/lib/Toolbar.svelte}",
       "run": [
         "verify-zoom-limits.ts",
-        "verify-canvas-zoom-raster.mjs"
+        "verify-canvas-zoom-raster.mjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1167,7 +2329,8 @@
         "verify-canvas-coverage.mjs",
         "verify-canvas-zoom-raster.mjs",
         "verify-text-arrange-gui.mjs",
-        "verify-cross-figure-drag.mjs"
+        "verify-cross-figure-drag.mjs",
+        "verify-model3d-snapshot-quiet.mjs"
       ]
     },
     {
@@ -1211,7 +2374,8 @@
       "glob": "{electron/plotsFolders.js,src/lib/project/plotsFolders.ts,src/lib/PlotImporter.svelte,src/lib/plot/gallery*,src/lib/plot/Gallery*.svelte,public/plot-gallery.html,src/lib/ui/nativeEvents.ts}",
       "run": [
         "group:plot-gallery",
-        "tier:pure"
+        "tier:pure",
+        "group:model3d-gui"
       ]
     },
     {
@@ -1348,13 +2512,6 @@
       ]
     },
     {
-      "glob": "src/lib/exportQmd.ts",
-      "run": [
-        "verify-export-qmd.ts",
-        "verify-embed-normalize.ts"
-      ]
-    },
-    {
       "glob": "src/lib/figureLayoutStore.ts",
       "run": [
         "verify-fig-namer.mjs",
@@ -1364,7 +2521,17 @@
     {
       "glob": "resources/flux-context/**",
       "run": [
-        "verify-context-scheme.ts"
+        "verify-context-scheme.ts",
+        "verify-registry-parity.ts",
+        "verify-fluxconfig.ts",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "glob": "docs/{**/*.qmd,for_agents/**}",
+      "run": [
+        "verify-docs.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1374,10 +2541,11 @@
       ]
     },
     {
-      "glob": "electron/{agentsConfig,fluxContextDocs.gen}.cjs",
+      "glob": "electron/fluxContextDocs.gen.cjs",
       "run": [
         "verify-context-scheme.ts",
-        "verify-fluxconfig.ts"
+        "verify-fluxconfig.ts",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1392,56 +2560,53 @@
       ]
     },
     {
-      "glob": "src/lib/project/{feedback,contextTemplates,contextHeal,paperSelectionStore}.ts",
+      "glob": "src/lib/project/{annotations,contextTemplates,contextHeal,paperSelectionStore}.ts",
       "run": [
-        "verify-feedback.ts",
+        "verify-inbox.ts",
         "verify-context-scheme.ts",
         "verify-scaffold.ts",
-        "verify-note.ts"
+        "verify-log.ts",
+        "verify-context-gui.mjs",
+        "verify-doc-order.ts",
+        "verify-doc-delete.ts",
+        "verify-paper-files.ts",
+        "verify-doc-order-gui.mjs",
+        "verify-doc-delete-gui.mjs",
+        "verify-paper-files-gui.mjs",
+        "verify-no-retired-agent-layer.ts",
+        "verify-connect-e2e.ts"
       ]
     },
     {
-      "glob": "flux-core/{feedback,context,comments}.ts",
+      "glob": "flux-core/{annotations,context,comments}.ts",
       "run": [
-        "verify-feedback.ts",
+        "verify-inbox.ts",
         "verify-registry-parity.ts",
-        "verify-note.ts"
+        "verify-log.ts"
       ]
     },
     {
       "glob": "flux-core/locks.ts",
       "run": [
         "verify-w3-locks.ts",
-        "verify-note.ts",
+        "verify-log.ts",
         "verify-an-journal-locks.ts"
       ]
     },
     {
-      "glob": "flux-core/agents.ts",
-      "run": [
-        "verify-dispatch.ts",
-        "verify-principal-pty.ts",
-        "verify-registry-parity.ts"
-      ]
-    },
-    {
-      "glob": "electron/agentsConfig.cjs",
-      "run": [
-        "verify-context-scheme.ts",
-        "verify-dispatch.ts",
-        "verify-principal-pty.ts"
-      ]
-    },
-    {
       "$why": "2026-09-15 Snapshot & annotate — the freeze-and-draw overlay, the pending-snapshot store and the stamp's snapshot field have a pure gate (crop law, anchors, description, ledger roundtrip) and a browser gate (overlay → popover → ledger); the IPC contract pins the win:capture channel.",
-      "glob": "{src/shell/agent/**,src/lib/project/feedback.ts,src/lib/project/feedbackCapture.ts}",
+      "glob": "{src/shell/agent/**,src/lib/project/annotations.ts,src/lib/project/annotationCapture.ts}",
       "run": [
         "verify-feedback-snapshot.ts",
-        "verify-feedback-withdraw.ts",
-        "verify-annotate-gui.mjs",
+        "verify-inbox.ts",
+        "verify-annotation-surface-gui.mjs",
         "verify-context-gui.mjs",
         "verify-ipc-contract.ts",
-        "tier:pure"
+        "tier:pure",
+        "verify-agent-routing.ts",
+        "verify-inbox-gui.mjs",
+        "verify-ai-monitor-gui.mjs",
+        "verify-startup.mjs"
       ]
     },
     {
@@ -1524,8 +2689,113 @@
     {
       "glob": "{electron/{main,preload}.cjs,electron/ipc/{files,sourceWatch,contract}.cjs}",
       "run": [
+        "group:model3d-cache-watch",
         "verify-source-watch.ts",
+        "tier:presence",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
+      ]
+    },
+    {
+      "glob": "electron/fluxPaths.{cjs,d.cts}",
+      "run": [
+        "verify-launcher.ts",
+        "verify-fluxconfig.ts",
+        "verify-mcp-launcher.ts",
+        "tier:pure",
         "tier:presence"
+      ]
+    },
+    {
+      "glob": "flux-core/{mcpServer,mcpBinding,registry,verbs,errors,liveClient}.ts",
+      "run": [
+        "verify-reader-highlights.ts",
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-registry-parity.ts",
+        "verify-f1-mcp.ts",
+        "verify-recovery-entry.ts",
+        "tier:pure",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs"
+      ]
+    },
+    {
+      "glob": "scripts/lib/mcpFixture.ts",
+      "run": [
+        "verify-launcher.ts",
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-connect-e2e.ts"
+      ]
+    },
+    {
+      "glob": "flux-{cli,mcp}.ts",
+      "run": [
+        "verify-reader-highlights.ts",
+        "verify-mcp-launcher.ts",
+        "verify-mcp-binding.ts",
+        "verify-registry-parity.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "scripts/build-cli.mjs",
+      "run": [
+        "verify-launcher.ts",
+        "verify-mcp-launcher.ts",
+        "verify-w13-cli.mjs",
+        "tier:pure"
+      ]
+    },
+    {
+      "glob": "electron/agentSetup.{cjs,d.cts}",
+      "run": [
+        "verify-agent-setup.ts",
+        "verify-connect-doctor.ts",
+        "verify-skill-template.ts",
+        "verify-connect-e2e.ts"
+      ]
+    },
+    {
+      "glob": "resources/agent-skills/**",
+      "run": [
+        "verify-agent-setup.ts",
+        "verify-connect-doctor.ts",
+        "verify-skill-template.ts",
+        "verify-no-retired-agent-layer.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/agentSetup.ts",
+      "run": [
+        "verify-agent-setup.ts",
+        "verify-connect-doctor.ts",
+        "verify-skill-template.ts"
+      ]
+    },
+    {
+      "glob": "src/shell/inbox/{background*,Background*}",
+      "run": [
+        "verify-background-run.ts",
+        "verify-background-run-gui.mjs",
+        "verify-mcp-readonly.ts"
+      ]
+    },
+    {
+      "glob": "flux-core/backgroundTask.ts",
+      "run": [
+        "verify-background-run.ts",
+        "verify-background-run-gui.mjs",
+        "verify-mcp-readonly.ts"
+      ]
+    },
+    {
+      "glob": "scripts/fixtures/runner/task-driver.mts",
+      "run": [
+        "verify-background-run.ts",
+        "verify-background-run-gui.mjs",
+        "verify-mcp-readonly.ts"
       ]
     },
     {
@@ -1587,14 +2857,10 @@
         "verify-figure-editing-gui.mjs",
         "verify-figure-controls-gui.mjs",
         "verify-menu.mjs",
-        "verify-panel-label-menu.mjs"
-      ]
-    },
-    {
-      "glob": "electron/ipc/terminal.cjs",
-      "run": [
-        "verify-terminal-ownership.cjs",
-        "tier:electron"
+        "verify-panel-label-menu.mjs",
+        "verify-no-retired-agent-layer.ts",
+        "verify-plot-view-gui.mjs",
+        "group:model3d-xray"
       ]
     },
     {
@@ -1624,7 +2890,10 @@
       "glob": "{src/lib/settings.ts,src/lib/Settings.svelte}",
       "run": [
         "verify-gallery-scope.ts",
-        "verify-shell-complete.mjs"
+        "verify-shell-complete.mjs",
+        "verify-live-view.ts",
+        "verify-live-view-electron.cjs",
+        "verify-no-retired-agent-layer.ts"
       ]
     },
     {
@@ -1635,12 +2904,18 @@
       ]
     },
     {
-      "$why": "2026-09-24 slide PDF export (one page per slide / per build step) and the content-scale applicability note. PowerPoint export (native shapes, SVG plots).",
-      "glob": "{src/lib/slide/export/deckPdf.ts,src/lib/slide/export/deckPptx.ts,src/lib/slide/embedRender.ts,src/lib/plot/compensate.ts,src/lib/plot/store.ts,src/lib/interact/elementProperties.ts,src/lib/Inspector.svelte,electron/ipc/staticPrint.cjs}",
+      "$why": "2026-09-24 slide PDF export (one page per slide / per build step) and the content-scale applicability note. PowerPoint export (native shapes, SVG plots; builds as Morph pages, 2026-09-27).",
+      "glob": "{src/lib/slide/export/deckPdf.ts,src/lib/slide/export/deckPptx.ts,src/lib/slide/export/pptxBuilds.ts,src/lib/slide/embedRender.ts,src/lib/plot/compensate.ts,src/lib/plot/store.ts,src/lib/interact/elementProperties.ts,src/lib/Inspector.svelte,electron/ipc/staticPrint.cjs}",
       "run": [
         "verify-slide-pdf.ts",
         "verify-slide-export-menu.mjs",
         "verify-slide-pptx.ts"
+      ]
+    },
+    {
+      "glob": "{README.md,docs/**/*.qmd,docs/for_agents/**,resources/{flux-context,agent-skills}/**,src/**/*.svelte,src/shell/command/*.ts}",
+      "run": [
+        "verify-no-retired-agent-layer.ts"
       ]
     }
   ],
@@ -2120,17 +3395,6 @@
       "exclusive": false,
       "coverage": "behavior"
     },
-    "verify-annotate-gui.mjs": {
-      "runtime": "tsx",
-      "prerequisites": [
-        "server"
-      ],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": true,
-      "coverage": "behavior"
-    },
     "verify-annotations-md.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -2542,15 +3806,6 @@
       "exclusive": false,
       "coverage": "behavior"
     },
-    "verify-dispatch.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
     "verify-dissect-gui.mjs": {
       "runtime": "tsx",
       "prerequisites": [
@@ -2881,24 +4136,6 @@
       "coverage": "behavior"
     },
     "verify-feedback-snapshot.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-feedback-withdraw.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-feedback.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -3855,7 +5092,7 @@
       "exclusive": true,
       "coverage": "behavior"
     },
-    "verify-note.ts": {
+    "verify-log.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -4387,27 +5624,6 @@
       "coverage": "behavior"
     },
     "verify-primitives.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-principal-electron.cjs": {
-      "runtime": "node-electron",
-      "prerequisites": [
-        "build",
-        "display"
-      ],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": true,
-      "coverage": "behavior"
-    },
-    "verify-principal-pty.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -5218,7 +6434,9 @@
     },
     "verify-slide-player.ts": {
       "runtime": "tsx",
-      "prerequisites": [],
+      "prerequisites": [
+        "chrome"
+      ],
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
@@ -5545,15 +6763,6 @@
       "coverage": "behavior"
     },
     "verify-surface-anchor.ts": {
-      "runtime": "tsx",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
-    "verify-sync-conflicts.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,
@@ -6357,15 +7566,6 @@
       "exclusive": false,
       "coverage": "behavior"
     },
-    "verify-terminal-ownership.cjs": {
-      "runtime": "node",
-      "prerequisites": [],
-      "externalNetwork": false,
-      "isolation": "scratch",
-      "timeoutMs": 120000,
-      "exclusive": false,
-      "coverage": "behavior"
-    },
     "verify-v020-crash-recovery.ts": {
       "runtime": "tsx",
       "prerequisites": [],
@@ -6954,6 +8154,1066 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-agent-identity.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-oneoff-migration.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-annotation-core.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-render.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-projects-registry.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-launcher.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-mcp-launcher.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-mcp-binding.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-reader-highlights.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-delta.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-mcp.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-hook.mjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-inbox.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-inbox-wait.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-presence.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-annotate-chord-census.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "presence"
+    },
+    "verify-context-stamp.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-annotation-surface-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-annotate-hover.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-annotate-utility-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-agent-setup.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-connect-doctor.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-skill-template.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-command-rank.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-live-view.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-live-view-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-ai-monitor.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-ai-monitor-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-inbox-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-inbox.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-runner-drivers.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-mcp-readonly.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-ask-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-ask-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-no-retired-agent-layer.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "presence"
+    },
+    "verify-connect-e2e.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-agent-routing.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-background-run.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-background-run-gui.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-preset-catalog.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-correspondence.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-target-geometry.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-target-geometry-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-resolve.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-curves.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-handoff-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-camera.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-binding.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-verb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-stagger.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-glb.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-core.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-scene3d.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-furniture.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-morph.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-poster-worker.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "file:dist/flux-model3d-runtime.js",
+        "display",
+        "chrome"
+      ],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": true,
+      "timeoutMs": 180000
+    },
+    "verify-model3d-render-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-persistence.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-import.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-semantics.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-export.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-orbit-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-view-ops.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-xray-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-headless.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-figure-pdf-size.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 360000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-model3d.mjs": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-input-probe-policy.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "coverage": "behavior",
+      "exclusive": false
+    },
+    "verify-model3d-source.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-fluxplot.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-source-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-smoke-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display",
+        "quarto",
+        "model3d-python"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 360000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-verbs.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "native-encoder"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-verbs-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-verbs-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-scale-model3d-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-s8-policy.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-s8.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": true,
+      "isolation": "scratch",
+      "timeoutMs": 1200000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-cache-watch.cjs": {
+      "runtime": "node",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 30000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-demo.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 60000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-import-progress.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-import-progress-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-snapshot-quiet.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-deck-assets.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": false
+    },
+    "verify-model3d-slide-export.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": false
+    },
+    "verify-slide-model3d.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-project-media-paths.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "isolation": "scratch",
+      "externalNetwork": false,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-furniture-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-slide-presets.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-player.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 150000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-slide-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-video-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display",
+        "native-encoder",
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 300000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-model3d-embed.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-model3d-embed-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server",
+        "quarto"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 150000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-parts.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-parts-browser.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-parts-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 150000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-scale.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-scale-electron.cjs": {
+      "runtime": "node-electron",
+      "prerequisites": [
+        "build",
+        "display"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 240000,
       "exclusive": true,
       "coverage": "behavior"
     }

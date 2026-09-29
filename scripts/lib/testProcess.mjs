@@ -59,11 +59,13 @@ export class TestProcessScope {
       nodeArgs = ["--import", "tsx"],
       label = file,
       command = process.execPath,
+      windowsVerbatimArguments = false,
     } = opts;
     if (this.#disposed) throw new Error("TestProcessScope already disposed");
     const child = spawn(command, [...nodeArgs, file, ...testElectronArgs(command, file, args, env)], {
       cwd,
       env,
+      windowsVerbatimArguments,
       // stdin stays a pipe: it closes when THIS process dies, and the fixture
       // contract turns that into child exit (see header).
       stdio: ["pipe", "pipe", "pipe"],

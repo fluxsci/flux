@@ -4,6 +4,9 @@
 // canvas are active, the viewport, and a compact digest of the active figure so
 // the agent can reason without reading files. Pure read of the stores in store.ts.
 
+import { buildContextStamp, figureContextRelevant } from "./contextStamp";
+import type { ContextStamp } from "../project/annotations";
+import type { TargetRef } from "../project/targets";
 import { get } from "svelte/store";
 import {
   project,
@@ -14,16 +17,11 @@ import {
   activeCanvasId,
   viewport,
   hoverId,
-  projectDir,
-  embeddedProjectRoot,
   getActiveFigure,
 } from "../store";
 import type { Element, Figure } from "../types";
 import { membersDeep } from "../groups";
-import { focusedMode } from "../../shell/paneStore";
-import { currentProject, view, type ModeId } from "../../shell/shellStore";
-import { hasFlushOwner } from "../../shell/lifecycle";
-import { storeTenant } from "../tenancy";
+import { currentProject } from "../../shell/shellStore";
 
 export interface ContextElement {
   id: string;
@@ -49,12 +47,13 @@ export interface ContextGroup {
   members: number;
 }
 
-export interface AppContext {
+export interface AppContext extends ContextStamp {
+  selectionTargets: TargetRef[];
   v: 1;
   // AGT-14: the human's actually-focused mode (was hardcoded "figure"), so an
-  // agent knows which surface the human is on. The figure-centric fields below
-  // stay populated (the figure model is the richest live context we expose).
-  surface: ModeId;
+  // agent knows which surface the human is on. Figure digest fields are populated
+  // only while the focused Figure/Slide editor owns the current project store.
+  surface: string;
   projectRoot: string | null;
   activeFigureId: string | null;
   selectedFrameId: string | null;
@@ -93,13 +92,14 @@ function digestGroups(fig: Figure): ContextGroup[] {
 
 export function getAppContext(): AppContext {
   const p = get(project);
-  const surface = get(focusedMode);
-  const relevant = get(view) === "workspace" && get(embeddedProjectRoot) === get(currentProject)?.path && (surface === "figure" || surface === "slide") && storeTenant() === surface && hasFlushOwner(surface);
+  const stamp = buildContextStamp();
+  const relevant = figureContextRelevant() && stamp.surface !== "present";
   const fig = relevant ? getActiveFigure(p) : null;
   const sel = get(selection);
   return {
+    ...stamp,
     v: 1,
-    surface,
+    selectionTargets: stamp.targets ?? [],
     projectRoot: get(currentProject)?.path ?? null,
     activeFigureId: relevant ? get(activeFigureId) : null,
     selectedFrameId: relevant ? get(selectedFrameId) : null,

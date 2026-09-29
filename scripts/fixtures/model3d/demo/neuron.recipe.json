@@ -1,0 +1,14 @@
+{
+  "env": null,
+  "generatedAt": "2026-09-28T20:25:53Z",
+  "inputs": [],
+  "outputs": {
+    "glb": "neuron.glb",
+    "manifest": "neuron.fluxplot.json"
+  },
+  "params": {},
+  "plot": "neuron",
+  "schemaVersion": "0.3.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

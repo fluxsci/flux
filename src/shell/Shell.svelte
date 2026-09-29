@@ -1,18 +1,24 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { fade } from "svelte/transition";
   import TitleBar from "./TitleBar.svelte";
   import Home from "./Home.svelte";
   import Workspace from "./Workspace.svelte";
   import Toasts from "./Toasts.svelte";
-  import SyncConflicts from "./SyncConflicts.svelte";
   import Help from "../lib/Help.svelte";
-  import { view, openProjectAt } from "./shellStore";
+  import { view, openProjectAt, currentProject } from "./shellStore";
   import { DUR } from "../lib/motion/tokens";
   import { get } from "svelte/store";
   import { fileBridge } from "../lib/project/types";
   import { pushToast, type ToastLevel } from "../lib/toast";
   import { settings } from "../lib/settings";
+  import { aiOpen, startAIMonitor } from "./agent/aiMonitorState";
+  import { contextCommands } from "./command/globalCommands";
+  import CommandPalette from "./command/CommandPalette.svelte";
+  let homePalette = $state(false);
+  let AI: typeof import("./agent/AIPanel.svelte").default | null = $state(null);
+  const loadAI = () => import("./agent/AIPanel.svelte").then(m => AI = m.default);
+  $effect(() => { if ($aiOpen && !AI) void loadAI(); });
   import { installLifecycle } from "./lifecycle";
   import { warmModes, ALL_MODES } from "./modeRegistry";
   // (bibLoad is dynamic-imported in onCapturePayload — a static edge from the
@@ -21,7 +27,26 @@
   import { assignJob } from "../lib/references/assignJob.svelte";
   import { captureStatus } from "../lib/references/captureStatus";
   import { captureIntakeOnStartup } from "../lib/references/captureIntake.svelte";
-  import { conflictsOnStartup } from "../lib/project/conflicts";
+
+  import { inboxOpen } from "./inbox/inboxState";
+  import { installAnnotateChord, annotationOpen, yieldsToShellModal } from "./agent/annotateChord";
+  import { backgroundPermissions } from "./inbox/backgroundState";
+  import { askOpen, askRequest, closeAsk } from "./agent/askChord";
+  // Run during parent initialization, before any child mounts its listeners.
+  onDestroy(installAnnotateChord());
+  let Ask: typeof import("./agent/AskSurface.svelte").default | null = $state(null);
+  const loadAsk = () => import("./agent/AskSurface.svelte").then(m => Ask = m.default);
+  $effect(() => { if ($askOpen && !Ask) void loadAsk(); });
+  let Annotation: typeof import("./agent/AnnotationSurface.svelte").default | null = $state(null);
+  const loadAnnotation = () => import("./agent/AnnotationSurface.svelte").then(m => Annotation = m.default);
+  $effect(() => { if ($annotationOpen && !Annotation) void loadAnnotation(); });
+  $effect(() => { if ($view === "workspace") void import("./agent/annotationStore").then(m => m.initAnnotationStore()); });
+
+  let Inbox: typeof import("./inbox/InboxPanel.svelte").default | null = $state(null);
+  const loadInbox = () => import("./inbox/InboxPanel.svelte").then(m => Inbox = m.default);
+  $effect(() => { if ($inboxOpen && !Inbox) void loadInbox(); });
+  $effect(() => { if ($view === "workspace") void import("./inbox/inboxStore").then(m => m.initInboxStore()); });
+  $effect(() => { if ($askRequest && $askRequest.root !== $currentProject?.path) closeAsk(); });
 
   // Web capture: the bookmarklet downloads a file, the capture watcher files it, and the
   // result surfaces HERE — shell-level, so it shows in any mode and even on Home (a capture
@@ -54,6 +79,7 @@
   });
 
   onMount(() => {
+    const stopAI = startAIMonitor();
     installLifecycle(); // W5: consolidated beforeunload + quit-flush answering
     // W15: warm paper (the default first mode) during Home IDLE — after first
     // paint, so the 920KB chunk never competes with Home interactivity (the
@@ -61,6 +87,10 @@
     const idle: (fn: () => void) => void =
       typeof requestIdleCallback === "function" ? (fn) => requestIdleCallback(fn) : (fn) => void setTimeout(fn, 250);
     idle(() => warmModes(["paper"]));
+    idle(() => void loadAnnotation());
+    idle(() => void loadAI());
+    idle(() => void loadInbox());
+    idle(() => void loadAsk());
     // Zotero startup sync (2026-07-29): pull anything new from the connected BBT
     // auto-export once the app is idle. Dynamic import — the job (and, through it,
     // the bib/import stack) must never ride the eager Home bundle (W15).
@@ -83,9 +113,6 @@
         // Web capture: pull in anything captured while Flux was closed. The only other pull is
         // the Library's Assign button — never on focus, never on a watcher event.
         captureIntakeOnStartup();
-        // The reference library syncs between machines like a project does, and its
-        // conflicts mostly arrive while Flux is closed: scan it now, banner if needed.
-        void conflictsOnStartup();
         // Multi-window: a window created to open a specific project (a CLI
         // project-dir arg, or `flux <dir>` relayed via second-instance) boots
         // straight into it instead of Home. One-shot; best-effort.
@@ -100,6 +127,10 @@
     // Multi-window: Ctrl/Cmd+Shift+N opens a fresh window at Home. Shell-level
     // so it works in every mode and on Home; macOS also has the File-menu item.
     const onNewWindowKey = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e)) return;
+      if (get(view) === "home" && e.code === "KeyK" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault(); homePalette = !homePalette; return;
+      }
       if (e.code === "KeyN" && e.shiftKey && (e.ctrlKey || e.metaKey) && !e.altKey) {
         e.preventDefault();
         void fileBridge()?.newWindow?.();
@@ -107,6 +138,7 @@
     };
     window.addEventListener("keydown", onNewWindowKey);
     return () => {
+      stopAI();
       unsub?.();
       window.removeEventListener("keydown", onNewWindowKey);
     };
@@ -115,9 +147,6 @@
 
 <div class="shell">
   <TitleBar />
-  <!-- Sync conflicts: shell-level so the banner shows in every mode, and directly under
-       the title bar so it reads as a condition of the window rather than of one pane. -->
-  <SyncConflicts />
   <div class="shell-body">
     {#if $view === "home"}
       <div
@@ -141,6 +170,13 @@
   <!-- Keyboard reference: mounted at the Shell so "?" works on Home too, not
        just inside a project (its own listener ignores typing targets). -->
   <Help />
+  {#if Inbox && $inboxOpen}<Inbox />{/if}
+  {#if Annotation}<Annotation />{/if}
+  {#if $aiOpen && AI}<AI />{/if}
+  {#if homePalette && $view === "home"}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => homePalette = false} />{/if}
+  {#if Ask && $askOpen && $askRequest}{#key $askRequest.generation}<Ask request={$askRequest} />{/key}{/if}
+
+  {#if $backgroundPermissions.length}{#await import("./inbox/BackgroundApproval.svelte") then module}<module.default />{/await}{/if}
 
   {#if capture}
     <div

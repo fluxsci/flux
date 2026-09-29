@@ -1,14 +1,7 @@
-// R3 — FluxReader "Ask AI" context handoff (terminal-first rework, 2026-07-20:
-// the bespoke AgentDrawer is retired — the reader mounts the SHARED terminal
-// session and PREFILLS questions; agents get reader state via the flux MCP's
-// get_reading_context). Two parts:
-// presence: main-process / build-config source shapes — not headless-drivable (WS-7.5).
-//  1. LIVE: launch the flux MCP server both ways a principal launch resolves it
-//     (repo tsx + flux-mcp.ts; the packaged bundle) and drive a real stdio
-//     JSON-RPC handshake through tools/call get_reading_context.
-//  2. SOURCE: assert the wiring (agent.cjs mcpSpecFor + roster {mcpJson} embed,
-//     ReaderMode terminal pane + prefill routing, PdfView ✦ menu).
-//   Run: npx tsx scripts/verify-r3-agent.ts
+// R3 — FluxReader context handoff to external agents. The live MCP handshakes
+// cover source and bundled entry points; source checks pin the Reader selection
+// seam and the D13 terminal removal.
+// Run through scripts/run-verifies.mjs --tier pure --only r3-agent.
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -28,7 +21,7 @@ function assert(cond: unknown, msg: string) {
 }
 const read = (p: string) => readFileSync(join(root, p), "utf8");
 
-// --- 1. live MCP handshake (both commands agent:mcpSpec can return) -----------------
+// --- 1. live MCP handshake (source and bundled entry points) -----------------
 // Dev: repo tsx bin + flux-mcp.ts. Packaged: the esbuild bundle dist/flux-mcp.mjs
 // (spawned via ELECTRON_RUN_AS_NODE from app.asar.unpacked — here plain `node` is
 // the equivalent runtime). Both must complete the same stdio JSON-RPC handshake.
@@ -41,7 +34,7 @@ function mcpHandshake(cmd: string, cmdArgs: string[], label: string): Promise<vo
       cwd: fakeProject,
       stdio: ["pipe", "pipe", "pipe"],
       // never run the FluxConfig migration against the real HOME from a test
-      env: { ...process.env, FLUX_NO_MIGRATE: "1" },
+      env: { ...process.env, FLUX_MCP_TOOLSET: "full", FLUX_NO_MIGRATE: "1" },
     });
     const timeout = setTimeout(() => {
       assert(false, `[${label}] MCP server answered within 25s (timed out)`);
@@ -109,7 +102,7 @@ function mcpHandshake(cmd: string, cmdArgs: string[], label: string): Promise<vo
 }
 
 console.log("R3 — live flux MCP server, dev command (get_reading_context):");
-// Spawn tsx the way mcpSpecForCli does: this node + the installed CLI. The
+// Spawn tsx through this node + the installed CLI. The
 // .bin shim is an sh script on Windows and its .cmd twin cannot be spawned
 // without a shell on current Node, so neither is a portable command.
 const tsxCli = resolveTsxCli();
@@ -118,7 +111,7 @@ assert(existsSync(tsxCli) && existsSync(entry), "dev MCP command exists (the ins
 await mcpHandshake(process.execPath, [tsxCli, entry, fakeProject], "dev");
 
 // Packaged twin: if the CLI bundle was built, the MCP bundle MUST exist beside it
-// (a built-but-drifted dist/ is exactly the state that shipped a broken Ask Claude).
+// Both headless entry points ship together.
 const cliBundle = join(root, "dist", "flux-cli.mjs");
 const mcpBundle = join(root, "dist", "flux-mcp.mjs");
 if (existsSync(cliBundle)) {
@@ -130,27 +123,37 @@ if (existsSync(cliBundle)) {
 }
 
 // --- 2. source wiring -----------------------------------------------------------------
-console.log("\nR3 — main-process MCP resolution (source):");
-const agentCjs = read("electron/ipc/agent.cjs");
-assert(/function mcpSpecFor\(/.test(agentCjs), "agent family resolves the MCP spec (mcpSpecFor)");
-assert(/node_modules",\s*"\.bin",/.test(agentCjs) && /"tsx\.cmd" : "tsx"/.test(agentCjs) && /flux-mcp\.ts/.test(agentCjs), "dev spec = repo tsx bin + flux-mcp.ts (absolute; tsx.cmd twin on win32 — the agent spawns from its own cwd)");
-assert(/app\.asar\.unpacked", "dist", "flux-mcp\.mjs"/.test(agentCjs) && /ELECTRON_RUN_AS_NODE/.test(agentCjs), "packaged spec = unpacked bundle on Electron-as-Node");
-assert(/mcpSpec: mcp\.ok \? \{ command: mcp\.command/.test(agentCjs), "principalSpec embeds the MCP spec ({mcpJson} roster placeholder)");
+console.log("\nR3 — MCP packaging and IPC contract (source):");
 assert(/^\s*- dist\/flux-mcp\.mjs/m.test(read("electron-builder.yml")), "electron-builder.yml asar-unpacks dist/flux-mcp.mjs (the packaged spawn path)");
-assert(!/agent:mcpSpec/.test(read("electron/ipc/contract.cjs")), "the retired agent:mcpSpec channel is gone from the contract");
 
-console.log("\nR3 — reader terminal + prefill routing (source):");
+// D13 retires the in-app shell and its passage prefill. Reader context remains
+// available to external agents; F4 routes questions into the read-only Ask popover.
+console.log("\nR3 — reader context without an in-app terminal (source):");
 const rm = read("src/shell/modes/reader/ReaderMode.svelte");
-assert(/import TerminalPane from "\.\.\/\.\.\/terminal\/TerminalPane\.svelte"/.test(rm), "reader mounts the SHARED terminal pane (one session with the paper margin)");
-assert(/async function askAgent\(/.test(rm) && /terminalPrefill\(/.test(rm), "askAgent opens the pane and PREFILLS the question (never submits)");
 const rd = read("src/shell/modes/reader/ReaderDoc.svelte");
-assert(/onAsk=\{\(\) => sendHighlightToTerminal\(\w+!?\)\}/.test(rd), "popover ✦ routes the highlight into the terminal");
-assert(/onAskSelection=\{\(text, page\)/.test(rd), "selection ✦ routes the passage into the terminal");
-const ts = read("src/shell/terminal/terminalSession.ts");
-assert(/export function prefill\(/.test(ts) && /t \+ " "/.test(ts), "terminalSession.prefill writes WITHOUT a newline (prefill, not submit)");
-assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
 const pv = read("src/shell/modes/reader/PdfView.svelte");
-assert(/onAskSelection\?: \(text: string, page: number\)/.test(pv) && /class="mask"/.test(pv), "selection menu carries the ✦ ask button");
+const hp = read("src/shell/modes/reader/HighlightPopover.svelte");
+assert(!/TerminalPane|terminalPrefill|askAgent|agentPane/.test(rm + rd), "Reader has no terminal mount or prefill route");
+assert(!/onAskSelection/.test(pv + hp), "Reader has no retired terminal passage-prefill callback");
+assert(/onAsk=\{askPassage\}/.test(rd) && /requestAsk\(\{ targets: \[\{ kind: "passage"/.test(rd), "F4 Ask reaches the in-app surface with the exact passage target");
+assert(/onAsk=\{\(\) => askPassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "F4 saved-highlight Ask retains its quote, page and id");
+assert(/aria-label="Annotate this passage"/.test(pv) && /onAnnotate\?\.\(menu\.anchor\.quote, menu\.page\)/.test(pv), "Reader selection action passes the exact quote/page to Annotate");
+assert(/onAnnotate=\{annotatePassage\}/.test(rd) && /requestAnnotation\(\{ targets: \[\{ kind: "passage"/.test(rd), "Reader passage action reaches the unified surface with a passage target");
+assert(/aria-label="Annotate this passage"/.test(hp) && /onAnnotate=\{\(\) => annotatePassage\(ann.anchor.quote, ann.page, ann.id\)\}/.test(rd), "Saved highlight action preserves its quote, page, and highlight id");
+assert(/onSelect=\{handleSelect\}/.test(rd) && /onSelect\?\.\(anchor\.quote, page\)/.test(pv), "selection still publishes the exact passage and page");
+assert(/reader-context\.json/.test(read("src/lib/references/items.ts")), "reader still publishes reader-context.json (any session can get_reading_context)");
+for (const file of ["src/shell/terminal/terminalSession.ts", "src/shell/terminal/TerminalPane.svelte", "src/shell/modes/paper/margin/views/TerminalView.svelte", "electron/ipc/terminal.cjs"]) {
+  assert(!existsSync(join(root, file)), `retired terminal file is absent: ${file}`);
+}
+assert(!/pty:/.test(read("electron/ipc/contract.cjs") + read("electron/preload.cjs")), "the PTY IPC surface is absent");
+assert(!/TermBridge/.test(read("src/lib/project/types.ts")), "FileBridge has no terminal API");
+assert(!/nodePty|terminalFamily|reapPtys/.test(read("electron/main.cjs")), "Electron no longer loads or registers the terminal backend");
+const pkg = JSON.parse(read("package.json"));
+const lock = JSON.parse(read("package-lock.json"));
+for (const name of ["@lydell/node-pty", "@xterm/xterm", "@xterm/addon-fit"]) {
+  assert(!pkg.dependencies?.[name] && !lock.packages?.[`node_modules/${name}`], `${name} is absent from runtime dependencies and lockfile`);
+}
+assert(!/@lydell|node-pty/.test(read("electron-builder.yml")), "packaging has no PTY native-module entries or architecture caveats");
 
 if (failures) {
   console.error(`\nR3 AGENT-HANDOFF VERIFY: FAIL — ${failures} assertion(s)`);

@@ -40,7 +40,9 @@ website:
           - modes/library.qmd
       - section: "Working with agents"
         contents:
-          - agents/collaboration.qmd
+          - agents/connect.qmd
+          - agents/annotations.qmd
+          - agents/context.qmd
       - section: "Integrations"
         contents:
           - integrations/web-capture.qmd

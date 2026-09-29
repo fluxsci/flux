@@ -166,8 +166,7 @@ async function documentPaths(root: string, io: ReferenceSyncIO): Promise<string[
     if (!io.readdir || !(await io.exists(abs(root, rel)))) return;
     if (depth > 20) throw new Error(`Cannot inspect deeply nested documents in ${rel}`);
     for (const e of await io.readdir(abs(root, rel))) {
-      if (e.name.startsWith(".") || e.name.includes(".sync-conflict-")) continue;
-      if (rel === "Context" && ["Transcripts", "Dispatches"].includes(e.name)) continue;
+      if (e.name.startsWith(".")) continue;
       const child = `${rel}/${e.name}`;
       if (e.dir) await walk(child, depth + 1);
       else if (/\.(qmd|md)$/i.test(e.name)) paths.add(child);

@@ -6,9 +6,22 @@ import { trackDuration } from "../../../../lib/slide/compile";
 import { get } from "svelte/store";
 import { activeBeat, selTrackIds, commitDeckLive, deckOverlay } from "../../../../lib/slide/store";
 import { activeFigureId, selection, partSelection } from "../../../../lib/store";
-import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks } from "../../../../lib/slide/ops";
-import type { Track } from "../../../../lib/slide/types";
+import { slideById, duplicateTrack, moveTrackToBeat, setTrackEnabled, removeTracks, setTrack, setTrackCurve } from "../../../../lib/slide/ops";
+import type { Deck, Track } from "../../../../lib/slide/types";
+import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
+import { defaultEasingFor } from "../../../../lib/slide/presetCatalog";
+import { scene3dManifests } from "../../../../lib/model3d/store";
+import { transformPreState } from "../../../../lib/slide/tween";
+import { plotManifests } from "../../../../lib/plot/store";
+
+function manifestForDeck(deck: Deck, sid: string) {
+  const slide = slideById(deck, sid), manifests = get(plotManifests), models = get(scene3dManifests);
+  return (target: string) => {
+    const el = slide ? transformPreState(slide, target, get(activeBeat)) : undefined;
+    return el?.type === "model3d" ? models[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : undefined;
+  };
+}
 
 function ctx(): { sid: string; ids: string[] } | null {
   const sid = get(activeFigureId); // slide id === projected figure id
@@ -17,7 +30,7 @@ function ctx(): { sid: string; ids: string[] } | null {
 }
 
 /** Mutate EVERY selected track in one commit (bulk edit). */
-export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): void {
+export function withSelectedTracks(fn: (t: Track, resolved: Track, deck: Deck, slideId: string) => void, coalesce?: string): void {
   const c = ctx();
   if (!c) return;
   commitDeckLive((d) => {
@@ -26,11 +39,37 @@ export function withSelectedTracks(fn: (t: Track) => void, coalesce?: string): v
       // A birth owns a result identity and must remain a whole-object Change.
       // Bulk property callbacks may share timing, never rewire that ownership.
       const birth = t.ghostFrom ? {target:t.target, ghostFrom:t.ghostFrom, preset:t.preset} : null;
-      fn(t);
+      fn(t, resolveTrack(t, d), d, c.sid);
       if (birth) { Object.assign(t, birth); delete t.part; delete t.selector; }
-      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; }
+      if (familyOf(t) === "media") { t.duration = 0; delete t.stagger; delete t.easing; delete t.influence; delete t.curve; }
     }
   }, coalesce ? { coalesce } : undefined);
+}
+
+type TimingCopy = Pick<Track, "duration" | "curve" | "easing" | "influence" | "stagger">;
+let copiedTiming: TimingCopy | null = null;
+export function canPasteTiming(): boolean { return copiedTiming !== null; }
+
+/** Copy the resolved HOW, so a paste does not depend on the source's style. */
+export function copySelectedTiming(): void {
+  const c = ctx(), d = get(deckOverlay);
+  const t = c && d && slideById(d, c.sid)?.beats.flatMap(b => b.tracks).find(t => t.id === c.ids.at(-1));
+  if (!t || !d || familyOf(t) === "media") return;
+  const r = resolveTrack(t, d);
+  copiedTiming = structuredClone({ duration: trackDuration(r), curve: r.curve, influence: r.influence && (r.influence.in > 0 || r.influence.out > 0) ? r.influence : undefined,
+    easing: r.easing ?? defaultEasingFor(r.preset), stagger: r.stagger });
+}
+
+export function pasteSelectedTiming(): void {
+  if (!copiedTiming) return;
+  const timing = copiedTiming;
+  withSelectedTracks((t, _resolved, d, sid) => {
+    if (!t.id || familyOf(t) === "media") return;
+    setTrack(d, sid, t.id, { duration: timing.duration });
+    if (timing.influence && !timing.curve) setTrack(d, sid, t.id, { influence: timing.influence });
+    else setTrackCurve(d, sid, t.id, timing.curve ?? timing.easing ?? null);
+    t.stagger = timing.stagger ? structuredClone(timing.stagger) : t.styleId ? { perMs: 0 } : undefined;
+  });
 }
 
 export function deleteSelectedTracks(): void {
@@ -76,9 +115,11 @@ export function toggleSelectedDisabled(): void {
 
 /** Nudge start (or duration) by ±ms on the whole selection (keyboard retime). */
 export function nudgeSelected(field: "start" | "duration", deltaMs: number): void {
-  withSelectedTracks((t) => {
-    if (field === "start") t.start = Math.max(0, (t.start ?? 0) + deltaMs);
-    else if (familyOf(t) !== "media") t.duration = Math.max(50, trackDuration(t) + deltaMs);
+  withSelectedTracks((t, resolved) => {
+    if (field === "start") {
+      if (t.anchor) t.anchor.offsetMs = (t.anchor.offsetMs ?? 0) + deltaMs;
+      else t.start = Math.max(0, (resolved.start ?? 0) + deltaMs);
+    } else if (familyOf(resolved) !== "media") t.duration = Math.max(50, trackDuration(resolved) + deltaMs);
   }, `nudge:${field}`);
 }
 
@@ -95,7 +136,8 @@ export function moveSelectedToAdjacentBeat(dir: 1 | -1): void {
   if (to < 1 || to >= s.beats.length) return;
   const toId = s.beats[to].id;
   commitDeckLive((d) => {
-    for (const id of c.ids) moveTrackToBeat(d, c.sid, id, toId);
+    const manifestFor = manifestForDeck(d, c.sid);
+    for (const id of c.ids) moveTrackToBeat(d, c.sid, id, toId, undefined, manifestFor);
   });
   activeBeat.set(to);
 }
@@ -106,8 +148,9 @@ export function moveSelectedToBeat(beatId: string, at?: number): void {
   if (!c) return;
   commitDeckLive((d) => {
     let lane = at;
+    const manifestFor = manifestForDeck(d, c.sid);
     for (const id of c.ids) {
-      moveTrackToBeat(d, c.sid, id, beatId, lane);
+      moveTrackToBeat(d, c.sid, id, beatId, lane, manifestFor);
       if (lane != null) lane++;
     }
   });

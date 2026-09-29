@@ -1,3 +1,6 @@
+import { staticModelElement, staticModelContext } from "../staticModels";
+import { model3dStaticSvg } from "../../model3d/static";
+import { slideModelPosterIO } from "../model3dPosterIO";
 // Slide deck -> PowerPoint .pptx (2026-09-24, owner request: "export slides
 // in pptx too; vector images remain vector, so you can edit the single
 // elements").
@@ -18,14 +21,18 @@
 //               individual editable shapes and text;
 //   gradient-painted shapes -> the same SVG picture treatment;
 //   image / video -> the raster (a video's poster frame), crop kept.
-// Animations are not translated: a slide shows where its builds end.
+// Builds and transitions: pptxBuilds.ts turns each slide into its resting
+// state plus one page per click, joined by Morph (the "animated" export); the
+// "final" export writes each slide once, where its builds end.
 //
-// Pure apart from the injected rasterizer (PNG fallbacks need a canvas): the
-// renderer passes a canvas-backed one, the pure gate a stub.
+// Pure apart from the injected rasterizer (PNG fallbacks need a canvas) and
+// measurer (a plot's painted extent needs layout): the renderer passes
+// canvas/DOM-backed ones, the pure gate stubs.
 import { zipSync, strToU8 } from "fflate";
 import type { Element } from "../../types";
 import type { ExportPayload } from "../payload";
-import { evaluateSlide, type EvaluatedSlide } from "../embedRender";
+import type { EvaluatedSlide } from "../embedRender";
+import { pptxPages, type PptxPage, type PptxPages, type PptxTransition } from "./pptxBuilds";
 import { effectiveHidden } from "../../groups";
 import type { Figure as FigureShape } from "../../types";
 import { elementToSvg } from "../../export";
@@ -37,6 +44,11 @@ import { dataUrlToBytes } from "../../assets";
 
 /** Renders an SVG to PNG bytes at the given pixel size (the fallback image). */
 export type Rasterize = (svg: string, widthPx: number, heightPx: number) => Promise<Uint8Array>;
+/** The painted extent of an SVG whose root maps 1:1 onto `width`×`height`, in
+ *  those units (it may reach past the root), or null when unmeasurable. A
+ *  plot's axis label can sit outside the plot frame (the canvas shows it,
+ *  overflow visible), so the picture is sized to this, not to the frame. */
+export type MeasureSvg = (svg: string, width: number, height: number) => Promise<{ x: number; y: number; width: number; height: number } | null>;
 
 export interface DeckPptxSlide { payload: ExportPayload; notes?: string }
 export interface DeckPptxResult { bytes: Uint8Array; slides: number; warnings: string[] }
@@ -89,11 +101,17 @@ interface SlideContext {
   map: (x: number, y: number) => { x: number; y: number }; // stage px -> slide EMU
   zoom: number;
   nextId: () => number;
-  media: Media[];
-  rels: string[]; // relationship XML for this slide
-  addMedia: (m: Omit<Media, "name">) => string; // returns the rId
+  /** A media part by content key (written once per package, however many
+   *  pages show it); returns this slide's rId for it. */
+  media: (key: string, make: () => Promise<Omit<Media, "name">>) => Promise<string>;
+  names: Map<string, string>;
   rasterize: Rasterize;
+  measure: MeasureSvg | undefined;
   warnings: string[];
+  /** 1-based number of the Flux slide this page comes from (for warnings). */
+  source: number;
+  /** PptxPage.stills: the state a picture is drawn from, when not its frame's. */
+  stills: Map<string, Element> | undefined;
 }
 
 function xfrm(ctx: SlideContext, x: number, y: number, w: number, h: number, rotation = 0, flipH = false, flipV = false): string {
@@ -113,7 +131,7 @@ function outlineXml(ctx: SlideContext, stroke: string | undefined, width: number
 }
 
 function nv(ctx: SlideContext, el: Element, kind: "sp" | "pic" | "cxnSp", txBox = false): string {
-  const id = ctx.nextId(), name = esc(el.name || `${el.type} ${id}`);
+  const id = ctx.nextId(), name = esc(ctx.names.get(el.id) ?? (el.name || `${el.type} ${id}`));
   if (kind === "pic") return `<p:nvPicPr><p:cNvPr id="${id}" name="${name}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`;
   if (kind === "cxnSp") return `<p:nvCxnSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>`;
   return `<p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr${txBox ? ' txBox="1"' : ""}/><p:nvPr/></p:nvSpPr>`;
@@ -220,9 +238,9 @@ function picXml(ctx: SlideContext, el: Element, x: number, y: number, w: number,
  *  readers without SVG support. */
 async function svgPicture(ctx: SlideContext, el: Element, svg: string, x: number, y: number, w: number, h: number, rotation: number): Promise<string> {
   const scale = 2; // fallback raster at 2x the stage size
-  const png = await ctx.rasterize(svg, Math.max(1, Math.round(w * ctx.zoom * scale)), Math.max(1, Math.round(h * ctx.zoom * scale)));
-  const pngId = ctx.addMedia({ bytes: png, ext: "png" });
-  const svgId = ctx.addMedia({ bytes: strToU8(svg), ext: "svg" });
+  const pw = Math.max(1, Math.round(w * ctx.zoom * scale)), ph = Math.max(1, Math.round(h * ctx.zoom * scale));
+  const pngId = await ctx.media(`png ${pw}x${ph} ${svg}`, async () => ({ bytes: await ctx.rasterize(svg, pw, ph), ext: "png" }));
+  const svgId = await ctx.media(`svg ${svg}`, async () => ({ bytes: strToU8(svg), ext: "svg" }));
   const blip = `<a:blip r:embed="${pngId}"><a:extLst><a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}"><asvg:svgBlip xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main" r:embed="${svgId}"/></a:ext></a:extLst></a:blip>`;
   return picXml(ctx, el, x, y, w, h, rotation, blip);
 }
@@ -235,9 +253,32 @@ async function plotXml(ctx: SlideContext, el: Extract<Element, { type: "plot" }>
   // Drawn unrotated at the origin; the picture frame carries the rotation, so
   // "Convert to Shape" yields axis-aligned pieces inside a rotated group.
   const flat = { ...el, x: 0, y: 0, rotation: 0 };
-  const markup = ctx.ev.plotMarkup(flat);
+  let markup = ctx.ev.plotMarkup(flat);
   if (!markup) throw new Error(`Cannot render plot ${el.name ?? el.id}`);
-  return svgPicture(ctx, el, standaloneSvg(markup, el.width, el.height), el.x, el.y, el.width, el.height, el.rotation);
+  // Uncropped, the plot overflows its frame as on the canvas (mount.ts); a
+  // nested <svg> clips by default, and so would a picture sized to the frame,
+  // cutting an axis label that sits outside it. So: overflow visible, and the
+  // picture grown to the painted extent. A crop still clips to the frame.
+  const { width: w, height: h } = el;
+  let box = { x: 0, y: 0, width: w, height: h };
+  if (!el.crop) {
+    markup = markup.replace(/^<svg\b(?![^>]*\soverflow=)/, '<svg overflow="visible"');
+    const ink = ctx.measure ? await ctx.measure(standaloneSvg(markup, w, h), w, h) : null;
+    if (ink && ink.width > 0 && ink.height > 0) {
+      // Only a side the ink crosses grows, padded for strokes and antialiasing
+      // past the geometric box; a plot inside its frame keeps the frame.
+      const pad = 2, ix1 = ink.x + ink.width, iy1 = ink.y + ink.height;
+      let x0 = ink.x < 0 ? ink.x - pad : 0, y0 = ink.y < 0 ? ink.y - pad : 0;
+      let x1 = ix1 > w ? ix1 + pad : w, y1 = iy1 > h ? iy1 + pad : h;
+      if (el.rotation) {
+        // The frame turns about its own centre: keep that the plot's centre.
+        const dx = Math.max(-x0, x1 - w), dy = Math.max(-y0, y1 - h);
+        [x0, y0, x1, y1] = [-dx, -dy, w + dx, h + dy];
+      }
+      box = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    }
+  }
+  return svgPicture(ctx, el, standaloneSvg(markup, box.width, box.height, box.x, box.y), el.x + box.x, el.y + box.y, box.width, box.height, el.rotation);
 }
 
 async function vectorFallbackXml(ctx: SlideContext, el: Element): Promise<string> {
@@ -251,13 +292,13 @@ async function vectorFallbackXml(ctx: SlideContext, el: Element): Promise<string
   return svgPicture(ctx, el, standaloneSvg(inner, bw + 2 * pad, bh + 2 * pad, bx, by), bx, by, bw + 2 * pad, bh + 2 * pad, 0);
 }
 
-function rasterXml(ctx: SlideContext, el: Element, assetId: string, crop: { x: number; y: number; width: number; height: number } | null | undefined): string | null {
+async function rasterXml(ctx: SlideContext, el: Element, assetId: string, crop: { x: number; y: number; width: number; height: number } | null | undefined): Promise<string | null> {
   const url = ctx.payload.assets?.[assetId];
   if (!url || !url.startsWith("data:image/")) return null;
   const mime = url.slice(5, url.indexOf(";"));
   const ext = mime === "image/png" ? "png" : mime === "image/jpeg" || mime === "image/jpg" ? "jpeg" : null;
   if (!ext) return null;
-  const id = ctx.addMedia({ bytes: dataUrlToBytes(url), ext });
+  const id = await ctx.media(url, async () => ({ bytes: dataUrlToBytes(url), ext }));
   let srcRect = "";
   const size = ctx.payload.assetSizes?.[assetId];
   if (crop && size && size.width > 0 && size.height > 0) {
@@ -266,6 +307,11 @@ function rasterXml(ctx: SlideContext, el: Element, assetId: string, crop: { x: n
   }
   return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`, srcRect);
 }
+
+/** PowerPoint has no mesh animation: every model page is a still (Design mesh
+ *  and furniture at the page's sampled placement). Reported once per export
+ *  whenever a slide carries a model, even one no page shows. */
+const MODEL_STILL_NOTE = "3D animation exported as a still";
 
 async function elementXml(ctx: SlideContext, el: Element): Promise<string | null> {
   if (el.hidden) return null;
@@ -277,8 +323,28 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
     case "line": return painted ? vectorFallbackXml(ctx, el) : lineXml(ctx, el);
     case "path": return painted ? vectorFallbackXml(ctx, el) : (pathXml(ctx, el) ?? vectorFallbackXml(ctx, el));
     case "plot": return plotXml(ctx, el);
-    case "image": return rasterXml(ctx, el, el.assetId, el.crop) ?? vectorFallbackXml(ctx, el);
+    case "image": return (await rasterXml(ctx, el, el.assetId, el.crop)) ?? vectorFallbackXml(ctx, el);
     case "video": return rasterXml(ctx, el, el.posterAssetId, null);
+    case "model3d": {
+      if (!ctx.warnings.includes(MODEL_STILL_NOTE)) ctx.warnings.push(MODEL_STILL_NOTE);
+      const slide = ctx.payload.deck.slides.find(s => s.elements.some(e => e.id === el.id)) ?? ctx.payload.deck.slides[0];
+      // The still is composed at the origin of its own picture (the static
+      // composition is laid out in stage coordinates); the picture frame
+      // carries the page's placement, so a model that only moves reuses one
+      // image. A pop twin draws the still of the state it pops to or from.
+      const still = ctx.stills?.get(el.id) ?? el;
+      const model = { ...staticModelElement(still, slide), x: 0, y: 0 } as typeof el;
+      const context = staticModelContext(ctx.payload);
+      const composed = model3dStaticSvg(model, id => ctx.payload.assets?.[id], context);
+      if (composed.includes("data-model3d-placeholder")) {
+        const note = `Slide ${ctx.source}: 3D model "${el.name || el.id}" has no rendered still for this build state; showing a placeholder`;
+        if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
+      }
+      const svg = standaloneSvg(composed, still.width, still.height);
+      const png = await ctx.rasterize(svg, Math.max(1, Math.round(still.width * 2)), Math.max(1, Math.round(still.height * 2)));
+      const id = await ctx.media(`3d ${svg}`, async () => ({ bytes: png, ext: "png" }));
+      return picXml(ctx, el, el.x, el.y, el.width, el.height, el.rotation, `<a:blip r:embed="${id}"/>`);
+    }
     default: return vectorFallbackXml(ctx, el);
   }
 }
@@ -303,35 +369,87 @@ function themeXml(): string {
     `<a:bgFillStyleLst>${fill}${fill}${fill}</a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
 }
 
-/** Write a PowerPoint package from each slide's payload (gatherSlidePayload). */
-export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rasterize: Rasterize): Promise<DeckPptxResult> {
+const MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+const P14 = "http://schemas.microsoft.com/office/powerpoint/2010/main";
+const P159 = "http://schemas.microsoft.com/office/powerpoint/2015/09/main";
+/** A page's <p:transition>: how it is entered and, with advanceAfterMs, that
+ *  it leaves by itself. The exact duration (p14:dur) and Morph (p159) are
+ *  Office extensions, so each rides in mc:AlternateContent with a plain
+ *  fallback (a fade for Morph) for readers that lack them. */
+export function transitionXml(enter: PptxTransition, advanceAfterMs?: number): string {
+  const adv = advanceAfterMs != null ? ` advTm="${int(advanceAfterMs)}"` : "";
+  if (enter.kind === "none" || !(enter.ms > 0)) return adv ? `<p:transition${adv}/>` : "";
+  const spd = enter.ms < 500 ? "fast" : enter.ms < 1000 ? "med" : "slow";
+  const effect = enter.kind === "fade" ? "<p:fade/>" : enter.kind === "cover" ? '<p:cover dir="l"/>' : enter.kind === "push" ? '<p:push dir="l"/>' : "";
+  const [requires, rich, plain] = enter.kind === "morph"
+    ? ["p159", `<p159:morph xmlns:p159="${P159}" option="byObject"/>`, "<p:fade/>"]
+    : ["p14", effect, effect];
+  return `<mc:AlternateContent xmlns:mc="${MC}"><mc:Choice xmlns:${requires}="${requires === "p159" ? P159 : P14}" Requires="${requires}">` +
+    `<p:transition xmlns:p14="${P14}" spd="${spd}" p14:dur="${int(enter.ms)}"${adv}>${rich}</p:transition></mc:Choice>` +
+    `<mc:Fallback><p:transition spd="${spd}"${adv}>${plain}</p:transition></mc:Fallback></mc:AlternateContent>`;
+}
+
+/** Write a PowerPoint package from each slide's payload (gatherSlidePayload).
+ *  `pages`: "animated" (builds as Morph pages, pptxBuilds.ts) or "final". */
+export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rasterize: Rasterize, measure?: MeasureSvg, pages: PptxPages = "animated"): Promise<DeckPptxResult> {
   if (!slides.length) throw new Error("This deck has no slides to export");
   const stage = slides[0].payload.deck.stage;
   const emuBase = SLIDE_WIDTH_EMU / stage.width;
   const slideW = SLIDE_WIDTH_EMU, slideH = Math.round(stage.height * emuBase);
   const files: Record<string, Uint8Array> = {};
   const warnings: string[] = [];
-  let mediaCount = 0;
   const contentDefaults = new Set<string>();
+  const mediaByKey = new Map<string, Promise<string>>(); // content key -> part name
+  let mediaCount = 0;
+  const measured = new Map<string, ReturnType<MeasureSvg>>();
+  const measureOnce: MeasureSvg | undefined = measure && ((svg, w, h) => {
+    const key = `${w}x${h} ${svg}`;
+    if (!measured.has(key)) measured.set(key, measure(svg, w, h));
+    return measured.get(key)!;
+  });
 
+  const plan: { page: PptxPage; payload: ExportPayload; source: number }[] = [];
+  if (slides.some((s) => (s.payload.deck.assets ?? []).some((a) => a.kind === "glb"))) warnings.push(MODEL_STILL_NOTE);
   for (const [i, s] of slides.entries()) {
-    const n = i + 1;
-    const ev = evaluateSlide(s.payload, Math.max(0, s.payload.deck.slides[0].beats.length - 1));
+    try {
+      for (const page of pptxPages(s.payload, pages, i + 1)) plan.push({ page, payload: s.payload, source: i + 1 });
+    } catch (error) {
+      // A build that cannot be staged still exports, at its final state.
+      warnings.push(`Slide ${i + 1}: builds were not exported (${error instanceof Error ? error.message : String(error)})`);
+      for (const page of pptxPages(s.payload, "final", i + 1)) plan.push({ page, payload: s.payload, source: i + 1 });
+    }
+  }
+
+  for (const [i, { page, payload, source }] of plan.entries()) {
+    const n = i + 1, ev = page.ev;
     const cam = ev.camera, zoom = cam?.zoom ?? 1;
     const relItems: [string, string, string][] = [["rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"]];
+    const relByName = new Map<string, string>();
     let shapeId = 1;
     const ctx: SlideContext = {
-      ev, payload: s.payload, emu: emuBase * zoom, zoom, warnings, rasterize, media: [], rels: [],
+      ev, payload, emu: emuBase * zoom, zoom, warnings, rasterize, measure: measureOnce, names: page.names, source, stills: page.stills,
       map: (x, y) => cam
         ? { x: ((x - cam.x) * zoom + stage.width / 2) * emuBase, y: ((y - cam.y) * zoom + stage.height / 2) * emuBase }
         : { x: x * emuBase, y: y * emuBase },
       nextId: () => ++shapeId,
-      addMedia: (m) => {
-        const name = `image${++mediaCount}.${m.ext}`;
-        files[`ppt/media/${name}`] = m.bytes;
-        contentDefaults.add(m.ext);
-        const id = `rId${relItems.length + 1}`;
-        relItems.push([id, "image", `../media/${name}`]);
+      media: async (key, make) => {
+        let name = mediaByKey.get(key);
+        if (!name) {
+          name = make().then((m) => {
+            const part = `image${++mediaCount}.${m.ext}`;
+            files[`ppt/media/${part}`] = m.bytes;
+            contentDefaults.add(m.ext);
+            return part;
+          });
+          mediaByKey.set(key, name);
+        }
+        const part = await name;
+        let id = relByName.get(part);
+        if (!id) {
+          id = `rId${relItems.length + 1}`;
+          relItems.push([id, "image", `../media/${part}`]);
+          relByName.set(part, id);
+        }
         return id;
       },
     };
@@ -347,21 +465,22 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
         const xml = await elementXml(ctx, el);
         if (xml) shapes.push(xml);
       } catch (error) {
-        warnings.push(`Slide ${n}: ${el.name ?? el.id} was left out (${error instanceof Error ? error.message : String(error)})`);
+        const note = `Slide ${source}: ${el.name ?? el.id} was left out (${error instanceof Error ? error.message : String(error)})`;
+        if (!warnings.includes(note)) warnings.push(note);
       }
     }
     const bg = pptxColor(ev.background);
     const bgXml = bg ? `<p:bg><p:bgPr>${solid(bg)}<a:effectLst/></p:bgPr></p:bg>` : "";
-    files[`ppt/slides/slide${n}.xml`] = strToU8(`${XML}<p:sld ${NS_P}><p:cSld name="${esc(ev.slide.name ?? `Slide ${n}`)}">${bgXml}<p:spTree>${EMPTY_TREE}${shapes.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`);
+    files[`ppt/slides/slide${n}.xml`] = strToU8(`${XML}<p:sld ${NS_P}><p:cSld name="${esc(page.label)}">${bgXml}<p:spTree>${EMPTY_TREE}${shapes.join("")}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>${transitionXml(page.enter, page.advanceAfterMs)}</p:sld>`);
     files[`ppt/slides/_rels/slide${n}.xml.rels`] = strToU8(rels(relItems));
   }
 
-  const count = slides.length;
+  const count = plan.length;
   const slideRels: [string, string, string][] = [["rId1", "slideMaster", "slideMasters/slideMaster1.xml"],
-    ...slides.map((_, i) => [`rId${i + 2}`, "slide", `slides/slide${i + 1}.xml`] as [string, string, string]),
+    ...plan.map((_, i) => [`rId${i + 2}`, "slide", `slides/slide${i + 1}.xml`] as [string, string, string]),
     [`rId${count + 2}`, "presProps", "presProps.xml"], [`rId${count + 3}`, "viewProps", "viewProps.xml"],
     [`rId${count + 4}`, "theme", "theme/theme1.xml"], [`rId${count + 5}`, "tableStyles", "tableStyles.xml"]];
-  files["ppt/presentation.xml"] = strToU8(`${XML}<p:presentation ${NS_P} saveSubsetFonts="1"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="${slideW}" cy="${slideH}"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle><a:defPPr><a:defRPr lang="en-US"/></a:defPPr></p:defaultTextStyle></p:presentation>`);
+  files["ppt/presentation.xml"] = strToU8(`${XML}<p:presentation ${NS_P} saveSubsetFonts="1"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${plan.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`).join("")}</p:sldIdLst><p:sldSz cx="${slideW}" cy="${slideH}"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle><a:defPPr><a:defRPr lang="en-US"/></a:defPPr></p:defaultTextStyle></p:presentation>`);
   files["ppt/_rels/presentation.xml.rels"] = strToU8(rels(slideRels));
   files["ppt/slideMasters/slideMaster1.xml"] = strToU8(`${XML}<p:sldMaster ${NS_P}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${EMPTY_TREE}</p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle><a:lvl1pPr><a:defRPr sz="4400"/></a:lvl1pPr></p:titleStyle><p:bodyStyle><a:lvl1pPr><a:defRPr sz="2000"/></a:lvl1pPr></p:bodyStyle><p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle></p:txStyles></p:sldMaster>`);
   files["ppt/slideMasters/_rels/slideMaster1.xml.rels"] = strToU8(rels([["rId1", "slideLayout", "../slideLayouts/slideLayout1.xml"], ["rId2", "theme", "../theme/theme1.xml"]]));
@@ -383,7 +502,7 @@ export async function deckPptxBytes(title: string, slides: DeckPptxSlide[], rast
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
     [...contentDefaults].map((e) => `<Default Extension="${e}" ContentType="${mime[e]}"/>`).join("") +
     `<Override PartName="/ppt/presentation.xml" ContentType="${PML}.presentation.main+xml"/>` +
-    slides.map((_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="${PML}.slide+xml"/>`).join("") +
+    plan.map((_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="${PML}.slide+xml"/>`).join("") +
     `<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="${PML}.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="${PML}.slideLayout+xml"/>` +
     '<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>' +
     `<Override PartName="/ppt/presProps.xml" ContentType="${PML}.presProps+xml"/><Override PartName="/ppt/viewProps.xml" ContentType="${PML}.viewProps+xml"/><Override PartName="/ppt/tableStyles.xml" ContentType="${PML}.tableStyles+xml"/>` +
@@ -415,11 +534,40 @@ export const canvasRasterize: Rasterize = async (svg, widthPx, heightPx) => {
   }
 };
 
+/** The renderer's measurer: the SVG laid out, invisibly, at 1:1, and the
+ *  union of its painted leaves' boxes. Boxes ignore clipping, so a clipped
+ *  leaf (a data line held inside the axes) is left out rather than letting
+ *  its unclipped geometry grow the picture; so are hidden parts and defs. */
+export const domMeasure: MeasureSvg = async (svg, width, height) => {
+  const host = document.createElement("div");
+  host.style.cssText = `position:fixed;left:0;top:0;width:${width}px;height:${height}px;opacity:0;pointer-events:none;z-index:-1`;
+  host.innerHTML = svg;
+  document.body.appendChild(host);
+  try {
+    const root = host.querySelector("svg");
+    if (!root) return null;
+    const origin = root.getBoundingClientRect();
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const node of Array.from(root.querySelectorAll("path,line,polyline,polygon,rect,circle,ellipse,text,image,use,foreignObject"))) {
+      if (node.closest("defs,clipPath,mask,marker,pattern,symbol,[clip-path]")) continue;
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden" || style.clipPath && style.clipPath !== "none") continue;
+      const r = node.getBoundingClientRect();
+      if (r.width <= 0 && r.height <= 0) continue;
+      x0 = Math.min(x0, r.left - origin.left); y0 = Math.min(y0, r.top - origin.top);
+      x1 = Math.max(x1, r.right - origin.left); y1 = Math.max(y1, r.bottom - origin.top);
+    }
+    return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
+  } finally {
+    host.remove();
+  }
+};
+
 /** Read a SAVED deck and write it as .pptx bytes. Static pages show a video's
  *  poster frame, so the movie itself is never read. */
-export async function deckPptxDocument(root: string, deckId: string, io: import("../payload").SlidePayloadIO, rasterize: Rasterize): Promise<DeckPptxResult> {
+export async function deckPptxDocument(root: string, deckId: string, io: import("../payload").SlidePayloadIO, rasterize: Rasterize, measure?: MeasureSvg, pages: PptxPages = "animated"): Promise<DeckPptxResult> {
   const { readEmbedDeck, gatherSlidePayload } = await import("../payload");
-  const staticIO = { ...io, videoUrl: async () => "" };
+  const staticIO = { ...slideModelPosterIO(root, io), videoUrl: async () => "", modelData: "omit" as const };
   const deck = await readEmbedDeck(root, deckId, staticIO);
   const slides: DeckPptxSlide[] = [];
   const warnings: string[] = [];
@@ -428,6 +576,6 @@ export async function deckPptxDocument(root: string, deckId: string, io: import(
     for (const w of result.warnings) if (!warnings.includes(w)) warnings.push(w);
     slides.push({ payload: result.payload });
   }
-  const out = await deckPptxBytes(deck.title, slides, rasterize);
+  const out = await deckPptxBytes(deck.title, slides, rasterize, measure, pages);
   return { ...out, warnings: [...warnings, ...out.warnings] };
 }

@@ -9,8 +9,10 @@
   import { blockLayout, letterSpacing } from "./text";
   import { segmentAttrs } from "./export";
   import PlotElement from "./PlotElement.svelte";
+  import Model3dElement from "./Model3dElement.svelte";
 
   export let element: Element;
+  export let modelPartOpacity: Record<string, number> | undefined = undefined;
 
   // solid colours, or url(#…) gradients when a colormap is set (color/gradient.ts)
   $: paints = elementPaints(element);
@@ -53,6 +55,8 @@
   {/each}
   {#if element.type === "plot"}
     <PlotElement element={element} />
+  {:else if element.type === "model3d"}
+    <Model3dElement element={element} partOpacity={modelPartOpacity} />
   {:else if element.type === "video"}
     <!-- Authoring uses the prepared still: selection and direct manipulation
          never start a decoder, playback or audio. The shared player owns that. -->

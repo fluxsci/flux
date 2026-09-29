@@ -13,7 +13,7 @@
 // of project-relative paths. Everything else is the fallback for documents the
 // user has never arranged, and with no `documentOrder` at all the result is
 // exactly the historical sort (main first, then title; Context group last, in
-// mission → notebook → rules order).
+// project context → notebook → rules order).
 //
 // Two rules keep this self-healing, which matters because the list is a scan:
 // a path in the order that no longer exists is ignored, and a document the
@@ -41,7 +41,7 @@ export interface DocRow {
   isContext?: boolean;
 }
 
-/** Canonical rank of a stock Context document (mission → notebook → rules). */
+/** Canonical rank of a stock Context document (project context → notebook → rules). */
 function contextRank(rel: string): number {
   const i = CONTEXT_DOC_RELS.indexOf(rel);
   return i === -1 ? CONTEXT_DOC_RELS.length : i;
@@ -136,7 +136,7 @@ export interface RemovalBlocker {
  * `delete_document` verb (which refuses with the same words):
  *  - a legacy main remains protected for compatibility; new projects have no
  *    protected main role, only a replaceable default export pointer;
- *  - a Context document (mission / notebook / rules) is the project's agent
+ *  - a Context document (project context / notebook / rules) is the project's agent
  *    layer and is seeded back on the next open, so deleting it is a no-op
  *    with extra steps;
  *  - anything else has to be a document the project actually lists.
@@ -164,6 +164,14 @@ export function commentsSidecarRel(mainPath: string, rel: string): string {
   const base = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
   const name = rel === mainPath ? "comments.json" : `${base}.comments.json`;
   return dir ? `${dir}/${name}` : name;
+}
+
+/** Read preference survives a legacy document being promoted to main. */
+export function commentsSidecarRels(m: { documentRoot?: string; manuscript: { path: string } }, rel = m.manuscript.path): string[] {
+  if (!rel) return [];
+  const primary = commentsSidecarRel(commentsMainPath(m), rel);
+  const named = commentsSidecarRel("", rel);
+  return !m.documentRoot && rel === m.manuscript.path && named !== primary ? [primary, named] : [primary];
 }
 
 /**

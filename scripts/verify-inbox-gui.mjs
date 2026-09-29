@@ -1,0 +1,332 @@
+// F1: real GUI IO and CLI parity over the very same flux-core-authored project.
+import * as fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { launch, clickMode, waitFor, APP_URL, realErrors, shot } from './lib/driver.mjs';
+import { harness } from './lib/harness.mjs';
+import { TestProcessScope } from './lib/testProcess.mjs';
+import { tsxCli } from './lib/tsxRun.mjs';
+import { repo, writePresence } from './lib/inboxFixture.ts';
+import { claimItem, resolveItem, listInbox } from '../flux-core/annotations.ts';
+import { presenceFileRel } from '../src/lib/project/presence.ts';
+import { openAnnotation, fillNote } from './lib/annotationFixture.mjs';
+import { inboxFixture, projectFiles, mountInboxFixture, openInbox, closeInbox, queryInbox, inboxRows, detailAction } from './lib/inboxGuiFixture.mjs';
+import { appendCommentMessage } from '../src/lib/project/comments.ts';
+import { makeClaim, makeResolve, makeReply } from '../src/lib/project/annotations.ts';
+const h = harness('verify-inbox-gui'), scope = new TestProcessScope();
+const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'inbox-gui-')));
+const { browser, page } = await launch({ width: 1400, height: 960 });
+const root = '/inbox-gui';
+const pairs = items => items.map(i => [i.id, i.status]).sort((a, b) => a[0].localeCompare(b[0]));
+const choose = id => page.click(`[data-inbox-row][data-item-id="${id}"]`);
+const read = rel => page.evaluate(p => window.fig.readText(p), `${root}/${rel}`);
+const event = async e => page.evaluate(async ({ root, e }) => {
+  const path = root + '/.meta/feedback.ndjson';
+  await window.fig.feedbackAppend(path, JSON.stringify(e) + '\n');
+  window.fig._emitFsChange({ subsystem: 'feedback', path });
+}, { root, e });
+let popup;
+try {
+  const f = await inboxFixture(path.join(temp, 'project'));
+  // Hold the demo bridge module to exercise cold startup independently of Vite's
+  // cache/load. Electron installs its preload before mounting any shell consumer.
+  await page.evaluateOnNewDocument(() => {
+    window.__backgroundStartup = { probes: 0, subscriptions: 0 };
+    let bridge;
+    Object.defineProperty(window, 'fig', { configurable: true, get: () => bridge, set(value) {
+      bridge = value;
+      const capabilities = bridge.runnerCapabilities, subscribe = bridge.onRunnerEvent;
+      bridge.runnerCapabilities = function (...args) {
+        window.__backgroundStartup.probes++;
+        return capabilities.apply(this, args);
+      };
+      bridge.onRunnerEvent = function (...args) {
+        window.__backgroundStartup.subscriptions++;
+        return subscribe.apply(this, args);
+      };
+    } });
+  });
+  let holdFixture;
+  const heldFixture = new Promise(resolve => { holdFixture = resolve; });
+  await page.setRequestInterception(true);
+  const intercept = request => {
+    if (new URL(request.url()).pathname === '/src/lib/project/memBridge.ts') holdFixture(request);
+    else void request.continue();
+  };
+  page.on('request', intercept);
+  const navigation = page.goto(APP_URL + '?fixture=demo', { waitUntil: 'networkidle0' });
+  const request = await heldFixture;
+  try {
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    const mountedEarly = !!await page.$('.wordmark');
+    h.ok(!mountedEarly, 'shell waits for the fixture bridge before mounting capability consumers');
+    // On the old bootstrap, let the real idle-prefetched consumer finish its first
+    // probe before releasing the bridge. No forced refresh repairs the cached [].
+    if (mountedEarly) await waitFor(page, () => !!window.__fluxRefreshBackground, null, { label: 'early background consumer' });
+  } finally { await request.continue(); }
+  await navigation;
+  page.off('request', intercept); await page.setRequestInterception(false);
+  await waitFor(page, () => !!window.__fluxInbox && !!window.__fluxRefreshBackground, null, { label: 'initial background consumer' });
+  const initialBackground = await page.evaluate(async () => {
+    const state = await import('/src/shell/inbox/backgroundState.ts');
+    return { ...window.__backgroundStartup, available: window.__flux.get(state.backgroundAvailable), drivers: window.__flux.get(state.backgroundDrivers) };
+  });
+  h.eq(initialBackground, { probes: 1, subscriptions: 1, available: true, drivers: ['claude', 'codex'] }, 'first capability probe discovers installed CLIs and subscribes to runner events without a refresh');
+  await mountInboxFixture(page, root, await projectFiles(f.root));
+  await page.evaluate(() => window.__inboxOpenStart = performance.now());
+  await page.click('.inbox-button'); await page.waitForSelector('[data-inbox-row]');
+  h.ok(await page.evaluate(() => performance.now() - window.__inboxOpenStart <= 1000), 'titlebar opens a populated Inbox within 1 s');
+  // The dim layer outside the panel is a button: hovering it must not turn the whole app opaque gray.
+  await page.mouse.move(8, 700);
+  h.ok(await page.$eval('.inbox-wrap > .backdrop', e => e.matches(':hover') && getComputedStyle(e).backgroundColor === 'rgba(0, 0, 0, 0.3)'), 'hovering outside the Inbox keeps the backdrop translucent');
+  const cli = async query => {
+    // FLUX_NO_MIGRATE: this CLI only reads the scratch project. Run outside the hermetic runner it
+    // would otherwise install the user's real launcher from this checkout and sync their FluxConfig.
+    const child = scope.spawn(tsxCli(), [path.join(repo, 'flux-cli.ts'), 'inbox', query, '--root', f.root, '--json'], { nodeArgs: [], deadlineMs: 30000, env: { ...process.env, FLUX_NO_MIGRATE: '1' } });
+    const result = await child.closed;
+    if (result.code !== 0) throw new Error(child.stderr);
+    return JSON.parse(child.stdout).items;
+  };
+  h.eq(await page.evaluate(() => window.__fluxInbox.items.map(i => [i.id, i.status]).sort((a, b) => a[0].localeCompare(b[0]))), pairs(await cli('all archived')), 'GUI and flux inbox --json have identical item ids and statuses');
+  const expectedOpen = (await cli('')).length;
+  h.eq(Number(await page.$eval('.inbox-badge', e => e.textContent)), expectedOpen, 'titlebar badge counts the shared default open set');
+  h.eq(await page.$$eval('.group', es => es.map(e => e.textContent.replace(/[▸▾\d]/g, '').trim())), ['Needs input', 'Open', 'Claimed', 'Resolved'], 'status groups have the specified order; closed groups are folded');
+  h.ok(!await page.$(`[data-inbox-row][data-item-id="${f.comments[1].id}"]`), 'resolved starts collapsed');
+  for (const query of ['all', 'all annotations', 'all comments', 'all figure', 'all paper', 'all slide', 'all present', 'all reader', 'all library', 'all home', 'all unknown', 'all doc:draft_1', 'all figure:Density', 'all deck:talk', 'all #stats', 'needs-input', 'claimed', 'resolved', 'all archived', 'all "Which units"', 'draft_1 #stats comments']) {
+    await queryInbox(page, query);
+    h.eq(await inboxRows(page), pairs(await cli(query)), `filter ${query}: rendered ids/statuses match the CLI`);
+  }
+  await queryInbox(page, 'draft_1 #claude figure');
+  h.ok(await page.$eval('.chips', e => ['doc:draft_1', '#claude', 'surface:figure'].every(s => e.textContent.includes(s))), 'plain-language typing produces shared grammar chips');
+  h.ok(await page.$eval('.inbox-list', e => e.textContent.includes('No items match')), 'empty search explains how to recover');
+  await queryInbox(page, 'all'); await choose(f.picture);
+  await waitFor(page, () => document.querySelector('.picture img')?.naturalWidth > 0, null, { label: 'Inbox image loaded' });
+  h.ok(await page.$eval('.anchors', e => e.textContent.includes('Density')), 'numbered anchors name their semantic target');
+  await page.click('.picture'); h.ok(!!await page.$('.picture.zoom'), 'picture opens its zoomed view');
+  await page.keyboard.press('Escape'); h.ok(!!await page.$('.inbox-panel') && !await page.$('.picture.zoom'), 'Escape leaves image zoom before closing Inbox');
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async text => { window.__inboxPrompt = text; } }));
+  await detailAction(page, 'Copy agent prompt');
+  await waitFor(page, id => window.__inboxPrompt?.includes(`Address inbox item ${id}`), f.picture, { label: 'copied agent prompt' });
+  h.ok(true, 'Copy agent prompt includes the selected durable item id');
+  await choose(f.notes[0].id); await page.keyboard.press('r');
+  h.ok(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Reply to inbox item'), 'R focuses Reply without editor shortcuts firing');
+  await page.keyboard.type('Use percent #urgent'); await page.keyboard.press('Enter');
+  await waitFor(page, () => document.querySelector('.notice')?.textContent === 'Reply saved', null, { label: 'annotation reply saved' });
+  const replyEvent = JSON.parse((await read('.meta/feedback.ndjson')).trim().split('\n').at(-1));
+  h.eq([replyEvent.kind, replyEvent.target, replyEvent.author.kind, replyEvent.text], ['reply', f.notes[0].id, 'human', 'Use percent #urgent'], 'annotation Reply appends the human ledger event');
+  h.ok(await page.$eval('.thread article.human', e => e.textContent.includes('Use percent')), 'human replies have human styling');
+  await choose(f.comments[0].id);
+  const sideRel = 'paper/draft_1.comments.json', before = JSON.parse(await read(sideRel));
+  await page.type('[aria-label="Reply to inbox item"]', 'A sidecar reply'); await page.keyboard.press('Enter');
+  await waitFor(page, () => document.querySelector('.notice')?.textContent === 'Reply saved', null, { label: 'comment reply saved' });
+  const after = JSON.parse(await read(sideRel)), msg = after.threads.find(t => t.id === f.comments[0].id).messages.at(-1);
+  h.eq(after, appendCommentMessage(before, f.comments[0].id, msg), 'comment Reply writes exactly the shared sidecar append');
+  h.eq(msg.kind, 'human', 'comment Reply explicitly records human kind');
+  await page.focus(`[data-item-id="${f.notes[1].id}"]`); await choose(f.notes[1].id); await page.keyboard.press('e');
+  await waitFor(page, id => !document.querySelector(`[data-inbox-row][data-item-id="${id}"]`), f.notes[1].id, { label: 'archive hidden' });
+  h.eq(JSON.parse((await read('.meta/feedback.ndjson')).trim().split('\n').at(-1)).kind, 'archive', 'E archives, and the item disappears');
+  await queryInbox(page, 'all archived'); await choose(f.notes[1].id); await detailAction(page, 'Unarchive');
+  await waitFor(page, id => !window.__fluxInbox.items.find(i => i.id === id).archived, f.notes[1].id, { label: 'unarchived' });
+  await queryInbox(page, 'all'); await choose(f.comments[1].id); await detailAction(page, 'Reopen');
+  await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).status === 'open', f.comments[1].id, { label: 'comment reopened' });
+  h.ok(!JSON.parse(await read('paper/draft_2.comments.json')).threads[0].resolved, 'Reopen persists in the comment sidecar');
+  await choose(f.extra.home); await detailAction(page, 'Withdraw');
+  await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).status === 'withdrawn', f.extra.home, { label: 'withdrawn' });
+  h.ok(true, 'Withdraw records a distinct withdrawn status');
+  await event(makeClaim(f.notes[1].id, f.heron, 'codex'));
+  await waitFor(page, id => document.querySelector(`[data-item-id="${id}"] .status-chip`)?.textContent === 'Claimed by heron', f.notes[1].id, { label: 'second writer claim' });
+  await event(makeReply(f.notes[1].id, { kind: 'agent', name: 'heron' }, 'Which paragraph?', 'codex', { state: 'needs-input', session: f.heron }));
+  await choose(f.notes[1].id);
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent.includes('needs your input'), null, { label: 'live needs-input' });
+  h.ok(await page.$eval('.thread article.agent', e => e.textContent.includes('heron')), 'agent thread messages show the presence name');
+  await event(makeResolve(f.notes[1].id, 'codex', { author: { kind: 'agent', name: 'heron' }, session: f.heron }));
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Resolved by heron', null, { label: 'second writer resolve' });
+  await detailAction(page, 'Reopen');
+  await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).status !== 'resolved', f.notes[1].id, { label: 'annotation reopened' });
+  await page.evaluate(() => { window.__inboxAppend = window.fig.feedbackAppend; window.fig.feedbackAppend = async () => false; });
+  await page.type('[aria-label="Reply to inbox item"]', 'Retained after failure'); await page.keyboard.press('Enter');
+  await waitFor(page, () => document.querySelector('.detail .error')?.textContent.includes('not saved'), null, { label: 'failed reply shown' });
+  await page.click('.inbox-panel header [aria-label="Close Inbox"]'); await page.evaluate(() => new Promise(requestAnimationFrame));
+  h.ok(await page.$eval('textarea', e => e.value === 'Retained after failure'), 'failed reply stays open and keeps its unsaved draft');
+  await page.evaluate(() => window.fig.feedbackAppend = window.__inboxAppend);
+  await page.focus('[aria-label="Reply to inbox item"]'); await page.keyboard.press('Enter');
+  await waitFor(page, () => document.querySelector('.notice')?.textContent === 'Reply saved', null, { label: 'reply retry saved' });
+  h.ok(await page.$eval('textarea', e => e.value === ''), 'successful retry clears the preserved draft');
+  // Presence and comment sidecars refresh independently of the feedback ledger.
+  await page.evaluate(async root => {
+    const path = root + '/.meta/live/sessions/inbox-heron.json';
+    const value = JSON.parse(await window.fig.readText(path)); value.heartbeatAt = '2000-01-01T00:00:00Z';
+    await window.fig.writeText(path, JSON.stringify(value)); window.fig._emitFsChange({ subsystem: 'presence', path });
+  }, root);
+  await waitFor(page, id => !!document.querySelector(`[data-item-id="${id}"] [title="Agent is offline"]`), f.notes[2].id, { label: 'presence liveness dot' });
+  h.ok(true, 'presence-only filesystem change turns off the holder liveness dot');
+  await page.evaluate(async root => {
+    const path = root + '/Context/ProjectContext.comments.json';
+    const file = JSON.parse(await window.fig.readText(path)); file.threads[0].messages.push({ author: 'heron', kind: 'agent', body: 'External Context reply', createdAt: new Date().toISOString() });
+    await window.fig.writeText(path, JSON.stringify(file)); window.fig._emitFsChange({ subsystem: 'context', path });
+  }, root);
+  await choose(f.comments[2].id);
+  await waitFor(page, () => document.querySelector('.thread')?.textContent.includes('External Context reply'), null, { label: 'Context sidecar refresh' });
+  h.ok(true, 'Context sidecar refresh includes non-active documents');
+  // Native document-independent handlers survive DOM adoption, as do drafts.
+  await choose(f.comments[0].id); await page.type('[aria-label="Reply to inbox item"]', 'Retained while pinned');
+  const popupReady = new Promise(resolve => page.once('popup', resolve));
+  await page.evaluate(() => [...document.querySelectorAll('.inbox-panel header button')].find(b => b.textContent.includes('Pin open')).click());
+  popup = await popupReady; await popup.waitForSelector('.inbox-search');
+  h.eq(await popup.$eval('textarea', e => e.value), 'Retained while pinned', 'pin retains the reply draft and Svelte state');
+  await popup.keyboard.down('Control'); await popup.keyboard.down('Shift'); await popup.keyboard.press('m'); await popup.keyboard.up('Shift'); await popup.keyboard.up('Control');
+  await page.waitForSelector('[data-annotation-surface]');
+  h.ok(true, 'pinned Inbox forwards Annotate to its opener');
+  await page.keyboard.press('Escape');
+  await popup.click('.inbox-panel header button'); await page.waitForSelector('.inbox-search'); popup = null;
+  h.eq(await page.$eval('textarea', e => e.value), 'Retained while pinned', 'dock preserves the draft');
+  await shot(page, 'inbox-detail');
+  for (const id of [f.extra.home, f.extra.unknown]) {
+    await queryInbox(page, 'all'); await choose(id); await detailAction(page, 'Jump to ↗');
+    await waitFor(page, () => document.querySelector('.detail .error')?.textContent.includes('no saved destination'), null, { label: 'legacy item destination explanation' });
+    h.ok(!!await page.$('.inbox-panel'), 'Home/unknown item without an anchor explains why it cannot jump');
+    await page.click('.detail .error button');
+  }
+  // Every navigation verifies destination state, never just that a request was emitted.
+  await queryInbox(page, 'all'); await choose(f.notes[0].id); await detailAction(page, 'Jump to ↗');
+  await waitFor(page, id => window.__flux.get(window.__flux.fig.selection).has(id), f.plot.elementId, { label: 'Figure element selection' });
+  h.eq(await page.evaluate(() => window.__flux.get(window.__flux.fig.activeFigureId)), 'review', 'Figure Jump selects the owning figure');
+  await openInbox(page); await queryInbox(page, 'all'); await choose(f.notes[1].id); await detailAction(page, 'Jump to ↗');
+  await waitFor(page, () => window.__fluxView?.state.selection.main.from === 13, null, { label: 'Paper anchored selection' });
+  h.ok(await page.evaluate(() => window.__fluxView.state.selection.main.to > 13), 'Paper Jump selects the saved document range');
+  // A live Paper-owned reply must stay visible after its later autosave.
+  await openInbox(page); await queryInbox(page, 'all'); await choose(f.comments[0].id);
+  await page.$eval('textarea', el => { el.value = 'Live owner reply'; el.dispatchEvent(new Event('input', { bubbles: true })); el.focus(); }); await page.keyboard.press('Enter');
+  await waitFor(page, () => document.querySelector('.notice')?.textContent === 'Reply saved', null, { label: 'live Paper reply' });
+  await closeInbox(page); await page.evaluate(() => { const v = window.__fluxView; v.dispatch({ changes: { from: v.state.doc.length, insert: '\nAfter reply\n' } }); });
+  await waitFor(page, async p => (await window.fig.readText(p)).includes('After reply'), `${root}/${f.docs[0]}`, { label: 'later Paper autosave' });
+  h.ok((await read(sideRel)).includes('Live owner reply'), 'later Paper autosave preserves the Inbox reply');
+  await openInbox(page); await queryInbox(page, 'all'); await choose(f.extra.present); await detailAction(page, 'Jump to ↗');
+  await waitFor(page, () => window.__flux.get(window.__flux.slide.activeBeat) === 1, null, { label: 'Present target beat' });
+  h.eq(await page.evaluate(() => window.__flux.slide.currentDeck().id), 'talk', 'Present Jump opens the correct deck and beat');
+  await openInbox(page); await queryInbox(page, 'all'); await choose(f.notes[2].id); await detailAction(page, 'Jump to ↗');
+  await waitFor(page, () => !!document.querySelector('.animator'), null, { label: 'Slide track destination' }); h.ok(true, 'Slide Jump reveals the targeted animator track');
+  await clickMode(page, 'Reader'); await waitFor(page, () => !!window.__fluxSeedReaderItem, null, { label: 'Reader seed hook' });
+  await page.evaluate(b64 => window.__fluxSeedReaderItem('fixture2026', b64, { version: 1, annotations: [] }), (await fs.readFile('scripts/fixtures/reader-sample.pdf')).toString('base64'));
+  await openInbox(page); await queryInbox(page, 'all'); await choose(f.notes[3].id); await detailAction(page, 'Jump to ↗');
+  await waitFor(page, () => window.__fluxReaderKey === 'fixture2026' && document.querySelector('[aria-label="Jump to page"]')?.value === '2', null, { label: 'Reader page destination' })
+    .catch(async e => { throw new Error(`${e.message}; the Reader shows ${await page.evaluate(() => JSON.stringify({ key: window.__fluxReaderKey, page: [...document.querySelectorAll('[aria-label="Jump to page"]')].map(i => i.value), pages: document.querySelectorAll('.pdf-page').length, mode: window.__flux.get(window.__flux.shell.view) }))}`); });
+  h.ok(true, 'Reader Jump opens the saved citekey and page');
+  await openInbox(page); await queryInbox(page, 'all'); await choose(f.extra.library); await detailAction(page, 'Jump to ↗');
+  await waitFor(page, () => !!document.querySelector('.lib'), null, { label: 'Library destination' }); h.ok(true, 'Library Jump opens the reference surface');
+  await openInbox(page); await queryInbox(page, 'all'); await page.focus('[data-inbox-row]');
+  const beforeId = await page.$eval('.inbox-row.selected', e => e.dataset.itemId); await page.keyboard.press('ArrowDown');
+  h.ok(await page.$eval('.inbox-row.selected', (e, id) => e.dataset.itemId !== id, beforeId), 'ArrowDown moves by one Inbox row');
+  await closeInbox(page); await clickMode(page, 'Figure');
+  await page.keyboard.down('Control'); await page.keyboard.press('k'); await page.keyboard.up('Control'); await page.waitForSelector('.cp input'); await page.type('.cp input', 'Inbox'); await page.keyboard.press('Enter'); await page.waitForSelector('.inbox-panel');
+  h.ok(true, 'command palette Inbox opens the panel');
+  // F2: two fake MCP presence writers, using real atomic files and core ledger writes.
+  await closeInbox(page);
+  const wren = { id: 'inbox-wren', name: 'wren', client: 'codex' };
+  const publishPresence = async (session, options = {}, ago = 0) => {
+    await writePresence(f.root, session, ago, options);
+    const rel = presenceFileRel(session.id), text = await fs.readFile(path.join(f.root, rel), 'utf8');
+    await page.evaluate(async ({ file, text }) => { await window.fig.writeText(file, text); window.fig._emitFsChange({ subsystem: 'presence', path: file }); }, { file: root + '/' + rel, text });
+  };
+  const syncLedger = async () => fs.writeFile(path.join(f.root, '.meta/feedback.ndjson'), await read('.meta/feedback.ndjson'));
+  const publishLedger = async () => {
+    const text = await fs.readFile(path.join(f.root, '.meta/feedback.ndjson'), 'utf8');
+    await page.evaluate(async ({ root, text }) => { const file = root + '/.meta/feedback.ndjson'; await window.fig.writeText(file, text); window.fig._emitFsChange({ subsystem: 'feedback', path: file }); }, { root, text });
+  };
+  // Publish in the opposite order: the UI must sort, never depend on readdir order.
+  await publishPresence(wren);
+  await publishPresence(f.heron, { watching: true, watchMode: 'annotations', live: true });
+  await waitFor(page, () => document.querySelector('.agents-chip')?.textContent.trim() === '2 agents ▾', null, { timeout: 7000, label: 'connected agents chip' });
+  await page.click('.agents-chip'); await page.waitForSelector('.agents-popover');
+  h.ok(await page.$eval('.agents-popover [data-session="inbox-heron"]', e => ['heron', 'Codex · CLI', 'Connected since', '👁 Watching · annotations', '🖥 Live', 'Current claim:'].every(s => e.textContent.includes(s))), 'agents chip shows identity, watch mode, live flag, connection time and work');
+  const sessionAction = async (session, name, surface = '.agents-popover') => page.evaluate(({ id, name, surface }) => {
+    const button = [...document.querySelectorAll(`${surface} [data-session="${id}"] button`)].find(b => b.textContent.trim() === name);
+    if (!button) throw Error('Missing session action ' + name); button.click();
+  }, { id: session.id, name, surface });
+  await sessionAction(wren, 'Copy name');
+  await waitFor(page, () => window.__inboxPrompt === 'wren', null, { label: 'copied session name' });
+  h.ok(true, 'Copy name copies the mention handle');
+  await page.keyboard.press('Escape');
+  await openAnnotation(page); await page.click('.to-pill');
+  const recipients = () => page.$$eval('.routes button', es => es.map(e => e.dataset.recipient));
+  h.eq(await recipients(), ['none', 'any', f.heron.id, wren.id, 'background'], 'To: puts watching agents first, then non-watching, then a new background agent (a CLI is installed)');
+  h.ok(await page.$eval(`.routes [data-recipient="${wren.id}"]`, e => e.classList.contains('muted') && !e.disabled && e.textContent.includes('queued until it watches')), 'non-watching recipient is greyed, explained and selectable');
+  await page.click('.to-pill');
+  await fillNote(page, '@wren move this below the axis');
+  h.ok(await page.$eval('.to-pill', e => e.textContent.includes('wren')), 'worked example: @wren sets the To: pill');
+  await page.keyboard.press('Enter');
+  await waitFor(page, () => !document.querySelector('[data-annotation-surface]'), null, { label: 'named annotation saved' });
+  const namedEvents = (await read('.meta/feedback.ndjson')).trim().split('\n').map(JSON.parse);
+  const legend = namedEvents.find(e => e.kind === 'note' && e.text === 'move this below the axis');
+  h.eq(namedEvents.at(-1).kind, 'assign', 'named note and assign are appended together');
+  await openInbox(page); await queryInbox(page, 'all'); await choose(legend.id);
+  h.eq(await page.$eval('.detail .status-chip', e => e.textContent), 'Queued → wren (not watching)', 'worked example: legend waits in wren queue');
+  await page.click('.assign-button');
+  h.eq(await recipients(), ['none', 'any', f.heron.id, wren.id, 'background'], 'Assign uses the exact To: recipient list');
+  await page.keyboard.press('Escape');
+  h.ok(!!await page.$('.inbox-panel') && !await page.$('.routes'), 'Escape dismisses Assign before Inbox');
+  await closeInbox(page);
+  await openAnnotation(page); await page.click('.to-pill'); await page.click('.routes [data-recipient="any"]');
+  await fillNote(page, 'Clarify this caption'); await page.keyboard.press('Enter');
+  await waitFor(page, () => !document.querySelector('[data-annotation-surface]'), null, { label: 'Any annotation saved' });
+  await syncLedger();
+  const caption = (await listInbox(f.root)).items.find(i => i.text === 'Clarify this caption');
+  h.eq(caption.route, 'any', 'worked example: caption is routed to Any');
+  h.ok((await claimItem(f.root, caption.id, {}, { session: f.heron })).claimed, 'watching heron wins the caption claim through the MCP core');
+  await openInbox(page); await queryInbox(page, 'all'); await choose(caption.id);
+  const claimedAt = Date.now(); await publishLedger();
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Claimed by heron', null, { label: 'worked example claim' });
+  h.ok(Date.now() - claimedAt <= 1000, 'worked example: claim chip updates within a second of the ledger event');
+  await closeInbox(page); await page.click('.agents-chip'); await page.waitForSelector('.agents-popover');
+  h.ok(await page.$eval(`[data-session="${wren.id}"] .queue-count`, e => e.textContent === '1 queued'), 'session row shows wren queued work');
+  h.ok(await page.$eval(`[data-session="${f.heron.id}"] .claims`, e => e.textContent.includes('Clarify this caption')), 'session row names heron current claim');
+  await sessionAction(wren, 'Show its items'); await page.waitForSelector('.inbox-panel');
+  h.eq(await page.$eval('.inbox-search', e => e.value), '@wren', 'Show its items replaces previous filters with the shared holder query');
+  h.eq((await inboxRows(page)).map(([id]) => id), [legend.id], 'Show its items displays exactly that agent queue');
+  await closeInbox(page);
+  await page.click('[aria-label="AI status"]'); await page.waitForSelector('.ai-panel');
+  h.eq(await page.$$eval('.ai-panel [data-session]', es => es.map(e => e.dataset.session)), [f.heron.id, wren.id], 'AI panel uses the same session rows and ordering');
+  await sessionAction(wren, 'Show its items', '.ai-panel'); await page.waitForSelector('.inbox-panel');
+  h.ok(!await page.$('.ai-panel'), 'AI panel Show its items hands focus to Inbox');
+  // Wren was connected, not watching. A later explicit queue check claims and resolves it.
+  await syncLedger();
+  h.eq((await listInbox(f.root, { mine: true }, { session: wren })).items.map(i => i.id), [legend.id], 'worked example: wren checks inbox --mine');
+  h.ok((await claimItem(f.root, legend.id, {}, { session: wren })).claimed, 'worked example: wren claims its own queue');
+  await publishLedger();
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Claimed by wren', null, { label: 'wren claim' });
+  await resolveItem(f.root, legend.id, { note: 'Moved below the axis' }, { session: wren });
+  await queryInbox(page, 'all'); await choose(legend.id); await publishLedger();
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Resolved by wren', null, { label: 'wren resolution' });
+  h.ok(await page.evaluate(() => window.__flux.get(window.__flux.toast.toasts).some(t => t.msg === 'wren resolved: move this below the axis')), 'worked example: exact named resolution toast');
+  // Human assignment controls persist the same builders and update live chips.
+  await choose(caption.id); await detailAction(page, 'Release claim');
+  await waitFor(page, id => !window.__fluxInbox.items.find(i => i.id === id).claimedBy, caption.id, { label: 'claim released' });
+  h.eq(JSON.parse((await read('.meta/feedback.ndjson')).trim().split('\n').at(-1)).kind, 'release', 'Release claim appends the shared human event');
+  await page.focus(`[data-item-id="${caption.id}"]`); await page.keyboard.press('a'); await page.waitForSelector('[aria-label="Assign recipient"]');
+  await page.click(`.routes [data-recipient="${wren.id}"]`);
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Queued → wren (not watching)', null, { label: 'assigned to wren' });
+  await detailAction(page, 'Unassign');
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent.startsWith('Open'), null, { label: 'unassigned' });
+  h.eq(JSON.parse((await read('.meta/feedback.ndjson')).trim().split('\n').at(-1)).route, 'none', 'Unassign explicitly returns work to Inbox');
+  await page.click('.assign-button'); await page.click('.routes [data-recipient="any"]');
+  await waitFor(page, id => window.__fluxInbox.items.find(i => i.id === id).route === 'any', caption.id, { label: 'Assign Any' });
+  h.ok(true, 'Assign Any updates the existing annotation route');
+  // The same assignment action works on margin comments.
+  await choose(f.comments[0].id); await page.click('.assign-button'); await page.click(`.routes [data-recipient="${wren.id}"]`);
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'Queued → wren (not watching)', null, { label: 'comment assignment' });
+  await publishPresence(wren, {}, 61000);
+  await waitFor(page, () => document.querySelector('.detail .status-chip')?.textContent === 'wren disconnected — reassign?', null, { label: 'stale session chip' });
+  h.eq(await page.$eval('.detail .status-chip', e => e.dataset.status), 'open', 'stale assignment returns to Open while keeping the old holder visible');
+  await publishPresence(f.heron, { watching: true, watchMode: 'filter', filter: { surface: 'slide' } });
+  await closeInbox(page); await page.click('.agents-chip'); await page.waitForSelector('.agents-popover');
+  await waitFor(page, () => document.querySelector('.agents-popover .state')?.textContent.includes('Watching · filter'), null, { timeout: 7000, label: 'filter watch mode' });
+  await sessionAction(f.heron, 'Stop watching');
+  await waitFor(page, () => document.querySelector('.agents-popover .state')?.textContent.includes('Stopped'), null, { label: 'stop watching' });
+  h.eq(JSON.parse((await read('.meta/feedback.ndjson')).trim().split('\n').at(-1)).kind, 'release-session', 'chip Stop watching writes release-session');
+  await page.keyboard.press('Escape');
+  await publishPresence(f.heron, {}, 61000);
+  await waitFor(page, () => !document.querySelector('.agents-chip'), null, { timeout: 7000, label: 'no connected sessions' });
+  h.ok(true, 'agents chip hides when no session is connected');
+  h.eq(await realErrors(page), [], 'clean browser console');
+} finally { await popup?.close(); await browser.close(); await scope.dispose(); await fs.rm(temp, { recursive: true, force: true }); }
+await h.done();

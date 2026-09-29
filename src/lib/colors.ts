@@ -1,3 +1,7 @@
+import { scene3dManifests } from "./model3d/store";
+import { stylePart } from "./model3d/commandOps";
+import { pushToast } from "./toast";
+import { readPartStyle } from "./plot/partStyle";
 import { writable, get } from "svelte/store";
 import type { ColorGroup, ColorSwatch, GradientFill, Id, PartOverride } from "./types";
 import { project, selection, partSelection, partSelections, drawStyle, commit, mutate } from "./store";
@@ -27,7 +31,9 @@ export const colorTarget = writable<"fill" | "stroke">("fill");
 // Survives plot regeneration because the id is deterministic (spec §7). Undoable.
 export function applyPartStyleTo(elementId: Id, partId: string, patch: PartOverride, preview = false) {
   if (!get(project).figures.some(f => selectionTargets(f, new Set([elementId]), { editable: true }).length)) return;
-  (preview ? mutate : commit)((p) => ops.setPartOverride(p, elementId, partId, patch));
+  let switched = false;
+  (preview ? mutate : commit)((p) => { switched = stylePart(p, elementId, partId, patch, get(scene3dManifests)); });
+  if (switched) announceSourceColors();
 }
 
 // Write a style override onto EVERY selected plot part (the canvas drill-in
@@ -40,9 +46,18 @@ export function applyPartStyle(patch: PartOverride, preview = false) {
     get(project).figures.some((f) => selectionTargets(f, new Set([ps.elementId]), { editable: true }).length),
   );
   if (!editable.length) return;
+  let switched = false;
   (preview ? mutate : commit)((p) => {
-    for (const ps of editable) ops.setPartOverride(p, ps.elementId, ps.partId, patch);
+    const models = get(scene3dManifests);
+    for (const ps of editable) switched = stylePart(p, ps.elementId, ps.partId, patch, models) || switched;
   });
+  if (switched) announceSourceColors();
+}
+
+/** A mesh-part fill on a Uniform model switched it to its file colours (Uniform
+ *  paints one colour over every part). Say so: the Colours control just moved. */
+export function announceSourceColors() {
+  pushToast("info", "Colours set to From file", { detail: "Part colours show only when a 3D model uses its file colours." });
 }
 
 // Apply a colour to the current selection (or to the draw style if nothing is
@@ -186,8 +201,8 @@ export function currentColor(target: "fill" | "stroke"): string {
   if (ps) {
     for (const f of p.figures)
       for (const e of f.elements)
-        if (e.id === ps.elementId && e.type === "plot") {
-          const v = e.overrides?.[ps.partId]?.[target];
+        if (e.id === ps.elementId && (e.type === "plot" || e.type === "model3d")) {
+          const v = e.type === "model3d" ? readPartStyle(e, ps.partId, get(scene3dManifests)[e.assetId])[target] : e.overrides?.[ps.partId]?.[target];
           if (typeof v === "string") return v;
         }
   }

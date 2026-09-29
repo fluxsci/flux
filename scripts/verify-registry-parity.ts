@@ -2,18 +2,18 @@
 // WS-6.3 (fortify plan) — the verb-registry parity gate:
 //   (a) the REAL MCP server's tools/list === the committed golden snapshot
 //       (a rename/removal on either surface fails here first);
-//   (b) `flux help` === the committed golden text;
+//   (b) `flux help` lists every registered CLI verb;
 //   (c) registered verbs produce the SAME core strings on both surfaces
 //       (CLI decorates with "✓ "), and shared failures map per the taxonomy
 //       (CLI exit codes incl. 75 for locks; MCP isError);
 //   (d) surface inventory — every registry verb appears in the CLI help AND
 //       the MCP tool list, and every `flux <verb>` the agent skill doc
-//       (skills/flux/references/cli.md) names exists on the CLI surface;
+//       (resources/flux-context/CLI-REFERENCE.md) names exists on the CLI surface;
 //   (e) core-import integrity — every `core.<name>` a verb handler references
 //       resolves against flux-core/index's REAL export surface (the explicit
 //       re-export lists can silently drop one; the verb then crashes only
 //       when invoked).
-// Regenerate goldens deliberately:  REGEN_GOLDEN=1 npx tsx scripts/verify-registry-parity.ts
+// Regenerate deliberately: REGEN_GOLDEN=1 node scripts/run-verifies.mjs --tier pure --only registry-parity
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
@@ -23,7 +23,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const REPO = path.resolve(import.meta.dirname, "..");
 const GOLDEN_DIR = path.join(REPO, "scripts", "fixtures");
 const TOOLS_GOLDEN = path.join(GOLDEN_DIR, "mcp-tools.golden.json");
-const HELP_GOLDEN = path.join(GOLDEN_DIR, "cli-help.golden.txt");
 const REGEN = !!process.env.REGEN_GOLDEN;
 
 let failures = 0;
@@ -36,6 +35,22 @@ const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
 
 const { VERBS, registeredCliVerbs } = await import("../flux-core/registry");
 const core = await import("../flux-core/index");
+for (const v of VERBS) {
+  assert(Object.hasOwn(v, "scope") && ["project", "machine", "file"].includes(v.scope), `${v.name}: explicit scope`);
+  // Read-shaped names are readOnly (MCP readOnlyHint: Codex runs them without an approval prompt); write-shaped never are.
+  if (/^(list|get|search|read|validate)_/.test(v.name)) assert(v.readOnly === true, `${v.name}: a read verb is marked readOnly`);
+  if (/^(set|add|create|delete|remove|resolve|claim|reply|release|archive|unarchive|write|compose|restyle|sync|rerun|import|cite|ensure|move|reorder|rename|group|ungroup|duplicate)_/.test(v.name)) assert(!v.readOnly, `${v.name}: a write verb is not readOnly`);
+  const visit = (shape, prefix = "") => {
+    for (const [key, schema] of Object.entries(shape)) {
+      const name = prefix + key;
+      if (/path|file|dir|svg|recipe/i.test(key)) assert(!!v.pathParams?.[name] || !!v.notAPath?.[name], `${v.name}.${name}: declared path policy`);
+      let inner = schema;
+      while (inner?._def?.innerType) inner = inner._def.innerType;
+      if (inner?._def?.typeName === "ZodObject") visit(inner.shape, name + ".");
+    }
+  };
+  visit(v.params);
+}
 
 const TMP = path.join(REPO, "scratch-regparity");
 await fs.rm(TMP, { recursive: true, force: true });
@@ -55,7 +70,7 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ out
     // CLI's success line. None of those are product behavior.
     const c = spawn(process.execPath, ["--import", "tsx", "flux-cli.ts", ...args], {
       cwd: REPO,
-      env: { ...process.env, FLUX_NO_MIGRATE: "1", ...env },
+      env: { ...process.env, FLUX_MCP_TOOLSET: "full", FLUX_NO_MIGRATE: "1", ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";
@@ -71,14 +86,17 @@ const transport = new StdioClientTransport({
   command: process.execPath,
   args: ["--import", "tsx", "flux-mcp.ts", TMP],
   cwd: REPO,
-  env: { ...(process.env as Record<string, string>), FLUX_NO_MIGRATE: "1" },
+  env: { ...(process.env as Record<string, string>), FLUX_MCP_TOOLSET: "full", FLUX_NO_MIGRATE: "1" },
 });
 const client = new Client({ name: "regparity", version: "1.0.0" });
 await client.connect(transport);
 
 try {
   // ---- (a) tools/list golden -----------------------------------------------------
-  const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+  const toolDefs = (await client.listTools()).tools;
+  const tools = toolDefs.map((t) => t.name).sort();
+  for (const v of VERBS) assert(!!toolDefs.find(t => t.name === v.name)?.inputSchema.properties?.project === (v.scope === "project"), `${v.name}: project parameter follows declared scope`);
+  for (const v of VERBS) assert((toolDefs.find(t => t.name === v.name) as { annotations?: { readOnlyHint?: boolean } } | undefined)?.annotations?.readOnlyHint === (v.readOnly ? true : undefined), `${v.name}: readOnlyHint follows readOnly`);
   if (REGEN) {
     await fs.writeFile(TOOLS_GOLDEN, JSON.stringify(tools, null, 2) + "\n");
     ok(`REGENERATED ${path.basename(TOOLS_GOLDEN)} (${tools.length} tools)`);
@@ -242,32 +260,36 @@ try {
     }
     ok(`all ${VERBS.length} registry verbs present on both surfaces (help + tools/list)`);
 
-    // Stock CLI reference (the FluxContext cheat-sheet — was skills/flux/references/
-    // cli.md before the Context migration): every verb it names must exist on the
-    // CLI surface (registry now, or a legacy switch case still to migrate). Scans
-    // BOTH `flux <verb>` prose mentions AND the cheat-sheet tables' first column —
-    // the table blindspot once let a deleted verb (add-math) linger for a release.
-    const doc = await fs.readFile(
-      path.join(REPO, "resources", "flux-context", "CLI-REFERENCE.md"),
-      "utf8",
-    );
-    const named = new Set<string>();
-    for (const m of doc.matchAll(/(?:^|[`\s])flux\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+    // Scan every shipped manual, including canonical CLI/MCP table columns and
+    // quoted launcher examples. A filename example such as cell_007 is not a tool;
+    // lowercase snake-case code spans with alphabetic segments are tool names.
+    const docsDir = path.join(REPO, "resources", "flux-context");
+    const docs = await Promise.all((await fs.readdir(docsDir)).filter(n => n.endsWith(".md"))
+      .map(async name => ({ name, body: await fs.readFile(path.join(docsDir, name), "utf8") })));
+    const named = new Set<string>(), namedTools = new Set<string>();
+    for (const { body } of docs) {
+      for (const m of body.matchAll(/(?:^|[`\s])flux\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+      for (const m of body.matchAll(/"(?:\{\{FLUX_CLI\}\}|\$F)"\s+([a-z][a-z0-9-]+)/g)) named.add(m[1]);
+      for (const m of body.matchAll(/`([a-z][a-z0-9]*_[a-z][a-z0-9_]*)(?=[\s`{])/g)) namedTools.add(m[1]);
+      for (const m of body.matchAll(/verb:\s*"([a-z][a-z0-9_]*)"/g)) namedTools.add(m[1]);
+    }
+    const doc = docs.find(d => d.name === "CLI-REFERENCE.md")!.body;
     for (const line of doc.split("\n")) {
       if (!line.startsWith("|") || /^\|[\s-|]*$/.test(line) || line.includes("Verb (CLI)")) continue;
-      const firstCell = line.split("|")[1] ?? "";
-      for (const span of firstCell.matchAll(/`([^`]+)`/g)) {
+      const cells = line.split(/(?<!\\)\|/);
+      for (const span of (cells[1] ?? "").matchAll(/`([^`]+)`/g)) {
         const tok = span[1].trim().split(/\s+/)[0];
-        // Verbs only: lowercase, no placeholders/flags/paths — "—" cells and
-        // arg-only spans (e.g. `--order a,b,c`) don't match.
         if (/^[a-z][a-z0-9-]*$/.test(tok)) named.add(tok);
       }
+      for (const span of (cells[2] ?? "").matchAll(/`([a-z][a-z0-9_]*)(?=[\s`{])/g)) namedTools.add(span[1]);
     }
     const cliSurface = new Set([...registeredCliVerbs()]);
     const legacy = await fs.readFile(path.join(REPO, "flux-cli.ts"), "utf8");
     for (const m of legacy.matchAll(/case "([a-z0-9-]+)":/g)) cliSurface.add(m[1]);
-    const ghosts = [...named].filter((v) => !cliSurface.has(v) && !["help", "version"].includes(v));
-    assert(!ghosts.length, `every skill-doc verb exists on the CLI surface${ghosts.length ? ` — GHOSTS: ${ghosts.join(", ")}` : ` (${named.size} checked)`}`);
+    const ghosts = [...named].filter(v => !cliSurface.has(v) && !["help", "version"].includes(v));
+    assert(!ghosts.length, `every stock-doc verb exists on the CLI surface${ghosts.length ? ` — GHOSTS: ${ghosts.join(", ")}` : ` (${named.size} checked across ${docs.length} docs)`}`);
+    const ghostTools = [...namedTools].filter(v => !toolSet.has(v));
+    assert(!ghostTools.length, `every stock-doc tool exists on the full MCP surface${ghostTools.length ? ` — GHOSTS: ${ghostTools.join(", ")}` : ` (${namedTools.size} checked)`}`);
   }
 
   // ---- (e) core-import integrity ------------------------------------------------------

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
+
   // The animation preset/template LIBRARY popover (rework §7) — reachable
   // from the Animator bar. Presets tab: apply one track's saved settings to
   // the current selection (smart per-kind targeting under the preset's
@@ -7,10 +9,10 @@
   // TrackGroup, one undo step, partial matches reported; save the currently
   // selected lanes as a new template.
   import { get } from "svelte/store";
-  import { activeBeat, commitDeckLive, selTrackIds } from "../../../../lib/slide/store";
+  import { deckOverlay, activeBeat, commitDeckLive, selTrackIds } from "../../../../lib/slide/store";
   import { selection, partSelection, activeFigureId } from "../../../../lib/store";
   import { plotManifests } from "../../../../lib/plot/store";
-  import { slideById, addBeat as addBeatOp, setAnimation, setTransform, groupTracks } from "../../../../lib/slide/ops";
+  import { slideById, addBeat as addBeatOp, setAnimation, setTransform, groupTracks, addAnimStyle, linkTrackStyle } from "../../../../lib/slide/ops";
   import { suggestElementTrack, suggestTrack, animatePart } from "../../../../lib/slide/autobuild";
   import {
     applyTemplate, deriveTemplateSlots, makeAnimPreset,
@@ -21,6 +23,8 @@
   } from "../../../../lib/slide/animPresets";
   import { pushToast } from "../../../../lib/toast";
   import type { Slide, Track } from "../../../../lib/slide/types";
+  import { resolveBeat } from "../../../../lib/slide/resolve";
+  import { newId } from "../../../../lib/ids";
   import { PRESET_COLOR } from "./shared";
 
   let { slide, onClose }: { slide: Slide; onClose: () => void } = $props();
@@ -47,7 +51,7 @@
     return slideById(d, sid)!.beats[bi].id;
   }
 
-  function applyPreset(entry: AnimLibEntry<AnimPreset>) {
+  function applyPreset(entry: AnimLibEntry<AnimPreset>, linked = false) {
     const sid = get(activeFigureId);
     const ps = get(partSelection);
     const ids = ps ? [ps.elementId] : [...get(selection)];
@@ -60,12 +64,13 @@
     const newIds: string[] = [];
     commitDeckLive((d) => {
       const beatId = buildBeatId(d, sid);
+      const style = linked ? addAnimStyle(d, { name: p.name, family: p.family, track: p.track }) : null;
       for (const id of ids) {
         if (p.family === "transform") {
           const t = setTransform(d, sid, beatId, id, {
-            start: p.track.start, duration: p.track.duration, easing: p.track.easing, influence: p.track.influence,
+            start: p.track.start, duration: p.track.duration, curve: p.track.curve, easing: p.track.easing, influence: p.track.influence, arc: p.track.arc,
           });
-          if (t?.id) newIds.push(t.id);
+          if (t?.id) { newIds.push(t.id); if (style) linkTrackStyle(d, sid, t.id, style.id); }
           continue;
         }
         const s = slideById(d, sid)!;
@@ -76,8 +81,8 @@
           ? suggestTrack($plotManifests[(el2 as { assetId?: string }).assetId ?? ""], id, ps.partId)
           : suggestElementTrack(el2);
         const track: Track = { ...base, ...structuredClone(p.track), target: id, ...(ps ? { part: ps.partId } : {}) };
-        setAnimation(d, sid, beatId, track);
-        if (track.id) newIds.push(track.id);
+        if (style) track.id = newId("track");
+        if (setAnimation(d, sid, beatId, track) && track.id) { newIds.push(track.id); if (style) linkTrackStyle(d, sid, track.id, style.id); }
       }
     });
     if (newIds.length) selTrackIds.set(newIds);
@@ -142,7 +147,10 @@
       pushToast("info", "Select the lanes to bundle (in the rail), then save.");
       return;
     }
-    const tracks = slide.beats.flatMap((b) => b.tracks).filter((t) => t.id && ids.includes(t.id));
+    const tracks = slide.beats.flatMap(b => resolveBeat(b, get(deckOverlay) ?? {}, id => {
+      const e = slide.elements.find(x => x.id === id);
+      return e && "assetId" in e ? $plotManifests[e.assetId] : undefined;
+    }).tracks).filter(t => t.id && ids.includes(t.id));
     const { slots, skipped } = deriveTemplateSlots(tracks, {
       elements: slide.elements,
       manifestFor: (id: string) => {
@@ -172,6 +180,7 @@
     if (el && !el.contains(e.target as Node)) onClose();
   }
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === "Escape") {
       e.stopPropagation();
       onClose();
@@ -197,6 +206,7 @@
             <span class="dot"></span>{p.payload.name}
             <small>{p.payload.family === "transform" ? "transform" : p.payload.track.preset ?? "fade"}</small>
           </button>
+          <button class="apply-linked" title={`Apply ${p.payload.name} as a linked style`} onclick={() => applyPreset(p, true)}>as a linked style</button>
           <button class="del" title="Delete this preset" onclick={() => remove("preset", p.rel)}>✕</button>
         </div>
       {/each}
@@ -226,7 +236,7 @@
 
 <style>
   .animlib {
-    position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 30; width: 260px;
+    position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 30; width: 360px;
     display: flex; flex-direction: column; gap: 0; padding: 0;
     background: var(--c-surface); border: 1px solid var(--c-line-strong);
     border-radius: var(--r-panel); box-shadow: var(--elev-2);
@@ -256,6 +266,7 @@
   .apply:hover { background: var(--c-surface-2); color: var(--c-tx-hi); }
   .apply .dot { width: 7px; height: 7px; border-radius: 1px; background: var(--pc); flex: 0 0 auto; }
   .apply small { margin-left: auto; color: var(--c-tx-muted); font: 10px var(--font-mono); }
+  .apply-linked { font: 11px var(--font-ui); color: var(--c-accent); background: transparent; border: 1px solid var(--c-line-strong); border-radius: var(--r-ui); height: 24px; padding: 0 6px; white-space: nowrap; cursor: var(--cursor-cross-hover); }
   .del { border: 0; background: none; color: var(--c-tx-faint); cursor: var(--cursor-cross-hover); font-size: 9px; height: 24px; padding: 0 8px; }
   .del:hover { color: var(--c-danger); }
   .save { display: flex; gap: 4px; border-top: 1px solid var(--c-line); padding: 6px; }

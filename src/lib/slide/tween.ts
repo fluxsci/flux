@@ -16,13 +16,18 @@
 // paths, incompatible plots) is reported by contentPlan().
 // ---------------------------------------------------------------------------
 
-import type { Element, PartOverride, VectorNode } from "../types";
+import { isHandoff } from "./targets";
+import type { Element, SemanticPlotElement, PartOverride, PlotView, VectorNode } from "../types";
 import type { Slide } from "./types";
 import { familyOf } from "./family";
 import { lerpColor } from "../color/interp";
 import { elementBBox } from "../geometry";
 import { pathD, pathToNodes, resampleNodes } from "../path";
 import { outlineMorphable, planElementMorph, sampleElementMorph } from "./outline";
+import { compileSlide } from "./compile";
+import { planHandoff } from "./handoffPlan";
+import type { GeometryCtx } from "./targetGeometry";
+import type { ModelFieldOverride } from "../model3d/types";
 
 // --- the property law --------------------------------------------------------
 
@@ -67,6 +72,11 @@ function completeRetyped(el: Record<string, unknown>): void {
       def("fontStyle", "normal"); def("align", "left"); def("color", "#000000"); def("sizing", "auto");
       break;
     case "plot": case "image": def("assetId", ""); break; // the content half (to.assetId) names the asset
+    case "model3d":
+      def("assetId", ""); def("orbitAzimuth", 30); def("orbitElevation", 20);
+      def("orbitZoom", 1); def("orbitProjection", "orthographic"); def("orbitFov", 30);
+      def("fill", "#4385be"); def("modelColors", "source"); def("modelLighting", "studio");
+      break;
   }
 }
 
@@ -76,6 +86,7 @@ const NUM_PROPS = new Set([
   "cornerRadius", "lineHeight", "letterSpacing", "paragraphSpacing",
   "x1", "y1", "x2", "y2", "contentScale",
   "arrowSize",
+  "orbitAzimuth", "orbitElevation", "orbitRoll", "orbitPanX", "orbitPanY", "orbitFov",
 ]);
 
 /** OKLab-lerp props. */
@@ -271,25 +282,29 @@ export function lerpNodes(a: VectorNode[], b: VectorNode[], closed: boolean, t: 
  *  pattern with zero GAPS (so dashes fade in/out smoothly rather than pop).
  *  Odd-length patterns are doubled first (SVG's own repeat rule), then both
  *  are padded by repetition to a common length and lerped elementwise. */
-export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: number): number[] | undefined {
-  const has = (d?: number[]) => !!d && d.length > 0;
-  if (!has(a) && !has(b)) return undefined;
-  if (t <= 0) return a ? [...a] : undefined;
-  if (t >= 1) return b ? [...b] : undefined;
-  const even = (d: number[]) => (d.length % 2 ? [...d, ...d] : [...d]);
-  const solidTwin = (other: number[]) => even(other).map((v, i) => (i % 2 ? 0 : v));
-  const da = has(a) ? even(a!) : solidTwin(b!);
-  const db = has(b) ? even(b!) : solidTwin(a!);
-  const n = Math.max(da.length, db.length);
-  // pad by repetition to the common length (both even → repeats stay aligned)
-  const pad = (d: number[]) => Array.from({ length: n }, (_, i) => d[i % d.length]);
-  const pa = pad(da), pb = pad(db);
-  return pa.map((v, i) => Math.max(0, lerp(v, pb[i], t)));
+export function lerpDash(a: number[] | undefined, b: number[] | undefined, t: number, out: number[] = []): number[] | undefined {
+  if (!a?.length && !b?.length) return undefined;
+  if (t <= 0 || t >= 1) {
+    const d = t <= 0 ? a : b;
+    if (!d) return undefined;
+    for (let i = 0; i < d.length; i++) out[i] = d[i];
+    out.length = d.length;
+    return out;
+  }
+  const da = a?.length ? a : b!, db = b?.length ? b : a!;
+  const n = Math.max(da.length * (da.length % 2 ? 2 : 1), db.length * (db.length % 2 ? 2 : 1));
+  for (let i = 0; i < n; i++) {
+    const va = !a?.length && i % 2 ? 0 : da[i % da.length];
+    const vb = !b?.length && i % 2 ? 0 : db[i % db.length];
+    out[i] = Math.max(0, lerp(va, vb, t));
+  }
+  out.length = n;
+  return out;
 }
 
 // --- the content plan (what the driver renders) -------------------------------
 
-export type ContentMode = "tween" | "crossfade" | "morph";
+export type ContentMode = "tween" | "crossfade" | "morph" | "model-live";
 
 export interface ContentPlan {
   /** How the CONTENT layer animates ("tween": one re-rendered layer;
@@ -309,7 +324,7 @@ export interface ContentPlan {
 const BOX_ONLY = new Set(["x", "y", "rotation", "opacity", "flipX", "flipY"]);
 const GEOM_PROPS = new Set([
   "width", "height", "d", "nodes", "closed", "x1", "y1", "x2", "y2",
-  "cornerRadius", "crop", "contentScale",
+  "cornerRadius", "crop", "contentScale", "view",
 ]);
 
 /** Decide how the driver animates the content between two states of one
@@ -331,25 +346,52 @@ export function contentPlan(pre: Element, end: Element): ContentPlan {
   // (text, images, plots, video) crossfades while the box still tweens.
   if (outlineMorphable(pre, end)) mode = "morph";
   else if (pre.type !== end.type) mode = "crossfade";
-  return { mode, ...(textTween ? { textTween } : {}), contentDirty, geometryDirty };
+  else if (pre.type === "model3d" && end.type === "model3d") mode = "model-live";
+  return { mode, ...(textTween ? { textTween } : {}), contentDirty: mode === "model-live" ? false : contentDirty, geometryDirty };
 }
 
 // --- lerpElement --------------------------------------------------------------
 
-/** Interpolate two states of ONE element (same id/type). t≤0 / t≥1 return
+/** Only physical box channels extrapolate; the clamped content stays intact. */
+export function overshootBox(el: Element, pre: Element, end: Element, u: number): Element {
+  if (u >= 0 && u <= 1) return el;
+  const out = { ...el,
+    x: lerp(pre.x, end.x, u), y: lerp(pre.y, end.y, u),
+    width: Math.max(0, lerp(pre.width, end.width, u)),
+    height: Math.max(0, lerp(pre.height, end.height, u)),
+    rotation: lerpRot(pre.rotation ?? 0, end.rotation ?? 0, u),
+  };
+  if ("contentScale" in pre || "contentScale" in end) {
+    (out as SemanticPlotElement).contentScale = Math.max(.01, lerp(
+      (pre as SemanticPlotElement).contentScale ?? 1, (end as SemanticPlotElement).contentScale ?? 1, u));
+  }
+  return out;
+}
+
+/** Bend a sampled box about the midpoint, with control offset arc·distance/2.
+ * Mutates only the owned sample's x/y; endpoints and arc 0 are byte-identical. */
+export function arcBox(el: Element, pre: Element, end: Element, u: number, arc = 0): Element {
+  if (!arc || u === 0 || u === 1) return el;
+  const bend = arc * u * (1 - u);
+  el.x = lerp(pre.x, end.x, u) - (end.y - pre.y) * bend;
+  el.y = lerp(pre.y, end.y, u) + (end.x - pre.x) * bend;
+  return el;
+}
+
+/** Interpolate two states of ONE element (same id/type). raw≤0 / raw≥1 return
  *  clones of the endpoints verbatim (true end nodes, no resample residue).
- *  Non-interpolable props step at t = 0.5. */
-export function lerpElement(pre: Element, end: Element, t: number): Element {
-  if (t <= 0) return structuredClone(pre);
-  if (t >= 1) return structuredClone(end);
+ *  Non-interpolable props step at raw progress = 0.5. */
+export function lerpElement(pre: Element, end: Element, t: number, raw = t): Element {
+  if (raw <= 0) return structuredClone(pre);
+  if (raw >= 1) return structuredClone(end);
   // Across kinds (or a path changing closedness): the outline morph — one
   // synthetic path mid-flight. Kinds without an outline step their content
   // at t = 0.5 while box/rotation/opacity still tween (the driver crossfades).
   if (outlineMorphable(pre, end)) {
     const plan = planElementMorph(pre, end);
-    if (plan) return sampleElementMorph(plan, t);
+    if (plan) return sampleElementMorph(plan, t, raw);
   }
-  if (pre.type !== end.type) return lerpAcrossKinds(pre, end, t);
+  if (pre.type !== end.type) return lerpAcrossKinds(pre, end, t, raw);
   const a = pre as unknown as Record<string, unknown>;
   const b = end as unknown as Record<string, unknown>;
   const out = structuredClone(b); // end's shape; every differing prop overwritten below
@@ -364,12 +406,20 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
       out[k] = lerpRot(Number(va ?? 0), Number(vb ?? 0), t);
     } else if (k === "opacity") {
       out[k] = lerp(Number(va ?? 1), Number(vb ?? 1), t);
+    } else if (k === "orbitZoom") {
+      out[k] = Math.exp(lerp(Math.log(Number(va ?? 1)), Math.log(Number(vb ?? 1)), t));
+    } else if (k === "fields") {
+      out[k] = lerpFields(va as Record<string, ModelFieldOverride> | undefined, vb as Record<string, ModelFieldOverride> | undefined, t, raw);
+      if (!Object.keys(out[k] as object).length) delete out[k];
+    } else if (k === "modelStates") {
+      out[k] = lerpStates(va as Record<string, number> | undefined, vb as Record<string, number> | undefined, t);
+      if (!Object.keys(out[k] as object).length) delete out[k];
     } else if (NUM_PROPS.has(k) && (typeof va === "number" || typeof vb === "number")) {
       const fa = typeof va === "number" ? va : k === "contentScale" ? 1 : 0;
       const fb = typeof vb === "number" ? vb : k === "contentScale" ? 1 : 0;
       out[k] = lerp(fa, fb, t);
     } else if (COLOR_PROPS.has(k) && typeof va === "string" && typeof vb === "string") {
-      out[k] = lerpColor(va, vb, t);
+      out[k] = lerpColor(va, vb, t, undefined, raw);
     } else if (k === "dash") {
       const d = lerpDash(va as number[] | undefined, vb as number[] | undefined, t);
       if (d) out[k] = d;
@@ -383,22 +433,25 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
           height: lerp(Number(va.height), Number(vb.height), t),
         };
       } else {
-        if (step(va, vb, t) === undefined) delete out[k];
-        else out[k] = structuredClone(step(va, vb, t));
+        if (step(va, vb, raw) === undefined) delete out[k];
+        else out[k] = structuredClone(step(va, vb, raw));
       }
+    } else if (k === "view") {
+      const view = lerpView(va as PlotView | undefined, vb as PlotView | undefined, t, raw);
+      if (view) out[k] = view; else delete out[k];
     } else if (k === "overrides") {
-      out[k] = lerpOverrides(va as Record<string, PartOverride> | undefined, vb as Record<string, PartOverride> | undefined, t);
+      out[k] = lerpOverrides(va as Record<string, PartOverride> | undefined, vb as Record<string, PartOverride> | undefined, t, raw);
       if (!Object.keys(out[k] as object).length) delete out[k];
     } else if (k === "nodes" || k === "d" || k === "closed") {
       continue; // path geometry handled wholesale below
     } else if (k === "text" && typeof va === "string" && typeof vb === "string") {
       const sampler = numericTextTween(va, vb);
-      out[k] = sampler ? sampler(t) : step(va, vb, t);
+      out[k] = sampler ? sampler(t) : step(va, vb, raw);
     } else if (k === "fontWeight") {
       out[k] = Math.round(lerp(Number(va ?? 400), Number(vb ?? 400), t) / 100) * 100;
     } else {
       // discrete (booleans, align, fontFamily, sizing, arrow flags, cap, …)
-      const v = step(va, vb, t);
+      const v = step(va, vb, raw);
       if (v === undefined) delete out[k];
       else out[k] = structuredClone(v);
     }
@@ -425,8 +478,8 @@ export function lerpElement(pre: Element, end: Element, t: number): Element {
 /** Two kinds with no shared outline (a text becoming a plot, an image becoming
  *  a rect…): the content steps at t = 0.5, the shared base tweens. The driver
  *  renders this as a crossfade over the lerped box. */
-function lerpAcrossKinds(pre: Element, end: Element, t: number): Element {
-  const src = t < 0.5 ? pre : end;
+function lerpAcrossKinds(pre: Element, end: Element, t: number, raw: number): Element {
+  const src = raw < 0.5 ? pre : end;
   const out = structuredClone(src) as unknown as Record<string, unknown>;
   const ba = elementBBox({ ...pre, rotation: 0 }), bb = elementBBox({ ...end, rotation: 0 });
   const w = lerp(ba.w, bb.w, t), h = lerp(ba.h, bb.h, t);
@@ -443,10 +496,54 @@ function lerpAcrossKinds(pre: Element, end: Element, t: number): Element {
   return out as unknown as Element;
 }
 
+/** Named shape weights have an implicit zero at either missing endpoint.
+ * Signed/extrapolated authored weights stay intact; the UI alone clamps sliders. */
+export function lerpStates(a: Record<string, number> = {}, b: Record<string, number> = {}, t: number): Record<string, number> {
+  const out: Record<string, number> = Object.create(null);
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const value = lerp(Object.hasOwn(a, key) ? a[key] : 0, Object.hasOwn(b, key) ? b[key] : 0, t);
+    if (value !== 0) out[key] = value;
+  }
+  return out;
+}
+
+/** Continuous field limits interpolate; map identity switches on raw progress.
+ * An absent limit has no implicit data domain. Hosts resolve manifest defaults
+ * before sampling when an authored field override changes. */
+export function lerpFields(a: Record<string, ModelFieldOverride> = {}, b: Record<string, ModelFieldOverride> = {}, t: number, raw = t): Record<string, ModelFieldOverride> {
+  const out: Record<string, ModelFieldOverride> = Object.create(null);
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const left = Object.hasOwn(a, key) ? a[key] : undefined, right = Object.hasOwn(b, key) ? b[key] : undefined;
+    const range = left?.range && right?.range ? [lerp(left.range[0], right.range[0], t), lerp(left.range[1], right.range[1], t)] as [number, number] : step(left?.range, right?.range, raw);
+    const cmap = step(left?.cmap, right?.cmap, raw);
+    if (range || cmap !== undefined) out[key] = { ...(range ? { range: [...range] } : {}), ...(cmap !== undefined ? { cmap } : {}) };
+  }
+  return out;
+}
+
+/** Sparse views have no implicit numeric domain: absent ends step in the
+ * model, while the renderer resolves the manifest defaults and blends fits. */
+export function lerpView(a: PlotView | undefined, b: PlotView | undefined, t: number, raw = t): PlotView | undefined {
+  if (raw <= 0) return a ? structuredClone(a) : undefined;
+  if (raw >= 1) return b ? structuredClone(b) : undefined;
+  const out: PlotView = {};
+  for (const key of ["x", "y"] as const) {
+    const pa = a?.[key], pb = b?.[key];
+    const domain = pa?.domain && pb?.domain ? pa.domain.map((v, i) =>
+      pa.scale === "log" && pb.scale === "log" && v > 0 && pb.domain![i] > 0
+        ? Math.exp(lerp(Math.log(v), Math.log(pb.domain![i]), t)) : lerp(v, pb.domain![i], t)) as [number, number]
+      : step(pa?.domain, pb?.domain, raw);
+    const scale = step(pa?.scale, pb?.scale, raw);
+    if (domain || scale) out[key] = { ...(domain ? { domain: [...domain] } : {}), ...(scale ? { scale } : {}) };
+  }
+  return out.x || out.y ? out : undefined;
+}
+
 function lerpOverrides(
   a: Record<string, PartOverride> | undefined,
   b: Record<string, PartOverride> | undefined,
   t: number,
+  raw = t,
 ): Record<string, PartOverride> {
   const out: Record<string, PartOverride> = {};
   const parts = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
@@ -463,9 +560,9 @@ function lerpOverrides(
       }
       if ((k === "stroke" || k === "fill") && (typeof va === "string" || typeof vb === "string")) {
         // one side absent = "generator default" — not a color we can blend; step.
-        if (typeof va === "string" && typeof vb === "string") merged[k] = lerpColor(va, vb, t);
+        if (typeof va === "string" && typeof vb === "string") merged[k] = lerpColor(va, vb, t, undefined, raw);
         else {
-          const v = step(va, vb, t);
+          const v = step(va, vb, raw);
           if (typeof v === "string") merged[k] = v;
         }
       } else if (typeof va === "number" && typeof vb === "number") {
@@ -473,7 +570,7 @@ function lerpOverrides(
       } else if ((typeof va === "number" || typeof vb === "number") && (k === "dx" || k === "dy")) {
         merged[k] = lerp(Number(va ?? 0), Number(vb ?? 0), t);
       } else {
-        const v = step(va, vb, t);
+        const v = step(va, vb, raw);
         if (v !== undefined) merged[k] = v;
       }
     }
@@ -529,7 +626,7 @@ export function transformPreState(slide: Slide, target: string, beatIndex: numbe
   const out = foldPreState(docEl, earlierTransformStates(slide.beats, target, beatIndex));
   // Content identity is a separate authored channel, but is still part of a
   // transform's effective source. A→B→C must start the second move at B.
-  if (out.type === "plot" || out.type === "image") {
+  if (out.type === "plot" || out.type === "image" || out.type === "model3d") {
     for (let i = 0; i < Math.min(beatIndex, slide.beats.length); i++) {
       for (const track of slide.beats[i].tracks) {
         if (!track.disabled && track.target === target && familyOf(track) === "transform" && track.to?.assetId) out.assetId = track.to.assetId;
@@ -544,7 +641,7 @@ export function transformPreState(slide: Slide, target: string, beatIndex: numbe
  *  compiler, the player and the endpoint checkout all call it. */
 export function transformEndState(pre: Element, track: { to?: { state?: Record<string, unknown>; assetId?: string } }): Element {
   const end = applyState(pre, track.to?.state);
-  if (track.to?.assetId && (end.type === "plot" || end.type === "image")) end.assetId = track.to.assetId;
+  if (track.to?.assetId && (end.type === "plot" || end.type === "image" || end.type === "model3d")) end.assetId = track.to.assetId;
   return end;
 }
 
@@ -560,10 +657,20 @@ export function transformEndState(pre: Element, track: { to?: { state?: Record<s
  *  in tens of milliseconds and budgeted (§6). Warming is never required for
  *  correctness: skip it, interrupt it, call it twice, and every caller still
  *  gets the same answer, only later. */
-export function warmSlideMorphs(slide: Slide): void {
+export function warmSlideMorphs(slide: Slide, geometry?: GeometryCtx): void {
+  let compiled: ReturnType<typeof compileSlide> | undefined;
   for (let bi = 0; bi < slide.beats.length; bi++) {
     for (const track of slide.beats[bi].tracks) {
       if (track.disabled || track.keyframes || familyOf(track) !== "transform") continue;
+      if (isHandoff(track)) {
+        // Plot hosts pass their scoped pristine roots/manifests. Geometry does
+        // not read camera coordinates, so its warm compile needs no stage size.
+        if (geometry) {
+          compiled ??= compileSlide(slide, { width: 1, height: 1 }, { plotManifest: geometry.manifest });
+          planHandoff(track, compiled.sample(bi, track.start ?? 0), { ...geometry, groups: slide.groups }).prepare();
+        }
+        continue;
+      }
       const pre = transformPreState(slide, track.target, bi);
       if (!pre) continue;
       const end = transformEndState(pre, track);

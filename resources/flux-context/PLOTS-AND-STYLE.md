@@ -1,8 +1,8 @@
-# Plots: fluxplot + the Flux house style
+# Plots: fluxplot + the Flux house style (stock — shipped with Flux, do not edit)
 
 ## What fluxplot is
 
-`fluxplot` is an external **Python library** (`pip install fluxplot`) you use in your analysis
+`fluxplot` is an external **Python library** you use in your analysis
 environment. It's "matplotlib, but every meaningful thing has a name": you plot in ordinary
 matplotlib via thin helpers, and `fp.save()` emits a **semantic SVG** whose every part (a
 series' line, its 4th point, the x-axis title) has a **stable id** — which is what lets Flux
@@ -115,7 +115,7 @@ plots/growth.recipe.json    ← recipe (how it was made — re-runnable; used to
 ## Validate every plot
 
 ```bash
-{{FLUX_CLI}} validate-plot plots/growth.svg
+"{{FLUX_CLI}}" validate-plot plots/growth.svg
 ```
 
 This checks the manifest is schema-valid **and** that every id it references exists in the SVG
@@ -137,14 +137,14 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
 - **Headless / app closed:** composed figures render from a COPY of the plot (`fig/assets/`) —
   after regenerating, refresh it in place:
   ```bash
-  {{FLUX_CLI}} sync-figure fig3      # or omit the id for all figures
+  "{{FLUX_CLI}}" sync-figure fig3      # or omit the id for all figures
   ```
   Captions, positions and restyles all survive. Never `delete-figure` + re-compose just to pick
   up a regenerated plot (that destroys them); `render-figure` warns when panels are stale.
 - Parameterized: because the script reads tunables via `fp.params({...})` (which honors a
   `FLUX_PARAMS` override), you can regenerate with different settings without editing code:
   ```bash
-  {{FLUX_CLI}} rerun-plot plots/growth.recipe.json --test mann-whitney
+  "{{FLUX_CLI}}" rerun-plot plots/growth.recipe.json --test mann-whitney
   ```
   The recipe `fp.save` wrote records the interpreter + script + params (as relative paths), so
   this re-executes the script with the override and re-emits the plot in place. (This is automatic
@@ -157,3 +157,72 @@ To change a figure, **re-run the script**, don't hand-edit the SVG:
 - **Regenerated at a different size?** `sync-figure` resizes the element true-size (preserving a
   deliberate hand-scale) and grows the figure frame if needed — re-`arrange` when the grid
   should reflow around the new size.
+
+## 3D fluxplots
+
+**Requires fluxplot with scene3d support** (`fp.scene3d`, `fp.mesh3d`, `fp.surface3d`,
+`fp.can_morph`). Today that is only the unreleased fluxplot branch `scene3d`; it will ship
+as the next fluxplot release. Check before writing a 3D script:
+`python -c 'import fluxplot as fp; print(hasattr(fp, "scene3d"))'`. If it prints `False`,
+tell the user and ask before changing their fluxplot install. Flux still imports any
+triangle-mesh GLB from other tools, as a plain mesh without named parts or furniture.
+
+With scene3d support, a triangle mesh is a first-class fluxplot: named parts, saved
+view, values and physical typography travel with the mesh. Lines and points are outside
+this 3D surface.
+
+```python
+import fluxplot as fp
+fp.use_paper()
+sc = fp.scene3d(figsize=(3.5, 3), units="nm", up="-y", scalebar=10_000)
+fp.mesh3d(sc, {"soma": soma, "axon": axon, "dendrites": dendrites},
+          series="neuron", legend=True)
+sc.view(azimuth=30, elevation=15, zoom=0.9)
+fp.save(sc, "plots/neuron", recipe=dict(script=__file__, params={}))
+```
+
+`figsize` is inches. `up` supports signed axes and converts data coordinates to
+glTF Y-up; axes and scale bars retain data units. Mesh input can be `(vertices,
+faces)` or a mesh object; file adapters and accelerated simplification use the
+optional `fluxplot[mesh]` dependencies. Convert volumes to a triangle mesh first.
+`fp.save` writes `neuron.glb`, `neuron.fluxplot.json` and `neuron.recipe.json`.
+The recipe uses `outputs.glb`; `rerun-plot` can regenerate it. The source is
+immutable in Flux until an explicit Update from source. Do not overwrite
+`fig/assets/` directly.
+
+```python
+cx = fp.scene3d(figsize=(3, 3), units="mm", axes="triad")
+fp.surface3d(cx, thickness, series="thickness", surfaces=(vertices, faces),
+             kind="continuous", cmap="viridis", percentile=(2, 98),
+             colorbar=True, cbar_label="Thickness (mm)")
+fp.mesh3d(cx, pial, series="cortex", states={"inflated": inflated})
+cx.view(states={"inflated": 0.25})
+```
+
+Continuous values use the same mapping policy as `fp.surface`; 3D interpolates
+vertex colors while the 2D surface uses each face's mean value. Use
+`color_range=(min,max)` for explicit limits. Labels use `kind="label"`,
+`categories={code:name}` and `palette={name_or_code:color}`. Missing samples are
+encoded separately from real zero and get a `<series>.missing` part. Flux can
+remap continuous colormaps/ranges and restyle stable parts such as `neuron.axon`
+and `thickness.field` without rerunning Python.
+
+Every shape state must match the base vertex count and exact triangle order.
+For a sequence, pass `states=frames[1:], sequence=True`; frame 0 is the base,
+and `sc.view(frame=2.5)` blends frames 2 and 3. Separate morph files should share
+series/part names. Simplify the reference with `max_faces=200_000`, construct the
+partner using `share_topology_with=reference, morph_group="cortex"`, and check
+`fp.can_morph(reference, partner)`. Independent simplification can destroy
+correspondence. Named parts are simplified separately; collapse mapping is
+replayed on all states and the paired mesh. Keep inputs below Flux's 200 MiB and
+2 million triangle import limits; `model-info` reports violations with guidance.
+
+Notebook display bundles a self-contained interactive viewer (no network service)
+and a PNG. Notebook frontends that run scripts in HTML outputs (e.g. trusted VS Code
+or Jupyter notebooks) show the viewer: drag orbits, wheel zooms once the view is clicked
+(or with Ctrl/Cmd; otherwise the notebook scrolls), axis keys choose views, Home resets,
+and Copy view produces a pasteable `sc.view(...)` call (`frame=N` for sequences). Frontends that
+disable scripts show the inline PNG. Untrusted VS Code can suppress the whole mixed
+HTML/PNG output instead of falling back to the PNG; `sc.show(static=True)` emits only
+the still, so use it before sharing. A static preview may differ around intersecting
+transparent geometry; the saved mesh keeps the full geometry and semantic data.

@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import {harness} from './lib/harness.mjs';
+import {orbitPose,project,pixelsPerUnit,axisView,nearestEquivalent,lerpOrbitZoom,statesAtFrame} from '../src/lib/model3d/orbit';
+import {posterKey,posterPixels,posterPath,modelPlaceholder} from '../src/lib/model3d/poster';
+import {makeModel3dElement} from '../src/lib/model3d/make';
+import {elementAssetRefs} from '../src/lib/model3d/refs';
+import {mapValues} from '../src/lib/model3d/colormap';
+import type {Model3dAsset,Scene3dManifest} from '../src/lib/model3d/types';
+import {inspectGlb,writeGlb} from '../src/lib/model3d/glbCore.mjs';
+const h=harness('verify-model3d-core'),bounds={min:[-1,-1,-1],max:[1,1,1]} as const;
+const asset:Model3dAsset={id:'cube',name:'cube.glb',kind:'glb',path:'assets/cube.glb',naturalWidth:336,naturalHeight:252,sha256:'a'.repeat(64),bytes:1024,model:inspectGlb(writeGlb({parts:[{name:'cube.mesh',positions:[-1,-1,-1,1,1,1,1,-1,1],indices:[0,1,2]}]}))};
+const el=makeModel3dElement(asset,{id:'model'}),vp={width:400,height:300},b={min:[...bounds.min],max:[...bounds.max]} as {min:[number,number,number];max:[number,number,number]};
+h.eq([el.orbitAzimuth,el.orbitElevation,el.orbitZoom,el.orbitProjection,el.orbitFov],[30,20,.9,'orthographic',30],'constructor required defaults');h.eq(el.lockAspect,false,'box resize reframes');
+const front=orbitPose({...el,...axisView('front'),orbitZoom:1},b,vp),right=orbitPose({...el,...axisView('right')},b,vp),top=orbitPose({...el,...axisView('top')},b,vp);
+h.ok(front.position[2]>0&&Math.abs(front.position[0])<1e-12,'front camera on +Z');h.ok(right.position[0]>0&&Math.abs(right.position[2])<1e-12,'right camera on +X');h.ok(top.up.every(Number.isFinite)&&Math.abs(top.up[2]+1)<1e-12,'pole basis stable');h.eq(project([0,0,0],front,vp),{x:200,y:150,depth:front.distance},'center projects to viewport center');
+const legacy=orbitPose({...el,...axisView('front'),orbitZoom:1},b,vp),framed=orbitPose({...el,...axisView('front'),orbitZoom:1},{...b,radius:1},vp);
+h.ok(Math.abs(legacy.radius-Math.sqrt(3))<1e-12&&framed.radius===1&&framed.halfHeight===1&&Math.abs(framed.distance-3)<1e-12,'stored tight radius drives R (s=R/z, 3R ortho distance); bounds without it keep the half-diagonal');
+const roll=orbitPose({...el,...axisView('front'),orbitRoll:90},b,vp);h.ok(Math.abs(roll.right[1]-1)<1e-12&&Math.abs(roll.up[0]+1)<1e-12,'roll rotates view basis');
+const pan=orbitPose({...el,...axisView('front'),orbitPanX:1},b,vp);h.ok(project([0,0,0],pan,vp).x<200,'pan offsets target and projected model');
+h.eq(nearestEquivalent(0,725),720,'axis presets preserve unwrapped turns');h.ok(Math.abs(lerpOrbitZoom(.25,4,.5)-1)<1e-12,'zoom interpolation geometric mean');h.eq(statesAtFrame(['a','b','c'],1.25),{a:.75,b:.25},'frame sequence interpolates neighbors');h.eq(statesAtFrame(['a','b'],.5),{a:.5},'base-to-first frame blend');
+for(const viewport of [vp,{width:180,height:400}]){const p=orbitPose({...el,...axisView('front'),orbitZoom:1,orbitProjection:'perspective'},b,viewport);const alpha=Math.asin(p.radius/p.distance),fovShort=el.orbitFov*Math.PI/180;h.ok(Math.abs(alpha-fovShort/2)<1e-12,'perspective tangent sphere fills short side at zoom 1');h.eq(pixelsPerUnit(p,viewport),null,'perspective has no exact scale bar');}
+const px={w:800,h:600},key=posterKey(el,asset,null,px);h.eq(posterKey({...el,orbitAzimuth:el.orbitAzimuth+360},asset,null,px),key,'full turn poster equivalence');h.eq(posterKey({...el,modelStates:{a:0}},asset,null,px),key,'zero shape states omitted');h.ok(posterKey({...el,orbitZoom:1},asset,null,px)!==key,'zoom changes key');h.eq(posterPath(key),`fig/renders/model3d/${key}.png`,'content-addressed poster path');
+const manifest:Scene3dManifest={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'cube.glb',size:{width:2,height:3,unit:'in'},parts:[{id:'cube.mesh',role:'mesh',node:'cube.mesh'},{id:'title',role:'title',text:'Mesh'}]};
+h.eq([makeModel3dElement(asset,{manifest}).width,makeModel3dElement(asset,{manifest}).height],[192,288],'manifest size is physical inches');
+// Review L2: every render input is in the key.
+const ordered:Scene3dManifest={...manifest,parts:[...manifest.parts!,{id:'cube.glass',role:'mesh',node:'cube.glass'}]};
+h.ok(posterKey(el,asset,{...ordered,order:['cube.mesh','cube.glass']},px)!==posterKey(el,asset,{...ordered,order:['cube.glass','cube.mesh']},px),'transparent draw order changes the key');
+const fielded:Scene3dManifest={...manifest,parts:[...manifest.parts!,{id:'h.field',role:'mesh',node:'h.field',field:{cmap:{name:'viridis',stops:[[0,'#440154'],[1,'#FDE725']]},range:[0,1]}}]};
+const override={...el,fields:{'h.field':{cmap:'magma'}}},keyWithStops=posterKey(override,asset,fielded,px);
+const changedSource:Scene3dManifest={...fielded,parts:fielded.parts!.map(p=>p.id==='h.field'?{...p,field:{...(p.field as object),cmap:{name:'viridis',stops:[[0,'#000000'],[1,'#ffffff']]}} as typeof p.field}:p)};
+h.ok(posterKey(el,asset,fielded,px)!==posterKey(el,asset,changedSource,px)&&keyWithStops===posterKey(override,asset,changedSource,px),'source stops key the source colormap; a named override is keyed by the stops it resolves to');
+h.ok(posterKey(el,{...asset,model:{...asset.model,bounds:{...asset.model.bounds,radius:.5}}},null,px)!==posterKey(el,asset,null,px),'the framing radius changes the key');
+{const boxed:Scene3dManifest={...manifest,axes:{kind:'box',x:{lim:[-1,1]},y:{lim:[-1,1]},z:{lim:[-1,1]}}},wider:Scene3dManifest={...boxed,axes:{...boxed.axes!,x:{lim:[-4,4]}}};h.ok(posterKey(el,asset,boxed,px)!==posterKey(el,asset,wider,px),'box-axis limits that widen the framing change the key');}
+h.eq(posterKey({...el,overrides:{title:{fill:'#ffffff',fontSize:30}}},asset,manifest,px),posterKey(el,asset,manifest,px),'furniture styling excluded from mesh key');h.ok(posterKey({...el,overrides:{'cube.mesh':{fill:'#ffffff'}}},asset,manifest,px)!==posterKey(el,asset,manifest,px),'mesh override included');h.eq(posterKey({...el,overrides:{'cube.mesh':{fill:'#ABCDEF',opacity:.5}}},asset,manifest,px),posterKey({...el,overrides:{'cube.mesh':{opacity:.5,fill:'#abcdef'}}},asset,manifest,px),'poster canonical property order and colour case');
+h.eq(posterPixels({width:96,height:48},'figure'),{w:300,h:150},'figure 300 DPI');h.eq(posterPixels({width:9600,height:4800},'pdf'),{w:8192,h:4096},'PDF cap8192');h.eq(posterPixels({width:9600,height:4800},'thumbnail'),{w:256,h:128},'thumbnail256');h.eq(posterPixels({width:96,height:48},{kind:'raster',dpi:600}),{w:600,h:300},'raster requested DPI');h.eq(posterPixels({width:96,height:48},{kind:'editor',onscreen:{w:600,h:300},dpr:2}),{w:2048,h:1024},'editor power-of-two bucket');
+const refs=elementAssetRefs({...el,source:{glbPath:'plots/cube.glb',manifestPath:'plots/cube.fluxplot.json'}},()=>`m3dposter:${key}`);h.eq(refs.images,[],'GLB never collected as image');h.eq(refs.models,['cube'],'GLB dependency retained');h.eq(refs.manifests,['plots/cube.fluxplot.json'],'manifest dependency retained');h.eq(refs.posterRefs,[`m3dposter:${key}`],'poster reference separate');
+const colors=mapValues([0,0,1],{cmap:{name:'test',stops:[[0,'#000000'],[1,'#FFFFFF']]},range:[0,1],missingColor:'#FF0000'},undefined,[1,0,1]);h.eq(Array.from(colors),[0,0,0,1,0,0,1,1,1],'_VALID distinguishes real zero from missing zero');
+h.eq(Array.from(mapValues([2,2],{cmap:{name:'constant',stops:[[0,'#000000'],[1,'#FFFFFF']]},range:[2,2]})),[0,0,0,0,0,0],'constant source fields match matplotlib Normalize colormap zero');
+h.ok(modelPlaceholder('<unsafe>',{x:0,y:0,width:300,height:200}).includes('&lt;unsafe&gt;'),'placeholder escapes model name');
+assert.throws(()=>posterPixels({width:0,height:1},'figure'));h.ok(true,'invalid viewport refused');const colored={...manifest,parts:manifest.parts!.map(p=>p.node?{...p,color:'#abcdef'}:p)};h.ok(posterKey(el,asset,colored,px)!==posterKey(el,asset,manifest,px),'source manifest color affects poster even when GLB hash unchanged');await h.done();

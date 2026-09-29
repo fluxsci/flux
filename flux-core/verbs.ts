@@ -6,15 +6,35 @@
 // strings; verify-f1-mcp/w11-verbs/release-check stay green).
 
 import { z } from "zod";
+import { PRESET_CATALOG, EDITABLE_PRESETS } from "../src/lib/slide/presetCatalog";
+import type { PlotViewFields } from "../src/lib/plot/viewControls";
+import { EASING_TOKENS, CURVE_CATALOG, parseCurve } from "../src/lib/slide/curves";
+import type { EasingToken, PairPolicy, Track, PresetName } from "../src/lib/slide/types";
+import { PAIR_POLICY_IDS } from "../src/lib/slide/targets";
 import type { VerbDef, CliArgSpec } from "./registry";
-import { ValidationError } from "./errors";
+import { INBOX_VERBS } from "./inboxVerbs";
+import { MODEL3D_VERBS } from './model3dVerbs';
+import { inboxSession, inboxAuthor, resolveItem } from "./annotations";import { ValidationError } from "./errors";
 import { text } from "./registry";
+import { renderLogEntries } from "../src/lib/project/contextTemplates";
 import * as core from "./index";
 import * as model from "./model";
 import * as references from "./references";
 import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type TrackCascadeSpec } from "../src/lib/cascade";
 
 // --- shared bits -------------------------------------------------------------
+
+const staggerSchema = z.object({
+  perMs: z.number().nonnegative().optional(), totalMs: z.number().nonnegative().optional(),
+  by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+  seed: z.number().int().min(0).max(0xffffffff).optional(),
+  curve: z.union([
+    z.enum(EASING_TOKENS),
+    z.object({ kind: z.literal("bezier"), p: z.tuple([z.number().min(0).max(1), z.number().min(-1).max(2), z.number().min(0).max(1), z.number().min(-1).max(2)]) }).strict(),
+    z.object({ kind: z.literal("spring"), bounce: z.number().min(-0.5).max(0.8), velocity: z.number().optional() }).strict(),
+    z.object({ kind: z.literal("steps"), n: z.number().int().min(1).max(60), jump: z.enum(["start", "end"]).optional() }).strict(),
+  ]).optional(),
+}).refine(s => s.perMs !== undefined || s.totalMs !== undefined, "Stagger needs perMs or totalMs");
 
 /** Copy the defined keys of `a` listed in `keys` into a fresh patch object —
  *  the "only the fields you pass change" contract every patch verb keeps. */
@@ -24,7 +44,23 @@ const pick = (a: Record<string, unknown>, keys: string[]): Record<string, never>
   return p as Record<string, never>;
 };
 
+const CURVE_GRAMMAR = `Curve: spring(0.35), spring(0.35, v=2), spring(k=170, c=26, m=1), bezier(x1,y1,x2,y2) or cubic-bezier(x1,y1,x2,y2), steps(n[,start|end]); catalog names: ${CURVE_CATALOG.map(c => c.id).join(", ")}`;
+/** Parse before any IO. A curve argument takes precedence over legacy fields. */
+function timingCurveArgs(a: Record<string, unknown>): Pick<Track, "curve" | "influence" | "easing"> {
+  if (a.curve !== undefined) {
+    const curve = parseCurve(a.curve as string);
+    if (curve === null) throw new ValidationError(`Invalid curve ${JSON.stringify(a.curve)}. ${CURVE_GRAMMAR}`);
+    return typeof curve === "string" ? { easing: curve } : { curve };
+  }
+  if (a.influence !== undefined) return { influence: a.influence as Track["influence"] };
+  return a.easing !== undefined ? { easing: a.easing as EasingToken } : {};
+}
+
 const s = (v: unknown): string => v as string;
+const modelMorphSummary = (value: unknown): string => {
+  const result = value as { morph?: boolean; reason?: string };
+  return typeof result.morph === 'boolean' ? `; morph:${result.morph}${result.reason ? ` (${result.reason})` : ''}` : '';
+};
 const sArr = (v: unknown): string[] => v as string[];
 const n = (v: unknown): number => v as number;
 
@@ -143,19 +179,101 @@ const nodeZ = z.object({
 
 // Flux Slide vocabularies (shared with flux-mcp's remaining manual blocks:
 // set_slide uses SLIDE_LAYOUTS, set_animation uses SLIDE_PRESETS).
-export const SLIDE_PRESETS = [
-  "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
-  "fadeOut", "popOut", "drawOff", "wipeOut",
-  "highlight", "dim", "move", "scale", "rotate", "camera", "countUp",
-  "transform",
-] as const;
+export const SLIDE_PRESETS = [...EDITABLE_PRESETS, ...Object.values(PRESET_CATALOG).filter(def => !def.editable && def.family !== "media").map(def => def.name)] as [PresetName, ...PresetName[]];
 export const SLIDE_LAYOUTS = ["title", "section", "content-figure", "two-column", "full-bleed", "blank"] as const;
 export const SLIDE_THEMES = ["flux-dark", "flux-light", "flux-paper", "flux-midnight", "flux-slate", "flux-sepia", "flux-contrast"] as const;
 
+const ageOfSince = (since: string) => {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(since)) / 60000));
+  return min < 90 ? `${min} min ago` : min < 2880 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} d ago`;
+};
+
+/** `flux connect --refresh`: the delta since the session last looked, then where the full new pack is. */
+function connectRefreshBrief(c: import("./connect/index").ConnectResult): string {
+  const f = c.refresh!;
+  return [
+    `# FLUX-CONNECT REFRESH BRIEF · project "${c.title}" · pack ${c.packId} · since pack ${f.fromPack} (${ageOfSince(f.since)})`,
+    "",
+    f.details,
+    "",
+    `The full, current pack: \`${c.briefPath ?? "(not written)"}\` and \`${c.bundlePath ?? "(not written)"}\` (MCP \`read_pack {packId:"${c.packId}"}\`). Re-read only what changed.`,
+    "",
+    "Reply with:",
+    "```",
+    `↻ refreshed · ${c.title} · since ${f.fromPack} (${ageOfSince(f.since)}) · ${f.changes} change${f.changes === 1 ? "" : "s"}`,
+    "```",
+    "",
+    `END OF FLUX-CONNECT REFRESH BRIEF ${c.packId}`,
+    "",
+  ].join("\n");
+}
+
 export const VERBS: VerbDef[] = [
+  {
+    name: "connect", cli: "connect", cliRoot: "flags", scope: "machine", core: true, bindsRoot: true,
+    summary:
+      "flux-connect: load a Flux project (a path to or inside it), `global`, or the project around cwd. Returns a brief to follow (what to read and look at, then a receipt) and binds the project. Only when the user asks for flux-connect.",
+    params: { target: z.string().optional(), live: z.boolean().optional(), refresh: z.boolean().optional(),
+      depth: z.enum(["core", "full", "ask", "task"]).optional(), budget: z.number().int().positive().optional(),
+      noRender: z.boolean().optional(), json: z.boolean().optional() },
+    notAPath: { target: "a project path, `global`, or omitted; resolved by connect itself (walk-up to project.json)" },
+    cliOnlyFlags: {
+      part: { value: true, help: "part N of a stdout-only pack (with --pack and --sources, as the brief prints them)" },
+      pack: { value: true, help: "the pack id, with --part" },
+      sources: { value: true, help: "the pack's sources digest, with --part" },
+      "check-receipt": { value: true, help: "<packId> \"<proof line>\": which bundle sections and images a receipt confirms" },
+      "hook-delta": { value: false, help: "the Claude Code prompt hook: one line when a connected project changed" },
+    },
+    cliArgs: [{ kind: "pos", at: 0, into: "target" },
+      { kind: "flag", at: "live", into: "live", as: "boolean" }, { kind: "flag", at: "refresh", into: "refresh", as: "boolean" },
+      { kind: "flag", at: "depth", into: "depth" }, { kind: "flag", at: "budget", into: "budget", as: "number" },
+      { kind: "flag", at: "no-render", into: "noRender", as: "boolean" }, { kind: "flag", at: "json", into: "json", as: "boolean" }],
+    handler: async (ctx, a) => {
+      const { connect } = await import("./connect/index");
+      const identity = ctx.identity ?? (await import("./agentIdentity")).detectAgentIdentity(process.env);
+      const r = await connect({
+        target: a.target as string | undefined,
+        // Over MCP a relative or omitted target resolves from the bound project (else the server's cwd, which Claude Code sets to the session's).
+        cwd: ctx.mcp ? ctx.root || process.cwd() : process.cwd(),
+        depth: a.depth as "core" | "full" | "ask" | "task" | undefined,
+        live: a.live as boolean | undefined,
+        refresh: a.refresh as boolean | undefined,
+        budget: a.budget as number | undefined,
+        noRender: a.noRender as boolean | undefined,
+        identity,
+        sessionName: ctx.mcp?.name() ?? null,
+        ...(ctx.mcp?.bind ? { bindSession: async (root: string) => (await ctx.mcp!.bind!(root, !!a.live))?.name ?? null } : {}),
+        sessionKey: ctx.mcp ? null : identity.sessionId,
+        progress: ctx.mcp ? undefined : (line) => { if (process.stderr.isTTY) console.error(line); },
+      });
+      ctx.mcp?.connected({ root: r.root, title: r.title, packId: r.packId, cursor: r.cursor, live: !!a.live });
+      // Global leaves an existing project binding alone (plan §8.7): no root to bind.
+      return { ...r, root: r.root ?? undefined };
+    },
+    render: {
+      human: (r, a) => {
+        const c = r as import("./connect/index").ConnectResult;
+        if (a.json) {
+          const { cursor: _cursor, brief: _brief, firstPart: _part, ...rest } = c;
+          return { out: JSON.stringify(rest, null, 2) };
+        }
+        const body = c.refresh ? connectRefreshBrief(c) : c.brief + (c.firstPart ? "\n" + c.firstPart : "");
+        return { out: body, ...(c.problems.length ? { err: c.problems.map((p) => `connect: ${p}`).join("\n") } : {}) };
+      },
+      mcp: (r) => {
+        const c = r as import("./connect/index").ConnectResult;
+        return {
+          content: [{ type: "text", text: c.refresh ? connectRefreshBrief(c) : c.brief }],
+          structuredContent: { packId: c.packId, briefPath: c.briefPath, bundlePath: c.bundlePath, images: c.images, root: c.root ?? null },
+        };
+      },
+    },
+  },
   // --- batch 0: trivial project verbs ------------------------------------------
   {
-    name: "list_project",
+    name: "list_project", readOnly: true,
+    scope: "project",
+    core: true,
     cli: "list",
     summary: "List the project's documents, figures (with panel letters), and references.",
     params: {},
@@ -168,6 +286,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reindex",
+    scope: "project",
     cli: "reindex",
     summary: "Rebuild project.json.figures[] from fig/index.json.",
     params: {},
@@ -179,11 +298,12 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "config_paths",
+    name: "config_paths", readOnly: true,
+    scope: "machine",
     cli: "config",
     aliases: ["config-paths"],
     summary:
-      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), contextPath/userContextPath/fluxContextPath (the machine Context layer), agentsConfigPath (the agent roster), plotLibraryPath (the global plot library, <FluxConfig>/plot_library — reusable plots every project's Plot gallery can insert; any folder structure), and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Before working, read every file in userContextPath (who the user is + their standing rules) and orient via fluxContextPath/README.md.",
+      "Resolve Flux's machine-level paths as JSON: fluxConfigPath (the user's FluxConfig folder), fluxLibPath (the reference library, always <FluxConfig>/FluxLib), contextPath/userContextPath/fluxContextPath (the machine Context layer), plotLibraryPath (the global plot library, <FluxConfig>/plot_library — reusable plots every project's Plot gallery can insert; any folder structure), and userDataDir — plus `build` (version/commit/entry) identifying which Flux build is answering. Before working, read every file in userContextPath (who the user is + their standing rules) and orient via fluxContextPath/README.md.",
     params: {},
     cliArgs: [],
     handler: () => references.configInfo(),
@@ -195,9 +315,11 @@ export const VERBS: VerbDef[] = [
   // --- batch A: the one-line figure/style/text verbs ---------------------------
   {
     name: "set_caption",
+    scope: "project",
+    core: true,
     cli: "set-caption",
     summary:
-      "Write a figure's caption. Whole-string form distributes the 'Lead. **a**, … **b**, …' convention into the per-panel caption blocks (Figure-Meta); pass panel:'a' to write one panel, or panel:'__ps__' for unlabelled closing prose (panel:'ps' also works unless a panel is named ps).",
+      "Write a figure's caption. A whole string in the 'Lead. **a**, … **b**, …' convention is split into per-panel blocks; panel:'a' writes one panel, panel:'__ps__' the closing prose.",
     params: { id: z.string(), markdown: z.string(), panel: z.string().optional() },
     cliArgs: [
       { kind: "pos", at: 0, into: "id", required: true },
@@ -224,7 +346,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "get_caption",
+    name: "get_caption", readOnly: true,
+    scope: "project",
     cli: "caption",
     summary:
       "Read a figure's composed caption (fig/captions/<id>.md — figure caption + per-panel captions). Use before set_caption to see the current text.",
@@ -238,6 +361,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_style",
+    scope: "project",
     cli: "set-style",
     cliRoot: "flags",
     summary:
@@ -311,16 +435,20 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "restyle_part",
+    scope: "project",
+    core: true,
     cli: "restyle",
+    aliases: ['restyle-part'],
     cliRoot: "flags",
     summary:
-      "Restyle a semantic-plot part or series by its stable id (e.g. 'control.line' or the group 'control'). Writes an override that survives regeneration. Omit elementId if the figure has a single plot panel.",
+      "Restyle a semantic plot or 3D part/group by its stable id. Writes an override that survives regeneration. Omit elementId if the figure has one semantic panel. A 3D mesh fill switches that model to Source colors so it shows.",
     // WS-6.1: the FULL PartOverride surface (the CLI exposed these all along —
     // same core.setPartOverride underneath; the 5-prop schema was drift).
     params: {
       figureId: z.string(),
       partId: z.string(),
       elementId: z.string().optional(),
+      noPoster: z.boolean().optional(),
       stroke: z.string().optional(),
       fill: z.string().optional(),
       color: z.string().optional(),
@@ -339,6 +467,7 @@ export const VERBS: VerbDef[] = [
       { kind: "pos", at: 0, into: "figureId", required: true },
       { kind: "pos", at: 1, into: "partId", required: true },
       { kind: "flag", at: "element", into: "elementId" },
+      { kind: "flag", at: "no-poster", into: "noPoster", as: "boolean" },
       { kind: "flag", at: "stroke", into: "stroke" },
       { kind: "flag", at: "fill", into: "fill" },
       { kind: "flag", at: "color", into: "color" },
@@ -350,16 +479,18 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "italic", into: "fontStyle", const: "italic" },
       { kind: "flag", at: "no-italic", into: "fontStyle", const: "normal" },
       { kind: "flag", at: "hidden", into: "hidden", const: true },
+      { kind: "flag", at: "show", into: "hidden", const: false },
     ],
     handler: (ctx, a) =>
-      core.setPartOverride(ctx.root, s(a.figureId), s(a.partId), pick(a, [...PART_KEYS]), a.elementId as string | undefined),
+      core.setPartOverride(ctx.root, s(a.figureId), s(a.partId), pick(a, [...PART_KEYS]), a.elementId as string | undefined, { noPoster: a.noPoster as boolean | undefined }),
     render: {
-      human: (r, a) => ({ err: `✓ restyled ${a.partId} on ${(r as { elementId: string }).elementId}` }),
-      mcp: (r, a) => text(`restyled ${a.partId} on ${(r as { elementId: string }).elementId}`),
+      human: (r, a) => ({ err: `✓ restyled ${a.partId} on ${(r as { elementId: string }).elementId}${(r as { warnings?: string[] }).warnings?.length ? "\n" + (r as { warnings: string[] }).warnings.join("\n") : ""}` }),
+      mcp: (r, a) => text(`restyled ${a.partId} on ${(r as { elementId: string }).elementId}${(r as { warnings?: string[] }).warnings?.length ? "\n" + (r as { warnings: string[] }).warnings.join("\n") : ""}`),
     },
   },
   {
     name: "set_crop",
+    scope: "project",
     cli: "set-crop",
     cliRoot: "flags",
     summary:
@@ -392,6 +523,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "rotate_elements",
+    scope: "project",
     cli: "rotate",
     cliRoot: "flags",
     summary:
@@ -412,6 +544,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "align_figure",
+    scope: "project",
     cli: "align",
     cliRoot: "flags",
     summary:
@@ -436,6 +569,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "bring_inside",
+    scope: "project",
     cli: "bring-inside",
     cliRoot: "flags",
     summary:
@@ -453,6 +587,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "cascade",
+    scope: "project",
     cli: "cascade",
     cliRoot: "flags",
     summary:
@@ -491,6 +626,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "distribute",
+    scope: "project",
     cli: "distribute",
     cliRoot: "flags",
     summary:
@@ -512,6 +648,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "arrange_figure",
+    scope: "project",
     cli: "arrange",
     cliRoot: "flags",
     summary: "Grid-arrange a figure's existing panels (give rows OR cols; gap optional).",
@@ -540,6 +677,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "scale_elements",
+    scope: "project",
     cli: "scale",
     cliRoot: "flags",
     summary:
@@ -560,6 +698,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_element",
+    scope: "project",
     cli: "reorder",
     cliRoot: "flags",
     summary: "Move an element to an absolute z-index within its figure (0 = bottom, higher = closer to front).",
@@ -577,6 +716,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_z",
+    scope: "project",
     cli: "set-z",
     aliases: ["z-order"],
     cliRoot: "flags",
@@ -598,6 +738,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "group_elements",
+    scope: "project",
     cli: "group",
     cliRoot: "flags",
     summary:
@@ -620,6 +761,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ungroup_elements",
+    scope: "project",
     cli: "ungroup",
     cliRoot: "flags",
     summary:
@@ -634,6 +776,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "rename_group",
+    scope: "project",
     cli: "rename-group",
     cliRoot: "flags",
     summary: "Rename a figure group (the Layers panel name).",
@@ -650,6 +793,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_group_state",
+    scope: "project",
     cli: "set-group-state",
     cliRoot: "flags",
     summary:
@@ -670,7 +814,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_groups",
+    name: "list_groups", readOnly: true,
+    scope: "project",
     cli: "list-groups",
     cliRoot: "flags",
     summary:
@@ -684,6 +829,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_elements",
+    scope: "project",
     cli: "delete-element",
     aliases: ["delete-elements"],
     cliRoot: "flags",
@@ -698,6 +844,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_figure",
+    scope: "project",
     cli: "delete-figure",
     cliRoot: "flags",
     summary: "Delete a whole figure (keeps at least one figure in the project). Returns the id the GUI would select next.",
@@ -717,6 +864,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_figure",
+    scope: "project",
     cli: "duplicate-figure",
     cliRoot: "flags",
     summary: "Duplicate a whole figure (fresh element/group ids). Returns the new figure id.",
@@ -733,6 +881,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_elements",
+    scope: "project",
     cli: "duplicate",
     cliRoot: "flags",
     summary:
@@ -758,6 +907,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_fig_text",
+    scope: "project",
     cli: "add-fig-text",
     cliRoot: "flags",
     summary:
@@ -810,7 +960,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_text_styles",
+    name: "list_text_styles", readOnly: true,
+    scope: "project",
     cli: "text-styles",
     cliRoot: "flags",
     summary:
@@ -824,6 +975,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_text_style",
+    scope: "project",
     cli: "create-text-style",
     cliRoot: "flags",
     summary:
@@ -850,6 +1002,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "update_text_style",
+    scope: "project",
     cli: "update-text-style",
     cliRoot: "flags",
     summary: "Patch a named text style (name renames) — LIVE: re-applies to every linked text element.",
@@ -871,6 +1024,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_text_style",
+    scope: "project",
     cli: "delete-text-style",
     cliRoot: "flags",
     summary: "Delete a named text style. Linked text elements keep their current look and drop the link.",
@@ -884,6 +1038,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "apply_text_style",
+    scope: "project",
     cli: "apply-text-style",
     cliRoot: "flags",
     summary: "Apply a named text style to text elements (sets the style's defined props + links styleId).",
@@ -900,6 +1055,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "toggle_text_style",
+    scope: "project",
     cli: "toggle-text-style",
     cliRoot: "flags",
     summary:
@@ -920,6 +1076,7 @@ export const VERBS: VerbDef[] = [
   // `text`, `to` exclusive; an out-of-range pair or a non-text id is an error.
   {
     name: "toggle_text_run_style",
+    scope: "project",
     cli: "toggle-text-run-style",
     cliRoot: "flags",
     summary:
@@ -939,6 +1096,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "toggle_text_run_script",
+    scope: "project",
     cli: "toggle-text-run-script",
     cliRoot: "flags",
     summary:
@@ -958,6 +1116,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_text_run_color",
+    scope: "project",
     cli: "set-text-run-color",
     cliRoot: "flags",
     summary:
@@ -977,6 +1136,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_guides",
+    scope: "project",
     cli: "set-guides",
     cliRoot: "flags",
     summary:
@@ -998,6 +1158,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "resize_figure_frame",
+    scope: "project",
     cli: "resize-figure-frame",
     cliRoot: "flags",
     summary: "Resize a figure boundary while keeping artwork at its world position. Out-of-bounds content, guides, assets and references are preserved; artwork is never scaled. Coordinates and dimensions are canvas pixels.",
@@ -1014,6 +1175,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_figure_layout",
+    scope: "project",
     cli: "set-figure-layout",
     cliRoot: "flags",
     summary:
@@ -1045,6 +1207,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "auto_label",
+    scope: "project",
     cli: "auto-label",
     cliRoot: "flags",
     summary:
@@ -1071,6 +1234,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_path",
+    scope: "project",
     cli: "add-path",
     cliRoot: "flags",
     summary:
@@ -1106,6 +1270,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "edit_path",
+    scope: "project",
     cli: "edit-path",
     cliRoot: "flags",
     summary:
@@ -1131,10 +1296,13 @@ export const VERBS: VerbDef[] = [
   // --- batch B: figure composition / import / sync ------------------------------
   {
     name: "compose_figure",
+    scope: "project",
+    core: true,
+    pathParams: {"plotPaths": "paths"},
     cli: "compose-figure",
     cliRoot: "flags",
     summary:
-      "Assemble multiple plots into ONE labeled multi-panel figure: imports each plot (semantic FluxPlot if a .fluxplot.json sidecar is present), grid-arranges them, auto-letters the panels (a, b, c…), and writes a caption stub. The flagship figure-building verb — e.g. turn 10 analysis plots into Figure 6.",
+      "Assemble plots into ONE labeled multi-panel figure: imports each (semantic when a .fluxplot.json sidecar exists), grid-arranges them, letters the panels (a, b, c…) and writes a caption stub. E.g. 10 analysis plots → Figure 6.",
     params: {
       plotPaths: z.array(z.string()),
       id: z.string().optional(),
@@ -1190,6 +1358,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_figure",
+    scope: "project",
     cli: "create-figure",
     cliRoot: "flags",
     summary:
@@ -1228,6 +1397,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_figure_family",
+    scope: "project",
     cli: "set-figure-family",
     cliRoot: "flags",
     summary:
@@ -1270,6 +1440,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "define_figure_family",
+    scope: "project",
     cli: "define-figure-family",
     cliRoot: "flags",
     summary:
@@ -1306,6 +1477,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "remove_figure_family",
+    scope: "project",
     cli: "remove-figure-family",
     cliRoot: "flags",
     summary:
@@ -1323,6 +1495,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "import_plots",
+    scope: "project",
+    pathParams: {"plotPaths": "paths"},
     cli: "import-plots",
     cliRoot: "flags",
     summary:
@@ -1357,6 +1531,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_panel",
+    scope: "project",
+    pathParams: {"svgPath": "path"},
     cli: "add-panel",
     summary: "Import an SVG file as an image panel on a figure.",
     params: {
@@ -1395,10 +1571,12 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "sync_figure",
+    scope: "project",
+    core: true,
     cli: "sync-figure",
     cliRoot: "flags",
     summary:
-      "Refresh a figure's (or all figures') fig/assets plot copies from their regenerated plots/ sources IN PLACE — the regenerate loop without delete+recompose; captions, positions and per-part restyles survive. A changed intrinsic plot size resizes its element (physical-size-true) and grows the figure frame when needed (re-pack with arrange if the grid should reflow).",
+      "Refresh figures' plot copies IN PLACE from their regenerated plots/ sources (after rerun_plot): captions, positions and per-part restyles survive; a changed plot size resizes its element and grows the frame when needed.",
     params: { figureId: z.string().optional() },
     cliArgs: [{ kind: "pos", at: 0, into: "figureId" }],
     handler: (ctx, a) => core.syncFigureAssets(ctx.root, a.figureId as string | undefined),
@@ -1440,7 +1618,9 @@ export const VERBS: VerbDef[] = [
 
   // --- batch C: manuscript / library / comments / references --------------------
   {
-    name: "get_manuscript",
+    name: "get_manuscript", readOnly: true,
+    scope: "project",
+    core: true,
     cli: "manuscript",
     cliRoot: "flags",
     summary: "Read a manuscript document's text (.qmd). Omit doc for the main manuscript.",
@@ -1455,6 +1635,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_manuscript",
+    scope: "project",
+    core: true,
     cli: "set-manuscript",
     cliRoot: "flags",
     summary: "Overwrite a manuscript document's full text (.qmd). Omit doc for the main manuscript.",
@@ -1471,7 +1653,9 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_documents",
+    name: "list_documents", readOnly: true,
+    scope: "project",
+    core: true,
     cli: "docs",
     cliRoot: "flags",
     summary: "List the project's documents, including nested paper, legacy manuscript, and Context folders.",
@@ -1484,6 +1668,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_document",
+    scope: "project",
     cli: "new-doc",
     cliRoot: "flags",
     summary: "Create a new blank document (registered in the manifest).",
@@ -1496,7 +1681,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "create_document_folder", cli: "new-doc-folder", cliRoot: "flags",
+    name: "create_document_folder",
+    scope: "project", cli: "new-doc-folder", cliRoot: "flags",
     summary: "Create a folder within Documents or Context.",
     params: { parent: z.string(), name: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "parent", required: true }, { kind: "rest", at: 1, into: "name", as: "joined" }],
@@ -1504,7 +1690,9 @@ export const VERBS: VerbDef[] = [
     render: { human: r => ({ out: JSON.stringify(r) }) },
   },
   {
-    name: "move_document", cli: "move-doc", cliRoot: "flags",
+    name: "move_document",
+    scope: "project",
+    notAPath: {"path": "Project document identifier; stored relative to the project", "folder": "Project folder identifier"}, cli: "move-doc", cliRoot: "flags",
     summary: "Move a document to a folder, preserving comments and updating relative document links. Existing destinations are refused.",
     params: { path: z.string(), folder: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "path", required: true }, { kind: "pos", at: 1, into: "folder", required: true }],
@@ -1513,6 +1701,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_document",
+    scope: "project",
+    notAPath: {"path": "Project document identifier; stored relative to the project"},
     cli: "delete-doc",
     cliRoot: "flags",
     summary:
@@ -1527,6 +1717,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "insert_figure_ref",
+    scope: "project",
     cli: "ref",
     cliRoot: "flags",
     summary: "Append a figure cross-reference (@fig-<label>) to a document.",
@@ -1542,7 +1733,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "insert_slide_embed", cli: "insert-slide-embed", cliRoot: "flags",
+    name: "insert_slide_embed",
+    scope: "project", cli: "insert-slide-embed", cliRoot: "flags",
     summary: "Insert an inline slide in a document. Deck and slide IDs are stable references; playback starts at step 0. Optional anchor must occur exactly once; otherwise append. Materializes the static SVG poster.",
     params: { deckId: z.string(), slideId: z.string(), doc: z.string().optional(), width: z.string().optional(), caption: z.string().optional(), anchor: z.string().optional() },
     cliArgs: [
@@ -1558,10 +1750,12 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "cite_doi",
+    scope: "project",
+    core: true,
     cli: "cite-doi",
     cliRoot: "flags",
     summary:
-      "Fetch a DOI's BibTeX (content negotiation), add it to FluxLib (deterministic citekey, deduped by DOI), and cite it in this project (materialized into references/library.bib). Returns the citekey(s) to use as @key.",
+      "Fetch a DOI's BibTeX, add it to FluxLib (deduped by DOI) and cite it in this project (references/library.bib). Returns the citekey to use as @key.",
     params: { doi: z.string() },
     cliArgs: [{ kind: "pos", at: 0, into: "doi", required: true }],
     handler: (ctx, a) => core.citeDoi(ctx.root, s(a.doi)),
@@ -1583,6 +1777,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_reference",
+    scope: "project",
     cli: "add-reference",
     aliases: ["cite"],
     summary:
@@ -1599,11 +1794,13 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "search_references",
+    name: "search_references", readOnly: true,
+    scope: "machine",
+    core: true,
     cli: "search",
     cliRoot: "flags",
     summary:
-      "Search the machine-global FluxLib reference library with a structured query, e.g. 'author:smith year:2020 journal:nature' (fields: author, year, journal, title, doi; bare words match any). Returns matching entries — cite one via its `key` as @key. Each hit also carries `enrich` (abstract, topics, keywords, citedByCount, openalexId) when the entry has been hydrated (see hydrate_library).",
+      "Search FluxLib, the machine-wide library, with a structured query like 'author:smith year:2020 journal:nature' (fields author, year, journal, title, doi; bare words match any). Cite a hit as @key; hydrated entries carry `enrich` (abstract, topics, citedByCount).",
     params: { query: z.string() },
     cliArgs: [{ kind: "rest", at: 0, into: "query", as: "joined", default: "" }],
     // ONE core call now (the enriched search) — the CLI previously printed the
@@ -1620,6 +1817,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reconcile",
+    scope: "project",
     cli: "reconcile",
     cliRoot: "flags",
     summary:
@@ -1647,6 +1845,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "normalize_embeds",
+    scope: "project",
     cli: "normalize-embeds",
     cliRoot: "flags",
     summary:
@@ -1669,6 +1868,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "hydrate_library",
+    scope: "machine",
     cli: "hydrate",
     cliRoot: "flags",
     summary:
@@ -1699,6 +1899,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "zotero_sync",
+    scope: "machine",
+    pathParams: {"bib": "path", "dataDir": "path"},
     cli: "zotero-sync",
     cliRoot: "flags",
     summary:
@@ -1753,6 +1955,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "grobid",
+    scope: "machine",
     cli: "grobid",
     cliRoot: "flags",
     summary:
@@ -1823,6 +2026,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "author_works",
+    scope: "machine",
     cli: "by-author",
     cliRoot: "flags",
     summary:
@@ -1837,6 +2041,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "related_works",
+    scope: "machine",
     cli: "related",
     cliRoot: "flags",
     summary:
@@ -1850,7 +2055,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_comments",
+    name: "list_comments", readOnly: true,
+    scope: "project",
     cli: "comments",
     cliRoot: "flags",
     summary:
@@ -1885,6 +2091,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "resolve_comment",
+    scope: "project",
     cli: "resolve-comment",
     cliRoot: "flags",
     summary:
@@ -1896,10 +2103,9 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "note", into: "note" },
     ],
     handler: (ctx, a) =>
-      core.resolveProjectComment(ctx.root, s(a.id), {
-        docRel: a.doc as string | undefined,
-        note: a.note as string | undefined,
-      }),
+      resolveItem(ctx.root, s(a.id), {
+        doc: a.doc as string | undefined, note: a.note as string | undefined,
+      }, ctx),
     render: {
       human: (r) => {
         const c = r as { id: string; resolved: number; total: number };
@@ -1913,6 +2119,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_comment",
+    scope: "project",
     cli: "add-comment",
     cliRoot: "flags",
     summary:
@@ -1934,7 +2141,7 @@ export const VERBS: VerbDef[] = [
         quote: s(a.quote),
         body: s(a.body),
         docRel: a.doc as string | undefined,
-        at: a.at as number | undefined,
+        at: a.at as number | undefined, author: inboxAuthor(ctx).name, client: inboxAuthor(ctx).client, session: inboxSession(ctx),
       }),
     render: {
       human: (r) => {
@@ -1947,186 +2154,120 @@ export const VERBS: VerbDef[] = [
       },
     },
   },
-  {
-    name: "list_feedback",
-    cli: "feedback",
-    cliRoot: "flags",
-    summary:
-      "List the user's feedback notes from the app (.meta/feedback.ndjson). Each note carries a context STAMP of what the user had selected when writing it (figure/element/plot part, document + quoted text, slide + beat) — 'make this bigger' arrives with 'this' resolved. Open notes by default (--all includes resolved and withdrawn — a withdrawn note was taken back by the user; never act on it); also reports the last send (review-pass request). Address each note, then resolve_feedback.",
-    params: { all: z.boolean().optional() },
-    cliArgs: [{ kind: "flag", at: "all", into: "all", as: "boolean" }],
-    handler: (ctx, a) => core.listFeedback(ctx.root, { all: a.all as boolean | undefined }),
-    render: {
-      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
-      mcp: (r) => text(JSON.stringify(r, null, 2)),
-    },
-  },
-  {
-    name: "resolve_feedback",
-    cli: "resolve-feedback",
-    cliRoot: "flags",
-    summary:
-      "Mark a feedback note resolved — by id, or a unique substring of its text — with a note on what you did (the user sees it in the app). Call AFTER actually addressing the item. Appends to the ledger (never rewrites) + journals.",
-    params: { id: z.string(), note: z.string().optional() },
-    cliArgs: [
-      { kind: "pos", at: 0, into: "id", required: true },
-      { kind: "flag", at: "note", into: "note" },
-    ],
-    handler: (ctx, a) => core.resolveFeedback(ctx.root, s(a.id), { note: a.note as string | undefined }),
-    render: {
-      human: (r) => {
-        const c = r as { id: string; open: number };
-        return { err: `✓ resolved ${c.id} (${c.open} still open)` };
-      },
-      mcp: (r) => {
-        const c = r as { id: string; open: number };
-        return text(`resolved ${c.id} (${c.open} still open)`);
-      },
-    },
-  },
-  {
-    name: "send_feedback",
-    cli: "send",
-    cliRoot: "flags",
-    summary:
-      "Mark a review-pass boundary in the feedback ledger: everything open is now a work order (the attend watcher wakes the principal on this). Humans trigger this from the app; agents rarely need it.",
-    params: { note: z.string().optional() },
-    cliArgs: [{ kind: "flag", at: "note", into: "note" }],
-    handler: (ctx, a) => core.sendFeedback(ctx.root, { note: a.note as string | undefined }),
-    render: {
-      human: (r) => {
-        const c = r as { open: number };
-        return { err: `✓ sent — ${c.open} open note(s) now a work order` };
-      },
-      mcp: (r) => {
-        const c = r as { open: number };
-        return text(`sent (${c.open} open notes)`);
-      },
-    },
-  },
-  {
-    name: "list_agents",
-    cli: "agents",
-    summary:
-      "Show the machine's agent roster (<FluxConfig>/agents.json): the FAMILIES (per-vendor command templates with their model/effort menus) and the standing defaults for principal/worker/pass — worker values of 'principal-decides' mean dispatch requires --model/--effort. Edit that file to change agents — see FluxContext/AGENTS-CONFIG.md.",
-    params: {},
-    cliArgs: [],
-    handler: () => core.readRoster(),
-    render: {
-      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
-      mcp: (r) => text(JSON.stringify(r, null, 2)),
-    },
-  },
-  {
-    name: "dispatch",
-    cli: "dispatch",
-    cliRoot: "flags",
-    summary:
-      "Dispatch a WORKER agent with a brief, and wait for it. <name> labels the dispatch; the worker's model/effort resolve from --family/--model/--effort → the session's worker policy (FLUX_WORKER_POLICY, set at principal launch) → the roster defaults — a standing 'principal-decides' policy means YOU pass --model/--effort per task (match effort to difficulty). The brief is the worker's whole contract — write it complete (goal + why, exact paths, environment, conventions, what done looks like, what to report). Recorded under Context/Dispatches/<stamp>-<name>/ (brief.md, log.txt, result.md + the agent used); returns the report tail. Prefer --brief-file (briefs are reviewable craft).",
-    params: {
-      role: z.string(),
-      brief: z.string().optional(),
-      briefFile: z.string().optional(),
-      name: z.string().optional(),
-      family: z.string().optional(),
-      model: z.string().optional(),
-      effort: z.string().optional(),
-    },
-    cliArgs: [
-      { kind: "pos", at: 0, into: "role", required: true },
-      { kind: "flag", at: "brief", into: "brief" },
-      { kind: "flag", at: "brief-file", into: "briefFile" },
-      { kind: "flag", at: "name", into: "name" },
-      { kind: "flag", at: "family", into: "family" },
-      { kind: "flag", at: "model", into: "model" },
-      { kind: "flag", at: "effort", into: "effort" },
-    ],
-    handler: (ctx, a) =>
-      core.dispatch(ctx.root, {
-        role: s(a.role),
-        brief: a.brief as string | undefined,
-        briefFile: a.briefFile as string | undefined,
-        name: a.name as string | undefined,
-        family: a.family as string | undefined,
-        model: a.model as string | undefined,
-        effort: a.effort as string | undefined,
-      }),
-    render: {
-      human: (r) => {
-        const d = r as { dir: string; exitCode: number; ms: number; report: string; agent: string };
-        return {
-          out: JSON.stringify({ dir: d.dir, agent: d.agent, exitCode: d.exitCode, seconds: +(d.ms / 1000).toFixed(1), report: d.report }, null, 2),
-          exit: d.exitCode === 0 ? 0 : 1,
-        };
-      },
-      mcp: (r) => {
-        const d = r as { dir: string; exitCode: number; report: string; agent: string };
-        return text(`dispatch (${d.agent}) ${d.exitCode === 0 ? "succeeded" : `FAILED (exit ${d.exitCode})`} — record: ${d.dir}\n\n${d.report}`);
-      },
-    },
-  },
+  ...INBOX_VERBS,
   {
     name: "ensure_context",
+    scope: "project",
     cli: "context-init",
     summary:
-      "Ensure this project has its Context/ layer (Project/MISSION.qmd, NOTEBOOK.md, RULES.md, Transcripts/, Dispatches/) — heals projects created before the principal-agent scheme. Additive and existence-guarded; safe to run any time.",
+      "Ensure missing Context/ documents (ProjectContext.qmd, NOTEBOOK.md, RULES.md) and agent pointers exist. Requires project.json; existing documents are preserved.",
     params: {},
     cliArgs: [],
     handler: (ctx) => core.ensureProjectContext(ctx.root),
     render: {
       human: (r) => {
-        const c = r as { created: string[] };
+        const c = r as import("./context").ContextHealResult;
+        if (c.skipped) return { err: "Context initialization skipped: not a Flux project (no project.json)" };
         return { err: c.created.length ? `✓ created: ${c.created.join(", ")}` : "✓ Context layer already complete" };
       },
       mcp: (r) => {
-        const c = r as { created: string[] };
+        const c = r as import("./context").ContextHealResult;
+        if (c.skipped) return text("Context initialization skipped: not a Flux project (no project.json)");
         return text(c.created.length ? `created: ${c.created.join(", ")}` : "Context layer already complete");
       },
     },
   },
   {
-    name: "note",
-    cli: "note",
-    cliRoot: "flags",
+    name: "write_log",
+    scope: "project",
+    core: true,
+    pathParams: {"file": "path"},
+    cli: "log",    cliRoot: "flags",
     summary:
-      "Append a datetime-stamped entry to the project notebook's Session log (Context/NOTEBOOK.md). The read→insert→write runs under the manuscript lock, so entries from concurrent agents serialize (never clobber) and a human mid-edit defers it — ALWAYS write session-log entries through this verb, never by hand-editing the file. Notebook BODY edits stay direct and surgical.",
+      "Append a dated entry to the project Log (Context/NOTEBOOK.md), only when the user asks. The byline (agent · surface · host) is added for you.",
     params: {
       text: z.string().optional(),
       file: z.string().optional(),
       title: z.string().optional(),
-      author: z.string().optional(),
+      agent: z.string().optional(),
+      surface: z.string().optional(),
+      checkpoint: z.boolean().optional(),
     },
     cliArgs: [
       { kind: "rest", at: 0, into: "text", as: "joined" },
       { kind: "flag", at: "text", into: "text" },
       { kind: "flag", at: "file", into: "file", as: "path" },
       { kind: "flag", at: "title", into: "title" },
-      { kind: "flag", at: "author", into: "author" },
+      { kind: "flag", at: "agent", into: "agent" },
+      { kind: "flag", at: "surface", into: "surface" },
+      { kind: "flag", at: "checkpoint", into: "checkpoint", as: "boolean" },
     ],
-    handler: (ctx, a) =>
-      core.addNote(ctx.root, {
+    handler: (ctx, a) => {
+      return core.writeLog(ctx.root, {
         text: a.text as string | undefined,
         file: a.file as string | undefined,
         title: a.title as string | undefined,
-        author: a.author as string | undefined,
-      }),
+        agent: a.agent as string | undefined,
+        surface: a.surface as string | undefined,
+        checkpoint: a.checkpoint as boolean | undefined,
+        identity: ctx.identity,
+        cwd: ctx.cwd,
+      });
+    },
     render: {
       human: (r) => {
-        const c = r as { rel: string; heading: string; createdSection: boolean };
-        return { err: `✓ noted → ${c.rel} (${c.heading})${c.createdSection ? " — Session log section created" : ""}` };
+        const c = r as import("./context").LogResult;
+        return { err: `✓ logged → ${c.rel} (${c.heading})${c.createdSection ? " — Log section created" : ""}` };
       },
       mcp: (r) => {
-        const c = r as { rel: string; heading: string };
-        return text(`noted → ${c.rel} (${c.heading})`);
+        const c = r as import("./context").LogResult;
+        return text(`logged → ${c.rel} (${c.heading})`);
       },
     },
   },
   {
-    name: "add_annotation",
-    cli: "add-annotation",
+    name: "read_log", readOnly: true,
+    scope: "project",
+    core: true,
+    cli: "read-log",
+    cliRoot: "flags",
+    summary: "Read the project Log: the latest entries, from the latest checkpoint, or titles only.",
+    params: {
+      tail: z.number().int().nonnegative().optional(),
+      sinceCheckpoint: z.boolean().optional(),
+      titles: z.boolean().optional(),
+      json: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "tail", into: "tail", as: "number" },
+      { kind: "flag", at: "since-checkpoint", into: "sinceCheckpoint", as: "boolean" },
+      { kind: "flag", at: "titles", into: "titles", as: "boolean" },
+      { kind: "flag", at: "json", into: "json", as: "boolean" },
+    ],
+    handler: (ctx, a) => core.readLog(ctx.root, {
+      tail: a.tail as number | undefined,
+      sinceCheckpoint: a.sinceCheckpoint as boolean | undefined,
+      titles: a.titles as boolean | undefined,
+    }),
+    render: {
+      human: (r, a) => {
+        const entries = r as import("./context").LogEntry[];
+        if (a.json) return { out: JSON.stringify(entries, null, 2) };
+        return { out: renderLogEntries(entries, !!a.titles), err: `✓ ${entries.length} Log entr${entries.length === 1 ? "y" : "ies"}` };
+      },
+      mcp: (r, a) => {
+        const entries = r as import("./context").LogEntry[];
+        return text(a.json ? JSON.stringify(entries, null, 2) : renderLogEntries(entries, !!a.titles));
+      },
+    },
+  },
+  {
+    name: "add_highlight",
+    scope: "machine",
+    cli: "add-highlight",
     cliRoot: "flags",
     summary:
-      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same annotations FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
+      "Add a highlight/note to a FluxLib paper (items/<citekey>/annotations.json) — the same highlights FluxReader shows the human. `quote` is the exact text to highlight; `prefix`/`suffix` are the surrounding text that disambiguates it on the page (find them in get_paper_text). `page` is 1-based.",
     params: {
       key: z.string(),
       page: z.number(),
@@ -2158,16 +2299,18 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => {
         const c = r as { id: string; page: number; color: string };
-        return { err: `✓ annotated @${a.key} p${c.page} [${c.color}] (${c.id})` };
+        return { err: `✓ highlighted @${a.key} p${c.page} [${c.color}] (${c.id})` };
       },
       mcp: (r, a) => {
         const c = r as { id: string; color: string };
-        return text(`added annotation ${c.id} on @${a.key} p${a.page} [${c.color}]`);
+        return text(`added highlight ${c.id} on @${a.key} p${a.page} [${c.color}]`);
       },
     },
   },
   {
     name: "ingest_pdf",
+    scope: "machine",
+    pathParams: {"filePath": "path"},
     cli: "ingest-pdf",
     cliRoot: "flags",
     summary:
@@ -2191,6 +2334,7 @@ export const VERBS: VerbDef[] = [
   // MCP tails 2000 chars), so the renders own the mapping.
   {
     name: "compile",
+    scope: "project",
     cli: "compile",
     cliRoot: "flags",
     summary:
@@ -2267,11 +2411,14 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "validate_project",
+    name: "validate_project", readOnly: true,
+    scope: "project",
+    core: true,
+    notAPath: {"file": "Project schema file identifier; confined and stored relative to the project"},
     cli: "validate",
     cliRoot: "flags",
     summary:
-      "Validate the project (or one file) against the bundled JSON Schemas (.meta/schema/), plus project lint: EMPTY figures (they shift figure numbers), figures embedded in no document, and overlapping canvas frames. Use after editing files directly to confirm your writes are well-formed.",
+      "Validate the project (or one file) against the bundled schemas (.meta/schema/), plus lint: EMPTY figures (they shift figure numbers), figures embedded in no document, overlapping frames. Run after editing files directly.",
     params: { file: z.string().optional() },
     cliArgs: [{ kind: "pos", at: 0, into: "file" }],
     handler: (ctx, a) => core.validate(ctx.root, a.file as string | undefined),
@@ -2294,7 +2441,9 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "validate_plot",
+    name: "validate_plot", readOnly: true,
+    scope: "file",
+    pathParams: {"svgPath": "path"},
     cli: "validate-plot",
     cliRoot: "flags",
     summary:
@@ -2315,7 +2464,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "list_dissections",
+    name: "list_dissections", readOnly: true,
+    scope: "project",
     cli: "list-dissections",
     // flags-root: the positional is a PLOT (often slash-bearing, e.g. sub/charlie.svg) and
     // must never be eaten by the old root-positional heuristic.
@@ -2331,10 +2481,13 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "rerun_plot",
+    scope: "file",
+    core: true,
+    pathParams: {"recipePath": "path"},
     cli: "rerun-plot",
     cliRoot: "flags",
     summary:
-      "Re-run a plot's recipe (regenerate the figure from its source script + params). Params may be strings, numbers, or booleans. only: true reruns just THIS recipe's plot even when the script saves several (figure-level scripts) — sibling plots stay untouched on disk; a string targets specific plot name(s)/patterns.",
+      "Re-run a plot's recipe: its source script with params (strings, numbers, booleans). only:true reruns just this recipe's plot when the script saves several (siblings untouched); a string targets named plots.",
     params: {
       recipePath: z.string(),
       params: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
@@ -2354,26 +2507,27 @@ export const VERBS: VerbDef[] = [
       }),
     render: {
       human: (r) => {
-        const c = r as { code: number; svgPath: string; stderr: string };
+        const c = r as { code: number; svgPath: string; glbPath?: string; stderr: string };
         return {
-          err: `✓ recipe exited ${c.code}; wrote ${c.svgPath}` + (c.stderr.trim() ? `\n${c.stderr.trim()}` : ""),
+          err: `✓ recipe exited ${c.code}; wrote ${c.glbPath ?? c.svgPath}` + (c.stderr.trim() ? `\n${c.stderr.trim()}` : ""),
           exit: c.code !== 0 ? c.code : undefined,
         };
       },
       mcp: (r) => {
-        const c = r as { code: number; svgPath: string; stderr: string };
+        const c = r as { code: number; svgPath: string; glbPath?: string; stderr: string };
         // WS-6.1: nonzero exit = the plot did NOT regenerate — report it as an
         // error (the old success-shaped "recipe exited 1" was invisible to agents).
         if (c.code !== 0)
           return { isError: true, content: [{ type: "text", text: `recipe exited ${c.code}\n${String(c.stderr ?? "").slice(-2000)}` }] };
-        return text(`recipe exited ${c.code}; wrote ${c.svgPath}`);
+        return text(`recipe exited ${c.code}; wrote ${c.glbPath ?? c.svgPath}`);
       },
     },
   },
 
   // --- batch E: Flux Slide (deck authoring/animation) ---------------------------
   {
-    name: "list_decks",
+    name: "list_decks", readOnly: true,
+    scope: "project",
     cli: "decks",
     cliRoot: "flags",
     summary: "List the project's slide decks (id, title, slide count) from project.json.",
@@ -2386,6 +2540,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "create_deck",
+    scope: "project",
     cli: "new-deck",
     cliRoot: "flags",
     summary: "Create a new slide deck (slides/<id>/deck.json, registered in the manifest). Returns the deck id.",
@@ -2410,6 +2565,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_slide",
+    scope: "project",
     cli: "add-slide",
     cliRoot: "flags",
     summary:
@@ -2432,6 +2588,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "delete_slide",
+    scope: "project",
     cli: "delete-slide",
     cliRoot: "flags",
     summary: "Delete a slide from a deck. Refuse referenced slides unless --force is given. Returns the id the GUI would select next.",
@@ -2455,6 +2612,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_slide",
+    scope: "project",
     cli: "duplicate-slide",
     cliRoot: "flags",
     summary: "Deep-copy a slide (fresh element/beat/track ids). Returns the new slide id.",
@@ -2474,6 +2632,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_slides",
+    scope: "project",
     cli: "reorder-slides",
     cliRoot: "flags",
     summary: "Set the deck's slide order to exactly `order` (a permutation of the current slide ids).",
@@ -2491,6 +2650,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_deck_theme",
+    scope: "project",
     cli: "set-theme",
     cliRoot: "flags",
     summary: "Switch a deck's theme (flux-dark | flux-light | flux-paper | flux-midnight | flux-slate | flux-sepia | flux-contrast).",
@@ -2508,6 +2668,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_slide_text",
+    scope: "project",
     cli: "add-text",
     cliRoot: "flags",
     summary:
@@ -2567,7 +2728,31 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "add_slide_video", cli: "add-video", cliRoot: "flags",
+    name: "add_slide_model", scope: "project", cli: "add-slide-model", cliRoot: "flags",
+    pathParams: { sourcePath: "path" },
+    summary: "Import a project-owned GLB or 3D fluxplot into a slide. Preserves the source, keeps model bytes out of deck JSON, and returns elementId, assetId and warnings. Shape states and orbit views animate through ordinary Change tracks.",
+    params: { deckId:z.string(), slideId:z.string(), sourcePath:z.string(), name:z.string().optional(),
+      x:z.number().optional(), y:z.number().optional(), width:z.number().positive().optional(), height:z.number().positive().optional(), noPoster:z.boolean().optional() },
+    cliArgs: [{kind:"pos",at:0,into:"deckId",required:true},{kind:"pos",at:1,into:"slideId",required:true},{kind:"pos",at:2,into:"sourcePath",required:true},
+      ...["x","y","width","height"].map(at=>({kind:"flag" as const,at,into:at,as:"number" as const})),
+      {kind:"flag",at:"name",into:"name"},{kind:"flag",at:"no-poster",into:"noPoster",as:"boolean"}],
+    handler:(ctx,a)=>core.addSlideModel(ctx.root,s(a.deckId),s(a.slideId),s(a.sourcePath),pick(a,["x","y","width","height","name","noPoster"])),
+    render:{human:r=>({out:(r as {elementId:string}).elementId,err:(r as {warnings:string[]}).warnings.join("\n")}),mcp:r=>text(JSON.stringify(r))},
+  },
+  {
+    name:"add_turntable",scope:"project",cli:"add-turntable",cliRoot:"flags",
+    notAPath:{direction:"clockwise/counterclockwise orbit enum"},
+    summary:"Turn a 3D model continuously on one slide step. Writes an ordinary Change with linear timing and unwrapped azimuth. Defaults: one clockwise turn over 6000 ms. Shape-state edits can share the same Change.",
+    params:{deckId:z.string(),slideId:z.string(),beatId:z.string(),target:z.string(),turns:z.number().positive().optional(),direction:z.enum(["cw","ccw"]).optional(),durationMs:z.number().positive().optional(),start:z.number().nonnegative().optional()},
+    cliArgs:[{kind:"pos",at:0,into:"deckId",required:true},{kind:"pos",at:1,into:"slideId",required:true},{kind:"pos",at:2,into:"beatId",required:true},{kind:"pos",at:3,into:"target",required:true},
+      {kind:"flag",at:"turns",into:"turns",as:"number"},{kind:"flag",at:"direction",into:"direction"},{kind:"flag",at:"duration",into:"durationMs",as:"number"},{kind:"flag",at:"start",into:"start",as:"number"}],
+    handler:(ctx,a)=>core.addSlideTurntable(ctx.root,s(a.deckId),s(a.slideId),s(a.beatId),s(a.target),pick(a,["turns","direction","durationMs","start"])),
+    render:{human:r=>({out:(r as {trackId:string}).trackId}),mcp:r=>text(JSON.stringify(r))},
+  },
+  {
+    name: "add_slide_video",
+    scope: "project",
+    pathParams: {"sourcePath": "path"}, cli: "add-video", cliRoot: "flags",
     summary: "Import an MP4 or MOV from plots/_videos into a slide. Preserves the source and prepares a portable MP4 plus poster. Starts paused; add a separate videoStart command to begin playback. Returns elementId and assetId.",
     params: { deckId: z.string(), slideId: z.string(), sourcePath: z.string(),
       x: z.number().optional(), y: z.number().optional(), width: z.number().positive().optional(), height: z.number().positive().optional(),
@@ -2582,7 +2767,8 @@ export const VERBS: VerbDef[] = [
     render: { human: r => ({ out: (r as { elementId: string }).elementId }), mcp: r => text(JSON.stringify(r)) },
   },
   {
-    name: "set_video_track", cli: "set-video-track", cliRoot: "flags",
+    name: "set_video_track",
+    scope: "project", cli: "set-video-track", cliRoot: "flags",
     summary: "Start, pause, or stop a video clip on a slide step independently of its appearance. Start restarts from the beginning; pause holds the current frame; stop resets to the poster. start is the command offset in milliseconds within the step.",
     params: { deckId: z.string(), slideId: z.string(), beatId: z.string(), target: z.string(), action: z.enum(["start", "pause", "stop"]), start: z.number().nonnegative().optional() },
     cliArgs: [
@@ -2594,7 +2780,8 @@ export const VERBS: VerbDef[] = [
     render: { human: () => ({ err: "✓ video command saved" }), mcp: () => text("video command saved") },
   },
   {
-    name: "set_video_settings", cli: "set-video-settings", cliRoot: "flags",
+    name: "set_video_settings",
+    scope: "project", cli: "set-video-settings", cliRoot: "flags",
     summary: "Set a slide clip's muted and loop options. These are clip properties, independent of appearance and playback commands.",
     params: { deckId: z.string(), slideId: z.string(), target: z.string(), muted: z.boolean().optional(), loop: z.boolean().optional() },
     cliArgs: [
@@ -2607,6 +2794,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_slide_figure",
+    scope: "project",
     cli: "add-figure",
     cliRoot: "flags",
     summary:
@@ -2646,6 +2834,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "add_beat",
+    scope: "project",
     cli: "add-beat",
     cliRoot: "flags",
     summary:
@@ -2667,6 +2856,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_beat",
+    scope: "project",
     cli: "set-beat",
     cliRoot: "flags",
     summary:
@@ -2696,6 +2886,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_beats",
+    scope: "project",
     cli: "reorder-beats",
     cliRoot: "flags",
     summary: "Set a slide's beat order to `order` (beat ids). Beat 0 — the resting state — is pinned and never moves.",
@@ -2714,6 +2905,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "move_track",
+    scope: "project",
     cli: "move-track",
     cliRoot: "flags",
     summary: "Move an animation track (by id) into another beat on the same slide; timing travels untouched. `at` picks the lane index.",
@@ -2734,6 +2926,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "duplicate_track",
+    scope: "project",
     cli: "duplicate-track",
     cliRoot: "flags",
     summary: "Deep-copy a track in place (fresh id, inserted after the original). Returns the new track id.",
@@ -2754,6 +2947,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "reorder_tracks",
+    scope: "project",
     cli: "reorder-tracks",
     cliRoot: "flags",
     summary: "Set one beat's track (lane) order to `order` (track ids). Order is presentational — tracks in a beat play concurrently.",
@@ -2773,6 +2967,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track_enabled",
+    scope: "project",
     cli: "set-track-enabled",
     cliRoot: "flags",
     summary:
@@ -2792,11 +2987,140 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "anim_style", scope: "project", cli: "anim-style", cliRoot: "flags",
+    summary: "Create, set, delete or list deck-local linked animation styles. Deleting materializes every linked track. create requires name, family and preset; set changes only supplied fields. Machine-global presets remain copies.",
+    params: {
+      action: z.enum(["create", "set", "delete", "list"]), deckId: z.string().min(1), id: z.string().optional(),
+      name: z.string().min(1).optional(), family: z.enum(["appearance", "transform", "media"]).optional(),
+      preset: z.enum(Object.keys(PRESET_CATALOG) as [PresetName, ...PresetName[]]).optional(),
+      duration: z.number().nonnegative().optional(), start: z.number().nonnegative().optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      curve: z.string().describe(CURVE_GRAMMAR).optional(),
+      params: z.record(z.unknown()).optional(),
+      influence: z.object({ in: z.number().min(0).max(100), out: z.number().min(0).max(100) }).optional(),
+      stagger: staggerSchema.optional(),
+      arc: z.number().min(-1).max(1).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "action", required: true }, { kind: "pos", at: 1, into: "deckId", required: true }, { kind: "pos", at: 2, into: "id" },
+      ...["name", "family", "preset", "easing", "curve"].map(at => ({ kind: "flag" as const, at, into: at })),
+      ...["duration", "start", "arc"].map(at => ({ kind: "flag" as const, at, into: at, as: "number" as const })),
+      ...["params", "influence", "stagger"].map(at => ({ kind: "flag" as const, at, into: at, as: "json" as const })),
+    ],
+    handler: (ctx, a) => core.animStyleVerb(ctx.root, s(a.deckId), a.action as "create", {
+      id: a.id as string | undefined, name: a.name as string | undefined, family: a.family as "appearance" | undefined,
+      track: { ...pick(a, ["preset", "duration", "start", "params", "stagger", "arc"]), ...timingCurveArgs(a) },
+    }),
+    render: {
+      human: (r) => ({ out: JSON.stringify(r) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
+    name: "animate_like", scope: "project", cli: "animate-like", cliRoot: "flags",
+    summary: "Link target effects to the source effect's deck style, creating a Like <object label> style and linking the source when needed. An optional beatId filters source and targets to one beat; otherwise links slide-wide. Reports each incompatible family or missing target without changing it.",
+    params: { deckId: z.string().min(1), slideId: z.string().min(1), from: z.string().min(1), to: z.array(z.string().min(1)).min(1), beatId: z.string().min(1).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "from", into: "from", required: true }, { kind: "flag", at: "to", into: "to", as: "csv", required: true },
+    ],
+    handler: (ctx, a) => core.animateLikeVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.from), sArr(a.to), a.beatId as string | undefined),
+    render: { human: r => ({ out: JSON.stringify(r) }), mcp: r => text(JSON.stringify(r)) },
+  },
+  {
+    name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash).",
+    params: {
+      deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
+      staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
+      staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+      seed: z.number().int().min(0).max(0xffffffff).optional(),
+      styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
+      start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      curve: z.string().describe(CURVE_GRAMMAR).optional(),
+    },
+    cliArgs: [
+      { kind: "flag", at: "stagger-each", into: "staggerEach", as: "number" },
+      { kind: "flag", at: "stagger-total", into: "staggerTotal", as: "number" },
+      { kind: "flag", at: "stagger-curve", into: "staggerCurve" },
+      { kind: "flag", at: "stagger-from", into: "staggerFrom" },
+      { kind: "flag", at: "seed", into: "seed", as: "number" },
+      { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
+      { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
+      { kind: "flag", at: "anchor", into: "anchor" }, { kind: "flag", at: "no-anchor", into: "noAnchor", as: "boolean" },
+      { kind: "flag", at: "start", into: "start", as: "number" }, { kind: "flag", at: "duration", into: "duration", as: "number" }, { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "curve", into: "curve" },
+    ],
+    handler: (ctx, a) => {
+      if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
+      const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
+      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "seed"].some(k => a[k] !== undefined)) {
+        const stagger: NonNullable<typeof patch.stagger> = {};
+        if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
+        if (a.staggerTotal !== undefined) stagger.totalMs = n(a.staggerTotal);
+        if (a.staggerFrom !== undefined) stagger.from = a.staggerFrom as typeof stagger.from;
+        if (a.seed !== undefined) stagger.seed = n(a.seed);
+        if (a.staggerCurve !== undefined) {
+          const curve = parseCurve(s(a.staggerCurve));
+          if (!curve) throw new ValidationError("Invalid stagger curve");
+          stagger.curve = curve;
+        }
+        patch.stagger = stagger;
+      }
+      if (a.noStyle) patch.styleId = null; else if (a.styleId !== undefined) patch.styleId = s(a.styleId);
+      if (a.noAnchor) patch.anchor = null;
+      else if (a.anchor !== undefined) {
+        const match = /^(.+):(start|end)(?::(-?(?:\d+(?:\.\d*)?|\.\d+)))?$/.exec(s(a.anchor));
+        if (!match || !Number.isFinite(Number(match[3] ?? 0))) throw new ValidationError("anchor must be trackId:start|end[:offsetMs]");
+        patch.anchor = { trackId: match[1], edge: match[2] as "start" | "end", ...(match[3] !== undefined ? { offsetMs: Number(match[3]) } : {}) };
+      }
+      return core.setTrackVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId), patch);
+    },
+    render: {
+      human: r => ({ out: core.renderTrackTiming(r as Awaited<ReturnType<typeof core.setTrackVerb>>) }),
+      mcp: r => text(core.renderTrackTiming(r as Awaited<ReturnType<typeof core.setTrackVerb>>)),
+    },
+  },
+  {
+    name: "set_plot_view", scope: "project", cli: "set-plot-view", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Set a plot's data view in data units. target is a figureId or deckId/slideId. A slide --beat edits that step's Change endpoint; without it edit Design. Omitted fields are preserved, --reset restores generator defaults. Lines, points and existing guides re-project; filled marks and reference lines stay put; no new ticks are generated.",
+    params: {
+      target: z.string(), elementId: z.string(), beatId: z.string().optional(),
+      xMin: z.number().finite().optional(), xMax: z.number().finite().optional(),
+      yMin: z.number().finite().optional(), yMax: z.number().finite().optional(),
+      xScale: z.enum(["linear", "log"]).optional(), yScale: z.enum(["linear", "log"]).optional(), reset: z.boolean().optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId", required: true },
+      { kind: "flag", at: "beat", into: "beatId" },
+      { kind: "flag", at: "x-min", into: "xMin", as: "number" },
+      { kind: "flag", at: "x-max", into: "xMax", as: "number" },
+      { kind: "flag", at: "y-min", into: "yMin", as: "number" },
+      { kind: "flag", at: "y-max", into: "yMax", as: "number" },
+      { kind: "flag", at: "x-scale", into: "xScale" },
+      { kind: "flag", at: "y-scale", into: "yScale" },
+      { kind: "flag", at: "reset", into: "reset", as: "boolean" },
+    ],
+    handler: (ctx, a) => {
+      const { target, elementId, ...fields } = a;
+      return core.setPlotViewVerb(ctx.root, s(target), s(elementId), fields as PlotViewFields & { beatId?: string });
+    },
+    render: {
+      human: (r) => ({ out: JSON.stringify(r) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_transform",
+    scope: "project",
     cli: "set-transform",
     cliRoot: "flags",
     summary:
-      "Add or update THE transform track for an element on a beat (max one per element per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` adds the data-morph half (same-structure plot; explicit source paths are persisted automatically). Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade. For 3D models, compatible topology morphs and incompatible topology crossfades; known original model source receipts persist and bare targets clear old provenance. Explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -2806,7 +3130,9 @@ export const VERBS: VerbDef[] = [
       replaceState: z.boolean().optional(),
       start: z.number().optional(),
       duration: z.number().optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+      curve: z.string().describe(CURVE_GRAMMAR).optional(),
+      arc: z.number().min(-1).max(1).optional(),
       toAssetId: z.string().optional(),
     },
     cliArgs: [
@@ -2819,6 +3145,8 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
+      { kind: "flag", at: "curve", into: "curve" },
+      { kind: "flag", at: "arc", into: "arc", as: "number" },
       { kind: "flag", at: "to-asset", into: "toAssetId" },
     ],
     handler: (ctx, a) =>
@@ -2827,7 +3155,8 @@ export const VERBS: VerbDef[] = [
         ...(a.replaceState ? { replaceState: true } : {}),
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
-        ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+        ...timingCurveArgs(a),
+        ...(a.arc !== undefined ? { arc: n(a.arc) } : {}),
         ...(a.toAssetId != null ? { toAssetId: s(a.toAssetId) } : {}),
       }),
     render: {
@@ -2840,6 +3169,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ghost_transform",
+    scope: "project",
     cli: "ghost-transform",
     cliRoot: "flags",
     summary: "Create independent ghost copies of an object at a build step. Copies start from the source's state before that step and transform to their own sparse endpoint patches. count defaults to 3 (1–32); original is stay, disappear, or transform. states supplies one endpoint patch per copy; originalState edits the original when original=transform. Returns elementIds and trackIds for later editing; copies persist for later steps and remain absent before their birth.",
@@ -2849,7 +3179,7 @@ export const VERBS: VerbDef[] = [
       original: z.enum(["stay", "disappear", "transform"]).optional(),
       states: z.array(z.record(z.any())).optional(), originalState: z.record(z.any()).optional(),
       start: z.number().min(0).optional(), duration: z.number().min(0).optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
     },
     cliArgs: [
       { kind: "pos", at: 0, into: "deckId", required: true },
@@ -2877,6 +3207,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "group_tracks",
+    scope: "project",
     cli: "group-tracks",
     cliRoot: "flags",
     summary:
@@ -2901,6 +3232,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "ungroup_tracks",
+    scope: "project",
     cli: "ungroup-tracks",
     cliRoot: "flags",
     summary: "Dissolve the TrackGroups the given tracks belong to (members become loose lanes).",
@@ -2920,10 +3252,11 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "cascade_tracks",
+    scope: "project",
     cli: "cascade-tracks",
     cliRoot: "flags",
     summary:
-      "Cascade one timing property across animation tracks: the track at rank k (0-indexed) gets value + delta·step, where step = k with --first-fixed, else k+1; --factor switches to multiplicative (value · factor^step). property ∈ start|duration|influence.in|influence.out|stagger.perMs. --order timeline (beat index, then lane — the default) or list (the given track order). Clamps: start ≥ 0 ms, duration ≥ 50 ms, influence 0–100 (both-zero deletes the velocity profile), perMs ≥ 0 (only stagger-bearing tracks rank). GUI: ⌃⇧C in the animator with ≥2 tracks selected.",
+      "Cascade one timing property across animation tracks: the track at rank k (0-indexed) gets value + delta·step, where step = k with --first-fixed, else k+1; --factor switches to multiplicative (value · factor^step). property ∈ start|duration|influence.in|influence.out|curve.bounce|stagger.perMs|stagger.totalMs|arc. --order timeline (beat index, then lane — the default) or list (the given track order). Clamps: start ≥ 0 ms, duration ≥ 50 ms, influence 0–100 (both-zero deletes the velocity profile), spring bounce −0.5…0.8 (only spring tracks rank), stagger ≥ 0 (only stagger-bearing tracks rank), arc −1…1 (only transform tracks rank). GUI: ⌃⇧C in the animator with ≥2 tracks selected.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -2955,6 +3288,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "apply_anim_template",
+    scope: "project",
     cli: "apply-anim-template",
     cliRoot: "flags",
     summary:
@@ -3001,6 +3335,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_part_visibility",
+    scope: "project",
     cli: "set-part-visibility",
     cliRoot: "flags",
     summary:
@@ -3022,6 +3357,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_part_style",
+    scope: "project",
     cli: "set-part-style",
     cliRoot: "flags",
     summary:
@@ -3047,6 +3383,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "animate_part",
+    scope: "project",
     cli: "animate-part",
     cliRoot: "flags",
     summary:
@@ -3068,6 +3405,7 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "animate_element",
+    scope: "project",
     cli: "animate-element",
     cliRoot: "flags",
     summary:
@@ -3111,10 +3449,11 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "become",
+    scope: "project",
     cli: "become",
     cliRoot: "flags",
     summary:
-      "Transform, way three — BECOME: an object turns into another one at a build step. `target` names another object on the slide: its evaluated state at the end of the step becomes the source's transform endpoint (kind included — a line can become an ellipse, a bracket an arrow, a rect a plot) and the target is consumed. For a plot source, `asset` names another project plot instead (data-only: the frame stays, the content becomes that plot's; structurally compatible plots tween their data, others crossfade and are refused unless force). Writes the same one transform track a Change would.",
+      "Become another object or plot parts at a build step. Loose drawn destinations default to Consume: their evaluated endpoint replaces the source and they are deleted. Plots, images, models and part sets default to hand-off: keep both objects, hide the source after the flight and reveal the live destination. Use sourcePart for a part-set source, part for destination parts, and mode to choose completion. Pair controls correspondence; reveal chooses flip or draw. For a whole plot or model source, asset replaces content in the same frame. Plots without shared tweenable data require force. Model topology determines morph:true or a valid crossfade with morph:false and reason; shape states are simpler for one mesh with named shapes.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
@@ -3122,9 +3461,14 @@ export const VERBS: VerbDef[] = [
       sourceId: z.string(),
       target: z.string().optional(),
       asset: z.string().optional(),
+      part: z.array(z.string().min(1)).min(1).optional(),
+      sourcePart: z.array(z.string().min(1)).min(1).optional(),
+      mode: z.enum(["consume", "handoff"]).optional(),
+      pair: z.enum(PAIR_POLICY_IDS).optional(),
+      reveal: z.enum(["flip", "draw"]).optional(),
       start: z.number().min(0).optional(),
       duration: z.number().min(0).optional(),
-      easing: z.enum(["smooth", "standard", "enter", "exit", "linear"]).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
       force: z.boolean().optional(),
     },
     cliArgs: [
@@ -3134,6 +3478,11 @@ export const VERBS: VerbDef[] = [
       { kind: "pos", at: 3, into: "sourceId", required: true },
       { kind: "flag", at: "target", into: "target" },
       { kind: "flag", at: "asset", into: "asset" },
+      { kind: "flag", at: "part", into: "part", as: "csv" },
+      { kind: "flag", at: "source-part", into: "sourcePart", as: "csv" },
+      { kind: "flag", at: "mode", into: "mode" },
+      { kind: "flag", at: "pair", into: "pair" },
+      { kind: "flag", at: "reveal", into: "reveal" },
       { kind: "flag", at: "start", into: "start", as: "number" },
       { kind: "flag", at: "duration", into: "duration", as: "number" },
       { kind: "flag", at: "easing", into: "easing" },
@@ -3143,6 +3492,11 @@ export const VERBS: VerbDef[] = [
       core.become(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.sourceId), {
         ...(a.target != null ? { targetId: s(a.target) } : {}),
         ...(a.asset != null ? { assetId: s(a.asset) } : {}),
+        ...(a.part != null ? { parts: a.part as string[] } : {}),
+        ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
+        ...(a.mode != null ? { mode: a.mode as "consume" | "handoff" } : {}),
+        ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
+        ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
         ...(a.start != null ? { start: a.start as number } : {}),
         ...(a.duration != null ? { duration: a.duration as number } : {}),
         ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
@@ -3151,13 +3505,80 @@ export const VERBS: VerbDef[] = [
     render: {
       human: (r, a) => ({
         out: (r as { trackId: string }).trackId,
-        err: `✓ ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})`,
+        err: `✓ ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})${modelMorphSummary(r)}`,
       }),
-      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})`),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.sourceId} becomes ${a.target ?? a.asset} (beat ${a.beatId})${modelMorphSummary(r)}`),
     },
   },
   {
-    name: "validate_deck",
+    name: "swap_become",
+    scope: "project",
+    cli: "swap-become",
+    cliRoot: "flags",
+    summary: "Swap direction of a hand-off Become. Retains both objects, authored timing, style and follower anchors; refuses group sources, ghost births, missing outlines and conflicting transforms.",
+    params: { deckId: z.string(), slideId: z.string(), trackId: z.string() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "trackId", required: true },
+    ],
+    handler: (ctx, a) => core.swapBecomeVerb(ctx.root, s(a.deckId), s(a.slideId), s(a.trackId)),
+    render: {
+      human: r => ({ out: (r as { trackId: string }).trackId, err: "✓ swapped Become direction" }),
+      mcp: r => text(`swapped Become direction (track ${(r as { trackId: string }).trackId})`),
+    },
+  },
+  {
+    name: "appear_from",
+    scope: "project",
+    cli: "appear-from",
+    cliRoot: "flags",
+    summary: "Reveal a destination object or plot parts by a hand-off from another object or part set. Writes exactly the same source-owned transform as Become with mode handoff; neither object is consumed. part names destination leaves, sourcePart names source leaves; pair chooses correspondence and reveal chooses flip or draw.",
+    params: {
+      deckId: z.string(),
+      slideId: z.string(),
+      beatId: z.string(),
+      dest: z.string(),
+      from: z.string(),
+      part: z.array(z.string().min(1)).min(1).optional(),
+      sourcePart: z.array(z.string().min(1)).min(1).optional(),
+      pair: z.enum(PAIR_POLICY_IDS).optional(),
+      reveal: z.enum(["flip", "draw"]).optional(),
+      start: z.number().min(0).optional(),
+      duration: z.number().min(0).optional(),
+      easing: z.enum(EASING_TOKENS as unknown as [EasingToken, ...EasingToken[]]).optional(),
+    },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "deckId", required: true },
+      { kind: "pos", at: 1, into: "slideId", required: true },
+      { kind: "pos", at: 2, into: "beatId", required: true },
+      { kind: "flag", at: "dest", into: "dest" },
+      { kind: "flag", at: "from", into: "from" },
+      { kind: "flag", at: "part", into: "part", as: "csv" },
+      { kind: "flag", at: "source-part", into: "sourcePart", as: "csv" },
+      { kind: "flag", at: "pair", into: "pair" },
+      { kind: "flag", at: "reveal", into: "reveal" },
+      { kind: "flag", at: "start", into: "start", as: "number" },
+      { kind: "flag", at: "duration", into: "duration", as: "number" },
+      { kind: "flag", at: "easing", into: "easing" },
+    ],
+    handler: (ctx, a) => core.appearFrom(ctx.root, s(a.deckId), s(a.slideId), s(a.beatId), s(a.dest), s(a.from), {
+      ...(a.part != null ? { parts: a.part as string[] } : {}),
+      ...(a.sourcePart != null ? { sourceParts: a.sourcePart as string[] } : {}),
+      ...(a.pair != null ? { pair: a.pair as PairPolicy } : {}),
+      ...(a.reveal != null ? { reveal: a.reveal as "flip" | "draw" } : {}),
+      ...(a.start != null ? { start: a.start as number } : {}),
+      ...(a.duration != null ? { duration: a.duration as number } : {}),
+      ...(a.easing != null ? { easing: a.easing as "smooth" } : {}),
+    }),
+    render: {
+      human: (r, a) => ({ out: (r as { trackId: string }).trackId, err: `✓ ${a.dest} appears from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}` }),
+      mcp: (r, a) => text(`transform track ${(r as { trackId: string }).trackId}: ${a.dest} appears from ${a.from} (beat ${a.beatId})${modelMorphSummary(r)}`),
+    },
+  },
+  {
+    name: "validate_deck", readOnly: true,
+    scope: "project",
     cli: "validate-deck",
     cliRoot: "flags",
     summary: "Validate a deck (or all decks) against the bundled deck JSON Schema. Run after editing deck.json by hand.",
@@ -3180,6 +3601,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "export_slide_video",
+    scope: "project",
+    pathParams: {"out": "path"},
     cli: "export-slide-video",
     cliRoot: "flags",
     summary: "Export one slide, its animations and video clips to a smooth MP4, including unmuted clip audio. Timing values are milliseconds; simultaneous and automatic steps retain authored timing. Requires the desktop Electron runtime and bundled video encoder.",
@@ -3206,6 +3629,8 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "export_deck",
+    scope: "project",
+    pathParams: {"out": "path"},
     cli: "export-deck",
     cliRoot: "flags",
     summary: "Export a deck to a single self-contained offline .html (animations + media inlined). Writes to exports/ by default.",
@@ -3238,6 +3663,7 @@ export const VERBS: VerbDef[] = [
   // --- paper snips (reader-parity capture + citations) ------------------------------
   {
     name: "snip_paper",
+    scope: "project",
     cli: "snip-paper",
     cliRoot: "flags",
     summary:
@@ -3286,7 +3712,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: "get_citation",
+    name: "get_citation", readOnly: true,
+    scope: "machine",
     cli: "cite",
     cliRoot: "flags",
     summary:
@@ -3306,7 +3733,10 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: 'add_to_library', cli: 'lib-add', cliRoot: 'flags',
+    name: 'add_to_library',
+    scope: "machine",
+    pathParams: {"file": "path", "zoteroDir": "path"},
+    notAPath: {"forceBibtex": "Input-format boolean", "attachFiles": "Attachment-mode boolean"}, cli: 'lib-add', cliRoot: 'flags',
     summary: 'Add a DOI or BibTeX to FluxLib without citing it. --file imports BibTeX/RIS, optionally attaching referenced files. Exactly one input is required.',
     params: { doi:z.string().optional(), bibtex:z.string().optional(), input:z.string().optional(), file:z.string().optional(), forceBibtex:z.boolean().optional(), attachFiles:z.boolean().optional(), zoteroDir:z.string().optional() },
     cliArgs: [
@@ -3344,7 +3774,8 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
-    name: 'set_slide', cli: 'set-slide', cliRoot: 'flags',
+    name: 'set_slide',
+    scope: "project", cli: 'set-slide', cliRoot: 'flags',
     summary: 'Patch only supplied slide fields: name, layout, background, transition, notes, and camera.',
     params: { deckId:z.string().min(1), slideId:z.string().min(1), name:z.string().optional(), layout:z.enum(SLIDE_LAYOUTS).optional(), background:z.string().optional(), transition:z.string().optional(), notes:z.string().optional(), camera:z.object({x:z.number(),y:z.number(),zoom:z.number().positive()}).optional(), cameraX:z.number().optional(),cameraY:z.number().optional(),cameraZoom:z.number().positive().optional() },
     cliArgs: [{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},
@@ -3361,9 +3792,11 @@ export const VERBS: VerbDef[] = [
     render:{human:(_r,a)=>({err:`✓ set slide ${a.slideId}`}),mcp:(_r,a)=>text(`set slide ${a.slideId}`)},
   },
   {
-    name:'set_animation',cli:'set-animation',cliRoot:'flags',
+    name:'set_animation',
+    scope: "project",
+    pathParams: {"to.svgPath": "path", "to.manifestPath": "path"},cli:'set-animation',cliRoot:'flags',
     summary:'Add or replace an animation track on a beat. --track JSON accepts the full track; --append preserves existing effects.',
-    params:{ deckId:z.string().min(1),slideId:z.string().min(1),beatId:z.string().min(1),track:z.record(z.unknown()).optional(),target:z.string().optional(),append:z.boolean().optional(),preset:z.enum(SLIDE_PRESETS).optional(),part:z.string().optional(),start:z.number().optional(),duration:z.number().optional(),easing:z.string().optional(),params:z.record(z.unknown()).optional(),influence:z.object({in:z.number(),out:z.number()}).optional(),stagger:z.object({perMs:z.number(),by:z.enum(['index','x','y']).optional(),from:z.enum(['start','end','center','edges']).optional()}).optional(),groupId:z.string().optional(),to:z.object({assetId:z.string().optional(),x:z.number().optional(),y:z.number().optional(),zoom:z.number().optional(),state:z.record(z.unknown()).optional(),svgPath:z.string().optional(),manifestPath:z.string().optional()}).optional() },
+    params:{ deckId:z.string().min(1),slideId:z.string().min(1),beatId:z.string().min(1),track:z.record(z.unknown()).optional(),target:z.string().optional(),append:z.boolean().optional(),preset:z.enum(SLIDE_PRESETS).optional(),part:z.string().optional(),start:z.number().optional(),duration:z.number().optional(),easing:z.string().optional(),params:z.record(z.unknown()).optional(),influence:z.object({in:z.number(),out:z.number()}).optional(),stagger:staggerSchema.optional(),groupId:z.string().optional(),to:z.object({assetId:z.string().optional(),x:z.number().optional(),y:z.number().optional(),zoom:z.number().optional(),state:z.record(z.unknown()).optional(),svgPath:z.string().optional(),manifestPath:z.string().optional()}).optional() },
     cliArgs:[{kind:'pos',at:0,into:'deckId',required:true},{kind:'pos',at:1,into:'slideId',required:true},{kind:'pos',at:2,into:'beatId',required:true},{kind:'pos',at:3,into:'target'},
       {kind:'flag',at:'target',into:'target'}, {kind:'flag',at:'track',into:'track',as:'json'}, {kind:'flag',at:'append',into:'append',as:'boolean'},
       ...['preset','part','easing'].map(at=>({kind:'flag' as const,at,into:at})),
@@ -3381,7 +3814,8 @@ export const VERBS: VerbDef[] = [
     render:{human:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return {err:`✓ set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`};},mcp:(r,a)=>{const t=r as import('../src/lib/slide/types').Track;return text(`set animation on beat ${a.beatId} (${t.preset??'keyframes'} → ${t.target})`);}},
   },
   {
-    name:'search_fulltext',cli:'search-text',cliRoot:'flags',summary:'Search extracted library PDF text with AND terms or quoted phrases.',
+    name:'search_fulltext', readOnly: true,
+    scope: "machine",cli:'search-text',cliRoot:'flags',summary:'Search extracted library PDF text with AND terms or quoted phrases.',
     params:{query:z.string().trim().min(1),limit:z.number().int().positive().optional(),keys:z.array(z.string()).optional(),json:z.boolean().optional()},
     cliArgs:[{kind:'rest',at:0,into:'query',as:'joined',required:true},{kind:'flag',at:'limit',into:'limit',as:'number'},{kind:'flag',at:'keys',into:'keys',as:'csv'},{kind:'flag',at:'json',into:'json',as:'boolean'}],
     handler:(_ctx,a)=>core.searchFulltext(s(a.query),{limit:a.limit as number|undefined,keys:a.keys as string[]|undefined}),
@@ -3390,5 +3824,8 @@ export const VERBS: VerbDef[] = [
       mcp:(r,a)=>{const v=r as Awaited<ReturnType<typeof core.searchFulltext>>;return text(!v.hits.length?`No stored PDF text matches "${a.query}" (scanned ${v.scanned}).${v.missingText.length?` ${v.missingText.length} PDF(s) have no extracted text yet — get_paper_text extracts on demand.`:''}`:`${v.hits.length} paper(s) match "${a.query}" (scanned ${v.scanned} in ${v.elapsedMs}ms${v.truncated?'; hit limit':''}):\n`+v.hits.map(h=>`@${h.key} (${h.count})\n`+h.snippets.map(s=>`  p${s.page}: ${s.text}`).join('\n')).join('\n'));},
     },
   },
+
+  // Figure-side 3D commands; Slides additions land after animation-v2.
+  ...MODEL3D_VERBS,
 
 ];

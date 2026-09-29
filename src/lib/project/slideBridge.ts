@@ -1,3 +1,9 @@
+import { setModel3dDeckScope } from "../model3d/editorScope";
+import { deckModel3dBindings } from "../slide/model3dBindings";
+import { slideAssetIds } from "../slide/deckProject";
+import { readScene3dSidecars, scene3dSidecarWrites } from "../model3d/persistence";
+import { scene3dManifests, scene3dRecipes, primeScene3dSidecars, clearScene3dSidecars } from "../model3d/store";
+import { storedAssetPath } from "./assetPath";
 import { generationBridgeIO } from "./generationBridgeIO";
 import { withIpcLock } from "../references/libLock";
 import { preparePlot } from "../plot/parse";
@@ -224,7 +230,7 @@ interface ResolvedDeckAssets {
 const acceptedPlotCache = new Map<string, { svg: string; manifest: string; recipe: string; dom: SVGSVGElement | undefined }>();
 
 function assetMime(kind: string): string {
-  return kind === "svg" ? "image/svg+xml" : "image/png";
+  return mimeFor(kind as Asset["kind"]);
 }
 
 export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () => boolean = () => true, deferPublication = false, reader = fileBridge()): Promise<ResolvedDeckAssets> {
@@ -253,6 +259,22 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     if (cachePlot(id, svg, manifest, recipe)) acceptedPlotCache.set(key, { svg, manifest: text, recipe: recipeText, dom: plotDom.get(id) });
   };
 
+  const bindings = deckModel3dBindings(deck);
+  const readModel = async (asset: Asset, prefix: string) => {
+    const relative = storedAssetPath(`${prefix}/${asset.path}`);
+    const file = fig.projectAssetPath ? await fig.projectAssetPath(root, relative) : joinPath(root, relative);
+    if (!await fig.exists(file)) throw new Error(`Missing GLB asset ${asset.id}`);
+    const sidecars = await readScene3dSidecars(fig, joinPath(root, prefix, "assets"), asset.id, { binding: bindings.get(asset.id) });
+    for (const reason of sidecars.issues ?? []) diagnostics.push({ severity: "warning", assetId: asset.id, reason });
+    const publishModel = () => {
+      scene3dManifests.update(all => { const next = { ...all }; delete next[asset.id]; return next; });
+      scene3dRecipes.update(all => { const next = { ...all }; delete next[asset.id]; return next; });
+      primeScene3dSidecars(sidecars.manifest ? { [asset.id]: sidecars.manifest } : {},
+        sidecars.recipe !== undefined ? { [asset.id]: sidecars.recipe } : {}, { [asset.id]: sidecars.issues ?? [] });
+    };
+    if (deferPublication) publications.push(publishModel); else if (isCurrent()) publishModel();
+  };
+
   const readManifestFile = async (rel: string): Promise<FluxPlotManifest | undefined> => {
     const abs = joinPath(root, rel);
     if (!(await fig.exists(abs))) return undefined;
@@ -273,6 +295,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
   for (const a of deck.assets ?? []) {
     if (!a.path) continue;
     try {
+      if (a.kind === "glb") { await readModel(a, `slides/${deck.id}`); assets.push({ ...a }); continue; }
       if (a.kind === "mp4") {
         // Native range streaming keeps large clips out of renderer memory. A
         // browser-only fixture may use its injected bridge and small data URLs.
@@ -307,7 +330,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
 
   // fig/index.json asset metadata — the by-id resolution table for
   // figure-derived content (Send to deck / add_slide_figure copies).
-  let figAssets: { id: string; kind: string; path?: string; name?: string; naturalWidth?: number; naturalHeight?: number; dpi?: number }[] = [];
+  let figAssets: Asset[] = [];
   try {
     const p = joinPath(root, "fig", "index.json");
     if (await fig.exists(p)) {
@@ -323,6 +346,10 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
     const fa = figAssets.find((x) => x.id === assetId);
     if (fa && fa.path) {
       try {
+        if (fa.kind === "glb") {
+          assets.push({ ...fa, path: `fig/${fa.path}` }); have.add(assetId); external.add(assetId);
+          await readModel(fa, "fig"); return;
+        }
         const bytes = new Uint8Array(await fig.readFile(joinPath(root, "fig", fa.path)));
         if (isCurrent() && fa.kind === "svg" && !isAssetDirty(assetId)) {
           const manifest = await readManifestFile(`fig/assets/${assetId}.fluxplot.json`);
@@ -411,7 +438,7 @@ export async function resolveDeckAssets(root: string, deck: Deck, isCurrent: () 
   for (const s of deck.slides) {
     for (const el of s.elements) {
       if (el.type === "plot") await resolveExternal(el.assetId, el.source ?? null);
-      else if (el.type === "image") await resolveExternal(el.assetId, null);
+      else if (el.type === "image" || el.type === "model3d") await resolveExternal(el.assetId, null);
     }
     // Targets referenced only by Change/morph effects need the same accepted
     // asset and sidecar resolution as placed plots.
@@ -489,6 +516,7 @@ export function refreshDeckSources(root: string): Promise<void> {
     if (sourceFingerprint(currentDeck()!) !== fingerprint || updates.some(u => isAssetDirty(u.assetId))) throw new ConflictError("Slide changed after persistence; saved source retained, reload to reconcile");
     const unchanged = editGen.n === generation;
     if (updates.length || resized) commitDeckLive(deck => { applyDeckSourceUpdates(deck, updates); reconcileDeckExternalAssetSizes(deck, accepted); }, { history: false });
+    setModel3dDeckScope(candidate.id, resolved.external);
     resolved.publish();
     replaceResolvedDeckAssets(resolved.assets);
     const oldData = get(assetData), changedData = Object.fromEntries(Object.entries(resolved.data).filter(([id,url]) => !isAssetDirty(id) && oldData[id] !== url));
@@ -526,7 +554,8 @@ export async function loadDeckInto(root: string, deckId: string, opts: { isCurre
     if (evidence && await fileBridge()!.readText(evidence.path) !== evidence.text) throw new ConflictError("deck changed while opening");
     await assertOwned();
     if (!current()) return superseded();
-    clearPlots(); acceptedPlotCache.clear(); resolved.publish();
+    setModel3dDeckScope(deck.id, resolved.external);
+    clearPlots(); clearScene3dSidecars(); acceptedPlotCache.clear(); resolved.publish();
     if (evidence) deckBaseline.set(evidence.path,evidence.text);
     loadDeckModel(deck,resolved.assets,resolved.external);assetData.set(resolved.data);clearAllAssetsDirty();
     return {deck,diagnostics:resolved.diagnostics};
@@ -544,15 +573,37 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
   if (!owner()) throw new Error("Deck save does not own this project");
   const genAtStart = editGen.n; capturePersistenceGeneration();
   const data = { ...get(assetData) }, manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
+  const models = structuredClone(get(scene3dManifests)), modelRecipes = structuredClone(get(scene3dRecipes));
   const assetGenerations = new Map(d.assets.map(a => [a.id, assetDirtyGeneration(a.id)]));
   reconcileDeckExternalAssetSizes(d, get(figProject).assets.filter(a => externalAssetIds().has(a.id) && !isAssetDirty(a.id)));
   const m = await readManifest(root), rel = m?.slides?.find(s => s.id === deckId)?.path ?? deckRel(deckId), abs = joinPath(root, rel);
   const before = await fig.exists(abs) ? await fig.readText(abs) : null, baseline = deckBaseline.get(abs);
   if (!opts.force && baseline != null && before !== baseline) throw new ConflictError("deck changed on disk");
   const writes = new Map<string, GenerationWrite>();
+  // Only models the slides still use must exist on disk. A deleted model's GLB
+  // entry stays in the stores (Undo restores element and asset together), so
+  // judging every registered GLB kept Save blocked after the model was gone.
+  const referenced = new Set(d.slides.flatMap(slide => [...slideAssetIds(slide)]));
+  for (const asset of get(figProject).assets) if (asset.kind === "glb" && externalAssetIds().has(asset.id) && referenced.has(asset.id)) {
+    const relative = storedAssetPath(asset.path);
+    const missing = () => new Error(`Cannot save: 3D model file ${relative} is missing. Restore it, or delete the 3D model that uses it`);
+    let file: string;
+    try { file = fig.projectAssetPath ? await fig.projectAssetPath(root, relative) : joinPath(root, relative); }
+    catch (error) { if ((error as { code?: string }).code === "ENOENT" || String(error).includes("ENOENT")) throw missing(); throw error; }
+    if (!await fig.exists(file)) throw missing();
+  }
+  const vanished = new Set<string>();
   for (const a of d.assets) {
     const url = data[a.id]; if (!a.path) a.path = `assets/${a.id}.${a.kind}`;
     const assetPath = `slides/${d.id}/${a.path}`, exists = await fig.exists(joinPath(root, assetPath));
+    if (a.kind === "glb") {
+      if (!exists && referenced.has(a.id)) throw new Error(`Cannot save: 3D model file ${assetPath} is missing. Restore it, or delete the 3D model that uses it`);
+      // Unused and gone: no deck can restore its bytes, so the saved registry
+      // stops naming it. An unused GLB still on disk stays, as 2D assets do.
+      if (!exists) { vanished.add(a.id); continue; }
+      if (isAssetDirty(a.id)) for (const [path, text] of scene3dSidecarWrites(`slides/${d.id}/assets`, a.id, { manifest: models[a.id], recipe: modelRecipes[a.id] })) writes.set(path, text);
+      continue;
+    }
     if (a.kind === "mp4" && exists) continue;
     if (a.kind === "mp4" && !url?.startsWith("data:video/")) throw new Error(`Video clip is missing: ${a.name}`);
     if (!url && !exists) throw new Error(`Deck asset is missing: ${a.name}`);
@@ -562,6 +613,7 @@ async function saveDeckOwned(root: string, opts: { force?: boolean }, leaseOwned
     writes.set(sidecar + ".fluxplot.json", man && !isDerivedManifest(man) ? JSON.stringify(man,null,2) : null);
     writes.set(sidecar + ".recipe.json", man && !isDerivedManifest(man) && recipes[a.id] !== undefined ? JSON.stringify(recipes[a.id],null,2) : null);
   }
+  if (vanished.size) d.assets = d.assets.filter(a => !vanished.has(a.id));
   const assertOwned = async () => { await leaseOwned(); if (!owner()) throw new Error("Deck changed before save could publish"); };
   const published = await persistDeckCandidate(root, d, writes, assertOwned, before === null ? undefined : { path: abs, text: before });
   if (owner()) {
@@ -615,7 +667,8 @@ async function loadDeckIntoStores(root: string, d: Deck): Promise<void> {
   const current = () => generation === deckLoadGeneration && tenant === storeTenant() && previousRoot === get(embeddedProjectRoot) && editingGeneration === editGen.edits;
   const resolved = await resolveDeckAssets(root, d, current, true);
   if (!current()) return;
-  clearPlots(); acceptedPlotCache.clear(); resolved.publish();
+  setModel3dDeckScope(d.id, resolved.external);
+  clearPlots(); clearScene3dSidecars(); acceptedPlotCache.clear(); resolved.publish();
   const evidence = deckReadEvidence.get(d); if (evidence) deckBaseline.set(evidence.path, evidence.text);
   loadDeckModel(d, resolved.assets, resolved.external);
   assetData.set(resolved.data);
@@ -635,7 +688,7 @@ export async function duplicateDeckInProject(root: string, srcId: string): Promi
   dupe.modified = stamp();
   await fig.mkdir(joinPath(root, "slides", dupe.id));
   await fig.mkdir(joinPath(root, "slides", dupe.id, "assets"));
-  const requiredMediaIds = new Set(dupe.assets.filter(a => a.kind === "mp4").map(a => a.id));
+  const requiredMediaIds = new Set(dupe.assets.filter(a => a.kind === "mp4" || a.kind === "glb").map(a => a.id));
   for (const slide of dupe.slides) for (const element of slide.elements) if (element.type === "video") {
     requiredMediaIds.add(element.assetId); requiredMediaIds.add(element.posterAssetId);
   }
@@ -643,10 +696,15 @@ export async function duplicateDeckInProject(root: string, srcId: string): Promi
   const missingMedia = [...requiredMediaIds].filter(id => !dupe.assets.some(a => a.id === id));
   if (missingMedia.length) throw new Error(`Video asset metadata is missing: ${missingMedia.join(", ")}`);
   if (requiredMedia.length) {
-    if (!fig.copySlideVideoAssets) throw new Error("Duplicating a deck with video requires the Flux desktop app.");
+    if (!fig.copySlideVideoAssets) throw new Error("Duplicating a deck with video or 3D models requires the Flux desktop app.");
     // The native batch copies movies and their posters directly on disk. It
     // rolls back its new files on failure, before this deck can be published.
-    await fig.copySlideVideoAssets({ root, sourceDeckId: srcId, deckId: dupe.id, paths: requiredMedia.map(a => a.path) });
+    const paths = requiredMedia.map(a => storedAssetPath(a.path));
+    for (const asset of requiredMedia) if (asset.kind === "glb") for (const suffix of ["fluxplot", "recipe"]) {
+      const sidecar = `assets/${asset.id}.${suffix}.json`;
+      if (await fig.exists(joinPath(root, "slides", srcId, sidecar))) paths.push(sidecar);
+    }
+    await fig.copySlideVideoAssets({ root, sourceDeckId: srcId, deckId: dupe.id, paths });
   }
   // copy each deck-local asset file (paths are deck-relative, same names)
   for (const a of dupe.assets ?? []) {

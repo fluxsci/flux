@@ -179,7 +179,7 @@ try {
   ok("Open PDF from the panel opens that paper", (await page.evaluate(() => window.__fluxReaderKey)) === libKey);
   await page.click(`${ACT} .side.annots .stab:nth-child(1)`);
   await sleep(300);
-  ok("switching back to Annotations dismisses the panel", !(await page.$(`${ACT} [data-testid="reader-library"]`)));
+  ok("switching back to Highlights dismisses the panel", !(await page.$(`${ACT} [data-testid="reader-library"]`)));
 
   // --- tab drag-reorder ---------------------------------------------------------------
   const before = await tabKeys();
@@ -233,8 +233,9 @@ try {
   await chord("b", { ctrl: true, shift: true });
   ok("Ctrl+Shift+B hides the right rail", !(await page.$(`${ACT} .side.annots`)));
   await chord("a", { alt: true });
-  ok("Alt+A reopens the right rail on Annotations",
-    !!(await page.$(`${ACT} .side.annots`)) && (await storedLayout()).rightTab === "annots");
+  ok("Alt+A reopens the right rail on Highlights",
+    !!(await page.$(`${ACT} .side.annots`)) && (await storedLayout()).rightTab === "annots"
+      && await page.$eval(`${ACT} .side.annots .stab.on`, el => el.textContent.trim() === "Highlights" && el.title === "Highlights (Alt+A)"));
   await chord("r", { alt: true });
   ok("Alt+R switches it to Library", (await storedLayout()).rightTab === "library");
 
@@ -266,36 +267,15 @@ try {
   await sleep(600);
   ok("› steps through the list", (await page.$eval(`${ACT} .srchcount`, (el) => el.textContent.trim())) !== jumped);
 
-  // --- terminal drawer: Alt+T, drag to resize, dblclick reset -------------------------
-  await chord("t", { alt: true });
-  const drawer = () => page.$eval(`${ACT} .agentpane`, (el) => Math.round(el.getBoundingClientRect().height));
-  ok("Alt+T opens the terminal drawer", !!(await page.$(`${ACT} .agentpane`)));
-  ok("it opens at the stored height", (await drawer()) === 300, String(await drawer()));
-  const dg = await page.$eval(`${ACT} .drawer-gutter`, (el) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  // D13: Alt+T is unclaimed and the retired passage action is hidden.
+  const freeChord = await page.evaluate(() => {
+    const event = new KeyboardEvent("keydown", { key: "t", code: "KeyT", altKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    return !event.defaultPrevented;
   });
-  await page.mouse.move(dg.x, dg.y);
-  await page.mouse.down();
-  for (let y = dg.y; y > dg.y - 120; y -= 20) {
-    await page.mouse.move(dg.x, y);
-    await sleep(25);
-  }
-  await page.mouse.up();
-  await sleep(300);
-  const grown = await drawer();
-  ok("dragging its top edge resizes the drawer", grown > 380, `300 → ${grown}`);
-  ok("the height persists", (await storedLayout()).terminalH === grown, String((await storedLayout()).terminalH));
-  // The gutter moved with the drawer — re-read it before double-clicking.
-  const dg2 = await page.$eval(`${ACT} .drawer-gutter`, (el) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  });
-  await page.mouse.click(dg2.x, dg2.y, { count: 2 });
-  await sleep(300);
-  ok("double-click resets the drawer height", (await drawer()) === 300, String(await drawer()));
-  await chord("t", { alt: true });
-  ok("Alt+T closes it again", !(await page.$(`${ACT} .agentpane`)));
+  ok("Alt+T is free in Reader", freeChord);
+  ok("the terminal drawer is absent", !(await page.$(".agentpane, .drawer-gutter")));
+  ok("passage-to-terminal actions are absent", !(await page.$('[title*="terminal"], [aria-label*="terminal"]')));
 
   const errs = realErrors(page);
   const readerErrs = errs.filter((e) => /Reader|PdfView|pdf|annot|tab|library|devSeed/i.test(e));

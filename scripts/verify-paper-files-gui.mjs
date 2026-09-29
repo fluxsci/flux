@@ -102,6 +102,13 @@ await page.evaluate(async root=>{
 },ROOT);
 await page.evaluate(root=>window.__flux.shell.openProjectAt(root),ROOT);
 await clickMode(page,'Paper');await active('paper/notes.qmd');
+for (const rel of ['Context/ProjectContext.qmd', 'Context/NOTEBOOK.md', 'Context/RULES.md']) {
+  h.ok(await page.evaluate(rel => {
+    const row = [...document.querySelectorAll('.docpicker .dp-row')].find(r => r.dataset.path === rel);
+    return !!row && !row.querySelector('.dp-del');
+  }, rel), `${rel} is listed and protected`);
+}
+
 h.ok(await page.$$eval('.dp-badge',els=>els.length)===0,'new projects have no main badge');
 await clickLabel('Delete Notes');await page.waitForSelector('#doc-delete-confirm');await page.click('#doc-delete-confirm');
 await waitFor(page,async root=>!await window.fig.exists(`${root}/paper/notes.qmd`),ROOT,{timeout:5000});

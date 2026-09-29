@@ -22,6 +22,7 @@ export function figureSnapshotBridgeIO(root: string, bridge: FileBridge): Figure
     }
   }
   return {
+    assetExists: async rel => { await validate(rel); return bridge.exists(joinPath(root, rel)); },
     readText: async rel => {
       await validate(rel);
       return await bridge.exists(joinPath(root, rel)) ? bridge.readText(joinPath(root, rel)) : null;

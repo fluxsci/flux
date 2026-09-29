@@ -20,6 +20,13 @@
 //     missing/extra/undeclared channels.
 
 const CHANNELS = [
+  { channel: "agentsetup:status", kind: "invoke", scope: "read" },
+  { channel: "agentsetup:doctor", kind: "invoke", scope: "read" },
+  { channel: "agentsetup:apply", kind: "invoke", scope: "write" },
+  { channel: "agentsetup:remove", kind: "invoke", scope: "write" },
+  { channel: "agentsetup:skills", kind: "invoke", scope: "write" },
+  { channel: "agentsetup:changed", kind: "push", scope: "read" },
+  { channel: "agentsetup:progress", kind: "push", scope: "read" },
   // --- files (fs:*) ----------------------------------------------------------
   { channel: "readerContext:claim", kind: "invoke", scope: "write" },
   { channel: "readerContext:publish", kind: "invoke", scope: "write" },
@@ -36,6 +43,7 @@ const CHANNELS = [
   { channel: "fs:writeText", kind: "invoke", scope: "write" },
   { channel: "fs:writeFile", kind: "invoke", scope: "write" },
   { channel: "fs:mkdir", kind: "invoke", scope: "write" },
+  { channel: "fs:copyFileVerified", kind: "invoke", scope: "write" },
   { channel: "fs:moveFileVerified", kind: "invoke", scope: "write" },
   { channel: "fs:remove", kind: "invoke", scope: "write" },
   { channel: "fs:trash", kind: "invoke", scope: "write" },
@@ -57,10 +65,6 @@ const CHANNELS = [
   // --- project lifecycle / watcher / locks / journal ---------------------------
   { channel: "watch:setRoot", kind: "invoke", scope: "read" },
   { channel: "watch:setSourceFiles", kind: "invoke", scope: "read" },
-  // Sync-conflict scan: walk the open project for a sync tool's `.sync-conflict-*`
-  // leftovers. Read-only — every resolution goes through the ordinary fs:* channels,
-  // so nothing here can delete or overwrite a file on its own.
-  { channel: "conflicts:scan", kind: "invoke", scope: "read" },
   { channel: "capture:dir", kind: "invoke", scope: "read" },
   { channel: "capture:extensionInfo", kind: "invoke", scope: "read" },
   { channel: "capture:revealExtension", kind: "invoke", scope: "read" },
@@ -70,7 +74,7 @@ const CHANNELS = [
   { channel: "capture:discard", kind: "invoke", scope: "write" },
   { channel: "capture:release", kind: "invoke", scope: "write" },
   { channel: "capture:park", kind: "invoke", scope: "write" },
-  // The feedback ledger (append-only .meta/feedback.ndjson — principal-agent scheme).
+  // The feedback ledger (append-only .meta/feedback.ndjson).
   { channel: "feedback:append", kind: "invoke", scope: "write" },
   { channel: "lock:check", kind: "invoke", scope: "write" },
   { channel: "lock:acquire", kind: "invoke", scope: "write" },
@@ -141,20 +145,20 @@ const CHANNELS = [
   { channel: "correction:modelUnload", kind: "invoke", scope: "spawn" },
   { channel: "correction:modelWarm", kind: "invoke", scope: "spawn" },
   { channel: "correction:modelProgress", kind: "push", scope: "read" },
-  // --- capture (flux:// deep links) ---------------------------------------------
+  // --- FluxChat runner -------------------------------------------------------
+  { channel: "runner:capabilities", kind: "invoke", scope: "read" },
+  { channel: "runner:start", kind: "invoke", scope: "spawn" },
+  { channel: "runner:send", kind: "invoke", scope: "spawn" },
+  { channel: "runner:respond", kind: "invoke", scope: "spawn" },
+  { channel: "runner:cancel", kind: "invoke", scope: "spawn" },
+  { channel: "runner:event", kind: "push", scope: "read" },
   // --- agent bridge ---------------------------------------------------------------
-  // The principal drawer's launch spec (agents.json roster + boot prompt + MCP wiring).
-  { channel: "agent:principalSpec", kind: "invoke", scope: "read" },
   { channel: "bridge:dispatch", kind: "push", scope: "read" },
   { channel: "bridge:dispatch:reply", kind: "send", scope: "read" },
   { channel: "bridge:context", kind: "send", scope: "read" },
-  // --- terminal (PTY) --------------------------------------------------------------
-  { channel: "pty:create", kind: "invoke", scope: "spawn" },
-  { channel: "pty:write", kind: "send", scope: "spawn" },
-  { channel: "pty:resize", kind: "send", scope: "spawn" },
-  { channel: "pty:kill", kind: "invoke", scope: "spawn" },
-  { channel: "pty:data", kind: "push", scope: "read" },
-  { channel: "pty:exit", kind: "push", scope: "read" },
+  { channel: "bridge:context:request", kind: "push", scope: "read" },
+  { channel: "bridge:context:reply", kind: "send", scope: "read" },
+  { channel: "bridge:viewed", kind: "push", scope: "read" },
   // --- renders / exports -------------------------------------------------------------
   { channel: "recipe:cancel", kind: "invoke", scope: "spawn" },
   { channel: "recipe:run", kind: "invoke", scope: "spawn" },
@@ -177,6 +181,13 @@ const CHANNELS = [
   { channel: "slides:cancelVideoImport", kind: "invoke", scope: "spawn" },
   { channel: "slides:discardVideoImport", kind: "invoke", scope: "write" },
   { channel: "slides:videoImportProgress", kind: "push", scope: "read" },
+  { channel: "model3d:import", kind: "invoke", scope: "write" },
+  { channel: "model3d:importDropped", kind: "invoke", scope: "write" },
+  { channel: "model3d:adopt", kind: "invoke", scope: "write" },
+  { channel: "model3d:discard", kind: "invoke", scope: "write" },
+  { channel: "model3d:readFile", kind: "invoke", scope: "read" },
+  { channel: "model3d:sourceFingerprint", kind: "invoke", scope: "read" },
+  { channel: "model3d:availability", kind: "invoke", scope: "read" },
   // --- text styles (machine-global library) --------------------------------------------
   { channel: "textstyles:get", kind: "invoke", scope: "read" },
   { channel: "textstyles:set", kind: "invoke", scope: "write" },

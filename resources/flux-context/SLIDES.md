@@ -1,7 +1,7 @@
-# Flux Slide — build & animate a scientific talk (the 4th pillar)
+# Flux Slide — build and animate a scientific talk (stock — shipped with Flux, do not edit)
 
 Flux Slide is a **figure-first talk creator and animator** — "PowerPoint meets 3blue1brown."
-A slide (deck `0.5.0`) reuses the figure editor and its elements
+A slide (deck `0.6.0`) reuses the figure editor and its elements
 (`text`, `rect`, `ellipse`, `line`, `path`, `image`, `plot`), adds a slide-only `video` element,
 and carries a presentation overlay of beats/transition/notes/camera. Appearance,
 transform, and video playback commands are independent. You can
@@ -12,7 +12,7 @@ first-class authors: every mutation is a pure op surfaced through flux-core **an
 **The file is the API.** A deck is plain JSON at `slides/<deckId>/deck.json`, registered in
 `project.json.slides[]`. Edit it through the verbs (which lock + journal) or, for bulk
 authoring, through the pure ops — never hand-wave the schema; run `validate-deck` after.
-(`0.2`–`0.4` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
+(`0.2`–`0.5` decks auto-migrate on load; `0.1.x` is a sanctioned clean break.)
 
 ## The one rule that matters: ops-core-first
 
@@ -36,7 +36,7 @@ flux duplicate-slide <deck> <slideId>          # (duplicate_slide)  deep copy, f
 flux reorder-slides <deck> --order id1,id2,…   # (reorder_slides)   exact permutation
 flux set-slide <deck> <slideId> [--name|--layout|--background|--transition|--notes|--notes-file|--camera-x/-y/-zoom]
                                                # (set_slide)    notes = speaker notes; camera = base pose
-flux set-theme <deck> <theme>                  # (set_deck_theme)  flux-dark|light|midnight|slate|sepia|contrast
+flux set-theme <deck> <theme>                  # (set_deck_theme)  flux-dark|flux-light|flux-paper|flux-midnight|flux-slate|flux-sepia|flux-contrast
 
 # content (returns the new element id on stdout)
 flux add-text <deck> <slideId> "text…" [--x --y --width --height --align --color --size-pt --weight --sizing]   # (add_slide_text)
@@ -55,16 +55,36 @@ flux set-animation <deck> <slideId> <beatId> --target <elId|@camera|@stage> [--p
 flux animate-element <deck> <slideId> <elId> [--exit] [--preset P] [--beat-index n]   # (animate_element)  smart per-kind default
 flux animate-part <deck> <slideId> <elId> <part> [--beat-index n]                     # (animate_part)     plot-part default reveal
 
+flux set-plot-view <figureId|deckId/slideId> <elId> [--x-min N --x-max N --y-min N --y-max N]
+     [--x-scale linear|log --y-scale linear|log --reset] [--beat beatId]            # (set_plot_view) data view, or a Change at a deck beat
+
 # animation — transforms (the signature family: ONE track kind, three ways of authoring it)
-flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state]
-     [--start ms] [--duration ms] [--easing e] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
+flux set-transform <deck> <slideId> <beatId> <elId> --state '<json patch>' [--replace-state] [--curve 'spring(0.35)']
+     [--start ms] [--duration ms] [--easing e] [--arc -1..1] [--to-asset id]                        # (set_transform)  CHANGE: edit the object's own endpoint
 flux ghost-transform <deck> <slideId> <beatId> <sourceId> --count 3
      --original stay --states '[{"x":200,"y":60},{"x":300,"y":160},{"x":400,"y":260}]'
      [--original-state '<json patch>' --duration ms --start ms --easing e]         # (ghost_transform)  GHOST: copies that transform independently
-flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become)  BECOME: the source turns into that object
-     [--start ms --duration ms --easing e]                                         #   (kind included — line→ellipse, bracket→arrow, rect→plot); the target is consumed
-flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]         #   plot data-only form: the frame stays, the content becomes that
-                                                                                   #   project plot's (compatible structures tween data; others crossfade)
+flux become <deck> <slideId> <beatId> <sourceId> --target <elId>                     # (become) BECOME
+     [--part id,id --source-part id,id --mode consume|handoff]
+     [--pair auto|spatial|order|data|tile --reveal flip|draw --start ms --duration ms --easing e]
+flux appear-from <deck> <slideId> <beatId> --dest <elId> --from <sourceId>             # (appear_from) same hand-off from the destination side
+     [--part id,id --source-part id,id --pair auto|spatial|order|data|tile --reveal flip|draw]
+     [--start ms --duration ms --easing e]
+flux swap-become <deck> <slideId> <trackId>                                        # (swap_become) reverse a hand-off, keeping timing/style/followers
+flux become <deck> <slideId> <beatId> <plotElId> --asset <assetId> [--force]          # data-only: keep the frame, replace the plot content
+     [--start ms --duration ms --easing e]                                         # shared series tween; with none, force authors it (series fade)
+
+# linked deck styles + relative timing
+flux anim-style create <deck> --name L --family appearance|transform|media --preset P
+     [--duration ms --start ms --curve grammar --arc -1..1 --params json --influence json --stagger '{"perMs":30}'] # (anim_style)
+flux anim-style set <deck> <styleId> [--name L --preset P --duration ms --start ms --curve grammar --arc -1..1 --params json --influence json --stagger json]
+flux anim-style delete <deck> <styleId>                         # detach linked effects, preserving their settings
+flux anim-style list <deck>
+flux animate-like <deck> <slideId> --from t1 --to t2,t3 [--beat beatId] # (animate_like) share the source style; family mismatches reported
+flux set-track <deck> <slideId> <trackId> [--style id | --no-style]
+     [--anchor t1:start|end[:offsetMs] | --no-anchor] [--start ms --duration ms --curve grammar] # (set_track)
+     [--stagger-each ms | --stagger-total ms] [--stagger-curve token|spring|bezier|steps]
+     [--stagger-from start|end|center|edges|random] [--seed uint32]
 
 # lane organization + reuse
 flux group-tracks <deck> <slideId> <beatId> t1,t2… [--label L]    # (group_tracks)    collapsible animator lane group
@@ -73,7 +93,7 @@ flux cascade-tracks <deck> <slideId> <property> t1,t2… [--delta n | --factor n
      [--order timeline|list] [--reverse] [--first-fixed]          # (cascade_tracks)  stepped timing delta
                                                # across tracks: rank k gets value+delta·step (step = k with
                                                # --first-fixed, else k+1); property ∈ start|duration|
-                                               # influence.in|influence.out|stagger.perMs; a start cascade
+                                               # influence.in|influence.out|curve.bounce|stagger.perMs|stagger.totalMs|arc; a start cascade
                                                # with --first-fixed IS the classic stagger
 flux apply-anim-template <deck> <slideId> <name|path.json> [--element id [--part axis.y] | --elements a,b,c] [--beat id]
                                                # (apply_anim_template)  bind a saved preset bundle by role/type
@@ -88,7 +108,9 @@ figure's elements (same 96 px/inch ruler → native size) and keeps plot **panel
 so you can stagger their parts or make them become another plot. `export-deck` gathers everything off disk and
 emits ONE file with the player + fonts inlined. No network, no install to present.
 
-## The two families
+## The two principal object-animation families
+
+Media commands and camera moves have their own independent families.
 
 **1. (dis)Appearances** — an object arrives or leaves elegantly. Enters: `fade`, `fadeRise`,
 `popIn`, `growBaseline`, `drawOn`, `writeOn`, `stagger` (fan a child preset across a part set).
@@ -103,11 +125,19 @@ to place multiple appearance effects on the same object in one step.
   both ends, or draw only its top half. Only STROKE-rendered shapes self-draw (a filled shape
   fades — dash windows hide strokes alone). Defaults reproduce the classic full draw.
 - `writeOn`/`wipeOut` take `params.direction: ltr|rtl|ttb|btt`.
-- Timing knobs on every track: `start`, `duration`, `easing`
+- Timing knobs on every track: `start`, `duration`, `curve`, `easing`
   (`smooth|standard|enter|exit|linear`), `influence` ({in, out} 0–100, the AE velocity
-  profile), `stagger` ({perMs, by: index|x|y, from: start|end|center|edges}).
+  profile), `stagger` ({perMs? or totalMs?, curve?, by: index|x|y, from: start|end|center|edges|random, seed?}).
+  Each/Total authoring clears the other field. Total spans first-to-last starts; one target has
+  no tail. The distribution uses the clamped curve grammar (`enter`, `bouncy`,
+  `cubic-bezier(.2,.1,.8,1)`, `steps(8)`). Random replays from a uint32 seed or the track-id hash.
+  Total normalizes symmetric ranks; if all ranks tie it uses input order.
+- Transforms also carry `arc` (−1…1); zero is straight, either sign bends box x/y along a
+  quadratic Bézier. The control point is offset by half the move distance times arc;
+  at halfway the path offset is one quarter of the distance times arc. Styles/presets
+  retain it. HTML/video play these paths; PPTX does not reproduce curves/distributions.
 
-**2. Transforms** — ONE track kind (`preset: "transform"`, at most one per element per
+**2. Transforms** — ONE track kind (`preset: "transform"`, at most one per complete source `TargetRef` per
 beat — chain across beats) authored three ways:
 
 - **Change** (`set-transform`): the object becomes a different version of itself — position,
@@ -118,23 +148,40 @@ beat — chain across beats) authored three ways:
   the engine fold. `--to-asset` sets the plot content half (see Become).
 - **Ghost** (`ghost-transform`): copies that start where the source is and transform
   independently (below).
-- **Become** (`become`): the object turns into ANOTHER object. `--target <elId>` consumes that
-  object and writes its evaluated state as the endpoint — `to.state.type` when the kind differs
-  (a line becomes an ellipse, a bracket an arrow, a rect a plot; drawn kinds morph through one
-  outline, other kinds crossfade while the box tweens). `--asset <assetId>` is the plot
-  data-only form: the frame stays and the content becomes that project plot's (`to.assetId` +
-  explicit source paths). Structurally compatible plots (same series ids and point counts, same
-  axis scales) tween their data through blended axes; others crossfade. There is no separate
-  "data morph" — it is a Become.
+- **Become** (`become`): the source turns into another object or plot parts. A whole loose
+  drawn/text destination defaults to **Consume**: its evaluated endpoint replaces the source
+  (`to.state`, retype-aware) and the destination is deleted. Plot/image destinations, group
+  refs and part-set sources/destinations default to **hand-off**: both identities stay, the
+  source hides after landing and the destination reveals. `--mode consume` keeps the old
+  whole-plot consume route; consume refuses part sets. `--part` selects destination parts,
+  `--source-part` selects source parts. `--pair` chooses correspondence, `--reveal` flip/draw.
+  A destination cannot receive overlapping hand-offs in one step. Neither side may be video;
+  ghost destinations must already be born. New tracks use 600 ms / smooth / start 0; replacing
+  an existing transform keeps timing unless supplied. **Appear from…** (`appear-from`) writes
+  exactly the same source-owned hand-off record from the destination side.
+  `--asset <assetId>` is the separate whole-plot content form (`to.assetId` + source paths):
+  the frame stays, shared line/point series tween in data space, and incompatible plots require
+  `--force` when none can tween; parts still bind by semantic ID, with local residual fades.
+  It accepts no hand-off/part flags. All routes write a transform track.
 
 ```
 flux set-transform talk s1 b2 el_rect --state '{"x": 420, "width": 220, "stroke": "#d14d41"}' --duration 700
 flux set-transform talk s1 b3 el_rect --state '{"opacity": 0.3}'        # chains: t1 = b2's end
 flux become talk s1 b2 el_line --target el_ellipse                        # the line becomes the ellipse (consumed)
+flux become talk s1 b2 el_path --target el_plot --part axis.x.spine,axis.y.spine    # source hands off to live spines
+flux appear-from talk s1 b2 --dest el_plot --part axis.x.spine,axis.y.spine --from el_path # same record
 flux become talk s1 b2 el_plot --asset growthB                            # the plot's data becomes growthB's
 ```
 
 **Camera** is its own small family: `--target @camera --preset camera --to-x --to-y --to-zoom`.
+
+**Axis view** is an ordinary plot prop in Figure, Slide, Paper and export. `set-plot-view`
+patches limits/scales; omitted fields inherit. A figure target writes the object; a
+`deck/slide` target with `--beat` writes `state.view` on that step's Change and preserves
+other state. Without `--beat`, it edits Design. `--reset` clears the view (at a step this
+writes `view:null`). The Inspector and F-menu expose the same controls. Log limits and data
+must be positive. Lines, points and existing guides project; filled/non-series marks stay
+put. Ticks fade in the outer 4%, including new limits; zoom-out does not invent ticks.
 
 **Ghost transforms** create ordinary independent result Elements with a birth Change track
 (`ghostFrom` names the source; `target` names the result; `to.state` is its destination patch).
@@ -194,7 +241,59 @@ engine, so they agree by construction. Tracks whose element was deleted are TOLE
 
 Track groups (`Beat.groups[]` + `Track.groupId`) are presentational animator lanes — they
 never change playback. Collapse state persists in the deck (you can read the authoring
-layout).
+layout). Design keeps ordinary objects available for arranging, but hides future hand-off
+destinations unless Show hidden is on. Unborn ghosts stay absent even with Show hidden.
+X-ray Change picks select whole owning objects; appearance picks author per-part effects.
+
+Cascade accepts `curve.bounce` (Spring bounce), `arc` and `stagger.totalMs` alongside
+start/duration/influence/per-item stagger. Spring bounce ranks only resolved spring tracks
+and clamps to −0.5…0.8; other effects consume no rank.
+
+**Timing curves:** `set-track`, `set-transform` and `anim-style create|set` accept
+`--curve '<grammar>'` (MCP: `curve` string). The grammar is:
+
+- `standard`, `smooth`, `enter`, `exit`, `linear` — the existing easing tokens.
+- `gentle`, `overshoot`, `anticipate`, `anticipate + overshoot`, `settle`, `snappy`,
+  `bouncy`, `playful`, `steps`, `hold` — catalog names, stored as concrete specs.
+- `spring(0.35)`, `spring(0.35, v=2)` or `spring(k=170, c=26, m=1)`.
+- `bezier(0.34,1.56,0.64,1)` or `cubic-bezier(0.34,1.56,0.64,1)`.
+- `steps(8)` or `steps(1,start)`; omitted jump means end.
+
+Input values are clamped: bezier x handles 0–1, y handles −1–2, spring bounce
+−0.5–0.8, steps a whole number 1–60. Decks store `curve:{kind:"spring",bounce:0.35}`,
+`{kind:"bezier",p:[x1,y1,x2,y2]}` or `{kind:"steps",n:8,jump?:"start"|"end"}`.
+Spring velocity is optional; m/k/c are input sugar, never stored. The bar's duration is
+the settle time. PowerPoint uses Morph's own easing.
+
+`curve`, `influence` and `easing` are one logical timing field. Any own value blocks
+all three from a linked style. Editing one clears the other two; `--curve` wins when
+combined with legacy options. `--easing` remains available for the five tokens.
+In the pure ops, `setTrackCurve(deck, slideId, trackId, null)` clears all three to
+inherit the style or use the preset default. Migration preserves known easing tokens and
+drops unknown easing strings before validation, falling back to the style or preset default.
+Legacy records with several representations still read curve > influence > easing > default.
+The GUI also resets when both influence values become zero; the stored `{in:0,out:0}`
+sentinel remains available to suppress inherited influence explicitly.
+
+**Linked reuse:** `deck.animStyles` carries named HOW definitions. An own track field wins;
+an absent field inherits. Linking removes own HOW fields except `preset`, which always stays on
+the track: linking writes the style's preset (same family only), and `anim-style set --preset`
+rewrites it on every linked track. "None though the style has one" is `stagger:{perMs:0}`,
+`influence:{in:0,out:0}` or `params:{}` on the track (never `null`). Detaching or deleting a style
+materializes the resolved settings; bindings and transform endpoints stay on each track.
+**Animate like…** (`animate-like` / `animate_like`) links the source and targets to a shared style (creating `Like <label>` when
+needed), refusing incompatible families per target. `--beat <beatId>` requires the source
+and limits targets to that beat; omitted, it links across the slide. `anim-style` also accepts
+`--params` and `--influence` as JSON; media styles refuse stagger. Portable slide snapshots carry referenced
+styles; insertion merges by name and family.
+
+**Follow timing** (GUI **⛓ Follow timing…**): `anchor:{trackId,edge:"start"|"end",offsetMs?}` follows a same-step effect.
+End includes duration and the stagger tail. Cycles and missing targets produce compiler issues
+and fall back to the stored start. The setter refuses invalid anchors before saving.
+`set-track --start` moves an anchor's offset; `--no-anchor` preserves its resolved start.
+Moving or copying a track to another beat detaches its anchor and keeps the resolved start;
+same-beat operations keep the anchor. A start cascade edits offsets, and a duration cascade
+writes a local style override.
 
 **Reuse:** presets (one track's settings) live at `<FluxConfig>/presets/animations/`,
 templates (bundles with role/type matchers) at `<FluxConfig>/presets/anim-templates/`.
@@ -212,6 +311,43 @@ reported, never invented.
 - **P6 Reduced-motion collapses to cuts** — honored automatically by the player; don't fight it.
 - **P7 Look** — Flexoki dark, serif body (Gelasio), a single blue accent. 1–2 themes; make/reuse a
   custom theme rather than reaching for a library of presets. `ops.setTheme` / `setStageSize`.
+
+## 3D models
+
+Import a GLB or a 3D fluxplot saved by `Scene3D.save` with its sibling manifest:
+
+```sh
+flux add-slide-model <deck> <slideId> plots/neuron.glb --width 480 --height 360
+flux add-turntable <deck> <slideId> <beatId> <elementId> --turns 1 --duration 6000
+```
+
+Both commands return their created IDs. Model import also returns warnings in JSON/MCP;
+`--no-poster` skips the derived still. Input paths may be project-relative or absolute
+inside the project; escaping paths and symlinks are refused. The source stays intact,
+and the prepared GLB and sidecars are stored under the deck's `assets/` directory.
+Deck JSON and its undo journal contain metadata, never GLB bytes.
+
+Turntable writes a normal Change track with linear timing and an unwrapped azimuth.
+An existing whole-model Change at that step is reused: its other keys then share the
+Turntable's timing (`--duration`, linear, `--start` or 0).
+`--direction cw|ccw` chooses direction; `--start` offsets it within the step. Orbit zoom
+interpolates geometrically, while azimuth retains complete turns. Projection switches
+at the endpoint. Shape weights and field ranges can share the same Change.
+Use `animate-element ... --part <partId>` for a mesh or furniture part; part IDs come
+from the scene manifest, not a guessed DOM selector. Appearance timing does not change
+the model's geometry or its saved Design view.
+
+Ghost keeps an independent view of the same immutable mesh. Become uses vertex morphing
+for compatible topology and crossfades otherwise; inspect compatibility with
+`flux model-info <a.glb> --morph-with <b.glb>`. A hand-off keeps both objects; Consume
+replaces the source's content and removes the destination in one edit. A shape state
+changes geometry within the same asset and needs no second model.
+
+Portable HTML and MP4 carry the moving 3D scene. PDF and PPTX use the Design-view still
+with vector furniture where supported; they do not export an editable 3D object. Keep
+GLBs present when saving: a missing model produces an actionable refusal rather than
+an incomplete deck. Portable slide presets include model bytes explicitly for reuse
+across projects.
 
 ## Video clips
 
@@ -267,3 +403,5 @@ click, concurrent tracks retain their timing, and the final step stops. PDF/Word
 The HTML export contains only referenced slides and their required assets, without speaker
 notes or local source paths. Deleting referenced slides fails unless `delete-slide --force`
 is explicit; inspect the listed documents before overriding.
+
+Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.

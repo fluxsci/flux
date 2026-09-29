@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
+
   // A lightweight positioned context menu for the animator (chips + beat
   // headers). Closes on outside pointerdown, Esc, or after an action.
   export interface MenuItem {
@@ -25,9 +27,11 @@
   // here instead of reaching the editor's Esc ladder (which would deselect).
   $effect(() => { el?.focus({ preventScroll: true }); });
   function onWin(e: PointerEvent) {
+    if (yieldsToShellModal(e)) return;
     if (el && !el.contains(e.target as Node)) onClose();
   }
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === "Escape") { e.stopPropagation(); onClose(); }
   }
 </script>

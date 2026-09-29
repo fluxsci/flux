@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 // 2026-09-15 Snapshot & annotate — the pure half of "point at it" feedback
-// (src/lib/project/feedbackCapture.ts + the stamp in feedback.ts) gates
+// (src/lib/project/annotationCapture.ts + the stamp in annotations.ts) gates
 // hermetically: the crop law, badge/target points, the DOM-anchor path builder
 // (fed fake nodes), the stamp's one-line description and the ledger roundtrip.
 //   Run: npx tsx scripts/verify-feedback-snapshot.ts
@@ -16,8 +16,8 @@ import {
   type FeedbackMark,
   type FeedbackSnapshot,
   type AnchorNode,
-} from "../src/lib/project/feedbackCapture";
-import { describeStamp, foldLedger, makeNote, parseLedger, serializeEvent } from "../src/lib/project/feedback";
+} from "../src/lib/project/annotationCapture";
+import { describeStamp, foldAnnotations, makeNote, parseLedger, serializeEvent } from "../src/lib/project/annotations";
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -99,8 +99,8 @@ const pen: FeedbackMark = { kind: "pen", n: 3, points: [[100, 100], [110, 120], 
   const stamp = describeStamp({ surface: "figure", activeFigureId: "f1", selection: ["e1"], snapshot: { ...snap, marks: snap.marks.slice(0, 1) } });
   assert(stamp === 'figure · fig:f1 · sel:1 · snapshot ×1 (1 → header.toolbar > button.tool "Gallery")', `the stamp line carries the snapshot (${stamp})`);
   const ev = makeNote("1 is too big, move 2 up", { surface: "figure", snapshot: snap }, "human");
-  const st = foldLedger(parseLedger(serializeEvent(ev)));
-  const back = st.notes[0]?.context?.snapshot;
+  const st = foldAnnotations(parseLedger(serializeEvent(ev)));
+  const back = st.items[0]?.note.context?.snapshot;
   assert(back && back.image === snap.image && back.marks.length === 4 && back.marks[0].anchor?.text === "Gallery" && back.rect.w === 300, "the snapshot survives the NDJSON ledger roundtrip");
 }
 console.log("VERIFY-FEEDBACK-SNAPSHOT PASS");

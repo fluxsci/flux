@@ -1,12 +1,19 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
+
+  import { readerContext } from "../../../lib/bridge/contextStamp";
+  import { registerReaderTargets } from "../../../lib/bridge/readerTargets";
+  import { requestAsk } from "../../agent/askChord";
+  import { requestAnnotation } from "../../agent/annotateChord";
+
   // FluxReader document — everything scoped to ONE open paper. Loads the paper named by
   // the (immutable) `citekey` prop from <FluxLib>/items/<citekey>/ (PDF bytes +
   // annotations) and renders it with PdfView, flanked by a reference sidebar (the
-  // paper's OpenAlex referenced_works → add to FluxLib) and an annotations panel (this
+  // paper's OpenAlex referenced_works → add to FluxLib) and a Highlights panel (this
   // paper's highlights → click to scroll, delete). Highlights persist to
   // items/<citekey>/annotations.json. ReaderMode hosts one instance per open document;
   // switching papers mounts a fresh instance, so per-paper state needs no reset path.
-  import { onMount, onDestroy, tick, type Snippet } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { readerFind } from "./readerStore";
   import { fluxLibRevision } from "../../../lib/references/revision";
   import {
@@ -64,10 +71,6 @@
     paneId = "",
     active = true,
     focused = true,
-    agentOpen = false,
-    onToggleAgent,
-    onAsk,
-    agentPane,
   }: {
     /** The paper this instance renders — immutable for the instance's lifetime. */
     citekey: string;
@@ -76,13 +79,6 @@
     active?: boolean;
     /** Active AND the hosting pane is focused — gates the window keyboard handler. */
     focused?: boolean;
-    /** The shell's shared-terminal state + toggle (the terminal itself is ReaderMode's). */
-    agentOpen?: boolean;
-    onToggleAgent?: () => void;
-    /** Route an Ask-AI question (prefix + quote) into the shell's shared terminal. */
-    onAsk?: (prefix: string, quote: string) => void;
-    /** The shell-owned terminal pane, rendered inside this doc's PDF column when open. */
-    agentPane?: Snippet;
   } = $props();
 
   // The citekey never changes for a mounted instance (a paper switch mounts a fresh
@@ -266,8 +262,9 @@
   $effect(() => {
     const f = $readerFind;
     if (f.nonce === lastFindOpenNonce) return;
+    if (f.key !== citekey || !active) return;
     lastFindOpenNonce = f.nonce;
-    if (f.key !== citekey) return;
+    if (f.page !== undefined) scrollTo = { page: Math.max(1, f.page), nonce: ++nonce };
     if (!f.term) {
       clearFind();
       return;
@@ -591,7 +588,7 @@
     if (alive) refsState = "error";
   });
 
-  // W10 (LR-3): an external FluxLib write (e.g. an agent's add_annotation, or a new
+  // W10 (LR-3): an external FluxLib write (e.g. an agent's add_highlight, or a new
   // paper) refreshes the open paper's annotations + library membership in place —
   // and, if paper.pdf itself changed on disk (re-fetch, manual ingest), reloads the
   // bytes and remounts the PDF view (bufferGen keys it) instead of rendering stale bytes.
@@ -733,10 +730,6 @@
       ? navigator.clipboard.writeText(a.anchor.quote)
       : Promise.reject(new Error("Clipboard unavailable"));
   }
-  function sendHighlightToTerminal(a: Annotation) {
-    const note = a.note ? ` (my note: ${a.note})` : "";
-    onAsk?.(`About my highlight on p${a.page}${note}:`, a.anchor.quote);
-  }
   async function addRef(b: WorldBrief) {
     if (!b.doi || addingId) return;
     addingId = b.openalexId;
@@ -769,6 +762,21 @@
   // Annotations in reading order (page, then first-seen).
   const orderedAnns = $derived([...annotations].sort((a, b) => a.page - b.page));
 
+  const readingStamp = () => ({ citekey, title: entry?.title, page: popAnn?.page ?? (selection ? selPage : curPage),
+    selection: popAnn?.anchor.quote ?? selection, highlightId: popAnn?.id,
+    source: activePdf.kind === "main" ? "main" as const : { supplement: activePdf.name } });
+  onDestroy(registerReaderTargets(() => rootEl ?? null, readingStamp, () => focused && active));
+  $effect(() => {
+    if (!focused || !active) return;
+    const stamp = readingStamp(); readerContext.set(stamp);
+    return () => { if (get(readerContext) === stamp) readerContext.set(null); };
+  });
+  function askPassage(quote: string, page: number, highlightId?: string) {
+    requestAsk({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
+  }
+  function annotatePassage(quote: string, page: number, highlightId?: string) {
+    requestAnnotation({ targets: [{ kind: "passage", citekey, title: entry?.title, page, quote, highlightId }] });
+  }
   function handleSelect(text: string, page?: number) {
     selection = text;
     if (page != null) selPage = page;
@@ -836,8 +844,9 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!focused) return; // kept-alive hidden panes must not react (inert blocks focus, not window listeners)
-    // Alt chords: the panels (R = library, A = annotations, T = terminal).
+    // Alt chords: the panels (R = library, A = highlights).
     if (e.altKey && !e.ctrlKey && !e.metaKey) {
       if (e.code === "KeyR") {
         e.preventDefault();
@@ -847,11 +856,6 @@
       if (e.code === "KeyA") {
         e.preventDefault();
         summonAnnotations();
-        return;
-      }
-      if (e.code === "KeyT") {
-        e.preventDefault();
-        onToggleAgent?.();
         return;
       }
     }
@@ -870,7 +874,6 @@
     } else if (e.key === "Escape") {
       if (switchOpen) switchOpen = false;
       else if (popover) popover = null;
-      else if (agentOpen) onToggleAgent?.();
     } else if (!typing && buffer && !e.metaKey && !e.ctrlKey && !e.altKey) {
       // Reader nav keys (skipped while typing in find/note/page inputs).
       if (e.key === "+" || e.key === "=") pdfView?.zoomIn();
@@ -1142,12 +1145,9 @@
         <div class="pdfwrap">
           <div class="pdfarea">
             {#key bufferGen}
-              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAskSelection={(text, page) => onAsk?.(`About this passage on p${page}:`, text)} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
+              <PdfView bind:this={pdfView} buffer={viewBuffer ?? buffer} annotations={onSupplement ? [] : annotations} canHighlight={!onSupplement} {scrollTo} {initialView} hoverId={sideHoverId} find={findProp} onMatchList={(m) => (matches = m)} onCreate={handleCreate} onSelect={handleSelect} onAnnotate={annotatePassage} onAsk={askPassage} onAnnotationClick={openPopover} onAnnotationHover={(id) => (pageHoverId = id)} onCitePreview={handleCitePreview} onNavDepth={(n) => (navDepth = n)} onRegionPop={(r) => void popRegion(r)} onRegionSnip={(r) => void snipRegion(r)} onOrphans={(ids) => (orphans = new Set(ids))} onScale={(s) => (scalePct = Math.round(s * 100))} onPage={(p, t) => { curPage = p; totalPages = t; if (!viewRestored) { viewRestored = true; if (layout !== "vertical") applyLayout(); } }} />
             {/key}
           </div>
-          {#if agentOpen && active}
-            {@render agentPane?.()}
-          {/if}
         </div>
 
         {#each figPanels as f (f.id)}
@@ -1214,7 +1214,8 @@
             onSaveNote={(n) => handleUpdate(ann.id, { note: n || undefined })}
             onRecolor={(c) => void handleUpdate(ann.id, { color: c }).catch(() => {})}
             onCopy={() => copyQuote(ann)}
-            onAsk={() => sendHighlightToTerminal(ann)}
+            onAnnotate={() => annotatePassage(ann.anchor.quote, ann.page, ann.id)}
+            onAsk={() => askPassage(ann.anchor.quote, ann.page, ann.id)}
             onDelete={() => void handleDelete(ann.id)}
             onClose={() => (popover = null)} />
         {/if}
@@ -1230,8 +1231,8 @@
           </div>
           <aside class="side annots">
             <div class="shead stabs">
-              <button class="stab" class:on={$readerLayout.rightTab === "annots"}
-                onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "annots" }))}>Annotations</button>
+              <button class="stab" class:on={$readerLayout.rightTab === "annots"} title="Highlights (Alt+A)"
+                onclick={() => readerLayout.update((s) => ({ ...s, rightTab: "annots" }))}>Highlights</button>
               <button class="stab" class:on={$readerLayout.rightTab === "library"} title="Search your reference library (Alt+R)"
                 onclick={summonLibrary}>Library</button>
               {#if $readerLayout.rightTab === "annots" && annotations.length}

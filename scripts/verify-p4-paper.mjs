@@ -103,7 +103,7 @@ assert(!/#ref-sec/.test(html), "PAP-14: @sec-intro is NOT mis-linked as a citati
 
 console.log("presence of the CM/DOM-bound fixes:");
 const read = (p) => fs.readFile(path.join(import.meta.dirname, "..", p), "utf8");
-const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSession, grammar] =
+const [paperMode, completions, commentsView, chips, renderMs, paneStore, grammar] =
   await Promise.all([
     read("src/shell/modes/paper/PaperMode.svelte"),
     read("src/shell/modes/paper/scholar/completions.ts"),
@@ -111,7 +111,6 @@ const [paperMode, completions, commentsView, chips, renderMs, paneStore, termSes
     read("src/shell/modes/paper/science/chips.ts"),
     read("src/shell/modes/paper/render/renderManuscript.ts"),
     read("src/shell/paneStore.ts"),
-    read("src/shell/terminal/terminalSession.ts"),
     read("src/shell/modes/paper/science/grammar.ts"),
   ]);
 assert(
@@ -157,11 +156,6 @@ assert(
     /SINGLETON_MODES[^=]*=\s*\["figure", "slide"\]/.test(paneStore) &&
     /paneEditingDoc\(/.test(paperMode),
   "PAP-16 + WS-1 Fix 7b (+ slide-migration, dual-paper): figure/slide stay singleton-gated at splitWith + setFocusedMode; paper panes claim per-document instead",
-);
-assert(
-  /export async function syncRoot/.test(termSession) &&
-    /terminalSession\.syncRoot\(/.test(paperMode),
-  "PAP-17: terminal session is retired on project switch (syncRoot)",
 );
 assert(
   /lastSeenChangeN/.test(paperMode) && /chg\.n <= lastSeenChangeN/.test(paperMode),

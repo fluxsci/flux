@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
   // X-Ray (Alt+R) — figure-v1 P8, rebuilt as a surface (2026-09-15). One
   // radiograph panel over ANY x-rayable target: a semantic plot (its manifest
   // part tree), SEVERAL plots at once (each under a synthetic "N plots" row,
@@ -16,6 +18,12 @@
   // Change) straight onto the timeline. Regenerate stays, gated on a
   // recipe-backed plot root. Always dark — an x-ray screen by nature — but flat:
   // no scanlines, no glow, no boot flicker; it opens beside the selection.
+  import Model3dSemantics from "./model3d/Model3dSemantics.svelte";
+  import type { Model3dElement } from "./model3d/types";
+  import { scene3dManifests, scene3dRecipes, scene3dGeneration } from "./model3d/store";
+  import { updateModelFromSource, modelSourceOwnerEpoch } from "./model3d/sourceBridge";
+  import { modelSourceIdentity } from "./model3d/source";
+  import { resolveScene3dPartStyle } from "./model3d/scene3d";
   import ColorScaleControls from "./plot/ColorScaleControls.svelte";
   import { validateIncomingPlot } from "./plot/contract";
   import { get } from "svelte/store";
@@ -38,14 +46,15 @@
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
-  import { buildXrayTree, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
+  import { buildXrayTree, partRowId, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
   import { reimportPlot } from "./io";
   import { fileBridge } from "./project/types";
+  import { focusAxisView } from "./plot/axisViewState";
   import { fluxFigMenuOpen } from "./settings";
   import { anchorPanel, reclampPanel, unionRects, type Rect } from "./ui/anchor";
-  import { xrayAnimate, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
+  import { xrayAnimate, xrayBecomeSource, type XrayAnimateKind, type XrayAnimateTarget } from "./xray/animateHook";
   import type { FluxPlotManifest } from "./plot/types";
 
   // --- the pinned root + its tree -----------------------------------------
@@ -53,16 +62,16 @@
   // below gates the DOM but not $: blocks, so a closed X-ray never pays a
   // rebuild on every commit.
   $: root = $xrayRoot;
-  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests) : null;
+  $: tree = $xrayOpen ? buildXrayTree($project, root, $plotManifests, $scene3dManifests) : null;
   // A multi-plot root's SHARED parts (one row hides a part everywhere).
-  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests) : [];
-  function rootPlots(p: typeof $project, r: XrayTarget | null): SemanticPlotElement[] {
+  $: common = $xrayOpen && root?.kind === "elements" ? commonPartRows(rootPlots($project, root), $plotManifests, $scene3dManifests, Object.fromEntries($project.assets.filter(a => a.model).map(a => [a.id, a.model!]))) : [];
+  function rootPlots(p: typeof $project, r: XrayTarget | null): (SemanticPlotElement | Model3dElement)[] {
     if (!r || r.kind !== "elements") return [];
     const f = p.figures.find((ff) => ff.id === r.figId);
     if (!f) return [];
     return r.elementIds
       .map((id) => f.elements.find((e) => e.id === id))
-      .filter((e): e is SemanticPlotElement => !!e && e.type === "plot");
+      .filter((e): e is SemanticPlotElement | Model3dElement => !!e && (e.type === "plot" || e.type === "model3d"));
   }
 
   // Parents of the current root (double-click re-root pushes; Backspace pops).
@@ -77,34 +86,40 @@
     return el && el.type === "plot" ? (el as SemanticPlotElement) : null;
   })();
 
+  $: rootModel = root?.kind === 'element' ? $project.figures.find(f => f.id === root?.figId)?.elements.find((e): e is Model3dElement => e.id === (root?.kind === 'element' ? root.elementId : '') && e.type === 'model3d') : undefined;
+
   // Regenerate: re-run the plot's recipe and hot-swap the result in place,
   // preserving the id-keyed overrides. Gated behind this explicit action (never
   // auto-runs user code) AND on a recipe-backed plot root.
-  $: recipe = (rootPlot ? $plotRecipes[rootPlot.assetId] : undefined) as
+  $: recipe = (rootModel ? $scene3dRecipes[rootModel.assetId] : rootPlot ? $plotRecipes[rootPlot.assetId] : undefined) as
     | { params?: Record<string, unknown>; lastRun?: string }
     | undefined;
-  $: recipePath = rootPlot?.source?.recipePath;
+  $: recipePath = (rootModel ?? rootPlot)?.source?.recipePath;
   $: projRoot = $embeddedProjectRoot ?? $projectDir;
-  $: srcLabel = rootPlot?.source?.svgPath ? toProjectRelativeSource(projRoot, rootPlot.source.svgPath) : "";
+  $: sourcePath = rootModel?.source?.glbPath ?? rootPlot?.source?.svgPath;
+  $: srcLabel = sourcePath ? toProjectRelativeSource(projRoot, sourcePath) : "";
   let regenJobId = "";
   let regenBusy = false;
   let regenMsg = "";
   async function regenerate(parameters: Record<string, unknown> = recipe?.params ?? {}) {
     const fb = fileBridge();
     if (regenBusy) return;
-    if (!rootPlot || !recipePath || !fb?.runRecipe) {
+    const rootElement = rootModel ?? rootPlot;
+    if (!rootElement || !recipePath || !fb?.runRecipe) {
       regenMsg = "no recipe";
       return;
     }
     // Re-rooting is allowed while the recipe runs. Pin its owner before any
     // await so its result can never replace the newly inspected plot.
-    const target = { id: rootPlot.id, assetId: rootPlot.assetId, figId: root!.figId, recipePath, projRoot };
-    const owner = get(project);
+    const target = { id: rootElement.id, assetId: rootElement.assetId, kind: rootElement.type, identity: rootElement.type === "model3d" ? modelSourceIdentity(rootElement) : null, figId: root!.figId, recipePath, projRoot };
+    const owner = get(project), sourceEpoch = modelSourceOwnerEpoch(), sourceGeneration = get(scene3dGeneration);
     const ownsTarget = () => {
+      if (target.kind === "model3d" && (modelSourceOwnerEpoch() !== sourceEpoch || get(scene3dGeneration) !== sourceGeneration)) return false;
       if (get(project) !== owner || (get(embeddedProjectRoot) ?? get(projectDir)) !== target.projRoot) return false;
       const el = owner.figures.find((f) => f.id === target.figId)?.elements.find((e) => e.id === target.id);
-      return el?.type === "plot" && el.assetId === target.assetId && el.source?.recipePath === target.recipePath;
+      return (el?.type === "plot" || el?.type === "model3d") && el.type === target.kind && el.assetId === target.assetId && el.source?.recipePath === target.recipePath && (el.type !== "model3d" || modelSourceIdentity(el) === target.identity);
     };
+    let completed = false;
     regenBusy = true;
     regenJobId = crypto.randomUUID();
     regenMsg = "";
@@ -113,7 +128,7 @@
       // runRecipe reads the file and resolves the recipe's `cwd` from its
       // dirname — it needs a real absolute path.
       let recipeAbs = "";
-      for (const c of plotSourceCandidates(target.projRoot, target.recipePath)) {
+      for (const c of plotSourceCandidates(target.projRoot, target.recipePath, rootElement.source)) {
         if (await fb.exists(c)) {
           recipeAbs = c;
           break;
@@ -130,6 +145,10 @@
         if (res.code !== 0) {
           const why = String(res.stderr ?? "").trim();
           regenMsg = "recipe failed" + (why ? `: ${why.slice(-200)}` : ` (exit ${res.code})`);
+        } else if (target.kind === 'model3d') {
+          if (!res.glbPath) throw new Error('The recipe did not produce a GLB output');
+          await updateModelFromSource(target.id, { sourcePath: res.glbPath, manifestPath: res.manifestPath ?? undefined, recipePath: recipeAbs, isCurrent: ownsTarget });
+          completed = true; regenMsg = 'regenerated ✓';
         } else if (res.svgText && res.manifestText) {
           await validateIncomingPlot(res.svgText, res.manifestText);
           if (!ownsTarget()) return;
@@ -147,7 +166,7 @@
     } finally {
       regenBusy = false;
       regenJobId = "";
-      if (rootPlot?.id !== target.id || !ownsTarget()) regenMsg = "";
+      if ((rootModel ?? rootPlot)?.id !== target.id || (!completed && !ownsTarget())) regenMsg = "";
     }
   }
 
@@ -245,7 +264,7 @@
     selectedIds = new Set();
     anchorId = null;
     if (parts.length && root && (root.kind === "element" || root.kind === "elements")) {
-      for (const ps of parts) revealRow(`part:${ps.elementId}__${ps.partId}`, true);
+      for (const ps of parts) revealRow(partRowId(ps.elementId, ps.partId), true);
     }
     requestAnimationFrame(() => panelEl?.focus({ preventScroll: true }));
   }
@@ -478,7 +497,7 @@
         // member (Show hidden off) must neither change nor reverse this action.
         const hidden = elementIds.every((id) => {
           const el = fig?.elements.find((e) => e.id === id);
-          return el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
+          return el?.type === "model3d" ? !!resolveScene3dPartStyle(get(scene3dManifests)[el.assetId], el.overrides, n.partId!).hidden : el?.type === "plot" && !!el.overrides?.[n.partId!]?.hidden;
         });
         return { ...n, elementIds, hidden };
       });
@@ -500,15 +519,28 @@
     toggleHiddenRows(selectedIds.has(n.id) && pickedRows.length > 1 ? pickedRows : [n]);
   }
 
+  function axisFor(row: XRow | null): "x" | "y" | null {
+    if (row?.kind !== "part" || row.role !== "axis" || !row.elementId || rowBlocked(row, $editorSelectionExclusions)) return null;
+    return /(?:^|\.)axis\.(x|y)$/.exec(row.partId ?? "")?.[1] as "x" | "y" | undefined ?? null;
+  }
+  function showAxisView(row: XRow | null) {
+    const axis = axisFor(row);
+    if (axis && row?.elementId) { focusAxisView(row.elementId, axis); close(); }
+  }
+
   // --- Animate selected (slide mode only) ------------------------------------------------
   $: canAnimate = !!$xrayAnimate;
-  const animOptions: { kind: XrayAnimateKind; label: string; key: string; hint: string }[] = [
+  type AnimateOption = { kind: XrayAnimateKind; label: string; key: string; hint: string };
+  $: animOptions = [
     { kind: "appear", label: "Appear", key: "1", hint: "entrance with each kind's default" },
     { kind: "emphasize", label: "Emphasize", key: "2", hint: "highlight" },
     { kind: "disappear", label: "Disappear", key: "3", hint: "exit" },
     { kind: "change", label: "Change", key: "4", hint: "transform — edit the object after this step" },
-  ];
-  function animateTargets(): XrayAnimateTarget[] {
+    { kind: "appear-from", label: "Appear from…", key: "5", hint: "Pick the object these rows come from" },
+    { kind: "animate-like", label: "Animate like…", key: "6", hint: "Pick another object's effect in this step" },
+    ...($xrayBecomeSource ? [{kind: "become-destination", label: "Become", key: "b", hint: "The source hands off to the picked rows"}] : []),
+  ] as AnimateOption[];
+  function animateTargets(kind?: XrayAnimateKind): XrayAnimateTarget[] {
     const picked = pickedRows.length ? pickedRows : selRow ? [selRow] : [];
     const exclusions = get(editorSelectionExclusions);
     const out: XrayAnimateTarget[] = [];
@@ -518,12 +550,16 @@
       if (n.kind === "part" && n.elementId && n.partId) out.push({ elementId: n.elementId, partId: n.partId });
       else if (n.kind === "common" && n.partId) for (const id of n.elementIds ?? []) out.push({ elementId: id, partId: n.partId });
       else if (n.kind === "element" && n.elementId) out.push({ elementId: n.elementId });
-      else if (n.kind === "group" && n.groupId && fig) for (const m of membersDeep(fig, n.groupId)) out.push({ elementId: m.id });
+      else if (n.kind === "group" && n.groupId && fig) {
+        const members = membersDeep(fig, n.groupId);
+        if ((kind === "become-destination" || kind === "appear-from") && members.length) out.push({elementId: members[0].id, groupId: n.groupId});
+        else for (const m of members) out.push({elementId: m.id});
+      }
       else if (n.kind === "set") for (const c of n.children) if (c.elementId) out.push({ elementId: c.elementId });
     }
     const seen = new Set<string>();
     return out.filter((t) => {
-      const key = JSON.stringify([t.elementId, t.partId ?? ""]);
+      const key = JSON.stringify([t.elementId, t.partId ?? "", t.groupId ?? ""]);
       if (seen.has(key) || isEditorTargetExcluded(t.elementId, t.partId)) return false;
       seen.add(key);
       return true;
@@ -531,7 +567,7 @@
   }
   function animate(kind: XrayAnimateKind) {
     const handler = get(xrayAnimate);
-    const targets = animateTargets();
+    const targets = animateTargets(kind);
     animMenu = false;
     if (!handler || !targets.length) return;
     handler({ kind, targets });
@@ -559,12 +595,20 @@
   }
 
   function onWin(e: KeyboardEvent) {
+    if (e.defaultPrevented || yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    // Embedded field/Shape controls own typing, native slider keys and their
+    // picker shortcuts. Tree Ctrl+A/Backspace must never steal numeric edits.
+    if (target?.matches('input, textarea, select') || target?.isContentEditable || target?.closest('.model-controls')) return;
     // The property menu (opened ON TOP by Show Properties) owns the keyboard
     // while it is up — everything here yields until it closes.
     if (!$xrayOpen || $fluxFigMenuOpen || mode !== "tree") return;
     const k = e.key;
     const lk = k.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
+    if (lk === "b" && !mod && !e.altKey && $xrayBecomeSource && canAnimate) {
+      e.preventDefault(); e.stopImmediatePropagation(); animate("become-destination"); return;
+    }
     if (animMenu) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -597,6 +641,7 @@
       if (pickedRows.length || selRow) animMenu = true;
       return;
     }
+    if (lk === "v" && axisFor(selRow)) { e.preventDefault(); e.stopImmediatePropagation(); showAxisView(selRow); return; }
     if (k === "Enter") {
       e.preventDefault();
       if (mod) reRoot(selRow);
@@ -672,7 +717,7 @@
             {/each}
             {#if !crumbs.length}<span class="csub">no target</span>{/if}
           </span>
-          {#if rootPlot && recipePath}
+          {#if (rootPlot || (rootModel && !rootModel.source?.frozen)) && recipePath}
             {#if regenBusy}<button class="regen" title="Cancel the running recipe (24 hour maximum)" on:click={() => fileBridge()?.cancelRecipe?.(regenJobId)}>Cancel run</button>{/if}
             <button class="regen" on:click={() => regenerate()} disabled={regenBusy} title={recipePath}>
               {regenBusy ? "Regenerating…" : regenMsg || "Regenerate"}
@@ -705,11 +750,12 @@
               <ColorScaleControls assetId={rootPlot.assetId} manifest={$plotManifests[rootPlot.assetId]} params={recipe?.params ?? {}} busy={regenBusy}
                 on:regenerate={(event) => regenerate(event.detail)} />
             {/if}
+            {#if rootModel}<div class="model-controls"><Model3dSemantics element={rootModel}/></div>{/if}
             {#each rows as r, ri (r.node.id)}
               {#if commonCount && !q && ri === 0}
                 <div class="section">Common parts <span class="scount">shared by all {common[0]?.elementIds?.length ?? 0}</span></div>
               {:else if commonCount && !q && ri === commonCount}
-                <div class="section">Plots</div>
+                <div class="section">{rootPlots($project, root).some(e => e.type === "model3d") ? "Objects" : "Plots"}</div>
               {/if}
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <div
@@ -748,7 +794,7 @@
 
           {#if animMenu}
             <div class="animmenu" role="menu" aria-label="Animate selected">
-              <span class="am-ttl">Animate {animateTargets().length} {animateTargets().length === 1 ? "target" : "targets"}</span>
+              <span class="am-ttl">{#if $xrayBecomeSource}{$xrayBecomeSource} becomes… · {/if}Animate {animateTargets().length} {animateTargets().length === 1 ? "target" : "targets"}</span>
               {#each animOptions as o (o.kind)}
                 <button class="am" role="menuitem" title={o.hint} on:click={() => animate(o.kind)}><span class="hk">{o.key}</span>{o.label}</button>
               {/each}
@@ -756,7 +802,9 @@
             </div>
           {/if}
           <div class="actions">
+            {#if $xrayBecomeSource && canAnimate}<button class="animbtn" disabled={!(pickedRows.length || selRow)} on:click={() => animate("become-destination")} title={`${$xrayBecomeSource} becomes the picked rows`}>Become <span class="hk">b</span></button>{/if}
             <span class="pickinfo">{selectedIds.size > 1 ? `${selectedIds.size} picked` : ""}</span>
+            {#if axisFor(selRow)}<button class="showprops" on:click={() => showAxisView(selRow)}><b class="hk">v</b> Axis view…</button>{/if}
             <button class="animbtn" disabled={!canAnimate || !(pickedRows.length || selRow)} title={canAnimate ? "Add an animation for every picked row (a)" : "Animate is available in Slide mode"} on:click={() => (animMenu = !animMenu)}>
               Animate selected <span class="hk">a</span>
             </button>
@@ -781,6 +829,7 @@
 {/if}
 
 <style>
+  .model-controls { padding: 0 0 8px; }
   /* Radiograph, flat: a near-black tube field with phosphor accents and mono
      type — always dark by nature (the --xr-* ramp, never the theme-scoped
      --c-* ramp). No gradients, glow, scanlines or entrance theatrics: it is a

@@ -79,11 +79,7 @@ export const readerKey = derived(readerTabs, (s) => s.active);
 // contract behind readerKey, __fluxReaderKey, and get_reading_context.
 export const paneActiveTab = writable<Record<string, string>>({});
 
-/** The pane whose ReaderMode currently hosts the shared terminal — one mount only
- * (terminalSession has a single detached host div; two mounts would steal it). */
-export const readerTerminalPane = writable<string | null>(null);
-
-// Drop assignments (and the terminal claim) for panes that no longer exist.
+// Drop assignments for panes that no longer exist.
 panes.subscribe((ps) => {
   const ids = new Set(ps.map((p) => p.id));
   paneActiveTab.update((m) => {
@@ -93,7 +89,6 @@ panes.subscribe((ps) => {
     for (const id of stale) delete next[id];
     return next;
   });
-  readerTerminalPane.update((id) => (id && !ids.has(id) ? null : id));
 });
 
 // readerKey follows pane focus: focusing a reader pane makes ITS paper the active one.
@@ -129,6 +124,7 @@ function pinReaderPanes(): void {
 export interface ReaderFind {
   key: string;
   term: string;
+  page?: number;
   nonce: number;
 }
 export const readerFind = writable<ReaderFind>({ key: "", term: "", nonce: 0 });
@@ -136,7 +132,7 @@ let findNonce = 0;
 
 /** Open a paper as a tab (or focus its existing tab); optionally jump to a find term.
  * The open lands in the FOCUSED pane (openInReader flips that pane to reader next). */
-export function openReaderTab(citekey: string, opts?: { find?: string }): void {
+export function openReaderTab(citekey: string, opts?: { find?: string; page?: number }): void {
   pinReaderPanes();
   readerTabs.update((s) => {
     const tabs = s.tabs.some((t) => t.key === citekey)
@@ -148,7 +144,7 @@ export function openReaderTab(citekey: string, opts?: { find?: string }): void {
   // stint must not shadow this open when the pane flips back to reader.
   const fid = get(focusedPaneId);
   paneActiveTab.update((m) => (m[fid] === citekey ? m : { ...m, [fid]: citekey }));
-  readerFind.set({ key: citekey, term: opts?.find?.trim() ?? "", nonce: ++findNonce });
+  readerFind.set({ key: citekey, term: opts?.find?.trim() ?? "", page: opts?.page, nonce: ++findNonce });
 }
 
 /** Make an already-open tab the shown one in `paneId` (default: the focused pane). */
@@ -229,7 +225,7 @@ export function openReaderTabInSplit(citekey: string): void {
 }
 
 /** Open a paper in FluxReader and focus the reader mode; optionally jump to a find term. */
-export function openInReader(citekey: string, opts?: { find?: string }): void {
+export function openInReader(citekey: string, opts?: { find?: string; page?: number }): void {
   openReaderTab(citekey, opts);
   setFocusedMode("reader");
 }
@@ -240,7 +236,7 @@ export function openInReader(citekey: string, opts?: { find?: string }): void {
 // mirror them onto window from the app's own instance instead.
 if (import.meta.env?.DEV && typeof window !== "undefined") {
   const w = window as unknown as {
-    __fluxOpenReader?: (k: string, opts?: { find?: string }) => void;
+    __fluxOpenReader?: (k: string, opts?: { find?: string; page?: number }) => void;
     __fluxOpenReaderSplit?: (k: string) => void;
     __fluxReaderKey?: string | null;
     __fluxReaderFind?: ReaderFind;

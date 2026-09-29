@@ -14,14 +14,13 @@ const loadProject = async (root: string): Promise<LoadedProject> => (await impor
 const scaffoldProject = async (root: string, opts: import("../lib/project/scaffold").ScaffoldOptions) => (await import("../lib/project/scaffold")).scaffoldProject(root, opts);
 import { ensureProjectContext } from "../lib/project/contextHeal";
 import { startProjectWatch, stopProjectWatch } from "../lib/project/projectWatch";
-import { conflicts, conflictsOnProjectOpen, conflictsOpen } from "../lib/project/conflicts";
 import { flushAll } from "./lifecycle";
 import { reconcileProject } from "../lib/references/fluxlibBridge";
 import { bumpBibRevision } from "./scholar/revisions";
 import { serializeTransition, transitionProjectIntent, isCurrentProjectIntent } from "./transitions";
 import { pushToast } from "../lib/toast";
 import { decodeRecents } from "./storageValidation";
-import { openDocRequest, openSlideRequest } from "./command/commandBus";
+import { openDocRequest, openSlideRequest, openFigureRequest, openLibraryRequest } from "./command/commandBus";
 import { resetPanes } from "./paneStore";
 
 export type ModeId = "figure" | "paper" | "slide" | "library" | "reader";
@@ -117,11 +116,7 @@ function enterLoaded(loaded: LoadedProject) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(loaded.root); // F1: live-reload agent/script edits
-  // Sync conflicts: most arrive while Flux is CLOSED (that is when the other machine
-  // was being used), so the watcher alone would never see them. Scan on open and put
-  // the banner up if anything is waiting.
-  void conflictsOnProjectOpen(loaded.root);
-  // Principal-agent scheme: pre-Context projects gain Context/ on first open
+  // Pre-Context projects gain Context/ on first open
   // (additive, existence-guarded, best-effort — see contextHeal.ts).
   void ensureProjectContext(loaded);
   // FluxLib: reconcile this project's cited-subset library.bib against the global
@@ -143,8 +138,6 @@ function enterInMemory(name: string) {
   resetPanes("paper");
   view.set("workspace");
   startProjectWatch(null);
-  conflicts.set([]); // in-memory demo project has no filesystem to conflict on
-  conflictsOpen.set(false);
 }
 
 async function checkedOutgoing(): Promise<boolean> {
@@ -161,9 +154,8 @@ export function goHome(): Promise<boolean> {
   return serializeTransition('home', async () => {
     if (!isCurrentProjectIntent(intent) || !await checkedOutgoing() || !isCurrentProjectIntent(intent)) return false;
     stopProjectWatch();
-    conflicts.set([]); conflictsOpen.set(false);
     projectModel.set(null); currentProject.set(null);
-    openDocRequest.set(null); openSlideRequest.set(null);
+    openDocRequest.set(null); openSlideRequest.set(null); openFigureRequest.set(null); openLibraryRequest.set(null);
     projectError.set(null); view.set('home');
     return true;
   });

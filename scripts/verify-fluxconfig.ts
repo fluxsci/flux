@@ -160,21 +160,29 @@ if (process.platform !== "win32") {
     );
     const seededWho = fs.readFileSync(path.join(uc1, "WHO-AM-I.md"), "utf8");
     assert(seededWho.includes("not filled out yet"), "UserContext WHO-AM-I.md seeded blank");
+    assert(seededWho.includes("every flux-connected agent reads it") && seededRules.includes("every flux-connected agent"), "seed wording describes connected agents");
+    const skillsReadme = path.join(uc1, "Skills", "README.md");
+    const skillsSeed = fs.readFileSync(skillsReadme, "utf8");
+    assert(skillsSeed.includes("Skills/<name>/SKILL.md") && skillsSeed.includes("name: stats-conventions") && skillsSeed.includes("description:"), "Skills README seeds the Agent Skills format");
+    assert(skillsSeed.includes("/stats-conventions") && skillsSeed.includes("$stats-conventions"), "Skills README explains publication to agents");
+    fs.writeFileSync(skillsReadme, "My edited skill instructions\n");
     assert(!fs.existsSync(path.join(cfg, "Guidelines")), "no legacy Guidelines dir on a fresh machine");
     const fc1 = path.join(cfg, "Context", "FluxContext");
-    assert(fs.readFileSync(path.join(fc1, "PRINCIPAL.md"), "utf8").includes("Boot sequence"), "FluxContext stock docs synced");
+    assert(fs.readFileSync(path.join(fc1, "README.md"), "utf8").includes("UserContext"), "FluxContext stock docs synced");
     const unsubbed = fs.readdirSync(fc1).filter(
       (n) => n.endsWith(".md") && /\{\{(FLUX_(CLI|MCP|MCP_PATH|REPO)|LIGHTTABLE_DIR)\}\}/.test(fs.readFileSync(path.join(fc1, n), "utf8")),
     );
     assert(unsubbed.length === 0, `every synced FluxContext doc substituted its placeholders (${unsubbed.join(", ") || "all clean"})`);
-    const seededRoster = JSON.parse(fs.readFileSync(path.join(cfg, "agents.json"), "utf8"));
-    assert(seededRoster.families && seededRoster.defaults.principal.family, "agents.json roster seeded (family-template schema)");
+    assert(!fs.existsSync(path.join(cfg, "agents.json")), "agents.json is not seeded");
     const shim = path.join(f1.home, ".local", "bin", "flux");
     assert(fs.existsSync(shim) && (fs.statSync(shim).mode & 0o111) !== 0, "flux PATH shim installed executable in ~/.local/bin");
-    assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && /exec .*flux-cli/.test(fs.readFileSync(shim, "utf8")), "shim carries the managed marker + real CLI");
+    const canonical = path.join(fp.binDirSync(), "flux");
+    assert(fs.existsSync(canonical) && fs.readFileSync(canonical, "utf8").includes("# flux-agent-shim target="), "canonical launcher records its owning installation");
+    assert(fs.existsSync(path.join(fp.binDirSync(), "flux-connect")), "canonical flux-connect alias is installed");
+    assert(fs.readFileSync(path.join(fc1, "CLI-REFERENCE.md"), "utf8").includes(`"${canonical}" connect setup`), "manual setup command points at the canonical launcher");
+    assert(fs.readFileSync(shim, "utf8").includes("managed by Flux") && fs.readFileSync(shim, "utf8").includes(fp.binDirSync()), "shim carries the managed marker + canonical launcher");
     fs.writeFileSync(shim, "#!/bin/sh\necho my own flux\n", { mode: 0o755 }); // user replaces it → opt-out
     // (asserted after the no-op re-run below: the user's file must survive)
-    assert(info.agentsConfigPath === path.join(cfg, "agents.json"), "configInfo reports agentsConfigPath");
     assert(info.userContextPath === uc1 && info.fluxContextPath === fc1, "configInfo reports the Context paths");
     assert(info.plotLibraryPath === path.join(cfg, "plot_library"), "configInfo reports plotLibraryPath (derived <FluxConfig>/plot_library)");
     assert(fp.plotLibraryPathSync() === info.plotLibraryPath, "plotLibraryPathSync resolves the same path configInfo reports");
@@ -187,6 +195,26 @@ if (process.platform !== "win32") {
     assert(again.fluxLibPath === info.fluxLibPath, "re-run resolves identically");
     assert(snapshot(path.join(scratch, "t1")) === before, "re-run is a no-op (snapshot unchanged)");
     assert(fs.readFileSync(shim, "utf8").includes("my own flux"), "a user-owned (unmarked) flux shim is never clobbered");
+
+    assert(fs.readFileSync(skillsReadme, "utf8") === "My edited skill instructions\n", "Skills README is seeded once, never overwritten");
+
+    // -- generic stock pruning works even when the content hash is unchanged
+    fs.writeFileSync(path.join(fc1, "OLD.md"), "stale stock\n");
+    fs.writeFileSync(path.join(fc1, "keep.txt"), "not markdown\n");
+    fs.mkdirSync(path.join(fc1, "nested"));
+    fs.writeFileSync(path.join(fc1, "nested", "keep.md"), "nested\n");
+    fs.writeFileSync(path.join(uc1, "OLD.md"), "user-owned\n");
+    const pruned = await fp.ensureFluxConfig();
+    assert(!fs.existsSync(path.join(fc1, "OLD.md")), "generic prune removes a direct stray Markdown file");
+    assert(fs.existsSync(path.join(fc1, "keep.txt")) && fs.existsSync(path.join(fc1, "nested", "keep.md")), "prune leaves non-Markdown files and nested content alone");
+    assert(fs.readFileSync(path.join(uc1, "OLD.md"), "utf8") === "user-owned\n", "prune never touches UserContext");
+    assert(pruned.events.some((e: {action: string; detail: string}) => e.action === "prune-fluxcontext" && e.detail === "OLD.md"), "prune event records the removed names");
+    fs.unlinkSync(path.join(fc1, "WORKFLOW.md"));
+    await fp.ensureFluxConfig();
+    assert(fs.existsSync(path.join(fc1, "WORKFLOW.md")), "missing stock document heals with a current hash");
+    const afterPrune = snapshot(path.join(scratch, "t1"));
+    await fp.ensureFluxConfig();
+    assert(snapshot(path.join(scratch, "t1")) === afterPrune, "prune and heal settle to a no-op");
 
     // -- resolver honors post-migration + pre-migration states
     assert(fp.resolveFluxLibPathSync({ fluxConfigPath: cfg }) === path.join(cfg, "FluxLib"), "resolver: derived wins when it exists");

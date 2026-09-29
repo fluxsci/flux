@@ -8,8 +8,10 @@ export const PROJECT_SCHEMA_VERSION = "0.1.0";
 // + THE forward-version comparator every load path shares. While formats are
 // 0.x, the MINOR is the breaking slot (load.ts documents this); PATCH bumps
 // load fine.
-export const FIG_INDEX_SCHEMA_VERSION = "0.1.0";
-export const CANVAS_SCHEMA_VERSION = "0.1.0";
+export const FIG_INDEX_SCHEMA_VERSION = "0.2.0";
+export const CANVAS_SCHEMA_VERSION = "0.2.0";
+/** Non-3D documents retain their original format and serialized bytes. */
+export const LEGACY_FIG_SCHEMA_VERSION = "0.1.0";
 export const PROJECT_MODEL_VERSION = 2; // standalone Project.version (migrate.ts stamps it)
 
 /** True when fileV names a NEWER breaking format than appV (0.x: minor is the
@@ -130,33 +132,56 @@ export interface WinBridge {
   setDocumentEdited?: (edited: boolean) => void;
 }
 
-/** Integrated-terminal (PTY) bridge (Electron only). */
-export interface TermBridge {
-  create(opts?: {
-    cols?: number;
-    rows?: number;
-    cwd?: string;
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-  }): Promise<{ ok: true; id: string; shell: string; cwd: string; pid: number } | { ok: false; error: string }>;
-  write(id: string, data: string): void;
-  resize(id: string, cols: number, rows: number): void;
-  kill(id: string): Promise<boolean>;
-  onData(cb: (m: { id: string; data: string }) => void): () => void;
-  onExit(cb: (m: { id: string; exitCode: number; signal?: number }) => void): () => void;
-}
-
 /** Live agent bridge (WS4) — renderer half of the loopback control server (Electron
  *  only). `command` is untyped JSON off the wire; the consumer narrows it. */
 export interface LiveBridge {
   pushContext: (ctx: unknown) => void;
+  onContextRequest: (cb: (msg: { id: number }) => void) => () => void;
+  replyContext: (id: number, context: unknown, allowed: boolean) => void;
+  onViewed: (cb: (event: import("../bridge/liveView").LiveViewEvent) => void) => () => void;
   onDispatch: (cb: (msg: { id: number; command: unknown }) => void) => () => void;
   reply: (id: number, result?: unknown, error?: string) => void;
 }
 
 // --- the file bridge (window.fig, from the Electron preload) -----------------
+export type RunnerDriver = "claude" | "codex";
+export interface RunnerCapability {
+  driver: RunnerDriver; detected: boolean; available: boolean; version?: string; reason?: string;
+  model?: boolean; effort?: boolean;
+}
+export interface RunnerImage { png: Uint8Array }
+export type RunnerPayload =
+  | { type: "background"; name: string; display: string }
+  | { type: "permission.closed"; permissionId: string }
+  | { type: "session"; sessionId: string }
+  | { type: "message.delta" | "message"; text: string; messageId?: string }
+  | { type: "thought.delta"; text: string }
+  | { type: "tool"; toolId: string; title: string; input: unknown; status: "started" | "done" | "failed"; output?: unknown }
+  | { type: "file.change"; path: string; kind: string }
+  | { type: "permission"; permissionId: string; title: string; detail: string; options: { id: string; label: string }[] }
+  | { type: "usage"; costUsd?: number; inputTokens?: number; outputTokens?: number }
+  | { type: "status"; state: "starting" | "running" | "idle" | "done" | "failed" | "cancelled"; reason?: string }
+  | { type: "error"; message: string };
+export type RunnerEvent = RunnerPayload & { runId: string; seq: number; itemId?: string; root?: string; driver?: RunnerDriver; backgroundSessionId?: string };
+export interface RunnerStart {
+  driver?: RunnerDriver; mode: "ask" | "task"; itemId?: string; root: string; cwd?: string;
+  /** Empty prepares the session without submitting a question. */
+  firstMessage: string; images?: RunnerImage[]; resume?: string;
+}
 export interface FileBridge {
+  importModel3d?(request: import('../model3d/importData').Model3dImportRequest): Promise<import('../model3d/importData').Model3dImportResult>;
+  importDroppedModel3d?(file: File, request: Omit<import('../model3d/importData').Model3dImportRequest, 'sourcePath'>): Promise<import('../model3d/importData').Model3dImportResult>;
+  adoptModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
+  discardModel3d?(request: import('../model3d/importData').Model3dImportOwnership): Promise<void>;
+  model3dSourceFingerprint?(request: import("../model3d/source").ModelSourceFingerprintRequest): Promise<import("../model3d/source").ModelSourceFingerprint>;
+  model3dAvailability?(): Promise<{ disabled: boolean }>;
+  runnerCapabilities?(): Promise<RunnerCapability[]>;
+  runnerStart?(options: RunnerStart): Promise<{ runId: string; driver: RunnerDriver }>;
+  runnerSend?(options: { runId: string; text: string; images?: RunnerImage[] }): Promise<void>;
+  runnerRespond?(options: { runId: string; permissionId: string; optionId: "allow" | "deny" }): Promise<void>;
+  runnerCancel?(options: { runId: string }): Promise<void>;
+  onRunnerEvent?(cb: (event: RunnerEvent) => void): () => void;
+
   prepareSlideVideo?(request: { root: string; deckId: string; path: string; jobId: string }): Promise<{ asset: import("../types").Asset; posterAsset: import("../types").Asset; url: string; poster: string }>;
   videoPreview?(path: string): Promise<{ poster: string; width: number; height: number; durationMs: number; hasAudio: boolean }>;
   videoMediaUrl?(request: { root: string; path: string }): Promise<string>;
@@ -173,6 +198,8 @@ export interface FileBridge {
   writeText(p: string, text: string, options?: { createOnly?: boolean }): Promise<void>;
   readText(p: string): Promise<string>;
   readTextBounded?(p: string, maxBytes: number): Promise<{ text: string; truncated: boolean; totalBytes: number }>;
+  /** Bounded, confined prepared GLB read tied to a captured project root. */
+  readModelFile?(p: string, root: string): Promise<ArrayBuffer>;
   readFile(p: string): Promise<ArrayBuffer>;
   writeFile(p: string, data: Uint8Array): Promise<void>;
   projectAssetPath?(root: string, rel: string): Promise<string>;
@@ -190,6 +217,8 @@ export interface FileBridge {
   readdir?(p: string, strict?: boolean): Promise<{ name: string; dir: boolean }[]>;
   // Delete a file (e.g. clear a paper's fetch-failure record on a later success). Optional:
   // older bridges may lack it; callers use `fb.remove?.(p)`.
+  /** Native verified copy; preserves source and refuses different destination bytes. */
+  copyFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
   moveFileVerified?(source: string, destination: string, sha256?: string): Promise<string>;
   remove?(p: string): Promise<void>;
   // Move a file to the OS trash (a deleted manuscript stays recoverable). Where no
@@ -199,10 +228,6 @@ export interface FileBridge {
   // WS-5.3: fsync a DIRECTORY after a rename-into-place batch (crash-durability
   // of the rename itself). Optional; no-op on win32 / older bridges.
   fsyncDir?(p: string): Promise<void>;
-  // Walk the open project for a sync tool's `.sync-conflict-*` leftovers
-  // (electron/conflictRules.js). Read-only — resolution goes through fs:* above.
-  // Optional: the web demo has no filesystem to conflict on.
-  conflictsScan?(root: string, opts?: { maxDepth?: number }): Promise<import("./conflictRules").SyncConflict[]>;
   paths(): Promise<{ home: string; userData: string; documents: string }>;
   openDirectory(title?: string): Promise<string | null>;
   openFiles(filters?: unknown[]): Promise<string[] | null>;
@@ -309,9 +334,9 @@ export interface FileBridge {
   openDocs?(): Promise<{ ok: boolean; error?: string }>;
   /** Append one NDJSON line to the feedback ledger (O_APPEND — never rewrites). */
   feedbackAppend?(p: string, line: string): Promise<boolean>;
-  /** Snapshot & annotate: a PNG of this window (device pixels), optionally one
+  /** Annotate: a PNG of this window or its utility child (device pixels), optionally one
    *  CSS-px rect. Electron only — a browser build has no window capture. */
-  captureWindow?(rect?: { x: number; y: number; width: number; height: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
+  captureWindow?(options?: { target?: "sender" | "child"; childId?: number; x?: number; y?: number; width?: number; height?: number }): Promise<{ png: Uint8Array; width: number; height: number }>;
   /** Linux screen color picker; the desktop portal owns consent/cancellation. */
   pickScreenColor?(requestId: string): Promise<{ status: "picked"; hex: string } | { status: "cancelled" | "unavailable" } | { status: "error"; message?: string }>;
   cancelScreenColor?(requestId: string): Promise<boolean>;
@@ -409,6 +434,13 @@ export interface FileBridge {
   // fluxLibResolved/fluxConfigResolved/plotLibraryResolved).
   // Optional: Electron only.
   prefsGet?(): Promise<Record<string, unknown>>;
+  agentSetupStatus?(options?: { refresh?: boolean }): Promise<import('./agentMonitor').AgentMonitorStatus>;
+  agentSetupDoctor?(): Promise<{ checks: import('./agentMonitor').DoctorCheck[] }>;
+  agentSetupApply?(request: import('./agentMonitor').MonitorMutation): Promise<import('./agentMonitor').MonitorMutationResult>;
+  agentSetupRemove?(request: import('./agentMonitor').MonitorMutation): Promise<import('./agentMonitor').MonitorMutationResult>;
+  agentSetupSkills?(request: { action: 'list' | 'new' | 'reveal' | 'publish'; name?: string }): Promise<import('./agentMonitor').MonitorSkills>;
+  onAgentSetupChanged?(fn: (status: import('./agentMonitor').AgentMonitorStatus) => void): () => void;
+  onAgentSetupProgress?(fn: (progress: { check: import('./agentMonitor').DoctorCheck; checkedAt: string }) => void): () => void;
   prefsSet?(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   // Move the whole FluxConfig folder to a new parent dir (always named exactly
   // "FluxConfig"; main-process rename/copy+verify). Optional: Electron only.
@@ -462,6 +494,8 @@ export interface FileBridge {
     options?: {jobId?: string},
   ): Promise<{
     code: number;
+    glbPath?: string | null;
+    manifestPath?: string | null;
     svgText: string | null;
     manifestText: string | null;
     recipeText: string;
@@ -472,37 +506,8 @@ export interface FileBridge {
   // the single contract. All optional (absent under the web/dev fallback).
   platform?: string; // process.platform ("darwin" | "linux" | "win32")
   win?: WinBridge;
-  term?: TermBridge;
   bridge?: LiveBridge;
-  /** Principal-agent scheme: the resolved launch spec for the user's configured
-   *  principal (agents.json roster + boot prompt + MCP wiring + cwd rule).
-   *  {probe:true} returns the picker info instead; a provided selection is
-   *  persisted as last-used. */
-  agentPrincipalSpec?(opts?: {
-    probe?: boolean;
-    selection?: {
-      principal: { family: string; model: string; effort: string };
-      worker: { family: string; model: string; effort: string };
-    };
-  }): Promise<{
-    ok: boolean;
-    error?: string;
-    probe?: boolean;
-    legacy?: boolean;
-    families?: Record<string, { models: string[]; efforts: string[] }>;
-    selection?: {
-      principal: { family: string; model: string; effort: string };
-      worker: { family: string; model: string; effort: string };
-    };
-    command?: string;
-    args?: string[];
-    cwd?: string;
-    env?: Record<string, string>;
-    /** The boot prompt, standalone (for copy-to-clipboard → the user's own terminal). */
-    prompt?: string;
-    warning?: string | null;
-    agentsPath?: string;
-  }>;
+
 }
 
 declare global {

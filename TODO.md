@@ -120,13 +120,8 @@ belong in `docs/AGENT_ENGINEERING_GUIDE-RUNNING.md` §10 ("don't 'fix' these"), 
       `electron/main.cjs`, and `resources/flux-context/LIGHTTABLE.md` — a **shipped** agent doc that
       propagates to every user's `~/FluxConfig`. Lesson for the next sweep of this kind: user-visible
       strings live in code and in `resources/flux-context/` too, not only in `docs/*.qmd`.
-- [x] **`installation.qmd` introduces `~/FluxConfig` out of order, and omits the `~/.local/bin`
-      ordering trap.** Two small fixes in one pass:
-      (a) §2.5 "Agent CLIs" references `~/FluxConfig/agents.json` as though it already exists, but
-      nothing says what creates it until the *following* section — "First run" (`:140-147`), which
-      does explain it correctly. Read top to bottom you meet the file before its origin. Add a
-      forward pointer in §2.5; no new content needed.
-      (b) Neither section tells the reader to `mkdir -p ~/.local/bin` *before* first run. The shim
+- [x] **`installation.qmd` omitted the `~/.local/bin` ordering trap.**
+      Neither section tells the reader to `mkdir -p ~/.local/bin` *before* first run. The shim
       installs only when that directory already exists — Flux deliberately never creates it
       (`installCliShim` returns early, `electron/fluxPaths.cjs:487`). `:146` states the condition
       ("when that directory exists") but never turns it into an instruction, so a reader following

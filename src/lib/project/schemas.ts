@@ -1,3 +1,5 @@
+import scene3dSchema from "../model3d/scene3d.schema.json";
+
 // Versioned JSON Schemas (draft-07) for the Flux project file types. These are
 // the machine contract an agent validates its writes against (AI_agent_considerations
 // §4). One source: `validate` checks against them, and `scaffold` writes them into
@@ -6,6 +8,8 @@
 // Lenient by design (additionalProperties allowed, so the format can grow) but
 // strict on the load-bearing fields (ids, types, required structure) — which is
 // exactly what catches an agent's malformed write.
+
+import { EASING_TOKENS } from "../slide/curves";
 
 const draft = "http://json-schema.org/draft-07/schema#";
 
@@ -19,6 +23,34 @@ const draft = "http://json-schema.org/draft-07/schema#";
 // agent files with extra keys keep loading.
 // ---------------------------------------------------------------------------
 
+// Optional on every track, including ghost births and reusable style tracks.
+const CURVE = { oneOf: [
+  { type: "object", required: ["kind", "p"], additionalProperties: false, properties: {
+    kind: { const: "bezier" }, p: { type: "array", minItems: 4, maxItems: 4, items: [
+      { type: "number", minimum: 0, maximum: 1 }, { type: "number", minimum: -1, maximum: 2 },
+      { type: "number", minimum: 0, maximum: 1 }, { type: "number", minimum: -1, maximum: 2 },
+    ] },
+  } },
+  { type: "object", required: ["kind", "bounce"], additionalProperties: false, properties: {
+    kind: { const: "spring" }, bounce: { type: "number", minimum: -0.5, maximum: 0.8 }, velocity: { type: "number" },
+  } },
+  { type: "object", required: ["kind", "n"], additionalProperties: false, properties: {
+    kind: { const: "steps" }, n: { type: "integer", minimum: 1, maximum: 60 }, jump: { enum: ["start", "end"] },
+  } },
+] };
+const TIMING_CURVE_PROPS = {
+  easing: { type: "string", enum: EASING_TOKENS },
+  influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
+  curve: CURVE,
+};
+const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
+const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
+  perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
+  by: { enum: ["index", "x", "y"] }, from: { enum: ["start", "end", "center", "edges", "random"] },
+  seed: { type: "integer", minimum: 0, maximum: 4294967295 }, curve: STAGGER_CURVE,
+} };
+const ARC = { type: "number", minimum: -1, maximum: 1 };
+
 const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 // Per-range text formatting (textRuns.ts). Lenient like every other element
 // branch: the loader normalizes (clamps, sorts, merges, drops the meaningless)
@@ -30,7 +62,12 @@ const POINT = { type: "object", required: ["x", "y"], properties: { x: { type: "
 const CROP = { type: "object", required: ["x", "y", "width", "height"], properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } } };
 const GRADIENT = { type: ["object", "null"], required: ["map", "axis", "stops"], properties: { map: { type: "string" }, axis: { enum: ["x", "y"] }, stops: { type: "array", items: { type: "string" } }, discrete: { type: "boolean" } } };
 const COLOR_GROUPS = { type: "array", items: { type: "object", required: ["name", "swatches"], properties: { name: { type: "string" }, swatches: { type: "array", items: { type: "object", required: ["name", "hex"], properties: { name: { type: "string" }, hex: { type: "string" } } } } } } };
-const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }])) } };
+const OVERRIDE_NUMBERS = Object.fromEntries(["dx", "dy", "strokeWidth", "fontSize", "fontWeight", "opacity", "lineHeight"].map(key => [key, { type: "number" }]));
+// 2D plot overrides keep their pre-3D leniency (only the numeric keys are
+// typed) so no existing 2D project starts failing the load gate.
+const OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: OVERRIDE_NUMBERS } };
+// 3D parts are new, so their overrides are typed from the start.
+const MODEL_OVERRIDES = { type: "object", additionalProperties: { type: "object", properties: { ...OVERRIDE_NUMBERS, fill: { type: "string" }, hidden: { type: "boolean" } } } };
 const GEO_REQ = ["id", "type", "x", "y", "width", "height", "rotation"];
 const GEO_PROPS = {
   id: { type: "string" },
@@ -65,6 +102,11 @@ const ELEMENT_DEF = {
       contentScale: { type: "number" },
       source: { type: "object" },
       manifestRef: { type: "object" },
+      // animation v2: the data view (axis domain/scale crop), per axis
+      view: { type: "object", properties: Object.fromEntries(["x", "y"].map((axis) => [axis, {
+        type: "object",
+        properties: { domain: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, scale: { enum: ["linear", "log"] } },
+      }])) },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },
@@ -128,6 +170,34 @@ const ELEMENT_DEF = {
     }),
   ],
 };
+ELEMENT_DEF.oneOf.push(elementBranch("model3d", ["assetId", "orbitAzimuth", "orbitElevation", "orbitZoom", "orbitProjection", "orbitFov", "fill"], {
+  assetId: { type: "string" }, fill: { type: "string" },
+  orbitAzimuth: { type: "number" }, orbitElevation: { type: "number", minimum: -90, maximum: 90 },
+  orbitZoom: { type: "number", exclusiveMinimum: 0 }, orbitRoll: { type: "number" },
+  orbitPanX: { type: "number" }, orbitPanY: { type: "number" },
+  orbitProjection: { enum: ["orthographic", "perspective"] }, orbitFov: { type: "number", exclusiveMinimum: 0, exclusiveMaximum: 180 },
+  modelColors: { enum: ["uniform", "source"] }, modelLighting: { enum: ["studio", "unlit"] },
+  overrides: MODEL_OVERRIDES, modelStates: { type: "object", additionalProperties: { type: "number" } },
+  fields: { type: "object", additionalProperties: { type: "object", properties: { cmap: { type: "string" }, range: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } } } } },
+  source: { type: "object", required: ["glbPath"], properties: { glbPath: { type: "string" }, sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, manifestPath: { type: "string" }, recipePath: { type: "string" }, external: { type: "boolean" }, frozen: { type: "boolean" } } },
+  manifestRef: { type: "object", required: ["specVersion"], properties: { specVersion: { type: "string" }, hash: { type: "string" } } },
+}));
+const VEC3 = { type: "array", minItems: 3, maxItems: 3, items: { type: "number" } };
+const STRINGS = { type: "array", items: { type: "string" } };
+const MODEL_INFO = {
+  type: "object", required: ["triangles", "vertices", "primitives", "meshes", "bounds", "hasNormals", "hasColors", "hasValues", "materialColors", "partNames", "warnings", "extensions", "topology", "states"],
+  properties: {
+    ...Object.fromEntries(["triangles", "vertices", "primitives", "meshes"].map(k => [k, { type: "integer", minimum: 0 }])),
+    bounds: { type: "object", required: ["min", "max"], properties: { min: VEC3, max: VEC3, radius: { type: "number", minimum: 0 } } },
+    hasNormals: { type: "boolean" }, hasColors: { type: "boolean" }, hasValues: { type: "boolean" },
+    materialColors: STRINGS, partNames: STRINGS, warnings: STRINGS, extensions: STRINGS, states: STRINGS,
+    topology: { type: "object", required: ["key", "parts"], properties: { key: { type: "string" }, parts: { type: "array", items: { type: "object", required: ["node", "mode", "vertices", "indicesHash"], properties: { node: { type: "string" }, mode: { type: "integer", minimum: 4, maximum: 6 }, vertices: { type: "integer", minimum: 0 }, indicesHash: { type: "string" } } } } } },
+  },
+};
+const GLB_ASSET_REQUIREMENTS = {
+  if: { properties: { kind: { const: "glb" } }, required: ["kind"] },
+  then: { required: ["sha256", "bytes", "model", "path"], properties: { sha256: { type: "string", pattern: "^[a-f0-9]{64}$" }, bytes: { type: "integer", minimum: 1 }, model: MODEL_INFO, path: { type: "string", pattern: "\\S" } } },
+};
 // A figure-family definition (figfamily.ts) — custom families persisted in
 // fig/index.json `families` (rolled up to project.json `figureFamilies`).
 const FAMILY_DEF = {
@@ -166,6 +236,7 @@ const FIGURE_DEF = {
 };
 
 export const SCHEMAS: Record<string, Record<string, unknown>> = {
+  scene3d: scene3dSchema,
   project: {
     $schema: draft,
     $id: "flux/project.schema.json",
@@ -274,9 +345,10 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: {
           type: "object",
           required: ["id", "kind"],
+          ...GLB_ASSET_REQUIREMENTS,
           properties: {
             id: { type: "string" },
-            kind: { type: "string", enum: ["png", "svg"] },
+            kind: { type: "string", enum: ["png", "svg", "glb"] },
             path: { type: "string" },
             name: { type: "string" },
             naturalWidth: { type: "number" },
@@ -325,7 +397,7 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: { type: "object", required: ["id", "name"], properties: { id: { type: "string" }, name: { type: "string" } } },
       },
       figures: { type: "array", items: { $ref: "#/definitions/figure" } },
-      assets: { type: "array", items: { type: "object", required: ["id", "kind"] } },
+      assets: { type: "array", items: { type: "object", required: ["id", "kind"], ...GLB_ASSET_REQUIREMENTS } },
       palette: { type: "array" },
       colorGroups: COLOR_GROUPS,
       textStyles: TEXT_STYLES,
@@ -393,13 +465,15 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
     $id: "flux/deck.schema.json",
     title: "Flux Slide deck (slides/<id>/deck.json)",
     type: "object",
-    // 0.5 extends the shared figure scene with slide-only video. Figure
-    // schemas retain ELEMENT_DEF; only this deck definition adds the branch.
-    // 0.2–0.4 input migrates by stamp. Older apps refuse 0.5 before validation;
+    // 0.5 extends the shared figure scene with slide-only video; 0.6 (animation
+    // v2) adds part-set transform targets, the hand-off Become, animation
+    // styles, timing anchors and the plot data view. Figure schemas retain
+    // ELEMENT_DEF; only this deck definition adds the video branch.
+    // 0.2–0.5 input migrates by stamp. Older apps refuse 0.6 before validation;
     // 0.1 remains the sanctioned clean break.
     required: ["schemaVersion", "id", "stage", "slides"],
     properties: {
-      schemaVersion: { type: "string", pattern: "^0\\.[2345]\\." },
+      schemaVersion: { type: "string", pattern: "^0\\.[23456]\\." },
       id: { type: "string" },
       title: { type: "string" },
       created: { type: "string" },
@@ -420,10 +494,11 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         items: {
           type: "object",
           required: ["id", "kind", "path"],
+          ...GLB_ASSET_REQUIREMENTS,
           properties: {
             id: { type: "string" },
             name: { type: "string" },
-            kind: { type: "string", enum: ["png", "svg", "mp4"] },
+            kind: { type: "string", enum: ["png", "svg", "mp4", "glb"] },
             path: { type: "string" },
             naturalWidth: { type: "number" },
             naturalHeight: { type: "number" },
@@ -439,6 +514,20 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
         additionalProperties: {
           type: "object", required: ["width", "height"],
           properties: { width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 } },
+        },
+      },
+      // 0.6: linkable animation styles (Track.styleId → id)
+      animStyles: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "name", "family", "track"],
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            family: { enum: ["appearance", "transform", "media"] },
+            track: { type: "object", properties: { ...TIMING_CURVE_PROPS, stagger: STAGGER, arc: ARC } },
+          },
         },
       },
       slides: {
@@ -489,18 +578,25 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
                         target: { type: "string" },
                         ghostFrom: { type: "string", pattern: "[\\s\\S]" },
                         part: { type: "string" },
+                        parts: { type: "array", items: { type: "string" } }, // 0.6: several parts of one plot
                         selector: { type: "object" },
                         preset: { type: "string" },
                         params: { type: "object" },
                         start: { type: "number" },
                         duration: { type: "number" },
-                        easing: { type: "string" },
-                        influence: { type: "object" }, // AE-style velocity profile {in,out} 0–100
-                        stagger: { type: "object" },
+                        ...TIMING_CURVE_PROPS,
+                        stagger: STAGGER,
+                        arc: ARC,
                         // 0.3.0: `to.state` carries a transform's sparse patch
-                        to: { type: "object" },
+                        to: { type: "object", properties: { path: { enum: ["pole", "fly"] } } },
                         keyframes: { type: "array" },
                         groupId: { type: "string" }, // 0.3.0: TrackGroup ref
+                        styleId: { type: "string" }, // 0.6: deck AnimStyle ref
+                        // 0.6: relative timing — start at another track's edge
+                        anchor: {
+                          type: "object", required: ["trackId", "edge"],
+                          properties: { trackId: { type: "string" }, edge: { enum: ["start", "end"] }, offsetMs: { type: "number" } },
+                        },
                       },
                       allOf: [{
                         if: { required: ["ghostFrom"] },
@@ -553,12 +649,12 @@ export const SCHEMAS: Record<string, Record<string, unknown>> = {
 };
 
 /** Map a project-relative file path to its schema key (or null if unknown). */
-export function schemaForFile(rel: string): keyof typeof SCHEMAS | null {
+export function schemaForFile(rel: string, data?: unknown): keyof typeof SCHEMAS | null {
   const f = rel.replace(/\\/g, "/");
   if (f.endsWith("project.json")) return "project";
   if (f.endsWith("fig/index.json")) return "figIndex";
   if (/fig\/canvases\/[^/]+\.json$/.test(f)) return "canvas";
-  if (f.endsWith(".fluxplot.json")) return "manifest";
+  if (f.endsWith(".fluxplot.json")) return data && typeof data === "object" && (data as {spec?:unknown}).spec === "fluxplot/scene3d" ? "scene3d" : "manifest";
   if (f.endsWith(".recipe.json")) return "recipe";
   if (/slides\/[^/]+\/deck\.json$/.test(f)) return "deck";
   if (f.endsWith(".comments.json") || f.endsWith("comments.json")) return "comments";
@@ -571,6 +667,7 @@ export const SCHEMA_FILENAMES: Record<keyof typeof SCHEMAS, string> = {
   figIndex: "fig-index.schema.json",
   canvas: "canvas.schema.json",
   manifest: "fluxplot-manifest.schema.json",
+  scene3d: "scene3d.schema.json",
   recipe: "recipe.schema.json",
   deck: "deck.schema.json",
   comments: "comments.schema.json",

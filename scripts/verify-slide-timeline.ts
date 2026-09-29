@@ -2,6 +2,7 @@
 // Deterministic inspected frames, property composition, content chains, and
 // clock cancellation. The same renderer/bindings run in the offline browser gate.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { parseHTML, DOMParser } from "linkedom";
 const { document } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, DOMParser });
@@ -16,8 +17,9 @@ const { compilePtTrueBindings, compensatePtTrue, restorePtTrue } = await import(
 import type { Slide } from "../src/lib/slide/types";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 const stage = { width: 640, height: 360 }, opts = { theme: FLUX_DARK };
-let checks = 0;
-function check(value: unknown, label: string) { assert.ok(value, label); checks++; console.log("  ok:", label); }
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-timeline");
+function check(value: unknown, label: string) { h.ok(value, label); assert.ok(value, label); }
 const rect = { id: "r", type: "rect" as const, x: 50, y: 60, width: 90, height: 70, rotation: 35, opacity: .6, fill: "#4385be", stroke: "#222222", strokeWidth: 1 };
 const text = { id: "t", type: "text" as const, x: 220, y: 60, width: 280, height: 40, rotation: 0, text: "Alpha", fontFamily: "Arial", fontSize: 24, fontWeight: 400, fontStyle: "normal" as const, align: "left" as const, color: "#fff", sizing: "fixed" as const };
 const host = document.createElement("div") as unknown as HTMLElement;
@@ -168,6 +170,87 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   }
 }
 {
+  const manifest = JSON.parse(readFileSync("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.fluxplot.json", "utf8"));
+  const plot = { id: "boxplot", type: "plot" as const, assetId: "boxes", x: 260, y: 40, width: 240, height: 180, rotation: 0 };
+  const destination = { element: plot.id, parts: ["axis.x.spine", "axis.y.spine"] };
+  const become = { id: "handoff", target: "r", preset: "transform" as const, start: 100, duration: 600, easing: "linear" as const,
+    to: { become: { ref: destination, mode: "handoff" as const, pair: "auto" as const, reveal: "flip" as const }, state: {} } };
+  const handoff: Slide = { id: "handoff", elements: [{ ...rect, rotation: 0 }, plot, text], beats: [
+    { id: "base", tracks: [] }, { id: "before", tracks: [] }, { id: "land", tracks: [become] },
+    { id: "dim", tracks: [{ id: "dim-spines", target: plot.id, parts: destination.parts, preset: "dim", duration: 300 }] },
+    { id: "later", tracks: [] },
+  ] };
+  const options = { plotManifest: () => manifest }, plan = compileSlide(handoff, stage, options);
+  const state = (beat: number, ms = Infinity) => plan.sample(beat, ms);
+  const visible = (beat: number, ms: number, source: boolean, dest: boolean) => {
+    const f = state(beat, ms);
+    check((f.presentation.elementStates.r?.visible ?? true) === source && destination.parts.every(p => f.partStates[plot.id][p].visible === dest), `hand-off source/destination visibility at ${beat}:${ms} is ${source}/${dest}`);
+  };
+  visible(0, Infinity, true, false); visible(1, Infinity, true, false);
+  visible(2, 99, true, false); visible(2, 100, true, false); visible(2, 400, false, false);
+  visible(2, 700, false, true); visible(4, Infinity, false, true);
+  visible(0, Infinity, true, false); visible(2, 400, false, false); visible(2, 700, false, true);
+  // Curve and raw progress travel together through the real compiler.
+  for (const jump of ["start", "end"] as const) {
+    const stepped = structuredClone(handoff);
+    stepped.beats[2].tracks[0].curve = { kind: "steps", n: 1, jump };
+    const compiled = compileSlide(stepped, stage, options);
+    for (const [ms, source, dest] of [[100, true, false], [101, false, false], [400, false, false], [699, false, false], [700, false, true], [100, true, false]] as const) {
+      const frame = compiled.sample(2, ms);
+      check(frame.presentation.elementStates.r.visible === source && destination.parts.every(p => frame.partStates[plot.id][p].visible === dest), `steps(1,${jump}) hand-off visibility reads raw progress at ${ms}ms, including reverse seek`);
+    }
+  }
+  check(destination.parts.every(p => Math.abs(state(3).partStates[plot.id][p].opacity - .3) < 1e-12), "a later dim composes with the hand-off's visible destination");
+  check(JSON.stringify(plan.preState("r", 4)) === JSON.stringify(handoff.elements[0]) && JSON.stringify(state(2, 400).elements[0]) === JSON.stringify(handoff.elements[0]), "hand-off preserves source props before, during and after flight");
+  check(plan.handoffs.length === 1 && plan.handoffs[0].trackId === "handoff" && plan.handoffs[0].beat === 2 && plan.handoffs[0].source[0].elementId === "r" && plan.handoffs[0].destination[0].partIds?.join() === destination.parts.join(), "the public compiled handoffs field exposes the resolved source and destination once");
+  const partSource = structuredClone(handoff);
+  partSource.beats[2].tracks[0] = { ...become, target: plot.id, part: "peaches.box", to: { state: {}, become: { ref: { element: "r" }, mode: "handoff" } } };
+  const partPlan = compileSlide(partSource, stage, options);
+  check(partPlan.sample(0).presentation.elementStates.r.visible === false && partPlan.sample(2).partStates[plot.id]["peaches.box"].visible === false && partPlan.sample(2).presentation.elementStates.r.visible === true && !partPlan.sample(2).presentation.elementStates[plot.id], "part-set sources hide only their leaves, retaining the owning plot");
+  const prior = structuredClone(handoff);
+  prior.beats[1].tracks = [{ target: plot.id, parts: destination.parts, preset: "fade" }];
+  const priorPlan = compileSlide(prior, stage, options);
+  check(priorPlan.issues.length === 0 && destination.parts.every(p => priorPlan.sample(1).partStates[plot.id][p].visible), "an earlier enter may reveal the destination before a later hand-off without an issue");
+  const emphasis = structuredClone(handoff);
+  emphasis.beats[1].tracks = [{ target: plot.id, parts: destination.parts, preset: "dim" }];
+  emphasis.beats[3].tracks = [{ target: "r", preset: "dim" }];
+  const emphasisPlan = compileSlide(emphasis, stage, options);
+  check(!emphasisPlan.sample(1).partStates[plot.id][destination.parts[0]].visible && !emphasisPlan.sample(3).presentation.elementStates.r.visible, "emphasis cannot reveal an unlanded destination or a departed source");
+  emphasis.beats[3].tracks = [{ target: "r", preset: "fade" }];
+  check(compileSlide(emphasis, stage, options).sample(3).presentation.elementStates.r.visible, "a later entrance may explicitly reveal the departed source again");
+  const reverse = structuredClone(handoff);
+  reverse.beats[3].tracks = [{ id: "reverse", target: plot.id, parts: destination.parts, preset: "transform", to: { state: {}, become: { ref: { element: "r" }, mode: "handoff" } } }];
+  const reversePlan = compileSlide(reverse, stage, options);
+  check(reversePlan.sample(0).presentation.elementStates.r.visible && reversePlan.sample(3).presentation.elementStates.r.visible && !reversePlan.sample(3).partStates[plot.id][destination.parts[0]].visible, "Become back preserves the original source baseline and restores it at the reverse landing");
+  const disabled = structuredClone(handoff); disabled.beats[2].tracks[0].disabled = true;
+  const disabledPlan = compileSlide(disabled, stage, options);
+  check(disabledPlan.handoffs.length === 0 && !disabledPlan.sample(0).presentation.elementStates.r && disabledPlan.sample(0).partStates[plot.id][destination.parts[0]].visible, "disabled hand-offs never claim a destination baseline or hide the source");
+  const zero = structuredClone(handoff); zero.beats[2].tracks[0].duration = 0;
+  check(compileSlide(zero, stage, options).sample(2, 100).partStates[plot.id][destination.parts[0]].visible, "a zero-duration hand-off lands at its start time");
+  const issuesFor = (s: Slide) => compileSlide(s, stage, options).issues.map(i => i.reason).join("\n");
+  const missing = structuredClone(handoff); missing.elements = missing.elements.filter(e => e.id !== plot.id);
+  check(/Destination parts not found. Retarget this Become./.test(issuesFor(missing)), "missing destination element is diagnosed");
+  const missingParts = structuredClone(handoff); missingParts.beats[2].tracks[0].to!.become!.ref.parts = ["absent"];
+  check(/Destination parts not found/.test(issuesFor(missingParts)), "missing literal destination leaves are diagnosed against the manifest");
+  const overlap = structuredClone(handoff);
+  overlap.beats[2].tracks.push({ ...structuredClone(become), id: "second", target: "t", to: { state: {}, become: { ref: { element: plot.id, parts: ["axis.x"] }, mode: "handoff" } } });
+  check(/already lands/.test(issuesFor(overlap)) && compileSlide(overlap, stage, options).handoffs.length === 1, "a second landing on an overlapping expanded leaf set is diagnosed and excluded");
+  const unborn = structuredClone(handoff); unborn.beats[3].tracks = [{ id: "birth", target: plot.id, ghostFrom: "r", preset: "transform", to: { state: {} } }];
+  check(/destination is not yet born/.test(issuesFor(unborn)), "a destination born at a later step is diagnosed");
+  const textPair: Slide = { id: "text-pair", elements: [text, { ...text, id: "other" }], beats: [{ id: "b0", tracks: [] }, { id: "b1", tracks: [{ id: "text-flight", target: "t", preset: "transform", to: { state: {}, become: { ref: { element: "other" }, mode: "handoff" } } }] }] };
+  check(/Neither side of this Become has an outline; it crossfades/.test(issuesFor(textPair)), "box-only text pairs report the crossfade as information");
+  const imagePair = structuredClone(textPair); imagePair.elements[1] = { id: "other", type: "image", assetId: "image", x: 0, y: 0, width: 100, height: 100, rotation: 0 };
+  check(/Neither side/.test(issuesFor(imagePair)), "text-to-raster also reports the non-outline fallback");
+  const labelOnly = structuredClone(handoff);
+  labelOnly.beats[2].tracks[0] = { id: "labels", target: "t", preset: "transform", to: { state: {}, become: { ref: { element: plot.id, parts: ["axis.y.title"] }, mode: "handoff" } } };
+  const { preparePlot } = await import("../src/lib/plot/parse");
+  const prepared = preparePlot(readFileSync("scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.svg", "utf8"), manifest);
+  const labelPlan = compileSlide(labelOnly, stage, { ...options, plotRoot: () => prepared.root ?? undefined });
+  check(labelPlan.issues.some(i => /Neither side/.test(i.reason)), "prepared plot text parts use the geometry bridge's informational crossfade diagnostic");
+  imagePair.elements[0] = { ...rect, id: "t" };
+  check(!/Neither side/.test(issuesFor(imagePair)), "one drawn outline is sufficient to avoid the both-sides diagnostic");
+}
+{
   check(Math.abs(resolveEasingFn("enter")(.25) - .825623) < .0001, "custom geometry uses the named enter curve, identical to native effects");
   const invalid = structuredClone(slide); invalid.beats[1].tracks = [{ target: "r", keyframes: [{ at: 0, props: { opacity: 0 } }] }];
   const compiled = compileSlide(invalid, stage);
@@ -193,4 +276,119 @@ const slide: Slide = { id: "s", elements: [rect, text], beats: [
   player.destroy(); check(scheduled.size === 0, "destroy leaves no animation callback");
   Object.assign(globalThis, { requestAnimationFrame: oldRaf, cancelAnimationFrame: oldCancel, performance: oldPerf });
 }
-console.log(`\nSLIDE TIMELINE: PASS (${checks} assertions)`);
+{
+  const deck = createDeck({ withTitleSlide: false });
+  deck.animStyles = [{ id: "shared", name: "Fade", family: "appearance", track: { preset: "fade", duration: 200, easing: "linear" } }];
+  const anchored: Slide = { id: "anchors", elements: [{ ...rect, rotation: 0 }], beats: [{ id: "base", tracks: [] }, { id: "cue", tracks: [
+    { id: "prior", target: "r", preset: "transform", duration: 100, to: { state: { x: 80 } } },
+    { id: "follower", target: "r", styleId: "shared", anchor: { trackId: "prior", edge: "end" } },
+  ] }] };
+  deck.slides = [anchored];
+  const options = { ...opts, animStyles: deck.animStyles };
+  const compiled = compileSlide(anchored, stage, options);
+  const rendered = renderSlide(host, compiled.resolvedSlide, stage, options);
+  // Explicit compiled input must be the only timing/preset source of the binding.
+  const specs = computeSlideAnims(anchored, rendered, host, stage, options, compiled);
+  const effect = rendered.elements.get("r")!.querySelector(".sl-effects") as HTMLElement;
+  applyAt(specs, 1, 99); check(effect.style.opacity === "0", "anchored entrance is hidden at its anchor end minus 1ms");
+  applyAt(specs, 1, 101); check(Math.abs(Number(effect.style.opacity) - .005) < 1e-9, "anchored entrance begins at the resolved end plus 1ms");
+  check(compiled.cues[1].duration === 300 && specs.find(s => s.trackId === "follower")?.duration === 200, "compiler and binding inherit the styled duration");
+  applyAt(specs, 1, 99); check(effect.style.opacity === "0", "reverse seek across an anchor restores the pre-start state");
+}
+// M2 channel law through the public compiler: the box overshoots, data does not.
+{
+  const spring = { kind: "spring", bounce: .8 } as const;
+  const springSlide: Slide = { id: "spring-compile", elements: [
+    { ...rect, x: 400, rotation: 350, opacity: 0, fill: "#000000" },
+    { id: "plot", type: "plot", assetId: "data", x: 0, y: 0, width: 100, height: 80, rotation: 0, contentScale: 1, view: { x: { domain: [0, 10] } } },
+    { ...text, text: "100%" },
+  ], beats: [{ id: "base", tracks: [] }, { id: "spring", tracks: [
+    { target: "r", preset: "transform", duration: 1000, curve: spring, to: { state: { x: 600, rotation: 10, width: 0, height: 0, opacity: 1, fill: "#ffffff", strokeWidth: 0 } } },
+    { target: "plot", preset: "transform", duration: 1000, curve: spring, to: { state: { contentScale: .01, view: { x: { domain: [2, 4] } } } } },
+    { target: "plot", part: "data.point", preset: "fade", duration: 1000, curve: spring },
+    { target: "t", preset: "countUp", duration: 1000, curve: spring, params: { to: 100 } },
+    { target: "@camera", preset: "camera", duration: 1000, curve: spring, to: { x: 0, y: 0, zoom: .01 } },
+  ] }] };
+  const manifest = { axes: [], series: [], parts: { id: "figure", children: [{ id: "data.point", role: "point" }] } } as unknown as FluxPlotManifest;
+  const compiled = compileSlide(springSlide, stage, { plotManifest: () => manifest });
+  let peak = 0, bounded = true, cameraPositive = true, cameraOvershoots = false, positiveBox = true, rotationOvershoots = false, scaleFloor = false;
+  for (let i = 0; i < 60; i++) {
+    const f = compiled.sample(1, 1000 * i / 59), r = f.elements[0], p = f.elements[1] as import("../src/lib/types").SemanticPlotElement;
+    peak = Math.max(peak, r.x); rotationOvershoots ||= r.rotation > 370;
+    positiveBox &&= r.width >= 0 && r.height >= 0; scaleFloor ||= p.contentScale === .01 && r.x > 600;
+    const domain = p.view!.x!.domain!, alpha = f.partStates.plot["data.point"].opacity;
+    bounded &&= r.opacity! >= 0 && r.opacity! <= 1 && /^#[0-9a-f]{6}$/i.test((r as any).fill) && (r as any).strokeWidth >= 0 && (r as any).strokeWidth <= 1 &&
+      domain[0] >= 0 && domain[0] <= 2 && domain[1] >= 4 && domain[1] <= 10 && alpha >= 0 && alpha <= 1 &&
+      Number((f.elements[2] as any).text.replace("%", "")) <= 100;
+    // The camera is a physical channel (§1.4): geometric zoom takes the unclamped
+    // curve, so it may pass its target, but zoom never reaches 0.
+    cameraPositive &&= f.camera!.zoom > 0 && Number.isFinite(f.camera!.x) && Number.isFinite(f.camera!.y);
+    cameraOvershoots ||= f.camera!.zoom < .01;
+  }
+  check(peak >= 605 && rotationOvershoots, `compiler extrapolates only box motion with shortest-arc rotation (x peak ${peak.toFixed(3)})`);
+  check(bounded, "compiler spring opacity, colour, stroke, parts, countUp and plot view stay bounded at 60 samples");
+  check(positiveBox && scaleFloor, "compiler floors extrapolated size at zero and contentScale at .01");
+  check(cameraPositive && cameraOvershoots, "the spring camera zooms past its .01 target and zoom stays positive (geometric, unclamped curve)");
+  const end = compiled.sample(1).elements[0];
+  check(end.x === 600 && end.rotation === 10 && end.width === 0 && end.height === 0, "compiler lands on exact authored endpoints");
+  const { overshootBox } = await import("../src/lib/slide/tween");
+  check([0, .25, 1].every(u => overshootBox(end, springSlide.elements[0], end, u) === end), "overshootBox preserves the same sampled reference in range");
+}
+// M6: sample and the exported player share curved box motion and raw discrete decisions.
+{
+  for (const arc of [-1, 0, 1]) {
+    const source = { ...rect, x: 100, y: 100, rotation: 0, flipX: false };
+    const slide: Slide = { id: "arc", elements: [source], beats: [{ id: "base", tracks: [] }, { id: "motion", tracks: [
+      { id: "arc", target: source.id, preset: "transform", arc, easing: "linear", duration: 1000, to: { state: { x: 300, flipX: true } } },
+    ] }] };
+    const d = createDeck({ withTitleSlide: false, stage }); d.defaults.transition = "none"; d.slides = [slide];
+    const mount = document.createElement("div") as unknown as HTMLElement;
+    const p = createPlayer(mount, d, { ...opts, reducedMotion: true });
+    const compiled = compileSlide(slide, stage);
+    for (const time of [500, 1000, 0, 750, 250]) {
+      p.seek(0, 1, time);
+      const box = mount.querySelector<HTMLElement>('[data-el-id="r"]')!, el = compiled.sample(1,time).elements[0];
+      // At the discrete flip the wrapper is centre-conjugated; use the model for
+      // position, and assert the actual composite branch/flip on the live node.
+      check((time === 0 || time === 1000) || box.style.transform.includes("translate"), "arc flight stays on the composite placement path");
+      check(box.style.transform.includes("scaleX(-1)") === (time >= 500), "player flips the wrapper at raw halfway");
+      check(Math.abs(el.x - (100 + 200*time/1000)) < 1e-9 && Math.abs(el.y - (100 + arc*200*(time/1000)*(1-time/1000))) < 1e-9, "compiler samples the quadratic position");
+    }
+    const curve = { kind: "bezier", p: [.3,2,.7,-1] } as const;
+    p.destroy();
+    slide.beats[1].tracks[0].curve = curve as any;
+    const saved = JSON.parse(JSON.stringify(d));
+    const q = createPlayer(mount, saved, { ...opts, reducedMotion: true });
+    const c = compileSlide(saved.slides[0], stage);
+    const observed: boolean[] = [];
+    for (let i=0; i<60; i++) {
+      const raw = i/59; q.seek(0,1,raw*1000);
+      observed.push(mount.querySelector<HTMLElement>('[data-el-id="r"]')!.style.transform.includes("scaleX(-1)"));
+      check(c.sample(1,raw*1000).elements[0].flipX === (raw >= .5), "persisted non-monotone curve keeps compiler discrete state raw");
+    }
+    check(observed.every((v,i) => v === (i/59 >= .5)) && observed.slice(1).filter((v,i) => v !== observed[i]).length === 1, "real player flips exactly once over 60 non-monotone frames");
+    q.destroy();
+  }
+}
+
+// Integration regression: M6 raw discrete state must reach E2's attribute bindings.
+{
+  const line = { id: "raw-cap", type: "line" as const, x: 100, y: 100, width: 200, height: 20, rotation: 0, x1: 0, y1: 0, x2: 200, y2: 20, stroke: "#222222", strokeWidth: 3, arrowStart: false, arrowEnd: false, cap: "butt" as const };
+  const slide: Slide = { id: "raw-content", elements: [line], beats: [{ id: "base", tracks: [] }, { id: "motion", tracks: [
+    { id: "raw-cap", target: line.id, preset: "transform", duration: 1000, curve: { kind: "bezier", p: [.3, 2, .7, -1] }, to: { state: { cap: "round" } } },
+  ] }] };
+  const d = createDeck({ withTitleSlide: false, stage }); d.defaults.transition = "none"; d.slides = [slide];
+  const mount = document.createElement("div") as unknown as HTMLElement;
+  const p = createPlayer(mount, d, { ...opts, reducedMotion: true }), c = compileSlide(slide, stage);
+  const frames = Array.from({ length: 60 }, (_, i) => {
+    const raw = i / 59; p.seek(0, 1, raw * 1000);
+    return { raw, model: (c.sample(1, raw * 1000).elements[0] as any).cap, painted: mount.querySelector('line')?.getAttribute('stroke-linecap') };
+  });
+  p.destroy();
+  const flips = frames.slice(1).filter((f, i) => f.painted !== frames[i].painted).length;
+  check(flips === 1 && frames.every(f => f.painted === f.model), `painted discrete cap agrees with raw compiler state, one flip (observed ${flips})`);
+}
+
+console.log(`\nSLIDE TIMELINE: PASS (${h.checks} assertions)`);
+
+await h.done();

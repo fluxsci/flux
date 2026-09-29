@@ -1,6 +1,5 @@
 // electron/execResolve.cjs — Windows-aware resolution for spawning EXTERNAL
-// commands by bare name ("quarto", a recipe's "python", an agent roster's
-// "claude"). Shared by the Electron main process (require) and flux-core
+// commands by bare name ("quarto", a recipe's "python", an agent CLI). Shared by the Electron main process (require) and flux-core
 // (ESM import of CJS), like fluxPaths.cjs; must run under plain Node.
 //
 // The problem (win32 only): npm/installer shims are .cmd/.bat batch files.
@@ -11,7 +10,7 @@
 // at all) — and only when the best match is a batch file wrap it in
 // `ComSpec /d /s /c "…"` with per-token cmd quoting.
 //
-// On every other platform resolveSpawn/resolvePtySpawn return their inputs
+// On every other platform resolveSpawn returns its inputs
 // UNCHANGED (identity) — POSIX behavior cannot drift through this module.
 //
 // The optional {platform, env, exists} params exist for the pure gate
@@ -111,14 +110,4 @@ function resolveSpawn(command, args = [], o = {}) {
   };
 }
 
-/** For node-pty: same resolution, but a batch wrap returns `args` as ONE
- *  command-line string — node-pty on Windows passes a string through verbatim,
- *  while an array would be re-quoted around our quoting. */
-function resolvePtySpawn(command, args = [], o = {}) {
-  const r = resolveCore(command, args, o);
-  if (!r) return { command, args };
-  if (r.kind === "direct") return { command: r.file, args };
-  return { command: r.comspec, args: `/d /s /c "${r.line}"` };
-}
-
-module.exports = { resolveSpawn, resolvePtySpawn };
+module.exports = { resolveSpawn };

@@ -196,7 +196,7 @@ for (const n of [2, 4]) {
   await waitFor(page, () => document.querySelectorAll(".dynmargin .pane").length === 0, null, {
     label: "all panes closed",
   });
-  const ids = ["reference-search", "terminal", "comments", "figure"].slice(0, n);
+  const ids = ["reference-search", "journal-check", "comments", "figure"].slice(0, n);
   let open = 0;
   for (const id of ids) {
     await page.evaluate((i) => window.__fluxMargin.summon(i), id);

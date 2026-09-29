@@ -13,6 +13,7 @@ import { activeFigureId, editGen, rollbackGesture, cascadeState } from "../../..
 import { selTrackIds, commitDeckLive, sealHistory, deckOverlay } from "../../../../lib/slide/store";
 import { slideById, cascadeTracks, type TrackCascadeBaseline } from "../../../../lib/slide/ops";
 import { TRACK_CASCADE_PROPS, type TrackCascadeAdapter, type TrackCascadeProp, type TrackCascadeSpec } from "../../../../lib/cascade";
+import { resolveTrack } from "../../../../lib/slide/resolve";
 import { familyOf } from "../../../../lib/slide/family";
 
 let seq = 0;
@@ -29,9 +30,9 @@ export const trackCascadeAdapter: TrackCascadeAdapter = {
   info() {
     const d = get(deckOverlay);
     const s = d && slideById(d, sess.sid);
-    const all = s?.beats.flatMap((b) => b.tracks).filter((t) => t.id && sess.ids.includes(t.id)) ?? [];
+    const all = s?.beats.flatMap((b) => b.tracks).filter((t) => t.id && sess.ids.includes(t.id)).map(t => resolveTrack(t, d!)) ?? [];
     const applies = Object.fromEntries(
-      TRACK_CASCADE_PROPS.map((p) => [p, all.filter(t => (p === "start" || familyOf(t) !== "media") && (p !== "stagger.perMs" || t.stagger)).length]),
+      TRACK_CASCADE_PROPS.map((p) => [p, all.filter(t => (p === "start" || familyOf(t) !== "media") && (p !== "curve.bounce" || t.curve?.kind === "spring") && (p.startsWith("stagger.") ? !!t.stagger : p === "arc" ? familyOf(t) === "transform" : true)).length]),
     ) as Record<TrackCascadeProp, number>;
     return { total: all.length, applies };
   },

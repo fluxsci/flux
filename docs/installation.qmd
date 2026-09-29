@@ -13,7 +13,7 @@ docs/for_agents/claude-install-flux-mac.md and set up Flux on this Mac."*
 :::
 
 Flux itself is one app, but its full capability rests on a small set of external tools:
-a Node runtime for the agent layer, Quarto (+ TeX) for compiling manuscripts, a Python
+Node for a source checkout, Quarto (+ TeX) for compiling manuscripts, a Python
 environment with **fluxplot** for semantic plots, and the house fonts for faithful
 rendering. This page is the complete checklist for a fresh machine.
 
@@ -42,7 +42,8 @@ npm run dist:mac           # or dist:linux → installers in release/
 
 `~/flux` is only a convention — clone anywhere you like; Flux resolves its own location at
 runtime. What *does* matter is that the checkout stays put afterwards: first run bakes its
-absolute path into the `flux` shim and the stock agent context docs. (Contrast
+location into the stable agent launcher and the stock context docs. Run setup again
+after moving the installation. (Contrast
 [fluxplot](#uv-python-fluxplot-the-keystone) below, where the path is a genuine requirement.)
 
 For development instead of packaging: `npm run electron:dev` (Vite dev server + Electron,
@@ -54,9 +55,10 @@ packaged builds.
 
 ## Node.js ≥ 22.15
 
-The entire agent layer — the `flux` CLI, the MCP server, worker dispatch, the attend
-watcher — runs on your system `node`, and the machine-context docs bake `node …` commands
-in at sync time. Install via your platform's usual channel (nvm, Homebrew, apt) and check:
+A source checkout needs Node 22.15 or newer. The stable launcher pins the runtime
+for that installation; packaged Flux uses its bundled Electron runtime for the CLI
+and MCP server. For source work, install Node through your platform's usual channel
+(nvm, Homebrew, apt) and check:
 
 ```bash
 node --version    # v22.15+
@@ -158,38 +160,43 @@ installed on the machine. The house style's stacks lead with **Arial / Helvetica
   consistent — matplotlib embeds whichever family it actually picked, and the renderer
   substitutes anything missing, which shifts text metrics subtly.
 
-## Agent CLIs (for the collaboration system)
-
-The principal-agent workflow launches whatever CLIs your roster
-(`~/FluxConfig/agents.json`) names — typically [Codex](https://github.com/openai/codex)
-and/or [Claude Code](https://claude.com/claude-code). Install and authenticate at least
-one. See [the agent context & collaboration system](agents/collaboration.qmd) for the
-full system.
-
-(That roster file doesn't exist yet — nothing you've installed so far creates it.
-[First run](#first-run) below is what writes `~/FluxConfig` and a default `agents.json`.)
-
 # First run
 
-**Create `~/.local/bin` before you launch anything.** Flux installs its `flux` command shim
-there, but deliberately never creates the directory itself — so if it doesn't exist at first
-run, you silently get no `flux` command:
+Launching Flux (or a CLI command) initializes `~/FluxConfig`: your **UserContext**,
+the stock **FluxContext** manual, and the **FluxLib** reference library. Your personal
+context is seeded once; the stock manual is refreshed with this installation's paths.
 
-```bash
-mkdir -p ~/.local/bin      # do this FIRST; also make sure it's on your PATH
-```
+Flux creates stable `flux` and `flux-connect` launchers in `~/.local/share/flux/bin`
+(Linux/macOS), or `%LOCALAPPDATA%\flux\bin` (Windows). Add that folder to PATH or
+use its full path. When `~/.local/bin` exists, Flux also adds convenience shims there;
+`flux connect setup --create-local-bin` can create them. Your own unmarked files are
+preserved. Flux prints PATH guidance and never changes shell startup files for you.
 
-Launching the app (or running any `flux` CLI verb) initializes `~/FluxConfig`: the
-Context layer (your `UserContext/` + the stock `FluxContext/` docs, with this machine's
-paths baked in), the reference library home, and a default `agents.json`. It also
-installs a **`flux` command shim into `~/.local/bin`** when that directory exists — so
-`flux principal`, `flux config`, etc. work by name (the shim carries a managed marker;
-replace it with your own file to opt out, and it will never be touched again). Then:
+The launcher stays with its owning installation across starts from other checkouts.
+Use **AI status → Use this Flux for agents**, or setup's `--use-this-install`, to
+choose another. AppImage launchers use the persistent AppImage file. On macOS, move
+Flux into `/Applications` before setup to avoid a temporary App Translocation path.
 
 1. Fill out `~/FluxConfig/Context/UserContext/WHO-AM-I.md`.
-2. Adjust `UserContext/RULES.md` and `agents.json` to taste.
-3. Moving machines? `~/FluxConfig` is portable — copy `UserContext/`, `agents.json`,
-   `FluxLib/`, and `plot_library/` (your global plots) over; `FluxContext/` re-syncs itself.
+2. Adjust `UserContext/RULES.md` and add reusable procedures under `UserContext/Skills/`.
+3. Moving machines? Copy your UserContext (including Skills), FluxLib and global
+   `plot_library/`. FluxContext is regenerated; run agent setup on the new machine.
+
+See [Your context and your project's](agents/context.qmd) before opening older projects
+that need migration.
+
+# Connect an AI agent
+
+Install and sign in to Claude Code or Codex in its own app or terminal. Open **AI** in
+the titlebar, or **Ctrl+K → AI status**, then choose **Connect** on its card. The Home
+screen's **Connect an AI agent** card opens the same monitor. Review replacements if
+shown, then restart open agent sessions. In Codex, review newly installed hooks in
+**/hooks**. This registers tools and skills; it does not start a project session.
+
+From a terminal the equivalent is `flux connect setup --dry-run`, then `flux connect
+setup`, followed by `flux connect doctor`. Copy the panel's `/flux-connect <project>`
+or `$flux-connect <project>` command into your agent to connect a session. See
+[Working with AI agents](agents/connect.qmd) for the reading plan, receipt and status rows.
 
 # Verify the setup
 
@@ -198,7 +205,8 @@ node --version                            # ≥ 22.15
 quarto check                              # quarto + tinytex
 uv --version
 uv run python -c "import fluxplot"        # inside an analysis project
-node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
+flux config                              # prints machine paths + build info
+flux connect doctor                      # checks the Flux AI Bundle
 ```
 
 # Troubleshooting
@@ -211,8 +219,8 @@ node ~/flux/dist/flux-cli.mjs config      # prints machine paths + build info
 | Journal PDF fails with `luaotfload` or `not loadable: Metric` | lualatex present but its fonts are not → `texlive-luatex` + `texlive-fonts-recommended`, or use TinyTeX |
 | Plots import as flat images; `restyle` finds no parts | Plot not saved via `fp.save` (or fluxplot missing) → check `flux validate-plot` |
 | Figure PNGs render with wrong/shifted text | Missing fonts on this machine → install the stacks above; keep machines consistent |
-| `flux: command not found` | `~/.local/bin` missing or not on `PATH` → create it and re-run any flux verb (the shim installs itself), or use the full `node …/dist/flux-cli.mjs` path |
-| `codex exec` refuses to run in a directory | Untrusted non-git dir → the roster's `--skip-git-repo-check` flag (seeded by default) |
+| `flux: command not found` | Launcher directory not on `PATH` → use the full path above, or setup with `--create-local-bin` and add `~/.local/bin` to PATH |
 | `flux` CLI verb missing that the docs mention | Stale bundle → `npm run build:cli` in the repo; `flux version` shows the build |
+| Agent has no Flux tools or skill | Run `flux connect doctor`, use **AI status → Repair**, then restart the agent session |
 | Nothing live-reloads in the open app | Watcher failed to start (a toast said so at open) → reopen the project |
 | Flux "won't start" — no window, no error | A windowless earlier instance is holding the single-instance lock (the launch now says so in the terminal) → `pgrep -af electron` to find it, then `kill <pid>` (plain SIGTERM — it saves unsaved work on the way out; keep `kill -9` as the last resort) |

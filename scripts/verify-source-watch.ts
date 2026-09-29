@@ -34,7 +34,9 @@ const source = createSourceWatchCore({ sessionFor: (e: any) => sessions.get(e.se
   notify: (...args: unknown[]) => notices.push(args),
 });
 source.registerHandlers({ handle: (name: string, callback: Function) => handlers.set(name, callback) });
-const request = { root: project, scope: "fig", sources: [{ svgPath: svg, manifestPath: meta }] };
+const glb = path.join(path.dirname(svg), "model.glb");
+await fs.writeFile(glb, Buffer.from([0x67, 0x6c, 0x54, 0x46]));
+const request = { root: project, scope: "fig", sources: [{ svgPath: svg, manifestPath: meta }, { glbPath: glb }] };
 try {
   await assert.rejects(call("fs:readText", 1, svg), /outside/); checks++;
   await assert.rejects(call("fs:exists", 1, svg), /outside/); checks++;
@@ -57,16 +59,25 @@ try {
   watchers[0].emit("all", "change", svg);
   await new Promise((r) => setTimeout(r, 230));
   ok(events.length === 1 && JSON.stringify(events[0]).includes('"subsystem":"plots"'), "only a registered exact file routes to the normal source refresh event");
+  watchers[0].emit("all", "change", glb);
+  watchers[0].emit("all", "change", glb.replace(".glb", ".fluxplot.json"));
+  await new Promise((r) => setTimeout(r, 230));
+  ok(events.length === 2 && watchers[0].files.has(glb) && watchers[0].files.has(glb.replace(".glb", ".fluxplot.json")), "GLB and metadata changes share one debounced Figure source event alongside SVG links");
+  fileCore.fsReadGuard(glb, 1);
+  assert.throws(() => fileCore.fsGuard(glb, 1), /outside/);
+  assert.throws(() => fileCore.fsReadGuard(glb, 2), /outside/);
+  ok(true, "GLB watcher grants exact owner read, never write or another window");
   fileCore.noteWrite(svg); watchers[0].emit("all", "change", svg);
   await new Promise((r) => setTimeout(r, 230));
-  ok(events.length === 1, "app self-writes do not cause source refresh loops");
+  ok(events.length === 2, "app self-writes do not cause source refresh loops");
   await call("watch:setSourceFiles", 1, { ...request, scope: "slides/deck-a" });
   await call("watch:setSourceFiles", 1, { ...request, sources: [] });
   ok(await call("fs:readText", 1, svg) === "<svg/>" && watchers[0].files.has(svg), "removing Figure scope retains the active deck's source capability");
   await call("watch:setSourceFiles", 1, { ...request, scope: "slides/deck-a", sources: [] });
   await assert.rejects(call("fs:readText", 1, svg), /outside/); checks++;
   await assert.rejects(call("fs:exists", 1, svg), /outside/); checks++;
-  ok(!watchers[0].files.has(svg), "last scoped link removes watch");
+  ok(!watchers[0].files.has(svg) && !watchers[0].files.has(glb), "last scoped link removes SVG and GLB watch");
+  assert.throws(() => fileCore.fsReadGuard(glb, 1), /outside/); checks++;
   pending.set(1, other);
   await call("watch:setSourceFiles", 1, { ...request, root: other });
   fileCore.clearApprovals(1); sessions.get(1).root = other; pending.delete(1); await source.setRoot(1, other);

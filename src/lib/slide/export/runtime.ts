@@ -1,3 +1,4 @@
+import { payloadModelHost, payloadModelContext } from "./model3dPayloadHost";
 // ---------------------------------------------------------------------------
 // Flux Slide — the EXPORT runtime (§7.1). The one entry esbuild bundles into a
 // single IIFE inlined in the portable .html. It boots the SAME framework-agnostic
@@ -26,6 +27,11 @@ export interface ExportPayload {
   /** Video sources are separate from static images (portable data URLs or a
    * capture worker's private file URLs). */
   videos?: Record<string, string>;
+  /** Raw base64 GLBs, never mixed into image decoding or authoring assetData. */
+  models?: Record<string, string>;
+  modelManifests?: Record<string, import("../../model3d/types").Scene3dManifest>;
+  /** Design-state poster reference per placed element, including hidden ghosts. */
+  modelPosters?: Record<string, string>;
   /** assetId → intrinsic display size (crop rendering of raster elements). */
   assetSizes?: Record<string, { width: number; height: number }>;
 }
@@ -77,10 +83,15 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
 
   let reducedMotion = false;
   let player: Player;
+  let modelHost: ReturnType<typeof payloadModelHost>;
   function buildPlayer(at: { slide: number; beat: number }) {
     player?.destroy();
+    modelHost?.dispose();
+    modelHost = payloadModelHost(payload);
     player = createPlayer(host, deck, {
       mode: "export",
+      ...payloadModelContext(payload), model3d: modelHost,
+      pixelScale: () => Math.min(window.innerWidth / deck.stage.width, window.innerHeight / deck.stage.height),
       theme,
       assetUrl: (id) => payload.videos?.[id] ?? payload.assets?.[id],
       assetSize: (id) => payload.assetSizes?.[id],
@@ -96,6 +107,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
   function fitToViewport() {
     const s = Math.min(window.innerWidth / deck.stage.width, window.innerHeight / deck.stage.height);
     fit.style.transform = `translate(-50%,-50%) scale(${s})`;
+    player?.refresh();
   }
   function renderHud() {
     // WS-3.3: view-model from present/core; this host string-templates it.
@@ -128,7 +140,7 @@ export function boot(mount: HTMLElement, payload: ExportPayload): Player {
       const inner = document.createElement("div");
       inner.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;`;
       nextScaled.appendChild(inner);
-      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
+      try { renderStaticAt(inner, deck.slides[pm.nextIdx], deck.stage, Math.max(0, deck.slides[pm.nextIdx].beats.length - 1), { mode: "export", theme, animStyles: deck.animStyles, assetUrl: (id) => payload.assets?.[id], assetSize: (id) => payload.assetSizes?.[id], plotManifest: (id) => get(plotManifests)[id], ...payloadModelContext(payload), deckBackground: deck.background }); } catch (_e) { /* preview best-effort */ }
       frame.appendChild(nextScaled);
       panel.appendChild(frame);
     }

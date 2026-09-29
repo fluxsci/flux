@@ -31,30 +31,73 @@ for (const [glob, yes, no] of [
 
 const manifest = JSON.parse(readFileSync(new URL("./verify-manifest.json", import.meta.url), "utf8"));
 const actualCases = [
-  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs"]],
+  ["scripts/lib/model3dS8Fixture.ts", ["group:model3d-s8", "tier:pure"]],
+  ["scripts/perf/input-probe-model3d.cjs", ["group:model3d-s8", "tier:pure"]],
+  ["scripts/lib/nativeWindowQualification.cjs", ["group:model3d-native", "verify-input-probe-policy.cjs", "verify-slide-embed-electron.cjs", "group:model3d-native-scale", "tier:pure"]],
+  ["scripts/lib/slideEmbedProbeEntry.cjs", ["verify-slide-embed-electron.cjs", "verify-input-probe-policy.cjs", "tier:pure"]],
+  ["scripts/lib/model3dNativeScaleEntry.cjs", ["group:model3d-native-scale", "tier:pure"]],
+  ["scripts/perf/input-probe-policy.cjs", ["verify-input-probe-policy.cjs", "tier:pure"]],
+  ["scripts/lib/model3dScaleFixture.mjs", ["group:model3d-scale"]],
+  ["src/lib/model3d/sourceBridge.ts", ["group:model3d-source"]],
+  ["src/lib/model3d/source.ts", ["group:model3d-source"]],
+  ["electron/model3dSource.cjs", ["group:model3d-source"]],
+  ["scripts/lib/model3dNativeEntry.cjs", ["verify-model3d-electron.cjs", "verify-model3d-smoke-electron.cjs", "tier:pure"]],
+  ["scripts/fixtures/model3d/native/neuron.glb", ["group:model3d"]],
+  ["src/lib/Model3dElement.svelte", ["group:model3d", "group:model3d-gui"]],
+  ["src/lib/model3d/posterStore.ts", ["group:model3d", "group:model3d-gui"]],
+  // Review R5: pure 3D cores run pure + headless-browser gates only; renderer and UI modules keep the full group.
+  ["src/lib/model3d/orbit.ts", ["group:model3d-pure", "group:model3d-ui", "group:model3d-xray"]],
+  ["src/lib/model3d/glbCore.mjs", ["group:model3d-pure", "group:model3d-ui", "group:model3d-xray"]],
+  ["src/lib/model3d/renderCore.ts", ["group:model3d", "group:model3d-xray"]],
+  ["src/lib/model3d/OrbitOverlay.svelte", ["group:model3d", "group:model3d-xray"]],
+  ["src/lib/model3d/sourceRegistry.ts", ["group:model3d-source"]],
+  ["src/lib/plot/Model3dChip.svelte", ["group:model3d", "group:model3d-gui"]],
+  // F2 adds routing coverage without dropping the titlebar's live-view gates.
+  ["src/shell/agent/AIPanel.svelte", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
+  ["electron/ipc/agentSetup.cjs", ["verify-ai-monitor.ts", "verify-ai-monitor-gui.mjs", "verify-ipc-contract.ts", "verify-startup.mjs", "tier:pure", "verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs"]],
+  ["src/shell/inbox/InboxPanel.svelte", ["verify-inbox.ts", "verify-inbox-gui.mjs", "verify-scale-inbox.mjs", "verify-annotate-chord-census.ts", "verify-annotation-surface-gui.mjs", "verify-annotate-utility-electron.cjs", "verify-no-retired-agent-layer.ts", "verify-agent-routing.ts", "verify-ai-monitor-gui.mjs"]],
+  ["src/lib/Element.svelte", ["tier:pure", "verify-figure-editing-gui.mjs", "verify-figure-controls-gui.mjs", "verify-slide-canvas-presentation-gui.mjs", "verify-scale-figure.mjs", "verify-crisp.mjs", "verify-vanilla-inline.mjs", "verify-text-arrange-gui.mjs", "group:model3d-gui"]],
+  ["src/shell/TitleBar.svelte", ["verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs", "verify-ai-monitor-gui.mjs", "verify-startup.mjs", "verify-annotate-chord-census.ts", "verify-live-view.ts", "verify-live-view-electron.cjs", "verify-an-bridge.ts", "verify-ipc-contract.ts", "tier:pure", "verify-shell-complete.mjs"]],
+  ["src/lib/project/agentRouting.ts", ["verify-agent-routing.ts", "verify-inbox-gui.mjs", "verify-annotation-surface-gui.mjs", "verify-ai-monitor-gui.mjs", "verify-startup.mjs", "verify-annotate-chord-census.ts", "verify-live-view.ts", "verify-live-view-electron.cjs", "verify-an-bridge.ts", "verify-ipc-contract.ts", "tier:pure", "verify-shell-complete.mjs"]],
   // The text painter's arrangement source and its serializer route together.
   ["src/lib/text.ts", ["verify-text-arrange.ts", "verify-text-wrap.ts", "verify-text-parity.ts", "verify-text-arrange-gui.mjs", "verify-text-resize.mjs", "verify-slide-export-parity.ts", "verify-text-runs.ts", "verify-text-runs-gui.mjs", "tier:pure", "verify-text-blank-lines.mjs"]],
   ["src/lib/svgFonts.ts", ["verify-render-optimizations.mjs", "verify-zoom-proxy.mjs", "group:paper-gate"]],
   ["scripts/perf/frame-oracle.cjs", ["verify-frame-oracle.ts"]],
   ["scripts/verify-manifest.json", ["verify-changed-pathmap.mjs", "tier:pure"]],
-  ["src/lib/PlotImporter.svelte", ["group:plot-gallery", "tier:pure"]],
-  ["src/lib/plot/GalleryExpandedPreview.svelte", ["group:plot-gallery", "tier:pure"]],
-  ["src/lib/plot/GalleryTree.svelte", ["group:plot-gallery", "tier:pure"]],
-  ["src/lib/plot/galleryNames.ts", ["group:plot-gallery", "tier:pure"]],
+  ["src/lib/PlotImporter.svelte", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
+  ["src/lib/plot/GalleryExpandedPreview.svelte", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
+  ["src/lib/plot/GalleryTree.svelte", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
+  ["src/lib/plot/galleryNames.ts", ["group:plot-gallery", "tier:pure", "group:model3d-gui"]],
   ["src/lib/dissect/DissectGrid.svelte", ["verify-dissections.ts", "verify-dissect-gui.mjs", "verify-gallery-workflow.mjs", "tier:pure"]],
-  ["src/lib/store.ts", ["group:slide-stash", "tier:pure"]],
+  ["src/lib/store.ts", ["group:slide-stash", "tier:pure", "verify-plot-view-gui.mjs"]],
   // 2026-09-25: ops.ts has its own first-match rule (the headless ops gate + the real cross-figure drag).
   ["src/lib/ops.ts", ["verify-ops.ts", "verify-cross-figure-drag.mjs", "verify-color-field.mjs", "group:slide-stash", "tier:pure"]],
-  ["src/lib/XrayNode.svelte", ["group:slide-stash", "tier:pure"]],
-  ["src/lib/Xray.svelte", ["group:slide-stash", "tier:pure"]],
+  ["src/lib/XrayNode.svelte", ["group:slide-stash", "tier:pure", "verify-plot-view-gui.mjs"]],
+  ["src/lib/Xray.svelte", ["group:slide-stash", "tier:pure", "verify-plot-view-gui.mjs"]],
   ["src/lib/keyboard.ts", ["verify-fig-order-gui.mjs", "verify-fig-namer.mjs", "group:slide-stash", "tier:pure", "verify-cross-figure-drag.mjs"]],
   ["scripts/lib/slideStashNativeEntry.cjs", ["group:slide-stash"]],
   // 2026-09-15: the crosshair cursor family owns Canvas.svelte first (its own pathMap entry).
-  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
+  ["src/lib/Canvas.svelte", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs", "verify-model3d-snapshot-quiet.mjs"]],
   // 2026-09-16: the compositor drive and the zoom proxy ride the same entry as the canvas they move.
-  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
-  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs"]],
+  ["src/lib/interact/zoomProxy.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs", "verify-model3d-snapshot-quiet.mjs"]],
+  ["src/lib/interact/compositorDrive.ts", ["verify-cursor-policy.ts", "verify-cursor-gui.mjs", "verify-figure-input-hygiene.mjs", "verify-zoom-proxy.mjs", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-render-optimizations.mjs", "verify-canvas-coverage.mjs", "verify-canvas-zoom-raster.mjs", "verify-text-arrange-gui.mjs", "verify-cross-figure-drag.mjs", "verify-model3d-snapshot-quiet.mjs"]],
+  // E2 adds view authoring and semantic content binding without dropping inherited gates.
+  ["src/lib/plot/viewControls.ts", ["verify-plot-view-verb.ts", "verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/plot/AxisView.svelte", ["verify-plot-view-gui.mjs", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/slide/player/render.ts", ["verify-plot-binding.ts", "tier:pure", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
+  // Animation v2 E1: the projection kernel left slide/player/morph.ts for plot/. Its exact entry keeps
+  // the superseded src/lib/plot/** set AND the slide-player set its old home selected.
+  ["src/lib/plot/project.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
+  ["src/lib/plot/projectDom.ts", ["verify-plot-view.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs", "verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   ["src/lib/slide/compile.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  // 2026-09-27 animation v2: an exact-path gate entry keeps the regression groups of the broad
+  // src/lib/slide entry it supersedes (first match wins; guide §7, the --changed paragraph).
+  ["src/lib/slide/correspondence.ts", ["verify-correspondence.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  // B1's exact entries keep the broad src/lib/slide and src/lib/plot routes they supersede.
+  ["src/lib/slide/targetGeometry.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
+  ["src/lib/plot/paint.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/plot/svgMatrix.ts", ["verify-target-geometry-browser.ts", "verify-target-geometry.ts", "tier:pure", "tier:scale", "verify-lazy-save-safety.mjs", "verify-lazy-load-gui.mjs", "verify-lazy-export-overrides.mjs"]],
+  ["src/lib/slide/resolve.ts", ["verify-slide-resolve.ts", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/slide/player/player.ts", ["verify-v020-morph-startup.mjs", "group:slide-transforms", "group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash", "verify-gallery-video-capability.ts", "group:slide-clips", "verify-ipc-contract.ts"]],
   ["src/shell/modes/slide/Animator/BeatRail.svelte", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
   ["src/lib/figureReferences.ts", ["group:figures-slides-overhaul", "group:slide-ghosts", "tier:pure", "group:inline-slides", "group:slide-stash"]],
@@ -71,6 +114,10 @@ const actualCases = [
   ["resources/docx/templates/nature.docx", ["verify-journal-assets.ts"]],
   ["src/lib/figureLayoutStore.ts", ["verify-fig-namer.mjs", "verify-m11-m14.mjs"]],
   ["docs/AGENT_ENGINEERING_GUIDE-RUNNING.md", ["verify-docs.ts"]],
+  ["docs/agents/collaboration.qmd", ["verify-docs.ts", "verify-no-retired-agent-layer.ts"]],
+  ["scripts/lib/retiredAgentScan.ts", ["verify-no-retired-agent-layer.ts"]],
+  ["scripts/verify-no-retired-agent-layer.ts", ["self:scripts/verify-no-retired-agent-layer.ts"]],
+  ["scripts/verify-connect-e2e.ts", ["self:scripts/verify-connect-e2e.ts"]],
   ["scripts/lib/driver.mjs", ["tier:pure"]],
   ["scripts/verify-changed-pathmap.mjs", ["self:scripts/verify-changed-pathmap.mjs", "tier:pure"]],
 ];
@@ -87,6 +134,18 @@ equal(slideSelection.scripts.includes("verify-slide-ghost-gui.mjs"), true, "slid
 equal(slideSelection.scripts.includes("verify-paper-slide-embeds.mjs"), true, "shared player changes select inline slide playback");
 equal(slideSelection.scripts.includes("verify-scale-paper-slide-embeds.mjs"), true, "shared player changes select inline slide performance");
 equal(slideSelection.diagnostics, [], "overhaul mapping has no unresolved references");
+const pureModel = resolveChangedRuns(collectChangedRuns(["src/lib/model3d/orbit.ts"], manifest.pathMap), manifest);
+equal(pureModel.scripts.filter((s) => manifest.tiers.electron.includes(s) || manifest.tiers.scale.includes(s) || manifest.execution?.[s]?.externalNetwork), [], "a pure 3D core edit selects no electron, scale or network gate");
+equal(["verify-model3d-glb.ts", "verify-model3d-render-browser.ts", "verify-model3d-orbit-gui.mjs"].every((s) => pureModel.scripts.includes(s)) && !pureModel.diagnostics.length, true, "a pure 3D core edit still selects its pure and headless-browser gates");
+
+for (const file of ['README.md', 'resources/flux-context/REVIEW.md', 'resources/agent-skills/flux-connect/SKILL.md', 'electron/fluxContextDocs.gen.cjs', 'src/lib/Help.svelte', 'src/shell/command/commands.ts']) {
+  const selection = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest);
+  equal(selection.scripts.includes('verify-no-retired-agent-layer.ts'), true, `${file} selects the remnants gate`);
+}
+for (const file of ['electron/fluxPaths.cjs', 'electron/agentSetup.cjs', 'flux-core/connect/index.ts', 'flux-core/mcpServer.ts', 'src/lib/project/contextTemplates.ts', 'scripts/lib/mcpFixture.ts', 'scripts/oneoff/migrate-2026-09-flux-connect.mjs']) {
+  const selection = resolveChangedRuns(collectChangedRuns([file], manifest.pathMap), manifest);
+  equal(selection.scripts.includes('verify-connect-e2e.ts'), true, `${file} selects end-to-end acceptance`);
+}
 
 // Isolate union/order/fallback from the real map, whose broad rules evolve.
 const map = [

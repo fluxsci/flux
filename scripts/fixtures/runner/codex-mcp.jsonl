@@ -1,0 +1,9 @@
+{"type": "thread.started", "thread_id": "01a0e1da-3725-7b91-bc7a-82ce1144c1d4"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "I’ll call Flux’s config_paths tool.\n"}}
+{"type": "item.started", "item": {"id": "item_1", "type": "mcp_tool_call", "server": "flux", "tool": "flux_verbs", "arguments": {"query": "config_paths"}, "result": null, "error": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "mcp_tool_call", "server": "flux", "tool": "flux_verbs", "arguments": {"query": "config_paths"}, "result": null, "error": {"message": "MCP tool call requires approval, but approval policy is never"}, "status": "failed"}}
+{"type": "item.started", "item": {"id": "item_2", "type": "mcp_tool_call", "server": "flux", "tool": "flux_verb", "arguments": {"verb": "config_paths", "args": {}}, "result": null, "error": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_2", "type": "mcp_tool_call", "server": "flux", "tool": "flux_verb", "arguments": {"verb": "config_paths", "args": {}}, "result": null, "error": {"message": "MCP tool call requires approval, but approval policy is never"}, "status": "failed"}}
+{"type": "item.completed", "item": {"id": "item_3", "type": "agent_message", "text": "Unable to retrieve build.version: the MCP call requires approval, but approval policy is set to never."}}
+{"type": "turn.completed", "usage": {"input_tokens": 185042, "cached_input_tokens": 152960, "cache_write_input_tokens": 0, "output_tokens": 228, "reasoning_output_tokens": 24}}

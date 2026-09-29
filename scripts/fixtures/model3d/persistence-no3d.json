@@ -1,0 +1,97 @@
+{
+  "referenceCommit": "8ff8742",
+  "input": {
+    "version": 2,
+    "name": "2D remains unchanged",
+    "canvases": [
+      {
+        "id": "canvas",
+        "name": "Canvas"
+      }
+    ],
+    "figures": [
+      {
+        "id": "figure",
+        "name": "Alpha",
+        "canvasId": "canvas",
+        "x": 10,
+        "y": 20,
+        "width": 320,
+        "height": 240,
+        "elements": [
+          {
+            "type": "image",
+            "id": "image",
+            "assetId": "png",
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 80,
+            "rotation": 30
+          },
+          {
+            "type": "plot",
+            "id": "plot",
+            "assetId": "svg",
+            "x": 120,
+            "y": 0,
+            "width": 100,
+            "height": 80,
+            "rotation": 0,
+            "overrides": {
+              "label": {
+                "fill": "#abc",
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "captions": {
+          "__figure__": "Caption."
+        }
+      }
+    ],
+    "assets": [
+      {
+        "id": "png",
+        "name": "Raster",
+        "kind": "png",
+        "path": "assets/png.png",
+        "naturalWidth": 100,
+        "naturalHeight": 80,
+        "dpi": 144
+      },
+      {
+        "id": "svg",
+        "name": "Plot",
+        "kind": "svg",
+        "path": "assets/svg.svg",
+        "naturalWidth": 100,
+        "naturalHeight": 80
+      }
+    ],
+    "palette": [
+      "#abcdef"
+    ]
+  },
+  "plan": {
+    "canvases": [
+      {
+        "id": "canvas",
+        "path": "fig/canvases/canvas.json",
+        "text": "{\n  \"schemaVersion\": \"0.1.0\",\n  \"id\": \"canvas\",\n  \"name\": \"Canvas\",\n  \"figures\": [\n    {\n      \"id\": \"figure\",\n      \"name\": \"Figure 1\",\n      \"canvasId\": \"canvas\",\n      \"x\": 10,\n      \"y\": 20,\n      \"width\": 320,\n      \"height\": 240,\n      \"elements\": [\n        {\n          \"type\": \"image\",\n          \"id\": \"image\",\n          \"assetId\": \"png\",\n          \"x\": 0,\n          \"y\": 0,\n          \"width\": 100,\n          \"height\": 80,\n          \"rotation\": 30\n        },\n        {\n          \"type\": \"plot\",\n          \"id\": \"plot\",\n          \"assetId\": \"svg\",\n          \"x\": 120,\n          \"y\": 0,\n          \"width\": 100,\n          \"height\": 80,\n          \"rotation\": 0,\n          \"overrides\": {\n            \"label\": {\n              \"fill\": \"#abc\",\n              \"hidden\": false\n            }\n          }\n        }\n      ],\n      \"captions\": {\n        \"__figure__\": \"Caption.\"\n      },\n      \"referenceKey\": \"fig-figure\",\n      \"family\": \"figure\",\n      \"number\": 1,\n      \"nickname\": \"Alpha\"\n    }\n  ]\n}\n"
+      }
+    ],
+    "captions": [
+      {
+        "id": "figure",
+        "path": "fig/captions/figure.md",
+        "text": "Caption.\n"
+      }
+    ],
+    "index": {
+      "path": "fig/index.json",
+      "text": "{\n  \"schemaVersion\": \"0.1.0\",\n  \"canvases\": [\n    {\n      \"id\": \"canvas\",\n      \"name\": \"Canvas\",\n      \"order\": 1\n    }\n  ],\n  \"figures\": [\n    {\n      \"id\": \"figure\",\n      \"name\": \"Figure 1\",\n      \"label\": \"fig-figure\",\n      \"order\": 1,\n      \"kind\": \"main\",\n      \"family\": \"figure\",\n      \"number\": 1,\n      \"nickname\": \"Alpha\",\n      \"canvas\": \"canvas\",\n      \"caption\": \"Caption.\"\n    }\n  ],\n  \"assets\": [\n    {\n      \"id\": \"png\",\n      \"kind\": \"png\",\n      \"path\": \"assets/png.png\",\n      \"name\": \"Raster\",\n      \"naturalWidth\": 100,\n      \"naturalHeight\": 80,\n      \"dpi\": 144\n    },\n    {\n      \"id\": \"svg\",\n      \"kind\": \"svg\",\n      \"path\": \"assets/svg.svg\",\n      \"name\": \"Plot\",\n      \"naturalWidth\": 100,\n      \"naturalHeight\": 80\n    }\n  ],\n  \"palette\": [\n    \"#abcdef\"\n  ],\n  \"colorGroups\": [],\n  \"textStyles\": [],\n  \"families\": []\n}\n"
+    }
+  }
+}

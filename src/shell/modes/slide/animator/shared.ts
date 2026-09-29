@@ -1,32 +1,27 @@
 // Shared vocabulary of the animator components: preset colors, editor option
 // lists, chip labels, and the temporal math the Gantt lanes are built on.
 
-import type { Slide, Track, PresetName } from "../../../../lib/slide/types";
-import type { FluxPlotManifest } from "../../../../lib/plot/types";
+import type { Slide, Track, PresetName, TargetRef } from "../../../../lib/slide/types";
+import type { Figure, Element } from "../../../../lib/types";
+import type { FluxPlotManifest, PartNode } from "../../../../lib/plot/types";
+import { buildModel3dTree } from "../../../../lib/model3d/tree";
+import { labelForPart } from "../../../../lib/plot/tree";
+import { elementLabel } from "../../../../lib/xray/buildXrayTree";
+import { isHandoff, trackRef, targetPartIds, isScene3dManifest } from "../../../../lib/slide/targets";
 import { semanticTargets, trackDuration } from "../../../../lib/slide/compile";
+import { resolveTrack, resolveStart, resolveBeat, type StyleContext, type ManifestFor } from "../../../../lib/slide/resolve";
 import { staggerSpan } from "../../../../lib/slide/stagger";
+import { EASING_TOKENS } from "../../../../lib/slide/curves";
+import { PRESET_CATALOG, presetDef, EDITABLE_PRESETS, KNOWN_PRESETS } from "../../../../lib/slide/presetCatalog";
 
-export const PRESET_COLOR: Record<string, string> = {
-  drawOn: "#4385be", fade: "#879a39", fadeRise: "#879a39", stagger: "#d14d41",
-  growBaseline: "#d0a215", popIn: "#8b7ec8", writeOn: "#3aa99f", highlight: "#d0a215",
-  dim: "#6f6e69", move: "#4385be", scale: "#4385be", rotate: "#4385be", camera: "#a02f6f",
-  // the TRANSFORM family reads GREEN (the mockups' t1—t2 lanes) — one color
-  // for all three ways (Change · Ghost · Become). (Distinct from fade's
-  // lighter green; the full family palette lands with the Phase-3 animator.)
-  transform: "#66800b",
-  // exits render in the muted red family — visually "this leaves the stage"
-  fadeOut: "#af3029", popOut: "#af3029", drawOff: "#af3029", wipeOut: "#af3029", countUp: "#66800b",
-  videoStart: "#3aa99f", videoPause: "#d0a215", videoStop: "#af3029",
-};
+export const PRESET_COLOR: Record<string, string> = Object.fromEntries(
+  Object.values(PRESET_CATALOG).map(def => [def.name, def.colour]),
+);
 
-export const EDIT_PRESETS: PresetName[] = [
-  "fade", "fadeRise", "popIn", "drawOn", "growBaseline", "stagger", "writeOn",
-  "fadeOut", "popOut", "drawOff", "wipeOut", "highlight", "dim", "countUp",
-];
-export const EASINGS = ["standard", "smooth", "enter", "exit", "linear"];
+export const EDIT_PRESETS: PresetName[] = [...EDITABLE_PRESETS];
+export const EASINGS: readonly string[] = EASING_TOKENS;
 export function presetLabel(preset: string): string {
-  return ({fade:"Fade in",fadeRise:"Rise in",popIn:"Pop in",drawOn:"Draw on",growBaseline:"Grow",stagger:"Stagger in",writeOn:"Wipe in",
-    fadeOut:"Fade out",popOut:"Pop out",drawOff:"Draw off",wipeOut:"Wipe out",highlight:"Highlight",dim:"Dim",countUp:"Count up",transform:"Transform",camera:"Camera",videoStart:"Start video",videoPause:"Pause video",videoStop:"Stop video"} as Record<string,string>)[preset] ?? preset;
+  return KNOWN_PRESETS.has(preset) ? presetDef(preset).label : preset;
 }
 
 /** The three WAYS of transforming, read off the one transform track: a birth
@@ -37,47 +32,56 @@ export type TransformWay = "change" | "ghost" | "become";
 export function transformWay(t: Track): TransformWay {
   if (t.ghostFrom) return "ghost";
   const st = t.to?.state as Record<string, unknown> | undefined;
-  if ((st && typeof st.type === "string") || t.to?.assetId) return "become";
+  if (t.to?.become || (st && typeof st.type === "string") || t.to?.assetId) return "become";
   return "change";
 }
 export const WAY_LABEL: Record<TransformWay, string> = { change: "Change", ghost: "Ghost", become: "Become" };
 /** The lane sub-label: "Transform · Become", "Fade in", … */
-export function trackKindLabel(t: Track): string {
+export function trackKindLabel(t: Track, deck: StyleContext = {}): string {
+  t = resolveTrack(t, deck);
   if (t.preset === "transform") return `Transform · ${WAY_LABEL[transformWay(t)]}`;
   return presetLabel(t.preset ?? "fade");
 }
-export const INFLUENCE_PRESETS: { name: string; in: number; out: number }[] = [
-  { name: "ease", in: 0, out: 0 },
-  { name: "subtle", in: 25, out: 25 },
-  { name: "medium", in: 50, out: 50 },
-  { name: "strong", in: 75, out: 75 },
-  { name: "extreme", in: 95, out: 95 },
-];
-
 /** Element type → a compact glyph for tree rows / chip labels (the figure
  *  element union — slides-are-figures). */
 export const EL_GLYPH: Record<string, string> = {
-  plot: "▤", text: "¶", image: "▣", video: "▶", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
+  model3d: "◇", plot: "▤", text: "¶", image: "▣", video: "▶", rect: "▭", ellipse: "◯", line: "╱", path: "〰",
 };
 
 /** A compact label for a track chip (prefixed with a P-tag when the slide has
  *  several plots so identical part names stay distinguishable). */
-export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>): string {
+export function refLabel(ref: TargetRef, slide: Slide | null, manifestFor: ManifestFor = () => undefined, plotTags = new Map<string, string>(), maxParts = 1): string {
+  const el = slide?.elements.find(e => e.id === ref.element);
+  if (ref.group) return slide?.groups?.[ref.group]?.name || "Group";
+  if (!el || !slide) return "missing";
+  const manifest = manifestFor(el.id);
+  const manifests = el.type === "plot" && manifest && !isScene3dManifest(manifest) ? { [el.assetId]: manifest } : {};
+  const tag = plotTags.get(el.id);
+  const name = (tag ? `${tag} · ` : "") + elementLabel(slide as unknown as Figure, el as Element, manifests);
+  const ids = ref.selector ? targetPartIds({ parts: ref.parts, selector: ref.selector }, manifest) : [...new Set(ref.parts ?? [])];
+  if (!ids.length) return name;
+  const nodes = new Map<string, PartNode>();
+  const walk = (n: PartNode) => { if (n.id || n.ref) nodes.set((n.id ?? n.ref)!, n); n.children?.forEach(walk); };
+  if (isScene3dManifest(manifest)) {
+    const queue = [buildModel3dTree(manifest)];
+    for (const node of queue) { nodes.set(node.id, { id: node.id, label: node.label }); queue.push(...node.children); }
+  } else if (manifest?.parts) walk(manifest.parts);
+  const labels = ids.slice(0, ids.length > maxParts ? 1 : maxParts).map(id => {
+    const node = nodes.get(id) ?? { id };
+    const label = labelForPart(node);
+    const axis = id.match(/(?:^|\.)axis\.([xyz])\./)?.[1];
+    return axis && !node.label ? `${axis.toUpperCase()} axis ${label.toLowerCase()}` : label;
+  });
+  return `${name} › ${labels.join(", ")}${ids.length > maxParts ? ` + ${ids.length - 1}` : ""}`;
+}
+
+export function chipLabel(t: Track, slide: Slide | null, plotTags: Map<string, string>, deck: StyleContext = {}, manifestFor: ManifestFor = () => undefined): string {
+  t = resolveTrack(t, deck);
   if (t.target.startsWith("@")) return t.target.slice(1);
-  const tag = plotTags.get(t.target);
-  const pre = tag ? `${tag} · ` : "";
-  if (t.part) {
-    const el = slide?.elements.find((e) => e.id === t.target);
-    return `${el?.name || tag || "Plot"} › ${t.part.split(".").join(" › ")}`;
-  }
-  const el = slide?.elements.find((e) => e.id === t.target);
-  if (!el) return pre + "missing"; // dangling target — tolerated + surfaced
-  if (t.ghostFrom) {
-    const source = slide?.elements.find(e => e.id === t.ghostFrom);
-    return `${source?.name || source?.type || "Missing source"} → ${el.name || "Ghost"}`;
-  }
-  if (el.type === "text") return pre + (el.name || el.text.split("\n")[0]?.slice(0, 60) || "Text");
-  return pre + ((el.name ?? el.type) || "elem");
+  if (isHandoff(t)) return `${refLabel(trackRef(t), slide, manifestFor, plotTags)} → ${refLabel(t.to.become.ref, slide, manifestFor, plotTags)}`;
+  // Ghost chips describe lineage; ordinary bindings share the semantic ref label.
+  if (t.ghostFrom) return `${refLabel({ element: t.ghostFrom }, slide, manifestFor, plotTags)} → ${refLabel(trackRef(t), slide, manifestFor, plotTags)}`;
+  return refLabel(trackRef(t), slide, manifestFor, plotTags);
 }
 
 /** A track whose element target no longer exists on the slide (the figure
@@ -89,23 +93,26 @@ export function isDanglingTrack(t: Track, slide: Slide | null): boolean {
 }
 
 /** How many targets a track fans out to (drives the stagger tail length). */
-export function trackFanout(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
-  if (slide && (t.part || t.selector)) return Math.max(1, semanticTargets(t,slide,{plotManifest:()=>manifest}).length);
+export function trackFanout(t: Track, slide: Slide | null, manifest: ReturnType<ManifestFor>): number {
+  if (slide && (t.part || t.parts?.length || t.selector)) return Math.max(1, semanticTargets(t, slide, {plotManifest: () => !isScene3dManifest(manifest) ? manifest : undefined, modelManifest: () => isScene3dManifest(manifest) ? manifest : undefined}).length);
   return 1;
 }
 
 /** A track's time footprint within its beat: [start, start+duration+staggerSpan]. */
-export function trackEndMs(t: Track, slide: Slide | null, manifest: FluxPlotManifest | undefined): number {
-  const start = t.start ?? 0;
+export function trackEndMs(t: Track, slide: Slide | null, manifest: ReturnType<ManifestFor>, deck: StyleContext = {}, manifestFor: ManifestFor = () => manifest): number {
+  const beat = slide?.beats.find(b => b.tracks.some(x => x === t || t.id != null && x.id === t.id));
+  const start = beat ? resolveStart(t, beat, deck, manifestFor).start : resolveTrack(t, deck).start ?? 0;
+  t = resolveTrack(t, deck);
   const dur = trackDuration(t);
   const span = staggerSpan(t, trackFanout(t, slide, manifest));
   return start + dur + span;
 }
 
 /** The latest end time of any track on a beat (min 1ms so empty beats layout). */
-export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: (target: string) => FluxPlotManifest | undefined): number {
+export function beatEndMs(tracks: Track[], slide: Slide | null, manifestFor: ManifestFor, deck: StyleContext = {}): number {
   let end = 0;
-  for (const t of tracks.filter(t=>!t.disabled)) end = Math.max(end, trackEndMs(t, slide, manifestFor(t.target)));
+  const resolved = resolveBeat({ id: "", tracks }, deck, manifestFor).tracks;
+  for (const t of resolved) if (!t.disabled) end = Math.max(end, (t.start ?? 0) + trackDuration(t) + staggerSpan(t, trackFanout(t, slide, manifestFor(t.target))));
   return end;
 }
 

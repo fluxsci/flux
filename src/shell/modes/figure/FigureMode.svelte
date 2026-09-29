@@ -13,7 +13,10 @@
   // 100vh) and the keyboard handler is scoped to this component's lifetime so
   // figure shortcuts aren't global when another mode is focused. Persistence is
   // wired into the project's `fig/` subsystem via project/figbridge.ts.
-  import { onMount, onDestroy } from "svelte";
+  import { openFigureRequest } from "../../command/commandBus";
+  import { centerOnFigure } from "../../../lib/viewportNav";
+  import { selection, setPartSelections, activeCanvasId, project } from "../../../lib/store";
+  import { onMount, onDestroy, tick } from "svelte";
   import { get } from "svelte/store";
   import Toolbar from "../../../lib/Toolbar.svelte";
   import Sidebar from "../../../lib/Sidebar.svelte";
@@ -153,6 +156,21 @@
     };
   });
 
+  $effect(() => {
+    const request = $openFigureRequest;
+    if (!ready || !focused || !request) return;
+    const figure = get(project).figures.find(f => f.id === request.figureId);
+    if (!figure) { openFigureRequest.set(null); return; }
+    activeCanvasId.set(figure.canvasId); activeFigureId.set(figure.id);
+    selection.set(new Set(request.elements.filter(id => figure.elements.some(e => e.id === id))));
+    setPartSelections(request.parts.filter(p => figure.elements.some(e => e.id === p.elementId)));
+    void tick().then(() => requestAnimationFrame(() => {
+      if (!alive || !focused || get(openFigureRequest) !== request) return;
+      centerOnFigure(figure.id);
+      openFigureRequest.set(null);
+    }));
+  });
+
   onMount(() => {
     figureModeMounts++;
     void initializeEditor("figure", paneId, () => alive, async () => {
@@ -250,7 +268,7 @@
   </div>
   <FluxFigMenu />
   <Xray />
-  <PlotImporter {active} />
+  <PlotImporter {active} allowModels />
   <DissectOverlay />
   <PresetPicker />
 

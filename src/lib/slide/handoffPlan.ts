@@ -1,0 +1,56 @@
+// Shared preparation for playback and animator warming. No live DOM or layout.
+import type { SlideFrame } from "./compile";
+import type { Track, TargetRef, BecomeSpec } from "./types";
+import type { StageOutline } from "./stageOutline";
+import { trackRef, isWholeElementRef } from "./targets";
+import { targetOutlines, plotStageMapping, type GeometryCtx } from "./targetGeometry";
+import { planCorrespondence, type CorrespondencePlan, type DataHint } from "./correspondence";
+import { viewFits } from "../plot/project";
+
+/** An outline wholly outside a cropped plot cannot take part in a flight.
+ *  Test in the plot's unrotated frame, including its flips. Partial overlaps
+ *  keep their geometry; the flight driver clips them to the destination box. */
+function insideCrop(outline: StageOutline, frame: SlideFrame): boolean {
+  const plot = frame.elements.find(el => el.id === outline.owner.elementId);
+  if (plot?.type !== "plot" || !plot.crop) return true;
+  const b = outline.bbox, cx = plot.x + plot.width / 2, cy = plot.y + plot.height / 2;
+  const angle = -plot.rotation * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const x of [b.x, b.x + b.w]) for (const y of [b.y, b.y + b.h]) {
+    const px = c * (x - cx) - s * (y - cy) + cx, py = s * (x - cx) + c * (y - cy) + cy;
+    minX = Math.min(minX, px); maxX = Math.max(maxX, px); minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+  }
+  return maxX >= plot.x && minX <= plot.x + plot.width && maxY >= plot.y && minY <= plot.y + plot.height;
+}
+
+function axisHint(ref: TargetRef, outlines: StageOutline[], frame: SlideFrame, ctx: GeometryCtx): DataHint["destAxisFit"] {
+  const plot = frame.elements.find(el => el.id === ref.element);
+  if (plot?.type !== "plot" || plot.rotation % 360 !== 0) return undefined;
+  const manifest = ctx.manifest(plot.assetId), root = ctx.plotRoot(plot.assetId);
+  if (!manifest || !root) return undefined;
+  const seriesId = outlines.find(o => o.owner.series)?.owner.series;
+  const series = manifest.series?.find(s => s.id === seriesId);
+  const fits = viewFits(manifest, plot.view, series?.panelId);
+  return fits ? plotStageMapping(plot, root).fitX(fits.x) : undefined;
+}
+
+export function planHandoff(track: Track, frame: SlideFrame, ctx: GeometryCtx): CorrespondencePlan {
+  const spec = track.to!.become as BecomeSpec, source = trackRef(track);
+  const a = targetOutlines(source, frame, ctx).filter(o => insideCrop(o, frame));
+  const b = targetOutlines(spec.ref, frame, ctx).filter(o => insideCrop(o, frame));
+  const data: DataHint = { destAxisFit: axisHint(spec.ref, b, frame, ctx), sourceAxisFit: axisHint(source, a, frame, ctx) };
+  const dest = frame.elements.find(el => el.id === spec.ref.element);
+  // Whole-plot default: one source becomes the merged axes, not a slice of
+  // every tick/label/data mark. All remaining parts use the planner's ordinary
+  // b-only envelope. Explicit non-default policies still mean what they say.
+  if (dest?.type === "plot" && isWholeElementRef(spec.ref) && (!spec.pair || spec.pair === "auto" || spec.pair === "tile")) {
+    const spines = b.filter(o => /(?:^|\.)axis\.[xy]\.spine$/.test(o.owner.partId ?? ""));
+    if (spines.length) {
+      const flight = planCorrespondence(a, spines, { pair: "tile", data });
+      const rest = planCorrespondence([], b.filter(o => !spines.includes(o)));
+      return { pairs: [...flight.pairs, ...rest.pairs], policy: "tile", driver: flight.driver,
+        destinations: [...flight.destinations, ...rest.destinations], prepare() { flight.prepare(); rest.prepare(); } };
+    }
+  }
+  return planCorrespondence(a, b, { pair: spec.pair, data });
+}

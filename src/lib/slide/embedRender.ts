@@ -1,10 +1,12 @@
+import { staticModelElement, staticModelContext, payloadModelCompileOptions } from "./staticModels";
 import type { Deck } from "./types";
 import type { ExportPayload } from "./payload";
 import type { Figure } from "../types";
-import { preparePlot } from "../plot/parse";
+import { preparePlot, partIdFromDom } from "../plot/parse";
 import { buildPlotMarkup } from "../plot/inlineMarkup";
 import { figureToSvg } from "../export";
-import { compileSlide } from "./compile";
+import { compileSlide, type CompiledSlide } from "./compile";
+import { remapBecomeTarget } from "./handoffTargets";
 import { resolveTheme } from "./theme";
 import type { PlayerOpts } from "./player/player";
 
@@ -34,9 +36,21 @@ export function namespaceEmbedDeck(deck: Deck, prefix: string): Deck {
     const groups = new Map(Object.keys(slide.groups ?? {}).map(id => [id, `${prefix}-${id}`]));
     for (const e of slide.elements) { e.id = ids.get(e.id)!; if (e.groupId) e.groupId = groups.get(e.groupId) ?? e.groupId; }
     slide.groups = Object.fromEntries(Object.entries(slide.groups ?? {}).map(([id, g]) => [groups.get(id)!, { ...g, id: groups.get(id)!, ...(g.parentId ? { parentId: groups.get(g.parentId) ?? g.parentId } : {}) }]));
-    for (const b of slide.beats) for (const t of b.tracks) { t.target = ids.get(t.target) ?? t.target; if (t.ghostFrom) t.ghostFrom = ids.get(t.ghostFrom) ?? t.ghostFrom; }
+    for (const b of slide.beats) for (const t of b.tracks) {
+      t.target = ids.get(t.target) ?? t.target;
+      if (t.ghostFrom) t.ghostFrom = ids.get(t.ghostFrom) ?? t.ghostFrom;
+      remapBecomeTarget(t, ids, groups);
+    }
   }
   return copy;
+}
+
+/** The payload's slide compiled once, for callers that sample it repeatedly
+ *  (the PowerPoint export samples every phase of every build). */
+export function compileSlideFor(payload: ExportPayload): CompiledSlide {
+  const slide = payload.deck.slides[0];
+  if (!slide) throw new Error("Cannot render an absent slide");
+  return compileSlide(slide, payload.deck.stage, payloadModelCompileOptions(payload));
 }
 
 /** A slide evaluated at one build step, ready for any static writer: the
@@ -53,10 +67,10 @@ export interface EvaluatedSlide {
   background: string;
   stage: { width: number; height: number };
 }
-export function evaluateSlide(payload: ExportPayload, step = 0): EvaluatedSlide {
+export function evaluateSlide(payload: ExportPayload, step = 0, timeMs = Infinity, compiled?: CompiledSlide): EvaluatedSlide {
   const deck = payload.deck, slide = deck.slides[0];
   if (!slide) throw new Error("Cannot render an absent slide");
-  const frame = compileSlide(slide, deck.stage, { plotManifest: id => payload.plots?.[id]?.manifest }).sample(step);
+  const frame = (compiled ?? compileSlideFor(payload)).sample(step, timeMs);
   const unavailable = new Set(frame.presentation.unbornElementIds ?? []);
   for (const el of frame.elements) {
     const appearance = frame.presentation.elementStates[el.id];
@@ -73,7 +87,7 @@ export function evaluateSlide(payload: ExportPayload, step = 0): EvaluatedSlide 
     if (!parts) return markup;
     const root = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
     for (const node of Array.from(root.querySelectorAll("[id]"))) {
-      const key = node.id.startsWith(`${el.id}__`) ? node.id.slice(el.id.length + 2) : "";
+      const key = partIdFromDom(node.id, el.id) ?? "";
       const state = parts[key];
       if (!state) continue;
       const styled = node as SVGElement;
@@ -92,7 +106,9 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
   const ev = evaluateSlide(payload, step);
   const fig: Figure = { id: `poster-${ev.slide.id}`, name: ev.slide.name ?? ev.slide.id, canvasId: "slide-poster", x: 0, y: 0,
     width: ev.stage.width, height: ev.stage.height, background: "transparent", elements: ev.elements, groups: ev.groups };
-  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id]);
+  const models = staticModelContext(payload);
+  fig.elements = fig.elements.map(el => staticModelElement(el, ev.slide));
+  let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id], { model3d: models });
   const { width: w, height: h } = ev.stage;
   const c = ev.camera, camera = c ? `translate(${w / 2} ${h / 2}) scale(${c.zoom}) translate(${-c.x} ${-c.y})` : "";
   const start = svg.indexOf(">") + 1, end = svg.lastIndexOf("</svg>");

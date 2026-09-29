@@ -11,6 +11,12 @@ import { runCliVerb, parseCliFlags, registryHelp, registeredCliVerbs, errorToCli
 
 const HELP = `flux — drive a Flux project from the terminal
 
+  connect setup [--agents claude,codex] [--yes] [--dry-run] [--create-local-bin] [--use-this-install]
+  connect doctor [--json]             Check the Flux AI Bundle and agent registrations.
+  connect remove [--agents claude,codex] [--yes]   Disconnect managed agent integrations.
+
+  mcp [root] [--toolset core|full]  Start the stdio MCP server (core by default).
+
 usage: flux <verb> [root] [args] [--flags]
        Every verb resolves the project root as --root → $FLUX_PROJECT → cwd.
        Verbs marked [root] ALSO accept a leading positional root (".", a path,
@@ -23,6 +29,7 @@ usage: flux <verb> [root] [args] [--flags]
   render-figure [root] <id> [--out f]  render a figure to SVG (stdout or --out)
   render-canvas [canvasId] [--root R] [--png] [--scale n] [--out f]
                                        render a WHOLE canvas (all figures at their x/y)
+  view --png --out <file> [--root R] [--max-edge n]   Capture the live Flux window (maxEdge: 256–1600 px).
   render-figures [root] [--doc p.qmd]  write fig/renders/<id>.svg for embedded figures (bare-quarto prep)
   sync-figure [figId] [--root R]       refresh fig/assets copies from regenerated plots/
                                        sources IN PLACE (captions/restyles survive)
@@ -65,7 +72,7 @@ usage: flux <verb> [root] [args] [--flags]
            [--stroke-width n] [--root R]   add a vector path from a node list
   edit-path <id> [--nodes '<json>'] [--closed|--open] [--root R]   replace a path's nodes
   restyle <figId> <partId> [--root R] [--element E] [--stroke c] [--fill c]
-          [--stroke-width n] [--opacity n] [--hidden]   restyle a plot part
+          [--stroke-width n] [--opacity n] [--hidden | --show]   restyle a plot part
   set-style <id…> [--root R] [--fill c] [--stroke c] [--stroke-width n]
             [--opacity n] [--color c] [--font-size n] [--font F] [--weight n]
             [--italic|--no-italic] [--underline|--no-underline]
@@ -131,7 +138,7 @@ usage: flux <verb> [root] [args] [--flags]
   cite-doi <doi> [--root R]            fetch a DOI → FluxLib + cite in this project
   search <query…>                      search FluxLib (e.g. author:smith year:2020)
   lib                                  show the FluxLib path + entry count
-  config                               machine paths (FluxConfig, FluxLib, Context, agents.json) + build info as JSON;
+  config                               machine paths (FluxConfig, FluxLib, Context) + build info as JSON;
                                        first run initializes ~/FluxConfig (and migrates old layouts)
   version                              this build's version/commit/entry (bundle vs source) as JSON
   lib-add <doi|bibtex…|--file f>       add to FluxLib only (no project cite)
@@ -159,7 +166,7 @@ usage: flux <verb> [root] [args] [--flags]
   ingest-pdf <file> --key K            file a hand-downloaded PDF into items/<citekey>/
   assign-pdfs [--dry-run] [--dir D]    identify + file every PDF in <FluxLib>/pdfs_to_assign/
   search-text <query…> [--limit N] [--json]   full-text search across every stored PDF's text
-  annotations [search <q>] [--key K]   list/search FluxReader highlights & notes
+  highlights [search <q>] [--key K]    list/search FluxReader highlights & notes
                                        --key K --md: export the paper's notes as Markdown
   snip-paper <key> --page N [--rect x1,y1,x2,y2]   capture a PDF page region as a PNG snip into
                                        plots/paper_snips/ (rect = PDF points, y-up; omit = whole
@@ -169,25 +176,27 @@ usage: flux <verb> [root] [args] [--flags]
   tag <citekey> <tag…> [--remove]      add/remove an organization tag on a paper
   set-status <citekey> <status>        set reading status (unread|reading|read)
   collection <citekey> <name…> [--remove]  add/remove a paper from a collection
-  add-annotation --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
+  add-highlight --key K --quote "…" [--page n] [--prefix …] [--suffix …] [--color c] [--note …]   add a highlight/note
   compile [--root R] [--doc rel] [--to pdf|html|docx] [--style nature]   render the manuscript via Quarto
             [--zotero-fields] [--zotero-library a.docx,b.docx]   docx: citations as live Zotero fields
   comments [--root R] [--doc rel] [--all]   list project-wide review comments (open by default; --doc targets one)
   resolve-comment <id|quote> [--root R] [--doc rel] [--note "…"]   resolve a project-wide unique match (--doc targets one)
   add-comment --quote "…" --body "…" [--root R] [--doc rel] [--at n]   open a NEW thread (ask the human in the margin)
-  feedback [--root R] [--all]          list the user's context-stamped feedback notes
-  resolve-feedback <id|text> [--root R] [--note "…"]   mark a feedback note resolved
-  send [--root R] [--note "…"]         mark a review-pass boundary in the feedback ledger
-  context-init [--root R]              ensure the project's Context/ layer (heal old projects)
-  note <text…> [--title "…"] [--file f] [--author a] [--root R]   append a stamped entry to the notebook's
-                                       Session log under the manuscript lock (concurrent-writer safe)
-  agents                               show the machine's agent roster (agents.json)
-  principal [root] [--print] [--no-picker] [--no-transcript]   the launch picker + YOUR principal,
-                                       in THIS terminal, with transcript capture (alias: agent);
-                                       [--model m] [--effort e] [--family f] [--worker-model m] [--worker-effort e] skip the picker
-  dispatch <name> --brief-file f [--model m] [--effort e] [--family fam] [--root R]   run a worker with a brief,
-                                       recorded in Context/Dispatches/ (model/effort default to the session's worker policy)
-  attend [root] [--interval ms] [--echo]   watch the feedback ledger; Send wakes a principal review pass
+  inbox [query] [--root R] [--json]    annotations + comments; --kind/--surface/--doc/--figure/--deck
+                                     --tag a,b --status open,claimed|all --archived --since ISO
+                                     --text text --holder name --claimed me|others|none|any --mine
+  wait-inbox [query] [filters] [--timeout seconds] [--cursor token] [--mode queue|annotations|filter]
+                                     wait for routed items; JSON {items,cursor,stopped,revoked}
+  claim <id> [--note text] [--force]   first live claimant wins (force only on request)
+  release <id>                       release your inbox claim
+  reply <id> <text…> [--needs-input]  reply in the item's thread
+  resolve <id|quote> [--note text]    resolve an annotation or margin comment
+  archive <id> · unarchive <id>       hide/restore an inbox item on request
+  inspect <TargetRef JSON|shorthand>  inspect saved state without rendering
+  context-init [--root R]              ensure missing Context documents and agent pointers
+  log <text…> [--title "…"] [--file f] [--agent a] [--surface s] [--checkpoint] [--root R]
+                                       append to the project Log when asked (automatic byline, manuscript lock)
+  read-log [--tail n] [--since-checkpoint] [--titles] [--json] [--root R]   read Log entries (Markdown; --json)
   validate [file] [--root R]           validate writes against .meta/schema/
   validate-plot <plot.svg>             validate a FluxPlot (manifest + addressable ids)
   rerun-plot <recipe.json> [--param v…] [--only [name]]   re-run a plot's recipe
@@ -197,6 +206,15 @@ usage: flux <verb> [root] [args] [--flags]
   list-dissections [plot]              a plot's companion material in plots/_dissections/<plot>/
                                        (subfolders = named groups; no arg = every
                                        plot that has a dissection folder)
+
+ Figure 3D models:
+  add-model <figureId> <source.glb> [--x n --y n --width n --height n --name N --view '<json>']   import an immutable mesh copy + semantic sidecars
+  set-model-view <elementId> [--figure id --preset front|back|right|left|top|bottom|home --azimuth n --elevation n --zoom n --colors source|uniform --state name=weight … | --frame n]   edit a saved Figure model view
+  set-model-field <elementId> <fieldId> [--cmap name --min n --max n | --reset]   remap a 3D value field
+  restyle-part <figureId> <partId> [--element id --fill c --opacity n --hidden | --show]   alias of restyle; plot or 3D semantic parts
+                                       (bare --hidden hides the part; --show unhides it)
+  model-info <source.glb> [--morph-with other.glb]   read-only stats, semantics and topology inspection
+  render-model-posters [--figure id --prune]   batch-render saved Figure model posters into the project cache
 
  Slides (Flux Slide — figure-first animated talks):
   decks [--root R]                     list the project's slide decks (JSON)
@@ -217,6 +235,9 @@ usage: flux <verb> [root] [args] [--flags]
   set-transform <deckId> <slideId> <beatId> <elementId> [--state '<json patch>' --replace-state --start ms --duration ms --easing e --to-asset id]   the t1→t2 state tween (one per element per beat)
   ghost-transform <deckId> <slideId> <beatId> <sourceId> [--count 3 --original stay|disappear|transform --states '<json array>' --original-state '<json patch>' --duration ms --start ms --easing e]   spawn independent copies from the source's current state
   become <deckId> <slideId> <beatId> <sourceId> (--target <elementId> | --asset <assetId>) [--start ms --duration ms --easing e --force]   the source turns into another object (consumed) or, for a plot, another project plot's data
+  anim-style <create|set|delete|list> <deckId> [styleId] [--name N --family F --preset P --start ms --duration ms --easing E --stagger JSON]   linked deck animation styles
+  animate-like <deckId> <slideId> --from <trackId> --to <trackId,…>   link effects to the source's style
+  set-track <deckId> <slideId> <trackId> [--style id|--no-style] [--anchor trackId:start|end[:offsetMs]|--no-anchor] [--start ms --duration ms --easing E]   timing and style overrides
   group-tracks <deckId> <slideId> <beatId> t1,t2… [--label L]   bundle lanes under a collapsible TrackGroup
   ungroup-tracks <deckId> <slideId> <beatId> t1,t2…   dissolve the lanes' groups
   cascade-tracks <deckId> <slideId> <start|duration|influence.in|influence.out|stagger.perMs> t1,t2… [--delta n | --factor n] [--order timeline|list] [--reverse] [--first-fixed]   stepped timing delta across tracks (rank k gets value+delta·step)
@@ -243,7 +264,7 @@ function help(verb?: string): string {
   let keep = true;
   const legacy = HELP.split('\n').filter(line => {
     const match = /^  ([a-z][a-z-]*) /.exec(line);
-    if (match) keep = !registered.has(match[1]);
+    if (match) keep = !registered.has(match[1]) || /^  connect (setup|doctor|remove) /.test(line);
     return keep;
   }).join('\n');
   return `${legacy}\nRegistry commands (flags from the shared CLI/MCP contract):\n${registryHelp()}`;
@@ -255,6 +276,20 @@ const num = (v: unknown): number | undefined =>
 async function main() {
   core.setClient(process.env.FLUX_CLIENT || "cli"); // WS6: journal/lock identity
   const [verb, ...rest] = process.argv.slice(2);
+  // Private runner transport: bounded JSON on stdin, never part of the agent verb registry.
+  if (verb === "runner-task") {
+    if (!process.env.FLUX_RUNNER_TOKEN) throw new Error("runner-task requires a hosted run");
+    let input = "";
+    for await (const chunk of process.stdin) { input += chunk; if (input.length > 1024 * 1024) throw new Error("Task request too large"); }
+    const { backgroundTask } = await import("./flux-core/backgroundTask");
+    console.log(JSON.stringify(await backgroundTask(JSON.parse(input))));
+    return;
+  }
+  if (verb === "connect" && ["setup", "doctor", "remove"].includes(rest[0])) {
+    const { runAgentSetupCli } = await import("./flux-core/agentSetup");
+    await runAgentSetupCli(rest);
+    return;
+  }
   const { _, flags } = parseCliFlags(verb, rest);
   if (flags.help) { console.log(help(verb)); return; }
   // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
@@ -280,6 +315,31 @@ async function main() {
   const root = () => (posIsRoot ? path.resolve(_[0]) : R());
   const A = posIsRoot ? _.slice(1) : _; // old-style verbs' own (root-stripped) args
 
+  // flux connect's CLI-only forms (plan §8.1, §8.8): stdout-only pack parts,
+  // receipt checks and the prompt hook. None of them is an MCP tool.
+  if (verb === "connect" && (flags.part !== undefined || flags["check-receipt"] !== undefined || flags["hook-delta"])) {
+    const { connectCli } = await import("./flux-core/connect/cli");
+    await connectCli(_, flags);
+    return;
+  }
+  // In a flux-connected session, fold this call's own writes into the
+  // session's cursor, so the next "since you last looked" notice is news.
+  const selfWrites = verb === "connect" || verb === "mcp" ? null : await (await import("./flux-core/connect/cli")).trackSelfWrites(R()).catch(() => null);
+  try {
+    await dispatch(verb, _, flags, A, root, R);
+  } finally {
+    await selfWrites?.finish();
+  }
+}
+
+async function dispatch(
+  verb: string,
+  _: string[],
+  flags: Record<string, string | boolean | string[]>,
+  A: string[],
+  root: () => string,
+  R: () => string,
+) {
   // WS-6.3: registered verbs route through the ONE registry (same schema +
   // handler + render as the MCP surface); everything else falls through to the
   // legacy switch until its batch migrates. The invocation carries BOTH root
@@ -300,45 +360,17 @@ async function main() {
   }
 
   switch (verb) {
+    case "mcp": {
+      const { startMcpServer } = await import("./flux-core/mcpServer");
+      const toolset = flags.toolset;
+      if (toolset !== undefined && toolset !== "core" && toolset !== "full") throw new Error("MCP toolset must be core or full");
+      await startMcpServer({ root: _[0] ?? (flags.root as string | undefined), toolset });
+      break;
+    }
     case "new": {
       const dir = path.resolve(_[0] ?? ".");
       await core.scaffold(dir, { title: flags.title as string, author: flags.author as string });
       console.error(`✓ scaffolded Flux project at ${dir}`);
-      break;
-    }
-    // Principal-agent scheme: interactive launch + the attend daemon are
-    // deliberately CLI-only legacy verbs (they own the terminal / never return —
-    // inexpressible as registry/MCP tools, like `new`).
-    case "principal":
-    case "agent": {
-      if (flags.print) {
-        console.log(JSON.stringify(core.principalSpec(root()), null, 2));
-        break;
-      }
-      process.exitCode = await core.runPrincipal(root(), {
-        family: flags.family as string | undefined,
-        model: flags.model as string | undefined,
-        effort: flags.effort as string | undefined,
-        workerFamily: flags["worker-family"] as string | undefined,
-        workerModel: flags["worker-model"] as string | undefined,
-        workerEffort: flags["worker-effort"] as string | undefined,
-        noPicker: !!flags["no-picker"],
-        noTranscript: !!flags["no-transcript"],
-      });
-      // This verb owns the terminal and has nothing left to flush, so it exits
-      // rather than waiting for the loop to drain: on Windows node-pty leaves a
-      // MessagePort and a Socket open after the child exits, and `flux principal`
-      // with a transcript never returned to the shell (measured: still alive
-      // indefinitely, the gate's 60s exit wait timed out). stdout here is a
-      // terminal, where Windows writes are synchronous.
-      process.exit(process.exitCode);
-    }
-    case "attend": {
-      await core.attend(root(), {
-        intervalMs: num(flags.interval),
-        echo: !!flags.echo,
-        onEvent: (m) => console.error(`[attend] ${m}`),
-      });
       break;
     }
     case "render-figure": {
@@ -352,18 +384,35 @@ async function main() {
         );
       // WS-12: headless-edited text renders unwrapped — warn loudly, render anyway.
       for (const w of await core.textLayoutProbe(root(), { figureId: figId })) console.error(`⚠ ${w}`);
+      const modelWarnings: string[] = [];
       if (flags.png) {
-        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2);
+        const png = await core.renderFigurePng(root(), figId, num(flags.scale) ?? 2, { model3dPolicy: 'image', warnings: modelWarnings });
         const out = String(flags.out ?? `${figId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const svg = await core.renderFigureSvg(root(), figId);
+        const svg = await core.renderFigureSvg(root(), figId, { model3dPolicy: 'image', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
         } else process.stdout.write(svg);
       }
+      for (const warning of modelWarnings) console.error(`⚠ ${warning}`);
+      break;
+    }
+    case "view": {
+      if (flags.png !== true || typeof flags.out !== "string" || !flags.out)
+        throw new Error("Usage: flux view --png --out <file> [--root R] [--max-edge n]");
+      const maxEdge = num(flags["max-edge"]);
+      if (flags["max-edge"] !== undefined && (maxEdge === undefined || !Number.isFinite(maxEdge)))
+        throw new Error("max-edge must be a finite number");
+      const { getView } = await import("./flux-core/liveClient");
+      const { detectAgentIdentity } = await import("./flux-core/agentIdentity");
+      const { describeStamp } = await import("./src/lib/project/annotations");
+      const result = await getView(R(), maxEdge, detectAgentIdentity(process.env).sessionId ?? undefined);
+      const png = Buffer.from(result.png, "base64");
+      await fs.writeFile(flags.out, png);
+      console.error(`✓ wrote ${flags.out} (${png.length} bytes) · ${describeStamp(result.stamp)}`);
       break;
     }
     case "render-canvas": {
@@ -372,13 +421,14 @@ async function main() {
       // frames) that per-figure renders can never show.
       const cid = _[0] || undefined;
       for (const w of await core.textLayoutProbe(R(), { canvasId: cid })) console.error(`⚠ ${w}`); // WS-12
+      const modelWarnings: string[] = [];
       if (flags.png) {
-        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1);
+        const { png, canvasId } = await core.renderCanvasPng(R(), cid, num(flags.scale) ?? 1, { model3dPolicy: 'image', warnings: modelWarnings });
         const out = String(flags.out ?? `${canvasId}.png`);
         await fs.writeFile(out, png);
         console.error(`✓ wrote ${out} (${png.length} bytes)`);
       } else {
-        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid);
+        const { svg, canvasId } = await core.renderCanvasSvg(R(), cid, { model3dPolicy: 'image', posterSurface: 'svg', warnings: modelWarnings });
         if (flags.out) {
           await fs.writeFile(String(flags.out), svg);
           console.error(`✓ wrote ${flags.out}`);
@@ -387,6 +437,7 @@ async function main() {
           console.error(`✓ rendered canvas ${canvasId}`);
         }
       }
+      for (const warning of modelWarnings) console.error(`⚠ ${warning}`);
       break;
     }
     case "render-figures": {
@@ -553,7 +604,7 @@ async function main() {
       );
       break;
     }
-    case "annotations": {
+    case "highlights": {
       if (_[0] === "search") {
         const q = _.slice(1).join(" ");
         const hits = await core.searchAnnotations(q, {
@@ -567,11 +618,11 @@ async function main() {
       } else if (typeof flags.key === "string") {
         const list = await core.listAnnotations(flags.key);
         console.log(JSON.stringify(list, null, 2));
-        console.error(`✓ ${list.length} annotation(s) in ${flags.key}`);
+        console.error(`✓ ${list.length} highlight(s) in ${flags.key}`);
       } else {
         const hits = await core.searchAnnotations("");
         console.log(JSON.stringify(hits, null, 2));
-        console.error(`✓ ${hits.length} annotation(s) library-wide`);
+        console.error(`✓ ${hits.length} highlight(s) library-wide`);
       }
       break;
     }

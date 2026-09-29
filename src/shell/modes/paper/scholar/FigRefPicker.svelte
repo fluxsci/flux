@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../../../agent/annotationVisibility";
+
   import { onMount, tick } from "svelte";
   import { popIn, fadeRise } from "../../../../lib/motion/actions";
   import { resolveFigure, figRefText, type FigureRef, figureImage } from "./figures";
@@ -104,6 +106,7 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     // The keydown that OPENED the picker (e.g. Enter accepting /cross-reference)
     // is still bubbling when this window listener mounts.
     if (e.defaultPrevented) return;

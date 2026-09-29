@@ -1,0 +1,14 @@
+{
+  "env": null,
+  "generatedAt": "2026-09-28T20:25:53Z",
+  "inputs": [],
+  "outputs": {
+    "glb": "cortex-states.glb",
+    "manifest": "cortex-states.fluxplot.json"
+  },
+  "params": {},
+  "plot": "cortex-states",
+  "schemaVersion": "0.3.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

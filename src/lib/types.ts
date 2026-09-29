@@ -149,7 +149,7 @@ export interface Figure {
 export interface Asset {
   id: Id;
   name: string;
-  kind: "png" | "svg" | "mp4";
+  kind: "png" | "svg" | "mp4" | "glb";
   // Relative path inside the project dir, e.g. "assets/plot1.svg".
   path: string;
   // Intrinsic dimensions in px (used to seed placement size / aspect ratio).
@@ -161,6 +161,10 @@ export interface Asset {
   // import. Physical size in canvas px = natural × 96/dpi. Absent for SVG (already
   // physical) and for rasters that declare nothing (screenshots: 1 px = 1 canvas px).
   dpi?: number;
+  /** Prepared GLB metadata; binary content is never stored in assetData. */
+  sha256?: string;
+  bytes?: number;
+  model?: import("./model3d/types").Model3dInfo;
   /** Prepared slide video metadata; original source remains untouched. */
   durationMs?: number;
   hasAudio?: boolean;
@@ -420,6 +424,23 @@ export interface SemanticPlotElement extends ElementBase {
   // Geometric content scale persisted by the K/Scale tool. Plain resize keeps
   // text/strokes pt-true (plot/compensate.ts); K multiplies this instead.
   contentScale?: number;
+  // The plot's DATA VIEW (animation v2): show the plot as if its axes had these
+  // limits/scales — a data-space crop. Rendered by pure re-projection through
+  // the manifest's axis fits (plot/project.ts) in every engine; absent = the
+  // generated view (so untouched files stay byte-identical). An ordinary
+  // element prop: a slide Change of it is the data-space transform.
+  view?: PlotView;
+}
+
+/** One axis of a plot's data view. `domain` in data units (the manifest's
+ *  axis domain when absent); `scale` overrides the generated axis scale. */
+export interface PlotAxisView {
+  domain?: [number, number];
+  scale?: "linear" | "log";
+}
+export interface PlotView {
+  x?: PlotAxisView;
+  y?: PlotAxisView;
 }
 
 // A style override for one semantic part. Open-ended; each key maps to a
@@ -456,7 +477,9 @@ export type FigureElement =
   | EllipseElement
   | LineElement
   | PathElement
-  | SemanticPlotElement;
+  | SemanticPlotElement
+  | import("./model3d/types").Model3dElement;
+export type { Model3dElement } from "./model3d/types";
 
 /** Shared editor scene; canonical Figure files accept FigureElement only. */
 export type Element = FigureElement | import("./slide/mediaTypes").VideoElement;

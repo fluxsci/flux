@@ -1,3 +1,7 @@
+import { elementSourceAssetIds } from "../model3d/refs";
+import { prepareModelCopy, publishModelCopy, type PreparedModelCopy } from "../model3d/copy";
+import { scene3dSidecarWrites } from "../model3d/persistence";
+import { collectModel3dSourceBindings } from "../model3d/sourceBinding";
 import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
 import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
 import { generationBridgeIO } from "./generationBridgeIO";
@@ -75,11 +79,16 @@ async function assertSnapshot(snapshot: FigureSnapshot, io: TextGenerationIO) {
 /** Read every asset used by the complete figure model, not only the selected
  * canvas. exists() cannot establish that the accepted scientific bytes can be read. */
 async function figureAssets(fig: FileBridge, root: string, snapshot: FigureSnapshot) {
-  const required = new Set(snapshot.project.figures.flatMap(f => f.elements.flatMap(e => "assetId" in e ? [e.assetId] : [])));
+  const required = new Set(snapshot.project.figures.flatMap(f => f.elements.flatMap(elementSourceAssetIds)));
   const bytes = new Map<string, Uint8Array>();
   for (const id of required) {
     const asset = snapshot.project.assets.find(a => a.id === id);
     if (!asset?.path) throw new Error(`Missing conversion asset: ${id}`);
+    if (asset.kind === "glb") {
+      // Metadata-only preflight; native verified copies own GLB byte transport.
+      if (!await fig.exists(joinPath(root, "fig", storedAssetPath(asset.path)))) throw new Error(`Missing GLB asset ${id}`);
+      continue;
+    }
     const rel = `fig/${storedAssetPath(asset.path)}`;
     const abs = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
     bytes.set(id, new Uint8Array(await fig.readFile(abs)));
@@ -114,12 +123,13 @@ async function publishAssets(fig: FileBridge, root: string, writes: AssetWrite[]
   }
 }
 function sourceAssets(elements: Figure["elements"]) {
-  const ids = new Set(elements.flatMap(e => "assetId" in e ? [e.assetId] : []));
+  const ids = new Set(elements.flatMap(elementSourceAssetIds));
   const metadata = structuredClone(get(figProject).assets);
   const manifests = structuredClone(get(plotManifests)), recipes = structuredClone(get(plotRecipes));
   const source = new Map<string, { asset: Asset; bytes: Uint8Array; manifest?: string; recipe?: string }>();
   for (const id of ids) {
     const asset = metadata.find(a => a.id === id), url = getAssetData(id);
+    if (asset?.kind === "glb") continue;
     if (!asset || !url) throw new Error(`Missing conversion asset: ${id}`);
     const man = manifests[id];
     source.set(id, { asset, bytes: dataUrlToBytes(url),
@@ -129,12 +139,27 @@ function sourceAssets(elements: Figure["elements"]) {
   return source;
 }
 
+/** Capture only metadata; model bytes cross documents through verified native copies. */
+function sourceModels(elements: Figure["elements"]) {
+  const ids = new Set(elements.filter(e => e.type === "model3d").map(e => e.assetId));
+  return [...ids].map(id => {
+    const asset = get(figProject).assets.find(a => a.id === id);
+    if (!asset || asset.kind !== "glb") throw new Error(`Missing conversion model metadata: ${id}`);
+    return structuredClone(asset);
+  });
+}
+async function prepareModelSidecars(fig: FileBridge, root: string, writes: AssetWrite[], copy: PreparedModelCopy, prefix: string) {
+  for (const [rel, text] of scene3dSidecarWrites(`${prefix}/assets`, copy.asset.id, copy.sidecars)) {
+    if (text !== null) await prepareAbsentWrite(fig, root, writes, rel, new TextEncoder().encode(text));
+  }
+}
+
 /** Figure → deck uses an immutable invocation snapshot. Saved figure assets
  * remain by-id references; unsaved assets are copied into the destination deck. */
 export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name" | "elements" | "groups">, deckId: string | null): Promise<{ deckId: string; slideId: string; title: string }> {
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
-  const captured = structuredClone(figure), source = sourceAssets(captured.elements), localOwner = captureOwner(root);
-  const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset), palette: [] });
+  const captured = structuredClone(figure), source = sourceAssets(captured.elements), models = sourceModels(captured.elements), localOwner = captureOwner(root);
+  const sourceErrors = validateModel({ version: 2, name: "Conversion", canvases: [{ id: "source", name: "Source" }], figures: [{ ...captured, id: "source-figure", canvasId: "source", x: 0, y: 0, width: 1, height: 1 }], assets: [...source.values()].map(v => v.asset).concat(models), palette: [] });
   if (sourceErrors.length) throw new Error(sourceErrors.join("; "));
   return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
     const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
@@ -147,9 +172,27 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
     // Deferred resolution is read-only: conversion must never rebase or warm
     // another resident editor's caches merely by inspecting its target.
     const resolved = await resolveDeckAssets(root, deck, () => false, true);
-    const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(e => "assetId" in e ? [e.assetId] : []), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
-    for (const id of required) if (!resolved.data[id]) throw new Error(`Missing conversion target asset: ${id}`);
-    const writes: AssetWrite[] = [];
+    const required = new Set(deck.slides.flatMap(s => [...s.elements.flatMap(elementSourceAssetIds), ...s.beats.flatMap(b => b.tracks.flatMap(t => t.to?.assetId ? [t.to.assetId] : []))]));
+    for (const id of required) if (!resolved.data[id] && !resolved.assets.some(a => a.id === id && a.kind === "glb")) throw new Error(`Missing conversion target asset: ${id}`);
+    // A GLB entry resolves as metadata even when its file is gone, so only the
+    // diagnostics say whether the destination can hold what the result needs:
+    // its current references plus the assets this conversion reuses. Entries
+    // kept only for Undo (an unreferenced missing PNG) never block, as before 3D.
+    const needed = new Set([...required, ...models.map(m => m.id), ...source.keys()]);
+    if (resolved.diagnostics.some(d => d.assetId !== undefined && needed.has(d.assetId) && (d.reason.startsWith("media asset") || d.reason.includes("unreadable")))) throw new Error("Conversion destination has unreadable assets");
+    const writes: AssetWrite[] = [], modelCopies: PreparedModelCopy[] = [];
+    const bindings = collectModel3dSourceBindings(captured.elements);
+    for (const asset of models) {
+      const existing = resolved.assets.find(a => a.id === asset.id) ?? snapshot.project.assets.find(a => a.id === asset.id);
+      if (existing) {
+        if (existing.kind !== "glb" || existing.sha256 !== asset.sha256) throw new Error(`Conversion model ${asset.id} has different bytes in the destination`);
+        continue;
+      }
+      const destination = `slides/${deck.id}/assets/${asset.id}.glb`;
+      const copy = await prepareModelCopy(fig, root, asset, root, destination, { sourcePrefix: "fig", binding: bindings.get(asset.id) });
+      modelCopies.push(copy); await prepareModelSidecars(fig, root, writes, copy, `slides/${deck.id}`);
+      deck.assets.push({ ...asset, path: `assets/${asset.id}.glb` });
+    }
     for (const [id, value] of source) {
       if (resolved.data[id] && !equalBytes(dataUrlToBytes(resolved.data[id]), value.bytes)) throw new Error(`Conversion asset ${id} has different bytes in the destination deck`);
       const disk = savedBytes.get(id);
@@ -163,9 +206,10 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
     reconcileDeckExternalAssetSizes(deck, resolved.assets);
     const added = slideOps.addSlide(deck, { name: captured.name, layout: "full-bleed" });
     slideOps.addFigureContentToSlide(deck, added.id, captured);
-    reconcileDeckExternalAssetSizes(deck, [...snapshot.project.assets, ...[...source.values()].map(v => v.asset)]);
+    reconcileDeckExternalAssetSizes(deck, [...snapshot.project.assets, ...[...source.values()].map(v => v.asset), ...models]);
     const errors = validateDeckFile(deck); if (errors.length) throw new Error(errors.join("; "));
     await assertSnapshot(snapshot, io); await assertOwner();
+    for (const copy of modelCopies) await publishModelCopy(fig, copy, assertOwner);
     await publishAssets(fig, root, writes, assertOwner);
     await assertSnapshot(snapshot, io);
     await writeDeckDirect(root, deck, { assertOwned: assertOwner, ...(deckId ? {} : { expectedText: null }) });
@@ -178,7 +222,7 @@ export async function sendFigureToDeck(root: string, figure: Pick<Figure, "name"
 export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<Deck, "id" | "stage" | "background" | "theme" | "assets">, canvasId: string | null): Promise<{ figureId: string; name: string; canvasId: string }> {
   const fig = fileBridge(); if (!fig) throw new Error("no file bridge");
   if (slide.elements.some(e => e.type === "video")) throw new Error("Video clips belong to slides. Remove the clips before sending this slide to a Figure canvas.");
-  const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), localOwner = captureOwner(root);
+  const sourceSlide = structuredClone(slide), sourceDeck = structuredClone(deck), source = sourceAssets(sourceSlide.elements), models = sourceModels(sourceSlide.elements), localOwner = captureOwner(root);
   return withIpcLock("project", "project", async projectLease => withIpcLock("project", "slides", async slideLease => {
     const assertOwner = async () => { localOwner(); await projectLease.assertOwned?.(); await slideLease.assertOwned?.(); };
     const io = generationIO(fig, root);
@@ -186,7 +230,19 @@ export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<D
     await recoverFigureReferenceUpdate(root, referenceSyncBridgeIO(root, fig));
     const snapshot = requireCompleteFigureSnapshot(await readFigureSnapshot(figureSnapshotBridgeIO(root, fig)));
     const savedBytes = await figureAssets(fig, root, snapshot), model = snapshot.project;
-    const beforeFigures = structuredClone(model.figures), writes: AssetWrite[] = [];
+    const beforeFigures = structuredClone(model.figures), writes: AssetWrite[] = [], modelCopies: PreparedModelCopy[] = [];
+    const bindings = collectModel3dSourceBindings(sourceSlide.elements);
+    for (const asset of models) {
+      const prior = model.assets.find(a => a.id === asset.id);
+      if (prior) {
+        if (prior.kind !== "glb" || prior.sha256 !== asset.sha256) throw new Error(`Conversion model ${asset.id} has different bytes in the Figure project`);
+        continue;
+      }
+      const owned = sourceDeck.assets.some(a => a.id === asset.id);
+      const copy = await prepareModelCopy(fig, root, asset, root, `fig/assets/${asset.id}.glb`, { sourcePrefix: owned ? `slides/${sourceDeck.id}` : "", binding: bindings.get(asset.id) });
+      modelCopies.push(copy); await prepareModelSidecars(fig, root, writes, copy, "fig");
+      model.assets.push({ ...asset, path: `assets/${asset.id}.glb` });
+    }
     for (const [id, value] of source) {
       const prior = model.assets.find(a => a.id === id);
       if (prior) {
@@ -224,6 +280,7 @@ export async function sendSlideToCanvas(root: string, slide: Slide, deck: Pick<D
         await assertSnapshot(snapshot, io); await assertOwner(); await manifestLease.assertOwned?.();
         // New immutable asset files may survive an interrupted save as safe
         // unindexed orphans; no pre-existing asset is ever overwritten here.
+        for (const copy of modelCopies) await publishModelCopy(fig, copy, assertOwner);
         await publishAssets(fig, root, writes, assertOwner);
         await assertSnapshot(snapshot, io);
         if (await io.read("project.json") !== manifestBefore) throw new Error("Manifest changed while conversion was prepared");

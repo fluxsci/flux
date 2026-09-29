@@ -18,6 +18,9 @@ import { flipElements } from "../geometry";
 import type { AlignKind } from "../geometry";
 import type { PartOverride, TextStyle, VectorNode } from "../types";
 import { ELEMENT_CASCADE_PROPS, type CascadeSpec } from "../cascade";
+import { scene3dManifests } from '../model3d/store';
+import { applyModelViewCommand, applyModelFieldCommand, validateModelViewCommand, validateModelFieldCommand, assertModelPart, applyModelPartStyle, type ModelViewCommand, type ModelFieldCommand } from '../model3d/commandOps';
+import type { Model3dAsset } from '../model3d/types';
 
 export type Command = { type: string } & Record<string, unknown>;
 
@@ -29,6 +32,8 @@ export const ALLOWED_COMMANDS = [
   "select",
   "clear_selection",
   "restyle_part",
+  'set_model_view',
+  'set_model_field',
   "set_style",
   "rotate",
   "arrange",
@@ -97,6 +102,12 @@ function validateCommand(c: Command): void {
     if (v && typeof v === 'object') for (const child of Object.values(v)) visit(child, depth + 1);
   };
   visit(c);
+  if (c.type === 'set_model_view' || c.type === 'set_model_field') {
+    if (c.target !== undefined && typeof c.target !== 'string') throw new Error('target must be an element id');
+    if (c.deckId !== undefined || c.slideId !== undefined) throw new Error('Live model commands use the resident editor; omit file/deck selectors');
+    if (c.type === 'set_model_view') validateModelViewCommand(c as ModelViewCommand);
+    else validateModelFieldCommand(c as unknown as ModelFieldCommand);
+  }
   if (c.ids !== undefined && (!Array.isArray(c.ids) || c.ids.some(id => typeof id !== 'string'))) throw new Error('ids must be an array of element IDs');
   const p = get(store.project);
   const all = new Set(p.figures.flatMap(f => f.elements.map(e => e.id)));
@@ -197,13 +208,40 @@ export async function dispatchCommand(c: Command): Promise<unknown> {
       let elementId = typeof c.elementId === "string" ? c.elementId : ps?.elementId;
       if (!elementId) {
         const f = store.getActiveFigure(get(store.project));
-        const plots = f?.elements.filter((e) => e.type === "plot") ?? [];
+        const plots = f?.elements.filter((e) => e.type === "plot" || e.type === 'model3d') ?? [];
         if (plots.length === 1) elementId = plots[0].id;
       }
-      if (!elementId) throw new Error("restyle_part: no target plot (select a plot part or pass elementId)");
+      if (!elementId) throw new Error("restyle_part: select a semantic part or pass elementId");
       const target = elementId;
+      const p = get(store.project), element = p.figures.flatMap(figure => figure.elements).find(element => element.id === target);
+      if (element?.type === 'model3d') {
+        const asset = p.assets.find(asset => asset.id === element.assetId);
+        if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${element.assetId}`);
+        const manifest = get(scene3dManifests)[element.assetId], patch = (c.patch ?? {}) as PartOverride;
+        assertModelPart(element, asset as Model3dAsset, manifest, partId);
+        // Same op as the headless verb: a mesh fill on a Uniform model switches it to Source.
+        let switchedToSource = false;
+        store.commit((p) => { switchedToSource = applyModelPartStyle(p, target, partId, patch, manifest).switchedToSource; });
+        return { elementId: target, partId, ...(switchedToSource ? { modelColors: 'source' } : {}) };
+      }
       store.commit((p) => ops.setPartOverride(p, target, partId, (c.patch ?? {}) as PartOverride));
       return { elementId: target, partId };
+    }
+
+    case 'set_model_view':
+    case 'set_model_field': {
+      const targets = typeof c.target === 'string' ? [c.target] : typeof c.elementId === 'string' ? [c.elementId] : ids(c);
+      const manifests = get(scene3dManifests);
+      if (typeof c.figureId === 'string') {
+        const figure = get(store.project).figures.find(figure => figure.id === c.figureId);
+        if (targets.some(id => !figure?.elements.some(element => element.id === id))) throw new Error('Model target is outside the requested figure');
+      }
+      let warnings: string[] = [];
+      store.commit(p => {
+        if (c.type === 'set_model_view') warnings = applyModelViewCommand(p, targets, c as ModelViewCommand, manifests);
+        else applyModelFieldCommand(p, targets, c as unknown as ModelFieldCommand, manifests);
+      });
+      return { elementIds: targets, ...(warnings.length ? { warnings } : {}) };
     }
 
     case "set_style": {

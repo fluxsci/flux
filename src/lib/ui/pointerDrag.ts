@@ -1,3 +1,4 @@
+import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
 /** Shared lifecycle for rail/dock resizing. Preserve double-click behavior,
  * restore the original preference on cancellation, and always release capture. */
 export function pointerDrag(event: PointerEvent, move: (event: PointerEvent) => void, rollback: () => void, ended: () => void) {
@@ -13,6 +14,7 @@ export function pointerDrag(event: PointerEvent, move: (event: PointerEvent) => 
   const onUp = (e: PointerEvent) => { if (e.pointerId === pointer) finish(false); };
   const cancel = () => finish(true);
   const key = (e: KeyboardEvent) => {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); cancel(); }
   };
   function finish(cancelled: boolean) {

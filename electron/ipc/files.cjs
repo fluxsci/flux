@@ -144,7 +144,7 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
     fsGuard(p, senderId);
   }
   function setSourceReadFiles(senderId, scope, files) {
-    if (!Array.isArray(files) || files.some((p) => typeof p !== "string" || !path.isAbsolute(p) || p.includes("\0") || !/\.(?:svg|json)$/i.test(p))) throw new Error("Invalid linked source read files");
+    if (!Array.isArray(files) || files.some((p) => typeof p !== "string" || !path.isAbsolute(p) || p.includes("\0") || !/\.(?:svg|glb|json)$/i.test(p))) throw new Error("Invalid linked source read files");
     let scopes = sourceReadFiles.get(senderId);
     if (!scopes) sourceReadFiles.set(senderId, scopes = new Map());
     if (files.length) scopes.set(scope, new Set(files.map((p) => foldCase(realIdentity(p)))));
@@ -193,6 +193,17 @@ function createFileCore({ app, dialog, shell, roots, setPendingRoot, windowFor, 
       const target = await fs.promises.realpath(path.resolve(canonicalRoot, rel));
       if (!underDir(target, canonicalRoot)) throw new Error("Project asset escapes its project root");
       return target;
+    });
+    ipc.handle("fs:copyFileVerified", async (e, source, destination, sha256) => {
+      const projectIdentity=JSON.stringify(projectRootFor?.(e.sender.id));
+      const authorize=()=>{
+        if(JSON.stringify(projectRootFor?.(e.sender.id))!==projectIdentity) throw new Error("Project changed during native copy");
+        fsReadGuard(source,e.sender.id); fsGuard(destination,e.sender.id);
+      };
+      authorize();
+      const result=await require("../verifiedCopy.cjs").createVerifiedCopy()(source,destination,sha256,authorize);
+      noteWrite(destination,e.sender.id);
+      return result;
     });
     ipc.handle("fs:moveFileVerified", async (e, source, destination, sha256) => {
       fsGuard(source,e.sender.id); fsGuard(destination,e.sender.id);

@@ -1,4 +1,10 @@
 <script lang="ts">
+  import { registerTargetResolver, boundsOf } from "../bridge/targetResolvers";
+  import { describeTarget, type TargetRef } from "../project/targets";
+  import { focusedMode } from "../../shell/paneStore";
+
+  import { yieldsToShellModal, isAnnotateChord } from "../../shell/agent/annotationVisibility";
+
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import type { Project, Figure } from '../types';
@@ -40,6 +46,22 @@
     reconnectList = () => { observer?.disconnect(); const owner = node.ownerDocument.defaultView as Window & typeof globalThis; observer = new owner.ResizeObserver(() => listHeight = node.clientHeight); observer.observe(node); listHeight = node.clientHeight; };
     reconnectList(); return { destroy() { observer.disconnect(); reconnectList = () => {}; } };
   }
+  onDestroy(registerTargetResolver({ get surface() { return get(focusedMode); }, root: () => wrap ?? null,
+    revision: () => [selected, drafts, tab],
+    current() {
+      if (!selected) return [];
+      const block = wrap?.ownerDocument.activeElement?.closest('[data-caption-panel]');
+      return block ? [{ kind: "caption", figureId: selected.id, panel: block.getAttribute('data-caption-panel') || undefined, figureName: selected.nickname || selected.name }]
+        : [{ kind: "figure", figureId: selected.id, name: selected.nickname || selected.name }];
+    },
+    at(_x, _y, node) {
+      if (!selected || !node) return [];
+      const block = node.closest('[data-caption-panel]');
+      const ref: TargetRef = block ? { kind: "caption", figureId: selected.id, panel: block.getAttribute('data-caption-panel') || undefined, figureName: selected.nickname || selected.name }
+        : { kind: "figure", figureId: selected.id, name: selected.nickname || selected.name };
+      return [{ ref, bounds: boundsOf(block ?? wrap), label: describeTarget(ref) }];
+    },
+  }));
   function moved() { reconnectList(); previewView?.reconnect(); for (const textarea of wrap?.querySelectorAll('textarea') ?? []) textarea.dispatchEvent(new Event('flux:document-change')); }
   let detached = false, wrap: HTMLDivElement, splitEl: HTMLDivElement;
   let nameForm: FigureIdentityForm | undefined;
@@ -178,12 +200,13 @@
     else { redo = redo.slice(0,-1); history = [...history, change]; }
   }
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     e.stopPropagation();
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape') { e.preventDefault(); nameForm?.reset(); void close(); }
     else if (e.altKey && !mod && e.code === 'KeyM') { e.preventDefault(); if (e.shiftKey) pin(); else void close(); }
     else if (mod && e.code === 'KeyR') { e.preventDefault(); void close(); }
-    else if (mod && e.code === 'KeyS') { e.preventDefault(); void flush(); }
+    else if (mod && !e.shiftKey && e.code === 'KeyS') { e.preventDefault(); void flush(); }
     else if (mod && e.code === 'KeyZ' && !['INPUT','TEXTAREA'].includes((e.target as HTMLElement).tagName)) { e.preventDefault(); void undoMeta(!e.shiftKey); }
   }
   function resize(e: PointerEvent) {
@@ -266,7 +289,7 @@
                   <p class="hint">Click a label to fold its caption.</p>
                   {#each blocks as block (block.id)}
                     {@const folded = collapsed.has(`${selected.id}:${block.id}`)}
-                    <div class="caption-block" class:folded class:postscript={block.id===POSTSCRIPT_CAPTION}>
+                    <div class="caption-block" data-caption-panel={block.id === "__figure__" ? "" : block.label || block.id} class:folded class:postscript={block.id===POSTSCRIPT_CAPTION}>
                       <div class="block-heading">
                         <button class="block-toggle" aria-expanded={!folded} aria-controls={`caption-${selected.id}-${block.id}`} aria-label={`${folded ? 'Expand' : 'Collapse'} ${block.label || 'Figure'} caption`} on:click={() => toggleBlock(block.id)}><span class="block-tag">{block.label || 'Figure'}</span><span class="block-rule"></span><span class="block-kind">{block.id==='__figure__' ? 'Opening' : block.id===POSTSCRIPT_CAPTION ? 'Closing' : 'Panel'}</span><Icon name={folded ? 'chevronRight' : 'chevronDown'} size={12} /></button>
                         {#if block.id===POSTSCRIPT_CAPTION}<button class="remove-ps" aria-label="Remove closing caption" title="Remove closing caption (undo available)" on:click={removePostscript}><Icon name="x" size={12} /></button>{/if}

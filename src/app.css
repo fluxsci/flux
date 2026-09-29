@@ -434,3 +434,8 @@ textarea,
 *::-webkit-scrollbar-thumb:hover {
   background: var(--flx-base-700);
 }
+
+/* Ask's synchronous input stays usable while the answer surface loads. */
+.ask-bootstrap-layer { position: fixed; inset: 0; z-index: 2001; }
+.ask-bootstrap { position: fixed; z-index: 2001; box-sizing: border-box; width: min(440px, calc(100vw - 16px)); padding: 12px; background: var(--c-surface); color: var(--c-tx); border: 1px solid var(--c-line-strong); border-radius: var(--r-panel); font: var(--ts-sm) var(--font-ui); }
+.ask-bootstrap textarea { box-sizing: border-box; display: block; width: 100%; margin-top: 8px; padding: 8px; background: var(--c-bg); color: var(--c-tx); border: 1px solid var(--c-line); resize: vertical; font: inherit; }

@@ -11,10 +11,14 @@
   import { figureRev, globalRev } from "../../../lib/store";
   import { deckOverlay, composedSlide } from "../../../lib/slide/store";
   import { renderStaticAt } from "../../../lib/slide/player/player";
+  import { slideAnimStyles } from "../../../lib/slide/resolve";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { project } from "../../../lib/store";
   import { plotManifests, plotGen } from "../../../lib/plot/store";
+  import { createAppModelPosters } from "../../../lib/model3d/appPosters";
+  import { scene3dGeneration } from "../../../lib/model3d/store";
+  import { model3dDeckScope } from "../../../lib/model3d/editorScope";
   import { resolveTheme } from "../../../lib/slide/theme";
   import type { StageSize } from "../../../lib/slide/types";
 
@@ -43,20 +47,22 @@
     // re-renders N thumbnails (§7.3), while nothing can go stale.
     void rev;
     void $globalRev;
-    void $plotGen;
+    void $plotGen; void $scene3dGeneration; void $model3dDeckScope;
     const overlay = $deckOverlay;
     const h = host;
     if (!h || !overlay) return;
     const slide = composedSlide(slideId);
     if (!slide) return;
     bg = slide.background ?? overlay.background ?? resolveTheme(overlay.theme).background;
-    const sig = `${JSON.stringify(slide)}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${JSON.stringify($plotGen)}`;
+    const sig = `${JSON.stringify(slide)}|${JSON.stringify(slideAnimStyles(slide, overlay))}|${overlay.theme}|${overlay.background ?? ""}|${stage.width}x${stage.height}|${JSON.stringify($plotGen)}|${$scene3dGeneration}|${$model3dDeckScope?.deckId}|${JSON.stringify([...($model3dDeckScope?.externalAssetIds ?? [])].sort())}`;
     if (sig === memo.sig) return;
     memo.sig = sig;
     // Trailing debounce: a burst of commits (nudge auto-repeat, scrub) pays ONE
     // DOM rebuild after it settles — the thumbnail is not an instantaneous-
     // class surface, the canvas is. No continuous loop runs (E43).
     if (memo.timer) clearTimeout(memo.timer);
+    const controller = new AbortController();
+    let finished = false;
     memo.timer = setTimeout(() => {
       memo.timer = null;
       const cur = composedSlide(slideId);
@@ -65,20 +71,27 @@
       memo.renders++;
       host.dataset.renders = String(memo.renders); // gate probe: bounded re-renders
       try {
-        renderStaticAt(host, cur, stage, Math.max(0, cur.beats.length - 1), {
+        const models = createAppModelPosters(controller.signal);
+        const render = () => host && renderStaticAt(host, cur, stage, Math.max(0, cur.beats.length - 1), {
+          ...models.context,
           theme: resolveTheme(ov.theme),
           deckBackground: ov.background,
+          animStyles: ov.animStyles,
           assetUrl: (id) => getAssetData(id),
           assetSize: (id) => assetDisplaySize(get(project), id),
           plotManifest: (id) => get(plotManifests)[id],
           mode: "edit",
           reducedMotion: true,
         });
+        render();
+        void models.settle().then(() => { if (!controller.signal.aborted && memo.sig === sig) render(); }).catch(() => { /* current placeholder remains honest on missing geometry/GPU */ }).finally(() => { finished = true; });
       } catch {
         /* a mid-edit render miss is repaired by the next invalidation */
       }
     }, 120);
     return () => {
+      controller.abort();
+      if (!finished && memo.sig === sig) memo.sig = ""; // retry cancelled in-flight posters even if content did not change
       if (memo.timer) {
         clearTimeout(memo.timer);
         memo.timer = null;

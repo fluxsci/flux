@@ -1,0 +1,365 @@
+{
+  "box-axes.fluxplot.json:front": {
+    "viewport": {
+      "x": 28,
+      "y": 28,
+      "width": 280,
+      "height": 232
+    },
+    "sha256": "ff892de22e4e17c500a5d2b5e53e2eb285506895df52881ce21727382594d9c9",
+    "underNodes": 11,
+    "overNodes": 0
+  },
+  "box-axes.fluxplot.json:right": {
+    "viewport": {
+      "x": 28,
+      "y": 28,
+      "width": 280,
+      "height": 232
+    },
+    "sha256": "a9cfd561aa75dafe3efd2fab669480a49fb5de45732125cab567f05149fde1b6",
+    "underNodes": 11,
+    "overNodes": 0
+  },
+  "box-axes.fluxplot.json:top": {
+    "viewport": {
+      "x": 28,
+      "y": 28,
+      "width": 280,
+      "height": 232
+    },
+    "sha256": "de8adc68b60523ee7a7232ec165e02e0d8be767f7e3b068b190cd0fa5cac47ff",
+    "underNodes": 11,
+    "overNodes": 0
+  },
+  "categorical-missing.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "categorical-missing.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "categorical-missing.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "continuous.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 252,
+      "height": 288
+    },
+    "sha256": "984465f580c93f14de3470c010f63f04fceb7dead41c2acf55cdabc1ef196e93",
+    "underNodes": 0,
+    "overNodes": 2
+  },
+  "continuous.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 252,
+      "height": 288
+    },
+    "sha256": "984465f580c93f14de3470c010f63f04fceb7dead41c2acf55cdabc1ef196e93",
+    "underNodes": 0,
+    "overNodes": 2
+  },
+  "continuous.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 252,
+      "height": 288
+    },
+    "sha256": "984465f580c93f14de3470c010f63f04fceb7dead41c2acf55cdabc1ef196e93",
+    "underNodes": 0,
+    "overNodes": 2
+  },
+  "morph-a.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-a.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-a.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-b.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-b.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-b.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-incompatible.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-incompatible.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "morph-incompatible.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "named-parts.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 252,
+      "height": 288
+    },
+    "sha256": "bd7920ed1dd4dbbad3525e4d629b27fd8f14549c9ef22b5546ca290f7cd2a507",
+    "underNodes": 0,
+    "overNodes": 1
+  },
+  "named-parts.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 252,
+      "height": 288
+    },
+    "sha256": "bd7920ed1dd4dbbad3525e4d629b27fd8f14549c9ef22b5546ca290f7cd2a507",
+    "underNodes": 0,
+    "overNodes": 1
+  },
+  "named-parts.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 252,
+      "height": 288
+    },
+    "sha256": "bd7920ed1dd4dbbad3525e4d629b27fd8f14549c9ef22b5546ca290f7cd2a507",
+    "underNodes": 0,
+    "overNodes": 1
+  },
+  "plain.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "plain.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "plain.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "scalebar.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "a5bff97f95b6a73b671257adfe31c2e812f205273bb8362b2b62196a77efa96d",
+    "underNodes": 0,
+    "overNodes": 1
+  },
+  "scalebar.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "a5bff97f95b6a73b671257adfe31c2e812f205273bb8362b2b62196a77efa96d",
+    "underNodes": 0,
+    "overNodes": 1
+  },
+  "scalebar.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "a5bff97f95b6a73b671257adfe31c2e812f205273bb8362b2b62196a77efa96d",
+    "underNodes": 0,
+    "overNodes": 1
+  },
+  "sequence.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "sequence.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "sequence.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "states.fluxplot.json:front": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "states.fluxplot.json:right": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  },
+  "states.fluxplot.json:top": {
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "width": 336,
+      "height": 288
+    },
+    "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "underNodes": 0,
+    "overNodes": 0
+  }
+}

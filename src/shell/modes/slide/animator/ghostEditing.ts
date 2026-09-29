@@ -13,8 +13,3 @@ export function ghostBirth(slide: Slide | null, targetId: string | undefined): {
 export function ghostSiblings(slide: Slide, birth: NonNullable<ReturnType<typeof ghostBirth>>): Track[] {
   return slide.beats[birth.beatIndex].tracks.filter(t => t.ghostFrom === birth.track.ghostFrom);
 }
-
-export function objectLabel(slide: Slide, id: string): string {
-  const el = slide.elements.find(e => e.id === id);
-  return el?.name || (el?.type === "text" ? el.text.split("\n")[0].slice(0, 48) : el?.type) || "Missing object";
-}

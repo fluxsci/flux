@@ -24,12 +24,21 @@
 
 import type { Element, Figure, Id, Project, SemanticPlotElement } from "../types";
 import type { FluxPlotManifest } from "../plot/types";
+import type { Model3dElement, Scene3dManifest, Model3dInfo } from '../model3d/types';
+import { buildModel3dTree } from '../model3d/tree';
+import { buildScene3dPartIndex, type Scene3dPartIndex, resolveScene3dPartStyle } from '../model3d/scene3d';
+import { partDomId } from "../plot/parse";
 import { buildPartTree, type XrayNode } from "../plot/tree";
 import { buildRenderTree, groupDefs, membersDeep, type RenderNode } from "../groups";
+
+export const partRowId = (elementId: string, partId: string): string => `part:${partDomId(elementId, partId)}`;
 
 /** What the X-ray is rooted on (store.xrayRoot). `elements` (2026-09-15) is
  *  a MULTI-PLOT root: several plots x-rayed together, each expanding under a
  *  synthetic "N plots" row, plus the COMMON part rows they share (below). */
+type SemanticElement = SemanticPlotElement | Model3dElement;
+type Models = Record<string, Scene3dManifest>;
+type ModelInfo = Record<string, Model3dInfo>;
 export type XrayTarget =
   | { kind: "element"; figId: Id; elementId: Id }
   | { kind: "elements"; figId: Id; elementIds: Id[] }
@@ -74,7 +83,7 @@ function figOf(p: Project, figId: Id): Figure | null {
 function baseName(path: string | undefined): string | undefined {
   if (!path) return undefined;
   const b = path.split(/[\\/]/).pop() ?? path;
-  const stem = b.replace(/\.svg$/i, "");
+  const stem = b.replace(/\.(?:svg|glb)$/i, "");
   return stem || undefined;
 }
 
@@ -92,6 +101,7 @@ export function elementLabel(
     const root = buildPartTree(manifests[plot.assetId]);
     return baseName(plot.source?.svgPath) ?? root?.label ?? "Plot";
   }
+  if (el.type === "model3d") return baseName(el.source?.glbPath) ?? "3D model";
   const z = fig.elements.findIndex((e) => e.id === el.id);
   return `${el.type} ${z + 1}`;
 }
@@ -107,30 +117,31 @@ export function targetLabel(
   if (target.kind === "group") return groupDefs(fig)[target.groupId]?.name ?? "group";
   if (target.kind === "elements") {
     const n = target.elementIds.filter((id) => fig.elements.some((e) => e.id === id)).length;
-    return `${n} plots`;
+    const kinds = target.elementIds.map(id => fig.elements.find(e => e.id === id)?.type);
+    return `${n} ${kinds.every(k => k === "model3d") ? "models" : kinds.every(k => k === "plot") ? "plots" : "objects"}`;
   }
   const el = fig.elements.find((e) => e.id === target.elementId);
   return el ? elementLabel(fig, el, manifests) : "—";
 }
 
 // --- part rows (manifest part tree, mapped under a plot element) ------------
-function partRow(el: SemanticPlotElement, n: XrayNode): XRow {
+function partRow(el: SemanticElement, n: XrayNode, models: Models = {}, index?: Scene3dPartIndex): XRow {
   return {
-    id: `part:${el.id}__${n.id}`,
+    id: partRowId(el.id, n.id),
     kind: "part",
     label: n.label,
     role: n.role,
     elementId: el.id,
     partId: n.id,
-    hidden: Boolean(el.overrides?.[n.id]?.hidden),
+    hidden: el.type === "model3d" ? Boolean(resolveScene3dPartStyle(models[el.assetId], el.overrides, n.id, {index}).hidden) : Boolean(el.overrides?.[n.id]?.hidden),
     isGroup: n.isGroup,
     count: n.targets.length > 1 ? n.targets.length : undefined,
-    children: n.children.map((c) => partRow(el, c)),
+    children: n.children.map((c) => partRow(el, c, models, index)),
   };
 }
 
 // --- element rows ------------------------------------------------------------
-function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlotManifest>): XRow {
+function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlotManifest>, models: Models = {}, info: ModelInfo = {}): XRow {
   const row: XRow = {
     id: "el:" + el.id,
     kind: "element",
@@ -153,6 +164,11 @@ function elementRow(fig: Figure, el: Element, manifests: Record<string, FluxPlot
       row.isGroup = true;
     }
   }
+  if (el.type === "model3d") {
+    const tree = buildModel3dTree(models[el.assetId], info[el.assetId]);
+    const index = models[el.assetId] ? buildScene3dPartIndex(models[el.assetId]) : undefined;
+    row.children = tree.children.map(c => partRow(el, c, models, index)); row.isGroup = row.children.length > 0;
+  }
   return row;
 }
 
@@ -171,13 +187,14 @@ function mapRenderChildren(
   fig: Figure,
   nodes: RenderNode[],
   manifests: Record<string, FluxPlotManifest>,
+  models: Models = {}, info: ModelInfo = {},
 ): XRow[] {
   const out: XRow[] = [];
   // Top-z first (reverse of fig.elements order) — matches the Sidebar layers.
   for (let i = nodes.length - 1; i >= 0; i--) {
     const n = nodes[i];
-    if (n.kind === "element") out.push(elementRow(fig, n.el, manifests));
-    else out.push(groupRow(fig, n, manifests));
+    if (n.kind === "element") out.push(elementRow(fig, n.el, manifests, models, info));
+    else out.push(groupRow(fig, n, manifests, models, info));
   }
   return out;
 }
@@ -186,6 +203,7 @@ function groupRow(
   fig: Figure,
   node: Extract<RenderNode, { kind: "group" }>,
   manifests: Record<string, FluxPlotManifest>,
+  models: Models = {}, info: ModelInfo = {},
 ): XRow {
   const members = membersDeep(fig, node.def.id);
   return {
@@ -198,7 +216,7 @@ function groupRow(
     locked: Boolean(node.def.locked),
     isGroup: true,
     count: members.length,
-    children: mapRenderChildren(fig, node.children, manifests),
+    children: mapRenderChildren(fig, node.children, manifests, models, info),
   };
 }
 
@@ -209,11 +227,12 @@ function groupRow(
  *  Order follows the first plot's tree (depth-first), and containers are kept
  *  so hiding "X axis" everywhere is one row. */
 export function commonPartIds(
-  plots: SemanticPlotElement[],
+  plots: SemanticElement[],
   manifests: Record<string, FluxPlotManifest>,
+  models: Models = {}, info: ModelInfo = {},
 ): { id: string; label: string; role: string; isGroup: boolean }[] {
   if (plots.length < 2) return [];
-  const trees = plots.map((pl) => buildPartTree(manifests[pl.assetId]));
+  const trees = plots.map((pl) => pl.type === "model3d" ? buildModel3dTree(models[pl.assetId], info[pl.assetId]) : buildPartTree(manifests[pl.assetId]));
   if (trees.some((t) => !t)) return [];
   const index = (root: XrayNode) => {
     const m = new Map<string, XrayNode>();
@@ -238,12 +257,14 @@ export function commonPartIds(
  *  (containers first-come, as the first plot's tree orders them), each carrying
  *  the plots it applies to and how many of them hide it. */
 export function commonPartRows(
-  plots: SemanticPlotElement[],
+  plots: SemanticElement[],
   manifests: Record<string, FluxPlotManifest>,
+  models: Models = {}, info: ModelInfo = {},
 ): XRow[] {
-  return commonPartIds(plots, manifests).map((c) => {
+  const indices = new Map(plots.filter(p => p.type === "model3d" && models[p.assetId]).map(p => [p.assetId, buildScene3dPartIndex(models[p.assetId])]));
+  return commonPartIds(plots, manifests, models, info).map((c) => {
     const ids = plots.map((pl) => pl.id);
-    const hiddenCount = plots.filter((pl) => Boolean(pl.overrides?.[c.id]?.hidden)).length;
+    const hiddenCount = plots.filter((pl) => pl.type === "model3d" ? Boolean(resolveScene3dPartStyle(models[pl.assetId], pl.overrides, c.id, {index:indices.get(pl.assetId)}).hidden) : Boolean(pl.overrides?.[c.id]?.hidden)).length;
     return {
       id: "common:" + c.id,
       kind: "common",
@@ -266,34 +287,36 @@ export function buildXrayTree(
   p: Project,
   target: XrayTarget | null,
   manifests: Record<string, FluxPlotManifest>,
+  models: Models = {},
 ): XRow | null {
+  const info: ModelInfo = Object.fromEntries(p.assets.filter(a => a.model).map(a => [a.id, a.model!]));
   if (!target) return null;
   const fig = figOf(p, target.figId);
   if (!fig) return null;
   if (target.kind === "element") {
     const el = fig.elements.find((e) => e.id === target.elementId);
-    return el ? elementRow(fig, el, manifests) : null;
+    return el ? elementRow(fig, el, manifests, models, info) : null;
   }
   if (target.kind === "elements") {
     const els = target.elementIds
       .map((id) => fig.elements.find((e) => e.id === id))
       .filter((e): e is Element => !!e);
     if (!els.length) return null;
-    if (els.length === 1) return elementRow(fig, els[0], manifests);
+    if (els.length === 1) return elementRow(fig, els[0], manifests, models, info);
     // Top-z first, like every other multi-row listing.
     const ordered = [...els].sort((a, b) => fig.elements.indexOf(b) - fig.elements.indexOf(a));
     return {
       id: "set:" + fig.id,
       kind: "set",
-      label: `${els.length} plots`,
+      label: `${els.length} ${els.every(e => e.type === "model3d") ? "models" : els.every(e => e.type === "plot") ? "plots" : "objects"}`,
       role: "set",
       hidden: els.every((el) => !!el.hidden),
       isGroup: true,
       count: els.length,
-      children: ordered.map((e) => elementRow(fig, e, manifests)),
+      children: ordered.map((e) => elementRow(fig, e, manifests, models, info)),
     };
   }
   if (!groupDefs(fig)[target.groupId]) return null;
   const node = findGroupNode(buildRenderTree(fig), target.groupId);
-  return node ? groupRow(fig, node, manifests) : null;
+  return node ? groupRow(fig, node, manifests, models, info) : null;
 }

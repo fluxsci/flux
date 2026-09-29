@@ -1,0 +1,365 @@
+// Linked styles and same-beat anchors through pure ops, compilation and the CLI.
+import { isDeepStrictEqual } from "node:util";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { harness } from "./lib/harness.mjs";
+import * as ops from "../src/lib/slide/ops";
+import { resolveTrack, resolveBeat, resolveStart, slideAnimStyles } from "../src/lib/slide/resolve";
+import { compileSlide } from "../src/lib/slide/compile";
+import { trackEndMs, beatEndMs } from "../src/shell/modes/slide/animator/shared";
+import { videoEventsForPlan } from "../src/lib/slide/mediaTimeline";
+import { staggerSpan } from "../src/lib/slide/stagger";
+import { resolveEasing } from "../src/lib/slide/easing";
+import { familyOf } from "../src/lib/slide/family";
+import { buildScaffoldTree } from "../src/lib/project/scaffoldTree";
+import { validateDeckFile } from "../src/lib/project/validate";
+import { presetTrackOf, makeAnimPreset, deriveTemplateSlots, applyTemplate } from "../src/lib/slide/animTemplates";
+import type { Track, Beat } from "../src/lib/slide/types";
+import type { FluxPlotManifest } from "../src/lib/plot/types";
+import * as core from "../flux-core/index";
+
+const h = harness("verify-slide-resolve");
+let presetDeck: ReturnType<typeof ops.createDeck> | undefined;
+const deck = ops.createDeck({ id: "styles", withTitleSlide: false });
+const slide = ops.addSlide(deck, { id: "s" });
+const beat = ops.addBeat(deck, slide.id, { id: "b" })!;
+for (const id of ["x", "y", "z"]) ops.addSlideText(deck, slide.id, { text: id, x: 0, y: 0, width: 100, height: 40 });
+// Use actual saved element identities, independent of constructor id generation.
+const [x, y, z] = slide.elements.map(e => e.id);
+const style = ops.addAnimStyle(deck, { name: "Gentle", family: "appearance", track: { preset: "fade", start: 40, duration: 300, easing: "linear", stagger: { perMs: 20 } } }, "gentle");
+const inherited: Track = { id: "a", target: x, styleId: style.id };
+h.eq(resolveTrack(inherited, deck).duration, 300, "absent duration inherits");
+h.eq(resolveTrack({ ...inherited, duration: 80 }, deck).duration, 80, "present duration overrides the style");
+h.eq(resolveTrack({ ...inherited, start: 0 }, deck).start, 0, "zero is an explicit override");
+// No explicit null on disk (orchestrator decision, F1 integration): an absent field inherits, and
+// "none though the style has one" is written with the sentinels the Animator already writes.
+const sentinelDeck = ops.createDeck({ id: "sentinel-styles", withTitleSlide: false });
+const eased = ops.addAnimStyle(sentinelDeck, { name: "Eased", family: "appearance", track: { preset: "writeOn", params: { direction: "rtl" }, influence: { in: 60, out: 40 }, stagger: { perMs: 25 }, easing: "enter" } }, "eased");
+const easedTrack: Track = { id: "e", target: x, preset: "writeOn", styleId: eased.id };
+h.eq(resolveTrack({ ...easedTrack, stagger: { perMs: 0 } }, sentinelDeck).stagger, { perMs: 0 }, "sentinel stagger {perMs:0} overrides the style's stagger");
+h.eq(staggerSpan(resolveTrack({ ...easedTrack, stagger: { perMs: 0 } }, sentinelDeck), 5), 0, "the stagger sentinel resolves to no stagger tail");
+const flat = resolveTrack({ ...easedTrack, influence: { in: 0, out: 0 } }, sentinelDeck);
+h.eq(flat.influence, { in: 0, out: 0 }, "sentinel influence {in:0,out:0} overrides the style's velocity profile");
+h.eq(resolveEasing(flat.easing, flat.influence), resolveEasing(undefined), "an influence sentinel overrides the whole timing group, including the style easing");
+h.eq(resolveTrack({ ...easedTrack, params: {} }, sentinelDeck).params, {}, "sentinel params {} overrides the style's params");
+h.eq(resolveTrack(easedTrack, sentinelDeck).influence, { in: 60, out: 40 }, "without a sentinel the style's profile is inherited");
+const nulls = resolveTrack({ ...easedTrack, stagger: null, influence: null, params: null, duration: null } as unknown as Track, sentinelDeck);
+h.ok(isDeepStrictEqual([nulls.stagger, nulls.influence, nulls.params], [{ perMs: 25 }, { in: 60, out: 40 }, { direction: "rtl" }]) && !Object.hasOwn(nulls, "duration"), "null is not an override: the field inherits (or stays absent)");
+const undefinedKey = resolveTrack({ ...easedTrack, influence: undefined }, sentinelDeck);
+h.eq(undefinedKey.influence, { in: 60, out: 40 }, "an undefined own key inherits, as it does after a JSON round trip");
+h.eq(resolveTrack(inherited, deck).styleId, style.id, "resolved tracks retain their link");
+{
+  const disk = ops.createDeck({ id: "sentinels", withTitleSlide: false });
+  const diskSlide = ops.addSlide(disk, { id: "s" });
+  const el = ops.addSlideText(disk, "s", { text: "t", x: 0, y: 0, width: 100, height: 30 })!;
+  const diskBeat = ops.addBeat(disk, "s", { id: "b" })!;
+  ops.addAnimStyle(disk, structuredClone({ name: "Eased", family: eased.family, track: eased.track }), "eased");
+  diskBeat.tracks = [{ id: "t1", target: el, preset: "writeOn", styleId: "eased", stagger: { perMs: 0 }, influence: { in: 0, out: 0 }, params: {} }];
+  h.eq(validateDeckFile(JSON.parse(JSON.stringify(disk))), [], "a linked track carrying all three sentinels validates as saved");
+  const withNull = JSON.parse(JSON.stringify(disk));
+  withNull.slides[0].beats[1].tracks[0].stagger = null;
+  h.ok(validateDeckFile(withNull).length > 0, "an explicit null on disk is refused by the deck schema");
+  h.eq(diskSlide.beats[1].tracks.length, 1, "sentinel fixture stays one track");
+}
+h.eq(resolveTrack({ target: x, styleId: "missing", duration: 12 }, deck), { target: x, styleId: "missing", duration: 12 }, "missing style resolves to the track alone");
+h.ok(core.resolveTrack === resolveTrack && core.resolveBeat === resolveBeat && core.resolveStart === resolveStart, "headless re-exports the exact pure resolver");
+
+h.section("timing curve is one inherited field");
+{
+  // Old files may carry several representations. Read precedence is unchanged;
+  // ANY own representation suppresses the entire style group, including sentinels.
+  const cd = ops.createDeck({ withTitleSlide: false });
+  const cs = ops.addAnimStyle(cd, { name: "Spring", family: "transform", track: { preset: "transform", curve: { kind: "spring", bounce: 0.35 }, influence: { in: 50, out: 50 }, easing: "enter", duration: 700 } });
+  const base: Track = { target: x, preset: "transform", styleId: cs.id };
+  const group = (t: Track) => [t.curve, t.influence, t.easing];
+  const own = [{ easing: "linear" }, { influence: { in: 0, out: 0 } }, { curve: { kind: "steps", n: 4 } }] as Partial<Track>[];
+  h.eq(group(resolveTrack(base, cd)), group(cs.track as Track), "absent timing group inherits all legacy/spec fields");
+  for (const patch of own) {
+    const raw = { ...base, ...patch }, resolved = resolveTrack(raw, cd);
+    h.eq(group(resolved), group(raw), `own ${Object.keys(patch)[0]} blocks all style timing fields`);
+    h.eq(resolved.duration, 700, "timing override still inherits independent duration");
+    h.eq(resolveTrack(resolved, cd), resolved, "timing group resolution is idempotent");
+  }
+  h.eq(group(resolveTrack({ ...base, curve: undefined, influence: null, easing: null } as any, cd)), group(cs.track as Track), "null/undefined timing fields inherit together");
+  const saved = presetTrackOf(resolveTrack(base, cd));
+  h.eq(saved.curve, cs.track.curve, "presetTrackOf retains the curve");
+  h.ok(saved.curve !== cs.track.curve, "presetTrackOf deep-copies the curve");
+  h.eq(makeAnimPreset("Spring", resolveTrack(base, cd)).track.curve, cs.track.curve, "animation preset carries curve");
+  const ctx = { elements: slide.elements, manifestFor: () => undefined };
+  const slots = deriveTemplateSlots([resolveTrack(base, cd)], ctx).slots;
+  h.eq(slots[0].track.curve, cs.track.curve, "derived template carries curve");
+  h.eq(applyTemplate({ fluxPreset: 1, kind: "animTemplate", name: "Spring", slots }, { kind: "elements", ids: [x] }, ctx).tracks[0].curve, cs.track.curve, "template application retains curve");
+  const cb = ops.addBeat(cd, ops.addSlide(cd, { id: "s" }).id)!;
+  cb.tracks = [{ ...base, id: "t" }];
+  ops.setAnimStyle(cd, cs.id, { track: { easing: "linear" } });
+  h.eq(group(cs.track as Track), [undefined, undefined, "linear"], "editing style easing clears its other representations");
+  ops.setAnimStyle(cd, cs.id, { track: { curve: { kind: "spring", bounce: 0.2 } } });
+  h.eq(group(cs.track as Track), [{ kind: "spring", bounce: 0.2 }, undefined, undefined], "editing style curve clears legacy fields");
+  ops.linkTrackStyle(cd, "s", "t", null);
+  h.eq(cb.tracks[0].curve, { kind: "spring", bounce: 0.2 }, "detaching style materializes its curve");
+  const snap = { fluxPreset: 1 as const, kind: "slide" as const, name: "Curve snapshot", savedAt: "", stage: cd.stage, slide: cd.slides[0], animStyles: slideAnimStyles(cd.slides[0], cd) };
+  const dest = ops.createDeck({ withTitleSlide: false });
+  ops.insertSlideSnapshot(dest, snap);
+  h.eq(dest.slides[0].beats[1].tracks[0].curve, cb.tracks[0].curve, "slide preset insertion retains detached curve");
+  const md = ops.createDeck({ withTitleSlide: false });
+  let refused = "";
+  try { ops.addAnimStyle(md, { name: "Bad", family: "media", track: { preset: "videoStart", stagger: { perMs: 10 } } }); } catch (e) { refused = String(e); }
+  h.ok(/media.*stagger|stagger.*media/i.test(refused) && !md.animStyles?.length, "media style creation refuses stagger without mutation");
+  const ms = ops.addAnimStyle(md, { name: "Clip", family: "media", track: { preset: "videoStart" } });
+  refused = "";
+  try { ops.setAnimStyle(md, ms.id, { track: { stagger: { perMs: 0 } } }); } catch (e) { refused = String(e); }
+  h.ok(/media.*stagger|stagger.*media/i.test(refused) && !ms.track.stagger, "media style edits refuse even zero stagger without mutation");
+}
+
+h.section("anchors and invalid graphs");
+const a: Track = { id: "a", target: x, start: 50, duration: 100, easing: "linear", preset: "fade" };
+const b: Track = { id: "b", target: y, start: 17, duration: 200, anchor: { trackId: "a", edge: "end", offsetMs: 10 } };
+const c: Track = { id: "c", target: z, start: 23, duration: 40, anchor: { trackId: "b", edge: "end", offsetMs: -20 } };
+const d: Track = { id: "d", target: x, start: 29, duration: 60, anchor: { trackId: "c", edge: "start", offsetMs: 5 } };
+beat.tracks = [d, c, b, a];
+const before = JSON.stringify(beat);
+h.eq(resolveBeat(beat, deck).tracks.map(t => [t.id, t.start]), [["d", 345], ["c", 340], ["b", 160], ["a", 50]], "three-link reverse-lane chain resolves once, preserving lane order");
+h.eq(JSON.stringify(beat), before, "resolution never edits authored data");
+h.eq(resolveStart({ ...d, anchor: { trackId: "a", edge: "start", offsetMs: -5 } }, beat, deck).start, 45, "start edge plus negative offset");
+const cyc: Beat = { id: "cycle", tracks: [{ ...a, anchor: { trackId: "c", edge: "end" } }, b, c, d] };
+const cycle = resolveBeat(cyc, deck);
+h.eq(cycle.tracks.map(t => t.start), [50, 17, 23, 29], "every cycle member and dependent falls back to its literal start");
+h.eq(cycle.issues.length, 4, "cycles issue for each affected track");
+const other = ops.addBeat(deck, slide.id, { id: "elsewhere" })!;
+other.tracks = [{ id: "foreign", target: x, start: 500 }];
+for (const id of ["foreign", "missing"]) {
+  const result = resolveStart({ ...b, anchor: { trackId: id, edge: "end" } }, beat, deck);
+  h.ok(!!result.issue && result.start === 17, `${id}: cross-beat/missing anchor falls back with an issue`);
+}
+h.ok(!ops.setTrackAnchor(deck, slide.id, "a", { trackId: "a", edge: "end" }).ok, "self anchor refused");
+h.ok(!ops.setTrackAnchor(deck, slide.id, "a", { trackId: "d", edge: "end" }).ok, "cycle-creating edit refused");
+h.ok(!ops.setTrackAnchor(deck, slide.id, "a", { trackId: "foreign", edge: "start" }).ok, "cross-beat authoring refused");
+h.eq(JSON.stringify(beat), before, "refusals leave the beat unchanged");
+
+const manifest = { parts: { id: "root", role: "figure", children: [{ id: "points", role: "points", children: [0, 1, 2].map(i => ({ id: `p${i}`, role: "point" })) }] } } as FluxPlotManifest;
+const staggered: Beat = { id: "staggered", tracks: [{ ...a, part: "points", stagger: { perMs: 30, from: "start" } }, b] };
+h.eq(resolveStart(b, staggered, deck, () => manifest).start, 220, "end edge includes the last semantic leaf's stagger delay");
+const totalBeat = structuredClone(staggered);
+totalBeat.tracks[0].stagger = { totalMs: 800, curve: "enter", from: "random", seed: 3 };
+h.eq(resolveStart(b, totalBeat, deck, () => manifest).start, 960, "end anchor follows Total span with a curve and random order");
+const arcDeck = structuredClone(deck);
+const arcStyle = ops.addAnimStyle(arcDeck, { name: "Arc", family: "transform", track: { preset: "transform", arc: .6 } });
+h.eq(resolveTrack({ target: x, preset: "transform", styleId: arcStyle.id }, arcDeck).arc, .6, "arc inherits as a HOW field");
+h.eq(resolveTrack({ target: x, preset: "transform", styleId: arcStyle.id, arc: 0 }, arcDeck).arc, 0, "straight arc sentinel overrides style");
+
+const geometrySlide = { ...slide, beats: [staggered] };
+h.eq(trackEndMs(b, geometrySlide, manifest, deck, () => manifest), 420, "lane end uses anchored start");
+h.eq(beatEndMs(staggered.tracks, geometrySlide, () => manifest, deck), 420, "beat lane footprint uses resolved timing");
+
+h.section("link, detach, family and copy operations");
+beat.tracks = [a, b, c];
+h.ok(ops.linkTrackStyle(deck, slide.id, "a", style.id).ok, "link succeeds within family");
+h.ok(a.preset === "fade" && !("duration" in a) && !("start" in a) && !("easing" in a), "link drops own HOW fields but keeps the family-defining preset");
+h.eq(resolveTrack(a, deck).duration, 300, "linked track inherits");
+ops.setAnimStyle(deck, style.id, { track: { duration: 450 } });
+h.eq(resolveTrack(a, deck).duration, 450, "style edits propagate with no track edit");
+a.duration = 70;
+h.eq(resolveTrack(a, deck).duration, 70, "linked track can override one field");
+const linkedFrame = JSON.stringify(resolveTrack(a, deck), (key, value) => key === "styleId" ? undefined : value);
+ops.deleteAnimStyle(deck, style.id, { detach: true });
+h.ok(isDeepStrictEqual(resolveTrack(a, deck), JSON.parse(linkedFrame)), "style deletion materializes exactly the effective HOW");
+h.ok(!a.styleId && !deck.animStyles, "delete detaches links and prunes the empty registry");
+const tx: Track = { id: "tx", target: z, preset: "transform", to: { state: { x: 120 } } };
+beat.tracks.push(tx);
+const like = ops.animateLike(deck, slide.id, "a", ["b", "tx", "missing"]);
+h.eq(like.linked, ["b"], "Animate like links compatible targets");
+h.eq(like.refused.map(r => r.trackId), ["tx", "missing"], "Animate like reports each incompatible/missing target");
+h.ok(like.refused[0].reason.includes("Family mismatch"), "family refusal names the reason");
+h.ok(!!like.styleId && a.styleId === b.styleId && deck.animStyles?.[0].name.startsWith("Like "), "Animate like creates a named style and links source and target");
+h.eq(b.anchor?.trackId, "a", "linking keeps binding and anchor");
+const transformStyle = ops.styleFromTrack(deck, slide.id, "tx", "Change")!;
+h.ok(tx.preset === "transform" && tx.styleId === transformStyle?.id, "a linked transform keeps its own preset (familyOf reads the raw track)");
+const same = ops.setTransform(deck, slide.id, beat.id, z, { state: { y: 50 } });
+h.ok(same === tx && beat.tracks.filter(t => resolveTrack(t, deck).preset === "transform").length === 1, "setTransform finds a styled transform, preserving family uniqueness");
+h.ok(!!transformStyle && compileSlide(slide, deck.stage, deck).sample(1).elements.find(e => e.id === z)?.x === 120, "styled transforms play through the compiler fold");
+const duplicateId = ops.duplicateSlide(deck, slide.id)!;
+const copied = deck.slides.find(s => s.id === duplicateId)!.beats[1];
+h.eq(copied.tracks[1].anchor?.trackId, copied.tracks[0].id, "duplicateSlide remaps anchor ids");
+h.ok(copied.tracks[0].id !== a.id, "duplicateSlide owns fresh track identities");
+const duplicateBeat = ops.duplicateBeat(deck, slide.id, beat.id)!;
+h.eq(duplicateBeat.tracks[1].anchor?.trackId, duplicateBeat.tracks[0].id, "duplicateBeat remaps anchors");
+const snap: ops.SlidePresetSnapshot = { fluxPreset: 1, kind: "slide", name: "Snapshot", savedAt: "", stage: deck.stage, slide: structuredClone(slide), animStyles: slideAnimStyles(slide, deck) };
+const destination = ops.createDeck({ withTitleSlide: false });
+ops.insertSlideSnapshot(destination, snap);
+h.eq(destination.animStyles?.length, snap.animStyles?.length, "snapshot imports referenced styles");
+const inserted = destination.slides[0].beats[1];
+h.eq(inserted.tracks[1].anchor?.trackId, inserted.tracks[0].id, "snapshot insertion remaps anchors");
+h.ok(inserted.tracks[0].styleId !== a.styleId, "snapshot remaps style identities");
+h.eq(resolveTrack(inserted.tracks[0], destination).duration, resolveTrack(a, deck).duration, "snapshot style round trip preserves effective timing");
+ops.insertSlideSnapshot(destination, snap);
+h.eq(destination.animStyles?.length, snap.animStyles?.length, "second snapshot reuses same-name styles");
+const baseline = new Map();
+ops.cascadeTracks(deck, slide.id, ["b"], { property: "start", delta: 30, order: "list" }, baseline);
+h.eq(b.anchor?.offsetMs, 40, "anchored cascade edits offset");
+ops.cascadeTracks(deck, slide.id, ["b"], { property: "start", delta: 30, order: "list" }, baseline);
+h.eq(b.anchor?.offsetMs, 40, "cascade preview remains absolute from baseline");
+ops.cascadeTracks(deck, slide.id, ["b"], { property: "duration", delta: 100, order: "list" }, baseline);
+h.eq(b.anchor?.offsetMs, 10, "switching cascade property restores the original anchor");
+h.eq(b.duration, resolveTrack(a, deck).duration! + 100, "styled cascade writes a track override from inherited duration");
+ops.removeTracks(deck, slide.id, ["a"]);
+h.ok(b.anchor?.trackId === "a" && compileSlide(slide, deck.stage, deck).issues.some(i => i.trackId === "b" && /anchor/.test(i.reason)), "removed anchor stays dangling and compiles with an issue");
+
+h.section("preset stays on the track (orchestrator decision, F1 integration)");
+// familyOf(track) — the family law, tracksMatch, ghost births, the media checks — reads the RAW
+// track, so a style never supplies `preset` by resolution; it reaches linked tracks by write.
+{
+  const pd = ops.createDeck({ id: "presets", withTitleSlide: false });
+  const ps = ops.addSlide(pd, { id: "s" });
+  const ids = ["p", "q", "r", "g"].map(t => ops.addSlideText(pd, "s", { text: t, x: 0, y: 0, width: 100, height: 30 })!);
+  const pb = ops.addBeat(pd, "s", { id: "b" })!;
+  const reveal = ops.addAnimStyle(pd, { name: "Reveal", family: "appearance", track: { preset: "fade", duration: 250 } }, "reveal");
+  h.eq(resolveTrack({ target: ids[0], styleId: reveal.id }, pd).preset, undefined, "resolution never supplies a preset from the style");
+  pb.tracks = [{ id: "p", target: ids[0], preset: "fadeOut", duration: 90 }, { id: "q", target: ids[1], preset: "fade" }, { id: "r", target: ids[2], preset: "popIn" }];
+  h.ok(ops.linkTrackStyle(pd, "s", "p", reveal.id).ok && pb.tracks[0].preset === "fade", "linking to a same-family style with another preset writes the style's preset once");
+  h.ok(ops.linkTrackStyle(pd, "s", "q", reveal.id).ok && pb.tracks[1].preset === "fade", "linking keeps an equal preset");
+  h.ok(!ops.linkTrackStyle(pd, "s", "r", "missing").ok && pb.tracks[2].preset === "popIn", "a refused link leaves the preset");
+  ops.setAnimStyle(pd, reveal.id, { track: { preset: "fadeRise" } });
+  h.ok(pb.tracks.slice(0, 2).every(t => t.preset === "fadeRise") && pb.tracks[2].preset === "popIn", "setAnimStyle writes a new preset onto every linked track, and only those");
+  ops.setAnimStyle(pd, reveal.id, { track: { duration: 400 } });
+  h.ok(pb.tracks.slice(0, 2).every(t => t.preset === "fadeRise" && !Object.hasOwn(t, "duration")), "a style edit without a preset leaves linked presets and inheritance alone");
+  const ghost = ops.addGhostTransform(pd, "s", "b", ids[3], { count: 1, states: [{ x: 200 }] })!;
+  const birth = pb.tracks.find(t => t.id === ghost.trackIds[0])!;
+  const move = ops.addAnimStyle(pd, { name: "Move", family: "transform", track: { preset: "transform", duration: 900, easing: "linear" } }, "move");
+  h.ok(ops.linkTrackStyle(pd, "s", birth.id!, move.id).ok, "a ghost birth links to a transform style");
+  h.ok(birth.preset === "transform" && !!birth.ghostFrom && birth.styleId === move.id && !Object.hasOwn(birth, "duration"), "the linked birth keeps preset: transform beside ghostFrom");
+  h.ok(!ops.linkTrackStyle(pd, "s", birth.id!, reveal.id).ok && birth.styleId === move.id, "a birth cannot link to an appearance style");
+  h.eq(validateDeckFile(JSON.parse(JSON.stringify(pd))), [], "the deck with a linked ghost birth validates (ghostFrom -> preset rule)");
+  const linkedTracks = pd.slides.flatMap(sl => sl.beats.flatMap(b => b.tracks)).filter(t => t.styleId);
+  h.ok(linkedTracks.length === 3 && linkedTracks.every(t => familyOf(t) === pd.animStyles!.find(st => st.id === t.styleId)!.family), "familyOf of every linked track equals its style's family");
+  h.eq(compileSlide(ps, pd.stage, pd).cues[1].tracks.find(ct => ct.track.id === birth.id)?.duration, 900, "the compiled birth inherits the style's duration");
+  presetDeck = pd;
+}
+
+h.section("media timing and persisted headless operations");
+const mediaDeck = ops.createDeck({ id: "media", withTitleSlide: false });
+const mediaSlide = ops.addSlide(mediaDeck, { id: "media-slide" });
+mediaSlide.elements.push({ type: "video", id: "v", x: 0, y: 0, width: 100, height: 100, rotation: 0, assetId: "movie", posterAssetId: "poster", durationMs: 1000 });
+const mediaBeat = ops.addBeat(mediaDeck, mediaSlide.id)!;
+mediaBeat.tracks = [{ id: "wait", target: "v", preset: "fade", duration: 450 }, { id: "play", target: "v", preset: "videoStart", styleId: "start-video", anchor: { trackId: "wait", edge: "end", offsetMs: 25 } }];
+ops.addAnimStyle(mediaDeck, { name: "Start clip", family: "media", track: { preset: "videoStart" } }, "start-video");
+h.eq(videoEventsForPlan(mediaSlide, { cues: [{ fromBeat: 1, beat: 1, start: 1000, duration: 475 }] }, mediaDeck).map(e => [e.command, e.at]), [["videoStart", 1475]], "a linked media command plays at its anchored time");
+const root = await fs.mkdtemp(path.join(os.tmpdir(), "flux-resolve-"));
+try {
+  const tree = buildScaffoldTree({ title: "Style verification" }, ops.createDeck());
+  for (const dir of tree.dirs) await fs.mkdir(path.join(root, dir), { recursive: true });
+  for (const [rel, contents] of tree.files) { await fs.mkdir(path.dirname(path.join(root, rel)), { recursive: true }); await fs.writeFile(path.join(root, rel), contents); }
+  const cliDeck = ops.createDeck({ id: "cli", withTitleSlide: false });
+  const cliSlide = ops.addSlide(cliDeck, { id: "s" });
+  ops.addSlideText(cliDeck, "s", { text: "Title", x: 0, y: 0, width: 100, height: 30 });
+  const cliBeat = ops.addBeat(cliDeck, "s", { id: "b" })!;
+  cliBeat.tracks = [{ id: "a", target: cliSlide.elements[0].id, preset: "fade", duration: 100 }, { id: "b", target: cliSlide.elements[0].id, preset: "fadeOut", duration: 100 }];
+  await core.saveDeck(root, cliDeck);
+  const run = (...args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "flux-cli.ts", ...args, "--root", root], { cwd: path.resolve(import.meta.dirname, ".."), encoding: "utf8", env: { ...process.env, FLUX_NO_MIGRATE: "1" }, timeout: 30000 });
+  const create = run("anim-style", "create", "cli", "--name", "Linked fade", "--family", "appearance", "--preset", "fade", "--duration", "600");
+  h.eq(create.status, 0, `real anim-style create: ${create.stderr}`);
+  const styleId = JSON.parse(create.stdout)[0].id;
+  h.eq(run("set-track", "cli", "s", "a", "--style", styleId).status, 0, "CLI links a style");
+  h.eq(run("animate-like", "cli", "s", "--from", "a", "--to", "b").status, 0, "real animate-like executes");
+  const anchor = run("set-track", "cli", "s", "b", "--anchor", "a:end:10");
+  h.eq(anchor.status, 0, `real set-track anchor: ${anchor.stderr}`);
+  h.ok(anchor.stdout.includes("start 610 ms (anchored)"), "headless render shows resolved start and anchored marker");
+  h.eq((await core.inspectTarget(root, "track:cli/s/b")).timing, { start: 610, duration: 600, end: 1210, anchored: true }, "inspect reports the resolved timing of an anchored, linked track");
+  h.eq((await core.inspectTarget(root, "track:cli/s/a")).timing, { start: 0, duration: 600, end: 600 }, "inspect keeps the plain {start, duration, end} shape for an unanchored track");
+  const loaded = await core.loadDeck(root, "cli"), tracks = loaded.slides[0].beats[1].tracks;
+  h.ok(tracks.every(t => t.styleId === styleId && !Object.hasOwn(t, "duration")), "CLI persists links instead of copied fields");
+  h.ok(tracks.every(t => t.preset === "fade"), "CLI-linked tracks persist the style's preset on the track (b: fadeOut -> fade, written once)");
+  h.eq(resolveStart(tracks[1], loaded.slides[0].beats[1], loaded).start, 610, "saved anchor resolves to inherited end");
+  h.eq(validateDeckFile(loaded).length, 0, "saved deck validates");
+  const file = path.join(root, "slides/cli/deck.json"), bytes = await fs.readFile(file, "utf8");
+  const bad = run("set-track", "cli", "s", "a", "--anchor", "b:end");
+  h.ok(bad.status !== 0 && /cycle/i.test(bad.stderr) && await fs.readFile(file, "utf8") === bytes, "CLI cycle refusal preserves saved bytes");
+  h.eq(run("anim-style", "set", "cli", styleId, "--duration", "900").status, 0, "CLI style edit executes");
+  h.ok(run("set-track", "cli", "s", "b").stdout.includes("start 910 ms (anchored)"), "style edit retimes follower without track edits");
+  h.eq(run("set-track", "cli", "s", "b", "--no-anchor").status, 0, "CLI detaches anchor");
+  h.eq(run("anim-style", "delete", "cli", styleId).status, 0, "CLI deletes style with materialization");
+  await core.saveDeck(root, presetDeck!);
+  const savedGhost = (await core.loadDeck(root, "presets")).slides[0].beats[1].tracks.find(t => t.ghostFrom)!;
+  h.ok(savedGhost.preset === "transform" && savedGhost.styleId === "move", "flux-core saveDeck publishes the linked ghost birth");
+  h.eq(run("set-track", "cli", "s", "a", "--stagger-total", "800", "--stagger-from", "random", "--seed", "42", "--stagger-curve", "bouncy").status, 0, "CLI authors Total/random/spring distribution");
+  const motion = (await core.loadDeck(root, "cli")).slides[0].beats[1].tracks[0].stagger;
+  h.eq(motion, { totalMs: 800, from: "random", seed: 42, curve: { kind: "spring", bounce: .35 } }, "CLI persists canonical stagger shape without Each");
+  h.eq(run("set-track", "cli", "s", "a", "--stagger-each", "25").status, 0, "CLI switches to Each");
+  const each = (await core.loadDeck(root, "cli")).slides[0].beats[1].tracks[0].stagger;
+  h.ok(each?.perMs === 25 && each.totalMs === undefined && each.seed === 42, "CLI Each clears Total and preserves the seed");
+  const motionBytes = await fs.readFile(file, "utf8");
+  h.ok(run("set-track", "cli", "s", "a", "--stagger-curve", "garbage").status !== 0 && await fs.readFile(file, "utf8") === motionBytes, "bad distribution refuses without a write");
+  const final = await core.loadDeck(root, "cli");
+  h.ok(final.slides[0].beats[1].tracks.every(t => !t.styleId && t.duration === 900), "delete persists detached effective duration");
+  h.eq(final.slides[0].beats[1].tracks[1].start, 910, "anchor detach preserves the last resolved start");
+  h.eq(run("set-track", "cli", "s", "a", "--curve", "spring(0.35)").status, 0, "CLI accepts spring grammar");
+  let curveDisk = JSON.parse(await fs.readFile(file, "utf8"));
+  h.eq(curveDisk.slides[0].beats[1].tracks[0].curve, { kind: "spring", bounce: 0.35 }, "REAL CLI persists spring spec on disk");
+  h.eq(validateDeckFile(curveDisk), [], "CLI spring deck passes the generated validator");
+  const curveBytes = await fs.readFile(file, "utf8"), badCurve = run("set-track", "cli", "s", "a", "--curve", "garbage");
+  h.ok(badCurve.status !== 0 && /spring\(.*bezier\(.*steps\(/s.test(badCurve.stderr) && /bouncy/.test(badCurve.stderr), "invalid CLI curve lists grammar and catalog names");
+  h.eq(await fs.readFile(file, "utf8"), curveBytes, "invalid curve leaves saved bytes intact");
+  h.eq(run("set-track", "cli", "s", "a", "--curve", "linear").status, 0, "CLI curve grammar accepts legacy token");
+  curveDisk = JSON.parse(await fs.readFile(file, "utf8"));
+  h.ok(curveDisk.slides[0].beats[1].tracks[0].easing === "linear" && !curveDisk.slides[0].beats[1].tracks[0].curve, "CLI token replaces spring instead of hiding behind it");
+  const setTx = run("set-transform", "cli", "s", "b", cliSlide.elements[0].id, "--state", '{"x":100}', "--curve", "bouncy");
+  h.eq(setTx.status, 0, `CLI transform accepts catalog curve: ${setTx.stderr}`);
+  const transformedDisk = JSON.parse(await fs.readFile(file, "utf8")).slides[0].beats[1].tracks.find((t: Track) => t.preset === "transform");
+  h.eq(transformedDisk?.curve, { kind: "spring", bounce: 0.35 }, "CLI transform persists the catalog spec");
+  h.ok(transformedDisk && !transformedDisk.easing && !transformedDisk.influence, "CLI transform clears its default timing representation");
+  const paramsOnly = run("anim-style", "create", "cli", "--name", "Parameters", "--family", "appearance", "--preset", "fade", "--params", '{"amount":0.25}');
+  h.eq(paramsOnly.status, 0, `CLI style params: ${paramsOnly.stderr}`);
+  if (paramsOnly.status === 0) h.eq(JSON.parse(paramsOnly.stdout)[0].track.params, { amount: 0.25 }, "CLI params survive on style");
+  const influenceOnly = run("anim-style", "create", "cli", "--name", "Influence", "--family", "appearance", "--preset", "fade", "--influence", '{"in":30,"out":40}');
+  h.eq(influenceOnly.status, 0, `CLI style influence: ${influenceOnly.stderr}`);
+  if (influenceOnly.status === 0) h.eq(JSON.parse(influenceOnly.stdout)[0].track.influence, { in: 30, out: 40 }, "CLI influence survives on style");
+  const curvedStyle = run("anim-style", "create", "cli", "--name", "Curved", "--family", "appearance", "--preset", "fade", "--curve", "steps(8)", "--params", '{"amount":0.5}');
+  h.eq(curvedStyle.status, 0, `CLI style accepts curve and params: ${curvedStyle.stderr}`);
+  if (curvedStyle.status === 0) {
+    const st = JSON.parse(curvedStyle.stdout)[0];
+    h.eq([st.track.curve, st.track.params], [{ kind: "steps", n: 8 }, { amount: 0.5 }], "style stores curve spec and params");
+    const styleSet = run("anim-style", "set", "cli", st.id, "--influence", '{"in":30,"out":40}');
+    h.eq(styleSet.status, 0, "CLI style accepts influence JSON");
+    if (styleSet.status === 0) h.eq([JSON.parse(styleSet.stdout)[0].track.curve, JSON.parse(styleSet.stdout)[0].track.influence], [undefined, { in: 30, out: 40 }], "CLI influence clears style curve");
+    h.eq(run("anim-style", "set", "cli", st.id, "--curve", "gentle").status, 0, "CLI style set accepts curve grammar");
+    const styledDisk = JSON.parse(await fs.readFile(file, "utf8")).animStyles.find((s: { id: string }) => s.id === st.id).track;
+    h.eq([styledDisk.curve, styledDisk.influence, styledDisk.easing], [{ kind: "bezier", p: [0.37, 0, 0.63, 1] }, undefined, undefined], "CLI style set persists only the new timing spec");
+  }
+  curveDisk = await core.loadDeck(root, "cli");
+  const extra = ops.addBeat(curveDisk, "s", { id: "extra" })!;
+  extra.tracks = [{ id: "outside", target: cliSlide.elements[0].id, preset: "fade" }];
+  await core.saveDeck(root, curveDisk);
+  const filtered = run("animate-like", "cli", "s", "--beat", "b", "--from", "a", "--to", "b,outside");
+  h.eq(filtered.status, 0, `CLI animate-like beat filter: ${filtered.stderr}`);
+  if (filtered.status === 0) h.eq(JSON.parse(filtered.stdout).linked, ["b"], "CLI beat filter links only tracks in requested beat");
+  h.ok(!(await core.loadDeck(root, "cli")).slides[0].beats[2].tracks[0].styleId, "beat filter leaves other beat unlinked");
+  h.eq(run("animate-like", "cli", "s", "--from", "a", "--to", "outside").status, 0, "unfiltered animate-like retains slide-wide scope");
+  h.ok(!!(await core.loadDeck(root, "cli")).slides[0].beats[2].tracks[0].styleId, "unfiltered call links other beat");
+  // QA-M3: the headless move reads the source beat's plot manifests (flux-core
+  // moveTrack → manifestFor), so a detached anchor keeps the semantic stagger tail.
+  const plotDeck = ops.createDeck({ id: "cli-plot", withTitleSlide: false });
+  const plotSlide = ops.addSlide(plotDeck, { id: "s" });
+  ops.addSlideText(plotDeck, "s", { text: "Follower", x: 0, y: 0, width: 100, height: 30 });
+  plotSlide.elements.push({ type: "plot", id: "plot1", x: 100, y: 100, width: 300, height: 200, rotation: 0, assetId: "scatter" } as never);
+  ops.addBeat(plotDeck, "s", { id: "b" })!.tracks = [
+    { id: "leader", target: "plot1", part: "points", preset: "fade", start: 50, duration: 100, stagger: { perMs: 30 } },
+    { id: "follower", target: plotSlide.elements[0].id, preset: "fade", start: 7, anchor: { trackId: "leader", edge: "end", offsetMs: 10 } },
+  ];
+  ops.addBeat(plotDeck, "s", { id: "b2" });
+  await core.saveDeck(root, plotDeck);
+  await fs.mkdir(path.join(root, "slides", "cli-plot", "assets"), { recursive: true });
+  await fs.writeFile(path.join(root, "slides", "cli-plot", "assets", "scatter.fluxplot.json"), JSON.stringify(manifest));
+  const plotMove = run("move-track", "cli-plot", "s", "follower", "b2");
+  h.eq(plotMove.status, 0, `CLI cross-beat move-track: ${plotMove.stderr}`);
+  const movedFollower = (await core.loadDeck(root, "cli-plot")).slides[0].beats[2].tracks[0];
+  h.eq([movedFollower.id, movedFollower.start, movedFollower.anchor], ["follower", 220, undefined], "REAL CLI cross-beat move detaches the anchor at its resolved start, incl. the plot's semantic stagger tail (50 + 100 + 2×30 + 10)");
+
+  const target = cliSlide.elements[0].id;
+  h.eq(run("set-transform", "cli", "s", "b", target, "--state", '{"x":240}', "--arc", "-0.5").status, 0, "CLI set-transform authors a negative arc");
+  const moved = (await core.loadDeck(root, "cli")).slides[0].beats[1].tracks.find(t => t.preset === "transform");
+  h.eq(moved?.arc, -.5, "CLI persists arc through the shared transform op");
+  const arcBytes = await fs.readFile(file, "utf8");
+  h.ok(run("set-transform", "cli", "s", "b", target, "--arc", "2").status !== 0 && await fs.readFile(file, "utf8") === arcBytes, "invalid arc refuses without a write");
+} finally { await fs.rm(root, { recursive: true, force: true }); }
+await h.done();

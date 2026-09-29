@@ -1,3 +1,5 @@
+import { boundedModelFile } from "./model3dFile";
+import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
 import * as fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createSlideRepository } from "../src/lib/slide/embedRepository";
@@ -11,7 +13,7 @@ import { CLIENT } from "./journal";
 /** Same repository and source policy as Paper, with durable Node IO. */
 export async function nodeSlideRepository(root: string) {
   await ensureDom();
-  const io = { exists, readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p),
+  const io = { exists, readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), readModelFile: (p: string) => boundedModelFile(p, GLB_LIMITS.maxBytes, root),
     writeText: atomicWrite, mkdir: async (p: string) => { await fs.mkdir(p, { recursive: true }); }, remove: (p: string) => fs.rm(p, { force: true }) };
   let figures: Promise<string[]> | undefined;
   return createSlideRepository(root, { ...io,

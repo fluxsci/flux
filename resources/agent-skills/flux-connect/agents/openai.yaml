@@ -1,0 +1,7 @@
+interface:
+  display_name: "Flux connect"
+  short_description: "Get fully up to speed on Flux, your context, and a Flux project"
+  default_prompt: "Use $flux-connect to connect to my Flux project at <path>."
+
+policy:
+  allow_implicit_invocation: false

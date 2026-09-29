@@ -152,6 +152,9 @@ try {
   }));
   ok(reduced.anim === "none" && reduced.running === 0, `prefers-reduced-motion opens with no animation (animation: ${reduced.anim})`);
 
+  const { verifyCurveSurface } = await import("./lib/animatorCurveChecks.mjs");
+  await verifyCurveSurface(page, ok);
+
   const errs = realErrors(page);
   ok(errs.length === 0, `no console errors (${errs.length})`);
   if (errs.length) console.error(errs.slice(0, 5));

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Click-a-highlight popover: comment, recolor, copy, ask Claude, delete. Anchored
+  // Click-a-highlight popover: comment, recolor, copy, annotate, delete. Anchored
   // at fixed viewport coords computed by ReaderMode (clamped; `place` flips it above/
   // below the highlight). A dirty note is saved on ANY close path (outside click,
   // explicit ✕, Save, Esc/teardown — the onDestroy flush) so a half-typed comment
@@ -20,6 +20,7 @@
     onSaveNote,
     onRecolor,
     onCopy,
+    onAnnotate,
     onAsk,
     onDelete,
     onClose,
@@ -35,6 +36,7 @@
     /** Returns the clipboard promise — "Copied ✓" shows only when it resolves. */
     onCopy?: () => void | Promise<void>;
     onAsk?: () => void;
+    onAnnotate?: () => void;
     onDelete?: () => void;
     onClose?: () => void;
   } = $props();
@@ -141,6 +143,8 @@
       {/each}
     </div>
     <span class="ppage">p{annotation.page}</span>
+    {#if onAnnotate}<button class="pico annotate" title="Annotate this passage" aria-label="Annotate this passage" onclick={onAnnotate}>✦</button>{/if}
+    {#if onAsk}<button class="pico" title="Ask about this passage" aria-label="Ask about this passage" onclick={onAsk}>Ask</button>{/if}
     <button class="pico" title="Close" aria-label="Close" onclick={requestClose}>✕</button>
   </div>
 
@@ -158,7 +162,6 @@
   {#if saveError}<div role="alert" class="pquote">Save failed: {saveError}. Your draft is retained; retry Save.</div>{/if}
   <div class="pactions">
     <button class="pbtn" onclick={copy}>{copied ? "Copied ✓" : "Copy text"}</button>
-    <button class="pbtn" title="Send this highlight to the terminal" onclick={() => onAsk?.()}>✦ Send to terminal</button>
     <span class="spacer"></span>
     {#if dirty}
       <button class="pbtn save" disabled={saving} onclick={save}>{saving ? "Saving…" : "Save"}</button>
@@ -227,6 +230,7 @@
   .pico:hover {
     color: var(--c-tx-1);
   }
+  .pico.annotate { color: var(--c-accent); width: 24px; height: 24px; }
   .pquote {
     font-family: var(--font-serif);
     font-style: italic;

@@ -171,7 +171,7 @@ function run(script: string, args: string[]): Promise<{ code: number; err: strin
 
 // ---------------------------------------------------------------- 6. hot contention — claims are content-atomic
 {
-  // Regression pin for the torn-claim race (2026-08-13, found by verify-note's
+  // Regression pin for the torn-claim race (2026-08-13, found by verify-log's
   // contention section): the old claim was open("wx") THEN write, so a contender
   // reading in between saw an EMPTY file, judged it corrupt, rm'd the holder's
   // LIVE lock and entered the critical section beside it. Barrier-synchronized

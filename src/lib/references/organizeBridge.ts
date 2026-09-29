@@ -1,4 +1,4 @@
-import { assertNoCanonicalConflict, parseCanonical, assertCanonicalText } from "./canonical";
+import { parseCanonical, assertCanonicalText } from "./canonical";
 // Renderer twin of flux-core's organize persistence (3.3) — reads/writes
 // .fluxlib/organize.json over window.fig, mutating under the FluxLib "library" lock so a
 // concurrent CLI/MCP/agent edit merges instead of clobbering. Mutations return the fresh
@@ -30,7 +30,6 @@ async function mutate(fn: (d: OrganizeData) => OrganizeData): Promise<OrganizeDa
     const read = async () => await fb.exists(p) ? await fb.readText(p) : null;
     const before = await read();
     const next = fn(before == null ? emptyOrganize() : parseCanonical(p, before, validateOrganize));
-    if (fb.readdir) await assertNoCanonicalConflict(p, async dir => (await fb.readdir!(dir)).map(e=>e.name));
     await assertCanonicalText(p, before, read);
     if (fb.mkdir) await fb.mkdir(joinPath(lib, ".fluxlib"));
     await lease.assertOwned?.();

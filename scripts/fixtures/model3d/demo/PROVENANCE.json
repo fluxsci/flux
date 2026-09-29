@@ -1,0 +1,7 @@
+{
+  "source": "fluxplot/examples/scene3d_demo.py",
+  "fluxplotBranch": "scene3d",
+  "fluxplotCommit": "bb48739af5c9cc4e62541713f21c413fb9984bd4",
+  "command": "node --import tsx scripts/gen-model3d-demo-fixtures.ts <scene3d-worktree>",
+  "recipe": "Valid non-rerunnable sidecars emitted by the unchanged public example"
+}

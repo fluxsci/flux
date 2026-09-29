@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
   // The palette picker (2026-09-15 surface redesign) — replaces the old
   // name-search colour field. The whole point: F, then c, and the colour is
   // ONE mouse motion away. The project palette renders as a swatch grid
@@ -173,6 +175,7 @@
   // keys depend on which element holds focus is a picker that sometimes ignores
   // them. In the colormap view the child picker owns Shift+Tab.
   function onWinKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (dropperBusy) {
       e.preventDefault(); e.stopImmediatePropagation();
       if (e.key === "Escape") dropperController?.abort();

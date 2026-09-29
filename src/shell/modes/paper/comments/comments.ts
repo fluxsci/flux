@@ -8,28 +8,9 @@ import search from "approx-string-match";
 import { fileBridge, joinPath, type LoadedProject } from "../../../../lib/project/types";
 import { commentsSidecarRel, commentsMainPath } from "../../../../lib/project/docOrder";
 
-export interface CommentMessage {
-  author: string;
-  body: string;
-  createdAt: string;
-}
-export interface TextQuoteSelector {
-  start: number;
-  end: number;
-  quote: string;
-  prefix: string;
-  suffix: string;
-}
-export interface CommentThread {
-  id: string;
-  anchor: TextQuoteSelector;
-  resolved: boolean;
-  messages: CommentMessage[];
-}
-interface CommentsFile {
-  version: 1;
-  threads: CommentThread[];
-}
+import { mergeCommentThreads, type CommentThread, type TextQuoteSelector } from "../../../../lib/project/comments";
+import { commentFiles, bumpComments } from "../../../../lib/project/commentBridge";
+export type { CommentMessage, CommentThread, TextQuoteSelector } from "../../../../lib/project/comments";
 
 const CTX = 32; // chars of prefix/suffix context kept for re-anchoring
 
@@ -94,24 +75,12 @@ function commonSuffix(a: string, b: string): number {
 // Comments live beside their document (Principle 6). The main manuscript keeps
 // the historical `comments.json`; other documents get `<base>.comments.json` so
 // each F4 document has its own thread set.
-function commentsPath(p: LoadedProject, docRel?: string): string {
-  // One derivation for both engines (docOrder.ts) — deleting a document
-  // removes exactly the sidecar this wrote.
-  const mp = docRel ?? p.manifest.manuscript.path; // e.g. "manuscript/main.qmd"
-  return joinPath(p.root, commentsSidecarRel(commentsMainPath(p.manifest), mp));
-}
-
 export async function readComments(p: LoadedProject, docRel?: string): Promise<CommentThread[]> {
   const fb = fileBridge();
   if (!fb) return [];
-  const path = commentsPath(p, docRel);
   try {
-    if (!(await fb.exists(path))) return [];
-    const data = JSON.parse(await fb.readText(path)) as CommentsFile;
-    return Array.isArray(data.threads) ? data.threads : [];
-  } catch {
-    return [];
-  }
+    return mergeCommentThreads((await commentFiles(p.root, p.manifest, docRel ?? p.manifest.manuscript.path)).map(f => f.file));
+  } catch { return []; }
 }
 
 export async function writeComments(
@@ -121,8 +90,15 @@ export async function writeComments(
 ): Promise<void> {
   const fb = fileBridge();
   if (!fb) return;
-  const file: CommentsFile = { version: 1, threads };
-  await fb.writeText(commentsPath(p, docRel), JSON.stringify(file, null, 2) + "\n");
+  const files = await commentFiles(p.root, p.manifest, docRel ?? p.manifest.manuscript.path);
+  const known = new Set(files.flatMap(f => f.file.threads.map(t => t.id)));
+  if (!files.length) files.push({ rel: commentsSidecarRel(commentsMainPath(p.manifest), docRel ?? p.manifest.manuscript.path), file: { version: 1, threads: [] } });
+  for (const [i, { rel, file }] of files.entries()) {
+    const owned = new Set(file.threads.map(t => t.id));
+    const next = { ...file, threads: threads.filter(t => owned.has(t.id) || (i === 0 && !known.has(t.id))) };
+    await fb.writeText(joinPath(p.root, rel), JSON.stringify(next, null, 2) + "\n");
+  }
+  bumpComments();
 }
 
 export function newId(): string {

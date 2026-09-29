@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { defaultTimingFor } from "../../../lib/slide/presetCatalog";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
+
+  import { animatorAnnotationTargets } from "./animator/annotationTargets";
   // flux-slide — the ANIMATOR dock (animation rework §6): the shell that
   // composes the Properties mini-pane (the selected track's parameters) and
   // the BeatRail (collapsed beat chips + one expanded beat with grouped,
@@ -12,10 +16,14 @@
   import { get } from "svelte/store";
   import { onDestroy, untrack } from "svelte";
   import { deckOverlay, activeBeat, commitDeckLive, selTrackIds, exitEndpointEdit } from "../../../lib/slide/store";
-  import { selection, partSelection } from "../../../lib/store";
+  import { selection, partSelection, partSelections } from "../../../lib/store";
   import { slideById, addBeat as addBeatOp, setAnimation } from "../../../lib/slide/ops";
   import { applyAutoAnimation, animateElement } from "../../../lib/slide/autobuild";
-    import { plotManifests } from "../../../lib/plot/store";
+  import { scene3dManifests } from "../../../lib/model3d/store";
+  import { transformPreState } from "../../../lib/slide/tween";
+  import { plotManifests, plotDom } from "../../../lib/plot/store";
+  import { compileSlide } from "../../../lib/slide/compile";
+  import { targetOutlines } from "../../../lib/slide/targetGeometry";
   import { slideLayout } from "./slideLayoutStore";
   import type { Slide, Track } from "../../../lib/slide/types";
 
@@ -30,7 +38,7 @@
 
   let { slide, onPreview, onAction, onSeek, onPause, onStop, onResume, onUndo, onRedo, onSave, time = 0, playing = false, previewing = false, loop = false, onLoop }: {
     slide: Slide | null; onPreview?: (startBeat?: number, range?: "step" | "from" | "slide") => void;
-    onAction?: (action: "appear" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop") => void;
+    onAction?: (action: "appear" | "appear-from" | "change" | "ghost" | "become" | "emphasize" | "disappear" | "videoStart" | "videoPause" | "videoStop" | "turntable") => void;
     onSeek?: (beat: number, time: number) => void; onPause?: () => void; onStop?: () => void; onResume?: () => void;
     onUndo?: () => void; onRedo?: () => void; onSave?: () => void;
     time?: number; playing?: boolean; previewing?: boolean; loop?: boolean; onLoop?: () => void;
@@ -39,15 +47,23 @@
   let railRef = $state<{ groupSelection(): void; ungroupSelection(): void; cascadeSelection(): void } | null>(null);
   let libOpen = $state(false);
   // ONE class of action — Transform — three ways: Change · Ghost · Become.
+  let appearMenu = $state<{ x: number; y: number } | null>(null);
+  function openAppearMenu(e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    transformMenu = null;
+    appearMenu = appearMenu ? null : {x: r.left, y: r.bottom + 4};
+  }
   let transformMenu = $state<{ x: number; y: number } | null>(null);
   function openTransformMenu(e: MouseEvent) {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    appearMenu = null;
     transformMenu = transformMenu ? null : { x: r.left, y: r.bottom + 4 };
   }
 
 
   const deck = $derived($deckOverlay); // stage/meta only — slide comes composed
   const sel = $derived([...$selection]);
+  const selectedModels = $derived(slide?.elements.filter(element => element.type === "model3d" && sel.includes(element.id)) ?? []);
   const selectedVideos = $derived(slide?.elements.filter(element => element.type === "video" && sel.includes(element.id)) ?? []);
   const manifests = $derived($plotManifests);
   const selPlot = $derived.by(() => {
@@ -56,10 +72,15 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+  const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
+  const appearItems = $derived<MenuItem[]>([
+    {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
+    {label: "Appear from…", hint: "Pick the object this selection comes from", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("appear-from")},
+  ]);
   const transformItems = $derived<MenuItem[]>([
     { label: "Change", hint: "Edit the object after this step · Cmd/Ctrl+Shift+T", disabled: !sel.length, action: () => onAction?.("change") },
     { label: "Ghost…", hint: selectedVideos.length ? "Duplicate a video instead" : "Copies that start together and transform independently", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("ghost") },
-    { label: "Become…", hint: selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0, action: () => onAction?.("become") },
+    { label: "Become", hint: sourceGroup ? "Choose an object or plot parts as the Become source, rather than a group." : selectedVideos.length ? "Video clips keep their own content" : selPlot ? "Turn into another object, or another plot's data · Cmd/Ctrl+Shift+E" : "Turn into another object · Cmd/Ctrl+Shift+E", disabled: sel.length !== 1 || selectedVideos.length > 0 || sourceGroup, action: () => onAction?.("become") },
   ]);
   // When a slide carries >1 plot, tag each plot element P1/P2/… (in slide order)
   // so the timeline stays legible; single-plot slides get no tags.
@@ -70,8 +91,8 @@
     return m;
   });
   const manifestFor = (target: string) => {
-    const el = slide?.elements.find((e) => e.id === target);
-    return el && "assetId" in el ? manifests[(el as { assetId: string }).assetId] : undefined;
+    const el = slide ? transformPreState(slide, target, $activeBeat) : undefined;
+    return el?.type === "model3d" ? $scene3dManifests[el.assetId] : el?.type === "plot" ? manifests[el.assetId] : undefined;
   };
 
   // --- keyboard cockpit ---------------------------------------------------------
@@ -99,6 +120,7 @@
     if(t){selection.set(new Set(t.target.startsWith("@")?[]:[t.target]));partSelection.set(t.part?{elementId:t.target,partId:t.part}:null);requestAnimationFrame(()=>document.querySelector(`[data-track-id="${t.id}"]`)?.scrollIntoView({block:"nearest"}));}
   }
   function onAnimKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     const tgt = e.target as HTMLElement;
     if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "SELECT" || tgt.tagName === "TEXTAREA")) {
       if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); tgt.blur(); animEl?.focus({ preventScroll: true }); }
@@ -107,7 +129,7 @@
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); const tracks=slide?.beats[$activeBeat]?.tracks??[]; selTrackIds.set(tracks.map(t=>t.id!).filter(Boolean)); selection.set(new Set(tracks.filter(t=>!t.target.startsWith("@")).map(t=>t.target))); partSelection.set(null); return; }
     if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? onRedo?.() : onUndo?.(); return; }
-    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); onSave?.(); return; }
+    if (mod && !e.shiftKey && e.code === "KeyS") { e.preventDefault(); onSave?.(); return; }
     if (e.code === "Space") { e.preventDefault(); playing ? onPause?.() : previewing ? onResume?.() : onPreview?.($activeBeat); return; }
     if (mod && (e.key === "d" || e.key === "D") && !e.shiftKey) { e.preventDefault(); duplicateSelectedTracks(); return; }
     if (mod && e.shiftKey && e.key.toLowerCase() === "c") { e.preventDefault(); railRef?.cascadeSelection(); return; }
@@ -133,12 +155,13 @@
       case "x": if (!mod) { e.preventDefault(); toggleSelectedDisabled(); } break;
       case "[": e.preventDefault(); moveSelectedToAdjacentBeat(-1); break;
       case "]": e.preventDefault(); moveSelectedToAdjacentBeat(1); break;
-      case "p": case "d": case "t": case "g": case "e": case "o":
+      case "p": case "d": case "t": case "g": case "e":
         if (!mod) { e.preventDefault(); focusField(e.key); }
         break;
     }
   }
   function onWinKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (animEl && document.activeElement?.closest('[data-command-scope="animation"]')) onAnimKey(e);
   }
 
@@ -188,6 +211,10 @@
     const current = untrack(() => $selTrackIds);
     const tracks = slide?.beats[untrack(() => $activeBeat)]?.tracks ?? [];
     if (current.some(id => tracks.some(t => t.id === id && ids.includes(t.target) && (!part || t.part === part.partId)))) return;
+    // Stage-level effects (@camera/@stage) have no canvas counterpart: choosing
+    // one clears the canvas selection, which must not clear the effect itself.
+    const all = slide?.beats.flatMap(b => b.tracks) ?? [];
+    if (!ids.length && !part && current.length && current.every(id => all.find(t => t.id === id)?.target.startsWith("@"))) return;
     selTrackIds.set(tracks.filter(t => ids.includes(t.target) && (!part || t.part === part.partId)).map(t => t.id!).filter(Boolean));
   });
 
@@ -234,17 +261,28 @@
     if (idx > 0) activeBeat.set(idx);
   }
   function addCameraMove(kind: "zoom" | "reset") {
+    // The geometric Zoom path is the default; keep `to.path` absent on disk.
     const d0 = deck;
     if (!d0 || !slide) return;
     const st = d0.stage;
     if (kind === "reset") {
-      addBeatWith("Reset view", { target: "@camera", preset: "camera", to: { zoom: 1, x: st.width / 2, y: st.height / 2 }, duration: 900, easing: "smooth" });
+      addBeatWith("Reset view", { target: "@camera", preset: "camera", to: { zoom: 1, x: st.width / 2, y: st.height / 2 }, ...defaultTimingFor("camera") });
       return;
     }
     const el = sel.length ? slide.elements.find((e) => e.id === sel[0]) : null;
     if (!el) return;
-    const zoom = Math.max(1.05, Math.min(st.width / el.width, st.height / el.height) * 0.82);
-    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: el.x + el.width / 2, y: el.y + el.height / 2 }, duration: 900, easing: "smooth" });
+    let box = { x: el.x, y: el.y, w: el.width, h: el.height };
+    if ($partSelections.length) {
+      const frame = compileSlide(slide, st, { animStyles: d0.animStyles, modelManifest: id => $scene3dManifests[id], plotManifest: id => manifests[id] }).sample($activeBeat);
+      const ctx = { manifest: (id: string) => manifests[id], plotRoot: (id: string) => plotDom.get(id), groups: slide.groups };
+      const boxes = $partSelections.flatMap(p => targetOutlines({ element: p.elementId, parts: [p.partId] }, frame, ctx).map(o => o.bbox));
+      if (!boxes.length) return;
+      const x = Math.min(...boxes.map(b => b.x)), y = Math.min(...boxes.map(b => b.y));
+      box = { x, y, w: Math.max(...boxes.map(b => b.x + b.w)) - x, h: Math.max(...boxes.map(b => b.y + b.h)) - y };
+    }
+    const w = $partSelections.length ? Math.max(1, box.w) : box.w, h = $partSelections.length ? Math.max(1, box.h) : box.h;
+    const zoom = Math.max(1.05, Math.min(st.width / w, st.height / h) * 0.82);
+    addBeatWith("Zoom in", { target: "@camera", preset: "camera", to: { zoom, x: box.x + box.w / 2, y: box.y + box.h / 2 }, ...defaultTimingFor("camera") });
   }
   function addBeat() {
     const sid = slide?.id;
@@ -263,13 +301,17 @@
 <svelte:window onkeydown={onWinKey} />
 {#if slide}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="animator" bind:this={animEl} tabindex="0" role="group" data-command-scope="animation" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
+  <div class="animator" bind:this={animEl} use:animatorAnnotationTargets={() => slide} tabindex="0" role="group" data-command-scope="animation" aria-label="Animation timeline" style={`--anim-h:${$slideLayout.animatorH}px`}>
     <div class="dock-gutter" class:active={dockResize} role="separator" aria-orientation="horizontal"
       aria-label="Resize animator" onpointerdown={startDockDrag} ondblclick={toggleDockSize}><span class="grip"></span></div>
     <div class="bar">
       <strong class="ttl">Animate</strong>
       <div class="actions" aria-label="Add animation">
-        <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
+        <div class="appear-split">
+          <button class="b" disabled={!sel.length} onclick={() => onAction?.("appear")} title="Add an entrance · Cmd/Ctrl+Shift+A">Appear</button>
+          <button class="b split-arrow" disabled={!sel.length} onclick={openAppearMenu} aria-label="Appear options" aria-haspopup="menu" aria-expanded={!!appearMenu}>▾</button>
+          {#if appearMenu}<TimelineMenu x={appearMenu.x} y={appearMenu.y} items={appearItems} onClose={() => (appearMenu = null)} />{/if}
+        </div>
         <span class="tf-wrap">
           <button class="b tf" class:active={!!transformMenu} disabled={!sel.length} onclick={openTransformMenu} aria-haspopup="menu" aria-expanded={!!transformMenu}
             title="Transform the selection at this step — Change (edit it), Ghost (copies), or Become (turn into another object)">Transform ▾</button>
@@ -277,6 +319,9 @@
         </span>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("emphasize")} title="Highlight the selection">Emphasize</button>
         <button class="b" disabled={!sel.length} onclick={() => onAction?.("disappear")} title="Add an exit · Cmd/Ctrl+Shift+D">Disappear</button>
+        {#if selectedModels.length && selectedModels.length === sel.length && !$partSelections.length}
+          <button class="b" onclick={() => onAction?.("turntable")} title="One full turn in 6 seconds — edit its Change track">Turntable</button>
+        {/if}
         {#if selectedVideos.length}
           <button class="b" onclick={() => onAction?.("videoStart")} title="Start the selected videos from their first frame at this step">Start video</button>
           <button class="b" onclick={() => onAction?.("videoPause")} title="Pause the selected videos at this step, keeping the current frame">Pause video</button>
@@ -380,6 +425,8 @@
   .b.play { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }
   .b.play:hover:not(:disabled) { background: var(--c-accent-bright); border-color: var(--c-accent-bright); color: var(--c-on-accent); }
   .lib-wrap, .tf-wrap { position: relative; display: inline-flex; }
+  .appear-split { display:flex;align-items:center;gap:0; }
+  .appear-split .split-arrow { padding:0 4px;border-left:1px solid var(--c-line-strong); }
   /* Transform keeps its olive hue as text + border only */
   .b.tf { color: var(--c-success); border-color: color-mix(in oklab, var(--flx-olive-600) 70%, transparent); }
   .b.tf:hover:not(:disabled), .b.tf.active { border-color: var(--c-success); color: var(--c-tx-hi); background: transparent; }

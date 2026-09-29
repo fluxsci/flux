@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { yieldsToShellModal } from "../../../agent/annotationVisibility";
   import { tick, onDestroy, untrack } from 'svelte';
   import type { DocEntry } from './documents';
   import { documentRemovalBlocker } from '../../../../lib/project/docOrder';
@@ -125,7 +126,7 @@
 </script>
 
 <svelte:window onpointermove={dragMove} onpointerup={endDrag} onpointercancel={cancelDrag}
-  onkeydown={(e) => { if (e.key === 'Escape') cancelDrag(); }} onblur={cancelDrag} />
+  onkeydown={(e) => { if (yieldsToShellModal(e)) return; if (e.key === 'Escape') cancelDrag(); }} onblur={cancelDrag} />
 
 {#snippet folderRow(path: string, label: string, depth: number, top = false)}
   <div class="dp-folder" class:dp-head={top} class:drop-target={dropFolder === path} data-folder={path} style={`--depth:${depth}`}>

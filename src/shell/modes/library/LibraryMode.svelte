@@ -13,12 +13,23 @@
 </script>
 
 <script lang="ts">
+  import CommandPalette from "../../command/CommandPalette.svelte";
+  import { contextCommands } from "../../command/globalCommands";
+  let commandsOpen = $state(false);
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
+
+  import { openLibraryRequest } from "../../command/commandBus";
+  import { libraryContext } from "../../../lib/bridge/contextStamp";
+  import { registerTargetResolver, boundsOf } from "../../../lib/bridge/targetResolvers";
+  import { describeTarget, type TargetRef } from "../../../lib/project/targets";
+
   // The Library mode — a full-window, searchable table over the WHOLE machine-global
   // FluxLib, showing OpenAlex enrichment (abstract, topics, keywords, citation count),
   // plus a "World" scope that searches ALL of OpenAlex — by keyword OR by meaning
   // (semantic) — with one-click add + per-entry citing / similar / author lookups.
-  import { onMount, untrack } from "svelte";
-  import { runQuery, extractFulltext, hasFulltext, attachHaystacks, createQueryRunner } from "../../../lib/references/query";
+  import { onDestroy, onMount, untrack } from "svelte";
+  import { get } from "svelte/store";
+  import { runQuery, parseQuery, extractFulltext, hasFulltext, attachHaystacks, createQueryRunner } from "../../../lib/references/query";
   import type { RefEntry } from "../../../lib/references/types";
   import { mergeEnrich, type EnrichMap, type EnrichedEntry } from "../../../lib/references/enrich";
   import {
@@ -61,8 +72,6 @@
   import { mergeOrganize, organizeOf, allTags, allCollections, emptyOrganize, READING_STATUSES, type OrganizeData, type ReadingStatus } from "../../../lib/references/organize";
   import { pdfFetchJob, type GuiFetchSummaryLite } from "../../../lib/references/pdfFetchJob.svelte";
   import { assignJob, countInbox } from "../../../lib/references/assignJob.svelte";
-  import { isLibraryConflictFailure } from "../../../lib/references/assignOutcome";
-  import { conflictsOpen, refreshConflicts } from "../../../lib/project/conflicts";
   import { safeKey, fetchOutcome, type FetchFailure, type FetchOutcome } from "../../../lib/references/items";
 
   let { focused = true }: { focused?: boolean } = $props();
@@ -77,6 +86,13 @@
   let loading = $state(true);
   let loadError = $state(""); // non-empty when the FluxLib read failed (vs. genuinely empty)
   let query = $state("");
+  $effect(() => {
+    const request = $openLibraryRequest;
+    if (!request || !focused) return;
+    query = request.query ?? "";
+    selected = new Set(request.selectedKeys ?? []);
+    openLibraryRequest.set(null);
+  });
   let scope = $state<"library" | "world">("library");
   let worldMode = $state<"lexical" | "semantic">("lexical");
   let highlighted = $state(0);
@@ -147,6 +163,31 @@
   // LR-U2: row multiselect (by citekey) → bulk "add to project". Keyed by citekey so a selection
   // survives query/scope changes; the Clear action + select-all operate on the currently-shown rows.
   let selected = $state.raw<Set<string>>(new Set());
+  let annotationRoot = $state<HTMLElement>();
+  $effect(() => {
+    if (!focused) return;
+    const stamp = { query, selectedKeys: [...selected], collection: parseQuery(extractFulltext(query).rest).find(c => c.field === "collection")?.value };
+    libraryContext.set(stamp);
+    return () => { if (get(libraryContext) === stamp) libraryContext.set(null); };
+  });
+  onDestroy(registerTargetResolver({ surface: "library", root: () => annotationRoot ?? null,
+    revision: () => [query, results, selected, gridEl?.scrollTop],
+    current: () => focused ? [...selected].map(citekey => ({ kind: "library-item", citekey })) : [],
+    within(rect) {
+      return [...(annotationRoot?.querySelectorAll('[data-citekey]') ?? [])].flatMap(row => {
+        const b = boundsOf(row);
+        if (!b.w || !b.h || b.x < rect.x || b.y < rect.y || b.x+b.w > rect.x+rect.w || b.y+b.h > rect.y+rect.h) return [];
+        const ref: TargetRef = { kind: "library-item", citekey: row.getAttribute('data-citekey')!, title: row.getAttribute('data-reference-title') ?? undefined };
+        return [{ ref, bounds:b, label:describeTarget(ref) }];
+      });
+    },
+    at(_x, _y, node) {
+      const row = node?.closest('[data-citekey]'), citekey = row?.getAttribute('data-citekey');
+      if (!row || !citekey) return [];
+      const ref: TargetRef = { kind: "library-item", citekey, title: row.getAttribute('data-reference-title') ?? undefined };
+      return [{ ref, bounds: boundsOf(row), label: describeTarget(ref) }];
+    },
+  }));
 
   // 2.4 bulk-import modal (.bib/.ris → FluxLib, optional Zotero PDF attach).
   let importOpen = $state(false);
@@ -571,8 +612,6 @@
     });
     // How many captures are waiting to be pulled in — read-only, so the button can offer them.
     void refreshCaptureWaiting();
-    // A conflict copy beside library.bib blocks every add; make sure the banner knows now.
-    void refreshConflicts($currentProject?.path ?? null);
     let first = true;
     const unsubLib = fluxLibRevision.subscribe(() => {
       if (first) {
@@ -654,23 +693,19 @@
         skipped > 0 ? `${skipped} not scanned` : "",
       ].filter(Boolean);
       const firstError = r.find((x) => x.action === "error")?.reason ?? "";
-      const conflict = isLibraryConflictFailure(assignJob.halted || firstError);
       const suffix = assignJob.offline
         ? " — network unavailable; files left in the inbox to retry"
-        : conflict
-          ? " — your reference library has an unresolved sync conflict; no entry can be added until it is resolved. Files stay in the inbox."
-          : assignJob.halted
-            ? ` — stopped: ${assignJob.halted}. Files stay in the inbox.`
-            : firstError
-              ? ` — ${firstError}. Files stay in the inbox.`
-              : assignJob.unresolved
-                ? " — see pdfs_to_assign/_unresolved/"
-                : "";
+        : assignJob.halted
+          ? ` — stopped: ${assignJob.halted}. Files stay in the inbox.`
+          : firstError
+            ? ` — ${firstError}. Files stay in the inbox.`
+            : assignJob.unresolved
+              ? " — see pdfs_to_assign/_unresolved/"
+              : "";
       const bad = assignJob.unresolved > 0 || assignJob.errors > 0;
       pushToast(bad ? "error" : "success", filed ? `Assigned ${filed} of ${r.length} PDF${r.length === 1 ? "" : "s"}` : `No PDFs assigned (${r.length} scanned)`, {
         detail: bits.join(" · ") + suffix,
         ttl: bad ? 0 : 6000,
-        action: conflict ? { label: "Resolve", run: () => conflictsOpen.set(true) } : undefined,
       });
     }
     void (async () => {
@@ -1410,6 +1445,7 @@
   }
 
   function onWinKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!focused) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
@@ -1482,7 +1518,8 @@
 
 <svelte:window onkeydown={onWinKey} />
 
-<div class="lib">
+<div class="lib" bind:this={annotationRoot}>
+  {#if commandsOpen}<CommandPalette commands={contextCommands({ inPaper: false })} onClose={() => commandsOpen = false} />{/if}
   <header class="lhead">
     <div class="ltitle">
       <span class="h">FluxLib</span>
@@ -1490,6 +1527,7 @@
         >{loading ? "…" : `${entries.length} reference${entries.length === 1 ? "" : "s"}`}</span>
     </div>
     <div class="hactions">
+      <button class="enrich" onclick={() => commandsOpen = true} title="Library commands, including Annotate…">Commands…</button>
       <button class="gear" class:on={keysOpen} onclick={toggleKeys} title="API keys (OpenAlex, Semantic Scholar)" aria-label="API keys">⚙</button>
       <button
         class="enrich"
@@ -1817,6 +1855,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
           class="grow selectable"
+          data-citekey={r.key} data-reference-title={r.title}
           class:hl={i === highlighted}
           class:sel={isSel(r.key)}
           title={`Click to copy @${r.key} · Ctrl+click: details · Ctrl+Shift+click: read PDF · Alt+click: open DOI`}

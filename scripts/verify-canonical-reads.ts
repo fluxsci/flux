@@ -40,12 +40,6 @@ try {
   finally { fs.promises.readFile=originalRead; syncBuiltinESMExports(); }
   h.ok(revoked,"fixture revokes the actual Node lease after canonical read");
   h.eq(await readFile(org,"utf8"),originalOrg,"Node lost lease is rejected before canonical bytes publish");
-  const conflictPath = path.join(root,".fluxlib","organize.sync-conflict-20260921-123456-ABCDEFG.json");
-  await writeFile(path.join(root,".fluxlib","organize.json"),'{"version":1,"items":{}}');
-  await writeFile(conflictPath,'{"version":1,"items":{"paper":{"tags":["other"]}}}');
-  await assert.rejects(()=>organizeSetTags("paper",["new"],root),/Unresolved canonical sync conflict/);
-  h.eq(await readFile(path.join(root,".fluxlib","organize.json"),"utf8"),'{"version":1,"items":{}}',"sync conflict blocks canonical mutation without replacing either revision");
-  h.eq(await readFile(conflictPath,"utf8"),'{"version":1,"items":{"paper":{"tags":["other"]}}}',"sync conflict copy remains byte-identical for review");
   await assert.rejects(() => readCanonicalText("blocked", async () => { throw Object.assign(new Error("denied"), { code: "EACCES" }); }), /unreadable canonical/);
   h.eq(await readCanonicalText("absent", async () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }); }), null, "only ENOENT permits initialization");
   const data = parseCanonical("org", '{"version":1,"future":42,"items":{"paper":{"tags":["a"],"collections":[],"custom":"keep"}}}', validateOrganize);

@@ -1,4 +1,12 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
+  import { canvasAnnotationTargets } from "./bridge/canvasTargets";
+  import OrbitOverlay from "./model3d/OrbitOverlay.svelte";
+  import { modelOrbit, modelPreviews, paintedModelPreviews, modelOrbitBlocked, requestModelOrbit, finishModelOrbit, clearModelPreviews, modelEditorOwner } from "./model3d/orbitSession";
+  import { scene3dGeneration, scene3dManifests } from "./model3d/store";
+  import { storeTenantState } from "./tenancy";
+  import { embeddedProjectRoot, projectDir } from "./store";
   import { editSession } from "./interact/editSession";
   const textEdits = editSession();
   import { transientSceneTransforms } from "./interact/sceneTransforms";
@@ -42,7 +50,7 @@
   import { perfCounters } from "./dev/perfCounters";
   // WS-3.2: shared interaction core (Canvas + SlideStage) — math only.
   import { HANDLES, handlePos, cursorFor, type Handle } from "./interact/handles";
-  import { restorePlotClip } from "./plot/parse";
+  import { restorePlotClip, partDomId } from "./plot/parse";
   import { createTransformDrive, type TransformDrive } from "./interact/compositorDrive";
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
@@ -54,6 +62,7 @@
   import { onMount, tick, onDestroy } from "svelte";
   import { presentationViewport, basePresentationViewport, editorStashedElements, editorStashedParts, type EditorCanvasPresentation } from "./editorPresentation";
   import { presentEditorParts } from "./editorPresentationDom";
+  import { modelPartOpacity } from './model3d/appearance';
   import { applyTextLayout, blockLayout, plainWrapMatches, letterSpacing as textTracking } from "./text";
   import { remapRuns, normalizeRuns, elementFlags, rangeIsOn, rangeScript } from "./textRuns";
   import { publishTextRange, detachTextRange, registerLiveRangeToggle, typingStyle, type RangeStyle } from "./textEditRange";
@@ -79,6 +88,7 @@
   import { pushToast, errMsg } from "./toast";
   import { isScaffoldPart, resolvePartId } from "./plot/partStyle";
   import { plotManifests, plotGen } from "./plot/store";
+  import { model3dPosterRevision } from "./model3d/store";
   import ElementView from "./Element.svelte";
 
   // ===========================================================================
@@ -109,31 +119,36 @@
   };
   $: presentationState.set(frame ? presentation : null);
   $: hiddenPresentationIds = new Set(presentation?.hiddenElementIds ?? []);
-  $: stashedPresentationParts = editorStashedParts(presentation, $project.figures.find(f => f.id === $activeFigureId)?.elements, $plotManifests);
+  $: stashedPresentationParts = editorStashedParts(presentation, $project.figures.find(f => f.id === $activeFigureId)?.elements, $plotManifests, $scene3dManifests);
   $: absentPresentationIds = new Set([...(presentation?.unbornElementIds ?? []), ...editorStashedElements(presentation)]);
   $: absentPresentationKey = [...absentPresentationIds].join("\0");
   $: cameraClip = frame && presentation?.camera && presentation.stage
     ? `inset(${$baseViewport.panY}px ${hostW - $baseViewport.panX - presentation.stage.width * $baseViewport.zoom}px ${hostH - $baseViewport.panY - presentation.stage.height * $baseViewport.zoom}px ${$baseViewport.panX}px)`
     : undefined;
-  let presentationHighlight: { x: number; y: number; w: number; h: number } | null = null;
+  let presentationHighlights: { x: number; y: number; w: number; h: number }[] = [];
   const highlightWork = { generation: 0 };
   $: schedulePresentationHighlight(presentation?.highlight, $viewport, $globalRev, absentPresentationIds, stashedPresentationParts);
   async function schedulePresentationHighlight(target: EditorCanvasPresentation["highlight"], _viewport: unknown, _revision: number, absent: ReadonlySet<string>, stashedParts: ReadonlyMap<string, ReadonlySet<string>>) {
     const generation = ++highlightWork.generation;
-    if (!target || absent.has(target.elementId)) { presentationHighlight = null; return; }
+    if (!target) { presentationHighlights = []; return; }
     await tick();
     if (generation !== highlightWork.generation || !hostEl) return;
-    const parts = target.partIds?.filter(id => !stashedParts.get(target.elementId)?.has(id));
-    if (target.partIds?.length && !parts?.length) { presentationHighlight = null; return; }
-    const nodes = parts?.length && parts.length <= 256
-      ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(`${target.elementId}__${id}`)}"]`)).filter((n): n is globalThis.Element => !!n)
-      : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(target.elementId)}"]`)].filter((n): n is globalThis.Element => !!n);
-    const boxes = nodes.map((node) => node.getBoundingClientRect()).filter((b) => b.width || b.height);
-    if (!boxes.length) { presentationHighlight = null; return; }
+    const targets = "elementId" in target ? [target] : target;
     const host = hostEl.getBoundingClientRect();
-    const x = Math.min(...boxes.map((b) => b.left));
-    const y = Math.min(...boxes.map((b) => b.top));
-    presentationHighlight = { x: x - host.left - 3, y: y - host.top - 3, w: Math.max(...boxes.map((b) => b.right)) - x + 6, h: Math.max(...boxes.map((b) => b.bottom)) - y + 6 };
+    const boxes: typeof presentationHighlights = [];
+    for (const item of targets) {
+      if (absent.has(item.elementId)) continue;
+      const parts = item.partIds?.filter(id => !stashedParts.get(item.elementId)?.has(id));
+      if (item.partIds?.length && !parts?.length) continue;
+      const nodes = parts?.length && parts.length <= 256
+        ? parts.map((id) => hostEl.querySelector(`[id="${CSS.escape(partDomId(item.elementId, id))}"]`))
+        : [hostEl.querySelector(`[data-editor-element-id="${CSS.escape(item.elementId)}"]`)];
+      for (const node of nodes) {
+        const r = node?.getBoundingClientRect();
+        if (r && (r.width || r.height)) boxes.push({ x: r.left - host.left - 3, y: r.top - host.top - 3, w: r.width + 6, h: r.height + 6 });
+      }
+    }
+    presentationHighlights = boxes;
   }
 
   const HS = 9; // on-screen handle size in px (constant)
@@ -407,6 +422,14 @@
   // notify. Reactivation re-runs them (paneActive is a dep) and the rev-keyed
   // memos recompute exactly the figures whose revisions moved while hidden.
   export let paneActive = true;
+  $: modelOwner = modelEditorOwner({ tenant: $storeTenantState, root: $embeddedProjectRoot ?? $projectDir, figure: $activeFigureId, generation: $scene3dGeneration });
+  let previousModelOwner = "";
+  $: if (previousModelOwner !== modelOwner) {
+    finishModelOrbit(); clearModelPreviews(); previousModelOwner = modelOwner;
+  }
+  $: if ($modelOrbit && (!paneActive || $modelOrbit.owner !== modelOwner || $modelOrbitBlocked || !$selection.has($modelOrbit.id) || absentPresentationIds.has($modelOrbit.id) || !["select", "scale"].includes($activeTool))) finishModelOrbit();
+  $: modelOverlayItems = paneActive ? canvasFigures.flatMap(fig => (visibleByFig.get(fig.id) ?? []).filter(el => el.type === "model3d" && $modelPreviews[el.id] && !absentPresentationIds.has(el.id)).map(el => ({ fig, el }))) : [];
+  onDestroy(() => { finishModelOrbit(); clearModelPreviews(); });
 
   // Slide-migration: `frame` mode (slide editing). The canvas shows ONLY the
   // active figure (one slide, its frame = the deck's stage), on a darker
@@ -794,6 +817,7 @@
     editingId,
     (void visibleByFig, mountedGen), // bumped by visibleEls when the mounted set changes
     JSON.stringify($plotGen),
+    $model3dPosterRevision,
     frame ? 1 : 0,
   ].join("|");
   // Wanted: none yet, the scene changed, the rest zoom drifted more than 2× from
@@ -826,7 +850,7 @@
   let snapIdle: number | null = null;
   $: {
     void sceneKey; // Changes while snapWanted is already true still invalidate in-flight work.
-    if (snapWanted && paneActive && sceneSvgEl && hostW > 0 && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
+    if (snapWanted && !Object.keys($modelPreviews).length && paneActive && sceneSvgEl && hostW > 0 && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
     else cancelSnapshot();
   }
   function cancelSnapshot() {
@@ -857,7 +881,7 @@
     snapScheduled = false;
     if (snapshotDestroyed || !paneActive || gen !== snapGen) return;
     if (!sceneSvgEl || hostW <= 0 || hostH <= 0) return;
-    if (sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
+    if (Object.keys($modelPreviews).length || sceneHot || zoomUnsettled || proxyActive || gesture || guideDrag || nodeDrag) {
       scheduleSnapshot(); // still moving — try again once quiet
       return;
     }
@@ -931,7 +955,7 @@
     if (prev) URL.revokeObjectURL(prev.url);
   }
   function beginZoomProxy() {
-    if (!zoomSnap || proxyActive) return;
+    if (!zoomSnap || proxyActive || Object.keys($modelPreviews).length) return;
     if (zoomSnap.sceneKey !== sceneKey || !sceneBox ||
       !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH })) return;
     proxyActive = true;
@@ -942,6 +966,7 @@
   // Bounds/content may change DURING a burst too (zoom out, pan, Undo, a
   // source refresh, slide navigation). Never hide fresh content behind a
   // stale or cropped image. Abort in the same flush as the new viewport.
+  $: if (proxyActive && Object.keys($modelPreviews).length) endZoomProxy();
   $: if (proxyActive && zoomSnap && (!paneActive || zoomSnap.sceneKey !== sceneKey ||
     !sceneBox || !snapshotCovers(zoomSnap, sceneBox, { ...$viewport, hostW, hostH }))) endZoomProxy();
   function endZoomProxy() {
@@ -998,6 +1023,7 @@
   // --- pan / zoom ---
   function onWheel(e: WheelEvent) {
     e.preventDefault();
+    finishModelOrbit();
     keepSceneHot(); // promote in the same event turn the pan/zoom burst starts
     const r = hostEl.getBoundingClientRect();
     const px = e.clientX - r.left;
@@ -1895,15 +1921,15 @@
     // plot can never accidentally grab a bar or a tick label. The one
     // plain-click exception (also Figma): the part that is ALREADY drilled
     // stays drilled, so a plain drag keeps moving the selected part. Shift
-    // keeps its add/toggle meaning and alt keeps duplicate-drag — both
-    // suppress deep-select. SCAFFOLD parts (figure/plot-area/background
+    // suppresses deep-select except in a destination pick, where it adds
+    // parts; alt keeps duplicate-drag. SCAFFOLD parts (figure/plot-area/background
     // patches/axis containers) never drill — a ctrl-click on a plot's
     // background selects the whole plot, like Figma's deep-click on a frame.
-    const deep = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+    const deep = (e.ctrlKey || e.metaKey) && (!e.shiftKey || presentation?.picking) && !e.altKey;
     if (el.type === "plot") {
       const ps = $partSelection;
       const plainSame =
-        !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
+        !presentation?.picking && !deep && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && ps != null && ps.elementId === el.id;
       let pid: string | null = null;
       if (deep || plainSame) {
         pid = partAtPoint(el, e);
@@ -1917,18 +1943,26 @@
         // The drill makes the plot ELEMENT the selection (deep pierces any
         // group; a continuation click never widens an existing selection).
         if (deep || !$selection.has(el.id)) selection.set(new Set([el.id]));
+        if (presentation?.picking) return;
         // Select tool → arm the part move; scale tool keeps whole-plot
         // semantics (falls through to a normal move of the plot).
         if ($activeTool === "select" && beginPartMove(e, fig, el.id, pid)) return;
         beginMove(e, fig);
         return;
       }
+    } else if (el.type === "model3d" && deep && model3dPartAtPoint(el.id, e)) {
+      // The same one-shot deep select reaches a 3D fluxplot's furniture parts.
+      // It selects without dragging: 3D part offsets are edited numerically.
+      partSelection.set({ elementId: el.id, partId: model3dPartAtPoint(el.id, e)! });
+      selection.set(new Set([el.id]));
+      return;
     } else {
       partSelection.set(null);
     }
     // Deep-click on a non-plot (or a plot's scaffold) selects the element
     // ITSELF — no group-unit expansion (Figma deep select).
     const grp = deep ? new Set([el.id]) : expandGroups($project, new Set([el.id]), scope);
+    if (presentation?.picking) { selection.set(grp); return; }
     // Shift has two meanings on an element: shift-CLICK toggles its selection,
     // but shift-DRAG constrains the move to one axis. We can't tell which at
     // pointer-down, so for an already-selected element we DEFER the toggle to
@@ -1994,6 +2028,17 @@
     return pid && !stashedPresentationParts.get(el.id)?.has(pid) ? pid : null;
   }
 
+  /** The 3D-fluxplot furniture part (label, legend, colorbar…) under the
+   *  pointer, or null over the mesh. Furniture groups carry `data-part-id`. */
+  function model3dPartAtPoint(elementId: string, ev: { target: EventTarget | null; clientX: number; clientY: number }): string | null {
+    const find = (node: globalThis.Element | null) => {
+      const part = node?.closest?.("[data-model3d-furniture] [data-part-id]");
+      return part && part.closest(`[data-editor-element-id="${CSS.escape(elementId)}"]`) ? part.getAttribute("data-part-id") : null;
+    };
+    const pid = find(ev.target as globalThis.Element | null) ?? find(document.elementFromPoint(ev.clientX, ev.clientY));
+    return pid && !stashedPresentationParts.get(elementId)?.has(pid) ? pid : null;
+  }
+
   // Screen-px box of the deep-select target under the pointer (the hovered
   // plot's REAL part), or null when there's nothing a ctrl-click would drill.
   function partHoverBox(ev: PointerEvent): { x: number; y: number; w: number; h: number } | null {
@@ -2003,7 +2048,7 @@
     if (!f || f.element.type !== "plot" || effLocked(f.element)) return null;
     const pid = partAtPoint(f.element, ev);
     if (!pid || isScaffoldPart($plotManifests[f.element.assetId], pid)) return null;
-    const node = document.getElementById(`${f.element.id}__${pid}`);
+    const node = document.getElementById(partDomId(f.element.id, pid));
     if (!node) return null;
     const r = node.getBoundingClientRect();
     const h = hostEl.getBoundingClientRect();
@@ -2017,7 +2062,7 @@
   function beginPartMove(e: PointerEvent, fig: Figure, elementId: string, partId: string): boolean {
     const found = findElement($project, elementId);
     if (!found || found.element.type !== "plot" || effHidden(found.element) || stashedPresentationParts.get(elementId)?.has(partId)) return false;
-    const node = document.getElementById(`${elementId}__${partId}`) as unknown as SVGGraphicsElement | null;
+    const node = document.getElementById(partDomId(elementId, partId)) as unknown as SVGGraphicsElement | null;
     if (!node || typeof node.getScreenCTM !== "function") return false;
     restorePlotClip(node);
     // The override translate is PREPENDED to the node's transform list, so it
@@ -2352,6 +2397,10 @@
   }
 
   function onPointerMove(e: PointerEvent) {
+    // Hover is interaction too: a pending SVG snapshot can parse/raster for
+    // tens of milliseconds. Keep that work behind the same quiet interval,
+    // without promoting the live scene or invalidating an existing bitmap.
+    if (snapWanted && !Object.keys($modelPreviews).length && paneActive && !proxyActive && !sceneHot && !zoomUnsettled) scheduleSnapshot();
     // Ruler-guide drag (modal — no Gesture).
     if (guideDrag) {
       onGuideDragMove(e);
@@ -2395,7 +2444,7 @@
     if (
       !gesture &&
       (e.ctrlKey || e.metaKey) &&
-      !e.shiftKey &&
+      (!e.shiftKey || presentation?.picking) &&
       !e.altKey &&
       ($activeTool === "select" || $activeTool === "scale") &&
       !editPathId
@@ -2902,7 +2951,8 @@
 
   // --- keyboard (space-pan, pen finish; global shortcuts live in keyboard.ts) ---
   function onKeyDown(e: KeyboardEvent) {
-    if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.closest('.animator, [data-command-scope="animation"]'))) return;
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if (e.defaultPrevented || (e.target instanceof HTMLElement && (e.target.closest('.animator, [data-command-scope="animation"]') || (get(modelOrbit) && e.target.closest('[data-command-scope="model3d-orbit"]'))))) return;
     const t = e.target as HTMLElement;
     const typing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
     if (e.code === "Space" && !spaceDown && !typing) spaceDown = true;
@@ -3083,6 +3133,19 @@
       enteredGroupId.set(unit.groupId);
       selection.set(expandGroups($project, new Set([el.id]), unit.groupId));
       partSelection.set(null);
+      return true;
+    }
+    // A 3D fluxplot descends like a 2D one: double-clicking its furniture (a
+    // label, legend, colorbar, scale bar) selects that part; the mesh orbits.
+    if (el.type === "model3d" && unit.groupId === null && !e.shiftKey && !e.altKey) {
+      e.stopPropagation();
+      const pid = model3dPartAtPoint(el.id, e);
+      if (pid) {
+        partSelection.set({ elementId: el.id, partId: pid });
+        if (!$selection.has(el.id)) selection.set(new Set([el.id]));
+        return true;
+      }
+      requestModelOrbit(el.id);
       return true;
     }
     if (el.type === "text" && unit.groupId === null) {
@@ -3626,7 +3689,7 @@
     if (gen!==partMeasureGeneration || snapshotDestroyed || !hostEl) return;
     const ps=get(partSelection);
     if (!ps) return;
-    const node=hostEl.querySelector(`[id="${CSS.escape(`${ps.elementId}__${ps.partId}`)}"]`);
+    const node=hostEl.querySelector(`[id="${CSS.escape(partDomId(ps.elementId, ps.partId))}"]`);
     if (!node) {partWorldBox=null;return;}
     const r=node.getBoundingClientRect(),h=hostEl.getBoundingClientRect(),v=get(viewport);
     partWorldBox={x:(r.left-h.left-v.panX)/v.zoom,y:(r.top-h.top-v.panY)/v.zoom,w:r.width/v.zoom,h:r.height/v.zoom};
@@ -3807,6 +3870,7 @@
 
 <div
   class="canvas-host"
+  use:canvasAnnotationTargets
   class:frame
   bind:this={hostEl}
   bind:clientWidth={hostW}
@@ -3855,7 +3919,7 @@
             style:transform={figMoveId === fig.id ? frameTransform : null}
             style:will-change={figMoveId === fig.id ? "transform" : null}
           >
-          <g transform={`translate(${fig.x} ${fig.y})`}>
+          <g data-annotation-figure={fig.id} transform={`translate(${fig.x} ${fig.y})`}>
             <rect class="fig-shadow" x={bounds.x + 3} y={bounds.y + 4} width={bounds.w} height={bounds.h} />
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <rect
@@ -3888,7 +3952,7 @@
                   y={fig.height / 2}
                   font-size={12 / renderZoom}
                 >
-                  <tspan x={fig.width / 2} dy={-5 / renderZoom}>Drop PNG/SVG plots here</tspan>
+                  <tspan x={fig.width / 2} dy={-5 / renderZoom}>{frame ? "Drop PNG/SVG plots here" : "Drop PNG/SVG plots or GLB models here"}</tspan>
                   <tspan x={fig.width / 2} dy={18 / renderZoom}>Ctrl+Shift+K import · Alt+G plot gallery</tspan>
                 </text>
               {/if}
@@ -3897,10 +3961,10 @@
                 <g
                   class="el"
                   data-editor-element-id={el.id}
-                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : 0 }}
+                  use:presentEditorParts={{ elementId: el.id, states: presentation?.partStates?.[el.id], ghost: presentation?.ghostHidden, generation: el.type === "plot" ? $plotGen[el.assetId] : el.type === 'model3d' ? $model3dPosterRevision : 0 }}
                   opacity={hiddenPresentationIds.has(el.id) ? (presentation?.ghostHidden ? 0.25 : 0) : (presentation?.elementStates?.[el.id]?.opacity ?? 1)}
                   style:pointer-events={absentPresentationIds.has(el.id) ? "none" : null}
-                  class:editing-hidden={editingId === el.id && !editingInfo?.showsRuns}
+                  class:editing-hidden={(editingId === el.id && !editingInfo?.showsRuns) || $paintedModelPreviews.has(el.id)}
                   style:visibility={gestureHiddenIds.has(el.id) ? "hidden" : null}
                   use:sceneTransforms.register={el.id}
                   on:pointerdown={(e) => onElementDown(e, el, fig)}
@@ -3916,9 +3980,9 @@
                        into the element's own slot — z-order + clipping intact,
                        model untouched until the single pointer-up commit. -->
                   {#if sceneOverride && sceneOverride.id === el.id}
-                    <ElementView element={sceneOverride.el} />
+                    <ElementView element={sceneOverride.el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {:else}
-                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} />
+                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {/if}
                 </g>
               {/each}
@@ -3963,9 +4027,9 @@
   </div>
   <!-- OVERLAY: screen-space, cheap; all live interaction chrome + previews -->
   <svg class="overlay-svg" xmlns="http://www.w3.org/2000/svg">
-    {#if presentationHighlight}
-      <rect class="presentation-target" x={presentationHighlight.x} y={presentationHighlight.y} width={presentationHighlight.w} height={presentationHighlight.h} rx="3" />
-    {/if}
+    {#each presentationHighlights as box}
+      <rect class="presentation-target" x={box.x} y={box.y} width={box.w} height={box.h} rx="2" />
+    {/each}
     <!-- resized element preview (a move uses a live scene transform instead — F5) -->
     {#if dragging && gestureFig && gesture?.kind === "resize" && !gesture.crop}
       <g transform={dragTransform} style="will-change: transform">
@@ -4437,6 +4501,11 @@
       }}
     ></textarea>
   {/if}
+  {#each modelOverlayItems as item (item.el.id)}
+    {#if item.el.type === "model3d"}
+      <OrbitOverlay element={item.el} beginPan={() => { spaceDown = true; }} left={$viewport.panX + (item.fig.x + item.el.x) * $viewport.zoom} top={$viewport.panY + (item.fig.y + item.el.y) * $viewport.zoom} zoom={$viewport.zoom} />
+    {/if}
+  {/each}
 </div>
 
 <style>

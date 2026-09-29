@@ -2,7 +2,8 @@
 // (2026-09-24, owner requests) — the GUI half of verify-slide-pdf.
 //
 //   • Slide mode's Export button opens a menu with the interactive HTML and the
-//     two PDF plans (one page per slide, one per build step); Escape and an
+//     two PDF plans (one page per slide, one per build step) and the two PowerPoint
+//     exports (builds as Morph, final state); Escape and an
 //     outside click close it. (Printing needs the desktop app's print worker, so
 //     the PDF itself is checked by verify-slide-pdf and the native probe.)
 //   • A placed graphic with no text or strokes (a PNG wrapped in SVG, like the
@@ -66,7 +67,7 @@ try {
     await page.click(".export-btn");
     await sleep(150);
     const items = await page.evaluate(() => [...document.querySelectorAll(".export-menu [data-export]")].map((b) => b.getAttribute("data-export")));
-    assert(JSON.stringify(items) === JSON.stringify(["html", "pdf", "pdf-steps", "pptx"]), `Export offers HTML, PDF, PDF per step and PowerPoint (${JSON.stringify(items)})`);
+    assert(JSON.stringify(items) === JSON.stringify(["html", "pdf", "pdf-steps", "pptx", "pptx-final"]), `Export offers HTML, PDF, PDF per step, PowerPoint (animated) and PowerPoint (final state) (${JSON.stringify(items)})`);
     await page.keyboard.press("Escape");
     await page.focus(".export-menu").catch(() => {});
     await page.evaluate(() => document.querySelector(".export-menu")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));

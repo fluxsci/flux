@@ -23,7 +23,9 @@ const { spawn } = require("node:child_process");
 const { resolveToDoi } = require("./resolveDoi.cjs");
 const { pickRelease } = require("./updateCheck.cjs");
 const fluxPaths = require("./fluxPaths.cjs");
+const { recordProjectOpened } = require("./projectsRegistry.cjs");
 const { resolveSpawn } = require("./execResolve.cjs");
+const { isDerivedFigureRenderPath } = require("./projectWatchPaths.cjs");
 
 // Machine config is ALWAYS the lowercase app dir (~/.config/flux on Linux) —
 // pinned before ANYTHING touches userData (the single-instance lock, prefs,
@@ -53,16 +55,6 @@ function loadChokidar() {
   return chokidarLoad;
 }
 
-// Integrated-terminal backend (native shell in a PTY). A native module, so the
-// app must still run if it failed to load/unpack — the renderer shows a notice.
-let nodePty;
-try {
-  nodePty = require("@lydell/node-pty");
-} catch (err) {
-  nodePty = null;
-  console.warn("[flux] @lydell/node-pty unavailable; integrated terminal disabled:", err && err.message);
-}
-
 // Multi-window (2026-08-11): one process, N windows, each on its own project.
 // ALL per-window lifecycle state lives in one session record — the window, its
 // open project root, its project file-watcher, and the root it was created to
@@ -72,6 +64,7 @@ try {
 // `currentRoot` / `projectWatcher` slots are gone — the moment window B opened
 // a project they silently took window A's watcher, bridge, and locks
 // (notes/aug_10_deferred_updates/multi_window_and_dual_paper_panes.md, A1).
+const utilityChildren = new Map(); // opener webContents.id -> its inert utility children
 const sessions = new Map(); // webContents.id -> { win, root, watcher, watchGen, initialRoot }
 function sessionFor(e) {
   return e && e.sender ? sessions.get(e.sender.id) : undefined;
@@ -271,18 +264,25 @@ function invalidatePathCaches() {
 // Read in main so credentials are attached here, never baked into renderer URLs.
 const fluxLibDir = () => getFluxLibRoot();
 
-// WS-9.4b: the AGENT family (live bridge + agent:mcpSpec) lives in ipc/agent.cjs.
+// WS-9.4b: the AGENT family (live bridge) lives in ipc/agent.cjs.
 // Multi-window: bridges are keyed by root, one per open project, each pinned to
 // the window that opened it — see agent.cjs.
 const agentFamily = require("./ipc/agent.cjs").createAgentFamily({
-  app,
   rootForSender: (e) => rootFor(e),
   appendJournalLine,
   noteWrite,
-  appRoot: path.resolve(__dirname, ".."),
+  approve: (owner, root, request) => runnerFamily.approve(owner, root, request),
 });
 agentFamily.registerHandlers(ipcMain);
+require("./ipc/agentSetup.cjs").createAgentSetupFamily({ shell, rootForSender: rootFor, bridgeForSender: agentFamily.bridgeForSender }).registerHandlers(ipcMain);
 const { setBridgeFor, stopBridgeForWindow, stopAllBridges } = agentFamily;
+const runnerFamily = require("./ipc/runner.cjs").createRunnerFamily({
+  rootForSender: e => rootFor(e), userDataDir: () => app.getPath("userData"),
+  launcher: () => path.join(fluxPaths.binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"),
+  preferences: readPrefs,
+});
+runnerFamily.registerHandlers(ipcMain);
+app.on("will-quit", () => runnerFamily.dispose());
 
 // ---------------------------------------------------------------------------
 // WS6: provenance journal + advisory locks. The renderer (human) and the bridge
@@ -346,6 +346,9 @@ if (process.env.NOSANDBOX === "1") {
 }
 if (process.env.SOFTGPU === "1") {
   app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("enable-unsafe-swiftshader");
+  app.commandLine.appendSwitch("use-gl", "angle");
+  app.commandLine.appendSwitch("use-angle", "swiftshader");
 }
 // TILEMEM=<mb> raises the compositor's GPU memory budget (tile memory), e.g.
 // TILEMEM=1024. Diagnostic escape hatch ONLY — deliberately NOT a default:
@@ -476,10 +479,12 @@ function createWindow(initialRoot) {
   });
   const galleryUrl = new URL("plot-gallery.html", appUrl).href;
   const metadataUrl = new URL("figure-meta.html", appUrl).href;
-  const galleryWindows = new Set();
+  const aiUrl = new URL("ai-status.html", appUrl).href;
+  const inboxUrl = new URL("inbox.html", appUrl).href;  const galleryWindows = new Set();
+  const utilityOwnerId = win.webContents.id;
+  utilityChildren.set(utilityOwnerId, galleryWindows);
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    if ((url === galleryUrl && frameName === "flux-plot-gallery") || (url === metadataUrl && frameName === "flux-figure-meta")) return {
-      action: "allow",
+    if ((url === galleryUrl && frameName === "flux-plot-gallery") || (url === metadataUrl && frameName === "flux-figure-meta") || (url === aiUrl && frameName === "flux-ai-status") || (url === inboxUrl && frameName === "flux-inbox")) return {      action: "allow",
       overrideBrowserWindowOptions: {
         width: 1060, height: 780, minWidth: 480, minHeight: 420,
         frame: true, titleBarStyle: "default", backgroundColor: "#100f0f",
@@ -501,7 +506,7 @@ function createWindow(initialRoot) {
     child.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     child.on("closed", () => galleryWindows.delete(child));
   });
-  win.on("closed", () => { for (const child of galleryWindows) if (!child.isDestroyed()) child.destroy(); });
+  win.on("closed", () => { utilityChildren.delete(utilityOwnerId); for (const child of galleryWindows) if (!child.isDestroyed()) child.destroy(); });
 
   // Keep the renderer's custom maximize/restore button in sync.
   win.on("maximize", () => win.webContents.send("win:maximized", true));
@@ -542,14 +547,13 @@ function createWindow(initialRoot) {
     requestClose();
   });
 
-  // Per-window teardown: reap this renderer's PTYs, stop ITS agent bridge
+  // Per-window teardown: stop ITS agent bridge
   // (removes .meta/live/bridge.json), close ITS project watcher, release ITS
   // locks/approvals — and ONLY its own; another window's project must keep its
   // watcher, bridge, and locks (SHL-7 + multi-window A3.1). The quit decision
   // then goes through the app-window policy, which ignores hidden utility
   // windows (quit-wedge R2).
   win.on("closed", () => {
-    reapPtys((s) => s.wc.isDestroyed());
     stopBridgeForWindow(win);
     releaseGuiLocksFor(wcId);
     fileCore.clearApprovals(wcId);
@@ -716,10 +720,8 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Never leave a shell child behind.
 app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => {
-  reapPtys();
   releaseAllGuiLocks(); // W3: never leave a stale "human" lock deferring agents
   stopAllBridges(); // W12 (SHL-8): remove every .meta/live/bridge.json (+ tokens) on quit
   try {
@@ -766,8 +768,8 @@ ipcMain.handle("win:maximizeToggle", (e) => {
 ipcMain.handle("win:close", (e) =>
   BrowserWindow.fromWebContents(e.sender)?.close(),
 );
-// Snapshot & annotate (Note to agent): a PNG of the calling window — its own
-// pixels only (capturePage on the sender), optionally one CSS-px rect. Read
+// Annotate: a PNG of the sender or one of its own inert utility windows,
+// optionally one CSS-px rect. Read
 // scope: nothing touches the filesystem here; the renderer composes the crop and
 // writes it into the project's .meta/feedback/ through the guarded fs:writeFile.
 ipcMain.handle("win:capture", async (e, rect) => {
@@ -780,7 +782,14 @@ ipcMain.handle("win:capture", async (e, rect) => {
           height: Math.max(1, Math.round(rect.height)),
         }
       : undefined;
-  const img = await e.sender.capturePage(r);
+  let target = e.sender;
+  if (rect?.target === "child") {
+    const children = utilityChildren.get(e.sender.id);
+    const child = children && [...children].find(w => !w.isDestroyed() && (rect.childId ? w.webContents.id === rect.childId : w.isFocused()));
+    if (!child) throw new Error("No focused utility window belongs to this window");
+    target = child.webContents;
+  }
+  const img = await target.capturePage(r);
   const size = img.getSize();
   return { png: img.toPNG(), width: size.width, height: size.height };
 });
@@ -840,7 +849,7 @@ ipcMain.handle("prefs:get", () => ({
   ...readPrefs(),
   fluxLibResolved: fluxLibDir(),
   fluxConfigResolved: getFluxConfigRoot(),
-  // The machine Context layer (principal-agent scheme) — display/open helpers.
+  // The machine Context layer — display/open helpers.
   contextResolved: fluxPaths.contextPathSync(readPrefs()),
   // The global plot library (<FluxConfig>/plot_library) the Plot gallery's
   // Global scope browses — see fluxPaths.plotLibraryPathSync.
@@ -1145,22 +1154,12 @@ sourceWatchCore.registerHandlers(ipcMain);
 // ESM/dynamic-import story): exploratory image sets Flux never reads. They are pruned from the
 // watch targets outright — this is the belt to that braces, so a path that slips through can
 // still never be mistaken for a plot re-sync.
-// A sync tool's leftovers get their own treatment BEFORE any subsystem sees them
-// (conflictRules.js, same ESM/dynamic-import story). Without this a Syncthing conflict
-// copy of main.qmd routes to "manuscript" and lands in the document list as a document,
-// and every in-flight `.syncthing.*.tmp` transfer bumps a revision for nothing. Temp
-// files vanish; conflict copies raise the dedicated "conflict" subsystem, which the
-// renderer turns into a banner the user has to clear.
-let conflictRules = null;
 let plotFolderRules = null;
 let dissectRules = null;
 function subsystemFor(root, abs) {
+  if (isDerivedFigureRenderPath(root, abs)) return null;
   const rel = path.relative(root, abs).split(path.sep).join("/");
   if (rel.startsWith("..")) return null;
-  if (conflictRules) {
-    if (conflictRules.isSyncTempPath(rel)) return null;
-    if (conflictRules.isConflictPath(rel)) return "conflict";
-  }
   if (rel.startsWith("plots/")) {
     if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) return null;
     return dissectRules && dissectRules.isDissectionProjectRel(rel) ? "dissections" : "plots";
@@ -1169,10 +1168,10 @@ function subsystemFor(root, abs) {
   if (rel.startsWith("paper/") || rel.startsWith("manuscript/")) return "manuscript";
   if (rel.startsWith("references/")) return "references";
   if (rel.startsWith("slides/")) return "slides"; // W10 (SLD-1)
-  // Principal-agent scheme: Context docs (+ their comments sidecars) live-reload
-  // through the same chain as manuscript docs. Transcripts/Dispatches writes
-  // also land here — harmless: the renderer suffix-matches the active doc.
+  // Context docs (+ their comments sidecars) live-reload through the same chain
+  // as manuscript docs; the renderer suffix-matches the active document.
   if (rel.startsWith("Context/")) return "context";
+  if (rel.startsWith(".meta/live/sessions/")) return "presence";
   if (rel === ".meta/feedback.ndjson") return "feedback";
   return null;
 }
@@ -1184,97 +1183,6 @@ screenColorPicker.registerHandlers(ipcMain);
 app.on("before-quit", () => screenColorPicker.cancelAll());
 const captureDir = captureFamily.captureDir;
 app.on("will-quit", () => { void captureFamily.dispose(); });
-
-// ---------------------------------------------------------------------------
-// Sync-conflict scan. The watcher only sees a conflict copy that lands while the app is
-// OPEN; most arrive while it is closed, so the renderer also scans on project open and
-// after every "conflict" event. Walks the whole project — including .meta/, whose
-// append-only ledgers are the likeliest thing to conflict — and skips only VCS/tooling
-// internals. Capped, because an unresolved conflict is a handful of files, never
-// thousands: hitting the cap still surfaces the banner, which is the point.
-// ---------------------------------------------------------------------------
-const CONFLICT_SCAN_SKIP_DIRS = new Set([".git", "node_modules", ".stversions", ".stfolder"]);
-const CONFLICT_SCAN_MAX = 200;
-const CONFLICT_IDENTICAL_MAX_BYTES = 8 * 1024 * 1024;
-
-async function scanConflicts(root, opts = {}) {
-  if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
-  if (!conflictRules || !root) return [];
-  const fsp = require("node:fs/promises");
-  const out = [];
-  // maxDepth: the FluxLib scan looks only at the library's top level (library.bib and its
-  // manifests) — walking items/<key>/ for ~2,000 references on every refresh is not a scan,
-  // it is a stall. Projects keep the full walk (default: unbounded).
-  const maxDepth = Number.isFinite(opts.maxDepth) ? opts.maxDepth : Infinity;
-  const walk = async (dirAbs, dirRel, depth = 0) => {
-    if (out.length >= CONFLICT_SCAN_MAX) return;
-    let entries;
-    try {
-      entries = await fsp.readdir(dirAbs, { withFileTypes: true });
-    } catch {
-      return; // unreadable dir — nothing to report
-    }
-    for (const e of entries) {
-      if (out.length >= CONFLICT_SCAN_MAX) return;
-      const rel = dirRel ? `${dirRel}/${e.name}` : e.name;
-      if (e.isDirectory()) {
-        if (depth >= maxDepth) continue;
-        if (CONFLICT_SCAN_SKIP_DIRS.has(e.name)) continue;
-        if (plotFolderRules && plotFolderRules.isLighttableProjectRel(rel)) continue;
-        await walk(path.join(dirAbs, e.name), rel, depth + 1);
-        continue;
-      }
-      if (!e.isFile() || !conflictRules.isConflictPath(e.name)) continue;
-      const info = conflictRules.parseConflictPath(rel);
-      if (!info) continue;
-      const abs = path.join(dirAbs, e.name);
-      const baseAbs = path.join(root, info.base);
-      let size = 0;
-      let baseExists = false;
-      let identical = false;
-      try {
-        size = (await fsp.stat(abs)).size;
-      } catch {
-        continue; // vanished mid-scan (someone resolved it) — not an error
-      }
-      try {
-        const bs = await fsp.stat(baseAbs);
-        baseExists = bs.isFile();
-        // Byte-identical sides happen a lot (both machines saved the same text).
-        // Saying so up front turns a scary banner into one Discard click.
-        if (baseExists && bs.size === size && size <= CONFLICT_IDENTICAL_MAX_BYTES) {
-          const [a, b] = await Promise.all([fsp.readFile(abs), fsp.readFile(baseAbs)]);
-          identical = a.equals(b);
-        }
-      } catch {
-        /* no base file — the "restore or discard" case */
-      }
-      out.push({
-        rel,
-        base: info.base,
-        when: info.when,
-        device: info.device,
-        baseExists,
-        identical,
-        mergeable: conflictRules.isMergeableConflict(rel),
-        size,
-      });
-    }
-  };
-  await walk(root, "");
-  out.sort((a, b) => a.rel.localeCompare(b.rel));
-  return out;
-}
-
-ipcMain.handle("conflicts:scan", async (e, root, opts) => {
-  const r = root ? path.resolve(root) : rootFor(e);
-  if (!r) return [];
-  try {
-    return await scanConflicts(r, opts && typeof opts === "object" ? opts : {});
-  } catch {
-    return [];
-  }
-});
 
 // ---------------------------------------------------------------------------
 // The watcher split (multi-window A3.4). One PROCESS-WIDE watcher covers the
@@ -1290,6 +1198,7 @@ const rebuildGlobalWatcher = () => globalLibraryWatcher.rebuild();
 app.on("will-quit", () => { void globalLibraryWatcher.dispose(); });
 
 ipcMain.handle("watch:setRoot", async (e, root) => {
+  if (rootFor(e) !== root) runnerFamily.cancelOwner(e.sender.id);
   const s = sessionFor(e);
   if (!s) return false;
   const senderId = e.sender.id;
@@ -1302,6 +1211,15 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   pendingRoots.delete(senderId);
   // M9: the open project root joins the fs allowlist union (roots() above).
   s.root = root ? path.resolve(root) : null;
+  if (s.root) {
+    const openedRoot = s.root;
+    // Remember the opened project without delaying its watcher/bridge or UI.
+    setImmediate(() => {
+      void fs.promises.readFile(path.join(openedRoot, "project.json"), "utf8")
+        .then(text => recordProjectOpened(openedRoot, JSON.parse(text).title))
+        .catch(error => console.warn("Could not update project history:", error.message));
+    });
+  }
   await sourceWatchCore.setRoot(senderId, s.root);
   // WS4: bring THIS window's live agent bridge up/down with its open project.
   setBridgeFor(s.root, s.win);
@@ -1327,16 +1245,18 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
   }
   if (!dissectRules) dissectRules = await import("./dissectRules.js").catch(() => null);
   if (!plotFolderRules) plotFolderRules = await import("./plotsFolders.js").catch(() => null);
-  if (!conflictRules) conflictRules = await import("./conflictRules.js").catch(() => null);
   if (gen !== s.watchGen) return false; // superseded by a newer registration
   const projectRoot = s.root;
   const targets = [
     ...["plots", "fig", "manuscript", "references", "slides", "Context"].map((d) =>
       path.join(projectRoot, d),
     ),
-    // The feedback ledger: agent resolves/sends live-refresh the open app.
+    // The feedback ledger: agent resolutions live-refresh the open app.
     path.join(projectRoot, ".meta", "feedback.ndjson"),
+    path.join(projectRoot, ".meta", "live", "sessions"),
   ];
+  let presenceTimer = null;
+  let presencePath = "";
   const pending = new Map(); // subsystem -> latest changed path
   let timer = null;
   const flush = () => {
@@ -1346,10 +1266,10 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
         s.win.webContents.send("fs:changed", { subsystem, path: p });
     pending.clear();
   };
-  // plots/_lighttable/ can hold thousands of exploratory images that nothing in Flux reads —
-  // pruning the subtree here means chokidar never opens a descriptor for any of them, rather
-  // than watching them all to discard every event.
+  // Derived Figure renders must not invalidate their canonical source. Prune
+  // them and exploratory lighttable collections before opening watch descriptors.
   const isPrunedWatchPath = (abs) => {
+    if (isDerivedFigureRenderPath(projectRoot, abs)) return true;
     if (!plotFolderRules) return false;
     const rel = path.relative(projectRoot, abs).split(path.sep).join("/");
     return !rel.startsWith("..") && plotFolderRules.isLighttableProjectRel(rel);
@@ -1364,6 +1284,14 @@ ipcMain.handle("watch:setRoot", async (e, root) => {
     if (isSelfWrite(abs)) return;
     const subsystem = subsystemFor(projectRoot, abs);
     if (!subsystem) return;
+    if (subsystem === "presence") {
+      presencePath = abs;
+      if (!presenceTimer) presenceTimer = setTimeout(() => {
+        presenceTimer = null;
+        if (s.watchGen === gen && !s.win.isDestroyed()) s.win.webContents.send("fs:changed", { subsystem: "presence", path: presencePath });
+      }, 2000);
+      return;
+    }
     pending.set(subsystem, abs);
     if (!timer) timer = setTimeout(flush, 200);
   });
@@ -1449,7 +1377,7 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = requir
   const recipeText = await require("./recipeJob.cjs").readRecipeText(recipePath);
   const recipe = JSON.parse(recipeText);
   const dir = path.dirname(recipePath);
-  const { recipeInvocation, completedRecipe } = await import("../src/lib/plot/recipeContract.mjs");
+  const { recipeInvocation, completedRecipe, recipeOutput } = await import("../src/lib/plot/recipeContract.mjs");
   const { params: merged, args } = recipeInvocation(recipe, params);
   const invocation = { executable: recipe.command, argv: args, cwd: path.resolve(dir, recipe.cwd || "."),
     envDelta: { FLUX_PARAMS: JSON.stringify(merged), ...(recipe.plot ? { FLUXPLOT_ONLY: recipe.plot } : {}) } };
@@ -1475,22 +1403,31 @@ ipcMain.handle("recipe:run", async (e, { recipePath, params = {}, jobId = requir
     await atomicWriteMain(recipePath, JSON.stringify(updatedRecipe, null, 2) + "\n");
     await require("./recipeJob.cjs").discardRecipeSnapshot(snapshot);
   }
-  const outAbs = res.code === 0 && res.status === "exited" && updatedRecipe.output ? path.resolve(dir, updatedRecipe.output) : null;
+  const output = recipeOutput(updatedRecipe);
+  const outAbs = res.code === 0 && res.status === "exited" && output.path ? path.resolve(dir, output.path) : null;
   if (outAbs) fsGuard(outAbs, e.sender.id); // W12: contain the plot output read to allowed roots
   let svgText = null;
+  let glbPath = null;
   let manifestText = null;
   if (outAbs && fs.existsSync(outAbs)) {
     noteWrite(outAbs);
-    if ((await fs.promises.stat(outAbs)).size > 64 * 1024 * 1024) throw new Error("Recipe SVG exceeds 64 MiB");
-    svgText = await fs.promises.readFile(outAbs, "utf8");
-    const manAbs = outAbs.replace(/\.svg$/, ".fluxplot.json");
+    if (output.kind === "glb") {
+      const stat = await fs.promises.stat(outAbs);
+      if (!stat.isFile() || stat.size > require("./model3dImport.cjs").MAX_BYTES) throw new Error("Recipe GLB must be a regular file below 200 MiB");
+      glbPath = outAbs;
+    } else {
+      if ((await fs.promises.stat(outAbs)).size > 64 * 1024 * 1024) throw new Error("Recipe SVG exceeds 64 MiB");
+      svgText = await fs.promises.readFile(outAbs, "utf8");
+    }
+    const manAbs = path.resolve(dir, output.manifest);
+    fsGuard(manAbs, e.sender.id);
     if (fs.existsSync(manAbs)) {
       noteWrite(manAbs);
       if ((await fs.promises.stat(manAbs)).size > 32 * 1024 * 1024) throw new Error("Recipe manifest exceeds 32 MiB");
       manifestText = await fs.promises.readFile(manAbs, "utf8");
     }
   }
-  return { ...res, svgText, manifestText, recipeText: JSON.stringify(updatedRecipe) };
+  return { ...res, glbPath, manifestPath: glbPath ? path.resolve(dir, output.manifest) : null, svgText, manifestText, recipeText: JSON.stringify(updatedRecipe) };
   });
 });
 
@@ -1510,6 +1447,8 @@ app.on("will-quit", () => slideVideoCore.cancelAll());
 const videoMediaCore = require("./ipc/videoMedia.cjs").createVideoMediaCore({ app, protocol, rootFor, fsReadGuard: fileCore.fsReadGuard, noteWrite });
 videoMediaCore.registerHandlers(ipcMain);
 app.on("will-quit", () => videoMediaCore.cancelAll());
+const model3dCore = require("./ipc/model3d.cjs").createModel3dCore({ rootFor, generationFor: (e) => sessionFor(e)?.watchGen, fsReadGuard: fileCore.fsReadGuard, noteWrite });
+model3dCore.registerHandlers(ipcMain);
 
 // Slide export (E): emit a self-contained offline .html for a deck. The engine is
 // Node-only (prebaked runtime + inlined assets), so we run the `flux export-deck`
@@ -1825,7 +1764,7 @@ ipcMain.handle("shell:showItemInFolder", (e, p) => {
 });
 
 // Open a file in the OS default editor. Deliberately TIGHTER than fsGuard:
-// only files under the FluxConfig root (the Context layer / agents.json) or the
+// only files under the FluxConfig root (the Context layer) or the
 // open project qualify — this spawns an external program on the path.
 ipcMain.handle("shell:openPath", async (_e, p) => {
   const abs = path.resolve(String(p || ""));
@@ -1896,22 +1835,3 @@ ipcMain.handle("docs:open", async () => {
   return openDocumentation({ packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     sourceRoot: path.join(__dirname, '..') }, index => shell.openPath(index));
 });
-
-// ---------------------------------------------------------------------------
-// IPC: integrated terminal. The renderer's xterm.js front-end drives a native
-// login shell ($SHELL on macOS/Linux) running in a real PTY here, so colors,
-// curses apps, and job control all work. A session outlives margin view
-// switches (the renderer keeps one alive) and is reaped with its window / on
-// quit. Streaming mirrors quarto:log + onFsChanged (send + on/unsubscribe).
-// ---------------------------------------------------------------------------
-// WS-9.4b: the TERMINAL (PTY) family lives in ipc/terminal.cjs.
-const terminalFamily = require("./ipc/terminal.cjs").createTerminalFamily({
-  app,
-  nodePty,
-  rootForSender: (e) => rootFor(e),
-});
-const { reapPtys } = terminalFamily;
-
-// (agent:mcpSpec lives in ipc/agent.cjs)
-
-terminalFamily.registerHandlers(ipcMain);

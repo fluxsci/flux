@@ -10,7 +10,7 @@
 import { PROJECT_SCHEMA_VERSION, slugify, type ProjectManifest } from "./types";
 import { SCHEMAS, SCHEMA_FILENAMES } from "./schemas";
 import { BLANK_FIGURE } from "../ops";
-import { agentsStubTemplate, contextScaffoldEntries } from "./contextTemplates";
+import { agentsStubTemplate, claudeStubTemplate, contextScaffoldEntries } from "./contextTemplates";
 import type { Deck } from "../slide/types";
 
 export interface ScaffoldOptions {
@@ -111,12 +111,6 @@ format:
 bibliography: ../references/library.bib
 `;
 
-/* The old per-project verb-guide AGENTS.md moved to the machine-level
- * FluxContext (PROJECT-GUIDE.md, resources/flux-context/) in the principal-agent
- * scheme — per-project baked copies went stale on every Flux release; the
- * FluxContext copy re-syncs with the app. The scaffolded AGENTS.md is now a
- * stub pointer (contextTemplates.agentsStubTemplate). */
-
 function readmeMd(opts: ScaffoldOptions): string {
   return `# ${opts.title}
 
@@ -127,18 +121,18 @@ A Flux project. Open it in Flux, or work with the files directly.
 - \`fig/\` — figures (managed by the app)
 - \`references/library.bib\` — bibliography
 
-See \`AGENTS.md\` for the full layout and conventions.
+Agents: see \`AGENTS.md\`. People: open this folder in Flux.
 `;
 }
 
 // Derived or machine-local state, none of it worth versioning:
-//   .meta/agent/      agent runtime state (attend-state, status, passes) — per machine
 //   fig/index.json.bak  the one-generation save backup, rewritten every commit point
 const GITIGNORE = `exports/
 .meta/cache/
 .meta/locks/
 .meta/live/
-.meta/agent/
+.meta/archive/
+.meta/feedback/
 fig/renders/
 fig/index.json.bak
 `;
@@ -219,6 +213,7 @@ export function buildScaffoldTree(opts: ScaffoldOptions, deck: Deck): ScaffoldTr
   const files: [string, string][] = [
     ["project.json", JSON.stringify(manifest, null, 2) + "\n"],
     ["AGENTS.md", agentsStubTemplate()],
+    ["CLAUDE.md", claudeStubTemplate()],
     ["README.md", readmeMd(opts)],
     [".gitignore", GITIGNORE],
     ["paper/notes.qmd", mainQmd(opts)],

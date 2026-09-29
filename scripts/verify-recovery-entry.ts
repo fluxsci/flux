@@ -33,7 +33,7 @@ try {
   await recoverProjectForAuthoring(root);
   assert.equal((await cli('list')).code,0);
   let readTool:((args:Record<string,unknown>)=>Promise<any>)|undefined;
-  registerMcpVerbs({registerTool:(name,_meta,fn)=>{if(name==='list_project')readTool=fn}},root);
+  registerMcpVerbs({registerTool:(name,_meta,fn)=>{if(name==='list_project')readTool=fn}},() => root);
   assert.ok(readTool);assert.notEqual((await readTool({})).isError,true);
   assert.deepEqual(await Promise.all(resources.map(name=>heldByOther(root,name,'recovery'))),tokens);
   pass('CLI and MCP reads coexist with every human lease without releasing or renewing it');

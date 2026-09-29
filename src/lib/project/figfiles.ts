@@ -20,7 +20,7 @@
 // ---------------------------------------------------------------------------
 
 import type { Project, Figure, Asset, TextStyle, FigureFamilyDef } from "../types";
-import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION } from "./types";
+import { FIG_INDEX_SCHEMA_VERSION, CANVAS_SCHEMA_VERSION, LEGACY_FIG_SCHEMA_VERSION } from "./types";
 import { composeCaption } from "../captions";
 import { deriveFigureReferenceKey, ensureFigureReferenceKeys } from "./figureIdentity";
 import {
@@ -57,7 +57,8 @@ export interface FigIndexFigure {
 }
 export interface FigIndexAsset {
   id: string;
-  kind: "png" | "svg";
+  kind: "png" | "svg" | "glb";
+  sha256?: string; bytes?: number; model?: Asset["model"];
   path: string;
   name: string;
   naturalWidth: number;
@@ -109,7 +110,8 @@ export function normalizeIndexAssets(index: FigIndexFile | null): Asset[] {
   return (index?.assets ?? []).map((a) => ({
     id: a.id ?? "",
     name: a.name ?? a.id ?? "",
-    kind: a.kind === "png" ? "png" : "svg",
+    kind: a.kind === "glb" ? "glb" : a.kind === "png" ? "png" : "svg",
+    ...(a.kind === "glb" ? { sha256: a.sha256, bytes: a.bytes, model: a.model } : {}),
     path: a.path ?? "",
     naturalWidth: a.naturalWidth ?? 0,
     naturalHeight: a.naturalHeight ?? 0,
@@ -219,7 +221,7 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
     path: `fig/canvases/${c.id}.json`,
     text: json({
       ...previousCanvas(c.id),
-      schemaVersion: CANVAS_SCHEMA_VERSION,
+      schemaVersion: model.figures.some(f => f.canvasId === c.id && f.elements.some(e => e.type === "model3d")) ? CANVAS_SCHEMA_VERSION : LEGACY_FIG_SCHEMA_VERSION,
       id: c.id,
       name: c.name,
       figures: model.figures.filter((f) => f.canvasId === c.id).map(withIdentity),
@@ -241,7 +243,7 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
   const oldAssets=new Map(prev?.assets?.map(a=>[a.id,a]));
   const index: FigIndexFile = {
     ...prev,
-    schemaVersion: FIG_INDEX_SCHEMA_VERSION,
+    schemaVersion: model.assets.some(a => a.kind === "glb") ? FIG_INDEX_SCHEMA_VERSION : LEGACY_FIG_SCHEMA_VERSION,
     canvases: canvases.map((c, i) => ({ ...oldCanvases.get(c.id), id: c.id, name: c.name, order: i + 1 })),
     figures: model.figures.map((f, i) => {
       const ident = identity(f);
@@ -265,10 +267,11 @@ export function planFigSave(model: Project, prev: FigIndexFile | null, previousF
         caption: captionById.get(f.id) ?? "",
       };
     }),
-    assets: model.assets.filter((a): a is typeof a & { kind: "png" | "svg" } => a.kind !== "mp4").map((a) => ({
+    assets: model.assets.filter((a): a is typeof a & { kind: "png" | "svg" | "glb" } => a.kind !== "mp4").map((a) => ({
       ...oldAssets.get(a.id),
       id: a.id,
       kind: a.kind,
+      ...(a.kind === "glb" ? { sha256: a.sha256, bytes: a.bytes, model: a.model } : {}),
       path: a.path,
       name: a.name,
       naturalWidth: a.naturalWidth,

@@ -1,2 +1,4 @@
 export function recipeInvocation(recipe: { params?: Record<string, unknown>; args?: string[] }, overrides?: Record<string, unknown>): { params: Record<string, unknown>; args: string[] };
 export function completedRecipe<T extends { params?: Record<string, unknown> }>(emitted: T, params: Record<string, unknown>, overrides: Record<string, unknown>, now: string): T & { params: Record<string, unknown>; lastRun: string };
+
+export function recipeOutput(recipe: { output?: string; outputs?: { glb?: string; svg?: string; manifest?: string } }): { kind: 'glb' | 'svg'; path: string; manifest: string };

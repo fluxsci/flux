@@ -248,15 +248,6 @@ export const PAPER_COMMANDS: PaperCommandRow[] = [
     run: (c) => c.startComment(),
   },
   { id: "margin-stats", title: () => "Statistics", hint: "Margin", keywords: "word count length", owner: "none", run: (c) => c.summonPane("stats") },
-  {
-    id: "margin-terminal",
-    title: () => "Terminal",
-    // BOTH chords on one row — the old palette advertised Alt+T only.
-    keys: ["Alt+KeyT", "Mod+Backquote"],
-    owner: "window",
-    keywords: "shell console command cli bash zsh run",
-    run: (c) => c.summonPane("terminal"),
-  },
   { id: "margin-close-pane", title: () => "Close margin pane", keys: ["Alt+KeyP"], owner: "window", keywords: "dynamic pane close dismiss", run: (c) => c.closeActivePane() },
   { id: "margin-close-all", title: () => "Clear dynamic margin", keys: ["Mod+Alt+KeyP"], owner: "window", keywords: "close all panes clear margin dismiss", run: (c) => c.closeAllPanes() },
   { id: "margin-bg-seed", title: () => "New background seed", hint: "Margin", keywords: "dynamic background reroll shuffle random art", owner: "none", run: (c) => c.rerollBgSeed() },

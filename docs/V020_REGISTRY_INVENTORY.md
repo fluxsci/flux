@@ -11,7 +11,6 @@ This wave moved `add_to_library`/`lib-add`, `set_slide`/`set-slide`, `set_animat
 | CLI surface | MCP surface | Why the wrapper remains distinct |
 | --- | --- | --- |
 | `new` | none | Scaffolds a project outside the MCP session's fixed project root. |
-| `principal`, alias `agent`; `attend` | none | Interactive terminal ownership and long-lived worker/event streams. |
 | `version`, help aliases | server identity / tool descriptions | Process metadata and command discovery, not project file operations. |
 | `render-figure`, `render-canvas`, `render-figures` | `get_figure_image`, `get_canvas_image`, `render_figure` | CLI supports raw SVG stdout, destination-file writes, PNG switches and stale-source diagnostics. MCP image content and text warnings have different result contracts. Both delegate actual render to core; materialization is CLI-only. |
 | `reset-crop` | `set_crop {crop:null}` | CLI-only spelling of an existing shared core/registry mutation. |

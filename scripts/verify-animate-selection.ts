@@ -7,6 +7,7 @@
 //   Run: npx tsx scripts/verify-animate-selection.ts
 import * as ops from "../src/lib/slide/ops";
 import { addAppearanceTracks } from "../src/lib/slide/animateSelection";
+import { resolveStart } from "../src/lib/slide/resolve";
 import { familyOf } from "../src/lib/slide/family";
 import type { Element as SlideElement } from "../src/lib/types";
 
@@ -36,7 +37,8 @@ assert(tr.start === 0 && tl.start === 0, "first effects start at 0");
 const r2 = addAppearanceTracks(deck, sid, [{ elementId: rectId }], "emphasize", 1, {})!;
 const em = slide.beats[1].tracks.find((t) => t.id === r2.trackIds[0])!;
 assert(em.preset === "highlight" && em.duration === 500, "emphasize = highlight 500ms");
-assert(em.start === (tr.start ?? 0) + (tr.duration ?? 0), `stacked after the rect's entrance (start ${em.start})`);
+assert(em.anchor?.trackId === tr.id && em.anchor.edge === "end", "successive effect anchors to the prior entrance end");
+assert(resolveStart(em, slide.beats[1], deck).start === (tr.start ?? 0) + (tr.duration ?? 0), "anchored emphasis preserves its initial timing");
 
 // (3) parts of several plots: the x-axis of two plots + one series of the first
 const r3 = addAppearanceTracks(
@@ -57,7 +59,9 @@ const r4 = addAppearanceTracks(deck, sid, [{ elementId: lineId }, { elementId: "
 assert(r4.trackIds.length === 1, "unknown targets are skipped");
 const exit = slide.beats[1].tracks.find((t) => t.id === r4.trackIds[0])!;
 assert(exit.preset === "drawOff" && exit.target === lineId, "line exit = drawOff");
-assert(exit.start === (tl.start ?? 0) + (tl.duration ?? 0), `the exit stacks after the entrance (start ${exit.start})`);
+assert(exit.anchor?.trackId === tl.id && resolveStart(exit, slide.beats[1], deck).start === (tl.start ?? 0) + (tl.duration ?? 0), "exit anchors after the entrance");
+tl.duration = 750;
+assert(resolveStart(exit, slide.beats[1], deck).start === 750, "retiming an entrance moves its following exit");
 
 // (5) a specific later step, and empty inputs
 const b2 = ops.addBeat(deck, sid, { label: "Step 2", advance: "click" })!;
@@ -73,7 +77,7 @@ assert(r6.trackIds.length === 3, "overlapping shared/individual picks create one
 const p1Tracks = b2.tracks.filter((t) => t.target === p1 && t.part === "axis.x");
 assert(p1Tracks.length === 1 && p1Tracks[0].start === 0, "duplicate part picks cannot create an unintended second entrance");
 const later = addAppearanceTracks(deck, sid, [{ elementId: p1, partId: "axis.x" }], "emphasize", 2, {})!;
-assert(later.trackIds.length === 1 && b2.tracks.find((t) => t.id === later.trackIds[0])!.start! > 0, "a separate explicit action still appends after the prior effect");
+assert(later.trackIds.length === 1 && resolveStart(b2.tracks.find((t) => t.id === later.trackIds[0])!, b2, deck).start > 0, "a separate explicit action still appends after the prior effect");
 
 const emptyDeck = ops.createDeck({ id: "empty", title: "No targets" });
 const emptySlide = ops.addSlide(emptyDeck, { name: "Empty", layout: "blank" });

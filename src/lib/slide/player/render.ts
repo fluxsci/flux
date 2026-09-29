@@ -20,16 +20,21 @@
 // decoder in a player. Appearance and geometry still belong to the same wrapper.
 // ---------------------------------------------------------------------------
 
+import { applyPlotView, preparePlotView } from "../../plot/projectDom";
 import { get } from "svelte/store";
 import type { Element as FigElement } from "../../types";
 import { plotDom, plotManifests } from "../../plot/store";
-import { prefixIds, applyOverrides } from "../../plot/parse";
+import { prefixIds, applyOverrides, partDomId, partIdFromDom } from "../../plot/parse";
+import { isDerivedManifest } from "../../plot/derive";
 import { compensatePtTrue, svgIntrinsicPx, cropViewBoxValue } from "../../plot/compensate";
 import { elementToSvg, textSvgLayout, segmentAttrs, type AssetSizeFn } from "../../export";
 import { elementBBox } from "../../geometry";
-import { lerpColor } from "../../color/interp";
+import { prepareColorLerp } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
 import { themeCssVars } from "../theme";
+import type { Model3dHost } from "../../model3d/host";
+import type { Model3dAsset, Model3dElement, Scene3dManifest } from "../../model3d/types";
+import { fillModel3d } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -49,6 +54,14 @@ export interface SlideRenderCtx {
   mode?: "edit" | "present" | "export";
   /** Static hosts must never allocate a decoder for each thumbnail. */
   videoPlayback?: boolean;
+  /** Live hosts opt in explicitly; filmstrip/static callers use matching posters. */
+  model3d?: Model3dHost;
+  modelAsset?: (assetId: string) => Model3dAsset | undefined;
+  modelManifest?: (assetId: string) => Scene3dManifest | undefined;
+  /** A matching still, including a sampled step's mesh-part appearance. */
+  modelPoster?: (element: Model3dElement, partOpacity?: Record<string, number>) => string | undefined;
+  /** Stage-to-CSS-pixel scale. Device pixel ratio is applied by the controller. */
+  pixelScale?: number | (() => number);
   /** Derived ghost styling; never written into the figure/deck model. */
   ghostPartFactors?: Record<string, Record<string, { opacity: number }>>;
 }
@@ -56,6 +69,8 @@ export interface SlideRenderCtx {
 export interface RenderedSlide {
   /** elId → the wrapper element (the player/editor animates/overlays these). */
   elements: Map<string, HTMLElement>;
+  /** One stage-space surface for cross-object flights, inside the camera. */
+  flight: SVGSVGElement;
   sourceSlide?: Slide;
 }
 
@@ -194,10 +209,295 @@ export function updateStaticContent(w: HTMLElement, el: FigElement, ctx: SlideRe
   return true;
 }
 
+type DataGeometry = { circles: ReadonlySet<string>; lines: ReadonlySet<string> };
+
+/** Shared attribute compiler for structural shapes and semantic plot parts.
+ * A binding exists only where a frame can change something: a value equal at
+ * both endpoints that the live node already holds compiles to nothing, and
+ * every write compares first, so a static frame performs no DOM writes. */
+function contentBindings(kind: FigElement["type"], dataGeometry?: DataGeometry) {
+  const writes: ((t: number, raw: number) => void)[] = [];
+  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  function sampler(name: string, a: string | null, b: string | null): (t: number, raw: number) => string | null {
+    if (a === b) return () => a;
+    if (a !== null && b !== null) {
+      if (["fill", "stroke", "color", "stop-color", "flood-color"].includes(name)) return prepareColorLerp(a, b);
+      // References, colours and arbitrary strings are discrete. Only equal
+      // numeric templates (including path commands) can interpolate safely.
+      if (!a.includes("#") && !b.includes("#") && !name.startsWith("data-") && !name.endsWith("href") && a.replace(numbers, "~") === b.replace(numbers, "~")) {
+        const an = (a.match(numbers) ?? []).map(Number), bn = (b.match(numbers) ?? []).map(Number);
+        const pieces = b.split(numbers);
+        if (an.length && an.length === bn.length) return t => {
+          if (t <= 0) return a; if (t >= 1) return b;
+          let value = pieces[0];
+          for (let i = 0; i < an.length; i++) value += String(an[i] + (bn[i] - an[i]) * t) + pieces[i + 1];
+          return value;
+        };
+      }
+    }
+    return (_t, raw) => raw < .5 ? a : b;
+  }
+  return {
+    /** `force` also binds endpoint-constant values: a node a later chained
+     *  Change revives must be rewritten after earlier controllers reset it. */
+    bind(node: Element, a: Element, b: Element, lineGeometry = false, force = false) {
+      const id = a.getAttribute("id") ?? "";
+      const ownsLine = lineGeometry || !!dataGeometry?.lines.has(id);
+      const ownsCircle = a.tagName.toLowerCase() === "circle" && !!dataGeometry?.circles.has(id);
+      for (const name of new Set([...Array.from(a.attributes), ...Array.from(b.attributes)].map(x => x.name))) {
+        if (name === "id" || name === "viewBox" && kind !== "plot" || ownsLine && name === "d" || ownsCircle && (name === "cx" || name === "cy")) continue;
+        if (name === "style") {
+          const as = (a as SVGElement).style, bs = (b as SVGElement).style, ns = (node as SVGElement).style;
+          for (const prop of new Set([...Array.from(as), ...Array.from(bs)])) {
+            const av = as.getPropertyValue(prop) || null, bv = bs.getPropertyValue(prop) || null;
+            if (!force && av === bv && (ns.getPropertyValue(prop) || null) === av) continue;
+            const sample = sampler(prop, av, bv);
+            writes.push((t, raw) => {
+              const v = sample(t, raw);
+              if (v === null) { if (ns.getPropertyValue(prop)) ns.removeProperty(prop); }
+              else if (ns.getPropertyValue(prop) !== v) ns.setProperty(prop, v);
+            });
+          }
+        } else {
+          const av = a.getAttribute(name), bv = b.getAttribute(name);
+          // Earlier box-only motion can leave content in its original SVG frame.
+          // A later content Change moves the viewBox to its own pre-state, so even
+          // an endpoint-constant shaft/shape attribute must bind if the live node
+          // still holds the old frame's value. Never replace those shared nodes.
+          if (!force && av === bv && node.getAttribute(name) === av) continue;
+          const sample = sampler(name, av, bv);
+          writes.push((t, raw) => {
+            const v = sample(t, raw);
+            if (v === null) { if (node.hasAttribute(name)) node.removeAttribute(name); }
+            else if (node.getAttribute(name) !== v) node.setAttribute(name, v);
+          });
+        }
+      }
+      if (!a.children.length && !b.children.length && (force || a.textContent !== b.textContent || node.textContent !== a.textContent)) {
+        const av = a.textContent ?? "", bv = b.textContent ?? "";
+        writes.push((_t, raw) => { const v = raw < .5 ? av : bv; if (node.textContent !== v) node.textContent = v; });
+      }
+    },
+    update(t: number, raw = t) { for (const write of writes) write(t, raw); },
+  };
+}
+
+let plotResidueId = 0;
+// Positional ids are not identities. plot/derive.ts stampIds gives id-less
+// structure DFS-position ids (`n<k>`), and matplotlib numbers artists with
+// global counters (`ytick_7`, `text_1`, `patch_2`, `line2d_3` …). A regenerated
+// asset with one tick fewer renumbers every later node, so binding by them
+// pairs strangers. They bind structurally — a wrapper holding semantic parts is
+// keyed by its first semantic descendant (A's ytick_7 and B's ytick_5 pair
+// through panel.large.axis.y.tick.2). A `<kind>_<N>` id a real manifest names
+// stays semantic; a stamp never does.
+const STAMPED_ID = /^n\d+$/, COUNTER_ID = /^[A-Za-z][A-Za-z0-9]*_\d+$/;
+function manifestNames(m: import("../../plot/types").FluxPlotManifest | undefined, into: Set<string>): void {
+  if (!m || isDerivedManifest(m)) return;
+  const walk = (n: import("../../plot/types").PartNode | undefined) => {
+    // The orphan-defense group lists whatever the generator left unnamed.
+    if (!n || n.groupRole === "unclassified") return;
+    const own = n.id ?? n.ref; if (own) into.add(own);
+    for (const member of n.members ?? []) into.add(member);
+    for (const child of n.children ?? []) walk(child);
+  };
+  walk(m.parts as import("../../plot/types").PartNode | undefined);
+  for (const s of m.series ?? []) {
+    if (s.svg?.line) into.add(s.svg.line);
+    if (s.svg?.points) into.add(s.svg.points);
+    for (const p of s.points ?? []) into.add(p.svgId);
+  }
+}
+
+/** Match plot content by semantic identity; topology changes fade locally.
+ * All clones and bindings are built here. Playback only writes attributes. */
+export function compilePlotContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: DataGeometry): ((el: FigElement, t: number, raw?: number) => void) | null {
+  const from = document.createElement("div"), to = document.createElement("div");
+  fillContent(from, pre, ctx); fillContent(to, end, ctx);
+  const a = from.firstElementChild, b = to.firstElementChild, live = w.firstElementChild;
+  const manifestOf = (el: FigElement) => el.type !== "plot" ? undefined : ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
+  const named = new Set<string>();
+  manifestNames(manifestOf(pre), named); manifestNames(manifestOf(end), named);
+  const semanticId = (node: Element): string | null => {
+    const id = partIdFromDom(node.getAttribute("id") ?? "", pre.id);
+    return id === null || STAMPED_ID.test(id) || COUNTER_ID.test(id) && !named.has(id) ? null : id;
+  };
+  const residue = (node: Element) => node.hasAttribute("data-plot-residue") || node.hasAttribute("data-projection-residue");
+  // key: a semantic id, or `@<depth>:<first semantic descendant>` for a wrapper
+  // that holds one; anonymous nodes (neither) have no key and bind by position.
+  const keyOf = new Map<Element, string>();
+  const index = (root: Element | null, keyRoot = false) => {
+    const map = new Map<string, Element>();
+    if (!root) return map;
+    const walk = (node: Element): [string, number] | null => {
+      if (residue(node)) return null;
+      const own = semanticId(node);
+      let first: [string, number] | null = null;
+      for (const child of Array.from(node.children)) { const found = walk(child); if (found && !first) first = [found[0], found[1] + 1]; }
+      const key = own ?? (first && (keyRoot || node !== root) ? `@${first[1]}:${first[0]}` : null);
+      if (key !== null) keyOf.set(node, key); else keyOf.delete(node);
+      return own !== null ? [own, 0] : first;
+    };
+    walk(root);
+    // Document order, parents first: installs find their parent and siblings.
+    for (const node of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      const key = keyOf.get(node);
+      if (key !== undefined && !map.has(key) && !residue(node)) map.set(key, node);
+    }
+    return map;
+  };
+  const ai = index(a), bi = index(b), li = index(live);
+  if (!ai.size && !bi.size) return null;
+  const bindings = contentBindings("plot", dataGeometry);
+  const fades: { node: Element; opacity: string | null; style: string; display: string; entering: boolean; hidden: boolean }[] = [];
+  const fade = (node: Element, entering: boolean, source = node) => {
+    fades.push({ node, opacity: source.getAttribute("opacity"), style: (source as SVGElement).style.getPropertyValue("opacity") || "", display: (source as SVGElement).style.getPropertyValue("display") || "", entering, hidden: entering });
+    // Hide before the first seek without turning the authored opacity into
+    // zero when later appearance tracks compile their baseline.
+    if (entering) (node as SVGElement).style.display = "none";
+  };
+  const update = (_el: FigElement, t: number, raw = t) => {
+    bindings.update(t, raw);
+    for (const f of fades) {
+      const weight = f.entering ? Math.max(0, Math.min(1, (t - .6) / .4)) : Math.max(0, Math.min(1, 1 - t / .4));
+      const st = (f.node as SVGElement).style;
+      if (f.hidden) {
+        if (f.display) st.display = f.display; else st.removeProperty("display");
+        f.hidden = false;
+      }
+      // Compare first: a repeated frame writes nothing.
+      if (weight === 1) {
+        if (f.opacity === null) { if (f.node.hasAttribute("opacity")) f.node.removeAttribute("opacity"); }
+        else if (f.node.getAttribute("opacity") !== f.opacity) f.node.setAttribute("opacity", f.opacity);
+        if (f.style) { if (st.opacity !== f.style) st.opacity = f.style; } else if (st.opacity) st.removeProperty("opacity");
+      } else {
+        const value = String(Number(f.style || f.opacity || 1) * weight);
+        if (f.node.getAttribute("opacity") !== value) f.node.setAttribute("opacity", value);
+        if (st.opacity !== value) st.opacity = value;
+      }
+    }
+  };
+  // An unloaded/raster endpoint has no semantic partners. Keep it as one
+  // unmatched layer, using the same endpoint fade windows as unmatched parts.
+  if (!a || !b || !live || a.tagName !== b.tagName) {
+    const outgoing = document.createElement("div"), incoming = document.createElement("div");
+    outgoing.style.cssText = incoming.style.cssText = "position:absolute;inset:0";
+    while (w.firstChild) outgoing.appendChild(w.firstChild);
+    while (to.firstChild) incoming.appendChild(to.firstChild);
+    w.append(outgoing, incoming); fade(outgoing, false); fade(incoming, true);
+    return update;
+  }
+  const anonymous = (node: Element) => Array.from(node.children).filter(child => !keyOf.has(child) && !residue(child));
+  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  const same = (x: Element, y: Element, line = false): boolean => {
+    if (x.tagName !== y.tagName) return false;
+    const ownsLine = line || !!dataGeometry?.lines.has(x.getAttribute("id") ?? "");
+    if (!ownsLine && x.tagName.toLowerCase() === "path" &&
+      (x.getAttribute("d") ?? "").replace(numbers, "~") !== (y.getAttribute("d") ?? "").replace(numbers, "~")) return false;
+    const xc = anonymous(x), yc = anonymous(y);
+    return xc.length === yc.length && xc.every((child, i) => same(child, yc[i], ownsLine));
+  };
+  // A destination copy never repaints parts the live source already shows
+  // (bound in place to the destination's values) — except those `keep` owns.
+  const withoutShared = (copy: Element, keep = new Set<string>()) => {
+    const keys = index(copy, true);
+    for (const [key, node] of keys) if (node !== copy && ai.has(key) && !keep.has(key) && copy.contains(node)) node.remove();
+    return new Map([...keys].filter(([, node]) => node === copy || copy.contains(node)));
+  };
+  const covered = new Set<string>();
+  function local(node: Element, x: Element, y: Element, line = false, force = false) {
+    if (node !== live && !same(x, y, line)) {
+      const xKeys = index(x, true), replacement = y.cloneNode(true) as Element;
+      const next = withoutShared(replacement, new Set(xKeys.keys()));
+      node.parentNode!.insertBefore(replacement, node.nextSibling);
+      // Keep the destination's canonical ids for later tracks. The outgoing
+      // copy has its own reference namespace, never duplicate document ids.
+      prefixIds(node, `${pre.id}-residue-${plotResidueId++}`);
+      node.setAttribute("data-plot-residue", "");
+      for (const [key, n] of next) { li.set(key, n); covered.add(key); }
+      for (const key of xKeys.keys()) covered.add(key);
+      fade(node, false, x); fade(replacement, true, y);
+      return;
+    }
+    const ownsLine = line || !!dataGeometry?.lines.has(x.getAttribute("id") ?? "");
+    bindings.bind(node, x, y, ownsLine, force);
+    const xc = anonymous(x), yc = anonymous(y), nc = anonymous(node);
+    for (let i = 0; i < Math.max(xc.length, yc.length); i++) {
+      if (xc[i] && yc[i] && nc[i]) local(nc[i], xc[i], yc[i], ownsLine, force);
+      else if (xc[i] && nc[i]) fade(nc[i], false);
+      else if (yc[i]) {
+        const next = yc[i].cloneNode(true) as Element; node.appendChild(next);
+        fade(next, true);
+      }
+    }
+  }
+  // Anonymous scaffolding is bound without descending into named parts.
+  local(live, a, b);
+  // A source-only part that still holds parts the destination shares stays;
+  // only its own anonymous content fades (its shared descendants bind below).
+  const keeps = new Map<Element, boolean>();
+  const holdsShared = (x: Element) => {
+    let held = keeps.get(x);
+    if (held === undefined) { held = Array.from(x.querySelectorAll("*")).some(d => bi.has(keyOf.get(d) ?? "\u0000")); keeps.set(x, held); }
+    return held;
+  };
+  // A missing subtree fades once, at its outermost semantic parts: a wrapper
+  // (keyed only through its descendants) is transparent, and its own anonymous
+  // content fades beside them. `source` supplies the authored opacity.
+  const fadeParts = (node: Element, entering: boolean, source: Element, tree: Map<string, Element>) => {
+    const key = keyOf.get(node);
+    if (key === undefined || !key.startsWith("@")) { fade(node, entering, source); return; }
+    const sourceAnonymous = anonymous(source);
+    anonymous(node).forEach((child, i) => fade(child, entering, sourceAnonymous[i] ?? child));
+    for (const child of Array.from(node.children)) {
+      const k = keyOf.get(child);
+      if (k !== undefined && !residue(child)) fadeParts(child, entering, tree.get(k) ?? child, tree);
+    }
+  };
+  for (const [key, x] of ai) {
+    if (covered.has(key)) continue;
+    const y = bi.get(key), node = li.get(key);
+    if (!node) continue;
+    if (y) { local(node, x, y); continue; }
+    if (holdsShared(x)) { anonymous(node).forEach((child, i) => fade(child, false, anonymous(x)[i] ?? child)); continue; }
+    let parent = x.parentElement, nested = false;
+    while (parent && parent !== a) { const k = keyOf.get(parent); if (k !== undefined && !bi.has(k) && !holdsShared(parent)) { nested = true; break; } parent = parent.parentElement; }
+    if (!nested) fadeParts(node, false, x, ai);
+  }
+  const fresh = new Set<Element>();
+  for (const [key, y] of bi) if (!ai.has(key) && !covered.has(key)) {
+    // Every ancestor of a keyed node is keyed; a destination-only parent
+    // installs this node with its own subtree.
+    const parent = y.parentElement;
+    const parentKey = parent && parent !== b ? keyOf.get(parent) : undefined;
+    const nested = parentKey !== undefined && !ai.has(parentKey);
+    const retained = li.get(key);
+    if (retained && fresh.has(retained)) continue; // installed with its parent just now
+    if (retained) {
+      // A later B→A can revive a node retained by A→B. The player resets
+      // controllers outside-in, so these writes must restore endpoint paint.
+      local(retained, y, y, false, true);
+      if (!nested) fadeParts(retained, true, y, bi);
+      continue;
+    }
+    if (nested) continue;
+    const dest = parentKey === undefined ? live : li.get(parentKey);
+    if (!dest) continue; // the destination-only ancestor installs the entire subtree
+    let sibling = y.nextElementSibling, before: Element | null = null;
+    while (sibling) { const k = keyOf.get(sibling); const candidate = k === undefined ? undefined : li.get(k); if (candidate?.parentNode === dest) { before = candidate; break; } sibling = sibling.nextElementSibling; }
+    const next = y.cloneNode(true) as Element;
+    for (const [k, node] of withoutShared(next)) { li.set(k, node); fresh.add(node); }
+    li.set(key, next);
+    dest.insertBefore(next, before);
+    fadeParts(next, true, next, new Map());
+  }
+  return update;
+}
+
 /** Compile the serializer's two endpoints into stable attribute bindings.
  * Normal shape transforms never serialize/parse SVG during playback. A
  * topology change returns null so the caller can crossfade complete layers. */
-export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }): ((el: FigElement, t: number) => void) | null {
+export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigElement, ctx: SlideRenderCtx, dataGeometry?: { circles: ReadonlySet<string>; lines: ReadonlySet<string> }): ((el: FigElement, t: number, raw?: number) => void) | null {
   if (pre.type === "text" && end.type === "text") {
     const svg = w.firstElementChild, text = svg?.querySelector("text");
     if (!svg || !text) return null;
@@ -258,54 +558,25 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
   const liveSvg = w.firstElementChild;
   const aSvg = from.firstElementChild, bSvg = to.firstElementChild;
   if (!liveSvg || !aSvg || !bSvg) return null;
-  const bindings: { node: Element; name: string; sample: (t: number) => string | null }[] = [];
-  const texts: { node: Element; a: string; b: string }[] = [];
-  const numbers = /-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi;
+  const bindings = contentBindings(pre.type, dataGeometry);
   const bind = (node: Element, a: Element, b: Element, lineGeometry = false): boolean => {
     if (node.tagName !== a.tagName || a.tagName !== b.tagName || node.children.length !== a.children.length || a.children.length !== b.children.length) return false;
-    const names = new Set([...Array.from(a.attributes), ...Array.from(b.attributes)].map((x) => x.name));
-    const id = a.getAttribute("id") ?? "";
-    const ownsLine = lineGeometry || !!dataGeometry?.lines.has(id);
-    const ownsCircle = a.tagName.toLowerCase() === "circle" && !!dataGeometry?.circles.has(id);
-    for (const name of names) {
-      if (name === "id" || name === "viewBox" && pre.type !== "plot") continue;
-      if (ownsLine && name === "d" || ownsCircle && (name === "cx" || name === "cy")) continue;
-      const av = a.getAttribute(name), bv = b.getAttribute(name);
-      // Earlier box-only motion can leave content in its original SVG frame.
-      // A later content Change moves the viewBox to its own pre-state, so even
-      // an endpoint-constant shaft/shape attribute must bind if the live node
-      // still holds the old frame's value. Never replace those shared nodes.
-      if (av === bv && node.getAttribute(name) === av) continue;
-      let sample: (t: number) => string | null = (t) => t < .5 ? av : bv;
-      if (av !== null && bv !== null) {
-        if (name === "fill" || name === "stroke") sample = (t) => lerpColor(av, bv, t);
-        else {
-          const an = (av.match(numbers) ?? []).map(Number), bn = (bv.match(numbers) ?? []).map(Number);
-          if (an.length && an.length === bn.length) sample = (t) => { let i = 0; return bv.replace(numbers, () => String(an[i] + (bn[i] - an[i++]) * t)); };
-        }
-      }
-      bindings.push({ node, name, sample });
-    }
-    if (!a.children.length && a.textContent !== b.textContent) texts.push({ node, a: a.textContent ?? "", b: b.textContent ?? "" });
+    const ownsLine = lineGeometry || !!dataGeometry?.lines.has(a.getAttribute("id") ?? "");
+    bindings.bind(node, a, b, ownsLine);
     for (let i = 0; i < a.children.length; i++) if (!bind(node.children[i], a.children[i], b.children[i], ownsLine)) return false;
     return true;
   };
   if (!bind(liveSvg, aSvg, bSvg)) return null;
   const path = pre.type === "path" ? liveSvg.querySelector("path") : null;
-  return (el, t) => {
+  return (el, t, raw = t) => {
     if (el.type !== "plot") {
       const bb = elementBBox({ ...el, rotation: 0 });
       liveSvg.setAttribute("viewBox", `${bb.x} ${bb.y} ${Math.max(bb.w, 1)} ${Math.max(bb.h, 1)}`);
     }
-    for (const binding of bindings) {
-      const value = binding.sample(t);
-      if (value === null) binding.node.removeAttribute(binding.name);
-      else if (binding.node.getAttribute(binding.name) !== value) binding.node.setAttribute(binding.name, value);
-    }
+    bindings.update(t, raw);
     // The path tween owns its resampled geometry; interpolating raw d strings
     // would pair unrelated commands when the node count changed.
     if (path && el.type === "path") path.setAttribute("d", el.d);
-    for (const text of texts) text.node.textContent = t < .5 ? text.a : text.b;
   };
 }
 
@@ -315,6 +586,7 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
 export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   if (el.type === "plot") fillPlot(w, el, ctx);
   else if (el.type === "video") fillVideo(w, el, ctx);
+  else if (el.type === "model3d") fillModel3d(w, el, ctx);
   else fillStatic(w, el, ctx);
 }
 
@@ -344,7 +616,7 @@ export function compileGhostPartOpacity(scope: ParentNode, el: FigElement, ctx: 
   const factors = ctx.ghostPartFactors?.[el.id];
   if (el.type !== "plot" || !factors) return;
   const bindings = Object.entries(factors).flatMap(([part, state]) => {
-    const node = scope.querySelector<SVGElement>(`[id="${el.id}__${part}"]`);
+    const node = scope.querySelector<SVGElement>(`[id="${partDomId(el.id, part)}"]`);
     if (!node) return [];
     const raw = node.style.opacity || node.getAttribute("opacity") || "1";
     const base = ghostOpacityBase.get(node) ?? (Number.isFinite(Number(raw)) ? Number(raw) : 1);
@@ -396,8 +668,11 @@ function fillPlot(w: HTMLElement, el: Extract<FigElement, { type: "plot" }>, ctx
   }
   // applyOverrides needs the live manifest; `get` from svelte/store is framework-neutral.
   const ghostOpacity = compileGhostPartOpacity(inst, el, ctx);
-  applyOverrides(inst, el.overrides, el.id, (ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId]));
+  const manifest = ctx.plotManifest ? ctx.plotManifest(el.assetId) : get(plotManifests)[el.assetId];
+  preparePlotView(inst, manifest, el.view, el.id);
+  applyOverrides(inst, el.overrides, el.id, manifest);
   ghostOpacity?.(el);
+  applyPlotView(inst, manifest, el.view, el.id);
   compensatePtTrue(inst, {
     elW: el.width,
     elH: el.height,
@@ -452,7 +727,15 @@ export function renderSlide(
     host.appendChild(w);
     elements.set(el.id, w);
   }
-  return { elements, sourceSlide: slide };
+  const flight = document.createElementNS(SVG_NS, "svg");
+  flight.setAttribute("class", "sl-flight");
+  flight.setAttribute("viewBox", `0 0 ${stage.width} ${stage.height}`);
+  flight.setAttribute("width", "100%");
+  flight.setAttribute("height", "100%");
+  flight.setAttribute("preserveAspectRatio", "none");
+  flight.style.cssText = "pointer-events:none;position:absolute;inset:0;overflow:visible;display:block";
+  host.appendChild(flight);
+  return { elements, flight, sourceSlide: slide };
 }
 
 /** The wrapper box/transform/opacity for an element state at REST — exported

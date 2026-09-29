@@ -419,3 +419,20 @@ console.log("verify-cascade: ALL OK");
   slideOps.cascadeTracks(d,"s1",["tA"],{property:"duration",delta:50});
   assert(trk(d,"tA").duration===370,"duration cascade starts from the actual 320ms appearance duration shown in the timeline");
 }
+
+// M4: only springs consume a bounce rank, including inherited springs.
+{
+  const d = deckFixture();
+  slideOps.setTrackCurve(d, "s1", "tA", { kind: "spring", bounce: .2, velocity: 1 });
+  slideOps.setTrackCurve(d, "s1", "tC", { kind: "spring", bounce: .2 });
+  const baseline = new Map<string, slideOps.TrackCascadeBaseline>();
+  const count = slideOps.cascadeTracks(d, "s1", ["tA", "tB", "tC"], { property: "curve.bounce", delta: .15, firstFixed: true }, baseline);
+  assert(count === 2, "bounce: non-springs are not applicable and consume no rank");
+  assert(trk(d, "tA").curve?.kind === "spring" && trk(d, "tA").curve?.bounce === .2 && trk(d, "tC").curve?.kind === "spring" && trk(d, "tC").curve?.bounce === .35, "bounce: first fixed and ranked increments");
+  slideOps.cascadeTracks(d, "s1", ["tA", "tB", "tC"], { property: "curve.bounce", delta: 2 }, baseline);
+  assert(["tA", "tC"].every(id => { const c = trk(d,id).curve; return c?.kind === "spring" && c.bounce === .8; }), "bounce: upper clamp .8");
+  slideOps.cascadeTracks(d, "s1", ["tA", "tB", "tC"], { property: "curve.bounce", delta: -2 }, baseline);
+  assert(["tA", "tC"].every(id => { const c = trk(d,id).curve; return c?.kind === "spring" && c.bounce === -.5; }), "bounce: lower clamp -.5");
+  slideOps.cascadeTracks(d, "s1", ["tA", "tB", "tC"], { property: "duration", delta: 50 }, baseline);
+  assert(trk(d, "tA").curve?.kind === "spring" && trk(d, "tA").curve?.bounce === .2, "bounce: switching cascade property restores the complete timing curve baseline");
+}

@@ -54,7 +54,8 @@
     hoverId = null,
     onCreate,
     onSelect,
-    onAskSelection,
+    onAnnotate,
+    onAsk,
     onAnnotationClick,
     onAnnotationHover,
     onCitePreview,
@@ -73,7 +74,7 @@
     buffer: ArrayBuffer;
     annotations?: Annotation[];
     /** False on a supplement PDF — highlights anchor to the main paper only, so the
-     *  selection menu hides its colour dots (✦ send-to-terminal stays available). */
+     *  selection menu is hidden; the selection still reaches onSelect. */
     canHighlight?: boolean;
     /** Externally-hovered annotation id (e.g. a sidebar row) → its on-page boxes glow. */
     hoverId?: string | null;
@@ -81,8 +82,8 @@
      *  selection is then kept alive so the user can retry. */
     onCreate?: (a: { page: number; anchor: TextQuoteSelector; color: string }) => void | boolean | Promise<void | boolean>;
     onSelect?: (text: string, page?: number) => void;
-    /** ✦ on the selection menu — send the selected passage to the terminal (R3). */
-    onAskSelection?: (text: string, page: number) => void;
+    onAsk?: (text: string, page: number) => void;
+    onAnnotate?: (text: string, page: number) => void;
     /** Click on a painted highlight (hit-tested — the boxes stay pointer-events:none). */
     onAnnotationClick?: (hit: { id: string; page: number; rect: DOMRect }) => void;
     onAnnotationHover?: (id: string | null) => void;
@@ -153,15 +154,20 @@
     return { text, nodes };
   }
   function charOffset(info: PageInfo, node: Node, offset: number): number | null {
-    let textNode: Text | null = node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
-    if (!textNode) {
-      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-      textNode = walker.nextNode() as Text | null;
-      offset = 0;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const entry = info.nodes.find((e) => e.node === node);
+      return entry ? entry.start + offset : null;
     }
-    if (!textNode) return null;
-    const entry = info.nodes.find((e) => e.node === textNode);
-    return entry ? entry.start + offset : null;
+    // An element boundary (selectNodeContents, triple-click) sits between
+    // child[offset-1] and child[offset]: its text offset is the start of the
+    // first text node after it, else the end of the page's text. Taking the
+    // element's first text node instead collapsed (span, 1) onto the span's start.
+    const at = document.createRange();
+    at.setStart(node, offset);
+    at.collapse(true);
+    for (const e of info.nodes) if (at.comparePoint(e.node, 0) >= 0) return e.start;
+    const last = info.nodes.at(-1);
+    return last ? last.start + last.node.length : null;
   }
   function nodeAt(info: PageInfo, off: number): { node: Text; local: number } | null {
     let res: { node: Text; start: number } | null = null;
@@ -461,7 +467,9 @@
     const t = scrollTo;
     const epoch = ++refineEpoch;
     clearTimeout(refineTimer);
-    if (!t || !viewer || status !== "ready") return;
+    // Read `status` first: a target that arrives before the PDF loads must re-run this
+    // effect when it turns ready (`viewer` is a plain variable, so it can't).
+    if (status !== "ready" || !t || !viewer) return;
     void t.nonce;
     if (t.page != null) viewer.currentPageNumber = Math.min(Math.max(1, t.page), numPages || 1);
     if (t.id) refineScroll(t.id, 12, epoch);
@@ -821,12 +829,6 @@
       /* rejected create — same: keep the selection (the parent surfaces the error) */
     }
   }
-  function askSelection() {
-    if (menu) onAskSelection?.(menu.anchor.quote, menu.page);
-    menu = null;
-    window.getSelection()?.removeAllRanges();
-  }
-
   onMount(() => {
     let cancelled = false;
     const host = container!;
@@ -955,18 +957,14 @@
     <div class="msg loading">Loading…{loadNote ? ` ${loadNote}` : ""}</div>
   {/if}
 
-  {#if menu && (canHighlight || onAskSelection)}
+  {#if menu && (canHighlight || onAnnotate)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="hl-menu" class:below={menu.below} style:left="{menu.x}px" style:top="{menu.y}px" onmousedown={(e) => e.stopPropagation()}>
-      {#if canHighlight}
-        {#each ANNOTATION_COLORS as c}
-          <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
-        {/each}
-      {/if}
-      {#if onAskSelection}
-        {#if canHighlight}<span class="mdiv"></span>{/if}
-        <button class="mask" title="Send passage to terminal" aria-label="Send passage to terminal" onclick={askSelection}>✦</button>
-      {/if}
+      {#if canHighlight}{#each ANNOTATION_COLORS as c}
+        <button class="dot" style:background={hlSwatch(c)} title="Highlight ({c})" aria-label={`Highlight ${c}`} onclick={() => void pick(c)}></button>
+      {/each}{/if}
+      {#if onAnnotate}<button class="annotate-passage" title="Annotate this passage" aria-label="Annotate this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAnnotate?.(menu.anchor.quote, menu.page); }}>✦</button>{/if}
+      {#if onAsk}<button class="ask-passage" title="Ask about this passage" aria-label="Ask about this passage" onmousedown={e => e.preventDefault()} onclick={() => { if (menu) onAsk?.(menu.anchor.quote, menu.page); }}>Ask</button>{/if}
     </div>
   {/if}
 </div>
@@ -1085,6 +1083,7 @@
     transform: translate(-50%, -100%);
     display: flex;
     gap: 5px;
+    align-items: center;
     padding: 5px 7px;
     background: var(--c-surface);
     border: 1px solid var(--c-line-strong);
@@ -1095,6 +1094,8 @@
   .hl-menu.below {
     transform: translate(-50%, 0);
   }
+  .annotate-passage { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-ui); background: transparent; color: var(--c-accent); font: 18px var(--font-ui); cursor: var(--cursor-cross-hover); }
+  .annotate-passage:hover, .annotate-passage:focus-visible { background: var(--c-accent-tint); outline: 1px solid var(--c-accent); }
   .dot {
     width: 16px;
     height: 16px;
@@ -1104,24 +1105,6 @@
     padding: 0;
   }
   .dot:hover {
-    transform: scale(1.15);
-  }
-  .mdiv {
-    width: 1px;
-    align-self: stretch;
-    background: var(--c-line);
-    margin: 0 1px;
-  }
-  .mask {
-    border: none;
-    background: none;
-    color: var(--c-accent);
-    cursor: var(--cursor-cross-hover);
-    font-size: 13px;
-    line-height: 1;
-    padding: 0 3px;
-  }
-  .mask:hover {
     transform: scale(1.15);
   }
 </style>

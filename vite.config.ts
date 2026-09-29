@@ -55,8 +55,8 @@ export default defineConfig({
   plugins: [svelte(), pdfjsAssets(), cspStrict(), {
     name: "flux-slide-embed-csp",
     transformIndexHtml(html) {
-      const { csp } = JSON.parse(fs.readFileSync(path.resolve(".generated/slide-embed-assets.json"), "utf8"));
-      return html.replace("script-src 'self'", `script-src 'self' ${csp}`);
+      const { csp, model3dCsp } = JSON.parse(fs.readFileSync(path.resolve(".generated/slide-embed-assets.json"), "utf8"));
+      return html.replace("script-src 'self'", `script-src 'self' ${csp} ${model3dCsp}`);
     },
   }],
 
@@ -75,7 +75,7 @@ export default defineConfig({
   // "dependency optimized: …"). Listing them here makes the cold crawl complete, so the dev
   // server never re-optimizes mid-run. verify-dev-prebundle.ts (pure) finds every worker entry
   // (`new Worker(new URL(…))` targets and `?worker` imports) and pins their imports into this list.
-  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs"] },
+  optimizeDeps: { include: ["harper.js", "harper.js/slimBinary", "pdfjs-dist/legacy/build/pdf.worker.min.mjs", "three", "three/examples/jsm/loaders/GLTFLoader.js"] },
 
   clearScreen: false,
 

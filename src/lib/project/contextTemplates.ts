@@ -10,15 +10,12 @@ export const CONTEXT_PATHS = {
   dir: CONTEXT_DIR,
   rules: `${CONTEXT_DIR}/RULES.md`,
   notebook: `${CONTEXT_DIR}/NOTEBOOK.md`,
-  projectDir: `${CONTEXT_DIR}/Project`,
-  mission: `${CONTEXT_DIR}/Project/MISSION.qmd`,
-  transcriptsDir: `${CONTEXT_DIR}/Transcripts`,
-  dispatchesDir: `${CONTEXT_DIR}/Dispatches`,
+  projectContext: `${CONTEXT_DIR}/ProjectContext.qmd`,
 } as const;
 
 /** The documents inside Context/ that the Paper editor surfaces, in display order. */
 export const CONTEXT_DOC_RELS: readonly string[] = [
-  CONTEXT_PATHS.mission,
+  CONTEXT_PATHS.projectContext,
   CONTEXT_PATHS.notebook,
   CONTEXT_PATHS.rules,
 ];
@@ -31,126 +28,141 @@ export function contextScaffoldEntries(title: string): {
   files: [string, string][];
 } {
   return {
-    dirs: [
-      CONTEXT_PATHS.dir,
-      CONTEXT_PATHS.projectDir,
-      CONTEXT_PATHS.transcriptsDir,
-      CONTEXT_PATHS.dispatchesDir,
-    ],
+    dirs: [CONTEXT_PATHS.dir],
     files: [
-      [CONTEXT_PATHS.mission, missionTemplate(title)],
+      [CONTEXT_PATHS.projectContext, projectContextTemplate(title)],
       [CONTEXT_PATHS.notebook, notebookTemplate()],
       [CONTEXT_PATHS.rules, projectRulesTemplate()],
     ],
   };
 }
 
-export function missionTemplate(title: string): string {
+export function projectContextTemplate(title: string): string {
   return `---
-title: "Mission — ${title.replace(/"/g, '\\"')}"
+title: ${JSON.stringify(`Project context — ${title}`)}
 ---
 
-<!-- The project charter: what we are doing and why. Co-owned by you and the
-     principal agent — it drafts from your answers, you correct in place or via
-     comments. The principal reads this at every session start. -->
+<!-- What any agent working on this project must know. Every flux-connected agent reads this
+     file AND every file it links (Markdown links, images, Quarto includes) — so rather than
+     copying material in, link it: [analysis plan](../notes/plan.md), [data notes](/data/…/README.md).
+     Keep it current; it is the single place to put "things the agent keeps missing". -->
 
-## Question
+## Background
 
-What are we trying to learn?
+## Goals or questions
 
-## Data
+*(If there is a clear mission, state it here. It is fine if there isn't one yet.)*
 
-What data exists, where it lives, and what shape it is in.
+## Data and code
 
-## Prior work
+*(Where the data and analysis code live; environments.)*
 
-What has already been done (analyses, code, figures, drafts) before this project.
+## Key files and links
 
-## Deliverable
+## Deliverables
 
-What we are producing (paper, report, talk), for what venue/audience, and what
-"done" looks like.
-
-## Scope and non-goals
-
-What is explicitly in and out of scope.
+*(Papers, talks, reports — if any.)*
 `;
 }
 
 export function notebookTemplate(): string {
   return `# Project notebook
 
-<!-- The principal agent's memory of this project. Agent-owned: it writes; you read
-     and leave comments. Body = current truth, edited in place. Session log =
-     append-only history, newest last. -->
+<!-- The project's running log. Entries are added when you ask an agent to record one
+     (or when you write one yourself). Every flux-connected agent reads it. -->
 
-## State
+## Log
 
-*(Current state of the deliverable — kept true by the agent.)*
-
-## Decisions
-
-*(Decisions in force, each with its why.)*
-
-## Tried
-
-*(What has been attempted and what happened — including dead ends.)*
-
-## Open questions
-
-*(Unresolved items, for the human or for future work.)*
-
----
-
-## Session log
-
-*(Append-only, newest last: \`### YYYY-MM-DD HH:MM — title\` + a concise entry.)*
+*(Append-only, newest last: \`### YYYY-MM-DD HH:MM — title\`, For each entry, note which agent you are and where you are working from (cli/vsCode/desktop app/etc.). Use as much detail as is appropriate for the entry you are making, which could be anything from a very concise sentence or two to a highly-detailed multi-paragraph or multi-page entry)*
 `;
 }
 
-/** The notebook section `flux note` appends under (notebookTemplate's part 2). */
-export const SESSION_LOG_HEADING = "## Session log";
+export const LOG_HEADING = "## Log";
 
-/** `YYYY-MM-DD HH:MM` (local time) — the session-log entry stamp the notebook
- *  template documents. */
-export function sessionLogStamp(d: Date = new Date()): string {
+/** Local time, in the form documented by the notebook template. */
+export function logStamp(d: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** Insert one entry at the END of the Session log section (newest last): before
- *  the next H1/H2 heading after it, or at EOF when the log is the final section
- *  (the template's shape). H3 entries never terminate the section. A notebook
- *  restructured without the heading gets the section appended — additive, never
- *  destructive. Pure string logic so the locked writer (flux-core addNote) and
- *  any future GUI affordance share one definition. */
-export function appendSessionLogEntry(
-  doc: string,
-  entry: string,
-): { text: string; createdSection: boolean } {
-  const block = entry.replace(/\s+$/, "") + "\n";
-  const m = /^##[ \t]+Session log[ \t]*$/im.exec(doc);
-  if (!m) {
-    const base = doc.replace(/\s+$/, "");
-    return {
-      text: (base ? base + "\n\n" : "") + `${SESSION_LOG_HEADING}\n\n` + block,
-      createdSection: true,
-    };
+/** The Log extends to EOF, including any H2 sections inside an entry. */
+export function appendLogEntry(doc: string, entry: string): { text: string; createdSection: boolean } {
+  const createdSection = !/^##[ \t]+Log[ \t]*$/m.test(doc);
+  const base = doc.trimEnd();
+  return {
+    text: (base ? base + "\n\n" : "") + (createdSection ? `${LOG_HEADING}\n\n` : "") + entry.trimEnd() + "\n",
+    createdSection,
+  };
+}
+
+export interface LogEntry {
+  stamp: string;
+  title: string;
+  /** Without the Markdown emphasis; null for entries without a byline. */
+  byline: string | null;
+  body: string;
+  isCheckpoint: boolean;
+}
+
+/** Parse dated H2/H3 entries after ## Log. Ordinary headings belong to the
+ *  entry body; fenced examples and HTML comments are never entry boundaries. */
+export function parseLog(doc: string): LogEntry[] {
+  const entries: LogEntry[] = [];
+  let inLog = false, inComment = false;
+  let fence: { char: string; length: number } | null = null;
+  let current: { stamp: string; title: string; lines: string[] } | null = null;
+  const finish = () => {
+    if (!current) return;
+    let body = current.lines.join("\n").trim();
+    const bylineMatch = /^\*([^\n]+ · [^\n]+ · [^\n]+)\*[ \t]*(?:\n|$)/.exec(body);
+    const byline = bylineMatch?.[1] ?? null;
+    if (bylineMatch) body = body.slice(bylineMatch[0].length).trim();
+    entries.push({ stamp: current.stamp, title: current.title, byline, body, isCheckpoint: /^Checkpoint:/i.test(current.title) });
+  };
+  for (const line of doc.split(/\r?\n/)) {
+    const wasProtected = inComment || !!fence;
+    if (!fence) {
+      for (const token of line.matchAll(/<!--|-->/g)) {
+        if (token[0] === "<!--") inComment = true;
+        else inComment = false;
+      }
+    }
+    if (!inComment) {
+      const mark = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (mark && !wasProtected) fence = { char: mark[1][0], length: mark[1].length };
+      else if (mark && fence && mark[1][0] === fence.char && mark[1].length >= fence.length && !mark[2].trim()) fence = null;
+    }
+    if (!wasProtected && !inComment && !fence) {
+      if (!inLog && /^##[ \t]+Log[ \t]*$/.test(line)) { inLog = true; continue; }
+      const match = inLog && /^#{2,3}[ \t]+(\d{4}-\d{2}-\d{2}(?:[ \t]+\d{2}:\d{2})?)[ \t]+—[ \t]*(.*?)[ \t]*$/.exec(line);
+      if (match) {
+        finish();
+        current = { stamp: match[1], title: match[2], lines: [] };
+        continue;
+      }
+    }
+    current?.lines.push(line);
   }
-  const after = m.index + m[0].length;
-  const next = /^#{1,2}[ \t]/m.exec(doc.slice(after));
-  const at = next ? after + next.index : doc.length;
-  const head = doc.slice(0, at).replace(/\s+$/, "");
-  const tail = doc.slice(at);
-  return { text: head + "\n\n" + block + (tail ? "\n" + tail : ""), createdSection: false };
+  finish();
+  return entries;
+}
+
+/** Entries back as readable Markdown (read-log's default output); titles-only
+ *  is a one-line-per-entry index. */
+export function renderLogEntries(entries: readonly LogEntry[], titlesOnly = false): string {
+  if (!entries.length) return "The Log has no entries yet.";
+  if (titlesOnly) return entries.map((e) => `- ${e.stamp} — ${e.title}${e.byline ? ` (${e.byline})` : ""}`).join("\n");
+  return entries
+    .map((e) => [`### ${e.stamp} — ${e.title}`, e.byline ? `*${e.byline}*` : "", e.body].filter(Boolean).join("\n\n"))
+    .join("\n\n");
 }
 
 export function projectRulesTemplate(): string {
   return `# Project rules
 
-<!-- Standing rules for THIS project only. Co-owned: you write rules here, and the
-     principal agent promotes your recurring feedback into rules here. Global rules
-     (all projects) live in <FluxConfig>/Context/UserContext/RULES.md. -->
+<!-- Standing rules for THIS project only. Yours: agents follow them, and may propose
+     additions when you state a standing preference. Rules for all projects live in
+     <FluxConfig>/Context/UserContext/RULES.md. -->
 
 - *(none yet)*
 `;
@@ -165,22 +177,25 @@ export function isRetiredAgentsGuide(text: string): boolean {
   return /^# .+ — agent guide\s*$/.test(firstLine.trim()) && text.includes("The file *is* the API");
 }
 
-/** The scaffolded AGENTS.md is a stub pointing at the two Context folders. */
+/** A project pointer, never an automatic connection. */
 export function agentsStubTemplate(): string {
-  return `# Agents: read the Context folders
+  return `# This is a Flux project
 
-This is a Flux project. All agent context, memory, and instructions live in two places:
+This folder is managed by Flux, a scientific writing studio (documents, figures, slides,
+references). To get fully up to speed on it, the user can flux-connect you:
+\`/flux-connect <this folder>\` in Claude Code, \`$flux-connect <this folder>\` in Codex, or
+\`flux-connect <this folder>\` in any shell. If the user asks for work on this project and you
+are not connected, suggest it; do not connect unasked. Connecting loads a large amount of context.
 
-1. **Machine level:** \`<FluxConfig>/Context\` (run \`flux config\` for the absolute
-   path — the \`contextPath\` field) — who the user is (\`UserContext/\`) and how to
-   work in Flux (\`FluxContext/\` — start with its \`README.md\`; the full
-   inside-a-project reference is \`FluxContext/PROJECT-GUIDE.md\`).
-2. **Project level:** \`Context/\` in this folder — the mission
-   (\`Project/MISSION.qmd\`), the running notebook (\`NOTEBOOK.md\`), and this
-   project's rules (\`RULES.md\`).
-
-If you are the **principal** (the user's standing collaborator), follow
-\`FluxContext/PRINCIPAL.md\`. If you are a **dispatched worker**, your brief is your
-contract — see \`FluxContext/WORKERS.md\`.
+Never hand-edit \`fig/**\` or \`.meta/**\`; use the Flux verbs (\`flux-connect\` prints how to run them).
 `;
+}
+
+export function claudeStubTemplate(): string {
+  return "@AGENTS.md\n";
+}
+
+export interface ContextHealResult {
+  created: string[];
+  skipped?: "not-a-project";
 }

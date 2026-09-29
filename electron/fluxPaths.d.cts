@@ -16,10 +16,11 @@ export interface FluxConfigInfo {
   contextPath: string;
   userContextPath: string;
   fluxContextPath: string;
-  agentsConfigPath: string;
   /** The global plot library, <FluxConfig>/plot_library (derived). */
   plotLibraryPath: string;
   userDataDir: string;
+  binDir: string;
+  launcher: string;
   /** Present only on the run that performed migration/seeding work. */
   events?: Array<{ ts: string; action: string; detail: string }>;
 }
@@ -71,4 +72,22 @@ export const GUIDELINES_BASE_RULES: string;
 export function contextPathSync(prefs?: FluxPrefs): string;
 export function userContextPathSync(prefs?: FluxPrefs): string;
 export function fluxContextPathSync(prefs?: FluxPrefs): string;
-export function resolveOwnCliCommandsSync(): { cli: string; mcp: string };
+export interface AgentRuntime {
+  cli: string; mcp: string; executable: string; args: string[]; target: string; build: string; electron: boolean; platform: NodeJS.Platform;
+}
+export interface AgentInstallOptions {
+  platform?: NodeJS.Platform; appRoot?: string; execPath?: string; resourcesPath?: string;
+  packaged?: boolean; appImage?: string; nodePath?: string; binDir?: string; build?: string; commands?: boolean;
+}
+export function binDirSync(platform?: NodeJS.Platform): string;
+export function resolveOwnCliCommandsSync(options?: AgentInstallOptions): AgentRuntime;
+export function launcherBodies(runtime: AgentRuntime): { main: string; connect: string; shim: string };
+export function launcherOwnerSync(file?: string): { target: string; build: string } | null;
+export function launcherOwnerAliveSync(file?: string, platform?: NodeJS.Platform): boolean;
+export function launchersUpToDateSync(): boolean;
+export function installLaunchers(events?: Array<{ action: string; detail: string }>, options?: {
+  runtime?: AgentRuntime; useThisInstall?: boolean; createConvenience?: boolean;
+  publish?: (file: string, before: string | null, after: string) => Promise<void>;
+}): Promise<{ skipped?: boolean; launcher?: string; owner?: { target: string; build: string } | null }>;
+
+export function inspectFluxContextSync(): { ok: boolean; message?: string };

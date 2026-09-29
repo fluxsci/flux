@@ -28,7 +28,7 @@ assert.throws(()=>parseCliFlags('set-style',['--font-size']),/requires a value/)
 assert.deepEqual(parseCliFlags('citing',['--s2','Smith2026'])._,['Smith2026']);
 assert.equal(parseCliFlags('keys',['--s2','secret']).flags.s2,'secret');
 assert.deepEqual(parseCliFlags('tag',['--remove','Smith2026','checked'])._,['Smith2026','checked']);
-assert.equal(parseCliFlags('annotations',['--key','Smith2026','--md']).flags.md,true);
+assert.equal(parseCliFlags('highlights',['--key','Smith2026','--md']).flags.md,true);
 assert.match(registryHelp('grobid'),/--keys/);assert.match(registryHelp('export-deck'),/--saved/);
 assert.equal(errorToCli(new LockedError('held')).exit,75);
 assert.equal(errorToMcp(new ValidationError('bad')).isError,true);

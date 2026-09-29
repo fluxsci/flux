@@ -3,6 +3,7 @@
 import type { Element } from "../types";
 import type { Slide, Track } from "./types";
 import type { AnimationIssue, PartFrame, SlideFrame } from "./compile";
+import { hasPartBinding } from "./targets";
 
 export interface GhostBirth { target: string; source: string; beat: number; start: number; enabled: boolean; track: Track }
 export function ghostTargetIds(slide: Slide): string[] {
@@ -21,19 +22,25 @@ export function withGhostIdentity(source: Element, result: Element): Element {
   }
   return copy as unknown as Element;
 }
-/** A copied plot's asset and source paths must name the same accepted bundle. */
+/** A copied plot/model's asset and source paths name the same accepted bundle. */
 export function sourceAt(slide: Slide, sourceId: string, beforeBeat: number, sampled: Element): Element {
   const result = structuredClone(sampled);
-  if (result.type !== "plot") return result;
+  if (result.type !== "plot" && result.type !== "model3d") return result;
   for (let bi = 0; bi < Math.min(beforeBeat, slide.beats.length); bi++) for (const track of slide.beats[bi].tracks) {
     if (track.disabled || track.target !== sourceId || track.preset !== "transform" || !track.to?.assetId) continue;
     const to = track.to;
-    if (typeof to.svgPath === "string") result.source = {
-      svgPath: to.svgPath,
+    const common = {
       ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
       ...(typeof to.recipePath === "string" ? { recipePath: to.recipePath } : {}),
       ...(typeof to.external === "boolean" ? { external: to.external } : {}),
       ...(typeof to.frozen === "boolean" ? { frozen: to.frozen } : {}),
+    };
+    if (result.type === "model3d" && typeof to.glbPath === "string") result.source = {
+      glbPath: to.glbPath, ...common, ...(typeof to.sha256 === "string" ? { sha256: to.sha256 } : {}),
+    };
+    else if (result.type === "plot" && typeof to.svgPath === "string") result.source = {
+      svgPath: to.svgPath,
+      ...common,
     };
     else delete result.source;
   }
@@ -62,7 +69,7 @@ export function resolveGhosts(slide: Slide, sample: (resolved: Slide, beat: numb
   for (const birth of births) {
     if (owners.has(birth.target)) { birth.enabled = false; owners.get(birth.target)!.enabled = false; issues.push({ trackId: birth.track.id, target: birth.target, reason: "This ghost result has more than one birth. Keep one Ghost transform." }); }
     else owners.set(birth.target, birth);
-    if (birth.track.preset !== "transform" || birth.track.part || birth.track.selector || birth.beat === 0 || resolved.elements.some(e => e.type === "video" && (e.id === birth.source || e.id === birth.target))) {
+    if (birth.track.preset !== "transform" || hasPartBinding(birth.track) || birth.beat === 0 || resolved.elements.some(e => e.type === "video" && (e.id === birth.source || e.id === birth.target))) {
       birth.enabled = false;
       issues.push({ trackId: birth.track.id, target: birth.target, reason: "Ghost births require a whole-object Change after Design." });
     }

@@ -156,6 +156,8 @@ export function projectIntoDeck(
     ...(project.textStyles !== undefined ? { textStyles: structuredClone(project.textStyles) } : {}),
     assets: structuredClone(project.assets.filter((a) => !external?.has(a.id))),
     ...(prev.externalAssetSizes ? { externalAssetSizes: structuredClone(prev.externalAssetSizes) } : {}),
+    // 0.6 animation styles are presentation (never projected): copied back verbatim
+    ...(prev.animStyles ? { animStyles: structuredClone(prev.animStyles) } : {}),
     slides,
   };
 }
@@ -189,6 +191,7 @@ export interface ClonedContent {
   groups: Record<Id, GroupDef>;
   /** original element id → its clone's id (callers retarget beats/refs). */
   idRemap: Map<Id, Id>;
+  groupRemap: Map<Id, Id>;
 }
 
 export function cloneContentWithFreshIds(
@@ -205,7 +208,7 @@ export function cloneContentWithFreshIds(
     if (el.groupId) el.groupId = groupRemap.get(el.groupId) ?? el.groupId;
     return el;
   });
-  return { elements: out, groups: cloned, idRemap };
+  return { elements: out, groups: cloned, idRemap, groupRemap };
 }
 
 /** Place cloned content onto a stage at NATIVE size (same 96/in ruler → 1:1,

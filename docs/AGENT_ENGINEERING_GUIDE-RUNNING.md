@@ -43,27 +43,81 @@ Flux is a desktop **scientific writing studio**: manuscript editor (Paper), figu
 (Figure), slide deck builder (Slide), PDF reader/annotator (Reader), and reference library
 (Library) over one project format. Stack: **Svelte 5 + Vite + Electron** (Tauri remnants are
 vestigial). It is deliberately **agent-native**: an AI agent is a first-class user with the same
-capabilities as the GUI, through three surfaces:
+capabilities as the GUI, through these surfaces:
 
-- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-mcp.ts`) — most file verbs share **one
+- **`flux` CLI** (`flux-cli.ts`) and **MCP server** (`flux-core/mcpServer.ts`; `flux-mcp.ts` is the compatibility entry) — most file verbs share **one
   verb registry** (`flux-core/registry.ts` + `flux-core/verbs.ts`); legacy wrappers and handwritten
   CLI help still remain. They operate on project files directly through `flux-core/*` (Node).
 - **Live bridge** (`electron/bridgeServer.cjs` + `flux-core/liveClient.ts`) — a loopback
   control server per open project that dispatches ~38 verbs against the **live GUI store**. Its
   switch IS its allow-list; it is deliberately NOT part of the registry.
-- **The Context layer + principal runtime** (principal-agent scheme, 2026-07-19): all agent
-  memory/context lives in two folders — `<FluxConfig>/Context/{UserContext,FluxContext}`
-  (machine: user identity/rules + stock docs synced from `resources/flux-context/` via
-  generated `electron/fluxContextDocs.gen.cjs`) and `<project>/Context/` (MISSION/NOTEBOOK/
-  RULES as first-class paper docs + Transcripts/Dispatches archives). `<FluxConfig>/agents.json`
-  (shared core `electron/agentsConfig.cjs`) names the user's principal/worker CLIs;
-  `flux principal` (alias `flux agent`) launches in the user's terminal, `flux dispatch`
-  launches workers, and `flux attend` runs feedback-triggered review passes. The dedicated
-  agent drawers and Ctrl+Shift+J were retired; Paper and Reader share the terminal in
-  `src/shell/terminal/`, and the app remains the review surface. The feedback ledger (`.meta/feedback.ndjson`, event-sourced
-  append-only, shared core `src/lib/project/feedback.ts`) carries context-stamped review notes
-  (Ctrl+Shift+M capture). Gates: verify-context-scheme / -feedback / -dispatch (pure),
-  verify-context-gui (ui), verify-principal-electron (electron).
+- **Live view / Pair:** `get_view` / `flux view --png --out <file>` use authenticated
+  `POST /capture` on that project's bridge. Main captures only its owning window and
+  clamps maxEdge to 256–1600 px (default 1600; never upscales). A separate read-only
+  renderer handshake uses `getAppContext` and checks `settings.allowAgentView` before
+  and after capture; project changes refuse the result. Annotate blocks dispatches,
+  never capture. Successful views journal `live_view` and push `bridge:viewed`.
+  `bridge/liveView.ts` exposes `recentAgentActivity` (20 newest, cleared on root change)
+  for the AI panel and a two-second titlebar notice, resolving names from presence.
+  Annotate labels `live:true` sessions **Pairing**. Gates: `verify-live-view.ts` and
+  `verify-live-view-electron.cjs` (real PNG pixels, Settings, indicator and Pairing).
+
+- **flux-connect layer:** the stable `<binDir>/flux` launcher (+ `flux-connect` alias,
+  `electron/fluxPaths.cjs`) is the entry for CLI, vendor skills and MCP registration.
+  `electron/agentSetup.cjs` shares setup/doctor with the lazy AI status monitor.
+  MCP `connect` binds a project explicitly; cwd discovery is only a tool default.
+  `flux-core/connect/` collects read-only facts (`collect.ts`), plans inclusion (`budget.ts`),
+  renders the ≤10k-character brief, bundle and proof-coded images (`brief.ts`, `bundle.ts`,
+  `images.ts`), and writes a machine-local pack (`cache.ts`). Default `core` includes
+  ProjectContext's direct links and canvas overviews; `full` adds all documents and figures.
+  `refresh.ts` delivers other writers' changes on tool results (`connect/mcp.ts`) and
+  supported prompt hooks (`connect/hookFast.ts`).
+  Context lives in `<FluxConfig>/Context/{UserContext,FluxContext}` and the project's
+  `Context/{ProjectContext.qmd,NOTEBOOK.md,RULES.md}`; stock Markdown comes from
+  `resources/flux-context/` via generated `electron/fluxContextDocs.gen.cjs`.
+  Ctrl+Shift+M Annotate and every document's margin comments feed the one pure inbox
+  model. The append-only annotation ledger is `.meta/feedback.ndjson`; CLI `inbox` /
+  MCP `list_inbox`, claim/reply/resolve and opt-in waits share the headless IO layer.
+  Explicit MCP project connection starts presence at `.meta/live/sessions/`, with a
+  15-second heartbeat and cleanup on rebind/exit; shared `project/presence.ts` owns
+  names and liveness. Alt+Q opens Inbox; Ctrl/Cmd+Shift+J opens read-only Ask.
+  Gates: `verify-connect*`, `verify-launcher`, `verify-agent-setup`,
+  `verify-context-scheme`, `verify-log`, `verify-annotation-core`, `verify-inbox*`,
+  `verify-presence`, `verify-ai-monitor*` and the surface/native gates listed in §7.
+
+- **FluxChat background tasks:** `electron/agentRunner.cjs` uses the same installed-CLI
+  drivers as Ask, with task packs from `connect --depth task` (the shared `connect/ask.ts`
+  renderer substitutes CONNECT's `task-rules`). The private launcher command `runner-task`
+  takes bounded JSON on stdin and delegates packets, snapshots and fallback replies to
+  `flux-core/backgroundTask.ts`, `inboxPackets`, `getInboxImage` and `replyItem`.
+  Task cwd uses the parent only if it contains a file named `pyproject.toml`,
+  `environment.yml`/`.yaml`, `requirements.txt`, `DESCRIPTION`, `Project.toml`, or a
+  top-level `.ipynb`/`.Rproj`, and is not itself a Flux project. Pure policy is
+  `electron/runnerDrivers/taskPolicy.cjs`. The default background limit is two, within
+  the runner's total of three; `fluxchat.backgroundConcurrency` sets one to three.
+  Completed turns release their process slots and keep vendor IDs for resume.
+  Task MCP env is `FLUX_CLIENT=fluxchat`, `FLUX_PROJECT`, `FLUX_BACKGROUND=1`, a private
+  `FLUX_RUNNER_TOKEN`, stable `FLUX_RUNNER_ID`, `FLUX_RUNNER_DRIVER`, and
+  `FLUX_RUNNER_STATE` (a machine-local session descriptor in the run directory).
+  MCP publishes background presence on startup without requiring another connect;
+  the descriptor preserves the same name across subprocesses and fallback replies.
+  Stop appends the shared release-session event and removes presence after the process
+  tree exits. Task turns use writable Flux MCP tools; Ask remains read-only and never
+  registers `approve`, even if a token is accidentally inherited.
+  Claude's `approve` MCP tool exists only with a run token; authenticated `POST /approve`
+  checks token, project, owning window and active Claude task. `runner:respond` answers
+  the exact input once; cancellation, closed window, bad token and 120s timeout deny.
+  Codex's `TASK_MCP_APPROVAL_MODE="approve"` is the explicit per-server write-tool
+  override after replacing its MCP config; its shell still uses approval_policy=never.
+  The renderer exposes `backgroundAvailable` (also re-exported by annotationStore),
+  `backgroundDrivers`, `backgroundRuns` and `backgroundPermissions` from
+  `shell/inbox/backgroundState.ts`. `BackgroundRun`/`BackgroundStop` mount in Inbox
+  and Sessions; the approval modal is shell-lazy. Annotation saves start routed tasks,
+  and saved human replies resume or restart them, queuing replies during active turns.
+  The annotation route UI consumes `backgroundAvailable` and starts the selected
+  background driver after saving the routed note.
+  Gates: `verify-background-run`, `verify-runner-drivers`, `verify-mcp-readonly`,
+  `verify-ipc-contract` (pure), `verify-background-run-gui` (UI).
 
 The defining architectural fact is the **dual engine**: every mutation of project data can happen
 through the **GUI renderer** (Svelte stores → bridges → Electron fs IPC) *or* through
@@ -86,6 +140,11 @@ The established shared cores — extend these, don't duplicate them:
 | Model mutations (all figure edits) | `src/lib/ops.ts` (+ `editing.ts`, `geometry.ts`) | `verify-ops.ts`, `verify-fig-order.ts`, figenh parity suite |
 | Pointer-gesture math (resize/snap/handles) | `src/lib/interact/` | `verify-interact-core.ts` |
 | Load-gate validation (parse → migrate → validate) | `src/lib/project/validate.ts` (+ generated `validators.gen.js`) | `verify-loadgate.ts` |
+| 3D geometry, orbit, topology, poster keys and vector furniture | `src/lib/model3d/` pure cores (`glbCore.mjs` also serves Electron main) | `verify-model3d-{glb,core,scene3d,furniture,morph}.ts` |
+| Scene3d generator/consumer contract | `model3d/scene3d.ts`, `scene3d.schema.json`, Python scene3d manifest/writer | `verify-model3d-scene3d.ts` and public-library/oracle fixture receipts |
+| 3D camera, fields, shape weights and effective semantic parts | `model3d/viewOps.ts`, `semanticOps.ts`, `parts.ts` | `verify-model3d-{view-ops,semantics}.ts`, `verify-model3d-{orbit,xray}-gui.mjs` |
+| 3D file/live agent command policy | `model3d/commandOps.ts`, shared view/semantic ops and source-bound metadata readers | `verify-model3d-verbs.ts`, `verify-model3d-verbs-gui.mjs`, `verify-model3d-verbs-electron.cjs` |
+| Static 3D Figure/Paper composition | `model3d/static.ts` with explicit poster inputs; browser/Node IO adapters | `verify-model3d-headless.ts` (Paper/Node byte parity), `verify-model3d-export.mjs` |
 | Reference query grammar | `src/lib/references/query.ts` | `verify-organize.ts` |
 | Enrichment shapes/projection | `src/lib/references/enrich.ts` | `verify-enrich-grid.ts` |
 | PDF identification + the `_unresolved/` sidecar | `src/lib/references/pdfIdentify.ts` | `verify-pdfidentify.ts` |
@@ -93,47 +152,112 @@ The established shared cores — extend these, don't duplicate them:
 | Front-matter parsing (13 former hand-rolled sites) | `src/shell/modes/paper/frontmatter.ts` | `verify-frontmatter.ts` |
 | Document discovery, nested folders, creation/moves and relative-link preservation; order and removal policy | `src/lib/project/documentFiles.ts` + `docOrder.ts` | `verify-paper-files.ts`, `verify-doc-order.ts`, `verify-doc-delete.ts`, `verify-paper-files-gui.mjs` |
 | Per-range text formatting (normalize, toggle, remap across edits, segment) | `src/lib/textRuns.ts` | `verify-text-runs.ts`, `verify-text-runs-gui.mjs` |
+| Annotation ledger, claims, routes and exact targets | `src/lib/project/annotations.ts` + `targets.ts` | `verify-annotation-core.ts` (also covers presence and inbox model primitives) |
+| Inbox filtering, packets, recipient order and session work | `src/lib/project/inbox.ts` + `agentRouting.ts` + `presence.ts` | `verify-inbox.ts`, `verify-inbox-wait.ts`, `verify-presence.ts`, `verify-agent-routing.ts` |
+| Agent identity (MCP clientInfo, environment, bylines) | `flux-core/agentIdentity.ts` | `verify-agent-identity.ts` |
+| Agent setup and health (CLI and Electron callers) | `electron/agentSetup.cjs` | `verify-agent-setup.ts`, `verify-connect-doctor.ts`, `verify-ai-monitor.ts` |
+| Immutable margin-comment message append | `src/lib/project/comments.ts` | `verify-inbox.ts` (sidecar byte/model parity; GUI replies use the live Paper comment owner or the cold manuscript lease) |
 | Captions/panels | `src/lib/captions.ts` | `verify-w9-roundtrip.ts` |
 | Deck ⇄ figure-Project projection (slides-are-figures) | `src/lib/slide/deckProject.ts` | `verify-deckproject-roundtrip.ts` (identity) |
+| Semantic targets, hand-off validation and the pair-policy list (`PAIR_POLICIES`, which `PairPolicy` derives from) | `src/lib/slide/targets.ts` + `handoffTargets.ts` | `verify-slide-become.ts`, `verify-slide-timeline.ts`, `verify-preset-catalog.ts` (no literal pair-policy list) |
 | Deck/beat/track mutations | `src/lib/slide/ops.ts` (static editing = figure `ops.ts`) | `verify-slide-track-ops.ts`, `verify-slide-headless-e2e.ts` |
 | Transform tween (state ⊕/diff/lerp, pre-state folding) | `src/lib/slide/tween.ts` (+ `color/interp.ts`, `path.resampleNodes`) | `verify-slide-tween.ts`, `verify-color-interp.ts` |
+| Stage-space geometry for element, plot-part and group targets | `src/lib/slide/targetGeometry.ts` | `verify-target-geometry.ts` (pure/core parity), `verify-target-geometry-browser.ts` (live CTM) |
+| N↔M outline correspondence (merge, pairing, tiling, sampling) | `src/lib/slide/correspondence.ts` + `outline.ts` | `verify-correspondence.ts` (public API and flux-core export identity) |
 | Trim-path dash math (drawOn/drawOff windows) | `src/lib/slide/player/trim.ts` | `verify-trim.ts` |
-| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts` |
+| Animation preset facts (family, phase, labels, colours, wrapper props, durations, default easing, editability) | `src/lib/slide/presetCatalog.ts` | `verify-preset-catalog.ts` (base snapshot + compiler/authoring/headless parity; easing-token census over src/** + flux-core/**) |
+| Linked animation styles and timing anchors | `src/lib/slide/resolve.ts`, `timing.ts`, `ops.ts` | `verify-slide-resolve.ts` (resolution, ops, snapshots, real CLI), timeline/playback gates, `verify-slide-animator-gui.mjs` (style picker/overrides/library/40-lane retiming), `verify-slide-authoring-gui.mjs` (anchor gestures/F1 reprobes/static and video readers) |
+| Animation timing curves (legacy easing, springs, bezier overshoot, steps, grammar, authoring and disk contract) | `src/lib/slide/curves.ts`, `ops.ts`, `resolve.ts`; `project/schemas.ts` | `verify-slide-curves.ts`, `verify-slide-easing.ts` (legacy snapshots), `verify-deck-schema.ts`, `verify-slide-resolve.ts`, `verify-slide-track-ops.ts`; `verify-preset-catalog.ts` scans both engines for duplicate token lists; `animator/CurveField.svelte` is the UI consumer, covered by `verify-slide-animator-gui.mjs`, authoring/cascade GUI and both surface gates |
+| Stagger distribution and box arcs | `src/lib/slide/stagger.ts`, `tween.ts` (`arcBox`), `ops.ts` | `verify-slide-stagger.ts` (Total/order/real player parity), `verify-slide-tween.ts`, `verify-slide-player.ts` (painted content and box frames), `verify-slide-timeline.ts`, `verify-slide-animator-gui.mjs` (Each/Total, seed/Undo, Arc/scrub) |
+| Geometric camera paths (Zoom/pole and Fly) | `src/lib/slide/camera.ts` | `verify-slide-camera.ts` (real compiler/player frames, live FROM and reverse seeks), `verify-slide-animator-gui.mjs` (Path and suggested duration) |
+| Slide playback curve channels, raw phases and stagger delays | `src/lib/slide/player/player.ts`, `transform.ts`, `compile.ts`, `tween.ts`, `stagger.ts` | `verify-slide-player.ts` (real native/sampled frames + core exports), `verify-slide-timeline.ts`, `verify-plot-view.ts`, `verify-slide-handoff-browser.ts`, `verify-slide-export-transform.ts`; `group:slide-transforms` |
+| Animation preset/template matching | `src/lib/slide/animTemplates.ts` | `verify-anim-presets.ts`; `verify-slide-animator-gui.mjs` pins saved Arc through the library's real Apply and Undo paths. Transform preset application forwards HOW fields explicitly into `setTransform`; extending the saved payload alone does not extend this reader. |
 | Slide static rendering | `export.ts elementToSvg` → `slide/player/render.ts` | `verify-slide-export-parity.ts` (GUI vs headless export) |
+| Plot data views and data-space projection | `plot/project.ts`, `plot/projectDom.ts`, `ops.setPlotView` | `verify-plot-view.ts`, `verify-slide-morph.ts`, paper/render and slide/export parity |
 | Plot part overrides (figure + slide) | `ops.mergePartOverride` | `verify-slide-track-ops.ts`, figenh part suites |
 | Placed-plot inline markup from svg text (overrides/crop/pt-true baked) | `src/lib/plot/inlineMarkup.ts` (flux-core render + paper `scholar/figures.ts`) | `verify-paper-render-overrides.ts` (byte parity, both engines) |
 | Present-mode input/HUD | `src/lib/slide/present/core.ts` | `verify-present-core.ts` |
 | Paper snips (naming, citation, sidecar/tEXt meta, raster plan) | `src/lib/references/snips.ts` (+ `journalAbbrev.ts`) | `verify-snips.ts`, `verify-snip-headless.ts` |
+| Context templates, Log insertion and parsing | `src/lib/project/contextTemplates.ts` | `verify-context-scheme.ts` (GUI/Node heal parity), `verify-log.ts` (locked writes, parsing and concurrent writers) |
 | CLI/MCP verb surface | `flux-core/registry.ts` + `verbs.ts` | `verify-registry-parity.ts` (goldens) |
+| flux-connect packs (brief, bundle, proof codes, delta summaries) | `flux-core/connect/{budget,bundle,brief,codes,refresh}.ts` (pure); `collect.ts`/`cache.ts`/`images.ts` do the IO | `verify-connect-render.ts` (pure renderers), `verify-connect.ts` (end to end), `verify-connect-delta.ts` |
 | Zotero sync (settings shape, summary line, attach/backfill planning, attachment path candidates) | `src/lib/references/zoteroSettings.ts` + `zoteroFiles.ts` | `verify-zotero-sync.ts` (hermetic; also EXECUTES the CLI verb) |
 | Live Zotero fields in Word exports (citation marking, docx field injection, library harvest) | `src/lib/references/zoteroFields.ts` (flux-core `compile` + PaperMode's export do only IO) | `verify-zotero-fields.ts` |
-| External-command launch (quarto, recipes, agent roster) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
+| External-command launch (Quarto, recipes, installed agent CLIs) | `electron/execResolve.cjs` (identity off win32; PATH×PATHEXT + ComSpec wrap on win32) | `verify-win-spawn.ts` |
 
 ## 3. Data model and persistence invariants
 
 A project is a folder: `project.json` (manifest), `paper/**.qmd` (text is truth; legacy `manuscript/` remains supported),
-`Context/` (the agent layer: `Project/MISSION.qmd` + `NOTEBOOK.md` + `RULES.md` are
+`Context/` (the agent layer: `ProjectContext.qmd` + `NOTEBOOK.md` + `RULES.md` are
 first-class paper documents — discovered by the Context scan in both listDocuments
 twins, comments sidecars derive beside them, watcher subsystem "context" rides the
-manuscript reload chain; `Transcripts/`+`Dispatches/` are archives, not documents;
-pre-Context projects heal on open via contextHeal.ts / `flux context-init`),
+manuscript reload chain;
+missing standard files heal on open via contextHeal.ts / `flux context-init`, only when
+`project.json` exists; project-root `AGENTS.md` is a passive flux-connect pointer and
+`CLAUDE.md` imports it with `@AGENTS.md`),
 `fig/index.json` + `fig/canvases/<id>.json` + `fig/captions/<id>.md` + `fig/assets/`,
-`slides/<deckId>/deck.json` (0.5.0: shared figure editor elements plus slide-only video
+`slides/<deckId>/deck.json` (0.6.0: shared figure editor elements plus slide-only video
 and a presentation overlay of beats/transition/notes/camera; tracks animate in independent
-FAMILIES — appearances, media commands, and transforms (`to.state` = a sparse t2 patch folded
-left-to-right across beats; `Beat.groups` = collapsible animator lanes);
+FAMILIES — appearances, media commands, camera and transforms (`to.state` = a sparse t2 patch
+folded left-to-right across beats; `to.become` = Consume provenance or live hand-off refs);
+plot `view` stores axis domains/scales, `curve` stores timing, `animStyles` plus track
+`styleId`/`anchor` link settings and timing, `stagger.totalMs/curve/seed` distribute starts,
+`arc` bends box motion, camera `to.path` selects Zoom/Fly, and `Beat.groups` holds collapsible lanes;
 deck-local media under `slides/<id>/assets/`, figure `Asset` shape; project
-plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4` decks migrate via a
-pure stamp at the normalizeDeck chokepoint; `0.4` adds ghost births so old players
+plots/fig media resolved BY ID, never copied in; `0.2/0.3/0.4/0.5` decks migrate via a
+version stamp at the normalizeDeck chokepoint (which also normalizes legacy morphs and drops unknown easing strings before validation); `0.4` adds ghost births so old players
 refuse instead of showing unborn copies as initial content; `0.1.x` decks remain a sanctioned
 clean break — they fail validation and quarantine, no migration),
 `references/library.bib` (the project's *cited subset*),
-`.meta/` (locks, journal, live bridge). Machine-global state lives in `~/FluxConfig`
+`.meta/` (locks, journal, live bridge and `.meta/live/sessions/<id>.json` presence).
+The one-shot migration moves historical records out of Context into
+`.meta/archive/2026-09-agent-workflow/`; the app never reads those archives.
+The v2 ledger at `.meta/feedback.ndjson` folds `note`, `assign`, `claim`, `release`,
+`reply`, `state`, `resolve`, `reopen`, `withdraw`, `archive`, `unarchive` and
+`release-session` in **ledger order**, never timestamp order. Pictures live in
+`.meta/feedback/`; comment text stays in the owning document's sidecar, with routing
+and status overlaid by the ledger. Machine-global state lives in `~/FluxConfig`
 (pointer pref `fluxConfigPath`); the reference library is **always derived** as
 `<FluxConfig>/FluxLib` — never persist or read a separate `fluxLibPath`
 (`verify-fluxconfig.ts` gates this). Machine config dir is lowercase `~/.config/flux` only.
 
+Machine-local project history is `<userDataDir>/projects.json` (`v:1`, at most 100
+entries, newest open/connection first). `electron/projectsRegistry.cjs` is the one
+Node/Electron implementation: async `recordProjectOpened`, `recordProjectConnected`
+and `listKnownProjects`; reads lazily prune missing roots. An operation lease protects
+read/modify/write across processes; publication is temp + file fsync + rename + directory
+fsync where supported. Main records opens after `watch:setRoot` via a deferred task,
+without waiting on history IO. Renderer localStorage recents remain independent.
+Gate: `verify-projects-registry.ts` (scratch HOME/XDG, concurrent writers and IO faults).
+
 Persistence invariants (all machine-checked — do not weaken):
+
+- **ProjectContext is the must-read hub; the notebook is an append-only Log.**
+  `flux log` / `write_log` appends only when asked, always at EOF, under the manuscript
+  lock, with an agent · surface · host:cwd byline. `parseLog` is pure and shared with
+  `read-log` / `read_log`; it accepts dated H2/H3 entries, with optional time/byline,
+  and ignores fenced/commented examples. Checkpoints change the reading range, never
+  delete history. Complete reference recovery before taking the manuscript lease.
+  `writeLog` accepts a caller `identity` and `cwd` (MCP supplies null when unknown).
+  Missing Context documents and agent pointers heal additively; existing documents
+  and user-written stubs stay untouched. Renaming old layouts belongs to the one-shot
+  migration script, never the app. An unmigrated project gains a fresh
+  ProjectContext beside its old files; the script refuses a destination collision,
+  requiring deliberate preservation and resolution before rerunning. Stock FluxContext
+  Markdown files absent from the bundled set are pruned generically; UserContext and its Skills README are seeded once.
+
+- **Connect hydration never edits project content.** MCP binding separately publishes
+  disposable presence; collection is read-only (verify-connect
+  diffs the whole project tree around a connect); packs, the render cache and CLI session
+  cursors live under `<userDataDir>/connect/` (tmp fallback, then stdout-only parts that refuse
+  a changed source). A project defect (e.g. a damaged figure snapshot) becomes a "Project
+  problem" line in the brief, never a failed connect. The brief stays ≤10,000 characters with
+  a marker ending every section; proof codes live only at section ends and in image corners, never
+  in the brief. The no-change check is stat-only (≤30 ms; verify-connect-delta measures it) and
+  a session's own writes are folded into its cursor (MCP: around each tool call; CLI: around
+  each verb in a process carrying the vendor session id), so notices are only ever other
+  people's changes, each reported once. The prompt hook's quiet path must not load the core
+  (≤80 ms p95 through the built launcher; verify-connect-hook).
 
 - **Review discovery is project-wide by default**: headless `comments` / `list_comments`
   scans every canonical document (including Context documents) and attaches the owning
@@ -244,7 +368,7 @@ Persistence invariants (all machine-checked — do not weaken):
   validates incoming SVG/manifest pairs and checks their original-byte checksum before legacy
   coordinate repair. Existing stored projects retain their legacy reader; never bulk-regenerate
   user outputs. New series carry `panelId`, exact nullable data, a component inventory and explicit
-  `capabilities.dataMorph`; `slide/player/morph.ts` resolves the owning axes and preserves line
+  `capabilities.dataMorph`; `plot/project.ts` resolves the owning axes and preserves line
   gaps. Unsupported transforms/projections/raster parts use complete transitions. Match these
   changes with `~/fluxplot`'s versioned generator and shared fixtures in `scripts/fixtures/fluxplot03`.
   X-Ray color controls regenerate source fields and their keys, preserving authored overrides.
@@ -253,6 +377,30 @@ Persistence invariants (all machine-checked — do not weaken):
   Reserved `__fluxplot__` controls travel only in FLUX_PARAMS, and successful reruns retain the
   freshly emitted provenance sidecar. Gates: `verify-fluxplot03.ts`,
   `verify-fluxplot-recipe-ipc.ts`, `verify-fluxplot03-gui.mjs`, plus source-sync and slide gates.
+- **Scene3d is a separate fluxplot contract.** Dispatch `.fluxplot.json` on `spec` before the
+  2D reader: `fluxplot/scene3d` has its own schema and byte-identical generator fixtures in
+  `scripts/fixtures/model3d/fluxplot/`. Invalid or unknown metadata degrades to a plain mesh
+  with a warning. Preparation never welds or reorders vertices (morph correspondence and
+  topology hashes depend on it), and shape weights are stored unclamped. v1 accepts triangle
+  meshes only. The contract itself lives in fluxplot's `docs/SCENE3D_CONTRACT.md`.
+- **3D persistence is metadata-only.** GLB bytes never enter `assetData`, data URLs or
+  journals. `figfiles.ts` stamps format 0.2 only when 3D content exists; no-3D save bytes are
+  pinned by `verify-figfiles-parity.ts`. `source.sha256` is the ORIGINAL file's receipt and
+  `Asset.sha256` the prepared bytes'; never compare a manifest with the prepared hash. Every
+  metadata read (GUI, read-only views, Node, native copy) goes through
+  `model3d/sourceBinding.ts`, which keeps a mismatched sidecar inactive but preserved.
+  Standalone saves capture owner/root/data before entering a serialized publication queue, so
+  a delayed older write cannot overwrite a newer save. Validators come only from
+  `scripts/gen-validators.mjs`. Deck schema 0.6 supports model placements and immutable deck-owned GLB assets; original and prepared hashes retain their distinct meanings.
+- **3D import has explicit native ownership.** `model3d/importData.ts` prepares;
+  `electron/model3dImport.cjs` owns bounded reads and exclusive publication. Import receipts
+  are window/root/generation-bound, and adoption and cancellation are mutually exclusive.
+  Dropped paths come from real Chromium Files, never renderer strings. See
+  [the import boundary](model3d/IMPORT.md).
+- **3D source replacement is explicit and immutable.** Watchers only publish **Source
+  changed**; **Update from source** appends a new asset in one Undo step and keeps the old
+  file. Linked-file grants are exact read/watch capabilities, never recipe execution grants.
+  See [linked sources](model3d/SOURCE.md).
 - **Project-owned plot source paths are PROJECT-RELATIVE** — `SemanticPlotElement.source.svgPath` /
   `manifestPath` / `recipePath`. This is a *silent* invariant: the SVG bytes live in
   `fig/assets/`, so a wrong source path renders and exports fine and only stops the things
@@ -271,34 +419,6 @@ Persistence invariants (all machine-checked — do not weaken):
   hold a security boundary (`flux-core/render.ts`, where a canvas file is untrusted input)
   filter candidates through `isUnderRoot` rather than dropping `safeJoin`'s guarantee.
   Gated by `verify-plot-source.ts`.
-- **A sync tool's leftovers are never ordinary files.** `electron/conflictRules.js` is the ONE
-  definition (typed wrapper `src/lib/project/conflictRules.ts`), loaded by the watcher, the
-  scan, the resolver and `listDocuments` alike. Two shapes, opposite treatment: an in-flight
-  `.syncthing.*.tmp` transfer is **silent** (it is noise, not an event), while a
-  `<base>.sync-conflict-<date>-<time>-<device7>` copy raises the dedicated `"conflict"`
-  subsystem — checked FIRST in `subsystemFor`, before any path prefix, because a conflict copy
-  of `main.qmd` is not a manuscript edit. Two rules follow and are gated by
-  `verify-sync-conflicts.ts`: **a conflict copy must never appear as a document** (listDocuments
-  scans directories, so it used to offer one as an editable twin), and **an unresolved conflict
-  must never be silently ignored or silently deleted** — the banner is non-dismissable and every
-  resolution ends with the copy gone. Only append-only `.ndjson` ledgers get an automatic answer
-  (union the lines); everything else is the user's call. The scan runs on project open, not just
-  from watcher events: conflicts arrive while Flux is CLOSED, which is exactly when the other
-  machine was in use.
-- **The reference library's `library.bib` is the second shape with an automatic answer (2026-09-26):
-  union the ENTRIES.** A `library.sync-conflict-*.bib` beside FluxLib's `library.bib` merges
-  itself — `src/lib/references/bibConflict.ts` `planBibConflictMerge` (pure: same-citekey =
-  same record, then the add planner's DOI/signature dedupe, the copy's citekeys + `dateadded`
-  kept, canonical entries never modified or removed) — at app start, on Library open, and
-  before ANY library write in both engines (`fluxlibBridge.mergeLibraryConflictCopies`,
-  `flux-core/fluxlib.ts mergeLibraryConflictCopies`). The copy is ARCHIVED to
-  `.fluxlib/sync-conflicts/library.other-machine-<stamp>-<device>.bib` (renamed so the scan
-  stops reporting it), never deleted. A library write is never refused because of a stray
-  sibling file: from the 09-21 fortification to 09-26 `assertNoCanonicalConflict` blocked every
-  add while such a copy existed, and the only symptom was the assign inbox saying "network
-  unavailable" for a day. Other FluxLib files (`.fluxlib/organize.json`) still block on a copy
-  and reach the same Shell banner as project conflicts (the scan covers FluxLib's top level,
-  `maxDepth: 1`, project open or not). Gated by `verify-assign-outcome.ts`.
 - **Figure ORDER is `p.figures`' array order, per canvas, and it is the user's** (2026-08-19):
   the sidebar's Figures list renders that order, the user drags rows (or presses Alt+↑/↓) to
   change it, and `planFigSave` persists it — canvas files list figures in it and `index.json`
@@ -316,7 +436,7 @@ Persistence invariants (all machine-checked — do not weaken):
   a recursive SCAN (registered paths + paper/** + manuscript/** + Context/**), not a stored list, so the order
   is a ranking, not the source of truth: `sortDocuments` ranks what the array names and falls
   back to the historical default (main first, then title; Context group last,
-  mission→notebook→rules) for everything else, a path that no longer exists is ignored, and a
+  project context→notebook→rules) for everything else, a path that no longer exists is ignored, and a
   newly discovered document sorts last within its group. `reorderDocuments` is the one
   primitive (the documents' `reorderFigures`) and returns the COMPLETE new order, so an
   arrangement can never be reshuffled later by a retitle. Both `listDocuments` twins call the
@@ -346,8 +466,8 @@ Persistence invariants (all machine-checked — do not weaken):
   `verify-doc-delete.ts` (pure, also executes the CLI) + `verify-doc-delete-gui.mjs` (ui, in
   paper-gate).
 - **Paper file moves have a shared IO-independent core** (`documentFiles.ts`). Discovery
-  scans both paper/manuscript roots recursively, including empty folders, plus Context
-  without its Transcripts/Dispatches archives; sync leftovers stay excluded. Generated
+  scans both paper/manuscript roots recursively, including empty folders, plus Context;
+  all ordinary Context folders are discoverable and dot files stay excluded. Generated
   Quarto output/cache trees are pruned before recursion (suffixes need a matching source or
   generated-content signature); unused root `sections/` scaffolds stay hidden. New folders
   carry `.flux-folder` to preserve explicit intent even for empty or generated-looking names;
@@ -396,9 +516,47 @@ Persistence invariants (all machine-checked — do not weaken):
 - **Text is truth**: derived caches (`.fluxlib/*.json` indexes, `fulltext-index.json`,
   `enrich-grid.json`, `fig/renders/`, `validators.gen.js`) are rebuildable and must self-heal via
   mtime/staleness rules, never become load-bearing.
+  The native project watcher prunes `fig/renders/` (including first-created directories)
+  rather than treating derived publication/pruning as a canonical Figure change. The
+  classifier has the same fallback; linked-source exact-file watches remain independent.
+  Content-addressed `fig/renders/model3d/m3d-*.png` posters are an explicit subsystem-lease
+  exception: every writer publishes a complete image atomically for the same view key.
+  Read-only image requests render only into the machine cache; connect/collect never
+  renders or writes posters. `render-model-posters --prune` also bounds that machine cache
+  (14 days, then least-recently-used down to 1 GiB; `planMachinePosterPrune`). The project
+  cache is shared by Figures and every registered deck, so a document that cannot be read
+  (missing, newer, unparsable) leaves it unpruned with a named warning; the render still
+  completes and journals.
+  Worker contract: [3D poster worker](model3d/POSTER_WORKER.md).
 
 ## 4. Renderer architecture notes
 
+- **3D rendering is lazy and shared.** One WebGL2 `renderCore.ts` serves the per-window worker
+  service, the inline host, the notebook viewer and the native poster page, with one WebGL
+  context per document; the editor imports neither three nor the worker eagerly. Placements
+  draw decoded data-URL mesh posters plus vector furniture inside the scene SVG, so the zoom
+  proxy sees the mesh, and poster publication bumps the scene revision. Mounted placements
+  retain assets, culled ones release them. A matching cached poster works with WebGL
+  disabled; otherwise show the selectable named placeholder. There is no resting frame loop.
+  Preserve project/figure/tenant ownership across lazy loads, registration and picker awaits.
+  **Orbit and control previews** use one ordinary edit session: Escape restores the visit
+  baseline; Enter, handoff or leaving the model finishes; an intervening discrete edit ends
+  orbit. Keep the scene visible until the first live frame and the last overlay until a
+  matching decoded poster publishes; suspend static poster work and zoom proxies meanwhile.
+  `flux-model3d-frame` marks host publication, not physical scanout.
+  **Paper and export** take immutable `ModelPosterSource` inputs; never borrow the active
+  Figure store for a saved Paper figure. Node poster policies are `project`
+  (materialization), `image` (machine cache only) and `collect` (cold: no worker, no writes).
+  Rendering imports the pure `color/colormaps.ts` lookup, never the picker's
+  `color/collections.ts`, whose provenance URLs would leak into offline exports.
+  Contributor notes (not part of the user-docs site): `docs/model3d/` — `RUNTIME.md`,
+  `FIGURE_SCENE.md`, `IMPORT.md`, `SOURCE.md`, `SEMANTICS.md`, `POSTER_WORKER.md` and
+  `NATIVE_ACCEPTANCE.md` (how to run the native cohorts and what each proves).
+- **Figure PDF export sets the exact page size.** Chromium's print path rounds custom paper
+  sizes (a 600×450 px figure printed as 450×337.92 pt), so figure-only PDFs are normalized
+  afterwards by the lazily loaded `electron/figurePdf.cjs`: exact MediaBox/CropBox and a
+  top-edge-preserving translation, never content scaling. Document printing bypasses it.
+  Gate: `group:figure-pdf-size`.
 - **Svelte 5, but much of `src/lib` is legacy-syntax** (`$:` + stores) while newer shell/mode code
   uses runes. Both are fine; know the traps in §9.
 - **Scoped invalidation**: figure commits bump `figureRev[figId]`; any non-scoped store notify
@@ -609,6 +767,12 @@ Persistence invariants (all machine-checked — do not weaken):
   (no module singletons); block StateFields are change-gated by `science/changeGate.ts` so prose
   keystrokes pay zero construct cost. Focus returns to the editor after every transient UI.
   Regression suite: `group:paper-gate`.
+  Inline 3D slide widgets keep live repositories metadata-only (`modelData: "omit"`).
+  Each repository owns an immutable source generation; occurrences share worker bytes but
+  have independent service hosts. Closing one occurrence must not invalidate another's
+  pending load. Portable HTML/Quarto is the explicit byte boundary: one include-wide model
+  table and conditional renderer IIFE, with generated CSP hashes for both runtime scripts.
+  Keep the model runtime in a separate generated asset so fonts-only/2D consumers never fetch it.
   **Text size is REAL type, per panel** (2026-09-12): Paper's three panels (editor column,
   left sidebar, dynamic margin) each carry a `--ts-scale` and the `.ts-scaled` class; the
   status-bar slider (± buttons + a percentage readout that opens the scope popover) and
@@ -780,6 +944,49 @@ Persistence invariants (all machine-checked — do not weaken):
   scrolling runs only during a gesture. `verify-slide-marquee-gui.mjs` gates this contract.
   The player uses one cancelable clock with seek/play/pause/resume/loop/frame state shared
   by authoring preview, Present, and offline HTML. Rest has zero animation callbacks.
+  Preset facts live in the pure `slide/presetCatalog.ts`; compiler, player metadata,
+  family law and Animator lists derive from it. `defaultDurationMs` is the omitted-track
+  timing default; `autoBuildDurationMs` preserves the separate plot-build recommendation
+  (for example, fade is 320 ms in playback and 300 ms in autobuild). Role/element
+  recommendation policy stays in `autobuild.ts`. `defaultEasing` preserves smooth
+  transforms, standard appearances/countUp/camera and unused linear media timing.
+  `defaultTimingFor` writes authoring defaults from the same catalog; explicit camera
+  commands retain their 900 ms/Smooth policy while omitted playback stays 320 ms/Standard.
+  Automatic beat delays use `timing.beatDelayMs` in Present, video and PowerPoint.
+  `slide/curves.ts` owns the cached timing resolver, grammar and catalog; compatibility
+  wrappers retain legacy CSS and the 1,001-point sampled snapshots byte for byte; off the
+  grid the legacy functions overshot 1 by roundoff near t = 1, and the wrapper
+  (`resolveEasingFn` = the clamped curve) deliberately returns exactly 1 there while the raw
+  `fn` keeps the old bytes (decided 2026-09-27; pinned in `verify-slide-easing.ts`).
+  New CSS `linear()` approximation
+  measures vertical error at fixed time (perpendicular distance underestimates steep
+  springs). Endpoint guards need a continuity probe to catch a missing spring residual.
+  `Track.curve` is an optional tagged bezier/spring/steps record in the 0.6.0 schema,
+  shared by ordinary tracks, ghost births and animation styles. Grammar inputs clamp;
+  disk validation refuses invalid shapes/ranges. Authoring uses `setTrackCurve` or
+  the timing patch ops, which clear competing easing/influence fields. M2 binds one `ResolvedCurve`
+  per compiled track/spec: box channels extrapolate `fn`, other channels use `clamped`,
+  and controllers receive `seek(u, raw)` for raw-keyed phase decisions. The camera is a
+  box-class channel: compiler and player both take `fn` through `slide/camera.ts`, and
+  the player's out-of-range camera frames call the preset's exact `transformAt(u)`
+  rather than extrapolating its 24 keyframes. `staggerDelay` owns delays in
+  playback, compilation and span calculation; no second per-item formula belongs there.
+  Stagger Each/Total modes, distribution curves and seeded random order share
+  `stagger.ts`. The distribution uses a compact `CurveField` writing `stagger.curve`
+  through authoring ops; it never changes the effect duration or timing curve.
+  `arcBox` changes only box x/y; an arc of ±1 offsets the quadratic control by half
+  the travel distance and its midpoint apex by one quarter. Non-interpolable
+  keyframe values, including named-color fallbacks, select endpoints by raw progress.
+  `animator/CurveField.svelte` edits that one timing field: catalog/graph/clipboard
+  previews share an owned edit session, with keep-arrival duration changes in the same
+  checkpoint. A nested `mutate` lets `commitDeckLive` join the field's checkpoint;
+  a standalone `commit` would start a new undo entry for every input. Escape restores
+  curve, duration and prior redo state. The rail reuses its bounded 24-sample path cache;
+  only a hovered tile schedules a finite preview, respecting reduced motion.
+  Copy/Paste timing materializes duration, curve and stagger, without linking styles.
+  The cascade's `curve.bounce` property ranks only resolved spring tracks.
+  Legacy move/scale/rotate remain
+  appearance-family compatibility effects, excluded from the editable preset list.
   **Video clips (0.5):** MP4/MOV sources live in `plots/_videos`; `mediaTypes.ts` owns
   the shared constructor and `ops.ts` the independent zero-duration media commands.
   `electron/videoMedia.cjs` prepares H.264/AAC MP4 + PNG poster, called by both IPC and
@@ -815,7 +1022,10 @@ Persistence invariants (all machine-checked — do not weaken):
   4K and source-free packaged startup. Evidence is in `test-results/slide-video/`.
   Gates include beat-display, slide-authoring, slide-canvas-presentation, timeline logic and
   standalone browser export; single-effect interpolation is not sufficient evidence. Compiled
-  static-content bindings must also restore attributes constant within a later track when
+  static-content bindings use eased progress for numeric interpolation and raw progress
+  for discrete attributes/text. Thread both channels through the transform driver; the real
+  player gate pins one line-cap switch over 60 non-monotone samples. Bindings must also
+  restore attributes constant within a later track when
   live content differs from that track's pre-state. A translated/rotated arrow followed by a
   stroke-width Change gates this through real browser shaft/head alignment, not just boxes.
   **Ghost transforms (0.4):** result objects are ordinary canonical Elements with fresh IDs;
@@ -838,10 +1048,60 @@ Persistence invariants (all machine-checked — do not weaken):
   the same `preset:"transform"` track: `to.state` is the property half and, for plot/image,
   `to.assetId` the content half — the old `morph` preset and "Data morph" are gone, a data
   morph IS a Become whose target shares the source's box (`migrateDeck` folds legacy records).
-  `becomeTransform` (ops.ts; CLI/MCP `become`) diffs the source's step pre-state against the
-  target (`diffState` is retype-aware: type + every non-base prop), writes the track, consumes
-  the target and gc's groups as ONE op (one Undo restores both); it refuses the Design step,
-  self, videos, ghost copies and unborn sources. The retype law: `applyState` with
+  Plot data-space math lives in `plot/project.ts`; `projectDom.applyPlotView` is the ONE
+  writer for both `view` Changes and asset Becomes (including simultaneous view changes).
+  The five preparation hosts are mount, fillPlot, figure export, inlineMarkup and the
+  transform driver. Bind guide data before overrides or from a pristine source root;
+  restore pt-true, then projection, before the next frame. The driver binds neutral asset
+  geometry (no endpoint view/compensation), then applies this frame's overrides, projection
+  and compensation. Per-panel fits and vertex buffers are prepared once. Import math directly
+  from `plot/project.ts`; the old `player/morph.ts` shim is removed. `compilePlotContent`
+  binds semantic IDs, fades unmatched parts over the first/last 40%, and crossfades anonymous
+  topology changes locally. Positional ids are not identities: derive.ts stamps (`n<k>`) and
+  matplotlib counters (`ytick_7`, `text_1`, `patch_2`; a manifest-named one stays semantic)
+  bind structurally, and a wrapper holding semantic parts is keyed by its first semantic
+  descendant (A's `ytick_7` pairs with B's `ytick_5` through `…axis.y.tick.2`). A source-only
+  wrapper that still holds shared parts stays; a destination copy never repaints parts the
+  source already shows. At rest an asset change IS the endpoint's own render (no guide edge
+  fade at raw ≤ 0 / ≥ 1 without a view), and the shared attribute compiler compiles
+  endpoint-constant values to nothing and compares before every write — a repeated frame
+  writes nothing (`verify-plot-binding` counts it). Keep appended nodes display-hidden until their first seek, so
+  appearance compilation reads authored opacity. `applyAt` runs content controllers before
+  keyframed appearances, independent of story order; content paint must not erase an entrance.
+  Only ID-less plots retain the whole-content fallback. Union
+  vertex indices preserve missing-data gaps; unmatched markers and line edges fade.
+  Axis view authoring is lazy `plot/AxisView.svelte`, shared by Inspector and F-menu;
+  `plot/viewControls.ts` normalizes data-unit fields for both GUI and `set-plot-view`.
+  Nullable live NumberFields own an editSession, with preview, one undo and Escape rollback.
+  X-ray axis-row `v` focuses the corresponding Inspector row. The verb writes through
+  `ops.setPlotView`; its deck beat form resolves the endpoint then writes `setTransform`.
+  Missing axes/series diagnose instead of throwing; keep both read and writer guards.
+  `becomeTransform` (ops.ts; CLI/MCP `become`) has two completion modes. Consume diffs the
+  source pre-state against the destination, writes the endpoint, deletes the target and GCs
+  groups in one Undo; `to.become` records provenance. Plot/image or part-set destinations
+  default to hand-off: `to.become={ref,mode:"handoff",pair,reveal}`, `to.state={}`, both model
+  identities retained. Part sources keep their plot's props; the full ref keys the family law.
+  The Animation inspector's Destination controls edit that same record through
+  `becomeTransform`. `swapBecome` reverses source/destination refs atomically, with the
+  pane making one `commitDeckLive` transaction and `swap-become`/`swap_become` using the
+  same op. It keeps style/timing and rebinds followers; group destinations and
+  ghost births cannot be reversed there. Consume uses inline two-click confirmation for
+  whole loose targets. `autoAnimateExcept` shares the auto-build core, excludes landing
+  leaves (including partial groups), and places the remaining plot phases after the
+  landing without moving other plots' tracks. Animator labels use semantic part labels;
+  camera Zoom unions drilled parts' `targetOutlines` boxes with the usual 0.82 padding.
+  `appearFrom` / `appear-from` writes the same record from the destination side. The compiler
+  publishes resolved `handoffs`, hides destination keys before landing, hides both sides
+  mid-flight and leaves the source hidden afterwards. Later entrances may reveal it again;
+  emphasis changes opacity without resurrecting hidden sides. Authoring and diagnostics share
+  `handoffTargets.ts`'s manifest-membership and overlap checks. Canonical refs resolve with
+  effective step manifests, never sampled appearance. When retaining an existing source's
+  timing, birth admission must compare its resolved start (styles/anchors included), not the
+  raw track's start. Read `compiled.resolvedSlide` so disabled tracks being re-enabled keep
+  their effective timing too. Copy/preset/embed remaps retain element
+  and group destination identity; deleted destinations remain dangling and diagnosed. PPTX
+  phase ownership includes destinations so a later landing cannot leak into an earlier phase.
+  The retype law: `applyState` with
   `state.type` keeps only BASE_PROPS and completes the new kind's required props
   (`completeRetyped`). Cross-kind flights run the OUTLINE MORPH (`slide/outline.ts`, pure):
   `elementOutline` renders any drawn kind (rect + fillets, ellipse as 4 KAPPA arcs, line,
@@ -850,8 +1110,32 @@ Persistence invariants (all machine-checked — do not weaken):
   seams/winding, and chooses `inflate` (the ring side is FILLED: the stroke doubles back on
   itself as a degenerate ring that swells into the shape — no wedge) or `cut` (a stroke-only
   ring opens where it is nearest both of the stroke's ends and unrolls into it);
-  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke and
-  the driver draws three layers — A the original nodes (t=0), M one live `<path>` written
+  `sampleElementMorph` lerps nodes/box/OKLab colours/stroke through the shared
+  `sampleNodes` node loop. Animation v2's `correspondence.ts` merges stage outlines and
+  pairs spatial/order/data/tile sets through that same 1↔1 planner. Pair arrays remain in
+  unit coordinates for exact compatibility; the sampler applies their stage bboxes.
+  Seam searches prepare the invariant source stations once, reusing them for every
+  destination offset/direction. Keep full resolution and arithmetic order: the 40-point
+  cold hand-off's seam search cost 122.7 ms (6.1 ms after hoisting),
+  while splitting/allocation cost only 2.6 ms. Idle warming is optional; first preview
+  and seek must also meet 100 ms when input arrives before the warm callback.
+  Call `CorrespondencePlan.prepare()` in the warm hook before sampling (unprepared sampling
+  refuses instead of planning on the frame path), and retain its output array to reuse all
+  geometry/dash buffers and prepared OKLab conversions. Unsliced `destinations` and merged
+  `owner.members` are the reveal inventory. Large marker sets expose glyph landing points;
+  text/raster pairs expose crossfade boxes without a path plan. The core does not mount the
+  hand-off flight layer. The player's `handoff.ts` owns one retained drawing group per
+  controller inside `renderSlide`'s last camera child, `svg.sl-flight`. `handoffPlan.ts`
+  prepares the same correspondence for playback and optional-context dock warming.
+  Whole-plot defaults pair the merged spines and leave the other parts to fade in;
+  cropped plots discard wholly outside outlines and clip the retained flight drawing.
+  Visibility uses reversible inline `visibility` leases, so chains and reverse seeks
+  compose with opacity presets; disposal restores prior values. A static host bakes
+  sampled visibility before disposal. `seek(eased, raw?)` uses raw progress for phase
+  changes and the glyph's final-15-percent fade, clamping only data interpolation.
+  Marker flights write SVG transform attributes, never per-marker CSS transforms.
+  The existing element driver draws three layers — A the original
+  nodes (t=0), M one live `<path>` written
   per frame with no serialization, B the end markup from the ONE serializer (t=1, later
   tracks bind here). Heads that only one side draws fade (`fixedHeadOpacity`/`arrowFade`);
   the body is never trimmed under a fading head. **The placement law (render.ts):** a
@@ -886,6 +1170,35 @@ Persistence invariants (all machine-checked — do not weaken):
   Svelte 5 trap discovered here: `store.set(sameObjectRef)` does NOT re-render
   `$store` consumers in runes components (referential dedup) — publish a fresh
   identity (`store.set({ ...o })`) when mutating in place.
+  The animation-v2 geometry bridge (`slide/targetGeometry.ts`, exported by flux-core)
+  supplies `StageOutline` rings/chains in stage px for compiled element states and
+  pristine `preparePlot` roots. It shares `elementPaint`, SVG matrices, multi-subpath
+  parsing, `readPaint` and `ptTrueFactors`; glyph markers can be paths OR groups.
+  Flips precede rotation about the box centre, matching the renderer's CSS list.
+  Roots/manifests must be immutable: regeneration replaces their identity and releases
+  weak geometry caches. Pass the owning slide's registry as `GeometryCtx.groups` for
+  nested group refs (`SlideFrame` does not carry it). `bbox` is the TRUE curve extent
+  (`nodesExtent`), never the control hull or stroke overhang: it is the box `refitPath`
+  gives a path element, the frame `planElementMorph` plans in, and the box
+  `correspondence.ts` derives for merged chains/pieces, so a 1↔1 pair planned through the
+  bridge reproduces today's Become exactly. Part `paint.strokeWidth`/`dash` are STAGE px:
+  declared × `fs` × sqrt(sx·sy) (the outer viewBox→box scale), i.e. declared × contentScale
+  × px-per-user-unit at any box size (4/3 for a matplotlib pt viewBox), pinned against the
+  live computed stroke × screen-CTM scale. Text is a box-only crossfade target: explicit
+  SVG bounds/textLength are used when present; otherwise its anchor is retained without
+  guessing glyph metrics. The hand-off clone renderer measures text once with live
+  `getBBox()`. Plot `view` data uses the shared projection kernel before stage mapping;
+  spines remain fixed while guides follow the DOM writer's data coordinates/fading.
+  `plotStageMapping` factors that same viewBox/crop/flip/placement mapping for axis
+  fits used by data pairing. A rotated plot cannot supply a stage-axis-aligned fit:
+  correspondence falls back to spatial/tile pairing, preserving visible geometry.
+  Gates: `verify-target-geometry` (linkedom plus core parity) and
+  `verify-target-geometry-browser` (real renderSlide/Chrome CTM, pure tier).
+- **Reader highlights:** the user/agent-facing name for PDF highlights and notes is
+  **Highlights** (Alt+A). CLI `highlights` / `add-highlight` and MCP `list_highlights`,
+  `search_highlights` / `add_highlight` use the existing pure `Annotation` model and
+  `<FluxLib>/items/<key>/annotations.json` storage. `get_reading_context` exposes
+  `highlights`, mapped from the unchanged `reader-context.json` field `annotations`.
 - **The reader is multi-document** (reader-tabs, 2026-08-04): `readerStore.readerTabs`
   ({tabs, active}, persisted to localStorage `flux-reader-tabs`) is the open-paper strip;
   `readerKey` is a READ-ONLY derived view meaning "the focused pane's paper" (the
@@ -893,9 +1206,7 @@ Persistence invariants (all machine-checked — do not weaken):
   `ReaderDoc.svelte` (`citekey` immutable per instance — a switch mounts a fresh one);
   `ReaderMode` is the shell: tab strip, keep-alive (`MAX_LIVE_DOCS = 3`, MRU,
   ModeContent-style visibility flip — warm tab switch is instantaneous; cold tabs restore
-  page/zoom from `flux-reader-view:<key>`, flushed on destroy), and the ONE shared-terminal
-  mount (`agentPane` snippet rendered by the active doc only; across panes the host is claimed
-  via `readerTerminalPane`). Split panes: `paneId` threads Pane → ModeContent → mode;
+  page/zoom from `flux-reader-view:<key>`, flushed on destroy). Split panes: `paneId` threads Pane → ModeContent → mode;
   a reader pane shows `paneActiveTab[paneId] ?? readerTabs.active`, with every reader pane
   PINNED to its current paper before any re-target (one pane's change never retargets the
   other). reader-context.json has one native sender/token owner across windows, with
@@ -934,11 +1245,36 @@ Persistence invariants (all machine-checked — do not weaken):
   until that operation settles. These are local worker/cache guarantees, not instant
   cross-machine filesystem synchronization.
 - Electron: `main.cjs` is a **composition root**; handler families live in
-  `electron/ipc/{contract,files,terminal,network,agent,capture,readJobs,staticPrint}.cjs`.
+  `electron/ipc/{contract,files,network,agent,capture,readJobs,staticPrint}.cjs`.
   `globalLibraryWatcher.cjs` owns the process-wide watcher; native diagnostics/recovery are
-  independently instantiated with explicit dependencies and terminal disposal. Every IPC channel is declared in
+  independently instantiated with explicit dependencies and lifecycle disposal. Every IPC channel is declared in
   `contract.cjs` (`verify-ipc-contract.ts` — no orphans in either direction). The renderer runs
   under a **CSP with no `unsafe-eval`** — see §5.
+- **FluxChat Ask (Ctrl/Cmd+Shift+J)** uses the same captured stamp/window as Annotate.
+  `askChord.ts` creates and focuses a tiny input synchronously; `AskSurface.svelte` and
+  runner settings load lazily. The input moves into the loaded popover without losing
+  typed text. `captureOpen` owns modal input, playback pause and external reload deferral
+  for both surfaces. `project/ask.ts` projects questions through the inbox packet and
+  builds kept exchanges with the shared annotation builders; Keep appends one resolved
+  Q&A, while Escape cancels without a project write.
+  `electron/agentRunner.cjs` owns at most three CLI processes, queues excess runs, kills
+  process groups (Windows: taskkill /T), caches versioned capabilities and prunes machine
+  run logs after 30 days. It calls the installed Flux launcher for the ask/task-depth pack.
+  Claude uses stream-json stdin, explicit strict MCP config, `--tools Read,Grep,Glob`
+  (the only built-ins), `dontAsk` with `--allowedTools mcp__flux` and `--add-dir <run dir>`,
+  and removed Bash/Edit/Write/NotebookEdit. Measured on 2.1.283: `dontAsk` alone DENIES
+  every MCP call and any Read outside the project (the attached view PNGs live in the run
+  dir), so without the allow rule and the added dir Ask answers blind; the default
+  built-in set also carries side-effecting tools (EnterWorktree, CronCreate, RemoteTrigger,
+  Workflow, WebFetch). Codex uses read-only exec, never
+  approvals and a replacement MCP set. `FLUX_MCP_READONLY=1` filters both dedicated
+  tools and generic `flux_verb` dispatch. Empty Claude skills and apiKeySource:none are
+  NOT evidence of bare mode: authenticated recordings carry both. Explicit bare mode
+  fails with guidance. Copy resume command is the handoff to the user's own terminal.
+  Gates: `verify-runner-drivers`, `verify-mcp-readonly`, IPC/chord census (pure),
+  `verify-ask-gui` (UI), `verify-ask-electron` (native), and startup after shell changes.
+  Main owns the process lifetime; a popover mount does not. Capture/draft handoff keeps
+  input while lazy UI loads, and sending remains an explicit user action.
 - **Multi-window (2026-08-11): one process, N windows, one project per window.** All
   per-window lifecycle state lives in main's `sessions` registry (webContents id → {win, root,
   watcher}); handlers resolve the sender's root via `rootFor(e)` — never a global. The watcher
@@ -966,6 +1302,27 @@ Persistence invariants (all machine-checked — do not weaken):
   when the gallery closes. Recreate list size observers in the destination window on pin
   and dock: an observer created in a hidden opener stops delivering resizes, leaving the
   pinned gallery's columns and virtual row count stale until the opener regains focus.
+- **AI status monitor (2026-09-27)** lives at the titlebar AI indicator and the
+  command palette's AI status / New agent skill entries. `agent/aiMonitorState.ts`
+  is the small eager cache; `AIPanel.svelte` loads lazily and moves its mounted
+  subtree through `openUtilityWindow` into exact-allowlisted `ai-status.html`.
+  Native DOM handlers retain pin/dock interaction and the owner closes its utility.
+  Project changes close the panel. The main `ipc/agentSetup.cjs` family alone holds
+  probe snapshots and replacement plans: the renderer receives a safe status view,
+  or exact before/after text only while confirming a sender-bound, expiring plan.
+  File-only `probeChecks` shares the setup inspector with doctor; startup/open/apply
+  and ten-minute refreshes never launch diagnostic processes. Doctor is explicit,
+  publishes each check, and Copy diagnostics copies its redacted JSON.
+  The Skills workflow creates exclusive template folders and uses the OS editor.
+  `SessionRows.svelte` supplies both the panel and the lazy titlebar agents popover.
+  The tiny `sessionState.ts` store is the titlebar's only eager session dependency;
+  presence is retained while a project is open. Rows retain the Inbox reader too, so
+  queue counts and claims include every comment sidecar and expire while visible.
+  Stop watching appends `makeReleaseSession` through the shared annotation writer;
+  the ledger overrides the presence writer's watching grace period.
+  Gates: `verify-ai-monitor.ts`, `verify-ai-monitor-gui.mjs`, IPC/docs, startup,
+  Annotate/utility and multi-window integration. `docs/agents/connect.qmd` contains
+  the exact bundle definition shown in the panel.
 - **Figure-Meta (2026-09-26)** replaces the Figure caption overlay and naming popup.
   Workspace lazy-loads `figure/FigureMeta.svelte` for Alt+M in Figure/Paper; Ctrl+R and
   sidebar double-click open Name. Shift+Alt+M/G opens metadata/gallery pinned.
@@ -1033,38 +1390,114 @@ Persistence invariants (all machine-checked — do not weaken):
     open ONE x-ray rooted at `{kind:"elements"}`: `commonPartRows` lists parts whose id AND
     role agree across every plot (`common:<partId>` rows fan out to all of them), then each
     plot's tree. Slide registers `xrayAnimate` (`xray/animateHook.ts`) so **Animate selected**
-    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change) routes every picked row through the
+    (`a`; 1 Appear · 2 Emphasize · 3 Disappear · 4 Change · 5 Appear from · 6 Animate like) routes ordinary appearance picks through the
     shared `slide/animateSelection.ts` core — the same core the animator's Appear / Emphasize /
     Disappear buttons use; Figure leaves the hook null and the button disabled.
     Reopening follows the full plot selection even when a primary drilled part exists.
+    Slide's one `pickState` owns Become, Appear from and Animate like. While Become is
+    armed, `xrayBecomeSource` names the waiting source and `b` confirms the picked destination
+    rows, including axis containers. X-ray row selection never auto-confirms a canvas pick.
+    Canvas's view-only `picking` allows Shift+Ctrl/Meta part picks without starting a drag;
+    `EditorCanvasPresentation.highlight` accepts a list so every accumulated part stays lit.
+    Escape or slide/step changes cancel. The pick commits one ref through `becomeTransform`
+    or its `appearFrom` twin, then selects the track's After endpoint. Design retains the
+    compiler's future hand-off destination visibility while ordinary appearances stay editable.
+    Inspector retargeting starts from `trackRef`, preserving the source's part/selector binding.
+    Auto-animate the rest (post-pick toast and Destination row) calls the ONE
+    `autoAnimateExcept`: it narrows partial containers, places the remaining phases after the
+    plot's last enabled hand-off, keeps anchored effective starts and never reuses a beat id an
+    authored effect holds; both surfaces offer it only for part refs (a whole-plot hand-off
+    already reveals every part). Pick bar, X-ray header, toast, lane and Destination row name a
+    ref through `animator/shared.ts refLabel`; every Pair choice renders `targets.ts PAIR_POLICIES`.
     Common-row actions filter each member through Show hidden exclusions, and animation
     batches deduplicate exact element/part targets. Keyboard navigation reveals its active
     row. Regeneration pins the original project/plot before awaits; re-rooting cannot redirect
     the result, and stale ownership discards it.
-  - **Snapshot & annotate (Ctrl+Shift+S) = `shell/agent/AnnotateCapture.svelte` +
-    `project/feedbackCapture.ts` (pure).** The "point at it" half of Note to agent: the
-    overlay captures the window FIRST (`win:capture` → `webContents.capturePage` on the
-    sender, read scope, Electron only) and draws on the frozen picture, so the tool strip is
-    never in the crop; marks are arrows / boxes / pen strokes with number badges, each
-    anchored to the element under its tip (`anchorPathOf`: up to four named ancestors,
-    Svelte hashes and bare wrappers skipped, plus short text). Enter composes the crop
-    (`snapshotCrop`: mark bounds + 48 px, ≥ 240×160, clamped; whole window with no marks)
-    into a PNG held in `pendingSnapshot`, shown large in the popover; **Add to queue** writes
-    `.meta/feedback/<noteId>.png` and
-    appends the note whose stamp carries `snapshot` (image path, rect, window, marks) —
-    never the other order, so a cancelled note leaves no file. `describeStamp` prints
-    `snapshot ×N (1 → button.tool "Gallery", …)` for the popover header and `flux feedback`
-    alike. A browser build has no capture: marks + anchors still land, `image` is null.
-    Gates: `verify-feedback-snapshot.ts` (pure), `verify-annotate-gui.mjs` (ui),
-    `verify-ipc-contract.ts` (the channel).
-  - **Taking a note back = the `withdraw` ledger event.** The popover lists the open queue
-    (newest first) with Edit / Withdraw; `foldLedger` marks the target `withdrawn` and drops
-    it from `open` and `sent` (never `resolved` — nobody did the work), `flux feedback` hides
-    it, `--all` reports status `withdrawn`, `resolve-feedback` refuses it. Edit re-queues in
-    ONE append (`withdraw(old)` + `note(new)` in the same O_APPEND write, so a reader never
-    sees both) and keeps the original stamp + snapshot file. Gate:
-    `verify-feedback-withdraw.ts` (pure, scratch root) + the edit/withdraw leg of
-    `verify-annotate-gui.mjs`.
+  - **Taking a note back = the `withdraw` ledger event.** `foldAnnotations` retains a
+    withdrawn item for audit; `flux inbox` hides it by default, `--status all` includes it,
+    and `resolve` refuses it. The v2 ledger has no sent queue or send boundary. The
+    withdrawn-state and append-only checks are in `verify-annotation-core.ts` and
+    `verify-inbox.ts`; the visual Edit / Withdraw flow remains a GUI gate.
+  - **Headless inbox IO.** Append newline-terminated records with O_APPEND, one syscall
+    per record; preserve a torn final record and add a separator before the next event.
+    Claims append then re-fold in ledger order. Stale takeovers name the observed claim
+    (`previousClaim`) / assignee (`previousAssignee`) so simultaneous stale contenders
+    cannot both replace it. Presence OR recent item activity protects a holder. Every
+    mutation checks `writeAllowed`; user release/release-session is a refusal, never an
+    implicit force. Comment replies hold the manuscript lease across read/append/write,
+    use `appendCommentMessage`, journal, then append ledger state to renew holder activity.
+    `waitForInbox` watches metadata and discovered sidecar directories with a one-second
+    mtime/TTL fallback; opaque cursors fingerprint item state, not only timestamps.
+    `inspect` reads saved target state without rendering. MCP packets cap inline snapshots
+    at six, resized to a 1600 px long edge; `get_inbox_image` fetches remaining images.
+  - **Annotation surface contract — Annotate (Ctrl/Cmd+Shift+M) = `shell/agent/AnnotationSurface.svelte` +
+    `annotationStore.ts`; pure geometry = `project/annotationCapture.ts`.** One lazy
+    composer over a frozen window. Shell installs `annotateChord.ts` FIRST, before
+    children mount capture listeners; it buffers immediate typing until textarea focus.
+    Home toasts; Ctrl+Shift+S is retired and absorbed, including utility children.
+    Alt+A/B/P choose arrow/box/pen by `code`; Alt+Z undoes. Enter adds, Shift+Enter
+    inserts a newline, Escape/toggling keeps the draft. The picture is captured before
+    drawing UI, cropped around marks (unmarked whole views have a 1600px long-edge cap),
+    and written before the ledger append. Attach view is persisted as `annotate.attachView`;
+    marks force it on. A missing native capture keeps semantic targets and marks.
+    A retained draft keeps its picture and context together; a changed view requires
+    explicit refresh before drawing again, preserving text and clearing old marks.
+  - **Inbox (Alt+Q) = `shell/inbox/InboxPanel.svelte`.** Lazy and idle-prefetched,
+    opened by titlebar count, palette or the reserved physical left-hand chord. The
+    composer's old Queued list is replaced by Open inbox. List rows virtualize above
+    200 items; `verify-scale-inbox.mjs` pins 1,000-item filter/scroll and mounted-row
+    budgets. `verify-inbox-gui.mjs` compares the GUI with the CLI on one core fixture.
+    IO lives in `inboxStore.ts`; `buildInbox`/`filterInbox`/`resolveInboxFilter` and
+    `parseInboxQuery` remain pure shared policy. `commentBridge.listAllComments`
+    uses canonical document discovery and shared `commentsSidecarRels` (including
+    both historical main-document sidecars), just like headless. Replies to a live
+    Paper document go through its registered comment owner and flush; cold replies
+    hold the manuscript lease and use `appendCommentMessage`. Feedback, comment,
+    and presence changes refresh the view; TTL expiry also refreshes while open.
+    Pin/dock uses the inert allowlisted `inbox.html`, native element event listeners,
+    and a destination-window ResizeObserver. Pending writes participate in lifecycle
+    flush. Drafts survive close/pin/dock and clear on project change. Annotate forwards
+    from pinned Inbox like the gallery. `shell/navigation.ts` dispatches to existing
+    document/deck/Reader handshakes and Figure's selection + sidebar-centre primitive.
+  - **One context/target vocabulary.** `bridge/contextStamp.ts` feeds annotations AND
+    `getAppContext` (the Figure digest remains). Modes register in `bridge/targetResolvers.ts`;
+    selection chips and hover use pure `TargetRef` / `describeTarget` / `widenTarget`.
+    Canvas prepares model and semantic-part indexes once for capture; hover walks the
+    browser hit node's ancestors, never rescans the scene or manifest. The animator's
+    nested resolver wins before the canvas. Paper uses CM positions and syntax-tree
+    paragraph ranges; Reader uses the pdf.js text layer, Library citekey rows, Figure-Meta
+    caption blocks. Alt+↑/↓ or wheel adjusts hover specificity; chips widen and remove.
+  - **Route and queue.** `annotations.ts` + `inbox.ts` are the shared fold/status/sort
+    law. Inbox is the remembered per-project default, Tab cycles the To pill, and live
+    `parseRoute` recognizes @mentions. Named notes append `note` + `assign` together.
+    Edit appends `withdraw` + replacement note in one write, retaining the original
+    picture/context. Withdraw never pretends the work was resolved. Status chips and
+    toasts name the agent; needs-input opens its replies. `RecipientList.svelte` and the
+    pure `agentRouting.ts` order Inbox, Any, watching sessions, then selectable muted
+    non-watchers, then New background agent when `backgroundAvailable` reports an installed driver.
+    Inbox Assign/Unassign/Release use the shared ledger builders; `assign.route` supports
+    Inbox/Any/background as well as named assignments, including comment overlays.
+    Reassigning/unassigning held work revokes its former holder; explicit assignment back
+    authorizes it again. `sessionInboxQuery` feeds Show its items through the existing
+    @holder filter. Expired assignments/claims retain the disconnected reassign prompt.
+    Presence reads use FileBridge, retained by the project titlebar, at most once per 5s;
+    the native watcher batches `.meta/live/sessions` notifications at ≥2s.
+    `verify-agent-routing.ts` pins ordering, queue accounting and persisted engine parity;
+    wait/presence gates exercise filtered named delivery and revocation over real MCP.
+  - **Modal ownership and native windows.** All window key handlers yield through
+    `yieldsToShellModal`/`isAnnotateChord` (source census, documented narrow exemptions).
+    External model reloads defer while Annotate or Ask is open; ledger/presence updates continue.
+    Live bridge writes refuse before mutation while the picture is frozen. Present's
+    modifier filter lives in its app host, never in the shared/exported key reducer;
+    the annotation portal is INSIDE its fullscreen root. Inert utility children forward
+    the chord to the opener; `win:capture {target:"sender"}` captures the sender window;
+    `{target:"child"}` can capture only that opener's focused child. Surface z-index is
+    2000, above Help, Settings and Present.
+    Gates: `verify-annotate-chord-census.ts`, `verify-context-stamp.ts`,
+    `verify-feedback-snapshot.ts`, `verify-annotation-core.ts` (pure);
+    `verify-annotation-surface-gui.mjs`, `verify-scale-annotate-hover.mjs`,
+    `verify-annotate-utility-electron.cjs` (browser/scale/native). Retain `paper-gate`,
+    `verify-scale-paper`, and the 800KB startup ceiling after context/keyboard changes.
   - **The crosshair cursor family = `styles/cursors.css` + `Canvas.svelte hostCursor`** (owner
     note, 2026-09-15): three hardware `cursor: url()` SVGs (24 px, hotspot 12 12; white halo
     under a dark core, a 3 px centre gap for precision) — plain, hover (accent dot) and press
@@ -1124,6 +1557,9 @@ Persistence invariants (all machine-checked — do not weaken):
     throughout the gesture; edits or escaping its bounds restore the live scene
     immediately. Above the density cap, during capture, or without a current image,
     use live rendering. Cancel queued/async captures on changes, pane hide and teardown.
+    Ordinary canvas pointer activity also restarts the snapshot quiet interval: hover
+    is interaction, even without a gesture. Defer pending work only; keep an existing
+    valid bitmap and do not promote the live scene for hover.
     Quality refresh compares zoom with the CAPTURE zoom, not the pixel-capped raster
     scale (the latter caused endless idle captures at high DPI). At settle, demote
     the live layer before its repaint and restore sharp content. Copy inherited
@@ -1319,7 +1755,10 @@ PDF/Word use step 0; the print window requires no script. Posters embed their fo
 
 Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
 runtime bytes and exact CSP hash are generated together; Vite and Electron consume that
-hash without adding unsafe script sources. The generated JSON is bundled into CLI/MCP;
+hash without adding unsafe script sources. Browser assets keep the optional model IIFE
+separate. CLI/MCP resolve `embedAssets.ts` to the Node adapter, reading the prebuilt
+`slide-export-assets.json` beside the packaged bundle; do not inline generated runtime
+strings into every verb. That sidecar contains the Paper player and reuses its model IIFE.
 Electron's generated hash module ships via `electron/**/*`. Quarto preparation shares one
 payload/runtime bundle over all includes and restores only unchanged temporary source bytes.
 Never overwrite an edit that arrived during export, or swallow a failed restoration.
@@ -1346,16 +1785,17 @@ an isolated scratch project. Their artifacts live under `test-results/inline-sli
 3. **Never loosen a failing gate to make it pass.** The gates encode contracts; a failure means
    fix the regression (or, if the gate encodes a *superseded* contract, prove that from git
    history and update the gate with the evidence in the commit message).
-4. **No native Node dependencies** (`npmRebuild: false`; prebuilt-only posture). No SQLite/FTS5 —
-   the pure-JS fulltext index exists precisely because of this.
+4. **No locally compiled native Node dependencies** (`npmRebuild: false`; prebuilt-only
+   posture). The shipped `@resvg/resvg-js` prebuilt runs only in the raster child process,
+   never Electron main. No SQLite/FTS5 — the pure-JS fulltext index exists precisely because of this.
 5. **CSP:** never add `script-src 'unsafe-inline'` or `'unsafe-eval'`. Runtime `new Function` is
    banned in the renderer — Ajv validators are **pre-generated**
    (`node --import tsx scripts/gen-validators.mjs`, drift-gated in `verify-loadgate.ts`). A new
    inline script in the manuscript preview needs its sha256 hash added in `index.html` AND
    `electron/main.cjs` (`verify-w12-security.ts` recomputes them from source).
 6. **Never hand-edit generated/golden files**: `validators.gen.js`,
-   `scripts/fixtures/{mcp-tools.golden.json,cli-help.golden.txt}`. Goldens change only via
-   `REGEN_GOLDEN=1 npx tsx scripts/verify-registry-parity.ts`, deliberately, with the diff
+   `scripts/fixtures/mcp-tools.golden.json`. Goldens change only via
+   `REGEN_GOLDEN=1 node scripts/run-verifies.mjs --tier pure --only registry-parity`, deliberately, with the diff
    explained in the commit.
 7. **Don't bypass the mutation cores.** GUI model edits go through `ops.ts` + store commits;
    headless edits go through `mutateFigModel`/registry verbs. Hand-rolled JSON surgery on
@@ -1424,7 +1864,22 @@ phase with zero long tasks (scrolling was 60–130 ms tasks). Slide mode measure
 Figure. The native Electron key-to-paint gate stays the production oracle for edits. Reader open / project open / whole-doc find are 1s-class navigations and
 within budget. Update these measurements when the corresponding workflow is changed.
 
+The native `scripts/perf/input-probe.cjs` defaults to diagnostic mode: it disables
+background throttling and schedules measurement RAF callbacks. Such a run is not
+production qualification. Its historical display summaries stay rounded to 0.1 ms;
+qualification receipts also retain unrounded `rawTimings` arrays. Budget comparisons (the
+3D model-versus-image S8 cohort in `verify-model3d-s8.cjs`) use only those raw arrays and
+reject rounded-only receipts: rounding can turn a just-failing sample into a pass. Pass
+`--qualify --ozone=x11` for the qualified native variant: it preserves product throttling,
+requires a nonzero display and a continuously visible, focused window, and retains raw focus
+observations if a phase fails. The measurement RAF loop remains part of this probe and must
+be disclosed separately from publication-driven native Orbit frame measurements. Use only
+disposable projects and scratch HOME/XDG; `verify-input-probe-policy.cjs` gates this
+distinction.
+
 ## 7. The verification system (how you prove your work)
+
+Run the hermetic runner from the repository root; never invoke a verify `.ts` directly.
 
 The manifest (`scripts/verify-manifest.json`) is the registry of all gates. **A new verify script
 that isn't in the manifest doesn't exist.** Tiers:
@@ -1452,6 +1907,12 @@ that isn't in the manifest doesn't exist.** Tiers:
 - **presence** — the source-shape/static scripts (main-process/build config that headless
   drivers can't exercise; incl. `verify-electron-no-undef.ts`, the TS-checker undefined-identifier
   gate over `electron/**/*.cjs`). They also live in pure; the tier exists for `--changed` mapping.
+  `verify-no-retired-agent-layer.ts` scans current docs, templates and parsed UI strings,
+  plus actual CLI help and both live MCP toolsets. History, code comments and the one-shot
+  migration runbook are excluded; do not broaden the token census into a history purge.
+  `verify-connect-e2e.ts` (pure) installs the real launcher in a scratch machine and runs
+  setup, one-shot migration, connect/render, MCP watch/claim/resolve and disconnect, with
+  fake vendor CLIs only. Its EOF cleanup must reach the server below the tsx wrapper.
 - **bundle / startup / electron** — need `npm run build` / a real Electron run. Linux Electron
   harnesses may need `--ozone-platform=x11` (§9); do not pass Linux display flags on macOS.
   For an owned Xvfb display, set `FLUX_PRIVATE_DISPLAY=1` and `DISPLAY` (or the explicit
@@ -1461,15 +1922,55 @@ that isn't in the manifest doesn't exist.** Tiers:
   `node scripts/verify-source-sync-electron.cjs` uses two isolated real app launches to
   verify disk watchers, exact external-source capabilities, cold reopen, frozen links and
   cross-mode persistence. Build first; it deliberately requires no renderer dev handles.
-- `--changed` maps `git diff` paths through the manifest's `pathMap`;
+- `--changed` maps `git diff` paths through the manifest's `pathMap` and **unions** those
+  scripts with explicit `--tier` selections; `--tier pure` or `--tier ui` does not filter the
+  changed set. A constrained worker must intersect the mapped names with its permitted tiers
+  and invoke those registered gates explicitly. Always set the worker's `FLUX_URL`, even for
+  a changed run nominally requesting pure, since its mapped set may require a server;
   `scripts/lib/changedVerifies.mjs` implements brace alternatives, directory globs and literal
   registered script targets. Keep its real-manifest coverage gate: silently skipping a mapped
   check defeats the verification contract.
-  `group:paper-gate` is the paper editor's regression suite. Use
+  The mapped scripts are ADDED to `--tier`/`--group`, not intersected with them. If a worker
+  may run only certain tiers, resolve the map first and run its allowed filenames with
+  `--tier <tier> --only <filename>`; `--changed --tier ui` can also select native gates.
+  When launching through a shell, `exec env ... node scripts/run-verifies.mjs ...`
+  keeps interrupts attached to the runner. A stopped shell is not proof that its runner
+  children stopped: confirm the final summary before starting another cohort.
+  An exact-path entry must retain the regression groups of the broader entry it supersedes:
+  pathMap uses the first matching entry, not the union of all matching entries.
+  Merging two branches' manifests: resolve `verify-manifest.json` structurally (three-way,
+  keyed by script name and `glob`) and keep each side's new pathMap rules anchored to their
+  shared neighbours; appending one side's rules after the other's lets a broad rule shadow a
+  specific one (`verify-changed-pathmap` catches it).
+  `group:paper-gate` is the paper editor's regression suite. `group:model3d` is the 3D suite;
+  `group:model3d-pure` and `group:model3d-ui` are its pure and dev-server slices, and the
+  native S8 cohort (`verify-model3d-s8.cjs`) and eight-model scale gate need a quiet display. Use
   `node scripts/run-verifies.mjs --list` for current tier/group counts and membership. For parallel
   worktrees, set `FLUX_URL`; `driver.mjs` remaps legacy `gotoApp(...:1420...)` calls to that
   configured origin, but new gates should still use `APP_URL` and direct `page.goto` calls must
   never hardcode the default port.
+
+Native IPC behavior can be probed through the real preload (`window.fig.*`) with
+`executeJavaScript`; a user-interaction claim still needs actual native input and output.
+
+**Agent-layer gate map** (exact current names; the manifest remains authoritative):
+
+| Tier | Gates |
+| --- | --- |
+| pure | `verify-launcher`, `verify-agent-identity`, `verify-mcp-launcher`, `verify-mcp-binding`, `verify-context-scheme`, `verify-log`, `verify-oneoff-migration` |
+| pure | `verify-connect-render`, `verify-connect`, `verify-connect-delta`, `verify-connect-mcp`, `verify-connect-doctor`, `verify-connect-e2e` |
+| pure | `verify-annotation-core` (targets, presence, ledger and inbox model), `verify-inbox`, `verify-inbox-wait`, `verify-presence`, `verify-agent-routing`, `verify-context-stamp`, `verify-feedback-snapshot` |
+| pure | `verify-agent-setup`, `verify-skill-template`, `verify-ai-monitor`, `verify-runner-drivers`, `verify-mcp-readonly`, `verify-command-rank`, `verify-docs` |
+| presence + pure | `verify-annotate-chord-census`, `verify-no-retired-agent-layer` |
+| ui | `verify-context-gui`, `verify-annotation-surface-gui`, `verify-inbox-gui`, `verify-ai-monitor-gui`, `verify-ask-gui` |
+| scale | `verify-scale-annotate-hover`, `verify-scale-inbox` |
+| bundle | `verify-connect-hook` |
+| electron | `verify-annotate-utility-electron`, `verify-live-view-electron`, `verify-ask-electron` |
+| pure transport | `verify-live-view` (pair with its Electron gate for real window pixels) |
+
+Shell/context changes also retain `verify-startup` (startup tier) and the affected
+Paper regression group. `verify-annotation-core` covers the ledger/targets contract;
+there are no separate `verify-targets` or `verify-annotation-ledger` scripts.
 
 **Never spawn a gate's child through `npx`.** Use `process.execPath` with `--import tsx` — the
 same runtime, one process, and none of the three separate failures `npx` causes (all three hit
@@ -1517,13 +2018,84 @@ you're not rebuilding something deliberately deferred or rejected; (f) if it cha
 user-visible behavior, update the affected `docs/` user-docs page in the same session
 (see the user-docs recipe below).
 
-**Add a CLI/MCP verb:** one `VerbDef` in `flux-core/verbs.ts` (name, cli, one summary, one zod
-shape, `cliArgs` mapping, handler calling `flux-core/*`, per-surface renders). Both surfaces are
-generated. Then `REGEN_GOLDEN=1` the parity gate (tools/help goldens change — quote the diff),
+**Add a CLI/MCP verb:** one `VerbDef` in `flux-core/verbs.ts` (name, cli, explicit `scope`, one summary, one zod
+shape, `cliArgs` mapping, handler calling `flux-core/*`, per-surface renders). Declare filesystem inputs in
+`pathParams` (including dotted nested fields), and explain non-path lookalikes in `notAPath`.
+MCP resolves those inputs against its project default; CLI resolves them against cwd.
+Project tools receive an optional `project` override and require project.json before recovery.
+`core: true` exposes a verb in the compact default toolset; full tools and schema-validated
+`flux_verb` dispatch use the same registry. `flux_verbs` supplies the discoverable schemas. Both surfaces are
+generated. Leave specialized verbs out of `core`: the compact `tools/list` has a fixed 20 KB
+budget (`verify-mcp-launcher.ts`, `verify-live-view.ts`; five 3D schemas pushed it to 23.9 KB),
+and `flux_verbs` + `flux_verb` keep them discoverable and callable. Then `REGEN_GOLDEN=1` the parity gate (tools/help goldens change — quote the diff),
 and run `verify-registry-parity` + `verify-f1-mcp` + `verify-w11-verbs`. Errors: throw the typed
 taxonomy (`flux-core/errors.ts`) — Locked→CLI exit 75, ExternalToolError carries exitCode+log,
-everything is `isError` on MCP. A handful of verbs are deliberately legacy (inexpressible
+everything is `isError` on MCP. Free text or file-shaped non-root positionals require
+`cliRoot:"flags"` so the root heuristic cannot consume them. A handful of verbs are deliberately legacy (inexpressible
 CLI/MCP asymmetries — listed in the batch D/E commit bodies); don't force them into the table.
+
+**Agent launchers and MCP:** `electron/fluxPaths.cjs` owns the stable launcher in
+`binDirSync()` (`~/.local/share/flux/bin` on POSIX, LOCALAPPDATA/flux/bin on Windows).
+It pins the runtime and install owner; another live checkout never steals ownership.
+`installLaunchers` accepts explicit `useThisInstall` / `createConvenience` options for setup.
+Unmarked files are user-owned. AppImages resolve their CLI inside the current mount;
+macOS translocation refuses installation. Every test must use scratch HOME/XDG and
+`FLUX_NO_MIGRATE`; launcher tests clear that guard only inside their scratch fixture.
+`flux mcp [root] --toolset core|full` is the canonical stdio entry. Cwd discovery supplies
+only a tool default, without hydration or presence. Explicit `connect` hydrates and
+binds a project, returning the brief's reading plan and receipt template (see §1).
+Global connect preserves a prior binding. Handshake identity feeds the journal unless
+FLUX_CLIENT overrides it. MCP instructions say to connect only when asked.
+
+`electron/agentSetup.cjs` is the shared agent-setup implementation. Probe first, then
+pass the immutable snapshot to the pure `planSetup`/`planRemove`; apply rechecks
+baselines under a machine lease. CLI setup/remove are intercepted before registry
+parsing or config initialization, so dry-run is read-only and MCP cannot rewrite
+vendor config. `connect_doctor` is a read-only core tool. Doctor handshakes against
+`--toolset full` (>=100 tools), while registrations use the compact default.
+`ensureFluxConfig`, including its fast path, refreshes only managed, unedited stock
+skills and syncs UserContext skills to connected vendors. Removal preserves edited
+skills with an explicit disconnected receipt. Skill directory backups are regular
+JSON files, never a second discoverable SKILL.md tree. See
+`docs/for_agents/agent-setup.md` for the API, vendor contract evidence, hook-trust
+requirements and native acceptance boundaries. Gates: `verify-agent-setup.ts`,
+`verify-connect-doctor.ts`, `verify-skill-template.ts` (hermetic pure tier).
+
+
+**Update the stock manual:** `resources/flux-context/` is the 13-document agent manual.
+FLUX.md and CONNECT.md are always-read entry points; README routes to the ten task
+references. MANUSCRIPT.md is authoring-only; REVIEW.md owns inbox/watch/live guidance.
+CONNECT's `ask-rules` / `task-rules` blocks and FLUX's `ask-summary` are prompt inputs,
+not decoration: preserve their unique delimiters and the 400/400/600 token budgets.
+`verify-context-scheme` uses connect's shared token estimate and pins the stock set,
+headers, entry points and watch protocol. `verify-registry-parity` checks CLI and MCP
+names across all stock docs, including the CLI tables. After any edit, run
+`node scripts/gen-flux-context.mjs` then `npm run build:cli`; the bundled CLI must
+carry the same manual hash. Then run
+`node scripts/run-verifies.mjs --tier pure --only context-scheme` and the registry parity
+gate. Generic FluxContext pruning removes retired stock docs
+without a hand-maintained filename list. Keep merge accounting in the review record
+when deleting a manual; the 2026-09 rewrite's record is kept with the overhaul notes (outside the repository).
+
+**Change the connect pack:** inclusion belongs in pure `budget.ts`, brief rendering in
+`brief.ts`, bundle text in `bundle.ts`; keep IO in `collect.ts`/`cache.ts`/`images.ts`.
+Run the hermetic `verify-connect-render`, `verify-connect`, `verify-connect-delta` and
+`verify-connect-mcp` gates. Preserve the brief cap, section/end sentinels, proof locations,
+read-only collection and default canvas overviews. Record a sample pack from a **copy**
+of a representative real project in the work ledger, under scratch HOME/XDG with
+`FLUX_NO_MIGRATE=1`: reading coverage, trims, image inspection and cold/cached timing.
+Do not publish private bundle contents. Build the CLI before the bundle hook gate.
+
+**Add an agent vendor to setup:** extend `electron/agentSetup.cjs`'s probe, immutable
+plan and guarded apply/remove paths; reuse launcher ownership and managed-file rules.
+Verify the installed vendor's config/skill/hook contracts before emitting them. Keep
+unrelated settings, back up replacements, preserve edited skills, and restore prior
+registrations only when baselines still match. Extend doctor, skill publication and
+the monitor's safe projection, with hermetic fake-binary fixtures in
+`verify-agent-setup`, `verify-connect-doctor`, `verify-skill-template` and
+`verify-ai-monitor`. A new run driver is a separate capability, with capability probes
+and recorded stream fixtures. Update the bundle's UI/docs together; keep probes off
+the eager startup path. See `docs/for_agents/agent-setup.md`.
 
 **Add an IPC channel:** declare it in `electron/ipc/contract.cjs` (kind: invoke/send/push +
 scope), register through the wrapped `ipcMain` in the right family module, expose in
@@ -1552,7 +2124,9 @@ from this guide): pages are `.qmd`, enumerated by `docs/_quarto.yml`'s sidebar; 
 (the index.qmd voice — plain language, UI things called by their UI names, no internal jargon);
 per-page frontmatter is `title` + `subtitle` ONLY (toc/numbering/theme are centralized in
 `_quarto.yml`); real relative links between pages; shortcuts **bold**, written Ctrl-style with
-the one macOS ⌘ note in index.qmd; per-page Troubleshooting sections; and **never restate
+the one macOS ⌘ note in index.qmd (chords too: **Shift+drag**, **Ctrl+wheel**); a heading
+that starts with a digit needs an explicit id (`# 3D models {#3d-models}`), because pandoc
+drops leading digits from generated ids and the gate strips anchors before checking links; per-page Troubleshooting sections; and **never restate
 gated reference content** — the CLI verb tables live in `resources/flux-context/CLI-REFERENCE.md`
 (registry-parity-gated), so user docs link there instead of copying. A new page = the file +
 a sidebar entry in `_quarto.yml` (the gate fails on orphans, broken links, frontmatter drift,
@@ -1569,7 +2143,87 @@ free to name the failure modes plainly. Facts in
 the mode guides were swept from source (chords from `keyboard.ts`/`commands.ts` etc.); when a
 chord or label changes, grep `docs/` for the old one.
 
+**Historical project migrations:** `scripts/oneoff/migrate-2026-09-flux-connect.mjs` is
+an offline September 2026 migration record, independent of the app and using only Node
+builtins. Its dry run changes no project/machine state; the complete report is its only
+write. Archive moves never fall back to copying, generated prose requires a whole exact
+match (LF/trailing-whitespace normalized), and authored content is preserved. Use
+`docs/for_agents/migrate-to-flux-connect.md` for the reviewed apply/setup procedure.
+`verify-oneoff-migration.ts` exercises it only in child processes with scratch HOME/roots,
+including real Git tracking, read-only failure, cross-device failure and interrupted rename.
+Run it through the hermetic runner; never validate a migration on real projects.
+
 ## 9. Known traps (each of these cost real time)
+
+**Agent tools, launchers and processes:**
+
+- A synthetic WebGL context restoration cannot run at the loss event's microtask
+  checkpoint: that event must finish dispatching first. The 3D gate uses MessageChannel
+  to reach the next task, not a timer or a product latency workaround.
+- GPU devices can be hidden by an execution sandbox while available on the host. A
+  software-only run is not a hardware pass: native 3D gates must report their actual WebGL
+  renderer. Use authorized host execution with scratch HOME/XDG for hardware qualification;
+  `--ozone-platform=x11` is a real argv (see the 3D traps below for the poster worker).
+- The dev fixture must install `window.fig` before mounting Shell, matching Electron's
+  preload order. Shell idle-prefetch mounts Annotate even on Home; starting it before
+  the async fixture import finishes makes the initial capability probe cache `[]` for
+  five minutes and loses the one-time runner-event subscription. `main.ts` awaits
+  fixture installation before mount, not a timeout or a second capability probe.
+  `verify-inbox-gui` holds the fixture module request and pins the first probe and
+  subscription. Larger import graphs can expose this ordering bug without throwing.
+- Tool output can lose its middle as well as its end. Keep the connect brief ≤10,000
+  characters, with every section marker and the final sentinel; use `read_pack` chunks
+  for the bundle and verify proof codes instead of assuming a long response arrived intact.
+- A shell sandbox may refuse CLI writes outside its workspace. Prefer the registered
+  MCP path; connect falls back to a temporary cache, then stdout-only parts. Setup does
+  not change the user's sandbox policy. Do not treat a cache fallback as permission
+  to bypass a refused project write.
+- Codex MCP servers do not inherit Codex's identifying environment reliably. Use MCP
+  `clientInfo` through `agentIdentity.ts`, with explicit FLUX_CLIENT overrides, rather
+  than assuming shell environment identifies every session.
+- Claude Code's `--allowedTools` and `claude mcp add` variadic flags consume later
+  positionals. Put positionals first or use the CLI's explicit separator/stdin grammar.
+  The Ask driver sends prompts on stream-json stdin; Codex image flags are variadic
+  too, so it ends options with `-- -` and sends the prompt on stdin. Pin argv in the
+  driver/setup gates and verify binding against the installed binary when it changes.
+- Claude Code `-p --permission-mode dontAsk` denies every MCP call and Read outside
+  its working directories unless pre-approved (`--allowedTools mcp__flux`, `--add-dir`).
+  `--tools` names the built-ins. Ask combines a read-only MCP server with the explicit
+  `Read,Grep,Glob` built-in set; an MCP allow rule alone does not constrain built-ins.
+- Codex `approval_policy="never"` refuses MCP tools without `readOnlyHint`. A trusted
+  server's per-server `default_tools_approval_mode="approve"` permits its writes;
+  this is a scoped trust choice, not Ask's profile. Ask retains read-only server tools.
+- Running Claude Code rewrites `~/.claude.json`. Use `claude mcp` for registration,
+  recheck baselines and verify the result; a direct JSON edit can lose a concurrent change.
+- Headless Claude `-p` behavior may change, including a future bare-mode default.
+  Feature-check `system/init`, fail on explicit bare markers, and report missing Flux
+  MCP. Empty skills or `apiKeySource:none` alone are not bare-mode evidence (§4).
+- Attach child exit/error handlers **before** any interaction, including stdin writes;
+  an early exit is not replayed. Own descendants through teardown. From source, the
+  test launcher's child is tsx and the server is its child: signal the **server pid**,
+  not just the launcher child, and verify EOF removes presence.
+- A stale `dist/` can answer MCP gates with old code. Judge source MCP gates with no
+  `dist/` present; explicitly rebuild when qualifying the bundled path. Do not infer
+  which implementation answered from the working directory.
+- Run gates through `scripts/run-verifies.mjs`, never directly. Any Flux CLI or app start
+  without `FLUX_NO_MIGRATE=1` installs the user's `flux` launcher from THAT checkout and syncs
+  FluxConfig; a direct gate run from a worktree once left the real launcher owned by a
+  worktree whose `dist/` was later deleted (every `flux` failed). A launcher whose executed
+  files are gone now counts as dead and is repaired by the next live install.
+- Generated CJS with long string literals can defeat named-export detection. Dynamic
+  imports need the `.default` interop guard (`fluxContextDocs.gen.cjs` is one example).
+- External commands use `resolveSpawn` and its `windowsVerbatimArguments` result:
+  prefer `.exe`, otherwise ComSpec wraps `.cmd`/`.bat`. Empty `env.Path` must fall
+  through to `env.PATH` (`||`, not `??`). Simulated resolver tests do not qualify
+  a native Windows launch. Optional model/effort flags and their values are added or
+  omitted together; avoid free-form argv template substitution.
+- A `$effect` that returns early on a non-reactive value before reading its reactive
+  inputs never subscribes to those inputs. Read them first; PdfView's scroll target
+  exposed this when navigation arrived after the effect's initial run.
+- Contention tests need start barriers to collide writers; arbitrary parallel launches
+  can miss the race. Publish lock claims with their payload atomically; unreadable
+  claims mean unknown/in-flight, not stale. Restore fault-injected source from an
+  exact pre-test copy, never `git checkout` over uncommitted work.
 
 - **Legacy Svelte reactive statements cannot see store reads hidden in helpers.** The Figure
   selection rectangle regressed when an inline `$selection` filter became `selectedEls(fig)`
@@ -1608,6 +2262,8 @@ chord or label changes, grep `docs/` for the old one.
   binding. (This collided with a pan-quantizer variable and cost a 4× regression.)
 - Key memos on object **identity** (e.g. a rect object), not its fields — field-keying re-runs
   per frame under pan.
+- A `<details>` inside a control that rerenders mid-gesture must bind its `open` state, or
+  the rerender collapses it under the pointer (the 3D Shape sequence block did).
 
 **Derived model fields (figure families):** since 2026-08-04 a figure's `name` is DERIVED from
 family identity — every load runs `applyFamilyNumbers`, which rewrites `name` from
@@ -1641,6 +2297,17 @@ days (probe geometry like `width` instead).
   a best-of-N or larger overhead allowance must not silently replace that threshold.
   Keep machine/runtime evidence with failures before considering a separately reviewed
   change to a responsiveness budget.
+- **Exact SVG goldens do not establish visual quality.** A furniture layout passed its goldens
+  while a colorbar title overlapped its top tick; inspect the real expanded preview as well as
+  small contact sheets before accepting generated artwork.
+- Headless Chromium may defer a no-timeout `requestIdleCallback` until another frame. A gate
+  that waits for idle work must supply that frame deliberately, and say so in the gate.
+- A page can contain several CodeMirror editors, including inactive panes. Native typing
+  qualification retains the Paper editor selected by the actual click and compares that same
+  editor before/after; the first `.cm-content` in document order is not a valid oracle.
+- Chokidar readiness for existing roots says nothing about a directory created later: `addDir`
+  fires before that subtree is scanned and attached. A test observer needs its own readiness
+  barrier on the new subtree before the first write into it (`verify-model3d-cache-watch.cjs`).
 
 **CI browsers and external tools:**
 
@@ -1660,6 +2327,17 @@ days (probe geometry like `width` instead).
   actual tools before launching an isolated attempt. CI provisions Quarto for both the
   bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
   capable machines; never exit successfully merely because an export tool is unavailable.
+- **A dismissed toast is still in the DOM for its fade** (`Toasts.svelte`,
+  `transition:fade` of `DUR.quick` = 200 ms). "Gone after one paint" fails every time;
+  wait for the node to leave with a timeout well under the 3.5 s info expiry, so the check
+  still proves dismissal rather than expiry (`verify-slide-model3d-gui`, 2026-09-29).
+- **To make one dev module fail to load, scope the failure with CDP**
+  (`Fetch.enable` with a `urlPattern`, then `Fetch.failRequest`). Puppeteer's page-wide
+  `setRequestInterception(true)` stalled the Paper slide widget before it mounted, so the
+  failure path under test never ran (`verify-model3d-embed-gui`, 2026-09-29).
+- **`--group paper-gate` contains an Electron gate** (`verify-v020-gui-export-recovery.cjs`,
+  which also needs a renderer build). A worker barred from Electron runs the group's
+  browser members by name instead.
 
 **Environment:**
 
@@ -1671,7 +2349,9 @@ days (probe geometry like `width` instead).
   looks like success. Automated Electron harnesses therefore pass `--ozone-platform=x11` **as a
   real command-line argument** — from a detached shell native Wayland can also hang Electron
   *after* JS starts but before `app.whenReady` ever resolves, and an `appendSwitch` inside the
-  script is parsed too late to save it (2026-08-11) — and demand **positive** boot evidence
+  script is parsed too late to save it (2026-08-11). On this Linux host,
+  `FLUX_PRIVATE_DISPLAY=1 DISPLAY=:0` makes the runner add the real argv;
+  `ELECTRON_OZONE_PLATFORM_HINT` alone is not honoured. Demand **positive** boot evidence
   (e.g. a probe printing `windows=1 title=Flux`), never absence-of-errors.
 - **On Wayland a client cannot set its own window icon** — no protocol exists for it, so
   `BrowserWindow.icon` is silently ignored (on X11 the same option works, via `_NET_WM_ICON`).
@@ -1739,10 +2419,6 @@ days (probe geometry like `width` instead).
   bumps an epoch per tick, which cancels the claim/publish in flight; when one atomic write
   outlasts the interval, every tick discards the previous tick's work and the view publishes
   NOTHING. Skip a tick while a pass is running — only a real state change preempts.
-- **node-pty leaves a MessagePort and a Socket open on Windows after the child exits**, so a
-  process that owned a PTY never returns to the shell (`flux principal` with a transcript hung
-  forever; `--no-transcript`, which never opens one, was fine). A terminal-owning verb with
-  nothing left to flush should exit explicitly.
 - **A WASM call is an indivisible scheduling unit — queue priority cannot preempt one.**
   The correction worker reorders its queue so a live repair jumps ahead of annotation-only
   work, but a backlog window already inside `linter.lint()` holds the thread until it
@@ -1767,7 +2443,11 @@ days (probe geometry like `width` instead).
   backslashes on purpose, because a stored path never has one. On Windows the renderer therefore
   rejected its own path and lost EVERY semantic manifest, silently dropping part overrides from
   headless renders and exports. The rule is not "normalize at the boundary" but "a value crossing
-  INTO stored-path form is converted at that crossing".
+  INTO stored-path form is converted at that crossing". The same crossing hid in
+  `boundedModelFile` and the CLI/MCP media boundary (every input arrives `path.resolve`d, so
+  `C:\proj\…` on win32): `projectRelativePath` in `flux-core/projectSource.ts` is that
+  conversion for flux-core, testable with `path.win32`; never refuse a backslash on an
+  already-resolved input.
 - **`textLength` + `lengthAdjust="spacing"` is not justification.** It shares a line's slack
   between every pair of GLYPHS, so justified text came out with its letters pushed apart —
   which is what the owner saw and reported (2026-09-22). Real justification widens the WORD
@@ -1922,8 +2602,9 @@ real exports Word refused):
   `docxSvgFallback.ts` rasterizes and splices the PNG in after Quarto, keeping the svgBlip so a
   capable Word still gets the vector. Rasterization is INJECTED: the OPC surgery gates
   hermetically in Node; the GUI injects its canvas rasterizer and headless `compile`
-  injects flux-core's out-of-process resvg rasterizer. The latter requires the existing
-  checkout/CLI resvg dependency (it is not packaged into the app). Both paths report
+  injects flux-core's out-of-process resvg rasterizer. The app ships its wrapper and
+  platform prebuilt under `app.asar.unpacked/node_modules/@resvg/`; source/dist use
+  their installed dependency. Both paths report
   failed raster fallbacks instead of treating an absent picture as verified output.
 - Corollary for both: **"the export succeeded" is not evidence the figures are in it.** Check
   `drawings` vs `hyperlinks` in `word/document.xml` and whether each `a:blip` carries an
@@ -1989,8 +2670,82 @@ static signal except esbuild's `import-is-undefined` warning during `npm run bui
 warning as an error (it shipped a dead `cascade-tracks` verb); registry-parity §(e) now pins
 every `core.<name>` reference in verbs.ts against the real index surface.
 
+**Packaged PNG rendering:** `electron-builder.yml` must both include and unpack
+`node_modules/@resvg/**` (wrapper plus the platform prebuilt). `flux-core/render.ts`
+resolves an `app.asar` module URL through its `app.asar.unpacked` sibling and starts the
+raster child with `ELECTRON_RUN_AS_NODE=1`; Node cannot load a `.node` from the archive.
+`verify-w13-cli.mjs` exercises source-dist and an isolated unpacked CLI, including a
+missing-dependency negative control. Keep its fixture OUTSIDE the repo: changing cwd
+does not prevent Node from finding a package in the entry file's ancestor directories.
+`verify-packaged-app.mjs` checks the actual installed CLI's PNG signature and pixels.
+**macOS dual-arch limit:** npm normally installs only the host's optional prebuilt.
+Both `@resvg/resvg-js-darwin-arm64` and `@resvg/resvg-js-darwin-x64`, at the wrapper's
+locked version, must be present before a single-tree dual-arch build, or build each
+architecture on its native runner. `npmRebuild:false` cannot supply a missing optional
+dependency. This work does not qualify either macOS artifact; run the packaged smoke
+on each target architecture before release. PDF snip/text native dependencies remain
+outside this PNG packaging change.
+
 **SVG rendering & the slide player (the anim_test lessons, 2026-07-18):**
 
+- **T7 retired: camera poses and transform strings must share one geometric path.**
+  Linear interpolation of centre/zoom and of translate/scale disagree between endpoints.
+  Both readers now use `slide/camera.ts`: pole/log zoom by default for every deck,
+  optional `to.path: "fly"` for van Wijk–Nuij. The player builds 24 uniform transform
+  keyframes, rebuilding all of them from live FROM before play and restoring their
+  compiled FROM before random seek. Replacing only frame zero breaks the path.
+  `flyDuration` is natural S in seconds; the UI converts to ms and uses `setTrack`.
+  Gate `verify-slide-camera` pins the old 23.58 px disagreement and new sub-0.5 px
+  compiler/player agreement. Both readers take the unclamped curve (M2 × M5
+  integration). A spring's overshoot leaves the keyframed 0–1 range, and linear
+  extrapolation of the last transform segment is NOT the geometric path: 9.1 px off
+  the compiler for spring(0.5) 1→2, and a negative `scale()` for spring(0.8) 1→0.05.
+  Out-of-range frames therefore sample the preset's `transformAt(u)` (the same
+  `sampleCamera`); the gate pins both failures.
+
+- **Retired easing traps T1–T4 (Animation v2 M2):** T1 rebuilt JS easing from CSS and
+  treated every `linear()` as smoothstep; specs now retain `ResolvedCurve`, with
+  per-property `fn`/`clamped` selection and `css` only for native effects. T2 clamped
+  the physical motion away; keyframe box segments extrapolate, and `overshootBox`
+  extends only position/size/rotation/contentScale after the bounded content tween.
+  T3 flipped A/M/B on eased crossings; controllers now receive `(u, raw)` and use
+  raw for visibility, compositor settlement and endpoint formatting. T4's hand-off
+  reveal and final-15-percent glyph fade already use raw; real-player spring gates
+  pin that seam while correspondence/glyph coordinates stay clamped. Static calls
+  pass both endpoints explicitly. See `docs/SLIDE_TRANSFORMS.md`'s channel table.
+  Two browser-only consequences: a unitless zero in a transform keyframe must retain
+  the other endpoint's CSS unit during interpolation, and inner content/viewBox must
+  use the clamped state—an extrapolated viewBox would cancel the wrapper's overshoot.
+
+- **Resolve animation styles and anchors before reading tracks.** Pass `animStyles` to
+  `compileSlide`/`evaluateSlideState`; the player binds `compiled.cues`, and
+  `compiled.resolvedSlide` includes disabled/dangling tracks for inspection. Pure authoring
+  readers use `resolveTrack`/`resolveBeat` with deck styles and target manifests. A field
+  present on the track overrides the style; `undefined`/`null` are absent and inherit (there is
+  no explicit-null override, and the schema refuses `null`). The three timing fields
+  (`curve`, `influence`, `easing`) inherit as ONE group: any own value blocks the style's
+  entire group. Setting one clears the others; `setTrackCurve(..., null)` clears all
+  three to inherit/default. "None though the style has one" is a
+  sentinel the Animator already writes: `stagger: {perMs: 0}` and `params: {}`. The disk also accepts
+  `influence: {in: 0, out: 0}`, but CurveField/cascade zeroing uses
+  `setTrackCurve(..., null)` to restore inheritance/defaults. Resolution is idempotent. **`preset` never resolves from a style:** it defines
+  the family, and `familyOf(track)` (family law, `tracksMatch`, ghost births, media checks) reads
+  the raw track, so a linked track always keeps its own `preset` (a ghost birth keeps
+  `transform` and passes the schema's `ghostFrom → preset` rule). It is the one style field that
+  propagates by write: `linkTrackStyle` writes a same-family style's preset once (another family
+  is refused) and `setAnimStyle(…, {track: {preset}})` rewrites every linked track's preset.
+  The Animator resolves drag-preview copies through `resolveBeat`, so followers move before
+  commit; a plain drag uses `setTrack` with `anchor: null` and the resolved absolute start.
+  Inherited-field resets delete the local key; resetting a preset copies the style's preset
+  instead, preserving the family-defining own field. Style edits send sparse patches: resending
+  an unchanged preset would overwrite those local preset overrides. Static hosts pass the same style context,
+  and thumbnail invalidation includes only the styles that slide references.
+  Snapshot saves carry `slideAnimStyles` and curve specs; cloned
+  beats/slides remap timing anchors beside ghost IDs. Moving/copying a track across
+  beats detaches its anchor to the source beat's resolved start (pass `manifestFor`
+  for semantic stagger tails); moving a leader also detaches its direct followers
+  at their resolved starts before removing it. A same-beat edit keeps anchors. Media styles refuse stagger. `trackDuration` remains exported by compile
+  but lives in `timing.ts` to avoid a compile/resolver import cycle.
 - **Animation coverage must include history-independent state.** The 2026-09-05 audit
   reproduced chained plot morphs restarting from the base asset, text crossfades retaining
   a future layer after reverse seek, and ordinary fades clearing authored rotation/opacity,
@@ -2017,7 +2772,7 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   multiply stroke styles) — any code path that re-runs them per frame COMPOUNDS (glyphs shrink
   a notch per beat nav, explode to a gray wall during playback). The contract: capture pristine
   per-field records first (WeakMap in compensate.ts), and every seek runs
-  `restorePtTrue → viewBox/crop → applyOverrides → compensatePtTrue` — exactly a fresh mount,
+  `restorePtTrue → restoreProjection → viewBox/crop → applyOverrides → applyPlotView → compensatePtTrue` — exactly a fresh mount,
   idempotent at any t (transform.ts).
 - **Never animate the wrapper's layout box** (left/top/width/height): the svg child's painted
   origin pixel-snaps to whole STAGE px — sub-pixel writes paint nothing, then jump a full px at
@@ -2105,6 +2860,10 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   Slide toolbar's zoom button (first in DOM order) and the expanded gallery preview's; the old
   preview header happened to overlap the toolbar button, so the unscoped click worked by
   accident. Scope gate selectors to the surface under test.
+- **Window key listeners can receive non-Element targets.** Shell command dispatch and
+  its browser gates dispatch on `window`; guard `event.target instanceof Element` before
+  calling `closest`. Escape cancellation must still work for those dispatched events
+  (`verify-slide-animator-gui`, `verify-annotation-surface-gui`).
 - **Svelte 5 delegation hides keydown owners, and window listeners run in mount order.**
   `onkeydown` on elements is delegated to one root listener, so `getEventListeners(el)` shows
   nothing on the element; `<svelte:window on:keydown>` handlers fire in mount order
@@ -2329,15 +3088,15 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   imports), not from a naming convention or a cache.
 
 - **A Svelte 5 `$effect` tracks every `$state` read inside the helpers it calls — and an
-  async helper that later WRITES that state re-runs the effect.** `AnnotateCapture`'s effect
+  async helper that later WRITES that state re-runs the effect.** The capture surface's effect
   called `open()`, whose `reset()` read `frozen` to revoke the old object URL; when the window
   capture arrived and set `frozen`, the effect re-ran, reset, captured again, forever — `ready`
-  never survived to a paint, so Ctrl+Shift+S did nothing in every real build (Electron, all
+  never survived to a paint, so capture never became ready in real builds (Electron, all
   platforms) while the browser harness, whose demo bridge had no `captureWindow`, took the
   synchronous branch and stayed green (2026-09-26). Read the store into a local and do the work
   under `untrack`. The general rule: **a harness bridge must have every method the real bridge
   has** — a missing optional method silently selects the branch nothing else tests. The demo
-  bridge now captures (an OffscreenCanvas PNG), and `verify-annotate-gui` walks the async path.
+  bridge now captures (an OffscreenCanvas PNG), and `verify-annotation-surface-gui` walks the async path.
   Two more from the same chase: the figure editor's Ctrl+S branch matched the shifted chord
   too (`e.key` ignores Shift) and raised save-as under the overlay; and a probe that connects to
   Electron over `--remote-debugging-port` must first prove the port is FREE — a stale instance
@@ -2367,7 +3126,65 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   `ColorPicker.svelte`; `verify-no-native-color-input.ts` (pure, structural) and
   `verify-color-field.mjs` (ui) gate it.
 
+**3D models (Figure; T-numbers refer to the trap list in the 3D plan):**
+
+| # | Trap | Mitigation / gate |
+| --- | --- | --- |
+| T1 | Electron with `--disable-gpu` or headless ozone has no WebGL | the poster worker selects ANGLE SwiftShader explicitly and never passes `--disable-gpu`; `verify-model3d-electron.cjs` runs a `SOFTGPU` scenario |
+| T2, T3, T10 | Chromium caps live WebGL contexts per page, and reusing a canvas for a second renderer loses its context | one context per document and one renderer per canvas lifetime (`dispose` + `forceContextLoss`); `Element.svelte` never hosts WebGL, because resize previews mount a second view; `verify-model3d-gui.mjs` asserts the context count, `verify-model3d-render-browser.ts` loss and restore |
+| T7 | CSP `connect-src` blocks `fetch(data:/blob:)` | parse GLBs from an `ArrayBuffer` only; `verify-model3d-poster-worker.cjs` renders under `connect-src 'none'` |
+| T9 | The zoom proxy can't see WebGL, `foreignObject` or `blob:` | the scene holds data-URL posters and SVG only; `verify-model3d-gui.mjs` checks mesh pixels in the proxy |
+| T12–T14 | A GLB silently coerced to an image kind, collectors keyed on `'assetId' in e`, base64 GLBs in `assetData` or journals | `elementAssetRefs` everywhere, no GLB-as-PNG MIME fallback, GLB never in `assetData`; `verify-model3d-persistence.ts`, `verify-model3d-gui.mjs` |
+| T19 | Connect diffs the project tree | read-only paths never write posters; `verify-model3d-verbs.ts` runs Connect with unreadable GLBs and asserts no project or cache writes |
+| T20 | GPU and SwiftShader pixels differ | tolerance comparisons (worker/inline parity in `verify-model3d-render-browser.ts`); engine-parity checks share one poster file (`verify-model3d-headless.ts`) |
+| T22 | PDF printing runs with JavaScript disabled | posters are mandatory and furniture is vector; `verify-model3d-electron.cjs` checks the native PDF's vector labels and mesh pixels |
+| T24 | Capture must be deterministic, but an IntersectionObserver flag lags layout: a model that flew in or was panned into view kept its poster on its first visible frame | the slide binding's `flush` confirms an offscreen flag against the root's client rect before releasing; `verify-slide-model3d-player.ts` |
+| T25 | `planFigSave` stamps versions unconditionally | stamp 0.2 only with 3D content; `verify-figfiles-parity.ts` pins no-3D bytes, `verify-model3d-persistence.ts` the 3D stamps |
+| T28 | A scene3d manifest reaches the 2D plot reader (same `.fluxplot.json` suffix) | dispatch on `spec` everywhere; `verify-model3d-scene3d.ts` |
+| T29 | Furniture drifts from the WebGL projection | one `orbit.project`; ≤0.5 px marker agreement in `verify-model3d-render-browser.ts` |
+| T30 | Text measured at render time makes engines disagree | anchor-only layout; `verify-model3d-furniture.ts` asserts no DOM or text measurement, `verify-model3d-headless.ts` Paper/Node byte parity |
+| T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
+| T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
+| — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
+| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts`. The deck save judges only GLBs the slides still reference (`slideAssetIds`): asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
+
+- Names that come from user files (GLB nodes, shape targets) can be `constructor` or
+  `__proto__`: keep them in own-key/null-prototype maps and escape them reversibly before Zod
+  validation.
+- Trusted VS Code Jupyter/QMD outputs run scripts, but untrusted VS Code suppresses the whole
+  mixed HTML/PNG output instead of falling back to its PNG; docs must offer
+  `sc.show(static=True)`.
+- A destination preflight does not hold across later awaits. Generators that create a tree
+  (`scripts/create-model3d-demo.ts`) build in an owned staging directory and publish the
+  finished tree atomically after a final check.
+
 ## 10. Current state & deliberate deferrals (don't "fix" these)
+
+- **3D v1 is triangle-mesh visualization.** N2 (3D lines and points) remains out of
+  scope, alongside volumes, textures/PBR or light editing, shadows, geometry
+  modelling, 3D-anchored annotations, VR/AR and live PPTX 3D. Compose depth-related
+  parts inside one fluxplot scene; separate Figure elements do not share a depth
+  buffer. Different-topology meshes crossfade; no inferred correspondence is
+  attempted. Slides support model camera/shape Changes, Turntable, semantic-part
+  appearances, Ghost and model transitions through the existing animation engine;
+  PDF/PPTX use documented mesh/furniture stills rather than live 3D.
+
+- **Agent registration:** automatic setup supports Claude Code and Codex. Other
+  vendors receive the MCP spec and launcher instructions; automatic integration
+  is deferred. Codex hook installation depends on the installed CLI's capability
+  probe, and users review/trust newly installed hooks in `/hooks`.
+
+
+- **Agent conversations:** use vendor apps or the user's own terminal for general work;
+  Flux supplies the anchored Inbox and read-only Ask. Reader still publishes its
+  selection/page through the context seam; passage actions route to Annotate and the read-only Ask popover.
+  Alt+T and Mod+Backquote are free in Paper; Alt+T is free in Reader.
+  Figure/Slide still use Alt+T for Arrange.
+
+- **Deferred agent work:** FluxChat F6 (general unanchored chat), an ACP driver and
+  a Codex app-server driver remain deferred. Do not infer them from Ask's runner.
+  `scripts/oneoff/migrate-2026-09-flux-connect.mjs` is a historical migration record,
+  not app startup code; it may be removed once every intended machine has run it.
 
 - **Distribution policy (owner decision, 2026-09-21): no paid Apple signing or
   notarization.** The packaging plan is `notes/packaging_distribution_integration-plan.md`
@@ -2435,11 +3252,17 @@ every `core.<name>` reference in verbs.ts against the real index surface.
   is the one static-hiding mechanism) — `setPartVisibility` remains as the
   headless/back-compat op + verb only; don't resurrect a GUI tri-state.
   Cross-type transforms (e.g. rect→text) are now implemented by `slide/tween.ts` retyping;
-  preserve them and test reset/default semantics (September 20 review PS-06). Per-part transform
-  tracks remain deferred (part styling changes ride the plot transform's
-  `overrides` diff). Character-level text morph is the flagged Phase-8
+  preserve them and test reset/default semantics (September 20 review PS-06). Part-set
+  transforms now support hand-off Become; part styling Changes continue to ride the whole
+  plot transform's `overrides` diff. Character-level text morph is the flagged Phase-8
   enhancement, not merge-blocking; text rewrites crossfade (numeric diffs
   digit-tween).
+- **Plot data views (Animation v2 E1–E6):** `view` renders in all five plot hosts and
+  tweens through the transform driver. Axis view controls and `set-plot-view` author the same
+  shared prop; semantic binding preserves shared series across regenerated tick/point counts.
+  Filled and non-series marks remain unchanged; no new ticks are generated. Existing ticks
+  fade in the outer 4%, including exactly on new limits. Non-positive log data refuses that
+  series with a compiler issue. True regeneration/re-ticking remains a fluxplot follow-up.
 - **Lazy-residency deferrals (2026-07-21):** slide-mode lazy asset loading (plan Phase 2 —
   `resolveDeckAssets` stays eager; the player/morph/thumbnail consumers have no mount-driven
   reload path, and scale-slide is green at 31 plot slides) and lazy `assetData` bytes (Phase 4
@@ -4619,7 +5442,6 @@ zero metadata drift).
 - `loadIndex` compared mtimes only, so a parser-shape change with an unchanged .bib would
   serve a stale index forever; it now also rebuilds on a `schemaVersion` mismatch.
 
-
 ### 2026-08-09 — Reserved folders under plots/: `_lighttable` joins `_dissections` (Claude Opus 5, `main`)
 
 Owner-requested: Lighttable collections belong inside the project, at
@@ -5866,7 +6688,6 @@ all six plots validate and offline browser checks verify actual data interpolati
 opaque intermediate frames, chained/reverse seeking and clean playback. No application
 implementation changed.
 
-
 ### 2026-09-13 23:30 CDT — Slide video clips (Codex, `main`)
 
 **Work:** Added MP4/MOV gallery import from `plots/_videos`, ordinary geometry editing,
@@ -6515,7 +7336,6 @@ distribution, CI/release evidence, implementation sequence, and maintenance/reco
 Read the active fortification release seams without modifying that worktree. Recorded the
 owner's no-paid-Apple constraint in §10; application code and release infrastructure unchanged.
 
-
 ### 2026-09-21 18:54 UTC — Main integration with current upstream text and CI work
 
 Combined fortification/zoom/eyedropper through `acd1ff3`, upstream through `7d90525`,
@@ -7069,3 +7889,801 @@ and metadata-refinement checks failed. No gates or product code were changed to 
 those failures. Evidence: `test-results/runs/2026-09-27T05-15-42-028Z-13129`.
 **Learnings:** Corrected the obsolete signed0.1.1 release blocker in the body after
 verifying the checked-in signed0.1.2 payload matches the current source.
+
+### 2026-09-27 06:11 UTC — Standalone flux-connect migration (Codex, aio/w2m-migration)
+**Work:** Added the offline one-shot migration, its agent runbook and a registered scratch-only
+behavior gate. Historical generated templates were collected from Git, including seven
+older guide variants; authored text, comment IDs, archive bytes and Git indexes are preserved.
+Svelte checks pass at 0 errors/0 warnings; headless checks pass. The final pure tier passes
+294/294, including 125 migration checks and 159 docs checks. Two initially blocked media
+gates passed after provisioning the pinned encoder inside this worktree.
+**Learnings:**
+- An interrupted rename needs both a flushed pre-apply report and a rerunnable exact-text
+  update at the destination. The migration gate exercises the actual child-process interruption.
+
+### 2026-09-27 06:21 UTC — Packaged PNG and machine project history (Codex, aio/w3b-render-registry)
+**Work:** Included/unpacked resvg and kept PNG rendering in the isolated child, with source/dist
+and packaged CLI smoke coverage. Added the shared machine project registry and deferred native
+open recording; its gate passes 41 checks, the full pure tier passes 291/291, Svelte check is
+0/0, headless check and CLI build pass. Bundle/native smoke execution remains with the
+orchestrator; no packaged or macOS qualification is claimed.
+**Learnings:** Promoted the macOS optional-prebuilt prerequisite and Node ancestor-resolution
+trap into §9, corrected the retired packaging limitation, and documented registry ownership in §3.
+
+### 2026-09-27 06:26 UTC — ProjectContext and the Log (Codex, aio-w2a-context)
+**Work:** Replaced the mission template and its consumers with ProjectContext, added passive
+AGENTS/CLAUDE pointers and project-only additive healing, and implemented locked `log` writes
+plus shared parsing and `read-log`. Removed archive discovery exceptions, added generic stock
+manual pruning and the user Skills seed, and updated the affected docs and gates. Local
+verification and the UI/native gates reserved for integration are recorded in the worker report.
+**Learnings:**
+- Promoted the EOF Log rule, byline caller contract and no in-app Context migration rule into
+  the body. Registry runtime-export checks treat `core.*` as values; use type imports for types.
+
+### 2026-09-27 — CLI/MCP foundation (Codex, `aio-w3a-mcp`)
+**Work:** Added stable owned launchers, the shared MCP server entry, explicit verb scopes and path policy, project binding, handshake identity, passive instructions/prompt, and core/full toolsets with validated meta dispatch. Added hermetic launcher, raw-protocol and binding gates; updated stock-doc placeholders and the guide's verb recipe. Full connect hydration remains the next phase's responsibility.
+**Learnings:**
+- A schema failure must use the SDK's own error formatter for meta-tool and dedicated-tool result parity.
+- A default project discovered at server startup is not a connected session; global connect preserves an existing project binding.
+
+### 2026-09-27 06:55 UTC — Reader Highlights naming (Codex, aio/w4c-highlights)
+**Work:** Renamed the Reader's public CLI/MCP and UI vocabulary to Highlights, preserving
+Alt+A, the Annotation model and annotations.json storage. The reading-context tool maps the
+saved annotations field to highlights; docs/help and the generated stock manual and MCP
+golden follow the rename. Added a hermetic CLI/MCP behavior gate and a rendered tab-label
+assertion; reverting the context mapping makes the new gate fail three checks.
+**Learnings:** Promoted the public-name versus storage-name boundary into §4. PDF.js link
+annotations and the Ctrl+Shift+M annotation ledger remain separate concepts.
+
+### 2026-09-27 — flux-connect engine: collect, cache, refresh, MCP, hook (Claude Opus 5.5, `aio/cores`)
+**Work:** Wrote the connect engine's IO layer over the pure renderers: `collect.ts` (read-only
+facts with source shas, fault-tolerant per part), `cache.ts` (pack dirs, retention 5, tmp and
+stdout-only fallbacks, CLI session cursors), `index.ts` (target resolution with known-project
+suggestions, pack writing, `--refresh`, parts, read_pack, receipts), `refresh.ts` (stat snapshots,
+deltas, notices), `mcp.ts` (per-session cursor, the piggyback wrapper around every MCP tool,
+read_pack / get_pack_image / read_delta), `cli.ts` + `hookFast.ts` (the Claude Code prompt hook
+and self-write absorption), and a render cache keyed before the SVG is built. The registry
+connect verb calls the engine; `cliOnlyFlags` lets the CLI accept flags MCP never sees.
+Timings on a copy of a real 7-figure project: core connect 1.5 s cold / 0.3 s cached; full
+2.8 s / 1.1 s; hook quiet path 21 ms p95.
+**Learnings:**
+- A real project with a duplicate figure referenceKey makes every render verb refuse the
+  snapshot; connect must degrade to index-only listing and say so, never fail.
+- Pure MCP gates that spawn the launcher run `dist/` when it exists: rebuild (`npm run
+  build:cli`) before judging them locally, or a stale bundle answers.
+
+### 2026-09-27 07:18 UTC — Headless inbox and presence (Codex, aio-w4a-inbox)
+**Work:** Replaced the headless feedback API with the v2 annotation engine, unified
+inbox/claim/reply/resolve verbs, cursor waits, saved-target inspection and capped MCP images.
+Added explicit-connect presence with serialized rebind/exit cleanup, and the shared pure
+comment append helper. Updated the stock manual, generated docs, MCP golden and gate manifest.
+The old feedback/withdraw gates were consolidated because the send boundary is retired.
+**Verification:** Full pure tier passes 298/298; CLI build and headless typecheck pass.
+Svelte check reports 7 errors/0 warnings exclusively in the two GUI feedback importers
+awaiting W4b's separately owned replacement; no shell or bridge files were changed here.
+The orchestrator must merge that work, wire GUI Reply to `appendCommentMessage`, then run
+check, annotation/context UI, paper-gate, startup and native coverage. Nothing committed.
+**Learnings:** Use item fingerprints in wait cursors so equal-timestamp appends are visible;
+a torn tail needs a separator before the next atomic event. Stale claims name their observed
+predecessor to arbitrate competing takeovers; an unmarked losing claim never becomes a
+winner when the old presence expires. Presence is a lifetime owned only by explicit
+connect, including simultaneous connects; cwd discovery creates no session. A bound result
+includes its session, and the connect engine can read `currentSession()` after binding.
+### 2026-09-27 07:26 UTC — Unified Annotate surface (Codex, aio/w4b-annotate)
+**Work:** Replaced the two capture surfaces with one lazy composer, shared context/semantic
+targets, named routing/statuses, and scoped utility-window capture; restored Reader passage
+actions. Pure tier passed 295/295, Svelte 0 errors/0 warnings, headless and production build
+passed; browser, scale, native and startup qualification are assigned to the orchestrator.
+**Learnings:**
+- Promoted bootstrap key buffering, fullscreen portal ownership, indexed hover resolution,
+  presence throttling, and retained-picture/context coherence into §4; updated §1's shared-core pointer.
+- Updated the retired Reader gate contract from hiding ✦ to exact passage/highlight routing;
+  the portable presentation key runtime remains pinned unchanged.
+
+### 2026-09-27 07:20 UTC — Shared agent setup and health checks (Codex, aio-w5b-setup)
+**Work:** Implemented shared probe/plan/apply/remove/doctor, vendor skills and MCP registration,
+managed refresh hooks, and connected-vendor UserContext skill publishing. Added CLI-only
+mutation entry points and the read-only MCP doctor, preserved launcher ownership, and
+registered three scratch-home gates. Vendor contract evidence and integration boundaries
+are in `docs/for_agents/agent-setup.md`; UI/native acceptance remains with the orchestrator.
+**Learnings:**
+- A backup directory containing SKILL.md becomes another vendor skill; use a lossless
+  regular-file archive for directory backups and removals.
+- Codex now has an explicit invocation policy and prompt-submit hooks. Capability-probe
+  the installed CLI, and preserve its separate hook-trust decision.
+
+### 2026-09-27 08:10 UTC — Stock manual rewrite (Codex, aio-w5a-manual)
+**Work:** Shipped the 13-document D5 manual: FLUX/CONNECT entry points, separate
+authoring/review/library references, updated command/path guidance, and complete
+merge accounting in the overhaul notes. CONNECT preserves the supplied
+contract with current saved-image guidance and conditional background-agent routing.
+Pinned prompt-block budgets and watch steps, extended registry scans to every manual,
+and regenerated the stock module/CLI. Corrected one pre-existing manifest reference
+to W4b's deleted annotation gate by selecting its registered replacement.
+**Verification:** Full pure tier 307/307; context scheme 109 checks; stock name scans
+105 CLI verbs and 116 MCP tools; config/pruning 72 checks. CLI build, headless typecheck
+and Svelte check (884 files, 0 errors/0 warnings) pass. Five intentional contract/name
+faults fail the new checks and were restored. No UI/electron/bundle tier was run;
+integration acceptance remains with the orchestrator. Nothing committed.
+**Learnings:** The connect token estimator also bounds prompt excerpts. A renamed
+manual must update config sync assertions as well as content pins; generic pruning
+already handles the retired stock files. `get_view` remains a parallel F3 dependency;
+the current manual uses live target context plus saved figure/canvas images.
+### 2026-09-27 07:57 UTC — Live window view and Pair (Codex, aio/f3-live)
+**Work:** Added authenticated window capture, the core MCP `get_view` tool and CLI
+`view` twin, consent in Settings, presence-named titlebar activity and Pairing badges.
+Added the hermetic transport/renderer gate and a real Electron pixel/indicator probe;
+native and browser acceptance remains with the orchestrator. Promoted the capture
+ownership/consent contract and AI-panel activity-store integration into §1. Updated
+a stale pathMap reference from the retired Annotate gate to its W4b replacement.
+### 2026-09-27 08:15 UTC — AI status monitor (Codex, aio-w6a-monitor)
+**Work:** Added the titlebar indicator, lazy pin/dock panel, one-time Home card,
+shared setup IPC with exact-diff confirmation, doctor progress/diagnostics, skill
+creation/editor/reveal, presence sessions and Stop watching. Added the connect docs
+page and verbatim bundle table. Main keeps raw config and plans; cached status and
+errors are redacted. File-only refresh shares the doctor's inspector and never
+starts Node, git, vendor probes, MCP or rendering. The retained presence reader
+and shared inbox/annotation builders serve both surfaces.
+**Verification:** Full hermetic pure tier 308/308 (0 failed/blocked/flaky); monitor
+50 checks, launcher 33, setup 76, doctor 39, docs 168, IPC 140 channels. Svelte check
+0 errors/0 warnings; headless typecheck and production build pass. UI gate authored
+and syntax-checked; UI/startup/native and paper-gate runs belong to the orchestrator.
+Nothing committed. Corrected an existing pathMap reference to the retired Annotate
+gate, replacing it with its current successor; no threshold was relaxed.
+**Learnings:** Keep execution evidence only for the same install, and never let an
+old doctor success conceal a fresh launcher failure. Check that the sender's bridge
+is listening and published. Open a newly authored skill even when publication needs
+repair. Linked worktree/packed refs let cached source-install status stay file-only.
+### 2026-09-27 08:19 UTC — Unified Inbox panel (Codex, aio/f1-inbox)
+**Work:** Added the lazy, idle-prefetched Inbox, Alt+Q/titlebar/palette entry, grouped virtual list, shared query chips, replies/actions, saved-target navigation and inert pin/dock window. Promoted the shared sidecar discovery and live Paper comment-owner rules into §4, removed the retired two-stage snapshot description, and updated the old queue documentation/gate to use Open inbox. Verification: check 0 errors/0 warnings (890 files), headless check and build pass; pure tier 307/307 (unchanged source during the cohort), including Inbox 165, chord census 46 and pathMap 92 checks; browser/scale/native/startup and paper-gate are reserved for the orchestrator.
+**Learnings:**
+- Inbox must route a live document reply through its Paper comment owner; cold sidecar writes alone can be lost to that owner's later autosave. Read both legacy main-document sidecars using the shared policy.
+- Document-range navigation must wait for the destination EditorView mount, and focus an existing owner in a split before consuming the request. Pinned lists recreate ResizeObserver in the destination window.
+### 2026-09-27 08:30 UTC — Hosted runner and read-only Ask (Codex, aio-r1-runner)
+**Work:** Added installed-CLI drivers, sender-owned IPC, capability caching, process queue/cancellation,
+and machine-local run logs. Added the shared Ask packet/Keep builders, lazy answer surface with
+synchronous input focus, Reader/palette/F-menu entry points and reusable launch settings. Pure tier
+passed 309/309 (runner 55 checks, read-only MCP 19); Svelte is 0 errors/0 warnings, headless and both
+production/CLI builds pass. Browser/native/startup acceptance and real-CLI first-token timings
+remain assigned to the orchestrator.
+**Learnings:** The Ask section above documents actual Claude permission/bare-mode evidence and
+Codex's smaller resume flag grammar. The retired Reader callback ban now pins the new Ask route
+while continuing to prohibit terminal prefills.
+
+### 2026-09-27 10:18 UTC — Remnants and connect acceptance gates (Codex, aio-p7a-remnants)
+**Work:** Added the scoped remnants census (presence/pure) and real-launcher connect acceptance
+(pure), including setup/remove, migrated fixture, decoded canvas PNGs, a second-process
+annotation, MCP watch/claim/resolve and EOF presence cleanup. Moved only R3's temporary IPC ban;
+its positive Reader Ask checks remain. The initial census found no wording to replace across
+154 current files, CLI help and 31/157 core/full tools. Both gates and path-map checks pass;
+injected documentation/UI remnants fail with exact source lines. UI/native acceptance remains
+with the orchestrator; no application UI or generated manual was changed.
+**Learnings:** Promoted gate scope and launcher/server cleanup into §7 and corrected Reader
+passage-action status in §10. Owner ruling 2 requires applying the committed one-shot migrator
+before connecting a legacy fixture; connect itself remains read-only. Authored links stay
+unchanged by migration, so the fixture's linked methods use an absolute path valid after the move.
+
+### 2026-09-27 10:23 UTC — Routing and session controls (Codex, aio-f2-routing)
+**Work:** Shared the ordered To/Assign recipients, added Inbox assignment/release actions,
+and reused session rows in the AI panel and lazy titlebar agents popover. Added the F5
+availability seam, named resolution toast, disconnected-holder prompt, and the self-contained
+heron/wren worked example. Assignment to Any/Inbox now uses the shared event builder for
+annotations and comment overlays; human reassignment revokes the previous claim.
+**Verification:** Full hermetic pure tier 313/313 (0 failed/blocked/flaky), including routing
+28, Inbox 165, wait 37 and presence 27 checks. Svelte check: 911 files, 0 errors/0 warnings;
+headless check and production build pass. Browser gates were updated and syntax-checked;
+Inbox, Annotate, AI monitor, scale, startup and native qualification belong to the
+orchestrator. Changes are uncommitted; no UI/electron/bundle tier or dev server was run.
+**Learnings:** A Stop watching ledger event must override the presence writer's two-minute
+grace period. Session rows retain the shared Inbox reader so counts expire while that panel
+is closed. Rerouting must strip the original named mention rather than the new recipient.
+Claims retain the existing presence-or-30-minute-activity liveness contract; expired
+assignments and claims keep their holder in the reassign prompt. F5 must enable
+`backgroundAvailable` and supply the background-run behavior.
+
+### 2026-09-27 10:31 UTC — Inbox background runs (Codex, aio-f5-background)
+**Work:** Extended R1 with task profiles, single-engine task packs and item packets, background presence, resumable threads, final-message replies, bounded concurrency and cancellation. Added runner-owned Claude approvals, lazy Inbox/Sessions controls and approval UI, plus pure and GUI gates. Changes remain uncommitted for the orchestrator; UI/native acceptance is assigned to that review.
+**Verification:** Hermetic pure tier 313/313, zero failed/blocked/flaky; driver profiles 66 checks, read-only MCP 19, IPC 149 channels. Svelte check 910 files, 0 errors/0 warnings; headless check and production build passed. UI/native/startup runs and real-CLI acceptance remain assigned to the orchestrator. F2 must merge its To route UI against the shared availability store; that worker's annotation surface was deliberately left untouched.
+**Learnings:** Stop must release a claim as well as kill the process; a fresh presence-free claim otherwise stays protected by recent activity. Cleanup must finish before resuming the same presence ID. Task and Ask packs need separate cache entries, and changing capability requirements invalidates the capability-cache schema. Concurrent human replies must not suppress an agent's final-message fallback.
+
+### 2026-09-27 10:54 UTC — flux-connect overhaul (Claude Opus 5.5, ai-overhaul)
+**Work:** Implemented notes/FLUX_AI_OVERHAUL/MASTER_OVERHAUL_PLAN.md end to end as orchestrator of
+Codex workers: the principal/worker system, the in-app terminal and Syncthing code are gone; any
+agent connects on request through the launcher, `flux mcp` and the connect pack; one Annotate
+surface, the unified inbox with claims, routes and watch mode, presence-named sessions, the AI
+status monitor, and FluxChat F1–F5 (Inbox panel, routing/sessions UI, live view, Ask, background
+runs with app approvals). Owner-machine setup and the one-shot migration's `--apply` are left to
+the owner.
+**Learnings:** promoted to the body — §1 flux-connect layer and FluxChat bullets; §3 ledger v2,
+presence and Context layout; §4 Annotation surface contract; §7 gates and tiers; §8 recipes (stock
+manual, connect pack, agent vendors); §9 traps (hosted-CLI permissions: dontAsk denies MCP and
+out-of-tree Reads, Codex approval mode; tsx child of the test launcher; Electron's Wayland hang and
+private-display mode; `$effect` early returns; stale `dist/`; tool-output truncation; variadic
+flags; child-process exit handlers). Entries from 2026-07-19 to 2026-09-26 describe the retired
+principal/worker workflow. They are history, not current guidance.
+
+### 2026-09-27 22:52 UTC — Animation v2 preset catalog (Codex, `av2/A1`)
+**Work:** Consolidated preset facts into the pure shared catalog and derived the compiler,
+player metadata, family law, Animator and autobuild views, with flux-core re-exports.
+The 300-check base snapshot gate passes and detects a changed colour; the requested slide,
+animation, X-ray, transform and trim cohorts, both GUI gates on :1423, and both type checks pass.
+**Learnings:**
+- Playback and autobuild had different duration defaults; both are now explicit in the catalog
+  to preserve behavior (promoted to §4).
+- Exact-path manifest entries must retain prior regression groups (promoted to §7).
+- Corrected §3's stale deck version/migration range to match the base's existing 0.6.0 seams.
+
+### 2026-09-27 22:59 UTC — Animation v2 stage geometry bridge (Codex, av2/B1)
+**Work:** Added the pure target-to-stage outline bridge, shared SVG matrices/paint/subpath parsing/pt-true factors, and flux-core exports. New linkedom/core-parity and real-renderSlide Chrome gates pass (59 and 32 checks); both fail with the base path reader and with the crop-origin subtraction removed. Required slide/outline/compensate/plot/figenh regressions, both type checks and CLI build pass.
+**Learnings:**
+- Prepared scatter glyphs can be paths themselves, not just wrappers. The bridge handles both and retains their translate anchors during compensation.
+- Promoted the immutable-root cache contract, group-registry context seam, and text/control-polygon bounds to §4. The 60-point selector measured 0.724 ms warm p95 on this host.
+
+### 2026-09-27 23:00 UTC — Animation v2 correspondence core (Codex, `av2/B2`)
+**Work:** Added pure N↔M planning and buffered sampling over StageOutline, including merged chains,
+data/length tiling, leftovers, lazy 1↔1 plans and glyph landing points. The new public-path gate
+passes 125 checks and fails on the base code and both merge/midpoint fault controls; all 51 pure
+slide gates pass. User and transform docs now describe pairing and the warm/sampling seam.
+**Learnings:**
+- Keep pair chains in the existing planner's unit coordinates to preserve exact array compatibility;
+  stage placement belongs in the shared sampler. Promoted this contract into §4.
+- A bounded batch memo retains warmed large plans beyond the 256-entry individual-pair cache;
+  snapshot inputs on a miss so later producer edits cannot mutate a retained plan.
+
+### 2026-09-27 23:15 UTC — Animation v2 plot projection and data views (Codex, av2/E1)
+**Work:** Extracted the data-space kernel into `plot/project.ts` and the one bound attribute
+writer into `plot/projectDom.ts`. All five hosts render `view`; the transform driver combines
+asset data, view, frame changes and ghost flights through the same writer. Added copy-on-write
+`setPlotView`, view interpolation, per-series eligibility/diagnostics, core exports and user docs.
+The old morph module is a compatibility re-export; no separate morph driver remains.
+**Verification:** Final hermetic pure tier 317/317; plot-view 54 checks, ghost runtime 36,
+paper-render-overrides 21 and exported Become browser 24. All three requested UI gates
+(transform, beat-display, slide-editor) passed on isolated port 1424. Svelte check: 921 files,
+0 errors/0 warnings; headless check and production build passed. No `import-is-undefined`;
+build reports the unrelated `zoteroFields` ineffective-dynamic-import warning. New gate
+negative proofs: old HEAD canvas mount fails 2/54, disabled domain substitution fails 4/54,
+disabled projection restoration fails 7/54; restored implementation passes 54/54.
+**Learnings:** Bind neutral asset geometry so endpoint compensation/view are never baked
+twice; recover guides from pristine source roots for chained transitions. Apply ghost part
+opacity before projection edge fading. Keep unchanged-view movement on the box-only path.
+E4 still owns id-keyed residual fades/topology changes; Axis view UI/verbs remain later
+packets. Native, bundle and startup qualification belong to the orchestrator. Integrated in Animation v2; no user config, main checkout or external ledger was modified.
+
+### 2026-09-27 23:45 UTC — Animation v2 linked styles and timing anchors (Codex, `av2/F1`)
+**Work:** Added pure style/anchor resolution, shared authoring ops, portable style snapshots,
+compiled-cue playback/media timing, and registry-backed CLI/MCP verbs. Resolver negative proofs
+catch precedence corruption and the base compiler's missing integration; the preset census now
+covers the headless verb enum. Updated the body with the resolution boundary and inspection rule.
+**Learnings:**
+- A fixture with DOM nodes but no model targets bypassed compiler validation; exit coverage now
+  supplies real model targets while retaining its playback assertions.
+- The packet's schema/Svelte boundary left explicit-null persistence, linked-ghost persistence and
+  the Svelte readers open. Integration (orchestrator decision) settled the first two without a
+  schema change: no explicit null (the Animator's sentinels override a style) and `preset` always
+  stays on the track (it propagates by write). The Svelte readers (lanes, inspector, library,
+  thumbnails, present, video dialog) are packet F2's.
+
+### 2026-09-28 00:09 UTC — Animation v2 curves core (Codex, `av2/M1`)
+**Work:** Added the shared spring/bezier/steps resolver, grammar, catalog, readout and preset
+default easing. The compatibility wrappers retain pre-M1 CSS and 1,001-point byte snapshots;
+the new 330-check public-path gate passes and detects the absent base module, removed residual
+spread and 400-sample CSS faults. All 52 pure slide gates, 349 preset checks, both type checks
+and the production build pass; model validation and player channel plumbing remain M3/M2.
+**Learnings:**
+- Promoted vertical-error CSS simplification and endpoint-continuity checks into §4.
+- Heap measurements isolate warmed call sites; the unchanged Bézier solver's numeric boxing
+  is the baseline, while the new spring/step samplers add no per-frame heap growth.
+
+### 2026-09-28 00:47 UTC — M1 integration QA (Codex, `av2/M1`)
+**Work:** Qualified committed 829d95a with 321 pure, 34 mapped UI/UI-extra and 13 mapped
+scale gates, both type checks and the production build. Independently executed the old easing
+module and repeated both required fault controls. Added near-endpoint assertions:
+four failed because the compatibility wrapper clips legacy roundoff. The orchestrator decided
+the contract (wrapper = clamped curve, raw `fn` keeps the bytes) and rewrote the assertions to
+pin it. No product logic changed.
+**Learnings:** Promoted near-endpoint floating-point parity probes into the curve guidance above.
+
+### 2026-09-28 01:07 UTC — Hand-off Become model and headless twins (Codex, av2/C1)
+**Work:** Added consume/hand-off authoring, destination-side Appear from, manifest-aware
+validation, compiled flight resolutions and persistent presentation states. Remapped live
+destinations across duplicates, presets and embeds; included them in PPTX phase ownership;
+updated headless verbs, generated manual/golden and model/user docs. Extended existing ops,
+timeline, PPTX and real-canvas gates; targeted reversions prove baseline, overlap, namespace
+and export assertions fail without their corresponding fixes.
+**Learnings:**
+- Promoted canonical target resolution, hidden-state composition and destination phase
+  ownership into the guide body. Runtime flights consume `CompiledSlide.handoffs` (C2).
+- Canvas SVG assertions must scope to `data-editor-element-id`: filmstrip copies may share
+  semantic ids and are not evidence of editor presentation.
+
+### 2026-09-28 01:18 UTC — Animation v2 hand-off runtime (Codex, av2/C2)
+**Work:** Added the camera-local flight SVG, pure hand-off planning adapter, retained path/
+text/raster/glyph driver, reversible visibility leases, raw-progress phase control, draw
+reveals and static-host disposal. Player consumes C1's optional compiled inventory with a
+local resolver fallback until integration. Geometry now shares plot view projection and a
+factored cropped/flipped user-to-stage mapping; rotated data fits fall back to spatial/tile.
+Dense glyphs clone each owner once, normalize directly on the copied marker, and prepare
+while detached so clone writes cannot invalidate subsequent source layout reads.
+**Verification:** Hermetic pure slide 52/52, transform 1/1, Become 2/2, ghost 4/4. New exported
+hand-off browser gate 39/39; old player fails 13/17 reached checks, and disabling the active
+destination-hidden write fails 3/39. Geometry pure 72/72 and browser 71/71; old geometry
+fails 2/71 (projected curve/tick placement). All three requested UI gates passed on :1422.
+Dense 1,200-marker flight passes at 16.8 ms p95 (71 distinct frames, zero pair paths), after
+removing redundant SVG nesting following a 33.4 ms failure. Final check: 928 files, 0 errors/
+0 warnings; headless check and production build pass, with no import-is-undefined warning.
+**Not merge-ready:** The extended cold-preview UI gate fails its first-seek budget at
+171.1 ms (limit 100). The existing SlideMode dock caller supplies no plot geometry to
+warmSlideMorphs. C2 forbids Svelte edits and C1 owns core exports/user docs; the requested
+caller exception had no response at hand-off. `/tmp/av2-C2-integration.patch` contains the
+unapplied caller change and exports for plotStageMapping/planHandoff; its performance effect
+is not verified. C1 must integrate its inventory/baseline and update docs/modes/slide.qmd.
+The E1 writer moves ticks on the changed data axis: parity preserves spines and orthogonal
+ticks, and projects changed-axis ticks rather than freezing them. Core OKLab colors remain
+valid hex/RGBA strings; the browser gate checks CSS validity and computed rgb/rgba values.
+No commits, main-checkout/config writes, native, bundle-tier or startup-tier runs.
+
+### 2026-09-28 01:30 UTC — C1/C2 integration QA (Codex, av2/C2)
+**Work:** Kept literal hand-off part ids when a static host has no manifest, while
+retaining manifest-backed validation. Removed the provisional player inventory;
+`CompiledSlide.handoffs` and its record type are now authoritative. Added compile
+and exported-player pins, including a refused overlapping landing. These changes are integrated in Animation v2.
+**Learnings:** The approved dock context patch is present, but an idle warm can lose
+the race to first seek. Instrumented 40-point data-flight preparation cost 134.4 ms
+on that cold path (planning 5.7 ms, DOM build/insertion 1.4 ms); warm cache hits
+seek in 13.8–15.3 ms. The unchanged 100 ms first-seek gate still fails. Qualification
+stopped at this worker-level preparation/scheduling decision, per the packet.
+Temporary instrumentation was removed; no budget was changed.
+
+### 2026-09-28 01:42 UTC — Animation v2 style and timing UI (Codex, `av2/F2`)
+**Work:** Resolved all Animator timing readers and drag previews; added family-scoped style
+link/save/edit/detach, field overrides/resets, Animate like via bar menu/X-ray 6, timing anchor
+magnet gestures and offset controls, and linked library application. Static thumbnails,
+presenter previews and video estimates now receive deck styles. Easing choices derive from
+M1's shared tokens. Updated slide documentation with captured UI states.
+**Learnings:** Preset reset must copy rather than delete the own field; off overrides use
+F1's sentinels while reset removes them. The real F1 probe is reused inside the authoring gate;
+separate old-file controls detect missing inspector/pick/library and static/video context.
+The 40-linked-lane field-to-paint check stays within 100 ms and verifies next-frame propagation.
+X-ray tests wait for its real keyboard focus, not merely its DOM mount. M1 dependency files
+were supplied by the orchestrator; D1 still generalizes the two small pick states, and M4 owns
+the easing field replacement. Final verification: 322/322 pure, 17/17 UI gates mapped from
+this packet's paths, 72/72 slide sweep, 64 Animator checks, 49 authoring checks, 307 catalog
+checks, and both scale fixtures. 40 linked lanes: 26.3 ms input-to-paint p95; normal/dense
+Animator edits: 16.8/17.0 ms p95; idle rAF = 0. Check/headless: 0 errors/0 warnings. Build
+passed without undefined imports (existing Zotero dynamic-import warning remains).
+The requested `--changed --tier` commands widened across tiers and were interrupted; they
+are not qualification evidence. Their detached children required temporary parent-signal
+stop guards, subsequently restored byte-for-byte; both verification servers were stopped.
+Promoted the selector union trap above. No commits, native gate execution, real project or
+user config changes.
+
+### 2026-09-28 01:44 UTC — C1 integration QA (Codex, av2/C1)
+**Work:** Pinned the headless linked-style birth check with a real-handler red/green proof.
+Found and fixed a second F1/C1 seam: replacing an existing source transform validated its raw
+start instead of its retained effective timing. Added style/anchor/disabled-source cases,
+part-set family-law and CLI refusal checks, and raw-progress sampler probes; repeated the
+worker's baseline, overlap, embed-remap and PPTX fault controls. Qualification evidence and
+the ordinary-entrance versus ghost-birth contract question are recorded in the QA report.
+**Learnings:** Promoted resolved source timing and disabled-track inspection into the body.
+
+### 2026-09-28 03:21 UTC — F2 integration table seam (Codex, `av2/F2`)
+**Work:** Consolidated the preset and linked-style rows duplicated by the M1/F2 rebase,
+retaining both packets' facts and verification references. Added a docs gate assertion
+that fails on duplicate shared-core domains; demonstrated red on the rebased table
+and green after consolidation. Product behavior is unchanged.
+**Learnings:** Merge shared-core table rows by domain, retaining the union of facts
+and gates; appending both variants breaks the table and creates competing references.
+
+### 2026-09-28 03:23 UTC — Hand-off cold preparation (Codex, av2/C2P)
+**Work:** Profiled the real 40-point cold preview, then hoisted invariant source stations
+out of the seam candidate loop. Preparation fell from 130.4 to 14.0 ms; the unchanged
+startup gate passed three consecutive runs. Reverting the planner restores the first-seek
+failure (169.1 ms). Frozen old-planner pairs retain exact arrays and zero sampled deviation;
+a wrong-station fault fails their new geometry checks. No sampling reduction, lifecycle
+change, budget change or frame-path edit was needed. Integrated on animation-v2.
+**Learnings:** The dominant work was repeated source arc inversion during alignment,
+not parameterization or node allocation. Promoted the measured contract to §4.
+
+### 2026-09-28 03:29 UTC — F2 window-key integration seam (Codex, `av2/F2`)
+**Work:** Guarded Animate like's global key listener against non-Element event targets.
+The existing annotation gate exposed `target.closest is not a function`; a focused
+Animator assertion also failed when window-dispatched Escape could not cancel a pick.
+**Learnings:** Promoted the window-target contract into the keyboard traps above.
+
+### 2026-09-28 03:33 UTC — Geometric camera paths (Codex, av2/M5)
+**Work:** Added the shared Zoom/pole and Fly sampler, 24-frame camera preset, live-FROM
+rebasing and deterministic seek restoration. Added the Path toggle and undoable suggested
+Fly duration, additive schema validation and release note; 207 camera checks, all 54 pure
+slide gates, the 15-gate transform group, both scale fixtures and both type checks passed.
+The old readers fail 132 camera checks; the old UI and schema fail their new assertions.
+**Learnings:** Promoted T7's retirement into §9. Camera rebasing must invalidate cached
+segment samplers and release their native bindings; replacing frame zero alone is insufficient.
+M2 still owns unclamped easing and segment extrapolation at the explicitly marked seam.
+
+### 2026-09-28 03:34 UTC — Animation v2 curve authoring and persistence (Codex, av2/M3)
+**Work:** Added the optional tagged curve schema, whole-group style inheritance and curve edits,
+curve-bearing templates and transform/ghost/Become options, catalog easing defaults, CLI grammar,
+beat-filtered Animate like, media-style stagger refusal and cross-beat anchor detachment.
+Updated model/manual docs and generated validators/manual. The slide suite passes 53/53;
+new model/ops/CLI assertions fail on the pre-M3 tree. The all-source easing census deliberately
+reports the pending F2 `animator/shared.ts` literal on this base; that file remains F2-owned.
+**Learnings:** The canonical schema/generator live in `src/lib/project`, with flux-core re-export
+shims. Cross-beat anchor detachment needs the source beat's manifests for semantic stagger tails;
+the pure ops accept `manifestFor` and headless move supplies it. Promoted both contracts to the body.
+
+### 2026-09-28 03:50 UTC — Hand-off picking and destination-side authoring (Codex, `av2/D1`)
+**Work:** Unified Become, Appear from and Animate like picking; added canvas part accumulation,
+Pair, X-ray 5/b and destination highlights. Added the shared Auto-animate the rest helper,
+Design destination visibility, the parts-only Ghost policy fix, user docs and real-path gates.
+Integrated on animation-v2 with D2’s Destination/Swap controls.
+**Learnings:** Promoted pick ownership and the view-only Canvas/Design seams into §4. Shift was
+previously a deliberate deep-select exclusion; the pick surface needs an explicit override
+without changing Figure drag behavior. Generated remainder phases must follow the landing,
+and partially excluded containers must keep their other leaves.
+**Validation:** Pure slide 54/54; UI slide 20/20; final Become 42 checks, Ghost 39,
+X-ray multi 35, autobuild 36. Transform, beat display, surface/theme, docs, chord census
+and shell gates pass; check/check:headless are 0 errors/0 warnings. Old-file and disabled-
+behavior runs prove the new assertions red, then green. Build passes with one unrelated
+`zoteroFields` ineffective dynamic-import warning, no undefined imports. Native/bundle/startup
+tiers remain the orchestrator's gates.
+
+### 2026-09-28 03:50 UTC — Partial plot binding and Axis view authoring (Codex, av2/E2)
+
+`compilePlotContent` matches semantic IDs, uses the shared attribute compiler, and fades
+unmatched parts or local anonymous topology instead of complete plots. Union vertex indices
+retain null-data gaps; unmatched markers and line edges fade through the projection writer.
+Forward/reverse asset chains retain canonical IDs. Mixed raster/SVG endpoints fade as
+unmatched layers. Appearance baselines retain authored opacity, and `applyAt` now runs
+content controllers before appearance frames (existing timeline/browser assertions pin this).
+
+The lazy Axis view block serves Inspector and F-menu (x `v`, y `b`, next free key if crop
+already owns `v`); X-ray axis `v` focuses its Inspector row. NumberField's opt-in nullable
+live mode previews through editSession and preserves small data-unit values (12 significant
+digits, domain-sized steps). Residue namespaces stay unique across local crossfade chains.
+The shared field normalizer feeds `ops.setPlotView`
+in both GUI and `set-plot-view`/`set_plot_view`; deck beat edits resolve the prior endpoint
+and write `state.view`. Missing axes/series diagnose instead of throwing. Removed the old
+morph shim and corrected imports/docs. Figure, slide, shortcuts and stock manual are updated;
+generated context and MCP inventory are regenerated, never hand-edited.
+
+New hermetic gates: plot-binding (semantic subsets, topology, unequal vertices, null gaps,
+reverse seek, raster fallback); plot-view-gui (canvas/export/undo, F-menu, X-ray, After-step
+capture and real ruler seek); plot-view-verb (real CLI/MCP and shared-op byte parity). Each
+was demonstrated red with the old driver/registry or disabled setter, then green. Existing
+timeline, export-transform, Figure controls and surface assertions remain intact; the
+changed-pathmap gate now pins the additional coverage. Full receipts are in this worker's
+report and test-results/runs. Startup/bundle/Electron/native gates remain orchestrator-owned.
+
+Validation: check (932 files) and check:headless are 0 errors/0 warnings; production and CLI
+builds pass. A full pure cohort passed 325/325; the final cohort passed 323/325 with two
+machine-wide EMFILE watcher failures, both passing serial retries. Final Axis view GUI is
+23/23; binding is 93/93; verb parity is 10/10. F-menu surface, Figure controls, X-ray theme,
+registry, docs, offline export and timeline gates pass. The final GUI run used Vite polling
+to avoid the same watcher limit. No gate was loosened; no commits were made by this worker.
+
+### 2026-09-28 03:51 UTC — Animation v2 Destination inspector (Codex, `av2/D2`)
+**Work:** Added hand-off Destination controls, atomic reversal with style/anchor preservation,
+inline consume confirmation, semantic lane labels and camera framing of drilled parts.
+Added/exported `autoAnimateExcept` because the D1 helper was absent on this base; its remaining
+phases follow the landing and preserve manual/other-plot tracks. Animator 102, Transform GUI 31,
+Become GUI 20 and autobuild 34 checks pass; old UI/old helper and deliberately reversed Swap
+arguments fail, both type checks are 0/0, docs/path-map/build pass, and the packet is integrated on animation-v2.
+**Learnings:** Promoted the shared helper and inspector/geometry contracts to §4. Verification
+server polling worked around the host's exhausted file-watcher quota without product changes.
+
+### 2026-09-28 04:05 UTC — Animation v2 curve plumbing (Codex, av2/M2)
+**Work:** Player specs and compiled tracks now share `ResolvedCurve`; box channels
+extrapolate while content/data channels clamp, controller phases read raw progress,
+and `staggerDelay` owns the three delay calculations. Real-player/compiler/export
+gates pin spring overshoot, native/sample agreement and clamped data inputs with
+old-code and injected-fault negative proofs; isolated pure 324/324, transforms 16/16,
+both checks 0/0 and build passed without undefined imports. The first scale cohort
+passed 13/13, but isolated dense glyph timing later failed at 33.3 ms p95 on BOTH M2
+and a base control; inbox GUI's two background-agent availability failures also
+reproduce at base, while watcher and pinned-caption failures passed isolated retries.
+**Learnings:**
+- Promoted T1–T4, inner-content/viewBox cancellation and unitless-zero interpolation
+  traps to §9, the channel seam to §2/§4, and additive `--changed` selection to §7;
+  compiler camera zoom remains clamped until M5.
+- An interrupted shell left overbroad runners alive in this session, including one
+  at the default :1420 port; no native attempts ran. Exclude those cohorts and confirm
+  runner completion before qualifying isolated scale measurements (§7).
+
+### 2026-09-28 04:37 UTC — Animation v2 easing UI (Codex, `av2/M4`)
+**Work:** Added CurveField catalog/graph/spacing controls, keep-arrival timing, clipboard grammar,
+owned preview/cancel history, cached rail sparklines, spring-bounce cascade and timing copy/paste.
+Extended the real Animator, authoring, cascade and surface gates; captured the user-doc screenshots.
+Updated the ghost-selection gate's retired easing-select assertion to require the curve button.
+**Learnings:** Curve edits must nest the deck operation inside the owned mutation to preserve
+one Undo and cancellation's prior redo state. Idle animation probes wait for autosave's dirty
+indicator transition before their 500 ms census; otherwise a finite save transition is mistaken
+for resting motion. Both contracts are now covered by the Animator gate.
+
+### 2026-09-28 04:45 UTC — M2 × M5 camera reconciliation (Claude Opus 5.5, QA `av2/M2`)
+**Work:** Reconciled the compiler's camera to the unclamped curve (`sampleCamera(…, ct.ease.fn(raw), …)`)
+and removed both packets' placeholder comments. The requested spring parity check was red:
+the player extrapolated the last of its 24 camera keyframes linearly (9.1048 px from the
+compiler for spring(0.5) 1→2; played zoom −0.034 for spring(0.8) 1→0.05). Out-of-range camera
+frames now sample the preset's exact `transformAt(u)`; max deviation 0.1243 px (the in-range
+keyframe residual). `verify-slide-camera` pins overshoot, positivity, parity and landing.
+**Learnings:** A keyframed approximation that is exact in 0–1 is not exact outside it; any
+spec whose path is non-linear in its keyframe values needs its own sampler for overshoot.
+
+### 2026-09-28 04:45 UTC — M3 integration QA (Claude, av2/M3)
+**Work:** Rebased M3 over C2P, F2 and D2. F2 and M3 each brought an easing-token census to
+`verify-preset-catalog.ts`; they are now one (M3's scope `src/**` + `flux-core/**`, F2's
+any-three-distinct-tokens threshold, plus `EASINGS === EASING_TOKENS` identity). Added a
+REAL-CLI pin: a cross-beat `move-track` of an anchored follower keeps the leader's plot
+stagger tail (flux-core supplies `manifestFor`). Checked by hand through the CLI:
+`set-track --curve "spring(0.35)"` persists the spec, clears easing/influence and validates;
+`--curve garbage` prints the grammar; `animate-like --beat`; media styles refuse stagger.
+**Learnings:** Until M2 lands, the player ignores `curve` (it reads `easing`/`influence`),
+so a curve-only track plays the family default. The Animator's easing `<select>` and
+influence fields assign fields directly and leave an own `curve` in place; route them through
+`setTrackCurve` when CurveField replaces them (M4), before curves become audible.
+
+### 2026-09-28 05:20 UTC — D1 integration: one helper, one label, one pair list (Claude QA, `av2/D1`)
+**Work:** Rebased D1 over D2, M5 and M2. Reconciled the two `autoAnimateExcept`s into D2's
+landed function plus D1's landing, anchor and beat-id behaviour; removed the duplicate flux-core
+export the rebase auto-merged. Added `PAIR_POLICIES`, replacing four literal pair lists. The
+pick UI now uses D2's shared `refLabel`, and Auto-animate the rest is hidden for whole-plot
+hand-offs. Each change was shown red, then green.
+**Learnings:** Parallel packets told to add the same helper will both add it, and git merges
+the two `export` lines silently: grep flux-core/index.ts for duplicate names after every rebase.
+Label and choice lists drift the same way — census them like presets and easings.
+
+### 2026-09-28 05:36 UTC — Total stagger and box arcs (Codex, av2/M6)
+**Work:** Added shared Total/distributed/seeded-random stagger, box arcs, authoring/CLI/style
+and cascade support, schema validation, and real player/inspector regressions. M2's discrete
+property flips now use raw progress and compiled tracks retain maxRank. The new stagger gate
+and all seven extended gates fail at e9eb26e; focused pure slide and Animator runs pass.
+**Learnings:** Promoted the motion core to §2. Expanded children of a single stagger track
+must never supersede one another in playback. The arc driver restores the content frame
+after applying its wrapper box; the painted-content gate catches viewBox cancellation. A quadratic control offset of half the move
+length produces a quarter-length apex, which the geometry gate pins; Total normalizes
+symmetric ranks without changing legacy Each arithmetic. M4 mounts CurveField at the marked
+inspector slot; M3 owns the separate Track.curve schema.
+
+### 2026-09-28 05:40 UTC — E2 integration: positional ids, rest frames, write-free static frames (Claude QA, `av2/E2`)
+**Work:** A real-UI probe of panels-a → b showed E4 pairing nodes by positional ids: stamped
+`n<k>` and matplotlib's `ytick_N` shift when a regenerated plot has fewer ticks, so the shared
+line crossfaded against a stranger and 8/52 destination parts stayed hidden at rest. Binding
+now ignores positional ids, keys wrappers by their semantic descendants, keeps a source-only
+wrapper that holds shared parts, strips shared parts from destination copies, and skips the
+guide edge fade on an asset change's rest frames. The attribute compiler regained its
+unchanged-value skip. Compiler/`become --asset` wording is "has no counterpart and fades".
+**Learnings:** Test rest frames against the endpoint's own static render in both directions
+(`verify-plot-binding`); fixture ids in a pure gate that bypass `preparePlot` hide id stamping.
+
+### 2026-09-28 06:23 UTC — M6 preset integration QA (Codex, `av2/M6`)
+**Work:** Found that a saved Arc survived in the preset payload but disappeared when the existing library applied a transform preset. Forwarded it through `setTransform` and pinned real Save, Apply and one-step Undo in the animator gate (125/126 before the fix, 126/126 after). Added screenshots for Each/Total and Random/reshuffle/Undo. The conflicting arc-apex requirements remain an orchestrator decision; no motion formula was changed.
+**Learnings:** Extended the preset row in §2 to cover the explicit GUI reader as well as the reusable payload.
+
+### 2026-09-28 06:35 UTC — M6 raw SVG binding integration QA (Codex, `av2/M6`)
+**Work:** Forwarded raw progress through the shared static/plot content bindings. E2's attribute cache had retained eased midpoint switching after M6 corrected the model. Added compiler/player and real Chromium regressions: the old binding switches line caps three times across 60 non-monotone samples; the corrected binding switches once. Added a maxRank scan detector (15 negative assertions when the old per-frame scan is restored), and real mixed-selection Arc/Total cascade coverage/screenshots.
+**Learnings:** Model interpolation passing does not prove painted attributes follow the same channel; verify both through exported createPlayer. Named-color fallback still reads eased progress in the packet's own tween logic and is escalated, along with the conflicting arc-apex requirement.
+
+### 2026-09-28 06:47 UTC — M4 integration seams and red-first QA (Codex, `av2/M4`)
+**Work:** Applied the orchestrator's M3 decisions alongside M4: unknown easing migration,
+pre-M3 ghost disappearance bytes, curve-preserving Library apply, pane/cascade reset parity,
+manifest-aware GUI moves/copies, and follower detachment. Added real-pane pins (including
+keep-arrival after a linked reset), a generated pre-M3 ghost fixture, and a duration-width pin.
+Integrated on animation-v2 at `91dc34a`, including the approved ResizeObserver fix.
+QA evidence lives in the worktree and `/tmp/flux-m4-qa`; Electron qualification belongs to the orchestrator.
+**Learnings:**
+- Keep-arrival must measure the resolved curve after the authoring op: clearing a local
+  override can restore a linked spring, so the input patch is not the resulting curve.
+- The ghost original's disappearance uses an authored `smooth`, independent of the
+  ordinary fadeOut default. Its full normalized deck bytes are pinned to pre-M3 `fa47852`.
+- Read popup bounds before screenshotting, and use `captureBeyondViewport: false`.
+  Capturing outside the viewport can fire resize placement and mask clipping after
+  dynamic controls/errors grow. The QA gate exposes this placement bug; the approved
+  ResizeObserver fix landed with M4 at `91dc34a`.
+
+### 2026-09-28 14:33 UTC — M6 integration over M3/M4 (Codex, av2-M6)
+**Work:** Resolved the M6 worker conflicts by retaining timing-curve group inheritance,
+anchor/follower detachment, camera paths and plot-view verbs alongside stagger modes,
+seeded distribution, arcs and cascades. Regenerated validators/manual, mounted the compact
+stagger CurveField, widened uint32 seeds, and added a raw-progress named-color regression.
+**Learnings:** Non-conflicting imports and test harnesses can duplicate during this merge;
+inspect them after resolving blocks. A non-numeric keyframe fallback is a discrete channel,
+so both segment selection and interpolation must use raw progress. SVG paint bindings
+need the same raw argument through `prepareColorLerp`; the compiler and outline sampler
+thread it too. The integration includes f6c88ba's render/transform callback plumbing
+as the prerequisite for this fix; its Library and additional QA changes remain pending.
+
+### 2026-09-28 15:29 UTC — Animation v2 coherence close (Codex, av2/X1)
+**Work:** Centralized part IDs, semantic labels, authoring timing, hand-off detection,
+Auto-animate eligibility, beat delay and deck-aware compile options. Extracted atomic
+`swapBecome` with CLI/MCP twins, retaining style/curve/anchor/group fields and one Undo.
+Aligned UI/help/manual vocabulary and the Slide/Figure/shortcut/transform docs with 0.6.0;
+regenerated the manual and MCP golden, removed dead influence choices and the O shortcut,
+and ordered only the Animation v2 log entries. M6 had already removed the duplicate curve
+paragraph and stale M2 deferral.
+**Verification:** Pure 328/328; slide selection 76/76; mapped UI 77/78, UI-extra 5/5,
+scale 13/13 and presence 11/11. All 67 non-electron Paper gates passed. Both type checks
+are 0 errors/0 warnings; build and build:cli passed (the unrelated zoteroFields dynamic-import
+warning remains). Old-code controls fail for ID/naming/default/label drift, the missing swap
+op/verb and deck-local manifest omission; current gates pass. The one mapped UI failure is
+`verify-inbox-gui`: the background recipient is missing in two of 88 checks, identically on
+base `9822a62` with all X1 product sources reverted. No Inbox code or gate was changed.
+Electron/startup/bundle qualification remains the orchestrator's responsibility. Evidence:
+`test-results/runs/2026-09-28T15-06-51-490Z-3` (pure),
+`test-results/runs/2026-09-28T15-07-33-328Z-3` (slides), and `/tmp/flux-x1/qualification.json`.
+**Learnings:** Camera authoring (900 ms/smooth) and omitted playback timing (320 ms/standard)
+are distinct catalog policies. Keep a swap's admission on private beats so a refused shared
+op cannot publish partial changes. Compare mapped gates per tier: the runner's `--changed`
+adds all mapped tiers, including native gates a worker must delegate.
+
+  dynamic controls/errors grow. M4 has this packet-owned placement bug; the QA gate
+  now exposes it and the proposed ResizeObserver fix is pending orchestrator approval.
+
+### 2026-09-28 14:48 UTC — Inbox first-probe readiness (Codex, av2/X2)
+**Work:** Traced the missing background recipient to the dev fixture mounting Shell before
+its bridge arrived: no provider call or rejection, an empty capability cache, and a missed
+runner-event subscription. Demo startup now awaits fixture installation before mount, matching
+Electron's preload order. The Inbox gate holds the real fixture module request and pins the
+first probe/subscription without refreshing; old startup fails both new checks and the two
+existing recipient checks (86/90), while the fix passes 90/90. Promoted the startup contract
+into §9 and corrected the completed background-routing integration notes in §1/§4.
+
+### 2026-09-28 — Flux 3D Stage 1: GLB models and 3D fluxplots in Figure (GPT6-Astra (Codex), `model3d`)
+**Work:** Built Stage 1 of the 3D plan: GLB and scene3d import, metadata-only persistence, one
+shared worker renderer with vector furniture, Orbit and semantic Inspector/X-ray controls,
+static and Paper exports, explicit source Update/Regenerate, CLI/MCP verbs and the notebook
+viewer, each phase independently reviewed. Functional gates pass; native performance
+qualification (eight-model scale, S8) is still open and Stage 2 (Slides) is paused by the
+owner. Durable rules went into §2, §3, §4, §6, §9 and §10 and `docs/model3d/`; the per-phase
+history, receipts and measurements are in `notes/flux_3d/LEDGER.md` (outside the repository).
+**Learnings:** promoted to the body: §8 (specialized verbs stay out of the compact MCP core),
+§9 Svelte (`<details>` open state), §9 Measurement (goldens are not visual review, headless
+idle callbacks, Chokidar subtree readiness) and §9 3D models (prototype-named keys, untrusted
+notebook output, staging-directory publication).
+
+### 2026-09-28 — 3D documentation cleanup (Claude Opus 5.5, `model3d-review-docs`)
+**Work:** Collapsed the 35 model3d session-log entries (46.6 KB) into the entry above; cut the
+§9 3D trap table to Figure traps whose cited gates exist and cover them; condensed §3/§4 to
+invariants plus links into `docs/model3d/`; untracked `notes/` files; reduced the native
+acceptance report to its how-to-run part. Removed detail is preserved in the 3D ledger.
+**Learnings:**
+- Pandoc drops leading digits from generated heading ids (`# 3D models` → `d-models`) and
+  `verify-docs` strips anchors, so such a link breaks silently; promoted to §8 "Update the
+  user docs".
+- The §2 row and trap T30 cited `verify-paper-render-overrides.ts`, which has no 3D content;
+  the real Paper/Node parity check is `verify-model3d-headless.ts`. Check a cited gate's body,
+  not just its name or group membership.
+
+### 2026-09-28 — Animation v2 and 3D Stage 1 integrated on main (Claude Opus 5.5, `model3d`)
+**Work:** Merged main (animation v2) into `model3d` and fast-forwarded main. The 10 conflicts
+were additive: NumberField/scrub keep both zoom factor stepping and live preview. Generated files
+were regenerated. X1's one-part-id rule moved model3d furniture/static ids onto `partDomId`,
+with byte-identical output. fluxplot main fast-forwarded to `scene3d`, then merged the
+signature-fluxplots work that had been left uncommitted. The viewer was re-synced.
+Pure 347/347, ui 142/142, bundle 5/5 and startup pass; the electron tier was not run here.
+**Learnings:** pathMap order under a structural merge (promoted to §7 next to first-match);
+MCP gates answer from `dist/`, so rebuild after a merge before judging them (`verify-inbox`
+failed on the pre-merge bundle).
+
+### 2026-09-29 — Add the shared 3D slide model and tween core (Codex, model3d-slides-core)
+**Work:** Enabled metadata-only GLB assets and model elements in the unpublished 0.6 deck schema, added unwrapped orbit/logarithmic zoom and signed shape/field interpolation, and exposed Turntable through the existing shared transform operation. The registered slide-model3d group passed the new model checks plus existing tween and generated-validator gates; live player, import and authoring integration remain in progress.
+**Learnings:** Fetched origin still publishes 0.5, so 3D joins local animation-v2 format 0.6; raw progress controls discrete switches even when an easing overshoots.
+### 2026-09-29 — Prepare remaining native 3D qualification (Codex, model3d-slides-native)
+**Work:** Corrected native harness editor identity and real-canvas framing, declared the isolated
+fluxplot/uv prerequisite before smoke launch, and documented the owner-approved R1/R2 raw
+frame budgets. Registered pure regressions cover the prior competing-editor and 1470×923
+clipping failures and blocked-before-launch behavior; native results remain separate receipts.
+**Learnings:** Retain the clicked CodeMirror identity (promoted to §9); measure against the
+clipped canvas, including sidebars, and use native viewport navigation to frame the fixture.
+### 2026-09-29 — 3D guide wrapping completion (`model3d-slides-furniture`)
+**Work:** Completed the preserved title-fit draft with wrapping, effective fonts/ranges, shared tick selection and explicit overflow; Python static layout mirrors it, with independently checked glyph bounds and TS/Python geometry parity. **Learnings:** The measured DejaVu Sans advances need the documented 20% reserve over the old Arial estimate; custom fonts remain estimates, and layout checks do not qualify native frame timing.
+
+### 2026-09-29 — P4e model transition foundation
+**Work:** Added topology-aware model Become/Appear-from and file commands, frozen endpoint geometry/styles, source ownership for future content, and the narrow whole-model/video poster-handoff exception. **Learnings:** Preserve vertex correspondence and distinguish compatible morphs from valid crossfades; video Consume and Ghost remain unsupported, and renderer/UI qualification is recorded in the later checkpoints and 3D ledger.
+
+### 2026-09-29 — Deck-owned 3D import receipts
+
+**Work.** Extended the shared model import target to a registered slide deck. Native and memory paths publish immutable GLB/sidecars beneath that deck, revalidate the destination after awaited preparation, and scope adoption/cancellation to the exact deck receipt. The registered import gate passes, including independent review/QA of held-drop destination changes and real IPC cross-deck refusal; no desktop launch was needed for this policy checkpoint.
+
+### 2026-09-29 — Shared live 3D slide player
+**Work:** Added a lazy host contract and sampled mesh/vector bindings to the existing slide player, including warmup before playback, capture settlement, physical furniture, Design-poster fallbacks and hidden-view release. Independent registered browser QA passed 32 checks against real GLBs, with exact inline-render pixel parity, delayed bitmap/furniture publication, repeated seeks, namespace isolation and disposal; editor and Paper host wiring continue separately.
+
+### 2026-09-29 — 3D authoring in Slides
+**Work:** Wired deck-scoped model import and shared editor posters, lazy inline preview/Present hosts, static filmstrip posters and the Turntable action into existing Slides controls. Registered GUI checks use real pointer Orbit on an After-step checkout, one-step history, pick-mode exclusion, import/save/reopen, actual mesh pixels, physical resize, disabled-GPU fallback and unchanged 2D content; pending thumbnail work retries after same-signature invalidation instead of leaving a stale still.
+
+### 2026-09-29 — Saved-deck 3D command parity
+**Work:** Extended model view, field and poster commands to saved deck/slide targets through shared command policy, matched GUI placement defaults, and protected live deck posters during shared-cache pruning. **Learnings:** Sidecars remain in the owning document's canonical assets directory even when the GLB has a custom nested path; independent rebuilt CLI/MCP QA passes 110 checks, including local and external Figure-owned assets.
+
+### 2026-09-29 07:36 UTC — 3D slide morph runtime checkpoint
+**Work:** Added single-context compatible vertex morphs and bounded live crossfades, sampled framing/camera, canonical semantic furniture, decoded cross-kind snapshots and prompt backing-store release. **Learnings:** A settled load is not necessarily successful, and capture readiness must await the actual SVG image load; independent browser pixel/lifetime checks pass, while native timing remains separate.
+
+### 2026-09-29 07:44 UTC — Cross-kind model Consume lifetime
+**Work:** Model/shape Consume transfers the live backing store at the raw halfway type boundary and uses a decoded mesh/furniture snapshot for the fading endpoint; reverse seeks reacquire it. Independent browser checks cover immediate bitmap/canvas release and cancellation, with exact receipts in the 3D ledger.
+
+### 2026-09-29 — 3D review deck and captured video checks
+**Work:** Added the five-example scratch review deck and registered offline playback/capture and production1080p60 MP4 checks; independent QA passes eight browser checks,35 demo checks and all132 video frames. **Learnings:** Compare compressed output against a codec-matched reference (the encoder maps white255 to253), then separately require actual colored geometry, meaningful motion and continuous morph handover; this does not substitute for native interactive timing qualification.
+
+### 2026-09-29 — Worker-backed 3D Paper slide embeds (Codex, model3d-slides-paper)
+**Work:** Connected visible Paper slide widgets to the shared worker service and portable HTML/Quarto to one conditional runtime with deduplicated GLBs; independent widget, offline output, typing and packaged CLI checks pass. **Learnings:** Recover live ownership from the saved registry rather than scrubbed export paths, and keep the 3D runtime in a separate generated asset to preserve the existing CLI bundle budget; full Paper/native receipts and measured bytes are in the 3D ledger.
+
+### 2026-09-29 07:59 UTC — Model content picking and compatibility UI
+**Work:** Added topology-aware Vertex morph/Crossfade feedback and a filtered Change-content gallery with one-Undo asset/source publication and stale-import cancellation. Independent real UI/pixel checks and affected animation regressions pass; MemBridge cancellation coverage is not a claim of production native timing.
+
+### 2026-09-29 08:00 UTC — Generic model content command parity
+**Work:** Routed `set_transform --to-asset` through the same metadata/source resolver as Become, preserving known provenance, clearing stale bare-target provenance and rejecting unknown targets before publication. Independent file-command tests, registry parity and the affected animation sweep pass; shape-state weights precede separate-file morphing in the user documentation.
+
+### 2026-09-29 — Semantic model animation targets
+**Work:** Extended the existing target resolver and compiler with accepted scene3d metadata, reusing the same effective part hierarchy as X-ray. Mesh/furniture leaves, synthetic containers, exclusions and prior-content targets now share one pure resolution path; 28 new checks and the five-gate focused group passed independent QA, with renderer/UI opacity wiring continuing separately.
+
+### 2026-09-29 — Flux 3D P4d semantic appearance channels
+**Work:** Added shared transient model-part appearance across the player, editor posters, Animator and saved Node compilation, with independent X-ray/Undo/reopen and rendered-neighbor gates. **Learnings:** Preserve furniture's animation-owned inline style and compiled semantic stagger ranks; resolve future model metadata through canonical asset-id sidecars and source bindings, without changing authored opacity or Design bytes.
+
+### 2026-09-29 — Semantic dendrite demo step
+**Work:** Extended the five-slide scratch review deck with a step after the eight-second Turntable that fades in only the named dendrite mesh through the public animation operation. The registered demo gate checks accepted saved metadata, Design stashing, unchanged soma/axon visibility and exact half/end appearance states.
+
+### 2026-09-29 08:21 UTC — Portable model integrity and static endpoints
+**Work:** Added bounded root/generation-scoped native and Node reads plus shared prepared-digest validation, scrubbed portable source paths, and shared coherent Design/retyped-model stills across SVG/PDF/PPTX. **Learnings:** Static compilation still needs accepted model metadata, and browser adapters must remain safe in pure Node callers; independent integrity, native-handler, IPC, static export and real Paper embed checks pass, with exact receipts in the 3D ledger.
+
+### 2026-09-29 — Real model slide scale cohort
+**Work:** Added one real 250k-mesh/two-asset/eight-ghost cohort to browser and production native qualification, retaining existing 2D thresholds and checking actual publication, idle work, shared residency and disposal. **Learnings:** The strict native oracle requires uninterrupted focus, positive hardware identity, full-duration raw timing and prompt first publication; software results and a zero-sized display never qualify the GPU budget.
+
+### 2026-09-29 — Preserve missing plot-part diagnostics
+**Work:** Restored the existing plot-specific missing-parts diagnostic while retaining semantic model diagnostics. The unchanged timeline regression verifies a missing selector never hides a whole plot; the model-part gate now pins the equivalent whole-model behavior without metadata.
+
+### 2026-09-29 — Packaged media CLI path qualification
+**Work:** Corrected the source-free packaged video probe to pass an absolute in-project media source while retaining its unrelated shell directory. The focused media-path gate now exercises both registered model/video CLI argument paths through the shared confinement boundary. **Learnings:** `--root` selects the project; CLI filesystem inputs still resolve against shell cwd, whereas MCP inputs resolve against the project. The earlier probe failure was an invalid invocation, not a reason to change that documented policy. The focused registered gate passes 14 checks and changed-pathmap passes; the initial new-test lookup typo is retained in its failed receipt. Native rerun remains required after the isolated pure/source review.
+
+### 2026-09-29 — Native rotation fixture diagnostic compatibility
+**Work:** Recognized both legacy `displaymatrix` and FFmpeg 9 `Display Matrix` diagnostic labels while requiring the same numeric 90-degree rotation. **Learnings:** The packaged encoder emits the new label; a scratch stream-copy probe confirms real track metadata. The independent 90×160 dimension and rotated-landmark pixel oracles remain unchanged. The registered native media gate passes in 7.8s (2026-09-29T08-57-05-395Z-2784913); an earlier isolated-worktree attempt lacked generated embed assets and is retained separately.
+### 2026-09-29 — Qualify native Paper slide input
+**Work:** Hardened the existing native inline-slide probe with an actual display/work-area and focus preflight, settled scrolling, hit-target checks and trusted pointer-delivery evidence before its unchanged playback assertion. A zero-area display now produces an explicit failing capability receipt; covered or clipped controls remain separate target failures, and no DOM-click or forced playback bypass is used.
+
+### 2026-09-29 — Record actual demo source provenance
+**Work:** Live demo generation now reads the supplied fluxplot checkout's actual symbolic branch and exact commit, explicitly labeling detached HEAD. The registered demo gate exercises a scratch repository's named, renamed and detached source states; frozen fixture receipts remain unchanged.
+
+### 2026-09-29 — Preserve early native scale failure evidence
+**Work:** The native slide-scale harness writes its failure receipt before optional renderer diagnostics. An unloaded renderer is never queried; after readiness, observation and screenshot requests have bounded best-effort deadlines. The wrapper reports a nonzero display refusal as blocked, never passed. The actual entry finalizer is exercised in the pure gate with unloaded and permanently stalled renderer mocks. No input, focus, display or timing qualification changed; the earlier full-tier 180-second timeout remains a failed harness attempt.
+
+### 2026-09-29 — 3D slide runtime review fixes (Claude Opus 5.5, `m3s-fix-runtime`)
+**Work:** Fixed the Stage 2 runtime review findings: with-prev runs sample mesh parts
+concurrently, part/group hand-offs fly the model snapshot, the model/video poster pair flies
+the stored poster, editor issues evaluate model topology, evaluated crossfades raise no issue,
+offscreen observer flags are confirmed against layout, and stills carry mesh-part appearance.
+The reported empty filmstrip slot was a screenshot inside the 120 ms thumbnail debounce.
+**Learnings:**
+- The player re-bases a with-prev run's DOM specs onto its last beat; any pure sampler used
+  beside them must be told the run's first beat (`compile.sample(beat, t, fromBeat)`).
+- An IntersectionObserver flag is a frame late (promoted to §9 as T24).
+- A GUI gate that screenshots the filmstrip must wait for the debounced re-render first.
+
+### 2026-09-29 — 3D slides UX polish (Claude Opus 5.5, `m3s-fix-ux`)
+**Work:** Fixed review findings in Stage 2 3D slides. Preset insert now allows one insert at a time. Morph reasons and badges use plain, sentence-case wording. A Turntable that re-times an existing Change says so. A refused Orbit names the active pick, and its toast is withdrawn when the pick ends. A Paper 3D embed that fails keeps its still and shows a visible status line. The multi-import overflow toast is accurate. Docs match the actual labels. The affected browser gates now assert each behaviour.
+**Learnings:** Three browser-gate traps (toast fade, scoped CDP load failure, Electron member of paper-gate) were promoted to §9 CI browsers. A refusal toast whose reason can end should be withdrawn when it ends, not left to expire.
+
+### 2026-09-29 — 3D slide export, persistence and path review fixes (Claude Opus 5.5, `m3s-fix-export`)
+**Work:** Fixed seven verified review findings: PowerPoint pictured models at step 0 (a
+fade-in model vanished from every page, silently) and cropped any model away from (0,0);
+win32 media paths and bounded model reads were refused; a missing GLB kept deck Save blocked
+after its model was deleted; Send to deck refused over Undo-only entries; Node posters read
+nested-GLB sidecars from the wrong folder; `--prune` failed on an unreadable deck; the Paper
+preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). Pure 360/360;
+48 ui gates (paper-gate ui members, model3d-ui, embed gates) and the embed scale gate pass on
+:1486; Electron gates not run.
+**Learnings:**
+- A static model still is laid out in stage coordinates: compose it at the origin of its
+  own picture, and give a scaled PowerPoint twin the still of the state it pops to (no
+  poster exists at the twin's size).
+- Registry entries outlive their elements for Undo; a save or conversion preflight must
+  judge references, not the registry (promoted to the §9 3D table).
+- The computed-to-stored path crossing (§9) also covers resolved CLI/MCP inputs (promoted).
+
+### 2026-09-29 16:32 CDT — Refresh the Mac from Linux updates (Codex, main)
+
+**Work:** Merged 278 upstream commits through `df109a96`, preserving the existing Mac
+compatibility fixes and both sides of the session log. Refreshed locked dependencies,
+verified native runtimes, and rebuilt the renderer, 3D assets and CLI/MCP. Renderer
+check (0 errors/0 warnings), headless check and production startup pass. Paper plus
+startup cohort: 67/71 passed, including the new 3D Paper embed check; the same four
+gates recorded on September27 fail (Vim toggle, native GUI export recovery, metadata,
+metadata refinements). Evidence: `test-results/runs/2026-09-29T21-25-11-623Z-87161`.
+The upstream dependency lock reports three npm advisories (ip-address and markdown-it
+moderate; undici high); no dependency versions or gate thresholds changed during sync.

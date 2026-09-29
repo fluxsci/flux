@@ -20,6 +20,7 @@
       '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M10 9H8"/><path d="M7.4 13.2h9.2" stroke="var(--flx-yellow-400)" stroke-width="3.4" opacity="0.5"/><path d="M16 13.2H8"/><path d="M14.5 17H8"/>',
     help:
       '<circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a2.8 2.8 0 1 1 4.1 2.5c-.9.5-1.3 1-1.3 1.9"/><circle cx="12" cy="16.8" r="0.7" fill="currentColor" stroke="none"/>',
+    inbox: '<path d="M3 13h5l2 3h4l2-3h5"/><path d="m3 13 3-8h12l3 8v6H3z"/>',
     plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
     folder:
       '<path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H21a1 1 0 0 1 .97 1.24l-1.5 6A2 2 0 0 1 18.53 19H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v1.5"/>',

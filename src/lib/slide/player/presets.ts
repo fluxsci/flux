@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Flux Slide — the preset catalog (§5.3). Each preset turns a track's resolved
+// Flux Slide — the WAAPI preset compilers (§5.3). Each turns a track's resolved
 // target nodes into per-node WAAPI keyframes [from, to]. The player owns timing
 // (start + stagger → delay) and static-state (apply `from` before a node's intro
 // beat, `to` after); a preset only declares WHAT moves.
@@ -7,18 +7,22 @@
 // Two-tier law (style_principles.md P5): every preset here is Tier-1
 // (transform/opacity, compositor-free) EXCEPT `drawOn` (stroke-dashoffset, paint)
 // and `writeOn` (clip-path) — Tier-2, reserved for the few signature plot/curve
-// builds while the scene is otherwise still. `morph`/`countUp` live elsewhere.
+// builds while the scene is otherwise still. `transform`/`countUp` live elsewhere.
 // ---------------------------------------------------------------------------
 
+import { readPaint } from "../../plot/paint";
 import type { Track, DeckTheme, StageSize } from "../types";
+import { PRESET_CATALOG, isEnterPreset, isExitPreset } from "../presetCatalog";
 import { trimKeyframes, resolveAnchor, isDefaultTrim, type TrimSpec } from "./trim";
 import { editorCameraTransform } from "../../editorPresentation";
+import { sampleCamera, type CameraPose } from "../camera";
 
 export type TargetNode = HTMLElement | SVGElement;
 
 export interface PresetCtx {
   theme: DeckTheme;
   stage: StageSize;
+  cameraFrom?: CameraPose;
 }
 
 /** One node's animation within a track. `enter` marks an intro (the node is
@@ -31,6 +35,12 @@ export interface NodeAnim {
   index: number;
   enter: boolean;
   prep?: () => void;
+  /** Rebuild camera frames at play start; no argument restores the compiled FROM. */
+  refreshCamera?: (transform?: string) => boolean;
+  /** The exact transform at an eased progress OUTSIDE [0,1] (a spring's
+   *  overshoot). Keyframes cover [0,1]; extrapolating their last segment
+   *  linearly would leave the geometric camera path the compiler samples. */
+  transformAt?: (u: number) => string;
 }
 
 export type Preset = (nodes: TargetNode[], track: Track, ctx: PresetCtx) => NodeAnim[];
@@ -76,20 +86,8 @@ function inDefs(el: Element): boolean {
  *  the whole-node fade fallback instead of silently no-oping. */
 const GEO_TAGS = "path,line,polyline,polygon,rect,ellipse,circle";
 function paintOf(el: Element): { stroked: boolean; filled: boolean } {
-  const styleAttr = el.getAttribute?.("style") ?? "";
-  const val = (name: string): string => {
-    const m = styleAttr.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, "i"));
-    return (m?.[1] ?? el.getAttribute?.(name) ?? "").trim().toLowerCase();
-  };
-  const stroke = val("stroke");
-  const fill = val("fill");
-  const tag = el.tagName?.toLowerCase() ?? "";
-  // SVG default fill is BLACK when unspecified — but line/polyline never fill.
-  const fillable = tag !== "line" && tag !== "polyline";
-  return {
-    stroked: stroke !== "" && stroke !== "none",
-    filled: fillable && fill !== "none" && fill !== "transparent",
-  };
+  const paint = readPaint(el);
+  return { stroked: paint.stroke !== "none", filled: paint.fill !== "none" };
 }
 function drawGeometry(node: TargetNode): { strokes: SVGElement[]; fills: SVGElement[] } {
   const el = node as Element;
@@ -344,17 +342,32 @@ export const PRESETS: Record<string, Preset> = {
 
   // --- the stage camera (target = the camera layer) ------------------------
   camera: (nodes, t, ctx) => {
-    const zoom = num(t.to?.zoom, 1);
-    const cx = num(t.to?.x, ctx.stage.width / 2);
-    const cy = num(t.to?.y, ctx.stage.height / 2);
-    const { x: tx, y: ty } = editorCameraTransform({ x: cx, y: cy, zoom }, ctx.stage);
-    return each(nodes, (node, index) => ({
-      node, index, enter: false,
-      keyframes: [
-        { transform: (node as HTMLElement).style.transform || "translate(0,0) scale(1)" },
-        { transform: `translate(${tx}px, ${ty}px) scale(${zoom})` },
-      ],
-    }));
+    const poseOf = (transform = ""): CameraPose => {
+      const n = transform.match(/-?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)?.map(Number);
+      const zoom = n?.[2] ?? 1;
+      return { x: (ctx.stage.width / 2 - (n?.[0] ?? 0)) / zoom, y: (ctx.stage.height / 2 - (n?.[1] ?? 0)) / zoom, zoom };
+    };
+    return each(nodes, (node, index) => {
+      const initial = ctx.cameraFrom ?? poseOf(node.style.transform);
+      const to = { x: num(t.to?.x, initial.x), y: num(t.to?.y, initial.y), zoom: num(t.to?.zoom, initial.zoom) };
+      const keyframes: Keyframe[] = Array.from({ length: 24 }, (_, i) => ({ offset: i / 23 }));
+      const pose = { ...initial };
+      let last: CameraPose | undefined, current = initial;
+      const transformAt = (u: number) => {
+        sampleCamera(current, to, u, ctx.stage, t.to?.path, pose);
+        const { x, y, zoom } = editorCameraTransform(pose, ctx.stage);
+        return `translate(${x}px, ${y}px) scale(${zoom})`;
+      };
+      const refreshCamera = (transform?: string) => {
+        const from = transform === undefined ? initial : poseOf(transform);
+        if (last && from.x === last.x && from.y === last.y && from.zoom === last.zoom) return false;
+        last = current = from;
+        for (let i = 0; i < keyframes.length; i++) keyframes[i].transform = transformAt(i / 23);
+        return true;
+      };
+      refreshCamera();
+      return { node, index, enter: false, keyframes, refreshCamera, transformAt };
+    });
   },
 
   // `stagger` = apply a child preset (default fadeRise) over the node set; the
@@ -367,12 +380,12 @@ export const PRESETS: Record<string, Preset> = {
 
 /** Whether a preset name introduces its targets (hidden before its beat). Used
  *  by the player's static-state pass for nodes it hasn't computed specs for yet. */
-export const ENTER_PRESETS = new Set(["fade", "fadeRise", "popIn", "growBaseline", "writeOn", "drawOn", "stagger"]);
+export const ENTER_PRESETS = new Set(Object.keys(PRESET_CATALOG).filter(isEnterPreset));
 
 /** The disappear family — targets are hidden AFTER their beat. A later enter
  *  re-baselines the node (the player's static accumulation restarts at the last
  *  enter), so enter → exit → re-enter sequences are deterministic + reversible. */
-export const EXIT_PRESETS = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"]);
+export const EXIT_PRESETS = new Set(Object.keys(PRESET_CATALOG).filter(isExitPreset));
 
 /** The WRAPPER-level style props each appearance preset animates — the
  *  transform-conflict map (rework §4.1): a transform on the same element in
@@ -380,19 +393,6 @@ export const EXIT_PRESETS = new Set(["fadeOut", "popOut", "drawOff", "wipeOut"])
  *  them for the overlap (and, at rest, the static pass's later-spec-wins
  *  ordering resolves the same way). Presets that drill to INNER geometry
  *  (drawOn/drawOff) touch no wrapper props and are absent deliberately. */
-export const PRESET_WRAPPER_PROPS: Record<string, readonly string[]> = {
-  fade: ["opacity"],
-  fadeRise: ["opacity", "transform"],
-  popIn: ["opacity", "transform"],
-  growBaseline: ["transform"],
-  writeOn: ["clipPath"],
-  stagger: ["opacity", "transform"],
-  fadeOut: ["opacity"],
-  popOut: ["opacity", "transform"],
-  wipeOut: ["clipPath"],
-  highlight: ["opacity"],
-  dim: ["opacity"],
-  move: ["transform"],
-  scale: ["transform"],
-  rotate: ["transform"],
-};
+export const PRESET_WRAPPER_PROPS: Record<string, readonly string[]> = Object.fromEntries(
+  Object.values(PRESET_CATALOG).filter(def => def.wrapperProps.length).map(def => [def.name, def.wrapperProps]),
+);

@@ -86,7 +86,7 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 # Getting plots in
 
 - **Alt+G** opens the **Plot gallery**, showing SVG and PNG previews in the current
-  folder. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
+  folder, including GLB meshes marked **3D**. Choose **Gallery** or **List**; adjust **Size**, **Space**, and **Names** to make
   the contact sheet comfortable. Size reaches **800 px** for large previews. **Folders**
   shows or collapses a directory tree; expand its branches to browse files without losing
   your picks. Flux remembers these display choices.
@@ -99,7 +99,7 @@ slide copies retain the assets they need. A slide copy has its own layout and an
   and **Open folder** takes you there. Picks from both scopes can go in together. The
   project keeps its own copy of every plot you insert, and a global plot stays linked to its
   file in the library, so regenerating it there updates it here on this machine. The global
-  library holds SVG and PNG plots; video clips live in a project's `plots/_videos/`.
+  library holds SVG, PNG and GLB plots; video clips live in a project's `plots/_videos/`.
 - **What a search covers** is set in **Settings → Figure → Plot gallery**: everything in
   the scope you are browsing (the default), only the current folder and its subfolders, only
   project plots, only global plots, or everything in both. When results come from outside
@@ -135,6 +135,105 @@ slide copies retain the assets they need. A slide copy has its own layout and an
 - Everything imports at **true physical size** — a 6.4 × 4.8 inch plot lands exactly that
   big, never silently rescaled. If an import is larger than its figure frame, a toast says so:
   **Ctrl+Shift+I** brings the selection inside the frame (moving it, never resizing it).
+
+# 3D models and 3D fluxplots {#3d-models}
+
+Import a **GLB** mesh through **Import**, drag it onto the canvas, or pick its **3D** tile in
+the gallery. Flux keeps a project copy, so sharing the project does not depend on the
+original file. A plain GLB supplies geometry and colours. A **3D fluxplot** also supplies
+named parts, physical size, axes, labels, value fields and optional shapes through the
+matching `.fluxplot.json` file. Keep that file beside the GLB when importing. An invalid,
+newer or mismatched manifest produces a warning and leaves the geometry available as a
+plain mesh.
+
+3D models need a saved project. In a project you have not saved yet, importing a GLB first
+asks you to save it; then the file picker opens again, so pick the files a second time.
+Cancelling that second picker keeps the saved project. Dragged-in files need no second
+pick. If preparing a model takes more than a second, a notice names the files still being
+imported. A placed model shows a dashed outline while its image is prepared, and
+“Preparing 3D preview” only if that takes longer than a second.
+
+In Python, start a scene, add your mesh and save it into `plots/`. This needs a fluxplot
+version with 3D support (`fp.scene3d`), which is not in a fluxplot release yet.
+
+```python
+import fluxplot as fp
+
+# vertices is an N×3 array; faces is an M×3 array of vertex indices.
+sc = fp.scene3d(figsize=(3.5, 3), units="µm", up="z", axes="triad")
+fp.mesh3d(sc, (vertices, faces), series="neuron", color="#4385be")
+sc.view(azimuth=30, elevation=20)
+fp.save(sc, "plots/neuron")
+```
+
+`figsize` is in inches; `up` describes your data coordinates. The gallery inserts that
+physical size. In a trusted notebook, displaying `sc` opens the interactive viewer.
+Use **Copy view** and paste the `sc.view(...)` line it produces into your code, then save to
+make that angle the scene's Home view. In the viewer, click the model (or hold **Ctrl**) before
+scrolling to zoom; otherwise scrolling moves the notebook as usual. For a static output, use `sc.show(static=True)`.
+
+After rerunning Python, **Source changed** appears in the Inspector and as a dot in
+Layers, together with **Update from source**. Choose it to accept the new geometry and
+metadata. Your box, camera and look stay in place; restyles and field settings remain for
+surviving part IDs, and shape weights remain for surviving names. Flux warns when parts
+disappear or bounds move substantially. **Undo** restores the previous stored model.
+Source changes never replace the model automatically. A missing original file leaves the
+saved copy available. For a recipe-backed model, **Regenerate** in X-ray reruns the recipe
+with its parameters and applies the same update after it succeeds.
+
+**Double-click the mesh**, or choose **Orbit** in the Inspector, to turn it. While you
+orbit, the button reads **Done** and a hint over the model lists the keys:
+
+| Shortcut | Action |
+|---|---|
+| **Drag** | Orbit around the model |
+| **Shift+drag** | Pan within the model's box |
+| **Alt+drag** | Roll the camera |
+| **Wheel** | Zoom the model |
+| **←** **→** **↑** **↓** | Turn the view in 5° steps (**Shift** for 15°) |
+| **1**–**6** | The six axis views, as on the Inspector's view buttons |
+| **0** | Home view and saved shape weights |
+| **P** | Switch orthographic / perspective |
+| **Enter** | Finish, like **Done**; one **Undo** restores the previous view |
+| **Esc** | Cancel the whole orbit visit |
+
+Clicking outside the model also finishes. **Space+drag** and **Ctrl+wheel** return to
+canvas navigation. Double-clicking a label, colorbar, legend or scale bar selects that part
+instead, as with a 2D plot's parts.
+
+The Inspector's **3D model** panel is grouped into sections:
+
+- **3D view**: **Orbit**, the camera numbers, the view buttons **Front**, **Back**,
+  **Right**, **Left**, **Top**, **Bottom** and **Home** (each shows its key), and
+  **Projection** (**Ortho** or **Persp**).
+- **Appearance**: **Colours** is **From file** (the mesh's own colours) or **Uniform** (one
+  **Model colour**, shown only for Uniform); **Lighting** is **Studio** or **Unlit**.
+- **Value fields** and **Shape**, when the model has them (see below).
+
+Resizing the box reframes the model while labels keep their physical type size. A physical
+scale bar is shown only in orthographic view. The default view fits the model snugly; with
+box axes it fits the whole axes box, so ticks and labels stay inside the frame.
+
+Use **Alt+R** for the model's **X-ray**. Named mesh parts can be recoloured, hidden or made
+transparent; labels can be restyled independently. Mesh-part colours show while **Colours**
+is **From file**, so painting a mesh part on a Uniform model switches it to From file (one
+undo, with a notice). For a continuous value field, change its colormap and **Min / Max** under
+**Value fields**: the mesh and colorbar update together, without rerunning Python. A part
+colour overrides its value field; **Reset part colour** restores field colouring.
+
+If the GLB has named shape states, **Shape** offers live weights from 0 to 1. A sequence
+instead starts with a **Frame** control: 0 is the base, 1 onwards are the saved shapes,
+and fractional values blend neighbouring frames. **Custom** means the current weights
+are not a sequence frame. **Reset shape** restores the saved weights. Stored scientific
+weights can extend beyond the slider range.
+
+PNG and TIFF exports rasterize the result at the requested print size. SVG and PDF keep
+the mesh as a high-resolution image while axes, labels, legends and scale bars remain
+vector artwork. Paper uses the saved figure view in its embeds and document exports.
+Large meshes can be reduced at creation with `fp.mesh3d(..., max_faces=...)`; this uses
+the optional `fluxplot[mesh]` extra. Texture images are omitted and skinning is ignored:
+Flux shows the stored mesh geometry, so bake a desired pose before exporting the GLB.
+Point and line primitives are refused; export triangle meshes.
 
 # Selecting inside plots
 
@@ -284,6 +383,25 @@ Pictures that have no text or lines, such as a PNG saved inside an SVG, have not
 content scale to change, so the Inspector says so instead of showing the field. Resize the
 box to make them bigger.
 
+## Axis view
+
+Select a plot with a manifest containing series and calibrated axes to edit **Axis view** in
+the Object inspector. The controls are unavailable without axes and series; an unsupported axis
+is disabled with its reason. Each supported axis has **min** and **max**
+in data units and a **linear/log** scale. An empty field uses the generated plot's limit,
+shown as its placeholder. **Reset** restores both generated axes. Typing or wheeling previews
+the change; finishing the edit makes one undo step, and **Escape** cancels it.
+
+The **F** menu offers **x view** (**v**) and **y view** (**b**); on cropped plots, follow the
+row's displayed key when **v** is already assigned. In X-ray, select an axis row and press
+**v** for **Axis view…** to focus that axis in the Inspector.
+
+Lines, points, ticks and gridlines re-project inside the existing plot frame; exports include
+the same view. Existing ticks fade in the outer 4% of the axis, including exactly at a new
+limit. No extra ticks are generated on zoom-out. Filled marks and non-series marks, such as
+a dashed reference line, stay put. A log view needs positive limits and positive data.
+For multi-panel plots the view applies to all panels; placeholders show the first panel.
+
 # Drawing
 
 The shape tools do what you expect; the **pen** (P) is placement-assisted: click to place
@@ -427,6 +545,11 @@ its resolution. PDF pages use the figure’s physical dimensions.
 | Ctrl+click won't select a part | The plot isn't semantic (imported without its manifest) → re-save via `fp.save` and re-import, or check `flux validate-plot` |
 | An import landed huge / outside the frame | True-size import of a large plot → **Ctrl+Shift+I** to bring it inside, then resize deliberately |
 | Restyles vanished after regenerating | The plot's series names changed in the script → keep `series=` names stable ([why](../concepts/semantic-plots.qmd)) |
+| I see a grey 3D tile | Read the message inside it. Restore a missing GLB, or enable graphics support if rendering is unavailable. Saved posters can still display when a new render cannot be made. |
+| Orbit won't start | A notice says why: the model is locked or hidden (unlock or show it), its file is missing, rendering is unavailable, or another editing mode owns the interaction. Resolve that condition, then choose Orbit again. |
+| Saving says a 3D model file is missing | The model's GLB was moved or deleted from the project's `fig/assets/` folder. Put the named file back and save again. To give up on that model instead, remove it with `flux delete-element <elementId>` and reopen the project; the rest of the figure is untouched. |
+| The labels look different in the notebook | The interactive viewer uses browser fonts; the PNG fallback uses Python's font renderer. Install the same font in both environments. Placement and point sizes remain explicit. |
+| An untrusted notebook output is blank | VS Code can suppress an entire mixed HTML/PNG output. Trust the notebook if appropriate, or execute `sc.show(static=True)` to request only the PNG. |
 | "These figures changed on disk" banner | Another tool or agent edited them → **Reload theirs** or **Overwrite with mine** — nothing is lost silently |
 
 | “Some figures could not be loaded” | A referenced canvas is missing or unreadable. Restore or repair it and reopen the project; saving is blocked to preserve the existing files. |

@@ -112,12 +112,17 @@ export function plotSourceCandidates(root: string | null | undefined, stored: st
  * When a legacy project moves, sidecars under its old root move with it, so
  * old-checkout metadata can never silently accompany the new SVG. */
 export function plotSidecarCandidates(root: string, source: NonNullable<SemanticPlotElement["source"]>, resolvedSvg: string, kind: "manifest" | "recipe"): string[] {
+  return sourceSidecarCandidates(root, source.svgPath, source, resolvedSvg, kind);
+}
+
+/** Standard metadata siblings follow the file that actually resolved. */
+export function sourceSidecarCandidates(root: string, sourcePath: string, source: { manifestPath?: string; recipePath?: string; external?: boolean }, resolvedFile: string, kind: "manifest" | "recipe"): string[] {
   const suffix = kind === "manifest" ? ".fluxplot.json" : ".recipe.json";
   const stored = kind === "manifest" ? source.manifestPath : source.recipePath;
-  const adjacent = norm(resolvedSvg).replace(/\.svg$/i, suffix);
-  if (!stored || norm(stored) === norm(source.svgPath).replace(/\.svg$/i, suffix)) return [adjacent];
-  const origin = norm(source.svgPath), sidecar = norm(stored);
-  if (!source.external && isAbsolutePath(origin) && !isUnderRoot(root, origin) && isUnderRoot(root, resolvedSvg)) {
+  const adjacent = norm(resolvedFile).replace(/\.(?:svg|glb)$/i, suffix);
+  if (!stored || norm(stored) === norm(sourcePath).replace(/\.(?:svg|glb)$/i, suffix)) return [adjacent];
+  const origin = norm(sourcePath), sidecar = norm(stored);
+  if (!source.external && isAbsolutePath(origin) && !isUnderRoot(root, origin) && isUnderRoot(root, resolvedFile)) {
     const anchor = origin.lastIndexOf(PLOTS_SEG);
     if (anchor >= 0 && isUnderRoot(origin.slice(0, anchor), sidecar)) {
       return [`${norm(root)}/${sidecar.slice(anchor + 1)}`];
@@ -129,12 +134,22 @@ export function plotSidecarCandidates(root: string, source: NonNullable<Semantic
   return plotSourceCandidates(root, sidecar, source);
 }
 
-export interface LinkedSourceFiles { svgPath: string; manifestPath?: string; recipePath?: string }
+export type LinkedSourceFiles = ({ svgPath: string; glbPath?: never } | { glbPath: string; svgPath?: never }) & { manifestPath?: string; recipePath?: string };
 /** All exact files worth probing, including absent paths whose later creation
  * must wake the watcher. Native owns validation, read grants and lifetimes. */
 export function linkedSourceFiles(root: string, project: Project): LinkedSourceFiles[] {
   const files = new Map<string, LinkedSourceFiles>();
   for (const f of project.figures) for (const e of f.elements) {
+    if (e.type === "model3d" && e.source?.glbPath && !e.source.frozen) {
+      for (const glbPath of plotSourceCandidates(root, e.source.glbPath, e.source)) {
+        const manifests = sourceSidecarCandidates(root, e.source.glbPath, e.source, glbPath, "manifest");
+        const recipes = sourceSidecarCandidates(root, e.source.glbPath, e.source, glbPath, "recipe");
+        for (const manifestPath of manifests) for (const recipePath of recipes) {
+          const value = { glbPath, manifestPath, recipePath }; files.set(JSON.stringify(value), value);
+        }
+      }
+      continue;
+    }
     if (e.type !== "plot" || !e.source?.svgPath || e.source.frozen) continue;
     for (const svgPath of plotSourceCandidates(root, e.source.svgPath, e.source)) {
       const manifests = plotSidecarCandidates(root, e.source, svgPath, "manifest");

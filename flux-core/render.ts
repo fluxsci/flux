@@ -1,3 +1,8 @@
+import { resolveModelPosters, type ModelPosterPolicy, type ResolvedModelPosters } from './model3dPosterCache';
+import type { PosterSurface } from '../src/lib/model3d/poster';
+import type { FigIndexFile } from '../src/lib/project/figfiles';
+import { elementAssetRefs } from "../src/lib/model3d/refs";
+import { mimeFor } from "../src/lib/assets";
 // flux-core/render.ts — headless figure/canvas rendering (split out of
 // index.ts; WS-6.2): standalone SVG via the GUI's figureToSvg (semantic-plot
 // overrides baked in), PNG via resvg in a child process, whole-canvas looks,
@@ -5,12 +10,13 @@
 
 import * as fs from "node:fs/promises";
 import { relative, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { figureToSvg } from "../src/lib/export";
 import { buildPlotMarkup } from "../src/lib/plot/inlineMarkup";
 import type { FluxPlotManifest } from "../src/lib/plot/types";
 import { isUnderRoot, plotSourceCandidates } from "../src/lib/plot/source";
-import type { Figure, Project } from "../src/lib/types";
+import type { Asset, Figure, Project } from "../src/lib/types";
 import { normalizeIndexAssets } from "../src/lib/project/figfiles";
 import { migrateProject } from "../src/lib/migrate";
 import * as ops from "../src/lib/ops";
@@ -26,8 +32,10 @@ async function readPlotManifest(root: string, rel: string): Promise<FluxPlotMani
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
 }
 
-function mimeFor(kind: string): string {
-  return kind === "svg" ? "image/svg+xml" : "image/png";
+
+/** Bytes needed by image rendering. Model and media payloads never enter this set. */
+export function figureImageAssetIds(fig: Pick<Figure, "elements">): Set<string> {
+  return new Set(fig.elements.flatMap(element => { const refs = elementAssetRefs(element); return [...refs.images, ...refs.posterRefs]; }));
 }
 
 // Headless DOM (linkedom) so the shared plot pipeline (plot/inlineMarkup.ts →
@@ -92,15 +100,28 @@ export async function textLayoutProbe(
   return textLayoutWarnings(figs);
 }
 
+export interface Model3dRenderOptions {
+  model3dPolicy?: ModelPosterPolicy;
+  posterSurface?: PosterSurface;
+  warnings?: string[];
+  signal?: AbortSignal;
+}
+interface LoadedRender { index: FigIndexFile; byId: Record<string, Figure>; assets: Asset[]; models?: ResolvedModelPosters }
+async function loadRender(root: string): Promise<LoadedRender> {
+  await requireProject(root);
+  const index = await readFigIndex(root);
+  if (!index) throw new Error('no fig/index.json (run `flux reindex` or open the project once)');
+  const { byId } = await readCanvasFiles(root, index);
+  const assets: Asset[] = normalizeIndexAssets(index).map(asset => ({ ...asset, name: asset.name ?? asset.id, path: asset.path ?? '', naturalWidth: asset.naturalWidth ?? 0, naturalHeight: asset.naturalHeight ?? 0 }));
+  return { index, byId, assets };
+}
 export async function renderFigureSvg(
   root: string,
   id: string,
-  opts?: { groupId?: string; onlyElement?: string },
+  opts: Model3dRenderOptions & { groupId?: string; onlyElement?: string } = {},
+  loaded?: LoadedRender,
 ): Promise<string> {
-  await requireProject(root);
-  const index = await readFigIndex(root);
-  if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
-  const { byId } = await readCanvasFiles(root, index);
+  const snapshot = loaded ?? await loadRender(root), { index, byId } = snapshot;
   let fig = byId[id];
   if (!fig) throw new Error(`figure not found: ${id}`);
   if (opts?.onlyElement) {
@@ -123,22 +144,19 @@ export async function renderFigureSvg(
     name: "",
     canvases: [],
     figures: [fig],
-    assets: normalizeIndexAssets(index).map((a) => ({
-      id: a.id,
-      name: a.name ?? a.id,
-      kind: a.kind,
-      path: a.path ?? "",
-      naturalWidth: a.naturalWidth ?? 0,
-      naturalHeight: a.naturalHeight ?? 0,
-      ...(a.dpi != null ? { dpi: a.dpi } : {}),
-    })),
+    assets: snapshot.assets,
     palette: [],
   };
   migrateProject(renderProject);
 
   const assetCache: Record<string, string> = {};
   const assetPath: Record<string, string> = {};
-  const required = new Set(fig.elements.flatMap(e => 'assetId' in e ? [e.assetId] : []));
+  const required = figureImageAssetIds(fig);
+  const models = snapshot.models ?? await resolveModelPosters(root, [fig], snapshot.assets, {
+    policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal,
+  });
+  if (!snapshot.models) opts.warnings?.push(...models.warnings);
+  Object.assign(assetCache, models.urls);
   for (const a of normalizeIndexAssets(index)) {
     if (!required.has(a.id)) continue;
     if (!a.path) throw new Error(`Missing asset path: ${a.id}`);
@@ -204,7 +222,7 @@ export async function renderFigureSvg(
     // Crop rendering for <image>-backed elements: same intrinsic-size source
     // as the GUI (assetDisplaySize over the index's asset dims + dpi).
     (aid) => ops.assetDisplaySize(renderProject, aid) ?? undefined,
-    opts,
+    { ...opts, model3d: models.context },
   );
 }
 
@@ -231,14 +249,13 @@ process.stdout.write(r.render().asPng());
 async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", RASTER_CHILD], {
-      // Resolve @resvg/resvg-js from THIS module's location — works from the
-      // repo checkout (tsx) and from dist/flux-{cli,mcp}.mjs while node_modules
-      // is present. NOTE: resvg is deliberately NOT shipped/asarUnpacked in the
-      // packaged app (native raster stays out of the app process), so render-figure
-      // is a checkout/CLI-with-node_modules capability, not a packaged-binary one.
+      // Electron-as-Node cannot read asar. Resolve beside the unpacked CLI/MCP
+      // and its shipped @resvg packages; source and ordinary dist stay unchanged.
       env: {
         ...process.env,
-        FLUX_RESVG_FROM: import.meta.url,
+        ELECTRON_RUN_AS_NODE: "1",
+        FLUX_RESVG_FROM: pathToFileURL(fileURLToPath(import.meta.url)
+          .replace(/([\\/])app\.asar([\\/])/, "$1app.asar.unpacked$2")).href,
         FLUX_RESVG_SCALE: String(scale),
         FLUX_RESVG_WIDTH: String(width),
       },
@@ -251,7 +268,7 @@ async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buff
     child.on("error", reject);
     child.on("close", (code) => {
       const png = Buffer.concat(out);
-      const isPng = png.length > 8 && png[0] === 0x89 && png[1] === 0x50;
+      const isPng = png.length > 8 && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
       if (code === 0 && isPng) return resolve(png);
       // Surface the MESSAGE, not node's stack/version noise: prefer the first
       // "Error:"/panic line, else the first non-frame line.
@@ -271,9 +288,8 @@ async function rasterizePng(svg: string, scale: number, width = 0): Promise<Buff
  *  pictures the raster fallback Word requires (docxSvgFallback.ts).
  *
  *  Rides the same out-of-process resvg child as every other rasterization here, so a
- *  pathological SVG cannot take the CLI down with it. NOTE the same shipping
- *  constraint as renderFigurePng: resvg is deliberately not packed into the app
- *  bundle, so this is a checkout / CLI-with-node_modules capability. Callers treat a
+ *  pathological SVG cannot take the CLI down with it. Source, dist and packaged
+ *  CLI/MCP installs all use this same child and their local resvg prebuilt. Callers treat a
  *  throw as "no fallback for this picture" and carry on. */
 export async function rasterizeSvgToPng(svg: string, width: number): Promise<Buffer> {
   return rasterizePng(svg, 1, Math.max(1, Math.round(width)));
@@ -296,7 +312,7 @@ async function findUnrenderablePanels(root: string, figId: string): Promise<stri
     const assets = new Map((index.assets ?? []).map((a) => [a.id, a] as const));
     for (const el of fig.elements.filter((e) => e.type === "plot")) {
       try {
-        await rasterizePng(await renderFigureSvg(root, figId, { onlyElement: el.id }), 1);
+        await rasterizePng(await renderFigureSvg(root, figId, { onlyElement: el.id, model3dPolicy: 'collect' }), 1);
       } catch {
         const aid = (el as { assetId?: string }).assetId;
         const asset = aid ? assets.get(aid) : undefined;
@@ -328,8 +344,8 @@ async function findUnrenderablePanels(root: string, figId: string): Promise<stri
 /** render-figure → a rasterized PNG (resvg in a child process; no browser).
  *  `scale` is a zoom factor over the figure's world units (default 2 ≈ 144dpi).
  *  On failure the error names the offending panel(s) when a bisect finds them. */
-export async function renderFigurePng(root: string, id: string, scale = 2): Promise<Buffer> {
-  const svg = await renderFigureSvg(root, id);
+export async function renderFigurePng(root: string, id: string, scale = 2, opts: Model3dRenderOptions = {}): Promise<Buffer> {
+  const svg = await renderFigureSvg(root, id, { ...opts, posterSurface: opts.posterSurface ?? { kind: 'raster', dpi: 96 * scale } });
   try {
     return await rasterizePng(svg, scale);
   } catch (e) {
@@ -349,19 +365,25 @@ const escXml = (s: string) =>
  *  at its canvas x/y, with a muted name·id label above each frame. This is the
  *  canvas-level "look" verb — `render-figure` shows one frame in isolation, so
  *  a headless agent could never see figures stacked on top of each other. */
-export async function renderCanvasSvg(root: string, canvasId?: string): Promise<{ svg: string; canvasId: string }> {
-  await requireProject(root);
-  const index = await readFigIndex(root);
-  if (!index) throw new Error("no fig/index.json (run `flux reindex` or open the project once)");
+export async function renderCanvasSvg(root: string, canvasId?: string, opts: Model3dRenderOptions = {}): Promise<{ svg: string; canvasId: string }> {
+  const snapshot = await loadRender(root), { index, byId } = snapshot;
   const cid = canvasId ?? index.canvases?.[0]?.id;
   if (!cid || (canvasId && !(index.canvases ?? []).some((c) => c.id === canvasId)))
     throw new Error(`canvas not found: ${canvasId ?? "(none in index)"}`);
-  const { byId } = await readCanvasFiles(root, index);
   const figs = (index.figures ?? [])
     .filter((f) => f.canvas === cid && byId[f.id])
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((f) => byId[f.id]);
   if (!figs.length) throw new Error(`canvas ${cid} has no figures`);
+  // One batched poster resolution (one worker spawn) for the canvas. Should it
+  // fail outright, each figure resolves its own models inside its own try below.
+  try {
+    snapshot.models = await resolveModelPosters(root, figs, snapshot.assets, { policy: opts.model3dPolicy ?? 'image', surface: opts.posterSurface ?? 'figure', allFigures: Object.values(byId), signal: opts.signal });
+    opts.warnings?.push(...snapshot.models.warnings);
+  } catch (error) {
+    opts.signal?.throwIfAborted();
+    opts.warnings?.push(`3D posters for canvas ${cid} could not be resolved together; resolving per figure: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   const LABEL_H = 26;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -376,13 +398,25 @@ export async function renderCanvasSvg(root: string, canvasId?: string): Promise<
 
   const parts: string[] = [];
   for (const f of figs) {
-    const svg = await renderFigureSvg(root, f.id);
     // Nest the figure's own render at its canvas position (nested <svg x y>).
     parts.push(
       `<text x="${f.x}" y="${f.y - 8}" font-family="sans-serif" font-size="16" fill="#8a8279">` +
         `${escXml(f.name)} · ${escXml(f.id)}</text>`,
     );
-    parts.push(svg.replace("<svg ", `<svg x="${f.x}" y="${f.y}" `));
+    try {
+      const svg = await renderFigureSvg(root, f.id, opts, snapshot);
+      parts.push(svg.replace("<svg ", `<svg x="${f.x}" y="${f.y}" `));
+    } catch (error) {
+      // One broken figure must not blank the whole canvas look: draw a named
+      // error frame in its place and say why.
+      opts.signal?.throwIfAborted();
+      const reason = error instanceof Error ? error.message.split("\n")[0] : String(error);
+      opts.warnings?.push(`figure "${f.id}" could not be rendered on canvas ${cid}: ${reason}`);
+      parts.push(
+        `<g data-figure-error="${escXml(f.id)}"><rect x="${f.x}" y="${f.y}" width="${f.width}" height="${f.height}" fill="#fff5f2" stroke="#d14d41" stroke-dasharray="6 4"/>` +
+          `<text x="${f.x + 12}" y="${f.y + 24}" font-family="sans-serif" font-size="14" fill="#af3029">Could not render: ${escXml(reason.slice(0, 160))}</text></g>`,
+      );
+    }
   }
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
@@ -397,8 +431,8 @@ export async function renderCanvasSvg(root: string, canvasId?: string): Promise<
  *  tall, and 2× would produce a needlessly huge raster for a look-step. On
  *  failure, each figure is rendered alone so the error names WHICH figure
  *  (and via the panel bisect, which panel/coordinate) broke the canvas. */
-export async function renderCanvasPng(root: string, canvasId?: string, scale = 1): Promise<{ png: Buffer; canvasId: string }> {
-  const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId);
+export async function renderCanvasPng(root: string, canvasId?: string, scale = 1, opts: Model3dRenderOptions = {}): Promise<{ png: Buffer; canvasId: string }> {
+  const { svg, canvasId: cid } = await renderCanvasSvg(root, canvasId, { ...opts, posterSurface: opts.posterSurface ?? { kind: 'raster', dpi: 96 * scale } });
   try {
     return { png: await rasterizePng(svg, scale), canvasId: cid };
   } catch (e) {
@@ -407,7 +441,7 @@ export async function renderCanvasPng(root: string, canvasId?: string, scale = 1
     try {
       const index = await readFigIndex(root);
       for (const f of (index?.figures ?? []).filter((f) => f.canvas === cid)) {
-        await renderFigurePng(root, f.id, 1).catch((fe) => {
+        await renderFigurePng(root, f.id, 1, { ...opts, model3dPolicy: 'collect' }).catch((fe) => {
           detail.push(fe instanceof Error ? fe.message : String(fe));
         });
       }
@@ -457,13 +491,24 @@ export async function materializeRenders(
   // WS-12: name any figure whose text a headless edit left unwrapped — the
   // materialized SVGs are exactly what the compiled manuscript will show.
   warnings.push(...(await textLayoutProbe(root, { figureIds: [...ids] })));
+  const snapshot = await loadRender(root);
+  // Batched first (one worker spawn). If that fails as a whole, every figure
+  // resolves its own models inside the per-figure try, so one bad model can
+  // only fail its own figure, never the compile.
+  try {
+    snapshot.models = await resolveModelPosters(root, [...ids].map(id => snapshot.byId[id]).filter(Boolean), snapshot.assets, { policy: 'project', surface: 'figure', allFigures: Object.values(snapshot.byId) });
+    warnings.push(...snapshot.models.warnings);
+  } catch (error) {
+    warnings.push(`3D posters could not be resolved together; resolving per figure: ${error instanceof Error ? error.message : String(error)}`);
+  }
   for (const id of ids) {
     try {
-      const svg = await renderFigureSvg(root, id);
+      const svg = await renderFigureSvg(root, id, { model3dPolicy: 'project', posterSurface: 'figure', warnings }, snapshot);
       await atomicWrite(safeJoin(root, `fig/renders/${id}.svg`), svg);
       wrote++;
-    } catch {
+    } catch (error) {
       failed.push(id);
+      warnings.push(`figure "${id}" was not rendered: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
     }
   }
   return { wrote, failed, warnings };

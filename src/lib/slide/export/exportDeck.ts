@@ -31,6 +31,9 @@ const runtimeEntry = path.join(here, "runtime.ts");
 export interface ExportAssets {
   runtime: string;
   videoRuntime?: string;
+  model3dRuntime?: string;
+  /** Paper's player runtime shares this packaged sidecar and its model IIFE. */
+  embed?: { runtime: string; csp: string; fonts: string };
   gelasio: string;
   /** Repo-relative source files the runtime bundle was built from (staleness guard). */
   sources?: string[];
@@ -42,15 +45,16 @@ export interface ExportAssets {
 /** Bundle the export runtime (player + render + morph + presets + motion + KaTeX)
  *  into a single minified IIFE exposing `FluxSlideRuntime`. esbuild is imported
  *  dynamically so it stays out of the shipped CLI bundle (dev-only path). */
-async function computeRuntime(entry = runtimeEntry, globalName = "FluxSlideRuntime"): Promise<{ text: string; sources: string[] }> {
+async function computeRuntime(entry = runtimeEntry, globalName: string | undefined = "FluxSlideRuntime", embed = false): Promise<{ text: string; sources: string[] }> {
   const { build } = await import("esbuild");
   const out = await build({
     entryPoints: [entry],
     bundle: true,
     format: "iife",
-    globalName,
+    globalName: embed ? undefined : globalName,
     platform: "browser",
-    target: "es2020",
+    target: embed ? "es2022" : "es2020",
+    define: { 'import.meta.env.DEV': 'false' },
     minify: true,
     write: false,
     legalComments: "none",
@@ -102,12 +106,14 @@ async function computeGelasio(): Promise<string> {
  *  (KaTeX inlining left with the math element — slide text is the figure
  *  text element now; a future math element re-adds its CSS here.) */
 export async function computeExportAssets(): Promise<ExportAssets> {
-  const [rt, video, gelasio] = await Promise.all([computeRuntime(), computeRuntime(path.join(here, "videoRuntime.ts"), "FluxVideoRuntime"), computeGelasio()]);
-  const sources = [...new Set([...rt.sources, ...video.sources])].sort();
+  const [rt, video, model, embed, gelasio] = await Promise.all([computeRuntime(), computeRuntime(path.join(here, "videoRuntime.ts"), "FluxVideoRuntime"), computeRuntime(path.join(here, "model3dRuntime.ts"), "FluxModel3dRuntime"), computeRuntime(path.join(here, '../embedDocumentRuntime.ts'), undefined, true), computeGelasio()]);
+  const fonts = (await Promise.all(['Gelasio', 'Gelasio-italic'].map(async name => `@font-face{font-family:Gelasio;font-style:${name.endsWith('italic') ? 'italic' : 'normal'};font-weight:400 700;src:url(data:font/woff2;base64,${b64(await readFile(path.join(repoRoot, 'src/styles/fonts', `${name}.woff2`)))}) format('woff2')}`))).join('\n');
+  const sources = [...new Set([...rt.sources, ...video.sources, ...model.sources, ...embed.sources, 'src/styles/fonts/Gelasio.woff2', 'src/styles/fonts/Gelasio-italic.woff2'])].sort();
   let sourcesHash = "";
   try { sourcesHash = await hashSources(sources); } catch { /* best-effort */ }
   return {
-    runtime: rt.text, videoRuntime: video.text, gelasio,
+    runtime: rt.text, videoRuntime: video.text, model3dRuntime: model.text, gelasio,
+    embed: { runtime: embed.text, csp: `'sha256-${createHash('sha256').update(embed.text).digest('base64')}'`, fonts },
     sources, sourcesHash, generatedAt: new Date().toISOString(),
   };
 }
@@ -145,7 +151,7 @@ let _assets: ExportAssets | null = null;
 /** Export-time consumer: prefer the prebuilt sidecar (required in a packaged app,
  *  present in dev after a build); fall back to computing fresh (dev without build,
  *  or a stale sidecar). Cached per process. */
-async function loadExportAssets(): Promise<ExportAssets> {
+export async function loadExportAssets(): Promise<ExportAssets> {
   if (_assets) return _assets;
   for (const p of sidecarCandidates()) {
     try {
@@ -165,6 +171,12 @@ async function loadExportAssets(): Promise<ExportAssets> {
   return _assets;
 }
 
+function modelRuntimeFor(payload: ExportPayload, assets: ExportAssets): string {
+  if (!Object.keys(payload.models ?? {}).length) return "";
+  if (!assets.model3dRuntime) throw new Error("3D runtime is missing. Rebuild Flux before exporting this deck.");
+  return assets.model3dRuntime;
+}
+
 export interface ExportResult {
   html: string;
   bytes: number;
@@ -175,10 +187,11 @@ export interface ExportResult {
 export async function exportSlideVideoHtml(payload: ExportPayload, input: Partial<SlideVideoOptions> = {}): Promise<string> {
   const options = videoOptions(input), assets = await loadExportAssets();
   if (!assets.videoRuntime) throw new Error("Video runtime is missing. Rebuild Flux before exporting video.");
+  const modelRuntime = modelRuntimeFor(payload, assets);
   const json = JSON.stringify({ payload, options }).replace(/</g, "\\u003c");
   const boot = `window.fluxVideoReady=(async()=>{const p=JSON.parse(document.getElementById('payload').textContent);window.fluxVideo=await FluxVideoRuntime.boot(p.payload,p.options);return window.fluxVideo.info;})();window.fluxVideoReady.catch(()=>{});`;
-  const hashes = [assets.videoRuntime, boot].map(s => `'sha256-${createHash("sha256").update(s).digest("base64")}'`).join(" ");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${hashes}; style-src 'unsafe-inline'; img-src data: blob:; media-src file: data: blob:; font-src data:; connect-src 'none'"><style>*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}${assets.gelasio}</style></head><body><script type="application/json" id="payload">${json}</script><script>${assets.videoRuntime}</script><script>${boot}</script></body></html>`;
+  const hashes = [assets.videoRuntime, ...(modelRuntime ? [modelRuntime] : []), boot].map(s => `'sha256-${createHash("sha256").update(s).digest("base64")}'`).join(" ");
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${hashes}; style-src 'unsafe-inline'; img-src data: blob:; media-src file: data: blob:; font-src data:; connect-src 'none'"><style>*{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}${assets.gelasio}</style></head><body><script type="application/json" id="payload">${json}</script>${modelRuntime ? `<script>${modelRuntime}</script>` : ""}<script>${assets.videoRuntime}</script><script>${boot}</script></body></html>`;
 }
 
 /** Build the self-contained HTML from a fully-gathered payload (deck + inlined
@@ -187,6 +200,7 @@ export async function exportDeckHtml(payload: ExportPayload, opts: { warnThresho
   payload = portablePayload(payload);
   const assets = await loadExportAssets();
   const runtime = assets.runtime;
+  const modelRuntime = modelRuntimeFor(payload, assets);
   const gelasio = assets.gelasio;
   const warnings: string[] = [];
 
@@ -200,7 +214,7 @@ export async function exportDeckHtml(payload: ExportPayload, opts: { warnThresho
   FluxSlideRuntime.boot(document.getElementById("flux-stage"), p);
 })();
 `;
-  const policy = await offlineHtmlPolicy([runtime, boot]);
+  const policy = await offlineHtmlPolicy([runtime, ...(modelRuntime ? [modelRuntime] : []), boot]);
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -219,6 +233,7 @@ ${gelasio}
 <body>
 <div id="flux-stage"></div>
 <script type="application/json" id="flux-payload">${json}</script>
+${modelRuntime ? `<script>${modelRuntime}</script>` : ""}
 <script>${runtime}</script>
 <script>${boot}</script>
 </body>
@@ -228,5 +243,9 @@ ${gelasio}
   const bytes = Buffer.byteLength(html, "utf8");
   const threshold = opts.warnThreshold ?? 25 * 1024 * 1024;
   if (bytes > threshold) warnings.push(`Exported file is ${(bytes / 1048576).toFixed(1)} MB (> ${(threshold / 1048576).toFixed(0)} MB) — embedded clips increase file size; shorter source clips make the portable file smaller.`);
+  if (modelRuntime) {
+    const modelBytes = Object.values(payload.models ?? {}).reduce((n, value) => n + value.length * .75, 0);
+    if (bytes > threshold) warnings.push(`3D models add ${(modelBytes / 1048576).toFixed(1)} MB; use max_faces= in fluxplot to shrink the deck`);
+  }
   return { html, bytes, warnings };
 }

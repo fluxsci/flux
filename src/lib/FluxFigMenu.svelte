@@ -1,5 +1,8 @@
 <script lang="ts">
-  // The property menu — `f` (2026-09-15 surface redesign). The principal way
+  import { numericStep, numericFraction } from "./interact/numericStep";
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
+  // The property menu — `f` (2026-09-15 surface redesign). The main way
   // of editing object properties without the right rail: left hand on the
   // keyboard, right hand on the mouse, and neither ever has to leave.
   //
@@ -37,7 +40,8 @@
   import ColorPicker from "./ColorPicker.svelte";
   import Logomark from "../shell/Logomark.svelte";
   import { elementLabel } from "./xray/buildXrayTree";
-  import { buildPartIndex } from "./plot/parse";
+  import { semanticPartIndex } from "./plot/partStyle";
+  import { scene3dManifests } from "./model3d/store";
   import type { Element as FluxElement, Figure } from "./types";
 
   type Mode = "hotkey" | "field" | "option" | "color" | "search";
@@ -58,7 +62,7 @@
 
   // (Re)build the field list whenever the selection / part selection or its
   // data changes (the global style library too — it feeds the style fields).
-  $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles) : [];
+  $: fields = $fluxFigMenuOpen ? buildMenuFields($project, $selection, $partSelections, $plotManifests, $globalTextStyles, $scene3dManifests) : [];
   $: groups = groupFields(fields);
   $: cols = fields.length > 18 ? 3 : fields.length > 8 ? 2 : 1;
   $: width = mode === "color" ? 620 : cols === 3 ? 664 : cols === 2 ? 452 : 240;
@@ -70,12 +74,13 @@
   // hairline, then the same name the Layers rail shows — "rect 1", a plot's
   // file name, a custom name — and for a part the plot › part; `.ctx` carries
   // the kind or the plural count so the plural pick still reads "2 plot parts".
-  $: head = describeHead($selection, $partSelections, $project, $plotManifests);
+  $: head = describeHead($selection, $partSelections, $project, $plotManifests, $scene3dManifests);
   function describeHead(
     sel: Set<string>,
     parts: { elementId: string; partId: string }[],
     p: typeof $project,
     manifests: typeof $plotManifests,
+    models: typeof $scene3dManifests,
   ): { name: string; ctx: string } {
     const find = (id: string): { f: Figure; e: FluxElement } | null => {
       for (const f of p.figures) {
@@ -89,12 +94,12 @@
       const plotName = first ? elementLabel(first.f, first.e, manifests) : "plot";
       const plots = new Set(parts.map((pt) => pt.elementId)).size;
       if (parts.length === 1) {
-        const m = first?.e.type === "plot" ? manifests[first.e.assetId] : undefined;
-        const info = m ? buildPartIndex(m)[parts[0].partId] : undefined;
+        const m = first?.e.type === "model3d" ? models[first.e.assetId] : first?.e.type === "plot" ? manifests[first.e.assetId] : undefined;
+        const info = m ? semanticPartIndex(m)[parts[0].partId] : undefined;
         const label =
           info?.label ??
-          ([info?.role, info?.series, info?.index !== undefined ? `#${info.index}` : null].filter(Boolean).join(" · ") || parts[0].partId);
-        return { name: `${plotName} › ${label}`, ctx: "plot part" };
+          ([info?.role, info?.series, info && "index" in info && info.index !== undefined ? `#${info.index}` : null].filter(Boolean).join(" · ") || parts[0].partId);
+        return { name: `${plotName} › ${label}`, ctx: first?.e.type === "model3d" ? "3D part" : "plot part" };
       }
       return { name: plots > 1 ? `${plots} plots` : plotName, ctx: `${parts.length} plot parts` };
     }
@@ -255,7 +260,7 @@
     void tick().then(() => {
       if (!$fluxFigMenuOpen || activeKey !== f.key || (mode !== "field" && mode !== "option")) return;
       const el = inputs[f.key];
-      if (f.kind === "select") {
+      if (f.kind === "select" || f.kind === "axisView") {
         panelEl?.focus({ preventScroll: true });
         return;
       }
@@ -303,9 +308,8 @@
 
   // --- numeric stepping: keys + wheel ------------------------------------------------
   function stepValue(f: Field, steps: number, mult = 1) {
-    const step = (f.step ?? 1) * mult;
     const cur = f.mixed && draft === "" ? Number(f.get()) : (evalExpr(draft) ?? Number(f.get()));
-    let v = (Number.isFinite(cur) ? cur : 0) + steps * step;
+    let v = numericStep(Number.isFinite(cur) ? cur : 0, steps * mult, f.step ?? 1, f.factor);
     if (f.min != null) v = Math.max(f.min, v);
     if (f.max != null) v = Math.min(f.max, v);
     v = +v.toFixed(6);
@@ -319,7 +323,8 @@
   /** Window-level, capture phase: once a row is armed (f, then its letter) the
    *  wheel adjusts it wherever the mouse is — the canvas must not zoom. */
   function onWinWheel(e: WheelEvent) {
-    if (!$fluxFigMenuOpen || !(mode === "field" || mode === "option") || !active) return;
+    if (yieldsToShellModal(e)) return;
+    if (!$fluxFigMenuOpen || !(mode === "field" || mode === "option") || !active || active.kind === "axisView") return;
     if (panelEl?.contains(e.target as Node)) return; // the panel's own handler (hover-arming) takes it
     e.preventDefault();
     e.stopPropagation();
@@ -342,7 +347,7 @@
         });
       }
     }
-    if (!f) return; // nothing armed under the pointer: let the body scroll
+    if (!f || f.kind === "axisView") return; // nothing armed under the pointer: let the body scroll
     e.preventDefault();
     e.stopPropagation();
     wheelField(e, f);
@@ -372,6 +377,8 @@
 
   // --- keyboard ---------------------------------------------------------------------------
   function onWin(e: KeyboardEvent) {
+    if (e.target instanceof HTMLElement && e.target.closest('[data-command-scope="model3d-orbit"]')) return;
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (e.defaultPrevented || !$fluxFigMenuOpen) return;
     const t = e.target as HTMLElement | null;
     const typing = !!t && (t.matches("input, textarea, select") || t.isContentEditable);
@@ -416,6 +423,9 @@
       if (lk === "f") { e.preventDefault(); confirmField(); close(); }
       return;
     }
+    if (active?.kind === "axisView" && !typing && (k === "Escape" || lk === "f")) {
+      e.preventDefault(); e.stopImmediatePropagation(); confirmField(); return;
+    }
     // field / color / search modes: the focused control owns the keys.
   }
   function onFieldKey(e: KeyboardEvent, f: Field) {
@@ -450,7 +460,7 @@
     const r = fieldRange(f);
     if (!r) return 0;
     const v = Number(f.get());
-    return Math.max(0, Math.min(100, ((v - r.min) / (r.max - r.min)) * 100));
+    return numericFraction(v, r.min, r.max, f.factor) * 100;
   };
 </script>
 
@@ -478,6 +488,7 @@
           <span class="vsep" aria-hidden="true"></span>
           <span class="ttl">{head.name}</span>
           {#if head.ctx}<span class="ctx">{head.ctx}</span>{/if}
+          <button class="askbtn" on:click={() => { close(); void import("../shell/agent/askChord").then((m) => m.requestAsk()); }} title="Ask about this — read-only" aria-label="Ask about this">✦ Ask</button>
           <button class="xbtn" on:click={close} aria-label="Close properties">×</button>
         </header>
         <div class="search-row" class:active={mode === "search"}>
@@ -489,6 +500,7 @@
           {/if}
         </div>
 
+        {#if fields.some(f => f.hint)}<p class="part-mode-note">{fields.find(f => f.hint)?.hint}</p>{/if}
         <div class="body" class:cols2={mode !== "color" && cols === 2} class:cols3={mode !== "color" && cols === 3}>
           {#if mode === "color" && colorField}
             <div class="color-mode">
@@ -518,7 +530,7 @@
                     <div class="fhead">
                     <span class="hk">{f.key}</span>
                     {#if f.kind === "number"}
-                      <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
+                      <span class="label scrubbable" use:scrub={{ get: () => Number(f.get()), step: f.step ?? 1, factor: f.factor, min: f.min ?? null, max: f.max ?? null, onStart: () => enterField(f), onStep: (v) => { draft = String(v); applyField(f, v); }, onEnd: () => blurField(f), onCancel: () => { session.cancel(); blurField(f); } }}>{f.label}</span>
                     {:else}
                       <span class="label">{f.label}</span>
                     {/if}
@@ -532,6 +544,12 @@
                         </button>
                       {:else if f.kind === "toggle"}
                         <button class="toggle" class:on={Boolean(f.get())} on:click={() => activate(f)}>{f.get() ? "on" : "off"}</button>
+                      {:else if f.kind === "axisView" && f.axisView}
+                        {#if armed}
+                          {#await import("./plot/AxisView.svelte") then module}
+                            <svelte:component this={module.default} {...f.axisView} autofocus />
+                          {/await}
+                        {:else}<button class="actbtn" on:click={() => activate(f)}>Edit…</button>{/if}
                       {:else if f.kind === "action"}
                         <button class="actbtn" on:click={() => activate(f)}>run</button>
                       {:else if f.kind === "select"}
@@ -600,6 +618,7 @@
 {/if}
 
 <style>
+  .part-mode-note { color: var(--c-tx-muted); font-size: 11px; margin: 4px 12px; }
   /* Transparent catcher: a surface, not a modal — clicking elsewhere closes. */
   .fbackdrop { position: fixed; inset: 0; background: transparent; z-index: 300; }
   .fwrap { position: fixed; inset: 0; z-index: 301; pointer-events: none; }
@@ -632,6 +651,8 @@
   .ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-tx-muted); font-size: 11px; }
   .xbtn { width: 22px; height: 22px; padding: 0; background: none; border: 0; color: var(--c-tx-muted); font-size: 16px; cursor: var(--cursor-cross-hover); border-radius: var(--r-ui); }
   .xbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
+  .askbtn { height: 22px; padding: 0 8px; background: none; border: 1px solid var(--c-line); border-radius: var(--r-ui); color: var(--c-tx-muted); font-size: 11px; }
+  .askbtn:hover { color: var(--c-tx-hi); background: var(--c-surface-2); }
   .hk {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 16px; height: 16px; padding: 0 3px;

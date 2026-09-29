@@ -1,3 +1,12 @@
+import { captureAppModelPosterSource, cachedModelPosterUrl } from './model3d/posterStore';
+import { model3dSvgContext, type Model3dSvgContext } from './model3d/static';
+import type { PosterSurface } from './model3d/poster';
+import { collectModel3dSourceBindings } from './model3d/sourceBinding';
+import { scene3dManifests, scene3dRecipes, scene3dGeneration, clearScene3dSidecars, primeScene3dSidecars } from './model3d/store';
+import { readScene3dSidecars, scene3dSidecarWrites } from './model3d/persistence';
+import { prepareModelCopy, publishModelCopy } from './model3d/copy';
+import { storedAssetPath } from './project/assetPath';
+import type { Model3dElement, Scene3dManifest } from './model3d/types';
 import { storeTenant } from "./tenancy";
 import { preparePlot } from "./plot/parse";
 import { buildPlotMarkup } from "./plot/inlineMarkup";
@@ -15,6 +24,8 @@ import {
   project,
   projectDir,
   dirty,
+  editGen,
+  capturePersistenceGeneration,
   activeFigureId,
   selection,
   newId,
@@ -110,12 +121,14 @@ function kindOf(name: string): "png" | "svg" {
 // px (96/inch) — placement must never rescale them (see placeIncoming).
 export interface Incoming {
   asset: Asset;
-  el: ImageElement | SemanticPlotElement | VideoElement;
+  el: ImageElement | SemanticPlotElement | VideoElement | Model3dElement;
   /** Already-prepared dependent assets, e.g. a video's PNG poster. */
   extraAssets?: Asset[];
   /** Prepared bytes remain private until the destination is checked. */
   install?: () => void;
   canInstall?: () => boolean;
+  /** Uncommitted native imports own a receipt until placement succeeds. */
+  discard?: () => Promise<void>;
 }
 
 // Sidecars discovered next to an imported `X.svg`: a FluxPlot manifest
@@ -269,16 +282,39 @@ async function buildIncoming(
 
 export async function importAssets() {
   const canPlace = importDestination();
+  const owner = get(project), figure = get(activeFigureId), tenant = storeTenant();
+  const sameInsertion = () => get(project) === owner && get(activeFigureId) === figure && storeTenant() === tenant;
   try {
-    const paths = await window.fig.openFiles([{ name: "Images", extensions: ["png", "svg"] }]);
-    if (paths?.length) await importPlotsFromPaths(paths, canPlace);
-  } catch (e) { pushToast("error", "Import failed", { detail: errMsg(e) }); }
+    let paths = await window.fig.openFiles([{ name: storeTenant() === "figure" ? "Images and 3D models" : "Images", extensions: storeTenant() === "figure" ? ["png", "svg", "glb"] : ["png", "svg"] }]);
+    if (paths?.length) {
+      if (!canPlace()) throw new Error("The insertion destination changed");
+      if (paths.some(path => /\.glb$/i.test(path))) {
+        const model = await import('./model3d/import');
+        if (!canPlace()) throw new Error('The insertion destination changed');
+        const rootless = !model.model3dImportRoot();
+        await model.ensureModel3dImportRoot();
+        if (!sameInsertion()) throw new Error('The insertion destination changed');
+        if (rootless) {
+          // Root adoption clears earlier dialog grants. Reacquire a genuine picker
+          // approval rather than carrying source access between project owners.
+          const mixed = paths.some(path => !/\.glb$/i.test(path));
+          pushToast('info', mixed ? 'Project saved. Choose the files to import.' : 'Project saved. Choose the 3D model to import.');
+          const savedDestination = importDestination();
+          paths = await window.fig.openFiles([{ name: mixed ? 'Images and 3D models' : '3D models', extensions: mixed ? ['png', 'svg', 'glb'] : ['glb'] }]);
+          if (!savedDestination()) throw new Error('The insertion destination changed');
+          if (!paths?.length) return;
+        }
+      }
+      await importPlotsFromPaths(paths, importDestination());
+    }
+  } catch (e) { if (!(e instanceof Error && e.name === "AbortError")) pushToast("error", "Import failed", { detail: errMsg(e) }); }
 }
 
 /** Read through the exact shared image/plot import pipeline, including sibling
  * manifests/recipes and physical size. The caller owns placement/undo. */
 export async function readIncomingPlot(absPath: string): Promise<Incoming> {
-  if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image or SVG plot. Video clips can be inserted from the Slide gallery.");
+  if (/\.glb$/i.test(absPath)) return (await import('./model3d/import')).readIncomingModel3d(absPath);
+  if (!/\.(png|svg)$/i.test(absPath)) throw new Error("Choose a PNG image, SVG plot or GLB model. Video clips can be inserted from the Slide gallery.");
   const sameDestination = importDestination();
   const bytes = new Uint8Array(await window.fig.readFile(absPath));
   const incoming = await buildIncoming(basename(absPath), bytes, await resolveSiblingsFromFs(absPath));
@@ -296,11 +332,18 @@ export async function readIncomingPlot(absPath: string): Promise<Incoming> {
 export async function importPlotsFromPaths(absPaths: string[], canPlace: () => boolean = () => true,
   read: (path: string) => Promise<Incoming> = readIncomingPlot) {
   if (!window.fig || !absPaths.length) return 0;
+  if (absPaths.some(path => /\.glb$/i.test(path))) {
+    const originalDestination = importDestination(), model = await import('./model3d/import');
+    if (!originalDestination() || !canPlace()) throw new Error('The insertion destination changed');
+    await model.ensureModel3dImportRoot();
+  }
   const targetId = get(activeFigureId);
   const sameDestination = importDestination();
   const allowed = () => sameDestination() && canPlace();
   const incoming: Incoming[] = [];
   const failed: string[] = [];
+  let placed = false;
+  try {
   for (const absPath of absPaths) {
     try {
       if (!allowed()) throw new Error("The insertion destination changed.");
@@ -311,7 +354,7 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
     }
   }
   if (!allowed()) throw new Error("The insertion destination changed. Select a figure and insert again.");
-  placeIncoming(incoming, targetId ?? undefined);
+  placeIncoming(incoming, targetId ?? undefined); placed = true;
   if (failed.length) {
     pushToast(
       "error",
@@ -320,6 +363,11 @@ export async function importPlotsFromPaths(absPaths: string[], canPlace: () => b
     );
   }
   return incoming.length;
+  } finally {
+    if (!placed) for (const item of incoming) if (item.discard) {
+      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled 3D import could not be cleaned up', { detail: errMsg(error) }); }
+    }
+  }
 }
 
 // Import a single plot/asset by absolute path (the Plot gallery, Alt+G) — the
@@ -376,6 +424,15 @@ export async function archivePastedImage(file: File, name: string): Promise<void
 // base name → it imports as a semantic plot. (Drops are sandboxed Files with no
 // filesystem path, so we can only pair what was dropped together.)
 export async function importDroppedFiles(files: File[], figId: string) {
+  if (files.some(file => /\.glb$/i.test(file.name))) {
+    const originalDestination = importDestination();
+    try {
+      const model = await import('./model3d/import');
+      if (!originalDestination()) throw new Error('The insertion destination changed');
+      await model.ensureModel3dImportRoot();
+    }
+    catch (error) { if (error instanceof Error && error.name === 'AbortError') return; throw error; }
+  }
   const sameDestination = importDestination();
   const failures: string[] = [];
   const all = [...files];
@@ -389,16 +446,22 @@ export async function importDroppedFiles(files: File[], figId: string) {
     else if (n.endsWith(".snip.json")) snips.set(f.name.slice(0, -".snip.json".length), f);
   }
   const accepted = all.filter(
-    (f) => /\.(png|svg)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
+    (f) => /\.(png|svg|glb)$/i.test(f.name || "") || /(png|svg)/i.test(f.type),
   );
   if (!accepted.length) {
     // A dropped JPEG/PDF/TIFF/… previously did NOTHING — say why (no silent failures).
-    pushToast("info", "Only PNG/SVG can be imported here");
+    pushToast("info", storeTenant() === "figure" ? "Only PNG/SVG/GLB can be imported here" : "Only PNG/SVG can be imported here");
     return;
   }
   const incoming: Incoming[] = [];
+  let placed = false;
+  try {
   for (const file of accepted) {
     try {
+    if (/\.glb$/i.test(file.name)) {
+      incoming.push(await (await import('./model3d/import')).readDroppedModel3d(file, figId));
+      continue;
+    }
     const bytes = new Uint8Array(await file.arrayBuffer());
     let sib: Siblings = {};
     if (/\.svg$/i.test(file.name || "")) {
@@ -422,8 +485,13 @@ export async function importDroppedFiles(files: File[], figId: string) {
     } catch (error) { failures.push(`${file.name}: ${errMsg(error)}`); }
   }
   if (!sameDestination()) { pushToast("error", "Import cancelled: the destination changed"); return; }
-  placeIncoming(incoming, figId);
-  if (failures.length) pushToast("error", "Some images could not be imported", { detail: failures.join("\n") });
+  placeIncoming(incoming, figId); placed = true;
+  if (failures.length) pushToast("error", "Some files could not be imported", { detail: failures.join("\n") });
+  } finally {
+    if (!placed) for (const item of incoming) if (item.discard) {
+      try { await item.discard(); } catch (error) { pushToast('error', 'Cancelled 3D import could not be cleaned up', { detail: errMsg(error) }); }
+    }
+  }
 }
 
 // Position incoming placements (one centered; many auto-arranged into a grid),
@@ -454,12 +522,26 @@ export function placeIncoming(incoming: Incoming[], figId?: string) {
     (it) => it.el.x < 0 || it.el.y < 0 || it.el.x + it.el.width > fig.width || it.el.y + it.el.height > fig.height,
   );
   if (over.length) {
-    const one = over.length === 1 ? over[0].el : null;
-    pushToast("info", "Placed at true physical size — larger than the frame", {
-      detail: one
-        ? `${mm(one.width)} × ${mm(one.height)} mm vs frame ${mm(fig.width)} × ${mm(fig.height)} mm. Ctrl+Shift+I brings it inside the frame (unresized); or resize it here / regenerate the plot at the size it should print.`
-        : `${over.length} of ${incoming.length} imports exceed the ${mm(fig.width)} × ${mm(fig.height)} mm frame. Ctrl+Shift+I brings them inside the frame (unresized, may overlap); or resize them here / regenerate the plots at the size they should print.`,
-    });
+    // Slides have no print size to fix at the source; a slide is the "frame".
+    const slide = storeTenant() === "slide", frame = slide ? "slide" : "frame";
+    const frameMm = `${mm(fig.width)} × ${mm(fig.height)} mm`;
+    const tooBig = over.filter(it => it.el.width > fig.width || it.el.height > fig.height);
+    if (incoming.length === 1 || tooBig.length) {
+      // At least one import is itself larger than the frame.
+      const one = tooBig.length === 1 ? tooBig[0].el : null;
+      pushToast("info", `Placed at true physical size — larger than the ${frame}`, {
+        detail: one
+          ? `${mm(one.width)} × ${mm(one.height)} mm vs ${frame} ${frameMm}. Ctrl+Shift+I brings it inside the ${frame} (unresized); or resize it here${slide ? "" : " / regenerate the plot at the size it should print"}.`
+          : `${tooBig.length} of ${incoming.length} imports exceed the ${frameMm} ${frame}. Ctrl+Shift+I brings them inside the ${frame} (unresized, may overlap); or resize them here${slide ? "" : " / regenerate the plots at the size they should print"}.`,
+      });
+    } else {
+      // Each fits alone; the side-by-side arrangement is what overflows.
+      const kinds = new Set(incoming.map(it => it.asset.kind));
+      const noun = kinds.size > 1 ? "items" : ({ glb: "models", svg: "plots", mp4: "videos", png: "images" } as const)[[...kinds][0]];
+      pushToast("info", `These ${incoming.length} ${noun} don't fit side by side in the ${frame}`, {
+        detail: `Placed at true size; ${over.length} of ${incoming.length} ${over.length === 1 ? "extends" : "extend"} past the ${frameMm} ${frame}. Arrange or resize them — Ctrl+Shift+I brings them inside the ${frame} (unresized, may overlap)${slide ? "" : ", or regenerate the plots smaller"}.`,
+      });
+    }
   }
 
   commit((proj) => {
@@ -543,6 +625,18 @@ export async function saveProject() {
   }
 }
 
+let standaloneRootRegistration: { root: string; ready: Promise<void> } | undefined;
+function registerStandaloneRoot(root: string) {
+  // Legacy standalone projects do not run the unified fig/ source watcher.
+  // They still need the native window's root ownership for GLB reads/imports.
+  const ready = Promise.resolve(window.fig.watchRoot?.(root)).then(() => {});
+  standaloneRootRegistration = { root, ready };
+  return ready;
+}
+export async function awaitStandaloneProjectRoot(root: string) {
+  if (standaloneRootRegistration?.root === root) await standaloneRootRegistration.ready;
+}
+
 export async function saveProjectAs() {
   try {
     const root = get(embeddedProjectRoot);
@@ -551,56 +645,109 @@ export async function saveProjectAs() {
     // FigureMode's diverged-on-disk banner (W7), and other failures get the
     // controller's retry + sticky toast rather than an unhandled rejection.
     if (root) return await flushById(storeTenant() === "slide" ? "slide" : "figure");
-    const p = get(project);
+    const p = get(project), sourceRoot = get(projectDir);
     const path = await window.fig.save(`${p.name || "Untitled"}.flux`, [
       { name: "Flux project", extensions: ["flux"] },
     ]);
     if (!path) return;
-    await writeProjectTo(path);
+    if (get(project) !== p || get(projectDir) !== sourceRoot) throw new Error("Project changed while Save As was prepared");
+    const saved=await writeProjectTo(path);
+    if(get(project)!==p||get(projectDir)!==sourceRoot||standaloneSaveRequest!==saved.request||(path!==sourceRoot&&editGen.n!==saved.generation)) throw new Error("Project changed during Save As; the original project remains open with your edits");
     projectDir.set(path);
+    if (path !== sourceRoot) {
+      await registerStandaloneRoot(path);
+      if (get(project) !== p || get(projectDir) !== path || get(embeddedProjectRoot)) throw new Error('Project changed while the saved root was registered');
+    }
   } catch (e) {
     pushToast("error", "Save failed", { detail: errMsg(e) });
   }
 }
 
-async function writeProjectTo(dir: string) {
-  if (!(await window.fig.exists(dir))) await window.fig.mkdir(dir);
-  await window.fig.mkdir(joinPath(dir, "assets"));
-
-  const p = structuredClone(get(project));
-  // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
-  // load gate would then (rightly) reject.
-  {
-    const fixed = sanitizeProjectGeometry(p);
-    if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
-  }
-  const data = get(assetData);
-  const manifests = get(plotManifests);
-  const recipes = get(plotRecipes);
-
-  for (const asset of p.assets) {
-    const url = data[asset.id];
-    if (!url) continue;
-    const rel = `assets/${asset.id}.${asset.kind}`;
-    asset.path = rel;
-    await window.fig.writeFile(joinPath(dir, rel), dataUrlToBytes(url));
-    // Cache a semantic plot's sidecars alongside its bytes so the project stays
-    // self-contained (the authoritative copy lives in the user's plots/ dir).
-    // NEVER persist a DERIVED manifest: sidecar presence is the fluxplot/vanilla
-    // discriminator, and re-deriving at every load keeps deriver improvements
-    // retroactive (a written derived sidecar would freeze it and misclassify
-    // the vanilla svg as a fluxplot on the next load).
-    const man = manifests[asset.id];
-    if (man && !isDerivedManifest(man)) {
-      await window.fig.writeText(joinPath(dir, `assets/${asset.id}.fluxplot.json`), JSON.stringify(man, null, 2));
-      const rec = recipes[asset.id];
-      if (rec !== undefined)
-        await window.fig.writeText(joinPath(dir, `assets/${asset.id}.recipe.json`), JSON.stringify(rec, null, 2));
+let standaloneSaveRequest=0;
+let standaloneSaveQueue: Promise<void> = Promise.resolve();
+function writeProjectTo(dir: string) {
+  const request=++standaloneSaveRequest;
+  capturePersistenceGeneration();
+  const generation=editGen.n;
+  const owner=get(project), sourceRoot=get(projectDir), p=structuredClone(owner);
+  const modelBindings=collectModel3dSourceBindings(p.figures.flatMap(f=>f.elements));
+  const models=structuredClone(get(scene3dManifests)), modelRecipes=structuredClone(get(scene3dRecipes));
+  const data={...get(assetData)}, manifests=structuredClone(get(plotManifests)), recipes=structuredClone(get(plotRecipes));
+  // Capture the requested snapshot before waiting. A project switch must never
+  // let a queued old destination receive the newly opened project. Serialize
+  // publication so an already-issued older native write settles before a newer
+  // save; request checks after writeText cannot prevent an old-byte overwrite.
+  const run=async()=>{
+    const assertOwner=()=>{ if(get(project)!==owner||get(projectDir)!==sourceRoot) throw new Error("Project changed while saving"); };
+    assertOwner();
+    // Preflight every model and sidecar before publishing any asset in Save As.
+    const modelCopies=new Map<string,Awaited<ReturnType<typeof prepareModelCopy>>>();
+    for(const asset of p.assets) if(asset.kind==='glb') {
+      if(!sourceRoot) throw new Error(`Cannot save GLB ${asset.id}: source project is unavailable`);
+      if(dir!==sourceRoot) modelCopies.set(asset.id,await prepareModelCopy(window.fig,sourceRoot,asset,dir,asset.path,{binding:modelBindings.get(asset.id)}));
+      else {
+        // Ordinary saves own the existing binary and preserve optional sidecars
+        // in place. Only transfers require a lossless strict sidecar preflight.
+        const relative=storedAssetPath(asset.path);
+        const source=window.fig.projectAssetPath?await window.fig.projectAssetPath(sourceRoot,relative):joinPath(sourceRoot,relative);
+        if(!await window.fig.exists(source)) throw new Error(`Missing GLB asset ${asset.id}`);
+      }
+      assertOwner();
     }
-  }
+    if (!(await window.fig.exists(dir))) { assertOwner(); await window.fig.mkdir(dir); }
+    assertOwner(); await window.fig.mkdir(joinPath(dir, "assets"));
+    // WS-5.1: never persist NaN/Infinity — JSON turns them into null, which the
+    // load gate would then (rightly) reject.
+    {
+      const fixed = sanitizeProjectGeometry(p);
+      if (fixed) pushToast("info", `Repaired ${fixed} non-finite geometry value(s) while saving`);
+    }
 
-  await window.fig.writeText(joinPath(dir, "project.json"), JSON.stringify(p, null, 2));
-  dirty.set(false);
+    for (const asset of p.assets) {
+      if (asset.kind === "glb") {
+        const copy=modelCopies.get(asset.id);
+        if(copy) { await publishModelCopy(window.fig,copy,assertOwner); asset.path=copy.asset.path; }
+        for(const [path,text] of scene3dSidecarWrites(joinPath(dir,"assets"),asset.id,{...copy?.sidecars,manifest:models[asset.id],recipe:modelRecipes[asset.id]})) {
+          assertOwner();
+          if(text!==null) await window.fig.writeText(path,text); else await window.fig.remove?.(path);
+        }
+        continue;
+      }
+      const url = data[asset.id];
+      if (!url) continue;
+      const rel = `assets/${asset.id}.${asset.kind}`;
+      asset.path = rel;
+      assertOwner();
+      await window.fig.writeFile(joinPath(dir, rel), dataUrlToBytes(url));
+      // Cache a semantic plot's sidecars alongside its bytes so the project stays
+      // self-contained (the authoritative copy lives in the user's plots/ dir).
+      // NEVER persist a DERIVED manifest: sidecar presence is the fluxplot/vanilla
+      // discriminator, and re-deriving at every load keeps deriver improvements
+      // retroactive (a written derived sidecar would freeze it and misclassify
+      // the vanilla svg as a fluxplot on the next load).
+      const man = manifests[asset.id];
+      if (man && !isDerivedManifest(man)) {
+        assertOwner();
+        await window.fig.writeText(joinPath(dir, `assets/${asset.id}.fluxplot.json`), JSON.stringify(man, null, 2));
+        const rec = recipes[asset.id];
+        if (rec !== undefined) {
+          assertOwner();
+          await window.fig.writeText(joinPath(dir, `assets/${asset.id}.recipe.json`), JSON.stringify(rec, null, 2));
+        }
+      }
+    }
+
+    const assertSaveAsFresh=()=>{if(dir!==sourceRoot&&editGen.n!==generation) throw new Error("Project changed during Save As; the original project remains open with your edits");};
+    assertOwner(); assertSaveAsFresh();
+    await window.fig.writeText(joinPath(dir, "project.json"), JSON.stringify(p, null, 2));
+    assertOwner(); assertSaveAsFresh();
+    if(editGen.n===generation&&standaloneSaveRequest===request) dirty.set(false);
+    return {request,generation};
+  };
+  const task=standaloneSaveQueue.then(run);
+  // A failed batch must not poison later save requests. Editing stays live.
+  standaloneSaveQueue=task.then(()=>{},()=>{});
+  return task;
 }
 
 export async function openProject() {
@@ -608,6 +755,7 @@ export async function openProject() {
   // disabled — the shell owns project open/close.
   if (get(embeddedProjectRoot)) return;
   try {
+    const previousRoot = get(projectDir);
     const dir = await window.fig.openDirectory("Open Flux project");
     if (!dir) return;
 
@@ -645,9 +793,19 @@ export async function openProject() {
     const fresh: Record<string, string> = {};
     const primedManifests: Record<string, FluxPlotManifest> = {};
     const primedRecipes: Record<string, unknown> = {};
+    const primedModels: Record<string, Scene3dManifest> = {}, primedModelRecipes: Record<string, unknown> = {}, modelIssues: Record<string,string[]> = {};
+    const modelBindings=collectModel3dSourceBindings(p.figures.flatMap(f=>f.elements));
     for (const asset of p.assets) {
       if (!asset.path) continue;
       if (asset.kind === "mp4") throw new Error("Video assets are only supported in slide decks.");
+      if (asset.kind === "glb") {
+        if(!await window.fig.exists(joinPath(dir,asset.path))) throw new Error(`Missing GLB asset ${asset.id}`);
+        const sidecars=await readScene3dSidecars(window.fig,joinPath(dir,"assets"),asset.id,{binding:modelBindings.get(asset.id)});
+        if(sidecars.issues?.length) modelIssues[asset.id]=sidecars.issues;
+        if(sidecars.manifest) primedModels[asset.id]=sidecars.manifest;
+        if(sidecars.recipe!==undefined) primedModelRecipes[asset.id]=sidecars.recipe;
+        continue;
+      }
       const bytes = new Uint8Array(await window.fig.readFile(joinPath(dir, asset.path)));
       fresh[asset.id] = bytesToDataUrl(bytes, mimeFor(asset.kind));
       if (asset.kind === "png") captureSnipMeta(asset.id, bytes);
@@ -661,8 +819,18 @@ export async function openProject() {
       }
     }
     primePlotSidecars(primedManifests, primedRecipes);
+    clearScene3dSidecars();
+    primeScene3dSidecars(primedModels,primedModelRecipes,modelIssues);
+    if(Object.keys(modelIssues).length) pushToast("info","Some 3D metadata could not be loaded",{detail:Object.values(modelIssues).flat().join("\n")});
     assetData.set(fresh);
     loadProject(p, dir);
+    if (dir !== previousRoot) {
+      const loadedOwner = get(project);
+      await registerStandaloneRoot(dir);
+      if (get(project) !== loadedOwner || get(projectDir) !== dir || get(embeddedProjectRoot)) throw new Error('Project changed while the opened root was registered');
+    }
+    const posterGeneration = get(scene3dGeneration);
+    void import('./model3d/posterStore').then(api => api.scheduleModelPosterPrune(dir, () => get(projectDir) === dir && get(scene3dGeneration) === posterGeneration)).catch(() => {});
   } catch (e) {
     pushToast("error", "Couldn't open project", { detail: errMsg(e) });
   }
@@ -683,9 +851,21 @@ export function ensureFigurePlots(fig: Figure): void {
 
 /** Serialize a figure to standalone SVG markup with plots inlined (exported
  *  for the lazy-residency gates; every GUI export path funnels through here). */
-export function buildFigureSvg(fig: Figure): string {
-  const data = get(assetData), manifests = get(plotManifests);
-  const p = get(project);
+interface FigureRenderInputs { data: Record<string, string>; manifests: Record<string, FluxPlotManifest>; assets: Asset[]; models: Record<string, Scene3dManifest>; model3d?: Model3dSvgContext }
+function captureFigureInputs(): FigureRenderInputs {
+  return { data: { ...get(assetData) }, manifests: structuredClone(get(plotManifests)), assets: structuredClone(get(project).assets), models: structuredClone(get(scene3dManifests)) };
+}
+export function buildFigureSvg(fig: Figure, captured?: FigureRenderInputs): string {
+  const inputs = captured ?? captureFigureInputs(), { data, manifests } = inputs;
+  const p = { assets: inputs.assets } as Project;
+  const models = inputs.model3d ?? model3dSvgContext(inputs.assets, inputs.models);
+  if (!captured) {
+    const source = captureAppModelPosterSource();
+    for (const element of fig.elements) if (element.type === 'model3d') {
+      const asset = models.assetOf(element), ref = models.posterIdOf(element);
+      if (asset && ref) { const url = cachedModelPosterUrl({ element, asset, manifest: models.manifestOf(element) }, { source }); if (url) data[ref] = url; }
+    }
+  }
   const markup = new Map<string,string>();
   for (const el of fig.elements) {
     if (el.type !== "plot" && el.type !== "image" && el.type !== "video") continue;
@@ -698,10 +878,9 @@ export function buildFigureSvg(fig: Figure): string {
       markup.set(el.id,svg);
     }
   }
-  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined);
+  return figureToSvg(fig, id => data[id], el => markup.get(el.id), id => assetDisplaySize(p,id) ?? undefined, { model3d: models });
 }
 
-const buildSvg = buildFigureSvg;
 
 // 3.2: save one paper's highlights/notes as a Markdown digest via the OS save dialog.
 // Callers pass the already-loaded annotations + entry metadata (reader/library both have them).
@@ -730,14 +909,22 @@ interface FigureExportJob {
 }
 /** Resolve plot DOM, asset bytes and overrides before the first async boundary.
  * A later editor/source change cannot alter a job waiting in an OS dialog. */
-function captureFigureExport(fig: Figure, transparent = false): FigureExportJob {
-  return Object.freeze({ svg: buildSvg(transparent ? { ...fig, background: "transparent" } : fig),
-    name: fig.name, width: fig.width, height: fig.height,
-    background: transparent ? null : fig.background && fig.background !== "transparent" ? fig.background : "#ffffff" });
+async function captureFigureExport(fig: Figure, transparent = false, surface: PosterSurface = 'svg', signal?: AbortSignal): Promise<FigureExportJob> {
+  const figure = structuredClone(transparent ? { ...fig, background: 'transparent' } : fig);
+  const inputs = captureFigureInputs(), source = captureAppModelPosterSource();
+  if (figure.elements.some(element => element.type === 'model3d')) {
+    const { ensureModelPosters } = await import('./model3d/exportPosters');
+    const prepared = await ensureModelPosters([figure], inputs.assets, inputs.models, surface, source, { signal });
+    Object.assign(inputs.data, prepared.urls); inputs.model3d = prepared.context;
+    for (const warning of prepared.warnings) pushToast('info', warning);
+  }
+  signal?.throwIfAborted();
+  return Object.freeze({ svg: buildFigureSvg(figure, inputs), name: figure.name, width: figure.width, height: figure.height,
+    background: transparent ? null : figure.background && figure.background !== 'transparent' ? figure.background : '#ffffff' });
 }
 export async function exportFigureSvg(fig: Figure) {
   try {
-    const job = captureFigureExport(fig);
+    const job = await captureFigureExport(fig);
     const path = await window.fig.save(`${job.name}.svg`, [{ name: "SVG", extensions: ["svg"] }]);
     if (!path) return;
     await window.fig.writeText(path, job.svg);
@@ -794,7 +981,7 @@ async function renderExportJob(job: FigureExportJob, pxWidth: number, pxHeight: 
 // Quick PNG export (⌘K) — a plain pixel multiple, no physical sizing.
 export async function exportFigurePng(fig: Figure, scale = 4, signal?: AbortSignal) {
   try {
-    const job = captureFigureExport(fig);
+    const job = await captureFigureExport(fig, false, { kind: 'raster', dpi: scale * 96 }, signal);
     const path = await window.fig.save(`${job.name}.png`, [{ name: "PNG", extensions: ["png"] }]);
     if (!path) return;
     await window.fig.writeFile(path, await renderExportJob(job, job.width * scale, job.height * scale, "png", undefined, signal));
@@ -815,16 +1002,16 @@ export interface JournalExportOpts {
 // that column width. TIFF (uncompressed baseline) is the format most journals require. This
 // half produces the bytes (pure of any dialog/disk) so it's browser-testable directly.
 export async function renderFigureBytes(fig: Figure, opts: JournalExportOpts): Promise<Uint8Array> {
-  const job = captureFigureExport(fig, !!opts.transparent);
-  const plan = planExport(job.width, job.height, opts.mm, opts.dpi);
+  const plan = planExport(fig.width, fig.height, opts.mm, opts.dpi);
+  const job = await captureFigureExport(fig, !!opts.transparent, { kind: 'raster', dpi: 96 * plan.pxWidth / fig.width }, opts.signal);
   return renderExportJob(job, plan.pxWidth, plan.pxHeight, opts.format, opts.dpi, opts.signal);
 }
 
 export async function exportFigureJournal(fig: Figure, opts: JournalExportOpts) {
   const { format: ext, dpi } = opts;
   try {
-    const job = captureFigureExport(fig, !!opts.transparent);
-    const plan = planExport(job.width, job.height, opts.mm, dpi);
+    const plan = planExport(fig.width, fig.height, opts.mm, dpi);
+    const job = await captureFigureExport(fig, !!opts.transparent, { kind: 'raster', dpi: 96 * plan.pxWidth / fig.width }, opts.signal);
     const path = await window.fig.save(`${job.name}.${ext}`, [{ name: ext.toUpperCase(), extensions: [ext] }]);
     if (!path) return;
     const bytes = await renderExportJob(job, plan.pxWidth, plan.pxHeight, ext, dpi, opts.signal);
@@ -835,7 +1022,7 @@ export async function exportFigureJournal(fig: Figure, opts: JournalExportOpts) 
 
 export async function exportFigurePdf(fig: Figure) {
   try {
-    const job = captureFigureExport(fig);
+    const job = await captureFigureExport(fig, false, 'pdf');
     const path = await window.fig.save(`${job.name}.pdf`, [{ name: "PDF", extensions: ["pdf"] }]);
     if (!path) return;
     if (!window.fig.exportPdf) throw new Error("PDF export is unavailable in this build.");

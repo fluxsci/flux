@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import type { Slide, StageSize } from "../../../lib/slide/types";
   import { DEFAULT_VIDEO_OPTIONS, videoOptions, videoSize, planSlideVideo, type SlideVideoOptions } from "../../../lib/slide/video";
-  let { slide, stage, durations, onExport, onClose }: { slide: Slide; stage: StageSize; durations: number[]; onExport: (options: SlideVideoOptions) => void; onClose: () => void } = $props();
+  import type { MediaTimingContext } from "../../../lib/slide/mediaTimeline";
+  let { slide, stage, durations, timing, onExport, onClose }: { slide: Slide; stage: StageSize; durations: number[]; timing: MediaTimingContext; onExport: (options: SlideVideoOptions) => void; onClose: () => void } = $props();
   let dialog: HTMLDialogElement;
   const saved = (() => { try { return videoOptions(JSON.parse(localStorage.getItem("flux.slide.videoOptions") || "{}")); } catch { return DEFAULT_VIDEO_OPTIONS; } })();
   let delay = $state(saved.stepDelayMs / 1000), start = $state(saved.startHoldMs / 1000), end = $state(saved.endHoldMs / 1000);
@@ -11,7 +12,7 @@
     try {
       if ([delay, start, end].some(value => value === undefined || value === null)) return null;
       const options = videoOptions({ stepDelayMs: delay * 1000, startHoldMs: start * 1000, endHoldMs: end * 1000, height, fps });
-      return { options, size: videoSize(stage, height), plan: planSlideVideo(slide, durations, options) };
+      return { options, size: videoSize(stage, height), plan: planSlideVideo(slide, durations, options, timing) };
     } catch { return null; }
   });
   onMount(() => {

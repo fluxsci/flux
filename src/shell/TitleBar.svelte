@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { inboxCount, requestInbox } from "./inbox/inboxState";
   import { onMount } from "svelte";
   import Logomark from "./Logomark.svelte";
   import Icon from "./Icon.svelte";
@@ -9,7 +10,24 @@
   import { anyDirty } from "./lifecycle";
   import { fileBridge } from "../lib/project/types";
   import { pushToast } from "../lib/toast";
-
+  import { lastAgentView } from "../lib/bridge/liveView";
+  import { aiColor, aiOpen, openAI } from "./agent/aiMonitorState";
+  import { sessions } from "./agent/sessionState";
+  let agentsOpen = $state(false);
+  let AgentsPopover = $state<typeof import("./agent/AgentsPopover.svelte").default>();
+  async function toggleAgents() {
+    agentsOpen = !agentsOpen;
+    if (agentsOpen && !AgentsPopover) AgentsPopover = (await import("./agent/AgentsPopover.svelte")).default;
+  }
+  $effect(() => {
+    const root = $currentProject?.path;
+    agentsOpen = false;
+    if (!root) return;
+    let active = true, release: (() => void) | undefined;
+    void import("./agent/annotationStore").then(m => { if (active) release = m.retainPresence(); });
+    return () => { active = false; release?.(); };
+  });
+  $effect(() => { if (!$sessions.length) agentsOpen = false; });
   const fig = fileBridge();
   const win = fig?.win;
   // On macOS we defer to the native traffic-light controls (see main.cjs
@@ -103,9 +121,21 @@
 
   <div class="spacer"></div>
 
+  {#if $lastAgentView}
+    <span class="agent-view" role="status" title={`${$lastAgentView.name} viewed your window`}>◉ {$lastAgentView.name} viewed your window</span>
+  {/if}
+
   <!-- Utility strip: deliberately smaller + fainter than the mode strip (the
        "secondary chrome" register), and available on Home too. -->
   <div class="utils no-drag">
+    {#if $view === "workspace" && $currentProject?.path && $sessions.length}
+      <button class="ubtn agents-chip" aria-label="Connected agents" aria-expanded={agentsOpen} onclick={toggleAgents}>{$sessions.length} {$sessions.length === 1 ? "agent" : "agents"} ▾</button>
+      {#if agentsOpen && AgentsPopover}<AgentsPopover close={() => agentsOpen = false} />{/if}
+    {/if}
+    <button class="ubtn ai-indicator" data-status={$aiColor} title={`AI status — ${$aiColor === 'green' ? 'ready' : $aiColor === 'red' ? 'broken' : 'needs attention'}`} aria-label="AI status" aria-expanded={$aiOpen} onclick={() => openAI()}>
+      <span>AI</span><span class="ai-dot" aria-hidden="true"></span>
+    </button>
+    {#if $view === "workspace" && $currentProject?.path}<button class="ubtn inbox-button" title="Inbox — Alt+Q" aria-label={`Inbox · ${$inboxCount} open`} onclick={() => requestInbox()}><Icon name="inbox" size={17} />{#if $inboxCount}<span class="inbox-badge">{$inboxCount}</span>{/if}</button>{/if}
     <button class="ubtn" title="Lighttable — browse image sets" aria-label="Lighttable" onclick={launchLighttable}>
       <Icon name="lighttable" size={17} />
     </button>
@@ -140,6 +170,13 @@
 </header>
 
 <style>
+  .ubtn.agents-chip { width:auto;white-space:nowrap;padding:0 7px;font:11px var(--font-ui); }
+  .ai-indicator { position: relative; font: 11px var(--font-ui); }
+  .ai-dot { position: absolute; right: 1px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--flx-yellow-400, #d0a215); }
+  .ai-indicator[data-status="green"] .ai-dot { background: var(--flx-green-400, #879a39); }
+  .ai-indicator[data-status="red"] .ai-dot { background: var(--flx-red-400, #d14d41); }
+  .inbox-button { position:relative; }
+  .inbox-badge { font:9px var(--font-mono);min-width:12px;color:var(--c-accent); }
   .titlebar {
     height: var(--titlebar-h);
     flex: 0 0 auto;
@@ -268,6 +305,13 @@
 
   .spacer {
     flex: 1 1 auto;
+  }
+  .agent-view {
+    color: var(--c-tx-muted);
+    font-size: var(--ts-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* ---- utility strip (secondary register) -------------------------------- */

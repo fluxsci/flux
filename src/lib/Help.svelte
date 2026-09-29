@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
   // Shell-global keyboard reference. Mounted once (Shell — so `?` works on Home
   // too); opened with `?` from anywhere or the title-bar help button (the
   // `helpOpen` store). Tabs cover every mode; opening jumps to the mode you're
@@ -19,6 +21,12 @@
           title: "Everywhere",
           items: [
             ["?", "Show / hide this reference"],
+            ["Alt+Q", "Inbox: annotations and margin comments"],
+            ["⌃⇧M", "Annotate (note + picture for your agents)"],
+            ["⌃⇧J", "Ask about this (read-only question to Claude Code or Codex)"],
+            ["Alt+A / B / P · Alt+Z", "In Annotate: arrow / box / pen · undo mark"],
+            ["Alt+↑ / ↓", "In Annotate: widen / narrow the hovered target"],
+            ["Enter / Shift+Enter · Tab", "In Annotate: add / new line · change recipient"],
             ["Esc", "Close menus & overlays"],
             ["Click a mode icon (top bar)", "Switch mode"],
             ["⌃1 – ⌃5", "Switch mode (Figure, Paper, Slide, Library, Reader)"],
@@ -52,7 +60,6 @@
             ["Alt+R", "Reference search"],
             ["Alt+F", "Figures"],
             ["Alt+A", "Comments"],
-            ["Alt+T / ⌘`", "Terminal"],
             ["Alt+P / ⌃Alt+P", "Close pane / clear all"],
           ],
         },
@@ -137,7 +144,7 @@
             ["⌃⇧K", "Import PNG/SVG files"],
             ["Alt + G / R", "Plot gallery / X-ray (⇧ or ⌃-click picks several rows; a animates them in Slide)"],
             ["Alt + 1 / 2", "In the Plot gallery: project plots / global plot library"],
-            ["⌃ + S / Shift + S", "Save / save as"],
+            ["⌃ + S", "Save"],
           ],
         },
         {
@@ -182,14 +189,12 @@
           items: [
             ["⌃B / ⌃⇧B", "Show/hide the left / right sidebar"],
             ["⌘F", "Search this PDF (results list in the left sidebar)"],
-            ["Alt+R / Alt+A", "Library search / annotations (right sidebar)"],
-            ["Alt+T", "Terminal drawer (drag its top edge to resize)"],
+            ["Alt+R / Alt+A", "Library search / Highlights (right sidebar)"],
           ],
         },
         {
           title: "Actions",
           items: [
-            ["✦ on a selection", "Send that passage to the terminal"],
             ["Alt+drag", "Pop a page region out into a floating panel"],
             ["Ctrl+Alt+drag", "Snip a region → PNG in plots/paper_snips (with citation)"],
             ["Esc", "Close the topmost menu / popover"],
@@ -291,6 +296,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if ($helpOpen && e.key === "Escape") {
       e.preventDefault();
       helpOpen.set(false);

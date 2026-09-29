@@ -43,7 +43,7 @@ copies its citation key, which you'll paste into the manuscript in step 5.
 
 **Ctrl+Shift+click** the paper's row to open it in the **Reader**. Select an interesting
 sentence — a color menu pops up; pick one and you've made a highlight. Click the highlight to
-attach a note. Annotations anchor to the text itself and stay with the paper forever; the
+attach a note. Highlights anchor to the text itself and stay with the paper forever; the
 Notes sidebar can export them all as Markdown whenever you want.
 ([More on the Reader.](modes/reader.qmd))
 
@@ -161,5 +161,14 @@ From here:
   [shortcut reference](reference/shortcuts.qmd) beside them.
 - When the study grows, [regenerate plots instead of re-saving them](concepts/semantic-plots.qmd#regenerate-dont-re-save).
 - And when you're ready for a collaborator who does the composing and citing *for* you, meet
-  the [agent system](agents/collaboration.qmd): the same three steps you just did by hand are
-  one instruction to `flux principal`.
+  [agent tools](agents/connect.qmd): an agent can carry out the same three steps
+  from your instructions.
+
+
+## Connect an agent
+
+Open **AI status** from the titlebar and choose **Connect** on your agent's card,
+or use `flux connect setup` from your terminal. Restart the agent and invoke
+`/flux-connect <project>` in Claude Code or `$flux-connect <project>` in Codex.
+Wait for its reading receipt, then give it a task, such as “address my open annotations.”
+See [Working with AI agents](agents/connect.qmd) for setup, personal skills and live pairing.

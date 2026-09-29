@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { referenceSyncIO } from '../flux-core/model';
 import { createFolder } from '../flux-core/manuscript';
-import { addNote, CONTEXT_PATHS } from '../flux-core/context';
+import { writeLog, CONTEXT_PATHS } from '../flux-core/context';
 import { applyReferenceReplacements } from '../src/lib/project/figureReferenceEdits';
 import { referenceSyncBridgeIO } from '../src/lib/project/referenceSyncBridgeIO';
 import { prepareFigureReferenceUpdate, commitFigureReferenceUpdate, recoverFigureReferenceUpdate, releaseFigureReferenceUpdate, registerLiveFigureReferenceDocument, type PreparedFigureReferenceUpdate, type ReferenceSyncIO } from '../src/lib/project/figureReferenceSync';
@@ -25,7 +25,7 @@ if (process.argv[2] === '--recover-child') {
 } else if (process.argv[2] === '--folder-child') {
   await createFolder(process.argv[3], 'paper', 'new-folder'); console.log('FOLDER_DONE');
 } else if (process.argv[2] === '--note-child') {
-  await addNote(process.argv[3], { text: 'New retained scientific note', title: 'After recovery' }); console.log('NOTE_DONE');
+  await writeLog(process.argv[3], { text: 'New retained scientific note', title: 'After recovery' }); console.log('NOTE_DONE');
 } else {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-reference-safety-'));
   // A hang guard for the self-spawned children, not a budget: each one re-imports this file
@@ -136,7 +136,7 @@ if (process.argv[2] === '--recover-child') {
       const child = children.spawn(fileURLToPath(import.meta.url),['--note-child',f.root],{deadlineMs:CHILD_DEADLINE_MS});
       const exit = await child.closed; assert.equal(exit.code,0,String(child.stderr)); assert.equal(await fs.readFile(f.doc,'utf8'),changedText);
       assert.match(await fs.readFile(path.join(f.root,CONTEXT_PATHS.notebook),'utf8'),/New retained scientific note/);
-      ok('actual addNote recovers pending reference text before manuscript lease and preserves the newly authored note');
+      ok('actual writeLog recovers pending reference text before manuscript lease and preserves the newly authored note');
     }
     console.log(`FIGURE REFERENCE SAFETY: PASS (${checks} checks)`);
   } finally { await children.dispose(); await Promise.all(nativeOwners.map(owner => owner.releaseAll())); await fs.rm(base,{recursive:true,force:true}); }

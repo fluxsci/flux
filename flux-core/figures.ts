@@ -1,3 +1,6 @@
+import { elementSourceAssetIds } from "../src/lib/model3d/refs";
+import { readModel3dMetadata, ensureModelPoster } from './model3d';
+import { applyModelPartStyle } from '../src/lib/model3d/commandOps';
 import { stageFigureWrites } from "./model";
 // flux-core/figures.ts — the figure verbs (split out of index.ts; WS-6.2):
 // compose/create/arrange, captions, panel + plot import/sync, part overrides,
@@ -660,19 +663,33 @@ export async function setPartOverride(
   partId: string,
   patch: PartOverride,
   elementId?: string,
-): Promise<{ elementId: string }> {
-  return mutateFigModel(root, "restyle_part", async ({ project }) => {
+  options: { noPoster?: boolean } = {},
+): Promise<{ elementId: string; warnings?: string[] }> {
+  let model = false;
+  const notices: string[] = [];
+  const result = await mutateFigModel(root, "restyle_part", async ({ project }) => {
     const fig = ops.figById(project, figId);
     if (!fig) throw new Error(`figure not found: ${figId}`);
     let elId = elementId;
     if (!elId) {
-      const plots = fig.elements.filter((e) => e.type === "plot");
-      if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} plot panels; pass elementId`);
+      const plots = fig.elements.filter((e) => e.type === "plot" || e.type === 'model3d');
+      if (plots.length !== 1) throw new Error(`figure ${figId} has ${plots.length} semantic panels; pass elementId`);
       elId = plots[0].id;
     }
     // AGT-13: reject typo'd partIds instead of silently writing an inert override.
     const el = fig.elements.find((e) => e.id === elId);
-    if (el) {
+    if (el?.type === 'model3d') {
+      model = true;
+      const asset = project.assets.find(asset => asset.id === el.assetId);
+      if (asset?.kind !== 'glb' || !asset.model) throw new Error(`3D model asset not found: ${el.assetId}`);
+      const metadata = await readModel3dMetadata(root, project, el.assetId);
+      // Shared with the live bridge: validates the part and makes a mesh fill
+      // visible by switching a Uniform-colour model to Source in the same edit.
+      if (applyModelPartStyle(project, el.id, partId, patch, metadata.manifest).switchedToSource) {
+        notices.push(`3D model "${el.name || el.id}": switched colors to Source so the part fill is visible`);
+      }
+      return { elementId: el.id };
+    } else if (el) {
       const manifest = await readPlotManifest(root, el);
       if (manifest) {
         const valid = addressablePartIds(manifest);
@@ -689,6 +706,8 @@ export async function setPartOverride(
     ops.setPartOverride(project, elId, partId, patch);
     return { elementId: elId };
   });
+  const posterWarnings = model && !options.noPoster ? (await ensureModelPoster(root, figId, result.elementId)).warnings : [];
+  return model ? { ...result, warnings: [...notices, ...posterWarnings] } : result;
 }
 
 /** set element-level style (fill/stroke/strokeWidth/opacity/color/font…) on ids.
@@ -913,8 +932,7 @@ export async function deleteFigure(root: string, figId: string): Promise<{ nextA
     const used = new Set<string>();
     for (const f of project.figures)
       for (const e of f.elements) {
-        const aid = (e as { assetId?: string }).assetId;
-        if (aid) used.add(aid);
+        for (const id of elementSourceAssetIds(e)) used.add(id);
       }
     const deps = await readProjectDependencies(root, {
       readText: (p) => fs.readFile(p, "utf8"),

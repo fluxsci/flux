@@ -3,7 +3,7 @@ title: "Flux from the command line"
 subtitle: "The headless surfaces — what exists, how to invoke it, and where the canonical reference lives"
 ---
 
-Everything the app can do, a terminal (or an AI agent) can do. Flux ships three headless
+Scripts and agents can work on the same project as the app. Flux ships three headless
 surfaces over one shared core:
 
 - **The `flux` CLI** — around a hundred typed commands ("verbs") that operate on a project's
@@ -15,11 +15,13 @@ surfaces over one shared core:
   what you have selected, apply an edit as an undoable action you watch happen.
 
 You never have to use any of this — the app is complete on its own. But it's what makes the
-[agent collaboration system](../agents/collaboration.qmd) possible, and it's handy for scripting.
+[flux-connect workflow](../agents/connect.qmd) possible, and it's handy for scripting.
 
 # Invoking
 
-On first run Flux installs a `flux` shim into `~/.local/bin`, so in any terminal:
+On first run Flux creates a stable launcher at `~/.local/share/flux/bin/flux`
+(Linux/macOS), or `%LOCALAPPDATA%\flux\bin\flux.cmd` (Windows). Add that folder to
+PATH or use the full path. Optional `~/.local/bin` shims delegate to it. Then:
 
 ```bash
 flux help                 # every verb, always current
@@ -30,7 +32,19 @@ flux list                 # figures + references of the current project
 Commands find their project as: an explicit `--root`, else the `FLUX_PROJECT` environment
 variable, else the current directory. `cd` into a project (or export `FLUX_PROJECT`) and go.
 
+# Connect an agent
+
+Run `flux connect /path/to/project` in the agent's shell, or invoke its installed
+flux-connect skill. The command returns the reading plan for a pack; the agent reads
+it, views its images, returns a receipt and waits for your request. `global` connects
+without choosing a project; `--refresh`, `--depth full` and `--live` control refresh,
+reading depth and live pairing. [Working with AI agents](../agents/connect.qmd)
+explains setup and the receipt.
+
 # A taste
+
+The installed app includes the PNG renderer used by the CLI and MCP. An agent can
+view figures and canvas overviews without a source checkout or a separate renderer install.
 
 ```bash
 flux compose-figure plots/*.svg --id fig1 --rows 2   # plots → one labeled multi-panel figure
@@ -56,3 +70,48 @@ cannot drift. That's why these docs don't restate it:
   conventions, slides, and the review loop — the `FluxContext/` folder is the same doctrine
   your agents read).
 - In the source repo: `resources/flux-context/CLI-REFERENCE.md`.
+
+For example, `flux help read-log` prints:
+
+```text
+  read-log [--tail <value>] [--since-checkpoint] [--titles] [--json] [--root R]
+      Read the project Log: the latest entries, from the latest checkpoint, or titles only.
+```
+
+## Connecting an MCP client
+
+Flux installs a stable launcher at `~/.local/share/flux/bin/flux` on Linux and
+macOS, or `%LOCALAPPDATA%\flux\bin\flux.cmd` on Windows. Point an MCP client at
+that executable with `args = ["mcp"]`; add a project path after `mcp` for a fixed
+default. The optional `~/.local/bin/flux` and `flux-connect` shims delegate there.
+
+`flux mcp` starts with the compact `core` toolset. Use `flux_verbs` to discover
+commands and `flux_verb` to run them, or `flux mcp --toolset full` for every dedicated
+tool. Ask the agent for `flux-connect /path/to/project` to bind it. Finding a
+project from cwd only supplies a default for tools; it does not load context.
+Project tools can also take a `project` argument for one call.
+
+Relative filesystem inputs use the shell cwd on the CLI and the project root over
+MCP. Absolute paths are honoured. Document identifiers remain project-relative.
+
+
+## Agent setup and diagnostics
+
+`flux connect setup --dry-run` previews installation. Apply with `flux connect setup`;
+`--agents claude,codex` selects vendors, `--yes` confirms replacing an existing Flux
+registration, and `--create-local-bin` creates the optional convenience shims.
+Flux prints the macOS PATH instruction; it never edits shell startup files.
+
+`flux connect doctor` checks the launcher, full MCP handshake, PNG rendering,
+context files, published skills, hooks, registrations and known projects.
+`--json` returns the same checks as the read-only MCP tool `connect_doctor`.
+Setup and removal are CLI actions and cannot be invoked over MCP.
+
+On Windows, setup registers the pinned runtime and CLI script directly; MCP
+hosts do not have to execute a `.cmd` shim. Run setup again after relocating Flux.
+
+## Troubleshooting
+
+Use `flux connect doctor` for launcher, tools and integration errors. After moving an
+installation, rerun setup and restart agent sessions. A missing `flux` command usually
+means the launcher directory is not on PATH; use its full path above.

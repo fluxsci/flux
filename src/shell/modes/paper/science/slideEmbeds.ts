@@ -19,10 +19,15 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
     }
     eq(other: SlideWidget) { return this.entry.playback === other.entry.playback && JSON.stringify(this.entry.ref) === JSON.stringify(other.entry.ref) && this.entry.duplicate === other.entry.duplicate; }
     toDOM(view: EditorView) {
-      let current = this.entry, alive = true, visible = false, version = 0, controller: SlideEmbedPlayer | undefined, snapshot: SlideSnapshot | undefined;
+      let current = this.entry, alive = true, visible = false, version = 0, mounting = false, controller: SlideEmbedPlayer | undefined, snapshot: SlideSnapshot | undefined;
       const wrap = document.createElement("div"); wrap.className = "flux-slide-embed"; wrap.contentEditable = "false";
       const style = document.createElement("style"); style.textContent = SLIDE_EMBED_CSS; wrap.append(style);
       const content = document.createElement("div"); content.style.aspectRatio = String(current.playback.ratio ?? 16 / 9); wrap.append(content);
+      // A live 3D embed that cannot start keeps its still and SAYS so here
+      // (the reason is the tooltip) — never only a hover title on the art.
+      const status = document.createElement("div"); status.className = "flux-slide-status"; status.setAttribute("role", "status"); status.hidden = true; wrap.append(status);
+      const setStatus = (text = "", detail = "") => { status.textContent = text; status.title = detail; status.hidden = !text; };
+      const still = (svg: string) => { const img = document.createElement("img"); img.alt = current.ref.caption || "Slide preview"; img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`; img.style.cssText = "display:block;width:100%;height:auto"; return img; };
       const caption = document.createElement("div"); caption.className = "flux-slide-caption"; wrap.append(caption);
       const sizes = document.createElement("div"); sizes.className = "flux-slide-sizes";
       const setWidth = (width: string | null) => {
@@ -51,11 +56,31 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
         caption.textContent = `${current.duplicate ? "Duplicate slide anchor. " : ""}${current.ref.caption}`;
         view.requestMeasure();
       };
-      const mount = () => {
-        if (!snapshot || !visible || !alive || controller) return;
-        content.style.aspectRatio = "";
-        controller = mountSlideEmbed(content, snapshot.payload, { state: current.playback.value, onState: value => { current.playback.value = value; }, onOpen: () => onOpen(current.ref), onEscape: () => view.focus() });
-        view.requestMeasure();
+      const mount = async () => {
+        if (!snapshot || !visible || !alive || controller || mounting) return;
+        const captured = snapshot, ticket = version; mounting = true;
+        let model3d: import('../../../../lib/model3d/host').Model3dHost | undefined;
+        try {
+          if (captured.modelSource) {
+            const { createEmbedServiceHost } = await import('../../../../lib/slide/embedServiceHost');
+            if (!alive || !visible || ticket !== version || snapshot !== captured) return;
+            model3d = createEmbedServiceHost(captured);
+          }
+          if (!alive || !visible || ticket !== version || snapshot !== captured) { model3d?.dispose(); return; }
+          content.style.aspectRatio = "";
+          controller = mountSlideEmbed(content, captured.payload, { model3d, state: current.playback.value, onState: value => { current.playback.value = value; }, onOpen: () => onOpen(current.ref), onEscape: () => view.focus() });
+          if (model3d) content.dataset.model3dHost = 'service';
+          setStatus();
+          view.requestMeasure();
+        } catch (error) {
+          model3d?.dispose();
+          if (alive && ticket === version) {
+            // mountSlideEmbed may have cleared the art before failing: restore the still it promises.
+            if (!controller) { content.style.aspectRatio = String(current.playback.ratio ?? 16 / 9); content.replaceChildren(still(captured.poster)); }
+            setStatus(captured.modelSource ? "3D preview unavailable — showing a still" : "Live preview unavailable — showing a still", error instanceof Error ? error.message : String(error));
+            view.requestMeasure();
+          }
+        } finally { mounting = false; if (alive && visible && snapshot !== captured) void mount(); }
       };
       const load = async () => {
         const ticket = ++version;
@@ -63,14 +88,13 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
           const next = await repository.load(current.ref);
           if (!alive || ticket !== version) return;
           if (next !== snapshot) { controller?.pauseOffscreen(); controller?.destroy(); controller = undefined; snapshot = next; current.playback.ratio = next.payload.deck.stage.width / next.payload.deck.stage.height; }
-          const poster = document.createElement("img"); poster.alt = current.ref.caption || "Slide preview"; poster.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(next.poster)}`; poster.style.cssText = "display:block;width:100%;height:auto";
-          if (!controller) content.replaceChildren(poster);
-          update(current); mount();
+          if (!controller) content.replaceChildren(still(next.poster));
+          update(current); void mount();
           if (next.warnings.length) content.title = next.warnings.join("\n");
           view.requestMeasure();
         } catch (e) {
           if (!alive || ticket !== version) return;
-          controller?.destroy(); controller = undefined; snapshot = undefined;
+          controller?.destroy(); controller = undefined; snapshot = undefined; setStatus();
           const error = document.createElement("div"); error.className = "flux-slide-error"; error.textContent = `Slide unavailable: ${e instanceof Error ? e.message : String(e)}`;
           content.replaceChildren(error); view.requestMeasure();
         }
@@ -78,7 +102,7 @@ export function slideEmbeds(repository: SlideRepository, onOpen: (r: SlideEmbedR
       const off = repository.subscribe(() => { void load(); });
       const observer = new IntersectionObserver(entries => {
         visible = entries[0]?.isIntersecting ?? false;
-        if (visible) { if (snapshot) mount(); else void load(); }
+        if (visible) { if (snapshot) void mount(); else void load(); }
         else if (controller) { controller.pauseOffscreen(); controller.destroy(); controller = undefined; if (snapshot) { const img = document.createElement("img"); img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(snapshot.poster)}`; img.style.width = "100%"; content.append(img); } }
       }, { root: view.scrollDOM, rootMargin: "200px" });
       observer.observe(wrap); update(current);

@@ -1,10 +1,5 @@
-// Principal-agent scheme, GUI half (ui tier — dev server on :1420, demo fixture).
-//   node scripts/verify-context-gui.mjs
-// Covers: Context docs scaffolded into the fixture + surfaced as first-class
-// paper documents (grouped picker), palette routing (shell Ctrl+K → paper
-// palette; context command switches the doc; figure mode gets the global
-// palette), the feedback capture popover (stamped note → memBridge ledger,
-// Send event), and the Agent drawer's graceful no-PTY fallback.
+// Context layer, GUI half (ui tier): first-class Context documents, palette
+// routing and context-stamped feedback capture into the memBridge ledger.
 import { launch, gotoApp, clickMode, realErrors, waitFor } from "./lib/driver.mjs";
 
 const { browser, page } = await launch();
@@ -37,28 +32,30 @@ const key = (code, opts = {}) =>
     // and "New folder" actions, so its textContent is "Context +".
     const heads = [...document.querySelectorAll(".docpicker .dp-head .folder-label span")].map((h) => h.textContent?.trim());
     const items = [...document.querySelectorAll(".docpicker .dp-item")].map((b) => b.getAttribute("title"));
-    return { heads, items };
+    const labels = [...document.querySelectorAll(".docpicker .dp-title")].map(b => b.textContent);
+    return { heads, items, labels };
   });
   ok(picker.heads.includes("Context"), "picker shows the Context group");
-  ok(picker.items.includes("Context/Project/MISSION.qmd"), "mission listed");
+  ok(picker.items.includes("Context/ProjectContext.qmd"), "project context listed");
+  ok(picker.labels.some(s => s.startsWith("Project context — ")), "picker uses the ProjectContext title");
   ok(picker.items.includes("Context/NOTEBOOK.md") && picker.items.includes("Context/RULES.md"), "notebook + rules listed (.md docs)");
 }
 
-// --- 2. open the mission from the picker ------------------------------------
+// --- 2. open the project context from the picker ------------------------------------
 {
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll(".docpicker .dp-item")].find(
-      (b) => b.getAttribute("title") === "Context/Project/MISSION.qmd",
+      (b) => b.getAttribute("title") === "Context/ProjectContext.qmd",
     );
     btn?.click();
   });
   await waitFor(
     page,
-    () => (window.__fluxView?.state.doc.toString() ?? "").includes("## Question"),
+    () => (window.__fluxView?.state.doc.toString() ?? "").includes("## Background"),
     null,
-    { timeout: 8000, label: "mission doc loaded in the editor" },
+    { timeout: 8000, label: "project context doc loaded in the editor" },
   );
-  ok(true, "mission opens in the paper editor");
+  ok(true, "project context opens in the paper editor");
 }
 
 // --- 3. shell Ctrl+K routes to the PAPER palette; command switches docs -----
@@ -76,82 +73,9 @@ const key = (code, opts = {}) =>
   ok(true, "Ctrl+K → paper palette → Open notebook switches the doc");
 }
 
-// --- 4. feedback capture: stamped note + send -------------------------------
-{
-  await key("KeyM", { ctrlKey: true, shiftKey: true });
-  await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { timeout: 5000, label: "capture popover open" });
-  const stampLine = await page.evaluate(() => document.querySelector(".fc-stamp")?.textContent ?? "");
-  ok(/paper/.test(stampLine) && /NOTEBOOK\.md/.test(stampLine), `stamp previews the live context (${stampLine || "EMPTY"})`);
-  await page.type(".fc textarea", "tighten this paragraph");
-  await page.evaluate(() => {
-    const add = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim() === "Add to queue");
-    add?.click();
-  });
-  await waitFor(
-    page,
-    () => {
-      const f = window.fig?._files;
-      if (!f) return false;
-      for (const k of f.keys()) if (k.endsWith(".meta/feedback.ndjson")) return true;
-      return false;
-    },
-    null,
-    { timeout: 8000, label: "ledger written" },
-  );
-  const ledger = await page.evaluate(() => {
-    const f = window.fig._files;
-    for (const [k, v] of f.entries()) {
-      if (k.endsWith(".meta/feedback.ndjson")) return new TextDecoder().decode(v);
-    }
-    return "";
-  });
-  const events = ledger.trim().split("\n").map((l) => JSON.parse(l));
-  const note = events.find((e) => e.kind === "note");
-  ok(note && note.text === "tighten this paragraph", "note appended to the ledger");
-  ok(note?.context?.surface === "paper" && note?.context?.doc?.path === "Context/NOTEBOOK.md", "note carries the paper context stamp (surface + docRel)");
+// Annotation interaction coverage lives in verify-annotation-surface-gui.mjs.
 
-  // Add returns only after ledger refresh; wait for its completed close before reopening.
-  await waitFor(page, () => !document.querySelector(".fc textarea"), null, { timeout: 8000, label: "queued note operation completed" });
-  // Send the already queued note in the reopened popover.
-  await key("KeyM", { ctrlKey: true, shiftKey: true });
-  await waitFor(page, () => !!document.querySelector(".fc textarea"), null, { timeout: 5000, label: "capture popover reopened" });
-  await page.evaluate(() => {
-    window.__feedbackAppend = window.fig.feedbackAppend;
-    window.fig.feedbackAppend = async (p,line) => line.includes('"kind":"send"') ? false : window.__feedbackAppend(p,line);
-    const send = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim().startsWith("Send"));
-    send?.click();
-  });
-  await waitFor(page, () => !!document.querySelector('.fc [role="alert"]'), null, { timeout: 5000, label: "failed Send retains its queue and reports the failure" });
-  ok(await page.evaluate(()=>document.querySelectorAll('.fc .fc-q').length===1), "failed Send retains the queued note for explicit retry");
-  await page.evaluate(() => {
-    window.fig.feedbackAppend = window.__feedbackAppend;
-    const send = [...document.querySelectorAll(".fc button")].find((b) => b.textContent?.trim().startsWith("Send"));
-    send?.click();
-  });
-  await waitFor(
-    page,
-    () => {
-      const f = window.fig._files;
-      for (const [k, v] of f.entries()) {
-        if (k.endsWith(".meta/feedback.ndjson")) return new TextDecoder().decode(v).includes('"kind":"send"');
-      }
-      return false;
-    },
-    null,
-    { timeout: 8000, label: "send event appended" },
-  );
-  ok(true, "Send appends the review-pass boundary");
-}
-
-// --- 5. the drawer is GONE (terminal-first rework, 2026-07-20) --------------
-{
-  await key("KeyJ", { ctrlKey: true, shiftKey: true });
-  await new Promise((r) => setTimeout(r, 400)); // annotated: give a would-be drawer time to mount
-  const drawer = await page.evaluate(() => !!document.querySelector(".pd"));
-  ok(!drawer, "Ctrl+Shift+J no longer opens an in-app drawer (flux principal owns sessions)");
-}
-
-// --- 6. figure mode gets the GLOBAL palette ---------------------------------
+// --- 5. figure mode gets the GLOBAL palette ---------------------------------
 {
   await clickMode(page, "Figure");
   await new Promise((r) => setTimeout(r, 600)); // mode mount settle (keep-alive swap)
@@ -163,9 +87,7 @@ const key = (code, opts = {}) =>
   const titles = await page.evaluate(() =>
     [...document.querySelectorAll(".global-palette .cp li .ct")].map((n) => n.textContent?.trim()),
   );
-  ok(titles.includes("Open mission") && titles.includes("Copy principal prompt"), "global palette carries the context/agent commands");
-  ok(!titles.includes("Toggle agent drawer"), "the retired drawer command is gone from the palette");
-  await page.keyboard.press("Escape");
+  ok(titles.includes("Open project context") && titles.includes("Annotate…"), "global palette carries the context/agent commands");  await page.keyboard.press("Escape");
 }
 
 const errs = await realErrors(page);

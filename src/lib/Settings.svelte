@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
   // Shell-global Settings dialog (title-bar gear / the `settingsOpen` store).
   // A tabbed surface — General · Figure · Paper · Corrections — in the editor
   // chrome language (2026-09-15 surface redesign): one flat panel, hairline
@@ -295,6 +297,7 @@
   });
 
   function onKey(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if ($settingsOpen && e.key === "Escape") {
       e.preventDefault();
       settingsOpen.set(false);
@@ -367,12 +370,19 @@
           <div class="pane" role="tabpanel" id="settings-pane-general" aria-labelledby="settings-tab-general" hidden={tab !== "general"}>
             <h3>FluxConfig folder</h3>
             <div class="libpath" title={cfgPath}>{cfgPath || "—"}</div>
-            <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), the agent Context folders, and agents.json.</p>
+            <p class="hint">Everything user-level lives here — the reference library ({libPath || "FluxLib"}), and the agent Context folders.</p>
             <div class="libbtns">
               <button class="ghost" onclick={revealCfg} disabled={!cfgPath}>Reveal</button>
               <button class="ghost" onclick={moveCfg} disabled={libBusy}>{libBusy ? "Moving…" : "Move…"}</button>
             </div>
             {#if libNotice}<p class="hint">{libNotice}</p>{/if}
+
+            <h3>Agents</h3>
+            <label class="chk">
+              <input type="checkbox" checked={$settings.allowAgentView} onchange={(e) => settings.update((v) => ({ ...v, allowAgentView: e.currentTarget.checked }))} />
+              Allow agents to view the Flux window
+            </label>
+            {#await import("../shell/agent/RunnerSettings.svelte") then module}<module.default />{/await}
 
             <h3>Updates</h3>
             <label class="chk">

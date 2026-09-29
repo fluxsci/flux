@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
+
   // Cascade popover (Ctrl+Shift+C): apply a stepped delta across the selected
   // ELEMENTS (figure/slide canvas) or the animator's selected TRACKS. One
   // component serves both flavors; the track flavor is driven through the
@@ -46,6 +48,7 @@
   export let tracks: TrackCascadeAdapter | null = null;
 
   const ELEMENT_LABELS: Record<ElementCascadeProp, string> = {
+    orbitAzimuth: "Azimuth (°)", orbitElevation: "Elevation (°)", orbitRoll: "Roll (°)", orbitZoom: "Zoom (×)", orbitPanX: "Pan X", orbitPanY: "Pan Y", orbitFov: "FOV (°)",
     x: "X",
     y: "Y",
     rotation: "Rotation (°)",
@@ -64,9 +67,13 @@
     duration: "Duration (ms)",
     "influence.in": "Ease-in influence (%)",
     "influence.out": "Ease-out influence (%)",
+    "curve.bounce": "Spring bounce",
     "stagger.perMs": "Stagger per-item (ms)",
+    "stagger.totalMs": "Stagger total (ms)",
+    arc: "Arc",
   };
   const STEP: Partial<Record<string, number>> = {
+    orbitAzimuth: 5, orbitElevation: 5, orbitRoll: 5, orbitZoom: .1, orbitPanX: .05, orbitPanY: .05, orbitFov: 5,
     opacity: 0.05,
     strokeWidth: 0.5,
     fontSize: 0.5,
@@ -74,8 +81,11 @@
     start: 50,
     duration: 50,
     "stagger.perMs": 25,
+    "stagger.totalMs": 50,
+    arc: 0.1,
     "influence.in": 5,
     "influence.out": 5,
+    "curve.bounce": 0.05,
   };
 
   // Non-reactive session box (guide §9: $: blocks must not read+reassign the
@@ -170,9 +180,7 @@
   $: applyCount =
     kind === "elements"
       ? (elInfo?.applies[prop as ElementCascadeProp] ?? 0)
-      : prop === "stagger.perMs"
-        ? (trackApplies?.["stagger.perMs"] ?? 0)
-        : trackTotal;
+      : (trackApplies?.[prop as TrackCascadeProp] ?? trackTotal);
   $: totalCount = kind === "elements" ? (elInfo?.total ?? 0) : trackTotal;
   $: colorMode = kind === "elements" && isColorProp(prop as ElementCascadeProp);
 
@@ -250,6 +258,7 @@
   }
 
   function onWin(e: KeyboardEvent) {
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
     if (!open) return;
     // The popover owns the keyboard while open (f-menu pattern); handleKey is
     // additionally gated on cascadeState — belt and suspenders.
@@ -266,6 +275,7 @@
   }
 
   function onWinPointerDown(e: PointerEvent) {
+    if (yieldsToShellModal(e)) return;
     if (!open || !panelEl) return;
     // Outside interaction = Enter semantics: keep the preview, close, and let
     // the pointer proceed into the canvas — a foreign gesture can then never

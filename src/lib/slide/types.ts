@@ -13,11 +13,17 @@
 // video playback commands; a visible clip rests on its poster until started.
 // ---------------------------------------------------------------------------
 
+import type { Curve, EASING_TOKENS } from "./curves";
+export type { Curve } from "./curves";
+
 import type { Element, Id, GroupDef, Asset, ColorGroup, TextStyle } from "../types";
 
-// The 0.x minor slot is breaking. 0.5 adds video elements and media commands;
-// older apps must refuse it. 0.2–0.4 migrate without rewriting content.
-export const DECK_SCHEMA_VERSION = "0.5.0";
+// The 0.x minor slot is breaking. 0.6 (animation v2) adds part-set transform
+// targets, the hand-off Become (`to.become`), deck animation styles and timing
+// anchors, and the plot data view — an older app would play a hand-off wrong,
+// so it must refuse. 3D models ship in this same unreleased minor. 0.2–0.5
+// migrate by a pure stamp without rewriting content.
+export const DECK_SCHEMA_VERSION = "0.6.0";
 export type { VideoElement } from "./mediaTypes";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +49,7 @@ export type TransitionKind = "none" | "fade" | "slide" | "push";
 
 /** Named easings — map onto `src/lib/motion/tokens.ts` EASE + smoothEasing().
  *  "smooth" is manim's 5th-order smoothstep, reserved for signature motion. */
-export type EasingToken = "smooth" | "standard" | "enter" | "exit" | "linear";
+export type EasingToken = (typeof EASING_TOKENS)[number];
 
 /** After Effects-style velocity profile: outgoing/incoming influence, 0–100%. */
 export interface Influence {
@@ -63,6 +69,19 @@ export interface DeckDefaults {
   transition: TransitionKind;
   buildEasing: EasingToken;
   advance: AdvanceMode;
+}
+
+/** A deck-level, linkable animation style (0.6) — the `TextStyle` pattern for
+ *  animation: the reusable HOW of a track (preset, params, timing, easing,
+ *  stagger) that many tracks reference through `Track.styleId`. Resolution is
+ *  at compile time (`slide/resolve.ts`): a field present on the track wins,
+ *  an absent field inherits, so editing the style restyles every linked track
+ *  live. `track` uses the same shape machine-global presets carry. */
+export interface AnimStyle {
+  id: Id;
+  name: string;
+  family: "appearance" | "transform" | "media";
+  track: Pick<Track, "preset" | "params" | "start" | "duration" | "easing" | "influence" | "curve" | "stagger" | "arc">;
 }
 
 export interface Deck {
@@ -94,6 +113,9 @@ export interface Deck {
    * physical plot scale consistent when a source changes while this deck is
    * closed. Missing legacy entries adopt the first observed dimensions. */
   externalAssetSizes?: Record<string, { width: number; height: number }>;
+  /** Linkable animation styles (0.6). Presentation, not projected content:
+   *  the overlay keeps it and `projectIntoDeck` copies it back verbatim. */
+  animStyles?: AnimStyle[];
   slides: Slide[];
 }
 
@@ -191,18 +213,63 @@ export interface TrackSelector {
   series?: string;
   /** One or more datum indices. */
   index?: number | number[];
+  /** Part ids (leaf, group or container — resolved to leaves) EXCLUDED from
+   *  the match (0.6): "every series except control" is one selector. */
+  except?: string[];
 }
 
-/** Stagger a set: each child starts `perMs` after the previous, ordered `by`
- *  and seeded `from` an edge/center. */
+/** ONE way to name a thing that animates (0.6): an element, a set of a plot's
+ *  parts, a role/series filter over a plot, or a figure group. `Track.target`
+ *  + `part`/`parts`/`selector` remain the on-disk binding of a track's OWN
+ *  target (`trackRef` derives the ref); `to.become.ref` names a Become's
+ *  destination in this form. `targetKey(ref)` is the identity the family law
+ *  compares — see slide/targets.ts. */
+export interface TargetRef {
+  /** The owning element (always present; `@camera` stays a Track.target string). */
+  element: Id;
+  /** Plot parts by parts-tree id (leaf, group or container; resolveTargets expands). */
+  parts?: string[];
+  /** A role/series/index filter over the plot's part index. */
+  selector?: TrackSelector;
+  /** A figure group (groups registry id): the union of its member elements. */
+  group?: Id;
+}
+
+/** How the planner pairs source and destination outlines of a Become
+ *  (slide/correspondence.ts). "auto" chooses from the data the manifests carry. */
+/* The ids of slide/targets.ts PAIR_POLICIES (the one list; menu labels live there). */
+export type PairPolicy = (typeof import("./targets").PAIR_POLICIES)[number]["id"];
+
+/** Where a Become goes (0.6). `consume` is the original semantics (the
+ *  destination element is deleted and its state becomes the source's `to.state`;
+ *  recorded here for provenance only). `handoff` keeps both: the source morphs
+ *  into the destination's live geometry on the stage flight layer, then hides
+ *  while the destination reveals. */
+export interface BecomeSpec {
+  ref: TargetRef;
+  mode: "consume" | "handoff";
+  /** Pairing policy (default "auto"). */
+  pair?: PairPolicy;
+  /** Hand-off only: how the destination appears when the flight lands —
+   *  `flip` (default) shows it at once; `draw` runs a drawOn of its stroked
+   *  geometry from t = 1. */
+  reveal?: "flip" | "draw";
+}
+
+/** Spread target starts by Each delay or Total span, with optional distribution/order. */
 export interface Stagger {
-  perMs: number;
+  perMs?: number;
+  /** Total spread, independent of target count; takes precedence over perMs. */
+  totalMs?: number;
+  curve?: Curve | EasingToken;
+  /** Random order uses this seed, or a stable hash of the track id. */
+  seed?: number;
   /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
    *  each target's spatial coordinate (data-x/data-y, falling back to the
    *  rendered x/y), so points fire left→right ("x") or low→high ("y").
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
   by?: "index" | "x" | "y";
-  from?: "start" | "end" | "center" | "edges";
+  from?: "start" | "end" | "center" | "edges" | "random";
 }
 
 /** The destination of a `transform` (a sparse element-state patch plus, for
@@ -216,11 +283,20 @@ export interface TrackTarget {
   /** Explicit PROJECT-relative source paths for the content target —
    *  authored with `assetId` so resolvers never guess. */
   svgPath?: string;
+  /** Original GLB source for a model content target (never prepared asset bytes). */
+  glbPath?: string;
+  sha256?: string;
   manifestPath?: string;
   /** camera: the pose to move to. */
   x?: number;
   y?: number;
   zoom?: number;
+  /** Camera path: absent = geometric Zoom (pole); Fly zooms out for long pans. */
+  path?: "pole" | "fly";
+  /** Become (0.6): the destination and completion mode. A hand-off carries no
+   *  `state` (the destination's own geometry is the end); a consume keeps
+   *  `state` exactly as before and records the ref for provenance. */
+  become?: BecomeSpec;
   /** transform: sparse element-property patch vs the track's pre-state (t1 =
    *  document state ⊕ every earlier transform on the same target, in beat
    *  order). Keys are top-level Element props (x, y, width, height, rotation,
@@ -274,6 +350,10 @@ export interface Track {
   ghostFrom?: Id;
   /** A single plot semantic id (e.g. "control.line"). */
   part?: string;
+  /** Several plot part ids of the one target element (0.6) — written when a
+   *  pick names more than one part; `part` stays the common single form.
+   *  `semanticTargets` unions `part`, `parts` and `selector`. */
+  parts?: string[];
   /** A set of targets (mutually exclusive-ish with `part`). */
   selector?: TrackSelector;
   preset?: PresetName;
@@ -284,7 +364,12 @@ export interface Track {
   /** After Effects-style velocity profile, 0–100% each. Overrides `easing`
    *  when set: maps to cubic-bezier(out/100, 0, 1 − in/100, 1). */
   influence?: Influence;
+  /** Timing spec, overriding influence/easing. These three fields inherit as
+   *  one group: any own value suppresses the style's whole timing curve. */
+  curve?: Curve;
   stagger?: Stagger;
+  /** Box-move curvature in [-1, 1]; zero preserves the straight path. */
+  arc?: number;
   /** transform/camera/move destination. */
   to?: TrackTarget;
   /** Forward-compat full keyframes (preset optional when present). */
@@ -294,6 +379,13 @@ export interface Track {
   disabled?: boolean;
   /** The beat-local TrackGroup this track belongs to (Beat.groups registry). */
   groupId?: Id;
+  /** Linked deck animation style (0.6): absent fields inherit from
+   *  `deck.animStyles`, present fields override (slide/resolve.ts). */
+  styleId?: Id;
+  /** Relative timing (0.6): this track starts at the anchor track's start or
+   *  end (+ offset) instead of its literal `start`. Same beat only; cycles and
+   *  missing anchors are issues and fall back to `start`. */
+  anchor?: { trackId: Id; edge: "start" | "end"; offsetMs?: number };
 }
 
 /** A beat is one "advance" step. Entering it plays its `tracks` concurrently

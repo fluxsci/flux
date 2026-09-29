@@ -1,7 +1,7 @@
 # Python conventions (stock — shipped with Flux, do not edit)
 
 How analysis code and Python environments are set up on this machine. These are standing
-rules for principals AND workers — follow them unless the user explicitly instructs
+rules for agents — follow them unless the user explicitly instructs
 otherwise for a given project.
 
 ## The rule: uv, always
@@ -30,8 +30,7 @@ uv run python analysis/make_plots.py   # run everything through uv
 - Every plotting script then follows `PLOTS-AND-STYLE.md` (house style, named series,
   `fp.save` with a recipe into the Flux project's `plots/`).
 
-**Reusable analysis packages.** When you (the principal) need — or have workers
-develop — a longer-running custom package of reusable analysis code (loaders, metrics,
+**Reusable analysis packages.** When you need a longer-running custom package of reusable analysis code (loaders, metrics,
 pipelines used across scripts or projects), build it as a **uv library**
 (`uv init --lib <name>`, proper `src/` layout, added to consuming projects with
 `uv add --editable <path>`). Don't let reusable code accumulate as loose scripts.

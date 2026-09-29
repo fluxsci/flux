@@ -1,12 +1,26 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 // Exposed to the renderer as `window.fig`. The renderer never touches Node
 // directly; all filesystem / dialog / export work happens in the main process.
 contextBridge.exposeInMainWorld("fig", {
+  importModel3d: (request) => ipcRenderer.invoke("model3d:import", request),
+  importDroppedModel3d: (file, request) => {
+    // A constructed File has no native path. Callers cannot substitute an
+    // arbitrary disk path for a user-dropped/picked Chromium File capability.
+    const sourcePath = webUtils.getPathForFile(file);
+    if (!sourcePath) return Promise.reject(new Error("Drop a GLB file from your file manager"));
+    return ipcRenderer.invoke("model3d:importDropped", { root: request.root, target: request.target, sourcePath });
+  },
+  adoptModel3d: (request) => ipcRenderer.invoke("model3d:adopt", request),
+  discardModel3d: (request) => ipcRenderer.invoke("model3d:discard", request),
+  model3dSourceFingerprint: request => ipcRenderer.invoke("model3d:sourceFingerprint", request),
+  model3dAvailability: () => ipcRenderer.invoke("model3d:availability"),
   openFiles: (filters) => ipcRenderer.invoke("dlg:open", { multiple: true, filters }),
   openDirectory: (title) => ipcRenderer.invoke("dlg:open", { directory: true, title }),
   save: (defaultPath, filters) => ipcRenderer.invoke("dlg:save", { defaultPath, filters }),
+  copyFileVerified: (source,destination,sha256) => ipcRenderer.invoke("fs:copyFileVerified",source,destination,sha256),
   moveFileVerified: (source,destination,sha256) => ipcRenderer.invoke("fs:moveFileVerified",source,destination,sha256),
+  readModelFile: (p, root) => ipcRenderer.invoke("model3d:readFile", { path: p, root }),
   readFile: (p) => ipcRenderer.invoke("fs:readFile", p),
   readerContextClaim: (payload) => ipcRenderer.invoke("readerContext:claim", payload),
   readerContextPublish: (payload) => ipcRenderer.invoke("readerContext:publish", payload),
@@ -18,7 +32,7 @@ contextBridge.exposeInMainWorld("fig", {
   writeText: (p, text, options) => ipcRenderer.invoke("fs:writeText", p, text, options),
   feedbackAppend: (p, line) => ipcRenderer.invoke("feedback:append", p, line),
   // Snapshot & annotate: this window's pixels (device px), optionally one CSS-px rect.
-  captureWindow: (rect) => ipcRenderer.invoke("win:capture", rect),
+  captureWindow: (options) => ipcRenderer.invoke("win:capture", options),
   pickScreenColor: (requestId) => ipcRenderer.invoke("color:pickScreen", requestId),
   cancelScreenColor: (requestId) => ipcRenderer.invoke("color:cancelScreen", requestId),
   fsyncDir: (p) => ipcRenderer.invoke("fs:fsyncDir", p),
@@ -33,8 +47,6 @@ contextBridge.exposeInMainWorld("fig", {
   // Move a file to the OS trash (plain remove where there is none — the
   // result says which happened).
   trash: (p) => ipcRenderer.invoke("fs:trash", p),
-  // Sync-conflict leftovers in the open project (read-only; resolution uses fs:*).
-  conflictsScan: (root, opts) => ipcRenderer.invoke("conflicts:scan", root, opts),
   exportPdf: (svg, outPath, w, h) => ipcRenderer.invoke("export:pdf", { svg, outPath, w, h }),
   // Render a full HTML document (multi-page, CSS @page-driven) to a PDF.
   printPdf: (html, outPath, opts) => ipcRenderer.invoke("print:pdf", { html, outPath, opts }),
@@ -112,9 +124,35 @@ contextBridge.exposeInMainWorld("fig", {
   // App / user paths.
   paths: () => ipcRenderer.invoke("app:paths"),
 
+  // Installed-CLI runner; run ownership stays in the main process.
+  runnerCapabilities: () => ipcRenderer.invoke("runner:capabilities"),
+  runnerStart: (options) => ipcRenderer.invoke("runner:start", options),
+  runnerSend: (options) => ipcRenderer.invoke("runner:send", options),
+  runnerRespond: (options) => ipcRenderer.invoke("runner:respond", options),
+  runnerCancel: (options) => ipcRenderer.invoke("runner:cancel", options),
+  onRunnerEvent: (cb) => {
+    const handler = (_e, event) => cb(event);
+    ipcRenderer.on("runner:event", handler);
+    return () => ipcRenderer.removeListener("runner:event", handler);
+  },
   // Global preferences (<userData>/preferences.json — holds the FluxConfig
   // pointer; FluxLib/Guidelines paths come back resolved).
   prefsGet: () => ipcRenderer.invoke("prefs:get"),
+  agentSetupStatus: (options) => ipcRenderer.invoke("agentsetup:status", options),
+  agentSetupDoctor: () => ipcRenderer.invoke("agentsetup:doctor"),
+  agentSetupApply: (request) => ipcRenderer.invoke("agentsetup:apply", request),
+  agentSetupRemove: (request) => ipcRenderer.invoke("agentsetup:remove", request),
+  agentSetupSkills: (request) => ipcRenderer.invoke("agentsetup:skills", request),
+  onAgentSetupChanged: (fn) => {
+    const listener = (_e, status) => fn(status);
+    ipcRenderer.on("agentsetup:changed", listener);
+    return () => ipcRenderer.removeListener("agentsetup:changed", listener);
+  },
+  onAgentSetupProgress: (fn) => {
+    const listener = (_e, progress) => fn(progress);
+    ipcRenderer.on("agentsetup:progress", listener);
+    return () => ipcRenderer.removeListener("agentsetup:progress", listener);
+  },
   prefsSet: (patch) => ipcRenderer.invoke("prefs:set", patch),
   // Move the whole FluxConfig folder to a new parent dir (main-process rename;
   // returns {ok,path} or {error}). The folder is always named "FluxConfig".
@@ -260,36 +298,22 @@ contextBridge.exposeInMainWorld("fig", {
   initialProjectRoot: () => ipcRenderer.invoke("win:initialProject"),
   projectOpenElsewhere: (root) => ipcRenderer.invoke("win:projectOpenElsewhere", root),
 
-  // R3 (FluxReader "Ask Claude"): how to launch the flux MCP server for the open
-  // project — embedded by the agent drawer in `claude --mcp-config` so the spawned
-  // session can see the paper (get_reading_context / get_paper_text / annotations).
-  agentPrincipalSpec: (opts) => ipcRenderer.invoke("agent:principalSpec", opts),
-
-  // Integrated terminal: drive a native shell (PTY) living in the main process.
-  // write/resize are fire-and-forget; onData/onExit return an unsubscribe fn and
-  // carry the session id so the renderer can filter. Mirrors onFsChanged's shape.
-  term: {
-    create: (opts) => ipcRenderer.invoke("pty:create", opts),
-    write: (id, data) => ipcRenderer.send("pty:write", id, data),
-    resize: (id, cols, rows) => ipcRenderer.send("pty:resize", id, cols, rows),
-    kill: (id) => ipcRenderer.invoke("pty:kill", id),
-    onData: (cb) => {
-      const handler = (_e, msg) => cb(msg);
-      ipcRenderer.on("pty:data", handler);
-      return () => ipcRenderer.removeListener("pty:data", handler);
-    },
-    onExit: (cb) => {
-      const handler = (_e, msg) => cb(msg);
-      ipcRenderer.on("pty:exit", handler);
-      return () => ipcRenderer.removeListener("pty:exit", handler);
-    },
-  },
-
   // WS4: live agent context bridge. The renderer pushes its UI context up
   // (pushContext) and answers dispatch requests from an external agent
   // (onDispatch → reply). Main relays these to/from the loopback control server.
   bridge: {
     pushContext: (ctx) => ipcRenderer.send("bridge:context", ctx),
+    onContextRequest: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("bridge:context:request", handler);
+      return () => ipcRenderer.removeListener("bridge:context:request", handler);
+    },
+    replyContext: (id, context, allowed) => ipcRenderer.send("bridge:context:reply", { id, context, allowed }),
+    onViewed: (cb) => {
+      const handler = (_e, msg) => cb(msg);
+      ipcRenderer.on("bridge:viewed", handler);
+      return () => ipcRenderer.removeListener("bridge:viewed", handler);
+    },
     onDispatch: (cb) => {
       const handler = (_e, msg) => cb(msg);
       ipcRenderer.on("bridge:dispatch", handler);

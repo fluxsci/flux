@@ -1,9 +1,12 @@
+import { elementSourceAssetIds } from "../model3d/refs";
+import type { Model3dElement } from "../model3d/types";
 // A fig/assets bundle can outlive its originating Figure because a saved deck
 // still uses it. Those deck links become source owners only when no Figure
 // placement remains. The returned figures are a read-only planning view: never
 // save them or apply their geometry to the real Figure project.
 import type { Figure, Project, SemanticPlotElement } from "../types";
 import type { Deck } from "../slide/types";
+import { transformPreState, transformEndState } from "../slide/tween";
 
 interface SourceOwnerIO {
   readText(path: string): Promise<string>;
@@ -14,8 +17,8 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
   deckAssetIds: Set<string>;
   assertUnchanged(): Promise<void>;
 }> {
-  const placed = new Set(project.figures.flatMap((f) => f.elements.flatMap((e) => "assetId" in e ? [e.assetId] : [])));
-  const orphanIds = new Set(project.assets.filter((a) => a.kind === "svg" && a.path && !placed.has(a.id)).map((a) => a.id));
+  const placed = new Set(project.figures.flatMap((f) => f.elements.flatMap((e) => elementSourceAssetIds(e))));
+  const orphanIds = new Set(project.assets.filter((a) => (a.kind === "svg" || a.kind === "glb") && a.path && !placed.has(a.id)).map((a) => a.id));
   const deckAssetIds = new Set<string>();
   const baselines = new Map<string, string>();
   const result = (figures: Figure[]) => ({
@@ -35,7 +38,7 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
     let entries: { name: string; dir: boolean }[];
     try { entries = await io.readdir(`${root}/${dir}`); } catch { return; }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || entry.name.includes(".sync-conflict-")) continue;
+      if (entry.name.startsWith(".")) continue;
       const path = `${dir}/${entry.name}`;
       if (entry.dir && !["assets", "renders", "exports"].includes(entry.name)) await scan(path, depth + 1);
       else if (!entry.dir && entry.name === "deck.json") paths.add(path);
@@ -56,14 +59,27 @@ export async function figureSourceOwners(root: string, project: Project, io: Sou
     if (!Array.isArray(deck.slides)) throw new Error(`Cannot inspect dependent deck ${rel}: slides are invalid`);
     const local = new Set((deck.assets ?? []).map((a) => a.id));
     for (const slide of deck.slides) {
-      const elements: SemanticPlotElement[] = [];
-      const add = (element: SemanticPlotElement) => {
-        if (!orphanIds.has(element.assetId) || local.has(element.assetId) || !element.source?.svgPath) return;
+      const elements: (SemanticPlotElement | Model3dElement)[] = [];
+      const add = (element: SemanticPlotElement | Model3dElement) => {
+        if (!orphanIds.has(element.assetId) || local.has(element.assetId) || !(element.type === "model3d" ? element.source?.glbPath : element.source?.svgPath)) return;
         elements.push(element); deckAssetIds.add(element.assetId);
       };
-      for (const element of slide.elements ?? []) if (element.type === "plot") add(element);
-      for (const beat of slide.beats ?? []) for (const track of beat.tracks ?? []) {
+      for (const element of slide.elements ?? []) if (element.type === "plot" || element.type === "model3d") add(element);
+      for (const [bi, beat] of (slide.beats ?? []).entries()) for (const track of beat.tracks ?? []) {
         const to = track.to;
+        if (track.preset === "transform" && to?.assetId && typeof to.glbPath === "string") {
+          const pre = transformPreState(slide, track.target, bi);
+          const end = pre && transformEndState(pre, track);
+          if (end?.type === "model3d") add({ ...end, id: `source:${track.id}`, source: {
+            glbPath: to.glbPath,
+            ...(typeof to.sha256 === "string" ? { sha256: to.sha256 } : {}),
+            ...(typeof to.manifestPath === "string" ? { manifestPath: to.manifestPath } : {}),
+            ...(typeof to.recipePath === "string" ? { recipePath: to.recipePath } : {}),
+            ...(typeof to.external === "boolean" ? { external: to.external } : {}),
+            ...(typeof to.frozen === "boolean" ? { frozen: to.frozen } : {}),
+          } });
+          continue;
+        }
         if (!to?.assetId || typeof to.svgPath !== "string") continue;
         const origin = slide.elements?.find((e) => e.id === track.target && e.type === "plot");
         if (origin?.type !== "plot") continue;

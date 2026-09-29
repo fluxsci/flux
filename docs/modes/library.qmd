@@ -4,7 +4,7 @@ subtitle: "Your permanent collection of papers — searchable down to the full t
 ---
 
 Library is your reference manager. It manages **FluxLib**, the machine-global collection shared
-by all your projects — every paper you save, its PDF, your annotations, tags, and reading
+by all your projects — every paper you save, its PDF, your highlights, tags, and reading
 status — while each project [cites its own subset](../concepts/library-and-fluxlib.qmd). The
 header shows the collection and its size; everything below is the grid.
 

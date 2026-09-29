@@ -13,8 +13,9 @@ level at a time — a gesture, a sub-mode, a pane, an overlay.
 | Shortcut | Action |
 |---|---|
 | **Ctrl+K** | Command palette (in Paper: the full Paper palette; in Library it goes to the add box instead) |
-| **Ctrl+Shift+M** | Note to agent — a one-liner stamped with what you're looking at |
-| **Ctrl+Shift+S** | Snapshot & annotate — freeze the window, draw numbered arrows (**a**), boxes (**b**) or pen strokes (**p**), **Enter** writes the note with the crop attached |
+| **Alt+Q** | Open or close Inbox (also available as **Inbox** in the command palette) |
+| **Ctrl+Shift+M** | Annotate (note + picture for your agents) |
+| **Ctrl+Shift+J** | Ask about this (read-only question to Claude Code or Codex) |
 | **?** | Keyboard shortcut overlay (works on the Home screen too) |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo (in every editor) |
 | **Ctrl+1** … **Ctrl+5** | Switch mode (Figure, Paper, Slide, Library, Reader) |
@@ -25,6 +26,46 @@ Mode switching is by the icons in the top bar (or **Ctrl+1**–**Ctrl+5**); **Al
 manuscript panes show two *different* documents of the project (asking for one that's open
 in the other pane focuses that pane instead). Figure and Slide stay single-pane — they share
 the editing engine.
+
+# While Inbox is open
+
+| Shortcut | Action |
+|---|---|
+| **↑ / ↓** | Move between rows |
+| **Enter** on a row | Jump to its saved location |
+| **R** | Focus Reply |
+| **A** | Assign the selected item |
+| **E** | Archive / unarchive the selected item |
+| **Enter** in Reply | Send a human reply |
+| **Shift+Enter** in Reply | Insert a newline |
+| **Esc** | Leave image zoom, then close Inbox |
+
+**Pin open** keeps Inbox in a separate window; **Dock** returns it to the main window.
+The Annotate chord also works from the pinned window.
+
+# While Annotate is open
+
+| Shortcut | Action |
+|---|---|
+| **Alt+A** / **Alt+B** / **Alt+P** | Arrow / box / pen; drag on the picture to mark a target |
+| **Alt+Z** | Undo the last mark (also **Backspace** with an empty note) |
+| **Alt+↑** / **Alt+↓**, or wheel over the picture | Widen / narrow the hovered target |
+| **Tab** in the note | Cycle **To:** Inbox, Any watching agent, named agents |
+| **Enter** / **Shift+Enter** | Add / new line |
+| **Esc**, or **Ctrl+Shift+M** again | Cancel and keep the draft |
+
+**Attach view** is remembered. Marks always attach the picture. The **Annotate…** command
+also appears in the global and Paper palettes and Library's **Commands…** menu.
+
+# While Ask is open
+
+| Shortcut | Action |
+|---|---|
+| **Enter** / **Shift+Enter** | Send / new line |
+| **Esc** | Discard the exchange from Flux |
+
+**Stop** cancels the answer; **Keep** saves it as a resolved annotation. See
+[Ask about what you see](../agents/annotations.qmd#ask-about-what-you-see).
 
 # Paper
 
@@ -43,7 +84,6 @@ the editing engine.
 | **Alt+F** | Figures pane |
 | **Alt+A** | Comments pane |
 | **Alt+C** | Edit the citation at the cursor |
-| **Alt+T** or **Ctrl+`** | Terminal pane |
 | **Alt+P** / **Ctrl+Alt+P** | Close the active margin pane / close all panes |
 | **Ctrl+Alt+M** | Comment on the current selection |
 | **Alt+D** / **Shift+Alt+D** | Toggle the selected word in the personal / project dictionary |
@@ -77,6 +117,8 @@ Tools (single keys): **V** select · **K** scale · **H** hand · **T** text · 
 | Shortcut | Action |
 |---|---|
 | **F** | Property menu, beside the selection (each row shows its own **left-hand** key; the key arms the row, then the **mouse wheel** — anywhere on screen — or **↑/↓** adjusts a number, an expanded choice takes **w/a/s/d**, **1–9** or the wheel, a colour opens the palette — hover previews, click applies; **Space**/**Enter** applies, **Escape** reverts; **s** searches) |
+| **v** / **b** in a plot’s F-menu | x view / y view (follow the displayed key if crop controls occupy **v**) |
+| **v** on an X-ray axis row | Axis view… — focus that axis in the Inspector |
 | **X** | Hide/show the selection (or drilled plot part) |
 | **D** | Dissect — view the selected plot's companion material |
 | **Alt+G** / **Shift+Alt+G** | Open the Plot gallery / open it pinned |
@@ -127,6 +169,11 @@ a file (again: fit ↔ 1:1) · **[** / **]** column count · **1–9** switch gr
 **Ctrl+wheel** zoom at the cursor · **Space+drag** pan · **0** reset zoom · **←** / **→**
 previous/next file · **Escape** ladders out (detail → grid → closed).
 
+While orbiting a [3D model](../modes/figure.qmd#3d-models) (double-click the mesh, or
+**Orbit** in the Inspector): **drag** orbit · **Shift+drag** pan · **Alt+drag** roll ·
+**wheel** zoom · **arrows** turn 5° (**Shift**: 15°) · **1–6** axis views · **0** home ·
+**P** orthographic / perspective · **Enter** finish · **Escape** cancel.
+
 # Slide
 
 Everything in the Figure table works on the stage. Additionally:
@@ -141,13 +188,26 @@ Everything in the Figure table works on the stage. Additionally:
 | **Ctrl+Shift+T** | Transform ▸ Change: add one, or toggle Before ↔ After *(animator open)* |
 | **Ctrl+Shift+E** | Transform ▸ Become: pick the object the selection turns into *(animator open)* |
 | **Ctrl+Shift+C** | Cascade across selected tracks (falls back to element cascade) |
-| **A** *(in the X-ray)* | Animate the picked rows — Appear / Emphasize / Disappear / Change land on the timeline as one step |
+| **A** *(in the X-ray)* | Animate the picked rows: **1** Appear, **2** Emphasize, **3** Disappear, **4** Change, **5** Appear from…, **6** Animate like… |
+| **Ctrl+click** *(Become pick)* | Pick a plot part as the destination (or the source for Appear from…) |
+| **Shift+click** / **Shift+Ctrl+click** *(Become pick)* | Add objects / plot parts without confirming |
+| **Enter** *(Become pick)* | Confirm the accumulated destination (one object or parts of one plot) |
+| **Alt+R** *(Become pick)* | X-ray the hovered or selected plot to pick destination rows |
+| **B** *(X-ray while Become is armed)* | Become: confirm the picked rows |
+| **Escape** *(Become / Appear from… pick)* | Cancel without creating a transform |
 | **Escape** | Leave a t₁/t₂ endpoint checkout, then the usual ladder |
 
 In the animator dock: **←/→** beats · **↑/↓** tracks · **Ctrl+D** duplicate tracks ·
 **Ctrl+G**/**Ctrl+Shift+G** group/ungroup tracks · **Alt+←/→** nudge start ·
 **Alt+Shift+←/→** trim duration · **[** / **]** move track to previous/next beat ·
-**x** disable · **Delete** remove · **Enter** jump to the properties fields.
+**X** disable · **Delete**/**Backspace** remove · **Enter** jump to the properties fields ·
+**Space** play/pause · **Ctrl+A** select this step’s effects · **Escape** stop preview or clear
+the selection/endpoint edit. **P** focuses Effect/Action, **D** Duration, **T** Start/Offset,
+**G** Stagger, and **E** opens Easing.
+
+In the Easing editor: **1–9** choose a tile in the focused group · **arrows** move a focused
+bezier handle by 0.01 (**Shift+arrows** by 0.1) · **Ctrl+V** pastes a curve · **Enter** commits ·
+**Escape** restores the opening curve and duration. See [Easing and springs](../modes/slide.qmd#easing-and-springs).
 
 While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) ·
 **← / Backspace / PageUp** previous (**+Shift**: previous slide) · **↑/↓** whole slides ·
@@ -161,8 +221,7 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 |---|---|
 | **Ctrl+F** | Search this PDF — opens the Search tab (**Enter** / **Shift+Enter** step matches) |
 | **Ctrl+B** / **Ctrl+Shift+B** | Show/hide the left / right sidebar |
-| **Alt+A** | Annotations pane (right sidebar) |
-| **Alt+T** | Terminal drawer (drag its top edge to resize) |
+| **Alt+A** | Highlights pane (right sidebar) |
 | **+** / **−** / **0** | Zoom in / out / fit width |
 | **PageUp** / **PageDown** | Previous / next page |
 | **Home** / **End** | First / last page |
@@ -170,7 +229,7 @@ While presenting: **→ / Space / PageDown** next beat (**+Shift**: next slide) 
 | **Ctrl+W** | Close the active tab (middle-click a tab works too) |
 | **Alt+click** a tab | Open that paper in a split pane beside this one |
 | **Alt+R** | Search your reference library in the right sidebar |
-| **Escape** | Close the topmost thing (menu → popover → terminal) |
+| **Escape** | Close the topmost thing (menu → popover) |
 
 Mouse: select text → highlight colors appear · **Alt+drag** = pop out a figure region ·
 **Ctrl+Alt+drag** = save a [paper snip](../modes/reader.qmd#figures-and-snips) ·

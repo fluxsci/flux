@@ -26,10 +26,11 @@ export const ELEMENT_CASCADE_PROPS = [
   "fill",
   "stroke",
   "color",
+  "orbitAzimuth", "orbitElevation", "orbitRoll", "orbitZoom", "orbitPanX", "orbitPanY", "orbitFov",
 ] as const;
 export type ElementCascadeProp = (typeof ELEMENT_CASCADE_PROPS)[number];
 
-export const TRACK_CASCADE_PROPS = ["start", "duration", "influence.in", "influence.out", "stagger.perMs"] as const;
+export const TRACK_CASCADE_PROPS = ["start", "duration", "influence.in", "influence.out", "curve.bounce", "stagger.perMs", "stagger.totalMs", "arc"] as const;
 export type TrackCascadeProp = (typeof TRACK_CASCADE_PROPS)[number];
 
 export type CascadeMode = "add" | "mul";
@@ -146,7 +147,7 @@ const STROKED = new Set(["line", "rect", "ellipse", "path"]);
  *  or a line's endpoints, so a W/H edit would desync the rendered geometry from
  *  its box. This is the ONE source of truth — the cascade, the Inspector W/H
  *  fields, and the FluxFig-menu W/H keys all gate on `supportsBoxDim`. */
-const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "video", "text"]);
+const BOX_DIM = new Set(["rect", "ellipse", "image", "plot", "video", "text", "model3d"]);
 export function supportsBoxDim(type: string): boolean {
   return BOX_DIM.has(type);
 }
@@ -159,6 +160,8 @@ export function isColorProp(prop: ElementCascadeProp): prop is "fill" | "stroke"
  *  apply to the accepting members only — f-menu union-by-presence semantics.) */
 export function memberAccepts(e: Element, prop: ElementCascadeProp): boolean {
   switch (prop) {
+    case "orbitAzimuth": case "orbitElevation": case "orbitRoll": case "orbitZoom": case "orbitPanX": case "orbitPanY": case "orbitFov":
+      return e.type === "model3d";
     case "x":
     case "y":
     case "rotation":
@@ -193,6 +196,9 @@ export function unitAccepts(u: CascadeUnit, prop: ElementCascadeProp): boolean {
 /** Post-math clamp per property (model units). */
 export function clampElementValue(prop: ElementCascadeProp, v: number): number {
   switch (prop) {
+    case "orbitElevation": return Math.max(-90, Math.min(90, v));
+    case "orbitZoom": return Math.max(.02, Math.min(50, v));
+    case "orbitFov": return Math.max(5, Math.min(120, v));
     case "opacity":
       return Math.min(1, Math.max(0, v));
     case "strokeWidth":
@@ -214,14 +220,18 @@ export function clampElementValue(prop: ElementCascadeProp, v: number): number {
  *  (trackActions.nudgeSelected: start ≥ 0, duration ≥ 50). */
 export function clampTrackValue(prop: TrackCascadeProp, v: number): number {
   switch (prop) {
+    case "arc": return Math.max(-1, Math.min(1, v));
     case "start":
     case "stagger.perMs":
+    case "stagger.totalMs":
       return Math.max(0, v);
     case "duration":
       return Math.max(50, v);
     case "influence.in":
     case "influence.out":
       return Math.min(100, Math.max(0, v));
+    case "curve.bounce":
+      return Math.min(0.8, Math.max(-0.5, v));
   }
 }
 

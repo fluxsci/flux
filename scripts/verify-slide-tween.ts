@@ -9,17 +9,18 @@
 // substrate), chains rest at intermediate states, futures never leak, and the
 // same-beat appearance/transform conflict rule holds.
 // Run: npx tsx scripts/verify-slide-tween.ts
-import { parseHTML } from "linkedom";
-import {
-  applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
-  contentPlan, foldPreState,
-} from "../src/lib/slide/tween";
+import { parseHTML, DOMParser } from "linkedom";
+import * as tween from "../src/lib/slide/tween";
+const { applyState, diffState, lerpElement, lerpNodes, lerpDash, numericTextTween,
+  contentPlan, foldPreState, arcBox, overshootBox } = tween;
+import { compileSlide } from "../src/lib/slide/compile";
 import { resampleNodes, nodesToPath, pathD } from "../src/lib/path";
 import type { Element as FigElement, RectElement, TextElement, PathElement, VectorNode } from "../src/lib/types";
 
+import { harness } from "./lib/harness.mjs";
+const h = harness("verify-slide-tween");
 function assert(cond: unknown, msg: string) {
-  if (!cond) throw new Error("FAIL: " + msg);
-  console.log("  ok:", msg);
+  if (!h.ok(cond, msg)) throw new Error("FAIL: " + msg);
 }
 const near = (a: number, b: number, eps = 0.01) => Math.abs(a - b) <= eps;
 
@@ -32,6 +33,37 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
   text: "hello", fontFamily: "Arial", fontSize: 16, fontWeight: 400,
   fontStyle: "normal", align: "left", color: "#ffffff", sizing: "auto", ...over,
 });
+
+// Discrete channels follow the raw clock, even when easing reverses.
+{
+  const { resolveCurve } = await import("../src/lib/slide/curves");
+  for (const curve of [{ kind: "bezier", p: [.3, 2, .7, -1] }, { kind: "spring", bounce: .8 }] as const) {
+    const ease = resolveCurve({ curve: curve as import("../src/lib/slide/types").Curve });
+    const before = text(), after = text({ fontFamily: "Georgia", align: "center", flipX: true });
+    const frames = Array.from({ length: 60 }, (_, i) => lerpElement(before, after, ease.clamped(i/59), i/59) as TextElement);
+    const flips = frames.slice(1).filter((f,i) => f.fontFamily !== frames[i].fontFamily).length;
+    assert(flips === 1, `non-monotone timing flips a discrete prop once over 60 samples (observed ${flips})`);
+    assert(frames.every((f,i) => f.fontFamily === (i/59 < .5 ? "Arial" : "Georgia")), "discrete props use raw progress even at clamped eased endpoints");
+  }
+}
+
+// M6: the arc acts only on an owned sample's position; zero keeps exact bytes.
+{
+  const a = rect(), b = rect({ x: 210, y: 120, width: 220, rotation: 35 });
+  for (const u of [0, .1, .5, .9, 1, 1.15, -.1]) {
+    const sample = overshootBox(lerpElement(a, b, Math.max(0, Math.min(1, u))), a, b, u);
+    const bytes = JSON.stringify(sample);
+    assert(arcBox(sample, a, b, u, 0) === sample && JSON.stringify(sample) === bytes, `arc 0 is byte-identical at ${u}`);
+    for (const arc of [-1, 1]) {
+      const curved = arcBox(structuredClone(sample), a, b, u, arc);
+      assert(near(curved.x, a.x + (b.x-a.x)*u - (b.y-a.y)*arc*u*(1-u), 1e-12) &&
+        near(curved.y, a.y + (b.y-a.y)*u + (b.x-a.x)*arc*u*(1-u), 1e-12), `arc ${arc} quadratic position at ${u}`);
+      assert(JSON.stringify({ ...curved, x: sample.x, y: sample.y }) === bytes, "arc changes only x/y");
+      if (u === .5) assert(near(Math.hypot(curved.x-sample.x, curved.y-sample.y), Math.hypot(b.x-a.x,b.y-a.y)/4, 1e-12), "arc ±1 midpoint has one quarter of the travel distance");
+    }
+  }
+
+}
 
 // --- numerics + rotation + opacity -------------------------------------------
 {
@@ -205,7 +237,7 @@ const text = (over: Partial<TextElement> = {}): TextElement => ({
 const { document } = parseHTML("<!doctype html><html><body></body></html>");
 (globalThis as { document?: unknown }).document = document;
 
-const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState } = await import("../src/lib/slide/player/player");
+const { computeSlideAnims, applyStatic, disposeSlideAnims, transformPreState, renderStaticAt } = await import("../src/lib/slide/player/player");
 const { renderSlide } = await import("../src/lib/slide/player/render");
 const { FLUX_DARK } = await import("../src/lib/slide/theme");
 type Slide = import("../src/lib/slide/types").Slide;
@@ -411,4 +443,29 @@ function build(slide: Slide) {
   assert(specs.length === 0, "a dangling transform target emits no spec (tolerated, never crashes)");
 }
 
+// Thumbnail/export stills retain the hand-off's semantic visibility after all
+// temporary controllers and flight drawings have been disposed.
+{
+  const root = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path id="axis.x.spine" d="M10 80H90"/><path id="axis.y.spine" d="M10 80V10"/></svg>', 'image/svg+xml').documentElement;
+  const slide: Slide = { id: "handoff-static", elements: [rect({ id: "source" }), { id: "dest", type: "plot", assetId: "axes", x: 300, y: 100, width: 200, height: 200, rotation: 0 }], beats: [
+    { id: "base", tracks: [] }, { id: "flight", tracks: [{ id: "handoff", target: "source", preset: "transform", duration: 600, to: { state: {}, become: { mode: "handoff", ref: { element: "dest", parts: ["axis.x.spine", "axis.y.spine"] } } } }] },
+  ] };
+  const unvalidated = compileSlide(slide, stage);
+  assert(unvalidated.handoffs.length === 1 && unvalidated.handoffs[0].destination[0].partIds?.join() === "axis.x.spine,axis.y.spine", "manifest-less compile retains both literal destination spine ids in one hand-off");
+  const missingSpine = structuredClone(slide);
+  missingSpine.beats[1].tracks[0].to!.become!.ref.parts = ["axis.y.spine"];
+  const validated = compileSlide(missingSpine, stage, { plotManifest: () => ({ spec: "fluxplot", schemaVersion: "0.2.0", size: { width: 100, height: 100, unit: "px" }, series: [], parts: { id: "plot", role: "figure", children: [{ id: "axis.x.spine", role: "spine" }] } } as any) });
+  assert(validated.handoffs.length === 0 && validated.issues.some(issue => /Destination parts not found/.test(issue.reason)), "a manifest that lacks axis.y.spine still refuses that destination");
+  const host = document.createElement("div") as unknown as HTMLElement;
+  for (const beat of [0, 1, 0]) {
+    const rendered = renderStaticAt(host, slide, stage, beat, { theme: FLUX_DARK, plotRoot: () => root as unknown as Element });
+    const parts = [...host.querySelectorAll<SVGElement>('[id="dest__axis.x.spine"],[id="dest__axis.y.spine"]')];
+    assert(parts.length === 2 && parts.every(p => (p.style.visibility ?? "") === (beat ? "" : "hidden")), `renderStaticAt(${beat}) retains the destination parts' ${beat ? "visible" : "hidden"} baseline`);
+    assert((rendered.elements.get("source")!.style.visibility ?? "") === (beat ? "hidden" : ""), `renderStaticAt(${beat}) retains the source state`);
+    assert(rendered.flight.childElementCount === 0, "a static hand-off releases every temporary flight child");
+  }
+}
+
 console.log("\nSLIDE TWEEN (transform core + player drive): PASS");
+
+await h.done();

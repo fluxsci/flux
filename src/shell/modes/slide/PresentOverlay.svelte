@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { presentContext } from "../../../lib/bridge/contextStamp";
+  import { captureOpen } from "../../agent/annotationVisibility";
+
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
+
   // Present mode — a fullscreen overlay that runs the ONE player (createPlayer)
   // over the deck, scaled-to-fit (letterboxed) on any screen. Clicker-friendly
   // keymap (§6.1). The stage IS the player; Esc exits. The same player powers the
@@ -10,6 +15,8 @@
   import { plotManifests } from "../../../lib/plot/store";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
+  import { createAppModelPosters } from "../../../lib/model3d/appPosters";
+  import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
   import { project } from "../../../lib/store";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
 
@@ -31,6 +38,8 @@
   let vw = $state(0);
   let vh = $state(0);
   let player: Player | undefined;
+  let models: AppInlineModels | undefined;
+  let nextPosters: AbortController | undefined;
   let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, mediaPlaying: false, mediaPaused: false, issues: [] });
   let blank = $state<"" | "black" | "white">("");
   let showNotes = $state(false);
@@ -56,21 +65,28 @@
     }),
   );
   const nextIdx = $derived(panel.nextIdx);
+  $effect(() => { presentContext.set({ deckId: deck.id, slideIndex: st.slide, beat: st.beat, slideId: deck.slides[st.slide]?.id }); });
+  // A capture freezes the current player frame and its media until the user resumes.
+  $effect(() => { if ($captureOpen) { player?.pause(); player?.setMediaPaused(true); } });
+
 
   function playerOpts(): PlayerOpts {
     return {
       mode: "present",
+      ...models, pixelScale: () => scale,
       theme,
       assetUrl: (id) => getAssetData(id),
       assetSize: (id) => assetDisplaySize(get(project), id),
       plotManifest: (id) => get(plotManifests)[id],
       deckBackground: deck.background,
+      animStyles: deck.animStyles,
       reducedMotion,
     };
   }
   function buildPlayer(at: { slide: number; beat: number }) {
     if (!mount) return;
     player?.destroy();
+    models?.dispose(); models = createAppInlineModels(deck);
     player = createPlayer(mount, deck, playerOpts());
     player.on("change", (s) => { st = s; renderNext(); });
     player.on("frame", (s) => { st = s; });
@@ -78,8 +94,10 @@
     st = player.state();
     renderNext();
   }
+  $effect(() => { void scale; player?.refresh(); });
   /** Render the NEXT slide (fully built) into the presenter panel's thumbnail. */
   function renderNext() {
+    nextPosters?.abort(); nextPosters = undefined;
     if (!nextMount) return;
     nextMount.replaceChildren();
     if (nextIdx < 0) return;
@@ -88,7 +106,9 @@
     host.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;background:${s.background ?? deck.background ?? theme.background};`;
     nextMount.appendChild(host);
     try {
-      renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), playerOpts());
+      const controller = nextPosters = new AbortController(), posters = createAppModelPosters(controller.signal);
+      const render = () => renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), { ...playerOpts(), ...posters.context });
+      render(); void posters.settle().then(() => { if (!controller.signal.aborted && host.isConnected) render(); }).catch(() => {});
     } catch { /* a missing asset preview is non-fatal */ }
   }
 
@@ -101,7 +121,8 @@
     bumpIdle();
   });
   onDestroy(() => {
-    player?.destroy();
+    presentContext.set(null);
+    player?.destroy(); models?.dispose(); nextPosters?.abort();
     if (timer) clearInterval(timer);
     if (idleTimer) clearTimeout(idleTimer);
     void wakeLock?.release().catch(() => {});
@@ -125,7 +146,7 @@
   }
 
   // Blank/away pauses videos so audio doesn't play to a black screen (B15).
-  $effect(() => { player?.setMediaPaused(!!blank); });
+  $effect(() => { player?.setMediaPaused(!!blank || $captureOpen); });
 
   // Render the next-slide preview whenever the panel opens or the position moves
   // (the panel — hence nextMount — only exists while showNotes is true).
@@ -135,7 +156,8 @@
   });
 
   function onKey(e: KeyboardEvent) {
-    if (!player) return;
+    if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
+    if (!player || e.ctrlKey || e.metaKey) return;
     bumpIdle();
     // WS-3.3: clicker semantics live in present/core's reducer — this host
     // applies the state and runs the effects (close/fullscreen/rebuild/timer).
@@ -164,11 +186,11 @@
     else root?.requestFullscreen?.().catch(() => {});
   }
   function onClick(e: MouseEvent) {
-    if (!player) return;
+    if (!player || get(captureOpen)) return;
     bumpIdle();
     // ignore clicks on interactive video controls / the presenter panel (B4).
     const t = e.target as HTMLElement;
-    if (t.closest("video") || t.closest(".notes") || t.closest(".hud")) return;
+    if (t.closest("[data-annotation-surface]") || t.closest("video") || t.closest(".notes") || t.closest(".hud")) return;
     // left quarter = back, rest = forward (clicker-like)
     if (e.clientX < vw * 0.25) player.prev();
     else player.next();

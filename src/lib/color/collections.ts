@@ -5,6 +5,8 @@
 // picker is the very name fluxplot regenerates a plot with.
 import { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS, type ColormapCollection, type ColormapDef, type ColormapType, type PaletteCollection } from "./collections.gen";
 import type { ColorGroup, GradientFill } from "../types";
+import { findColormap as findPureColormap, colormapStops } from './colormaps';
+export { colormapStops };
 
 export type { ColormapCollection, ColormapDef, ColormapType, PaletteCollection };
 export { COLORMAP_COLLECTIONS, PALETTE_COLLECTIONS };
@@ -26,24 +28,8 @@ export function paletteCollection(id: string): PaletteCollection | null {
  *  the collections in order (matplotlib first — the same rule fluxplot applies);
  *  a trailing `_r` marks the reversed map. */
 export function findColormap(name: string): { collection: ColormapCollection; map: ColormapDef; reversed: boolean } | null {
-  const trimmed = name.trim();
-  if (!trimmed) return null;
-  const reversed = trimmed.endsWith("_r");
-  const base = reversed ? trimmed.slice(0, -2) : trimmed;
-  const dot = base.indexOf(".");
-  if (dot > 0) {
-    let cid = base.slice(0, dot);
-    if (cid === "cmr") cid = "cmasher";
-    const bare = base.slice(dot + 1);
-    const collection = colormapCollection(cid);
-    const map = collection?.maps.find((m) => m.name === bare);
-    return collection && map ? { collection, map, reversed } : null;
-  }
-  for (const collection of COLORMAP_COLLECTIONS) {
-    const map = collection.maps.find((m) => m.name === base);
-    if (map) return { collection, map, reversed };
-  }
-  return null;
+  const found = findPureColormap(name);
+  return found ? { ...found, collection: colormapCollection(found.collection.id)! } : null;
 }
 
 /** The qualified name fluxplot understands. */
@@ -51,10 +37,6 @@ export const qualifiedName = (collection: ColormapCollection | string, map: Colo
   `${typeof collection === "string" ? collection : collection.id}.${typeof map === "string" ? map : map.name}${reversed ? "_r" : ""}`;
 
 /** The map's stops, reversed when asked. */
-export function colormapStops(map: ColormapDef, reversed = false): string[] {
-  return reversed ? [...map.colors].reverse() : map.colors;
-}
-
 /** A CSS gradient for a preview bar: hard steps for a discrete map, a smooth
  *  ramp otherwise. */
 export function colormapGradient(map: ColormapDef, reversed = false): string {

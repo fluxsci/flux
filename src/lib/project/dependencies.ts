@@ -1,3 +1,4 @@
+import { elementSourceAssetIds } from "../model3d/refs";
 // Read-only usage index. Include decks and animation-only targets before GC.
 import { createFigureReferenceResolver } from "../figureReferences";
 import { discoverDocuments, type DocumentIO } from "./documentFiles";
@@ -64,7 +65,7 @@ export async function readProjectDependencies(root: string, io: DependencyIO, li
     for (const f of canvas?.figures ?? []) {
       canonicalFigures.set(f.id, { referenceKey: f.referenceKey, panels: panelLetters(f) });
       for (const el of f.elements ?? []) {
-      add(out.byAsset, el.assetId, { kind: "figure", path, figureId: f.id, elementId: el.id, label: f.nickname || f.name || f.id });
+      for (const id of elementSourceAssetIds(el)) add(out.byAsset, id, { kind: "figure", path, figureId: f.id, elementId: el.id, label: f.nickname || f.name || f.id });
       }
     }
   }
@@ -75,8 +76,7 @@ export async function readProjectDependencies(root: string, io: DependencyIO, li
     let entries: { name: string; dir: boolean }[];
     try { entries = await io.readdir(`${root}/${rel}`); } catch { return; }
     for (const e of entries) {
-      if (e.name.startsWith(".") || e.name.includes(".sync-conflict-")) continue;
-      if (rel === "Context" && (e.name === "Transcripts" || e.name === "Dispatches")) continue;
+      if (e.name.startsWith(".")) continue;
       const path = `${rel}/${e.name}`;
       if (e.dir) await walk(path, depth + 1);
       else if (/\.(qmd|md)$/i.test(e.name) && !rel.startsWith("slides/")) docs.add(path);
@@ -128,7 +128,7 @@ export async function readProjectDependencies(root: string, io: DependencyIO, li
     const d = await readJson(path);
     for (const s of d?.slides ?? []) {
       const use = { kind: "slide" as const, path, deckId, slideId: s.id, label: `${d.title || deckId} · ${s.name || s.id}` };
-      for (const e of s.elements ?? []) add(out.byAsset, e.assetId, { ...use, elementId: e.id });
+      for (const e of s.elements ?? []) for (const id of elementSourceAssetIds(e)) add(out.byAsset, id, { ...use, elementId: e.id });
       for (const beat of s.beats ?? []) for (const t of beat.tracks ?? []) add(out.byAsset, t.to?.assetId, { ...use, elementId: t.target?.elementId, trackId: t.id });
     }
   }

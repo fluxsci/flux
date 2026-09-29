@@ -11,6 +11,7 @@
   import { activeFigureId, selection, partSelections, embeddedProjectRoot } from "./store";
   import { storeTenant } from "./tenancy";
   import { evalExpr, fmtNum } from "./num";
+  import { numericStep } from "./interact/numericStep";
   import { scrub } from "./scrub";
   import { editSession } from "./interact/editSession";
   import { WheelStepper, wheelDelta, wheelMultiplier } from "./interact/wheelLaw";
@@ -18,19 +19,35 @@
   export let value: number;
   export let label = "";
   export let step = 1;
+  /** Optional ratio per step (zoom uses 1.1). */
+  export let factor: number | undefined = undefined;
   export let min: number | null = null;
   export let max: number | null = null;
   export let title = "";
   export let history = true;
   export let mixed = false;
+  export let mixedLabel = "Mixed";
   export let disabled = false;
+  // Opt-in nullable/live editing (axis limits); existing numeric fields retain
+  // their commit-on-change contract.
+  export let placeholder = "";
+  export let optional = false;
+  export let empty = false;
+  export let live = false;
+  let focused = false;
+  let draft = "";
+  let cancelled = false;
   const session = editSession();
   let scrubBaseline = value;
 
-  const dispatch = createEventDispatcher<{ commit: number; scrub: number; scrubStart: void }>();
+  const dispatch = createEventDispatcher<{ commit: number; scrub: number; scrubStart: void; preview: number | undefined }>();
   let inputEl: HTMLInputElement;
 
-  $: display = fmtNum(value);
+  // Axis/data values may be much smaller than a layout pixel. Preserve their
+  // significant digits in the opt-in live mode instead of rounding to zero.
+  const format = (v: number) => live && Number.isFinite(v) ? String(+v.toPrecision(12)) : fmtNum(v);
+  const round = (v: number) => Number(format(v));
+  $: display = format(value);
 
   function clamp(v: number): number {
     if (min != null) v = Math.max(min, v);
@@ -38,7 +55,19 @@
     return v;
   }
 
+  function preview() {
+    draft = inputEl.value;
+    if (!live) return;
+    if (optional && !draft.trim()) { session.run(() => dispatch("preview", undefined)); return; }
+    const parsed = evalExpr(draft);
+    if (parsed !== null) session.run(() => dispatch("preview", clamp(parsed)));
+  }
+  function blur() {
+    if (live) { session.finish(); focused = false; draft = ""; }
+    cancelled = false;
+  }
   function onChange() {
+    if (live || cancelled) return;
     const parsed = evalExpr(inputEl.value);
     if (parsed == null) {
       inputEl.value = display; // reject invalid → keep previous value
@@ -58,13 +87,15 @@
       e.stopPropagation();
       if (wheelTimer) clearTimeout(wheelTimer);
       wheelTimer = null; wheel.reset(); session.cancel();
-      inputEl.value = display;
+      cancelled = true;
+      inputEl.value = empty ? "" : display;
       inputEl.blur();
     } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
       const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
-      const v = clamp(+(value + (e.key === "ArrowUp" ? 1 : -1) * step * mult).toFixed(6));
-      if (v !== value) dispatch("commit", v);
+      const v = clamp(round(numericStep(value, (e.key === "ArrowUp" ? 1 : -1) * mult, step, factor)));
+      if (v !== value) { if (live) session.run(() => dispatch("preview", v)); else dispatch("commit", v); }
+      if (live) draft = format(v);
     }
   }
 
@@ -97,7 +128,8 @@
       scrubBaseline = value;
       dispatch("scrubStart");
     }
-    const v = clamp(+(value + steps * step * mult).toFixed(6));
+    const v = clamp(round(numericStep(value, steps * mult, step, factor)));
+    if (live && focused) draft = format(v);
     if (v !== value) (history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v));
     // The gesture ends when the wheel rests: one undo entry per roll.
     if (wheelTimer) clearTimeout(wheelTimer);
@@ -113,7 +145,7 @@
   {#if label}
     <span
       class="lb"
-      use:scrub={{ get: () => value, step, min, max, disabled, owner: targetKey,
+      use:scrub={{ get: () => value, step, factor, min, max, disabled, owner: targetKey, round: live ? round : undefined,
         onStart: () => { scrubBaseline = value; dispatch('scrubStart'); },
         onStep: (v) => history ? session.run(() => dispatch("scrub", v)) : dispatch("scrub", v),
         onEnd: session.finish,
@@ -128,8 +160,11 @@
     inputmode="decimal"
     spellcheck="false"
     {disabled}
-    placeholder={mixed ? "Mixed" : ""}
-    value={mixed ? "" : display}
+    placeholder={mixed ? mixedLabel : placeholder}
+    value={live && focused ? draft : mixed || empty ? "" : display}
+    on:focus={() => { focused = true; draft = inputEl.value; }}
+    on:input={preview}
+    on:blur={blur}
     on:change={onChange}
     on:keydown={onKey}
     on:wheel|nonpassive={onWheel}

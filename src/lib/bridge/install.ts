@@ -4,6 +4,7 @@
 // No-ops unless running under Electron with the bridge preload (so dev/web are
 // unaffected).
 
+import { captureOpen } from "../../shell/agent/annotationVisibility";
 import { get, type Readable } from "svelte/store";
 import {
   project,
@@ -17,6 +18,8 @@ import {
   dirty,
   embeddedProjectRoot,
 } from "../store";
+import { readerContext, libraryContext, slideContext, presentContext, paperHeading } from "./contextStamp";
+import { paperSelection } from "../project/paperSelectionStore";
 import { getAppContext } from "./appContext";
 import { dispatchCommand, captureDispatchOwner, type Command } from "./commands";
 import { touchActivityLock } from "./activityLock";
@@ -25,11 +28,20 @@ import { currentProject, view } from "../../shell/shellStore";
 import { focusedMode, focusedPaneId } from "../../shell/paneStore";
 import { storeTenant, storeTenantState } from "../tenancy";
 import { fileBridge } from "../project/types";
+import { settings } from "../settings";
+import { liveViewActivity } from "./liveView";
 
 export function installBridge(): void {
   // SHL-16: the live bridge (window.fig.bridge) is typed centrally on FileBridge (LiveBridge).
   const bridge = fileBridge()?.bridge;
   if (!bridge) return; // only under Electron + the bridge preload
+
+  currentProject.subscribe(p => liveViewActivity.setRoot(p?.path ?? null));
+  bridge.onViewed(event => { void liveViewActivity.record(event); });
+  // Read-only: Annotate's frozen surface blocks writes below, never this handshake.
+  bridge.onContextRequest(({ id }) => {
+    bridge.replyContext(id, getAppContext(), get(settings).allowAgentView);
+  });
 
   // WS6/W3: hold the advisory "project" activity lock while the human is
   // actively editing figures (grace-windowed + heartbeat-restamped), so a
@@ -54,6 +66,7 @@ export function installBridge(): void {
 
   const watched: Readable<unknown>[] = [
     currentProject, view, focusedMode, focusedPaneId, embeddedProjectRoot,
+    paperSelection, paperHeading, readerContext, libraryContext, slideContext, presentContext,
     storeTenantState, flushOwnerRevision,
     project,
     selection,
@@ -77,6 +90,7 @@ export function installBridge(): void {
       let applied = false;
       try {
         assertOwner();
+        if (get(captureOpen)) throw new Error("not-applied: Annotate or Ask is open; retry after the user closes it");
         const assertPersistenceOwner = captureDispatchOwner({ allowEdits: true });
         const result = await dispatchCommand(command as Command);
         applied = true;

@@ -133,6 +133,10 @@ async function figTree(root: string): Promise<Map<string, string>> {
   return out;
 }
 
+// P1: compare all planned bytes against the independently generated pre-3D receipt.
+const no3d = JSON.parse(await fs.readFile(new URL('./fixtures/model3d/persistence-no3d.json', import.meta.url), 'utf8'));
+assert(JSON.stringify(planFigSave(no3d.input, null)) === JSON.stringify(no3d.plan), 'no-3D save plan stays byte-identical to pre-P1 8ff8742');
+
 const work = await fs.mkdtemp(path.join(os.tmpdir(), "flux-parity-"));
 try {
   // ---- 1. load parity ----------------------------------------------------------

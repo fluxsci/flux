@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict';
+import { harness } from './lib/harness.mjs';
+import { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates } from '../src/lib/model3d/semanticOps';
+import { makeModel3dElement } from '../src/lib/model3d/make';
+import { mapValues } from '../src/lib/model3d/colormap';
+import { inspectGlb, writeGlb } from '../src/lib/model3d/glbCore.mjs';
+import type { Project } from '../src/lib/types';
+import type { Model3dAsset } from '../src/lib/model3d/types';
+const h = harness('verify-model3d-semantics');
+const info = inspectGlb(writeGlb({ parts: [{ name: 'mesh', positions: [0,0,0,1,0,0,0,1,0], indices: [0,1,2] }] }));
+info.states = ['first', 'second', 'third'];
+const asset: Model3dAsset = { id: 'asset', name: 'shape.glb', kind: 'glb', path: 'assets/shape.glb', sha256: 'a'.repeat(64), bytes: 1024, naturalWidth: 336, naturalHeight: 252, model: info };
+const a = makeModel3dElement(asset, { id: 'a' }), b = makeModel3dElement(asset, { id: 'b' });
+const untouched = { id: 'rect', type: 'rect', fill: '#abcdef' };
+const project = { assets: [asset], figures: [{ id: 'figure', elements: [a,b,untouched] }] } as unknown as Project;
+a.overrides = { mesh: { fill: '#123456' } };
+setModelField(project, ['a','b','rect'], 'value', { cmap: 'viridis', range: [-1,2] });
+h.eq(a.fields, b.fields, 'field batch updates both models');
+h.eq(a.modelColors, 'source', 'field edits activate source colors');
+h.eq(a.overrides, { mesh: { fill: '#123456' } }, 'field edits preserve explicit part fills');
+h.eq(untouched, { id: 'rect', type: 'rect', fill: '#abcdef' }, 'nonmodels remain byte-identical');
+setModelField(project, ['a'], 'value', { range: [2,2] });
+h.eq(a.fields?.value.range, [2,2], 'constant field override accepted');
+h.eq(Array.from(mapValues([2,3], { cmap: { name: 'test', stops: [[0,'#000000'],[1,'#FFFFFF']] }, range: [0,1] }, { range: [2,2] })), [0,0,0,0,0,0], 'constant override uses source/Matplotlib colormap zero');
+const before = JSON.stringify(project);
+assert.throws(() => setModelField(project, ['a','b'], 'value', { range: [2,1] }), /minimum/);
+assert.throws(() => setModelField(project, ['a','b'], 'value', { cmap: 'no-such-map' }), /Unknown colormap/);
+assert.throws(() => setModelField(project, ['a'], 'value', { range: [NaN,1] }), /finite/);
+h.eq(JSON.stringify(project), before, 'invalid field batches mutate nothing');
+setModelField(project, ['a'], 'value', { cmap: null });
+h.eq(a.fields?.value, { range: [2,2] }, 'member reset retains the other override');
+setModelField(project, ['a'], 'value', null);
+h.ok(!Object.hasOwn(a, 'fields'), 'last field reset removes empty persisted map');
+for (const fieldId of ['constructor', '__proto__']) {
+  setModelField(project, ['a'], fieldId, { range: [0,1] });
+  h.ok(Object.hasOwn(a.fields!, fieldId) && JSON.stringify(a.fields).includes(fieldId), `${fieldId} is an ordinary persisted field key`);
+  setModelField(project, ['a'], fieldId, null);
+}
+h.ok(!Object.hasOwn(a, 'fields'), 'inherited-name field reset leaves no prototype entry');
+setModelStates(project, ['a','b'], { first: .25, second: 0, third: 2 });
+h.eq(a.modelStates, { first: .25, third: 2 }, 'finite shape weights remain unclamped and zero uses absence');
+h.eq(b.modelStates, a.modelStates, 'shape weights apply across selected models');
+const stateBefore = JSON.stringify(project);
+assert.throws(() => setModelStates(project, ['a','b'], { first: .5, missing: .2 }), /Unknown shape/);
+assert.throws(() => setModelStates(project, ['a','b'], { first: Infinity }), /finite/);
+h.eq(JSON.stringify(project), stateBefore, 'invalid state batches mutate nothing');
+setModelFrame(project, ['a','b'], info.states, 1.25);
+h.eq(a.modelStates, { first: .75, second: .25 }, 'sequence frame blends adjacent stored targets');
+h.eq(modelFrame(a.modelStates, info.states), 1.25, 'derived frame round trips fractional weights');
+h.eq(modelFrame({ first: .5 }, info.states), .5, 'base blends with first target');
+h.eq(modelFrame(undefined, info.states), 0, 'absent weights are base frame');
+h.eq(modelFrame({ first: .5, third: .5 }, info.states), null, 'nonadjacent weights read Custom');
+h.eq(modelFrame({ second: .5 }, info.states), null, 'base plus nonfirst target reads Custom');
+h.eq(modelFrame({ unknown: .1 }, info.states), null, 'unknown nonzero target reads Custom');
+h.eq(modelFrame({ unknown: 0 }, info.states), 0, 'unknown zero cannot create Custom');
+h.eq(modelFrame({ first: NaN }, info.states), null, 'nonfinite weights never report a frame');
+h.eq(modelFrame({ first: -0.2, second: 1.2 }, info.states), null, 'extrapolated stored weights display Custom');
+setModelStates(project,['a'],{first:-0.2,second:1.2});h.eq(a.modelStates,{first:-0.2,second:1.2},'finite negative and above-one weights survive shared pure mutation');
+assert.throws(() => setModelFrame(project, ['a'], [...info.states].reverse(), 1), /state order/);
+assert.throws(() => setModelFrame(project, ['a'], info.states, Infinity), /finite/);
+setModelFrame(project, ['a'], info.states, 999);
+h.eq(a.modelStates, { third: 1 }, 'sequence frame clamps to final target');
+setModelStates(project, ['a'], null);
+h.ok(!Object.hasOwn(a, 'modelStates') && !Object.hasOwn(a, 'frame'), 'reset clears weights and frame is never persisted');
+const { buildScene3dPartIndex, scene3dPartTargets, resolveScene3dPartStyle } = await import('../src/lib/model3d/scene3d');
+const { buildModel3dTree } = await import('../src/lib/model3d/tree');
+const { buildXrayTree, commonPartRows } = await import('../src/lib/xray/buildXrayTree');
+const { posterKey } = await import('../src/lib/model3d/poster');
+const { furnitureLayout } = await import('../src/lib/model3d/furnitureLayout');
+const source = { spec:'fluxplot/scene3d', schemaVersion:'0.1.0', glb:'shape.glb', view:{states:{first:.5, absent:1}}, parts:[
+  {id:'axon',role:'mesh',node:'axon',series:'neuron',color:'#ff0000'},
+  {id:'dendrite',role:'mesh',node:'dendrite',series:'neuron',color:'#00ff00'},
+  {id:'cortex',role:'surface-field',node:'cortex',series:'brain',field:{cmap:{name:'test',stops:[[0,'#000000'],[1,'#ffffff']]},range:[0,1]}},
+  {id:'missing',role:'mesh',node:'missing',field:'cortex'}, {id:'colorbar',role:'colorbar',field:'cortex'},
+  {id:'axes.x.line',role:'axis'},{id:'axes.x.label',role:'axis-title'}, {id:'custom',role:'series'},
+  {id:'explicit',role:'mesh',node:'explicit',series:'neuron',parent:'custom'}
+]} as import('../src/lib/model3d/types').Scene3dManifest;
+const raw=JSON.stringify(source), index=buildScene3dPartIndex(source);
+h.eq(index.axon.parent,'@series:neuron','series grouping is an effective reserved container');
+h.eq(index.cortex.parent,'@field:cortex','value field groups mesh/missing/colorbar');
+h.eq(index.missing.parent,index.colorbar.parent,'missing and colorbar share the field container');
+h.eq(index['axes.x.line'].parent,'@axes:x','axis components group under axis');
+h.eq(index['@axes:x'].parent,'@axes','axes share a global container');
+h.eq(index.explicit.parent,'custom','explicit source parents remain authoritative');
+h.eq(scene3dPartTargets(index,'@series:neuron'),['axon','dendrite'],'series targets expose exactly their concrete members');
+h.eq(scene3dPartTargets(index,'@field:cortex'),['cortex','missing','colorbar'],'field targets include furniture and missing part');
+h.eq(JSON.stringify(source),raw,'index never rewrites public sidecars');
+h.eq(buildScene3dPartIndex(source),index,'synthetic IDs and order are deterministic');
+h.eq(resolveScene3dPartStyle(source,{'@series:neuron':{fill:'#123456',opacity:.5,hidden:true},axon:{opacity:.5,hidden:false}},'axon',{index}),{fill:'#123456',opacity:.25,hidden:true},'effective parent fill/opacity/hide cascade is shared');
+const tree=buildModel3dTree(source);h.ok(tree.children.some(n=>n.id==='@series:neuron'&&n.children.length===2),'model tree exposes grouped series');
+const plain=buildModel3dTree(undefined,{partNames:['constructor','axon','axon']});h.eq(plain.children.map(n=>n.id),['constructor','axon'],'plain named meshes remain addressable and deduplicated');
+assert.throws(()=>buildScene3dPartIndex({...source,parts:[{id:'@axes',role:'mesh'}]}),/Reserved/);
+assert.throws(()=>buildModel3dTree({...source,parts:[{id:'a',role:'mesh',parent:'b'},{id:'b',role:'mesh',parent:'a'}]}),/Cyclic/);
+h.ok(true,'reserved source IDs and cycles are safely refused');
+const models={asset:source};a.overrides={'@series:neuron':{hidden:true}};b.overrides={};
+const rows=commonPartRows([a,b],{},models);h.ok(rows.some(r=>r.partId==='@series:neuron'&&r.hiddenCount===1),'common rows expose model groups and effective hidden counts');
+h.ok(rows.some(r=>r.partId==='axon'&&r.hiddenCount===1),'common child hidden count sees parent override');
+const xr=buildXrayTree(project,{kind:'element',figId:'figure',elementId:'a'},{},models)!;
+h.ok(xr.children.some(r=>r.partId==='@series:neuron'&&r.hidden),'unified X-ray consumes model source');
+h.eq(modelDefaultStates(source,info.states),{first:.5},'Home/Reset ignores metadata names missing from geometry');
+const constructed=makeModel3dElement(asset,{id:'from-source',manifest:{...source,view:{states:{first:-.2,second:1.2,ghost:.8}}}});
+h.eq(constructed.modelStates,{first:-.2,second:1.2},'constructor uses geometry-owned defaults and preserves finite extrapolation');
+const importedProject={assets:[asset],figures:[{id:'imported',elements:[constructed]}]} as unknown as Project;
+setModelStates(importedProject,[constructed.id],{...constructed.modelStates,first:.4});
+h.eq(constructed.modelStates,{first:.4,second:1.2},'ordinary known-state edit remains valid immediately after import');
+
+h.eq(modelDefaultStates({...source,view:{states:{first:-.2,second:1.2,missing:3}}},['first','second']),{first:-.2,second:1.2},'Home/Reset preserve accepted finite extrapolated source defaults exactly');
+h.eq(modelDefaultStates({...source,view:{states:{constructor:.5}}},['constructor','__proto__']),{constructor:.5},'source state defaults never inherit object properties');
+h.eq(modelFrame(undefined,['constructor','__proto__']),0,'absent prototype-named states read base');
+const { statesAtFrame } = await import('../src/lib/model3d/orbit');
+h.eq(Object.entries(statesAtFrame(['constructor','__proto__'],2)),[['__proto__',1]],'sequence writes prototype-named targets as own keys');
+a.overrides={};const key=posterKey(a,asset,source,{w:200,h:200});
+a.overrides={'@series:neuron':{fill:'#123456'}};h.ok(posterKey(a,asset,source,{w:200,h:200})!==key,'synthetic mesh override affects poster key');
+a.overrides={'@axes':{fill:'#123456',hidden:true}};h.eq(posterKey(a,asset,source,{w:200,h:200}),key,'furniture-only parent overrides stay out of mesh poster key');
+h.eq(furnitureLayout(source,{width:336,height:252},{'@field:cortex':{hidden:true}}).colorbars.length,0,'hidden field container also removes its colorbar layout');
+const { partKind, readPartStyle, partBreadcrumb } = await import('../src/lib/plot/partStyle');
+const { mergePartOverride } = await import('../src/lib/ops');
+h.eq(partKind(source,'@series:neuron'),'container','semantic series uses shared container editor');
+h.eq(partKind(source,'axes.x.label'),'text','axis label uses text editor');
+h.eq(partKind(source,'colorbar'),'text','composite colorbar exposes text styles');
+h.eq(partBreadcrumb(source,'axon'),['3D model','neuron','axon'],'semantic breadcrumb follows effective hierarchy');
+a.overrides={'@series:neuron':{fill:'#987654',opacity:.25}};
+h.eq(readPartStyle(a,'axon',source).fill,'#987654','shared style reader sees effective parent fill');
+h.eq(readPartStyle(a,'axon',source).opacity,.25,'shared style reader sees effective parent opacity');
+mergePartOverride(a,'constructor',{fill:'#abcdef'});mergePartOverride(a,'__proto__',{hidden:true});
+h.ok(Object.hasOwn(a.overrides!,'constructor')&&Object.hasOwn(a.overrides!,'__proto__'),'per-part overrides safely persist prototype-named plain nodes');
+mergePartOverride(a,'__proto__',{hidden:null});h.ok(!Object.hasOwn(a.overrides!,'__proto__'),'part reset deletes own key without prototype mutation');
+const strangeAsset={...asset,model:{...asset.model,partNames:['__proto__']}};a.overrides={};const plainKey=posterKey(a,strangeAsset,undefined,{w:200,h:200});
+mergePartOverride(a,'__proto__',{fill:'#aabbcc'});h.ok(posterKey(a,strangeAsset,undefined,{w:200,h:200})!==plainKey,'plain prototype-named mesh override affects poster key');
+h.eq(resolveScene3dPartStyle(undefined,a.overrides,'__proto__'),{fill:'#aabbcc'},'plain prototype-named part resolves own override');
+{ // Furniture rows name their role first ("Scale bar · 0.5 µm"), not bare text.
+ const bar=JSON.parse(await (await import('node:fs/promises')).readFile(new URL('./fixtures/model3d/fluxplot/scalebar.fluxplot.json',import.meta.url),'utf8'));
+ const flat=(n:{label:string,children:any[]}):string[]=>[n.label,...n.children.flatMap(flat)];
+ const labels=flat(buildModel3dTree(bar));
+ h.ok(labels.includes('Scale bar · 0.5 µm'),'scale bar row is labelled by role and text');
+ h.ok(labels.includes('mesh'),'mesh rows keep their own label');
+}
+await h.done();

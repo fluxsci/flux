@@ -90,12 +90,12 @@ try {
   eq(await io.exists(`${root}/.meta/figure-reference-update.json`), true, "conflicting recovery retains both versions for review");
 
   await reset();
-  await io.writeText(`${root}/Context/Project/NOTEBOOK.md`, "Context cites @fig-study-c.\n");
+  await io.writeText(`${root}/Context/Reading/notes.md`, "Context cites @fig-study-c.\n");
   await mutateFigModel(root, "gate_relabel", ({ project }) => {
     for (const [i, e] of project.figures[0].elements.entries()) if (e.type === "text") e.text = ["b", "c", "a"][i];
   });
   eq(await io.readText(`${root}/manuscript/main.qmd`), expected, "actual CLI mutation uses shared reference coordinator");
-  eq(await io.readText(`${root}/Context/Project/NOTEBOOK.md`), "Context cites @fig-study-a.\n", "all project documents including Context are covered");
+  eq(await io.readText(`${root}/Context/Reading/notes.md`), "Context cites @fig-study-a.\n", "all project documents including Context are covered");
   eq(JSON.parse(await io.readText(`${root}/fig/index.json`)).figures[0].number, 1, "manuscript reference order never renumbers a figure");
   console.log(`PASS figure-reference-sync (${checks} assertions)`);
 } finally { await fs.rm(root, { recursive: true, force: true }); }

@@ -1,4 +1,3 @@
-import { conflictBaseFor } from "../project/conflictRules";
 /** Canonical user data is absent only on ENOENT. Parsing/IO errors must never
  * become an empty model that a later mutation can publish over the original. */
 export class CanonicalReadError extends Error {
@@ -29,14 +28,4 @@ export async function assertCanonicalText(path: string, expected: string | null,
 export async function assertCanonicalSnapshot(value: object, read: (path: string) => Promise<string | null>): Promise<void> {
   const snapshot = snapshots.get(value);
   if (snapshot) await assertCanonicalText(snapshot.path, snapshot.text, () => read(snapshot.path));
-}
-
-/** Match the existing sync conflict grammar; never auto-merge canonical records. */
-export async function assertNoCanonicalConflict(path: string, list: (directory: string) => Promise<string[]>): Promise<void> {
-  const normalized = path.replace(/\\/g,"/"), at = normalized.lastIndexOf("/");
-  const directory = normalized.slice(0,at), name = normalized.slice(at+1);
-  let names: string[];
-  try { names = await list(directory); } catch (error) { if (isMissing(error)) return; throw error; }
-  const copies = names.filter(candidate => conflictBaseFor(candidate) === name);
-  if (copies.length) throw new Error(`Unresolved canonical sync conflict at ${path}: ${copies.join(", ")}. Both revisions were preserved; review the conflict copies before editing.`);
 }

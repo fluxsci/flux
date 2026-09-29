@@ -2,12 +2,14 @@
  * is shared by live seeking and continuous capture, including audio mixing. */
 import type { Slide, Track } from "./types";
 import type { VideoPlan } from "./video";
+import { resolveBeat, type StyleContext, type ManifestFor } from "./resolve";
+import { presetDef } from "./presetCatalog";
 
 export type VideoCommand = "videoStart" | "videoPause" | "videoStop";
 export interface VideoEvent { target: string; command: VideoCommand; at: number; order: number }
 export interface VideoSample { timeMs: number; running: boolean; started: boolean }
 export interface VideoAudioSegment { assetId: string; startMs: number; endMs: number; offsetMs: number; loop: boolean }
-export const isVideoCommand = (track: Track): boolean => ["videoStart", "videoPause", "videoStop"].includes(track.preset ?? "");
+export const isVideoCommand = (track: Track): boolean => presetDef(track.preset).family === "media";
 
 function visibleVideo(slide: Slide, element: Slide["elements"][number]): boolean {
   if (element.type !== "video" || element.hidden) return false;
@@ -21,7 +23,12 @@ function visibleVideo(slide: Slide, element: Slide["elements"][number]): boolean
   return true;
 }
 
-export function videoEvents(slide: Slide, beatStart: (beat: number) => number | undefined): VideoEvent[] {
+export interface MediaTimingContext extends StyleContext {
+  manifestFor?: ManifestFor;
+  resolvedTracks?: readonly (readonly Track[])[];
+}
+
+export function videoEvents(slide: Slide, beatStart: (beat: number) => number | undefined, context: MediaTimingContext = {}): VideoEvent[] {
   const targets = new Set(slide.elements.filter(e => visibleVideo(slide, e)).map(e => e.id));
   let order = 0;
   const events: VideoEvent[] = [];
@@ -29,7 +36,7 @@ export function videoEvents(slide: Slide, beatStart: (beat: number) => number | 
     if (bi === 0) return; // Design is static; playback requires an explicit step.
     const start = beatStart(bi);
     if (start === undefined) return;
-    for (const track of beat.tracks) {
+    for (const track of context.resolvedTracks?.[bi] ?? resolveBeat(beat, context, context.manifestFor).tracks) {
       if (track.disabled || track.keyframes || track.part || track.selector || track.stagger || !targets.has(track.target) || !isVideoCommand(track)) continue;
       events.push({ target: track.target, command: track.preset as VideoCommand, at: start + Math.max(0, track.start ?? 0), order: order++ });
     }
@@ -37,8 +44,8 @@ export function videoEvents(slide: Slide, beatStart: (beat: number) => number | 
   return events.sort((a, b) => a.at - b.at || a.order - b.order);
 }
 
-export function videoEventsForPlan(slide: Slide, plan: Pick<VideoPlan, "cues">): VideoEvent[] {
-  return videoEvents(slide, beat => plan.cues.find(c => beat >= c.fromBeat && beat <= c.beat)?.start);
+export function videoEventsForPlan(slide: Slide, plan: Pick<VideoPlan, "cues">, context: MediaTimingContext = {}): VideoEvent[] {
+  return videoEvents(slide, beat => plan.cues.find(c => beat >= c.fromBeat && beat <= c.beat)?.start, context);
 }
 
 export function sampleVideo(events: readonly VideoEvent[], target: string, at: number, durationMs: number, loop = false): VideoSample {

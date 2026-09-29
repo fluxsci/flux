@@ -76,9 +76,10 @@ export * from "./manuscript";
 
 // Review-comment threads (list/resolve) live in ./comments.
 export * from "./comments";
-export * from "./feedback";
+export * from "./annotations";
+export { waitForInbox } from "./inboxWait";
+export { inspectTarget, inboxPackets, getInboxImage } from "./inspect";
 export * from "./context";
-export * from "./agents";
 
 // WS2 JSON-schema validation + project lint + validate-plot live in ./validate.
 export * from "./validate";
@@ -95,6 +96,22 @@ export { listDissections, listDissectionsFor, listAllDissections } from "./disse
 // re-exported here so the CLI + MCP reach them through one flux-core surface.
 // --------------------------------------------------------------------------
 export { exportSlideVideo } from "./slideVideo";
+export { addModel, modelInfo, setModelViewCommand, setModelFieldCommand, renderModelPosters } from './model3d';
+// animation v2 target vocabulary (pure; the family law's identity)
+export { trackRef, trackKey, targetKey, targetPartIds, resolveTargetLeaves, hasPartBinding, isWholeElementRef, PAIR_POLICIES, PAIR_POLICY_IDS } from "../src/lib/slide/targets";
+export { PRESET_CATALOG, presetDef, defaultEasingFor, defaultTimingFor, isEnterPreset, isExitPreset, EDITABLE_PRESETS, KNOWN_PRESETS, type PresetDef } from "../src/lib/slide/presetCatalog";
+export { resolveCurve, parseCurve, formatCurve, springFn, bezierFn, stepsFn, catalogMatch, springStats, CURVE_CATALOG, EASING_TOKENS, SPRING_SETTLE, type Curve, type ResolvedCurve, type CurveCatalogEntry } from "../src/lib/slide/curves";
+export { planCorrespondence, sampleCorrespondence, mergeChains, choosePolicy, GLYPH_FLIGHT_THRESHOLD, type CorrespondencePlan, type CorrespondencePair, type DataHint, type SampledPath } from "../src/lib/slide/correspondence";
+export { planHandoff } from "../src/lib/slide/handoffPlan";
+export { targetOutlines, elementStageOutlines, partStageOutlines, plotStageMapping, type GeometryCtx } from "../src/lib/slide/targetGeometry";
+export { handoffTargetResolver, handoffTargetsOverlap, remapBecomeTarget } from "../src/lib/slide/handoffTargets";
+export { setTrackCurve, becomeTransform, swapBecome, appearFrom as appearFromTransform } from "../src/lib/slide/ops";
+export { autoAnimateExcept } from "../src/lib/slide/autobuild";
+export { overshootBox, arcBox } from "../src/lib/slide/tween";
+export { setTrackArc } from "../src/lib/slide/ops";
+export { staggerDelay, staggerRanks, staggerSpan, staggerSeed, reshuffleSeed, patchStagger } from "../src/lib/slide/stagger";
+export { compileSlide, type CompiledSlide, type CompileOptions } from "../src/lib/slide/compile";
+export { sampleCamera, flyDuration, type CameraPose, type CameraPath } from "../src/lib/slide/camera";
 export {
   loadDeck,
   saveDeck,
@@ -129,14 +146,37 @@ export {
   animatePartVerb,
   animateElementVerb,
   become,
+  appearFrom,
+  swapBecomeVerb,
   // Animation rework — transforms, track groups, template application
   setTransformTrack,
+  setPlotViewVerb,
   addGhostTransform,
   groupTracksVerb,
   ungroupTracksVerb,
   applyAnimTemplateVerb,
   // Cascade — stepped timing deltas across tracks (⌃⇧C's headless twin)
   cascadeTracksVerb,
+  animStyleVerb,
+  animateLikeVerb,
+  setTrackVerb,
+  renderTrackTiming,
+  compileDeckSlide,
   type DeckSummary,
   type ValidateDeckResult,
 } from "./slides";
+
+// Shared plot projection and figure-model view mutation.
+export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";
+export type { Fit, Fits, MorphPoint } from "../src/lib/plot/project";
+export { applyPlotView } from "../src/lib/plot/projectDom";
+export { plotViewPatch } from "../src/lib/plot/viewControls";
+export type { PlotViewFields } from "../src/lib/plot/viewControls";
+export { setPlotView } from "../src/lib/ops";
+export { resolveTrack, resolveBeat, resolveStart } from "../src/lib/slide/resolve";
+
+export { beatDelayMs } from "../src/lib/slide/timing";
+export { isHandoff } from "../src/lib/slide/targets";
+export { canAutoAnimateRest } from "../src/lib/slide/autobuild";
+
+export { addSlideModel, addSlideTurntable } from "./slideModels";

@@ -9,6 +9,7 @@
 // Writes test-results/scale-slide.json. Run: node scripts/verify-scale-slide.mjs
 import { mkdirSync, writeFileSync } from "node:fs";
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL, waitFor } from "./lib/driver.mjs";
+import { browserSlideModelScale } from './lib/slideModel3dScaleBrowser.mjs';
 
 let fails = 0;
 const ok = (c, msg, extra = "") => (c ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg + (extra ? ` — ${extra}` : ""))));
@@ -234,6 +235,44 @@ try {
   const scrubP95=p95(playback.scrubTimes);
   ok(scrubP95<=100, `timeline scrubbing p95 ${scrubP95.toFixed(1)}ms ≤ 100ms`);
   ok(playback.scrubMovingFrames>10 && playback.scrubKeptDocument, "forward/reverse scrubbing changes the frame without changing the saved deck");
+  let handoffPlayback;
+  if (dense) {
+    handoffPlayback = await page.evaluate(async () => {
+      const f=window.__flux;
+      const xs=Array.from({length:121},(_,i)=>i*100/120), ys=xs.map(x=>40+25*Math.sin(x/12));
+      const manifest={spec:"fluxplot",schemaVersion:"0.2.0",size:{width:100,height:80,unit:"px"},axes:[{x:{scale:"linear",domain:[0,100],anchors:[{data:0,svg:0},{data:100,svg:100}]},y:{scale:"linear",domain:[0,80],anchors:[{data:0,svg:80},{data:80,svg:0}]}}],series:[{id:"curve",roles:["line"],svg:{line:"curve.line"},data:{x:xs,y:ys}}]};
+      f.plot.cachePlot("handoff-curve",`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80"><path id="curve.line" fill="none" stroke="#4385be" stroke-width="1" d="${xs.map((x,i)=>`${i?'L':'M'}${x} ${80-ys[i]}`).join(' ')}"/></svg>`,manifest);
+      let sid;
+      f.slide.commitDeckLive(d=>{
+        const s=f.slideOps.addSlide(d,{id:"dense-handoff",layout:"blank"});sid=s.id;
+        f.slideOps.addElement(d,s.id,{id:"handoff-rect",type:"rect",x:10,y:10,width:10,height:10,rotation:0,fill:"#4385be",stroke:"none",strokeWidth:0,cornerRadius:0});
+        f.slideOps.addElement(d,s.id,{id:"handoff-points",type:"plot",assetId:"scale-plot",x:30,y:90,width:360,height:220,rotation:0});
+        f.slideOps.addElement(d,s.id,{id:"handoff-curve",type:"plot",assetId:"handoff-curve",x:500,y:90,width:400,height:220,rotation:0});
+        const beat=f.slideOps.addBeat(d,s.id,{id:"handoff"});
+        f.slideOps.setTransform(d,s.id,beat.id,"handoff-points",{ref:{element:"handoff-points",selector:{role:"point"}},state:{},duration:1800,easing:"linear"});
+        beat.tracks[0].to.become={mode:"handoff",ref:{element:"handoff-curve",parts:["curve.line"]},pair:"data"};
+      });
+      f.slide.selectSlide(sid);f.slide.activeBeat.set(1);
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      document.querySelector(".animator .bar .play").click();
+      const deltas=[],positions=[];let count=0,paths=0,driver="",last=0;
+      await new Promise((resolve,reject)=>{
+        let waits=0;
+        const tick=ts=>{
+          const flight=document.querySelector(".preview-host .sl-flight"),glyph=flight?.querySelector(".sl-handoff-glyph");
+          if(!glyph){if(++waits>180)return reject(Error(`glyph flight never mounted: ${flight?.outerHTML.slice(0,1500) ?? "no flight svg"}`));requestAnimationFrame(tick);return;}
+          if(last)deltas.push(ts-last);last=ts;
+          positions.push(glyph.getAttribute("transform"));count=flight.querySelectorAll(".sl-handoff-glyph").length;paths=flight.querySelectorAll(".sl-handoff-path").length;driver=flight.querySelector(".sl-handoff").dataset.driver;
+          if(deltas.length<70)requestAnimationFrame(tick);else resolve();
+        };requestAnimationFrame(tick);
+      });
+      document.querySelector(".preview-stop")?.click();
+      return {deltas,count,paths,driver,movingFrames:new Set(positions).size};
+    });
+    ok(handoffPlayback.driver==="glyph" && handoffPlayback.count===1200 && handoffPlayback.paths===0, "1,200 source markers use retained glyphs with no synthetic pair paths");
+    ok(handoffPlayback.movingFrames>20, `dense hand-off has ${handoffPlayback.movingFrames} distinct moving frames`);
+    ok(p95(handoffPlayback.deltas)<=17, `1,200-point hand-off playback p95 ${p95(handoffPlayback.deltas).toFixed(1)}ms ≤ 17ms`);
+  }
   await page.evaluate(() => {
     [...document.querySelectorAll(".deckbar button")].find((b) => /Animate/.test(b.textContent || ""))?.click();
   });
@@ -264,6 +303,7 @@ try {
     JSON.stringify(
       {
         slides: n, fixture,
+        ...(handoffPlayback ? { handoffPlayback: { ...handoffPlayback, p95: p95(handoffPlayback.deltas) } } : {}),
         environment: {browser:await browser.version(),headless:process.env.FLUX_HEADFUL!=="1",viewport:page.viewport()},
         ...(profile ? {idleFrameControl:{p95:p95(idleFrames),max:Math.max(...idleFrames),samples:idleFrames}} : {}),
         slideSwitchMs: { p95: swP95, max: Math.max(...switches), samples: switches.map((x) => +x.toFixed(1)) },
@@ -281,6 +321,11 @@ try {
   );
   console.log(`  … wrote test-results/scale-slide${dense ? "-dense" : ""}.json (switch p95 ${swP95.toFixed(1)}ms, edit p95 ${editP95.toFixed(1)}ms)`);
 
+  // Keep every existing 2D threshold above unchanged. The same immutable
+  // 250k-pair/eight-ghost cohort also runs in focused production Electron.
+  const models = await browserSlideModelScale(page);
+  for (const check of models.checks) ok(check.ok, check.label);
+  ok(models.ok, 'real model Present/orbit/morph/eight-ghost structural cohort', models.error);
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));
 } finally {

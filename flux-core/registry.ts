@@ -13,6 +13,13 @@ import { recoverProjectForAuthoring } from "./recovery";
 // GUI store, and its switch IS the allow-list.
 
 import { z } from "zod";
+import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
+import { getParseErrorMessage } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { requireProject } from "./model";
+import { detectAgentIdentity, type AgentIdentity } from "./agentIdentity";
+import type { SessionRef } from "../src/lib/project/annotations";
+import type { WatchSpec } from "../src/lib/project/inbox";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { classifyError, ExternalToolError, LockedError, ValidationError } from "./errors";
@@ -46,6 +53,8 @@ export interface CliArgSpec {
   /** positional index (kind:"pos") or flag name (kind:"flag", without --). */
   at?: number | string;
   required?: boolean;
+  /** Only declared value flags may repeat (e.g. --state a=.5 --state b=.2). */
+  repeat?: boolean;
   /** Coercions (CLI side only — MCP args arrive typed):
    *  string   String(raw) — a bare flag becomes "true" (matches String(flags.x))
    *  trim     String(raw).trim(); an all-space value counts as missing
@@ -69,7 +78,8 @@ export interface CliArgSpec {
     | "path"
     | "joined"
     | "ptToPx"
-    | "fileText";
+    | "fileText"
+    | "keyValueNumbers";
   /** Fixed value when the flag is PRESENT (--no-label → label:false,
    *  --hide → hidden:true) — presence-selected values `as` can't express. */
   const?: unknown;
@@ -80,11 +90,35 @@ export interface CliArgSpec {
 
 export interface VerbCtx {
   root: string;
+  session?: SessionRef;
+  transport?: "cli" | "mcp";
+  signal?: AbortSignal;
+  watching?: (pending: boolean, watch: WatchSpec) => Promise<void>;
+  identity?: AgentIdentity;
+  /** The caller's working directory: the shell's on the CLI; null over MCP,
+   *  where the server's cwd says nothing reliable about the agent's. */
+  cwd?: string | null;
+  /** Over MCP only: the server's session (connect reports to it). */
+  mcp?: import("./connect/mcp").McpSessionHooks;
 }
 
 export interface VerbDef {
   /** Canonical (MCP) name, e.g. "set_caption". */
   name: string;
+  /** Explicit on every verb; absent legacy declarations still default to project. */
+  scope: "project" | "machine" | "file";
+  core?: boolean;
+  bindsRoot?: boolean;
+  /** Filesystem inputs, including dotted paths within structured parameters. */
+  pathParams?: Record<string, "path" | "paths">;
+  /** Path-like names that are model identifiers or non-path values, with reasons. */
+  notAPath?: Record<string, string>;
+  /** Reads only (never changes project or machine state): MCP marks it readOnlyHint, so agents that gate
+   *  tool approval on annotations (Codex) run it without asking. */
+  readOnly?: boolean;
+  /** CLI-only flags: the parser accepts them and flux-cli.ts handles them before
+   *  registry dispatch (so they never become MCP parameters). */
+  cliOnlyFlags?: Record<string, { value: boolean; help: string }>;
   /** CLI verb, e.g. "set-caption". */
   cli: string;
   aliases?: string[];
@@ -177,6 +211,16 @@ async function coerce(spec: CliArgSpec, raw: unknown): Promise<unknown> {
       return raw === true ? undefined : Number(raw) * (4 / 3);
     case "fileText":
       return await fs.readFile(String(raw), "utf8");
+    case "keyValueNumbers": {
+      const values: Record<string, number> = Object.create(null);
+      for (const item of Array.isArray(raw) ? raw : [raw]) {
+        const text = String(item), at = text.lastIndexOf('='), name = text.slice(0, at).trim(), value = text.slice(at + 1).trim();
+        if (at < 1 || !name || !value || !Number.isFinite(Number(value))) throw new ValidationError(`Expected name=finite-number, received ${text}`);
+        if (Object.hasOwn(values, name)) throw new ValidationError(`Repeated shape state ${name}`);
+        values[name] = Number(value);
+      }
+      return values;
+    }
     default: {
       const exhaustive: never = spec.as;
       throw new ValidationError(`Unsupported CLI coercion: ${String(exhaustive)}`);
@@ -194,6 +238,18 @@ function assign(out: Record<string, unknown>, into: string, value: unknown): voi
   const head = into.slice(0, dot);
   const nested = (out[head] ??= {}) as Record<string, unknown>;
   nested[into.slice(dot + 1)] = value;
+}
+
+/** A const flag is a switch: bare or `true` means its constant. parseCliFlags
+ *  also consumes a following `false`, which must never silently mean `true`
+ *  (`--hidden false` used to hide). A boolean switch honours it as the
+ *  opposite value; any other switch refuses and names its opposite flag. */
+function constFlagValue(v: VerbDef, spec: CliArgSpec, raw: unknown): unknown {
+  if (raw === true || raw === "true") return spec.const;
+  const opposite = v.cliArgs.find((o) => o.kind === "flag" && o.into === spec.into && o.const !== undefined && o.const !== spec.const);
+  if ((raw === false || raw === "false") && typeof spec.const === "boolean") return !spec.const;
+  const hint = opposite ? `; use --${opposite.at} for the opposite` : "";
+  throw new ValidationError(`${v.cli}: --${spec.at} is a switch and takes no value (got ${JSON.stringify(raw)})${hint}`);
 }
 
 /** Extract + validate a registered verb's args from parsed CLI argv. */
@@ -216,7 +272,7 @@ async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<strin
     if (raw !== undefined) {
       if (supplied.has(spec.into)) throw new ValidationError(`${v.cli}: contradictory inputs for ${spec.into}`);
       supplied.add(spec.into);
-      raw = spec.const !== undefined ? spec.const : await coerce(spec, raw);
+      raw = spec.const !== undefined ? constFlagValue(v, spec, raw) : await coerce(spec, raw);
     }
     if (raw === undefined) {
       if (spec.default !== undefined) assign(out, spec.into, spec.default);
@@ -233,7 +289,7 @@ async function argsFromCli(v: VerbDef, cli: { pos: string[]; flags: Record<strin
     const msg = parsed.error.issues.map((i) => `${i.path.join(".") || "(args)"}: ${i.message}`).join("; ");
     throw new ValidationError(`${v.cli}: ${msg}`);
   }
-  return parsed.data;
+  return resolvePathParams(v, parsed.data, process.cwd());
 }
 
 export interface CliIo {
@@ -266,8 +322,11 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   try {
     const args = await argsFromCli(v, { pos: newStyle ? inv.pos : inv.posRooted, flags: inv.flags });
     const root = newStyle ? inv.rootFlags : inv.rootPositional;
-    await recoverProjectForAuthoring(root);
-    const r = await v.handler({ root }, args);
+    if ((v.scope ?? "project") === "project") {
+      await requireProject(root);
+      await recoverProjectForAuthoring(root);
+    }
+    const r = await v.handler({ root, identity: detectAgentIdentity(process.env), cwd: process.cwd(), transport: "cli" }, args);
     const h = (v.render?.human ?? defaultHuman)(r, args);
     if (h.outRaw !== undefined) (io.raw ?? io.log)(h.outRaw);
     if (h.out !== undefined) io.log(h.out);
@@ -281,34 +340,166 @@ export async function runCliVerb(verb: string, inv: CliInvocation, io: CliIo): P
   return true;
 }
 
-/** Register every verb on the MCP server (same shape registerTool expects). */
+const READ_ONLY = { readOnlyHint: true } as const;
+
+export const projectParam = z.string().optional().describe("Project root (default: the connected one)");
+export type RootResolver = (args: Record<string, unknown>) => string | Promise<string>;
+export type McpToolset = "core" | "full";
+export interface McpVerbOptions {
+  /** Hosted Ask restricts dedicated tools and generic dispatch alike. */
+  readOnly?: boolean;
+  toolset?: McpToolset;
+  bindRoot?: (root: string | null, args: Record<string, unknown>) => void | SessionRef | Promise<void | SessionRef>;
+  sessionContext?: (root: string) => Pick<VerbCtx, "session" | "signal" | "watching">;
+  defaultRoot?: () => string | null;
+  identity?: () => AgentIdentity;
+  /** The server's flux-connect session (connect reports its pack and cursor to it). */
+  session?: import("./connect/mcp").McpSessionHooks;
+  /** The server's hand-written tools (images, live bridge, FluxLib readers), so
+   *  flux_verb reaches them even when the core toolset does not list them. Read
+   *  at call time: the server fills it after registering the registry verbs. */
+  extraTools?: Map<string, ExtraTool>;
+}
+
+export interface ExtraTool {
+  readOnly?: boolean;
+  description: string;
+  /** Including the injected `project` param for project-scope tools. */
+  inputSchema: z.ZodRawShape;
+  scope: "project" | "machine";
+  run: (args: Record<string, unknown>) => Promise<McpRender>;
+}
+
+/** The first sentence of a summary, for the compact verb index. */
+function firstSentence(summary: string, max = 120): string {
+  const m = /^(.+?[.!?])(\s|$)/.exec(summary);
+  const one = (m ? m[1] : summary).replace(/\s+/g, " ").trim();
+  return one.length > max ? one.slice(0, max - 1) + "…" : one;
+}
+
+/** At most this many schemas per flux_verbs query: the index is the cheap path. */
+export const FLUX_VERBS_MAX_SCHEMAS = 15;
+
+export function mcpParams(v: VerbDef): z.ZodRawShape {
+  return (v.scope ?? "project") === "project" ? { ...v.params, project: projectParam } : v.params;
+}
+
+/** Path resolution happens once at the surface boundary, before any handler. */
+export function resolvePathParams(v: VerbDef, args: Record<string, unknown>, base: string): Record<string, unknown> {
+  const out = { ...args };
+  for (const [key, kind] of Object.entries(v.pathParams ?? {})) {
+    const parts = key.split(".");
+    let obj = out;
+    for (const part of parts.slice(0, -1)) {
+      if (!obj[part] || typeof obj[part] !== "object") { obj = {}; break; }
+      obj[part] = { ...obj[part] as Record<string, unknown> };
+      obj = obj[part] as Record<string, unknown>;
+    }
+    const leaf = parts[parts.length - 1], value = obj[leaf];
+    if (value === undefined) continue;
+    obj[leaf] = kind === "paths" ? (value as string[]).map(p => path.resolve(base, p)) : path.resolve(base, value as string);
+  }
+  return out;
+}
+
+function relativePathInput(v: VerbDef, args: Record<string, unknown>): boolean {
+  return Object.entries(v.pathParams ?? {}).some(([key, kind]) => {
+    const value = key.split(".").reduce<unknown>((o, k) => o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined, args);
+    return (kind === "paths" ? value as string[] | undefined : value === undefined ? [] : [value as string])?.some(p => !path.isAbsolute(p));
+  });
+}
+
+/** Dedicated tools and flux_verb share validation, root/path policy, handler and render. */
+export async function runMcpVerb(v: VerbDef, supplied: Record<string, unknown>, getRoot: RootResolver, options: McpVerbOptions = {}): Promise<McpRender> {
+  try {
+    if (options.readOnly && !v.readOnly) throw new ValidationError(`Read-only Flux session refuses ${v.name}`);
+    const validated = z.object(mcpParams(v)).safeParse(supplied ?? {});
+    if (!validated.success) throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${v.name}: ${getParseErrorMessage(validated.error)}`);
+    const parsed = validated.data;
+    const projectScope = (v.scope ?? "project") === "project";
+    const root = projectScope || relativePathInput(v, parsed)
+      ? await getRoot(parsed) : options.defaultRoot?.() ?? "";
+    if (projectScope) { await requireProject(root); if (!options.readOnly) await recoverProjectForAuthoring(root); }
+    const args = resolvePathParams(v, parsed, root);
+    const r = await v.handler({ root, identity: options.identity?.(), cwd: null, transport: "mcp", ...options.sessionContext?.(root), ...(options.session ? { mcp: options.session } : {}) }, args);    if (v.bindsRoot) {
+      const next = (r as { root?: string | null }).root;
+      if (next !== undefined && next !== null && typeof next !== "string") throw new ValidationError("connect returned an invalid root");
+      if (next !== undefined) {
+        const session = await options.bindRoot?.(next, args);
+        if (session && r && typeof r === "object") {
+          Object.assign(r, { session });
+        }
+      }
+    }
+    return (v.render?.mcp ?? defaultMcp)(r, args);
+  } catch (e) { return errorToMcp(e); }
+}
+
 export function registerMcpVerbs(
-  server: { registerTool: (name: string, meta: { description: string; inputSchema: z.ZodRawShape }, fn: (a: Record<string, unknown>) => Promise<McpRender>) => void },
-  root: string,
+  server: { registerTool: (name: string, meta: { description: string; inputSchema: z.ZodRawShape; annotations?: { readOnlyHint?: boolean } }, fn: (a: Record<string, unknown>) => Promise<McpRender>) => unknown },
+  getRoot: RootResolver,
+  options: McpVerbOptions = {},
 ): void {
   for (const v of VERBS) {
-    server.registerTool(v.name, { description: v.summary, inputSchema: v.params }, async (a) => {
-      try {
-        const args = z.object(v.params).parse(a ?? {});
-        await recoverProjectForAuthoring(root);
-        const r = await v.handler({ root }, args);
-        return (v.render?.mcp ?? defaultMcp)(r, args);
-      } catch (e) {
-        return errorToMcp(e);
-      }
-    });
+    if (options.readOnly && !v.readOnly) continue;
+    if ((options.toolset ?? "core") === "core" && !v.core) continue;
+    server.registerTool(v.name, { description: v.summary, inputSchema: mcpParams(v), ...(v.readOnly ? { annotations: READ_ONLY } : {}) }, a => runMcpVerb(v, a, getRoot, options));
   }
+  server.registerTool("flux_verb", {
+    ...(options.readOnly ? { annotations: READ_ONLY } : {}),
+    description: "Run any Flux verb or tool by name with its validated arguments, including ones this toolset does not list. flux_verbs finds names and schemas.",
+    inputSchema: { verb: z.string(), args: z.record(z.unknown()).optional() },
+  }, async a => {
+    const name = String(a.verb);
+    const supplied = (a.args ?? {}) as Record<string, unknown>;
+    const v = VERBS.find(v => v.name === name);
+    if (v) return runMcpVerb(v, supplied, getRoot, options);
+    const t = options.extraTools?.get(name);
+    if (!t) return errorToMcp(new ValidationError(`Unknown Flux verb: ${name}. flux_verbs lists them.`));
+    if (options.readOnly && !t.readOnly) return errorToMcp(new ValidationError(`Read-only Flux session refuses ${name}`));
+    const parsed = z.object(t.inputSchema).safeParse(supplied);
+    if (!parsed.success) return errorToMcp(new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${name}: ${getParseErrorMessage(parsed.error)}`));
+    return t.run(parsed.data);
+  });
+  server.registerTool("flux_verbs", {
+    annotations: READ_ONLY,
+    description: "Find Flux verbs and tools. Without a query: a one-line index of every name. With a query (words matched against names and summaries): the matches with their input schemas, for flux_verb.",
+    inputSchema: { query: z.string().optional() },
+  }, async a => {
+    const entries = [
+      ...VERBS.filter(v => !options.readOnly || v.readOnly).map(v => ({ name: v.name, cli: v.cli as string | undefined, summary: v.summary, scope: v.scope as string, shape: () => mcpParams(v) })),
+      ...[...(options.extraTools ?? new Map<string, ExtraTool>())].filter(([n, t]) => (!options.readOnly || t.readOnly) && !VERBS.some(v => v.name === n))
+        .map(([name, t]) => ({ name, cli: undefined, summary: t.description, scope: t.scope as string, shape: () => t.inputSchema })),
+    ].sort((x, y) => x.name.localeCompare(y.name));
+    const query = String(a.query ?? "").trim().toLowerCase();
+    if (!query) {
+      return text(`${entries.length} Flux verbs and tools. Call flux_verbs {query} for input schemas, then flux_verb {verb, args}.\n` +
+        entries.map(e => `${e.name} — ${firstSentence(e.summary)}`).join("\n"));
+    }
+    const terms = query.split(/\s+/);
+    const rank = (e: typeof entries[number]) => e.name === query || e.cli === query ? 0 : terms.every(t => e.name.includes(t)) ? 1 : 2;
+    const hits = entries.filter(e => terms.every(t => `${e.name} ${e.cli ?? ""} ${e.summary}`.toLowerCase().includes(t)))
+      .sort((x, y) => rank(x) - rank(y));
+    const shown = hits.slice(0, FLUX_VERBS_MAX_SCHEMAS).map(e => ({
+      name: e.name, ...(e.cli ? { cli: e.cli } : {}), summary: e.summary, scope: e.scope,
+      inputSchema: toJsonSchemaCompat(z.object(e.shape()), { target: "jsonSchema7", strictUnions: true, pipeStrategy: "input" }),
+    }));
+    const content: McpRender["content"] = [{ type: "text", text: JSON.stringify(shown) }];
+    if (hits.length > shown.length) content.push({ type: "text", text: `${hits.length - shown.length} more match; narrow the query (${hits.slice(shown.length).map(e => e.name).join(", ")}).` });
+    return { content };
+  });
 }
 
 /** Declaration-driven flag grammar. Values beginning '-' are valid values;
  * booleans never steal the next positional. '--' ends option parsing. */
-export function parseCliFlags(verb: string | undefined, argv: string[]): { _: string[]; flags: Record<string, string | boolean> } {
+export function parseCliFlags(verb: string | undefined, argv: string[]): { _: string[]; flags: Record<string, string | boolean | string[]> } {
   const definition = verb ? byCli.get(verb) : undefined;
   const specs = definition?.cliArgs.filter(s => s.kind === 'flag') ?? [];
-  const declared = new Map(specs.map(s => [String(s.at), s]));
+  const declared = new Map<string, Pick<CliArgSpec, "as" | "const" | "repeat">>(specs.map(s => [String(s.at), s]));
+  for (const [flag, o] of Object.entries(definition?.cliOnlyFlags ?? {})) declared.set(flag, o.value ? {} : { as: "boolean" });
   const rest = definition?.cliArgs.some(s => s.kind === 'flagRest');
-  const legacyBooleans = new Set(['print','no-picker','no-transcript','echo','png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
-  const flags: Record<string, string | boolean> = {}, pos: string[] = [];
+  const legacyBooleans = new Set(['png','bibtex','attach-files','semantic','all','refresh','force','json','help','global','append','dry-run','recursive','no-oa','exit','remove','md',...(['citing','similar'].includes(verb??'')?['s2']:[])]);
+  const flags: Record<string, string | boolean | string[]> = {}, pos: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') { pos.push(...argv.slice(i + 1)); break; }
@@ -318,13 +509,19 @@ export function parseCliFlags(verb: string | undefined, argv: string[]): { _: st
     if (!key || ['__proto__', 'constructor', 'prototype'].includes(key)) throw new ValidationError('Invalid option name');
     const spec = declared.get(key);
     if (definition && !spec && !['root','help'].includes(key) && !rest) throw new ValidationError(`${verb}: unknown flag --${key}`);
-    if (Object.hasOwn(flags, key)) throw new ValidationError(`${verb}: repeated flag --${key}`);
+    if (Object.hasOwn(flags, key) && !spec?.repeat) throw new ValidationError(`${verb}: repeated flag --${key}`);
     const boolean = spec ? spec.as === 'boolean' || spec.const !== undefined : legacyBooleans.has(key);
-    if (equal >= 0) { flags[key] = arg.slice(equal + 1); continue; }
+    const put = (value: string | boolean) => {
+      if (spec?.repeat) {
+        if (boolean || typeof value !== 'string') throw new ValidationError(`${verb}: repeated flag --${key} requires a value`);
+        const values = (flags[key] ??= []) as string[]; values.push(value);
+      } else flags[key] = value;
+    };
+    if (equal >= 0) { put(arg.slice(equal + 1)); continue; }
     if (boolean) {
       const next = argv[i + 1];
-      if (next === 'true' || next === 'false') { flags[key] = next; i++; } else flags[key] = true;
-    } else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) flags[key] = argv[++i];
+      if (next === 'true' || next === 'false') { put(next); i++; } else put(true);
+    } else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) put(argv[++i]);
     else throw new ValidationError(`${verb}: --${key} requires a value`);
   }
   return { _: pos, flags };
@@ -333,8 +530,9 @@ export function registryHelp(verb?: string): string {
   const definitions = verb ? [byCli.get(verb)].filter((v): v is VerbDef => !!v) : VERBS;
   return definitions.map(v => {
     const args = v.cliArgs.filter(s => s.kind !== 'flagRest').map(s => s.kind === 'flag'
-      ? `[--${s.at}${s.as === 'boolean' || s.const !== undefined ? '' : ' <value>'}]`
+      ? `[--${s.at}${s.as === 'boolean' || s.const !== undefined ? '' : ' <value>'}${s.repeat ? '…' : ''}]`
       : `<${s.into}${s.kind === 'rest' ? '…' : ''}>`).join(' ');
-    return `  ${v.cli} ${v.cliRoot === 'flags' ? '' : '[root] '}${args} [--root R]\n      ${v.summary}${v.aliases?.length ? ` (aliases: ${v.aliases.join(', ')})` : ''}`;
+    const cliOnly = Object.entries(v.cliOnlyFlags ?? {}).map(([f, o]) => `\n      --${f}${o.value ? ' <value>' : ''}: ${o.help}`).join('');
+    return `  ${v.cli} ${v.cliRoot === 'flags' ? '' : '[root] '}${args} [--root R]\n      ${v.summary}${v.aliases?.length ? ` (aliases: ${v.aliases.join(', ')})` : ''}${cliOnly}`;
   }).join('\n');
 }

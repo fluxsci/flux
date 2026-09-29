@@ -34,8 +34,8 @@ import { listAnnotations as _listAnnotations } from "./annotate";
 import { annotationsToMarkdown } from "../src/lib/references/annotationsMarkdown";
 
 /** 3.2: one paper's highlights/notes as a Markdown digest (citekey/title header, page-
- *  grouped blockquotes + notes + colours). Backs `flux annotations --md`, the MCP
- *  list_annotations `markdown` param, and (via the bridge twin) the GUI "Export notes…". */
+ *  grouped blockquotes + notes + colours). Backs `flux highlights --md`, the MCP
+ *  list_highlights `markdown` param, and (via the bridge twin) the GUI "Export notes…". */
 export async function annotationsMarkdown(key: string): Promise<string> {
   const [anns, entries] = await Promise.all([_listAnnotations(key), fluxlib.loadLibrary()]);
   const e = entries.find((x) => x.key === key);
@@ -384,7 +384,7 @@ export async function libraryInfo(): Promise<{
 }
 
 // One-time machine init/migration (FluxConfig, lowercase config dir, FluxLib
-// move, Context layer sync, agents.json seed) — idempotent + fast after the
+// move, Context layer sync) — idempotent + fast after the
 // first run.
 export { ensureFluxConfig } from "./fluxlib";
 
@@ -397,7 +397,6 @@ export async function configInfo(): Promise<{
   contextPath: string;
   userContextPath: string;
   fluxContextPath: string;
-  agentsConfigPath: string;
   plotLibraryPath: string;
   userDataDir: string;
   build: BuildInfo;
@@ -409,7 +408,6 @@ export async function configInfo(): Promise<{
     contextPath: info.contextPath,
     userContextPath: info.userContextPath,
     fluxContextPath: info.fluxContextPath,
-    agentsConfigPath: info.agentsConfigPath,
     plotLibraryPath: info.plotLibraryPath,
     userDataDir: info.userDataDir,
     build: buildInfo(),

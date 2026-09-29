@@ -20,7 +20,6 @@ const path = require("node:path");
 const os = require("node:os");
 const fsSync = require("node:fs");
 const fsp = require("node:fs/promises");
-const agentsConfig = require("./agentsConfig.cjs");
 const { FLUX_CONTEXT_FILES, FLUX_CONTEXT_HASH } = require("./fluxContextDocs.gen.cjs");
 
 // ---------------------------------------------------------------------------
@@ -210,8 +209,7 @@ async function withConfigLock(fn) {
 //   (d) ensure Context/UserContext (Guidelines migrates in; WHO-AM-I + RULES
 //       seeded once — user-owned afterwards)
 //   (e) sync Context/FluxContext (stock docs, re-synced on content-hash change)
-//   (f) seed agents.json (once — user-owned afterwards)
-//   (g) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
+//   (f) record everything in <FluxConfig>/.fluxconfig.json (audit + fast-path)
 // Idempotent: every step is existence-guarded; later runs hit a statSync-only
 // fast path. Failures never throw past this function's contract lightly — a
 // deferred/failed move leaves the resolver fallbacks working and is recorded.
@@ -245,9 +243,10 @@ function configInfoSync(prefs = readPrefsRawSync()) {
     contextPath: contextPathSync(prefs),
     userContextPath: userContextPathSync(prefs),
     fluxContextPath: fluxContextPathSync(prefs),
-    agentsConfigPath: agentsConfig.agentsConfigPathSync(resolveFluxConfigPathSync(prefs)),
     plotLibraryPath: plotLibraryPathSync(prefs),
     userDataDir: userDataDir(),
+    binDir: binDirSync(),
+    launcher: path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"),
   };
 }
 
@@ -358,13 +357,12 @@ async function migrateFluxLib(cfg, events) {
 }
 
 // ---------------------------------------------------------------------------
-// The machine Context layer (principal-agent scheme, 2026-07).
+// The machine Context layer.
 //   <cfg>/Context/UserContext/  — user-owned: WHO-AM-I.md + RULES.md (+ any
 //     files the user adds). The pre-Context Guidelines/ folder migrates in.
 //   <cfg>/Context/FluxContext/  — stock docs from fluxContextDocs.gen.cjs,
 //     re-synced whenever their content hash changes ({{FLUX_CLI}}/{{FLUX_MCP}}
 //     placeholders substituted with this install's resolved commands).
-//   <cfg>/agents.json           — the agent roster (electron/agentsConfig.cjs).
 // ---------------------------------------------------------------------------
 
 async function ensureUserContext(cfg, events) {
@@ -405,6 +403,13 @@ async function ensureUserContext(cfg, events) {
     await fsp.writeFile(rules, USER_RULES_SEED);
     events.push({ action: "seed-user-rules", detail: rules });
   }
+  const skills = path.join(uc, "Skills");
+  const skillsReadme = path.join(skills, "README.md");
+  if (!fsSync.existsSync(skillsReadme)) {
+    await fsp.mkdir(skills, { recursive: true });
+    await fsp.writeFile(skillsReadme, USER_SKILLS_README);
+    events.push({ action: "seed-user-skills", detail: skillsReadme });
+  }
   const who = path.join(uc, "WHO-AM-I.md");
   if (!fsSync.existsSync(who)) {
     await fsp.writeFile(who, WHO_AM_I_SEED);
@@ -412,37 +417,203 @@ async function ensureUserContext(cfg, events) {
   }
 }
 
-/** Resolve how THIS install runs the flux CLI/MCP (baked into the stock docs).
- *  `mcpPath` is the bare server script path for JSON config templates
- *  ({{FLUX_MCP_PATH}}); `cli`/`mcp` are full runnable command strings. */
-function resolveOwnCliCommandsSync() {
-  const appRoot = path.resolve(__dirname, "..");
-  if (process.resourcesPath && __dirname.includes("app.asar")) {
-    const base = path.join(process.resourcesPath, "app.asar.unpacked", "dist");
-    const cli = path.join(base, "flux-cli.mjs");
-    if (fsSync.existsSync(cli)) {
-      const mcpPath = path.join(base, "flux-mcp.mjs");
-      // One runnable string per platform: POSIX inline-env, or a cmd /s /c
-      // wrapper on Windows (cmd strips the outer quotes; `set X=1&&` with no
-      // space keeps the env value clean).
-      const wrap = (p) =>
-        process.platform === "win32"
-          ? `cmd /d /s /c "set ELECTRON_RUN_AS_NODE=1&& "${process.execPath}" "${p}""`
-          : `ELECTRON_RUN_AS_NODE=1 "${process.execPath}" "${p}"`;
-      return { cli: wrap(cli), mcp: wrap(mcpPath), mcpPath };
+/** Stable executable location, separate from movable user config. */
+function binDirSync(platform = process.platform) {
+  const base = platform === "win32"
+    ? process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")
+    : path.join(os.homedir(), ".local", "share");
+  return path.join(base, "flux", "bin");
+}
+
+const SHIM_MARKER = "# flux-cli shim (managed by Flux — replace with your own file to opt out)"; // flux-cap-ok
+const OWNER_MARKER = "# flux-agent-shim target=";
+const { spawnSync } = require("node:child_process");
+const { resolveSpawn } = require("./execResolve.cjs");
+
+function shellQuote(value) { return '"' + String(value).replace(/[\\"$`]/g, "\\$&") + '"'; }
+function batchQuote(value) {
+  if (/[\r\n"]/.test(value)) throw new Error("Unsupported character in launcher path");
+  return '"' + value.replaceAll("%", "%%") + '"';
+}
+
+/** Pin a usable Node at install time; never ask npx to find a runtime. */
+function resolveAgentNodeSync() {
+  const win = process.platform === "win32", name = win ? "node.exe" : "node";
+  const candidates = (process.env.Path || process.env.PATH || "").split(path.delimiter).filter(Boolean).map(dir => path.resolve(dir, name));
+  candidates.push(path.join(os.homedir(), ".local", "node22", "bin", name));
+  if (process.env.NVM_BIN) candidates.push(path.join(process.env.NVM_BIN, name));
+  const nvm = process.env.NVM_DIR || path.join(os.homedir(), ".nvm");
+  candidates.push(path.join(nvm, "current", "bin", name));
+  try {
+    const versions = fsSync.readdirSync(path.join(nvm, "versions", "node")).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    const selected = fsSync.existsSync(path.join(nvm, "alias", "default")) ? fsSync.readFileSync(path.join(nvm, "alias", "default"), "utf8").trim().replace(/^v/, "") : "";
+    const preferred = versions.filter(v => selected && (v.slice(1) === selected || v.startsWith("v" + selected + ".")));
+    for (const v of [...preferred, ...versions]) candidates.push(path.join(nvm, "versions", "node", v, "bin", name));
+  } catch { /* nvm is optional */ }
+  candidates.push(process.execPath);
+  for (const candidate of new Set(candidates)) {
+    if (!fsSync.existsSync(candidate)) continue;
+    const r = resolveSpawn(candidate, ["--version"]);
+    const result = spawnSync(r.command, r.args, { encoding: "utf8", timeout: 3000, windowsVerbatimArguments: r.windowsVerbatimArguments, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
+    const version = /^v(\d+)\.(\d+)\./.exec(String(result.stdout).trim());
+    if (result.status === 0 && version && (+version[1] > 22 || +version[1] === 22 && +version[2] >= 15)) return fsSync.realpathSync(candidate);
+  }
+  throw new Error("Flux agents require Node >=22.15. Install it, then repair the launcher.");
+}
+
+/** Injectable install facts let the pure gate execute all three runtime layouts. */
+function resolveOwnCliCommandsSync(options = {}) {
+  const platform = options.platform || process.platform;
+  const appRoot = path.resolve(options.appRoot || path.join(__dirname, ".."));
+  const execPath = options.execPath || process.execPath;
+  const asar = /^(.*)[\\/]app\.asar(?:\.unpacked)?(?:[\\/]|$)/.exec(appRoot);
+  const resourcesPath = options.resourcesPath || process.resourcesPath || (asar && asar[1]);
+  const packaged = options.packaged === undefined ? !!asar : options.packaged;
+  const appImage = options.appImage === undefined ? process.env.APPIMAGE : options.appImage;
+  if (platform === "darwin" && /[\\/]AppTranslocation[\\/]/.test(appRoot + "/" + execPath)) {
+    throw new Error("Move Flux to /Applications first; a translocated app cannot own the agent launcher.");
+  }
+  let executable, args, target, electron = false;
+  if (packaged) {
+    electron = true;
+    target = appImage || path.join(resourcesPath || path.dirname(appRoot), "app.asar");
+    executable = appImage || execPath;
+    if (appImage) {
+      // The FUSE mount changes at every invocation. Resolve the script inside
+      // the running AppImage, never bake today's mount into a persistent shim.
+      const load = "import(require('node:url').pathToFileURL(require('node:path').join(require('node:path').dirname(process.execPath),'resources/app.asar.unpacked/dist/flux-cli.mjs')).href)";
+      args = ["-e", load, "--", "flux"];
+    } else {
+      if (!resourcesPath) throw new Error("Cannot locate packaged Flux resources");
+      args = [path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs")];
+    }
+  } else {
+    executable = options.nodePath || (options.commands === false ? execPath : resolveAgentNodeSync());
+    target = appRoot;
+    const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
+    if (fsSync.existsSync(distCli)) args = [distCli];
+    else {
+      const source = path.join(appRoot, "flux-cli.ts");
+      if (!fsSync.existsSync(source)) throw new Error(`Cannot locate Flux CLI in ${appRoot}`);
+      const { createRequire } = require("node:module");
+      const tsx = createRequire(path.join(appRoot, "package.json")).resolve("tsx/cli");
+      args = [tsx, source];
     }
   }
-  const distCli = path.join(appRoot, "dist", "flux-cli.mjs");
-  if (fsSync.existsSync(distCli)) {
-    const mcpPath = path.join(appRoot, "dist", "flux-mcp.mjs");
-    return { cli: `node "${distCli}"`, mcp: `node "${mcpPath}"`, mcpPath };
+  let build = options.build;
+  if (!build && options.commands === false) {
+    // Status reads must not launch Node or git. Source-only worktrees may keep
+    // refs in the common git dir; a missing ref is unknown until an explicit probe.
+    try {
+      let gitDir = path.join(appRoot, ".git");
+      if (fsSync.statSync(gitDir).isFile()) gitDir = path.resolve(appRoot, fsSync.readFileSync(gitDir, "utf8").trim().replace(/^gitdir: /, ""));
+      const head = fsSync.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+      if (!head.startsWith("ref: ")) build = head.slice(0, 7);
+      else {
+        const ref = head.slice(5);
+        let common = gitDir;
+        try { common = path.resolve(gitDir, fsSync.readFileSync(path.join(gitDir, "commondir"), "utf8").trim()); } catch { /* ordinary checkout */ }
+        try { build = fsSync.readFileSync(path.join(common, ref), "utf8").trim().slice(0, 7); }
+        catch { build = fsSync.readFileSync(path.join(common, "packed-refs"), "utf8").split("\n").find(line => line.endsWith(" " + ref))?.split(" ")[0].slice(0, 7); }
+      }
+    } catch { /* source archive, without git metadata */ }
+    build ||= "unknown";
   }
-  const srcCli = path.join(appRoot, "flux-cli.ts");
-  if (fsSync.existsSync(srcCli)) {
-    const mcpPath = path.join(appRoot, "flux-mcp.ts");
-    return { cli: `npx tsx "${srcCli}"`, mcp: `npx tsx "${mcpPath}"`, mcpPath };
+  if (!build) {
+    const bundle = packaged && resourcesPath ? path.join(resourcesPath, "app.asar.unpacked", "dist", "flux-cli.mjs") : path.join(appRoot, "dist", "flux-cli.mjs");
+    try { build = /^\/\/ flux-agent-build commit=(\S+)$/m.exec(fsSync.readFileSync(bundle, "utf8"))?.[1]; }
+    catch { /* source-only checkout */ }
   }
-  return { cli: "flux", mcp: "flux-mcp", mcpPath: "flux-mcp" }; // last resort: assume on PATH
+  if (!build) {
+    const git = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: appRoot, encoding: "utf8", timeout: 2000 });
+    build = git.status === 0 ? git.stdout.trim() : "unknown";
+  }
+  const launcher = path.join(options.binDir || binDirSync(platform), platform === "win32" ? "flux.cmd" : "flux");
+  return { cli: launcher, mcp: `${(platform === "win32" ? batchQuote : shellQuote)(launcher)} mcp`, executable, args, target, build, electron, platform };
+}
+
+function launcherBodies(runtime) {
+  const win = runtime.platform === "win32", q = win ? batchQuote : shellQuote;
+  const marker = `${OWNER_MARKER}${runtime.target} build=${runtime.build}`;
+  const command = [runtime.executable, ...runtime.args].map(q).join(" ");
+  const main = win
+    ? `@echo off\r\nsetlocal DisableDelayedExpansion\r\nrem ${SHIM_MARKER}\r\nrem ${marker}\r\n${runtime.electron ? "set ELECTRON_RUN_AS_NODE=1\r\n" : ""}${command} %*\r\n`
+    : `#!/bin/sh\n${SHIM_MARKER}\n${marker}\n${runtime.electron ? "ELECTRON_RUN_AS_NODE=1 " : ""}exec ${command} "$@"\n`;
+  const delegate = extra => win
+    ? `@echo off\r\nsetlocal DisableDelayedExpansion\r\nrem ${SHIM_MARKER}\r\ncall ${q(runtime.cli)}${extra} %*\r\n`
+    : `#!/bin/sh\n${SHIM_MARKER}\nexec ${q(runtime.cli)}${extra} "$@"\n`;
+  return { main, connect: delegate(" connect"), shim: delegate("") };
+}
+
+function readShim(file) {
+  try { return fsSync.readFileSync(file, "utf8"); }
+  catch (e) { if (e.code === "ENOENT") return null; throw e; }
+}
+function launcherOwnerSync(file = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux")) {
+  const body = readShim(file);
+  const match = body && /^.*# flux-agent-shim target=(.*) build=(.*)$/m.exec(body.replaceAll("\r", ""));
+  return match ? { target: match[1], build: match[2] } : null;
+}
+/** Does a managed launcher still have everything it executes (Node/Electron, script)?
+ *  An owner whose checkout survives but whose built CLI is gone (dist/ cleaned, a
+ *  worktree pruned of its build) is as dead as a deleted one: every `flux` fails. */
+function launcherRunsSync(body, platform) {
+  const tokens = [...body.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => platform === "win32"
+    ? m[1].replaceAll("%%", "%")
+    : m[1].replace(/\\(.)/g, "$1"));
+  const paths = tokens.filter(t => (platform === "win32" ? path.win32 : path.posix).isAbsolute(t));
+  return paths.every(p => fsSync.existsSync(p)); // nothing readable: can't tell, so it stays live
+}
+/** Is the recorded owner of a managed launcher still a working install? */
+function launcherOwnerAliveSync(file = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux"), platform = process.platform) {
+  const body = readShim(file), owner = launcherOwnerSync(file);
+  return !!body && !!owner && fsSync.existsSync(owner.target) && launcherRunsSync(body, platform);
+}
+function mayOwnLauncher(runtime, useThisInstall) {
+  const body = readShim(runtime.cli);
+  if (body === null) return true;
+  if (!body.includes(SHIM_MARKER)) return false;
+  const owner = launcherOwnerSync(runtime.cli);
+  return !!useThisInstall || !owner || owner.target === runtime.target || !launcherOwnerAliveSync(runtime.cli, runtime.platform);
+}
+
+let ownRuntime;
+function currentRuntime() { return ownRuntime ||= resolveOwnCliCommandsSync(); }
+function launcherFiles(runtime, createConvenience) {
+  const bodies = launcherBodies(runtime), win = runtime.platform === "win32", suffix = win ? ".cmd" : "";
+  const entries = [[runtime.cli, bodies.main], [path.join(path.dirname(runtime.cli), "flux-connect" + suffix), bodies.connect]];
+  const local = path.join(os.homedir(), ".local", "bin");
+  if (createConvenience || fsSync.existsSync(local)) entries.push([path.join(local, "flux" + suffix), bodies.shim], [path.join(local, "flux-connect" + suffix), bodies.connect]);
+  return entries;
+}
+function launchersUpToDateSync() {
+  const runtime = { ...currentRuntime(), cli: path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux") };
+  const own = mayOwnLauncher(runtime, false);
+  return launcherFiles(runtime, false).every(([file, body], index) => {
+    const cur = readShim(file);
+    if (cur !== null && !cur.includes(SHIM_MARKER)) return true;
+    if (index === 0 && !own) return true;
+    return cur === body;
+  });
+}
+async function installLaunchers(events = [], options = {}) {
+  if (process.env.FLUX_NO_MIGRATE === "1") return { skipped: true };
+  const runtime = options.runtime || { ...currentRuntime(), cli: path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux") };
+  const own = mayOwnLauncher(runtime, options.useThisInstall);
+  for (const [index, [file, body]] of launcherFiles(runtime, options.createConvenience).entries()) {
+    const cur = readShim(file);
+    if (cur !== null && !cur.includes(SHIM_MARKER) || index === 0 && !own) continue;
+    if (cur === body) continue;
+    if (options.publish) await options.publish(file, cur, body);
+    else {
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      const tmp = file + ".tmp-" + process.pid;
+      await fsp.writeFile(tmp, body, { mode: 0o755 });
+      await fsp.rename(tmp, file);
+    }
+    events.push({ action: "install-agent-launcher", detail: file });
+  }
+  return { launcher: runtime.cli, owner: launcherOwnerSync(runtime.cli) };
 }
 
 /** The Lighttable sidecar dir ({{LIGHTTABLE_DIR}}): resolved when this install is
@@ -478,62 +649,9 @@ function quotedPathsIn(cmd) {
  *  path that no longer EXISTS is unambiguous — no install can be using it — so
  *  re-syncing on that condition alone cannot churn. */
 function stampedCliDanglingSync(stampedCli) {
-  const paths = quotedPathsIn(stampedCli);
+  const paths = path.isAbsolute(stampedCli || "") ? [stampedCli] : quotedPathsIn(stampedCli);
   if (!paths.length) return false; // last-resort bare "flux" — nothing to verify
   return paths.some((p) => !fsSync.existsSync(p));
-}
-
-// ---------------------------------------------------------------------------
-// The `flux` PATH shim: ~/.local/bin/flux → this install's CLI, so `flux
-// principal` etc. work by name. Managed-marker policy: we only create or
-// rewrite a file that WE wrote (marker line) — a user's own `flux` binary is
-// never touched, and replacing the shim with an unmarked file opts out.
-// ---------------------------------------------------------------------------
-
-const SHIM_MARKER = "# flux-cli shim (managed by Flux — replace with your own file to opt out)"; // flux-cap-ok
-
-function cliShimPathSync() {
-  // Same policy on every platform: only manage a shim if the user maintains a
-  // ~/.local/bin (on Windows that means they PATH'd it themselves; there is no
-  // conventional auto-on-PATH user bin dir to invent). Batch twin on win32.
-  const name = process.platform === "win32" ? "flux.cmd" : "flux";
-  return path.join(os.homedir(), ".local", "bin", name);
-}
-
-function cliShimUpToDateSync() {
-  const binDir = path.dirname(cliShimPathSync());
-  if (!fsSync.existsSync(binDir)) return true; // no ~/.local/bin — nothing to manage
-  try {
-    const cur = fsSync.readFileSync(cliShimPathSync(), "utf8");
-    if (!cur.includes(SHIM_MARKER)) return true; // user's own file — leave alone
-    return cur.includes(resolveOwnCliCommandsSync().cli);
-  } catch {
-    return false; // absent → install on the next full run
-  }
-}
-
-async function installCliShim(events) {
-  const shim = cliShimPathSync();
-  const binDir = path.dirname(shim);
-  if (!fsSync.existsSync(binDir)) return; // don't invent ~/.local/bin
-  const { cli } = resolveOwnCliCommandsSync();
-  if (cli === "flux") return; // last-resort resolution — nothing real to point at
-  let cur = null;
-  try {
-    cur = fsSync.readFileSync(shim, "utf8");
-  } catch {
-    /* absent */
-  }
-  if (cur !== null && !cur.includes(SHIM_MARKER)) return; // user-owned — never clobber
-  // The cmd body ends with `${cli} %*` so cliShimUpToDateSync's includes(cli)
-  // staleness probe works for both shim flavors. CRLF is the batch convention.
-  const body =
-    process.platform === "win32"
-      ? `@echo off\r\nrem ${SHIM_MARKER}\r\n${cli} %*\r\n`
-      : `#!/bin/sh\n${SHIM_MARKER}\nexec ${cli} "$@"\n`;
-  if (cur === body) return;
-  await fsp.writeFile(shim, body, { mode: 0o755 });
-  events.push({ action: "install-cli-shim", detail: shim });
 }
 
 function fluxContextStampPath(cfg) {
@@ -551,11 +669,39 @@ function fluxContextUpToDateSync(cfg) {
   } catch {
     return false;
   }
-  if (!fsSync.existsSync(agentsConfig.agentsConfigPathSync(cfg))) return false;
+  const dir = path.join(cfg, "Context", "FluxContext");
+  if (Object.keys(FLUX_CONTEXT_FILES).some(name => !fsSync.existsSync(path.join(dir, name)))) return false;
+  if (fsSync.readdirSync(dir, { withFileTypes: true }).some(e =>
+    !e.isDirectory() && e.name.endsWith(".md") && !Object.hasOwn(FLUX_CONTEXT_FILES, e.name))) return false;
   if (fsSync.existsSync(path.join(cfg, "Guidelines"))) return false;
-  if (!cliShimUpToDateSync()) return false;
+  if (!launchersUpToDateSync()) return false;
   const uc = path.join(cfg, "Context", "UserContext");
-  return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md"));
+  return fsSync.existsSync(path.join(uc, "RULES.md")) && fsSync.existsSync(path.join(uc, "WHO-AM-I.md")) &&
+    fsSync.existsSync(path.join(uc, "Skills", "README.md"));
+}
+
+function renderFluxContextFiles(cli) {
+  const docCli = cli.replaceAll("\\", "/");
+  return Object.fromEntries(Object.entries(FLUX_CONTEXT_FILES).map(([name, text]) => [name, text
+    .replaceAll("{{FLUX_CLI}}", docCli)
+    .replaceAll("{{FLUX_MCP}}", `${shellQuote(docCli)} mcp`)
+    .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync())
+    .replaceAll("{{FLUX_REPO}}", resolveRepoDirSync())]));
+}
+
+/** Read-only doctor check; uses the same renderer as stock-manual publication. */
+function inspectFluxContextSync() {
+  const cfg = resolveFluxConfigPathSync(), dir = path.join(cfg, "Context", "FluxContext");
+  try {
+    const stamp = JSON.parse(fsSync.readFileSync(fluxContextStampPath(cfg), "utf8"));
+    if (stamp.hash !== FLUX_CONTEXT_HASH) return { ok: false, message: "FluxContext template hash is outdated." };
+    const expected = renderFluxContextFiles(stamp.cli);
+    for (const [name, text] of Object.entries(expected)) {
+      if (fsSync.readFileSync(path.join(dir, name), "utf8") !== text) return { ok: false, message: `FluxContext/${name} differs from the bundled manual.` };
+    }
+    const stray = fsSync.readdirSync(dir).filter(name => name !== ".version" && !Object.hasOwn(expected, name));
+    return stray.length ? { ok: false, message: `Unexpected FluxContext files: ${stray.join(", ")}` } : { ok: true };
+  } catch (e) { return { ok: false, message: `FluxContext is missing or unreadable: ${e.message}` }; }
 }
 
 async function syncFluxContext(cfg, events) {
@@ -579,16 +725,14 @@ async function syncFluxContext(cfg, events) {
   const names = Object.keys(FLUX_CONTEXT_FILES).filter(
     (n) => !upToDate || !fsSync.existsSync(path.join(dir, n)),
   );
-  if (upToDate && names.length === 0) return;
   await fsp.mkdir(dir, { recursive: true });
-  const cmds = resolveOwnCliCommandsSync();
+  const cli = path.join(binDirSync(), process.platform === "win32" ? "flux.cmd" : "flux");
+  // Forward slashes keep the same Windows path valid inside JSON/TOML strings.
+  const docCli = cli.replaceAll("\\", "/");
+  const cmds = { cli: docCli, mcp: `${shellQuote(docCli)} mcp` };
+  const rendered = renderFluxContextFiles(cli);
   for (const name of names) {
-    const out = FLUX_CONTEXT_FILES[name]
-      .replaceAll("{{FLUX_CLI}}", cmds.cli)
-      .replaceAll("{{FLUX_MCP}}", cmds.mcp)
-      .replaceAll("{{FLUX_MCP_PATH}}", cmds.mcpPath)
-      .replaceAll("{{LIGHTTABLE_DIR}}", resolveLighttableDirSync())
-      .replaceAll("{{FLUX_REPO}}", resolveRepoDirSync());
+    const out = rendered[name];
     const p = path.join(dir, name);
     try {
       if (fsSync.readFileSync(p, "utf8") === out) continue;
@@ -597,6 +741,15 @@ async function syncFluxContext(cfg, events) {
     }
     await fsp.writeFile(p, out);
   }
+  const removed = [];
+  for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+    if (!e.isDirectory() && e.name.endsWith(".md") && !Object.hasOwn(FLUX_CONTEXT_FILES, e.name)) {
+      await fsp.rm(path.join(dir, e.name));
+      removed.push(e.name);
+    }
+  }
+  if (removed.length) events.push({ action: "prune-fluxcontext", detail: removed.sort().join(", ") });
+  if (upToDate && names.length === 0) return;
   await fsp.writeFile(
     fluxContextStampPath(cfg),
     JSON.stringify({ hash: FLUX_CONTEXT_HASH, cli: cmds.cli, synced: new Date().toISOString() }, null, 2) + "\n",
@@ -627,7 +780,7 @@ async function ensureFluxConfig() {
   // their actual library. run-verifies.mjs sets this for every child; the
   // fluxconfig gate test clears it inside its scratch-HOME simulations.
   if (process.env.FLUX_NO_MIGRATE === "1") return configInfoSync();
-  // Fast path (statSync-only) — the every-later-run case.
+  // Fast path — inspect the small stock directory and required seeds.
   const pre = readPrefsRawSync();
   if (
     fsSync.existsSync(markerPath(resolveFluxConfigPathSync(pre))) &&
@@ -636,6 +789,7 @@ async function ensureFluxConfig() {
     !legacyDirDistinct() &&
     fluxContextUpToDateSync(resolveFluxConfigPathSync(pre))
   ) {
+    await require("./agentSetup.cjs").refreshInstalledSkills();
     return configInfoSync(pre);
   }
   try {
@@ -646,10 +800,8 @@ async function ensureFluxConfig() {
       await migrateFluxLib(cfg, events);
       await ensureUserContext(cfg, events);
       await syncFluxContext(cfg, events);
-      await installCliShim(events);
-      if (agentsConfig.seedAgentsConfigSync(cfg)) {
-        events.push({ action: "seed-agents-config", detail: agentsConfig.agentsConfigPathSync(cfg) });
-      }
+      await installLaunchers(events);
+      await require("./agentSetup.cjs").refreshInstalledSkills();
       await appendMarker(cfg, events);
       return { ...configInfoSync(), events };
     });
@@ -739,7 +891,7 @@ async function moveFluxConfig(parentDir) {
 
 const WHO_AM_I_SEED = `# Who am I
 
-<!-- Fill this out — every Flux agent reads it at session start. The more your
+<!-- Fill this out — every flux-connected agent reads it. The more your
      agents know about you, the less you have to repeat yourself. Suggested
      content: your background and CV highlights, publications, research
      interests, technical strengths and weaknesses, what you are currently
@@ -748,6 +900,26 @@ const WHO_AM_I_SEED = `# Who am I
      in UserContext/. -->
 
 *(not filled out yet)*
+`;
+
+const USER_SKILLS_README = `# Your agent skills
+
+Put each skill in its own folder: Skills/<name>/SKILL.md. Use the Agent Skills
+format, with a name matching the folder and a description of when to use it:
+
+\`\`\`markdown
+---
+name: stats-conventions
+description: How to report statistics for my projects.
+---
+
+Write your procedure here.
+\`\`\`
+
+Skills here are published to your connected agents: /stats-conventions in
+Claude Code, $stats-conventions in Codex. Edit the source here to keep them
+current. Skills are listed on connection and read when needed. This folder
+is yours; Flux seeds this README once and never rewrites it.
 `;
 
 const GUIDELINES_README = `# Flux Guidelines
@@ -760,8 +932,8 @@ folder is yours; Flux seeds it once and never rewrites it.
 
 const USER_RULES_SEED = `# Rules
 
-<!-- Your standing rules for ALL Flux work on this machine — every Flux agent
-     reads this at session start and follows it. Add whatever conventions you
+<!-- Your standing rules for ALL Flux work on this machine — every flux-connected agent
+     reads it and follows it. Add whatever conventions you
      want enforced everywhere (figure style, writing habits, workflow rules);
      rules for one project live in that project's Context/RULES.md instead.
      Flux seeds this file blank once and never rewrites it. -->
@@ -770,6 +942,7 @@ const USER_RULES_SEED = `# Rules
 `;
 
 module.exports = {
+  inspectFluxContextSync,
   userDataDir,
   legacyUserDataDir,
   defaultFluxConfigPath,
@@ -786,6 +959,12 @@ module.exports = {
   moveFluxConfig,
   configInfoSync,
   resolveOwnCliCommandsSync,
+  binDirSync,
+  installLaunchers,
+  launcherBodies,
+  launcherOwnerSync,
+  launcherOwnerAliveSync,
+  launchersUpToDateSync,
   stampedCliDanglingSync,
   GUIDELINES_README,
   USER_RULES_SEED,

@@ -1,4 +1,5 @@
 import { tick } from "svelte";
+import { partDomId } from "./plot/parse";
 
 interface PartDisplay {
   elementId: string;
@@ -27,7 +28,7 @@ export function presentEditorParts(host: SVGGElement, initial: PartDisplay) {
     if (current !== generation) return;
     restore();
     for (const [partId, state] of Object.entries(params.states ?? {})) {
-      const node = host.querySelector<SVGElement>(`[id="${CSS.escape(`${params.elementId}__${partId}`)}"]`);
+      const node = host.querySelector<SVGElement>(`[id="${CSS.escape(partDomId(params.elementId, partId))}"]`);
       if (!node) continue;
       originals.set(node, { opacity: node.style.opacity, pointerEvents: node.style.pointerEvents, display: node.style.display });
       const hidden = state.visible === false || state.opacity === 0;

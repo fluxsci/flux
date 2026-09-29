@@ -1,3 +1,7 @@
+import { collectModel3dSourceBindings } from '../model3d/sourceBinding';
+import { scene3dManifests, scene3dRecipes, clearScene3dSidecars, primeScene3dSidecars } from '../model3d/store';
+import { readScene3dSidecars, scene3dSidecarWrites } from '../model3d/persistence';
+import type { Scene3dManifest } from '../model3d/types';
 import { referenceSyncBridgeIO } from './referenceSyncBridgeIO';
 import { figureSnapshotBridgeIO } from "./figureSnapshotBridgeIO";
 import { generationBridgeIO } from "./generationBridgeIO";
@@ -9,7 +13,7 @@ import { storedAssetPath } from "./assetPath";
 // figure numbering + palette + assets). The user never hand-edits `fig/`.
 
 import { get } from "svelte/store";
-import { readFigureSnapshot } from "./figureSnapshot";
+import { readFigureSnapshot, missingModelFileMessage } from "./figureSnapshot";
 import { withIpcLock, type IpcLease } from "../references/libLock";
 import { applySourceUpdates, writeSourceUpdates, type SourceUpdate } from "../plot/sourceSync";
 import { commitTextGeneration, recoverTextGeneration, bytesToBase64, type GenerationWrite } from "./textGeneration";
@@ -160,12 +164,24 @@ export async function loadFigInto(
   const data: Record<string, string> = Object.create(null);
   const primedManifests: Record<string, FluxPlotManifest> = Object.create(null);
   const primedRecipes: Record<string, unknown> = Object.create(null);
+  const modelIssues: Record<string,string[]> = Object.create(null);
+  const primedModels: Record<string, Scene3dManifest> = Object.create(null);
+  const primedModelRecipes: Record<string, unknown> = Object.create(null);
+  const modelBindings = collectModel3dSourceBindings(proj.figures.flatMap(f => f.elements));
   const pngs: [string, Uint8Array][] = [];
   for (const a of proj.assets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
     if (!a.path) continue;
     try {
       const assetPath = fig.projectAssetPath ? await fig.projectAssetPath(root, storedAssetPath(`${SUB}/${a.path}`)) : joinPath(root, SUB, a.path);
+      if (a.kind === "glb") {
+        if (!await fig.exists(assetPath)) throw new Error(missingGlbMessage(proj.figures, a.id, `${SUB}/${a.path}`));
+        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
+        if (sidecars.issues?.length) modelIssues[a.id] = sidecars.issues;
+        if (sidecars.manifest) primedModels[a.id] = sidecars.manifest;
+        if (sidecars.recipe !== undefined) primedModelRecipes[a.id] = sidecars.recipe;
+        continue;
+      }
       const bytes = new Uint8Array(await fig.readFile(assetPath));
       data[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
       if (a.kind === "png") pngs.push([a.id, bytes]);
@@ -175,7 +191,11 @@ export async function loadFigInto(
         const rpath = joinPath(root, SUB, "assets", `${a.id}.recipe.json`);
         if (await fig.exists(rpath)) primedRecipes[a.id] = JSON.parse(await fig.readText(rpath));
       }
-    } catch (error) { snapshot.diagnostics.push({ path: a.path, message: String(error) }); snapshot.status = "partial"; }
+    } catch (error) {
+      const message=error instanceof Error?error.message:String(error);
+      if(!snapshot.diagnostics.some(issue=>issue.path===a.path&&issue.message===message)) snapshot.diagnostics.push({path:a.path,message});
+      snapshot.status="partial";
+    }
   }
   if (typeof document !== "undefined") for (const f of proj.figures) for (const e of f.elements) if (e.type === "text" && e.needsLayout) applyTextLayout(e);
   if (opts.reload && snapshot.status !== "complete") throw new ConflictError(snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n"));
@@ -188,7 +208,8 @@ export async function loadFigInto(
     if (request !== figureLoadRequest) return;
     if (editGen.n !== generation || (opts.reload && loadedFigureRoot !== ownerBefore)) throw new ConflictError("Figures changed while a reload was being prepared; your edits are retained");
     // Publication is one synchronous transition, after every awaited read.
-    clearPlots(); clearSnipMeta();
+    clearPlots(); clearSnipMeta(); clearScene3dSidecars();
+    primeScene3dSidecars(primedModels, primedModelRecipes, modelIssues);
     primePlotSidecars(primedManifests, primedRecipes); assetData.set(data);
     for (const [id, bytes] of pngs) captureSnipMeta(id, bytes);
     clearAllAssetsDirty();
@@ -203,10 +224,14 @@ export async function loadFigInto(
     figSubsystemLocked = false;
     figLoadFailure = snapshot.status === "complete" ? null : snapshot.diagnostics.map(d => `${d.path}: ${d.message}`).join("\n");
     figLoad(proj, null, opts); loadedFigureRoot = root;
+    if (Object.keys(modelIssues).length) pushToast("info", "Some 3D metadata could not be loaded", { detail: Object.values(modelIssues).flat().join("\n") });
     if (figLoadFailure) pushToast("error", "Some figures could not be loaded", { detail: figLoadFailure + " Existing files will not be overwritten." });
   }, { root }));
   figureSaveQueue = adopt;
   await adopt;
+  if (request === figureLoadRequest && loadedFigureRoot === root) {
+    void import('../model3d/posterStore').then(api => api.scheduleModelPosterPrune(root, () => request === figureLoadRequest && loadedFigureRoot === root)).catch(() => {});
+  }
   // A returning Figure tenant can still have this root's older accepted
   // baseline (for example after Slide → Figure conversion). Source catch-up
   // must use the newly adopted complete snapshot, never that stale editor.
@@ -220,6 +245,14 @@ export async function loadFigInto(
 // saving would downgrade files this build doesn't understand.
 let figSubsystemLocked = false;
 let figLoadFailure: string | null = null;
+/** Names the file, element and figure (the "Missing GLB" prefix is what the
+ * persistence gate and older messages match on). */
+function missingGlbMessage(figures: readonly Figure[], assetId: string, file: string): string {
+  for (const figure of figures) for (const element of figure.elements) {
+    if (element.type === "model3d" && element.assetId === assetId) return `Missing GLB asset ${assetId}: ${missingModelFileMessage(file, element, figure)}`;
+  }
+  return `Missing GLB asset ${assetId}: ${file} is missing (no figure element places it); restore ${file}`;
+}
 
 // WS-5.3: last-written/loaded serialized text per canvas — the skip-unchanged
 // guard (and WS-5.4's divergence probe reads the same baseline).
@@ -303,6 +336,7 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
   const assetGenerations = new Map(p.assets.map((a) => [a.id, assetDirtyGeneration(a.id)]));
   const manifests = get(plotManifests);
   const recipes = get(plotRecipes);
+  const models = get(scene3dManifests), modelRecipes = get(scene3dRecipes);
 
   await fig.mkdir(joinPath(root, ".meta"));
   await fig.mkdir(joinPath(root, SUB));
@@ -316,6 +350,14 @@ async function saveFigFromUnlocked(root: string, opts: { force?: boolean; source
   // asset is already on disk, so a debounced save no longer rewrites MBs of bytes.
   for (const a of p.assets) {
     if (opts.sourceUpdates?.some(update => update.assetId === a.id)) continue;
+    if (a.kind === "glb") {
+      if (!a.path) throw new Error(`Cannot save GLB ${a.id}: native import has not completed`);
+      const rel = storedAssetPath(`${SUB}/${a.path}`);
+      const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+      if (!await fig.exists(path)) throw new Error(`Cannot save: 3D model file ${rel} is missing. Put it back and save again, or remove its model with flux delete-element and reopen the project`);
+      if (isAssetDirty(a.id)) for (const [path, text] of scene3dSidecarWrites(`${SUB}/assets`, a.id, { manifest: models[a.id], recipe: modelRecipes[a.id] })) stagedAssets.set(path, text);
+      continue;
+    }
     const url = data[a.id];
     const isNew = !a.path;
     if (!url) {
@@ -443,6 +485,8 @@ export interface FigSource {
   /** Asset-local `.fluxplot.json` sidecars — group-keyed overrides need them
    *  to resolve when the paper module bakes per-part edits (inlineMarkup). */
   assetManifests: Record<string, FluxPlotManifest>;
+  model3dManifests?: Record<string, Scene3dManifest>;
+  issues?: { assetId: string; message: string }[];
   /** Canvas list in canonical order (id + display name) — the FigurePicker's
    *  canvas-scope dropdown (issue #10). */
   canvases: { id: string; name: string }[];
@@ -523,15 +567,28 @@ export async function readFigSource(root: string): Promise<FigSource> {
 
   const assetData: Record<string, string> = {};
   const assetManifests: Record<string, FluxPlotManifest> = {};
+  const model3dManifests: Record<string, Scene3dManifest> = {};
+  const modelBindings = collectModel3dSourceBindings(view.figures.flatMap(f => f.elements));
+  const issues: { assetId: string; message: string }[] = [];
   for (const a of srcAssets) {
     if (a.kind === "mp4") throw new Error("Video assets cannot be loaded into Figure mode");
     if (!a.path) continue;
     try {
+      if (a.kind === "glb") {
+        const rel = storedAssetPath(`${SUB}/${a.path}`);
+        const path = fig.projectAssetPath ? await fig.projectAssetPath(root, rel) : joinPath(root, rel);
+        if (!await fig.exists(path)) throw new Error(missingGlbMessage(view.figures, a.id, `${SUB}/${a.path}`));
+        const sidecars = await readScene3dSidecars(fig, joinPath(root, SUB, "assets"), a.id, { binding: modelBindings.get(a.id) });
+        for(const message of sidecars.issues??[]) issues.push({assetId:a.id,message});
+        if (sidecars.manifest) model3dManifests[a.id] = sidecars.manifest;
+        continue;
+      }
       const bytes = new Uint8Array(await fig.readFile(joinPath(root, SUB, a.path)));
       assetData[a.id] = bytesToDataUrl(bytes, mimeFor(a.kind));
       if (a.kind === "png") captureSnipMeta(a.id, bytes);
-    } catch {
-      /* skip missing asset bytes */
+    } catch (error) {
+      if (a.kind === "glb") issues.push({ assetId: a.id, message: String(error) });
+      /* Missing images retain the existing read-only behavior. */
     }
     if (a.kind === "svg") {
       // Same sidecar the editor load primes (io.ts) — optional: a vanilla svg
@@ -591,6 +648,7 @@ export async function readFigSource(root: string): Promise<FigSource> {
     assetData,
     assets: view.assets, // post-migration (dims + pHYs dpi intact)
     assetManifests,
+    model3dManifests, issues,
     canvases: canvasMeta.map((c) => ({ id: c.id, name: c.name })),
   };
 }

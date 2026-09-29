@@ -6,6 +6,7 @@
 // background, and no-navigation-write assertions below.
 // Run: node scripts/verify-beat-display-gui.mjs
 import { launch, gotoApp, clickMode, sleep, realErrors, APP_URL, waitFor } from "./lib/driver.mjs";
+import { readFileSync } from "node:fs";
 
 let fails = 0;
 const ok = (c, msg, extra = "") => (c ? console.log("  ✓ " + msg) : (fails++, console.log("  ✗ " + msg + (extra ? ` — ${extra}` : ""))));
@@ -260,6 +261,53 @@ try {
   await sleep(400);
   const navAfter2 = await page.evaluate(async (path) => window.fig.readText(path).catch(() => ""), navProbe.path);
   ok(navAfter2 !== navProbe.before, "…and a real edit DID rewrite deck.json");
+
+  // Hand-off presentation reaches the real editor canvas, including leaf hides.
+  await setBeat(0);
+  await page.evaluate(async ({ svg, manifest }) => {
+    const f = window.__flux, sid = f.get(f.fig.activeFigureId);
+    const { compileSlide } = await import('/src/lib/slide/compile.ts');
+    f.plot.cachePlot('bd-boxes', svg, manifest);
+    f.slide.commitDeckLive(d => {
+      const s = f.slideOps.slideById(d, sid);
+      s.elements = [
+        { type: 'rect', id: 'bd-flight', x: 40, y: 60, width: 80, height: 50, rotation: 0, fill: '#d95f02', stroke: 'none', strokeWidth: 0, cornerRadius: 0 },
+        { type: 'plot', id: 'bd-dest', assetId: 'bd-boxes', x: 260, y: 40, width: 240, height: 180, rotation: 0, overrides: {} },
+      ];
+      s.beats = [{ id: 'bd-design', tracks: [] }];
+      f.slideOps.addBeat(d, sid, { label: 'Before landing' });
+      const b = f.slideOps.addBeat(d, sid, { label: 'Land on spines' });
+      f.slideOps.becomeTransform(d, sid, b.id, 'bd-flight', { element: 'bd-dest', parts: ['axis.x.spine', 'axis.y.spine'] },
+        { compiled: compileSlide(s, d.stage, { plotManifest: () => manifest }) });
+      f.slideOps.addBeat(d, sid, { label: 'After landing' });
+    });
+    f.fig.clearSelection(); f.fig.partSelection.set(null);
+    f.fig.viewport.set({ zoom: .8, panX: 24, panY: 24 });
+  }, {
+    svg: readFileSync('scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.svg', 'utf8'),
+    manifest: JSON.parse(readFileSync('scripts/fixtures/plots/mpl_boxplot_FLUXPLOT.fluxplot.json', 'utf8')),
+  });
+  if (await page.$eval('.ghost-toggle input', e => e.checked)) await page.click('.ghost-toggle input');
+  const canvasFlight = () => page.evaluate(() => {
+    const shown = id => {
+      let node = document.querySelector(`[data-editor-element-id="bd-dest"] [id="bd-dest__${id}"]`);
+      if (!node) return null;
+      while (node instanceof Element) {
+        const style = getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+        node = node.parentElement;
+      }
+      return true;
+    };
+    return { source: !!document.querySelector('[data-editor-element-id="bd-flight"]'), spines: ['axis.x.spine', 'axis.y.spine'].map(shown) };
+  });
+  for (const [beat, source, destination] of [[1, true, false], [2, false, true], [3, false, true], [1, true, false]]) {
+    await setBeat(beat);
+    await waitFor(page, () => !!document.querySelector('[data-editor-element-id="bd-dest"] [id="bd-dest__axis.x.spine"]'), null, { label: 'hand-off plot mounted' });
+    const state = await canvasFlight();
+    ok(state.source === source && state.spines.every(v => v === destination),
+      `canvas hand-off at step ${beat}: source ${source}, destination spines ${destination}`, JSON.stringify(state));
+  }
 
   const errs = realErrors(page);
   ok(errs.length === 0, "console is clean", errs.slice(0, 3).join(" | "));

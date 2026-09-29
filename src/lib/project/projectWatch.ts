@@ -11,11 +11,11 @@
 // The Electron main process already skips the app's own writes, so this only
 // fires for genuine external (agent / analysis-script) edits.
 
-import { writable } from "svelte/store";
+import { captureOpen } from "../../shell/agent/annotationVisibility";
+import { get, writable } from "svelte/store";
 import { bumpSlideEmbeds, bumpFigRevision, bumpBibRevision, bumpDeckRevision, bumpDissections } from "../../shell/scholar/revisions";
 import { bumpFluxLib, bumpAssignInbox, bumpZoteroBib } from "../references/revision";
 import { invalidateEnrichCache } from "../references/fluxlibBridge";
-import { refreshConflicts } from "./conflicts";
 
 export interface FsChange {
   subsystem: string;
@@ -26,8 +26,10 @@ export interface FsChange {
  *  Context/ doc changes ride the same signal (same handler, same protections). */
 export const externalManuscriptChange = writable<(FsChange & { n: number }) | null>(null);
 let mn = 0;
-/** External .meta/feedback.ndjson change (agent resolve/send) → consumers re-read. */
+/** External .meta/feedback.ndjson change (agent resolution) → consumers re-read. */
 export const feedbackRevision = writable(0);
+/** Presence consumers schedule work only while visible, at most once per 5 s. */
+export const presenceRevision = writable(0);
 let unsub: (() => void) | null = null;
 let watchGeneration = 0;
 
@@ -55,7 +57,8 @@ export function startProjectWatch(root: string | null): void {
   };
   // Project-level catch-up is independent of which mode opens first.
   refreshSources();
-  unsub = fig.onFsChanged((info) => {
+  const deferred = new Map<string, FsChange>();
+  const handle = (info: FsChange) => {
     if (info.subsystem === "plots") {
       refreshSources(); // service publishes only after durable commit
     } else if (info.subsystem === "dissections") bumpDissections(); // plots/_dissections/ — Dissect viewer re-lists
@@ -63,6 +66,7 @@ export function startProjectWatch(root: string | null): void {
     else if (info.subsystem === "references") bumpBibRevision();
     else if (info.subsystem === "manuscript" || info.subsystem === "context")
       externalManuscriptChange.set({ ...info, n: ++mn });
+    else if (info.subsystem === "presence") presenceRevision.update((n) => n + 1);
     else if (info.subsystem === "feedback") feedbackRevision.update((n) => n + 1);
     else if (info.subsystem === "slides" && !/[\/]renders[\/]/.test(info.path)) { bumpDeckRevision(); refreshSources(); } // W10 (SLD-1)
     else if (info.subsystem === "fluxlib") {
@@ -71,12 +75,6 @@ export function startProjectWatch(root: string | null): void {
       // catch it anyway — this makes the refresh immediate, not next-stat).
       if (info.path.endsWith("enrich.json")) invalidateEnrichCache();
       bumpFluxLib(); // W10 (LR-3): agent FluxLib edits
-    } else if (info.subsystem === "conflict") {
-      // A sync tool dropped a `.sync-conflict-*` copy into the project WHILE we are open.
-      // It is deliberately NOT routed to the owning subsystem (main.cjs subsystemFor):
-      // a conflict copy of main.qmd is not a manuscript edit, and letting it through put
-      // it in the document list. Re-scan so the banner reflects reality.
-      void refreshConflicts(root);
     } else if (info.subsystem === "assign-inbox") bumpAssignInbox(); // a PDF landed in the drop-inbox
     else if (info.subsystem === "capture") {
       // A capture landed in the download folder. Deliberately does NOT file it: intake is the
@@ -85,7 +83,17 @@ export function startProjectWatch(root: string | null): void {
       void import("../references/captureIntake.svelte").then((m) => m.refreshCaptureWaiting());
     }
     else if (info.subsystem === "zotero-bib") bumpZoteroBib(); // the BBT auto-export was rewritten
+  };
+  const offFs = fig.onFsChanged(info => {
+    if (get(captureOpen) && info.subsystem !== "feedback" && info.subsystem !== "presence") deferred.set(info.subsystem + ":" + info.path, info);
+    else handle(info);
   });
+  const offAnnotation = captureOpen.subscribe(open => {
+    if (open) return;
+    const pending = [...deferred.values()]; deferred.clear();
+    for (const info of pending) handle(info);
+  });
+  unsub = () => { offFs(); offAnnotation(); deferred.clear(); };
 }
 
 export function stopProjectWatch(): void {

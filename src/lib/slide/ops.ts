@@ -14,6 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import { makeVideoElement } from "./mediaTypes";
+import type { Model3dElement } from "../model3d/types";
 import type { Asset, Element, Figure, Id, SemanticPlotElement } from "../types";
 import { newId } from "../ids";
 import { gcGroups } from "../groups";
@@ -21,14 +22,24 @@ import { makePlotPanel, makeImagePanel, makeText, mergePartOverride, type Box, t
 import { FLEXOKI } from "../flexoki";
 import { DEFAULT_THEME_ID, resolveTheme } from "./theme";
 import { cloneContentWithFreshIds, placeContentOnStage } from "./deckProject";
+import { resolveTrack, resolveStart, ANIM_STYLE_FIELDS, INHERITED_STYLE_FIELDS, type ManifestFor } from "./resolve";
+import { patchStagger } from "./stagger";
+import { presetTrackOf } from "./animTemplates";
 import { familyOf } from "./family";
-import { compileSlide, trackDuration } from "./compile";
-import { diffState } from "./tween";
+import { defaultEasingFor, defaultTimingFor, isExitPreset } from "./presetCatalog";
+import { EASING_TOKENS } from "./curves";
+import { compileSlide, trackDuration, type CompileOptions } from "./compile";
+import { targetOutlines } from "./targetGeometry";
+import { diffState, transformPreState } from "./tween";
 import { sourceAt, withGhostIdentity } from "./ghost";
 import { stepOf, cascadeValue, clampTrackValue, type TrackCascadeSpec } from "../cascade";
+import { isHandoff, trackRef, trackKey, targetKey, hasPartBinding, isWholeElementRef, sameRef } from "./targets";
+import { handoffTargetsOverlap, remapBecomeTarget } from "./handoffTargets";
+import { modelBecomeResult, modelVideoHandoff } from "./model3dMorph";
 import {
   DECK_SCHEMA_VERSION,
   type Deck,
+  type AnimStyle,
   type Slide,
   type Beat,
   type Track,
@@ -37,8 +48,12 @@ import {
   type StageSize,
   type Camera,
   type TransitionKind,
+  type Curve,
+  type EasingToken,
   type Influence,
   type Stagger,
+  type TargetRef,
+  type BecomeSpec,
 } from "./types";
 
 // 16:9 on the FIGURE ruler (96 units/inch): a ~6.7″ × 3.75″ frame, so a
@@ -100,7 +115,7 @@ export function createDeck(opts: CreateDeckOpts = {}): Deck {
     modified: now,
     stage: opts.stage ?? { ...DEFAULT_STAGE },
     theme: opts.theme ?? DEFAULT_THEME_ID,
-    defaults: { transition: "fade", buildEasing: "smooth", advance: "click" },
+    defaults: { transition: "fade", buildEasing: defaultEasingFor("transform"), advance: "click" },
     palette: [],
     colorGroups: structuredClone(FLEXOKI),
     textStyles: presentationTextStyles(opts.theme ?? DEFAULT_THEME_ID, opts.stage?.height ?? DEFAULT_STAGE.height),
@@ -233,7 +248,7 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   const src = slideById(deck, slideId);
   if (!src) return null;
   const i = deck.slides.findIndex((s) => s.id === slideId);
-  const { elements, groups, idRemap } = cloneContentWithFreshIds(src.elements, src.groups);
+  const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(src.elements, src.groups);
   const copy: Slide = {
     ...structuredClone(src),
     id: newId("slide"),
@@ -245,14 +260,15 @@ export function duplicateSlide(deck: Deck, slideId: Id): Id | null {
   for (const beat of copy.beats) {
     beat.id = newId("beat");
     remapBeatGroupIds(beat);
+    remapBeatTrackIds(beat);
     if (beat.autoTarget) beat.autoTarget = idRemap.get(beat.autoTarget) ?? beat.autoTarget;
     for (const t of beat.tracks) {
       // Every track carries a stable id; a duplicated slide's tracks must get
       // FRESH ids or they collide with the source slide's.
-      t.id = newId("track");
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
       if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+      remapBecomeTarget(t, idRemap, groupRemap);
     }
   }
   deck.slides.splice(i + 1, 0, copy);
@@ -274,6 +290,8 @@ export interface SlidePresetAssetEntry {
   /** A REAL fluxplot manifest/recipe riding along (derived manifests re-derive). */
   manifest?: unknown;
   recipe?: unknown;
+  /** Explicitly inactive raw 3D metadata is preserved, never activated by thumbnails. */
+  modelMetadataActive?: boolean;
 }
 export interface SlidePresetSnapshot {
   fluxPreset: 1;
@@ -286,9 +304,12 @@ export interface SlidePresetSnapshot {
    *  picker thumbnail only. slide.background stays sparse: a theme-following
    *  slide keeps following the TARGET deck's theme after insert. */
   thumbBackground?: string;
+  /** Derived Design mesh PNGs for portable picker thumbnails, keyed by element. */
+  modelPosters?: Record<string, string>;
   /** The slide verbatim (id/name ignored at insert; beats/tracks remapped). */
   slide: Slide;
   assets?: SlidePresetAssetEntry[];
+  animStyles?: AnimStyle[];
 }
 
 /** Insert a preset snapshot as a NEW slide (duplicateSlide's remap discipline:
@@ -301,6 +322,11 @@ export function insertSlideSnapshot(
   snap: SlidePresetSnapshot,
   opts: { at?: number } = {},
 ): { slideId: Id; assetRemap: Map<Id, Id> } {
+  const styleRemap = new Map<Id, Id>();
+  for (const style of snap.animStyles ?? []) {
+    const existing = deck.animStyles?.find(s => s.name === style.name && s.family === style.family);
+    styleRemap.set(style.id, existing?.id ?? addAnimStyle(deck, style).id);
+  }
   const assetRemap = new Map<Id, Id>();
   const embeddedIds = new Set((snap.assets ?? []).map(entry => entry.asset.id));
   for (const entry of snap.assets ?? []) {
@@ -312,7 +338,7 @@ export function insertSlideSnapshot(
     if (asset.kind === "mp4") delete asset.sourcePath;
     deck.assets.push(asset);
   }
-  const { elements, groups, idRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
+  const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(snap.slide.elements, snap.slide.groups);
   for (const el of elements) {
     const withAsset = el as { assetId?: Id };
     if (el.type === "video" && assetRemap.has(el.posterAssetId)) el.posterAssetId = assetRemap.get(el.posterAssetId)!;
@@ -336,12 +362,14 @@ export function insertSlideSnapshot(
   for (const beat of slide.beats) {
     beat.id = newId("beat");
     remapBeatGroupIds(beat);
+    remapBeatTrackIds(beat);
     if (beat.autoTarget) beat.autoTarget = idRemap.get(beat.autoTarget) ?? beat.autoTarget;
     for (const t of beat.tracks) {
-      t.id = newId("track");
+      if (t.styleId) t.styleId = styleRemap.get(t.styleId) ?? t.styleId;
       const mapped = idRemap.get(t.target);
       if (mapped) t.target = mapped;
       if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+      remapBecomeTarget(t, idRemap, groupRemap);
       if (t.to?.assetId && embeddedIds.has(t.to.assetId)) {
         t.to.assetId = assetRemap.get(t.to.assetId) ?? t.to.assetId;
         delete t.to.svgPath; delete t.to.manifestPath; delete t.to.recipePath;
@@ -597,6 +625,15 @@ export function setBeat(
   if (patch.autoDelayMs != null) b.autoDelayMs = patch.autoDelayMs;
 }
 
+/** Every copied beat owns new track identities and local anchor references. */
+function remapBeatTrackIds(beat: Beat): void {
+  const ids = new Map(beat.tracks.flatMap(t => t.id ? [[t.id, newId("track")] as const] : []));
+  for (const track of beat.tracks) {
+    track.id = track.id ? ids.get(track.id)! : newId("track");
+    if (track.anchor) track.anchor.trackId = ids.get(track.anchor.trackId) ?? track.anchor.trackId;
+  }
+}
+
 /** Remap a beat's TrackGroup ids to fresh ones (duplicated beats/slides must
  *  not share group identity with their source). Mutates the beat in place. */
 function remapBeatGroupIds(beat: Beat): void {
@@ -621,13 +658,14 @@ export function duplicateBeat(deck: Deck, slideId: Id, beatId: Id): Beat | null 
   const i = s.beats.findIndex((b) => b.id === beatId);
   if (i <= 0) return null;
   const copy = structuredClone(s.beats[i]);
-  const idRemap = cloneBirthResults(s, copy.tracks);
+  const { idRemap, groupRemap } = cloneBirthResults(s, copy.tracks);
   copy.id = newId("beat");
   if (copy.label) copy.label += " copy";
+  remapBeatTrackIds(copy);
   for (const t of copy.tracks) {
-    t.id = newId("track");
     t.target = idRemap.get(t.target) ?? t.target;
     if (t.ghostFrom) t.ghostFrom = idRemap.get(t.ghostFrom) ?? t.ghostFrom;
+    remapBecomeTarget(t, idRemap, groupRemap);
   }
   remapBeatGroupIds(copy);
   if (copy.autoTarget) copy.autoTarget = idRemap.get(copy.autoTarget) ?? copy.autoTarget;
@@ -682,11 +720,201 @@ export function findTrack(deck: Deck, trackId: Id): { slide: Slide; beat: Beat; 
   return null;
 }
 
+// Linked animation styles. Bindings, endpoints, anchors, identity and the
+// family-defining `preset` stay on the track; the reusable HOW lives in the
+// deck. `preset` reaches linked tracks by write (link, setAnimStyle), never by
+// resolution (slide/resolve.ts header).
+export interface TrackEditResult { ok: boolean; reason?: string }
+
+/** The three on-disk representations are one authoring field. For a patch
+ * carrying several, preserve the resolver's precedence (curve > influence > token).
+ * Undefined means no edit; null clears the group and restores inheritance. */
+export interface TimingCurvePatch {
+  curve?: Curve | EasingToken | null;
+  influence?: Influence | null;
+  easing?: EasingToken | null;
+}
+function patchTimingCurve(track: Pick<Track, "curve" | "influence" | "easing">, patch: TimingCurvePatch): void {
+  const { curve, influence, easing } = patch;
+  if (curve === undefined && influence === undefined && easing === undefined) return;
+  delete track.curve; delete track.influence; delete track.easing;
+  if (curve !== undefined) {
+    if (typeof curve === "string") track.easing = curve;
+    else if (curve !== null) track.curve = structuredClone(curve);
+  } else if (influence !== undefined) {
+    if (influence !== null) track.influence = { ...influence };
+  } else if (easing != null) track.easing = easing;
+}
+
+/** The pane and cascade share this op for specs, tokens, legacy influence and
+ * reset. An explicit influence object can retain the disk's zero sentinel;
+ * user-facing zero/reset actions pass null to restore inheritance/defaults. */
+export function setTrackCurve(deck: Deck, slideId: Id, trackId: Id, curve: Curve | EasingToken | { influence: Influence } | null): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  patchTimingCurve(found.track, curve && typeof curve === "object" && "influence" in curve ? curve : { curve });
+  return { ok: true };
+}
+
+function styleValid(style: Omit<AnimStyle, "id">): void {
+  if (style.family === "media" && style.track.stagger != null) throw new Error("Media animation styles cannot use stagger");
+  if (!style.name.trim()) throw new Error("Animation style needs a name");
+  if (familyOf(style.track) !== style.family) throw new Error("Style preset and family must agree");
+}
+
+export function addAnimStyle(deck: Deck, style: Omit<AnimStyle, "id">, id = newId("astyle")): AnimStyle {
+  styleValid(style);
+  if (deck.animStyles?.some(s => s.id === id)) throw new Error(`Animation style already exists: ${id}`);
+  const added = { ...structuredClone(style), id };
+  (deck.animStyles ??= []).push(added);
+  return added;
+}
+
+export function setAnimStyle(deck: Deck, id: Id, patch: Partial<Omit<AnimStyle, "id">>): boolean {
+  const style = deck.animStyles?.find(s => s.id === id);
+  if (!style) return false;
+  const next = { ...style, ...structuredClone(patch), track: { ...style.track, ...structuredClone(patch.track) } };
+  if (patch.track) patchTimingCurve(next.track, patch.track);
+  styleValid(next);
+  const linked = deck.slides.flatMap(s => s.beats.flatMap(b => b.tracks.filter(t => t.styleId === id)));
+  if (next.family !== style.family && linked.length)
+    throw new Error("Detach linked tracks before changing a style's family");
+  Object.assign(style, next);
+  // The one field that propagates by write: linked tracks keep their own preset.
+  if (patch.track?.preset !== undefined) for (const track of linked) track.preset = style.track.preset;
+  return true;
+}
+
+function materializeStyle(track: Track, deck: Deck): void {
+  const resolved = presetTrackOf(resolveTrack(track, deck));
+  for (const key of ANIM_STYLE_FIELDS) delete track[key];
+  Object.assign(track, resolved);
+  delete track.styleId;
+}
+
+export function deleteAnimStyle(deck: Deck, id: Id, opts: { detach: true }): boolean {
+  if (!opts.detach || !deck.animStyles?.some(s => s.id === id)) return false;
+  for (const slide of deck.slides) for (const beat of slide.beats) for (const track of beat.tracks)
+    if (track.styleId === id) materializeStyle(track, deck);
+  deck.animStyles = deck.animStyles.filter(s => s.id !== id);
+  if (!deck.animStyles.length) delete deck.animStyles;
+  return true;
+}
+
+export function linkTrackStyle(deck: Deck, slideId: Id, trackId: Id, styleId: Id | null): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  if (styleId === null) { materializeStyle(found.track, deck); return { ok: true }; }
+  const style = deck.animStyles?.find(s => s.id === styleId);
+  if (!style) return { ok: false, reason: "Animation style not found" };
+  const family = familyOf(found.track);
+  if (family !== style.family) return { ok: false, reason: `Family mismatch: ${family} track cannot link to ${style.family} style` };
+  for (const key of INHERITED_STYLE_FIELDS) delete found.track[key];
+  // The preset stays on the track; a same-family style's differing preset is written once.
+  if (style.track.preset != null) found.track.preset = style.track.preset;
+  found.track.styleId = styleId;
+  return { ok: true };
+}
+
+export function styleFromTrack(deck: Deck, slideId: Id, trackId: Id, name: string): AnimStyle | null {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return null;
+  const resolved = resolveTrack(found.track, deck), family = familyOf(found.track);
+  if (family === "camera") return null;
+  const style = addAnimStyle(deck, { name, family, track: presetTrackOf(resolved) });
+  linkTrackStyle(deck, slideId, trackId, style.id);
+  return style;
+}
+
+export function animateLike(deck: Deck, slideId: Id, fromTrackId: Id, toTrackIds: Id[], beatId?: Id): { styleId?: Id; linked: Id[]; refused: { trackId: Id; reason: string }[] } {
+  const source = findTrack(deck, fromTrackId);
+  const refused: { trackId: Id; reason: string }[] = [], linked: Id[] = [];
+  if (!source || source.slide.id !== slideId) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Source track not found on this slide" })) };
+  if (beatId !== undefined && source.beat.id !== beatId) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Source track not found in the selected beat" })) };
+  const el = source.slide.elements.find(e => e.id === source.track.target);
+  const label = el?.name || (el?.type === "text" ? el.text.split("\n")[0].slice(0, 60) : el?.type) || source.track.target;
+  const style = deck.animStyles?.find(s => s.id === source.track.styleId) ?? styleFromTrack(deck, slideId, fromTrackId, `Like ${label}`);
+  if (!style) return { linked, refused: toTrackIds.map(trackId => ({ trackId, reason: "Camera tracks cannot share animation styles" })) };
+  for (const trackId of new Set(toTrackIds)) {
+    if (beatId !== undefined && !source.beat.tracks.some(t => t.id === trackId)) {
+      refused.push({ trackId, reason: "Target track not found in the selected beat" }); continue;
+    }
+    const result = linkTrackStyle(deck, slideId, trackId, style.id);
+    if (result.ok) linked.push(trackId); else refused.push({ trackId, reason: result.reason! });
+  }
+  return { styleId: style.id, linked, refused };
+}
+
+export function setTrackAnchor(deck: Deck, slideId: Id, trackId: Id, anchor: Track["anchor"] | null): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  if (!anchor) { delete found.track.anchor; return { ok: true }; }
+  if (anchor.trackId === trackId) return { ok: false, reason: "A track cannot anchor to itself" };
+  if (!found.beat.tracks.some(t => t.id === anchor.trackId)) return { ok: false, reason: "Timing anchors must name a track in the same beat" };
+  if (!Number.isFinite(anchor.offsetMs ?? 0)) return { ok: false, reason: "Anchor offset must be finite" };
+  const candidate = { ...found.track, anchor };
+  const result = resolveStart(candidate, found.beat, deck);
+  if (result.issue) return { ok: false, reason: result.issue };
+  found.track.anchor = { ...anchor };
+  return { ok: true };
+}
+
+/** Arc is a HOW field; zero is an explicit straight-line style override. */
+export function setTrackArc(track: Track, arc: number): void {
+  if (!Number.isFinite(arc) || arc < -1 || arc > 1) throw new Error("Arc must be between -1 and 1");
+  track.arc = arc;
+}
+
+/** Generic timing edits share linked-style and anchored-start semantics. */
+export function setTrack(deck: Deck, slideId: Id, trackId: Id, patch: {
+  styleId?: Id | null; anchor?: Track["anchor"] | null;
+  start?: number; duration?: number;
+  stagger?: Partial<Stagger>; arc?: number;
+} & TimingCurvePatch, manifestFor: ManifestFor = () => undefined): TrackEditResult {
+  const found = findTrack(deck, trackId);
+  if (!found || found.slide.id !== slideId) return { ok: false, reason: "Track not found on this slide" };
+  const saved = structuredClone(found.track);
+  const restore = (result: TrackEditResult) => {
+    for (const key of Object.keys(found.track)) delete (found.track as unknown as Record<string, unknown>)[key];
+    Object.assign(found.track, saved); return result;
+  };
+  if (patch.styleId !== undefined) {
+    const result = linkTrackStyle(deck, slideId, trackId, patch.styleId);
+    if (!result.ok) return result;
+  }
+  if (patch.anchor !== undefined) {
+    const start = resolveStart(found.track, found.beat, deck, manifestFor).start;
+    const result = setTrackAnchor(deck, slideId, trackId, patch.anchor);
+    if (!result.ok) return restore(result);
+    if (patch.anchor === null) found.track.start = start;
+  }
+  for (const key of ["start", "duration"] as const) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    if (!Number.isFinite(value) || value < 0) return restore({ ok: false, reason: `${key} must be non-negative and finite` });
+    if (key === "start" && found.track.anchor) {
+      const current = resolveStart(found.track, found.beat, deck, manifestFor).start;
+      found.track.anchor.offsetMs = (found.track.anchor.offsetMs ?? 0) + value - current;
+    } else found.track[key] = value;
+  }
+  try {
+    if (patch.stagger !== undefined) {
+      if (familyOf(found.track) === "media") throw new Error("Video commands cannot stagger");
+      found.track.stagger = patchStagger(resolveTrack(found.track, deck).stagger, patch.stagger);
+    }
+    if (patch.arc !== undefined) setTrackArc(found.track, patch.arc);
+  } catch (error) { return restore({ ok: false, reason: (error as Error).message }); }
+  patchTimingCurve(found.track, patch);
+  return { ok: true };
+}
+
 /** Move a track into another beat on the same slide (drag a chip across
  *  columns). `at` places it at a lane index (default: append). Timing (start/
  *  duration/stagger) travels untouched; a beat-local group membership is
- *  dropped on a CROSS-beat move (groups live per beat). */
-export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number): boolean {
+ *  dropped on a CROSS-beat move (groups live per beat). An anchor detaches
+ *  to its resolved start before leaving the source beat, as do any followers
+ *  anchored to the moved track that remain in the source beat. */
+export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: Id, at?: number, manifestFor: ManifestFor = () => undefined): boolean {
   const s = slideById(deck, slideId);
   if (!s) return false;
   const to = beatById(s, toBeatId);
@@ -697,6 +925,13 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
     const candidate = b.tracks[i];
     if (to === s.beats[0]) return false;
     if (["transform", "media"].includes(familyOf(candidate)) && to.tracks.some(t => t !== candidate && tracksMatch(t, candidate))) return false;
+    if (b !== to) {
+      // Resolve every affected anchor against the intact source beat before
+      // changing any of them. Followers left behind must keep their arrival.
+      const detach = b.tracks.filter(t => t.anchor && (t === candidate || t.anchor.trackId === trackId))
+        .map(track => ({ track, start: resolveStart(track, b, deck, manifestFor).start }));
+      for (const { track, start } of detach) { track.start = start; delete track.anchor; }
+    }
     const [t] = b.tracks.splice(i, 1);
     if (b.id !== to.id && t.groupId) delete t.groupId;
     // Splicing out of the SAME beat shifts indices; recompute a safe insert point.
@@ -711,7 +946,7 @@ export function moveTrackToBeat(deck: Deck, slideId: Id, trackId: Id, toBeatId: 
 /** Deep-copy a track, in place by default or directly into another beat. The
  * destination is checked before mutation: a cross-step Change copy must not
  * temporarily create the forbidden second Change in its source step. */
-export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: Id, at?: number): Id | null {
+export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: Id, at?: number, manifestFor: ManifestFor = () => undefined): Id | null {
   const s = slideById(deck, slideId);
   if (!s) return null;
   for (const b of s.beats) {
@@ -722,7 +957,15 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
     if (!b.tracks[i].ghostFrom && ["transform", "media"].includes(familyOf(b.tracks[i])) && to.tracks.some(t => tracksMatch(t, b.tracks[i]))) return null;
     const copy = structuredClone(b.tracks[i]);
     copy.id = newId("track");
-    if (copy.ghostFrom) copy.target = cloneBirthResults(s, [copy]).get(copy.target) ?? copy.target;
+    if (to !== b && copy.anchor) {
+      copy.start = resolveStart(b.tracks[i], b, deck, manifestFor).start;
+      delete copy.anchor;
+    }
+    if (copy.ghostFrom) {
+      const { idRemap, groupRemap } = cloneBirthResults(s, [copy]);
+      copy.target = idRemap.get(copy.target) ?? copy.target;
+      remapBecomeTarget(copy, idRemap, groupRemap);
+    }
     if (to !== b) delete copy.groupId;
     to.tracks.splice(at == null ? to === b ? i + 1 : to.tracks.length : Math.max(0, Math.min(at, to.tracks.length)), 0, copy);
     return copy.id;
@@ -732,9 +975,9 @@ export function duplicateTrack(deck: Deck, slideId: Id, trackId: Id, toBeatId?: 
 
 /** A birth owns its result object. Duplicating the birth creates another
  * independent result, whereas copying an ordinary element copies no birth. */
-function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Map<Id, Id> {
+function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Pick<ReturnType<typeof cloneContentWithFreshIds>, "idRemap" | "groupRemap"> {
   const ids = new Set(tracks.filter(t => t.ghostFrom).map(t => t.target));
-  const { elements, groups, idRemap } = cloneContentWithFreshIds(slide.elements.filter(e => ids.has(e.id)), slide.groups);
+  const { elements, groups, idRemap, groupRemap } = cloneContentWithFreshIds(slide.elements.filter(e => ids.has(e.id)), slide.groups);
   const sources = new Map(tracks.filter(t => t.ghostFrom).map(t => [idRemap.get(t.target), t.ghostFrom!]));
   const names = new Map<Id, Set<string>>();
   for (const el of elements) {
@@ -744,7 +987,7 @@ function cloneBirthResults(slide: Slide, tracks: readonly Track[]): Map<Id, Id> 
   }
   slide.elements.push(...elements);
   if (Object.keys(groups).length) slide.groups = { ...slide.groups, ...groups };
-  return idRemap;
+  return { idRemap, groupRemap };
 }
 
 function ghostNames(slide: Slide, sourceId: Id): Set<string> {
@@ -776,11 +1019,10 @@ export function removeTracks(deck: Deck, slideId: Id, trackIds: Id[]): void {
   }
 }
 
-export interface GhostTransformOptions {
+export interface GhostTransformOptions extends TimingCurvePatch {
   count?: number;
   original?: "stay" | "disappear" | "transform";
   duration?: number;
-  easing?: import("./types").EasingToken;
   start?: number;
   /** Independent sparse destinations, in copy order. */
   states?: Record<string, unknown>[];
@@ -809,13 +1051,13 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
   if (!slide || !source || bi < 1) return null;
   if (source.type === "video") throw new Error("Duplicate the video clip to create an independent copy; Ghost transforms do not support video.");
   const beat = slide.beats[bi];
-  const whole = beat.tracks.filter(t => t.target === sourceId && !t.part && !t.selector && !t.disabled);
+  const whole = beat.tracks.filter(t => t.target === sourceId && !hasPartBinding(t) && !t.disabled);
   const changes = whole.filter(t => familyOf(t) === "transform");
-  const exits = whole.filter(t => ["fadeOut", "popOut", "drawOff", "wipeOut"].includes(t.preset ?? ""));
+  const exits = whole.filter(t => isExitPreset(t.preset));
   if (changes.length > 1 || exits.length > 1 || original === "stay" && (changes.length || exits.length) || original === "transform" && exits.length || original === "disappear" && changes.length)
     throw new Error(`The original already has a Change or exit in this step. Choose its existing behavior or edit those effects first.`);
   if (opts.sourceSnapshot && (opts.sourceSnapshot.id !== sourceId || opts.sourceSnapshot.type !== source.type)) throw new Error("Copy snapshot must belong to the selected source object");
-  const available = compileSlide(slide, deck.stage).copySourceState(sourceId, bi);
+  const available = compileSlide(slide, deck.stage, deck).copySourceState(sourceId, bi);
   if (!available) throw new Error("This source is not available before the selected step. Choose a later step or another source.");
   const snapshot = opts.sourceSnapshot ?? available;
   const groupId = newId("tgrp"), label = source.name?.trim() || source.type;
@@ -828,8 +1070,9 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     delete (copy as unknown as Record<string, unknown>).panelLabel;
     slide.elements.push(copy);
     const track: Track = { id: newId("track"), target: copy.id, ghostFrom: sourceId, preset: "transform", groupId,
-      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0,
+      duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0,
       to: { state: structuredClone(opts.states?.[i] ?? {}) } };
+    patchTimingCurve(track, opts);
     beat.tracks.push(track); out.elementIds.push(copy.id); out.trackIds.push(track.id!);
   }
   beat.groups = [...(beat.groups ?? []), { id: groupId, label: `Ghosts of ${label}` }];
@@ -837,15 +1080,19 @@ export function addGhostTransform(deck: Deck, slideId: Id, beatId: Id, sourceId:
     const previous = changes[0];
     const track = setTransform(deck, slideId, beatId, sourceId, {
       ...(opts.originalState ? { state: opts.originalState } : {}),
-      ...(!previous ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
+      ...(!previous ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0,
+        ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
+        ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
+      } : {}),
     })!;
     delete track.disabled;
     if (!previous) track.groupId = groupId;
     out.originalTrackId = track.id;
   } else if (original === "disappear") {
+    // Ghost disappearance matches the births: smooth is authored, not a default (ledger 2026-09-28).
     const track = exits[0] ?? { id: newId("track"), target: sourceId, preset: "fadeOut" as const,
-      duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
-    if (!exits.length) beat.tracks.push(track);
+      duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? "smooth", start: opts.start ?? 0, groupId };
+    if (!exits.length) { patchTimingCurve(track, opts); beat.tracks.push(track); }
     out.originalTrackId = track.id;
   }
   return out;
@@ -887,26 +1134,28 @@ export function setTrackEnabled(deck: Deck, slideId: Id, trackId: Id, enabled: b
 }
 
 /** Two tracks "match" (and thus replace, rather than stack) when they animate
- *  in the same FAMILY (family.ts) on the same target with the same part/
- *  selector signature — so an appearance and a transform coexist on one
- *  object in one beat. Transforms are whole-element and unique per target:
- *  two transform-family tracks match on target alone (the "max one transform
- *  per target per beat" law — chaining happens across beats). */
+ *  in the same FAMILY (family.ts) on the same TARGET — the full target
+ *  identity (`targets.trackKey`: element + sorted part ids + selector), so an
+ *  appearance and a transform coexist on one object in one beat, a whole-plot
+ *  Change and a one-box Become coexist too, and two transforms of the SAME
+ *  target (whole element, or the same part-set) replace each other: "max one
+ *  transform per target per beat" — chaining happens across beats. Media
+ *  commands stay whole-clip and unique per clip. */
 function tracksMatch(a: Track, b: Track): boolean {
   if (a.target !== b.target) return false;
   const fam = familyOf(a);
   if (fam !== familyOf(b)) return false;
-  if (fam === "transform" || fam === "media") return true;
-  if ((a.part ?? "") !== (b.part ?? "")) return false;
-  return JSON.stringify(a.selector ?? null) === JSON.stringify(b.selector ?? null);
+  if (fam === "media") return true;
+  return trackKey(a) === trackKey(b);
 }
+export { tracksMatch as sameTargetAndFamily };
 
 /** Add or replace an animation track on a beat (the keystone animation op). */
 export function setAnimation(deck: Deck, slideId: Id, beatId: Id, track: Track): boolean {
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b) return false;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return false;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return false;
   const i = b.tracks.findIndex((t) => tracksMatch(t, track));
   // Every track carries a stable id; replacing a matched track keeps its id so
   // editor selection survives the edit, a brand-new track gets a fresh one.
@@ -931,44 +1180,55 @@ export function appendAnimation(deck: Deck, slideId: Id, beatId: Id, track: Trac
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b || s!.beats[0] === b || (["transform", "media"].includes(familyOf(track)) && b.tracks.some(t => tracksMatch(t, track)))) return null;
-  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || track.part || track.selector || track.stagger || track.keyframes)) return null;
+  if (familyOf(track) === "media" && (s!.beats[0] === b || s!.elements.find(e => e.id === track.target)?.type !== "video" || hasPartBinding(track) || track.stagger || track.keyframes)) return null;
   const added = { ...structuredClone(track), id: newId("track") };
   b.tracks.push(added);
   return added;
 }
 
-/** Add (or update) the ONE transform track for `targetId` on a beat — the
+/** Add (or update) the ONE transform track for a target on a beat — the
  *  ergonomic form agents and the GUI use so nobody hand-builds `to.state`
- *  diffs. Merges `state` keys over the existing patch (a key of undefined is
- *  skipped; an explicit null persists as "delete this prop at t2");
- *  `replaceState` swaps the whole patch. Timing/easing patch only when given.
- *  Returns the track (created or updated), or null. */
+ *  diffs. The target is `targetId` (the whole element) or, with `opts.ref`, a
+ *  part-set of that element (`parts`/`selector`); the track found or created is
+ *  the one whose `targetKey` matches. Merges `state` keys over the existing
+ *  patch (a key of undefined is skipped; an explicit null persists as "delete
+ *  this prop at t2"); `replaceState` swaps the whole patch. Timing/easing patch
+ *  only when given. Returns the track (created or updated), or null. */
 export function setTransform(
   deck: Deck,
   slideId: Id,
   beatId: Id,
   targetId: Id,
   opts: {
+    /** Part-set binding of the target (0.6); absent = the whole element. */
+    ref?: { parts?: string[]; selector?: Track["selector"] };
     state?: Record<string, unknown>;
     replaceState?: boolean;
     start?: number;
     duration?: number;
-    easing?: import("./types").EasingToken;
-    influence?: import("./types").Influence;
+    arc?: number;
     /** content half: the asset the element's content becomes (+ explicit
      *  source paths; `source` carries the full bundle of a placed plot). */
     toAssetId?: Id;
     svgPath?: string;
+    glbPath?: string;
     manifestPath?: string;
-    source?: SemanticPlotElement["source"] | null;
-  } = {},
+    source?: SemanticPlotElement["source"] | Model3dElement["source"] | null;
+  } & TimingCurvePatch = {},
 ): Track | null {
+  if (opts.arc !== undefined && (!Number.isFinite(opts.arc) || opts.arc < -1 || opts.arc > 1)) throw new Error("Arc must be between -1 and 1");
   const s = slideById(deck, slideId);
   const b = s && beatById(s, beatId);
   if (!b) return null;
-  let t = b.tracks.find((x) => x.target === targetId && familyOf(x) === "transform");
+  const want = targetKey({ element: targetId, ...(opts.ref?.parts?.length ? { parts: opts.ref.parts } : {}), ...(opts.ref?.selector ? { selector: opts.ref.selector } : {}) });
+  let t = b.tracks.find((x) => familyOf(x) === "transform" && trackKey(x) === want);
   if (!t) {
-    t = { id: newId("track"), target: targetId, preset: "transform", duration: 600, easing: "smooth", to: { state: {} } };
+    t = { id: newId("track"), target: targetId, preset: "transform", ...defaultTimingFor("transform"), to: { state: {} } };
+    if (opts.ref?.parts?.length) {
+      if (opts.ref.parts.length === 1) t.part = opts.ref.parts[0];
+      else t.parts = [...opts.ref.parts];
+    }
+    if (opts.ref?.selector) t.selector = structuredClone(opts.ref.selector);
     b.tracks.push(t);
   }
   t.to = t.to ?? {};
@@ -981,12 +1241,13 @@ export function setTransform(
     }
     t.to.state = cur;
   }
-  if (opts.toAssetId != null) t.to.assetId = opts.toAssetId;
+  if (opts.toAssetId != null) { t.to.assetId = opts.toAssetId; delete t.to.become; }
   if (opts.source !== undefined) {
     // a placed plot's whole source bundle travels with the content target
-    for (const key of ["svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete t.to[key];
+    for (const key of ["svgPath", "glbPath", "sha256", "manifestPath", "recipePath", "frozen", "external"]) delete t.to[key];
     if (opts.source) {
-      t.to.svgPath = opts.source.svgPath;
+      if ("glbPath" in opts.source) { t.to.glbPath = opts.source.glbPath; if (opts.source.sha256) t.to.sha256 = opts.source.sha256; }
+      else t.to.svgPath = opts.source.svgPath;
       if (opts.source.manifestPath != null) t.to.manifestPath = opts.source.manifestPath;
       if (opts.source.recipePath != null) t.to.recipePath = opts.source.recipePath;
       if (opts.source.frozen != null) t.to.frozen = opts.source.frozen;
@@ -994,55 +1255,115 @@ export function setTransform(
     }
   }
   if (opts.svgPath != null) t.to.svgPath = opts.svgPath;
+  if (opts.glbPath != null) t.to.glbPath = opts.glbPath;
   if (opts.manifestPath != null) t.to.manifestPath = opts.manifestPath;
   if (opts.start != null) t.start = opts.start;
   if (opts.duration != null) t.duration = opts.duration;
-  if (opts.easing != null) t.easing = opts.easing;
-  if (opts.influence != null) t.influence = opts.influence;
+  patchTimingCurve(t, opts);
+  if (opts.arc !== undefined) setTrackArc(t, opts.arc);
   return t;
 }
+
+/** Turntable is an ordinary linear transform; all authoring surfaces and agents
+ * share this operation, including replacement and previous-beat endpoint rules. */
+export function addTurntable(deck: Deck, opts: { slideId: Id; beatId: Id; target: Id; turns?: number; direction?: "cw" | "ccw"; durationMs?: number; start?: number }): Track | null {
+  const turns = opts.turns ?? 1, duration = opts.durationMs ?? 6000;
+  if (!Number.isFinite(turns) || turns <= 0 || !Number.isFinite(duration) || duration <= 0 || (opts.start !== undefined && (!Number.isFinite(opts.start) || opts.start < 0))) throw new Error("Turntable needs positive turns and duration, and a nonnegative start");
+  if (opts.direction !== undefined && opts.direction !== "cw" && opts.direction !== "ccw") throw new Error("Turntable direction must be cw or ccw");
+  const slide = slideById(deck, opts.slideId), bi = slide?.beats.findIndex(beat => beat.id === opts.beatId) ?? -1;
+  if (!slide || bi <= 0) return null;
+  const pre = transformPreState(slide, opts.target, bi);
+  if (pre?.type !== "model3d") return null;
+  return setTransform(deck, opts.slideId, opts.beatId, opts.target, { state: { orbitAzimuth: pre.orbitAzimuth + (opts.direction === "ccw" ? 1 : -1) * 360 * turns }, duration, start: opts.start ?? 0, curve: "linear" });
+}
+export const turntable = addTurntable;
 
 /** Drop the content half of a transform (the object keeps its own content). */
 export function clearTransformContent(track: Track): void {
   if (!track.to) return;
-  for (const key of ["assetId", "svgPath", "manifestPath", "recipePath", "frozen", "external"]) delete track.to[key];
+  for (const key of ["assetId", "svgPath", "glbPath", "sha256", "manifestPath", "recipePath", "frozen", "external", "become"]) delete track.to[key];
 }
 
-export interface BecomeOptions {
+export interface BecomeOptions extends TimingCurvePatch {
+  /** Metadata for saved Figure-by-id models outside the deck-local asset list. */
+  modelAsset?: CompileOptions['modelAsset'];
+  mode?: BecomeSpec["mode"];
+  pair?: BecomeSpec["pair"];
+  reveal?: BecomeSpec["reveal"];
   start?: number;
   duration?: number;
-  easing?: import("./types").EasingToken;
   /** GUI may supply the compiler's manifest-aware evaluation of the slide. */
   compiled?: ReturnType<typeof compileSlide>;
 }
 export interface BecomeResult {
   trackId: Id;
+  /** Model pairs report vertex morph compatibility; false is a valid crossfade. */
+  morph?: boolean;
+  reason?: string;
   /** The consumed target's id (it is no longer on the slide). */
-  targetId: Id;
+  targetId?: Id;
   /** The endpoint patch written to the track. */
-  state: Record<string, unknown>;
+  state?: Record<string, unknown>;
+  /** The live destination of a hand-off (neither object is consumed). */
+  ref?: TargetRef;
 }
 
-/** Ways of transforming, way 3 — BECOME: `sourceId` turns into `targetId` at
- *  the step. The target's evaluated state at the end of the step becomes the
- *  source's transform endpoint (`type` included when the kinds differ; for
- *  plots the content half + source bundle too), then the target is consumed —
- *  removed with every effect that referenced it — in this ONE mutation.
- *  Nothing new is invented: the record is exactly what a Change to the same
- *  endpoint would have stored, so chaining, checkout, ghosts, presets and
- *  export all apply unchanged. Refusals throw with a user-facing reason. */
-export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: Id, targetId: Id, opts: BecomeOptions = {}): BecomeResult | null {
+/** Become consumes a loose drawn destination or hands off to live targets.
+ * Both completions write THE source transform in one mutation. Refusals run
+ * before any write and carry a user-facing reason. */
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, source: Id, dest: Id, opts?: BecomeOptions): BecomeResult | null;
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, source: TargetRef | Id, dest: TargetRef | Id, opts?: BecomeOptions): BecomeResult | null;
+export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: TargetRef | Id, dest: TargetRef | Id, opts: BecomeOptions = {}): BecomeResult | null {
+  sourceRef = typeof sourceRef === "string" ? { element: sourceRef } : sourceRef;
+  const ref = typeof dest === "string" ? { element: dest } : dest;
+  const sourceId = sourceRef.element, targetId = ref.element;
   const slide = slideById(deck, slideId), bi = slide?.beats.findIndex((b) => b.id === beatId) ?? -1;
   if (!slide || bi < 0) return null;
   if (bi < 1) throw new Error("Become needs a build step after Design. Choose or add a step first.");
-  if (sourceId === targetId) throw new Error("Choose a different object for the source to become.");
+  if (sameRef(sourceRef, ref)) throw new Error("Choose a different object for the source to become.");
+  if (sourceRef.group) throw new Error("Choose an object or plot parts as the Become source, rather than a group.");
   const source = slide.elements.find((e) => e.id === sourceId), target = slide.elements.find((e) => e.id === targetId);
   if (!source) throw new Error("The source object is missing from this slide.");
   if (!target) throw new Error("The object to become is missing from this slide.");
-  if (source.type === "video" || target.type === "video") throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+  const posterVideo = isWholeElementRef(sourceRef) && isWholeElementRef(ref) && modelVideoHandoff(source, target);
+  if ((source.type === "video" || target.type === "video") && (!posterVideo || opts.mode === "consume")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");
   if (opts.start != null && (!Number.isFinite(opts.start) || opts.start < 0)) throw new Error("Start must be a finite non-negative number");
-  const compiled = opts.compiled ?? compileSlide(slide, deck.stage);
+  const compiled = opts.compiled ?? compileSlide(slide, deck.stage, { ...deck, modelAsset: opts.modelAsset });
+  const mode = opts.mode ?? (!posterVideo && isWholeElementRef(sourceRef) && isWholeElementRef(ref) && target.type !== "plot" && target.type !== "image" && target.type !== "model3d" && (!target.groupId || !slide.groups?.[target.groupId]) ? "consume" : "handoff");
+  const existing = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && trackKey(t) === targetKey(sourceRef));
+  const timing = {
+    ...(!existing ? { duration: opts.duration ?? defaultTimingFor("transform").duration, easing: opts.easing ?? defaultTimingFor("transform").easing, start: opts.start ?? 0 } : {}),
+    ...(opts.duration != null ? { duration: opts.duration } : {}),
+    ...(opts.easing !== undefined ? { easing: opts.easing } : {}),
+    ...(opts.curve !== undefined ? { curve: opts.curve } : {}),
+    ...(opts.influence !== undefined ? { influence: opts.influence } : {}),
+    ...(opts.start != null ? { start: opts.start } : {}),
+  };
+  if (mode === "handoff") {
+    const destination = compiled.resolveTarget(ref, bi), sources = compiled.resolveTarget(sourceRef, bi);
+    if (!destination.length) throw new Error("Destination parts not found. Retarget this Become.");
+    if (!sources.length) throw new Error("Source parts not found. Retarget this Become.");
+    const ids = new Set([...sources, ...destination].map(t => t.elementId));
+    if (!posterVideo && slide.elements.some(e => ids.has(e.id) && e.type === "video")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
+    // Preserve the source's effective style/anchor timing when replacing its
+    // endpoint. resolvedSlide retains disabled tracks, which Become re-enables.
+    const resolvedExisting = existing && compiled.resolvedSlide.beats[bi]?.tracks.find(t => t.id === existing.id);
+    const start = opts.start ?? resolvedExisting?.start ?? existing?.start ?? 0;
+    const unborn = compiled.births.filter(b => !b.enabled || b.beat > bi || b.beat === bi && b.start > start);
+    if (unborn.some(b => destination.some(t => t.elementId === b.target))) throw new Error("The destination is not yet born at this step. Choose a later step.");
+    if (unborn.some(b => sources.some(t => t.elementId === b.target))) throw new Error("The source is not yet born at this step. Choose a later step.");
+    for (const other of slide.beats[bi].tracks) {
+      if (other === existing || other.disabled || other.preset !== "transform" || !isHandoff(other)) continue;
+      if (handoffTargetsOverlap(destination, compiled.resolveTarget(other.to.become.ref, bi)))
+        throw new Error("Another hand-off in this step already lands on these destination parts. Choose different parts or another step.");
+    }
+    const track = setTransform(deck, slideId, beatId, sourceId, { ref: sourceRef, state: {}, replaceState: true, ...timing })!;
+    track.to = { become: { ref: structuredClone(ref), mode: "handoff", pair: opts.pair ?? "auto", reveal: opts.reveal ?? "flip" }, state: {} };
+    delete track.disabled;
+    return { trackId: track.id!, ref: structuredClone(ref), ...modelBecomeResult(compiled.preState(sourceId, bi) ?? source, compiled.preState(targetId, bi) ?? target, { ...deck, modelAsset: opts.modelAsset }) };
+  }
+  if (!isWholeElementRef(sourceRef) || !isWholeElementRef(ref)) throw new Error("Consume requires whole objects, without parts or groups. Use hand-off instead.");
   if (compiled.births.some((b) => b.target === targetId)) throw new Error("A ghost copy cannot be a Become target. Duplicate it into an ordinary object first.");
   const frame = compiled.sample(bi);
   if (frame.presentation.unbornElementIds?.includes(sourceId)) throw new Error("The source is not yet born at this step. Choose a later step.");
@@ -1052,20 +1373,16 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   const evaluated = frame.elements.find((e) => e.id === targetId) ?? target;
   const endEl = withGhostIdentity(sourceAt(compiled.resolvedSlide, targetId, bi + 1, evaluated), source);
   const state = diffState(pre, endEl) ?? {};
-  const existing = slide.beats[bi].tracks.find((t) => t.target === sourceId && familyOf(t) === "transform");
   const track = setTransform(deck, slideId, beatId, sourceId, {
-    state, replaceState: true,
-    ...(!existing ? { duration: opts.duration ?? 600, easing: opts.easing ?? "smooth", start: opts.start ?? 0 } : {}),
-    ...(opts.duration != null ? { duration: opts.duration } : {}),
-    ...(opts.easing != null ? { easing: opts.easing } : {}),
-    ...(opts.start != null ? { start: opts.start } : {}),
+    state, replaceState: true, ...timing,
   })!;
   delete track.disabled;
-  if (endEl.type === "plot" || endEl.type === "image") {
+  if (endEl.type === "plot" || endEl.type === "image" || endEl.type === "model3d") {
     track.to = track.to ?? {};
     track.to.assetId = endEl.assetId;
-    setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" ? endEl.source ?? null : null });
+    setTransform(deck, slideId, beatId, sourceId, { source: endEl.type === "plot" || endEl.type === "model3d" ? endEl.source ?? null : null });
   } else clearTransformContent(track);
+  track.to!.become = { ref: structuredClone(ref), mode: "consume" };
   // consume the target: its element, every effect on it, and its group slots
   // (ghost copies born FROM the target keep their saved fallback and report
   // the missing source, exactly as when a source is deleted by hand)
@@ -1075,15 +1392,63 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceId: I
   }
   slide.elements = slide.elements.filter((e) => e.id !== targetId);
   gcGroups(slide as unknown as Figure);
-  return { trackId: track.id!, targetId, state };
+  return { trackId: track.id!, targetId, state, ...modelBecomeResult(pre, endEl, { ...deck, modelAsset: opts.modelAsset }) };
+}
+
+/** Destination-side authoring of exactly the same source-owned hand-off. */
+export function appearFrom(deck: Deck, slideId: Id, beatId: Id, dest: TargetRef, source: TargetRef | Id, opts: BecomeOptions = {}): BecomeResult | null {
+  return becomeTransform(deck, slideId, beatId, source, dest, { ...opts, mode: "handoff" });
+}
+
+/** Reverse a hand-off atomically, retaining authored timing/style and followers.
+ * Geometry is supplied by the host, just as for compileSlide's plot diagnostics. */
+export function swapBecome(deck: Deck, slideId: Id, trackId: Id, opts: CompileOptions = {}): Id {
+  const slide = slideById(deck, slideId);
+  const bi = slide?.beats.findIndex(b => b.tracks.some(t => t.id === trackId)) ?? -1;
+  const track = slide?.beats[bi]?.tracks.find(t => t.id === trackId);
+  if (!slide || !track || track.preset !== "transform" || !isHandoff(track)) throw new Error("Choose a hand-off Become to swap direction.");
+  const spec = track.to.become;
+  if (spec.ref.group) throw new Error("Groups cannot be Become sources. Choose an object or plot parts.");
+  if (track.ghostFrom) throw new Error("This track creates a ghost. Keep its birth and author a reverse hand-off in a later step.");
+  if (slide.beats[bi].tracks.some(other => other.id !== trackId && familyOf(other) === "transform" && sameRef(trackRef(other), spec.ref)))
+    throw new Error("The destination already has a transform in this step.");
+  const options = { ...opts, animStyles: deck.animStyles };
+  const compiled = compileSlide(slide, deck.stage, options);
+  if (!targetOutlines(spec.ref, compiled.sample(bi), { manifest: opts.plotManifest ?? (() => undefined), plotRoot: opts.plotRoot ?? (() => undefined), groups: slide.groups }).length)
+    throw new Error("The destination has no outline. Choose another object or plot part.");
+  const resolved = compiled.resolvedSlide.beats[bi].tracks.find(t => t.id === trackId)!;
+  // Finish all admission checks on private beats before publishing any mutation.
+  const candidate = { ...slide, beats: structuredClone(slide.beats) };
+  const work = { ...deck, slides: [candidate] };
+  const beat = candidate.beats[bi], groups = beat.groups;
+  removeTracks(work, slideId, [trackId]);
+  const result = becomeTransform(work, slideId, beat.id, spec.ref, trackRef(track), {
+    mode: "handoff", pair: spec.pair, reveal: spec.reveal,
+    start: resolved.start ?? 0, duration: trackDuration(resolved), easing: resolved.easing,
+    compiled: compileSlide(candidate, deck.stage, options),
+  });
+  if (!result) throw new Error("This hand-off cannot be reversed.");
+  const reverse = beat.tracks.find(t => t.id === result.trackId)!;
+  const { target, part, parts, selector, to, id, ...how } = track;
+  setAnimation(work, slideId, beat.id, { ...how, target: reverse.target, part: reverse.part, parts: reverse.parts,
+    selector: reverse.selector, to: reverse.to, id: result.trackId });
+  beat.groups = groups;
+  for (const follower of beat.tracks) if (follower.anchor?.trackId === trackId)
+    setTrackAnchor(work, slideId, follower.id!, { ...follower.anchor, trackId: result.trackId });
+  slide.beats = candidate.beats;
+  return result.trackId;
 }
 
 /** The cascade-editable timing fields of one track at session start. */
 export interface TrackCascadeBaseline {
+  curve?: Curve;
+  easing?: EasingToken;
+  anchor?: Track["anchor"];
   start?: number;
   duration?: number;
   influence?: Influence;
   stagger?: Stagger;
+  arc?: number;
 }
 
 /** Cascade one timing property across the given tracks of one slide: the
@@ -1119,22 +1484,30 @@ export function cascadeTracks(
     if (!t.id) continue;
     if (!base.has(t.id))
       base.set(t.id, {
+        anchor: t.anchor ? { ...t.anchor } : undefined,
         start: t.start,
         duration: t.duration,
+        curve: t.curve ? structuredClone(t.curve) : undefined,
+        easing: t.easing,
         influence: t.influence ? { ...t.influence } : undefined,
         stagger: t.stagger ? { ...t.stagger } : undefined,
+        arc: t.arc,
       });
     const b0 = base.get(t.id)!;
+    if (b0.arc === undefined) delete t.arc; else t.arc = b0.arc;
+    if (b0.anchor === undefined) delete t.anchor; else t.anchor = { ...b0.anchor };
     if (b0.start === undefined) delete t.start;
     else t.start = b0.start;
     if (b0.duration === undefined) delete t.duration;
     else t.duration = b0.duration;
+    if (b0.curve === undefined) delete t.curve; else t.curve = structuredClone(b0.curve);
+    if (b0.easing === undefined) delete t.easing; else t.easing = b0.easing;
     if (b0.influence === undefined) delete t.influence;
     else t.influence = { ...b0.influence };
     if (b0.stagger === undefined) delete t.stagger;
     else t.stagger = { ...b0.stagger };
   }
-  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property === "stagger.perMs" ? !!t.stagger : true));
+  let list = found.filter(({ t }) => (familyOf(t) !== "media" || spec.property === "start") && (spec.property !== "curve.bounce" || resolveTrack(t, deck).curve?.kind === "spring") && (spec.property.startsWith("stagger.") ? !!resolveTrack(t, deck).stagger : spec.property === "arc" ? familyOf(t) === "transform" : true));
   if (spec.order === "list") {
     const pos = new Map(trackIds.map((id, i) => [id, i] as const));
     list.sort((a, b) => (pos.get(a.t.id!) ?? 0) - (pos.get(b.t.id!) ?? 0));
@@ -1145,13 +1518,14 @@ export function cascadeTracks(
   for (let rank = 0; rank < list.length; rank++) {
     const t = list[rank].t;
     const step = stepOf(rank, spec.firstFixed);
-    const b0 = base.get(t.id!)!;
+    const b0 = resolveTrack(t, deck);
     switch (spec.property) {
       case "start":
-        t.start = clampTrackValue("start", cascadeValue(b0.start ?? 0, spec, step));
+        if (t.anchor) t.anchor.offsetMs = cascadeValue(t.anchor.offsetMs ?? 0, spec, step);
+        else t.start = clampTrackValue("start", cascadeValue(b0.start ?? 0, spec, step));
         break;
       case "duration":
-        t.duration = clampTrackValue("duration", cascadeValue(b0.duration ?? trackDuration(t), spec, step));
+        t.duration = clampTrackValue("duration", cascadeValue(trackDuration(b0), spec, step));
         break;
       case "influence.in":
       case "influence.out": {
@@ -1159,13 +1533,22 @@ export function cascadeTracks(
         const inf: Influence = { in: b0.influence?.in ?? 0, out: b0.influence?.out ?? 0 };
         inf[side] = clampTrackValue(spec.property, cascadeValue(inf[side], spec, step));
         // Both zero ⇒ no velocity profile at all (PropertiesPane parity).
-        if (!inf.in && !inf.out) delete t.influence;
-        else t.influence = inf;
+        setTrackCurve(deck, slideId, t.id!, !inf.in && !inf.out ? null : { influence: inf });
         break;
       }
+      case "curve.bounce": {
+        if (b0.curve?.kind === "spring") setTrackCurve(deck, slideId, t.id!, {
+          ...b0.curve, bounce: clampTrackValue("curve.bounce", cascadeValue(b0.curve.bounce, spec, step)),
+        });
+        break;
+      }
+      case "arc":
+        setTrackArc(t, clampTrackValue("arc", cascadeValue(b0.arc ?? 0, spec, step)));
+        break;
+      case "stagger.totalMs":
       case "stagger.perMs": {
-        const st = b0.stagger!;
-        t.stagger = { ...st, perMs: clampTrackValue("stagger.perMs", cascadeValue(st.perMs, spec, step)) };
+        const key = spec.property === "stagger.totalMs" ? "totalMs" : "perMs";
+        t.stagger = patchStagger(b0.stagger, { [key]: clampTrackValue(spec.property, cascadeValue(b0.stagger?.[key] ?? 0, spec, step)) });
         break;
       }
     }
@@ -1185,10 +1568,8 @@ export function removeAnimation(
   // Deliberately FAMILY-BLIND (unlike tracksMatch): "remove the animation on
   // this object/part" means every family — an appearance and its sibling
   // transform both go. Family scoping exists for add/replace, not removal.
-  const sameSig = (t: Track) =>
-    t.target === match.target &&
-    (t.part ?? "") === (match.part ?? "") &&
-    JSON.stringify(t.selector ?? null) === JSON.stringify(match.selector ?? null);
+  const want = trackKey({ target: match.target, part: match.part, selector: match.selector });
+  const sameSig = (t: Track) => trackKey(t) === want;
   ensureTrackIds(deck);
   removeTracks(deck, slideId, b.tracks.filter(sameSig).flatMap(t => t.id ? [t.id] : []));
 }
@@ -1277,18 +1658,23 @@ export function ensureTrackIds(deck: Deck): Deck {
   return deck;
 }
 
-/** 0.2/0.3/0.4 → 0.5: a pure stamp — older decks contain no video additions.
- *  Existing element/timeline behavior is preserved without identity rewrites.
+/** 0.2/0.3/0.4/0.5 → 0.6: a version stamp — older decks contain none of the
+ *  0.5 video or 0.6 animation-v2 additions, and every 0.6 field is additive.
+ *  Legacy morph names normalize below. Unknown legacy easing strings are
+ *  dropped so the player's fallback survives the stricter disk enum.
  *  Anything else (0.1.x, garbage) passes through untouched and fails
  *  validation downstream exactly as before. Mutates + returns. */
 export function migrateDeck(deck: Deck): Deck {
-  if (typeof deck?.schemaVersion === "string" && /^0\.[234]\./.test(deck.schemaVersion)) {
+  if (typeof deck?.schemaVersion === "string" && /^0\.[2345]\./.test(deck.schemaVersion)) {
     deck.schemaVersion = DECK_SCHEMA_VERSION;
   }
   // The legacy data-space `morph` preset IS a transform (Become, content
   // half only). Normalize the name; keep the authored timing (its old default
   // duration was 1200 ms) so playback is byte-for-byte the same motion.
   for (const s of deck?.slides ?? []) for (const b of s.beats ?? []) for (const t of b.tracks ?? []) {
+    // Legacy hand-written strings used the player's fallback. Keep the disk
+    // enum strict without quarantining those otherwise valid decks.
+    if (typeof t.easing === "string" && !EASING_TOKENS.includes(t.easing)) delete t.easing;
     if ((t.preset as string) === "morph") {
       t.preset = "transform";
       if (t.duration == null) t.duration = 1200;
@@ -1296,12 +1682,15 @@ export function migrateDeck(deck: Deck): Deck {
       if (!t.to.state) t.to.state = {};
     }
   }
+  for (const style of deck?.animStyles ?? []) {
+    if (typeof style.track?.easing === "string" && !EASING_TOKENS.includes(style.track.easing)) delete style.track.easing;
+  }
   return deck;
 }
 
 /** THE deck-load chokepoint — every seam that reads a deck from disk (GUI
- *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2/0.3/0.4 →
- *  0.5 stamp) then id normalization. A 0.1.x deck is untouched here and
+ *  slideBridge.readDeck, flux-core loadDeck) runs this: migrate (0.2–0.5 →
+ *  0.6 stamp) then id normalization. A 0.1.x deck is untouched here and
  *  fails validation downstream (quarantine — the sanctioned clean break);
  *  newer-than-ours files are refused earlier by the forward-version guard. */
 export function normalizeDeck(deck: Deck): Deck {

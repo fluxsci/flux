@@ -1,5 +1,12 @@
 <script lang="ts">
+  import { appendCommentMessage } from "../../../lib/project/comments";
+  import { yieldsToShellModal, isAnnotateChord } from "../../agent/annotationVisibility";
+
+  import { paperHeading } from "../../../lib/bridge/contextStamp";
+  import { registerPaperTargets, nearestHeading } from "./paperTargets";
   import { onMount, onDestroy } from "svelte";
+  import { registerCommentOwner } from "../../../lib/project/commentBridge";
+  import { commentsSidecarRels } from "../../../lib/project/docOrder";
   import { get } from "svelte/store";
   import { EditorView } from "@codemirror/view";
   import { projectModel } from "../../shellStore";
@@ -31,7 +38,7 @@
   import { paperPaletteRequest, openDocRequest } from "../../command/commandBus";
   import { contextCommands } from "../../command/globalCommands";
   import { makePaperSelectionWatcher } from "./paperContext";
-  import { setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
+  import { paperSelection, setPaperContextDoc, publishPaperSelection } from "../../../lib/project/paperSelectionStore";
   import { paperLayout } from "./view-mode/paperLayoutStore";
   import { paperTextScale } from "./view-mode/paperTextScaleStore";
   import {
@@ -111,6 +118,7 @@
   import FigurePicker from "./scholar/FigurePicker.svelte";
   import SlidePicker from "./scholar/SlidePicker.svelte";
   import { createSlideRepository, type SlideRepository } from "../../../lib/slide/embedRepository";
+  import { slideModelPosterIO } from "../../../lib/slide/model3dPosterIO";
   import { newSlideEmbed, planSlideInsertion, serializeSlideEmbed, parseSlideEmbed, type SlideEmbedRef } from "../../../lib/slide/embed";
   import { slideEmbeds, resetSlidePlayback } from "./science/slideEmbeds";
   import { requestOpenSlide } from "../../command/commandBus";
@@ -124,7 +132,6 @@
   import { createRefReveal } from "./margin/refReveal";
   import { BG_SOURCES, rerollBgSeed } from "./margin/bgSources";
   import { settings } from "../../../lib/settings";
-  import * as terminalSession from "../../terminal/terminalSession";
   import { writeCiteGroup, removeCite as removeCiteOp, citationGroupAt } from "./scholar/citeOps";
   import PreviewPane from "./render/PreviewPane.svelte";
   import { renderManuscript, captureManuscriptSnapshot } from "./render/renderManuscript";
@@ -211,6 +218,7 @@
     get(settings).paperLocalCorrections ? "loading" : "off",
   );
   let outline = $state<OutlineItem[]>([]);
+  $effect(() => { if (focused) paperHeading.set(nearestHeading(outline, $paperSelection?.from ?? 0)); });
   // PAP-7: a debounced mirror of `latest` for the whole-document passes that feed only
   // cosmetic/occasional UI — the TOC (a full syntax-tree walk) and the cited-key red-dots
   // (a regex over the whole document). These don't need to run on every keystroke; recompute
@@ -703,7 +711,7 @@
   function submitNew(id: string, body: string) {
     threads = threads.map((t) =>
       t.id === id
-        ? { ...t, draft: false, messages: [{ author: commentAuthor, body, createdAt: new Date().toISOString() }] }
+        ? { ...t, draft: false, messages: [{ author: commentAuthor, body, createdAt: new Date().toISOString(), kind: "human" as const }] }
         : t,
     );
     scheduleCommentSave();
@@ -714,12 +722,18 @@
     if (activeComment === id) activeComment = null;
     syncRanges();
   }
+  $effect(() => {
+    const root = pm?.root, doc = activeDocPath;
+    if (!root || !doc || !ready) return;
+    return registerCommentOwner(root, doc, async (id, intent) => {
+      if (intent.kind === "reply") replyComment(id, intent.body);
+      else reopenComment(id);
+      await flushComments();
+    });
+  });
   function replyComment(id: string, body: string) {
-    threads = threads.map((t) =>
-      t.id === id
-        ? { ...t, messages: [...t.messages, { author: commentAuthor, body, createdAt: new Date().toISOString() }] }
-        : t,
-    );
+    // The same pure append the headless inbox uses (twin rule); `kind` tells the inbox a human answered.
+    threads = appendCommentMessage({ version: 1, threads }, id, { author: commentAuthor, body, createdAt: new Date().toISOString(), kind: "human" }).threads;
     scheduleCommentSave();
   }
   function resolveComment(id: string) {
@@ -1399,9 +1413,6 @@
   });
 
   onMount(async () => {
-    // PAP-17: the integrated terminal is an app-lifetime singleton with a fixed cwd. Retire any
-    // shell left over from a different project so it can't run commands in the wrong directory.
-    void terminalSession.syncRoot(pm?.root ?? null);
     if (pm) {
       await refreshDocuments();
       if (disposed) return;
@@ -1433,7 +1444,7 @@
     const slideIO = fileBridge();
     if (pm && slideIO) {
       const root = pm.root;
-      slideRepo = createSlideRepository(root, { ...slideIO,
+      slideRepo = createSlideRepository(root, { ...slideIO, ...slideModelPosterIO(root, slideIO, { scope: `paper-slide-posters:${root}`, isCurrent: () => !disposed && pm?.root === root }), modelData: 'omit',
         ...(slideIO.videoMediaUrl ? { videoUrl: (path: string) => slideIO.videoMediaUrl!({ root, path: path.replace(/\\/g, "/").slice(root.replace(/\\/g, "/").replace(/\/$/, "").length + 1) }) } : {}),
         prepareDeck: async id => {
         const { prepareEmbeddedDeck } = await import("../../../lib/project/slideBridge");
@@ -1643,7 +1654,11 @@
     });
   }
 
+  let unregisterTargets: (() => void) | undefined;
+  onDestroy(() => unregisterTargets?.());
   function onReady(v: EditorView) {
+    unregisterTargets?.();
+    unregisterTargets = registerPaperTargets(v, () => activeDocPath, () => outline, () => focused);
     view = v;
     // Dual-paper: this editor's widget handlers key off its DOM root.
     unregHandlers?.();
@@ -2030,18 +2045,6 @@
     refreshIdleNow(); // external reload is immediate, not debounced
     reanchorComments(); // PAP-4: re-attach comment marks to the new text (calls syncRanges)
   }
-  // The active document's comments sidecar (mirrors flux-core commentsRel /
-  // comments.ts commentsPath): main doc → comments.json, others → <base>.comments.json.
-  function commentsSidecarRel(): string {
-    const mainPath = pm ? commentsMainPath(pm.manifest) : "";
-    const mp = activeDocPath;
-    const dir = mp.includes("/") ? mp.slice(0, mp.lastIndexOf("/")) : "";
-    const isMain = mp === mainPath;
-    const base = mp.slice(mp.lastIndexOf("/") + 1).replace(/\.(qmd|md)$/, "");
-    const name = isMain ? "comments.json" : `${base}.comments.json`;
-    return dir ? `${dir}/${name}` : name;
-  }
-
   // F1 live reload for review comments: an external resolve/edit to the active
   // doc's comments.json refreshes the margin in place. Non-destructive — skipped
   // while the human is composing a draft, so in-progress work is never clobbered.
@@ -2068,7 +2071,7 @@
     if (!chg || !pm || documentBusy) return;
     await refreshDocuments();
     if (!view || !activeDocPath) return;
-    if (chg.path.endsWith(commentsSidecarRel())) {
+    if (commentsSidecarRels(pm.manifest, activeDocPath).some(rel => chg.path.endsWith(rel))) {
       await reloadCommentsFromDisk(); // comments sidecar changed → refresh margin in place
       return;
     }
@@ -2449,7 +2452,7 @@
   }
   const commands = $derived<Command[]>([
     ...paletteFromTable(cmdCtx),
-    // Context/agent commands (principal-agent scheme) — same set as the shell
+    // Context/agent commands — same set as the shell
     // GlobalPalette, but opening docs stays in-pane via loadDocument.
     ...contextCommands({ inPaper: true, openDoc: (rel) => void loadDocument(rel) }),
     ...[25, 50, 75, 100, null].map((pct) => ({
@@ -2484,7 +2487,7 @@
   ]);
 
   // Shell-routed requests (commandBus): the shell owns Ctrl+K and forwards it
-  // here while Paper is focused; palette "Open mission/notebook/rules" from any
+  // here while Paper is focused; palette "Open project context/notebook/rules" from any
   // mode lands as an openDocRequest.
   // Dual-paper: only the FOCUSED pane acts on shell-routed requests — both
   // panes would otherwise toggle their palettes / load the doc. The counters
@@ -2500,11 +2503,24 @@
   });
   $effect(() => {
     const req = $openDocRequest;
-    if (req && req.n !== seenDocReq && ready && (view || blockedByTwin) && focused) {
+    if (!req || !ready || !focused) return;
+    const claimer = paneEditingDoc(req.path, paneId);
+    if (claimer) { focusPane(claimer); return; }
+    if (req.n !== seenDocReq) {
       seenDocReq = req.n;
-      openDocRequest.set(null);
       void loadDocument(req.path);
     }
+    // A newly loaded document creates its EditorView on the next mount.
+    if (!view || activeDocPath !== req.path || blockedByTwin) return;
+    if (req.from !== undefined) {
+      const text = view.state.doc.toString();
+      const resolved = req.quote ? resolveAnchor(text, { start: req.from, end: req.to ?? req.from, quote: req.quote, prefix: "", suffix: "" }) : null;
+      const from = resolved?.from ?? Math.max(0, Math.min(text.length, req.from));
+      const to = resolved?.to ?? Math.max(from, Math.min(text.length, req.to ?? from));
+      view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: "center" }) });
+      view.focus();
+    }
+    openDocRequest.set(null);
   });
 
   $effect(() => {
@@ -2514,9 +2530,11 @@
     // own command, making the left-panel toggle fail on the first press.
     // Keep overlays/search inputs on their ordinary bubbling route.
     const capturePaneCommand = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       if (e.target instanceof Node && view?.contentDOM.contains(e.target) && dispatchWindowKey(e, cmdCtx)) e.stopPropagation();
     };
     const h = (e: KeyboardEvent) => {
+      if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
       // Table-driven chords first (view toggle, margin panes, …).
       if (dispatchWindowKey(e, cmdCtx)) return;
       // Esc layering guards — MODAL, kept verbatim (not commands).

@@ -11,8 +11,11 @@
 // never ships in a production build.
 
 import { scaffoldProject } from "./scaffold";
-import { joinPath, type FileBridge } from "./types";
+import { joinPath, type FileBridge, type RunnerCapability, type RunnerEvent, type RunnerPayload, type RunnerStart } from "./types";
+import type { Model3dImportRequest, Model3dImportResult, Model3dImportOwnership } from '../model3d/importData';
+import { GLB_LIMITS } from '../model3d/glbCore.mjs';
 
+const sha256 = async (bytes:Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes).buffer)),b=>b.toString(16).padStart(2,"0")).join("");
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -31,13 +34,31 @@ function baseOf(p: string): string {
 
 /** A minimal in-memory file system implementing the FileBridge contract. */
 export function createMemBridge(): FileBridge & {
+  _runnerCalls: { method: string; options: unknown }[];
+  _emitRunnerEvent: (runId: string, event: RunnerPayload) => void;
+  /** Gates pin "no installed CLI" (or a subset) before the first probe. */
+  _setRunnerCapabilities: (caps: RunnerCapability[]) => void;
   _files: Map<string, Uint8Array>;
   _dirs: Set<string>;
   _emitFsChange: (info: { subsystem: string; path: string }) => void;
 } {
+  const runnerCalls: { method: string; options: unknown }[] = [];
+  let runnerCaps: RunnerCapability[] = [
+    { driver: "claude", detected: true, available: true, version: "fixture", model: true, effort: true },
+    { driver: "codex", detected: true, available: true, version: "fixture", model: true, effort: true },
+  ];
+  const runnerEvents = new Set<(event: RunnerEvent) => void>();
+  const runs = new Map<string, { seq: number; options: RunnerStart }>();
+  const emitRunner = (runId: string, event: RunnerPayload) => {
+    const run = runs.get(runId); if (!run) return;
+    const normalized = { ...event, runId, seq: ++run.seq };
+    for (const cb of runnerEvents) cb(normalized);
+  };
   const files = new Map<string, Uint8Array>();
   const dirs = new Set<string>(["/"]);
   const fsListeners = new Set<(info: { subsystem: string; path: string }) => void>();
+  let watchedRoot: string | null | undefined, watchGeneration = 0;
+  const modelImports = new Map<string, { root: string; generation: number; state: 'pending' | 'canceled'; target: Model3dImportRequest['target']; document: string; result: Model3dImportResult; paths: string[] }>();
 
   const addDir = (p: string) => {
     let cur = norm(p);
@@ -49,7 +70,113 @@ export function createMemBridge(): FileBridge & {
   };
   const ensureParent = (p: string) => addDir(parentOf(p));
 
+  async function importMemModel(request: Model3dImportRequest, dropped?: File): Promise<Model3dImportResult> {
+    const root = norm(request.root), generation = watchGeneration;
+    const assertOwner = () => {
+      if (!root || (watchedRoot !== undefined && watchedRoot !== root) || generation !== watchGeneration) throw new Error('The project changed while importing the model');
+    };
+    assertOwner();
+    if (!['figure', 'slide'].includes(request.target?.kind) || Object.keys(request.target).some(k => k !== 'kind' && !(request.target.kind === 'slide' && k === 'deckId'))) throw new Error('3D import requires a Figure or slide target');
+    const documentBytes = files.get(`${root}/project.json`);
+    if (!documentBytes) throw new Error('Save the project before importing a 3D model');
+    const document = JSON.parse(dec.decode(documentBytes));
+    let prefix = typeof document.schemaVersion === 'string' ? 'fig' : document.version === 2 && Array.isArray(document.figures) ? '' : null;
+    if (prefix === null) throw new Error('Unrecognized Figure project format');
+    let documentPath = joinPath(root, prefix ? 'fig/index.json' : 'project.json');
+    const assertDestination = () => {
+      if (request.target.kind !== 'slide') return;
+      const id = request.target.deckId;
+      if (typeof id !== 'string' || !/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]{0,180}$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)) throw new Error('Unsafe model deck id');
+      const relative = `slides/${id}/deck.json`;
+      const currentBytes = files.get(`${root}/project.json`), currentDocument = currentBytes ? JSON.parse(dec.decode(currentBytes)) : undefined;
+      if (typeof currentDocument?.schemaVersion !== 'string' || !currentDocument.slides?.some((d: {id:string;path:string}) => d.id === id && d.path === relative)) throw new Error('The model destination deck is not registered in this project');
+      documentPath = joinPath(root, relative);
+      const saved = files.get(documentPath), deck = saved ? JSON.parse(dec.decode(saved)) : undefined;
+      if (deck?.id !== id || !/^0\.[23456]\./.test(deck.schemaVersion) || !Array.isArray(deck.slides)) throw new Error('The model destination deck cannot be edited by this Flux version');
+      prefix = `slides/${id}`;
+    }
+    assertDestination();
+    const sourcePath = norm(request.sourcePath);
+    if (!/\.glb$/i.test(dropped?.name ?? sourcePath)) throw new Error('Choose a binary .glb model file');
+    if (dropped && dropped.size > GLB_LIMITS.maxBytes) throw new Error(`GLB exceeds ${GLB_LIMITS.maxBytes / 1024 / 1024} MiB`);
+    const bytes = dropped ? new Uint8Array(await dropped.arrayBuffer()) : files.get(sourcePath);
+    if (!bytes) throw new Error(`Missing GLB source ${sourcePath}`);
+    const manifestPath = request.manifestPath ?? sourcePath.replace(/\.glb$/i, '.fluxplot.json');
+    const recipePath = request.recipePath ?? sourcePath.replace(/\.glb$/i, '.recipe.json');
+    const manifestText = !dropped && files.has(manifestPath) ? dec.decode(files.get(manifestPath)) : undefined;
+    const recipeText = !dropped && files.has(recipePath) ? dec.decode(files.get(recipePath)) : undefined;
+    const { prepareModel3dImport } = await import('../model3d/importData');
+    const prepared = await prepareModel3dImport({ bytes, assetId: `model-${crypto.randomUUID()}`, name: dropped?.name ?? baseOf(sourcePath), manifestText, recipeText });
+    assertOwner(); assertDestination();
+    const result: Model3dImportResult = { ...prepared.data, receipt: crypto.randomUUID(), assetPrefix: prefix,
+      source: { glbPath: sourcePath, ...(manifestText !== undefined ? { manifestPath } : {}), ...(recipeText !== undefined ? { recipePath } : {}), ...(dropped ? { frozen: true } : {}) } };
+    const directory = joinPath(root, prefix, 'assets'), paths: string[] = [];
+    const entries: [string, Uint8Array][] = [[`${directory}/${result.asset.id}.glb`, prepared.bytes]];
+    if (result.raw?.manifest !== undefined) entries.push([`${directory}/${result.asset.id}.fluxplot.json`, enc.encode(result.raw.manifest)]);
+    if (result.raw?.recipe !== undefined) entries.push([`${directory}/${result.asset.id}.recipe.json`, enc.encode(result.raw.recipe)]);
+    for (const [file] of entries) if (files.has(file)) throw new Error('Model import destination already exists');
+    for (const [file, content] of entries) { ensureParent(file); files.set(file, content); paths.push(file); }
+    modelImports.set(result.receipt, { root, generation, state: 'pending', target: structuredClone(request.target), document: documentPath, result, paths });
+    return result;
+  }
+  function ownedModel(request: Model3dImportOwnership) {
+    const item = modelImports.get(request.receipt);
+    if (!item || item.root !== norm(request.root) || request.target?.kind !== item.target.kind || (request.target.kind === 'slide' && item.target.kind === 'slide' && request.target.deckId !== item.target.deckId) || item.result.asset.id !== request.assetId) throw new Error('Unknown or already adopted model import receipt');
+    return item;
+  }
+
   return {
+    importModel3d: request => importMemModel(request),
+    importDroppedModel3d: (file, request) => importMemModel({ ...request, sourcePath: file.name }, file),
+    async adoptModel3d(request) {
+      const item = ownedModel(request);
+      if (item.state !== 'pending') throw new Error('This model import was canceled and cannot be adopted');
+      modelImports.delete(request.receipt);
+      if ((watchedRoot !== undefined && watchedRoot !== item.root) || watchGeneration !== item.generation) throw new Error('The project changed before adopting the model; its files were retained');
+    },
+    async discardModel3d(request) {
+      const item = ownedModel(request);
+      item.state = 'canceled';
+      const docPath = item.document;
+      const savedBytes = files.get(docPath);
+      if (savedBytes && JSON.parse(dec.decode(savedBytes)).assets?.some((a: { id: string }) => a.id === request.assetId)) throw new Error('This model is already saved in the project');
+      for (const file of item.paths) files.delete(file);
+      modelImports.delete(request.receipt);
+    },
+    async model3dSourceFingerprint(request) {
+      if (watchedRoot !== undefined && norm(request.root) !== watchedRoot) throw new Error('The source project changed');
+      const source = files.get(norm(request.sourcePath));
+      if (!source) throw new Error(`ENOENT: ${request.sourcePath}`);
+      if (source.length > 200 * 1048576) throw new Error('3D source exceeds 200 MiB');
+      const hash = async (path?: string) => { const bytes = path ? files.get(norm(path)) : undefined; if (bytes && bytes.length > 4 * 1048576) throw new Error('3D manifest exceeds 4 MiB'); return bytes ? sha256(bytes) : null; };
+      return { sourceSha256: await sha256(source), manifestHash: await hash(request.manifestPath), storedManifestHash: await hash(request.storedManifestPath) };
+    },
+    async model3dAvailability() { return { disabled: false }; },
+    _runnerCalls: runnerCalls,
+    _emitRunnerEvent: emitRunner,
+    _setRunnerCapabilities: (caps) => { runnerCaps = caps; },
+    async runnerCapabilities() { return runnerCaps.map(c => ({ ...c })); },
+    async runnerStart(options) {
+      const runId = crypto.randomUUID(), driver = options.driver ?? "claude";
+      runnerCalls.push({ method: "start", options: { ...options, runId } });
+      runs.set(runId, { seq: 0, options });
+      queueMicrotask(() => emitRunner(runId, { type: "session", sessionId: "fixture-session" }));
+      return { runId, driver };
+    },
+    async runnerSend(options) {
+      if (!runs.has(options.runId)) throw new Error("Unknown fixture run");
+      runnerCalls.push({ method: "send", options });
+      emitRunner(options.runId, { type: "status", state: "running" });
+    },
+    async runnerRespond(options) {
+      runnerCalls.push({ method: "respond", options });
+      emitRunner(options.runId, { type: "permission.closed", permissionId: options.permissionId });
+    },
+    async runnerCancel(options) {
+      runnerCalls.push({ method: "cancel", options });
+      emitRunner(options.runId, { type: "status", state: "cancelled" }); runs.delete(options.runId);
+    },
+    onRunnerEvent(cb) { runnerEvents.add(cb); return () => runnerEvents.delete(cb); },
     _files: files,
     _dirs: dirs,
     // Dev-only: lets the headless harness simulate an external (agent) fs change.
@@ -74,7 +201,9 @@ export function createMemBridge(): FileBridge & {
       const blob = await c.convertToBlob({ type: "image/png" });
       return { png: new Uint8Array(await blob.arrayBuffer()), width: w, height: h };
     },
-    watchRoot() {
+    watchRoot(root) {
+      const next = root === null ? null : norm(root);
+      if (next !== watchedRoot) { watchedRoot = next; watchGeneration++; }
       return true;
     },
     onFsChanged(cb) {
@@ -118,12 +247,26 @@ export function createMemBridge(): FileBridge & {
       if (!b) throw new Error(`ENOENT: ${p}`);
       return dec.decode(b);
     },
+    async readModelFile(p, root) {
+      const base = norm(root), key = norm(p);
+      if (!base || watchedRoot !== undefined && watchedRoot !== base) throw new Error('The project changed while reading the model');
+      if (!key.startsWith(`${base}/`) || key.split('/').some(part => part === '..')) throw new Error('Model file escapes the project');
+      const bytes = files.get(key); if (!bytes) throw new Error(`ENOENT: ${p}`);
+      if (bytes.byteLength > GLB_LIMITS.maxBytes) throw new Error('GLB exceeds 200 MiB');
+      return new Uint8Array(bytes).buffer;
+    },
     async readFile(p) {
       const b = files.get(norm(p));
       if (!b) throw new Error(`ENOENT: ${p}`);
       const ab = new ArrayBuffer(b.byteLength);
       new Uint8Array(ab).set(b);
       return ab;
+    },
+    async copyFileVerified(source, destination, expected) {
+      const bytes=files.get(norm(source)); if(!bytes) throw new Error(`ENOENT: ${source}`);
+      const hash=await sha256(bytes); if(expected!==undefined&&hash!==expected) throw new Error("Copy source hash changed");
+      const previous=files.get(norm(destination)); if(previous&&await sha256(previous)!==hash) throw new Error("Copy destination contains different bytes");
+      ensureParent(destination); files.set(norm(destination),new Uint8Array(bytes)); return hash;
     },
     async writeFile(p, data) {
       ensureParent(p);

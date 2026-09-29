@@ -9,10 +9,16 @@
 
 import type { FluxPlotManifest, PartNode } from "./types";
 import type { SemanticPlotElement, PartOverride } from "../types";
-import { drawablesUnder, buildPartIndex } from "./parse";
+import { drawablesUnder, buildPartIndex, partDomId, partIdFromDom } from "./parse";
 import { inferRole, labelForPart } from "./tree";
+import { parseStyleAttr } from "./paint";
 import { plotDom } from "./store";
 
+import type { Model3dElement, Scene3dManifest } from '../model3d/types';
+import { isScene3d, buildScene3dPartIndex, resolveScene3dPartStyle, scene3dPartLineage } from '../model3d/scene3d';
+export type SemanticElement = SemanticPlotElement | Model3dElement;
+export type SemanticManifest = FluxPlotManifest | Scene3dManifest;
+export function semanticPartIndex(manifest?: SemanticManifest) { return isScene3d(manifest) ? buildScene3dPartIndex(manifest) : buildPartIndex(manifest); }
 export type PartKind = "text" | "line" | "shape" | "container";
 
 // ---------------------------------------------------------------------------
@@ -30,7 +36,7 @@ export const TEXT_ROLES = new Set([
   "annotation",
 ]);
 export const LINEY_ROLES = new Set(["line", "reference-line", "gridline", "spine", "errorbar", "tick", "axis"]);
-export const CONTAINER_ROLES = new Set(["series", "plot-area", "figure", "legend", "legend-entry"]);
+export const CONTAINER_ROLES = new Set(["series", "plot-area", "figure", "legend", "legend-entry", "axis-group", "axes-group", "field-group"]);
 
 /** Kind from a role name alone (the X-Ray's original precedence: text →
  *  container → line → shape). For DOM-aware inference use partKind. */
@@ -46,20 +52,6 @@ const KNOWN_KINDS = new Set<string>(["text", "line", "shape", "container"]);
 // Whole-plot scaffolding: clicking these must keep dragging the WHOLE plot
 // (the plot would otherwise be un-draggable by its own background / frame).
 const SCAFFOLD_ROLES = new Set(["figure", "plot-area", "panel", "background", "axis"]);
-
-// --- tiny inline-style reader (linkedom-safe; mirrors derive.ts semantics) ---
-function parseStyleAttr(s: string | null | undefined): Map<string, string> {
-  const m = new Map<string, string>();
-  if (!s) return m;
-  for (const decl of s.split(";")) {
-    const i = decl.indexOf(":");
-    if (i < 0) continue;
-    const k = decl.slice(0, i).trim().toLowerCase();
-    const v = decl.slice(i + 1).trim();
-    if (k) m.set(k, v);
-  }
-  return m;
-}
 
 function q(s: string): string {
   return s.replace(/"/g, '\\"');
@@ -83,11 +75,12 @@ function findPartNode(manifest: FluxPlotManifest | undefined, partId: string): P
 
 /** The DOM node for a part: the LIVE mounted node when present (id prefixed
  *  per placement), else the pristine cached DOM's node (headless fallback). */
-export function partNode(el: SemanticPlotElement, partId: string): Element | null {
+export function partNode(el: SemanticElement, partId: string): Element | null {
   if (typeof document !== "undefined") {
-    const live = document.getElementById(`${el.id}__${partId}`);
+    const live = document.getElementById(partDomId(el.id, partId));
     if (live) return live as unknown as Element;
   }
+  if (el.type === "model3d") return null;
   const cached = plotDom.get(el.assetId);
   if (!cached) return null;
   return (cached as unknown as Element).querySelector?.(`[id="${q(partId)}"]`) ?? null;
@@ -111,14 +104,15 @@ function declaredFillOf(d: Element): string | null {
  *     fill:none → line, else shape); a drawable-less <g> is a container.
  */
 export function partKind(
-  manifest: FluxPlotManifest | undefined,
+  manifest: SemanticManifest | undefined,
   partId: string,
   node?: Element | null,
 ): PartKind {
   const dk = node?.getAttribute?.("data-kind");
   if (dk && KNOWN_KINDS.has(dk)) return dk as PartKind;
 
-  const info = buildPartIndex(manifest)[partId];
+  const info = semanticPartIndex(manifest)[partId];
+  if (isScene3d(manifest) && ["colorbar", "scalebar", "legend"].includes(info?.role ?? "")) return "text";
   const role = info?.role ?? inferRole(partId);
   if (TEXT_ROLES.has(role)) return "text";
   if (CONTAINER_ROLES.has(role)) return "container";
@@ -147,15 +141,15 @@ export function resolvePartId(
   manifest: FluxPlotManifest | undefined,
   node: Element | null,
   elementId: string,
+  index?: ReturnType<typeof buildPartIndex>,
 ): string | null {
-  const p = elementId + "__";
-  const idx = buildPartIndex(manifest);
+  const idx = index ?? buildPartIndex(manifest);
   let nearest: string | null = null;
   let el: Element | null = node;
   while (el) {
     const id = el.getAttribute?.("id");
-    if (id && id.startsWith(p)) {
-      const sem = id.slice(p.length);
+    const sem = id ? partIdFromDom(id, elementId) : null;
+    if (sem !== null) {
       if (nearest == null) nearest = sem;
       if (idx[sem]) return sem;
     }
@@ -230,10 +224,17 @@ function weightNum(v: string | undefined): number | undefined {
  * opacity falls back to the wrapper node's own declaration.
  */
 export function readPartStyle(
-  el: SemanticPlotElement,
+  el: SemanticElement,
   partId: string,
-  manifest?: FluxPlotManifest,
+  manifest?: SemanticManifest,
 ): PartStyleValues {
+  if (el.type === 'model3d') {
+    const source = isScene3d(manifest) ? manifest : undefined, style = resolveScene3dPartStyle(source, el.overrides, partId);
+    const part = source ? buildScene3dPartIndex(source)[partId] : undefined;
+    return { fill: part?.node ? el.modelColors === 'source' ? part.color ?? el.fill : el.fill : source?.style?.ink ?? '#222222', stroke: source?.style?.ink ?? '#222222', strokeWidth: (source?.style?.lineWidthPt ?? .5)*4/3,
+      opacity: 1, hidden: false, dx: 0, dy: 0, fontSize: (part?.role === 'title' ? source?.style?.titleSizePt ?? 8 : source?.style?.fontSizePt ?? 7)*4/3,
+      fontFamily: source?.style?.font ?? 'Inter', fontWeight: 400, fontStyle: 'normal', textDecoration: 'none', ...style };
+  }
   const node = partNode(el, partId);
   const kind = partKind(manifest, partId, node);
   const ov: PartOverride = el.overrides?.[partId] ?? {};
@@ -303,7 +304,8 @@ export function readPartStyle(
  *  › X axis › Tick labels › Tick label 3"). Member leaves get a synthesized
  *  final segment. Empty when the manifest has no parts tree or the id is not
  *  covered by it. */
-export function partBreadcrumb(manifest: FluxPlotManifest | undefined, partId: string): string[] {
+export function partBreadcrumb(manifest: SemanticManifest | undefined, partId: string): string[] {
+  if (isScene3d(manifest)) return ["3D model", ...scene3dPartLineage(buildScene3dPartIndex(manifest), partId).map(p => p.label ?? p.id)];
   const root = manifest?.parts as PartNode | undefined;
   if (!root || !root.role) return [];
   const path: string[] = [];
@@ -323,11 +325,11 @@ export function partBreadcrumb(manifest: FluxPlotManifest | undefined, partId: s
 
 /** Display label for a part id (extended part-index label, composed
  *  role · series · #index fallback, raw id last). */
-export function partDisplayLabel(manifest: FluxPlotManifest | undefined, partId: string): string {
-  const info = buildPartIndex(manifest)[partId];
+export function partDisplayLabel(manifest: SemanticManifest | undefined, partId: string): string {
+  const info = semanticPartIndex(manifest)[partId];
   if (!info) return partId;
   if (info.label) return info.label;
-  const composed = [info.role, info.series, info.index !== undefined ? `#${info.index}` : null]
+  const composed = [info.role, info.series, "index" in info && info.index !== undefined ? `#${info.index}` : null]
     .filter(Boolean)
     .join(" · ");
   return composed || partId;

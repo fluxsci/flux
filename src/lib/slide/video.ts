@@ -1,6 +1,7 @@
+import { beatDelayMs } from "./timing";
 /** Continuous single-slide timing. Pure: shared by settings, capture and CLI. */
 import type { Slide, StageSize } from "./types";
-import { videoContentEnd, videoEventsForPlan } from "./mediaTimeline";
+import { videoContentEnd, videoEventsForPlan, type MediaTimingContext } from "./mediaTimeline";
 
 export interface SlideVideoOptions {
   stepDelayMs: number;
@@ -32,7 +33,7 @@ export function cueEnd(slide: Slide, from: number): number {
 }
 export interface VideoCue { fromBeat: number; beat: number; start: number; duration: number }
 export interface VideoPlan { cues: VideoCue[]; durationMs: number; frameCount: number; fps: number; initialTime: number; lastBeat: number }
-export function planSlideVideo(slide: Slide, durations: number[], input: Partial<SlideVideoOptions> = {}): VideoPlan {
+export function planSlideVideo(slide: Slide, durations: number[], input: Partial<SlideVideoOptions> = {}, context: MediaTimingContext = {}): VideoPlan {
   const opts = videoOptions(input), cues: VideoCue[] = [];
   let time = opts.startHoldMs;
   const count = Math.max(1, slide.beats.length);
@@ -47,12 +48,12 @@ export function planSlideVideo(slide: Slide, durations: number[], input: Partial
     const end = cueEnd(slide, from), next = slide.beats[from];
     // Start hold controls the first cue; subsequent automatic cues retain their
     // authored delay. The export delay replaces a presenter's manual pause.
-    if (cues.length) time += next.advance === "auto" ? Math.max(0, next.autoDelayMs ?? 600) : opts.stepDelayMs;
+    if (cues.length) time += next.advance === "auto" ? beatDelayMs(next) : opts.stepDelayMs;
     const duration = Math.max(...Array.from({ length: end - from + 1 }, (_, i) => durationOf(from + i)));
     cues.push({ fromBeat: from, beat: end, start: time, duration }); time += duration;
     from = end + 1;
   }
-  time = videoContentEnd(slide, videoEventsForPlan(slide, { cues }), time) + opts.endHoldMs;
+  time = videoContentEnd(slide, videoEventsForPlan(slide, { cues }, context), time) + opts.endHoldMs;
   if (!Number.isFinite(time) || time > 30 * 60 * 1000) throw new Error("A single-slide video must be shorter than 30 minutes");
   return { cues, durationMs: time, frameCount: Math.max(1, Math.ceil(time * opts.fps / 1000)), fps: opts.fps, initialTime: durationOf(0) > 0 ? 0 : Infinity, lastBeat: count - 1 };
 }

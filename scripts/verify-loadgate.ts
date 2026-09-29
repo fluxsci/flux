@@ -27,7 +27,7 @@ const assert = (c: unknown, m: string) => (c ? ok(m) : fail(m));
 // ---- drift gate: the schema's discriminant branches === FigureElement["type"] ------
 // The literal is pinned to the union at COMPILE time (satisfies + exhaustive
 // check under svelte-check/tsc); the runtime half pins the schema against it.
-const ALL_TYPES = ["image", "text", "rect", "ellipse", "line", "path", "plot"] as const satisfies readonly FigureElement["type"][];
+const ALL_TYPES = ["image", "text", "rect", "ellipse", "line", "path", "plot", "model3d"] as const satisfies readonly FigureElement["type"][];
 type _Missing = Exclude<FigureElement["type"], (typeof ALL_TYPES)[number]>;
 const _exhaustive: _Missing extends never ? true : never = true;
 void _exhaustive;
@@ -68,6 +68,16 @@ assert(
   "every element kind validates",
 );
 assert(validateModel(model([rect({ futureExtraKey: { nested: true } })])).length === 0, "extra keys stay permissive (agent files load)");
+// Review L3: the 3D override tightening must not reach 2D plots.
+{
+  const loose = { "p.line": { fill: 3, hidden: "yes" } };
+  const plot = { type: "plot", id: "p2", assetId: "a1", x: 0, y: 0, width: 50, height: 40, rotation: 0, overrides: loose };
+  const model3d = { type: "model3d", id: "m1", assetId: "g1", x: 0, y: 0, width: 50, height: 40, rotation: 0, orbitAzimuth: 30, orbitElevation: 20, orbitZoom: 0.9, orbitProjection: "orthographic", orbitFov: 30, fill: "#4385be" };
+  assert(validateModel(model([plot])).length === 0, "legacy 2D plot overrides with non-string fill / non-boolean hidden still load");
+  assert(validateModel(model([model3d])).length === 0, "a minimal model3d element validates");
+  assert(validateModel(model([{ ...model3d, overrides: loose }])).length > 0, "model3d part overrides stay typed (fill string, hidden boolean)");
+  assert(validateModel(model([{ ...model3d, overrides: { "sample.mesh": { fill: "#ff0000", hidden: false } } }])).length === 0, "well-typed model3d part overrides pass");
+}
 
 // ---- rejections ----------------------------------------------------------------
 assert(validateModel(model([rect({ x: null })])).length > 0, "NaN-as-null geometry REJECTED");
@@ -117,7 +127,8 @@ assert(coreValidateModel === validateModel, "flux-core re-exports the SAME valid
 // 'unsafe-eval'. A schemas.ts edit without regeneration would silently ship
 // validators that disagree with the schema; this is the buildInfo-style drift gate.)
 {
-  const { generate, OUT } = await import("./gen-validators.mjs");
+  const { generate, OUT, generateFiles } = await import("./gen-validators.mjs");
+  await generateFiles(true);
   const disk = await (await import("node:fs/promises")).readFile(OUT, "utf8").catch(() => "");
   assert(
     disk === generate(),

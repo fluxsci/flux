@@ -1,0 +1,14 @@
+{
+  "env": null,
+  "generatedAt": "2026-09-28T20:25:53Z",
+  "inputs": [],
+  "outputs": {
+    "glb": "cortex-pial.glb",
+    "manifest": "cortex-pial.fluxplot.json"
+  },
+  "params": {},
+  "plot": "cortex-pial",
+  "schemaVersion": "0.3.0",
+  "script": null,
+  "spec": "fluxplot/recipe"
+}

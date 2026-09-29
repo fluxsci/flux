@@ -1,3 +1,5 @@
+import { scene3dManifests } from "./model3d/store";
+import { yieldsToShellModal, isAnnotateChord } from "../shell/agent/annotationVisibility";
 import { openFigureMeta } from "./figure/metadataState";
 import { pushToast } from "./toast";
 import { editSession } from "./interact/editSession";
@@ -70,6 +72,7 @@ import { reflowTexts } from "./text";
 import { plotManifests } from "./plot/store";
 import { partKind, partNode, readPartStyle } from "./plot/partStyle";
 import * as ops from "./ops";
+import { modelOrbit } from "./model3d/orbitSession";
 
 let clipboard: Element[] = [];
 // Group defs snapshotted with the copy (chains of the copied elements), so a
@@ -289,9 +292,9 @@ function toggleBIU(which: ops.TextToggle): boolean {
     const p = get(project);
     let plot: Element | null = null;
     for (const f of p.figures)
-      for (const e of f.elements) if (e.id === ps.elementId && e.type === "plot") plot = e;
-    if (plot && plot.type === "plot") {
-      const manifest = get(plotManifests)[plot.assetId];
+      for (const e of f.elements) if (e.id === ps.elementId && (e.type === "plot" || e.type === "model3d")) plot = e;
+    if (plot && (plot.type === "plot" || plot.type === "model3d")) {
+      const manifest = plot.type === "model3d" ? get(scene3dManifests)[plot.assetId] : get(plotManifests)[plot.assetId];
       const kind = partKind(manifest, ps.partId, partNode(plot, ps.partId));
       if (kind === "text") {
         const cur = readPartStyle(plot, ps.partId, manifest);
@@ -335,13 +338,13 @@ function toggleHiddenX(): boolean {
     // Any shown → hide all; every one hidden → show all (the Layers rule).
     const p0 = get(project);
     const isHidden = (ps: { elementId: string; partId: string }) =>
-      p0.figures.some((f) => f.elements.some((e) => e.id === ps.elementId && e.type === "plot" && Boolean(e.overrides?.[ps.partId]?.hidden)));
+      p0.figures.some((f) => f.elements.some((e) => e.id === ps.elementId && (e.type === "plot" || e.type === "model3d") && Boolean(readPartStyle(e, ps.partId, e.type === "model3d" ? get(scene3dManifests)[e.assetId] : get(plotManifests)[e.assetId]).hidden)));
     const hide = parts.some((ps) => !isHidden(ps));
     commit((p) => {
       for (const ps of parts)
         for (const f of p.figures)
           for (const e of f.elements) {
-            if (e.id !== ps.elementId || e.type !== "plot") continue;
+            if (e.id !== ps.elementId || (e.type !== "plot" && e.type !== "model3d")) continue;
             ops.setPartOverride(p, ps.elementId, ps.partId, { hidden: hide });
           }
     });
@@ -507,8 +510,11 @@ function paste() {
   const fig = activeFig();
   if (!fig) return;
   const assetIds = new Set(get(project).assets.map(a => a.id));
-  if (clipboard.some(e => (e.type === "image" || e.type === "plot") && !assetIds.has(e.assetId))) {
-    pushToast("info", "Import the copied image or plot into this project before pasting."); return;
+  if (clipboard.some(e => (e.type === "image" || e.type === "plot" || e.type === "model3d") && !assetIds.has(e.assetId))) {
+    pushToast("info", "Import the copied image, plot or 3D model into this project before pasting."); return;
+  }
+  if (clipboard.some(e => e.type === "model3d") && storeTenant() !== "figure") {
+    pushToast("info", "3D models can currently be pasted into figures."); return;
   }
   const videos = clipboard.filter(e => e.type === "video");
   if (videos.length && storeTenant() !== "slide") {
@@ -705,7 +711,7 @@ function openXray() {
   if (ps && sel.size <= 1) {
     for (const f of p.figures) {
       const el = f.elements.find((e) => e.id === ps.elementId);
-      if (el && el.type === "plot") {
+      if (el && (el.type === "plot" || el.type === "model3d")) {
         xrayRoot.set({ kind: "element", figId: f.id, elementId: el.id });
         xrayOpen.set(true);
         return;
@@ -716,14 +722,14 @@ function openXray() {
   const fig = p.figures.find((f) => f.elements.some((e) => sel.has(e.id)));
   if (!fig) return;
   const els = fig.elements.filter((e) => sel.has(e.id));
-  if (els.length === 1 && els[0].type === "plot") {
+  if (els.length === 1 && (els[0].type === "plot" || els[0].type === "model3d")) {
     xrayRoot.set({ kind: "element", figId: fig.id, elementId: els[0].id });
     xrayOpen.set(true);
     return;
   }
   // Several plots selected → ONE multi-plot x-ray: each plot's tree side by
   // side, plus the parts they all share (hide the x-axis of four plots at once).
-  if (els.length > 1 && els.every((e) => e.type === "plot")) {
+  if (els.length > 1 && els.every((e) => e.type === "plot" || e.type === "model3d")) {
     xrayRoot.set({ kind: "elements", figId: fig.id, elementIds: els.map((e) => e.id) });
     xrayOpen.set(true);
     return;
@@ -747,11 +753,13 @@ function openXray() {
 }
 
 export function handleKey(e: KeyboardEvent) {
+
+  if (yieldsToShellModal(e) || isAnnotateChord(e)) return;
   // A focused editing surface owns its commands even when window listeners
   // were registered in a different order. Never also nudge/delete the canvas.
   if (e.defaultPrevented) return;
   const owner = e.target instanceof HTMLElement ? e.target : null;
-  if (owner?.closest('.animator, [data-command-scope="animation"]')) return;
+  if (owner?.closest('.animator, [data-command-scope="animation"]') || (get(modelOrbit) && owner?.closest('[data-command-scope="model3d-orbit"]'))) return;
   if (owner?.tagName === "SELECT") return;
   // the FluxFig Menu / Settings / Help / X-Ray / Importer / Cascade popover /
   // Figure-Meta Name tab / Dissect viewer own all keys while open.
@@ -797,11 +805,7 @@ export function handleKey(e: KeyboardEvent) {
     (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 
   // Shortcuts that work even while typing: save/open, rail toggle.
-  // Ctrl+Shift+S is NOT save-as: that chord is the shell's Snapshot & annotate
-  // (Workspace.svelte, docs/reference/shortcuts.qmd), and until 2026-09-26 this
-  // branch also caught it — `key` ignores Shift — and raised the native save-as
-  // dialog under the overlay in a real build. Save-as stays reachable through
-  // the palette; the plain chord saves.
+  // Save As remains in the palette. The retired shifted chord is inert.
   if (mod && !e.shiftKey && e.key.toLowerCase() === "s") {
     e.preventDefault();
     saveProject();
