@@ -12,7 +12,7 @@ export function modelPair(a: Element | undefined, b: Element | undefined, lookup
   const find = (id: string) => lookup.modelAsset?.(id) ?? lookup.assets?.find(asset => asset.id === id);
   const A = find(a.assetId), B = find(b.assetId);
   if (A?.kind !== 'glb' || !A.model || B?.kind !== 'glb' || !B.model)
-    return { ok: false, pairs: [], reason: 'Topology metadata is unavailable' };
+    return { ok: false, pairs: [], reason: 'The mesh structure of one model is unknown' };
   return morphCompatible(A.model, B.model);
 }
 
@@ -45,5 +45,5 @@ export function modelBecomeResult(a: Element | undefined, b: Element | undefined
   if (a?.type !== 'model3d' && b?.type !== 'model3d') return {};
   const pair = modelPair(a, b, lookup);
   return pair ? { morph: pair.ok, ...(!pair.ok ? { reason: pair.reason } : {}) }
-    : { morph: false, reason: 'Different element kinds use a bitmap crossfade' };
+    : { morph: false, reason: 'A 3D model and a 2D object crossfade' };
 }

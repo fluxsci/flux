@@ -2321,6 +2321,17 @@ days (probe geometry like `width` instead).
   actual tools before launching an isolated attempt. CI provisions Quarto for both the
   bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
   capable machines; never exit successfully merely because an export tool is unavailable.
+- **A dismissed toast is still in the DOM for its fade** (`Toasts.svelte`,
+  `transition:fade` of `DUR.quick` = 200 ms). "Gone after one paint" fails every time;
+  wait for the node to leave with a timeout well under the 3.5 s info expiry, so the check
+  still proves dismissal rather than expiry (`verify-slide-model3d-gui`, 2026-09-29).
+- **To make one dev module fail to load, scope the failure with CDP**
+  (`Fetch.enable` with a `urlPattern`, then `Fetch.failRequest`). Puppeteer's page-wide
+  `setRequestInterception(true)` stalled the Paper slide widget before it mounted, so the
+  failure path under test never ran (`verify-model3d-embed-gui`, 2026-09-29).
+- **`--group paper-gate` contains an Electron gate** (`verify-v020-gui-export-recovery.cjs`,
+  which also needs a renderer build). A worker barred from Electron runs the group's
+  browser members by name instead.
 
 **Environment:**
 
@@ -8599,3 +8610,7 @@ The reported empty filmstrip slot was a screenshot inside the 120 ms thumbnail d
   beside them must be told the run's first beat (`compile.sample(beat, t, fromBeat)`).
 - An IntersectionObserver flag is a frame late (promoted to §9 as T24).
 - A GUI gate that screenshots the filmstrip must wait for the debounced re-render first.
+
+### 2026-09-29 — 3D slides UX polish (Claude Opus 5.5, `m3s-fix-ux`)
+**Work:** Fixed review findings in Stage 2 3D slides. Preset insert now allows one insert at a time. Morph reasons and badges use plain, sentence-case wording. A Turntable that re-times an existing Change says so. A refused Orbit names the active pick, and its toast is withdrawn when the pick ends. A Paper 3D embed that fails keeps its still and shows a visible status line. The multi-import overflow toast is accurate. Docs match the actual labels. The affected browser gates now assert each behaviour.
+**Learnings:** Three browser-gate traps (toast fade, scoped CDP load failure, Electron member of paper-gate) were promoted to §9 CI browsers. A refusal toast whose reason can end should be withdrawn when it ends, not left to expire.

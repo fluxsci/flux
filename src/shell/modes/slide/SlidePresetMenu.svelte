@@ -59,13 +59,19 @@
     return q ? entries.filter((e) => `${e.preset.name} ${e.rel}`.toLowerCase().includes(q)) : entries;
   });
 
+  // Inserting a 3D preset imports its models natively (seconds): one insert
+  // at a time, so a second click can never insert the preset twice.
+  let inserting = $state<string | null>(null);
   async function doInsert(entry: SlidePresetEntry) {
+    if (inserting) return;
+    inserting = entry.rel;
     try {
-    const nid = await insertSlidePreset(entry, slideId);
-    if (nid) pushToast("info", `Inserted "${entry.preset.name}"`);
-    else pushToast("error", "Couldn't insert the preset (no deck loaded)");
-    onClose();
-    } catch (error) { pushToast("error", "Could not insert the preset", { detail: String(error) }); }
+      const nid = await insertSlidePreset(entry, slideId);
+      if (nid) pushToast("info", `Inserted "${entry.preset.name}"`);
+      else pushToast("error", "Couldn't insert the preset", { detail: "No deck is open." });
+      onClose();
+    } catch (error) { pushToast("error", "Couldn't insert the preset", { detail: errMsg(error) }); }
+    finally { inserting = null; }
   }
   async function doSave() {
     if (!slideId || saving) return;
@@ -77,11 +83,11 @@
         pushToast("error", "Couldn't save the preset", { detail: "Give it a name (slashes create folders)." });
         return;
       }
-      pushToast("info", `Saved slide preset "${name}"`, {
-        detail: res.missingAssets.length
-          ? `${res.missingAssets.length} asset(s) had no loaded bytes and were not embedded.`
-          : undefined,
-      });
+      const notes = [
+        res.missingAssets.length ? `${res.missingAssets.length} asset(s) had no loaded bytes and were not embedded.` : "",
+        res.previewIssues.length ? `Its 3D preview couldn't be rendered, so the picker shows a placeholder (${res.previewIssues.join("; ")}).` : "",
+      ].filter(Boolean);
+      pushToast("info", `Saved slide preset "${name}"`, { detail: notes.length ? notes.join(" ") : undefined });
       onClose();
     } catch (error) { pushToast("error", "Couldn't save the preset", { detail: errMsg(error) }); }
     finally { saving = false; }
@@ -122,14 +128,14 @@
         <div class="none">{entries.length ? "No matches." : "No slide presets yet — save one from the Slide panel."}</div>
       {:else}
         {#each shown as entry (entry.rel)}
-          <div class="card" class:pickable={mode === "insert"}>
-            <button class="preset-pick" disabled={mode !== "insert"} onclick={() => doInsert(entry)}
+          <div class="card" class:pickable={mode === "insert" && !inserting} class:busy={!!inserting} class:inserting={inserting === entry.rel}>
+            <button class="preset-pick" disabled={mode !== "insert" || !!inserting} aria-busy={inserting === entry.rel} onclick={() => doInsert(entry)}
               title={mode === "insert" ? `Insert "${entry.preset.name}" after the current slide` : entry.rel}>
             <img class="shot" src={slidePresetThumb(entry.preset)} alt={entry.preset.name} />
-            <span class="nm">{entry.preset.name}</span>
+            <span class="nm">{inserting === entry.rel ? "Inserting…" : entry.preset.name}</span>
             {#if entry.rel.includes("/")}<span class="dir">{entry.rel.split("/").slice(0, -1).join("/")}</span>{/if}
             </button>
-            <button class="del" onclick={(e) => doDelete(entry, e)} title="Delete preset" aria-label="Delete preset">×</button>
+            <button class="del" disabled={!!inserting} onclick={(e) => doDelete(entry, e)} title="Delete preset" aria-label="Delete preset">×</button>
           </div>
         {/each}
       {/if}
@@ -186,5 +192,10 @@
     color: var(--c-tx-muted); cursor: var(--cursor-cross-hover); font-size: 11px; opacity: 0;
   }
   .card:hover .del { opacity: 1; }
+  /* one insert at a time: the other cards dim, the busy one keeps its accent */
+  .card.busy:not(.inserting) { opacity: .5; }
+  .card.busy .del { display: none; }
+  .card.inserting { border-color: var(--c-accent); }
+  .card.inserting .nm { color: var(--c-tx-muted); }
   .del:hover { color: var(--c-danger); border-color: var(--c-danger); }
 </style>

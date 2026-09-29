@@ -328,6 +328,8 @@ and the prepared GLB and sidecars are stored under the deck's `assets/` director
 Deck JSON and its undo journal contain metadata, never GLB bytes.
 
 Turntable writes a normal Change track with linear timing and an unwrapped azimuth.
+An existing whole-model Change at that step is reused: its other keys then share the
+Turntable's timing (`--duration`, linear, `--start` or 0).
 `--direction cw|ccw` chooses direction; `--start` offsets it within the step. Orbit zoom
 interpolates geometrically, while azimuth retains complete turns. Projection switches
 at the endpoint. Shape weights and field ranges can share the same Change.

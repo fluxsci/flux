@@ -20,7 +20,7 @@ try {
     HTMLCanvasElement.prototype.getContext = function (kind, ...args) { if (/webgl/.test(kind)) window.__embedMainGL.push(kind); return get.call(this, kind, ...args); };
   });
   await gotoApp(page, { url: `${APP_URL}?fixture=demo`, settle: 300 });
-  await page.evaluate(async fixture => {
+  const seedDeck = p => p.evaluate(async fixture => {
     const { createDeck, addSlide, addBeat, setTransform } = await import('/src/lib/slide/ops.ts');
     const { makeModel3dElement } = await import('/src/lib/model3d/make.ts');
     const pm = window.__flux.get(window.__flux.shell.projectModel), root = pm.root;
@@ -38,6 +38,7 @@ try {
     await window.fig.writeText(`${root}/slides/${deck.id}/assets/${asset.id}.fluxplot.json`, JSON.stringify({ ...fixture.manifest, glb: 'embed-neuron.glb' }));
     window.__embedRoot = root;
   }, fixture);
+  await seedDeck(page);
   await clickMode(page, 'Paper'); await waitFor(page, () => !!window.__fluxView, null, { timeout: 10000 });
   await page.evaluate(() => {
     const v = window.__fluxView;
@@ -151,6 +152,20 @@ try {
   await waitFor(page, () => !document.querySelector('.paper canvas[data-slide-model3d]') && window.__fluxModel3d.stats().retained === 0, null, { timeout: 10000 });
 
   h.eq(realErrors(page), [], 'Paper widget lifecycle has no console/module errors');
+  // A live 3D widget that cannot start (here: its lazy 3D module fails to load)
+  // keeps the still and says so in a visible status line, not just a tooltip.
+  const failing = await browser.newPage(); await failing.setViewport({ width: 1440, height: 1050 });
+  // Fail only that module; page-wide request interception stalled the widget before it mounted.
+  const cdp = await failing.createCDPSession(); await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*embedServiceHost*' }] });
+  cdp.on('Fetch.requestPaused', e => { void cdp.send('Fetch.failRequest', { requestId: e.requestId, errorReason: 'Failed' }).catch(() => {}); });
+  await gotoApp(failing, { url: `${APP_URL}?fixture=demo`, settle: 300 }); await seedDeck(failing);
+  await clickMode(failing, 'Paper'); await waitFor(failing, () => !!window.__fluxView, null, { timeout: 10000 });
+  await failing.evaluate(() => { const v = window.__fluxView, text = `# Unavailable\n\n![](../slides/model-embeds/renders/front-step-0.svg){#embed-front .flux-slide deck="model-embeds" slide="front" width=50%}\n`; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } }); });
+  await waitFor(failing, () => { const s = document.querySelector('.paper .flux-slide-embed .flux-slide-status[role="status"]'); return !!s && !s.hidden; }, null, { timeout: 10000, label: '3D failure status line' });
+  const unavailable = await failing.$eval('.paper .flux-slide-embed', w => { const s = w.querySelector('.flux-slide-status[role="status"]'), r = s.getBoundingClientRect(); return { text: s.textContent, title: s.title, visible: r.width > 0 && r.height > 0, still: !!w.querySelector('img[src^="data:image/svg+xml"]') }; });
+  h.ok(unavailable.text === '3D preview unavailable — showing a still' && unavailable.visible && unavailable.still, 'failed live 3D embed keeps its still and says so visibly');
+  h.ok(unavailable.title.length > 0, 'the failure reason is the status line tooltip');
+  await failing.screenshot({ path: path.join(out, 'paper-unavailable.png') }); await failing.close();
   await fs.writeFile(path.join(out, 'receipt.json'), JSON.stringify({ typing, p95, initialStats: initial.stats }, null, 2));
 } catch (error) { h.fail(String(error)); console.error(error); await page.screenshot({ path: path.join(out, 'failure.png') }); }
 await h.done(async () => { await browser.close(); await fs.rm(scratch, { recursive: true, force: true }); });

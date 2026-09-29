@@ -7,14 +7,24 @@ import { editPreview, editSession } from '../interact/editSession';
 import { selectionTargets } from '../interact/selectionTargets';
 import { scene3dGeneration } from './store';
 import { setModelView, type ModelViewPatch } from './viewOps';
-import { pushToast } from '../toast';
+import { pushToast, dismissToast } from '../toast';
 
 export interface ModelPreview { phase: 'active' | 'settled'; time: number; revision: number; owner: symbol }
 export const modelPreviews = writable<Record<string, ModelPreview>>({});
 export const paintedModelPreviews = writable<ReadonlySet<string>>(new Set());
 export const modelOrbit = writable<{ id: string; owner: string } | null>(null);
-/** Animation-v2's actual pick-state binding is installed after its merge. */
-export const modelOrbitBlocked = writable(false);
+/** Truthy while Slides is picking an animation target: the pick's name
+ *  ("Become", "Appear from", "Animate like") or true. Esc or finishing the
+ *  pick clears it. */
+export const modelOrbitBlocked = writable<boolean | string>(false);
+/** The one phrasing of that refusal (orbit toast and Inspector tooltip). */
+export function modelOrbitBlockedReason(blocked: boolean | string = get(modelOrbitBlocked)): string {
+  return `Finish or cancel the ${typeof blocked === 'string' && blocked ? `${blocked} ` : ''}pick (Esc) first`;
+}
+// A refusal toast must not outlive its reason: when the pick ends, the
+// "finish the pick" advice is stale and is withdrawn at once.
+let blockedToast = 0;
+modelOrbitBlocked.subscribe(blocked => { if (!blocked && blockedToast) { dismissToast(blockedToast); blockedToast = 0; } });
 export const modelOrbitIssues = writable<Record<string, string>>({});
 export function modelEditorOwner(input = { tenant: storeTenant(), root: get(embeddedProjectRoot) ?? get(projectDir), figure: get(activeFigureId), generation: get(scene3dGeneration) }): string {
   return JSON.stringify([input.tenant, input.root, input.figure, input.generation]);
@@ -53,7 +63,7 @@ export function finishModelOrbit(cancel = false) {
 /** Why orbit cannot start for this element right now, or null when it can.
  *  The same checks `beginModelOrbit` makes, phrased for the person asking. */
 export function modelOrbitUnavailableReason(id: string): string | null {
-  if (get(modelOrbitBlocked)) return 'Finish choosing an animation target first';
+  if (get(modelOrbitBlocked)) return modelOrbitBlockedReason();
   const issue = get(modelOrbitIssues)[id];
   if (issue) return issue;
   const found = findElement(get(project), id);
@@ -64,7 +74,8 @@ export function modelOrbitUnavailableReason(id: string): string | null {
 /** Start orbiting, or say why not: a refused orbit must never be silent. */
 export function requestModelOrbit(id: string): boolean {
   if (beginModelOrbit(id)) return true;
-  pushToast('info', 'Orbit is unavailable', { detail: modelOrbitUnavailableReason(id) ?? undefined });
+  const toastId = pushToast('info', 'Orbit is unavailable', { detail: modelOrbitUnavailableReason(id) ?? undefined });
+  blockedToast = get(modelOrbitBlocked) ? toastId : 0;
   return false;
 }
 export function beginModelOrbit(id: string): boolean {

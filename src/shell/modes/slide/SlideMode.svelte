@@ -168,7 +168,7 @@
   type TargetPick = { kind: "become" | "appearFrom"; slideId: string; source: TargetRef; beatIndex: number; picks: TargetRef[]; pair: PairPolicy; armedFrom: "become" | "appear-from" };
   type LikePick = { kind: "animateLike"; slideId: string; trackIds: string[]; beatIndex: number };
   let pickState = $state.raw<TargetPick | LikePick | null>(null);
-  $effect(() => { modelOrbitBlocked.set(active && !!pickState); return () => modelOrbitBlocked.set(false); });
+  $effect(() => { modelOrbitBlocked.set(active && pickState ? (pickState.kind === "become" ? "Become" : pickState.kind === "appearFrom" ? "Appear from" : "Animate like") : false); return () => modelOrbitBlocked.set(false); });
   const becomePick = $derived(pickState?.kind === "become" || pickState?.kind === "appearFrom" ? pickState : null);
   const likePick = $derived(pickState?.kind === "animateLike" ? pickState : null);
   let pickShift = false;
@@ -1203,7 +1203,7 @@
       setPartSelections((pick.source.parts ?? []).map(partId => ({elementId: pick.source.element, partId})));
       lastPickSelection = JSON.stringify(selectedRefs());
       pickState = pick;
-      pushToast("error", "Could not become that object", { detail: errMsg(error) });
+      pushToast("error", "Couldn't become that object", { detail: errMsg(error) });
     }
   }
   $effect(() => {
@@ -1234,23 +1234,29 @@
     const b=transformPreState(activeSlide,becomePick.kind==="appearFrom"?becomePick.source.element:candidate,becomePick.beatIndex);
     if(a?.type!=="model3d"&&b?.type!=="model3d")return null;
     const pair=modelPair(a??undefined,b??undefined,{modelAsset:id=>$project.assets.find(asset=>asset.id===id)});
-    return {label:pair?.ok?"Vertex morph":"Crossfade",reason:pair?modelPairIssue(pair):"Different element kinds use a bitmap crossfade."};
+    return {label:pair?.ok?"Vertex morph":"Crossfade",reason:pair?modelPairIssue(pair):"A 3D model and a 2D object crossfade."};
   });
   function addModelTurntable() {
     const sid = $activeFigureId, ids = new Set(selectionTargets());
     if (!sid || !activeSlide || $partSelections.length) return;
-    let bi = Math.max(1, $activeBeat); const created: string[] = [];
+    let bi = Math.max(1, $activeBeat), retimedMs = 0; const created: string[] = [];
     commitDeckLive(deck => {
       const slide = slideOps.slideById(deck, sid); if (!slide) return;
       if (!slide.elements.some(e => e.type === "model3d" && ids.has(e.id))) return;
       if (slide.beats.length < 2) slideOps.addBeat(deck, sid, { label: "Step 1", advance: "click" });
       bi = Math.min(bi, slide.beats.length - 1);
       for (const element of slide.elements) if (element.type === "model3d" && ids.has(element.id)) {
+        // Turntable joins this step's existing whole-model Change and takes
+        // over its timing; say so when that actually re-times something.
+        const before = slide.beats[bi].tracks.find(t => familyOf(t) === "transform" && t.target === element.id && isWholeElementRef(trackRef(t)));
+        const timing = before && { start: before.start ?? 0, duration: before.duration, easing: before.easing, curve: !!before.curve || !!before.influence };
         const track = slideOps.addTurntable(deck, { slideId: sid, beatId: slide.beats[bi].id, target: element.id });
         if (track?.id) created.push(track.id);
+        if (timing && track === before && (timing.start !== 0 || timing.duration !== track.duration || timing.easing !== track.easing || timing.curve)) retimedMs = track.duration ?? 0;
       }
     });
     activeBeat.set(bi); selTrackIds.set(created); inspectorTab = "animation";
+    if (retimedMs) pushToast("info", `Turntable joined this step's Change — timing set to ${+(retimedMs / 1000).toFixed(2)} s, linear`);
   }
   function addVideoAction(preset: "videoStart" | "videoPause" | "videoStop") {
     const sid = $activeFigureId, selected = new Set(selectionTargets());
@@ -1304,7 +1310,7 @@
       selTrackIds.set([result.trackIds[0]]);
       enterEndpointEdit([result.trackIds[0]], "t2");
       inspectorTab = "animation";
-    } catch (error) { pushToast("error", "Could not create ghosts", {detail: errMsg(error)}); }
+    } catch (error) { pushToast("error", "Couldn't create ghosts", {detail: errMsg(error)}); }
   }
   /** Ctrl+Shift+T: no transform on the selection → create one per selected
    *  element in the active beat (grouped when several) and check out t2
@@ -1512,7 +1518,7 @@
     let firstFigureRevision=true;
     unsubFigRev=figRevision.subscribe(()=>{
       if(firstFigureRevision){firstFigureRevision=false;return;}
-      if(pm)void refreshDeckSources(pm.root).catch(e=>pushToast("error","Could not refresh slide sources",{detail:errMsg(e)}));
+      if(pm)void refreshDeckSources(pm.root).catch(e=>pushToast("error","Couldn't refresh slide sources",{detail:errMsg(e)}));
     });
     // Live-reload on external slides/ edits (skip the immediate on-subscribe call).
     let firstDeck = true;
@@ -1673,9 +1679,9 @@
           <span class="become-bar" role="status" aria-label="Animate like pick"><strong>Animate like…</strong><span class="become-msg">Pick an object’s effect in this step for {likePick.trackIds.length} selected effects.</span><button class="become-btn" onclick={cancelBecome}>Cancel</button></span>
         {:else if becomePick && activeSlide}
           <span class="become-bar" role="status" aria-label="Become pick">
-            <span class="become-msg"><strong>{refLabel(becomePick.source)}</strong> {becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part · Shift adds · Alt+R X-ray"}</span>
-            {#if modelPickFeedback}<span class="pick-count" data-model-morph-badge title={modelPickFeedback.reason??"Same topology: vertices morph continuously."}>{modelPickFeedback.label}</span>{/if}
-            <span class="pick-count">{becomePick.picks.reduce((n, ref) => n + (ref.parts?.length || 1), 0)} picked</span>
+            <span class="become-msg" title={`${refLabel(becomePick.source)} ${becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part · Shift+click adds · Alt+R opens X-ray"}`}><strong>{refLabel(becomePick.source)}</strong> {becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part"}</span>
+            {#if modelPickFeedback}<span class="morph-badge" data-model-morph-badge title={modelPickFeedback.reason??"Same mesh structure — the shape morphs smoothly."}>{modelPickFeedback.label}</span>{/if}
+            {#if becomePick.picks.length}<span class="pick-count">{becomePick.picks.reduce((n, ref) => n + (ref.parts?.length || 1), 0)} picked</span>{/if}
             <label class="pair-label">Pair <select aria-label="Become pairing" value={becomePick.pair} onchange={e => { if (becomePick) pickState = {...becomePick, pair: e.currentTarget.value as PairPolicy}; }}>
               {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
             </select></label>
@@ -1877,6 +1883,8 @@
   .pair-label { display:flex;align-items:center;gap:4px;white-space:nowrap; }
   .pair-label select { font:11px var(--font-mono);height:20px;border:1px solid var(--c-line-strong);border-radius:var(--r-ui);background:var(--c-bg-raised);color:var(--c-tx); }
   .pick-count { font:10px var(--font-mono);white-space:nowrap; }
+  /* the morph route is a status pill, not a count */
+  .morph-badge { font:11px var(--font-ui);white-space:nowrap;padding:0 6px;line-height:16px;border:1px solid var(--c-line-strong);border-radius:9px;color:var(--c-tx); }
   .become-btn:disabled { opacity:.4; }
   .become-btn:hover { border-color:#879a39;color:var(--c-tx-hi); }
   /* The right rail's tab strip: flat, on the raised surface, chosen tab underlined. */

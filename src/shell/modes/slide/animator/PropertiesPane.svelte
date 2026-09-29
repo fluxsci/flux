@@ -170,7 +170,9 @@
       const consumedKind = kind ?? slide.elements.find(e => e.id === curTrack.target)?.type ?? "object";
       return `Became ${/^[aeiou]/.test(consumedKind) ? "an" : "a"} ${consumedKind} (consumed)`;
     }
-    const data = curTrack.to?.assetId ? ((curTrack.to.glbPath??curTrack.to.svgPath)?.split("/").pop() || curTrack.to.assetId) : null;
+    // The content's display name: its asset name, else its file name — never an extension.
+    const contentAsset = curTrack.to?.assetId ? $project.assets.find(a => a.id === curTrack.to!.assetId) : undefined;
+    const data = curTrack.to?.assetId ? ((contentAsset?.name || (curTrack.to.glbPath ?? curTrack.to.svgPath)?.split("/").pop() || curTrack.to.assetId).replace(/\.(glb|svg|png)$/i, "")) : null;
     if (kind && data) return `Becomes a ${kind} showing ${data}`;
     if (kind) return `Becomes ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}`;
     if (data) return `${slide.elements.find(e=>e.id===curTrack.target)?.type === "model3d" ? "Model" : "Data"} becomes ${data}`;
@@ -320,9 +322,17 @@
     return st ? Object.keys(st) : [];
   });
 
+  /** Plain names for changed properties, in the Inspector's words (lowercase
+   *  chip tokens); anything unlisted is already a plain word such as x or opacity. */
+  const DELTA_LABELS: Record<string, string> = {
+    orbitAzimuth: "azimuth", orbitElevation: "elevation", orbitRoll: "roll", orbitZoom: "zoom", orbitPanX: "pan x", orbitPanY: "pan y",
+    orbitProjection: "projection", orbitFov: "field of view", modelLighting: "lighting", modelColors: "colours",
+    overrides: "part style", fields: "value fields", modelStates: "shape",
+  };
+  // A model's fill is its "Model colour" in the Inspector; a shape's stays "fill".
+  const deltaName = (key: string) => key === "fill" && curTargetEl?.type === "model3d" ? "colour" : DELTA_LABELS[key] ?? key;
   function deltaLabel(key: string): string {
-    const labels: Record<string, string> = { orbitAzimuth: "azimuth", orbitElevation: "elevation", orbitRoll: "roll", orbitZoom: "zoom", orbitPanX: "pan x", orbitPanY: "pan y", orbitProjection: "projection", orbitFov: "field of view", modelLighting: "lighting", modelColors: "colours", fields: "fields", modelStates: "shape" };
-    const label = labels[key] ?? key;
+    const label = deltaName(key);
     if (!curTrack || !["orbitAzimuth", "orbitElevation", "orbitRoll"].includes(key)) return label;
     const pre = transformPreState(slide, curTrack.target, curBeatIndex), end = curTrack.to?.state as Record<string, unknown> | undefined;
     const from = pre && (pre as unknown as Record<string, unknown>)[key], to = end?.[key];
@@ -556,7 +566,7 @@
         <div class="delta" title="The properties this transform changes at t₂ — ✕ drops one">
           <span class="dl">Δ</span>
           {#each changedProps as k (k)}
-            <span class="dchip">{deltaLabel(k)}<button class="dx" title={`Drop the ${k} change`} onclick={() => dropChangedProp(k)}>✕</button></span>
+            <span class="dchip">{deltaLabel(k)}<button class="dx" title={`Drop the ${deltaName(k)} change`} aria-label={`Drop the ${deltaName(k)} change`} onclick={() => dropChangedProp(k)}>✕</button></span>
           {/each}
           <button class="dclear" title="Reset t₂ to equal t₁ (drop every change)" onclick={clearT2}>clear t₂</button>
         </div>
@@ -565,7 +575,7 @@
            ways to point it somewhere else (Become another object · plot data) -->
       <div class="dest" aria-label="Transform destination">
         <div class="dl">Destination</div>
-        <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge title={modelPairIssue(modelContentPair)??"Same topology: vertices morph continuously."}>· {modelContentPair.ok?"vertex morph":"crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
+        <div class="dv">{destinationLabel}{#if modelContentPair} <span data-model-content-badge title={modelPairIssue(modelContentPair)??"Same mesh structure — the shape morphs smoothly."}>·&nbsp;{modelContentPair.ok?"Vertex morph":"Crossfade"}</span>{/if}{#if dataCompatible === false} <span class="warn" title="A series that has no counterpart fades; unsupported matches fade">· unsupported matches fade</span>{/if}</div>
         {#if handoff}
           <label class="f">Pair ▾
             <select aria-label="Hand-off pair" value={handoff.pair ?? "auto"} onchange={e => changeHandoff({ pair: e.currentTarget.value as BecomeSpec["pair"] })}>
