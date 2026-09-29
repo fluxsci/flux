@@ -7,7 +7,7 @@
 // with no model on screen at all; it measured the display, not Flux. The rule
 // now uses the house frame budget (p95 <= 17 ms, the same bound as
 // verify-scale-slide.mjs) PLUS a dropped-frame criterion relative to an idle
-// vsync control recorded in the same run. This change needs owner sign-off.
+// vsync control recorded in the same run. The owner approved this definition in the Stage 2 prompt (2026-09-29).
 const HOUSE_FRAME_BUDGET_MS = 17;
 // A steady gap longer than 1.5 idle vsyncs means at least one display refresh
 // passed without a new frame.

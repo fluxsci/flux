@@ -1441,6 +1441,14 @@
       ]
     },
     {
+      "glob": "scripts/lib/model3dPythonPrerequisite.cjs",
+      "run": [
+        "verify-runner-runtime.mjs",
+        "group:model3d-native-smoke",
+        "tier:pure"
+      ]
+    },
+    {
       "glob": "scripts/lib/model3dNativeScale*",
       "run": [
         "group:model3d-native-scale",
@@ -8758,7 +8766,8 @@
       "prerequisites": [
         "build",
         "display",
-        "quarto"
+        "quarto",
+        "model3d-python"
       ],
       "externalNetwork": false,
       "isolation": "scratch",
