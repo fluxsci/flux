@@ -247,6 +247,14 @@ export function createMemBridge(): FileBridge & {
       if (!b) throw new Error(`ENOENT: ${p}`);
       return dec.decode(b);
     },
+    async readModelFile(p, root) {
+      const base = norm(root), key = norm(p);
+      if (!base || watchedRoot !== undefined && watchedRoot !== base) throw new Error('The project changed while reading the model');
+      if (!key.startsWith(`${base}/`) || key.split('/').some(part => part === '..')) throw new Error('Model file escapes the project');
+      const bytes = files.get(key); if (!bytes) throw new Error(`ENOENT: ${p}`);
+      if (bytes.byteLength > GLB_LIMITS.maxBytes) throw new Error('GLB exceeds 200 MiB');
+      return new Uint8Array(bytes).buffer;
+    },
     async readFile(p) {
       const b = files.get(norm(p));
       if (!b) throw new Error(`ENOENT: ${p}`);

@@ -248,7 +248,7 @@ export async function renderPackImages(root: string, facts: ConnectFacts, plan: 
  */
 export async function deckSheetSvg(root: string, deck: Deck, first: number, last: number): Promise<string> {
   await ensureDom();
-  const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p) };
+  const io = { readText: (p: string) => fs.readFile(p, "utf8"), readFile: (p: string) => fs.readFile(p), modelData: "omit" as const };
   const stage = deck.stage ?? { width: 1920, height: 1080 };
   const cellH = Math.round((SHEET_CELL * stage.height) / stage.width);
   const labelH = 34, gap = 16;

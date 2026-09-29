@@ -8563,3 +8563,6 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Semantic dendrite demo step
 **Work:** Extended the five-slide scratch review deck with a step after the eight-second Turntable that fades in only the named dendrite mesh through the public animation operation. The registered demo gate checks accepted saved metadata, Design stashing, unchanged soma/axon visibility and exact half/end appearance states.
+
+### 2026-09-29 08:21 UTC — Portable model integrity and static endpoints
+**Work:** Added bounded root/generation-scoped native and Node reads plus shared prepared-digest validation, scrubbed portable source paths, and shared coherent Design/retyped-model stills across SVG/PDF/PPTX. **Learnings:** Static compilation still needs accepted model metadata, and browser adapters must remain safe in pure Node callers; independent integrity, native-handler, IPC, static export and real Paper embed checks pass, with exact receipts in the 3D ledger.

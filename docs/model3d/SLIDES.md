@@ -78,3 +78,12 @@ including model assets referenced only by future Change tracks.
 resolution, saved file commands, actual player pixels and the real X-ray authoring
 flow with Undo/Redo and reopen. Per-part mesh transparency retains the documented
 interpenetrating-transparent-surface limitation.
+
+Portable HTML and Paper payloads embed the accepted prepared GLB bytes only after
+checking their saved SHA-256 receipt. A changed or oversized stored file refuses
+export; source paths and build provenance are removed from the portable copy.
+Native and Node readers enforce the size bound before allocating the file.
+Static SVG/PDF/PowerPoint writers use the same complete model state for mesh and
+furniture. An original model keeps its Design appearance (including its visible
+parts); an identity consumed from a shape into 3D uses that evaluated model
+endpoint and its matching still. Placement follows the selected build step.

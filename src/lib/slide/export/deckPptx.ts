@@ -1,4 +1,5 @@
-import { model3dStaticSvg, model3dSvgContext } from "../../model3d/static";
+import { staticModelElement, staticModelContext } from "../staticModels";
+import { model3dStaticSvg } from "../../model3d/static";
 import { slideModelPosterIO } from "../model3dPosterIO";
 // Slide deck -> PowerPoint .pptx (2026-09-24, owner request: "export slides
 // in pptx too; vector images remain vector, so you can edit the single
@@ -318,10 +319,9 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
     case "model3d": {
       const note = "3D animation exported as a still";
       if (!ctx.warnings.includes(note)) ctx.warnings.push(note);
-      const design = ctx.payload.deck.slides.flatMap(s => s.elements).find(e => e.id === el.id && e.type === "model3d");
-      const model = design?.type === "model3d" ? { ...design, width: el.width, height: el.height } : el;
-      const context = model3dSvgContext(ctx.payload.deck.assets, ctx.payload.modelManifests ?? {}, "slide");
-      context.posterIdOf = e => ctx.payload.modelPosters?.[e.id];
+      const slide = ctx.payload.deck.slides.find(s => s.elements.some(e => e.id === el.id)) ?? ctx.payload.deck.slides[0];
+      const model = staticModelElement(el, slide) as typeof el;
+      const context = staticModelContext(ctx.payload);
       const svg = standaloneSvg(model3dStaticSvg(model, id => ctx.payload.assets?.[id], context), el.width, el.height);
       const png = await ctx.rasterize(svg, Math.max(1, Math.round(el.width * 2)), Math.max(1, Math.round(el.height * 2)));
       const id = await ctx.media(`3d ${svg}`, async () => ({ bytes: png, ext: "png" }));

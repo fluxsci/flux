@@ -1,3 +1,5 @@
+import { boundedModelFile } from "./model3dFile";
+import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
 import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
@@ -932,7 +934,7 @@ export async function swapBecomeVerb(root: string, deckId: string, slideId: stri
     const options = await slideCompileOptions(root, deck, slideId);
     await ensureDom();
     const { payload } = await gatherPayload(root, { ...deck, slides: [slide] }, {
-      readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p),
+      readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), readModelFile: p => boundedModelFile(p, GLB_LIMITS.maxBytes, root),
     });
     const roots = new Map(Object.entries(payload.plots ?? {}).map(([id, plot]) => [id, preparePlot(plot.svg, plot.manifest).root]));
     return { trackId: slideOps.swapBecome(deck, slideId, trackId, { ...options, plotRoot: id => roots.get(id) ?? undefined }) };
@@ -1065,7 +1067,7 @@ export async function gatherDeckPayload(
     const used = slideAssetIds(slide);
     deck.assets = deck.assets.filter(asset => used.has(asset.id));
   }
-  const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), videoUrl: opts.videoUrl,
+  const result = await gatherPayload(root, deck, { readText: p => fs.readFile(p, "utf8"), readFile: p => fs.readFile(p), readModelFile: p => boundedModelFile(p, GLB_LIMITS.maxBytes, root), videoUrl: opts.videoUrl,
     modelPoster: async (request, relative) => {
       const { resolveModelPosters } = await import("./model3dPosterCache");
       const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, background: "transparent", elements: [request.element] };

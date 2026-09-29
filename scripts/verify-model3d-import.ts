@@ -176,6 +176,18 @@ try {
   const ipc = createModel3dCore({ rootFor: () => currentRoot, generationFor: () => generation, fsReadGuard: fileCore.fsReadGuard });
   ipc.registerHandlers({ handle: (name: string, fn: (...args: any[]) => any) => handlers.set(name, fn) });
   const call = (name: string, payload: any, event = e) => Promise.resolve().then(() => handlers.get(`model3d:${name}`)!(event, payload));
+  const stored=path.join(project,'plots/neuron.glb');await fs.writeFile(stored,bytes);
+  h.eq(new Uint8Array(await call('readFile',{path:stored,root:project})),bytes,'native prepared-model read returns exact bytes');
+  await assert.rejects(()=>call('readFile',{path:stored,root:external}),/project changed/);h.ok(true,'native bounded read binds explicit captured project root');
+  await assert.rejects(()=>call('readFile',{path:path.join(project,'plots/escape.glb'),root:project}),/escapes|denied|outside/i);h.ok(true,'native bounded read refuses escaped symlink');
+  await assert.rejects(()=>call('readFile',{path:sparse,root:project}),/exceeds 200 MiB/);h.ok(true,'native bounded read refuses actual oversized file before allocation');
+  const realOpen=fs.open;
+  fs.open=(async(...args:any[])=>{const handle=await (realOpen as any)(...args);if(String(args[0])===stored)generation++;return handle;}) as typeof fs.open;
+  try {await assert.rejects(()=>call('readFile',{path:stored,root:project}),/project changed/);h.ok(true,'generation change after opening native model refuses read publication');}finally{fs.open=realOpen;}
+  const modelMem=createMemBridge();await modelMem.writeFile('/project/assets/model.glb',bytes);await modelMem.watchRoot?.('/project');
+  h.eq(new Uint8Array(await modelMem.readModelFile!('/project/assets/model.glb','/project')),bytes,'MemBridge bounded model read preserves exact bytes');
+  await assert.rejects(()=>modelMem.readModelFile!('/other/model.glb','/project'),/escapes/);
+  await modelMem.watchRoot?.('/other');await assert.rejects(()=>modelMem.readModelFile!('/project/assets/model.glb','/project'),/project changed/);h.ok(true,'MemBridge matches native confinement and root ownership');
   const nativeRequest = { root: project, sourcePath: path.join(external, 'other.glb'), target: request.target };
   await assert.rejects(() => call('import', nativeRequest), /denied|outside|access/i);
   h.ok(true, 'ordinary native import enforces real per-window source authorization');

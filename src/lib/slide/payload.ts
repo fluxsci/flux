@@ -1,3 +1,6 @@
+import { validatedModelBytes } from "../model3d/portableBytes";
+import { compileSlide } from "./compile";
+import { staticModelElement, payloadModelCompileOptions } from "./staticModels";
 import { deckModel3dBindings } from "./model3dBindings";
 import { readScene3dSidecars } from "../model3d/persistence";
 import { staticModelRequest, type StaticModelPosterRequest } from "../model3d/static";
@@ -19,6 +22,8 @@ export type { ExportPayload } from "./export/runtime";
 export interface SlidePayloadIO {
   readText(path: string): Promise<string>;
   readFile(path: string): Promise<Uint8Array | ArrayBuffer>;
+  /** Bounded, confined native/Node read; shared gathering still verifies prepared digest. */
+  readModelFile?(path: string, root: string): Promise<Uint8Array | ArrayBuffer>;
   /** Authoring/capture hosts stream native files. Portable exports inline bytes. */
   videoUrl?(path: string, asset: Asset): Promise<string>;
   /** Static writers keep model bytes cold; native/worker poster preparation is separate. */
@@ -84,13 +89,13 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   const collectModel = async (asset: Model3dAsset, prefix: string) => {
     const relative = join(prefix, asset.path);
     const file = underRoot(root, relative);
-    modelFiles.set(asset.id, { asset, relative });
     const sidecars = await readScene3dSidecars({ readText: p => io.readText(p), exists: async p => {
       try { await io.readText(p); return true; } catch { return false; }
     } }, underRoot(root, `${prefix}/assets`), asset.id, { binding: modelBindings.get(asset.id) });
     if (sidecars.manifest) modelManifests[asset.id] = sidecars.manifest;
     warnings.push(...sidecars.issues ?? []);
-    if (io.modelData !== "omit") models[asset.id] = base64(new Uint8Array(await io.readFile(file)));
+    if (io.modelData !== "omit") models[asset.id] = base64(await validatedModelBytes(await (io.readModelFile ? io.readModelFile(file, root) : io.readFile(file)), asset));
+    modelFiles.set(asset.id, { asset, relative });
   };
 
   // Raster/media bytes by id: deck-local first, then fig/ by id.
@@ -111,7 +116,8 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
         const ds = displaySize(da);
         if (ds) assetSizes[assetId] = ds;
         return true;
-      } catch {
+      } catch (error) {
+        if (da.kind === "glb") throw new Error(`Cannot export 3D model "${da.name || da.id}": ${error instanceof Error ? error.message : error}`);
         warnings.push(`media asset "${assetId}" missing (${da.path}) — its element will show a placeholder`);
         return false;
       }
@@ -125,7 +131,8 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
         const ds = displaySize(fa);
         if (ds) assetSizes[assetId] = ds;
         return true;
-      } catch {
+      } catch (error) {
+        if (fa.kind === "glb") throw new Error(`Cannot export 3D model "${fa.name || fa.id}": ${error instanceof Error ? error.message : error}`);
         warnings.push(`fig/ asset "${assetId}" unreadable (${fa.path}) — its element will show a placeholder`);
         return false;
       }
@@ -183,16 +190,6 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
         await collectMedia(el.assetId); // <image> fallback bytes
       } else if (el.type === "model3d") {
         if (!(await collectMedia(el.assetId))) warnings.push(`3D model "${el.assetId}" unresolvable — showing a placeholder`);
-        const source = modelFiles.get(el.assetId);
-        if (source) {
-          const request = staticModelRequest(el, source.asset, modelManifests[el.assetId], "slide");
-          modelPosters[el.id] = request.ref;
-          if (!assets[request.ref]) {
-            try { assets[request.ref] = io.modelPoster ? await io.modelPoster(request, source.relative)
-              : `data:image/png;base64,${base64(new Uint8Array(await io.readFile(underRoot(root, posterPath(request.key)))))}`; }
-            catch { warnings.push(`3D model "${el.name || el.id}": poster unavailable; open the model in Flux to render a still`); }
-          }
-        }
       } else if (el.type === "image") {
         if (!(await collectMedia(el.assetId)))
           warnings.push(`image asset "${el.assetId}" unresolvable — its element will show a placeholder`);
@@ -209,6 +206,29 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
       if (t.to?.assetId && (deckAsset(t.to.assetId)?.kind === "glb" || figAssets.find(a => a.id === t.to?.assetId)?.kind === "glb")) await collectMedia(t.to.assetId);
       else if (t.to?.assetId)
         await collectPlot(t.to.assetId, t.to.svgPath as string | undefined, t.to.manifestPath as string | undefined, { external: typeof t.to.external === "boolean" ? t.to.external : undefined });
+    }
+  }
+
+  // Gather every evaluated static endpoint (including rect -> model Consume).
+  // Ordinary model identities retain Design appearance; sampled placement can
+  // change poster dimensions. Content-only models use their full endpoint state.
+  if (modelFiles.size) {
+    const metadata = { ...deck, assets: [...new Map([...deck.assets, ...[...modelFiles.values()].map(row => row.asset)].map(a => [a.id, a])).values()] };
+    const context = { deck: metadata, plots, modelManifests };
+    for (const slide of deck.slides) {
+      const compiled = compileSlide(slide, deck.stage, payloadModelCompileOptions(context));
+      for (let step = 0; step < Math.max(1, slide.beats.length); step++) for (const sampled of compiled.sample(step).elements) {
+        const el = staticModelElement(sampled, slide);
+        if (el.type !== 'model3d') continue;
+        const source = modelFiles.get(el.assetId); if (!source) continue;
+        const request = staticModelRequest(el, source.asset, modelManifests[el.assetId], 'slide');
+        if (step === 0) modelPosters[el.id] = request.ref;
+        if (!assets[request.ref]) {
+          try { assets[request.ref] = io.modelPoster ? await io.modelPoster(request, source.relative)
+            : `data:image/png;base64,${base64(new Uint8Array(await io.readFile(underRoot(root, posterPath(request.key)))))}`; }
+          catch { warnings.push(`3D model "${el.name || el.id}": poster unavailable; open the model in Flux to render a still`); }
+        }
+      }
     }
   }
 
@@ -239,18 +259,11 @@ export async function gatherPayload(root: string, deck: Deck, io: SlidePayloadIO
   }
   const portableDeck = { ...deck, assets: [...deck.assets] };
   for (const { asset } of modelFiles.values()) if (!portableDeck.assets.some(a => a.id === asset.id)) portableDeck.assets.push(asset);
-  const portable = portablePayload({ deck: portableDeck, plots, assets });
-  return {
-    payload: {
-      deck: portable.deck,
-      plots: portable.plots,
-      assets,
-      ...(Object.keys(videos).length ? { videos } : {}),
-      ...(modelFiles.size ? { models, modelManifests, modelPosters } : {}),
-      ...(Object.keys(assetSizes).length ? { assetSizes } : {}),
-    },
-    warnings,
-  };
+  return { payload: portablePayload({ deck: portableDeck, plots, assets,
+    ...(Object.keys(videos).length ? { videos } : {}),
+    ...(modelFiles.size ? { models, modelManifests, modelPosters } : {}),
+    ...(Object.keys(assetSizes).length ? { assetSizes } : {}),
+  }), warnings };
 }
 
 /** Keep source lookup data until after gathering; portable embeds contain no notes or local paths. */
@@ -291,7 +304,7 @@ export function portablePayload(payload: ExportPayload, opts: { notes?: boolean 
     if (opts.notes === false) delete s.notes;
     for (const el of s.elements) if (el.type === "plot") delete el.source;
     for (const b of s.beats) for (const t of b.tracks) if (t.to) {
-      for (const k of ["svgPath", "manifestPath", "recipePath", "external", "frozen"]) delete t.to[k];
+      for (const k of ["svgPath", "glbPath", "sha256", "manifestPath", "recipePath", "external", "frozen"]) delete t.to[k];
     }
   }
   clean.deck.assets = clean.deck.assets.map(a => ({ id: a.id, name: a.id, kind: a.kind, path: "", naturalWidth: a.naturalWidth, naturalHeight: a.naturalHeight, ...(a.dpi ? { dpi: a.dpi } : {}), ...(a.durationMs ? { durationMs: a.durationMs } : {}), ...(a.hasAudio != null ? { hasAudio: a.hasAudio } : {}), ...(a.kind === "glb" ? { model: a.model, sha256: a.sha256, bytes: a.bytes } : {}) }));
@@ -299,7 +312,7 @@ export function portablePayload(payload: ExportPayload, opts: { notes?: boolean 
   const scrub = (value: unknown): void => {
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
-      if (["source", "svgPath", "manifestPath", "recipePath", "sourcePath", "externalAssetSizes", "generatedBy", ...(opts.notes === false ? ["notes"] : [])].includes(key)) delete (value as Record<string, unknown>)[key];
+      if (["source", "svgPath", "glbPath", "manifestPath", "recipePath", "sourcePath", "externalAssetSizes", "generatedBy", ...(opts.notes === false ? ["notes"] : [])].includes(key)) delete (value as Record<string, unknown>)[key];
       else scrub(child);
     }
   };

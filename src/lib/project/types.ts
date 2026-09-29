@@ -198,6 +198,8 @@ export interface FileBridge {
   writeText(p: string, text: string, options?: { createOnly?: boolean }): Promise<void>;
   readText(p: string): Promise<string>;
   readTextBounded?(p: string, maxBytes: number): Promise<{ text: string; truncated: boolean; totalBytes: number }>;
+  /** Bounded, confined prepared GLB read tied to a captured project root. */
+  readModelFile?(p: string, root: string): Promise<ArrayBuffer>;
   readFile(p: string): Promise<ArrayBuffer>;
   writeFile(p: string, data: Uint8Array): Promise<void>;
   projectAssetPath?(root: string, rel: string): Promise<string>;

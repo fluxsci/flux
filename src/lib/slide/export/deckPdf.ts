@@ -57,9 +57,10 @@ export async function deckPdfDocument(
   const fonts = (await import("../../../../.generated/slide-embed-assets.json")).default.fonts as string;
   const { width: w, height: h } = deck.stage;
   const pages: string[] = [];
-  const warnings: string[] = deck.slides.some(s => s.elements.some(e => e.type === "model3d")) ? ["3D animation exported as a still"] : [];
+  const warnings: string[] = [];
   for (const slide of deck.slides) {
     const result = await gatherSlidePayload(root, deck, slide.id, staticIO);
+    if (result.payload.deck.assets.some(a => a.kind === "glb") && !warnings.includes("3D animation exported as a still")) warnings.push("3D animation exported as a still");
     for (const warning of result.warnings) if (!warnings.includes(warning)) warnings.push(warning);
     for (const step of pdfStepsFor(slide.beats.length, plan)) {
       pages.push(`<div class="page">${renderSlidePosterSvg(result.payload, step)}</div>`);

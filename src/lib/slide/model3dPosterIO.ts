@@ -2,7 +2,7 @@
 import type { SlidePayloadIO } from './payload';
 import { fileBridge } from '../project/types';
 export function slideModelPosterIO(root: string, io: SlidePayloadIO, owner: { scope?: string; isCurrent?: () => boolean } = {}): SlidePayloadIO {
-  if (io.modelPoster) return io;
+  if (io.modelPoster || typeof window === "undefined") return io;
   const bridge = fileBridge();
   if (!bridge) return io;
   return { ...io, modelPoster: async (request, relative) => {

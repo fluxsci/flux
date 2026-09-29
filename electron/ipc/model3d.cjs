@@ -1,4 +1,6 @@
 "use strict";
+const fs = require("node:fs/promises");
+const path = require("node:path");
 const modelIO = require("../model3dImport.cjs");
 
 function createModel3dCore({ rootFor, generationFor = rootFor, fsReadGuard, noteWrite = () => {} }) {
@@ -55,6 +57,25 @@ function createModel3dCore({ rootFor, generationFor = rootFor, fsReadGuard, note
     }
   }
   function registerHandlers(ipcMain) {
+    ipcMain.handle("model3d:readFile", async (e, request) => {
+      const root = rootFor(e), generation = generationFor(e), file = request?.path;
+      const checkCurrent = () => {
+        if (!root || request?.root !== root || e.sender.isDestroyed() || rootFor(e) !== root || generationFor(e) !== generation) throw new Error("The project changed while reading the model");
+      };
+      checkCurrent();
+      if (typeof file !== 'string' || !path.isAbsolute(file) || file.includes('\0')) throw new Error('Expected an absolute model file path');
+      await fsReadGuard(file, e.sender.id);
+      const realRoot = await fs.realpath(root), real = await fs.realpath(file);
+      const validate = async () => {
+        checkCurrent();
+        const rel = path.relative(realRoot, real);
+        if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new Error('Model file escapes the project');
+        await fsReadGuard(file, e.sender.id); await fsReadGuard(real, e.sender.id);
+        if (await fs.realpath(root) !== realRoot || await fs.realpath(file) !== real) throw new Error('Model file path changed while reading');
+        checkCurrent();
+      };
+      return modelIO.readBounded(real, modelIO.MAX_BYTES, 'GLB', { validate, checkCurrent });
+    });
     ipcMain.handle("model3d:import", (e, request) => importModel(e, request));
     ipcMain.handle("model3d:importDropped", (e, request) => importModel(e, request, true));
     ipcMain.handle("model3d:adopt", (e, request) => {
