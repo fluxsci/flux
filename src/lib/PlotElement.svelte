@@ -24,10 +24,6 @@
   // IS the lazy-load's loading state.
   $: inline = (void gen, hasPlotDom(e.assetId));
 
-  // Crop honored on the <image> fallback too (P5): nested-svg viewport, same
-  // window semantics as the inline mount's viewBox sub-rect.
-  $: imgDisp = !inline && e.crop ? assetDisplaySize($project, e.assetId) : null;
-
   // Lazy residency (plan §5.5): a mounted plot without a cached DOM asks the
   // parse queue for one (bytes are already resident in assetData). Idempotent
   // and failure-guarded in the store, so re-runs after gen bumps are free.
@@ -58,6 +54,11 @@
 {#if inline}
   <g use:mountPlot={{ element: e, gen }}></g>
 {:else if $assetData[e.assetId]}
+  <!-- Crop honored on the <image> fallback too (P5): nested-svg viewport, same
+       window semantics as the inline mount's viewBox sub-rect. Read `$project`
+       only here: a `$:` dependency would re-run every mounted plot's reactive
+       statements on each project edit (see Element.svelte). -->
+  {@const imgDisp = e.crop ? assetDisplaySize($project, e.assetId) : null}
   {#if e.crop && imgDisp}
     <svg
       x={e.x}

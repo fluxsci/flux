@@ -47,6 +47,10 @@ const BUDGET = {
   commitsPerDragMax: 1,
   layerRowsMax: 150, // WS-1 Fix 6 landed: windowed Layers list (measured ~40 rendered at 5k)
   sigCallsUnrelatedMax: 0, // WS-1 Fix 1 landed: snapshot fast path, zero stringify on unrelated commits
+  // 2026-09-29: a 1-element edit re-renders only that element (ElementSlot).
+  // Before, every mounted element re-rendered on each edit to its figure — the
+  // cost behind verify-figure-polish-electron's 5,000-object nudge at ~90ms.
+  elementRendersPerNudgeMax: 1,
 };
 
 const h = harness("verify-scale-figure");
@@ -289,6 +293,30 @@ h.ok(
   ctl.drag.during === 0 && ctl.drag.total === 1 && heavy.drag.during === 0 && heavy.drag.total === 1,
   `move gesture is transient: commits during drag = 0, on release = 1 (ctl ${ctl.drag.during}/${ctl.drag.total}, heavy ${heavy.drag.during}/${heavy.drag.total})`,
 );
+
+// Structural: the nudged element is the only one passed on to its renderer.
+const renders = await page.evaluate(async () => {
+  const F = window.__flux.fig, P = window.__flux.perf;
+  const raf2 = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const mounted = document.querySelectorAll("[data-editor-element-id]").length;
+  const before = P.elementRenders;
+  F.commit((p) => {
+    p.figures[0].elements[0].x += 1;
+  });
+  await raf2();
+  const nudge = P.elementRenders - before;
+  F.commit((p) => {
+    p.figures[0].elements[0].x -= 1;
+  });
+  await raf2();
+  return { nudge, mounted, x: document.querySelector('[data-editor-element-id="sc-r0"] rect')?.getAttribute("x") };
+});
+console.log(`  · element renders per 1-element nudge: ${renders.nudge} of ${renders.mounted} mounted`);
+h.ok(
+  renders.nudge >= 1 && renders.nudge <= BUDGET.elementRendersPerNudgeMax && renders.mounted >= 1000,
+  `1-element nudge re-renders ${renders.nudge} element(s) ≤ ${BUDGET.elementRendersPerNudgeMax} of ${renders.mounted} mounted`,
+);
+h.eq(renders.x, "12", "the nudged-and-restored element paints its current position");
 
 h.section("sidebar profile (5,000 elements)");
 const t5k0 = Date.now();

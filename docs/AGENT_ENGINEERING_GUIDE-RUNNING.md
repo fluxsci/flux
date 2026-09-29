@@ -1849,7 +1849,12 @@ library first-keystroke 177ms (the 150ms debounce above). Figure was remeasured 
 the production harness gates actual key-to-paint at 31.9ms p95 for 1,600 mounted objects and
 34.8ms in the 5,000-object fixture (3,760 visible elements mounted, 47 Layers rows). Transient
 Figure drag measured 5.4ms p95 in the dev scale gate; dev commit tracing remains distinct from
-production latency. Figure and Paper were remeasured 2026-09-16 on the neural-populations
+production latency. By 2026-09-29 the native gate had regressed to 85.6 / 118.1ms p95
+(1,600 / 5,000; red on origin/main too): every edit re-rendered all 3,760 mounted elements
+and re-ran their project-store `$:` dependencies (the two Svelte-legacy traps in §9). With
+`ElementSlot` and branch-local store reads it reads 38.6 / 47.5ms p95 (1440×1000 window at
+DPR 2 on the 6144×3456 + 5120×2880 desktop; the gate sizes its own window, so the huge
+displays were not the cause). Figure and Paper were remeasured 2026-09-16 on the neural-populations
 example (21 plots, 14.8k mounted plot nodes, production bundle, `scripts/perf/input-probe.cjs`,
 Paper visited first then Figure): trackpad pan 50–110 ms of main-thread time per 1.6 s burst
 with zero long tasks (was 630 ms and 47% busy), hover sweep 55 ms (was 510), twelve rapid
@@ -2261,6 +2266,18 @@ Run it through the hermetic runner; never validate a migration on real projects.
   per frame under pan.
 - A `<details>` inside a control that rerenders mid-gesture must bind its `open` state, or
   the rerender collapses it under the pointer (the 3D Shape sequence block did).
+- **Per-element render cost is O(mounted) unless something gates it.** A legacy `{#each}` item
+  holding an object is "changed" every time its list is recomputed (`safe_not_equal` treats any
+  object as unequal, even itself), and the in-place model makes every figure-scoped edit
+  recompute its figure's list — so each keystroke re-rendered every mounted element.
+  `ElementSlot.svelte` (runes) is the scene's render boundary: it passes an element on only when
+  its identity or JSON content changed; `perfCounters.elementRenders` + `verify-scale-figure`
+  pin one render per one-element nudge. Keep new per-element rendering behind it.
+- **A store read in a per-element `$:` subscribes every instance.** `$: x = cond ? f($project) : null`
+  lists `$project` as a dependency even when `cond` is false, and `legacy_pre_effect_reset`
+  re-runs every `$:` dependency of the component when any of them changes: 3,760 elements ×
+  4 statements per project edit. Read the store inside the branch that needs it
+  (`{@const imgDisp = … $project …}` in Element/PlotElement).
 
 **Derived model fields (figure families):** since 2026-08-04 a figure's `name` is DERIVED from
 family identity — every load runs `applyFamilyNumbers`, which rewrites `name` from
@@ -3141,6 +3158,7 @@ outside this PNG packaging change.
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
 | — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
+| — | Box-axis tick labels pile up when the view looks almost straight down an axis (a ~15 px stub carrying "-1 0 1") | `furniture.ts` `tickLabelsCollide`: when any two of an axis's tick-label boxes (textMetrics width, one font size tall, a word space apart) overlap, its labels hide, and its title if longer than the stub; line, ticks and grid stay. A pure function of the pose, no hysteresis; fluxplot `_tick_labels_collide` mirrors it; `verify-model3d-furniture.ts` near-cardinal sweeps, `tests/test_scene3d_static.py` |
 | — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); `verify-model3d-verbs.ts`. The GUI Figure load never locks on one either (a placed one gets its placeholder and a toast); `figbridge.ts` `judgeMissingModels` refuses Save only while a current element places the GLB or a saved deck uses it (`readDeckAssetUses`), and drops an unused missing one from the SAVED index only; `verify-model3d-persistence.ts`, `verify-model3d-gui.mjs`. The deck save judges only GLBs the slides still reference (`slideAssetIds`). Both rules exist because asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
@@ -8645,3 +8663,16 @@ preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). 
 - A srcdoc that serves content by reference must change when the reference's owner changes: the preview's bytes are identical after a repository invalidation, so without `modelRevision` Svelte never reloads the iframe and a deleted GLB keeps its last frames.
 - Keyboard chords owned by the window stop reaching it once a real click focuses a preview iframe; blur it before pressing (`verify-model3d-embed-gui`).
 - Gates reaching `deckPdf.ts`/`embedAssets.ts` generate `.generated/` themselves (promoted to §4 Inline slides).
+
+### 2026-09-29 — Near-cardinal axis labels + Figure key-to-paint regression (Claude Opus 5.5, `fu-furniture`)
+**Work:** Box axes seen almost end-on now hide colliding tick labels (and an over-long title)
+in Flux and the fluxplot still, one rule on both sides (72/72 swept views agree); goldens
+unchanged, since they hold only exact cardinal views. The native Figure polish gate (red since
+before origin/main ffb511b8) passes again: 85.6 / 118.1 → 38.6 / 47.5 ms p95.
+**Learnings:**
+- Promoted to §9 (Svelte 5 legacy): legacy each items holding objects always re-render, and a
+  store in a per-element `$:` subscribes every instance; ElementSlot is the scene's render gate.
+- A CPU profile symbolicated through the hidden production sourcemaps (`dist/assets/*.map`)
+  pointed straight at Svelte's flush; the Chrome trace alone only showed `FunctionCall`.
+- The native probe's p95 over 18 samples is the maximum, i.e. the first keystroke, which
+  also pays the undo snapshot.

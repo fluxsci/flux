@@ -90,6 +90,7 @@
   import { plotManifests, plotGen } from "./plot/store";
   import { model3dPosterRevision } from "./model3d/store";
   import ElementView from "./Element.svelte";
+  import ElementSlot from "./ElementSlot.svelte";
 
   // ===========================================================================
   // Rendering architecture (performance-critical):
@@ -3982,7 +3983,7 @@
                   {#if sceneOverride && sceneOverride.id === el.id}
                     <ElementView element={sceneOverride.el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {:else}
-                    <ElementView element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
+                    <ElementSlot element={hiddenPresentationIds.has(el.id) && presentation?.ghostHidden ? { ...el, opacity: 1 } : el} modelPartOpacity={el.type === 'model3d' ? modelPartOpacity(presentation?.partStates?.[el.id], presentation?.ghostHidden) : undefined} />
                   {/if}
                 </g>
               {/each}

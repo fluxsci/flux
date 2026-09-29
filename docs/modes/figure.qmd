@@ -212,7 +212,10 @@ The Inspector's **3D model** panel is grouped into sections:
 
 Resizing the box reframes the model while labels keep their physical type size. A physical
 scale bar is shown only in orthographic view. The default view fits the model snugly; with
-box axes it fits the whole axes box, so ticks and labels stay inside the frame.
+box axes it fits the whole axes box, so ticks and labels stay inside the frame. Looking
+almost straight down one axis shrinks it to a short stub. Its tick labels are then hidden
+rather than stacked on top of each other, and so is its title if the title is longer than
+the stub. The axis line, ticks and grid stay.
 
 Use **Alt+R** for the model's **X-ray**. Named mesh parts can be recoloured, hidden or made
 transparent; labels can be restyled independently. Mesh-part colours show while **Colours**

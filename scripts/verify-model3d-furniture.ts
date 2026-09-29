@@ -10,6 +10,7 @@ import{framingBounds}from'../src/lib/model3d/framing';
 import{makeModel3dElement}from'../src/lib/model3d/make';
 import{inspectGlb}from'../src/lib/model3d/glbCore.mjs';
 import type{Scene3dManifest,Model3dAsset}from'../src/lib/model3d/types';
+import type{FurnitureNode}from'../src/lib/model3d/furniture';
 const h=harness('verify-model3d-furniture'),root=new URL('./fixtures/model3d/fluxplot/',import.meta.url);
 const golden=JSON.parse(await readFile(new URL('./fixtures/model3d/furniture-golden.json',import.meta.url),'utf8'));assert.deepEqual(await furnitureGoldens(),golden);h.eq(Object.keys(golden).length,33,'11 fixtures ×3 views match exact layout/SVG goldens');
 const m:Scene3dManifest=JSON.parse(await readFile(new URL('box-axes.fluxplot.json',root),'utf8')),info=inspectGlb(await readFile(new URL('box-axes.glb',root))),asset:Model3dAsset={id:'a',name:'box.glb',kind:'glb',path:'assets/a.glb',naturalWidth:336,naturalHeight:288,sha256:'0'.repeat(64),bytes:4000,model:info},el=makeModel3dElement(asset,{manifest:m,id:'test'});
@@ -147,5 +148,52 @@ h.ok(String(movedTitle.attrs.transform).startsWith('translate(3 4) rotate('),'pa
  h.ok(tiny.overflow&&tiny.overflowParts.includes('legend'),'impossible boxes report overflow without shrinking or dropping text');
  h.eq(tiny.legend!.legendRows![0].lines.join(''),token,'overflow still preserves the full scientific label');
  h.ok(tiny.legend!.y>tiny.colorbar!.y+tiny.colorbar!.height,'overflowing guides do not overlap each other');
+}
+{// Near-cardinal views: an axis seen almost end-on projects to a stub too short for
+ // its tick labels. They (and a title longer than the stub) hide; the axis line, tick
+ // marks and grid stay. fluxplot's still mirrors the rule (tests/test_scene3d_static.py).
+ const{textWidth}=await import('../src/lib/model3d/textMetrics');
+ const{tickLabelsCollide}=await import('../src/lib/model3d/furniture');
+ const fs=layout.fontSize,space=textWidth(' ',fs);
+ h.ok(!tickLabelsCollide([],fs,'middle')&&!tickLabelsCollide([{x:0,y:0,width:50}],fs,'middle'),'no or one tick label never collides');
+ h.ok(tickLabelsCollide([{x:0,y:0,width:10},{x:10+space*.9,y:0,width:10}],fs,'start')&&!tickLabelsCollide([{x:0,y:0,width:10},{x:10+space*1.1,y:0,width:10}],fs,'start'),'side-by-side labels need a word space between them');
+ h.ok(tickLabelsCollide([{x:0,y:0,width:10},{x:0,y:fs*.9,width:10}],fs,'end')&&!tickLabelsCollide([{x:0,y:0,width:10},{x:0,y:fs*1.1,width:10}],fs,'end'),'stacked labels need one font size between their centres');
+ h.ok(tickLabelsCollide([{x:0,y:0,width:40},{x:15,y:fs*2,width:4},{x:30,y:0,width:40}],fs,'middle'),'any two labels are compared, not just neighbours');
+ type View={azimuth:number;elevation:number;projection?:'orthographic'|'perspective';manifest?:Scene3dManifest};
+ const render=({azimuth,elevation,projection='orthographic',manifest=m}:View)=>{const view={...el,orbitAzimuth:azimuth,orbitElevation:elevation,orbitRoll:0,orbitProjection:projection},l=furnitureLayout(manifest,view,view.overrides);return furnitureSvg(manifest,view,orbitPose(view,framingBounds(info.bounds,manifest),l.viewport),l);};
+ const axisOf=(svg:ReturnType<typeof furnitureSvg>,k:string)=>{
+  const group=(role:string)=>svg.underNodes.find(n=>n.partId===`axes.${k}.${role}`)?.children??[];
+  const line=group('axis')[0],marks=group('ticks').filter(n=>n.tag==='line');
+  return {length:line?Math.hypot(Number(line.attrs.x2)-Number(line.attrs.x1),Number(line.attrs.y2)-Number(line.attrs.y1)):0,marks,labels:group('ticks').filter(n=>n.tag==='text'),title:group('label')[0],grid:group('grid').length};
+ };
+ // Independent oracle over the emitted geometry: rebuild each label box from its tick
+ // mark (4 px along the outward normal) and the shared offset, then compare every pair.
+ const wouldCollide=(marks:FurnitureNode[],texts:string[])=>{
+  const pts=marks.map((t,i)=>{const nx=(Number(t.attrs.x2)-Number(t.attrs.x1))/4,ny=(Number(t.attrs.y2)-Number(t.attrs.y1))/4,x=Number(t.attrs.x1)+nx*(fs*.9+4),w=textWidth(texts[i],fs);const x0=nx<-.5?x-w:nx>.5?x:x-w/2;return {x0:x0-space/2,x1:x0+w+space/2,y:Number(t.attrs.y1)+ny*(fs*.9+4)};});
+  for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++)if(pts[i].x0<pts[j].x1&&pts[j].x0<pts[i].x1&&Math.abs(pts[i].y-pts[j].y)<fs)return true;
+  return false;
+ };
+ const ticks=['-1','0','1'];
+ const near=render({azimuth:5,elevation:0}),z=axisOf(near,'z');
+ h.ok(z.length>=1&&z.length<20,`front + 5° leaves z a short stub (${z.length.toFixed(1)} px)`);
+ h.ok(!z.labels.length&&z.marks.length===3&&z.grid>0&&wouldCollide(z.marks,ticks),'the stub hides its colliding tick labels and keeps its line, tick marks and grid');
+ h.ok(!z.title&&textWidth('z (µm)',fs)>z.length,'a title longer than the stub hides with its tick labels');
+ h.ok(['x','y'].every(k=>{const a=axisOf(near,k);return a.labels.length===3&&!!a.title;}),'the two axes across the view keep every label and title');
+ const shortTitle={...m,parts:m.parts!.map(p=>p.id==='axes.z.label'?{...p,text:'z'}:p)};
+ h.eq(axisOf(render({azimuth:5,elevation:0,manifest:shortTitle}),'z').title?.text,'z','a title that fits along the stub stays');
+ h.ok(!axisOf(render({azimuth:5,elevation:0,projection:'perspective'}),'z').labels.length,'the rule holds under perspective');
+ h.ok(!axisOf(render({azimuth:30,elevation:86}),'y').labels.length&&axisOf(render({azimuth:30,elevation:86}),'x').labels.length===3,'looking almost straight down hides the stub axis only');
+ // Fine orbit sweeps: labels show exactly when they would not collide (both ways),
+ // shown labels never overlap, and each axis changes state at most once per quarter turn.
+ let checked=0;
+ for(const [projection,elevation] of [['orthographic',0],['orthographic',25],['perspective',0]] as const){
+  const states:Record<string,boolean[]>={x:[],y:[],z:[]};
+  for(let azimuth=0;azimuth<=90;azimuth+=.5){const svg=render({azimuth,elevation,projection});for(const k of ['x','y','z']){const a=axisOf(svg,k);if(a.length<1)continue;const shown=a.labels.length>0;
+   assert.equal(shown,!wouldCollide(a.marks,ticks),`labels shown iff collision-free (${projection} az ${azimuth} el ${elevation} ${k})`);
+   if(shown)assert.equal(a.labels.length,a.marks.length,'labels hide all together, never partially');
+   states[k].push(shown);checked++;}}
+  for(const k of ['x','y','z'])assert(states[k].filter((s,i)=>i&&s!==states[k][i-1]).length<=1,`${k} toggles at most once over a quarter turn (${projection}, el ${elevation})`);
+ }
+ h.ok(checked>500,`${checked} swept axis views: labels shown exactly when collision-free, all-or-none, no flicker between neighbouring angles`);
 }
 await h.done();
