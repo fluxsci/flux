@@ -8569,3 +8569,6 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Real model slide scale cohort
 **Work:** Added one real 250k-mesh/two-asset/eight-ghost cohort to browser and production native qualification, retaining existing 2D thresholds and checking actual publication, idle work, shared residency and disposal. **Learnings:** The strict native oracle requires uninterrupted focus, positive hardware identity, full-duration raw timing and prompt first publication; software results and a zero-sized display never qualify the GPU budget.
+
+### 2026-09-29 — Preserve missing plot-part diagnostics
+**Work:** Restored the existing plot-specific missing-parts diagnostic while retaining semantic model diagnostics. The unchanged timeline regression verifies a missing selector never hides a whole plot; the model-part gate now pins the equivalent whole-model behavior without metadata.

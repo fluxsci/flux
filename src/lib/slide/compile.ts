@@ -113,9 +113,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
           issues.push({ trackId: track.id, target: track.target, reason });
       }
       const parts = semanticTargets(track, slide, opts, bi);
-      if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target, reason: "No matching semantic parts. Retarget this effect." });
+      const el = transformPreState(slide, track.target, bi);
+      if (hasPartBinding(track) && !parts.length) issues.push({ trackId: track.id, target: track.target,
+        reason: `No matching ${el?.type === "plot" ? "plot" : "semantic"} parts. Retarget this effect.` });
       const start = Math.max(0, track.start ?? 0), duration = trackDuration(track);
-      const el = transformPreState(slide, track.target, bi), manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
+      const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
       const by = track.stagger?.by;
       const coordinates = by === "x" || by === "y" ? new Map((manifest?.series ?? []).flatMap((s) => (s.points ?? []).map((p) => [p.svgId, p[by]] as const))) : undefined;
       const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates ? parts.map((id) => coordinates.get(id) ?? null) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined);

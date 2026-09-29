@@ -74,6 +74,7 @@ h.eq(slide.elements[0], element, 'presentation never edits Design geometry or so
 h.eq(resolveTargetLeaves({ element: 'M', parts: ['@axes'] }, slide, () => undefined, opts.modelManifest), [{ elementId: 'M', partIds: ['axes.x.label'] }], 'TargetRef resolves furniture through model metadata');
 h.eq(resolveTargetLeaves({ element: 'M', parts: ['neuron.axon'] }, slide, () => undefined), [{ elementId: 'M', partIds: [] }], 'plain GLB has no invented semantic targets');
 h.ok(compileSlide(slide, deck.stage).issues.some(issue => issue.reason.includes('No matching semantic parts')), 'missing model metadata is an actionable animation issue');
+h.eq(compileSlide(slide, deck.stage).sample(0).presentation.elementStates.M, undefined, 'missing model metadata never turns a mesh entrance into whole-model hiding');
 const nextManifest = { ...manifest, parts: [{ id: 'other', node: 'other', role: 'mesh' }] };
 setTransform(deck, slide.id, beat.id, 'M', { toAssetId: 'next' });
 const resolveAt = handoffTargetResolver(slide, () => undefined, id => id === 'next' ? nextManifest : manifest);
