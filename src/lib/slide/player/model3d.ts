@@ -28,6 +28,11 @@ function liveVisible(node: HTMLElement): boolean {
   }
   return true;
 }
+/** Whether a client rect overlaps the layout viewport, with the observer's own
+ * edge semantics (an edge-adjacent or zero-area rect counts as intersecting). */
+export function rectInViewport(rect: { left: number; top: number; right: number; bottom: number }, width: number, height: number): boolean {
+  return rect.right >= 0 && rect.bottom >= 0 && rect.left <= width && rect.top <= height;
+}
 function svgLayer(): SVGSVGElement {
   const layer = document.createElementNS(SVG, 'svg');
   layer.setAttribute('width', '100%'); layer.setAttribute('height', '100%'); layer.setAttribute('preserveAspectRatio', 'none');
@@ -132,8 +137,9 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
     paintFurniture(under, furniture.underNodes); paintFurniture(over, furniture.overNodes);
     canvas.style.left = `${100 * box.x / Math.max(1, frame.width)}%`; canvas.style.top = `${100 * box.y / Math.max(1, frame.height)}%`;
     canvas.style.width = `${100 * box.width / Math.max(1, frame.width)}%`; canvas.style.height = `${100 * box.height / Math.max(1, frame.height)}%`;
-    const ref = asset ? staticModelRequest(frame, asset, manifest, 'slide').ref : undefined;
-    const url = ctx.modelPoster?.(frame) ?? (ref ? ctx.assetUrl?.(ref) : undefined);
+    // The still names this step's mesh-part appearance, exactly as the live frame does.
+    const ref = asset ? staticModelRequest(frame, asset, manifest, 'slide', partOpacity).ref : undefined;
+    const url = ctx.modelPoster?.(frame, partOpacity) ?? (ref ? ctx.assetUrl?.(ref) : undefined);
     // A matching poster remains visible until the first actual live frame.
     if (forceFallback || !active || canvas.style.display === 'none') fallback.replaceChildren();
     if ((forceFallback || !active || canvas.style.display === 'none') && url) {
@@ -151,6 +157,12 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
     activate(modelInfo) { if (disposed) return; active = true; info = modelInfo; key = ''; },
     flush() {
       if (disposed) return;
+      // The observer reports asynchronously: a model that just flew in or was
+      // revealed by a camera pan can still be flagged offscreen. Confirm an
+      // offscreen flag against current layout, so a seek's output never depends
+      // on the previous frame (T24). Onscreen flags need no layout read; a root
+      // without a layout box (display:none, detached) stays offscreen.
+      if (!intersects && root.getClientRects().length && rectInViewport(root.getBoundingClientRect(), window.innerWidth, window.innerHeight)) intersects = true;
       // Hidden surfaces own no backing storage, even if this exact model view
       // was already rendered. Shared geometry remains the host's retained asset.
       if (!intersects || !liveVisible(root)) {
@@ -203,7 +215,16 @@ export function modelBindingOf(root: HTMLElement): SlideModelBinding | undefined
   return bindings.get(root) ?? (root.querySelector<HTMLElement>('[data-slide-model-root]') ? bindings.get(root.querySelector<HTMLElement>('[data-slide-model-root]')!) : undefined);
 }
 export function setSlideModelFrame(root: HTMLElement, element: Model3dElement, extra?: Model3dRenderExtra) { modelBindingOf(root)?.set(element, extra); }
-export function flushSlideModels(root: HTMLElement) { for (const node of nodes(root)) bindings.get(node)?.flush(); }
+/** Flush every binding under `root`; `partStates` (a sampled frame's) sets each
+ * model's mesh-part appearance first, so stills match the live frame. */
+export function flushSlideModels(root: HTMLElement, partStates?: SlideFrame['partStates']) {
+  for (const node of nodes(root)) {
+    const binding = bindings.get(node);
+    if (!binding) continue;
+    if (partStates) binding.setPartOpacity(modelPartOpacity(partStates[binding.element.id]));
+    binding.flush();
+  }
+}
 
 /** Loading is scoped to the slide (including future content targets); invisible
  * ghosts retain shared geometry but acquire a surface only when they appear. */

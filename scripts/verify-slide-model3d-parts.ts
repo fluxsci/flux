@@ -3,7 +3,7 @@ import { targetPartIds, resolveTargetLeaves } from '../src/lib/slide/targets';
 import { modelPartTargets } from '../src/lib/slide/model3dTargets';
 import { compileSlide, semanticTargets } from '../src/lib/slide/compile';
 import { handoffTargetResolver } from '../src/lib/slide/handoffTargets';
-import { createDeck, addSlide, addBeat, setTransform } from '../src/lib/slide/ops';
+import { createDeck, addSlide, addBeat, setTransform, addGhostTransform } from '../src/lib/slide/ops';
 import { addAppearanceTracks } from '../src/lib/slide/animateSelection';
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { inspectGlb, writeGlb } from '../src/lib/model3d/glbCore.mjs';
@@ -71,6 +71,21 @@ h.eq(compiled.sample(2, 500).partStates.M['neuron.dendrites.b'], { opacity: .5, 
 h.eq(compiled.sample(3, 1000).partStates.M['neuron.axon'], { opacity: 0, visible: false }, 'mesh exit settles invisible');
 h.eq(compiled.sample(1, 500).partStates, compiled.sample(1, 500).partStates, 'random repeated sampling is deterministic');
 h.eq(slide.elements[0], element, 'presentation never edits Design geometry or source');
+{
+  // A with-prev step plays with the click before it (Present's cue, a video cue):
+  // the run's mesh parts sample concurrently, as its re-based DOM specs do.
+  const runDeck = createDeck({ withTitleSlide: false }); runDeck.assets = [asset];
+  const run = addSlide(runDeck); run.elements.push(makeModel3dElement(asset, { id: 'M' }));
+  addBeat(runDeck, run.id)!.tracks.push({ id: 'dendrites-in', target: 'M', part: 'neuron.dendrites', preset: 'fade', duration: 1000, easing: 'linear' });
+  const withPrev = addBeat(runDeck, run.id, { advance: 'with-prev' })!;
+  withPrev.tracks.push({ id: 'axon-in', target: 'M', part: 'neuron.axon', preset: 'fade', duration: 1000, easing: 'linear' });
+  const ghosts = addGhostTransform(runDeck, run.id, run.beats[1].id, 'M', { count: 1, start: 500, duration: 100 })!;
+  const runCompiled = compileSlide(run, runDeck.stage, opts), concurrent = runCompiled.sample(2, 100, 1);
+  h.eq([concurrent.partStates.M['neuron.dendrites.a'], concurrent.partStates.M['neuron.axon']], [{ opacity: .1, visible: true }, { opacity: .1, visible: true }], 'with-prev run samples its first beat concurrently at the same time');
+  h.ok(concurrent.presentation.unbornElementIds?.includes(ghosts.elementIds[0]), 'a later birth in the run\'s first beat is still unborn at 100 ms');
+  h.eq(runCompiled.sample(2, 100).partStates.M['neuron.dendrites.a'], { opacity: 1, visible: true }, 'single-beat sampling keeps earlier beats complete');
+  h.eq(runCompiled.sample(2, 100, 2), runCompiled.sample(2, 100), 'a one-beat run equals ordinary sampling');
+}
 h.eq(resolveTargetLeaves({ element: 'M', parts: ['@axes'] }, slide, () => undefined, opts.modelManifest), [{ elementId: 'M', partIds: ['axes.x.label'] }], 'TargetRef resolves furniture through model metadata');
 h.eq(resolveTargetLeaves({ element: 'M', parts: ['neuron.axon'] }, slide, () => undefined), [{ elementId: 'M', partIds: [] }], 'plain GLB has no invented semantic targets');
 h.ok(compileSlide(slide, deck.stage).issues.some(issue => issue.reason.includes('No matching semantic parts')), 'missing model metadata is an actionable animation issue');

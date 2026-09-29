@@ -12,7 +12,7 @@ const manifest = JSON.parse(await readFile('scripts/fixtures/model3d/fluxplot/mo
 manifest.parts.push({ id: 'title', role: 'title', text: 'Neuron compartments' }); manifest.layout = { title: 'top' };
 const fixture = { bytes: bytes.toString('base64'), manifest, asset: { id: 'model', kind: 'glb', name: 'Model', path: 'assets/model.glb', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), model: inspectGlb(bytes) } };
 const bundle = await build({ stdin: { resolveDir: process.cwd(), loader: 'ts', contents: `
-export { createPlayer } from './src/lib/slide/player/player';
+export { createPlayer, renderStaticAt } from './src/lib/slide/player/player';
 export { createInlineHost } from './src/lib/model3d/inlineHost';
 export { makeModel3dElement } from './src/lib/model3d/make';
 export { createDeck, addSlide, addBeat, setTransform, becomeTransform } from './src/lib/slide/ops';
@@ -49,6 +49,28 @@ try {
       if (beat === 1 && ms === 500) ok(!!title && Number(getComputedStyle(title).opacity) === .5, 'furniture follows the ordinary DOM appearance path');
     }
     ok(JSON.stringify(slide.elements) === authored, 'live part animation leaves saved Design overrides untouched');
+    // Stills (thumbnails, presenter next slide, no-WebGL) name the step's mesh appearance.
+    const requests: any[] = [], still = document.createElement('div'); document.body.append(still);
+    const modelPoster = (_el: unknown, partOpacity?: Record<string, number>) => { requests.push(partOpacity); return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" data-left="${partOpacity?.['cortex.left'] ?? 1}"/>`)}`; };
+    for (const [beat, left] of [[0, 0], [1, 1], [2, 0]] as const) {
+      requests.length = 0; api.renderStaticAt(still, slide, deck.stage, beat, { theme: api.FLUX_LIGHT, modelManifest: () => fixture.manifest, modelAsset: () => fixture.asset, modelPoster });
+      const href = decodeURIComponent(still.querySelector('image[data-model3d-poster]')?.getAttribute('href') ?? '');
+      ok((requests.at(-1)?.['cortex.left'] ?? 1) === left && href.includes(`data-left="${left}"`), `step ${beat} still requests and shows the sampled mesh-part appearance`);
+    }
+    still.remove();
+    // A with-prev step is one presenter/video cue: its mesh parts play concurrently.
+    player.destroy();
+    const runDeck = api.createDeck({ withTitleSlide: false }); runDeck.stage = deck.stage; runDeck.assets = deck.assets;
+    const run = api.addSlide(runDeck); run.elements.push(structuredClone(element));
+    api.addBeat(runDeck, run.id).tracks.push({ id: 'run-left', target: 'M', part: 'cortex.left', preset: 'fade', duration: 1000, easing: 'linear' });
+    api.addBeat(runDeck, run.id, { advance: 'with-prev' }).tracks.push({ id: 'run-right', target: 'M', part: 'cortex.right', preset: 'fade', duration: 1000, easing: 'linear' });
+    player = api.createPlayer(stage, runDeck, { theme: api.FLUX_LIGHT, model3d: host, modelManifest: () => fixture.manifest, modelAsset: () => fixture.asset, reducedMotion: false });
+    await player.readyMedia(); canvas = stage.querySelector<HTMLCanvasElement>('canvas[data-slide-model3d="M"]')!;
+    const runFrame = (left: number, right: number) => { view.render({ ...element, x: 0, y: 0, overrides: { 'cortex.left': { opacity: .6 * left, hidden: left === 0 }, 'cortex.right': { opacity: right, hidden: right === 0 } } }, canvas.width, canvas.height, { manifest: fixture.manifest }); return reference.toDataURL(); };
+    player.seek(0, 2, 500, 1); await player.captureMedia([], 500);
+    ok(canvas.toDataURL() === runFrame(.5, .5), 'video-cue seek samples both with-prev mesh fades at the same time');
+    player.goTo(0, 0); player.next(); player.pause(); await player.captureMedia([], 0);
+    ok(player.state().beat === 2 && player.state().time === 0 && canvas.toDataURL() === runFrame(0, 0), 'Present cue starts the click beat\'s mesh fade with its with-prev step');
     const mixed = api.addBeat(deck,slide.id); mixed.tracks.push({id:'mixed',target:'M',parts:['cortex.left','cortex.right','title'],preset:'fade',duration:1000,easing:'linear',stagger:{perMs:200}});
     player.destroy(); player = api.createPlayer(stage, deck, {theme:api.FLUX_LIGHT,model3d:host,modelManifest:()=>fixture.manifest,modelAsset:()=>fixture.asset}); await player.readyMedia(); canvas=stage.querySelector<HTMLCanvasElement>('canvas[data-slide-model3d="M"]')!; player.seek(0,4,500); await player.captureMedia([],500);
     ok(Math.abs(Number(getComputedStyle(stage.querySelector('[id="M__title"]')!).opacity)-.1)<1e-5,'mixed mesh/furniture stagger retains full semantic leaf ranks in DOM');

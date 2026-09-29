@@ -18,7 +18,7 @@ import { targetOutlines, type GeometryCtx } from "./targetGeometry";
 import { resolveBeat, type StyleContext } from "./resolve";
 import { trackDuration } from "./timing";
 import { sampleCamera } from "./camera";
-import { modelPair, modelPairIssue, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
+import { modelPairDiagnostic, modelVideoHandoff, type ModelAssetLookup } from "./model3dMorph";
 export { trackDuration } from "./timing";
 export { ghostTargetIds } from "./ghost";
 
@@ -53,7 +53,11 @@ export interface CompiledSlide {
   handoffs: { trackId: string; beat: number; source: ResolvedTarget[]; destination: ResolvedTarget[]; spec: BecomeSpec }[];
   /** Manifest-aware canonical resolution, shared with Become authoring. */
   resolveTarget(ref: TargetRef, beat: number): ResolvedTarget[];
-  sample(beat: number, timeMs?: number): SlideFrame;
+  /** The frame at `timeMs` into `beat`. Beats `fromBeat`..`beat` play as one
+   *  run (a with-prev presenter cue, a video cue): each is sampled at the same
+   *  `timeMs`, exactly as the player re-bases their DOM specs. Earlier beats
+   *  are complete. `fromBeat` defaults to `beat` (one beat at a time). */
+  sample(beat: number, timeMs?: number, fromBeat?: number): SlideFrame;
   preState(target: string, beat: number): Element | null;
   copySourceState(source: string, birthBeat: number): Element | null;
 }
@@ -106,7 +110,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         const pre = transformPreState(slide, track.target, bi);
         const end = pre ? transformEndState(pre, track) : undefined;
         if (!isHandoff(track) && track.to?.assetId) {
-          const pair = modelPair(pre ?? undefined, end, opts), reason = pair && modelPairIssue(pair);
+          const reason = modelPairDiagnostic(pre ?? undefined, end, opts);
           if (reason) issues.push({ trackId: track.id, target: track.target, reason });
         }
         if (end?.type === "plot") for (const reason of plotViewIssues(opts.plotManifest?.(end.assetId), end.view))
@@ -138,6 +142,14 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   const flights = new Map<CompiledTrack, { source: string[]; destination: string[] }>();
   const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
   const births = ghostBirths(slide);
+  // Mesh leaves draw in WebGL and own no DOM nodes, so no flight can carry
+  // them (furniture leaves are ordinary SVG and hand off normally).
+  const meshParts = (targets: ResolvedTarget[], beat: number) => targets.some(t => {
+    if (!t.partIds?.length) return false;
+    const el = transformPreState(slide, t.elementId, beat);
+    const parts = el?.type === "model3d" ? opts.modelManifest?.(el.assetId)?.parts : undefined;
+    return !!parts && t.partIds.some(id => parts.some(p => p.id === id && !!p.node));
+  });
   for (const cue of cues) for (const ct of cue.tracks) {
     if (ct.track.preset !== "transform" || !isHandoff(ct.track)) continue;
     const spec = ct.track.to.become;
@@ -149,6 +161,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
       : !destination.length ? "Destination parts not found. Retarget this Become."
       : !source.length ? "Source parts not found. Retarget this Become."
+      : meshParts(source, ct.beat) ? "3D mesh parts cannot hand off to another object. Use the whole model, or its labels and axes."
       : sameRef(trackRef(ct.track), spec.ref) ? "Choose a different object for the source to become."
       : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
       : !posterVideo && slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
@@ -159,7 +172,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     handoffs.push({ trackId: ct.track.id ?? "", beat: ct.beat, source, destination, spec });
     flights.set(ct, { source: keysOf(source), destination: keysOf(destination) });
   }
-  function sample(beatIndex: number, timeMs = Infinity): SlideFrame {
+  function sample(beatIndex: number, timeMs = Infinity, fromBeat = beatIndex): SlideFrame {
     const elements = structuredClone(slide.elements);
     const byId = new Map(elements.map((e) => [e.id, e]));
     const appearance = new Map<string, PartFrame>();
@@ -198,10 +211,11 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     }
     for (const flight of flights.values()) for (const key of [...flight.source, ...flight.destination])
       handoffVisibility.set(key, appearance.get(key)?.visible ?? true);
+    const runStart = Math.min(fromBeat, beatIndex);
     for (let bi = 0; bi <= Math.min(beatIndex, cues.length - 1); bi++) for (const ct of cues[bi].tracks) {
       const track = ct.track, preset = track.preset ?? "fade";
       if (familyOf(track) === "media") continue;
-      const local = bi < beatIndex ? Infinity : timeMs;
+      const local = bi < runStart ? Infinity : timeMs;
       if (local < ct.start) continue;
       const raw = ct.duration > 0 ? clamp((local - ct.start) / ct.duration) : 1;
       const t = ct.ease.clamped(raw);
@@ -301,10 +315,10 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
     const key = `${ct.beat}:${ct.start}`;
     let frame = preFrames.get(key);
     if (!frame) { frame = sample(ct.beat, ct.start); preFrames.set(key, frame); }
-    const pair = flight.source.length === 1 && flight.destination.length === 1
-      ? modelPair(frame.elements.find(e => e.id === flight.source[0]), frame.elements.find(e => e.id === flight.destination[0]), opts) : undefined;
-    if (pair) {
-      const reason = modelPairIssue(pair);
+    const [sourceEl, destinationEl] = flight.source.length === 1 && flight.destination.length === 1
+      ? [frame.elements.find(e => e.id === flight.source[0]), frame.elements.find(e => e.id === flight.destination[0])] : [];
+    if (sourceEl?.type === "model3d" && destinationEl?.type === "model3d") {
+      const reason = modelPairDiagnostic(sourceEl, destinationEl, opts);
       if (reason) issues.push({ trackId: ct.track.id, target: ct.track.target, reason });
       continue;
     }
@@ -331,10 +345,10 @@ export function compileSlide(slide: Slide, stage: StageSize = { width: 640, heig
   const resolved = resolveGhosts(timed, (working, beat, factors) => compileOrdinarySlide(working, stage, opts, factors).sample(beat));
   const plain = compileOrdinarySlide(resolved.slide, stage, opts, resolved.partFactors);
   const issues = [...timingIssues, ...resolved.issues, ...plain.issues];
-  const sample = (beat: number, time = Infinity): SlideFrame => {
-    const frame = plain.sample(beat, time);
+  const sample = (beat: number, time = Infinity, fromBeat = beat): SlideFrame => {
+    const frame = plain.sample(beat, time, fromBeat), runStart = Math.min(fromBeat, beat);
     frame.issues = issues;
-    frame.presentation.unbornElementIds = resolved.births.filter(b => !b.enabled || beat < b.beat || beat === b.beat && time < b.start).map(b => b.target);
+    frame.presentation.unbornElementIds = resolved.births.filter(b => !b.enabled || beat < b.beat || b.beat >= runStart && time < b.start).map(b => b.target);
     return frame;
   };
   return { ...plain, issues, sample, resolvedSlide: resolved.slide, births: resolved.births, partFactors: resolved.partFactors,

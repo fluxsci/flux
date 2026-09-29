@@ -35,7 +35,10 @@ storage; active copies share the renderer context and geometry buffers.
 
 **Transform → Become** and **Appear → Appear from** show **Vertex morph** when the
 picked models have corresponding topology. Otherwise they show **Crossfade**, with
-the first mismatch and the `share_topology_with` repair in the explanation. A model
+the first mismatch and the `share_topology_with` repair in the explanation. Compilation
+raises an issue only when topology metadata is unavailable; an evaluated crossfade is a
+designed result. Mesh-part Become sources are refused, since WebGL leaves have no DOM to
+fly; furniture parts and whole models hand off, including within groups. A model
 destination defaults to a handoff: both document objects remain, while source and
 destination visibility transfer during playback. **Consume instead** is an explicit
 one-step Undo action which removes the destination and keeps its content on the

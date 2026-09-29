@@ -193,10 +193,15 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const sourceNodes = hasPartBinding(track) ? resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots) : [wrap];
           const destinationNodes = nodesFor(handoff.destination);
           if (!sourceNodes.length || !destinationNodes.length) continue;
+          // A whole model in ANY flight (part, group or multi-destination too)
+          // needs the model clone: its DOM holds only furniture, never the mesh.
+          // The live mount is limited to a whole 1:1 model pair.
+          const elementOf = (id: string) => preFrame.elements.find(e => e.id === id);
+          const whole = !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null;
+          const modelFlight = [...handoff.source, ...handoff.destination].some(t => t.partIds === null && elementOf(t.elementId)?.type === "model3d");
           const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
             plan: () => planHandoff(track, preFrame, geometry),
-            media: !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null
-              ? modelHandoffMedia(preFrame.elements.find(e => e.id === track.target), preFrame.elements.find(e => e.id === handoff.destination[0].elementId), preFrame.elements, opts) : undefined,
+            media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
               node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),
@@ -640,17 +645,21 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);
-    models?.flush(modelAppearance?.sample(bi, time).partStates);
+    // Mesh parts sample the same run as the re-based DOM specs (selectRun).
+    models?.flush(modelAppearance?.sample(bi, time, runFrom).partStates);
     if (playing) media?.tick(time);
     emit("frame");
   }
   let runSpecs: Spec[] | null = null;
   let runKey = "";
+  /** First beat of the concurrent run ending at `bi` (a with-prev cue). */
+  let runFrom: number | undefined;
   function selectRun(from: number, to: number): void {
     const key = from < to ? `${si}:${from}:${to}` : "";
     if (key === runKey) return;
     if (runSpecs) { disposeSlideAnims(runSpecs, false); for (const node of bindings.get(specs)?.nodes ?? []) node.lastController = -2; }
     runKey = key;
+    runFrom = from < to ? from : undefined;
     runSpecs = from < to ? specs.map((s) => s.beatIndex >= from && s.beatIndex <= to ? { ...s, beatIndex: to } : s) : null;
   }
   function scheduleAuto(): void {
@@ -801,7 +810,8 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
-  flushSlideModels(camera);
+  // Stills carry the step's mesh-part appearance too (bindings + poster keys).
+  flushSlideModels(camera, compiled.resolvedSlide.elements.some(el => el.type === "model3d") ? compiled.sample(beat).partStates : undefined);
   // Dispose owns restoration of live controllers. Bake the sampled visibility
   // into a still before releasing those leases, just as keyframe styles remain.
   const visibility = (specs.some(spec => spec.handoff) ? Array.from(camera.querySelectorAll<HTMLElement | SVGElement>("[style]")) : [])

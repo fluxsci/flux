@@ -15,7 +15,7 @@ export interface AppInlineModels {
   model3d: Model3dHost;
   modelAsset: (id: string) => Model3dAsset | undefined;
   modelManifest: (id: string) => Scene3dManifest | undefined;
-  modelPoster: (element: Model3dElement) => string | undefined;
+  modelPoster: (element: Model3dElement, partOpacity?: Record<string, number>) => string | undefined;
   dispose(): void;
 }
 export function createAppInlineModels(deck: Deck): AppInlineModels | undefined {
@@ -51,5 +51,10 @@ export function createAppInlineModels(deck: Deck): AppInlineModels | undefined {
     async snapshot(spec) { const renderer = await load(); if (!renderer.snapshot) throw new Error('3D snapshots unavailable'); return renderer.snapshot(spec); },
     dispose() { if (!disposed) { disposed = true; actual?.dispose(); } },
   };
-  return { model3d: host, modelAsset: id => assets.get(id), modelManifest: id => manifests[id], modelPoster: element => { const asset = assets.get(element.assetId); return asset ? cachedModelPosterUrl({ element, asset, manifest: manifests[element.assetId], surface: 'slide' }, { source }) : undefined; }, dispose() { host.dispose(); } };
+  return { model3d: host, modelAsset: id => assets.get(id), modelManifest: id => manifests[id], modelPoster: (element, partOpacity) => {
+    const asset = assets.get(element.assetId); if (!asset) return undefined;
+    // Pre-ready only: the live frame replaces it. Prefer the step's own still.
+    const request = { element, asset, manifest: manifests[element.assetId], surface: 'slide' as const };
+    return cachedModelPosterUrl({ ...request, partOpacity }, { source }) ?? (partOpacity ? cachedModelPosterUrl(request, { source }) : undefined);
+  }, dispose() { host.dispose(); } };
 }

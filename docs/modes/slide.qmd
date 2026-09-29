@@ -480,9 +480,12 @@ the slide and use the same playback in Present and portable HTML.
 **Ghost** creates independent views that share the same mesh. **Become** shows **morph**
 for a compatible pair and **crossfade** otherwise. A vertex morph needs matching mesh
 parts, triangle indices and vertex order; export both shapes together or use fluxplot's
-shared-topology workflow. Hand-off keeps both objects and reveals the destination at
-landing. Consume replaces the source's content and removes the destination in one undoable
-edit. Choose a gallery model through Change content to replace its mesh in the same frame.
+shared-topology workflow. A crossfade is a valid result, not an animation issue: the
+Animation inspector names the first mismatch. Hand-off keeps both objects and reveals the
+destination at landing. A mesh part cannot start a Become (it has no outline to fly); use
+the whole model, or its labels and axes. Consume replaces the source's content and removes
+the destination in one undoable edit. Choose a gallery model through Change content to
+replace its mesh in the same frame.
 
 HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**;
 PowerPoint does not contain an editable 3D object. If a GLB is missing, Flux shows a

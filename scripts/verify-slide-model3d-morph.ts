@@ -5,10 +5,11 @@ import { transformEndState } from '../src/lib/slide/tween';
 import { elementStageOutlines } from '../src/lib/slide/targetGeometry';
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { inspectGlb, writeGlb } from '../src/lib/model3d/glbCore.mjs';
-import { modelPair } from '../src/lib/slide/model3dMorph';
+import { modelPair, modelPairIssue } from '../src/lib/slide/model3dMorph';
 import { sourceAt } from '../src/lib/slide/ghost';
-import type { Model3dAsset, Model3dElement } from '../src/lib/model3d/types';
+import type { Model3dAsset, Model3dElement, Scene3dManifest } from '../src/lib/model3d/types';
 import type { Element } from '../src/lib/types';
+import type { Track } from '../src/lib/slide/types';
 import type { Project } from '../src/lib/types';
 import { figureSourceOwners } from '../src/lib/project/figureSourceOwners';
 import fs from 'node:fs/promises';
@@ -55,10 +56,13 @@ function scene(target = 1) {
   const result = appearFrom(deck, slide.id, beat.id, { element: b.id }, a.id)!;
   h.eq(result.morph, false, 'incompatible Appear from remains a valid crossfade');
   h.ok(result.reason?.includes('dendrites') && result.reason.includes('vertices'), 'first mismatch identifies the mesh and vertex counts');
-  const issues = compileSlide(slide, deck.stage, deck).issues;
-  h.eq(issues.length, 1, 'incompatible handoff has one nonblocking issue');
-  h.ok(issues[0]?.reason.includes('share_topology_with') && issues[0]?.reason.includes('crossfade'), 'issue gives the shared-topology repair');
-  h.eq(compileSlide(slide, deck.stage, deck).handoffs.length, 1, 'compatibility warning does not reject playback');
+  // Owner policy: a warning the author can never clear is noise. An evaluated
+  // incompatible pair is a designed crossfade; the Inspector badge explains it.
+  h.eq(compileSlide(slide, deck.stage, deck).issues, [], 'evaluated incompatible handoff compiles as a crossfade without an issue');
+  const pair = modelPair(a, b, deck);
+  h.ok(pair?.ok === false && !!modelPairIssue(pair)?.includes('share_topology_with'), 'Inspector explanation keeps the shared-topology repair');
+  h.eq(compileSlide(slide, deck.stage, {}).issues.map(issue => issue.reason), [modelPairIssue(modelPair(a, b, {})!)], 'a pair without topology metadata remains a diagnostic');
+  h.eq(compileSlide(slide, deck.stage, deck).handoffs.length, 1, 'incompatible topology does not reject playback');
 }
 {
   const { deck, slide, beat, a, b } = scene();
@@ -75,7 +79,10 @@ function scene(target = 1) {
   const { deck, slide, beat, a, b } = scene(2);
   setTransform(deck, slide.id, beat.id, a.id, { toAssetId: b.assetId, source: b.source });
   const compiled = compileSlide(slide, deck.stage, { modelAsset: id => deck.assets?.find(asset => asset.id === id) });
-  h.ok(compiled.issues.some(issue => issue.reason.includes('dendrites') && issue.reason.includes('share_topology_with')), 'content-only Change uses the same compatibility diagnosis');
+  h.eq(compiled.issues, [], 'evaluated incompatible content-only Change compiles without an issue');
+  const end = transformEndState(a, beat.tracks[0]);
+  h.ok(modelPair(a, end, deck)?.ok === false, 'content-only Change uses the same compatibility evaluation (crossfade)');
+  h.eq(compileSlide(slide, deck.stage, {}).issues.map(issue => issue.reason), [modelPairIssue(modelPair(a, end, {})!)], 'content Change without topology metadata remains a diagnostic');
   h.eq((compiled.sample(1).elements[0] as Model3dElement).assetId, b.assetId, 'incompatible content still reaches its exact destination');
 }
 {
@@ -113,6 +120,18 @@ for (const reverse of [false, true]) {
   catch { h.eq(JSON.stringify(deck), before, 'video ghost refusal is preserved'); }
 }
 h.eq(modelPair(scene().a, scene().b, {})?.ok, false, 'absent topology conservatively crossfades');
+{
+  // Mesh leaves draw in WebGL with no DOM nodes, so no flight can carry them.
+  const { deck, slide, beat, a } = scene(); slide.elements.splice(1);
+  slide.elements.push({ id: 'rect', type: 'rect', x: 400, y: 40, width: 120, height: 80, rotation: 0, opacity: 1, fill: '#d14d41', stroke: 'none', strokeWidth: 0, cornerRadius: 0 } as Element);
+  const manifest = { spec: 'fluxplot/scene3d', schemaVersion: '0.1.0', glb: 'a.glb', parts: [{ id: 'cell.dendrites', node: 'dendrites', role: 'dendrites' }, { id: 'axes.x.label', role: 'axis-label', text: 'X' }] } as Scene3dManifest;
+  const opts = { ...deck, modelManifest: (id: string) => id === a.assetId ? manifest : undefined };
+  beat.tracks.push({ id: 'part-flight', target: a.id, part: 'cell.dendrites', preset: 'transform', duration: 600, to: { become: { mode: 'handoff', ref: { element: 'rect' } } } } as Track);
+  let compiled = compileSlide(slide, deck.stage, opts);
+  h.ok(!compiled.handoffs.length && compiled.issues.some(issue => issue.trackId === 'part-flight' && issue.reason.includes('mesh')), 'Become from 3D mesh parts is refused with an actionable issue');
+  beat.tracks[0].part = 'axes.x.label'; compiled = compileSlide(slide, deck.stage, opts);
+  h.ok(compiled.handoffs.length === 1 && !compiled.issues.some(issue => issue.reason.includes('mesh')), 'model furniture parts still hand off');
+}
 {
   const { deck, slide, beat, a, b } = scene(); deck.assets = [];
   const lookup = (id: string) => assets.find(asset => asset.id === id);

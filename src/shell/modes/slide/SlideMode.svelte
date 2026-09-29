@@ -669,7 +669,9 @@
     if (idle) idle(run); else setTimeout(run, 0);
   });
 
-  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id]}).issues : []);
+  // The asset lookup lets model pairs be evaluated; without it every model
+  // Change content/hand-off reads as "topology unavailable" (a warning the author can never clear).
+  const animationIssues=$derived(activeSlide ? compileSlide(activeSlide,stage,{animStyles:overlay?.animStyles,modelManifest:id=>$scene3dManifests[id],plotManifest:id=>$plotManifests[id],modelAsset:id=>$project.assets.find(a=>a.id===id)}).issues : []);
   function inspectIssue(trackId?:string){
     if(!activeSlide||!trackId)return;
     const bi=activeSlide.beats.findIndex(b=>b.tracks.some(t=>t.id===trackId));
