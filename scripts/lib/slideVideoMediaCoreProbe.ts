@@ -44,10 +44,13 @@ await fs.copyFile(path.resolve("dist/flux-cli-core.mjs"), path.join(unpacked, "d
 await fs.copyFile(path.resolve("electron/videoMedia.cjs"), path.join(unpacked, "electron/videoMedia.cjs"));
 const encoder = media.encoderPath(); await fs.copyFile(encoder, path.join(encoderDir, path.basename(encoder))); await fs.chmod(path.join(encoderDir, path.basename(encoder)), 0o755);
 const env = { ...process.env }; delete env.FLUX_VIDEO_APP_ROOT; delete env.FLUX_VIDEO_ENCODER;
-const output = execFileSync(process.execPath, [path.join(unpacked, "dist/flux-cli.mjs"), "add-video", "video-deck", "motion", "plots/_videos/source.mp4", "--root", root, "--width", "320", "--muted"], { env, cwd: scratch, encoding: "utf8", timeout: 30000 }).trim();
+// CLI filesystem inputs resolve against the shell cwd, independently of --root.
+// Keep the unrelated cwd to prove the packaged bundle never borrows checkout files.
+const output = execFileSync(process.execPath, [path.join(unpacked, "dist/flux-cli.mjs"), "add-video", "video-deck", "motion", path.join(root, "plots/_videos/source.mp4"), "--root", root, "--width", "320", "--muted"], { env, cwd: scratch, encoding: "utf8", timeout: 30000 }).trim();
 const latest = await loadDeck(root, "video-deck"), imported = latest.slides[0].elements.find(e => e.id === output)!;
 assert.equal(imported?.type, "video"); if (imported.type !== "video") throw new Error("Expected video");
 assert.equal(imported.width, 320); assert.equal(imported.muted, true);
+assert.equal(latest.assets.find(a => a.id === imported.assetId)!.sourcePath, "plots/_videos/source.mp4", "absolute CLI input persists a portable project-relative source");
 assert.ok(await fs.stat(path.join(root, "slides/video-deck", latest.assets.find(a => a.id === imported.assetId)!.path)));
 console.log("PROBE packaged-shaped source-free bundled CLI add-video resolves native tools and persists playable assets");
 

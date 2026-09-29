@@ -8572,3 +8572,6 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Preserve missing plot-part diagnostics
 **Work:** Restored the existing plot-specific missing-parts diagnostic while retaining semantic model diagnostics. The unchanged timeline regression verifies a missing selector never hides a whole plot; the model-part gate now pins the equivalent whole-model behavior without metadata.
+
+### 2026-09-29 — Packaged media CLI path qualification
+**Work:** Corrected the source-free packaged video probe to pass an absolute in-project media source while retaining its unrelated shell directory. The focused media-path gate now exercises both registered model/video CLI argument paths through the shared confinement boundary. **Learnings:** `--root` selects the project; CLI filesystem inputs still resolve against shell cwd, whereas MCP inputs resolve against the project. The earlier probe failure was an invalid invocation, not a reason to change that documented policy. The focused registered gate passes 14 checks and changed-pathmap passes; the initial new-test lookup typo is retained in its failed receipt. Native rerun remains required after the isolated pure/source review.
