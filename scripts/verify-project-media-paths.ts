@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { projectSourceRelativePath, projectRelativePath } from '../flux-core/projectSource';
 import { boundedModelFile } from '../flux-core/model3dFile';
+import { linkDir } from './lib/symlinks.mjs';
 import { VERBS, runCliVerb } from '../flux-core/registry';
 const h=harness('verify-project-media-paths');
 const scratch=await mkdtemp(path.join(os.tmpdir(),'flux-media-path-')),root=path.join(scratch,'project'),sibling=path.join(scratch,'project-other');
@@ -65,11 +66,11 @@ try {
  await assert.rejects(()=>boundedModelFile(path.join(sibling,'mesh.glb'),1024,root),/escapes/);h.ok(true,'bounded model reads still refuse a file outside the root');
  // A symlinked --root with a realpath shell cwd (or the reverse) names the
  // same in-project file through the other alias of the root.
- const alias=path.join(scratch,'project-alias');await symlink(root,alias);
+ const alias=path.join(scratch,'project-alias');await linkDir(root,alias);
  h.eq(await projectSourceRelativePath(alias,path.join(root,'plots/mesh.glb')),'plots/mesh.glb','symlinked root accepts the realpath spelling of an in-project file');
  h.eq(await projectSourceRelativePath(root,path.join(alias,'plots/mesh.glb')),'plots/mesh.glb','realpath root accepts the symlinked spelling of an in-project file');
  for(const input of [path.join(alias,'../project-other/mesh.glb'),path.join(sibling,'mesh.glb')]) await assert.rejects(()=>projectSourceRelativePath(alias,input),/escapes/);
- await symlink(sibling,path.join(root,'linked-dir'));await assert.rejects(()=>projectSourceRelativePath(alias,path.join(root,'linked-dir/mesh.glb')),/escapes/);
+ await linkDir(sibling,path.join(root,'linked-dir'));await assert.rejects(()=>projectSourceRelativePath(alias,path.join(root,'linked-dir/mesh.glb')),/escapes/);
  await assert.rejects(()=>projectSourceRelativePath(root,path.join(root,'linked-dir/mesh.glb')),/symlink escapes/);
  h.ok(true,'alias resolution keeps lexical, sibling and symlinked-directory escapes refused');
  const verb=VERBS.find(v=>v.cli==='add-slide-model')!,handler=verb.handler,render=verb.render,cwd=process.cwd();

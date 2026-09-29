@@ -2429,7 +2429,11 @@ days (probe geometry like `width` instead).
   backslashes on purpose, because a stored path never has one. On Windows the renderer therefore
   rejected its own path and lost EVERY semantic manifest, silently dropping part overrides from
   headless renders and exports. The rule is not "normalize at the boundary" but "a value crossing
-  INTO stored-path form is converted at that crossing".
+  INTO stored-path form is converted at that crossing". The same crossing hid in
+  `boundedModelFile` and the CLI/MCP media boundary (every input arrives `path.resolve`d, so
+  `C:\proj\…` on win32): `projectRelativePath` in `flux-core/projectSource.ts` is that
+  conversion for flux-core, testable with `path.win32`; never refuse a backslash on an
+  already-resolved input.
 - **`textLength` + `lengthAdjust="spacing"` is not justification.** It shares a line's slack
   between every pair of GLYPHS, so justified text came out with its letters pushed apart —
   which is what the owner saw and reported (2026-09-22). Real justification widens the WORD
@@ -3125,7 +3129,7 @@ outside this PNG packaging change.
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
 | — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
-| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts` |
+| — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); only the GUI save refuses until the file is restored or the element deleted (`figbridge.ts`); `verify-model3d-verbs.ts`. The deck save judges only GLBs the slides still reference (`slideAssetIds`): asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
   `__proto__`: keep them in own-key/null-prototype maps and escape them reversibly before Zod
@@ -8589,3 +8593,20 @@ clipped canvas, including sidebars, and use native viewport navigation to frame 
 
 ### 2026-09-29 — Preserve early native scale failure evidence
 **Work:** The native slide-scale harness writes its failure receipt before optional renderer diagnostics. An unloaded renderer is never queried; after readiness, observation and screenshot requests have bounded best-effort deadlines. The wrapper reports a nonzero display refusal as blocked, never passed. The actual entry finalizer is exercised in the pure gate with unloaded and permanently stalled renderer mocks. No input, focus, display or timing qualification changed; the earlier full-tier 180-second timeout remains a failed harness attempt.
+
+### 2026-09-29 — 3D slide export, persistence and path review fixes (Claude Opus 5.5, `m3s-fix-export`)
+**Work:** Fixed seven verified review findings: PowerPoint pictured models at step 0 (a
+fade-in model vanished from every page, silently) and cropped any model away from (0,0);
+win32 media paths and bounded model reads were refused; a missing GLB kept deck Save blocked
+after its model was deleted; Send to deck refused over Undo-only entries; Node posters read
+nested-GLB sidecars from the wrong folder; `--prune` failed on an unreadable deck; the Paper
+preview re-read and re-encoded every GLB per render (900 → 33 ms for 23 MiB). Pure 360/360;
+48 ui gates (paper-gate ui members, model3d-ui, embed gates) and the embed scale gate pass on
+:1486; Electron gates not run.
+**Learnings:**
+- A static model still is laid out in stage coordinates: compose it at the origin of its
+  own picture, and give a scaled PowerPoint twin the still of the state it pops to (no
+  poster exists at the twin's size).
+- Registry entries outlive their elements for Undo; a save or conversion preflight must
+  judge references, not the registry (promoted to the §9 3D table).
+- The computed-to-stored path crossing (§9) also covers resolved CLI/MCP inputs (promoted).
