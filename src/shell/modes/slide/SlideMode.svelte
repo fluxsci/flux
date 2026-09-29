@@ -88,6 +88,9 @@
   import type { Deck, TransitionKind, TargetRef, PairPolicy } from "../../../lib/slide/types";
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
+  import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
+  import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
+  import { scene3dGeneration } from "../../../lib/model3d/store";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
   import { sendSlideToCanvas, listFigCanvases } from "../../../lib/project/convert";
@@ -164,6 +167,7 @@
   type TargetPick = { kind: "become" | "appearFrom"; slideId: string; source: TargetRef; beatIndex: number; picks: TargetRef[]; pair: PairPolicy; armedFrom: "become" | "appear-from" };
   type LikePick = { kind: "animateLike"; slideId: string; trackIds: string[]; beatIndex: number };
   let pickState = $state.raw<TargetPick | LikePick | null>(null);
+  $effect(() => { modelOrbitBlocked.set(active && !!pickState); return () => modelOrbitBlocked.set(false); });
   const becomePick = $derived(pickState?.kind === "become" || pickState?.kind === "appearFrom" ? pickState : null);
   const likePick = $derived(pickState?.kind === "animateLike" ? pickState : null);
   let pickShift = false;
@@ -676,12 +680,14 @@
   let pvW = $state(0);
   let pvH = $state(0);
   let player: Player | undefined;
+  let previewModels: AppInlineModels | undefined;
   let pvStage = $state(slideOps.DEFAULT_STAGE);
   const pvScale = $derived(pvW > 0 && pvH > 0 ? Math.min(pvW / pvStage.width, pvH / pvStage.height) : 1);
 
   function playerOpts(d: Deck) {
     return {
       theme: resolveTheme(d.theme),
+      ...previewModels, pixelScale: () => pvScale,
       assetUrl: (id: string) => getAssetData(id),
       assetSize: (id: string) => assetDisplaySize(get(project), id),
       plotGen: get(plotGen),
@@ -699,6 +705,7 @@
   let previewGeneration = 0;
   let previewSlideIndex = 0;
   let previewAssetGenerations = $state<Record<string, number>>({});
+  let previewModelGeneration = $state(0);
   let unsubscribeFrame: (() => void) | undefined;
   async function ensurePreview(): Promise<Player | undefined> {
     if (player) return player;
@@ -711,10 +718,12 @@
     for(const element of slide.elements)if(element.type==="plot")dependencies.add(element.assetId);
     for(const beat of slide.beats)for(const track of beat.tracks)if(track.to?.assetId)dependencies.add(track.to.assetId);
     previewAssetGenerations=Object.fromEntries([...dependencies].map(id=>[id,generations[id]??0]));
+    previewModelGeneration=get(scene3dGeneration);
     pvStage=deck.stage;previewing=true;
     await tick();
     if(generation!==previewGeneration||!previewHost)return;
     try {
+      previewModels = createAppInlineModels(deck);
       player=createPlayer(previewHost,deck,playerOpts(deck));
       unsubscribeFrame=player.on("frame",()=>{
         if(!player)return;
@@ -741,12 +750,12 @@
   function resumePreview(){if(!player)return;const state=player.state();if(state.time>=state.duration && !state.mediaPaused){void startPreview(previewStartBeat,previewRange);return;}player.resume();previewPlaying=player.state().playing || player.state().mediaPlaying;}
   function stopPreview() {
     previewGeneration++;unsubscribeFrame?.();unsubscribeFrame=undefined;
-    player?.destroy();player=undefined;previewing=false;previewPlaying=false;previewTime=0;
+    player?.destroy();player=undefined;previewModels?.dispose();previewModels=undefined;previewing=false;previewPlaying=false;previewTime=0;
     previewAssetGenerations={};
   }
   $effect(()=>{
-    const generations=$plotGen;
-    if(previewing&&Object.entries(previewAssetGenerations).some(([id,atStart])=>(generations[id]??0)!==atStart))stopPreview();
+    const generations=$plotGen, modelGeneration=$scene3dGeneration;
+    if(previewing&&(modelGeneration!==previewModelGeneration || Object.entries(previewAssetGenerations).some(([id,atStart])=>(generations[id]??0)!==atStart)))stopPreview();
   });
   function toggleLoop(){previewLoop=!previewLoop;if(previewPlaying)void startPreview(previewRange==="slide"?0:$activeBeat,previewRange);}
   $effect(()=>{if(!active&&previewing)stopPreview();});
@@ -756,6 +765,7 @@
     if(!previewHost)return;
     previewHost.style.transformOrigin="center center";
     previewHost.style.transform=`scale(${pvScale})`;
+    player?.refresh();
   });
 
   // A morph target is an asset dependency; choosing it never places a second
@@ -1056,9 +1066,10 @@
     }
     animateTargets(req.targets, req.kind);
   }
-  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop") {
+  function animationAction(action:"appear"|"appear-from"|"change"|"ghost"|"become"|"emphasize"|"disappear"|"videoStart"|"videoPause"|"videoStop"|"turntable") {
     stopPreview(); cancelBecome();
     if(action==="videoStart" || action==="videoPause" || action==="videoStop")addVideoAction(action);
+    else if(action==="turntable")addModelTurntable();
     else if(action==="ghost")openGhostDialog();
     else if(action==="change")addOrToggleTransform();
     else if(action==="become" || action==="appear-from")startBecome(action);
@@ -1205,6 +1216,22 @@
   });
   $effect(() => { xrayBecomeSource.set(active && becomePick?.kind === "become" ? refLabel(becomePick.source) : null); });
   const becomeSourceIsPlot = $derived(becomePick?.kind === "become" && !becomePick.source.parts?.length && activeSlide?.elements.find(e => e.id === becomePick.source.element)?.type === "plot");
+  function addModelTurntable() {
+    const sid = $activeFigureId, ids = new Set(selectionTargets());
+    if (!sid || !activeSlide || $partSelections.length) return;
+    let bi = Math.max(1, $activeBeat); const created: string[] = [];
+    commitDeckLive(deck => {
+      const slide = slideOps.slideById(deck, sid); if (!slide) return;
+      if (!slide.elements.some(e => e.type === "model3d" && ids.has(e.id))) return;
+      if (slide.beats.length < 2) slideOps.addBeat(deck, sid, { label: "Step 1", advance: "click" });
+      bi = Math.min(bi, slide.beats.length - 1);
+      for (const element of slide.elements) if (element.type === "model3d" && ids.has(element.id)) {
+        const track = slideOps.addTurntable(deck, { slideId: sid, beatId: slide.beats[bi].id, target: element.id });
+        if (track?.id) created.push(track.id);
+      }
+    });
+    activeBeat.set(bi); selTrackIds.set(created); inspectorTab = "animation";
+  }
   function addVideoAction(preset: "videoStart" | "videoPause" | "videoStop") {
     const sid = $activeFigureId, selected = new Set(selectionTargets());
     if (!sid || !activeSlide) return;
@@ -1790,7 +1817,7 @@
 <FluxFigMenu />
 <Xray />
 <PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Become — choose the plot whose data it becomes" : "Plot and video gallery"}
-  allowVideos={!morphFor} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
+  allowVideos={!morphFor} allowModels={!morphFor} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
   onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
 

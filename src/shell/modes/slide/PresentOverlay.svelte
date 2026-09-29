@@ -15,6 +15,8 @@
   import { plotManifests } from "../../../lib/plot/store";
   import { getAssetData } from "../../../lib/assets";
   import { assetDisplaySize } from "../../../lib/ops";
+  import { createAppModelPosters } from "../../../lib/model3d/appPosters";
+  import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
   import { project } from "../../../lib/store";
   import type { Deck, DeckTheme } from "../../../lib/slide/types";
 
@@ -36,6 +38,8 @@
   let vw = $state(0);
   let vh = $state(0);
   let player: Player | undefined;
+  let models: AppInlineModels | undefined;
+  let nextPosters: AbortController | undefined;
   let st = $state<PlayerState>({ slide: 0, beat: 0, totalBeats: 1, totalSlides: 1, time: 0, duration: 0, playing: false, mediaPlaying: false, mediaPaused: false, issues: [] });
   let blank = $state<"" | "black" | "white">("");
   let showNotes = $state(false);
@@ -69,6 +73,7 @@
   function playerOpts(): PlayerOpts {
     return {
       mode: "present",
+      ...models, pixelScale: () => scale,
       theme,
       assetUrl: (id) => getAssetData(id),
       assetSize: (id) => assetDisplaySize(get(project), id),
@@ -81,6 +86,7 @@
   function buildPlayer(at: { slide: number; beat: number }) {
     if (!mount) return;
     player?.destroy();
+    models?.dispose(); models = createAppInlineModels(deck);
     player = createPlayer(mount, deck, playerOpts());
     player.on("change", (s) => { st = s; renderNext(); });
     player.on("frame", (s) => { st = s; });
@@ -88,8 +94,10 @@
     st = player.state();
     renderNext();
   }
+  $effect(() => { void scale; player?.refresh(); });
   /** Render the NEXT slide (fully built) into the presenter panel's thumbnail. */
   function renderNext() {
+    nextPosters?.abort(); nextPosters = undefined;
     if (!nextMount) return;
     nextMount.replaceChildren();
     if (nextIdx < 0) return;
@@ -98,7 +106,9 @@
     host.style.cssText = `position:relative;width:${deck.stage.width}px;height:${deck.stage.height}px;background:${s.background ?? deck.background ?? theme.background};`;
     nextMount.appendChild(host);
     try {
-      renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), playerOpts());
+      const controller = nextPosters = new AbortController(), posters = createAppModelPosters(controller.signal);
+      const render = () => renderStaticAt(host, s, deck.stage, Math.max(0, s.beats.length - 1), { ...playerOpts(), ...posters.context });
+      render(); void posters.settle().then(() => { if (!controller.signal.aborted && host.isConnected) render(); }).catch(() => {});
     } catch { /* a missing asset preview is non-fatal */ }
   }
 
@@ -112,7 +122,7 @@
   });
   onDestroy(() => {
     presentContext.set(null);
-    player?.destroy();
+    player?.destroy(); models?.dispose(); nextPosters?.abort();
     if (timer) clearInterval(timer);
     if (idleTimer) clearTimeout(idleTimer);
     void wakeLock?.release().catch(() => {});

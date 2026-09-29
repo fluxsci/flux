@@ -7,6 +7,8 @@ import { scene3dManifests } from './store';
 import { furnitureLayout } from './furnitureLayout';
 import { posterKey, posterPath, posterPixels, isModelPosterPrunable, type PosterSurface } from './poster';
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from './types';
+import { model3dDeckScope, modelAssetPrefix } from './editorScope';
+import { storeTenantState } from '../tenancy';
 
 export { type ModelPosterSource } from './sourceRegistry';
 import { checkModelSource, checkModelFile, ownedModel3dService, awaitModelSource, retainSourceModel, releaseModelSource, modelSourceRegistryStats, type ModelPosterSource } from './sourceRegistry';
@@ -40,19 +42,21 @@ export function model3dAppScope() { return scope(); }
 // key covers the GLB hash and every render input) and asset files are
 // immutable per id, so a same-root figure reload must NOT tear down the worker
 // (which would re-read, re-hash and re-parse every GLB and flash every poster).
-function scope() { return `${get(embeddedProjectRoot) ?? get(projectDir) ?? ''}\0${get(embeddedProjectRoot) ? 'fig/' : ''}`; }
+function deckScope() { return get(storeTenantState) === 'slide' ? get(model3dDeckScope) : null; }
+function scope() { const deck = deckScope(); return `${get(embeddedProjectRoot) ?? get(projectDir) ?? ''}\0${deck ? `slides/${deck.deckId}/${JSON.stringify([...deck.externalAssetIds].sort())}` : get(embeddedProjectRoot) ? 'fig/' : ''}`; }
 function abort() { return new DOMException('3D project changed or view closed', 'AbortError'); }
 function check(source: ModelPosterSource) { checkModelSource(source); }
 function disposeContext() {
   if (!context) return;
   const owner = context; context = undefined; owner.controller.abort(); releaseModelSource(owner.source);
 }
-for (const store of [embeddedProjectRoot, projectDir]) store.subscribe(() => { if (context && context.source.scope !== scope()) disposeContext(); });
+for (const store of [embeddedProjectRoot, projectDir, model3dDeckScope, storeTenantState]) store.subscribe(() => { if (context && context.source.scope !== scope()) disposeContext(); });
 function current() {
   if (context?.source.scope === scope()) return context;
   disposeContext();
-  const capturedScope = scope(), controller = new AbortController();
+  const capturedScope = scope(), controller = new AbortController(), deck = deckScope();
   const source: ModelPosterSource = Object.freeze({ scope: capturedScope, root: get(embeddedProjectRoot) ?? get(projectDir) ?? '', prefix: get(embeddedProjectRoot) ? 'fig' : '', bridge: fileBridge() ?? null,
+    prefixForAsset: (asset: Model3dAsset) => modelAssetPrefix(asset.id, deck, get(embeddedProjectRoot) ? 'fig' : ''),
     isCurrent: () => !controller.signal.aborted && capturedScope === scope() });
   return context = { source, controller };
 }

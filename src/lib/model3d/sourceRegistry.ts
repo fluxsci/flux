@@ -8,6 +8,7 @@ import type { Model3dService } from './service';
 export interface ModelPosterSource {
   readonly root: string;
   readonly prefix: string;
+  readonly prefixForAsset?: (asset: Model3dAsset) => string;
   readonly bridge: FileBridge | null;
   readonly scope: string;
   readonly isCurrent: () => boolean;
@@ -27,7 +28,8 @@ export function awaitModelSource<T>(promise: Promise<T>, signal?: AbortSignal): 
 export async function modelSourcePath(source: ModelPosterSource, asset: Model3dAsset): Promise<string> {
   checkModelSource(source);
   if (!source.root || !source.bridge) throw new Error('3D model file missing');
-  const rel = storedAssetPath(`${source.prefix.replace(/\/$/, '')}${source.prefix ? '/' : ''}${asset.path}`);
+  const prefix = source.prefixForAsset?.(asset) ?? source.prefix;
+  const rel = storedAssetPath(`${prefix.replace(/\/$/, '')}${prefix ? '/' : ''}${asset.path}`);
   const path = source.bridge.projectAssetPath ? await source.bridge.projectAssetPath(source.root, rel) : joinPath(source.root, rel);
   checkModelSource(source);
   return path;
@@ -74,7 +76,7 @@ export async function sourceModel3dService(source: ModelPosterSource) {
 }
 export function retainSourceModel(asset: Model3dAsset, source: ModelPosterSource) {
   checkModelSource(source);
-  const id = `model:${JSON.stringify([source.scope, source.root, source.prefix, asset.path, asset.sha256])}`;
+  const id = `model:${JSON.stringify([source.scope, source.root, source.prefixForAsset?.(asset) ?? source.prefix, asset.path, asset.sha256])}`;
   let released = false, retained: Model3dService | undefined;
   const entry = providers.get(id) ?? { source, asset: structuredClone(asset), refs: 0 };
   entry.refs++; providers.set(id, entry);

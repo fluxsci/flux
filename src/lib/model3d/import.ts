@@ -1,4 +1,4 @@
-/** Figure-only orchestration; native import owns binary preparation/publication. */
+/** Editor orchestration; native import owns binary preparation/publication. */
 import { get } from 'svelte/store';
 import { project, activeFigureId, embeddedProjectRoot, projectDir } from '../store';
 import { storeTenant, storeTenantState } from '../tenancy';
@@ -8,6 +8,7 @@ import { cacheScene3dSidecars } from './store';
 import { makeImportedModel3dElement, type Model3dImportRequest, type Model3dImportResult, type Model3dImportOwnership } from './importData';
 import type { Incoming } from '../io';
 import { trackModel3dImport } from './importProgress';
+import { model3dDeckScope } from './editorScope';
 interface ImportBridge extends FileBridge {
   importModel3d?: (request: Model3dImportRequest) => Promise<Model3dImportResult>;
   importDroppedModel3d?: (file: File, request: Omit<Model3dImportRequest, 'sourcePath'>) => Promise<Model3dImportResult>;
@@ -16,41 +17,45 @@ interface ImportBridge extends FileBridge {
 }
 export function model3dImportRoot() { return get(embeddedProjectRoot) ?? get(projectDir); }
 export async function ensureModel3dImportRoot() {
-  if (storeTenant() !== 'figure') throw new Error('3D models can currently be imported into figures.');
-  const owner = get(project), figure = get(activeFigureId);
+  const owner = get(project), figure = get(activeFigureId), tenant = storeTenant(), deck = get(model3dDeckScope)?.deckId;
+  if (tenant === 'slide' && !deck) throw new Error('Open a saved deck before importing a 3D model');
   let root = model3dImportRoot();
   if (root) {
     if (!get(embeddedProjectRoot)) await (await import('../io')).awaitStandaloneProjectRoot(root);
-    if (model3dImportRoot() !== root || get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== 'figure') throw new Error('The insertion destination changed');
+    if (model3dImportRoot() !== root || get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== tenant || get(model3dDeckScope)?.deckId !== deck) throw new Error('The insertion destination changed');
     return root;
   }
+  if (tenant === 'slide') throw new Error('Save this deck project before importing a 3D model');
   pushToast('info', 'Save this figure project before importing a 3D model');
   await (await import('../io')).saveProjectAs();
   root = model3dImportRoot();
   if (!root) throw new DOMException('3D import cancelled: no project location was selected', 'AbortError');
-  if (get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== 'figure') throw new Error('The insertion destination changed');
+  if (get(project) !== owner || get(activeFigureId) !== figure || storeTenant() !== tenant) throw new Error('The insertion destination changed');
   return root;
 }
 async function incoming(source: string | File, targetFigure?: string): Promise<Incoming> {
   const root = await ensureModel3dImportRoot(), owner = get(project), figureId = get(activeFigureId), bridge = fileBridge() as ImportBridge | null;
   if (!bridge?.importModel3d || !bridge.discardModel3d || !bridge.adoptModel3d) throw new Error('3D import requires an updated Flux desktop app.');
   const targetId = targetFigure ?? figureId;
-  const current = () => model3dImportRoot() === root && get(project) === owner && get(activeFigureId) === figureId && storeTenant() === 'figure' && owner.figures.some(f => f.id === targetId);
+  const tenant = storeTenant(), deckId = get(model3dDeckScope)?.deckId;
+  const target: Model3dImportRequest['target'] = tenant === 'slide' && deckId ? { kind: 'slide', deckId } : { kind: 'figure' };
+  const current = () => model3dImportRoot() === root && get(project) === owner && get(activeFigureId) === figureId && storeTenant() === tenant && get(model3dDeckScope)?.deckId === deckId && owner.figures.some(f => f.id === targetId);
   const finishProgress = trackModel3dImport(typeof source === 'string' ? source.split(/[\\/]/).pop()! : source.name, current,
-    [project, activeFigureId, embeddedProjectRoot, projectDir, storeTenantState]);
+    [project, activeFigureId, embeddedProjectRoot, projectDir, storeTenantState, model3dDeckScope]);
   let result: Model3dImportResult;
   try {
     result = typeof source === 'string'
-      ? await bridge.importModel3d({ root, sourcePath: source, target: { kind: 'figure' } })
-      : await (bridge.importDroppedModel3d ? bridge.importDroppedModel3d(source, { root, target: { kind: 'figure' } }) : Promise.reject(new Error('Dropped 3D files require the Flux desktop app.')));
+      ? await bridge.importModel3d({ root, sourcePath: source, target })
+      : await (bridge.importDroppedModel3d ? bridge.importDroppedModel3d(source, { root, target }) : Promise.reject(new Error('Dropped 3D files require the Flux desktop app.')));
   } finally { finishProgress(); }
-  const receipt: Model3dImportOwnership = { root, assetId: result.asset.id, receipt: result.receipt, target: { kind: 'figure' } };
+  const receipt: Model3dImportOwnership = { root, assetId: result.asset.id, receipt: result.receipt, target };
   let adopted = false, discarded = false;
   const discard = async () => { if (adopted || discarded) return; discarded = true; await bridge.discardModel3d!(receipt); };
   try {
     if (!current()) throw new Error('The insertion destination changed');
-    if (result.assetPrefix !== (get(embeddedProjectRoot) ? 'fig' : '')) throw new Error('The 3D import storage location does not match this editor');
-    const element = makeImportedModel3dElement(result, { root, figureWidth: owner.figures.find(f => f.id === targetId)?.width });
+    if (result.assetPrefix !== (target.kind === 'slide' ? `slides/${target.deckId}` : get(embeddedProjectRoot) ? 'fig' : '')) throw new Error('The 3D import storage location does not match this editor');
+    const figure = owner.figures.find(f => f.id === targetId);
+    const element = makeImportedModel3dElement(result, { root, figureWidth: figure?.width, ...(tenant === 'slide' && figure ? { stage: { width: figure.width, height: figure.height } } : {}) });
     return { asset: result.asset, el: element, canInstall: current, discard, install() {
       if (!current()) throw new Error('The insertion destination changed');
       cacheScene3dSidecars(result.asset.id, { manifest: result.manifest, recipe: result.recipe, raw: result.raw, issues: result.warnings });
