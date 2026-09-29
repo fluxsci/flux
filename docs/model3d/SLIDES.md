@@ -14,6 +14,10 @@ CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an 
 
 ## Ghost and content changes
 
+For one object with named shape states, start with a **Change** of its Shape weights.
+Both shapes stay in one model file, and the weights interpolate through that step.
+Use Become or a gallery content change when the shapes are saved as separate assets.
+
 Select a 3D model in Animate, then use **Transform → Ghost** to create independent
 copies sharing its immutable mesh asset. Each copy can have its own camera, shape
 weights and style. Hidden, unborn and offscreen copies release their canvas backing

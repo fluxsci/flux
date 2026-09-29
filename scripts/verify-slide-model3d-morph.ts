@@ -15,7 +15,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildScaffoldTree } from '../src/lib/project/scaffoldTree';
-import { saveDeck, loadDeck, become as fileBecome, appearFrom as fileAppearFrom } from '../flux-core/slides';
+import { saveDeck, loadDeck, become as fileBecome, appearFrom as fileAppearFrom, setTransformTrack } from '../flux-core/slides';
 
 const h = harness('verify-slide-model3d-morph');
 const binaries = new Map<string, Uint8Array>();
@@ -137,6 +137,21 @@ try {
   h.ok(cross.morph === false && cross.reason?.includes('dendrites'), 'public incompatible GLB content reports a valid crossfade, without force');
   const latest = await loadDeck(root, deck.id), finalTo = latest.slides[0].beats[2].tracks[0].to!;
   h.ok(!finalTo.glbPath && !finalTo.sha256, 'bare content target does not inherit the prior asset source receipt');
+  // The general sparse Transform command must use the same model content
+  // receipt policy as Become, including clearing an earlier target receipt.
+  const genericDeck = await loadDeck(root, deck.id);
+  genericDeck.slides = structuredClone(deck.slides);
+  await saveDeck(root, genericDeck);
+  await setTransformTrack(root, deck.id, slide.id, beat.id, a.id, { toAssetId: b.assetId, state: { orbitAzimuth: 123 } });
+  let generic = (await loadDeck(root, deck.id)).slides[0].beats[1].tracks[0].to!;
+  h.eq([generic.assetId, generic.glbPath, generic.manifestPath, generic.recipePath, generic.sha256], [b.assetId, b.source!.glbPath, b.source!.manifestPath, b.source!.recipePath, b.source!.sha256], 'public set_transform retains the full original model target receipt');
+  h.eq(generic.state?.orbitAzimuth, 123, 'generic content target keeps its sparse camera patch');
+  await setTransformTrack(root, deck.id, slide.id, beat.id, a.id, { toAssetId: assets[2].id });
+  generic = (await loadDeck(root, deck.id)).slides[0].beats[1].tracks[0].to!;
+  h.ok(generic.assetId === assets[2].id && !generic.glbPath && !generic.sha256 && !generic.manifestPath && !generic.recipePath, 'generic bare GLB target clears stale prior source provenance');
+  const beforeBadTarget = await fs.readFile(path.join(root, 'slides', deck.id, 'deck.json'), 'utf8');
+  try { await setTransformTrack(root, deck.id, slide.id, beat.id, a.id, { toAssetId: 'missing-model' }); h.fail('unknown generic model target refuses'); }
+  catch { h.eq(await fs.readFile(path.join(root, 'slides', deck.id, 'deck.json'), 'utf8'), beforeBadTarget, 'unknown generic model target refuses before canonical publication'); }
   // Figure assets remain by-id references, resolved through metadata only.
   const indexPath = path.join(root, 'fig/index.json'), index = JSON.parse(await fs.readFile(indexPath, 'utf8'));
   index.assets = assets; await fs.writeFile(indexPath, JSON.stringify(index));

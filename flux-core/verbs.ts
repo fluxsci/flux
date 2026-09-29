@@ -3120,7 +3120,7 @@ export const VERBS: VerbDef[] = [
     cli: "set-transform",
     cliRoot: "flags",
     summary:
-      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade; explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
+      "Add or update THE transform track for an element on a beat (max one per complete source TargetRef per beat — chain across beats). `state` is a sparse element-property patch vs the track's pre-state (t1 = document state ⊕ earlier transforms): {x, y, width, height, rotation, opacity, fill, stroke, text, …}; null deletes a prop at t2; merged over the existing patch unless `replaceState`. For plots, `toAssetId` changes content: shared semantic parts tween and unmatched parts fade. For 3D models, compatible topology morphs and incompatible topology crossfades; known original model source receipts persist and bare targets clear old provenance. Explicit source paths persist automatically. `state.view` changes data-unit axis limits/scales. Playback tweens t1→t2 with OKLab colors, arc-length path resampling, and digit-tweened numeric text.",
     params: {
       deckId: z.string(),
       slideId: z.string(),
