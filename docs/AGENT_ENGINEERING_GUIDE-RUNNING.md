@@ -8498,3 +8498,7 @@ failed on the pre-merge bundle).
 ### 2026-09-29 — Add the shared 3D slide model and tween core (Codex, model3d-slides-core)
 **Work:** Enabled metadata-only GLB assets and model elements in the unpublished 0.6 deck schema, added unwrapped orbit/logarithmic zoom and signed shape/field interpolation, and exposed Turntable through the existing shared transform operation. The registered slide-model3d group passed the new model checks plus existing tween and generated-validator gates; live player, import and authoring integration remain in progress.
 **Learnings:** Fetched origin still publishes 0.5, so 3D joins local animation-v2 format 0.6; raw progress controls discrete switches even when an easing overshoots.
+
+### 2026-09-29 — Deck-owned 3D import receipts
+
+**Work.** Extended the shared model import target to a registered slide deck. Native and memory paths publish immutable GLB/sidecars beneath that deck, revalidate the destination after awaited preparation, and scope adoption/cancellation to the exact deck receipt. The registered import gate passes, including independent review/QA of held-drop destination changes and real IPC cross-deck refusal; no desktop launch was needed for this policy checkpoint.

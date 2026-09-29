@@ -67,6 +67,35 @@ h.ok(mem._files.has(`${root}/fig/${imported.asset.path}`), 'adopted but unsaved 
 const canceled = await mem.importModel3d!(request);
 await mem.discardModel3d!({ ...ownership, assetId: canceled.asset.id, receipt: canceled.receipt });
 h.ok(!mem._files.has(`${root}/fig/${canceled.asset.path}`), 'unadopted canceled import cleans up its owned files');
+// The slide destination is a separate receipt capability and storage owner.
+const deckId = 'model-deck', target = { kind: 'slide' as const, deckId };
+const deckFile = `${root}/slides/${deckId}/deck.json`;
+mem._files.set(`${root}/project.json`, enc.encode(JSON.stringify({ schemaVersion: '0.1.0', slides: [{ id: deckId, path: `slides/${deckId}/deck.json` }] })));
+mem._files.set(deckFile, enc.encode(JSON.stringify({ id: deckId, schemaVersion: '0.6.0', slides: [], assets: [] })));
+const slideImport = await mem.importModel3d!({ ...request, target });
+const slideOwnership = { root, target, assetId: slideImport.asset.id, receipt: slideImport.receipt };
+h.eq(slideImport.assetPrefix, `slides/${deckId}`, 'memory import returns explicit deck asset prefix');
+h.eq(mem._files.get(`${root}/slides/${deckId}/${slideImport.asset.path}`), prepared.bytes, 'memory deck owns prepared model bytes outside Figure assets');
+await assert.rejects(() => mem.discardModel3d!({ ...slideOwnership, target: request.target }), /receipt/);
+await assert.rejects(() => mem.discardModel3d!({ ...slideOwnership, target: { kind: 'slide', deckId: 'other' } }), /receipt/);
+h.ok(true, 'memory receipt cannot be replayed into Figure or a different deck');
+mem._files.set(deckFile, enc.encode(JSON.stringify({ id: deckId, schemaVersion: '0.6.0', slides: [], assets: [slideImport.asset] })));
+await assert.rejects(() => mem.discardModel3d!(slideOwnership), /already saved/);
+h.ok(mem._files.has(`${root}/slides/${deckId}/${slideImport.asset.path}`), 'saved deck ownership protects imported GLB on cancellation');
+for (const badId of ['../fig', '__proto__', 'unregistered']) await assert.rejects(() => mem.importModel3d!({ ...request, target: { kind: 'slide', deckId: badId } }), /Unsafe|registered/);
+h.ok(true, 'memory slide import refuses unsafe and unregistered destinations');
+for (const change of ['unregister', 'future'] as const) {
+  const projectText = mem._files.get(`${root}/project.json`)!, deckText = mem._files.get(deckFile)!;
+  let release!: () => void; const held = new Promise<void>(resolve => release = resolve);
+  const file = { name: 'held.glb', size: bytes.length, async arrayBuffer() { await held; return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); } } as File;
+  const pending = mem.importDroppedModel3d!(file, { root, target });
+  if (change === 'unregister') mem._files.set(`${root}/project.json`, enc.encode(JSON.stringify({ schemaVersion: '0.1.0', slides: [] })));
+  else mem._files.set(deckFile, enc.encode(JSON.stringify({ id: deckId, schemaVersion: '9.0.0', slides: [] })));
+  const count = mem._files.size; release();
+  await assert.rejects(() => pending, /registered|cannot be edited/);
+  h.eq(mem._files.size, count, `held memory drop revalidates ${change} destination before publication`);
+  mem._files.set(`${root}/project.json`, projectText); mem._files.set(deckFile, deckText);
+}
 const before = mem._files.size;
 mem._files.set(`${root}/plots/bad.glb`, enc.encode('bad'));
 await assert.rejects(() => mem.importModel3d!({ ...request, sourcePath: `${root}/plots/bad.glb` }), /GLB/);
@@ -95,6 +124,31 @@ try {
   h.eq(owned.files.length, 3, 'GLB and both raw sidecars are atomically published as owned files');
   await native.cleanupPreparedModel3d(owned);
   h.ok(!(await fs.readdir(path.join(project, 'fig/assets'))).length, 'native cancel removes all and only import-owned files');
+
+  await fs.mkdir(path.join(project, `slides/${deckId}`), { recursive: true });
+  await fs.writeFile(path.join(project, 'project.json'), JSON.stringify({ schemaVersion: '0.1.0', slides: [{ id: deckId, path: `slides/${deckId}/deck.json` }] }));
+  const nativeDeck = path.join(project, `slides/${deckId}/deck.json`);
+  await fs.writeFile(nativeDeck, JSON.stringify({ id: deckId, schemaVersion: '0.6.0', slides: [], assets: [] }));
+  const slideOwned = await native.prepareModel3d({ root: project, target, sourcePath: source });
+  h.eq(slideOwned.result.assetPrefix, `slides/${deckId}`, 'native import returns the same deck prefix as memory');
+  h.eq(sha(await fs.readFile(slideOwned.files[0])), sha(prepared.bytes), 'native deck GLB matches shared preparation exactly');
+  h.ok(slideOwned.files.every((file: string) => file.startsWith(path.join(project, `slides/${deckId}/assets/`))), 'every native model sidecar stays in its deck');
+  await fs.writeFile(nativeDeck, JSON.stringify({ id: deckId, schemaVersion: '0.6.0', slides: [], assets: [slideOwned.result.asset] }));
+  await assert.rejects(() => native.cleanupPreparedModel3d(slideOwned), /already saved/);
+  h.ok(true, 'native cleanup reads saved deck ownership, not Figure ownership');
+  await native.cleanupPreparedModel3d(slideOwned, { checkSaved: false });
+  for (const badId of ['../fig', '__proto__', 'unregistered']) await assert.rejects(() => native.prepareModel3d({ root: project, target: { kind: 'slide', deckId: badId }, sourcePath: source }), /Unsafe|registered/);
+  h.ok(true, 'native slide import refuses unsafe and unregistered destinations');
+  await fs.writeFile(nativeDeck, JSON.stringify({ id: deckId, schemaVersion: '9.0.0', slides: [] }));
+  await assert.rejects(() => native.prepareModel3d({ root: project, target, sourcePath: source }), /cannot be edited/);
+  h.ok(true, 'future deck schema refuses native publication');
+  await fs.writeFile(nativeDeck, JSON.stringify({ id: deckId, schemaVersion: '0.6.0', slides: [], assets: [] }));
+  let removedDeck = false;
+  await assert.rejects(() => native.prepareModel3d({ root: project, target, sourcePath: source, async readGuard(file: string) {
+    if (!removedDeck && file === source) { removedDeck = true; await fs.writeFile(path.join(project, 'project.json'), JSON.stringify({ schemaVersion: '0.1.0', slides: [] })); }
+  } }), /registered/);
+  h.ok(!(await fs.readdir(path.join(project, `slides/${deckId}/assets`))).length, 'removing deck registration during preparation publishes no files');
+  await fs.writeFile(path.join(project, 'project.json'), JSON.stringify({ schemaVersion: '0.1.0', slides: [{ id: deckId, path: `slides/${deckId}/deck.json` }] }));
 
   const sparse = path.join(project, 'plots/too-large.glb');
   h.eq(native.MAX_BYTES, GLB_LIMITS.maxBytes, 'the CommonJS import boundary uses the shared GLB byte limit');
@@ -126,6 +180,12 @@ try {
   const otherSender = Object.assign(new EventEmitter(), { id: 18, isDestroyed: () => false });
   await assert.rejects(() => call('discard', pickOwnership, { sender: otherSender }), /receipt/);
   h.ok(true, 'another window cannot use a prepared import receipt');
+  const ipcSlide = await call('import', { ...nativeRequest, target });
+  const ipcSlideOwnership = { root: project, target, assetId: ipcSlide.asset.id, receipt: ipcSlide.receipt };
+  await assert.rejects(() => call('discard', { ...ipcSlideOwnership, target: request.target }), /receipt/);
+  await assert.rejects(() => call('adopt', { ...ipcSlideOwnership, target: { kind: 'slide', deckId: 'other' } }), /receipt/);
+  await call('discard', ipcSlideOwnership);
+  h.ok(true, 'actual IPC receipt rejects cross-kind and cross-deck capability replay');
   await call('adopt', pickOwnership);
   await assert.rejects(() => call('discard', pickOwnership), /adopted/);
   h.ok(await fs.stat(path.join(project, 'fig', picked.asset.path)), 'native adoption protects the unsaved installed model');
