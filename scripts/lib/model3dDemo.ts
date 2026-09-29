@@ -4,13 +4,19 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { buildScaffoldTree } from '../../src/lib/project/scaffoldTree';
 import { createDeck } from '../../src/lib/slide/ops';
 import { createModel3dDemoDeck } from './model3dDemoDeck';
 
 export const DEMO_STEMS = ['neuron', 'cortex-states', 'continuous-field', 'cortex-pial', 'cortex-inflated', 'cell-sequence'] as const;
 export const DEMO_INPUTS = path.resolve(import.meta.dirname, '../fixtures/model3d/demo');
+export function demoSourceRevision(source: string) {
+  const fluxplotCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).trim();
+  const branch = spawnSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: source, encoding: 'utf8' });
+  if (branch.error || branch.status !== 0 && branch.status !== 1) throw branch.error ?? new Error(`Cannot read fluxplot branch: ${branch.stderr}`);
+  return { fluxplotBranch: branch.status === 1 ? 'detached HEAD' : branch.stdout.trim(), fluxplotCommit };
+}
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const inside = (root: string, file: string) => file.startsWith(root + path.sep);
 // Per-process TMPDIR changes during isolation; use the stable OS scratch root.
@@ -97,7 +103,7 @@ async function generateInputsInto(destination: string, fluxplotRoot: string): Pr
   const source = path.resolve(fluxplotRoot), script = path.join(source, 'examples/scene3d_demo.py');
   const python = path.join(source, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
   await fs.access(python); const code = await fs.readFile(script);
-  const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).trim();
+  const revision = demoSourceRevision(source);
   const changed = execFileSync('git', ['status', '--porcelain', '--', 'src/fluxplot', 'examples/scene3d_demo.py'], { cwd: source, encoding: 'utf8' }).trim();
   if (changed) throw new Error('Record demo inputs from a committed fluxplot source checkpoint');
   await fs.mkdir(destination, { recursive: true }); await fs.writeFile(path.join(destination, 'scene3d_demo.py'), code);
@@ -111,7 +117,7 @@ async function generateInputsInto(destination: string, fluxplotRoot: string): Pr
   const files: Record<string, string> = { 'scene3d_demo.py': sha(code) };
   for (const stem of DEMO_STEMS) for (const suffix of ['glb', 'fluxplot.json', 'recipe.json']) files[`${stem}.${suffix}`] = sha(await fs.readFile(path.join(destination, `${stem}.${suffix}`)));
   await fs.writeFile(path.join(destination, 'SHA256SUMS.json'), JSON.stringify(files, null, 2) + '\n');
-  await fs.writeFile(path.join(destination, 'PROVENANCE.json'), JSON.stringify({ source: 'fluxplot/examples/scene3d_demo.py', fluxplotBranch: 'scene3d', fluxplotCommit: commit, command: 'node --import tsx scripts/gen-model3d-demo-fixtures.ts <scene3d-worktree>', recipe: 'Valid non-rerunnable sidecars emitted by the unchanged public example' }, null, 2) + '\n');
+  await fs.writeFile(path.join(destination, 'PROVENANCE.json'), JSON.stringify({ source: 'fluxplot/examples/scene3d_demo.py', ...revision, command: 'node --import tsx scripts/gen-model3d-demo-fixtures.ts <fluxplot-worktree>', recipe: 'Valid non-rerunnable sidecars emitted by the unchanged public example' }, null, 2) + '\n');
 }
 
 type DemoOptions = { fluxplotRoot?: string; posters?: boolean; environment?: string };
