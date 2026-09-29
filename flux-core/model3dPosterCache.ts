@@ -72,12 +72,21 @@ async function cached(file: string, size: { w: number; h: number }, root?: strin
   try { const bytes = await boundedModelFile(file, 300 * 1024 * 1024, root); return validModelPosterPng(bytes, size) ? bytes : undefined; } catch { return undefined; }
 }
 const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`;
+/** Scene sidecars live in the owning document's canonical `<prefix>/assets`
+ * folder even when the GLB has a custom nested path, as every other reader
+ * assumes (figbridge, readModel3dMetadata, deckModelDocument, slide readModel).
+ * An empty prefix means the stored path already carries its document prefix. */
+export function modelSidecarDirectory(prefix: string, assetPath: string): string {
+  if (prefix) return path.posix.join(prefix, 'assets');
+  const owner = /^(fig|slides\/[^/]+)\//.exec(assetPath)?.[1];
+  return owner ? `${owner}/assets` : path.posix.dirname(assetPath);
+}
 /** Metadata-only scene sidecar read, bound to every placement's original receipt. */
 async function readModelManifest(root: string, asset: Asset, bindings: ReturnType<typeof collectModel3dSourceBindings>, signal?: AbortSignal, prefix = "fig"): Promise<{ manifest?: Scene3dManifest; issues: string[] }> {
   try {
     const metadata = await readScene3dSidecars({ exists: async rel => { const file = safeJoin(root, rel); await confinedRecoveryPath(root, file); return exists(file); }, readText: async rel => {
       return (await boundedModelFile(safeJoin(root, rel), 4 * 1024 * 1024, root, signal)).toString('utf8');
-    } }, path.posix.join(prefix, path.posix.dirname(asset.path)), asset.id, { binding: bindings.get(asset.id) });
+    } }, modelSidecarDirectory(prefix, asset.path), asset.id, { binding: bindings.get(asset.id) });
     return { manifest: metadata.manifest, issues: metadata.issues ?? [] };
   } catch (error) {
     signal?.throwIfAborted();
