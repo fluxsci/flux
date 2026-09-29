@@ -95,6 +95,30 @@ try {
       ok(!stage.querySelector('.sl-handoff canvas')&&stage.querySelector('.sl-handoff')?.textContent?.includes('Height'),'cross-kind snapshot retains vector furniture without live flight backing');
       player.destroy();
     }
+    // A whole model in a group or part flight flies its mesh snapshot, never the
+    // furniture-only SVG layer its wrapper holds; a video flies its stored poster.
+    const decodedSnapshot=async(id:string)=>{const url=stage.querySelector<SVGImageElement>(`.sl-handoff image[data-model-snapshot="${id}"]`)?.getAttribute('href');if(!url?.startsWith('blob:'))return 0;const decoded=new Image();decoded.src=url;await decoded.decode();return decoded.naturalWidth;};
+    const rectAt=(id:string,patch={})=>({id,type:'rect',x:20,y:40,width:200,height:160,rotation:0,opacity:1,fill:'#d14d41',stroke:'none',strokeWidth:0,cornerRadius:0,...patch});
+    for(const kind of ['group','part']) {
+      const deck=api.createDeck({withTitleSlide:false});deck.stage={width:740,height:400};deck.assets=Object.values(table).map((x:any)=>x.asset);
+      const slide=api.addSlide(deck),beat=api.addBeat(deck,slide.id);
+      if(kind==='group'){slide.groups={g:{id:'g',name:'Group'}};slide.elements.push(rectAt('R'),model('continuous','G1',{x:380,y:30,width:300,height:260,groupId:'g'}),rectAt('G2',{x:380,y:320,height:50,groupId:'g'}));api.becomeTransform(deck,slide.id,beat.id,'R',{element:'G1',group:'g'},{mode:'handoff',duration:1000,easing:'linear'});}
+      else{slide.elements.push(model('continuous','P'),model('continuous','G1',{x:380,y:60}));beat.tracks.push({id:'part-flight',target:'P',part:'height.colorbar',preset:'transform',duration:1000,easing:'linear',to:{become:{mode:'handoff',ref:{element:'G1'}}}});}
+      const player=api.createPlayer(stage,deck,opts);await player.readyMedia();player.seek(0,1,500);await player.captureMedia([],500);
+      ok(await decodedSnapshot('G1')>10,`${kind} hand-off landing on a whole model flies its decoded mesh snapshot`);
+      player.destroy();
+    }
+    for(const reverse of [false,true]) {
+      const deck=api.createDeck({withTitleSlide:false});deck.stage={width:740,height:400};deck.assets=Object.values(table).map((x:any)=>x.asset);
+      const slide=api.addSlide(deck),beat=api.addBeat(deck,slide.id),mesh=model('continuous','M'),clip={...rectAt('V',{x:400,y:60,width:240,height:180}),type:'video',assetId:'clip',posterAssetId:'clip-poster',durationMs:1000};
+      slide.elements.push(mesh,clip);api.becomeTransform(deck,slide.id,beat.id,reverse?'V':'M',reverse?'M':'V',{duration:1000,easing:'linear'});
+      const poster='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="180"><rect width="240" height="180" fill="#205ea6"/></svg>');
+      const player=api.createPlayer(stage,deck,{...opts,assetUrl:(id:string)=>id==='clip-poster'?poster:undefined});await player.readyMedia();player.seek(0,1,500);await player.captureMedia([],500);
+      // The flight group (clone node) carries the cross-fade opacity: 1-t or t.
+      const still=stage.querySelector<SVGImageElement>('.sl-handoff image[data-video-poster="V"]'),flightGroup=still?.parentElement?.parentElement;
+      ok(!!still&&still.getAttribute('href')===poster&&still.width.baseVal.value===240&&Math.abs(Number(flightGroup?.getAttribute('opacity'))-.5)<1e-9&&await decodedSnapshot('M')>10,`${reverse?'video→model':'model→video'} poster hand-off cross-fades both sides mid-flight`);
+      player.destroy();
+    }
     const semanticA=model('continuous','semantic'),semanticB=model('continuous','semanticB');
     table.semanticCopy={...table.continuous,asset:{...table.continuous.asset,id:'semanticCopy'}};semanticB.assetId='semanticCopy';
     const sem=setup(semanticA,semanticB,'consume');await sem.player.readyMedia();sem.player.seek(0,1,500);await sem.player.captureMedia([],500);

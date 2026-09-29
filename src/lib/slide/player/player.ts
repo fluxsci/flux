@@ -193,10 +193,15 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           const sourceNodes = hasPartBinding(track) ? resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots) : [wrap];
           const destinationNodes = nodesFor(handoff.destination);
           if (!sourceNodes.length || !destinationNodes.length) continue;
+          // A whole model in ANY flight (part, group or multi-destination too)
+          // needs the model clone: its DOM holds only furniture, never the mesh.
+          // The live mount is limited to a whole 1:1 model pair.
+          const elementOf = (id: string) => preFrame.elements.find(e => e.id === id);
+          const whole = !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null;
+          const modelFlight = [...handoff.source, ...handoff.destination].some(t => t.partIds === null && elementOf(t.elementId)?.type === "model3d");
           const driver = createHandoff({ flight: rendered.flight, sourceNodes, destinationNodes, spec: handoff.spec,
             plan: () => planHandoff(track, preFrame, geometry),
-            media: !hasPartBinding(track) && handoff.destination.length === 1 && handoff.destination[0].partIds === null
-              ? modelHandoffMedia(preFrame.elements.find(e => e.id === track.target), preFrame.elements.find(e => e.id === handoff.destination[0].elementId), preFrame.elements, opts) : undefined,
+            media: modelFlight ? modelHandoffMedia(whole ? elementOf(track.target) : undefined, whole ? elementOf(handoff.destination[0].elementId) : undefined, preFrame.elements, opts) : undefined,
             ctx: {
               order: bi * 1e9 + (track.start ?? 0), targetRoot: rootFor(handoff.destination[0].elementId),
               node: owner => owner.partId ? rootFor(owner.elementId)?.querySelector(`[id="${partDomId(owner.elementId, owner.partId).replace(/["\\]/g, "\\$&")}"]`) ?? undefined : rootFor(owner.elementId),

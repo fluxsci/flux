@@ -5,10 +5,11 @@ import { transformEndState } from '../src/lib/slide/tween';
 import { elementStageOutlines } from '../src/lib/slide/targetGeometry';
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { inspectGlb, writeGlb } from '../src/lib/model3d/glbCore.mjs';
-import { modelPair } from '../src/lib/slide/model3dMorph';
+import { modelPair, modelPairIssue } from '../src/lib/slide/model3dMorph';
 import { sourceAt } from '../src/lib/slide/ghost';
-import type { Model3dAsset, Model3dElement } from '../src/lib/model3d/types';
+import type { Model3dAsset, Model3dElement, Scene3dManifest } from '../src/lib/model3d/types';
 import type { Element } from '../src/lib/types';
+import type { Track } from '../src/lib/slide/types';
 import type { Project } from '../src/lib/types';
 import { figureSourceOwners } from '../src/lib/project/figureSourceOwners';
 import fs from 'node:fs/promises';
@@ -113,6 +114,18 @@ for (const reverse of [false, true]) {
   catch { h.eq(JSON.stringify(deck), before, 'video ghost refusal is preserved'); }
 }
 h.eq(modelPair(scene().a, scene().b, {})?.ok, false, 'absent topology conservatively crossfades');
+{
+  // Mesh leaves draw in WebGL with no DOM nodes, so no flight can carry them.
+  const { deck, slide, beat, a } = scene(); slide.elements.splice(1);
+  slide.elements.push({ id: 'rect', type: 'rect', x: 400, y: 40, width: 120, height: 80, rotation: 0, opacity: 1, fill: '#d14d41', stroke: 'none', strokeWidth: 0, cornerRadius: 0 } as Element);
+  const manifest = { spec: 'fluxplot/scene3d', schemaVersion: '0.1.0', glb: 'a.glb', parts: [{ id: 'cell.dendrites', node: 'dendrites', role: 'dendrites' }, { id: 'axes.x.label', role: 'axis-label', text: 'X' }] } as Scene3dManifest;
+  const opts = { ...deck, modelManifest: (id: string) => id === a.assetId ? manifest : undefined };
+  beat.tracks.push({ id: 'part-flight', target: a.id, part: 'cell.dendrites', preset: 'transform', duration: 600, to: { become: { mode: 'handoff', ref: { element: 'rect' } } } } as Track);
+  let compiled = compileSlide(slide, deck.stage, opts);
+  h.ok(!compiled.handoffs.length && compiled.issues.some(issue => issue.trackId === 'part-flight' && issue.reason.includes('mesh')), 'Become from 3D mesh parts is refused with an actionable issue');
+  beat.tracks[0].part = 'axes.x.label'; compiled = compileSlide(slide, deck.stage, opts);
+  h.ok(compiled.handoffs.length === 1 && !compiled.issues.some(issue => issue.reason.includes('mesh')), 'model furniture parts still hand off');
+}
 {
   const { deck, slide, beat, a, b } = scene(); deck.assets = [];
   const lookup = (id: string) => assets.find(asset => asset.id === id);

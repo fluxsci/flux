@@ -142,6 +142,14 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
   const flights = new Map<CompiledTrack, { source: string[]; destination: string[] }>();
   const keysOf = (targets: ResolvedTarget[]) => targets.flatMap(t => t.partIds === null ? [t.elementId] : t.partIds.map(p => `${t.elementId}\0${p}`));
   const births = ghostBirths(slide);
+  // Mesh leaves draw in WebGL and own no DOM nodes, so no flight can carry
+  // them (furniture leaves are ordinary SVG and hand off normally).
+  const meshParts = (targets: ResolvedTarget[], beat: number) => targets.some(t => {
+    if (!t.partIds?.length) return false;
+    const el = transformPreState(slide, t.elementId, beat);
+    const parts = el?.type === "model3d" ? opts.modelManifest?.(el.assetId)?.parts : undefined;
+    return !!parts && t.partIds.some(id => parts.some(p => p.id === id && !!p.node));
+  });
   for (const cue of cues) for (const ct of cue.tracks) {
     if (ct.track.preset !== "transform" || !isHandoff(ct.track)) continue;
     const spec = ct.track.to.become;
@@ -153,6 +161,7 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
       : unborn.some(b => b.target === spec.ref.element || destination.some(t => t.elementId === b.target)) ? "The destination is not yet born at this step. Choose a later step."
       : !destination.length ? "Destination parts not found. Retarget this Become."
       : !source.length ? "Source parts not found. Retarget this Become."
+      : meshParts(source, ct.beat) ? "3D mesh parts cannot hand off to another object. Use the whole model, or its labels and axes."
       : sameRef(trackRef(ct.track), spec.ref) ? "Choose a different object for the source to become."
       : unborn.some(b => source.some(t => t.elementId === b.target)) ? "The source is not yet born at this step. Choose a later step."
       : !posterVideo && slide.elements.some(e => e.type === "video" && [...source, ...destination].some(t => t.elementId === e.id)) ? "Video clips cannot take part in a Become. Use Change for their geometry."
