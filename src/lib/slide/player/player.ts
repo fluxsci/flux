@@ -151,8 +151,10 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
   // Placement/rotation/opacity belong to the document wrapper. Appearance
   // effects operate on a child layer, so rising in cannot erase a concurrent
   // position change or an authored rotation/translucency.
-  for (const cue of compiled.cues) for (const { track } of cue.tracks) {
-    if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"]) continue;
+  // A crossfading Become fades its whole source like an exit, on that layer too.
+  const crossfades = new Set(handoffs.filter(h => h.crossfade).map(h => `${h.beat}:${h.trackId}`));
+  compiled.cues.forEach((cue, bi) => { for (const { track } of cue.tracks) {
+    if (track.disabled || hasPartBinding(track) || !PRESET_WRAPPER_PROPS[track.preset ?? "fade"] && !(isHandoff(track) && crossfades.has(`${bi}:${track.id ?? ""}`))) continue;
     const wrap = rendered.elements.get(track.target) as (HTMLElement & { __slideEffects?: HTMLElement }) | undefined;
     if (!wrap?.firstElementChild || wrap.__slideEffects) continue;
     const effects = document.createElement("div");
@@ -161,7 +163,7 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
     while (wrap.firstChild) effects.appendChild(wrap.firstChild);
     wrap.appendChild(effects);
     wrap.__slideEffects = effects;
-  }
+  } });
   compiled.cues.forEach((cue, bi) => {
     for (const ct of cue.tracks) {
       const track = ct.track;
@@ -190,6 +192,19 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
               return node ? [node] : [];
             });
           });
+          if (handoff.crossfade) {
+            // Mesh parts own no DOM outline, so nothing flies: the source fades
+            // out in place while the destination fades in, furniture parts here
+            // and mesh parts through the model's per-part opacity, which
+            // compile.sample drives on this same curve (no pop at landing).
+            const fades: [TargetNode[], boolean][] = [[resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots), false], [nodesFor(handoff.destination) as TargetNode[], true]];
+            for (const [nodes, enter] of fades) for (const node of nodes) specs.push({
+              node, beatIndex: bi, keyframes: enter ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }], enter,
+              delay: ct.start, duration: ct.duration, ease: ct.ease,
+              key: enter ? `handoff-in:${track.id ?? key}` : key, trackId: track.id, owner: track, preset: enter ? "fade" : "fadeOut",
+            });
+            continue;
+          }
           const sourceNodes = hasPartBinding(track) ? resolveNodes(track, slide, rendered, cameraLayer, opts, bi, contentRoots) : [wrap];
           const destinationNodes = nodesFor(handoff.destination);
           if (!sourceNodes.length || !destinationNodes.length) continue;
@@ -628,7 +643,8 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     mount.style.background = slide.background ?? deck.background ?? opts.theme.background;
     const compiled = compileSlide(slide, stage, { ...opts, animStyles: deck.animStyles });
     const modelIds = new Set(compiled.resolvedSlide.elements.filter(el => el.type === 'model3d').map(el => el.id));
-    if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))) modelAppearance = compiled;
+    if (compiled.cues.some(cue => cue.tracks.some(ct => ct.parts.length && compiled.preState(ct.track.target, ct.beat)?.type === 'model3d')) || Object.keys(compiled.partFactors).some(id => modelIds.has(id))
+      || compiled.handoffs.some(h => h.crossfade)) modelAppearance = compiled;
     const rendered = renderSlide(cameraLayer, compiled.resolvedSlide, stage, { ...ctx, ghostPartFactors: compiled.partFactors });
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;

@@ -452,8 +452,8 @@ gesture, not arithmetic.
 **F5** presents from the start (**Shift+F5** from the current slide). Arrow keys and **Space**
 advance beats (**Shift+arrows** jump whole slides), a typed **number + Enter** jumps to a
 slide, **B**/**W** blank to black/white, **S** shows presenter notes, **F** toggles
-fullscreen, **R** resets the timer, **Escape** leaves. Click zones work too: left quarter
-back, elsewhere forward.
+fullscreen without leaving, **R** resets the timer, and one **Escape** leaves, even in
+fullscreen. Click zones work too: left quarter back, elsewhere forward.
 
 # 3D models
 
@@ -486,14 +486,19 @@ reason. A vertex morph needs the same mesh structure: matching mesh pieces, tria
 vertex order. Export both shapes together or use fluxplot's shared-topology workflow. A
 crossfade is a valid result, not an animation issue. Hand-off keeps both objects and reveals
 the destination at landing. A mesh part cannot start a Become (it has no outline to fly); use
-the whole model, or its labels and axes. Consume replaces the source's content and removes the
+the whole model, or its labels and axes. A Become **into** a mesh part crossfades in place:
+the source fades out while the part fades in over the effect's duration, so the part never
+pops in at landing. A model cannot become one of its own parts; use **Appear** on the part
+instead. Consume replaces the source's content and removes the
 destination in one undoable edit. To replace a model's mesh in the same frame, choose
 **Model from gallery…** in the Animation inspector (or **From gallery…** on the pick bar);
 **Keep own content** drops that choice.
 
 HTML and MP4 preserve the moving model. PDF and PowerPoint export a **Design-view still**,
-shown and placed where each build step leaves it; PowerPoint does not contain an editable 3D
-object. If a GLB is missing, Flux shows a placeholder and refuses to save an incomplete deck:
+shown and placed where each build step leaves it, with only the parts and labels that step
+shows (a part that appears later is absent from earlier pages); PowerPoint does not contain an
+editable 3D object. Command-line exports and a portable HTML deck's stills follow the same
+rule. If a GLB is missing, Flux shows a placeholder and refuses to save an incomplete deck:
 restore the named file or remove the model. A WebGL fallback is a still or placeholder with an
 issue, not a simulated animation.
 

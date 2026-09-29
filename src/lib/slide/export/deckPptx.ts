@@ -111,7 +111,7 @@ interface SlideContext {
   /** 1-based number of the Flux slide this page comes from (for warnings). */
   source: number;
   /** PptxPage.stills: the state a picture is drawn from, when not its frame's. */
-  stills: Map<string, Element> | undefined;
+  stills: PptxPage["stills"];
 }
 
 function xfrm(ctx: SlideContext, x: number, y: number, w: number, h: number, rotation = 0, flipH = false, flipV = false): string {
@@ -332,9 +332,11 @@ async function elementXml(ctx: SlideContext, el: Element): Promise<string | null
       // composition is laid out in stage coordinates); the picture frame
       // carries the page's placement, so a model that only moves reuses one
       // image. A pop twin draws the still of the state it pops to or from.
-      const still = ctx.stills?.get(el.id) ?? el;
+      const other = ctx.stills?.get(el.id), still = other?.element ?? el;
       const model = { ...staticModelElement(still, slide), x: 0, y: 0 } as typeof el;
-      const context = staticModelContext(ctx.payload);
+      // The picture carries its state's mesh-part and furniture appearance.
+      const parts = other ? other.partStates : ctx.ev.partStates[el.id];
+      const context = staticModelContext(ctx.payload, parts ? { [el.id]: parts } : undefined);
       const composed = model3dStaticSvg(model, id => ctx.payload.assets?.[id], context);
       if (composed.includes("data-model3d-placeholder")) {
         const note = `Slide ${ctx.source}: 3D model "${el.name || el.id}" has no rendered still for this build state; showing a placeholder`;

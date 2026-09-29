@@ -1325,6 +1325,9 @@ export function becomeTransform(deck: Deck, slideId: Id, beatId: Id, sourceRef: 
   const source = slide.elements.find((e) => e.id === sourceId), target = slide.elements.find((e) => e.id === targetId);
   if (!source) throw new Error("The source object is missing from this slide.");
   if (!target) throw new Error("The object to become is missing from this slide.");
+  // The whole source hides at landing, and every part inside it with it.
+  if (target.type === "model3d" && sourceId === targetId && isWholeElementRef(sourceRef) && !ref.group)
+    throw new Error("A 3D model cannot become one of its own parts. Fade the part in with Appear instead.");
   const posterVideo = isWholeElementRef(sourceRef) && isWholeElementRef(ref) && modelVideoHandoff(source, target);
   if ((source.type === "video" || target.type === "video") && (!posterVideo || opts.mode === "consume")) throw new Error("Video clips cannot take part in a Become. Use Change for their geometry.");
   if (opts.duration != null && (!Number.isFinite(opts.duration) || opts.duration < 0)) throw new Error("Duration must be a finite non-negative number");

@@ -41,8 +41,9 @@ export interface PptxPage {
   names: Map<string, string>;
   label: string;
   /** A picture drawn from another state than its frame: an invisible pop twin
-   *  of a 3D model shows, scaled into its frame, the still Morph lands on. */
-  stills?: Map<string, Element>;
+   *  of a 3D model shows, scaled into its frame, the still Morph lands on
+   *  (with that state's part appearance). */
+  stills?: Map<string, { element: Element; partStates?: EvaluatedSlide["partStates"][string] }>;
 }
 
 const RISE = new Set(["fadeRise"]), POP_IN = new Set(["popIn"]), POP_OUT = new Set(["popOut"]);
@@ -150,6 +151,7 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
         ...done,
         elements: done.elements.map((el) => source(el.id).elements.find((e) => e.id === el.id) ?? el),
         plotMarkup: (el) => source(el.id).plotMarkup(el),
+        partStates: Object.fromEntries(done.elements.flatMap((el) => { const parts = source(el.id).partStates[el.id]; return parts ? [[el.id, parts]] : []; })),
         camera: owner.has("@camera") ? source("@camera").camera : done.camera,
       };
       const previous = pages[pages.length - 1];
@@ -172,11 +174,11 @@ export function pptxPages(payload: ExportPayload, mode: PptxPages = "animated", 
 function twins(before: PptxPage, after: PptxPage, tracks: CompiledSlide["cues"][number]["tracks"]): void {
   // A twin (opacity 0) placed by an earlier step is not "shown".
   const shown = (ev: EvaluatedSlide, id: string) => ev.elements.find((e) => e.id === id && !e.hidden && (e.opacity ?? 1) > 0);
-  const place = (page: PptxPage, twin: Element, still?: Element) => {
+  const place = (page: PptxPage, twin: Element, still?: Element, from?: PptxPage) => {
     page.ev = { ...page.ev, elements: page.ev.elements.map((e) => e.id === twin.id ? twin : e) };
     // A model's still depends on its box; a scaled twin pictures the full-size
     // still (its own size has no rendered poster) so Morph pops one image.
-    if (still?.type === "model3d") (page.stills ??= new Map()).set(twin.id, still);
+    if (still?.type === "model3d") (page.stills ??= new Map()).set(twin.id, { element: still, partStates: from?.ev.partStates[twin.id] });
     else page.stills?.delete(twin.id);
   };
   for (const ct of tracks) {
@@ -189,10 +191,10 @@ function twins(before: PptxPage, after: PptxPage, tracks: CompiledSlide["cues"][
       const twin = RISE.has(preset)
         ? { ...structuredClone(end), y: end.y + Number(ct.track.params?.y ?? 14) }
         : scaledAboutCentre(end, Number(ct.track.params?.from ?? 0.9));
-      place(before, { ...twin, hidden: false, opacity: 0 } as Element, POP_IN.has(preset) ? end : undefined);
+      place(before, { ...twin, hidden: false, opacity: 0 } as Element, POP_IN.has(preset) ? end : undefined, after);
     } else if (leaving && POP_OUT.has(preset)) {
       const start = shown(before.ev, id)!;
-      place(after, { ...scaledAboutCentre(start, Number(ct.track.params?.to ?? 0.92)), hidden: false, opacity: 0 } as Element, start);
+      place(after, { ...scaledAboutCentre(start, Number(ct.track.params?.to ?? 0.92)), hidden: false, opacity: 0 } as Element, start, before);
     }
   }
 }

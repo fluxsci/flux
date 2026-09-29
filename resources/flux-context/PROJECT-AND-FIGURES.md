@@ -157,7 +157,8 @@ poster. Import/view/field/restyle commands attempt a matching poster after savin
 a poster failure is only a warning on a successful edit, and `--no-poster` leaves the
 poster for a later explicit render. Cached posters are derived;
 `render-model-posters --prune` removes only unreferenced entries older than 14 days,
-considering every saved figure. Connect
+considering every saved figure and every deck's Design and build-step stills (the
+app's own cleanup keeps the same set). Connect
 uses cached posters or labeled placeholders without reading GLB bytes or
 creating model posters. Explicit image requests/export can render them. Exports
 embed mesh pixels at the requested resolution and keep furniture as SVG text

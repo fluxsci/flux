@@ -5,7 +5,7 @@ import type { Figure } from "../types";
 import { preparePlot, partIdFromDom } from "../plot/parse";
 import { buildPlotMarkup } from "../plot/inlineMarkup";
 import { figureToSvg } from "../export";
-import { compileSlide, type CompiledSlide } from "./compile";
+import { compileSlide, type CompiledSlide, type SlideFrame } from "./compile";
 import { remapBecomeTarget } from "./handoffTargets";
 import { resolveTheme } from "./theme";
 import type { PlayerOpts } from "./player/player";
@@ -66,6 +66,9 @@ export interface EvaluatedSlide {
   camera: { x: number; y: number; zoom: number } | undefined;
   background: string;
   stage: { width: number; height: number };
+  /** Semantic part appearance by element id (plot parts via plotMarkup; 3D
+   *  mesh parts and furniture via the static model context). */
+  partStates: SlideFrame["partStates"];
 }
 export function evaluateSlide(payload: ExportPayload, step = 0, timeMs = Infinity, compiled?: CompiledSlide): EvaluatedSlide {
   const deck = payload.deck, slide = deck.slides[0];
@@ -98,7 +101,7 @@ export function evaluateSlide(payload: ExportPayload, step = 0, timeMs = Infinit
     return serializeSvg(root);
   };
   const background = slide.background ?? deck.background ?? resolveTheme(deck.theme).background;
-  return { slide, elements: frame.elements, groups: slide.groups, plotMarkup, camera: frame.camera, background, stage: deck.stage };
+  return { slide, elements: frame.elements, groups: slide.groups, plotMarkup, camera: frame.camera, background, stage: deck.stage, partStates: frame.partStates };
 }
 
 /** Shared evaluated endpoints → ordinary SVG, usable by Word, PDF and plain Quarto. */
@@ -106,7 +109,7 @@ export function renderSlidePosterSvg(payload: ExportPayload, step = 0): string {
   const ev = evaluateSlide(payload, step);
   const fig: Figure = { id: `poster-${ev.slide.id}`, name: ev.slide.name ?? ev.slide.id, canvasId: "slide-poster", x: 0, y: 0,
     width: ev.stage.width, height: ev.stage.height, background: "transparent", elements: ev.elements, groups: ev.groups };
-  const models = staticModelContext(payload);
+  const models = staticModelContext(payload, ev.partStates);
   fig.elements = fig.elements.map(el => staticModelElement(el, ev.slide));
   let svg = figureToSvg(fig, id => payload.assets?.[id], ev.plotMarkup, id => payload.assetSizes?.[id], { model3d: models });
   const { width: w, height: h } = ev.stage;

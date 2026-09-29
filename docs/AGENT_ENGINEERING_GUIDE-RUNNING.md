@@ -2341,6 +2341,13 @@ days (probe geometry like `width` instead).
   actual tools before launching an isolated attempt. CI provisions Quarto for both the
   bundle and Paper UI jobs, and TeX for the PDF bundle gate. Keep artifact assertions on
   capable machines; never exit successfully merely because an export tool is unavailable.
+- **In HTML fullscreen, native Chromium spends Escape on leaving fullscreen and never
+  delivers the key** (Electron `sendInputEvent`, a real keyboard). Present therefore closes
+  on a `fullscreenchange` it did not request (its own F toggle and teardown set a flag),
+  unless a shell modal owns the keyboard. Puppeteer's CDP Escape in headless Chrome IS
+  delivered and leaves fullscreen alone, so browser gates simulate the native exit with
+  `document.exitFullscreen()` (`verify-slide-present-gui`); only the native slide-scale
+  gate presses the real key (2026-09-29).
 - **A dismissed toast is still in the DOM for its fade** (`Toasts.svelte`,
   `transition:fade` of `DUR.quick` = 200 ms). "Gone after one paint" fails every time;
   wait for the node to leave with a timeout well under the 3.5 s info expiry, so the check
@@ -3156,9 +3163,11 @@ outside this PNG packaging change.
 | T29 | Furniture drifts from the WebGL projection | one `orbit.project`; ≤0.5 px marker agreement in `verify-model3d-render-browser.ts` |
 | T30 | Text measured at render time makes engines disagree | anchor-only layout; `verify-model3d-furniture.ts` asserts no DOM or text measurement, `verify-model3d-headless.ts` Paper/Node byte parity |
 | T35 | Welding, reordering or independently decimating vertices breaks morph correspondence | `prepareGlb` never touches vertex order; topology fingerprints in `verify-model3d-glb.ts` |
+| T36 | A flight whose last frame is not the destination's own render pops at the handover; a 3D mesh-part destination has no DOM outline to fly to at all | model morphs land on B's own render (`verify-slide-model3d-morph-browser.ts`). A Become into mesh parts is a compiled `crossfade` hand-off: no flight layer, clone or snapshot; `compile.sample` fades the part through its per-part opacity while the player fades the source's DOM on the same clamped curve, and raw = 1 is the landing (`verify-slide-model3d-morph.ts`, `verify-slide-model3d-parts-browser.ts`) |
 | T38 | Framing from base bounds lets a shape state leave the frame | `bounds` is the union of the base and each state at weight 1; `verify-model3d-glb.ts` |
 | — | A tight framing sphere crops box axes (their corners sit up to √3 R out), and a pose built without the manifest drifts from the poster | `bounds.radius` (glbCore `framingRadius`) frames bare meshes; `framing.ts` `framingBounds` grows the frame to the whole axes box and must wrap *every* `orbitPose` that pairs a poster with furniture; poster keys carry the framed sphere; assets stored without `radius` keep the half-diagonal until re-imported; the Python still mirrors it (`_framing_bounds`); `verify-model3d-{furniture,core}.ts`, `tests/test_scene3d_static.py` |
 | — | Box-axis tick labels pile up when the view looks almost straight down an axis (a ~15 px stub carrying "-1 0 1") | `furniture.ts` `tickLabelsCollide`: when any two of an axis's tick-label boxes (textMetrics width, one font size tall, a word space apart) overlap, its labels hide, and its title if longer than the stub; line, ticks and grid stay. A pure function of the pose, no hysteresis; fluxplot `_tick_labels_collide` mirrors it; `verify-model3d-furniture.ts` near-cardinal sweeps, `tests/test_scene3d_static.py` |
+| — | A slide still depends on its step's mesh-part visibility, not only on the element: without it the Node poster worker, offline-HTML pre-ready posters and CLI PDF/PPTX pictured a part hidden at that step | payload gathering keys each step's still with `partOpacity`; `model3dSvgContext(…, partStatesOf)` (mesh factors in the key, the same states on furniture groups), `resolveModelPosters({ partStates })` and the render spec carry it; a still of one part state never falls back to another state's poster. Cache-only readers (Connect sheets, CLI Paper renders) need that step's own still: the app persists it when it renders one, and `render_model_posters --deck` renders every step still through the shared `slideModelStills` enumeration; `--prune` and the app's idle prune share one live set (`livePosterKeys.ts`: Figure views plus every deck's Design and step stills; the app computes it only when an entry is past the age rule); Connect keys model deck sheets on `projectModelPosterSignature`; `verify-model3d-headless.ts` (actual worker pixels, render → read-only gather, prune), `verify-model3d-slide-export.ts` |
 | — | A GLB deleted from `fig/assets/` bricks every headless read | a missing model file is a non-blocking `assetIssues` entry in `readFigureSnapshot` (placeholder + warning; `delete-element` still works); `verify-model3d-verbs.ts`. The GUI Figure load never locks on one either (a placed one gets its placeholder and a toast); `figbridge.ts` `judgeMissingModels` refuses Save only while a current element places the GLB or a saved deck uses it (`readDeckAssetUses`), and drops an unused missing one from the SAVED index only; `verify-model3d-persistence.ts`, `verify-model3d-gui.mjs`. The deck save judges only GLBs the slides still reference (`slideAssetIds`). Both rules exist because asset entries outlive a deleted element for Undo, so judging the registry kept Save blocked forever; `verify-model3d-deck-assets.ts` |
 
 - Names that come from user files (GLB nodes, shape targets) can be `constructor` or
@@ -8676,3 +8685,20 @@ before origin/main ffb511b8) passes again: 85.6 / 118.1 → 38.6 / 47.5 ms p95.
   pointed straight at Svelte's flush; the Chrome trace alone only showed `FunctionCall`.
 - The native probe's p95 over 18 samples is the maximum, i.e. the first keystroke, which
   also pays the undo snapshot.
+
+### 2026-09-29 — 3D slide follow-ups: mesh-part crossfade, per-step stills, one-Escape Present (Claude Opus 5.5, `fu-slides`)
+**Work:** A Become into a 3D mesh part now crossfades in place; CLI, offline-HTML, PDF and
+PPTX model stills key and render each step's mesh-part visibility through the Node worker;
+one Escape leaves fullscreen Present; `render-model-posters --deck` renders and `--prune`
+keeps every step still (as does the app's idle prune), and Connect's model deck sheets follow the project poster cache.
+The native slide-scale gate twice missed only the
+morph-plus-eight-ghosts p95 (33 ms, machine shared with other agents' gates) before its
+Escape step; a deleted diagnostic copy of that harness then measured 16.8 ms for both
+segments and closed fullscreen Present with one Escape.
+**Learnings:**
+- Native fullscreen Escape never reaches the page (promoted to §9 CI browsers); a mesh
+  part owns no DOM outline, so a Become into it crossfades (promoted to the §9 T36 row).
+- A dev server that has hot-reloaded many modules failed `verify-model3d-source-gui`'s
+  idle watcher step; a restarted server passed. Restart it before judging such a failure.
+- Under heavy load `verify-fluxconfig` can fail: two concurrent `installLaunchers` in one
+  process share the `flux.tmp-<pid>` name and one rename hits ENOENT. Not fixed here.
