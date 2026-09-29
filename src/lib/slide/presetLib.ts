@@ -1,3 +1,4 @@
+import { validatedModelBytes } from '../model3d/portableBytes';
 import { model3dDeckScope } from '../model3d/editorScope';
 import type { Model3dAsset } from '../model3d/types';
 import { staticModelRequest, type Model3dSvgContext } from '../model3d/static';
@@ -106,7 +107,9 @@ export async function saveSlidePreset(
     if (meta?.kind === "glb") {
       if (!root || !bridge || !meta.path) throw new Error("Open the source deck before saving a 3D slide preset");
       const prefix = deck.assets.some(a => a.id === aid) ? `slides/${deck.id}` : "";
-      data = bytesToDataUrl(new Uint8Array(await bridge.readFile(underRoot(root, [prefix, meta.path].filter(Boolean).join("/")))), "model/gltf-binary");
+      const file = underRoot(root, [prefix, meta.path].filter(Boolean).join("/"));
+      const bytes = await (bridge.readModelFile ? bridge.readModelFile(file, root) : bridge.readFile(file));
+      data = bytesToDataUrl(await validatedModelBytes(bytes, meta as Model3dAsset), "model/gltf-binary");
       const sidecarDirectory = prefix ? `${prefix}/assets` : "fig/assets";
       modelSidecars = await readScene3dSidecars(bridge, underRoot(root, sidecarDirectory), aid, { strict: true, binding: bindings.get(aid) });
     }

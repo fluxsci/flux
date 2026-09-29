@@ -82,15 +82,20 @@ nested.slides[0].elements[0].hidden=true; // This test isolates persistence, not
 loadDeckModel(nested);setModel3dDeckScope(nested.id);
 const manifest={spec:'fluxplot/scene3d',schemaVersion:'0.1.0',glb:'mesh.glb',parts:[{id:'mesh',role:'mesh',node:'mesh'}]};
 const canonical=`/scratch/slides/${nested.id}/assets/original.fluxplot.json`;
-const sidecarReads:string[]=[];let saved:any;
+const sidecarReads:string[]=[], modelRoots:string[]=[];let saved:any,writes=0;
 Object.assign((globalThis as any).window.fig,{
-  readFile:async(p:string)=>{assert.equal(p,`/scratch/slides/${nested.id}/nested/mesh.glb`);return prepared.bytes;},
+  readFile:async()=>{throw Error("unbounded model read must not be used");},
+  readModelFile:async(p:string,root:string)=>{modelRoots.push(root);assert.equal(p,`/scratch/slides/${nested.id}/nested/mesh.glb`);return prepared.bytes;},
   exists:async(p:string)=>p===canonical,
   readText:async(p:string)=>{sidecarReads.push(p);return JSON.stringify(manifest);},
-  writeSlideLibrary:async(_rel:string,value:any)=>{saved=value;return true;},
+  writeSlideLibrary:async(_rel:string,value:any)=>{writes++;saved=value;return true;},
 });
 await saveSlidePreset('Nested',nested.slides[0].id);
 h.eq(sidecarReads,[canonical],'preset resolves canonical sidecars independently of stored GLB path');
 h.eq(saved.assets[0].manifest.parts,manifest.parts,'nested GLB preset preserves accepted semantic metadata');
+h.eq(modelRoots,['/scratch'],'preset uses the bounded model read with its captured project root');
+(globalThis as any).window.fig.readModelFile=async()=>new Uint8Array([1,2,3]);
+await assert.rejects(saveSlidePreset('Changed bytes',nested.slides[0].id),/prepared bytes do not match/);
+h.eq(writes,1,'changed prepared bytes refuse before publishing a corrupt reusable preset');
 setStoreTenant(null);
 await h.done();
