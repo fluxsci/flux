@@ -14,6 +14,7 @@ import { exportDeckHtml, exportSlideVideoHtml } from '../src/lib/slide/export/ex
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { inspectGlb, writeGlb, GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import type { Model3dAsset } from '../src/lib/model3d/types';
 import type { Deck } from '../src/lib/slide/types';
 import { deckPdfDocument } from '../src/lib/slide/export/deckPdf';
@@ -24,6 +25,9 @@ import { parseHTML } from 'linkedom';
 import { Resvg } from '@resvg/resvg-js';
 import { payloadModelContext } from '../src/lib/slide/export/model3dPayloadHost';
 const h=harness('verify-model3d-slide-export');
+// Fresh checkouts have no build output: the PDF/embed paths read the build-owned
+// .generated assets, so run the same generator the npm hooks use (identical bytes are not rewritten).
+execFileSync(process.execPath,['scripts/gen-slide-embed-assets.mjs'],{stdio:'pipe'});
 const bytes=writeGlb({parts:[{name:'mesh',positions:[0,0,0,1,0,0,0,1,1],indices:[0,1,2]}]});
 const asset:Model3dAsset={id:'mesh',name:'Mesh',kind:'glb',path:'assets/mesh.glb',naturalWidth:200,naturalHeight:200,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length,model:inspectGlb(bytes)};
 const element=makeModel3dElement(asset,{id:'view'});
