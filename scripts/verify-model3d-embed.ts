@@ -12,6 +12,8 @@ import { createDeck, addSlide } from '../src/lib/slide/ops';
 import { inspectGlb } from '../src/lib/model3d/glbCore.mjs';
 import { makeModel3dElement } from '../src/lib/model3d/make';
 import { createSlideRepository } from '../src/lib/slide/embedRepository';
+import { createPreviewModelBridge } from '../src/lib/slide/previewModelBridge';
+import { embedKey } from '../src/lib/slide/embed';
 import { createServiceHost } from '../src/lib/model3d/serviceHost';
 import { shareEmbedModels, restoreEmbedModels } from '../src/lib/slide/embedModels';
 import { prepareSlideDocument } from '../src/lib/slide/embedDocument';
@@ -93,26 +95,96 @@ try {
   h.ok(!empty.tail.includes(modelGenerated.runtime), '2D-only document carries no model runtime');
   const still = await prepareSlideDocument(ref('front'), repo, { interactive: false, strict: true });
   h.ok(!still.tail && still.blocks[0].html.includes('flux-slide-poster'), 'static Word/PDF route retains the step-zero poster without scripts');
-  // The live Paper preview (interactive, not strict) re-renders ~160 ms after
-  // every edit. It used to re-read, re-hash and base64-encode every GLB on each
-  // render; an unchanged slide now reuses its portable bytes, exports never do.
+  // The live Paper preview (interactive + live, not strict) re-renders ~160 ms
+  // after every edit. Superseded contract (28f862dc cached portable bytes per
+  // slide; each render still serialized them, the iframe re-parsed them, and
+  // the cache kept a deleted model): the preview now carries model metadata
+  // only and draws through the parent's worker over the preview model bridge.
   const previewRepo = createSlideRepository(root, io), preview = `${ref('front')}\n\n${ref('side')}`;
   const render = () => prepareSlideDocument(preview, previewRepo, { interactive: true, live: true });
   const dataOf = (tail: string) => JSON.parse(/id="flux-slide-data">(.*?)<\/script>/s.exec(tail)![1]);
   const readsAtStart = binaryReads, reads = () => binaryReads - readsAtStart;
-  const firstPreview = await render(); h.eq(reads(), 2, 'first preview render gathers each model slide once');
+  const firstPreview = await render(), firstData = dataOf(firstPreview.tail);
+  h.eq(reads(), 0, 'the live preview reads no GLB bytes');
+  h.ok(firstData.modelBridge === true && !Object.keys(firstData.models ?? {}).length && !Object.values(firstData.payloads as Record<string, any>).some(p => p.modelIds?.length), 'the live preview document carries model metadata only and asks for the bridge');
+  h.ok(!firstPreview.tail.includes(bytes.subarray(0, 3072).toString('base64')) && !firstPreview.tail.includes(modelGenerated.runtime), 'no GLB bytes and no model runtime ride in the preview document');
+  h.eq([...firstPreview.bridged].sort(), [embedKey({ deck: deck.id, slide: 'front' }), embedKey({ deck: deck.id, slide: 'side' })].sort(), 'both model slides are served over the bridge');
   for (let i = 0; i < 3; i++) await render();
-  const reused = await render();
-  h.eq(reads(), 2, 'repeated preview renders reuse the portable GLB bytes (no re-read, re-hash or re-encode)');
-  h.eq(reused.tail, firstPreview.tail, 'reused preview output is byte-identical to the gathered one');
-  h.eq(dataOf(reused.tail).models.neuron, bytes.toString('base64'), 'reused preview still carries the exact GLB bytes');
-  previewRepo.invalidate(); await render(); h.eq(reads(), 2, 'a repository invalidation with unchanged content keeps the cached bytes');
+  h.eq((await render()).tail, firstPreview.tail, 'repeated preview renders are byte-identical');
+  h.eq(reads(), 0, 'repeated preview renders read no GLB bytes');
+  previewRepo.invalidate(); const invalidated = await render();
+  h.ok(invalidated.tail !== firstPreview.tail && reads() === 0, 'an invalidation changes the preview document (its bridged models re-mount and re-check their files) without reading GLB bytes');
   const turned = structuredClone(deck); (turned.slides[0].elements[0] as { orbitAzimuth: number }).orbitAzimuth += 30;
   await io.writeText(`${root}/slides/models/deck.json`, JSON.stringify(turned)); previewRepo.invalidate();
   const changedPreview = dataOf((await render()).tail), front = Object.values(changedPreview.payloads as Record<string, any>).find(p => p.deck.slides[0].id === 'front');
-  h.ok(reads() === 3 && front.deck.slides[0].elements[0].orbitAzimuth === turned.slides[0].elements[0].orbitAzimuth && changedPreview.models.neuron === bytes.toString('base64'), 'a changed slide gathers fresh portable bytes; the unchanged one is still reused');
+  h.ok(reads() === 0 && front.deck.slides[0].elements[0].orbitAzimuth === turned.slides[0].elements[0].orbitAzimuth, 'a changed slide re-renders from metadata alone');
   const strictBefore = binaryReads; await prepareSlideDocument(preview, previewRepo, { interactive: true, strict: true });
   h.eq(binaryReads - strictBefore, 2, 'strict exports gather and validate fresh GLB bytes every time');
+
+  h.section('preview model bridge (parent half)');
+  {
+    const listeners = new Set<(event: Event) => void>(), posted: { message: any; transfer?: Transferable[] }[] = [];
+    const target = { addEventListener: (_: string, fn: (event: Event) => void) => { listeners.add(fn); }, removeEventListener: (_: string, fn: (event: Event) => void) => { listeners.delete(fn); } };
+    const frame = { postMessage: (message: unknown, _origin: string, transfer?: Transferable[]) => { posted.push({ message, transfer }); } } as unknown as Window;
+    const stranger = { postMessage() {} } as unknown as Window;
+    let closed = 0;
+    const served: { snapshot: any; disposed: boolean; retains: string[]; releases: string[]; renders: { spec: any; options: any }[] }[] = [];
+    // A worker stand-in with the real backend's file contract: every NEW hold
+    // re-checks the snapshot's model file exists.
+    const serve = (snapshot: any) => {
+      const record = { snapshot, disposed: false, retains: [] as string[], releases: [] as string[], renders: [] as { spec: any; options: any }[] }; served.push(record);
+      return { backend: {
+        retain: async (asset: any) => { const id = typeof asset === 'string' ? asset : asset.id; record.retains.push(id); const meta = snapshot.modelSource.assets.find((a: any) => a.id === id);
+          if (!await io.exists(`${root}/${meta.path}`)) throw new Error(`3D model file missing: ${meta.name}`); return { ...meta.model, bytes: meta.bytes, parseMs: 0 }; },
+        release: (id: string) => { record.releases.push(id); },
+        renderBitmap: (spec: any, options: any) => { record.renders.push({ spec, options }); return options?.lane === 'idle' && spec.w === 7 ? new Promise<ImageBitmap>((_r, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))) : Promise.resolve({ close() { closed++; } } as unknown as ImageBitmap); },
+      } as any, dispose() { record.disposed = true; } };
+    };
+    const bridgeRepo = createSlideRepository(root, io);
+    const bridge = createPreviewModelBridge({ repository: bridgeRepo, frame: () => frame, serve, target });
+    const frontKey = embedKey({ deck: deck.id, slide: 'front' }), sideKey = embedKey({ deck: deck.id, slide: 'side' });
+    const send = (data: Record<string, unknown>, source: Window = frame) => { for (const fn of listeners) fn({ source, data } as unknown as Event); };
+    const replyTo = async (call: number) => { for (let i = 0; i < 200; i++) { const found = posted.find(p => p.message.fluxModel3dReply === call); if (found) return found; await new Promise(r => setTimeout(r, 1)); } return undefined; };
+    let call = 0;
+    const ask = async (body: Record<string, unknown>, doc = 'doc-1') => { const id = ++call; send({ fluxModel3d: body.op, doc, call: id, ...body }); return replyTo(id); };
+    const spec = (extra: Record<string, unknown> = {}) => ({ assetId: 'neuron', element: deck.slides[0].elements[0], w: 120, h: 80, manifest: { forged: true }, ...extra });
+    bridge.keep([frontKey, sideKey]);
+    send({ fluxModel3d: 'hello', doc: 'doc-1' });
+    const retained = await ask({ op: 'retain', source: frontKey, id: 'neuron' });
+    h.ok(retained?.message.ok === true && retained.message.value.bytes === asset.bytes && retained.message.doc === 'doc-1', 'the owning preview document retains a slide model through the worker backend');
+    const strangerCall = ++call; send({ fluxModel3d: 'retain', doc: 'doc-1', call: strangerCall, source: frontKey, id: 'neuron' }, stranger);
+    h.eq(await replyTo(strangerCall), undefined, 'messages from any other window are ignored');
+    const outside = await ask({ op: 'retain', source: embedKey({ deck: deck.id, slide: 'hidden' }), id: 'neuron' });
+    h.ok(outside?.message.ok === false && /not part of the current preview/.test(outside.message.error), 'a slide outside the latest render is refused');
+    const foreign = await ask({ op: 'render', source: frontKey, spec: spec({ assetId: 'elsewhere' }) });
+    const huge = await ask({ op: 'render', source: frontKey, spec: spec({ w: 100000 }) });
+    h.ok(foreign?.message.ok === false && huge?.message.ok === false && /Invalid 3D render request/.test(foreign.message.error + huge.message.error), 'foreign model identities and unbounded sizes are refused');
+    const frame1 = await ask({ op: 'render', source: frontKey, spec: spec(), channel: 'model3d-view-1', lane: 'interactive' });
+    const rendered = served[0].renders.at(-1)!;
+    h.ok(frame1?.message.ok === true && frame1.transfer?.[0] === frame1.message.value, 'a render replies with the transferred bitmap');
+    h.ok(!rendered.spec.manifest?.forged && rendered.options.channel === 'paper-preview:doc-1:model3d-view-1' && rendered.options.signal instanceof AbortSignal, 'manifests come from the parent snapshot and channels are scoped to the document');
+    h.eq(served.length, 1, 'retains and renders of one slide share one worker backend');
+    const slowCall = ++call; send({ fluxModel3d: 'render', doc: 'doc-1', call: slowCall, source: frontKey, spec: spec({ w: 7 }), lane: 'idle' });
+    for (let i = 0; i < 100 && !served[0].renders.some(r => r.spec.w === 7); i++) await new Promise(r => setTimeout(r, 1));
+    send({ fluxModel3d: 'hello', doc: 'doc-2' });
+    h.ok(served[0].renders.find(r => r.spec.w === 7)!.options.signal.aborted, 'a new preview document aborts the replaced document\'s in-flight renders');
+    h.eq(await ask({ op: 'retain', source: frontKey, id: 'neuron' }, 'doc-1'), undefined, 'the replaced document can no longer call');
+    h.ok((await ask({ op: 'retain', source: frontKey, id: 'neuron' }, 'doc-2'))?.message.ok === true && served.length === 1 && served[0].retains.length === 1, 'the next document reuses the resident worker hold (no geometry reload per edit)');
+    await fs.rename(`${root}/slides/models/assets/neuron.glb`, `${root}/neuron.glb.away`);
+    bridgeRepo.invalidate();
+    const gone = await ask({ op: 'retain', source: frontKey, id: 'neuron' }, 'doc-2');
+    h.ok(served[0].disposed && served.length === 2 && gone?.message.ok === false && /3D model file missing/.test(gone.message.error), 'after an invalidation a deleted GLB is re-checked and refused (no cached copy outlives the file)');
+    await fs.rename(`${root}/neuron.glb.away`, `${root}/slides/models/assets/neuron.glb`);
+    h.ok((await ask({ op: 'retain', source: frontKey, id: 'neuron' }, 'doc-2'))?.message.ok === true, 'a restored file renders again');
+    h.ok((await ask({ op: 'retain', source: sideKey, id: 'neuron' }, 'doc-2'))?.message.ok === true && served.length === 3, 'each rendered slide gets its own worker backend');
+    bridgeRepo.invalidate(); bridge.keep([frontKey, sideKey]); await new Promise(r => setTimeout(r, 1));
+    h.ok(served[1].disposed && served[2].disposed, 'keeping the rendered set drops the holds of a retired repository generation');
+    h.ok((await ask({ op: 'retain', source: frontKey, id: 'neuron' }, 'doc-2'))?.message.ok === true && served.length === 4, 'the current generation retains afresh');
+    bridge.keep([sideKey]); await new Promise(r => setTimeout(r, 1));
+    h.ok(served[3].disposed, 'a slide that leaves the rendered set releases its worker backend');
+    bridge.dispose(); h.eq(listeners.size, 0, 'disposing the bridge stops listening');
+    bridgeRepo.dispose();
+  }
   previewRepo.dispose(); await io.writeText(`${root}/slides/models/deck.json`, JSON.stringify(deck));
   const entry = `${root}/paper/report.qmd`, include = `${root}/paper/detail.qmd`;
   const before = `# Results\n\n${ref('front')}\n\n{{< include detail.qmd >}}\n`, detail = `${ref('side')}\n`;

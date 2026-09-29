@@ -1747,7 +1747,7 @@ occurrence namespace. Every beat requires an explicit advance; mid-flight Next s
 current beat. Do not change Present's default auto/with-prev behavior. Editor widgets retain
 transient beat IDs through prose edits, width changes and viewport disposal; full document
 loads reset them. `embedDocumentRuntime.ts` supplies the compact, isolated HTML host.
-`embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
+The live preview's srcdoc serves 3D models by reference: `previewModelClient.ts` (in the document) asks `previewModelBridge.ts` (in PreviewPane) for worker frames, so no preview render carries GLB bytes or the model runtime; exports inline fresh bytes. `embedRender.ts` evaluates posters with `compileSlide` and the shared Figure SVG serializer.
 PDF/Word use step 0; the print window requires no script. Posters embed their fonts.
 
 Run `scripts/gen-slide-embed-assets.mjs` before dev/check/build (npm hooks do this). Its
