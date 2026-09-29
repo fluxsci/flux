@@ -10,7 +10,7 @@ Slide presets are an explicit portable-byte boundary. Their GLBs are embedded wh
 
 Registered checks: `verify-model3d-deck-assets.ts` and `verify-model3d-slide-export.ts`, through `node scripts/run-verifies.mjs`. Playback and native capture qualification belong to the Stage 2 integration gates.
 
-CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an already-resolved in-project absolute path becomes the same canonical relative path as direct input. Both lexical escapes and symlink escapes are refused before the native media importer runs.
+CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an already-resolved in-project absolute path becomes the same canonical relative path as direct input. Platform separators become `/` there (a win32 input arrives as `C:\proj\…`), and so do root-relative paths handed to `boundedModelFile`; only NUL is refused on the raw input. A symlinked `--root` also accepts the realpath spelling of the same file (directories only are resolved). Both lexical escapes and symlink escapes are refused before the native media importer runs.
 
 Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.
 
