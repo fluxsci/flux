@@ -15,7 +15,7 @@ export async function preparePresetModels(snapshot: SlidePresetSnapshot, root: s
   };
   const current = () => { if (!isCurrent()) throw new Error('The destination deck changed while inserting the preset'); };
   const discard = async () => {
-    const settled = await Promise.allSettled(receipts.map(receipt => native!.discardModel3d!(receipt)));
+    const settled = await Promise.allSettled(receipts.map(async receipt => native!.discardModel3d!(receipt)));
     const errors = settled.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
     if (errors.length) throw new AggregateError(errors, 'Some prepared model files could not be discarded; referenced files were retained');
   };
@@ -57,7 +57,12 @@ export async function preparePresetModels(snapshot: SlidePresetSnapshot, root: s
     }
     snap.assets = snap.assets?.filter(entry => entry.asset.kind !== 'glb');
     return { snapshot: snap, assets, results: [...remap.values()], discard,
-      adopt: async () => { for (const receipt of receipts) await native!.adoptModel3d!(receipt); } };
+      adopt: async () => {
+        // The committed deck owns every receipt, even if one adoption rejects.
+        const settled = await Promise.allSettled(receipts.map(async receipt => native!.adoptModel3d!(receipt)));
+        const errors = settled.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+        if (errors.length) throw new AggregateError(errors, 'Some inserted model ownership could not be confirmed');
+      } };
   } catch (error) {
     try { await discard(); } catch (cleanup) { throw new AggregateError([error, cleanup], String(error)); }
     throw error;

@@ -1,3 +1,4 @@
+import { model3dDeckScope } from '../model3d/editorScope';
 import type { Model3dAsset } from '../model3d/types';
 import { staticModelRequest, type Model3dSvgContext } from '../model3d/static';
 import { parseScene3d } from '../model3d/scene3d';
@@ -106,8 +107,8 @@ export async function saveSlidePreset(
       if (!root || !bridge || !meta.path) throw new Error("Open the source deck before saving a 3D slide preset");
       const prefix = deck.assets.some(a => a.id === aid) ? `slides/${deck.id}` : "";
       data = bytesToDataUrl(new Uint8Array(await bridge.readFile(underRoot(root, [prefix, meta.path].filter(Boolean).join("/")))), "model/gltf-binary");
-      const directory = meta.path.slice(0, meta.path.lastIndexOf("/"));
-      modelSidecars = await readScene3dSidecars(bridge, underRoot(root, [prefix, directory].filter(Boolean).join("/")), aid, { strict: true, binding: bindings.get(aid) });
+      const sidecarDirectory = prefix ? `${prefix}/assets` : "fig/assets";
+      modelSidecars = await readScene3dSidecars(bridge, underRoot(root, sidecarDirectory), aid, { strict: true, binding: bindings.get(aid) });
     }
     if (!meta || !data) {
       missingAssets.push(aid);
@@ -173,7 +174,8 @@ export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: 
   const idx = afterSlideId ? deckNow.slides.findIndex((s) => s.id === afterSlideId) : -1;
   const at = idx >= 0 ? idx + 1 : undefined;
   const capturedRoot = get(embeddedProjectRoot), root = capturedRoot ?? "";
-  const current = () => get(embeddedProjectRoot) === capturedRoot && currentDeck()?.id === deckNow.id;
+  const capturedScope = get(model3dDeckScope);
+  const current = () => get(model3dDeckScope) === capturedScope && get(embeddedProjectRoot) === capturedRoot && currentDeck()?.id === deckNow.id;
   const prepared = await preparePresetModels(snap, root, deckNow.id, current);
   snap = prepared.snapshot;
   let res: ReturnType<typeof slideOps.insertSlideSnapshot>;
@@ -185,7 +187,6 @@ export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: 
     });
   } catch (error) { await prepared.discard(); throw error; }
   for (const result of prepared.results) cacheScene3dSidecars(result.asset.id, result);
-  try { await prepared.adopt(); } catch (error) { pushToast("error", "Preset inserted; model ownership could not be confirmed", { detail: String(error) }); }
   // Register bytes for the assets the op added (assetData is reactive — the
   // projected elements pick the hrefs up in the same flush).
   for (const e of snap.assets ?? []) {
@@ -202,7 +203,12 @@ export async function insertSlidePreset(entry: SlidePresetEntry, afterSlideId?: 
       }
     }
   }
-  selectSlide(res.slideId);
+  // Publish installed bytes before yielding. Adoption must finish for every
+  // receipt even when navigation replaces the destination during the await.
+  try { await prepared.adopt(); } catch (error) {
+    if (current()) pushToast("error", "Preset inserted; model ownership could not be confirmed", { detail: String(error) });
+  }
+  if (current()) selectSlide(res.slideId);
   return res.slideId;
 }
 
