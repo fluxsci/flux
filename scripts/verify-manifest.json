@@ -353,7 +353,8 @@
       "verify-model3d-slide-export.ts",
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
-      "verify-model3d-slide-presets.ts"
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -927,7 +928,8 @@
       "verify-slide-model3d.ts",
       "verify-project-media-paths.ts",
       "verify-model3d-furniture-gui.mjs",
-      "verify-model3d-slide-presets.ts"
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -949,7 +951,8 @@
       "verify-model3d-deck-assets.ts",
       "verify-model3d-slide-export.ts",
       "verify-slide-model3d.ts",
-      "verify-project-media-paths.ts"
+      "verify-project-media-paths.ts",
+      "verify-slide-model3d-player.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -1115,7 +1118,8 @@
       "verify-slide-model3d.ts",
       "verify-slide-tween.ts",
       "verify-loadgate.ts",
-      "verify-model3d-slide-presets.ts"
+      "verify-model3d-slide-presets.ts",
+      "verify-slide-model3d-player.ts"
     ],
     "model3d-furniture": [
       "verify-model3d-furniture.ts",
@@ -8972,6 +8976,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-player.ts": {
+      "runtime": "tsx",
+      "prerequisites": [
+        "chrome"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": true,
       "coverage": "behavior"
     }
   }
