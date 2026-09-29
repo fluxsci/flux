@@ -85,6 +85,10 @@ export async function runSlideModelScaleCohort(ui, fixture, { hardware = false, 
     check(receipt.final.stats.contexts === 1 && receipt.final.observedInlineContexts === 1 && receipt.final.stats.assets === 2 && receipt.final.stats.morphPairs === 1, 'nine independent views share two assets and one prepared morph pair without replacing the context');
     check(receipt.final.stats.residentBytes < 768 * 1024 * 1024, 'retained GLB bytes remain below the existing 768MiB budget');
     await ui.press('Escape');
+    // Present opens in HTML fullscreen, where Chromium spends the first Escape leaving
+    // fullscreen without delivering it; the second one reaches Present and closes it.
+    await ui.wait(async () => evaluate(() => !document.fullscreenElement), 'Present leaves fullscreen');
+    if (await evaluate(() => !!document.querySelector('.present'))) await ui.press('Escape');
     await ui.wait(async () => evaluate(() => !document.querySelector('.present') && !document[Symbol.for('flux.model3d.inlineHost')]), 'Present disposes inline host');
     check(true, 'closing Present disposes the actual inline pool');
     receipt.ok = true;

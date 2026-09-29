@@ -12,6 +12,8 @@ import { morphCompatible } from '../src/lib/model3d/morphPair';
 import { compileSlide } from '../src/lib/slide/compile';
 const h = harness('verify-slide-model3d-scale');
 h.ok(positiveSlideModelHardware('ANGLE (NVIDIA, NVIDIA RTX GPU, OpenGL)', { webgl2: 'enabled' }), 'native enabled WebGL2 and actual device identity qualify hardware');
+h.ok(positiveSlideModelHardware('ANGLE (NVIDIA Corporation, NVIDIA RTX PRO 5000 Blackwell/PCIe/SSE2, OpenGL 4.5.0)', { webgl: 'enabled' }), 'Electron 43 reports WebGL2 under the single webgl feature');
+h.ok(!positiveSlideModelHardware('ANGLE (NVIDIA, NVIDIA RTX GPU, OpenGL)', { webgl: 'disabled_software' }), 'a software-only webgl feature does not qualify');
 for (const [renderer, features] of [['ANGLE (Google, SwiftShader)', { webgl2: 'enabled' }], ['Generic OpenGL renderer', { webgl2: 'enabled' }], ['Unknown', { webgl2: 'enabled' }], ['NVIDIA RTX', { webgl2: 'disabled_software' }], ['NVIDIA RTX', {}]] as const) h.ok(!positiveSlideModelHardware(renderer, features), 'software, generic, unknown or disabled hardware reports cannot qualify');
 const fixture = await slideModel3dScaleFixture(), { deck } = fixture;
 h.eq(fixture.receipt.triangles, [250000, 250000], 'both real stored meshes retain 250,000 triangles');

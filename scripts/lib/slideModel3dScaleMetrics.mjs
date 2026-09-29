@@ -1,7 +1,8 @@
 /** Qualification uses raw publication-frame stamps, never rounded summaries. */
 export const SLIDE_MODEL_FRAME_BUDGET_MS = 17;
 export function positiveSlideModelHardware(renderer, features) {
-  return features?.webgl2 === 'enabled' && typeof renderer === 'string'
+  // Electron 43 reports WebGL (1 and 2) under one `webgl` feature; older builds split out `webgl2`.
+  return (features?.webgl2 ?? features?.webgl) === 'enabled' && typeof renderer === 'string'
     && !/swiftshader|software|llvmpipe|softpipe|unknown|generic/i.test(renderer)
     && /\b(?:NVIDIA|AMD|ATI|Intel|Apple|Qualcomm|Adreno|Mali|PowerVR|Radeon|GeForce|RTX)\b/i.test(renderer);
 }
