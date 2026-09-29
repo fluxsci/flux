@@ -32,6 +32,9 @@ import { elementBBox } from "../../geometry";
 import { prepareColorLerp } from "../../color/interp";
 import type { Slide, StageSize, DeckTheme } from "../types";
 import { themeCssVars } from "../theme";
+import type { Model3dHost } from "../../model3d/host";
+import type { Model3dAsset, Model3dElement, Scene3dManifest } from "../../model3d/types";
+import { fillModel3d } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -51,6 +54,13 @@ export interface SlideRenderCtx {
   mode?: "edit" | "present" | "export";
   /** Static hosts must never allocate a decoder for each thumbnail. */
   videoPlayback?: boolean;
+  /** Live hosts opt in explicitly; filmstrip/static callers use matching posters. */
+  model3d?: Model3dHost;
+  modelAsset?: (assetId: string) => Model3dAsset | undefined;
+  modelManifest?: (assetId: string) => Scene3dManifest | undefined;
+  modelPoster?: (element: Model3dElement) => string | undefined;
+  /** Stage-to-CSS-pixel scale. Device pixel ratio is applied by the controller. */
+  pixelScale?: number | (() => number);
   /** Derived ghost styling; never written into the figure/deck model. */
   ghostPartFactors?: Record<string, Record<string, { opacity: number }>>;
 }
@@ -575,6 +585,7 @@ export function compileStaticContent(w: HTMLElement, pre: FigElement, end: FigEl
 export function fillContent(w: HTMLElement, el: FigElement, ctx: SlideRenderCtx): void {
   if (el.type === "plot") fillPlot(w, el, ctx);
   else if (el.type === "video") fillVideo(w, el, ctx);
+  else if (el.type === "model3d") fillModel3d(w, el, ctx);
   else fillStatic(w, el, ctx);
 }
 

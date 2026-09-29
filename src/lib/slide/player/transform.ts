@@ -41,6 +41,7 @@ import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
+import { modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -72,10 +73,11 @@ export function warmWhenIdle(job: () => void): void {
 
 export function createTransform(
   wrap: HTMLElement,
-  pre: FigElement,
-  end: FigElement,
+  source: FigElement,
+  destination: FigElement,
   ctx: TransformCtx,
 ): MorphController {
+  const [pre, end] = source.type === "model3d" && destination.type === "model3d" ? modelFieldEndpoints(source, destination, ctx) : [source, destination];
   const plan: ContentPlan = contentPlan(pre, end);
   // A video is stretched by its retained element. Re-serializing width/height
   // Changes would replace its decoder and restart playback every frame.
@@ -324,6 +326,11 @@ export function createTransform(
     // The frozen content frame must not counter-translate the curved wrapper.
     // Restore the owned content sample after its box has been applied, without a clone.
     if (ctx.arc && el === content) { content.x = contentX; content.y = contentY; }
+
+    if (plan.mode === "model-live" && content.type === "model3d") {
+      setSlideModelFrame(contentHost, content);
+      return;
+    }
 
     if (morphPlan) {
       if (raw > 0 && raw < 1) writeMorphFrame(content, t);

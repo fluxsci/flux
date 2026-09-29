@@ -44,6 +44,7 @@ import { staggerRanks, staggerDelay, staggerSeed } from "../stagger";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
+import { createModel3dController, flushSlideModels } from "./model3d";
 
 // --- target resolution -------------------------------------------------------
 /** A node's spatial coordinate for stagger ordering: the data-space value the
@@ -226,6 +227,8 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
           theme: opts.theme, assetUrl: opts.assetUrl, assetSize: opts.assetSize,
           plotGen: opts.plotGen, deckBackground: opts.deckBackground, mode: opts.mode,
           videoPlayback: opts.videoPlayback,
+          model3d: opts.model3d, modelAsset: opts.modelAsset, modelManifest: opts.modelManifest,
+          modelPoster: opts.modelPoster, pixelScale: opts.pixelScale,
           plotRoot: opts.plotRoot, plotManifest: opts.plotManifest, contentHost: contentRoots.get(track.target),
           ghostPartFactors: opts.ghostPartFactors,
         });
@@ -557,6 +560,8 @@ export interface Player {
   beatDurations(): number[];
   readyMedia(): Promise<unknown>;
   captureMedia(events: readonly VideoEvent[], timeMs: number): Promise<void>;
+  /** Repaint at the current time after the host's stage fit/DPR changes. */
+  refresh(): void;
   play(range: PlayRange): void;
   pause(): void;
   resume(): void;
@@ -584,6 +589,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   let si = -1, bi = 0, time = 0, duration = 0, playing = false, raf = 0, generation = 0, origin = 0;
   let specs: Spec[] = [], issues: AnimationIssue[] = [], durations: number[] = [];
   let media: ReturnType<typeof createVideoController> | undefined;
+  let models: ReturnType<typeof createModel3dController> | undefined;
   let auto: ReturnType<typeof setTimeout> | undefined;
   let range: PlayRange | null = null;
   let transition: Animation | null = null;
@@ -601,6 +607,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     selectRun(-1, -1);
     disposeSlideAnims(specs);
     media?.destroy(); media = undefined;
+    models?.destroy(); models = undefined;
     si = index;
     const slide = deck.slides[si];
     if (!slide) { specs = []; durations = [0]; return; }
@@ -610,6 +617,10 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     cameraLayer.style.transform = baseCameraTransform(slide, stage);
     issues = compiled.issues;
     specs = computeSlideAnims(slide, rendered, cameraLayer, stage, { ...opts, videoPlayback: true }, compiled);
+    models = createModel3dController(cameraLayer, compiled.resolvedSlide, ctx, (target, reason) => {
+      if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
+      emit('change');
+    });
     durations = Array.from({ length: beats() }, (_, beat) => Math.max(0, compiled.cues[beat]?.duration ?? 0, ...specs.filter((s) => s.beatIndex === beat).map((s) => s.delay + s.duration)));
     media = createVideoController(cameraLayer, compiled.resolvedSlide, durations, !!opts.manualSteps, () => emit("change"), (target, reason) => {
       if (!issues.some(issue => issue.target === target && issue.reason === reason)) issues = [...issues, { target, reason }];
@@ -618,6 +629,7 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   }
   function paint(native = false): void {
     applyAt(runSpecs ?? specs, bi, time, native);
+    models?.flush();
     if (playing) media?.tick(time);
     emit("frame");
   }
@@ -667,6 +679,13 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
   function begin(from: number, to: number, instant = false): void {
     cancelClock();
     const session = generation;
+    // Parsing/upload is completed before starting the authored clock. A later
+    // navigation/cancel owns a new generation and cannot start this old cue.
+    if (models && !models.isReady()) {
+      const resumeReady = () => { if (session === generation) begin(from, to, instant); };
+      void models.ready().then(resumeReady, resumeReady);
+      return;
+    }
     bi = Math.max(0, Math.min(beats() - 1, to));
     selectRun(from, bi);
     // Camera keyframes remain ordinary transform flights. Rebase once before
@@ -748,15 +767,17 @@ export function createPlayer(mount: HTMLElement, deck: Deck, opts: PlayerOpts): 
     media?.pause(paused, "host");
   }
   function on(event: Ev, listener: (s: PlayerState) => void): () => void { listeners[event].add(listener); return () => listeners[event].delete(listener); }
-  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
+  function destroy(): void { cancelClock(); media?.destroy(); media = undefined; models?.destroy(); models = undefined; disposeSlideAnims(specs); if (runSpecs) disposeSlideAnims(runSpecs, false); mount.replaceChildren(); document.removeEventListener("visibilitychange", visibility); for (const set of Object.values(listeners)) set.clear(); }
   const visibility = () => media?.pause(document.hidden, "document");
   document.addEventListener("visibilitychange", visibility);
   if (deck.slides.length) goTo(0, 0);
-  return { goTo, seek, beatDurations: () => [...durations], readyMedia: () => media?.ready() ?? Promise.resolve(), captureMedia: (events, ms) => media?.capture(events, ms) ?? Promise.resolve(), play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
+  return { goTo, seek, refresh: () => paint(), beatDurations: () => [...durations], readyMedia: () => Promise.all([media?.ready(), models?.ready()]), captureMedia: async (events, ms) => { await Promise.all([media?.capture(events, ms), models?.settled()]); }, play, pause, resume, stop, next: nextCue, prev, nextSlide, prevSlide, state, setMediaPaused, on, destroy };
 }
 
 /** The same evaluated endpoint as live playback; camera included. */
 export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize, beat: number, opts: PlayerOpts): RenderedSlide {
+  // Static thumbnails and next-slide views never allocate a GPU host or decoder.
+  opts = { ...opts, model3d: undefined, videoPlayback: false };
   // The host's transform belongs to its fit/thumbnail scale. Camera motion
   // gets a separate layer exactly as it does in createPlayer.
   host.replaceChildren();
@@ -769,6 +790,7 @@ export function renderStaticAt(host: HTMLElement, slide: Slide, stage: StageSize
   camera.style.transform = baseCameraTransform(slide, stage);
   const specs = computeSlideAnims(slide, rendered, camera, stage, opts, compiled);
   applyStatic(specs, beat);
+  flushSlideModels(camera);
   // Dispose owns restoration of live controllers. Bake the sampled visibility
   // into a still before releasing those leases, just as keyframe styles remain.
   const visibility = (specs.some(spec => spec.handoff) ? Array.from(camera.querySelectorAll<HTMLElement | SVGElement>("[style]")) : [])
