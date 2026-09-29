@@ -196,6 +196,52 @@ try {
   const nestedResolved = await cache.resolveModelPosters(root, [{ ...figure, elements: [nestedElement] }], [nested], { policy: 'collect' });
   h.eq(nestedResolved.manifests.nested, manifest, 'nested GLB: the poster path reads its canonical sidecar');
   h.eq(nestedResolved.requests[0]?.key, staticModelRequest(nestedElement, nested, manifest, 'figure').key, 'nested GLB: CLI/Connect poster keys match the app composition');
+  // A slide step's part visibility is a poster input: it joins the key and the
+  // Node render spec, and a still whose part state cannot be rendered never
+  // borrows another state's poster.
+  {
+    const hiddenField = () => ({ 'height.field': { opacity: 0, visible: false } });
+    const specs: unknown[] = [], capture: typeof renderBatch = async (requests, options) => { specs.push(...requests.map(r => r.spec.partOpacity)); return renderBatch(requests, options); };
+    const stepped = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', renderBatch: capture, partStates: hiddenField });
+    const design = staticModelRequest(element, asset, manifest, 'figure');
+    h.ok(stepped.requests[0].key !== design.key && stepped.requests[0].key === staticModelRequest(element, asset, manifest, 'figure', { 'height.field': 0 }).key, 'a hidden-at-step part gives the poster a distinct key');
+    h.eq(specs, [{ 'height.field': 0 }], 'the Node render spec carries the part factor');
+    const refuse: typeof renderBatch = async () => { throw Error('worker unavailable'); };
+    const fallback = await cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', surface: { kind: 'raster', dpi: 150 }, renderBatch: refuse, partStates: () => ({ 'height.field': { opacity: .5, visible: true } }) });
+    h.ok(!Object.keys(fallback.urls).length && !fallback.warnings.some(w => w.includes('using the stored poster')), 'an unrenderable part state never falls back to a poster of another part state');
+  }
+  // End to end through the CLI deck gather and the actual headless worker: a
+  // mesh part that appears at step 1 is absent from the step-0 still.
+  {
+    const { createDeck, addSlide, addBeat } = await import('../src/lib/slide/ops');
+    const { payloadModelContext } = await import('../src/lib/slide/export/model3dPayloadHost');
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+    const partBytes = await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.glb'), partManifest: Scene3dManifest = JSON.parse(await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.fluxplot.json', 'utf8'));
+    const partAsset: Model3dAsset = { id: 'parts', name: 'Parts', kind: 'glb', path: 'assets/parts.glb', naturalWidth: 336, naturalHeight: 252, bytes: partBytes.length, sha256: createHash('sha256').update(partBytes).digest('hex'), model: inspectGlb(partBytes) };
+    const deck = createDeck({ withTitleSlide: false }); deck.id = 'parts-deck'; deck.assets = [partAsset];
+    const slide = addSlide(deck);
+    slide.elements.push({ ...makeModel3dElement(partAsset, { id: 'part-view', manifest: partManifest }), x: 40, y: 30, width: 336, height: 252, orbitAzimuth: 0, orbitElevation: 0, modelLighting: 'unlit' });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'left-in', target: 'part-view', part: 'cortex.left', preset: 'fade', duration: 400 });
+    const assetsDir = path.join(root, 'slides', deck.id, 'assets'); await fs.mkdir(assetsDir, { recursive: true });
+    await fs.writeFile(path.join(assetsDir, 'parts.glb'), partBytes); await fs.writeFile(path.join(assetsDir, 'parts.fluxplot.json'), JSON.stringify(partManifest));
+    await core.saveDeck(root, deck);
+    const saved = (await core.loadDeck(root, deck.id)).slides[0].elements[0] as typeof element;
+    const gathered = await core.gatherDeckPayload(root, deck.id, undefined, { refreshSources: false });
+    const hiddenRef = staticModelRequest(saved, partAsset, partManifest, 'slide', { 'cortex.left': 0 }).ref, designRef = staticModelRequest(saved, partAsset, partManifest, 'slide').ref;
+    const stepZero = gathered.payload.assets?.[hiddenRef], stepOne = gathered.payload.assets?.[designRef];
+    h.ok(hiddenRef !== designRef && !!stepZero?.startsWith('data:image/png;') && !!stepOne?.startsWith('data:image/png;'), `the CLI deck gather renders a step-0 still (hidden part) and a step-1 still under distinct keys (${gathered.warnings.join('; ') || 'no warnings'})`);
+    const decode = async (url: string) => { const image = await loadImage(Buffer.from(url.split(',')[1], 'base64')), c = createCanvas(image.width, image.height), g = c.getContext('2d'); g.drawImage(image, 0, 0); return { w: image.width, h: image.height, data: g.getImageData(0, 0, image.width, image.height).data }; };
+    const coverage = (p: Awaited<ReturnType<typeof decode>>, from: number, to: number) => { let n = 0; for (let y = 0; y < p.h; y++) for (let x = Math.floor(p.w * from); x < Math.floor(p.w * to); x++) if (p.data[(y * p.w + x) * 4 + 3] > 10) n++; return n; };
+    const [zero, one] = [await decode(stepZero!), await decode(stepOne!)];
+    h.ok(coverage(one, 0, .45) > 500 && coverage(zero, 0, .45) < coverage(one, 0, .45) * .02 && Math.abs(coverage(zero, .55, 1) - coverage(one, .55, 1)) < coverage(one, .55, 1) * .02,
+      `the hidden left mesh part is absent from the actual headless step-0 still (left ${coverage(zero, 0, .45)} vs ${coverage(one, 0, .45)} px; right ${coverage(zero, .55, 1)} vs ${coverage(one, .55, 1)})`);
+    const authored = await cache.resolveModelPosters(root, [{ ...figure, elements: [{ ...saved, overrides: { 'cortex.left': { hidden: true } } }] }], [{ ...partAsset, path: `slides/${deck.id}/assets/parts.glb` }], { policy: 'image', surface: 'slide', assetPrefix: '', manifests: { parts: partManifest } });
+    const reference = await decode(Object.values(authored.urls)[0]!);
+    let max = 0; for (let i = 0; i < reference.data.length; i++) max = Math.max(max, Math.abs(reference.data[i] - zero.data[i]));
+    h.ok(reference.w === zero.w && max <= 2, `the step-0 still matches an actual render with that part hidden (max channel difference ${max})`);
+    const offline = payloadModelContext(gathered.payload);
+    h.ok(offline.modelPoster(saved, { 'cortex.left': 0 }) === stepZero && offline.modelPoster(saved) === stepOne, 'offline-HTML pre-ready posters find the still of the step\'s part state');
+  }
   const aborted = new AbortController(); aborted.abort(); await assert.rejects(cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', signal: aborted.signal, renderBatch })); h.ok(true, 'canceled native resolve stops before work');
   await fs.mkdir('test-results/model3d/headless', { recursive: true }); await fs.writeFile('test-results/model3d/headless/figure.svg', svg);
 } finally { await fs.rm(scratch, { recursive: true, force: true }); }

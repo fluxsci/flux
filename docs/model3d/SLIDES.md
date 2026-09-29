@@ -2,9 +2,9 @@
 
 Deck assets retain GLB metadata. The live deck loader reads scene sidecars separately and never inserts GLB bytes into `assetData`. Figure-derived models stay referenced by ID; deck-to-Figure conversion uses verified native copies. Missing model files retain a placeholder on read and prevent a GUI save until restored or removed. Save judges only the models the slides still use (`slideAssetIds`): a deleted model's GLB entry stays in the editor for Undo, and once its file is gone the saved registry stops naming it.
 
-Portable payloads carry raw base64 GLBs in `models`, scene metadata in `modelManifests`, and Design-state poster references in `modelPosters`. Image assets contain only image data. Content-change target models are collected even when not directly placed. HTML and MP4 include the separate model runtime only when needed; its source hash participates in export-asset freshness and CSP generation.
+Portable payloads carry raw base64 GLBs in `models`, scene metadata in `modelManifests`, and step-0 still references in `modelPosters`; `assets` holds every step's still (Design appearance at that step's placement and mesh-part visibility, keyed with its `partOpacity`), which offline pre-ready posters look up by the same key. Image assets contain only image data. Content-change target models are collected even when not directly placed. HTML and MP4 include the separate model runtime only when needed; its source hash participates in export-asset freshness and CSP generation.
 
-PDF and PowerPoint use Design-state stills with furniture, shown and placed as each page's build step leaves the model (PowerPoint build pages included), and report that 3D animation is exported as a still whenever a slide carries a model. Static payload gathering sets `modelData: "omit"` and prepares posters through a native or service-worker adapter. Ordinary deck saves never persist poster or GLB data URLs.
+PDF and PowerPoint use Design-state stills with furniture, shown and placed as each page's build step leaves the model and with that step's mesh-part and furniture visibility (PowerPoint build pages included), and report that 3D animation is exported as a still whenever a slide carries a model. Static payload gathering sets `modelData: "omit"` and prepares posters through a native or service-worker adapter. Ordinary deck saves never persist poster or GLB data URLs.
 
 Slide presets are an explicit portable-byte boundary. Their GLBs are embedded when saving the preset and prepared through the native importer before insertion. A single deck mutation installs the resulting immutable asset metadata and slide; receipt adoption follows that mutation. Temporary preset bytes never become authoring asset data or save-journal entries.
 
@@ -16,7 +16,7 @@ Saved 3D Design values can also be edited with `set-model-view <element> --deck 
 
 Paper slide widgets use the document's shared worker service with immutable file metadata; they do not inline GLB bytes or create main-thread WebGL contexts. Visible occurrences have independent playback. Removing or scrolling away one occurrence releases its host without invalidating another occurrence's pending load. Repository invalidation retires the captured source generation.
 
-Portable Paper HTML and Quarto exports explicitly gather model bytes, deduplicate them across all included slides, and inject one conditional model runtime. The interactive Paper preview (which re-renders after every edit) reuses a slide's portable snapshot while its metadata snapshot signature (deck content, prepared GLB receipts, gathered image/plot bytes) is unchanged, holding one base64 copy per prepared GLB; exports always gather and validate fresh bytes. Two-dimensional documents carry no model runtime; their shared fonts/player asset file also excludes the separate model-runtime string. The same shared player keeps bitmap and vector furniture publication together. Static Word/PDF output continues to use the Design-state still.
+Portable Paper HTML and Quarto exports explicitly gather model bytes, deduplicate them across all included slides, and inject one conditional model runtime. The interactive Paper preview (which re-renders after every edit) reuses a slide's portable snapshot while its metadata snapshot signature (deck content, prepared GLB receipts, gathered image/plot bytes) is unchanged, holding one base64 copy per prepared GLB; exports always gather and validate fresh bytes. Two-dimensional documents carry no model runtime; their shared fonts/player asset file also excludes the separate model-runtime string. The same shared player keeps bitmap and vector furniture publication together. Static Word/PDF output continues to use the step-0 still.
 
 Packaged CLI/MCP Paper exports load the player and shared model runtime from `dist/slide-export-assets.json`. They do not need the source checkout, generated browser JSON, or esbuild at runtime. Rebuild Flux if an older sidecar lacks the Paper runtime.
 
@@ -91,9 +91,13 @@ checking their saved SHA-256 receipt. A changed or oversized stored file refuses
 export; source paths and build provenance are removed from the portable copy.
 Native and Node readers enforce the size bound before allocating the file.
 Static SVG/PDF/PowerPoint writers use the same complete model state for mesh and
-furniture. An original model keeps its Design appearance (including its visible
-parts); an identity consumed from a shape into 3D uses that evaluated model
-endpoint and its matching still. Placement follows the selected build step.
+furniture. An original model keeps its Design orbit, look and shape; its placement
+and part visibility follow the selected build step, so a part hidden at that step is
+absent (the Node poster worker, the GUI poster service and the offline pre-ready poster
+all key and render the step's `partOpacity`). An identity consumed from a shape into 3D
+uses that evaluated model endpoint and its matching still. Cache-only readers (Connect
+sheets, CLI Paper renders) need the step's own still: the app persists it when it renders
+one, and `render-model-posters --deck` warms Design stills only.
 
 Slide scale checks use two distinct, compatible 250,000-triangle meshes and eight independently posed ghost copies. `verify-scale-slide.mjs` keeps the existing 2D budgets and adds real Present playback, changed-pixel checks, zero RAF/render calls during each measured rest window, shared pair/context counts and disposal. The observer records only application-owned RAF callbacks and actual mesh-canvas publication; it schedules no animation heartbeat.
 

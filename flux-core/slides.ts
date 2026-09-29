@@ -1,5 +1,6 @@
 import { boundedModelFile } from "./model3dFile";
 import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
+import { partStatesFromOpacity } from "../src/lib/model3d/appearance";
 import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
@@ -1071,7 +1072,8 @@ export async function gatherDeckPayload(
     modelPoster: async (request, relative) => {
       const { resolveModelPosters } = await import("./model3dPosterCache");
       const figure = { id: "slide-poster", name: "Slide", canvasId: "slide", x: 0, y: 0, width: request.element.width, height: request.element.height, background: "transparent", elements: [request.element] };
-      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "", manifests: { [request.asset.id]: request.manifest } });
+      // The request names its step's mesh-part appearance; the render and key follow it.
+      const rendered = await resolveModelPosters(root, [figure], [{ ...request.asset, path: relative }], { policy: "image", surface: "slide", assetPrefix: "", manifests: { [request.asset.id]: request.manifest }, partStates: () => partStatesFromOpacity(request.partOpacity) });
       sourceWarnings.push(...rendered.warnings);
       const url = rendered.urls[request.ref]; if (!url) throw new Error("3D poster could not be rendered"); return url;
     } });

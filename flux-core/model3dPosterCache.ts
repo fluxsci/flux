@@ -11,7 +11,7 @@ import { normalizeIndexAssets } from '../src/lib/project/figfiles';
 import { planPosterBatches, renderModelPosterBatch, type PosterBatchOptions, type PosterRequest } from './model3dPosters';
 import { collectModel3dSourceBindings } from '../src/lib/model3d/sourceBinding';
 import { readScene3dSidecars } from '../src/lib/model3d/persistence';
-import { collectModelPosters, model3dSvgContext, staticModelRequest, type StaticModelPosterRequest } from '../src/lib/model3d/static';
+import { collectModelPosters, model3dSvgContext, staticModelRequest, type Model3dSvgContext, type StaticModelPosterRequest } from '../src/lib/model3d/static';
 import { modelPosterWarning, type PosterSurface } from '../src/lib/model3d/poster';
 import { GLB_LIMITS } from '../src/lib/model3d/glbCore.mjs';
 import { missingModelFileMessage } from '../src/lib/project/figureSnapshot';
@@ -32,6 +32,9 @@ export interface ModelPosterResolveOptions {
   allFigures?: readonly Figure[];
   /** Injectable native batch seam; callers normally use the production worker. */
   renderBatch?: (requests: readonly PosterRequest[], options: PosterBatchOptions) => ReturnType<typeof renderModelPosterBatch>;
+  /** A sampled slide step's part appearance per placement. Mesh factors join
+   * each poster's key and render spec, so a part hidden at that step is absent. */
+  partStates?: Model3dSvgContext['partStatesOf'];
 }
 export const machineModelPosterDir = () => path.join(userDataDir(), 'model3d-posters');
 const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -104,7 +107,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
   // Project-relative GLB files that are absent. Posters are keyed by the stored
   // asset.sha256, so a missing file still serves cache hits; it only cannot render.
   const missingFiles = new Map<string, string>();
-  if (!used.size) return { context: model3dSvgContext(assets, manifests, surface), urls, warnings, requests: [] as StaticModelPosterRequest[], manifests };
+  if (!used.size) return { context: model3dSvgContext(assets, manifests, surface, undefined, options.partStates), urls, warnings, requests: [] as StaticModelPosterRequest[], manifests };
   for (const asset of assets) if (used.has(asset.id) && asset.kind === 'glb') {
     abort(options.signal);
     const rel = path.posix.join(options.assetPrefix ?? "fig", asset.path);
@@ -122,7 +125,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
     if (metadata.manifest) manifests[asset.id] = metadata.manifest;
     warnings.push(...metadata.issues);
   }
-  const context = model3dSvgContext(assets, manifests, surface);
+  const context = model3dSvgContext(assets, manifests, surface, undefined, options.partStates);
   // One bad placement (missing metadata, unusable box) becomes a placeholder and
   // a named warning; the rest of the figure still renders.
   const allRequests = collectModelPosters(figures, context, surface, { onIssue: (_element, message) => warnings.push(`${message}; showing a placeholder`) });
@@ -172,7 +175,7 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
       abort(options.signal);
       const byId = new Map(batch.map(request => [request.asset.id, request.asset]));
       try {
-        await (options.renderBatch ?? renderModelPosterBatch)(batch.map(request => ({ key: request.key, spec: { assetId: request.asset.id, w: request.w, h: request.h, element: request.element, manifest: request.manifest } })), {
+        await (options.renderBatch ?? renderModelPosterBatch)(batch.map(request => ({ key: request.key, spec: { assetId: request.asset.id, w: request.w, h: request.h, element: request.element, manifest: request.manifest, ...(request.partOpacity ? { partOpacity: request.partOpacity } : {}) } })), {
           outDir, ...(options.policy === 'project' ? { publicationRoot: root } : {}), signal: options.signal, modelBounds: id => byId.get(id)?.model.bounds, modelBytes: async (id, signal) => {
             abort(options.signal);
             const asset = byId.get(id), file = paths.get(id); if (!asset || !file) throw new Error(`Missing GLB asset ${id}`);
@@ -199,7 +202,8 @@ export async function resolveModelPosters(root: string, figures: readonly Figure
   for (const request of allRequests) {
     const missingFile = missingFiles.get(request.asset.id);
     if (!urls[request.ref]) {
-      const stored = staticModelRequest(request.element, request.asset, request.manifest, 'figure');
+      // Same content (including hidden parts) at the stored size; never another part state.
+      const stored = staticModelRequest(request.element, request.asset, request.manifest, 'figure', request.partOpacity);
       const bytes = stored.key === request.key ? undefined : (projectCache ? await cached(path.join(projectDir, `${stored.key}.png`), stored, root) : undefined) ?? await cached(path.join(machineDir, `${stored.key}.png`), stored);
       if (bytes) { urls[request.ref] = url(bytes); warnings.push(`3D model "${label(request)}": using the stored poster because the requested export resolution could not be rendered`); }
       else if (!missingFile) warnings.push(modelPosterWarning(label(request)));
