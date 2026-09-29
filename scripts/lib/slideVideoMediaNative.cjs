@@ -105,7 +105,11 @@ app.whenReady().then(async () => {
         const { spawnSync } = require("node:child_process");
         const metadata = spawnSync(encoder, ["-hide_banner", "-noautorotate", "-i", input, "-frames:v", "1", "-f", "null", "-"], { encoding: "utf8", timeout: 10000 });
         assert.equal(metadata.status, 0, metadata.stderr);
-        assert.match(metadata.stderr, /displaymatrix: rotation of 90\.00 degrees/, "fixture carries an actual track display matrix");
+        // FFmpeg 9 labels this "Display Matrix"; earlier builds use "displaymatrix".
+        // Require the same declared rotation, independent of diagnostic typography.
+        const declaredRotation = /display\s*matrix:\s*rotation of\s+([-+]?\d+(?:\.\d+)?) degrees/i.exec(metadata.stderr);
+        assert.ok(declaredRotation, `fixture carries an actual track display matrix: ${metadata.stderr}`);
+        assert.equal(Number(declaredRotation[1]), 90, "fixture track display matrix declares exactly 90 degrees");
         const inputInfo = await media.probeVideo(input); assert.equal(inputInfo.width, 90); assert.equal(inputInfo.height, 160);
         const originalPixels = execFileSync(encoder, ["-v", "error", "-noautorotate", "-i", input, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]);
         // Independently apply the declared 90° counterclockwise transform.
