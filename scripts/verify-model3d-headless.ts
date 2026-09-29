@@ -288,6 +288,42 @@ try {
     const pruned = await core.renderModelPosters(root, { deckId: deck.id, prune: true });
     h.ok(pruned.removed.includes(stale) && !pruned.removed.includes(`${hiddenKey}.png`) && !pruned.removed.includes(`${designKey}.png`) && await fs.stat(path.join(dir, `${hiddenKey}.png`)).then(() => true, () => false), `--prune keeps the deck's step stills live and removes an unreferenced one (${pruned.warnings.filter(w => w.includes('pruned')).join('; ') || 'removed ' + pruned.removed.length})`);
   }
+  // The app's idle prune and render-model-posters --prune share one live set:
+  // Figure views plus every deck's Design and build-step stills.
+  {
+    const { liveModelPosterSet } = await import('../flux-core/model3d');
+    const { appLiveModelPosterKeys } = await import('../src/lib/model3d/livePosterKeys');
+    const { createDeck, addSlide, addBeat } = await import('../src/lib/slide/ops');
+    const root2 = path.join(scratch, 'live-project'); await core.scaffold(root2, { title: 'Live posters' });
+    const visible = { ...element, id: 'fig-visible', orbitAzimuth: 11 }, hidden = { ...element, id: 'fig-hidden', orbitAzimuth: 12, hidden: true };
+    const liveModel: Project = { version: 2, name: 'Live', canvases: [{ id: 'canvas', name: 'Canvas' }], figures: [{ ...figure, elements: [visible, hidden] }], assets: [asset], palette: [] };
+    const plan = planFigSave(liveModel, null); for (const entry of [...plan.canvases, ...plan.captions, plan.index]) { const file = path.join(root2, entry.path); await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, entry.text); }
+    await fs.mkdir(path.join(root2, 'fig/assets'), { recursive: true }); await fs.writeFile(path.join(root2, 'fig', asset.path), bytes); await fs.writeFile(path.join(root2, 'fig/assets/model.fluxplot.json'), JSON.stringify(manifest));
+    const partBytes = await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.glb'), partManifest: Scene3dManifest = JSON.parse(await fs.readFile('scripts/fixtures/model3d/fluxplot/morph-a.fluxplot.json', 'utf8'));
+    const deckAsset: Model3dAsset = { id: 'fade', name: 'Fade', kind: 'glb', path: 'assets/fade.glb', naturalWidth: 336, naturalHeight: 252, bytes: partBytes.length, sha256: createHash('sha256').update(partBytes).digest('hex'), model: inspectGlb(partBytes) };
+    const deck = createDeck({ withTitleSlide: false }); deck.id = 'live-deck'; deck.assets = [deckAsset];
+    const slide = addSlide(deck);
+    slide.elements.push({ ...makeModel3dElement(deckAsset, { id: 'deck-view', manifest: partManifest }), x: 40, y: 30, width: 320, height: 240 });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'left-in', target: 'deck-view', part: 'cortex.left', preset: 'fade', duration: 400 });
+    addBeat(deck, slide.id)!.tracks.push({ id: 'grow', target: 'deck-view', preset: 'transform', duration: 400, to: { state: { width: 400, height: 300 } } });
+    const deckDir = path.join(root2, 'slides', deck.id, 'assets'); await fs.mkdir(deckDir, { recursive: true });
+    await fs.writeFile(path.join(deckDir, 'fade.glb'), partBytes); await fs.writeFile(path.join(deckDir, 'fade.fluxplot.json'), JSON.stringify(partManifest));
+    await core.saveDeck(root2, deck);
+    const nodeIO = { exists: (rel: string) => fs.stat(path.join(root2, rel)).then(() => true, () => false), readText: (rel: string) => fs.readFile(path.join(root2, rel), 'utf8') };
+    const figureProject = (await core.loadFigModel(root2)).project, figureManifests = (await cache.resolveModelPosters(root2, figureProject.figures, figureProject.assets, { policy: 'collect' })).manifests;
+    const cli = await liveModelPosterSet(root2), app = await appLiveModelPosterKeys(figureProject, figureManifests, nodeIO);
+    h.eq(cli.unreadable, [], 'flux-core reads every live document');
+    h.eq([...app ?? []].sort(), [...cli.live].sort(), `the app's prune live set equals render-model-posters --prune's (${cli.live.size} keys)`);
+    const saved = (await core.loadDeck(root2, deck.id)).slides[0].elements[0] as typeof element;
+    const expected = [staticModelRequest(visible, asset, manifest, 'figure').key, staticModelRequest(saved, deckAsset, partManifest, 'slide').key,
+      staticModelRequest(saved, deckAsset, partManifest, 'slide', { 'cortex.left': 0 }).key, staticModelRequest({ ...saved, width: 400, height: 300 }, deckAsset, partManifest, 'slide').key];
+    h.ok(expected.every(key => cli.live.has(key)) && cli.live.size === expected.length && !cli.live.has(staticModelRequest(hidden, asset, manifest, 'figure').key), 'the live set is the Figure view, the deck Design still, the step-0 part-fade still and the resized step-2 still; a hidden Figure placement is not live');
+    const manifestPath = path.join(root2, 'project.json'), registry = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    registry.slides.push({ id: 'broken-deck', path: 'slides/broken-deck/deck.json' }); await fs.writeFile(manifestPath, JSON.stringify(registry));
+    await fs.mkdir(path.join(root2, 'slides/broken-deck'), { recursive: true }); await fs.writeFile(path.join(root2, 'slides/broken-deck/deck.json'), '{not json');
+    const brokenCli = await liveModelPosterSet(root2), brokenApp = await appLiveModelPosterKeys(figureProject, figureManifests, nodeIO);
+    h.ok(brokenCli.unreadable.length > 0 && brokenApp === null, 'an unreadable registered deck stops both prunes (unknown live stills)');
+  }
   const aborted = new AbortController(); aborted.abort(); await assert.rejects(cache.resolveModelPosters(root, [figure], [asset], { policy: 'image', signal: aborted.signal, renderBatch })); h.ok(true, 'canceled native resolve stops before work');
   await fs.mkdir('test-results/model3d/headless', { recursive: true }); await fs.writeFile('test-results/model3d/headless/figure.svg', svg);
 } finally { await fs.rm(scratch, { recursive: true, force: true }); }

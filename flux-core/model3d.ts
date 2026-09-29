@@ -1,7 +1,8 @@
 /** Figure-side 3D agent API. Geometry and edits use the same cores as the app. */
 import * as fs from 'node:fs/promises';
 import { mutateDeckModel, deckModelDocument } from './model3dDeckCommands';
-import { listDecks, loadDeck, deckModelStills } from './slides';
+import { listDecks, loadDeck, deckSlideCompileOptions } from './slides';
+import { deckPosterFigures, deckPosterKeys } from '../src/lib/model3d/livePosterKeys';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { boundedModelFile, publishModelFile } from './model3dFile';
@@ -19,7 +20,7 @@ import { buildModel3dTree } from '../src/lib/model3d/tree';
 import { scene3dFields } from '../src/lib/model3d/scene3d';
 import { morphCompatible, morphFixHint } from '../src/lib/model3d/morphPair';
 import { posterPath, isModelPosterPrunable } from '../src/lib/model3d/poster';
-import type { Figure, Project } from '../src/lib/types';
+import type { Project } from '../src/lib/types';
 import type { Deck } from '../src/lib/slide/types';
 import type { Model3dElement, Model3dAsset, Scene3dManifest } from '../src/lib/model3d/types';
 
@@ -173,28 +174,34 @@ export async function setModelFieldCommand(root: string, target: ModelTarget, co
   return { ...result, ...poster, warnings: [...new Set([...result.warnings, ...poster.warnings])] };
 }
 
-/** A deck's poster inputs: each slide's Design placements (the editor's Design
- * still) plus every build step's still (deckModelStills, the enumeration payload
- * gathering uses). Step stills ride carrier figures, one per slide and step,
- * with no groups and nothing hidden: the payload gathers a still for every
- * sampled placement. Part states are keyed by the carrier element itself. */
+/** A deck's poster inputs through the shared live-key definition
+ * (livePosterKeys.deckPosterFigures) with the saved deck's compile options. */
 async function deckPosterInputs(root: string, deck: Deck, slideId?: string) {
-  const doc = await deckModelDocument(root, deck);
-  const design = slideId ? doc.project.figures.filter(figure => figure.id === slideId) : doc.project.figures;
-  const carriers = new Map<string, Figure>(), states = new Map<Model3dElement, Record<string, { opacity: number; visible: boolean }>>();
-  for (const still of await deckModelStills(root, deck, doc.manifests, slideId)) {
-    const owner = doc.project.figures.find(figure => figure.id === still.slideId);
-    if (!owner) continue;
-    let carrier = carriers.get(`${still.slideId}\0${still.step}`);
-    if (!carrier) {
-      const { groups: _groups, elements: _elements, ...frame } = owner;
-      carriers.set(`${still.slideId}\0${still.step}`, carrier = { ...frame, elements: [] });
-    }
-    const element: Model3dElement = { ...still.element, hidden: false };
-    carrier.elements.push(element);
-    if (still.partStates) states.set(element, still.partStates);
-  }
-  return { doc, design, figures: [...design, ...carriers.values()], partStates: (element: Model3dElement) => states.get(element) };
+  const doc = await deckModelDocument(root, deck), options = await deckSlideCompileOptions(root, deck, doc.manifests, slideId);
+  return { doc, ...deckPosterFigures(doc, deck, id => options.get(id)!, slideId) };
+}
+
+/** The prune live set: every saved Figure view, plus every deck's Design and
+ * build-step stills through the definition the app's idle prune shares
+ * (livePosterKeys). `unreadable` names documents whose live stills are unknown. */
+export async function liveModelPosterSet(root: string, signal?: AbortSignal) {
+  const live = new Set<string>(), unreadable: string[] = [];
+  const protect = async (label: string, collect: () => Promise<readonly { key: string }[]>) => {
+    try { for (const request of await collect()) live.add(request.key); }
+    catch (error) { signal?.throwIfAborted(); unreadable.push(`${label} (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`); }
+  };
+  await protect('Figures', async () => {
+    const current = (await loadFigModel(root)).project;
+    return (await resolveModelPosters(root, current.figures, current.assets, { policy: 'collect', allFigures: current.figures, signal })).requests;
+  });
+  // The project cache is shared by Figures and every deck. Never prune a
+  // live slide still just because this command filtered another document.
+  const decks = await listDecks(root).catch(error => { unreadable.push(`the deck registry (${error instanceof Error ? error.message : String(error)})`); return []; });
+  for (const entry of decks) await protect(`deck ${entry.id}`, async () => {
+    const deck = await loadDeck(root, entry.id), doc = await deckModelDocument(root, deck), compile = await deckSlideCompileOptions(root, deck, doc.manifests);
+    return deckPosterKeys(doc, deck, id => compile.get(id)!).map(key => ({ key }));
+  });
+  return { live, unreadable };
 }
 
 export async function renderModelPosters(root: string, options: { figureId?: string; deckId?: string; slideId?: string; prune?: boolean; signal?: AbortSignal } = {}) {
@@ -233,23 +240,7 @@ export async function renderModelPosters(root: string, options: { figureId?: str
     if (options.prune) {
       // Rendering may outlive a save in another window/process. Protect the
       // current saved references, including views added during that render.
-      const live = new Set<string>(), unreadable: string[] = [];
-      const protect = async (label: string, collect: () => Promise<readonly { key: string }[]>) => {
-        try { for (const request of await collect()) live.add(request.key); }
-        catch (error) { options.signal?.throwIfAborted(); unreadable.push(`${label} (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`); }
-      };
-      await protect('Figures', async () => {
-        const current = (await loadFigModel(root)).project;
-        return (await resolveModelPosters(root, current.figures, current.assets, { policy: 'collect', allFigures: current.figures, signal: options.signal })).requests;
-      });
-      // The project cache is shared by Figures and every deck. Never prune a
-      // live slide still just because this command filtered another document.
-      const decks = await listDecks(root).catch(error => { unreadable.push(`the deck registry (${error instanceof Error ? error.message : String(error)})`); return []; });
-      // Every build step's still of every deck is live, not only Design stills.
-      for (const entry of decks) await protect(`deck ${entry.id}`, async () => {
-        const inputs = await deckPosterInputs(root, await loadDeck(root, entry.id));
-        return (await resolveModelPosters(root, inputs.figures, inputs.doc.project.assets, { policy: 'collect', assetPrefix: '', surface: 'slide', manifests: inputs.doc.manifests, partStates: inputs.partStates, signal: options.signal })).requests;
-      });
+      const { live, unreadable } = await liveModelPosterSet(root, options.signal);
       // A document that cannot be read (missing, newer or unparsable) has
       // unknown live posters, so the shared project cache is kept whole. The
       // posters above are rendered and journaled regardless.

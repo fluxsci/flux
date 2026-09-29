@@ -98,7 +98,9 @@ all key and render the step's `partOpacity`). An identity consumed from a shape 
 uses that evaluated model endpoint and its matching still. Cache-only readers (Connect
 sheets, CLI Paper renders) need the step's own still: the app persists it when it renders
 one, and `render-model-posters --deck` renders every step's still (`slideModelStills`,
-the enumeration payload gathering uses) and prunes none of them. Connect keys a model
+the enumeration payload gathering uses). `--prune` and the app's idle prune share one
+live set (`src/lib/model3d/livePosterKeys.ts`): Figure views plus every deck's Design
+and step stills; an unreadable deck stops both. Connect keys a model
 deck's sheet on the project poster cache's entries, so that render refreshes it.
 
 Slide scale checks use two distinct, compatible 250,000-triangle meshes and eight independently posed ghost copies. `verify-scale-slide.mjs` keeps the existing 2D budgets and adds real Present playback, changed-pixel checks, zero RAF/render calls during each measured rest window, shared pair/context counts and disposal. The observer records only application-owned RAF callbacks and actual mesh-canvas publication; it schedules no animation heartbeat.

@@ -1,7 +1,6 @@
 import { boundedModelFile } from "./model3dFile";
 import { GLB_LIMITS } from "../src/lib/model3d/glbCore.mjs";
 import { partStatesFromOpacity } from "../src/lib/model3d/appearance";
-import { slideModelStills, type SlideModelStill } from "../src/lib/slide/staticModels";
 import { projectSourceRelativePath } from "./projectSource";
 import { updateManifest } from "./manifest";
 // flux-core/slides.ts — the Flux Slide deck format as a Node library (CLI + MCP).
@@ -550,15 +549,13 @@ async function slideCompileOptions(root: string, deck: Deck, slideId: string, kn
   return { animStyles: deck.animStyles, plotManifest: (id: string) => manifests.get(id), modelAsset: (id: string) => modelAssets.get(id), modelManifest: (id: string) => modelManifests[id] };
 }
 
-/** Every model still a saved deck's static frames picture (slideModelStills
- * with this deck's compile options): what render-model-posters --deck renders
- * and --prune keeps, so read-only payload gathering finds each step's still.
- * `manifests` are the deck model document's accepted scene manifests. */
-export async function deckModelStills(root: string, deck: Deck, manifests: Record<string, Scene3dManifest | undefined>, slideId?: string) {
-  const stills: Array<SlideModelStill & { slideId: string }> = [];
-  for (const slide of deck.slides) if (!slideId || slide.id === slideId)
-    for (const still of slideModelStills(slide, deck.stage, await slideCompileOptions(root, deck, slide.id, manifests))) stills.push({ slideId: slide.id, ...still });
-  return stills;
+/** A saved deck's per-slide compile options for poster enumeration
+ * (livePosterKeys.deckPosterFigures): what render-model-posters --deck renders
+ * and --prune keeps. `manifests` are the deck model document's. */
+export async function deckSlideCompileOptions(root: string, deck: Deck, manifests: Record<string, Scene3dManifest | undefined>, slideId?: string) {
+  const options = new Map<string, Awaited<ReturnType<typeof slideCompileOptions>>>();
+  for (const slide of deck.slides) if (!slideId || slide.id === slideId) options.set(slide.id, await slideCompileOptions(root, deck, slide.id, manifests));
+  return options;
 }
 
 export async function compileDeckSlide(root: string, deck: Deck, slideId: string) {

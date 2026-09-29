@@ -4,6 +4,7 @@ import { project, embeddedProjectRoot, projectDir } from '../store';
 import { fileBridge, joinPath } from '../project/types';
 import { bytesToDataUrl } from '../assets';
 import { scene3dManifests } from './store';
+import { plotManifests } from '../plot/store';
 import { furnitureLayout } from './furnitureLayout';
 import { posterKey, posterPath, posterPixels, isModelPosterPrunable, type PosterSurface } from './poster';
 import type { Model3dAsset, Model3dElement, Scene3dManifest } from './types';
@@ -179,21 +180,27 @@ export function scheduleModelPosterPrune(root: string, isCurrent: () => boolean 
 }
 export async function pruneModelPosters(root: string, isCurrent: () => boolean = () => true) {
   const fb = fileBridge(); if (!fb?.readdir || !fb.stat || !fb.remove || !root || !isCurrent()) return;
-  const live = new Set<string>(), model = get(project), manifests = get(scene3dManifests);
-  for (const figure of model.figures) for (const element of figure.elements) if (element.type === 'model3d') {
-    const asset = model.assets.find(a => a.id === element.assetId);
-    if (asset?.kind !== 'glb' || !asset.model || !asset.sha256) continue;
-    const manifest = manifests[asset.id], viewport = furnitureLayout(manifest, element, element.overrides).viewport;
-    live.add(posterKey(element, asset as Model3dAsset, manifest, posterPixels(viewport, 'figure')));
-  }
   const dir = joinPath(root, 'fig/renders/model3d'); if (!await fb.exists(dir)) return;
-  const entries = await fb.readdir(dir);
-  for (const entry of entries) {
+  // Only entries past the age rule are candidates, so the usual prune ends here
+  // without reading a deck or compiling a slide.
+  const candidates: string[] = [];
+  for (const entry of await fb.readdir(dir)) {
     if (!isCurrent()) return;
-    if (entry.dir || !/^m3d-[\da-f]{14}\.png$/.test(entry.name) || live.has(entry.name.slice(0, -4))) continue;
-    const path = joinPath(dir, entry.name), stat = await fb.stat(path);
-    if (stat && isModelPosterPrunable(entry.name, stat.mtimeMs, live) && isCurrent()) await fb.remove(path);
+    if (entry.dir || !/^m3d-[\da-f]{14}\.png$/.test(entry.name)) continue;
+    const stat = await fb.stat(joinPath(dir, entry.name));
+    if (stat && isModelPosterPrunable(entry.name, stat.mtimeMs, new Set())) candidates.push(entry.name);
   }
+  // The Figure live set reads the in-memory Figure model; while Slides owns the
+  // shared stores it is the deck's, so defer to the next load.
+  const figureTenant = () => get(storeTenantState) === 'figure';
+  if (!candidates.length || !isCurrent() || !figureTenant()) return;
+  // The live set is the one render-model-posters --prune uses: Figure stills and
+  // every deck's Design and build-step stills. An unreadable deck prunes nothing.
+  const { appLiveModelPosterKeys } = await import('./livePosterKeys');
+  const io = { exists: (rel: string) => fb.exists(joinPath(root, rel)), readText: (rel: string) => fb.readText(joinPath(root, rel)) };
+  const live = await appLiveModelPosterKeys(get(project), get(scene3dManifests), io, id => get(plotManifests)[id]).catch(() => null);
+  if (!live) return;
+  for (const name of candidates) if (!live.has(name.slice(0, -4)) && isCurrent() && figureTenant()) await fb.remove(joinPath(dir, name));
 }
 export function model3dAppStats() { return { ...(modelSourceRegistryStats() ?? { contexts: 0, retained: 0, residentBytes: 0, loads: 0, renders: 0, queued: 0, active: false }), posters: cache.size, pendingPosters: pending.size, scope: context?.source.scope ?? null }; }
 /** Dev/test only: drop the worker so the next use re-probes WebGL availability
