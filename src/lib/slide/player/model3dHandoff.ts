@@ -6,6 +6,7 @@ import { furnitureLayout } from '../../model3d/furnitureLayout';
 import { furnitureNodes } from '../../model3d/furniture';
 import { paintFurniture } from '../../model3d/furnitureDom';
 import { framingBounds } from '../../model3d/framing';
+import { modelSnapshotImage } from '../../model3d/snapshotImage';
 import { orbitPose } from '../../model3d/orbit';
 import { lerpElement } from '../tween';
 import { applyWrapperBox, type SlideRenderCtx } from './render';
@@ -17,7 +18,7 @@ let nextSnapshot = 0;
 export function modelHandoffMedia(a: FigElement | undefined, b: FigElement | undefined, elements: readonly FigElement[], ctx: SlideRenderCtx): HandoffMedia | undefined {
   if (!elements.some(el => el.type === 'model3d')) return;
   let disposed = false;
-  const pending: Promise<void>[] = [], urls = new Set<string>(), cancelLoads = new Set<() => void>();
+  const snapshots: ReturnType<typeof modelSnapshotImage>[] = [];
   const pair = a?.type === 'model3d' && b?.type === 'model3d' ? [a, b] as const : undefined;
   return {
     ...(pair ? { mount(parent: SVGElement) {
@@ -47,36 +48,21 @@ export function modelHandoffMedia(a: FigElement | undefined, b: FigElement | und
       const cx = element.x + element.width / 2 - box.x, cy = element.y + element.height / 2 - box.y;
       content.setAttribute('transform', `translate(${cx} ${cy}) rotate(${element.rotation ?? 0}) scale(${element.flipX ? -1 : 1} ${element.flipY ? -1 : 1}) translate(${-element.width / 2} ${-element.height / 2})`);
       group.append(content); parent.append(group);
-      if (ctx.model3d?.snapshot) pending.push((async () => {
+      if (ctx.model3d?.snapshot && !disposed) {
         const scale = Math.max(.01, typeof ctx.pixelScale === 'function' ? ctx.pixelScale() : ctx.pixelScale ?? 1) * Math.max(1, window.devicePixelRatio || 1);
         const factor = Math.min(scale, 4096 / Math.max(viewport.width, viewport.height));
-        const spec = { assetId: element.assetId, element: local, manifest, w: Math.max(1, Math.round(viewport.width * factor)), h: Math.max(1, Math.round(viewport.height * factor)) };
-        await ctx.model3d!.ready([element.assetId], [spec]); if (disposed) return;
-        const bitmap = await ctx.model3d!.snapshot!(spec), canvas = document.createElement('canvas');
-        try {
-          if (disposed) return;
-          canvas.width = bitmap.width; canvas.height = bitmap.height; const context = canvas.getContext('2d'); if (!context) throw new Error('Model snapshot canvas is unavailable');
-          context.drawImage(bitmap, 0, 0);
-          const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Model snapshot encoding failed')), 'image/png'));
-          if (disposed) return; const url = URL.createObjectURL(blob); urls.add(url);
-          await new Promise<void>((resolve, reject) => {
-            const clear = () => { image.removeEventListener('load', loaded); image.removeEventListener('error', failed); cancelLoads.delete(cancel); };
-            const loaded = () => { clear(); resolve(); }, failed = () => { clear(); reject(new Error('Model snapshot image could not be decoded')); };
-            const cancel = () => { clear(); resolve(); };
-            cancelLoads.add(cancel); image.addEventListener('load', loaded, { once: true }); image.addEventListener('error', failed, { once: true }); image.setAttribute('href', url);
-          });
-        } finally { bitmap.close(); canvas.width = 0; canvas.height = 0; }
-      })());
-      void pending.at(-1)?.catch(() => {}); // readiness owns the error, including idle prewarming
+        snapshots.push(modelSnapshotImage(image, ctx.model3d, { assetId: element.assetId, element: local, manifest, w: Math.max(1, Math.round(viewport.width * factor)), h: Math.max(1, Math.round(viewport.height * factor)) }));
+      }
       return { node: group, box, opacity: outline.paint.opacity ?? 1 };
     },
     async ready() {
+      if (disposed) return;
       if (pair && ctx.model3d) {
         const frame = modelContentFrame(pair[0], pair[1], pair[0], .5, .5, ctx);
         await ctx.model3d.ready(pair.map(el => el.assetId), [{ assetId: pair[0].assetId, element: frame.element, w: 32, h: 32, manifest: ctx.modelManifest?.(pair[0].assetId), ...frame.extra }]);
       }
-      await Promise.all(pending);
+      await Promise.all(snapshots.map(snapshot => snapshot.ready));
     },
-    dispose() { disposed = true; for (const cancel of cancelLoads) cancel(); for (const url of urls) URL.revokeObjectURL(url); urls.clear(); },
+    dispose() { disposed = true; for (const snapshot of snapshots) snapshot.cancel(); snapshots.length = 0; },
   };
 }

@@ -41,7 +41,7 @@ import { planElementMorph, sampleElementMorph, arrowFade, fixedHeadOpacity, type
 import { seriesAxes, seriesTweenable, viewFits, type MorphController } from "../../plot/project";
 import { applyPlotView, preparePlotView, restoreProjection, type PlotViewOptions } from "../../plot/projectDom";
 import { applyWrapperBox, applyWrapperBoxComposite, layoutBoxOf, pureMove, promoteMovingWrapper, settleWrapper, armFlightMark, compilePlotContent, compileStaticContent, compileGhostPartOpacity, updateStaticContent, fillContent, type SlideRenderCtx } from "./render";
-import { modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
+import { modelBindingOf, modelContentFrame, modelFieldEndpoints, setSlideModelFrame } from "./model3d";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -341,6 +341,12 @@ export function createTransform(
 
     if (plan.mode === "crossfade") {
       ensureLayers();
+      // A model that no longer owns the discrete kind keeps only its encoded
+      // snapshot during the remaining visual fade, never a live backing canvas.
+      if (pre.type !== end.type) {
+        if (layerA && pre.type === 'model3d') modelBindingOf(layerA)?.posterOnly(raw >= .5);
+        if (layerB && end.type === 'model3d') modelBindingOf(layerB)?.posterOnly(raw < .5);
+      }
       if (layerA) layerA.style.opacity = String(1 - t);
       if (layerB) layerB.style.opacity = String(t);
       return;

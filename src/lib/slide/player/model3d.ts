@@ -7,6 +7,7 @@ import { furnitureNodes, type FurnitureNode } from '../../model3d/furniture';
 import { paintFurniture } from '../../model3d/furnitureDom';
 import { orbitPose } from '../../model3d/orbit';
 import { framingBounds, sphereLerpBounds } from '../../model3d/framing';
+import { modelSnapshotImage } from '../../model3d/snapshotImage';
 import { modelPlaceholder } from '../../model3d/poster';
 import { staticModelRequest } from '../../model3d/static';
 import { partDomId } from '../../plot/parse';
@@ -38,6 +39,7 @@ export interface SlideModelBinding {
   element: Model3dElement;
   set(element: Model3dElement, extra?: Model3dRenderExtra): void;
   activate(info?: Model3dInfo): void;
+  posterOnly(value: boolean): void;
   flush(): void;
   settled(): Promise<void>;
   dispose(): void;
@@ -80,7 +82,8 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
   root.append(under, fallback, canvas, over); parent.append(root);
   let frame = element, extra: Model3dRenderExtra = {}, active = false, disposed = false;
   let view: Model3dView | undefined, info: Model3dInfo | undefined, key = '', pending = Promise.resolve(), revision = 0;
-  let failed: Error | undefined, intersects = true;
+  let failed: Error | undefined, intersects = true, posterOnly = false;
+  let snapshot: ReturnType<typeof modelSnapshotImage> | undefined;
   const observer = typeof IntersectionObserver === 'function' ? new IntersectionObserver(entries => {
     const next = entries.at(-1)?.isIntersecting ?? false;
     if (next !== intersects) { intersects = next; handle.flush(); }
@@ -140,6 +143,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
   const handle: SlideModelBinding = {
     root, canvas, element,
     set(next, renderExtra = {}) { frame = next; handle.element = next; extra = renderExtra; },
+    posterOnly(value) { if (posterOnly === value) return; posterOnly = value; revision++; snapshot?.cancel(); snapshot = undefined; key = ''; },
     activate(modelInfo) { if (disposed) return; active = true; info = modelInfo; key = ''; },
     flush() {
       if (disposed) return;
@@ -148,6 +152,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       if (!intersects || !liveVisible(root)) {
         if (view) { revision++; view.dispose(); view = undefined; }
         canvas.width = 0; canvas.height = 0; canvas.style.display = 'none';
+        snapshot?.cancel(); snapshot = undefined;
         fallback.style.display = 'block'; key = ''; failed = undefined; pending = Promise.resolve();
         return;
       }
@@ -155,7 +160,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       const { x: _x, y: _y, rotation: _rotation, opacity: _opacity, flipX: _flipX, flipY: _flipY, ...renderInputs } = frame;
       const scale = Math.max(.01, typeof ctx.pixelScale === 'function' ? ctx.pixelScale() : ctx.pixelScale ?? 1);
       const dpr = Math.max(1, window.devicePixelRatio || 1);
-      const nextKey = JSON.stringify([renderInputs, extra, scale, dpr]);
+      const nextKey = JSON.stringify([renderInputs, extra, scale, dpr, posterOnly]);
       if (nextKey === key) return;
       const { local, manifest, box } = frameLayout();
       if (!ctx.model3d) { decorate(); key = nextKey; return; }
@@ -165,6 +170,17 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       const token = ++revision;
       const publish = () => { if (disposed || token !== revision) return; decorate(); canvas.style.display = 'block'; fallback.style.display = 'none'; failed = undefined; delete root.dataset.model3dError; };
       const reject = (error: unknown) => { if (disposed || token !== revision) return; failed = error instanceof Error ? error : new Error(String(error)); canvas.style.display = 'none'; fallback.style.display = 'block'; root.dataset.model3dError = failed.message; decorate(true); };
+      if (posterOnly) {
+        view?.dispose(); view = undefined; canvas.width = 0; canvas.height = 0; canvas.style.display = 'none'; fallback.style.display = 'block'; decorate(true); key = nextKey;
+        if (ctx.model3d.snapshot) {
+          const image = document.createElementNS(SVG, 'image'); for (const [name, value] of Object.entries(box)) image.setAttribute(name, String(value));
+          image.setAttribute('preserveAspectRatio', 'none'); image.dataset.modelSnapshot = frame.id;
+          // Keep the matching poster/placeholder until this snapshot is decoded.
+          fallback.append(image); snapshot?.cancel(); snapshot = modelSnapshotImage(image, ctx.model3d, { assetId: local.assetId, element: local, w, h, manifest, ...extra });
+          pending = snapshot.ready.then(() => { if (disposed || token !== revision) return; fallback.replaceChildren(image); failed = undefined; }, reject);
+        }
+        return;
+      }
       try {
         view ??= ctx.model3d.view(canvas);
         const result = view.render(local, w, h, { manifest, ...extra }); key = nextKey;
@@ -173,7 +189,7 @@ export function fillModel3d(parent: HTMLElement, element: Model3dElement, ctx: S
       } catch (error) { reject(error); }
     },
     async settled() { await pending; if (failed) throw failed; },
-    dispose() { if (disposed) return; disposed = true; revision++; observer?.disconnect(); view?.dispose(); canvas.width = 0; canvas.height = 0; bindings.delete(root); },
+    dispose() { if (disposed) return; disposed = true; revision++; observer?.disconnect(); snapshot?.cancel(); view?.dispose(); canvas.width = 0; canvas.height = 0; bindings.delete(root); },
   };
   bindings.set(root, handle); decorate();
   return handle;
