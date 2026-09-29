@@ -11,3 +11,33 @@ Slide presets are an explicit portable-byte boundary. Their GLBs are embedded wh
 Registered checks: `verify-model3d-deck-assets.ts` and `verify-model3d-slide-export.ts`, through `node scripts/run-verifies.mjs`. Playback and native capture qualification belong to the Stage 2 integration gates.
 
 CLI/MCP project-owned media paths pass through `flux-core/projectSource.ts`: an already-resolved in-project absolute path becomes the same canonical relative path as direct input. Both lexical escapes and symlink escapes are refused before the native media importer runs.
+
+## Ghost and content changes
+
+Select a 3D model in Animate, then use **Transform → Ghost** to create independent
+copies sharing its immutable mesh asset. Each copy can have its own camera, shape
+weights and style. Hidden, unborn and offscreen copies release their canvas backing
+storage; active copies share the renderer context and geometry buffers.
+
+**Transform → Become** and **Appear → Appear from** show **Vertex morph** when the
+picked models have corresponding topology. Otherwise they show **Crossfade**, with
+the first mismatch and the `share_topology_with` repair in the explanation. A model
+destination defaults to a handoff: both document objects remain, while source and
+destination visibility transfer during playback. **Consume instead** is an explicit
+one-step Undo action which removes the destination and keeps its content on the
+source identity. Model-to-shape and shape-to-model Consume remain supported; live
+model storage transfers at the raw halfway type change, while a decoded still
+completes the fading endpoint. Whole model/video poster handoffs are supported;
+video Consume and video Ghost remain unavailable.
+
+Use **Model from gallery…** in the animation Destination controls to change only the
+mesh content, without placing a second object. The gallery starts with its 3D filter
+selected. Canceling or changing the destination before import completes discards its
+unadopted receipt. Saved content targets preserve the original GLB source receipt;
+`become --asset` and `set-transform --to-asset` follow the same policy. A bare immutable
+asset without a known source clears the previous content's source fields.
+
+`node scripts/run-verifies.mjs --group slide-model3d-morph` exercises pure authoring,
+file commands, actual browser rendering and the editor UI. Browser receipt-cancellation
+checks use the memory bridge; they do not claim production Electron import coverage.
+Native MP4 qualification is recorded separately.

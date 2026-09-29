@@ -72,6 +72,7 @@
   export let importItems: ((picks: PlotPick[], canPlace: () => boolean) => Promise<number>) | undefined = undefined;
   export let allowVideos = false;
   export let allowModels = false;
+  export let initialModelsOnly = false;
   let modelsOnly = false;
   export let importStatus = "";
   export let cancelImport: (() => void) | undefined = undefined;
@@ -252,6 +253,7 @@
   }
   async function open() {
     openedRoot = root;
+    modelsOnly = allowModels && initialModelsOnly;
     search = "";
     similarTo = "";
     index = 0;

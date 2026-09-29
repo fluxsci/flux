@@ -89,6 +89,7 @@
   import { createPlayer, type Player } from "../../../lib/slide/player/player";
   import { plotManifests, plotGen, plotDom } from "../../../lib/plot/store";
   import { createAppInlineModels, type AppInlineModels } from "../../../lib/model3d/appInlineHost";
+  import { modelPair, modelPairIssue } from "../../../lib/slide/model3dMorph";
   import { modelOrbitBlocked } from "../../../lib/model3d/orbitSession";
   import { scene3dGeneration } from "../../../lib/model3d/store";
   import { getAssetData } from "../../../lib/assets";
@@ -114,7 +115,7 @@
   import { readIncomingPlot, importPlotsFromPaths, type Incoming } from "../../../lib/io";
   import { readIncomingVideo, discardIncomingVideo } from "../../../lib/slide/importVideo";
   import { compileSlide, semanticTargets, trackDuration } from "../../../lib/slide/compile";
-  import { warmSlideMorphs } from "../../../lib/slide/tween";
+  import { warmSlideMorphs, transformPreState } from "../../../lib/slide/tween";
   import { staggerSpan } from "../../../lib/slide/stagger";
   import PresetPicker from "../../../lib/PresetPicker.svelte";
   import AnimatePanel from "./AnimatePanel.svelte";
@@ -770,34 +771,41 @@
 
   // A morph target is an asset dependency; choosing it never places a second
   // object on the stage. Import uses the shared plot/sidecar loader.
-  let morphFor = $state<{deckId:string;slideId:string;targetId:string;trackId?:string;beatId?:string}|null>(null);
+  let morphFor = $state<{deckId:string;slideId:string;targetId:string;trackId?:string;beatId?:string;kind:"plot"|"model3d"}|null>(null);
   function chooseMorph(targetId:string,trackId?:string) {
     if(!overlay||!activeSlide)return;
     stopPreview();
-    morphFor={deckId:overlay.id,slideId:activeSlide.id,targetId,trackId,beatId:activeSlide.beats[$activeBeat]?.id};
+    const source=activeSlide.elements.find(e=>e.id===targetId);
+    if(source?.type!=="plot"&&source?.type!=="model3d")return;
+    morphFor={deckId:overlay.id,slideId:activeSlide.id,targetId,trackId,beatId:activeSlide.beats[$activeBeat]?.id,kind:source.type};
     importerOpen.set(true);
   }
   async function acceptMorphTarget(picks:PlotPick[]) {
     const request=morphFor;
     if(!request||!picks.length)return;
-    if(picks.length!==1)throw new Error("Choose one plot for the next data state.");
-    const incoming=await readIncomingPlot(picks[0].abs);
-    if(incoming.el.type!=="plot")throw new Error("Choose an SVG plot for a data-only Become.");
-    if(!get(importerOpen) || morphFor !== request) return;
-    if(get(deckOverlay)?.id!==request.deckId || get(activeFigureId)!==request.slideId) return;
-    const source=incoming.el.source;let addedId:string|undefined;let selectedBeat=0;
-    commitDeckLive(d=>{
-      const s=slideOps.slideById(d,request.slideId);if(!s?.elements.some(e=>e.id===request.targetId))return;
-      let beat=request.trackId?s.beats.find(b=>b.tracks.some(t=>t.id===request.trackId)):s.beats.find(b=>b.id===request.beatId);
-      if(!beat || beat===s.beats[0])beat=slideOps.addBeat(d,s.id,{label:"Data change",advance:"click"})??undefined;
-      if(!beat)return;
-      incoming.install?.();
-      if(!d.assets.some(a=>a.id===incoming.asset.id)) d.assets.push(incoming.asset);
-      const t=slideOps.setTransform(d,s.id,beat.id,request.targetId,{toAssetId:incoming.asset.id,svgPath:source?.svgPath,manifestPath:source?.manifestPath});
-      addedId=t?.id;selectedBeat=s.beats.indexOf(beat);
-    });
-    pickState = null;
-    if(addedId){activeBeat.set(selectedBeat);selTrackIds.set([addedId]);enterEndpointEdit([addedId],"t2");inspectorTab="animation";}
+    if(picks.length!==1)throw new Error(`Choose one ${request.kind==="model3d"?"3D model":"plot"} for the next content state.`);
+    if(request.kind==="model3d"&&!/\.glb$/i.test(picks[0].abs))throw new Error("Choose a GLB model for a 3D content change.");
+    let invalid=false, installed=false, incoming:Incoming|undefined;
+    const unsubscribe=activeFigureId.subscribe(id=>{if(id!==request.slideId)invalid=true;});
+    const current=()=>!invalid&&get(importerOpen)&&morphFor===request&&get(deckOverlay)?.id===request.deckId&&get(activeFigureId)===request.slideId;
+    try {
+      incoming=await readIncomingPlot(picks[0].abs);
+      if(incoming.el.type!==request.kind)throw new Error(request.kind==="model3d"?"Choose a GLB model for a 3D content change.":"Choose an SVG plot for a data-only Become.");
+      if(!current()||incoming.canInstall?.()===false)return;
+      const prepared=incoming, source=incoming.el.source;let addedId:string|undefined;let selectedBeat=0;
+      commitDeckLive(d=>{
+        const s=slideOps.slideById(d,request.slideId);if(!s?.elements.some(e=>e.id===request.targetId))throw new Error("The source object no longer exists.");
+        let beat=request.trackId?s.beats.find(b=>b.tracks.some(t=>t.id===request.trackId)):s.beats.find(b=>b.id===request.beatId);
+        if(!beat||beat===s.beats[0])beat=slideOps.addBeat(d,s.id,{label:request.kind==="model3d"?"Model change":"Data change",advance:"click"})??undefined;
+        if(!beat)throw new Error("The destination step no longer exists.");
+        const t=slideOps.setTransform(d,s.id,beat.id,request.targetId,{toAssetId:prepared.asset.id,source:source??null});
+        if(!t)throw new Error("The content change could not be created.");
+        if(!d.assets.some(a=>a.id===prepared.asset.id))d.assets.push(prepared.asset);
+        prepared.install?.();installed=true;addedId=t.id;selectedBeat=s.beats.indexOf(beat);
+      });
+      pickState=null;
+      if(addedId){activeBeat.set(selectedBeat);selTrackIds.set([addedId]);enterEndpointEdit([addedId],"t2");inspectorTab="animation";}
+    } finally { unsubscribe();if(incoming&&!installed)await incoming.discard?.(); }
   }
   $effect(()=>{if(!$importerOpen)morphFor=null;});
 
@@ -1163,13 +1171,13 @@
     const dest = pick.kind === "appearFrom" ? pick.source : ref;
     pickState = null;
     try {
-      const compiled = compileSlide(s, stage, { animStyles: overlay?.animStyles, plotManifest: id => get(plotManifests)[id] });
+      const compiled = compileSlide(s, stage, { animStyles: overlay?.animStyles, plotManifest: id => get(plotManifests)[id], modelAsset: id => get(project).assets.find(a=>a.id===id) });
       const result = commitDeckLive(d => {
         const beat = slideOps.slideById(d, s.id)?.beats[pick.beatIndex];
         if (!beat) throw new Error("The step no longer exists.");
         return pick.kind === "appearFrom"
-          ? slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled})
-          : slideOps.becomeTransform(d, s.id, beat.id, source, dest, {pair: pick.pair, compiled});
+          ? slideOps.appearFrom(d, s.id, beat.id, dest, source, {pair: pick.pair, compiled, modelAsset: id=>get(project).assets.find(a=>a.id===id)})
+          : slideOps.becomeTransform(d, s.id, beat.id, source, dest, {pair: pick.pair, compiled, modelAsset: id=>get(project).assets.find(a=>a.id===id)});
       });
       if (!result) return;
       activeBeat.set(pick.beatIndex); selTrackIds.set([result.trackId]);
@@ -1215,7 +1223,17 @@
     });
   });
   $effect(() => { xrayBecomeSource.set(active && becomePick?.kind === "become" ? refLabel(becomePick.source) : null); });
-  const becomeSourceIsPlot = $derived(becomePick?.kind === "become" && !becomePick.source.parts?.length && activeSlide?.elements.find(e => e.id === becomePick.source.element)?.type === "plot");
+  const becomeSourceHasContent = $derived(becomePick?.kind === "become" && !becomePick.source.parts?.length && activeSlide?.elements.some(e=>e.id===becomePick.source.element&&(e.type==="plot"||e.type==="model3d")));
+  const modelPickFeedback = $derived.by(()=>{
+    if(!becomePick||!activeSlide)return null;
+    const candidate=becomePick.picks.at(-1)?.element??$hoverId;
+    if(!candidate||candidate===becomePick.source.element)return null;
+    const a=transformPreState(activeSlide,becomePick.kind==="appearFrom"?candidate:becomePick.source.element,becomePick.beatIndex);
+    const b=transformPreState(activeSlide,becomePick.kind==="appearFrom"?becomePick.source.element:candidate,becomePick.beatIndex);
+    if(a?.type!=="model3d"&&b?.type!=="model3d")return null;
+    const pair=modelPair(a??undefined,b??undefined,{modelAsset:id=>$project.assets.find(asset=>asset.id===id)});
+    return {label:pair?.ok?"Vertex morph":"Crossfade",reason:pair?modelPairIssue(pair):"Different element kinds use a bitmap crossfade."};
+  });
   function addModelTurntable() {
     const sid = $activeFigureId, ids = new Set(selectionTargets());
     if (!sid || !activeSlide || $partSelections.length) return;
@@ -1654,11 +1672,12 @@
         {:else if becomePick && activeSlide}
           <span class="become-bar" role="status" aria-label="Become pick">
             <span class="become-msg"><strong>{refLabel(becomePick.source)}</strong> {becomePick.kind === "appearFrom" ? "appears from… click the object it comes from" : "becomes… click an object · Ctrl+click a part · Shift adds · Alt+R X-ray"}</span>
+            {#if modelPickFeedback}<span class="pick-count" data-model-morph-badge title={modelPickFeedback.reason??"Same topology: vertices morph continuously."}>{modelPickFeedback.label}</span>{/if}
             <span class="pick-count">{becomePick.picks.reduce((n, ref) => n + (ref.parts?.length || 1), 0)} picked</span>
             <label class="pair-label">Pair <select aria-label="Become pairing" value={becomePick.pair} onchange={e => { if (becomePick) pickState = {...becomePick, pair: e.currentTarget.value as PairPolicy}; }}>
               {#each PAIR_POLICIES as p (p.id)}<option value={p.id}>{p.label}</option>{/each}
             </select></label>
-            {#if becomeSourceIsPlot}<button class="become-btn" onclick={() => chooseMorph(becomePick!.source.element)} title="Keep the frame; the plot's data becomes another project plot's">From gallery…</button>{/if}
+            {#if becomeSourceHasContent}<button class="become-btn" onclick={() => chooseMorph(becomePick!.source.element)} title="Keep the frame; choose the next content from the gallery">From gallery…</button>{/if}
             <button class="become-btn" disabled={!becomePick.picks.length} onclick={() => becomePick && confirmPick(becomePick)} title="Enter">{becomePick.kind === "appearFrom" ? "Appear from" : "Become"}</button>
             <button class="become-btn" onclick={cancelBecome} title="Escape">Cancel</button>
           </span>
@@ -1816,8 +1835,8 @@
 <!-- shared figure surfaces: X-ray, property cockpit, plots/ browser, presets -->
 <FluxFigMenu />
 <Xray />
-<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? "Become — choose the plot whose data it becomes" : "Plot and video gallery"}
-  allowVideos={!morphFor} allowModels={!morphFor} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
+<PlotImporter {active} rootOverride={pm?.root ?? ""} title={morphFor ? morphFor.kind==="model3d" ? "Become — choose the next 3D model" : "Become — choose the plot whose data it becomes" : "Plot and video gallery"}
+  allowVideos={!morphFor} allowModels={!morphFor||morphFor.kind==="model3d"} initialModelsOnly={morphFor?.kind==="model3d"} importItems={importSlideItems} importStatus={videoImportStatus} cancelImport={videoImport ? cancelClipImport : undefined}
   onPick={morphFor ? acceptMorphTarget : undefined} />
 <PresetPicker />
 

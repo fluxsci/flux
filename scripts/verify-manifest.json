@@ -507,7 +507,8 @@
       "verify-model3d-import-progress-gui.mjs",
       "verify-model3d-snapshot-quiet.mjs",
       "verify-model3d-furniture-gui.mjs",
-      "verify-slide-model3d-gui.mjs"
+      "verify-slide-model3d-gui.mjs",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "ui-extra": [
       "figenh-01-pen.ts",
@@ -935,7 +936,8 @@
       "verify-slide-model3d-player.ts",
       "verify-slide-model3d-gui.mjs",
       "verify-slide-model3d-morph.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -1140,14 +1142,16 @@
       "verify-slide-model3d-gui.mjs",
       "verify-slide-import-gui.mjs",
       "verify-slide-present-gui.mjs",
-      "verify-changed-pathmap.mjs"
+      "verify-changed-pathmap.mjs",
+      "verify-slide-model3d-morph-gui.mjs"
     ],
     "slide-model3d-morph": [
       "verify-slide-model3d-morph.ts",
       "verify-model3d-morph.ts",
       "verify-slide-model3d.ts",
       "verify-slide-track-ops.ts",
-      "verify-slide-model3d-morph-browser.ts"
+      "verify-slide-model3d-morph-browser.ts",
+      "verify-slide-model3d-morph-gui.mjs"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -9041,6 +9045,17 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": true,
+      "coverage": "behavior"
+    },
+    "verify-slide-model3d-morph-gui.mjs": {
+      "runtime": "node",
+      "prerequisites": [
+        "server"
+      ],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 150000,
       "exclusive": true,
       "coverage": "behavior"
     }
