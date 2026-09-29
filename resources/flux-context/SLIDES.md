@@ -401,3 +401,5 @@ click, concurrent tracks retain their timing, and the final step stops. PDF/Word
 The HTML export contains only referenced slides and their required assets, without speaker
 notes or local source paths. Deleting referenced slides fails unless `delete-slide --force`
 is explicit; inspect the listed documents before overriding.
+
+Saved 3D Design values can also be edited with `set-model-view <element> --deck <deck> --slide <slide>` and `set-model-field <element> <field> --deck <deck> --slide <slide>`. Use `render-model-posters --deck <deck>` to refresh Design stills (optionally `--slide <slide>`); timed changes remain ordinary animation tracks. Do not combine Figure and deck selectors.

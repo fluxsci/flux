@@ -1,5 +1,7 @@
 /** Figure-side 3D agent API. Geometry and edits use the same cores as the app. */
 import * as fs from 'node:fs/promises';
+import { mutateDeckModel, loadDeckModelDocument } from './model3dDeckCommands';
+import { listDecks } from './slides';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { boundedModelFile, publishModelFile } from './model3dFile';
@@ -22,7 +24,7 @@ import type { Model3dElement, Model3dAsset, Scene3dManifest } from '../src/lib/m
 
 export interface ModelTarget { target: string; figureId?: string; deckId?: string; slideId?: string; noPoster?: boolean }
 function figureOnly(target: { deckId?: string; slideId?: string }) {
-  if (target.deckId !== undefined || target.slideId !== undefined) throw new Error('3D slide commands require the later Slides integration; use a Figure target');
+  if (target.deckId !== undefined || target.slideId !== undefined) throw new Error('A slide selector requires deckId; do not mix Figure and Slides selectors');
 }
 function targetModel(project: Project, target: ModelTarget): Model3dElement {
   figureOnly(target);
@@ -142,6 +144,11 @@ export async function ensureModelPoster(root: string, figureId: string, elementI
 }
 
 export async function setModelViewCommand(root: string, target: ModelTarget, command: ModelViewCommand) {
+  if(target.deckId) {
+    const result=await mutateDeckModel(root,target,'view',command);
+    try { const rendered=target.noPoster?undefined:await renderModelPosters(root,{deckId:target.deckId,slideId:result.slideId});return {...result,poster:rendered?.posters.find(p=>p.elementId===result.element.id)??null,warnings:[...result.warnings,...rendered?.warnings??[]]}; }
+    catch(error) {return {...result,poster:null,warnings:[...result.warnings,`Model saved; poster could not be rendered: ${String(error)}`]};}
+  }
   const result = await mutateFigModel(root, 'set_model_view', async ({ project }) => {
     const element = targetModel(project, target), metadata = await readModel3dMetadata(root, project, element.assetId);
     const viewWarnings = applyModelViewCommand(project, [element.id], command, metadata.manifest ? { [element.assetId]: metadata.manifest } : {});
@@ -151,6 +158,11 @@ export async function setModelViewCommand(root: string, target: ModelTarget, com
   return { ...result, ...poster, warnings: [...new Set([...result.warnings, ...poster.warnings])] };
 }
 export async function setModelFieldCommand(root: string, target: ModelTarget, command: ModelFieldCommand) {
+  if(target.deckId) {
+    const result=await mutateDeckModel(root,target,'field',command);
+    try { const rendered=target.noPoster?undefined:await renderModelPosters(root,{deckId:target.deckId,slideId:result.slideId});return {...result,poster:rendered?.posters.find(p=>p.elementId===result.element.id)??null,warnings:[...result.warnings,...rendered?.warnings??[]]}; }
+    catch(error) {return {...result,poster:null,warnings:[...result.warnings,`Model saved; poster could not be rendered: ${String(error)}`]};}
+  }
   const result = await mutateFigModel(root, 'set_model_field', async ({ project }) => {
     const element = targetModel(project, target), metadata = await readModel3dMetadata(root, project, element.assetId);
     applyModelFieldCommand(project, [element.id], command, metadata.manifest ? { [element.assetId]: metadata.manifest } : {});
@@ -160,15 +172,19 @@ export async function setModelFieldCommand(root: string, target: ModelTarget, co
   return { ...result, ...poster, warnings: [...new Set([...result.warnings, ...poster.warnings])] };
 }
 
-export async function renderModelPosters(root: string, options: { figureId?: string; deckId?: string; prune?: boolean; signal?: AbortSignal } = {}) {
-  figureOnly(options);
+export async function renderModelPosters(root: string, options: { figureId?: string; deckId?: string; slideId?: string; prune?: boolean; signal?: AbortSignal } = {}) {
+  if(options.deckId && options.figureId || options.slideId && !options.deckId) throw new Error('Use deckId with optional slideId, or figureId');
   // Derived, content-addressed cache writes are intentionally outside document
   // leases (PLAN4.5). A GPU job must not hold a figure writer hostage.
   const result = await (async () => {
-    const { project } = await loadFigModel(root);
-    const figures = options.figureId ? project.figures.filter(figure => figure.id === options.figureId) : project.figures;
+    const document = options.deckId ? await loadDeckModelDocument(root,options.deckId) : await loadFigModel(root);
+    const {project}=document;
+    const filter=options.deckId?options.slideId:options.figureId;
+    const figures=filter?project.figures.filter(figure=>figure.id===filter):project.figures;
+    if(filter && !figures.length)throw new Error(`Model document page not found: ${filter}`);
     if (options.figureId && !figures.length) throw new Error(`Figure not found: ${options.figureId}`);
-    const rendered = await resolveModelPosters(root, figures, project.assets, { policy: 'project', allFigures: project.figures, signal: options.signal });
+    const rendered = await resolveModelPosters(root, figures, project.assets, { policy: 'project', allFigures: project.figures, signal: options.signal, ...(options.deckId?{assetPrefix:'',surface:'slide' as const,manifests:(document as Awaited<ReturnType<typeof loadDeckModelDocument>>).manifests}:{}) });
+    if(options.deckId)rendered.warnings.push(...(document as Awaited<ReturnType<typeof loadDeckModelDocument>>).warnings);
     const posters = [];
     for (const request of rendered.requests) {
       options.signal?.throwIfAborted();
@@ -190,7 +206,15 @@ export async function renderModelPosters(root: string, options: { figureId?: str
       // current saved references, including views added during that render.
       const current = (await loadFigModel(root)).project;
       const all = await resolveModelPosters(root, current.figures, current.assets, { policy: 'collect', allFigures: current.figures, signal: options.signal });
-      const live = new Set(all.requests.map(request => request.key)), dir = safeJoin(root, 'fig/renders/model3d');
+      const live = new Set(all.requests.map(request => request.key));
+      // The project cache is shared by Figures and every deck. Never prune a
+      // live slide still just because this command filtered another document.
+      for(const entry of await listDecks(root)){
+        const doc=await loadDeckModelDocument(root,entry.id);
+        const refs=await resolveModelPosters(root,doc.project.figures,doc.project.assets,{policy:'collect',assetPrefix:'',surface:'slide',manifests:doc.manifests,signal:options.signal});
+        for(const request of refs.requests)live.add(request.key);
+      }
+      const dir = safeJoin(root, 'fig/renders/model3d');
       await confinedRecoveryPath(root, dir);
       for (const name of await fs.readdir(dir).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return []; throw error; })) {
         const file = safeJoin(dir, name); await confinedRecoveryPath(root, file);

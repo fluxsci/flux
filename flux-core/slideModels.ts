@@ -27,7 +27,9 @@ export async function addSlideModel(root: string, deckId: string, slideId: strin
   try {
     await mutateDeck(root, deckId, 'add_slide_model', target => {
       const slide = target.slides.find(s => s.id === slideId); if (!slide) throw new Error(`Slide not found: ${slideId}`);
-      element = makeImportedModel3dElement(data, {root,name:options.name,box:options,figureWidth:target.stage.width});
+      element = makeImportedModel3dElement(data, {root,name:options.name,box:options,figureWidth:target.stage.width,stage:target.stage});
+      if(options.x===undefined)element.x=(target.stage.width-element.width)/2;
+      if(options.y===undefined)element.y=(target.stage.height-element.height)/2;
       target.assets.push(data.asset); slide.elements.push(element);
     });
   } catch(error) {

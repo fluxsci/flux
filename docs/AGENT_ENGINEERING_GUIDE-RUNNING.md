@@ -8535,3 +8535,6 @@ the source. Python full340passed2skipped116warnings20.74s; independent static8/8
 
 ### 2026-09-29 — 3D authoring in Slides
 **Work:** Wired deck-scoped model import and shared editor posters, lazy inline preview/Present hosts, static filmstrip posters and the Turntable action into existing Slides controls. Registered GUI checks use real pointer Orbit on an After-step checkout, one-step history, pick-mode exclusion, import/save/reopen, actual mesh pixels, physical resize, disabled-GPU fallback and unchanged 2D content; pending thumbnail work retries after same-signature invalidation instead of leaving a stale still.
+
+### 2026-09-29 — Saved-deck 3D command parity
+**Work:** Extended model view, field and poster commands to saved deck/slide targets through shared command policy, matched GUI placement defaults, and protected live deck posters during shared-cache pruning. **Learnings:** Sidecars remain in the owning document's canonical assets directory even when the GLB has a custom nested path; independent rebuilt CLI/MCP QA passes 110 checks, including local and external Figure-owned assets.

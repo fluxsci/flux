@@ -13,6 +13,7 @@ const h = harness('verify-model3d-verbs'), repo = path.resolve(import.meta.dirna
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-model3d-verbs-'));
 Object.assign(process.env, isolatedEnv(path.join(scratch, 'machine')), { FLUX_MODEL3D_DISABLE: '1', FLUX_NO_MIGRATE: '1' });
 const core = await import('../flux-core/index');
+const {mutateDeck}=await import('../flux-core/slides');
 const {readModel3dMetadata}=await import('../flux-core/model3d');
 const { loadFigModel } = await import('../flux-core/model');
 const { parseCliFlags, VERBS } = await import('../flux-core/registry');
@@ -98,7 +99,7 @@ try {
   h.eq(result.element.orbitAzimuth, 15, 'explicit camera property wins over preset');
   const reset = await cli(['set-model-view', model.id, '--root', root, '--preset', 'home']);
   h.eq(reset.element.modelStates, { inflated: .25 }, 'Home restores accepted original defaults');
-  await assert.rejects(core.setModelViewCommand(root, { target: model.id, deckId: 'deck' }, { zoom: 2 }), /Slides/);
+  await assert.rejects(core.setModelViewCommand(root, { target: model.id, deckId: 'deck' }, { zoom: 2 }), /deck not found/);
   await assert.rejects(core.setModelViewCommand(root, { target: model.id, figureId: 'wrong' }, { zoom: 2 }), /not in figure/);
   h.ok(true, 'file target selector refuses wrong figure and deferred Slides targets');
   const seq = await cli(['add-model', figureId, 'sequence.glb', '--root', root, '--no-poster']);
@@ -123,7 +124,7 @@ try {
   h.ok(switchValue.code !== 0 && /--italic is a switch.*--no-italic/.test(switchValue.err), 'a non-boolean switch refuses an explicit value and names its opposite');
   const contradictory = await run(['restyle-part', figureId, 'height.field', '--root', root, '--element', field.elementId, '--hidden', '--show']); h.ok(contradictory.code !== 0, '--hidden with --show is contradictory');
   // P5: no always-failing slide selectors are advertised before the Slides phase.
-  for (const name of ['set_model_view', 'set_model_field', 'render_model_posters']) { const params = VERBS.find(v => v.name === name)!.params; h.ok(!('deckId' in params) && !('slideId' in params), `${name} advertises no deck/slide parameters`); }
+  for (const name of ['set_model_view', 'set_model_field', 'render_model_posters']) { const params = VERBS.find(v => v.name === name)!.params; h.ok('deckId' in params && 'slideId' in params, `${name} advertises saved deck/slide parameters`); }
   const {withLock}=await import('../flux-core/locks');
   await withLock(root,'project','gate-owned-document',async()=>{const cache=await core.renderModelPosters(root,{figureId});h.ok(cache.posters.length===3,'derived poster operation does not acquire a document writer lease');});
   const journalBeforeCancel=await fs.readFile(path.join(root,'.meta/journal.ndjson'),'utf8'),cancelled=new AbortController();cancelled.abort();
@@ -254,10 +255,41 @@ try {
   const deckAsset=savedDeck.assets.find(a=>a.id===slideModel.assetId)!;
   h.ok((await fs.stat(path.join(root,'slides/models',deckAsset.path))).size>0,'slide-owned immutable GLB exists outside JSON');
   h.eq(slideModel.source?.glbPath,'plots/states.glb','slide model preserves relative original source receipt');
+  const deckView=await cli(['set-model-view',slideModelId,'--deck',slideDeck.deckId,'--slide',slide.slideId,'--root',root,'--azimuth','123','--state','inflated=.75','--no-poster']);
+  h.ok(deckView.element.orbitAzimuth===123&&deckView.element.modelStates.inflated===.75,'built deck view command updates Design pose and shape weights');
+  const wrongSlide=await run(['set-model-view',slideModelId,'--deck',slideDeck.deckId,'--slide','missing','--root',root,'--zoom','2','--no-poster']);
+  h.ok(wrongSlide.code!==0&&wrongSlide.err.includes('not in slide'),'wrong slide selector refuses without changing saved values');
+  const deckPosters=await cli(['render-model-posters','--deck',slideDeck.deckId,'--slide',slide.slideId,'--root',root]);
+  h.ok(Array.isArray(deckPosters.posters)&&deckPosters.posters.some(p=>p.elementId===slideModelId),'deck poster command collects slide Design requests');
+  await fs.copyFile(input('continuous'),path.join(root,'plots/continuous.glb'));
+  await fs.copyFile(path.join(inputs,'continuous.fluxplot.json'),path.join(root,'plots/continuous.fluxplot.json'));
+  const deckField=await core.addSlideModel(root,slideDeck.deckId,slide.slideId,path.join(root,'plots/continuous.glb'),{noPoster:true});
+  await mutateDeck(root,slideDeck.deckId,'nested-model-path',async deck=>{
+    const asset=deck.assets.find(a=>a.id===deckField.assetId)!;
+    const next='assets/nested/custom.glb';await fs.mkdir(path.join(root,'slides/models/assets/nested'),{recursive:true});
+    await fs.rename(path.join(root,'slides/models',asset.path),path.join(root,'slides/models',next));asset.path=next;
+  });
+  const mappedDeck=await cli(['set-model-field',deckField.elementId,'height.field','--deck',slideDeck.deckId,'--slide',slide.slideId,'--root',root,'--min','2','--max','2','--cmap','viridis','--no-poster']);
+  h.eq(mappedDeck.element.fields['height.field'].range,[2,2],'built deck field command reads canonical sidecars despite a custom nested GLB path');
+  const externalFigure=(await loadFigModel(root)).project;
+  const externalField=externalFigure.figures.flatMap(f=>f.elements).find(e=>e.id===field.elementId)!;
+  const externalAsset=externalFigure.assets.find(a=>a.id===(externalField as any).assetId)!;
+  await fs.mkdir(path.join(root,'fig/assets/nested'),{recursive:true});
+  await fs.rename(path.join(root,'fig',externalAsset.path),path.join(root,'fig/assets/nested/external.glb'));
+  await core.mutateFigModel(root,'nested-external-model',({project})=>{project.assets.find(a=>a.id===externalAsset.id)!.path='assets/nested/external.glb';});
+  await mutateDeck(root,slideDeck.deckId,'external-model',deck=>{deck.slides.find(s=>s.id===slide.slideId)!.elements.push({...structuredClone(externalField),id:'external-field'});});
+  const externalMapped=await cli(['set-model-field','external-field','height.field','--deck',slideDeck.deckId,'--root',root,'--min','0','--max','3','--no-poster']);
+  h.eq(externalMapped.element.fields['height.field'].range,[0,3],'external Figure model deck edit uses Figure-owned canonical sidecars for nested GLB paths');
+  const mixed=await run(['set-model-view',slideModelId,'--deck',slideDeck.deckId,'--figure',figureId,'--root',root,'--no-poster']);
+  h.ok(mixed.code!==0&&mixed.err.includes('do not mix'),'mixed Figure/deck selectors are refused explicitly');
+  await fs.copyFile(input('states'),path.join(root,'plots/plain.glb'));
+  const plainSlideModel=await core.addSlideModel(root,slideDeck.deckId,slide.slideId,path.join(root,'plots/plain.glb'),{noPoster:true});
+  const plainDeck=await core.loadDeck(root,slideDeck.deckId),plainElement=plainDeck.slides.find(s=>s.id===slide.slideId)!.elements.find(e=>e.id===plainSlideModel.elementId)!;
+  h.ok(plainElement.height===plainDeck.stage.height*.6&&plainElement.x===(plainDeck.stage.width-plainElement.width)/2&&plainElement.y===(plainDeck.stage.height-plainElement.height)/2,'plain GLB CLI placement matches GUI: centered at sixty percent stage height');
   const turn=await run(['add-turntable',slideDeck.deckId,slide.slideId,step.beatId,slideModelId,'--root',root,'--turns','2','--direction','ccw','--duration','2400']);
   assert.equal(turn.code,0,turn.err);
   const track=(await core.loadDeck(root,slideDeck.deckId)).slides.find(s=>s.id===slide.slideId)!.beats.find(b=>b.id===step.beatId)!.tracks.find(t=>t.id===turn.out.trim())!;
-  h.ok(track?.to?.state?.orbitAzimuth===slideModel.orbitAzimuth+720&&track.duration===2400&&track.easing==='linear','built Turntable writes linear unwrapped ordinary Change');
+  h.ok(track?.to?.state?.orbitAzimuth===deckView.element.orbitAzimuth+720&&track.duration===2400&&track.easing==='linear','built Turntable writes linear unwrapped ordinary Change');
   const refused=await run(['add-slide-model',slideDeck.deckId,slide.slideId,input('states'),'--root',root,'--no-poster']);
   h.ok(refused.code!==0,'built slide model import refuses an outside-project absolute source');
   const linkRefused=await run(['add-slide-model',slideDeck.deckId,slide.slideId,path.join(root,'plots/escape.glb'),'--root',root,'--no-poster']);
