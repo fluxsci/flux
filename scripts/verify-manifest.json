@@ -350,7 +350,8 @@
       "verify-model3d-cache-watch.cjs",
       "verify-model3d-import-progress.ts",
       "verify-model3d-deck-assets.ts",
-      "verify-model3d-slide-export.ts"
+      "verify-model3d-slide-export.ts",
+      "verify-slide-model3d.ts"
     ],
     "net": [
       "verify-enrich-live.ts",
@@ -919,7 +920,8 @@
       "verify-model3d-import-progress-gui.mjs",
       "verify-model3d-snapshot-quiet.mjs",
       "verify-model3d-deck-assets.ts",
-      "verify-model3d-slide-export.ts"
+      "verify-model3d-slide-export.ts",
+      "verify-slide-model3d.ts"
     ],
     "model3d-pure": [
       "verify-model3d-glb.ts",
@@ -939,7 +941,8 @@
       "verify-model3d-demo.ts",
       "verify-model3d-import-progress.ts",
       "verify-model3d-deck-assets.ts",
-      "verify-model3d-slide-export.ts"
+      "verify-model3d-slide-export.ts",
+      "verify-slide-model3d.ts"
     ],
     "model3d-ui": [
       "verify-model3d-gui.mjs",
@@ -1100,6 +1103,11 @@
       "verify-zoom-proxy.mjs",
       "verify-model3d-gui.mjs",
       "verify-changed-pathmap.mjs"
+    ],
+    "slide-model3d": [
+      "verify-slide-model3d.ts",
+      "verify-slide-tween.ts",
+      "verify-loadgate.ts"
     ]
   },
   "$pathMap-doc": "WS-7.6b: `run-verifies.mjs --changed` maps `git diff` files through these ORDERED entries (first glob match wins per file; matched `run` sets union; any unmatched file falls back to tier:pure). `self` = a changed verify script runs itself. tier:presence and tier:scale entries activate as those tiers land (unknown names warn + skip).",
@@ -8898,6 +8906,15 @@
       "isolation": "scratch",
       "externalNetwork": false,
       "exclusive": false
+    },
+    "verify-slide-model3d.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
     }
   }
 }
