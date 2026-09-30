@@ -244,7 +244,8 @@ try {
     maps: document.querySelectorAll(".fluxFigMenu .cmp .cm").length,
     bars: [...document.querySelectorAll(".fluxFigMenu .cmp .cm .bar")].every((b) => /gradient/.test(b.getAttribute("style") || "")),
   }));
-  ok(cm.tabs.join("|") === "matplotlib|Crameri|Paul Tol|cmasher" && cm.on === "matplotlib", `Tab opens the colormap picker on the matplotlib collection (${cm.tabs.join("|")})`);
+  // fluxplot's Flexoki house maps lead the collections (2026-09-30, fluxplot B4); the picker still opens on matplotlib
+  ok(cm.tabs.join("|") === "Flexoki|matplotlib|Crameri|Paul Tol|cmasher" && cm.on === "matplotlib", `Tab opens the colormap picker on the matplotlib collection (${cm.tabs.join("|")})`);
   ok(cm.groups.join("|") === "sequential|diverging|cyclic|qualitative|misc" && cm.maps > 80 && cm.bars, `maps are grouped by type with a preview bar each (${cm.maps} maps)`);
   ok(await page.$$eval(".cmp .cm", (rows) => rows.every((r) => r.getBoundingClientRect().height === 22)), "long colormap collections retain readable 22px rows instead of compressing them");
   await page.keyboard.down("Shift"); await page.keyboard.press("Tab"); await page.keyboard.up("Shift");

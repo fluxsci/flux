@@ -15,8 +15,10 @@ import { execFileSync } from 'node:child_process';
 function assert(cond: unknown, msg: string) { if (!cond) throw new Error("FAIL: " + msg); console.log("  ok:", msg); }
 const HEX = /^#[0-9a-f]{6}$/;
 
-// (1) the bundle: four map collections, three palette collections, well-formed
-assert(COLORMAP_COLLECTIONS.map((c) => c.id).join() === "mpl,crameri,tol,cmasher", "four colormap collections in fluxplot's order");
+// (1) the bundle: five map collections (fluxplot's Flexoki house maps first, then the four
+// shipped libraries — bare names resolve through the libraries only, as in fluxplot), three
+// palette collections, well-formed
+assert(COLORMAP_COLLECTIONS.map((c) => c.id).join() === "flexoki,mpl,crameri,tol,cmasher", "five colormap collections in fluxplot's order (Flexoki first)");
 assert(PALETTE_COLLECTIONS.map((c) => c.id).join() === "flexoki,brewer,tol", "three palette collections, Flexoki first");
 let maps = 0;
 for (const c of COLORMAP_COLLECTIONS) {
@@ -73,7 +75,7 @@ for (const c of COLORMAP_COLLECTIONS) for (const m of c.maps) for (const suffix 
   if (pure.map !== ui.map || pure.reversed !== ui.reversed || JSON.stringify(colormapStops(pure.map,pure.reversed)) !== JSON.stringify(colormapStops(ui.map,ui.reversed))) throw Error(`lookup mismatch ${name}`);
   if ('url' in pure.collection || 'license' in pure.collection || 'description' in pure.collection) throw Error('renderer imported UI provenance');
 }
-assert(true, 'all 223 maps and reverses have identical renderer/UI lookup semantics');
+assert(true, `all ${maps} maps and reverses have identical renderer/UI lookup semantics`);
 const scratch = mkdtempSync(path.join(tmpdir(),'flux-colormaps-generate-'));
 try {
   const definitions=path.join(scratch,'src/fluxplot/definitions');mkdirSync(definitions,{recursive:true});
