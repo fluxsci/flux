@@ -338,6 +338,7 @@
       "verify-series-color.ts",
       "verify-plot-data.ts",
       "verify-plot-readout.ts",
+      "verify-plot-value-morph.ts",
       "verify-plot-view-filled.ts",
       "verify-plot-view-twin.ts",
       "verify-id-aliases.ts",
@@ -3085,6 +3086,14 @@
       "glob": "{src/lib/plot/projectDom.ts,src/lib/plot/ticks.ts}",
       "run": [
         "verify-plot-view-filled.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F7: data-order stagger, value morphs by member key and the per-panel build.",
+      "glob": "{src/lib/slide/staggerData.ts,src/lib/slide/autobuild.ts,src/lib/slide/stagger.ts}",
+      "run": [
+        "verify-plot-value-morph.ts",
         "tier:pure"
       ]
     }
@@ -9498,6 +9507,15 @@
       "coverage": "behavior"
     },
     "verify-plot-view-filled.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-value-morph.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

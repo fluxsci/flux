@@ -383,11 +383,12 @@ export function createTransform(
         // this frame's live colour scales (completed from the manifest so an absent end glides),
         // before overrides so explicit paints win
         applyPlotTheme(inst, frameManifest, plotFollowsTheme(p, "slide") ? ctx.theme : null);
-        applyPlotColorScale(inst, frameManifest, tweenColorScales(frameManifest, (pre as SemanticPlotElement).colorScale, (end as SemanticPlotElement).colorScale, t, raw) ?? p.colorScale, p.id);
+        const frameColorScale = tweenColorScales(frameManifest, (pre as SemanticPlotElement).colorScale, (end as SemanticPlotElement).colorScale, t, raw) ?? p.colorScale;
+        applyPlotColorScale(inst, frameManifest, frameColorScale, p.id);
         applyOverrides(inst, p.overrides, p.id, frameManifest);
         ghostOpacity?.(p);
         if (projectionOptions) {
-          projectionOptions.t = t; projectionOptions.raw = raw;
+          projectionOptions.t = t; projectionOptions.raw = raw; projectionOptions.colorScale = frameColorScale;
           applyPlotView(inst, manifestA, (end as SemanticPlotElement).view, p.id, projectionOptions);
         } else applyPlotView(inst, manifestA, p.view, p.id);
         if (intrinsic) {

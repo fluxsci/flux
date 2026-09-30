@@ -27,7 +27,8 @@ import { ELEMENT_CASCADE_PROPS, TRACK_CASCADE_PROPS, type CascadeSpec, type Trac
 
 const staggerSchema = z.object({
   perMs: z.number().nonnegative().optional(), totalMs: z.number().nonnegative().optional(),
-  by: z.enum(["index", "x", "y"]).optional(), from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+  by: z.union([z.enum(["index", "x", "y", "data"]), z.object({ key: z.enum(["value", "count", "index"]) }).strict()]).optional(),
+  from: z.enum(["start", "end", "center", "edges", "random"]).optional(),
   seed: z.number().int().min(0).max(0xffffffff).optional(),
   curve: z.union([
     z.enum(EASING_TOKENS),
@@ -3031,11 +3032,12 @@ export const VERBS: VerbDef[] = [
   },
   {
     name: "set_track", scope: "project", cli: "set-track", cliRoot: "flags",
-    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash).",
+    summary: "Edit a track's linked style, same-beat timing anchor, or timing overrides. anchor is trackId:start|end[:offsetMs]. noStyle materializes inherited fields; noAnchor retains the resolved start. start on an anchored track edits its offset. Stagger Each/Total are exclusive; the distribution uses the clamped curve grammar. Random order uses seed (default: stable track-id hash). staggerBy orders the ramp: index (target order), x / y (data position), data or value (each part's data-value: a hexagon's mean, a cell's value, a bar's height), count (observations per hexagon), data-index.",
     params: {
       deckId: z.string().min(1), slideId: z.string().min(1), trackId: z.string().min(1),
       staggerEach: z.number().nonnegative().optional(), staggerTotal: z.number().nonnegative().optional(),
       staggerCurve: z.string().optional(), staggerFrom: z.enum(["start", "end", "center", "edges", "random"]).optional(),
+      staggerBy: z.enum(["index", "x", "y", "data", "value", "count", "data-index"]).optional(),
       seed: z.number().int().min(0).max(0xffffffff).optional(),
       styleId: z.string().optional(), noStyle: z.boolean().optional(), anchor: z.string().optional(), noAnchor: z.boolean().optional(),
       start: z.number().nonnegative().optional(), duration: z.number().nonnegative().optional(),
@@ -3047,6 +3049,7 @@ export const VERBS: VerbDef[] = [
       { kind: "flag", at: "stagger-total", into: "staggerTotal", as: "number" },
       { kind: "flag", at: "stagger-curve", into: "staggerCurve" },
       { kind: "flag", at: "stagger-from", into: "staggerFrom" },
+      { kind: "flag", at: "stagger-by", into: "staggerBy" },
       { kind: "flag", at: "seed", into: "seed", as: "number" },
       { kind: "pos", at: 0, into: "deckId", required: true }, { kind: "pos", at: 1, into: "slideId", required: true }, { kind: "pos", at: 2, into: "trackId", required: true },
       { kind: "flag", at: "style", into: "styleId" }, { kind: "flag", at: "no-style", into: "noStyle", as: "boolean" },
@@ -3057,11 +3060,16 @@ export const VERBS: VerbDef[] = [
     handler: (ctx, a) => {
       if (a.styleId !== undefined && a.noStyle || a.anchor !== undefined && a.noAnchor) throw new ValidationError("Choose a link or its detach flag, not both");
       const patch: Parameters<typeof core.setTrackVerb>[4] = { ...pick(a, ["start", "duration"]), ...timingCurveArgs(a) };
-      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "seed"].some(k => a[k] !== undefined)) {
+      if (["staggerEach", "staggerTotal", "staggerCurve", "staggerFrom", "staggerBy", "seed"].some(k => a[k] !== undefined)) {
         const stagger: NonNullable<typeof patch.stagger> = {};
         if (a.staggerEach !== undefined) stagger.perMs = n(a.staggerEach);
         if (a.staggerTotal !== undefined) stagger.totalMs = n(a.staggerTotal);
         if (a.staggerFrom !== undefined) stagger.from = a.staggerFrom as typeof stagger.from;
+        if (a.staggerBy !== undefined) {
+          // the CLI spelling: value / count / data-index name the data keys, the rest are the axes
+          const by = s(a.staggerBy);
+          stagger.by = by === "value" ? { key: "value" } : by === "count" ? { key: "count" } : by === "data-index" ? { key: "index" } : by as "index" | "x" | "y" | "data";
+        }
         if (a.seed !== undefined) stagger.seed = n(a.seed);
         if (a.staggerCurve !== undefined) {
           const curve = parseCurve(s(a.staggerCurve));

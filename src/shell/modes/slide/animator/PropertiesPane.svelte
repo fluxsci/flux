@@ -248,6 +248,15 @@
       if (t.id) setTrack(d, sid, t.id, { stagger: p }, manifestFor);
     });
   }
+  /** The select's spelling of a stagger ordering key and back (the data keys are objects). */
+  function staggerByValue(by: Stagger["by"] | undefined): string {
+    if (!by) return "index";
+    if (typeof by === "string") return by === "data" ? "value" : by;
+    return by.key === "index" ? "data-index" : by.key;
+  }
+  function staggerByFrom(value: string): Stagger["by"] {
+    return value === "value" ? { key: "value" } : value === "count" ? { key: "count" } : value === "data-index" ? { key: "index" } : value as "index" | "x" | "y";
+  }
   function staggerMode(total: boolean) {
     editFields((t, resolved) => {
       if (total === (resolved.stagger?.totalMs !== undefined)) return;
@@ -687,8 +696,11 @@
       {@render overrideRow("stagger")}
       {#if curTrack.stagger?.totalMs !== undefined || curTrack.stagger?.perMs}
         <label class="f">by
-          <select aria-label="Stagger order" value={curTrack.stagger?.by ?? "index"} onchange={(e) => patchStagger({ by: e.currentTarget.value as Stagger["by"] })}>
+          <select aria-label="Stagger order" value={staggerByValue(curTrack.stagger?.by)} onchange={(e) => patchStagger({ by: staggerByFrom(e.currentTarget.value) })}>
             <option value="index">order</option><option value="x">x →</option><option value="y">y ↑</option>
+            <option value="value" title="each part's data value (a hexagon's mean, a cell's value, a bar's height): low → high">value</option>
+            <option value="count" title="observations per hexagon: few → many">count</option>
+            <option value="data-index" title="the generator's own index (data-index)">data index</option>
           </select>
         </label>
         <label class="f">from

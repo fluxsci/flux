@@ -83,7 +83,7 @@ export function patchStagger(current: Stagger | undefined, patch: Partial<Stagge
     if (patch[key] !== undefined && (!Number.isFinite(patch[key]) || patch[key]! < 0)) throw new Error(`${key} must be non-negative and finite`);
   }
   if (patch.seed !== undefined && (!Number.isInteger(patch.seed) || patch.seed < 0 || patch.seed > 0xffffffff)) throw new Error("Stagger seed must be an unsigned 32-bit integer");
-  if (patch.by !== undefined && !["index", "x", "y"].includes(patch.by)) throw new Error("Unknown stagger ordering key");
+  if (patch.by !== undefined && !(typeof patch.by === "string" ? ["index", "x", "y", "data"].includes(patch.by) : ["value", "count", "index"].includes(patch.by?.key ?? ""))) throw new Error("Unknown stagger ordering key");
   if (patch.from !== undefined && !["start", "end", "center", "edges", "random"].includes(patch.from)) throw new Error("Unknown stagger origin");
   const next = { ...(current ?? { perMs: 40 }), ...patch };
   if (patch.totalMs !== undefined) delete next.perMs;

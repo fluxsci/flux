@@ -115,10 +115,31 @@ interface PlanTrack {
 /** Walk a plot's build hints → a phase-grouped beat sequence (excludes the empty
  *  resting beat 0; the applier prepends that). Returns [] if the plot has no
  *  parts tree (pre-0.2.0) — the caller should fall back to a whole-element fade. */
-export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: string): Beat[] {
+/** How a plot's build hints become beats: the four shared phases (Axes → Gridlines → Data →
+ *  Legend), or `perPanel` — the same four phases panel by panel, in the manifest's panel order
+ *  with an inset right after its host; figure-scope titles lead, figure legends and
+ *  annotations close (colour-system plan F7). */
+export interface AutoBuildOptions { perPanel?: boolean }
+
+export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: string, options: AutoBuildOptions = {}): Beat[] {
   const xray = buildPartTree(manifest);
   if (!xray) return [];
+  const panels = (manifest as { panels?: { id: string; label?: string; insetOf?: string }[] } | undefined)?.panels ?? [];
+  if (options.perPanel && panels.length > 1) return autoAnimatePanels(manifest!, elId, panels, xray);
 
+  const phases = planPhases(manifest!, xray, manifest?.build?.order ?? [], null);
+  const beats: Beat[] = [];
+  phases.forEach((tracks, ph) => {
+    if (!tracks.length) return;
+    const ids = tracks.map(() => newId("track"));
+    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
+  });
+  return beats;
+}
+
+/** The phase-grouped plan for the build.order entries given; `prefix` restricts a role-ref
+ *  ("gridlines") to one panel's nodes. */
+function planPhases(manifest: FluxPlotManifest, xray: XrayNode, order: readonly string[], prefix: string | null): PlanTrack[][] {
   // index every node by id + by role, and every group MEMBER by its owning
   // group: fluxplot lists a bar series' components (counts.bar.0, .1, …) in
   // build.order while the tree groups them as counts.bars, so a member id
@@ -136,7 +157,6 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
   walk(xray);
 
   const presets = manifest?.build?.presets ?? {};
-  const order = manifest?.build?.order ?? [];
 
   // role-refs in build.order (entries that name no tree node, e.g. "gridlines")
   // claim that role for their own step, so containers don't double-animate it.
@@ -175,16 +195,43 @@ export function autoAnimatePlot(manifest: FluxPlotManifest | undefined, elId: st
     } else if (node) {
       emit(node); // a group ("setosa.points", "counts.bars") or leaf ("fit.line")
     } else {
-      // a role-ref ("gridlines") → every node of that role
-      for (const n of byRole.get(singular(entry)) ?? []) emit(n);
+      // a role-ref ("gridlines") → every node of that role (in this panel, when building per panel)
+      for (const n of byRole.get(singular(entry)) ?? []) if (!prefix || n.id.startsWith(prefix)) emit(n);
     }
   }
+  return phases;
+}
 
+/** The per-panel build: a beat sequence per panel (its four phases), panels in manifest order
+ *  with each inset right after its host, figure-scope parts (unprefixed ids: the suptitle, the
+ *  figure legend, fig.text) as a leading Axes beat and a closing Legend beat. Beat ids are
+ *  `auto-<group>-<phase>`, `autoPhase` counts through the groups so merging and ranking keep
+ *  working. */
+function autoAnimatePanels(manifest: FluxPlotManifest, elId: string, panels: { id: string; label?: string; insetOf?: string }[], xray: XrayNode): Beat[] {
+  const ordered: typeof panels = [];
+  for (const p of panels) {
+    if (p.insetOf) continue;
+    ordered.push(p, ...panels.filter((q) => q.insetOf === p.id));
+  }
+  for (const p of panels) if (!ordered.includes(p)) ordered.push(p); // an inset whose host is unknown
+  const order = manifest.build?.order ?? [];
+  const groups: { label: string; entries: string[]; prefix: string | null }[] = [];
+  const figureEntries = order.filter((e) => !panels.some((p) => e.startsWith(p.id + ".")));
+  const figureLead = figureEntries.filter((e) => /^figure\.(title|xlabel|ylabel|background)$/.test(e));
+  const figureLegends = ((manifest as { figure?: { legends?: string[] } }).figure?.legends ?? []).filter((id) => !order.includes(id));
+  const figureTail = [...figureEntries.filter((e) => !figureLead.includes(e) && e !== "gridlines"), ...figureLegends];
+  if (figureLead.length) groups.push({ label: "Figure", entries: figureLead, prefix: null });
+  for (const p of ordered) groups.push({ label: p.label ?? p.id, entries: order.filter((e) => e.startsWith(p.id + ".") || e === "gridlines"), prefix: p.id + "." });
+  if (figureTail.length) groups.push({ label: "Figure", entries: figureTail, prefix: null });
   const beats: Beat[] = [];
-  phases.forEach((tracks, ph) => {
-    if (!tracks.length) return;
-    const ids = tracks.map(() => newId("track"));
-    beats.push({ id: `auto-${ph}`, generatedBy: "auto-reveal", autoPhase: ph, label: PHASE_LABELS[ph], tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
+  groups.forEach((g, gi) => {
+    const phases = planPhases(manifest, xray, g.entries, g.prefix);
+    phases.forEach((tracks, ph) => {
+      if (!tracks.length) return;
+      const ids = tracks.map(() => newId("track"));
+      beats.push({ id: `auto-${gi}-${ph}`, generatedBy: "auto-reveal", autoPhase: gi * 4 + ph, label: `${g.label} · ${PHASE_LABELS[ph]}`,
+        tracks: tracks.map((pt, i) => ({ ...planToTrack(pt, elId, ph, tracks, ids, i), generatedBy: "auto-reveal" as const })) });
+    });
   });
   return beats;
 }
@@ -357,10 +404,10 @@ function phaseRank(b: Beat, index: number): number {
  *  Legend) so both plots build in coherent layers instead of one clobbering the
  *  other. Returns the number of build beats this element contributed (0 if the
  *  plot had no parts tree — the caller falls back to a whole-element fade). */
-export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: FluxPlotManifest | undefined): number {
+export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: FluxPlotManifest | undefined, options: AutoBuildOptions = {}): number {
   const slide = slideById(deck, slideId);
   if (!slide) return 0;
-  const auto = autoAnimatePlot(manifest, elId);
+  const auto = autoAnimatePlot(manifest, elId, options);
   if (!auto.length) return 0;
   const birth = slide.beats.find(b => b.tracks.some(t => t.target === elId && t.ghostFrom));
 
@@ -368,7 +415,7 @@ export function applyAutoAnimation(deck: Deck, slideId: Id, elId: Id, manifest: 
   //    other element's tracks stay exactly where they are.
   for (const b of slide.beats) {
     // Legacy auto-* phase ownership is recognized once and stamped explicitly.
-    const legacy = /^auto-(?:\d+|ghost-.+-\d+)$/.test(b.id);
+    const legacy = /^auto-(?:\d+|\d+-\d+|ghost-.+-\d+)$/.test(b.id);
     if (legacy) { b.generatedBy = "auto-reveal"; b.autoPhase ??= Number(b.id.match(/(\d+)$/)?.[1] ?? 0); b.autoTarget ??= b.id.match(/^auto-ghost-(.+)-\d+$/)?.[1]; }
     const ownedGroups = new Set(b.tracks.filter(t => t.target === elId && !t.ghostFrom && (t.generatedBy === "auto-reveal" || legacy && !["transform", "media"].includes(familyOf(t)))).map(t => t.groupId).filter(Boolean));
     b.tracks = b.tracks.filter(t => t.target !== elId || !!t.ghostFrom ||

@@ -138,8 +138,17 @@ export function hasTweenableSeries(a?: FluxPlotManifest, b?: FluxPlotManifest): 
   if (!Array.isArray(a?.series) || !Array.isArray(b?.series)) return false;
   return a.series.some(s => {
     const other = b.series.find(v => v.id === s.id);
-    return seriesTweenable(s, other, seriesAxes(a, s), other ? seriesAxes(b, other) : undefined);
+    return seriesTweenable(s, other, seriesAxes(a, s), other ? seriesAxes(b, other) : undefined) || keyedMorphable(s, other);
   });
+}
+
+/** Two versions of a series whose members carry stable keys (fluxplot 0.3.2
+ *  `capabilities.valueMorph`: bars by category, cells and hexagons by row.col) tween member by
+ *  member — height and colour value — even without line / point vertices (F7). */
+export function keyedMorphable(a: FluxPlotSeries, b: FluxPlotSeries | null | undefined): boolean {
+  if (!b || a.id !== b.id || a.rasterized || b.rasterized) return false;
+  if (!(a.capabilities?.valueMorph && b.capabilities?.valueMorph)) return false;
+  return filledLeaves(a).length > 0 && filledLeaves(b).length > 0;
 }
 
 /** Prepared once; sampleSeries writes into reusable storage on the frame path. */

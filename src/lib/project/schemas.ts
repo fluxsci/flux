@@ -47,7 +47,8 @@ const TIMING_CURVE_PROPS = {
 const STAGGER_CURVE = { oneOf: [{ enum: [...EASING_TOKENS] }, CURVE] };
 const STAGGER = { type: "object", anyOf: [{ required: ["perMs"] }, { required: ["totalMs"] }], properties: {
   perMs: { type: "number", minimum: 0 }, totalMs: { type: "number", minimum: 0 },
-  by: { enum: ["index", "x", "y"] }, from: { enum: ["start", "end", "center", "edges", "random"] },
+  by: { anyOf: [{ enum: ["index", "x", "y", "data"] }, { type: "object", required: ["key"], properties: { key: { enum: ["value", "count", "index"] } } }] },
+  from: { enum: ["start", "end", "center", "edges", "random"] },
   seed: { type: "integer", minimum: 0, maximum: 4294967295 }, curve: STAGGER_CURVE,
 } };
 const ARC = { type: "number", minimum: -1, maximum: 1 };

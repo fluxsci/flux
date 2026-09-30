@@ -9,6 +9,7 @@ import { resolveCurve, type ResolvedCurve } from "./curves";
 import { countUpText } from "./player/countup";
 import { seriesAxes, seriesTweenable, plotViewIssues } from "../plot/project";
 import { staggerRanks, staggerSpan, staggerDelay, staggerSeed } from "./stagger";
+import { staggerKey, manifestCoordinates } from "./staggerData";
 import { resolveGhosts, copyFrameSource, ghostBirths, type GhostBirth, type ResolvedGhosts } from "./ghost";
 import { familyOf } from "./family";
 import { presetDef, isEnterPreset, isExitPreset, KNOWN_PRESETS } from "./presetCatalog";
@@ -127,9 +128,9 @@ function compileOrdinarySlide(slide: Slide, stage: StageSize, opts: CompileOptio
         reason: `No matching ${el?.type === "plot" ? "plot" : "semantic"} parts. Retarget this effect.` });
       const start = Math.max(0, track.start ?? 0), duration = trackDuration(track);
       const manifest = el?.type === "plot" ? opts.plotManifest?.(el.assetId) : undefined;
-      const by = track.stagger?.by;
-      const coordinates = by === "x" || by === "y" ? new Map((manifest?.series ?? []).flatMap((s) => (s.points ?? []).map((p) => [p.svgId, p[by]] as const))) : undefined;
-      const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates ? parts.map((id) => coordinates.get(id) ?? null) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined);
+      const staggerBy = staggerKey(track.stagger?.by);
+      const coordinates = staggerBy && manifest ? manifestCoordinates(manifest, parts, staggerBy) : undefined;
+      const ranks = staggerRanks(Math.max(1, parts.length), track.stagger?.from, coordinates, staggerSeed(track), track.stagger?.totalMs !== undefined);
       tracks.push({ track, beat: bi, start, duration, end: start + duration + staggerSpan(track, parts.length), parts, ranks, maxRank: Math.max(0, ...ranks), ease: resolveCurve(track, familyOf(track)) });
     }
     // Same target/property concurrent effects are visible diagnostics, never a

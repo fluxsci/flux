@@ -266,9 +266,12 @@ export interface Stagger {
   seed?: number;
   /** Ordering key for the stagger ramp. "index" = target array order; "x"/"y" =
    *  each target's spatial coordinate (data-x/data-y, falling back to the
-   *  rendered x/y), so points fire left→right ("x") or low→high ("y").
+   *  rendered x/y), so points fire left→right ("x") or low→high ("y"); "data" (or
+   *  `{ key: "value" }`) = each target's data value (data-value: a hexagon's mean, a
+   *  cell's value, a bar's height), `{ key: "count" }` = observations per hexagon
+   *  (data-count), `{ key: "index" }` = the generator's index (data-index).
    *  (The never-implemented "series"/"dom" options were dropped in 0.3.0.) */
-  by?: "index" | "x" | "y";
+  by?: "index" | "x" | "y" | "data" | { key: "value" | "count" | "index" };
   from?: "start" | "end" | "center" | "edges" | "random";
 }
 

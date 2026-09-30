@@ -42,6 +42,7 @@ export { resolveEasing, resolveEasingFn } from "../easing";
 import { resolveCurve, type ResolvedCurve } from "../curves";
 import { compileSlide, type CompiledSlide, type AnimationIssue } from "../compile";
 import { staggerRanks, staggerDelay, staggerSeed } from "../stagger";
+import { staggerKey, manifestCoordinates, nodeCoordinate } from "../staggerData";
 import { cueEnd } from "../video";
 import { isVideoCommand, type VideoEvent } from "../mediaTimeline";
 import { createVideoController } from "./media";
@@ -293,8 +294,12 @@ export function computeSlideAnims(slide: Slide, rendered: RenderedSlide, cameraL
       } : ctx);
       const n = nodes.length;
       const from = track.stagger?.from ?? "start";
-      const by = track.stagger?.by;
-      const ranks = track.stagger ? staggerRanks(n, from, by === "x" || by === "y" ? nodes.map((node) => spatialCoord(node, by)) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
+      const by = staggerKey(track.stagger?.by);
+      // the node's own fluxplot attributes first (data-x / data-value / data-count / data-index),
+      // the manifest for a node that lacks them, so player and compiler rank alike
+      const fallbackManifest = by && by !== "x" && by !== "y" ? manifestFor(track.target, slide, opts, bi) : undefined;
+      const fallback = fallbackManifest && "series" in fallbackManifest ? manifestCoordinates(fallbackManifest as FluxPlotManifest, nodes.map((node) => (node as unknown as { id?: string }).id?.slice(partDomId(track.target, "").length) ?? ""), by!) : undefined;
+      const ranks = track.stagger ? staggerRanks(n, from, by ? nodes.map((node, i) => (by === "x" || by === "y" ? spatialCoord(node, by) : nodeCoordinate(node as unknown as Parameters<typeof nodeCoordinate>[0], by)) ?? fallback?.[i] ?? null) : undefined, staggerSeed(track), track.stagger?.totalMs !== undefined) : [];
       // Mesh targets have no DOM nodes. Furniture in the same binding keeps
       // its rank among ALL semantic leaves, exactly as the mesh sampler does.
       const modelParts = hasPartBinding(track) && transformPreState(slide, track.target, bi)?.type === 'model3d';

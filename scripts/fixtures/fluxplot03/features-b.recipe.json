@@ -7,10 +7,10 @@
   "env": null,
   "generatedAt": "2026-09-30T00:00:00Z",
   "inputs": [],
-  "output": "features.svg",
+  "output": "features-b.svg",
   "outputs": {
-    "manifest": "features.fluxplot.json",
-    "svg": "features.svg"
+    "manifest": "features-b.fluxplot.json",
+    "svg": "features-b.svg"
   },
   "params": {
     "__fluxplot__": {
@@ -19,16 +19,16 @@
         "norm": {
           "kind": "linear"
         },
-        "vmax": 308.5078444658325,
-        "vmin": 11.833419282536106
+        "vmax": 276.26660957663694,
+        "vmin": 5.971323880928756
       },
       "cells.gfp": {
         "cmap": "image.mono:#008000",
         "norm": {
           "kind": "linear"
         },
-        "vmax": 209.64580802980012,
-        "vmin": 1.473830099170711
+        "vmax": 186.60120344133148,
+        "vmin": 2.308262459226006
       },
       "mean": {
         "cmap": "cmasher.rainforest",
@@ -36,13 +36,13 @@
         "norm": {
           "kind": "linear"
         },
-        "vmax": 1.5211036590748694,
-        "vmin": -1.808868830236149
+        "vmax": 1.1279419572259843,
+        "vmin": -0.9667626765441694
       },
       "theme": "light"
     }
   },
-  "plot": "features",
+  "plot": "features-b",
   "provenance": {
     "git": {
       "commit": "562372ac47ee4b925c4078dc42ef5cf4a5947473",

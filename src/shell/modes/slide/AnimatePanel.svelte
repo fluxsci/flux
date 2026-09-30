@@ -72,6 +72,9 @@
     return el && el.type === "plot" ? el : null;
   });
   const selManifest = $derived(selPlot ? manifests[selPlot.assetId] : undefined);
+  /** Build panel by panel (colour-system plan F7): offered when the plot has several panels. */
+  let buildPerPanel = $state(false);
+  const selPanels = $derived(((selManifest as { panels?: unknown[] } | undefined)?.panels?.length ?? 0) > 1);
   const sourceGroup = $derived(!$partSelections.length && sel.length > 1 && !!slide?.elements.some(el => sel.includes(el.id) && el.groupId));
   const appearItems = $derived<MenuItem[]>([
     {label: "Appear", hint: "Add an entrance · Cmd/Ctrl+Shift+A", disabled: !sel.length, action: () => onAction?.("appear")},
@@ -230,7 +233,7 @@
     // Held in an object so TS keeps the union type across the commitDeck closure.
     const hold: { fb: { beatIndex: number; trackId: string } | null } = { fb: null };
     commitDeckLive((d) => {
-      added = applyAutoAnimation(d, sid, plot.id, manifest);
+      added = applyAutoAnimation(d, sid, plot.id, manifest, { perPanel: buildPerPanel });
       // Pre-0.2.0 plots have no parts tree → applyAutoAnimation adds nothing.
       // Fall back to a whole-element fade so the button always animates something.
       if (!added) hold.fb = animateElement(d, sid, plot.id, {});
@@ -331,6 +334,11 @@
       {#if selPlot}
         <button class="magic" onclick={autoAnimate} disabled={!selManifest}
           title={selManifest ? "Build a beat sequence from this plot's own animation hints" : "This plot has no build manifest to auto-animate"}>✨ Auto-animate</button>
+        {#if selPanels}
+          <label class="per-panel" title="Reveal the figure panel by panel (each panel's axes, gridlines, data and legend in turn) instead of layer by layer across all panels">
+            <input type="checkbox" bind:checked={buildPerPanel} /> panel by panel
+          </label>
+        {/if}
       {/if}
 
       {#if sel.length === 1}
@@ -410,7 +418,8 @@
     color: var(--c-tx-muted); margin-right: 4px;
   }
   .spacer { flex: 1; }
-  .b, .magic {
+  .b, .per-panel { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font: 11px var(--font-ui); color: var(--c-tx-muted); }
+  .magic {
     height: 24px; padding: 3px 8px; font: 12px var(--font-ui); line-height: 1;
     color: var(--c-tx-2); background: transparent; border: 1px solid var(--c-line-strong);
     border-radius: var(--r-ui); cursor: var(--cursor-cross-hover); white-space: nowrap;

@@ -29,9 +29,12 @@ HERE = pathlib.Path(__file__).resolve().parent
 OUT = pathlib.Path(os.environ.get("FLUX_FEATURES_OUT") or HERE)
 
 
-def main():
+def main(variant: str = ""):
+    """``variant="b"`` writes ``features-b.*``: the same figure from another draw (seed 4) — the same
+    panels, series and member keys with other bar heights, hexagon values and counts — the second
+    version a slide morph tweens to (F7)."""
     fx.use_light()
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(4 if variant == "b" else 3)
     fig, axes = plt.subplots(2, 3, figsize=(9.6, 5.6), layout="constrained")
     (fit, twin, hexes), (cells, image, spare) = axes
     spare.remove()
@@ -83,11 +86,13 @@ def main():
     fig.suptitle("Feature coverage")
     fig.legend(loc="lower right", ncol=3)
     fig.text(0.01, 0.98, "A", fontweight="bold")
-    fp.save(fig, str(OUT / "features.svg"), recipe=dict(script=os.path.basename(__file__), params={}, inputs=[]),
+    name = "features-b" if variant == "b" else "features"
+    fp.save(fig, str(OUT / f"{name}.svg"), recipe=dict(script=os.path.basename(__file__), params={}, inputs=[]),
             _now="2026-09-30T00:00:00Z")
     plt.close(fig)
-    print("features written to", OUT)
+    print(name, "written to", OUT)
 
 
 if __name__ == "__main__":
     main()
+    main("b")
