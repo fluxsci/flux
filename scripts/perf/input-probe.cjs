@@ -477,7 +477,15 @@ async function figurePhases(mode = 'figure') {
         if (modsDown) win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Control' });
         let lx = hd.x, ly = hd.y;
         for (let i = 1; i <= N; i++) { const th = (i / N) * 2 * Math.PI; const d = (modsDown ? -1 : 1) * (80 * Math.sin(th) + (50 * i) / N); lx = Math.round(hd.x + d); ly = Math.round(hd.y + d * 0.7); mouse({ type: 'mouseMove', button: 'left', modifiers: ['leftButtonDown'], x: lx, y: ly }); await sleep(dt); }
-        await sleep(100); mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly }); await sleep(400);
+        await sleep(100);
+        // PROBE_RESIZE_CHECK=1: the live preview's geometry at the last move (the selection handles' box and the
+        // target's inner <svg> box) + a screenshot, then the same after release — the preview must land where the
+        // commit does. Diagnostic only (it perturbs the phase's timing).
+        const geomJs = `(()=>{const hs=[...document.querySelectorAll('${modeRoot} .overlay-svg rect.handle')].map(r=>{const b=r.getBoundingClientRect();return [b.x+b.width/2,b.y+b.height/2]});const n=document.querySelector('${modeRoot} [data-editor-element-id="${targetId}"] svg')||document.querySelector('${modeRoot} [data-editor-element-id="${targetId}"]');const b=n.getBoundingClientRect();const r=v=>Math.round(v*10)/10;return {handles:hs.length?{x0:r(Math.min(...hs.map(h=>h[0]))),y0:r(Math.min(...hs.map(h=>h[1]))),x1:r(Math.max(...hs.map(h=>h[0]))),y1:r(Math.max(...hs.map(h=>h[1])))}:null,target:{x0:r(b.x),y0:r(b.y),x1:r(b.right),y1:r(b.bottom)}}})()`;
+        const check = process.env.PROBE_RESIZE_CHECK === '1';
+        if (check) { log('geomLive', await js(geomJs)); fs.writeFileSync(path.join(out, `${name}-live.png`), (await win.webContents.capturePage()).toPNG()); }
+        mouse({ type: 'mouseUp', button: 'left', clickCount: 1, x: lx, y: ly }); await sleep(400);
+        if (check) { await sleep(300); log('geomCommitted', await js(geomJs)); fs.writeFileSync(path.join(out, `${name}-committed.png`), (await win.webContents.capturePage()).toPNG()); }
       }, tr(name));
       R[name].imports = await readImports(name);
       await undo();
