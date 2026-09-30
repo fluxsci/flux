@@ -1738,8 +1738,17 @@ Persistence invariants (all machine-checked — do not weaken):
     at exactly 16×.
   - **A zoom burst can use a bounded raster proxy** (`interact/zoomProxy.ts` + Canvas).
     After 1.5 s of quiet and an idle slot, eligible mounted scenes (≤20k nodes) are
-    serialized in world units and rasterized once to PNG. Caps are 4096 px / 3 MP
-    INCLUDING device scale. The fully invisible resting image becomes visible only
+    serialized in world units and drawn once into a 2D canvas that IS the proxy
+    bitmap (2026-09-30: `canvas.toBlob` → PNG blocked the main thread 24–81 ms on a
+    synchronous GPU flush/readback; the hosted canvas is rasterized by the GPU
+    process). Caps are 4096 px / 3 MP INCLUDING device scale for the sharp region
+    (view ± ½ host); a coarse whole-mounted-scene canvas (≤1 MP) from the SAME
+    parse sits behind it, so a zoom-out from deep zoom stays covered. A lost
+    canvas context drops the snapshot. The serializer must emit XML: `innerHTML`
+    writes U+00A0 as `&nbsp;`, which made every snapshot of a matplotlib scene
+    fail to decode (no proxy at all, silently) until 2026-09-30. A re-cull
+    during a proxied burst does not end the proxy by itself; a changed mounted
+    set changes the scene key, and the key check ends it in the same flush. The fully invisible resting image becomes visible only
     while its scene key and world coverage are valid. It shares `.scene-clip` with
     the live SVG, including Slide camera clipping. The key includes model/plot
     revisions, mounted set, presentation, grid and editing chrome. Check coverage

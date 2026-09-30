@@ -64,7 +64,7 @@ try{
  check(await page.$('[data-editor-element-id="camera-box"]')===null,'Show hidden off removes the object from the editable scene');
  // The shared Canvas raster must obey the camera's stage clip too.
  await page.mouse.move(host.x+200,host.y+200);
- await waitFor(page,()=>{const p=document.querySelector('.canvas-wrap .zoom-proxy');return p?.complete&&p.naturalWidth>0&&!p.classList.contains('live')},null,{timeout:20000,label:'slide snapshot'});
+ await waitFor(page,()=>{const p=document.querySelector('.canvas-wrap .zoom-proxy');return p?.firstElementChild?.width>0&&!p.classList.contains('live')},null,{timeout:20000,label:'slide snapshot'});
  await page.keyboard.down('Control');await page.mouse.wheel({deltaY:-15});
  check(await page.$eval('.canvas-wrap .zoom-proxy',p=>p.classList.contains('live')&&!!p.closest('.scene-clip')&&getComputedStyle(p.closest('.scene-clip')).clipPath!=='none'),'zoom raster shares the live Slide camera clip');
  await clickText('.edit-switch button','Design');
