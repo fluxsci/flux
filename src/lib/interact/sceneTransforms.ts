@@ -16,9 +16,11 @@ export function transientSceneTransforms() {
       apply(id, node);
       return { destroy() { if (nodes.get(id) === node) nodes.delete(id); } };
     },
-    update(move: ReadonlySet<string> | null, moveTransform: string, rotate: ReadonlySet<string> | null, rotateTransform: string) {
+    // `perElement` (resize preview): an individual transform per wrapper, for gestures whose
+    // transient differs per element (a plot's box → its remapped box).
+    update(move: ReadonlySet<string> | null, moveTransform: string, rotate: ReadonlySet<string> | null, rotateTransform: string, perElement?: ReadonlyMap<string, string> | null) {
       const previous = transforms;
-      transforms = new Map();
+      transforms = new Map(perElement ?? []);
       for (const id of rotate ?? []) transforms.set(id, rotateTransform);
       for (const id of move ?? []) transforms.set(id, moveTransform);
       for (const id of new Set([...previous.keys(), ...transforms.keys()])) {
