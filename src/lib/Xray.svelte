@@ -46,6 +46,7 @@
   import { plotSourceCandidates, toProjectRelativeSource } from "./plot/source";
   import type { SemanticPlotElement } from "./types";
   import { plotManifests, plotRecipes } from "./plot/store";
+  import { partReadout, readoutText } from "./plot/readout";
   import { buildXrayTree, partRowId, commonPartRows, targetLabel, type XRow, type XrayTarget } from "./xray/buildXrayTree";
   import { membersDeep } from "./groups";
   import * as ops from "./ops";
@@ -178,6 +179,19 @@
   let mode: "tree" | "search" = "tree";
   let animMenu = false;
   let panelEl: HTMLDivElement;
+  // plan F6: the hovered row's data readout (a point's x/y, a bar's height, a hexagon's count …)
+  let rowReadout: { id: string; text: string } | null = null;
+  function readoutForRow(n: XRow): { id: string; text: string } | null {
+    if (n.kind !== "part" || !n.partId) return null;
+    const el = n.elementId ? findEl(n.elementId) : rootPlot;
+    if (!el || el.type !== "plot") return null;
+    const text = readoutText(partReadout($plotManifests[el.assetId], n.partId));
+    return text ? { id: n.id, text } : null;
+  }
+  function findEl(id: string) {
+    for (const f of get(project).figures) for (const e of f.elements) if (e.id === id) return e;
+    return undefined;
+  }
   let searchEl: HTMLInputElement;
 
   async function revealPrimary() {
@@ -764,6 +778,8 @@
                 data-kind={r.node.kind}
                 data-rid={r.node.id}
                 style={`padding-left:${6 + r.depth * 14}px`}
+                title={rowReadout?.id === r.node.id ? rowReadout.text : undefined}
+                on:mouseenter={() => (rowReadout = readoutForRow(r.node))}
                 on:click={(e) => onRowClick(e, r.node)}
                 on:dblclick={() => onRowDblClick(r.node)}
               >

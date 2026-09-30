@@ -337,6 +337,7 @@
       "verify-colorscale-verb.ts",
       "verify-series-color.ts",
       "verify-plot-data.ts",
+      "verify-plot-readout.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
@@ -1334,6 +1335,14 @@
       "glob": "{src/lib/color/cvd.ts,src/lib/ViewAsToggle.svelte,scripts/fixtures/cvd_machado.json}",
       "run": [
         "verify-cvd-filter.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F6: hover readouts (plot/readout.ts) for the canvas deep-hover box and the X-ray rows.",
+      "glob": "src/lib/plot/readout.ts",
+      "run": [
+        "verify-plot-readout.ts",
         "tier:pure"
       ]
     },
@@ -9431,6 +9440,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 180000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-readout.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
       "exclusive": false,
       "coverage": "behavior"
     }

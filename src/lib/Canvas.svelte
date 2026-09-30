@@ -55,6 +55,7 @@
   import { serializeSceneSnapshot, proxyTransform as zoomProxyTransform, snapshotFontCss, snapshotScale, snapshotRegion, snapshotCovers, type ZoomSnapshot } from "./interact/zoomProxy";
   import { clampZoom } from "./interact/zoomLimits";
   import { viewAs, viewAsFilter } from "./color/cvd";
+  import { partReadout, readoutText, nodeAttrs } from "./plot/readout";
   import { computeResizeBox } from "./interact/gestureMath";
   import { snap, boxSnapTargets } from "./interact/snap";
   import { commitArrange } from "./keyboard";
@@ -289,7 +290,7 @@
   // Deep-select affordance (screen px): with ctrl/meta held at rest over a
   // plot, the part a ctrl-click would drill to is outlined (Figma's
   // deep-target hover). Cleared on modifier release / gesture start / leave.
-  let partHover: { x: number; y: number; w: number; h: number } | null = null;
+  let partHover: { x: number; y: number; w: number; h: number; text?: string } | null = null;
   let frameDraft: Rect | null = null;
   let gNb: Rect | null = null;
   let liveBox: Rect | null = null;
@@ -2043,19 +2044,22 @@
 
   // Screen-px box of the deep-select target under the pointer (the hovered
   // plot's REAL part), or null when there's nothing a ctrl-click would drill.
-  function partHoverBox(ev: PointerEvent): { x: number; y: number; w: number; h: number } | null {
+  function partHoverBox(ev: PointerEvent): { x: number; y: number; w: number; h: number; text?: string } | null {
     const hid = $hoverId;
     if (!hid || !hostEl) return null;
     const f = findElement($project, hid);
     if (!f || f.element.type !== "plot" || effLocked(f.element)) return null;
     const pid = partAtPoint(f.element, ev);
-    if (!pid || isScaffoldPart($plotManifests[f.element.assetId], pid)) return null;
+    const manifest = $plotManifests[f.element.assetId];
+    if (!pid || isScaffoldPart(manifest, pid)) return null;
     const node = document.getElementById(partDomId(f.element.id, pid));
     if (!node) return null;
     const r = node.getBoundingClientRect();
     const h = hostEl.getBoundingClientRect();
     const O = 2;
-    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O };
+    // plan F6: say what the part IS in data terms (a point's x/y, a bar's height, a hexagon's count …)
+    const text = readoutText(partReadout(manifest, pid, nodeAttrs(node)));
+    return { x: r.left - h.left - O, y: r.top - h.top - O, w: r.width + 2 * O, h: r.height + 2 * O, ...(text ? { text } : {}) };
   }
 
   // Arm a part-move gesture on the live mounted node. Returns false when the
@@ -4241,7 +4245,7 @@
       />
     {/if}
 
-    <!-- deep-select hover target (ctrl/meta held over a plot part) -->
+    <!-- deep-select hover target (ctrl/meta held over a plot part), with its data readout -->
     {#if partHover && !gesture}
       <rect
         class="part-hover"
@@ -4251,6 +4255,15 @@
         height={partHover.h}
         fill="none"
       />
+      {#if partHover.text}
+        {@const readoutLines = partHover.text.split("\n")}
+        <g class="part-readout" data-part-readout transform={`translate(${partHover.x + partHover.w + 6} ${partHover.y})`}>
+          <rect class="part-readout-bg" x="0" y="0" width={Math.max(...readoutLines.map((l) => l.length)) * 6.2 + 12} height={readoutLines.length * 14 + 8} rx="3" />
+          {#each readoutLines as line, i}
+            <text class="part-readout-text" class:title={i === 0} x="6" y={16 + i * 14}>{line}</text>
+          {/each}
+        </g>
+      {/if}
     {/if}
 
     <!-- pen preview: committed curve (solid) + rubber-band to cursor (dashed) -->
@@ -4673,6 +4686,9 @@
     vector-effect: non-scaling-stroke;
   }
   /* lighter than .part-box: a PREVIEW of what ctrl-click would drill to */
+  .part-readout-bg { fill: var(--surface-2, #1c1b1a); fill-opacity: 0.94; stroke: var(--line, #8884); stroke-width: 1; }
+  .part-readout-text { font: 11px var(--font-mono, ui-monospace, monospace); fill: var(--tx, #cecdc3); pointer-events: none; }
+  .part-readout-text.title { fill: var(--accent, #4385be); }
   .part-hover {
     stroke: var(--c-accent-bright);
     stroke-width: 1;
