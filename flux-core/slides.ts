@@ -60,6 +60,7 @@ import { isNewerSchema, newerSchemaMessage } from "../src/lib/project/types";
 import type { Box, TextOpts } from "../src/lib/ops";
 import { setPlotView, setPlotColorScale, setSeriesColor } from "../src/lib/ops";
 import { seriesParts } from "../src/lib/plot/seriesColor";
+import { plotData, type PlotDataOptions, type PlotDataResult } from "../src/lib/plot/plotData";
 import { plotViewPatch, type PlotViewFields } from "../src/lib/plot/viewControls";
 import { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
 import { plotColorScaleIssues } from "../src/lib/plot/colorScaleDom";
@@ -583,6 +584,43 @@ export async function setSeriesColorVerb(root: string, target: string, elementId
     if (el?.type !== "plot") throw new ValidationError(`Plot not found: ${elementId ?? "(one plot expected)"} in ${target}`);
     return apply({ figures: [{ elements: [el] }] } as Project, el, deckId);
   });
+}
+
+/** A plot's data from its manifest (colour-system plan F5): series with exact values and per-point
+ *  ids, fluxplot's payloads (hexmatrix bins, glowbar / fluxbox statistics, distributions, field
+ *  values, image channels, bands), colour scales (tables on request), axis domains and scales,
+ *  overlays with their statistics. Long arrays are windowed by offset / limit and every cut is
+ *  reported. A figure target reads the figure's plot (elementId optional when it has one), a
+ *  deckId/slideId target the slide's copy. */
+export async function getPlotData(root: string, target: string, elementId: string | undefined, opts: PlotDataOptions = {}): Promise<PlotDataResult & { target: string; elementId: string }> {
+  const parts = target.split("/");
+  let el: SemanticPlotElement | undefined, deckId: string | undefined;
+  const pickPlot = (elements: { id: string; type: string }[]) => {
+    if (elementId) return elements.find(e => e.id === elementId);
+    const plots = elements.filter(e => e.type === "plot");
+    if (plots.length !== 1) throw new ValidationError(`${target} has ${plots.length} plots; pass elementId.`);
+    return plots[0];
+  };
+  if (parts.length === 1) {
+    const { project } = await loadFigModel(root);
+    const figure = project.figures.find(f => f.id === target);
+    if (!figure) throw new ValidationError(`Figure not found: ${target}`);
+    const found = pickPlot(figure.elements);
+    if (found?.type === "plot") el = found as SemanticPlotElement;
+  } else {
+    if (parts.length !== 2 || parts.some(p => !p)) throw new ValidationError("Use a figureId or deckId/slideId target.");
+    const [id, slideId] = parts;
+    deckId = id;
+    const deck = await loadDeck(root, id);
+    const slide = mustSlide(deck, slideId);
+    const found = pickPlot(slide.elements);
+    if (found?.type === "plot") el = found as SemanticPlotElement;
+  }
+  if (!el) throw new ValidationError(`Plot not found: ${elementId ?? "(one plot expected)"} in ${target}`);
+  const manifest = await readPlotManifest(root, el, deckId);
+  if (!manifest) throw new ValidationError(`Plot ${el.id} has no manifest (a plain SVG has no data to read).`);
+  try { return { target, elementId: el.id, ...plotData(manifest, opts) }; }
+  catch (e) { throw new ValidationError(e instanceof Error ? e.message : String(e)); }
 }
 
 /** What an agent needs before editing a plot's colours: every scale with its generated

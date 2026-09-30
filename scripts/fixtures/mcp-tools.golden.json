@@ -75,6 +75,7 @@
   "get_pack_image",
   "get_paper_text",
   "get_plot_color_scales",
+  "get_plot_data",
   "get_reading_context",
   "get_target",
   "get_view",

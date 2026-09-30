@@ -148,6 +148,14 @@ a colour-mapped series (heatmap, hexmatrix, scatter with c=) is refused — edit
 `set-plot-color-scale` instead. `restyle` of a series' whole line or points repaints its legend
 swatch too, so the key never lies about the colour.
 
+To reason about a figure precisely, read its data instead of its picture:
+`get-plot-data <figureId> [elementId] [--series id] [--fields series,axes,overlays] [--offset n --limit n]`
+returns the manuscript-grade facts fluxplot recorded — every series' exact x/y and per-point ids,
+hexmatrix bins (count, value, x, y per hexagon), glowbar / fluxbox statistics, histogram
+distributions, heatmap values, image channels, axis domains, and each significance bracket's test,
+p and effect size. Long arrays are windowed (`pages` lists every cut with its true length): page
+with `--offset` rather than asking for everything.
+
 Use `--state inflated=.5 --state bent=.2` to patch named weights (`0` removes a
 weight), or `--frame 2.5` for a sequence; the two forms are exclusive. `--state` is
 the only repeatable flag; duplicate names, unknown shapes and non-finite weights are

@@ -154,6 +154,7 @@ export {
   setPlotColorScaleVerb,
   getPlotColorScales,
   setSeriesColorVerb,
+  getPlotData,
   type SeriesColorVerbResult,
   type ColorScaleVerbFields,
   type ColorScaleVerbResult,
@@ -177,6 +178,7 @@ export { normalize as colorScaleNormalize, lookup as colormapLookup, colorFor as
 export { colorScalePatch, controlFromView, normKindsFor, pickScale, type ColorScaleFields } from "../src/lib/plot/colorScaleControls";
 export { setPlotColorScale, setSeriesColor } from "../src/lib/ops";
 export { seriesColorPatch, seriesParts, seriesPartIds, legendSwatchesOf, seriesOf, seriesPrimaryOf, seriesColorIssue } from "../src/lib/plot/seriesColor";
+export { plotData, paginate as paginatePlotData, type PlotDataOptions, type PlotDataResult } from "../src/lib/plot/plotData";
 export { colormapLut, ensureColormapLuts } from "../src/lib/color/colormapLuts";
 // Shared plot projection and figure-model view mutation.
 export { viewFits, projectSeries, seriesTweenable, dataOfPixel, axisFit, projectWith, blendFit, seriesAxes, seriesVertices, hasTweenableSeries, plotViewIssues } from "../src/lib/plot/project";

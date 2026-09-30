@@ -3172,6 +3172,28 @@ export const VERBS: VerbDef[] = [
     },
   },
   {
+    name: "get_plot_data", readOnly: true, scope: "project", cli: "get-plot-data", cliRoot: "flags",
+    notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
+    summary: "Read a plot's DATA from its fluxplot manifest instead of squinting at a PNG: every series with exact nullable x/y, per-point ids and its colour; fluxplot's payloads (hexmatrix bins with count/value/x/y per hexagon, glowbar and fluxbox statistics, histogram distributions, heatmap/contour field values and levels, image channels, bands, bars); the colour scales (tables only with --fields lut); axis domains and scales; overlays (a significance bracket with the test, p and effect size behind it). --series narrows to one series; --fields to sections (series,colorScales,axes,overlays,guides,style). Arrays longer than --limit (default 1000, max 10000) are windowed from --offset and every cut is listed in `pages` with its true length: page through big data instead of pulling it whole.",
+    params: { target: z.string(), elementId: z.string().optional(), seriesId: z.string().optional(), fields: z.union([z.string(), z.array(z.string())]).optional(), offset: z.number().int().min(0).optional(), limit: z.number().int().min(1).max(10000).optional() },
+    cliArgs: [
+      { kind: "pos", at: 0, into: "target", required: true },
+      { kind: "pos", at: 1, into: "elementId" },
+      { kind: "flag", at: "series", into: "seriesId" },
+      { kind: "flag", at: "fields", into: "fields" },
+      { kind: "flag", at: "offset", into: "offset", as: "number" },
+      { kind: "flag", at: "limit", into: "limit", as: "number" },
+    ],
+    handler: (ctx, a) => {
+      const fields = typeof a.fields === "string" ? a.fields.split(",") : Array.isArray(a.fields) ? (a.fields as string[]) : undefined;
+      return core.getPlotData(ctx.root, s(a.target), a.elementId as string | undefined, { seriesId: a.seriesId as string | undefined, fields, offset: a.offset as number | undefined, limit: a.limit as number | undefined });
+    },
+    render: {
+      human: (r) => ({ out: JSON.stringify(r, null, 2) }),
+      mcp: (r) => text(JSON.stringify(r)),
+    },
+  },
+  {
     name: "set_series_color", scope: "project", cli: "set-series-color", cliRoot: "flags",
     notAPath: { target: "Figure id or deckId/slideId, not a filesystem path" },
     summary: "Give a whole plot series one colour: its line (stroke), points (face + edge), bars / band (fill), error bars, and its legend swatch — one override per part, all surviving regeneration (restyle_part colours ONE part; this colours the series and keeps the key honest). target is a figureId (elementId optional when it has one plot) or deckId/slideId (the slide's Design). color is #rrggbb; --clear (or color null) restores the generated colours. A colour-mapped series (a heatmap, hexmatrix, scatter c=) is refused: edit its colour scale with set_plot_color_scale.",

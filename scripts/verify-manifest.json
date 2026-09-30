@@ -336,6 +336,7 @@
       "verify-cvd-filter.ts",
       "verify-colorscale-verb.ts",
       "verify-series-color.ts",
+      "verify-plot-data.ts",
       "verify-slide-stagger.ts",
       "verify-model3d-glb.ts",
       "verify-model3d-core.ts",
@@ -1333,6 +1334,15 @@
       "glob": "{src/lib/color/cvd.ts,src/lib/ViewAsToggle.svelte,scripts/fixtures/cvd_machado.json}",
       "run": [
         "verify-cvd-filter.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F5: get_plot_data reads a plot's data from its manifest (plot/plotData.ts) with windowed arrays.",
+      "glob": "src/lib/plot/plotData.ts",
+      "run": [
+        "verify-plot-data.ts",
+        "verify-registry-parity.ts",
         "tier:pure"
       ]
     },
@@ -9412,6 +9422,15 @@
       "externalNetwork": false,
       "isolation": "scratch",
       "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-data.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 180000,
       "exclusive": false,
       "coverage": "behavior"
     }
