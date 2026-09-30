@@ -64,7 +64,7 @@ try {
       <defs><linearGradient id="audit-gradient"><stop stop-color="#3080d0"/><stop offset="1" stop-color="#df9050"/></linearGradient><clipPath id="audit-clip"><rect x="210" y="95" width="140" height="65"/></clipPath></defs>
       <rect class="figure-bg" x="2" y="2" width="396" height="236" fill="#fff" stroke="#123456" stroke-width="1" vector-effect="non-scaling-stroke"/>
       <path class="grid" d="M20 85H380M20 115H380M20 145H380M20 175H380M50 70V200M110 70V200"/>
-      <text x="20" y="45">Gelasio: wide &amp; thin</text>
+      <text x="20" y="45">Gelasio: wide &amp;&nbsp;thin</text>
       <g clip-path="url(#audit-clip)"><rect x="190" y="75" width="190" height="110" fill="url(#audit-gradient)" transform="rotate(12 280 120)"/></g>
       <g class="editing-hidden"><rect width="400" height="240" fill="red"/></g>
     </g></svg>`;
