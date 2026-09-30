@@ -338,6 +338,7 @@
       "verify-series-color.ts",
       "verify-plot-data.ts",
       "verify-plot-readout.ts",
+      "verify-plot-view-filled.ts",
       "verify-plot-view-twin.ts",
       "verify-id-aliases.ts",
       "verify-slide-stagger.ts",
@@ -3076,6 +3077,14 @@
       "glob": "{src/lib/plot/project.ts,src/lib/plot/projectDom.ts,src/lib/plot/viewControls.ts}",
       "run": [
         "verify-plot-view-twin.ts",
+        "tier:pure"
+      ]
+    },
+    {
+      "$why": "2026-09-30 colour-system plan F4: the axis view re-ticks the viewed axis and re-projects filled marks (bars, cells, hexagons) vertex by vertex.",
+      "glob": "{src/lib/plot/projectDom.ts,src/lib/plot/ticks.ts}",
+      "run": [
+        "verify-plot-view-filled.ts",
         "tier:pure"
       ]
     }
@@ -9480,6 +9489,15 @@
       "coverage": "behavior"
     },
     "verify-plot-view-twin.ts": {
+      "runtime": "tsx",
+      "prerequisites": [],
+      "externalNetwork": false,
+      "isolation": "scratch",
+      "timeoutMs": 120000,
+      "exclusive": false,
+      "coverage": "behavior"
+    },
+    "verify-plot-view-filled.ts": {
       "runtime": "tsx",
       "prerequisites": [],
       "externalNetwork": false,

@@ -50,13 +50,33 @@ for (const id of ["", "placed"] as const) {
   near(projectWith(viewFits(scatter.manifest)!.x, point.x) + dx, projectWith(scatterFits.x, point.x), "marker translated to projected datum", .00501);
 }
 
-h.section("guide motion and edge fade");
+h.section("re-ticked axis at rest (F4) and guide motion in a tween");
+// a static view regenerates the viewed axis' ticks: the generated ones hide, clones sit at nice
+// positions for the new domain with ScalarFormatter labels
 const guide = [...originalGuides].find(([id, g]) => id.includes("axis.x.tick.") && g.value > 2.8 && g.value < 3.2)!;
 const guideNode = root.querySelector(`[id="${guide[0]}"]`)! as SVGElement;
+h.eq(guideNode.style.display, "none", "a generated tick of the viewed axis is hidden at rest");
+const viewTicks = Array.from(root.querySelectorAll('[data-projection-tick][id*="axis.x.tick."]'));
+h.ok(viewTicks.length >= 3, `ticks are regenerated for the new domain (${viewTicks.length})`);
+const viewLabels = Array.from(root.querySelectorAll('[data-projection-tick][id*="axis.x.ticklabel."]')).map(n => n.textContent?.trim());
+h.eq(viewLabels, ["2.0", "2.5", "3.0", "3.5", "4.0"], `regenerated labels are the nice 1·2·5 ticks of [2, 4] with uniform decimals (${viewLabels.join(" ")})`);
+const tpl = [...originalGuides].find(([id, g]) => id.includes("axis.x.tick.") && root.querySelector(`[id="${id}"]`))!;
+const cloneAt3 = viewTicks[viewLabels.indexOf("3.0")] as SVGElement;
+const cloneDelta = Number((cloneAt3.getAttribute("transform") ?? "").match(/translate\(([-\d.]+)/)?.[1] ?? NaN);
+const tplOrigin = projectWith(sourceFits.x, [...originalGuides].find(([id]) => id === cloneAt3.getAttribute("id")!.replace(/\.view\.\d+$/, ""))![1].value);
+near(tplOrigin + cloneDelta, projectWith(fits.x, 3), "a regenerated tick sits at the view fit's projection of its value");
+h.ok(!root.querySelector('[data-projection-tick][id*="axis.y."]'), "an axis the view leaves alone is not re-ticked");
+restoreProjection(root);
+h.eq(root.querySelectorAll("[data-projection-tick]").length, 0, "restore removes the regenerated ticks");
+h.ok(!guideNode.style.display, "and shows the generated ones again");
+// in a tween (opts present) the generated ticks move and fade instead
+applyPlotView(root, sine.manifest, zoom, "", { t: 1 });
 const delta = Number((guideNode.getAttribute("transform") ?? "").match(/translate\(([-\d.]+)/)?.[1] ?? NaN);
 near(projectWith(sourceFits.x, guide[1].value) + delta, projectWith(fits.x, guide[1].value), "guide moves by its recovered data value");
 const outside = [...originalGuides].find(([id, g]) => id.includes("axis.x.tick.") && g.value < 1)!;
 h.ok((root.querySelector(`[id="${outside[0]}"]`)! as SVGElement).style.opacity === "0", "outside tick fades to zero");
+restoreProjection(root);
+applyPlotView(root, sine.manifest, zoom, "");
 const label = [...originalGuides].find(([id]) => id === guide[0].replace(".tick.", ".ticklabel."))!;
 near(label[1].value, guide[1].value, "tick and transformed label recover the same datum");
 
@@ -96,12 +116,26 @@ applyPlotView(invalidRoot, invalid, logView, "");
 h.ok(xy(invalidRoot, "2hz.line").join() === originalLine, "non-positive series is refused, never written as NaN");
 h.ok(plotViewIssues(invalid, logView).some(x => x.includes("non-positive")), "refused log series has a documented issue");
 
-h.section("filled marks stay unchanged");
+h.section("filled marks re-project (F4)");
 const barRoot = bars.root(), barIds = bars.manifest.series[0].svg.bars!;
 const barBytes = barIds.map(id => barRoot.querySelector(`[id="${id}"]`)!.toString());
-applyPlotView(barRoot, bars.manifest, { y: { domain: [2, 4] } }, "");
-h.ok(barIds.every((id, i) => barRoot.querySelector(`[id="${id}"]`)!.toString() === barBytes[i]), "bar paths are untouched");
-h.ok(plotViewIssues(bars.manifest, zoom).some(x => x.includes("filled marks")), "filled-mark limitation is explicit");
+const barRaw = viewFits(bars.manifest)!, barView: PlotView = { y: { domain: [2, 4] } }, barFits = viewFits(bars.manifest, barView)!;
+const barBox = (id: string) => { const n = xy(barRoot, id); const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1); return [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]; };
+const before0 = barBox(barIds[0]);
+applyPlotView(barRoot, bars.manifest, barView, "");
+h.ok(barIds.every((id, i) => barRoot.querySelector(`[id="${id}"]`)!.toString() !== barBytes[i]), "bar paths are rewritten");
+const after0 = barBox(barIds[0]);
+// the rewritten box is the generated box re-projected: y through the new fit, x unchanged
+near(after0[0], before0[0], "a bar keeps its x extent", 1e-3); near(after0[1], before0[1], "(right edge too)", 1e-3);
+near(after0[2], projectWith(barFits.y, dataOfPixel(barRaw.y, before0[2])), "a bar's top follows the view fit", 1e-3);
+near(after0[3], projectWith(barFits.y, dataOfPixel(barRaw.y, before0[3])), "and its base", 1e-3);
+const barPayload = bars.manifest.series[0].bar as { baseline?: number[]; length?: number[] } | undefined;
+if (barPayload?.length) near(after0[2], projectWith(barFits.y, (barPayload.baseline?.[0] ?? 0) + barPayload.length[0]), "the top equals the projected data height", 1e-2);
+restoreProjection(barRoot);
+h.ok(barIds.every((id, i) => barRoot.querySelector(`[id="${id}"]`)!.toString() === barBytes[i]), "restore puts the generated bar bytes back");
+h.ok(!plotViewIssues(bars.manifest, barView).some(x => x.includes("unchanged")), "no filled-mark limitation is reported for re-projectable bars");
+const imageLike = structuredClone(bars.manifest); imageLike.series[0].rasterized = true;
+h.ok(plotViewIssues(imageLike, barView).some(x => x.includes("remain unchanged")), "a rasterized layer is still called out");
 
 h.section("model merge/delete, shallow state capture and interpolation");
 const el: SemanticPlotElement = { id: "p", type: "plot", assetId: "sine", x: 0, y: 0, width: 480, height: 144, rotation: 0 };

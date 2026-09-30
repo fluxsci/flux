@@ -200,20 +200,47 @@ export function guideData(manifest: FluxPlotManifest, root: Element, elId = ""):
   return out;
 }
 
+/** Roles whose members are polygons a view can re-project vertex by vertex (F4). */
+const FILLED_ROLES = new Set(["bar", "area", "box", "violin", "whisker", "cap", "median", "mean", "flier", "segment", "errorbar",
+  "x-heatmap", "x-hexbin", "x-contourf", "x-contour", "x-hex", "cell", "contour-level"]);
+/** The leaf ids of a series' filled marks (bars, cells, hexagons, bands, box parts …) that a view
+ *  re-projects — the SVG decides whether each really is a polygon. Lines and points are the
+ *  vertex machinery's; images have no vertices. */
+export function filledLeaves(s: FluxPlotSeries): string[] {
+  if (s.rasterized || s.kind === "image") return [];
+  const out = new Set<string>(), groups = new Set<string>();
+  for (const c of s.components ?? []) {
+    if (c.role === "point" || c.role === "line") continue;
+    if (c.members?.length && (FILLED_ROLES.has(c.role) || FILLED_ROLES.has(c.memberRole ?? ""))) { groups.add(c.svgId); for (const m of c.members) out.add(m); }
+    else if (FILLED_ROLES.has(c.role)) out.add(c.svgId);
+  }
+  for (const [role, v] of Object.entries(s.svg ?? {})) {
+    if (role === "line" || role === "points") continue;
+    if (Array.isArray(v)) { if (FILLED_ROLES.has(role.replace(/s$/, "")) || FILLED_ROLES.has(role)) for (const id of v) out.add(id); }
+    else if (typeof v === "string" && FILLED_ROLES.has(role)) out.add(v);
+  }
+  for (const g of groups) out.delete(g); // a layer whose members are listed is not a leaf itself
+  return [...out];
+}
+
 /** Refuse invalid log projections per series, never emit NaN SVG geometry. */
 export function plotViewIssues(manifest: FluxPlotManifest | undefined, view: PlotView | undefined): string[] {
   if (!manifest || !view) return [];
   if (!manifest.axes?.length || !manifest.series?.length) return ["This plot has no axes/series to view."];
   const issues: string[] = [];
   for (const axes of manifest.axes) if (!viewFits(manifest, view, axes.panelId)) issues.push("Plot view has unusable axes or an invalid domain (log domains must be positive).");
-  let filled = false;
+  let unchanged = false;
   for (const s of manifest.series) {
     const vertices = seriesVertices(s), panelFits = viewFits(manifest, view, s.panelId);
-    if (!vertices.length || s.capabilities?.dataMorph === false || s.rasterized || s.roles?.some(r => !["line", "point"].includes(r))) { filled = true; continue; }
+    if (!vertices.length || s.capabilities?.dataMorph === false || s.rasterized || s.roles?.some(r => !["line", "point"].includes(r))) {
+      // filled marks re-project vertex by vertex (F4); only images and rasters stay put
+      if (s.rasterized || !filledLeaves(s).length && !vertices.length) unchanged = true;
+      if (s.rasterized || !vertices.length) continue;
+    }
     const fits = panelFits ? seriesFits(panelFits, (s as { axis?: string }).axis) : null;
     if (panelFits && !fits) issues.push(`Series ‹${s.id}› reads a twin axis (${(s as { axis?: string }).axis}) this plot cannot project; it stays put.`);
     if (fits && vertices.some(p => fits.x.log && p.x <= 0 || fits.y.log && p.y <= 0)) issues.push(`Series ‹${s.id}› has non-positive data; its log view is not applied.`);
   }
-  if (filled) issues.push("View applies to lines, points and guides of this plot; filled marks remain unchanged.");
+  if (unchanged) issues.push("View applies to lines, points, bars, cells, hexagons and guides of this plot; images and rasterized layers remain unchanged.");
   return issues;
 }

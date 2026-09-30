@@ -64,15 +64,23 @@ try {
   const v0 = seriesVertices(temp)[0];
   near(nums(after.temp)[1], projectWith(fits.y2!, v0.y), 'its first vertex sits at the twin fit\'s projection of its data');
   near(nums(after.temp)[0], projectWith(fits.x, v0.x), 'and keeps its x');
-  const [tickLeaf, tickGuide] = y2Ticks[0];
-  const tickNode = root!.querySelector(`[id="${tickLeaf}"]`)!;
-  const transform = tickNode.getAttribute('transform') ?? '';
-  const expectedDy = projectWith(fits.y2!, tickGuide.value) - projectWith(raw.y2!, tickGuide.value);
-  const m = /translate\(([-\d.e+]+) ([-\d.e+]+)\)/.exec(transform);
-  h.ok(!!m, `a y2 tick is translated (${transform.slice(0, 40)})`);
-  if (m) near(Number(m[2]), expectedDy, 'by the twin fit\'s displacement of its value', 1e-3);
+  // at rest the twin axis is re-ticked for its new domain (F4); the primary axes are not
+  const [tickLeaf] = y2Ticks[0];
+  h.eq((root!.querySelector(`[id="${tickLeaf}"]`) as SVGElement).style.display, 'none', 'a generated y2 tick is hidden');
+  const y2Clones = Array.from(root!.querySelectorAll('[data-projection-tick][id*="axis.y2.tick."]'));
+  h.ok(y2Clones.length >= 2, `the y2 axis is re-ticked (${y2Clones.length} ticks)`);
+  h.ok(!root!.querySelector('[data-projection-tick][id*="axis.y.tick."]') && !root!.querySelector('[data-projection-tick][id*="axis.x.tick."]'), 'the primary axes keep their ticks');
   const xTick = [...guides].find(([, g]) => g.axis === 'x')!;
   h.ok(!root!.querySelector(`[id="${xTick[0]}"]`)!.getAttribute('transform')?.startsWith('translate'), 'an x tick is left alone by a y2 view');
+  // in a tween the generated y2 ticks move by the twin fit's displacement instead
+  restoreProjection(root!);
+  applyPlotView(root!, manifest, view, '', { t: 1 });
+  const [, tickGuide] = y2Ticks[0];
+  const transform = root!.querySelector(`[id="${tickLeaf}"]`)!.getAttribute('transform') ?? '';
+  const expectedDy = projectWith(fits.y2!, tickGuide.value) - projectWith(raw.y2!, tickGuide.value);
+  const m = /translate\(([-\d.e+]+) ([-\d.e+]+)\)/.exec(transform);
+  h.ok(!!m, `a y2 tick is translated in a tween (${transform.slice(0, 40)})`);
+  if (m) near(Number(m[2]), expectedDy, 'by the twin fit\'s displacement of its value', 1e-3);
   restoreProjection(root!);
   h.eq(pathOf(root!, 'panel.twin.temp.line'), before.temp, 'restore puts the twin series back');
 
