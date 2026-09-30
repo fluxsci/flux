@@ -20,7 +20,7 @@ import type { Model3dElement } from './model3d/types';
 export { setModelField, setModelStates, setModelFrame, modelFrame, modelDefaultStates, modelStateWeight } from './model3d/semanticOps';
 export type { ModelFieldPatch } from './model3d/semanticOps';
 
-import type {
+import type { ColorScaleView,
   Project,
   Figure,
   Element,
@@ -39,7 +39,7 @@ import type {
   PlotView,
   GradientFill,
 } from "./types";
-import type { FluxPlotManifest } from "./plot/types";
+import type { FluxPlotColorScale, FluxPlotManifest } from "./plot/types";
 import { resizeFrame } from "./interact/frameResize";
 import { newId } from "./ids";
 import { ensureFigureReferenceKeys, mintFigureReferenceKey } from "./project/figureIdentity";
@@ -1699,6 +1699,45 @@ export function setPlotView(p: Project, elementId: Id, patch: Partial<PlotView> 
       if (axis.domain || axis.scale) view[key] = axis; else delete view[key];
     }
     if (view.x || view.y) el.view = view; else delete el.view;
+  }
+}
+
+/** Merge a live colour-scale edit for one of a plot's scales (manifest colorScales[].id).
+ *  Callers holding the manifest's record pass it so values equal to the generated ones
+ *  normalize to absence (an untouched file stays byte-identical); `null` resets the
+ *  scale. Mirrors setPlotView. */
+export function setPlotColorScale(p: Project, elementId: Id, scaleId: string, patch: Partial<ColorScaleView> | null, defaults?: FluxPlotColorScale): void {
+  for (const f of p.figures) for (const el of f.elements) {
+    if (el.id !== elementId || el.type !== "plot") continue;
+    const all: Record<string, ColorScaleView> = structuredClone(el.colorScale ?? {});
+    if (patch === null) delete all[scaleId];
+    else {
+      const view: ColorScaleView = { ...all[scaleId] };
+      if ("cmap" in patch) { if (patch.cmap == null) delete view.cmap; else view.cmap = patch.cmap; }
+      if ("reversed" in patch) { if (patch.reversed) view.reversed = true; else delete view.reversed; }
+      if ("extend" in patch) { if (patch.extend == null) delete view.extend; else view.extend = patch.extend; }
+      if (patch.norm) {
+        const norm = { ...view.norm } as Record<string, unknown>;
+        for (const [k, v] of Object.entries(patch.norm)) { if (v == null) delete norm[k]; else norm[k] = v; }
+        view.norm = norm as ColorScaleView["norm"];
+      }
+      if (defaults) {
+        // generator defaults normalize to absence
+        const d = defaults;
+        if (typeof view.cmap === "string" && view.cmap === d.colormap.name) delete view.cmap;
+        if (view.cmap && typeof view.cmap === "object" && view.cmap.lut.length === d.colormap.N
+            && view.cmap.lut.every((c, i) => { const l = c.toLowerCase(); return l === d.colormap.lut[i] || l === d.colormap.lut[i].slice(0, 7); })) delete view.cmap;
+        if (view.extend === d.norm.extend) delete view.extend;
+        if (view.norm) {
+          const n = view.norm as Record<string, unknown>, dn = d.norm as Record<string, unknown>;
+          if (n.kind === d.norm.kind) delete n.kind;
+          if (n.kind === undefined) for (const k of ["vmin", "vmax", "vcenter", "gamma", "linthresh", "linscale"]) if (n[k] !== undefined && n[k] === dn[k]) delete n[k];
+        }
+      }
+      if (view.norm && !Object.keys(view.norm).length) delete view.norm;
+      if (Object.keys(view).length) all[scaleId] = view; else delete all[scaleId];
+    }
+    if (Object.keys(all).length) el.colorScale = all; else delete el.colorScale;
   }
 }
 

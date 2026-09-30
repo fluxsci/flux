@@ -88,6 +88,19 @@ const GEO_PROPS = {
   fillMap: GRADIENT,
   strokeMap: GRADIENT,
 };
+const COLOR_SCALE_VIEW = {
+  type: "object",
+  properties: {
+    cmap: { anyOf: [{ type: "string" }, { type: "object", required: ["lut"], properties: {
+      lut: { type: "array", items: { type: "string" }, minItems: 1 }, under: { type: "string" }, over: { type: "string" }, bad: { type: "string" }, name: { type: "string" } } }] },
+    reversed: { type: "boolean" },
+    norm: { type: "object", properties: {
+      kind: { enum: ["linear", "log", "symlog", "power", "twoslope", "centered"] },
+      vmin: { type: "number" }, vmax: { type: "number" }, vcenter: { type: "number" }, gamma: { type: "number" },
+      linthresh: { type: "number" }, linscale: { type: "number" } } },
+    extend: { enum: ["neither", "min", "max", "both"] },
+  },
+};
 const elementBranch = (type: string, extraReq: string[], extraProps: Record<string, unknown>) => ({
   type: "object",
   required: [...GEO_REQ, ...extraReq],
@@ -108,6 +121,8 @@ const ELEMENT_DEF = {
         type: "object",
         properties: { domain: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 }, scale: { enum: ["linear", "log"] } },
       }])) },
+      // colour-system plan A7: live colour-scale edits keyed by the manifest's colorScales[].id
+      colorScale: { type: "object", additionalProperties: COLOR_SCALE_VIEW },
     }),
     elementBranch("text", ["text"], {
       text: { type: "string" },

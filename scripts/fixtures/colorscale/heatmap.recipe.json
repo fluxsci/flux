@@ -1,0 +1,48 @@
+{
+  "args": [
+    "../flux/scripts/fixtures/colorscale/make_fixtures.py"
+  ],
+  "command": "/home/driessen2/fluxplot/.venv/bin/python",
+  "cwd": "../../../../fluxplot",
+  "env": null,
+  "generatedAt": "2026-09-30T00:00:00Z",
+  "inputs": [],
+  "output": "heatmap.svg",
+  "outputs": {
+    "manifest": "heatmap.fluxplot.json",
+    "svg": "heatmap.svg"
+  },
+  "params": {
+    "__fluxplot__": {
+      "m": {
+        "cmap": "viridis",
+        "extend": "neither",
+        "norm": {
+          "kind": "linear"
+        },
+        "vmax": 49.77501417171963,
+        "vmin": 0.18671210260379767
+      }
+    }
+  },
+  "plot": "heatmap",
+  "provenance": {
+    "git": {
+      "commit": "80628f01680d096db43bcd7822295e0379a5afda",
+      "dirty": true
+    },
+    "packages": {
+      "fluxplot": "0.1.0",
+      "matplotlib": "3.11.0"
+    },
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "python": "3.13.7",
+    "scriptDiscovery": "explicit",
+    "scriptSha256": "6d527252f69b7e11de1e99e1337218bd9de51516ca5b15c4b2f16534dd00ee4c"
+  },
+  "schemaVersion": "0.3.1",
+  "script": {
+    "path": "/home/driessen2/flux/scripts/fixtures/colorscale/make_fixtures.py"
+  },
+  "spec": "fluxplot/recipe"
+}

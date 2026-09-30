@@ -430,7 +430,32 @@ export interface SemanticPlotElement extends ElementBase {
   // generated view (so untouched files stay byte-identical). An ordinary
   // element prop: a slide Change of it is the data-space transform.
   view?: PlotView;
+  // The plot's LIVE COLOUR SCALES (colour-system plan A7), keyed by the manifest's
+  // colorScales[].id: recolour / re-range a colour-mapped plot without Python, rendered
+  // by pure colour math (plot/colorscale.ts) over each element's data-value in every
+  // engine; absent = the generated colours (untouched files stay byte-identical). An
+  // ordinary element prop, so a slide Change of it animates the scale.
+  colorScale?: Record<string, ColorScaleView>;
 }
+
+/** One live colour-scale edit. Every field is optional and means "as generated" when
+ *  absent. `cmap` is a colormap name (resolved to its full table through the lazily
+ *  loaded fluxplot definitions) or the table itself (what the picker and the verbs write,
+ *  so every engine paints from the element alone). Limits and the norm's parameters live
+ *  under `norm`, in data units. */
+export interface ColorScaleView {
+  cmap?: string | ColorScaleTable;
+  reversed?: boolean;
+  norm?: {
+    kind?: "linear" | "log" | "symlog" | "power" | "twoslope" | "centered";
+    vmin?: number; vmax?: number; vcenter?: number; gamma?: number;
+    linthresh?: number; linscale?: number;
+  };
+  extend?: "neither" | "min" | "max" | "both";
+}
+/** A colormap given outright: the lookup table (`#rrggbb[aa]`) plus optional under / over /
+ *  bad colours (defaults: the ends, transparent) and the name it came from. */
+export interface ColorScaleTable { lut: string[]; under?: string; over?: string; bad?: string; name?: string }
 
 /** One axis of a plot's data view. `domain` in data units (the manifest's
  *  axis domain when absent); `scale` overrides the generated axis scale. */

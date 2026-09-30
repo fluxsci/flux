@@ -4,6 +4,7 @@
 // editable vector parts instead of a flattened raster (spec §9 / P4).
 
 import { applyPlotView, preparePlotView } from "./projectDom";
+import { applyPlotColorScale } from "./colorScaleDom";
 import { get } from "svelte/store";
 import type { SemanticPlotElement } from "../types";
 import { plotDom, plotManifests, pristinePlotRoot } from "./store";
@@ -32,6 +33,7 @@ export function plotToSvgMarkup(element: SemanticPlotElement): string | null {
   }
   const manifest = get(plotManifests)[element.assetId];
   preparePlotView(inst, manifest, element.view, element.id);
+  applyPlotColorScale(inst, manifest, element.colorScale, element.id);
   applyOverrides(inst, element.overrides, element.id, manifest);
   applyPlotView(inst, manifest, element.view, element.id);
   compensatePtTrue(inst, {

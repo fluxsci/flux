@@ -1,0 +1,18 @@
+{
+  "hexmatrix": {
+    "rates": {
+      "cmap": "magma",
+      "vmax": 20
+    }
+  },
+  "heatmap": {
+    "m": {
+      "cmap": "crameri.batlow",
+      "vmin": 10,
+      "vmax": 40,
+      "norm": {
+        "kind": "linear"
+      }
+    }
+  }
+}
